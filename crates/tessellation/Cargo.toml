@@ -1,0 +1,10 @@
+[package]
+name = "cad-tessellation"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cad-kernel = { path = "../kernel" }
+nalgebra = { workspace = true }
+serde = { workspace = true }
+tracing = { workspace = true }

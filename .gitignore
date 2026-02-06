@@ -1,0 +1,8 @@
+target/
+node_modules/
+dist/
+*.wasm
+.env
+.DS_Store
+*.swp
+gui/build/
