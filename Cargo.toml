@@ -4,6 +4,7 @@ members = [
     "crates/tessellation",
     "crates/solver",
     "crates/wasm-bridge",
+    "crates/render",
 ]
 resolver = "2"
 

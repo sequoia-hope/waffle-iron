@@ -1,0 +1,12 @@
+[package]
+name = "cad-render"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "render_svgs"
+path = "src/main.rs"
+
+[dependencies]
+cad-kernel = { path = "../kernel" }
+cad-tessellation = { path = "../tessellation" }

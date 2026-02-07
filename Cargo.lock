@@ -59,6 +59,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cad-render"
+version = "0.1.0"
+dependencies = [
+ "cad-kernel",
+ "cad-tessellation",
+]
+
+[[package]]
 name = "cad-solver"
 version = "0.1.0"
 dependencies = [
