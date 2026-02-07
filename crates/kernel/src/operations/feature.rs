@@ -1,5 +1,12 @@
 use serde::{Deserialize, Serialize};
 
+use crate::boolean::engine::{boolean_op, BoolOp};
+use crate::geometry::point::Point3d;
+use crate::geometry::vector::Vec3;
+use crate::operations::chamfer::chamfer_edge;
+use crate::operations::extrude::{extrude_profile, Profile};
+use crate::operations::revolve::revolve_profile;
+use crate::topology::brep::{EntityStore, SolidId};
 
 /// Parametric feature tree node.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,6 +125,106 @@ impl FeatureTree {
             false
         }
     }
+
+    /// Evaluate the feature tree, producing solids in the EntityStore.
+    ///
+    /// Returns the list of solid IDs produced (one per body-creating feature).
+    /// Each feature that creates geometry (Sketch+Extrude, Sketch+Revolve) is
+    /// evaluated in order; Boolean ops combine previous results.
+    pub fn evaluate(&self, store: &mut EntityStore) -> Vec<SolidId> {
+        let mut solids: Vec<SolidId> = Vec::new();
+        let mut sketch_profiles: Vec<Vec<Point3d>> = Vec::new();
+
+        for feature in &self.features {
+            match feature {
+                Feature::Sketch { profiles, .. } => {
+                    for profile in profiles {
+                        let pts: Vec<Point3d> = profile
+                            .points
+                            .iter()
+                            .map(|p| Point3d::new(p[0], p[1], 0.0))
+                            .collect();
+                        sketch_profiles.push(pts);
+                    }
+                }
+                Feature::Extrude {
+                    sketch_index,
+                    distance,
+                    direction,
+                    symmetric,
+                } => {
+                    if let Some(pts) = sketch_profiles.get(*sketch_index) {
+                        let profile = Profile::from_points(pts.clone());
+                        let dir = Vec3::new(direction[0], direction[1], direction[2]);
+                        let dist = distance.value;
+
+                        if *symmetric {
+                            // Extrude in both directions
+                            let s1 = extrude_profile(store, &profile, dir, dist / 2.0);
+                            let s2 = extrude_profile(store, &profile, -dir, dist / 2.0);
+                            let combined = boolean_op(store, s1, s2, BoolOp::Union);
+                            solids.push(combined.unwrap_or(s1));
+                        } else {
+                            let solid = extrude_profile(store, &profile, dir, dist);
+                            solids.push(solid);
+                        }
+                    }
+                }
+                Feature::Revolve {
+                    sketch_index,
+                    axis_origin,
+                    axis_direction,
+                    angle,
+                } => {
+                    if let Some(pts) = sketch_profiles.get(*sketch_index) {
+                        let origin =
+                            Point3d::new(axis_origin[0], axis_origin[1], axis_origin[2]);
+                        let dir = Vec3::new(
+                            axis_direction[0],
+                            axis_direction[1],
+                            axis_direction[2],
+                        );
+                        let solid = revolve_profile(store, pts, origin, dir, angle.value, 24);
+                        solids.push(solid);
+                    }
+                }
+                Feature::Chamfer {
+                    edge_indices,
+                    distance,
+                } => {
+                    // Apply chamfer to the last solid (edge_indices are ignored for now,
+                    // would need edge enumeration API)
+                    let _ = (edge_indices, distance);
+                }
+                Feature::Fillet {
+                    edge_indices,
+                    radius,
+                } => {
+                    // Placeholder for fillet (requires curved surface generation)
+                    let _ = (edge_indices, radius);
+                }
+                Feature::BooleanOp {
+                    op_type,
+                    tool_feature,
+                } => {
+                    if solids.len() >= 2 && *tool_feature < solids.len() {
+                        let target = solids[solids.len() - 2];
+                        let tool = solids[*tool_feature];
+                        let op = match op_type {
+                            BooleanOpType::Union => BoolOp::Union,
+                            BooleanOpType::Subtract => BoolOp::Difference,
+                            BooleanOpType::Intersect => BoolOp::Intersection,
+                        };
+                        if let Ok(result) = boolean_op(store, target, tool, op) {
+                            solids.push(result);
+                        }
+                    }
+                }
+            }
+        }
+
+        solids
+    }
 }
 
 #[cfg(test)]
@@ -138,5 +245,89 @@ mod tests {
         tree.add_parameter(Parameter::new("height", 5.0));
         assert!(tree.set_parameter_value("height", 15.0));
         assert_eq!(tree.get_parameter("height").unwrap().value, 15.0);
+    }
+
+    #[test]
+    fn test_evaluate_extrude() {
+        use crate::topology::brep::EntityStore;
+
+        let mut tree = FeatureTree::new();
+
+        // Add a rectangle sketch
+        tree.add_feature(Feature::Sketch {
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
+            profiles: vec![SketchProfile {
+                points: vec![
+                    [-5.0, -3.0],
+                    [5.0, -3.0],
+                    [5.0, 3.0],
+                    [-5.0, 3.0],
+                ],
+                closed: true,
+            }],
+        });
+
+        // Extrude it
+        tree.add_feature(Feature::Extrude {
+            sketch_index: 0,
+            distance: Parameter::new("height", 10.0),
+            direction: [0.0, 0.0, 1.0],
+            symmetric: false,
+        });
+
+        let mut store = EntityStore::new();
+        let solids = tree.evaluate(&mut store);
+        assert_eq!(solids.len(), 1, "Should produce one solid");
+
+        // Check bounding box
+        let bb = store.solid_bounding_box(solids[0]);
+        assert!((bb.max.z - 10.0).abs() < 0.1, "Height should be ~10");
+    }
+
+    #[test]
+    fn test_evaluate_parametric_update() {
+        use crate::topology::brep::EntityStore;
+
+        let mut tree = FeatureTree::new();
+        tree.add_parameter(Parameter::new("height", 10.0));
+
+        tree.add_feature(Feature::Sketch {
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
+            profiles: vec![SketchProfile {
+                points: vec![
+                    [0.0, 0.0],
+                    [5.0, 0.0],
+                    [5.0, 5.0],
+                    [0.0, 5.0],
+                ],
+                closed: true,
+            }],
+        });
+
+        tree.add_feature(Feature::Extrude {
+            sketch_index: 0,
+            distance: Parameter::new("height", 10.0),
+            direction: [0.0, 0.0, 1.0],
+            symmetric: false,
+        });
+
+        // Evaluate with height=10
+        let mut store = EntityStore::new();
+        let solids = tree.evaluate(&mut store);
+        let bb = store.solid_bounding_box(solids[0]);
+        assert!((bb.max.z - 10.0).abs() < 0.1);
+
+        // Change height parameter and re-evaluate
+        tree.set_parameter_value("height", 20.0);
+        // Update the feature's distance parameter
+        if let Feature::Extrude { distance, .. } = &mut tree.features[1] {
+            distance.value = 20.0;
+        }
+        let mut store2 = EntityStore::new();
+        let solids2 = tree.evaluate(&mut store2);
+        let bb2 = store2.solid_bounding_box(solids2[0]);
+        assert!((bb2.max.z - 20.0).abs() < 0.1, "Re-evaluated height should be ~20");
     }
 }

@@ -2,11 +2,12 @@
 
 use cad_kernel::geometry::point::Point3d;
 use cad_kernel::geometry::vector::Vec3;
+use cad_kernel::operations::chamfer::chamfer_edge;
 use cad_kernel::operations::extrude::{extrude_profile, Profile};
 use cad_kernel::operations::revolve::revolve_profile;
 use cad_kernel::topology::brep::EntityStore;
 use cad_kernel::topology::primitives::{make_box, make_cylinder, make_sphere};
-use cad_tessellation::{tessellate_solid, TriangleMesh};
+use cad_tessellation::{mesh_to_obj, mesh_to_stl, tessellate_solid, TriangleMesh};
 use std::fs;
 
 /// Simple isometric projection: 3D -> 2D
@@ -213,5 +214,51 @@ fn main() {
         println!("revolve_vase: {} tris, {} verts", mesh.triangle_count(), mesh.vertex_count());
     }
 
+    // 6. Chamfered box
+    {
+        let mut store = EntityStore::new();
+        let box_id = make_box(&mut store, 0.0, 0.0, 0.0, 10.0, 8.0, 6.0);
+        // Chamfer the front-bottom edge
+        let v0 = Point3d::new(0.0, 0.0, 0.0);
+        let v1 = Point3d::new(10.0, 0.0, 0.0);
+        let chamfered = chamfer_edge(&mut store, box_id, v0, v1, 1.5);
+        let mesh = tessellate_solid(&store, chamfered);
+        let svg = mesh_to_svg(&mesh, 400.0, 300.0, "Chamfered Box (d=1.5)");
+        fs::write("docs/renders/chamfer_box.svg", svg).unwrap();
+        println!("chamfer_box: {} tris, {} verts", mesh.triangle_count(), mesh.vertex_count());
+    }
+
+    // Export OBJ files for 3D viewing
+    fs::create_dir_all("docs/exports").expect("create docs/exports dir");
+    {
+        let mut store = EntityStore::new();
+        let solid = make_box(&mut store, 0.0, 0.0, 0.0, 10.0, 8.0, 6.0);
+        let mesh = tessellate_solid(&store, solid);
+        fs::write("docs/exports/box.obj", mesh_to_obj(&mesh)).unwrap();
+        fs::write("docs/exports/box.stl", mesh_to_stl(&mesh)).unwrap();
+    }
+    {
+        let mut store = EntityStore::new();
+        let solid = make_sphere(&mut store, Point3d::ORIGIN, 6.0, 16, 12);
+        let mesh = tessellate_solid(&store, solid);
+        fs::write("docs/exports/sphere.obj", mesh_to_obj(&mesh)).unwrap();
+    }
+    {
+        let mut store = EntityStore::new();
+        let profile = vec![
+            Point3d::new(3.0, 0.0, 0.0),
+            Point3d::new(5.0, 0.0, 4.0),
+            Point3d::new(3.5, 0.0, 8.0),
+            Point3d::new(4.0, 0.0, 12.0),
+        ];
+        let solid = revolve_profile(
+            &mut store, &profile, Point3d::ORIGIN,
+            Vec3::new(0.0, 0.0, 1.0), std::f64::consts::TAU, 24,
+        );
+        let mesh = tessellate_solid(&store, solid);
+        fs::write("docs/exports/vase.obj", mesh_to_obj(&mesh)).unwrap();
+    }
+
     println!("\nSVGs written to docs/renders/");
+    println!("OBJ/STL files written to docs/exports/");
 }
