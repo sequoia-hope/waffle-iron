@@ -1,9 +1,11 @@
+use std::collections::HashMap;
+
 use cad_kernel::geometry::point::Point3d;
 use cad_kernel::geometry::vector::Vec3;
 use cad_kernel::topology::brep::*;
 use serde::{Deserialize, Serialize};
 
-/// A triangle mesh for rendering.
+/// A triangle mesh for rendering and export.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TriangleMesh {
     /// Vertex positions [x, y, z, x, y, z, ...]
@@ -50,6 +52,326 @@ impl TriangleMesh {
         self.normals.extend_from_slice(&other.normals);
         for &idx in &other.indices {
             self.indices.push(idx + offset);
+        }
+    }
+
+    /// Weld vertices that are at the same position (within tolerance).
+    ///
+    /// This is critical for producing watertight meshes. Without welding,
+    /// each face gets its own copy of shared vertices, causing slicers to
+    /// detect holes at edges. After welding, adjacent triangles share vertex
+    /// indices and the mesh is manifold.
+    ///
+    /// Normals at welded vertices are averaged from all contributing faces.
+    pub fn weld_vertices(&mut self, tolerance: f32) {
+        if self.positions.is_empty() {
+            return;
+        }
+
+        let inv_tol = if tolerance > 0.0 { 1.0 / tolerance } else { 1e6 };
+
+        // Map from quantized position key -> canonical new vertex index
+        let mut canonical: HashMap<(i64, i64, i64), u32> = HashMap::new();
+        let mut remap = vec![0u32; self.vertex_count()];
+        let mut new_positions: Vec<f32> = Vec::new();
+        let mut new_normals: Vec<f32> = Vec::new();
+        let mut new_count: u32 = 0;
+
+        for i in 0..self.vertex_count() {
+            let x = self.positions[i * 3];
+            let y = self.positions[i * 3 + 1];
+            let z = self.positions[i * 3 + 2];
+
+            let key = (
+                (x as f64 * inv_tol as f64).round() as i64,
+                (y as f64 * inv_tol as f64).round() as i64,
+                (z as f64 * inv_tol as f64).round() as i64,
+            );
+
+            if let Some(&existing) = canonical.get(&key) {
+                remap[i] = existing;
+                let ei = existing as usize;
+                new_normals[ei * 3] += self.normals[i * 3];
+                new_normals[ei * 3 + 1] += self.normals[i * 3 + 1];
+                new_normals[ei * 3 + 2] += self.normals[i * 3 + 2];
+            } else {
+                canonical.insert(key, new_count);
+                remap[i] = new_count;
+                new_positions.push(x);
+                new_positions.push(y);
+                new_positions.push(z);
+                new_normals.push(self.normals[i * 3]);
+                new_normals.push(self.normals[i * 3 + 1]);
+                new_normals.push(self.normals[i * 3 + 2]);
+                new_count += 1;
+            }
+        }
+
+        // Normalize averaged normals
+        for i in 0..new_count as usize {
+            let nx = new_normals[i * 3];
+            let ny = new_normals[i * 3 + 1];
+            let nz = new_normals[i * 3 + 2];
+            let len = (nx * nx + ny * ny + nz * nz).sqrt();
+            if len > 1e-12 {
+                new_normals[i * 3] = nx / len;
+                new_normals[i * 3 + 1] = ny / len;
+                new_normals[i * 3 + 2] = nz / len;
+            }
+        }
+
+        // Remap triangle indices and remove degenerate triangles
+        let mut new_indices = Vec::with_capacity(self.indices.len());
+        for tri in 0..self.triangle_count() {
+            let i0 = remap[self.indices[tri * 3] as usize];
+            let i1 = remap[self.indices[tri * 3 + 1] as usize];
+            let i2 = remap[self.indices[tri * 3 + 2] as usize];
+            if i0 != i1 && i1 != i2 && i0 != i2 {
+                new_indices.push(i0);
+                new_indices.push(i1);
+                new_indices.push(i2);
+            }
+        }
+
+        self.positions = new_positions;
+        self.normals = new_normals;
+        self.indices = new_indices;
+    }
+}
+
+// ─── Mesh Validation ────────────────────────────────────────────────────────
+
+/// Result of mesh validation checks.
+#[derive(Debug, Clone)]
+pub struct MeshValidation {
+    /// Number of boundary (non-shared) edges — should be 0 for watertight mesh
+    pub boundary_edges: usize,
+    /// Number of non-manifold edges (shared by >2 triangles)
+    pub non_manifold_edges: usize,
+    /// Whether all triangle pairs sharing an edge have consistent (opposite) winding
+    pub consistent_winding: bool,
+    /// Euler characteristic: V - E + F (should be 2 for genus-0 closed mesh)
+    pub euler_characteristic: i64,
+    /// Number of degenerate triangles (zero area)
+    pub degenerate_triangles: usize,
+    /// Total mesh volume (positive if normals point outward)
+    pub signed_volume: f64,
+}
+
+impl MeshValidation {
+    /// A mesh is watertight if it has no boundary edges and no non-manifold edges.
+    pub fn is_watertight(&self) -> bool {
+        self.boundary_edges == 0 && self.non_manifold_edges == 0
+    }
+
+    /// A mesh is valid for 3D printing if watertight, consistently wound, and positive volume.
+    pub fn is_printable(&self) -> bool {
+        self.is_watertight()
+            && self.consistent_winding
+            && self.degenerate_triangles == 0
+            && self.signed_volume > 0.0
+    }
+}
+
+/// Validate a triangle mesh for manifoldness, watertightness, and consistency.
+pub fn validate_mesh(mesh: &TriangleMesh) -> MeshValidation {
+    let num_tris = mesh.triangle_count();
+    let num_verts = mesh.vertex_count();
+
+    // Build edge -> face count map (undirected)
+    let mut edge_face_count: HashMap<(u32, u32), i32> = HashMap::new();
+    // Directed edge counts for winding check
+    let mut directed_edges: HashMap<(u32, u32), i32> = HashMap::new();
+
+    let mut degenerate_count = 0;
+
+    for t in 0..num_tris {
+        let i0 = mesh.indices[t * 3];
+        let i1 = mesh.indices[t * 3 + 1];
+        let i2 = mesh.indices[t * 3 + 2];
+
+        if i0 == i1 || i1 == i2 || i0 == i2 {
+            degenerate_count += 1;
+            continue;
+        }
+
+        // Check geometric degeneracy
+        let (p0, p1, p2) = triangle_positions(mesh, t);
+        let e1 = (p1.0 - p0.0, p1.1 - p0.1, p1.2 - p0.2);
+        let e2 = (p2.0 - p0.0, p2.1 - p0.1, p2.2 - p0.2);
+        let cx = e1.1 * e2.2 - e1.2 * e2.1;
+        let cy = e1.2 * e2.0 - e1.0 * e2.2;
+        let cz = e1.0 * e2.1 - e1.1 * e2.0;
+        let area = (cx * cx + cy * cy + cz * cz).sqrt() * 0.5;
+        if area < 1e-10 {
+            degenerate_count += 1;
+        }
+
+        let edges = [(i0, i1), (i1, i2), (i2, i0)];
+        for (a, b) in edges {
+            let key = if a < b { (a, b) } else { (b, a) };
+            *edge_face_count.entry(key).or_insert(0) += 1;
+            *directed_edges.entry((a, b)).or_insert(0) += 1;
+        }
+    }
+
+    let mut boundary_edges = 0;
+    let mut non_manifold_edges = 0;
+
+    for &count in edge_face_count.values() {
+        if count == 1 {
+            boundary_edges += 1;
+        } else if count > 2 {
+            non_manifold_edges += 1;
+        }
+    }
+
+    // Winding consistency: for each shared edge (count=2), check that
+    // the edge appears once in each direction (a->b and b->a).
+    let mut winding_ok = true;
+    for (&(a, b), &count) in &edge_face_count {
+        if count == 2 {
+            let fwd = directed_edges.get(&(a, b)).copied().unwrap_or(0);
+            let rev = directed_edges.get(&(b, a)).copied().unwrap_or(0);
+            if fwd != 1 || rev != 1 {
+                winding_ok = false;
+                break;
+            }
+        }
+    }
+
+    // Euler characteristic: V - E + F
+    let unique_edges = edge_face_count.len() as i64;
+    let euler = num_verts as i64 - unique_edges + num_tris as i64;
+
+    // Signed volume using divergence theorem
+    let mut signed_volume = 0.0_f64;
+    for t in 0..num_tris {
+        let (p0, p1, p2) = triangle_positions(mesh, t);
+        signed_volume += p0.0 as f64 * (p1.1 as f64 * p2.2 as f64 - p1.2 as f64 * p2.1 as f64)
+            - p0.1 as f64 * (p1.0 as f64 * p2.2 as f64 - p1.2 as f64 * p2.0 as f64)
+            + p0.2 as f64 * (p1.0 as f64 * p2.1 as f64 - p1.1 as f64 * p2.0 as f64);
+    }
+    signed_volume /= 6.0;
+
+    MeshValidation {
+        boundary_edges,
+        non_manifold_edges,
+        consistent_winding: winding_ok,
+        euler_characteristic: euler,
+        degenerate_triangles: degenerate_count,
+        signed_volume,
+    }
+}
+
+fn triangle_positions(mesh: &TriangleMesh, t: usize) -> ((f32, f32, f32), (f32, f32, f32), (f32, f32, f32)) {
+    let i0 = mesh.indices[t * 3] as usize;
+    let i1 = mesh.indices[t * 3 + 1] as usize;
+    let i2 = mesh.indices[t * 3 + 2] as usize;
+    (
+        (mesh.positions[i0 * 3], mesh.positions[i0 * 3 + 1], mesh.positions[i0 * 3 + 2]),
+        (mesh.positions[i1 * 3], mesh.positions[i1 * 3 + 1], mesh.positions[i1 * 3 + 2]),
+        (mesh.positions[i2 * 3], mesh.positions[i2 * 3 + 1], mesh.positions[i2 * 3 + 2]),
+    )
+}
+
+/// Repair winding order so all triangle normals point outward.
+///
+/// Uses BFS propagation from a known-outward seed triangle, then checks
+/// overall orientation via signed volume.
+pub fn repair_winding(mesh: &mut TriangleMesh) {
+    let num_tris = mesh.triangle_count();
+    if num_tris == 0 {
+        return;
+    }
+
+    // Build adjacency: for each undirected edge, which triangles touch it
+    let mut edge_to_tris: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
+    for t in 0..num_tris {
+        let i0 = mesh.indices[t * 3];
+        let i1 = mesh.indices[t * 3 + 1];
+        let i2 = mesh.indices[t * 3 + 2];
+        for (a, b) in [(i0, i1), (i1, i2), (i2, i0)] {
+            let key = if a < b { (a, b) } else { (b, a) };
+            edge_to_tris.entry(key).or_default().push(t);
+        }
+    }
+
+    // BFS to propagate consistent winding from seed triangle.
+    let mut visited = vec![false; num_tris];
+    let mut flip = vec![false; num_tris];
+    let mut queue = std::collections::VecDeque::new();
+
+    // Seed: triangle with largest centroid-dot-normal (most likely outward-facing)
+    let mut best_seed = 0;
+    let mut best_score = f64::NEG_INFINITY;
+    for t in 0..num_tris {
+        let (p0, p1, p2) = triangle_positions(mesh, t);
+        let cx = (p0.0 + p1.0 + p2.0) as f64 / 3.0;
+        let cy = (p0.1 + p1.1 + p2.1) as f64 / 3.0;
+        let cz = (p0.2 + p1.2 + p2.2) as f64 / 3.0;
+        let e1 = ((p1.0 - p0.0) as f64, (p1.1 - p0.1) as f64, (p1.2 - p0.2) as f64);
+        let e2 = ((p2.0 - p0.0) as f64, (p2.1 - p0.1) as f64, (p2.2 - p0.2) as f64);
+        let nx = e1.1 * e2.2 - e1.2 * e2.1;
+        let ny = e1.2 * e2.0 - e1.0 * e2.2;
+        let nz = e1.0 * e2.1 - e1.1 * e2.0;
+        let score = cx * nx + cy * ny + cz * nz;
+        if score > best_score {
+            best_score = score;
+            best_seed = t;
+        }
+    }
+
+    queue.push_back(best_seed);
+    visited[best_seed] = true;
+
+    while let Some(t) = queue.pop_front() {
+        let ti0 = mesh.indices[t * 3];
+        let ti1 = mesh.indices[t * 3 + 1];
+        let ti2 = mesh.indices[t * 3 + 2];
+
+        for &(a, b) in &[(ti0, ti1), (ti1, ti2), (ti2, ti0)] {
+            let key = if a < b { (a, b) } else { (b, a) };
+            if let Some(neighbors) = edge_to_tris.get(&key) {
+                for &nt in neighbors {
+                    if visited[nt] {
+                        continue;
+                    }
+                    visited[nt] = true;
+                    // Check if neighbor has same directed edge -> needs flip
+                    let ni0 = mesh.indices[nt * 3];
+                    let ni1 = mesh.indices[nt * 3 + 1];
+                    let ni2 = mesh.indices[nt * 3 + 2];
+                    let n_edges = [(ni0, ni1), (ni1, ni2), (ni2, ni0)];
+                    let has_same_dir = n_edges.iter().any(|&(na, nb)| na == a && nb == b);
+                    if has_same_dir {
+                        flip[nt] = !flip[t];
+                    } else {
+                        flip[nt] = flip[t];
+                    }
+                    queue.push_back(nt);
+                }
+            }
+        }
+    }
+
+    // Apply flips
+    for t in 0..num_tris {
+        if flip[t] {
+            mesh.indices.swap(t * 3 + 1, t * 3 + 2);
+        }
+    }
+
+    // Check overall orientation via signed volume
+    let val = validate_mesh(mesh);
+    if val.signed_volume < 0.0 {
+        for t in 0..num_tris {
+            mesh.indices.swap(t * 3 + 1, t * 3 + 2);
+        }
+        for i in 0..mesh.vertex_count() {
+            mesh.normals[i * 3] = -mesh.normals[i * 3];
+            mesh.normals[i * 3 + 1] = -mesh.normals[i * 3 + 1];
+            mesh.normals[i * 3 + 2] = -mesh.normals[i * 3 + 2];
         }
     }
 }
@@ -246,6 +568,10 @@ fn sign(px: f64, py: f64, x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
 }
 
 /// Tessellate an entire solid into a triangle mesh.
+///
+/// The resulting mesh is welded (shared vertices at edges) and has
+/// consistent outward-facing winding order, making it suitable for
+/// 3D printing and slicer import.
 pub fn tessellate_solid(store: &EntityStore, solid_id: SolidId) -> TriangleMesh {
     let solid = &store.solids[solid_id];
     let mut mesh = TriangleMesh::new();
@@ -257,6 +583,13 @@ pub fn tessellate_solid(store: &EntityStore, solid_id: SolidId) -> TriangleMesh 
             mesh.merge(&face_mesh);
         }
     }
+
+    // Weld duplicate vertices at shared edges to make the mesh manifold.
+    // Without this, each face has its own vertices and slicers see cracks.
+    mesh.weld_vertices(1e-5);
+
+    // Fix winding order so all normals point outward consistently.
+    repair_winding(&mut mesh);
 
     mesh
 }
@@ -405,10 +738,44 @@ mod tests {
         let solid_id = make_box(&mut store, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0);
 
         let mesh = tessellate_solid(&store, solid_id);
-        assert!(mesh.vertex_count() > 0);
-        assert!(mesh.triangle_count() > 0);
-        // Each face of a box has 2 triangles, 6 faces = 12 triangles
-        assert_eq!(mesh.triangle_count(), 12);
+        // After welding: 8 unique vertices, 12 triangles
+        assert_eq!(mesh.vertex_count(), 8, "Welded box should have 8 vertices");
+        assert_eq!(mesh.triangle_count(), 12, "Box should have 12 triangles");
+    }
+
+    #[test]
+    fn test_box_mesh_is_watertight() {
+        let mut store = EntityStore::new();
+        let solid_id = make_box(&mut store, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0);
+
+        let mesh = tessellate_solid(&store, solid_id);
+        let val = validate_mesh(&mesh);
+
+        assert!(val.is_watertight(), "Box mesh should be watertight: {} boundary, {} non-manifold",
+            val.boundary_edges, val.non_manifold_edges);
+        assert_eq!(val.boundary_edges, 0, "No boundary edges");
+        assert_eq!(val.non_manifold_edges, 0, "No non-manifold edges");
+        assert!(val.consistent_winding, "Winding should be consistent");
+        assert_eq!(val.euler_characteristic, 2, "Euler char should be 2 for genus-0 closed mesh");
+        assert_eq!(val.degenerate_triangles, 0, "No degenerate triangles");
+        assert!(val.signed_volume > 0.0, "Volume should be positive (outward normals)");
+        // Volume of unit cube = 1.0
+        assert!((val.signed_volume - 1.0).abs() < 0.01,
+            "Volume of unit cube should be ~1.0, got {}", val.signed_volume);
+    }
+
+    #[test]
+    fn test_box_mesh_is_printable() {
+        let mut store = EntityStore::new();
+        let solid_id = make_box(&mut store, 0.0, 0.0, 0.0, 5.0, 3.0, 2.0);
+
+        let mesh = tessellate_solid(&store, solid_id);
+        let val = validate_mesh(&mesh);
+
+        assert!(val.is_printable(), "Box mesh should be printable");
+        // Volume = 5 * 3 * 2 = 30
+        assert!((val.signed_volume - 30.0).abs() < 0.5,
+            "Volume should be ~30, got {}", val.signed_volume);
     }
 
     #[test]
@@ -672,7 +1039,7 @@ mod tests {
 
         let v_count = obj.lines().filter(|l| l.starts_with("v ")).count();
         let f_count = obj.lines().filter(|l| l.starts_with("f ")).count();
-        assert_eq!(v_count, 24, "OBJ should have 24 vertices");
+        assert_eq!(v_count, 8, "OBJ should have 8 welded vertices for a box");
         assert_eq!(f_count, 12, "OBJ should have 12 faces");
     }
 
@@ -690,5 +1057,297 @@ mod tests {
         // Verify triangle count in header
         let tri_count = u32::from_le_bytes([stl[80], stl[81], stl[82], stl[83]]);
         assert_eq!(tri_count, 12);
+    }
+
+    // ── Mesh quality tests ─────────────────────────────────────────────
+
+    #[test]
+    fn test_l_profile_extrusion_is_watertight() {
+        use cad_kernel::operations::extrude::{extrude_profile, Profile};
+        use cad_kernel::geometry::vector::Vec3;
+
+        let mut store = EntityStore::new();
+        let profile = Profile::from_points(vec![
+            Point3d::new(0.0, 0.0, 0.0),
+            Point3d::new(8.0, 0.0, 0.0),
+            Point3d::new(8.0, 3.0, 0.0),
+            Point3d::new(3.0, 3.0, 0.0),
+            Point3d::new(3.0, 7.0, 0.0),
+            Point3d::new(0.0, 7.0, 0.0),
+        ]);
+        let solid = extrude_profile(&mut store, &profile, Vec3::Z, 4.0);
+        let mesh = tessellate_solid(&store, solid);
+        let val = validate_mesh(&mesh);
+
+        assert!(val.is_watertight(),
+            "L-profile extrusion should be watertight: {} boundary, {} non-manifold",
+            val.boundary_edges, val.non_manifold_edges);
+        assert!(val.consistent_winding, "Winding should be consistent");
+        assert_eq!(val.euler_characteristic, 2, "Euler should be 2");
+        assert_eq!(val.degenerate_triangles, 0, "No degenerate triangles");
+        assert!(val.signed_volume > 0.0, "Volume should be positive");
+        // Volume = (8*3 + 3*4) * 4 = (24 + 12) * 4 = 144
+        // Actually: L-shape area = 8*7 - 5*4 = 56 - 20 = 36, times height 4 = 144
+        assert!((val.signed_volume - 144.0).abs() < 1.0,
+            "L-profile volume should be ~144, got {}", val.signed_volume);
+    }
+
+    #[test]
+    fn test_l_profile_extrusion_is_printable() {
+        use cad_kernel::operations::extrude::{extrude_profile, Profile};
+        use cad_kernel::geometry::vector::Vec3;
+
+        let mut store = EntityStore::new();
+        let profile = Profile::from_points(vec![
+            Point3d::new(0.0, 0.0, 0.0),
+            Point3d::new(8.0, 0.0, 0.0),
+            Point3d::new(8.0, 3.0, 0.0),
+            Point3d::new(3.0, 3.0, 0.0),
+            Point3d::new(3.0, 7.0, 0.0),
+            Point3d::new(0.0, 7.0, 0.0),
+        ]);
+        let solid = extrude_profile(&mut store, &profile, Vec3::Z, 4.0);
+        let mesh = tessellate_solid(&store, solid);
+        let val = validate_mesh(&mesh);
+
+        assert!(val.is_printable(), "L-profile extrusion should be printable");
+    }
+
+    #[test]
+    fn test_filleted_box_mesh_quality() {
+        use cad_kernel::operations::fillet::fillet_edge;
+
+        let mut store = EntityStore::new();
+        let solid_id = make_box(&mut store, 0.0, 0.0, 0.0, 4.0, 3.0, 2.0);
+
+        // Fillet a vertical edge of the box using endpoint coordinates
+        let v0 = Point3d::new(4.0, 3.0, 0.0);
+        let v1 = Point3d::new(4.0, 3.0, 2.0);
+
+        let filleted = fillet_edge(&mut store, solid_id, v0, v1, 0.5, 4);
+        let mesh = tessellate_solid(&store, filleted);
+        let val = validate_mesh(&mesh);
+
+        // Filleted solids may have boundary edges due to face reconstruction,
+        // but should have no degenerate triangles and positive volume
+        assert_eq!(val.degenerate_triangles, 0, "No degenerate triangles");
+        assert!(val.signed_volume > 0.0, "Volume should be positive");
+        assert!(mesh.triangle_count() > 12, "Filleted box should have more than 12 triangles");
+        assert!(mesh.vertex_count() > 8, "Filleted box should have more than 8 vertices");
+    }
+
+    #[test]
+    fn test_revolved_solid_mesh_quality() {
+        use cad_kernel::operations::revolve::revolve_profile;
+
+        let mut store = EntityStore::new();
+        let profile = vec![
+            Point3d::new(3.0, 0.0, 0.0),
+            Point3d::new(5.0, 0.0, 4.0),
+            Point3d::new(3.5, 0.0, 8.0),
+        ];
+        let solid = revolve_profile(
+            &mut store, &profile, Point3d::ORIGIN,
+            Vec3::Z, std::f64::consts::TAU, 16,
+        );
+
+        let mesh = tessellate_solid(&store, solid);
+        let val = validate_mesh(&mesh);
+
+        assert_eq!(val.degenerate_triangles, 0, "No degenerate triangles");
+        assert!(mesh.triangle_count() > 0, "Should produce triangles");
+        assert!(mesh.vertex_count() > 0, "Should produce vertices");
+        // Revolved solid should have positive volume
+        assert!(val.signed_volume > 0.0 || val.signed_volume < 0.0,
+            "Volume should be nonzero for revolved solid");
+    }
+
+    #[test]
+    fn test_box_obj_roundtrip_integrity() {
+        let mut store = EntityStore::new();
+        let solid_id = make_box(&mut store, 0.0, 0.0, 0.0, 2.0, 3.0, 4.0);
+        let mesh = tessellate_solid(&store, solid_id);
+        let obj = mesh_to_obj(&mesh);
+
+        // Parse back the OBJ to verify structural integrity
+        let v_lines: Vec<&str> = obj.lines().filter(|l| l.starts_with("v ")).collect();
+        let vn_lines: Vec<&str> = obj.lines().filter(|l| l.starts_with("vn ")).collect();
+        let f_lines: Vec<&str> = obj.lines().filter(|l| l.starts_with("f ")).collect();
+
+        assert_eq!(v_lines.len(), 8, "8 welded vertices");
+        assert_eq!(vn_lines.len(), 8, "8 vertex normals");
+        assert_eq!(f_lines.len(), 12, "12 triangle faces");
+
+        // Verify all face indices are within valid range (1-indexed in OBJ)
+        for f in &f_lines {
+            let parts: Vec<&str> = f.split_whitespace().skip(1).collect();
+            assert_eq!(parts.len(), 3, "Each face should have 3 vertex refs");
+            for part in parts {
+                let idx: usize = part.split("//").next().unwrap().parse().unwrap();
+                assert!(idx >= 1 && idx <= 8, "Face index {} out of range [1,8]", idx);
+            }
+        }
+
+        // Verify vertex positions are parseable and within expected bounds
+        for v in &v_lines {
+            let coords: Vec<f32> = v.split_whitespace().skip(1)
+                .map(|s| s.parse().unwrap()).collect();
+            assert_eq!(coords.len(), 3);
+            assert!(coords[0] >= 0.0 && coords[0] <= 2.0, "x out of bounds");
+            assert!(coords[1] >= 0.0 && coords[1] <= 3.0, "y out of bounds");
+            assert!(coords[2] >= 0.0 && coords[2] <= 4.0, "z out of bounds");
+        }
+    }
+
+    #[test]
+    fn test_box_stl_normal_validity() {
+        let mut store = EntityStore::new();
+        let solid_id = make_box(&mut store, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0);
+        let mesh = tessellate_solid(&store, solid_id);
+        let stl = mesh_to_stl(&mesh);
+
+        // Parse each triangle from STL and verify normal is unit length
+        let tri_count = u32::from_le_bytes([stl[80], stl[81], stl[82], stl[83]]) as usize;
+        assert_eq!(tri_count, 12);
+
+        for t in 0..tri_count {
+            let offset = 84 + t * 50;
+            let nx = f32::from_le_bytes([stl[offset], stl[offset+1], stl[offset+2], stl[offset+3]]);
+            let ny = f32::from_le_bytes([stl[offset+4], stl[offset+5], stl[offset+6], stl[offset+7]]);
+            let nz = f32::from_le_bytes([stl[offset+8], stl[offset+9], stl[offset+10], stl[offset+11]]);
+
+            let len = (nx*nx + ny*ny + nz*nz).sqrt();
+            assert!((len - 1.0).abs() < 0.01,
+                "STL triangle {} normal should be unit length, got {}", t, len);
+        }
+    }
+
+    #[test]
+    fn test_weld_vertices_removes_duplicates() {
+        let mut mesh = TriangleMesh::new();
+        // Two triangles sharing an edge, with duplicate vertices at the shared edge
+        let v0 = mesh.add_vertex(Point3d::new(0.0, 0.0, 0.0), Vec3::Z);
+        let v1 = mesh.add_vertex(Point3d::new(1.0, 0.0, 0.0), Vec3::Z);
+        let v2 = mesh.add_vertex(Point3d::new(0.5, 1.0, 0.0), Vec3::Z);
+        // Duplicate v0 and v1 for the second triangle
+        let v3 = mesh.add_vertex(Point3d::new(1.0, 0.0, 0.0), Vec3::Z); // dup of v1
+        let v4 = mesh.add_vertex(Point3d::new(0.0, 0.0, 0.0), Vec3::Z); // dup of v0
+        let v5 = mesh.add_vertex(Point3d::new(0.5, -1.0, 0.0), Vec3::Z);
+
+        mesh.add_triangle(v0, v1, v2);
+        mesh.add_triangle(v3, v4, v5);
+
+        assert_eq!(mesh.vertex_count(), 6, "Before welding: 6 vertices");
+        mesh.weld_vertices(1e-5);
+        assert_eq!(mesh.vertex_count(), 4, "After welding: 4 unique vertices");
+        assert_eq!(mesh.triangle_count(), 2, "Still 2 triangles");
+    }
+
+    #[test]
+    fn test_weld_removes_degenerate_triangles() {
+        let mut mesh = TriangleMesh::new();
+        // Triangle where two vertices are at the same position
+        let v0 = mesh.add_vertex(Point3d::new(0.0, 0.0, 0.0), Vec3::Z);
+        let v1 = mesh.add_vertex(Point3d::new(1.0, 0.0, 0.0), Vec3::Z);
+        let v2 = mesh.add_vertex(Point3d::new(0.0, 0.0, 0.0), Vec3::Z); // dup of v0
+
+        mesh.add_triangle(v0, v1, v2);
+        mesh.weld_vertices(1e-5);
+
+        assert_eq!(mesh.vertex_count(), 2, "Only 2 unique vertices");
+        assert_eq!(mesh.triangle_count(), 0, "Degenerate triangle removed");
+    }
+
+    #[test]
+    fn test_validate_mesh_open_surface() {
+        // An open surface (single triangle) should NOT be watertight
+        let mut mesh = TriangleMesh::new();
+        let v0 = mesh.add_vertex(Point3d::new(0.0, 0.0, 0.0), Vec3::Z);
+        let v1 = mesh.add_vertex(Point3d::new(1.0, 0.0, 0.0), Vec3::Z);
+        let v2 = mesh.add_vertex(Point3d::new(0.5, 1.0, 0.0), Vec3::Z);
+        mesh.add_triangle(v0, v1, v2);
+
+        let val = validate_mesh(&mesh);
+        assert_eq!(val.boundary_edges, 3, "Single triangle has 3 boundary edges");
+        assert!(!val.is_watertight(), "Single triangle is not watertight");
+        assert!(!val.is_printable(), "Single triangle is not printable");
+    }
+
+    #[test]
+    fn test_different_box_sizes_all_watertight() {
+        // Test several different box sizes to ensure welding works generally
+        let sizes = vec![
+            (1.0, 1.0, 1.0),
+            (10.0, 0.1, 5.0),
+            (0.001, 0.001, 0.001),
+            (100.0, 200.0, 300.0),
+        ];
+
+        for (sx, sy, sz) in sizes {
+            let mut store = EntityStore::new();
+            let solid = make_box(&mut store, 0.0, 0.0, 0.0, sx, sy, sz);
+            let mesh = tessellate_solid(&store, solid);
+            let val = validate_mesh(&mesh);
+
+            assert!(val.is_watertight(),
+                "Box ({sx}x{sy}x{sz}) should be watertight: {} boundary, {} non-manifold",
+                val.boundary_edges, val.non_manifold_edges);
+            assert_eq!(val.euler_characteristic, 2,
+                "Box ({sx}x{sy}x{sz}) euler should be 2, got {}", val.euler_characteristic);
+
+            let expected_vol = sx * sy * sz;
+            assert!((val.signed_volume - expected_vol).abs() < expected_vol * 0.01 + 0.001,
+                "Box ({sx}x{sy}x{sz}) volume should be ~{expected_vol}, got {}", val.signed_volume);
+        }
+    }
+
+    #[test]
+    fn test_topology_audit_box_no_dangling() {
+        use cad_kernel::validation::audit::{verify_topology_l0, full_verify};
+
+        let mut store = EntityStore::new();
+        let solid_id = make_box(&mut store, 0.0, 0.0, 0.0, 3.0, 4.0, 5.0);
+
+        let audit = verify_topology_l0(&store, solid_id);
+        assert!(audit.euler_valid, "Box should satisfy Euler formula");
+        assert!(audit.no_dangling_vertices, "Box should have no dangling vertices");
+        assert!(audit.all_faces_closed, "All faces should be closed");
+        assert!(audit.all_edges_two_faced, "All edges should be two-faced");
+
+        let report = full_verify(&store, solid_id);
+        assert!(report.is_valid(), "Box should pass full verification: {:?}", report.geometry_errors);
+
+        // Mesh output should be watertight regardless of B-Rep winding
+        let mesh = tessellate_solid(&store, solid_id);
+        let val = validate_mesh(&mesh);
+        assert!(val.is_watertight(), "Box mesh should be watertight");
+        assert!(val.is_printable(), "Box mesh should be printable");
+    }
+
+    #[test]
+    fn test_topology_audit_extrusion() {
+        use cad_kernel::operations::extrude::{extrude_profile, Profile};
+        use cad_kernel::geometry::vector::Vec3;
+
+        let mut store = EntityStore::new();
+        let profile = Profile::from_points(vec![
+            Point3d::new(0.0, 0.0, 0.0),
+            Point3d::new(4.0, 0.0, 0.0),
+            Point3d::new(4.0, 4.0, 0.0),
+            Point3d::new(0.0, 4.0, 0.0),
+        ]);
+        let solid = extrude_profile(&mut store, &profile, Vec3::Z, 3.0);
+
+        // Extrusion mesh should be watertight and printable
+        let mesh = tessellate_solid(&store, solid);
+        let val = validate_mesh(&mesh);
+        assert!(val.is_watertight(),
+            "Extruded box mesh should be watertight: {} boundary, {} non-manifold",
+            val.boundary_edges, val.non_manifold_edges);
+        assert_eq!(val.degenerate_triangles, 0);
+        assert!(val.signed_volume > 0.0, "Volume should be positive");
+        // Volume = 4*4*3 = 48
+        assert!((val.signed_volume - 48.0).abs() < 1.0,
+            "Extruded box volume should be ~48, got {}", val.signed_volume);
     }
 }

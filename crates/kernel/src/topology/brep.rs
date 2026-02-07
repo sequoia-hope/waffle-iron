@@ -299,13 +299,89 @@ pub fn audit_solid(store: &EntityStore, solid_id: SolidId) -> TopologyAudit {
         }
     }
 
+    // Check for dangling vertices: every vertex used by the solid should
+    // be referenced by at least 2 half-edges (manifold condition).
+    let mut vertex_ref_count: std::collections::HashMap<u64, usize> =
+        std::collections::HashMap::new();
+    let mut no_dangling_vertices = true;
+
+    for &shell_id in &solid.shells {
+        let shell = &store.shells[shell_id];
+        for &face_id in &shell.faces {
+            let face = &store.faces[face_id];
+            for &he_id in &store.loops[face.outer_loop].half_edges {
+                let he = &store.half_edges[he_id];
+                *vertex_ref_count.entry(vertex_id_to_u64(he.start_vertex)).or_insert(0) += 1;
+                *vertex_ref_count.entry(vertex_id_to_u64(he.end_vertex)).or_insert(0) += 1;
+            }
+        }
+    }
+
+    for (&vid_u64, &count) in &vertex_ref_count {
+        if count < 2 {
+            no_dangling_vertices = false;
+            // Find the VertexId for error reporting — scan the store
+            for (vid, _) in &store.vertices {
+                if vertex_id_to_u64(vid) == vid_u64 {
+                    errors.push(TopologyError::DanglingVertex { vertex: vid });
+                    break;
+                }
+            }
+        }
+    }
+
+    // Check normal consistency: for each face, verify that the geometric
+    // normal (from vertex winding) agrees with the surface normal direction.
+    let mut normals_consistent = true;
+
+    for &shell_id in &solid.shells {
+        let shell = &store.shells[shell_id];
+        for &face_id in &shell.faces {
+            let face = &store.faces[face_id];
+            let loop_data = &store.loops[face.outer_loop];
+
+            if loop_data.half_edges.len() < 3 {
+                continue;
+            }
+
+            // Get first 3 vertices to compute geometric normal
+            let he0 = &store.half_edges[loop_data.half_edges[0]];
+            let he1 = &store.half_edges[loop_data.half_edges[1]];
+            let he2 = &store.half_edges[loop_data.half_edges[2]];
+
+            let p0 = store.vertices[he0.start_vertex].point;
+            let p1 = store.vertices[he1.start_vertex].point;
+            let p2 = store.vertices[he2.start_vertex].point;
+
+            let e1 = p1 - p0;
+            let e2 = p2 - p0;
+            let geo_normal = e1.cross(&e2);
+            let geo_len = geo_normal.length();
+
+            if geo_len < 1e-12 {
+                continue; // degenerate face, skip
+            }
+            let geo_normal = geo_normal * (1.0 / geo_len);
+
+            // Surface normal at face center
+            let surf_normal = face.surface.normal_at(0.0, 0.0);
+            let expected_normal = if face.same_sense { surf_normal } else { -surf_normal };
+
+            // They should point in the same half-space
+            let dot = geo_normal.dot(&expected_normal);
+            if dot < -0.1 {
+                normals_consistent = false;
+            }
+        }
+    }
+
     TopologyAudit {
         euler_valid,
         all_edges_two_faced,
         all_faces_closed,
-        no_dangling_vertices: true, // TODO: implement
+        no_dangling_vertices,
         shells_closed: euler_valid && all_faces_closed,
-        normals_consistent: true, // TODO: implement
+        normals_consistent,
         errors,
     }
 }
@@ -342,4 +418,5 @@ mod tests {
         });
         assert_eq!(store.vertices[v].point.x, 1.0);
     }
+
 }

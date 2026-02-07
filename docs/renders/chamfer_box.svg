@@ -2,19 +2,19 @@
 <text x="200" y="20" font-family="monospace" font-size="13" fill="#8892b0" text-anchor="middle">Chamfered Box (d=1.5)</text>
   <polygon points="92.8,216.9 171.5,260.0 289.0,191.7" fill="rgb(86,138,190)" stroke="#2a2a4a" stroke-width="0.5"/>
   <polygon points="289.0,191.7 210.4,148.5 92.8,216.9" fill="rgb(86,138,190)" stroke="#2a2a4a" stroke-width="0.5"/>
-  <polygon points="307.2,180.7 289.0,191.7 210.4,148.5" fill="rgb(51,81,112)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="307.2,180.7 210.4,148.5 289.0,191.7" fill="rgb(51,81,112)" stroke="#2a2a4a" stroke-width="0.5"/>
   <polygon points="307.2,180.7 289.0,191.7 171.5,260.0" fill="rgb(44,72,98)" stroke="#2a2a4a" stroke-width="0.5"/>
   <polygon points="171.5,260.0 189.6,249.1 307.2,180.7" fill="rgb(44,72,98)" stroke="#2a2a4a" stroke-width="0.5"/>
   <polygon points="189.6,186.4 171.5,260.0 92.8,216.9" fill="rgb(51,81,112)" stroke="#2a2a4a" stroke-width="0.5"/>
-  <polygon points="289.0,191.7 210.4,65.0 210.4,148.5" fill="rgb(51,81,112)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="289.0,191.7 210.4,148.5 210.4,65.0" fill="rgb(51,81,112)" stroke="#2a2a4a" stroke-width="0.5"/>
   <polygon points="92.8,133.3 92.8,216.9 210.4,148.5" fill="rgb(65,104,143)" stroke="#2a2a4a" stroke-width="0.5"/>
   <polygon points="189.6,186.4 189.6,249.1 171.5,260.0" fill="rgb(51,81,112)" stroke="#2a2a4a" stroke-width="0.5"/>
   <polygon points="307.2,180.7 189.6,249.1 189.6,186.4" fill="rgb(65,104,143)" stroke="#2a2a4a" stroke-width="0.5"/>
   <polygon points="92.8,216.9 92.8,133.3 189.6,186.4" fill="rgb(51,81,112)" stroke="#2a2a4a" stroke-width="0.5"/>
-  <polygon points="289.0,191.7 307.2,118.1 210.4,65.0" fill="rgb(51,81,112)" stroke="#2a2a4a" stroke-width="0.5"/>
-  <polygon points="210.4,148.5 210.4,65.0 92.8,133.3" fill="rgb(65,104,143)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="289.0,191.7 210.4,65.0 307.2,118.1" fill="rgb(51,81,112)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="210.4,148.5 92.8,133.3 210.4,65.0" fill="rgb(65,104,143)" stroke="#2a2a4a" stroke-width="0.5"/>
   <polygon points="189.6,186.4 307.2,118.1 307.2,180.7" fill="rgb(65,104,143)" stroke="#2a2a4a" stroke-width="0.5"/>
-  <polygon points="210.4,65.0 307.2,118.1 189.6,186.4" fill="rgb(86,138,190)" stroke="#2a2a4a" stroke-width="0.5"/>
-  <polygon points="189.6,186.4 92.8,133.3 210.4,65.0" fill="rgb(86,138,190)" stroke="#2a2a4a" stroke-width="0.5"/>
-  <text x="200" y="292" font-family="monospace" font-size="10" fill="#5a6080" text-anchor="middle">16 triangles, 30 vertices</text>
+  <polygon points="210.4,65.0 189.6,186.4 307.2,118.1" fill="rgb(86,138,190)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="189.6,186.4 210.4,65.0 92.8,133.3" fill="rgb(86,138,190)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <text x="200" y="292" font-family="monospace" font-size="10" fill="#5a6080" text-anchor="middle">16 triangles, 10 vertices</text>
 </svg>
