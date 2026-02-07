@@ -49,6 +49,7 @@ name = "cad-kernel"
 version = "0.1.0"
 dependencies = [
  "approx",
+ "cad-solver",
  "nalgebra",
  "proptest",
  "serde",

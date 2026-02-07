@@ -4,7 +4,9 @@ use cad_kernel::geometry::point::Point3d;
 use cad_kernel::geometry::vector::Vec3;
 use cad_kernel::operations::chamfer::chamfer_edge;
 use cad_kernel::operations::extrude::{extrude_profile, Profile};
-use cad_kernel::operations::feature::{Feature, FeatureTree, Parameter, SketchProfile};
+use cad_kernel::operations::feature::{
+    BooleanOpType, Feature, FeatureTree, Parameter, SketchConstraint, SketchProfile,
+};
 use cad_kernel::operations::fillet::fillet_edge;
 use cad_kernel::operations::revolve::revolve_profile;
 use cad_kernel::topology::brep::EntityStore;
@@ -293,7 +295,7 @@ impl CadEngine {
         self.feature_tree.set_parameter_value(name, value)
     }
 
-    /// Add a sketch feature with a rectangle profile.
+    /// Add a sketch feature with a rectangle profile (centered at origin).
     pub fn add_sketch_rect(&mut self, w: f64, h: f64) -> usize {
         let hw = w / 2.0;
         let hh = h / 2.0;
@@ -304,6 +306,43 @@ impl CadEngine {
                 points: vec![[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]],
                 closed: true,
             }],
+            constraints: vec![],
+            lines: vec![],
+        })
+    }
+
+    /// Add a sketch feature with an arbitrary polygon profile.
+    pub fn add_sketch_polygon(&mut self, points: &[(f64, f64)]) -> usize {
+        let pts: Vec<[f64; 2]> = points.iter().map(|&(x, y)| [x, y]).collect();
+        self.feature_tree.add_feature(Feature::Sketch {
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
+            profiles: vec![SketchProfile {
+                points: pts,
+                closed: true,
+            }],
+            constraints: vec![],
+            lines: vec![],
+        })
+    }
+
+    /// Add a constrained sketch feature with solver constraints.
+    pub fn add_sketch_constrained(
+        &mut self,
+        points: &[(f64, f64)],
+        lines: &[(usize, usize)],
+        constraints: Vec<SketchConstraint>,
+    ) -> usize {
+        let pts: Vec<[f64; 2]> = points.iter().map(|&(x, y)| [x, y]).collect();
+        self.feature_tree.add_feature(Feature::Sketch {
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
+            profiles: vec![SketchProfile {
+                points: pts,
+                closed: true,
+            }],
+            constraints,
+            lines: lines.to_vec(),
         })
     }
 
@@ -317,14 +356,83 @@ impl CadEngine {
         })
     }
 
+    /// Add a revolve feature referencing a sketch.
+    pub fn add_revolve(
+        &mut self,
+        sketch_idx: usize,
+        axis_origin: (f64, f64, f64),
+        axis_direction: (f64, f64, f64),
+        angle: f64,
+        segments: usize,
+    ) -> usize {
+        self.feature_tree.add_feature(Feature::Revolve {
+            sketch_index: sketch_idx,
+            axis_origin: [axis_origin.0, axis_origin.1, axis_origin.2],
+            axis_direction: [axis_direction.0, axis_direction.1, axis_direction.2],
+            angle: Parameter::new("revolve_angle", angle),
+            segments,
+        })
+    }
+
+    /// Add a fillet feature to the most recent solid.
+    pub fn add_fillet_feature(&mut self, edge_indices: &[usize], radius: f64, segments: usize) -> usize {
+        self.feature_tree.add_feature(Feature::Fillet {
+            edge_indices: edge_indices.to_vec(),
+            radius: Parameter::new("fillet_radius", radius),
+            segments,
+        })
+    }
+
+    /// Add a chamfer feature to the most recent solid.
+    pub fn add_chamfer_feature(&mut self, edge_indices: &[usize], distance: f64) -> usize {
+        self.feature_tree.add_feature(Feature::Chamfer {
+            edge_indices: edge_indices.to_vec(),
+            distance: Parameter::new("chamfer_dist", distance),
+        })
+    }
+
+    /// Add a boolean operation feature.
+    pub fn add_boolean_feature(&mut self, op: &str, tool_index: usize) -> Result<usize, String> {
+        let op_type = match op {
+            "union" => BooleanOpType::Union,
+            "subtract" => BooleanOpType::Subtract,
+            "intersect" => BooleanOpType::Intersect,
+            _ => return Err(format!("Unknown boolean op: {op}")),
+        };
+        Ok(self.feature_tree.add_feature(Feature::BooleanOp {
+            op_type,
+            tool_feature: tool_index,
+        }))
+    }
+
+    /// Get the number of unique edges for a solid (for edge selection).
+    pub fn edge_count(&self, solid_idx: usize) -> usize {
+        let solid_id = self.solids[solid_idx];
+        FeatureTree::edge_count(&self.store, solid_id)
+    }
+
+    /// Clear the feature tree and reset.
+    pub fn clear_features(&mut self) {
+        self.feature_tree.clear();
+    }
+
+    /// Get the feature count.
+    pub fn feature_count(&self) -> usize {
+        self.feature_tree.feature_count()
+    }
+
     /// Evaluate the feature tree, replacing all solids.
-    pub fn evaluate_features(&mut self) -> usize {
+    pub fn evaluate_features(&mut self) -> Result<usize, String> {
         let mut new_store = EntityStore::new();
-        let new_solids = self.feature_tree.evaluate(&mut new_store);
-        let count = new_solids.len();
-        self.store = new_store;
-        self.solids = new_solids;
-        count
+        match self.feature_tree.evaluate(&mut new_store) {
+            Ok(new_solids) => {
+                let count = new_solids.len();
+                self.store = new_store;
+                self.solids = new_solids;
+                Ok(count)
+            }
+            Err(e) => Err(e.to_string()),
+        }
     }
 
     // ── Sketch solver ───────────────────────────────────────────────
@@ -629,11 +737,125 @@ mod tests {
         let mut engine = CadEngine::new();
         engine.add_sketch_rect(10.0, 5.0);
         engine.add_extrude(0, 20.0, false);
-        let count = engine.evaluate_features();
+        let count = engine.evaluate_features().expect("evaluate should succeed");
         assert_eq!(count, 1);
 
         let info = engine.model_info(0);
         assert_eq!(info.face_count, 6);
+    }
+
+    #[test]
+    fn test_engine_feature_polygon_sketch() {
+        let mut engine = CadEngine::new();
+        // L-shaped profile
+        let points = vec![
+            (0.0, 0.0), (8.0, 0.0), (8.0, 3.0),
+            (3.0, 3.0), (3.0, 7.0), (0.0, 7.0),
+        ];
+        engine.add_sketch_polygon(&points);
+        engine.add_extrude(0, 5.0, false);
+        let count = engine.evaluate_features().expect("evaluate should succeed");
+        assert_eq!(count, 1);
+
+        let info = engine.model_info(0);
+        assert_eq!(info.face_count, 8, "L-profile extrusion should have 8 faces");
+    }
+
+    #[test]
+    fn test_engine_feature_revolve() {
+        let mut engine = CadEngine::new();
+        let points = vec![(3.0, 0.0), (5.0, 4.0), (3.5, 8.0)];
+        engine.add_sketch_polygon(&points);
+        engine.add_revolve(0, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), std::f64::consts::TAU, 12);
+        let count = engine.evaluate_features().expect("evaluate should succeed");
+        assert_eq!(count, 1);
+
+        let bb = engine.bounding_box(0);
+        assert!(bb.1.2 > 7.0, "Revolved solid should have z > 7, got {}", bb.1.2);
+    }
+
+    #[test]
+    fn test_engine_feature_chamfer() {
+        let mut engine = CadEngine::new();
+        engine.add_sketch_rect(10.0, 10.0);
+        engine.add_extrude(0, 10.0, false);
+        engine.add_chamfer_feature(&[0], 1.0);
+        let count = engine.evaluate_features().expect("evaluate should succeed");
+        assert!(count >= 2, "Should produce box + chamfered solid");
+    }
+
+    #[test]
+    fn test_engine_feature_fillet() {
+        let mut engine = CadEngine::new();
+        engine.add_sketch_rect(10.0, 10.0);
+        engine.add_extrude(0, 10.0, false);
+        engine.add_fillet_feature(&[0], 1.5, 4);
+        let count = engine.evaluate_features().expect("evaluate should succeed");
+        assert!(count >= 2, "Should produce box + filleted solid");
+    }
+
+    #[test]
+    fn test_engine_feature_boolean() {
+        let mut engine = CadEngine::new();
+        // First box
+        engine.add_sketch_rect(10.0, 10.0);
+        engine.add_extrude(0, 10.0, false);
+        // Second overlapping box
+        let pts = vec![(5.0, 5.0), (15.0, 5.0), (15.0, 15.0), (5.0, 15.0)];
+        engine.add_sketch_polygon(&pts);
+        engine.add_extrude(1, 10.0, false);
+        // Union
+        engine.add_boolean_feature("union", 0).expect("add boolean should succeed");
+        let count = engine.evaluate_features().expect("evaluate should succeed");
+        assert!(count >= 3, "Should have box1 + box2 + union");
+    }
+
+    #[test]
+    fn test_engine_feature_edge_count() {
+        let mut engine = CadEngine::new();
+        let idx = engine.create_box(0.0, 0.0, 0.0, 1.0, 1.0, 1.0);
+        let count = engine.edge_count(idx);
+        assert_eq!(count, 12, "Box should have 12 unique edges");
+    }
+
+    #[test]
+    fn test_engine_constrained_sketch() {
+        let mut engine = CadEngine::new();
+        let points = vec![
+            (0.0, 0.0),
+            (9.0, 0.5),
+            (9.5, 4.5),
+            (0.5, 5.5),
+        ];
+        let lines = vec![(0, 1), (1, 2), (2, 3), (3, 0)];
+        let constraints = vec![
+            SketchConstraint::Fixed { point: 0, x: 0.0, y: 0.0 },
+            SketchConstraint::Horizontal { line: 4 },
+            SketchConstraint::Vertical { line: 5 },
+            SketchConstraint::Horizontal { line: 6 },
+            SketchConstraint::Vertical { line: 7 },
+            SketchConstraint::Distance { point_a: 0, point_b: 1, value: 10.0 },
+            SketchConstraint::Distance { point_a: 1, point_b: 2, value: 5.0 },
+        ];
+        engine.add_sketch_constrained(&points, &lines, constraints);
+        engine.add_extrude(0, 8.0, false);
+        let count = engine.evaluate_features().expect("constrained sketch should succeed");
+        assert_eq!(count, 1);
+
+        let bb = engine.bounding_box(0);
+        assert!((bb.1.0 - 10.0).abs() < 0.5, "Width should be ~10, got {}", bb.1.0);
+        assert!((bb.1.1 - 5.0).abs() < 0.5, "Height should be ~5, got {}", bb.1.1);
+        assert!((bb.1.2 - 8.0).abs() < 0.5, "Depth should be ~8, got {}", bb.1.2);
+    }
+
+    #[test]
+    fn test_engine_feature_clear() {
+        let mut engine = CadEngine::new();
+        engine.add_sketch_rect(5.0, 5.0);
+        engine.add_extrude(0, 10.0, false);
+        assert_eq!(engine.feature_count(), 2);
+        engine.clear_features();
+        assert_eq!(engine.feature_count(), 0);
     }
 
     #[test]
