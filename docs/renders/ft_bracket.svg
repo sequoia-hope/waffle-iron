@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" style="background:#1a1a2e">
+<text x="200" y="20" font-family="monospace" font-size="13" fill="#8892b0" text-anchor="middle">Constraint-Solved Bracket</text>
+  <polygon points="86.7,209.4 313.3,181.9 178.9,260.0" fill="rgb(86,138,190)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="313.3,181.9 86.7,209.4 221.1,131.3" fill="rgb(86,138,190)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="178.9,193.7 178.9,260.0 313.3,181.9" fill="rgb(65,104,143)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="313.3,115.6 313.3,181.9 221.1,131.3" fill="rgb(51,81,112)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="221.1,65.0 221.1,131.3 86.7,209.4" fill="rgb(65,104,143)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="86.7,143.1 86.7,209.4 178.9,260.0" fill="rgb(51,81,112)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="313.3,181.9 313.3,115.6 178.9,193.7" fill="rgb(65,104,143)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="221.1,131.3 221.1,65.0 313.3,115.6" fill="rgb(51,81,112)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="86.7,209.4 86.7,143.1 221.1,65.0" fill="rgb(65,104,143)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="178.9,260.0 178.9,193.7 86.7,143.1" fill="rgb(51,81,112)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="178.9,193.7 221.1,65.0 86.7,143.1" fill="rgb(86,138,190)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="221.1,65.0 178.9,193.7 313.3,115.6" fill="rgb(86,138,190)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <text x="200" y="292" font-family="monospace" font-size="10" fill="#5a6080" text-anchor="middle">12 triangles, 8 vertices</text>
+</svg>

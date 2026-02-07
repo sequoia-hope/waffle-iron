@@ -578,7 +578,7 @@ impl FeatureTree {
     ///
     /// Edges appear in multiple faces, so we deduplicate by matching
     /// endpoint positions within tolerance.
-    fn collect_unique_edges(store: &EntityStore, solid_id: SolidId) -> Vec<(Point3d, Point3d)> {
+    pub fn collect_unique_edges(store: &EntityStore, solid_id: SolidId) -> Vec<(Point3d, Point3d)> {
         let mut all_edges = Vec::new();
         let solid = &store.solids[solid_id];
         for &shell_id in &solid.shells {

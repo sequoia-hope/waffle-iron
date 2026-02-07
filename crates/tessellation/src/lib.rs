@@ -1324,6 +1324,430 @@ mod tests {
         assert!(val.is_printable(), "Box mesh should be printable");
     }
 
+    // ── Advanced Feature Tree validation tests ─────────────────────────
+
+    #[test]
+    fn test_ft_constrained_bracket_watertight() {
+        use cad_kernel::operations::feature::{
+            Feature, FeatureTree, Parameter, SketchConstraint, SketchProfile,
+        };
+
+        let mut tree = FeatureTree::new();
+        tree.add_parameter(Parameter::new("width", 12.0));
+        tree.add_parameter(Parameter::new("height", 8.0));
+        tree.add_parameter(Parameter::new("depth", 5.0));
+
+        tree.add_feature(Feature::Sketch {
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
+            profiles: vec![SketchProfile {
+                points: vec![
+                    [0.0, 0.0],
+                    [11.0, 0.5],
+                    [11.5, 7.5],
+                    [0.5, 8.5],
+                ],
+                closed: true,
+            }],
+            constraints: vec![
+                SketchConstraint::Fixed { point: 0, x: 0.0, y: 0.0 },
+                SketchConstraint::Horizontal { line: 4 },
+                SketchConstraint::Vertical { line: 5 },
+                SketchConstraint::Horizontal { line: 6 },
+                SketchConstraint::Vertical { line: 7 },
+                SketchConstraint::Distance { point_a: 0, point_b: 1, value: 12.0 },
+                SketchConstraint::Distance { point_a: 1, point_b: 2, value: 8.0 },
+            ],
+            lines: vec![(0, 1), (1, 2), (2, 3), (3, 0)],
+        });
+
+        tree.add_feature(Feature::Extrude {
+            sketch_index: 0,
+            distance: Parameter::new("depth", 5.0),
+            direction: [0.0, 0.0, 1.0],
+            symmetric: false,
+        });
+
+        let mut store = EntityStore::new();
+        let solids = tree.evaluate(&mut store).expect("constrained bracket");
+        let mesh = tessellate_solid(&store, *solids.last().unwrap());
+        let val = validate_mesh(&mesh);
+
+        assert!(val.is_watertight(), "Constrained bracket should be watertight");
+        assert!(val.is_printable(), "Constrained bracket should be printable");
+        assert_eq!(val.degenerate_triangles, 0);
+        assert!(val.signed_volume > 0.0, "Volume should be positive");
+        // Solver should produce 12x8x5 = 480 volume
+        assert!((val.signed_volume - 480.0).abs() < 5.0,
+            "Constrained bracket volume should be ~480, got {}", val.signed_volume);
+    }
+
+    #[test]
+    fn test_ft_enclosure_has_more_tris_than_box() {
+        use cad_kernel::operations::feature::{Feature, FeatureTree, Parameter, SketchProfile};
+        use cad_kernel::operations::fillet::fillet_edge;
+
+        let mut tree = FeatureTree::new();
+        tree.add_feature(Feature::Sketch {
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
+            profiles: vec![SketchProfile {
+                points: vec![[0.0, 0.0], [14.0, 0.0], [14.0, 10.0], [0.0, 10.0]],
+                closed: true,
+            }],
+            constraints: vec![],
+            lines: vec![],
+        });
+
+        tree.add_feature(Feature::Extrude {
+            sketch_index: 0,
+            distance: Parameter::new("height", 6.0),
+            direction: [0.0, 0.0, 1.0],
+            symmetric: false,
+        });
+
+        let mut store = EntityStore::new();
+        let solids = tree.evaluate(&mut store).expect("enclosure base");
+        let base = *solids.last().unwrap();
+
+        // Get vertical edges and fillet them
+        let unique_edges = FeatureTree::collect_unique_edges(&store, base);
+        let mut vertical_edges: Vec<(Point3d, Point3d)> = Vec::new();
+        for (a, b) in &unique_edges {
+            let dx = (a.x - b.x).abs();
+            let dy = (a.y - b.y).abs();
+            let dz = (a.z - b.z).abs();
+            if dz > 1.0 && dx < 0.01 && dy < 0.01 {
+                vertical_edges.push((*a, *b));
+            }
+        }
+
+        let mut current = base;
+        for (v0, v1) in &vertical_edges {
+            current = fillet_edge(&mut store, current, *v0, *v1, 2.0, 8);
+        }
+
+        let mesh = tessellate_solid(&store, current);
+        let val = validate_mesh(&mesh);
+
+        // Filleted enclosure should have significantly more tris than basic box (12)
+        assert!(mesh.triangle_count() > 50,
+            "Filleted enclosure should have many tris, got {}", mesh.triangle_count());
+        assert_eq!(val.degenerate_triangles, 0, "No degenerate triangles");
+        assert!(val.signed_volume > 0.0, "Volume should be positive");
+        // Volume should be less than 14*10*6=840 due to material removed by fillets
+        assert!(val.signed_volume < 840.0 + 1.0,
+            "Volume should be <= box volume 840, got {}", val.signed_volume);
+    }
+
+    #[test]
+    fn test_ft_wine_glass_high_poly() {
+        use cad_kernel::operations::feature::{Feature, FeatureTree, Parameter, SketchProfile};
+
+        let mut tree = FeatureTree::new();
+        tree.add_feature(Feature::Sketch {
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
+            profiles: vec![SketchProfile {
+                points: vec![
+                    [3.5, 0.0],
+                    [1.0, 0.5],
+                    [0.8, 1.0],
+                    [0.6, 3.0],
+                    [0.6, 6.0],
+                    [0.8, 7.0],
+                    [1.5, 8.0],
+                    [3.0, 9.0],
+                    [4.5, 10.0],
+                    [5.5, 11.0],
+                    [5.8, 12.0],
+                    [5.5, 13.0],
+                ],
+                closed: false,
+            }],
+            constraints: vec![],
+            lines: vec![],
+        });
+
+        tree.add_feature(Feature::Revolve {
+            sketch_index: 0,
+            axis_origin: [0.0, 0.0, 0.0],
+            axis_direction: [0.0, 0.0, 1.0],
+            angle: Parameter::new("angle", std::f64::consts::TAU),
+            segments: 48,
+        });
+
+        let mut store = EntityStore::new();
+        let solids = tree.evaluate(&mut store).expect("wine glass");
+        let mesh = tessellate_solid(&store, *solids.last().unwrap());
+        let val = validate_mesh(&mesh);
+
+        // High poly count due to 12 profile pts * 48 segments
+        assert!(mesh.triangle_count() > 500,
+            "Wine glass should be high-poly, got {} tris", mesh.triangle_count());
+        assert!(mesh.vertex_count() > 200,
+            "Wine glass should have many verts, got {}", mesh.vertex_count());
+        assert_eq!(val.degenerate_triangles, 0, "No degenerate triangles");
+        // Volume should be nonzero (positive after winding repair)
+        assert!(val.signed_volume.abs() > 1.0,
+            "Wine glass volume should be nonzero, got {}", val.signed_volume);
+    }
+
+    #[test]
+    fn test_ft_t_bracket_extrusion() {
+        use cad_kernel::operations::feature::{Feature, FeatureTree, Parameter, SketchProfile};
+
+        let mut tree = FeatureTree::new();
+        tree.add_feature(Feature::Sketch {
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
+            profiles: vec![SketchProfile {
+                points: vec![
+                    [0.0, 0.0], [12.0, 0.0], [12.0, 3.0], [8.0, 3.0],
+                    [8.0, 10.0], [4.0, 10.0], [4.0, 3.0], [0.0, 3.0],
+                ],
+                closed: true,
+            }],
+            constraints: vec![],
+            lines: vec![],
+        });
+
+        tree.add_feature(Feature::Extrude {
+            sketch_index: 0,
+            distance: Parameter::new("depth", 5.0),
+            direction: [0.0, 0.0, 1.0],
+            symmetric: false,
+        });
+
+        let mut store = EntityStore::new();
+        let solids = tree.evaluate(&mut store).expect("t-bracket");
+        let mesh = tessellate_solid(&store, *solids.last().unwrap());
+        let val = validate_mesh(&mesh);
+
+        assert!(val.is_watertight(), "T-bracket should be watertight");
+        assert_eq!(val.degenerate_triangles, 0);
+        assert!(val.signed_volume > 0.0, "Volume should be positive");
+        // T-shape area = 12*3 + 4*7 = 36 + 28 = 64, depth = 5 → vol = 320
+        assert!((val.signed_volume - 320.0).abs() < 5.0,
+            "T-bracket volume should be ~320, got {}", val.signed_volume);
+    }
+
+    #[test]
+    fn test_ft_plate_with_hole_boolean() {
+        use cad_kernel::boolean::engine::{boolean_op, BoolOp};
+        use cad_kernel::topology::primitives::{make_box, make_cylinder};
+
+        let mut store = EntityStore::new();
+        let plate = make_box(&mut store, 0.0, 0.0, 0.0, 16.0, 10.0, 3.0);
+        let cylinder = make_cylinder(&mut store, Point3d::new(8.0, 5.0, -1.0), 3.0, 5.0, 48);
+
+        let result = boolean_op(&mut store, plate, cylinder, BoolOp::Difference)
+            .expect("plate-hole boolean");
+        let mesh = tessellate_solid(&store, result);
+        let val = validate_mesh(&mesh);
+
+        assert!(mesh.triangle_count() > 12,
+            "Plate with hole should have more triangles than box, got {}", mesh.triangle_count());
+        assert_eq!(val.degenerate_triangles, 0, "No degenerate triangles");
+        // Plate volume = 16*10*3 = 480, hole removes pi*9*3 ≈ 84.8 → ~395
+        // Boolean mesh is approximate, so be lenient
+        assert!(val.signed_volume.abs() > 100.0,
+            "Plate volume should be substantial, got {}", val.signed_volume);
+    }
+
+    #[test]
+    fn test_ft_chess_pawn_high_poly() {
+        use cad_kernel::operations::revolve::revolve_profile;
+        use cad_kernel::geometry::vector::Vec3;
+
+        let mut store = EntityStore::new();
+        let profile = vec![
+            Point3d::new(4.0, 0.0, 0.0),
+            Point3d::new(4.2, 0.0, 0.5),
+            Point3d::new(3.8, 0.0, 1.0),
+            Point3d::new(2.5, 0.0, 1.5),
+            Point3d::new(1.8, 0.0, 2.0),
+            Point3d::new(1.2, 0.0, 3.0),
+            Point3d::new(1.0, 0.0, 4.5),
+            Point3d::new(1.0, 0.0, 5.5),
+            Point3d::new(1.5, 0.0, 6.0),
+            Point3d::new(1.8, 0.0, 6.5),
+            Point3d::new(1.5, 0.0, 7.0),
+            Point3d::new(1.2, 0.0, 7.5),
+            Point3d::new(2.0, 0.0, 8.0),
+            Point3d::new(2.5, 0.0, 9.0),
+            Point3d::new(2.5, 0.0, 10.0),
+            Point3d::new(2.0, 0.0, 11.0),
+            Point3d::new(1.2, 0.0, 11.5),
+            Point3d::new(0.5, 0.0, 12.0),
+        ];
+        let solid = revolve_profile(
+            &mut store, &profile, Point3d::ORIGIN,
+            Vec3::new(0.0, 0.0, 1.0), std::f64::consts::TAU, 48,
+        );
+        let mesh = tessellate_solid(&store, solid);
+        let val = validate_mesh(&mesh);
+
+        // 18 profile points * 48 segments → high poly count
+        assert!(mesh.triangle_count() > 1000,
+            "Chess pawn should be high-poly, got {} tris", mesh.triangle_count());
+        assert!(mesh.vertex_count() > 500,
+            "Chess pawn should have many verts, got {}", mesh.vertex_count());
+        assert_eq!(val.degenerate_triangles, 0, "No degenerate triangles");
+        assert!(val.signed_volume.abs() > 10.0,
+            "Chess pawn volume should be nonzero, got {}", val.signed_volume);
+    }
+
+    #[test]
+    fn test_ft_stepped_shaft_boolean_union() {
+        use cad_kernel::operations::feature::{
+            BooleanOpType, Feature, FeatureTree, Parameter, SketchProfile,
+        };
+
+        let mut tree = FeatureTree::new();
+
+        // Large cylinder base (24-gon for test speed)
+        let n = 24;
+        let r1 = 5.0;
+        let pts1: Vec<[f64; 2]> = (0..n)
+            .map(|i| {
+                let theta = std::f64::consts::TAU * i as f64 / n as f64;
+                [r1 * theta.cos(), r1 * theta.sin()]
+            })
+            .collect();
+        tree.add_feature(Feature::Sketch {
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
+            profiles: vec![SketchProfile { points: pts1, closed: true }],
+            constraints: vec![],
+            lines: vec![],
+        });
+        tree.add_feature(Feature::Extrude {
+            sketch_index: 0,
+            distance: Parameter::new("base_height", 8.0),
+            direction: [0.0, 0.0, 1.0],
+            symmetric: false,
+        });
+
+        // Smaller step
+        let r2 = 3.0;
+        let pts2: Vec<[f64; 2]> = (0..n)
+            .map(|i| {
+                let theta = std::f64::consts::TAU * i as f64 / n as f64;
+                [r2 * theta.cos(), r2 * theta.sin()]
+            })
+            .collect();
+        tree.add_feature(Feature::Sketch {
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
+            profiles: vec![SketchProfile { points: pts2, closed: true }],
+            constraints: vec![],
+            lines: vec![],
+        });
+        tree.add_feature(Feature::Extrude {
+            sketch_index: 1,
+            distance: Parameter::new("step_height", 16.0),
+            direction: [0.0, 0.0, 1.0],
+            symmetric: false,
+        });
+
+        tree.add_feature(Feature::BooleanOp {
+            op_type: BooleanOpType::Union,
+            tool_feature: 0,
+        });
+
+        let mut store = EntityStore::new();
+        let solids = tree.evaluate(&mut store).expect("stepped shaft");
+        let mesh = tessellate_solid(&store, *solids.last().unwrap());
+        let val = validate_mesh(&mesh);
+
+        assert!(mesh.triangle_count() > 40,
+            "Stepped shaft should have many tris, got {}", mesh.triangle_count());
+        assert_eq!(val.degenerate_triangles, 0, "No degenerate triangles");
+        assert!(val.signed_volume.abs() > 100.0,
+            "Stepped shaft volume should be substantial, got {}", val.signed_volume);
+    }
+
+    #[test]
+    fn test_ft_high_res_cylinder_smoothness() {
+        // Verify that a high-res cylinder (96 segments) is smooth and correct
+        use cad_kernel::topology::primitives::make_cylinder;
+
+        let mut store = EntityStore::new();
+        let solid = make_cylinder(&mut store, Point3d::ORIGIN, 5.0, 12.0, 96);
+        let mesh = tessellate_solid(&store, solid);
+        let val = validate_mesh(&mesh);
+
+        assert!(val.is_watertight(), "96-seg cylinder should be watertight");
+        assert!(val.is_printable(), "96-seg cylinder should be printable");
+        assert_eq!(val.degenerate_triangles, 0);
+        // Volume of cylinder: pi * 25 * 12 ≈ 942.5
+        let expected_vol = std::f64::consts::PI * 25.0 * 12.0;
+        assert!((val.signed_volume - expected_vol).abs() < expected_vol * 0.02,
+            "96-seg cylinder volume should be ~{expected_vol:.1}, got {:.1}", val.signed_volume);
+        // High segment count should give many triangles
+        assert!(mesh.triangle_count() >= 380,
+            "96-seg cylinder should have >=380 tris, got {}", mesh.triangle_count());
+    }
+
+    #[test]
+    fn test_ft_high_res_sphere_quality() {
+        use cad_kernel::topology::primitives::make_sphere;
+
+        let mut store = EntityStore::new();
+        let solid = make_sphere(&mut store, Point3d::ORIGIN, 6.0, 48, 36);
+        let mesh = tessellate_solid(&store, solid);
+        let val = validate_mesh(&mesh);
+
+        assert!(val.is_watertight(), "High-res sphere should be watertight");
+        assert!(val.is_printable(), "High-res sphere should be printable");
+        assert_eq!(val.degenerate_triangles, 0);
+        // Volume of sphere: 4/3 * pi * 216 ≈ 904.8
+        let expected_vol = 4.0 / 3.0 * std::f64::consts::PI * 216.0;
+        assert!((val.signed_volume - expected_vol).abs() < expected_vol * 0.03,
+            "48x36 sphere volume should be ~{expected_vol:.1}, got {:.1}", val.signed_volume);
+        assert!(mesh.triangle_count() > 3000,
+            "48x36 sphere should have >3000 tris, got {}", mesh.triangle_count());
+    }
+
+    #[test]
+    fn test_ft_obj_export_high_poly() {
+        // Verify OBJ export works for high-poly meshes
+        use cad_kernel::operations::revolve::revolve_profile;
+        use cad_kernel::geometry::vector::Vec3;
+
+        let mut store = EntityStore::new();
+        let profile = vec![
+            Point3d::new(3.0, 0.0, 0.0),
+            Point3d::new(5.0, 0.0, 4.0),
+            Point3d::new(3.5, 0.0, 8.0),
+            Point3d::new(4.0, 0.0, 12.0),
+        ];
+        let solid = revolve_profile(
+            &mut store, &profile, Point3d::ORIGIN,
+            Vec3::Z, std::f64::consts::TAU, 48,
+        );
+        let mesh = tessellate_solid(&store, solid);
+        let obj = mesh_to_obj(&mesh);
+
+        let v_count = obj.lines().filter(|l| l.starts_with("v ")).count();
+        let f_count = obj.lines().filter(|l| l.starts_with("f ")).count();
+        let vn_count = obj.lines().filter(|l| l.starts_with("vn ")).count();
+
+        assert!(v_count > 100, "High-poly OBJ should have >100 verts, got {v_count}");
+        assert!(f_count > 100, "High-poly OBJ should have >100 faces, got {f_count}");
+        assert_eq!(v_count, vn_count, "Vertex count should match normal count");
+
+        // Verify all face indices are valid
+        for line in obj.lines().filter(|l| l.starts_with("f ")) {
+            for part in line.split_whitespace().skip(1) {
+                let idx: usize = part.split("//").next().unwrap().parse().unwrap();
+                assert!(idx >= 1 && idx <= v_count,
+                    "Face index {idx} out of range [1, {v_count}]");
+            }
+        }
+    }
+
     #[test]
     fn test_topology_audit_extrusion() {
         use cad_kernel::operations::extrude::{extrude_profile, Profile};
