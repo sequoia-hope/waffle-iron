@@ -142,7 +142,67 @@ impl Constraint {
                 // Dot product should be zero for perpendicular
                 (dx_a * dx_b + dy_a * dy_b).powi(2)
             }
-            _ => 0.0, // TODO: implement remaining constraints
+            Constraint::PointOnEntity { point, entity } => {
+                let (px, py) = entity_point(entities, *point, params);
+                match &entities[*entity] {
+                    SketchEntity::Line { start_param, end_param } => {
+                        let ax = params[*start_param];
+                        let ay = params[start_param + 1];
+                        let bx = params[*end_param];
+                        let by = params[end_param + 1];
+                        let cross = (px - ax) * (by - ay) - (py - ay) * (bx - ax);
+                        cross * cross
+                    }
+                    SketchEntity::Circle { center_param, radius_param } => {
+                        let cx = params[*center_param];
+                        let cy = params[center_param + 1];
+                        let r = params[*radius_param];
+                        let dist_sq = (px - cx).powi(2) + (py - cy).powi(2);
+                        (dist_sq - r * r).powi(2)
+                    }
+                    _ => 0.0,
+                }
+            }
+            Constraint::Equal { entity_a, entity_b } => {
+                let len_a = entity_length(entities, *entity_a, params);
+                let len_b = entity_length(entities, *entity_b, params);
+                (len_a - len_b).powi(2)
+            }
+            Constraint::Symmetric { point_a, point_b, axis } => {
+                let (ax, ay) = entity_point(entities, *point_a, params);
+                let (bx, by) = entity_point(entities, *point_b, params);
+                if let SketchEntity::Line { start_param, end_param } = &entities[*axis] {
+                    let lx0 = params[*start_param];
+                    let ly0 = params[start_param + 1];
+                    let lx1 = params[*end_param];
+                    let ly1 = params[end_param + 1];
+                    let dx = lx1 - lx0;
+                    let dy = ly1 - ly0;
+                    let len_sq = dx * dx + dy * dy;
+                    if len_sq > 1e-20 {
+                        let mx = (ax + bx) / 2.0;
+                        let my = (ay + by) / 2.0;
+                        let cross = (mx - lx0) * dy - (my - ly0) * dx;
+                        let dot = (bx - ax) * dx + (by - ay) * dy;
+                        cross * cross + dot * dot
+                    } else {
+                        0.0
+                    }
+                } else {
+                    0.0
+                }
+            }
+            Constraint::Angle { line_a, line_b, value } => {
+                let (dx_a, dy_a) = line_direction(entities, *line_a, params);
+                let (dx_b, dy_b) = line_direction(entities, *line_b, params);
+                let cross = dx_a * dy_b - dy_a * dx_b;
+                let dot = dx_a * dx_b + dy_a * dy_b;
+                let r = cross - dot * value.tan();
+                r * r
+            }
+            Constraint::Tangent { entity_a, entity_b } => {
+                tangent_residual_sq(entities, *entity_a, *entity_b, params)
+            }
         }
     }
 }
@@ -192,5 +252,57 @@ fn line_direction(entities: &[SketchEntity], idx: usize, params: &[f64]) -> (f64
         (dx, dy)
     } else {
         (1.0, 0.0)
+    }
+}
+
+fn entity_length(entities: &[SketchEntity], idx: usize, params: &[f64]) -> f64 {
+    match &entities[idx] {
+        SketchEntity::Line { start_param, end_param } => {
+            let dx = params[*end_param] - params[*start_param];
+            let dy = params[end_param + 1] - params[start_param + 1];
+            (dx * dx + dy * dy).sqrt()
+        }
+        SketchEntity::Circle { radius_param, .. } => params[*radius_param],
+        _ => 0.0,
+    }
+}
+
+/// Compute squared residual for tangent constraint between two entities.
+/// Line-Circle tangent: distance from circle center to line equals radius.
+/// Circle-Circle tangent: distance between centers equals sum of radii.
+fn tangent_residual_sq(entities: &[SketchEntity], a: usize, b: usize, params: &[f64]) -> f64 {
+    match (&entities[a], &entities[b]) {
+        (SketchEntity::Line { start_param, end_param }, SketchEntity::Circle { center_param, radius_param }) |
+        (SketchEntity::Circle { center_param, radius_param }, SketchEntity::Line { start_param, end_param }) => {
+            let ax = params[*start_param];
+            let ay = params[start_param + 1];
+            let bx = params[*end_param];
+            let by = params[end_param + 1];
+            let cx = params[*center_param];
+            let cy = params[center_param + 1];
+            let r = params[*radius_param];
+            let dx = bx - ax;
+            let dy = by - ay;
+            let len = (dx * dx + dy * dy).sqrt();
+            if len < 1e-15 { return r * r; }
+            // Signed distance from center to line
+            let dist = ((cx - ax) * dy - (cy - ay) * dx).abs() / len;
+            (dist - r).powi(2)
+        }
+        (SketchEntity::Circle { center_param: ca, radius_param: ra }, SketchEntity::Circle { center_param: cb, radius_param: rb }) => {
+            let ax = params[*ca];
+            let ay = params[ca + 1];
+            let bx = params[*cb];
+            let by = params[cb + 1];
+            let r_a = params[*ra];
+            let r_b = params[*rb];
+            let dist = ((ax - bx).powi(2) + (ay - by).powi(2)).sqrt();
+            // External tangency: dist = ra + rb
+            // Also check internal tangency and pick the closer one
+            let external = (dist - (r_a + r_b)).powi(2);
+            let internal = (dist - (r_a - r_b).abs()).powi(2);
+            external.min(internal)
+        }
+        _ => 0.0,
     }
 }

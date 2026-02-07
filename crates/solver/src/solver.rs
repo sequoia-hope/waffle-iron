@@ -239,8 +239,8 @@ fn constraint_residuals(c: &Constraint, params: &[f64], entities: &[SketchEntity
         Constraint::Symmetric { point_a, point_b, axis } => {
             symmetric_residual(entities, *point_a, *point_b, *axis, params, out);
         }
-        Constraint::Tangent { .. } => {
-            // TODO: implement tangent constraint
+        Constraint::Tangent { entity_a, entity_b } => {
+            tangent_residual_vec(entities, *entity_a, *entity_b, params, out);
         }
     }
 }
@@ -445,7 +445,25 @@ fn constraint_jacobian(
             }
             num
         }
-        Constraint::Tangent { .. } => 0,
+        Constraint::Tangent { .. } => {
+            // Finite difference for tangent Jacobian
+            let h = 1e-8;
+            let mut r_base = Vec::new();
+            constraint_residuals(c, params, entities, &mut r_base);
+            let num = r_base.len();
+            for ri in 0..num {
+                for j in 0..n {
+                    let mut p_plus = params.to_vec();
+                    p_plus[j] += h;
+                    let mut r_plus = Vec::new();
+                    constraint_residuals(c, &p_plus, entities, &mut r_plus);
+                    if ri < r_plus.len() && ri < r_base.len() {
+                        jac[(start_row + ri) * n + j] = (r_plus[ri] - r_base[ri]) / h;
+                    }
+                }
+            }
+            num
+        }
     }
 }
 
@@ -544,6 +562,46 @@ fn symmetric_residual(
             let dot = (bx - ax) * dx + (by - ay) * dy;
             out.push(dot);
         }
+    }
+}
+
+fn tangent_residual_vec(
+    entities: &[SketchEntity],
+    a: usize,
+    b: usize,
+    params: &[f64],
+    out: &mut Vec<f64>,
+) {
+    match (&entities[a], &entities[b]) {
+        (SketchEntity::Line { start_param, end_param }, SketchEntity::Circle { center_param, radius_param }) |
+        (SketchEntity::Circle { center_param, radius_param }, SketchEntity::Line { start_param, end_param }) => {
+            let ax = params[*start_param];
+            let ay = params[start_param + 1];
+            let bx = params[*end_param];
+            let by = params[end_param + 1];
+            let cx = params[*center_param];
+            let cy = params[center_param + 1];
+            let r = params[*radius_param];
+            let dx = bx - ax;
+            let dy = by - ay;
+            let len_sq = dx * dx + dy * dy;
+            // Residual: cross_product^2 / len_sq - r^2 = 0
+            // Using: (distance_to_line)^2 = cross^2 / len_sq
+            let cross = (cx - ax) * dy - (cy - ay) * dx;
+            out.push(cross * cross / len_sq.max(1e-20) - r * r);
+        }
+        (SketchEntity::Circle { center_param: ca, radius_param: ra }, SketchEntity::Circle { center_param: cb, radius_param: rb }) => {
+            let ax = params[*ca];
+            let ay = params[ca + 1];
+            let bx = params[*cb];
+            let by = params[cb + 1];
+            let r_a = params[*ra];
+            let r_b = params[*rb];
+            let dist_sq = (ax - bx).powi(2) + (ay - by).powi(2);
+            // External tangency: dist^2 - (ra + rb)^2 = 0
+            out.push(dist_sq - (r_a + r_b).powi(2));
+        }
+        _ => {}
     }
 }
 
@@ -816,6 +874,148 @@ mod tests {
         if let SketchEntity::Circle { radius_param, .. } = &sketch.entities[c] {
             assert!((sketch.params[*radius_param] - 10.0).abs() < 1e-6);
         }
+    }
+
+    #[test]
+    fn test_solve_angle_constraint() {
+        let mut sketch = Sketch::new();
+        let p1 = sketch.add_point(0.0, 0.0);
+        let p2 = sketch.add_point(10.0, 0.0);
+        let p3 = sketch.add_point(0.0, 0.0);
+        let p4 = sketch.add_point(5.0, 5.0);
+        let l1 = sketch.add_line(p1, p2);
+        let l2 = sketch.add_line(p3, p4);
+
+        sketch.add_constraint(Constraint::Fixed { point: p1, x: 0.0, y: 0.0 });
+        sketch.add_constraint(Constraint::Fixed { point: p2, x: 10.0, y: 0.0 });
+        sketch.add_constraint(Constraint::Fixed { point: p3, x: 0.0, y: 0.0 });
+        // 45 degrees
+        sketch.add_constraint(Constraint::Angle {
+            line_a: l1,
+            line_b: l2,
+            value: std::f64::consts::FRAC_PI_4,
+        });
+
+        let config = SolverConfig::default();
+        let result = solve_sketch(&mut sketch, &config);
+        assert!(result.is_ok(), "Solver failed: {:?}", result.err());
+
+        let (x4, y4) = sketch.point_position(p4);
+        // At 45 degrees, x4 should approximately equal y4
+        assert!((x4 - y4).abs() < 0.5, "Expected 45-degree line: x4={x4}, y4={y4}");
+    }
+
+    #[test]
+    fn test_solve_equal_constraint() {
+        let mut sketch = Sketch::new();
+        let p1 = sketch.add_point(0.0, 0.0);
+        let p2 = sketch.add_point(10.0, 0.0);
+        let p3 = sketch.add_point(0.0, 5.0);
+        let p4 = sketch.add_point(3.0, 5.0);
+        let l1 = sketch.add_line(p1, p2);
+        let l2 = sketch.add_line(p3, p4);
+
+        sketch.add_constraint(Constraint::Fixed { point: p1, x: 0.0, y: 0.0 });
+        sketch.add_constraint(Constraint::Fixed { point: p2, x: 10.0, y: 0.0 });
+        sketch.add_constraint(Constraint::Fixed { point: p3, x: 0.0, y: 5.0 });
+        sketch.add_constraint(Constraint::Equal { entity_a: l1, entity_b: l2 });
+
+        let config = SolverConfig::default();
+        let result = solve_sketch(&mut sketch, &config);
+        assert!(result.is_ok(), "Solver failed: {:?}", result.err());
+
+        // l2 should now have length 10 (same as l1)
+        let (x3, y3) = sketch.point_position(p3);
+        let (x4, y4) = sketch.point_position(p4);
+        let len = ((x4 - x3).powi(2) + (y4 - y3).powi(2)).sqrt();
+        assert!((len - 10.0).abs() < 0.5, "Expected equal length 10, got {len}");
+    }
+
+    #[test]
+    fn test_solve_point_on_line() {
+        let mut sketch = Sketch::new();
+        let p1 = sketch.add_point(0.0, 0.0);
+        let p2 = sketch.add_point(10.0, 0.0);
+        let line = sketch.add_line(p1, p2);
+        let p3 = sketch.add_point(5.0, 3.0); // off the line
+
+        sketch.add_constraint(Constraint::Fixed { point: p1, x: 0.0, y: 0.0 });
+        sketch.add_constraint(Constraint::Fixed { point: p2, x: 10.0, y: 0.0 });
+        sketch.add_constraint(Constraint::PointOnEntity { point: p3, entity: line });
+
+        let config = SolverConfig::default();
+        let result = solve_sketch(&mut sketch, &config);
+        assert!(result.is_ok(), "Solver failed: {:?}", result.err());
+
+        let (_, y3) = sketch.point_position(p3);
+        assert!(y3.abs() < 0.1, "Point should be on horizontal line, y3={y3}");
+    }
+
+    #[test]
+    fn test_solve_point_on_circle() {
+        let mut sketch = Sketch::new();
+        let c = sketch.add_circle(0.0, 0.0, 5.0);
+        let p = sketch.add_point(3.0, 1.0); // not on circle
+
+        // Fix circle center and radius, let point move onto circle
+        sketch.add_constraint(Constraint::Fixed { point: c, x: 0.0, y: 0.0 });
+        sketch.add_constraint(Constraint::Radius { entity: c, value: 5.0 });
+        sketch.add_constraint(Constraint::PointOnEntity { point: p, entity: c });
+
+        let config = SolverConfig::default();
+        let result = solve_sketch(&mut sketch, &config);
+        assert!(result.is_ok(), "Solver failed: {:?}", result.err());
+
+        let (px, py) = sketch.point_position(p);
+        let dist = (px * px + py * py).sqrt();
+        assert!((dist - 5.0).abs() < 0.5, "Point should be on circle r=5, dist={dist}");
+    }
+
+    #[test]
+    fn test_solve_symmetric_constraint() {
+        let mut sketch = Sketch::new();
+        // Axis: vertical line x=5
+        let a1 = sketch.add_point(5.0, 0.0);
+        let a2 = sketch.add_point(5.0, 10.0);
+        let axis = sketch.add_line(a1, a2);
+
+        let pa = sketch.add_point(2.0, 3.0);
+        let pb = sketch.add_point(6.0, 3.0); // should become (8, 3) for symmetry about x=5
+
+        sketch.add_constraint(Constraint::Fixed { point: a1, x: 5.0, y: 0.0 });
+        sketch.add_constraint(Constraint::Fixed { point: a2, x: 5.0, y: 10.0 });
+        sketch.add_constraint(Constraint::Fixed { point: pa, x: 2.0, y: 3.0 });
+        sketch.add_constraint(Constraint::Symmetric { point_a: pa, point_b: pb, axis });
+
+        let config = SolverConfig::default();
+        let result = solve_sketch(&mut sketch, &config);
+        assert!(result.is_ok(), "Solver failed: {:?}", result.err());
+
+        let (xb, yb) = sketch.point_position(pb);
+        assert!((xb - 8.0).abs() < 0.5, "Expected xb=8, got {xb}");
+        assert!((yb - 3.0).abs() < 0.5, "Expected yb=3, got {yb}");
+    }
+
+    #[test]
+    fn test_solve_tangent_line_circle() {
+        let mut sketch = Sketch::new();
+        let c = sketch.add_circle(0.0, 0.0, 5.0);
+        let p1 = sketch.add_point(-10.0, 5.5);
+        let p2 = sketch.add_point(10.0, 5.5);
+        let line = sketch.add_line(p1, p2);
+
+        // Fix circle and fix p1.x, let p1.y and p2.y be free to achieve tangency
+        sketch.add_constraint(Constraint::Radius { entity: c, value: 5.0 });
+        sketch.add_constraint(Constraint::Horizontal { line });
+        sketch.add_constraint(Constraint::Tangent { entity_a: line, entity_b: c });
+
+        let config = SolverConfig { max_iterations: 200, ..SolverConfig::default() };
+        let result = solve_sketch(&mut sketch, &config);
+        assert!(result.is_ok(), "Solver failed: {:?}", result.err());
+
+        let (_, y1) = sketch.point_position(p1);
+        // Line should be tangent: y = 5 or y = -5
+        assert!((y1.abs() - 5.0).abs() < 0.5, "Expected tangent at y=+/-5, got y1={y1}");
     }
 
     #[test]

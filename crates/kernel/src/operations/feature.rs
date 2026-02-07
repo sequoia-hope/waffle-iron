@@ -5,6 +5,7 @@ use crate::geometry::point::Point3d;
 use crate::geometry::vector::Vec3;
 use crate::operations::chamfer::chamfer_edge;
 use crate::operations::extrude::{extrude_profile, Profile};
+use crate::operations::fillet::fillet_edge;
 use crate::operations::revolve::revolve_profile;
 use crate::topology::brep::{EntityStore, SolidId};
 
@@ -189,19 +190,30 @@ impl FeatureTree {
                     }
                 }
                 Feature::Chamfer {
-                    edge_indices,
+                    edge_indices: _,
                     distance,
                 } => {
-                    // Apply chamfer to the last solid (edge_indices are ignored for now,
-                    // would need edge enumeration API)
-                    let _ = (edge_indices, distance);
+                    // Apply chamfer to the most recent solid
+                    if let Some(&last_solid) = solids.last() {
+                        let edges = Self::collect_edge_endpoints(store, last_solid);
+                        if let Some((v0, v1)) = edges.first() {
+                            let result = chamfer_edge(store, last_solid, *v0, *v1, distance.value);
+                            solids.push(result);
+                        }
+                    }
                 }
                 Feature::Fillet {
-                    edge_indices,
+                    edge_indices: _,
                     radius,
                 } => {
-                    // Placeholder for fillet (requires curved surface generation)
-                    let _ = (edge_indices, radius);
+                    // Apply fillet to the most recent solid
+                    if let Some(&last_solid) = solids.last() {
+                        let edges = Self::collect_edge_endpoints(store, last_solid);
+                        if let Some((v0, v1)) = edges.first() {
+                            let result = fillet_edge(store, last_solid, *v0, *v1, radius.value, 4);
+                            solids.push(result);
+                        }
+                    }
                 }
                 Feature::BooleanOp {
                     op_type,
@@ -224,6 +236,29 @@ impl FeatureTree {
         }
 
         solids
+    }
+
+    /// Collect edge endpoint pairs from a solid for chamfer/fillet operations.
+    fn collect_edge_endpoints(store: &EntityStore, solid_id: SolidId) -> Vec<(Point3d, Point3d)> {
+        let mut edges = Vec::new();
+        let solid = &store.solids[solid_id];
+        for &shell_id in &solid.shells {
+            let shell = &store.shells[shell_id];
+            for &face_id in &shell.faces {
+                let face = &store.faces[face_id];
+                let loop_data = &store.loops[face.outer_loop];
+                let verts: Vec<Point3d> = loop_data
+                    .half_edges
+                    .iter()
+                    .map(|&he_id| store.vertices[store.half_edges[he_id].start_vertex].point)
+                    .collect();
+                for i in 0..verts.len() {
+                    let next = (i + 1) % verts.len();
+                    edges.push((verts[i], verts[next]));
+                }
+            }
+        }
+        edges
     }
 }
 
@@ -283,6 +318,80 @@ mod tests {
         // Check bounding box
         let bb = store.solid_bounding_box(solids[0]);
         assert!((bb.max.z - 10.0).abs() < 0.1, "Height should be ~10");
+    }
+
+    #[test]
+    fn test_evaluate_chamfer_feature() {
+        use crate::topology::brep::EntityStore;
+
+        let mut tree = FeatureTree::new();
+
+        tree.add_feature(Feature::Sketch {
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
+            profiles: vec![SketchProfile {
+                points: vec![
+                    [0.0, 0.0],
+                    [10.0, 0.0],
+                    [10.0, 10.0],
+                    [0.0, 10.0],
+                ],
+                closed: true,
+            }],
+        });
+
+        tree.add_feature(Feature::Extrude {
+            sketch_index: 0,
+            distance: Parameter::new("height", 10.0),
+            direction: [0.0, 0.0, 1.0],
+            symmetric: false,
+        });
+
+        tree.add_feature(Feature::Chamfer {
+            edge_indices: vec![0],
+            distance: Parameter::new("chamfer_dist", 1.0),
+        });
+
+        let mut store = EntityStore::new();
+        let solids = tree.evaluate(&mut store);
+        assert!(solids.len() >= 2, "Should produce at least 2 solids (box + chamfered)");
+    }
+
+    #[test]
+    fn test_evaluate_fillet_feature() {
+        use crate::topology::brep::EntityStore;
+
+        let mut tree = FeatureTree::new();
+
+        tree.add_feature(Feature::Sketch {
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
+            profiles: vec![SketchProfile {
+                points: vec![
+                    [0.0, 0.0],
+                    [10.0, 0.0],
+                    [10.0, 10.0],
+                    [0.0, 10.0],
+                ],
+                closed: true,
+            }],
+        });
+
+        tree.add_feature(Feature::Extrude {
+            sketch_index: 0,
+            distance: Parameter::new("height", 10.0),
+            direction: [0.0, 0.0, 1.0],
+            symmetric: false,
+        });
+
+        tree.add_feature(Feature::Fillet {
+            edge_indices: vec![0],
+            radius: Parameter::new("fillet_radius", 1.5),
+        });
+
+        let mut store = EntityStore::new();
+        let solids = tree.evaluate(&mut store);
+        assert!(solids.len() >= 2, "Should produce at least 2 solids (box + filleted)");
     }
 
     #[test]

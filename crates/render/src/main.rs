@@ -4,6 +4,7 @@ use cad_kernel::geometry::point::Point3d;
 use cad_kernel::geometry::vector::Vec3;
 use cad_kernel::operations::chamfer::chamfer_edge;
 use cad_kernel::operations::extrude::{extrude_profile, Profile};
+use cad_kernel::operations::fillet::fillet_edge;
 use cad_kernel::operations::revolve::revolve_profile;
 use cad_kernel::topology::brep::EntityStore;
 use cad_kernel::topology::primitives::{make_box, make_cylinder, make_sphere};
@@ -226,6 +227,33 @@ fn main() {
         let svg = mesh_to_svg(&mesh, 400.0, 300.0, "Chamfered Box (d=1.5)");
         fs::write("docs/renders/chamfer_box.svg", svg).unwrap();
         println!("chamfer_box: {} tris, {} verts", mesh.triangle_count(), mesh.vertex_count());
+    }
+
+    // 7. Filleted box
+    {
+        let mut store = EntityStore::new();
+        let box_id = make_box(&mut store, 0.0, 0.0, 0.0, 10.0, 8.0, 6.0);
+        let v0 = Point3d::new(0.0, 0.0, 0.0);
+        let v1 = Point3d::new(10.0, 0.0, 0.0);
+        let filleted = fillet_edge(&mut store, box_id, v0, v1, 1.5, 6);
+        let mesh = tessellate_solid(&store, filleted);
+        let svg = mesh_to_svg(&mesh, 400.0, 300.0, "Filleted Box (r=1.5, 6 seg)");
+        fs::write("docs/renders/fillet_box.svg", svg).unwrap();
+        println!("fillet_box: {} tris, {} verts", mesh.triangle_count(), mesh.vertex_count());
+    }
+
+    // 8. Boolean union of two boxes
+    {
+        use cad_kernel::boolean::engine::{boolean_op, BoolOp};
+        let mut store = EntityStore::new();
+        let box_a = make_box(&mut store, 0.0, 0.0, 0.0, 10.0, 8.0, 6.0);
+        let box_b = make_box(&mut store, 5.0, 3.0, 2.0, 15.0, 11.0, 8.0);
+        if let Ok(result) = boolean_op(&mut store, box_a, box_b, BoolOp::Union) {
+            let mesh = tessellate_solid(&store, result);
+            let svg = mesh_to_svg(&mesh, 400.0, 300.0, "Boolean Union");
+            fs::write("docs/renders/boolean_union.svg", svg).unwrap();
+            println!("boolean_union: {} tris, {} verts", mesh.triangle_count(), mesh.vertex_count());
+        }
     }
 
     // Export OBJ files for 3D viewing

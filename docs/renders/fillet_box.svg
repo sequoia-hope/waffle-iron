@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" style="background:#1a1a2e">
+<text x="200" y="20" font-family="monospace" font-size="13" fill="#8892b0" text-anchor="middle">Filleted Box (r=1.5, 6 seg)</text>
+  <polygon points="289.6,186.6 289.0,191.7 171.5,260.0" fill="rgb(57,92,126)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="171.5,260.0 172.1,254.9 289.6,186.6" fill="rgb(57,92,126)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="307.2,180.7 210.4,148.5 92.8,216.9" fill="rgb(79,126,173)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="307.2,180.7 289.0,191.7 210.4,148.5" fill="rgb(51,81,112)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="291.4,182.6 289.6,186.6 172.1,254.9" fill="rgb(41,65,90)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="172.1,254.9 173.9,250.9 291.4,182.6" fill="rgb(41,65,90)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="294.3,179.8 291.4,182.6 173.9,250.9" fill="rgb(36,58,80)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="173.9,250.9 176.8,248.1 294.3,179.8" fill="rgb(36,58,80)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="92.8,216.9 189.6,249.1 307.2,180.7" fill="rgb(79,126,173)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="298.1,178.6 294.3,179.8 176.8,248.1" fill="rgb(53,85,117)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="176.8,248.1 180.6,246.9 298.1,178.6" fill="rgb(53,85,117)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="302.5,178.9 298.1,178.6 180.6,246.9" fill="rgb(68,109,151)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="180.6,246.9 184.9,247.2 302.5,178.9" fill="rgb(68,109,151)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="307.2,180.7 302.5,178.9 184.9,247.2" fill="rgb(81,130,179)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="184.9,247.2 189.6,249.1 307.2,180.7" fill="rgb(81,130,179)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="189.6,186.4 171.5,260.0 92.8,216.9" fill="rgb(51,81,112)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="289.0,191.7 210.4,65.0 210.4,148.5" fill="rgb(51,81,112)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="289.0,191.7 171.5,260.0 189.6,186.4" fill="rgb(50,80,111)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="92.8,133.3 92.8,216.9 210.4,148.5" fill="rgb(65,104,143)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="189.6,186.4 189.6,249.1 171.5,260.0" fill="rgb(51,81,112)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="92.8,216.9 92.8,133.3 189.6,186.4" fill="rgb(51,81,112)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="289.0,191.7 307.2,118.1 210.4,65.0" fill="rgb(51,81,112)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="189.6,186.4 307.2,118.1 289.0,191.7" fill="rgb(50,80,111)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="210.4,148.5 210.4,65.0 92.8,133.3" fill="rgb(65,104,143)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="210.4,65.0 307.2,118.1 189.6,186.4" fill="rgb(86,138,190)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <polygon points="189.6,186.4 92.8,133.3 210.4,65.0" fill="rgb(86,138,190)" stroke="#2a2a4a" stroke-width="0.5"/>
+  <text x="200" y="292" font-family="monospace" font-size="10" fill="#5a6080" text-anchor="middle">26 triangles, 50 vertices</text>
+</svg>

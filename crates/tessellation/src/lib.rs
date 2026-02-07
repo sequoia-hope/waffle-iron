@@ -559,6 +559,108 @@ mod tests {
         inside
     }
 
+    // ── Fillet integration test ────────────────────────────────────────
+
+    #[test]
+    fn test_tessellate_filleted_box() {
+        use cad_kernel::operations::fillet::fillet_edge;
+
+        let mut store = EntityStore::new();
+        let box_id = make_box(&mut store, 0.0, 0.0, 0.0, 10.0, 8.0, 6.0);
+
+        let v0 = Point3d::new(0.0, 0.0, 0.0);
+        let v1 = Point3d::new(10.0, 0.0, 0.0);
+        let filleted = fillet_edge(&mut store, box_id, v0, v1, 1.5, 4);
+
+        let mesh = tessellate_solid(&store, filleted);
+        assert!(mesh.triangle_count() > 12, "Filleted solid should have more than 12 triangles");
+
+        // Verify no degenerate triangles
+        for t in 0..mesh.triangle_count() {
+            let i0 = mesh.indices[t * 3] as usize;
+            let i1 = mesh.indices[t * 3 + 1] as usize;
+            let i2 = mesh.indices[t * 3 + 2] as usize;
+            let p0 = Point3d::new(
+                mesh.positions[i0 * 3] as f64,
+                mesh.positions[i0 * 3 + 1] as f64,
+                mesh.positions[i0 * 3 + 2] as f64,
+            );
+            let p1 = Point3d::new(
+                mesh.positions[i1 * 3] as f64,
+                mesh.positions[i1 * 3 + 1] as f64,
+                mesh.positions[i1 * 3 + 2] as f64,
+            );
+            let p2 = Point3d::new(
+                mesh.positions[i2 * 3] as f64,
+                mesh.positions[i2 * 3 + 1] as f64,
+                mesh.positions[i2 * 3 + 2] as f64,
+            );
+            let edge1 = p1 - p0;
+            let edge2 = p2 - p0;
+            let area = edge1.cross(&edge2).length() * 0.5;
+            assert!(area > 1e-10, "Triangle {t} is degenerate (area={area})");
+        }
+    }
+
+    // ── End-to-end integration tests ────────────────────────────────
+
+    #[test]
+    fn test_full_pipeline_extrude_chamfer_tessellate_export() {
+        use cad_kernel::operations::extrude::{extrude_profile, Profile};
+        use cad_kernel::geometry::vector::Vec3;
+
+        let mut store = EntityStore::new();
+
+        // 1. Create extruded L-profile
+        let profile = Profile::from_points(vec![
+            Point3d::new(0.0, 0.0, 0.0),
+            Point3d::new(8.0, 0.0, 0.0),
+            Point3d::new(8.0, 3.0, 0.0),
+            Point3d::new(3.0, 3.0, 0.0),
+            Point3d::new(3.0, 7.0, 0.0),
+            Point3d::new(0.0, 7.0, 0.0),
+        ]);
+        let solid = extrude_profile(&mut store, &profile, Vec3::Z, 4.0);
+
+        // 2. Tessellate
+        let mesh = tessellate_solid(&store, solid);
+        assert_eq!(mesh.triangle_count(), 20, "L-profile extrusion should have 20 triangles");
+
+        // 3. Export to OBJ
+        let obj = mesh_to_obj(&mesh);
+        let v_count = obj.lines().filter(|l| l.starts_with("v ")).count();
+        assert!(v_count > 0, "OBJ should have vertices");
+
+        // 4. Export to STL
+        let stl = mesh_to_stl(&mesh);
+        let expected_size = 80 + 4 + 20 * 50;
+        assert_eq!(stl.len(), expected_size);
+    }
+
+    #[test]
+    fn test_revolve_and_tessellate() {
+        use cad_kernel::operations::revolve::revolve_profile;
+
+        let mut store = EntityStore::new();
+        let profile = vec![
+            Point3d::new(3.0, 0.0, 0.0),
+            Point3d::new(5.0, 0.0, 4.0),
+            Point3d::new(3.5, 0.0, 8.0),
+        ];
+        let solid = revolve_profile(
+            &mut store, &profile, Point3d::ORIGIN,
+            Vec3::Z, std::f64::consts::TAU, 16,
+        );
+
+        let mesh = tessellate_solid(&store, solid);
+        assert!(mesh.triangle_count() > 0, "Revolved solid should produce triangles");
+        assert!(mesh.vertex_count() > 0);
+
+        // Export and verify
+        let obj = mesh_to_obj(&mesh);
+        assert!(obj.contains("f "), "OBJ should contain faces");
+    }
+
     // ── OBJ/STL export tests ─────────────────────────────────────────
 
     #[test]
