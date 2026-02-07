@@ -54,7 +54,10 @@ impl TriangleMesh {
     }
 }
 
-/// Tessellate a single planar face into triangles using fan triangulation.
+/// Tessellate a single planar face into triangles using ear-clipping.
+///
+/// Ear-clipping correctly handles concave polygons, unlike fan triangulation
+/// which produces crossing triangles on non-convex shapes (e.g. L-profiles).
 pub fn tessellate_planar_face(store: &EntityStore, face_id: FaceId) -> TriangleMesh {
     let face = &store.faces[face_id];
     let loop_data = &store.loops[face.outer_loop];
@@ -84,12 +87,162 @@ pub fn tessellate_planar_face(store: &EntityStore, face_id: FaceId) -> TriangleM
         .map(|p| mesh.add_vertex(*p, face_normal))
         .collect();
 
-    // Fan triangulation (works for convex polygons)
-    for i in 1..(vertices.len() - 1) {
-        mesh.add_triangle(base_idx[0], base_idx[i], base_idx[i + 1]);
+    // Project to 2D for ear-clipping
+    let projected = project_to_2d(&vertices, &face_normal);
+
+    // Ear-clip triangulation
+    let triangles = ear_clip(&projected);
+    for (a, b, c) in triangles {
+        mesh.add_triangle(base_idx[a], base_idx[b], base_idx[c]);
     }
 
     mesh
+}
+
+/// Project 3D polygon vertices onto a 2D plane defined by the face normal.
+fn project_to_2d(vertices: &[Point3d], normal: &Vec3) -> Vec<(f64, f64)> {
+    // Build orthonormal basis on the face plane
+    let u_axis = if normal.x.abs() < 0.9 {
+        Vec3::new(1.0, 0.0, 0.0).cross(normal).normalize()
+    } else {
+        Vec3::new(0.0, 1.0, 0.0).cross(normal).normalize()
+    };
+    let v_axis = normal.cross(&u_axis);
+
+    vertices
+        .iter()
+        .map(|p| {
+            let v = Vec3::new(p.x, p.y, p.z);
+            (v.dot(&u_axis), v.dot(&v_axis))
+        })
+        .collect()
+}
+
+/// Ear-clipping triangulation for a simple polygon (may be concave).
+///
+/// Returns triangle indices into the original vertex list.
+fn ear_clip(polygon: &[(f64, f64)]) -> Vec<(usize, usize, usize)> {
+    let n = polygon.len();
+    if n < 3 {
+        return vec![];
+    }
+    if n == 3 {
+        return vec![(0, 1, 2)];
+    }
+
+    let mut indices: Vec<usize> = (0..n).collect();
+    let mut result = Vec::new();
+
+    // Determine winding: positive = CCW
+    let signed_area: f64 = indices
+        .windows(2)
+        .map(|w| {
+            let (x0, y0) = polygon[w[0]];
+            let (x1, y1) = polygon[w[1]];
+            (x1 - x0) * (y1 + y0)
+        })
+        .sum::<f64>()
+        + {
+            let (x0, y0) = polygon[*indices.last().unwrap()];
+            let (x1, y1) = polygon[indices[0]];
+            (x1 - x0) * (y1 + y0)
+        };
+    let ccw = signed_area < 0.0; // negative signed area = CCW in standard coords
+
+    let mut iterations = 0;
+    let max_iterations = n * n; // safety bound
+
+    while indices.len() > 3 && iterations < max_iterations {
+        iterations += 1;
+        let len = indices.len();
+        let mut found_ear = false;
+
+        for i in 0..len {
+            let prev = indices[(i + len - 1) % len];
+            let curr = indices[i];
+            let next = indices[(i + 1) % len];
+
+            if !is_ear(polygon, &indices, prev, curr, next, ccw) {
+                continue;
+            }
+
+            result.push((prev, curr, next));
+            indices.remove(i);
+            found_ear = true;
+            break;
+        }
+
+        if !found_ear {
+            // Fallback: emit remaining as fan (degenerate case)
+            for i in 1..(indices.len() - 1) {
+                result.push((indices[0], indices[i], indices[i + 1]));
+            }
+            break;
+        }
+    }
+
+    if indices.len() == 3 {
+        result.push((indices[0], indices[1], indices[2]));
+    }
+
+    result
+}
+
+/// Check if vertex `curr` forms an ear (convex and no other vertex inside).
+fn is_ear(
+    polygon: &[(f64, f64)],
+    indices: &[usize],
+    prev: usize,
+    curr: usize,
+    next: usize,
+    ccw: bool,
+) -> bool {
+    let (ax, ay) = polygon[prev];
+    let (bx, by) = polygon[curr];
+    let (cx, cy) = polygon[next];
+
+    // Cross product to check convexity
+    let cross = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+    if ccw && cross <= 0.0 {
+        return false; // reflex vertex
+    }
+    if !ccw && cross >= 0.0 {
+        return false;
+    }
+
+    // Check no other vertex lies inside triangle (prev, curr, next)
+    for &idx in indices {
+        if idx == prev || idx == curr || idx == next {
+            continue;
+        }
+        if point_in_triangle(polygon[idx], (ax, ay), (bx, by), (cx, cy)) {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Check if point p is inside triangle (a, b, c) using barycentric coordinates.
+fn point_in_triangle(
+    p: (f64, f64),
+    a: (f64, f64),
+    b: (f64, f64),
+    c: (f64, f64),
+) -> bool {
+    let (px, py) = p;
+    let d1 = sign(px, py, a.0, a.1, b.0, b.1);
+    let d2 = sign(px, py, b.0, b.1, c.0, c.1);
+    let d3 = sign(px, py, c.0, c.1, a.0, a.1);
+
+    let has_neg = (d1 < 0.0) || (d2 < 0.0) || (d3 < 0.0);
+    let has_pos = (d1 > 0.0) || (d2 > 0.0) || (d3 > 0.0);
+
+    !(has_neg && has_pos)
+}
+
+fn sign(px: f64, py: f64, x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
+    (px - x2) * (y1 - y2) - (x1 - x2) * (py - y2)
 }
 
 /// Tessellate an entire solid into a triangle mesh.
@@ -180,5 +333,136 @@ mod tests {
         );
         assert!(mesh.vertex_count() > 0);
         assert!(mesh.triangle_count() > 0);
+    }
+
+    // ── Ear-clipping unit tests ──────────────────────────────────────
+
+    #[test]
+    fn test_ear_clip_triangle() {
+        let poly = vec![(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)];
+        let tris = ear_clip(&poly);
+        assert_eq!(tris.len(), 1);
+    }
+
+    #[test]
+    fn test_ear_clip_quad() {
+        let poly = vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)];
+        let tris = ear_clip(&poly);
+        assert_eq!(tris.len(), 2);
+    }
+
+    #[test]
+    fn test_ear_clip_l_shape() {
+        // L-shaped concave polygon — the case that broke fan triangulation
+        let poly = vec![
+            (0.0, 0.0),
+            (8.0, 0.0),
+            (8.0, 3.0),
+            (3.0, 3.0),
+            (3.0, 7.0),
+            (0.0, 7.0),
+        ];
+        let tris = ear_clip(&poly);
+        assert_eq!(tris.len(), 4, "6-vertex polygon should produce 4 triangles");
+
+        // Every triangle centroid must lie inside the L-shape polygon
+        for (a, b, c) in &tris {
+            let cx = (poly[*a].0 + poly[*b].0 + poly[*c].0) / 3.0;
+            let cy = (poly[*a].1 + poly[*b].1 + poly[*c].1) / 3.0;
+            assert!(
+                point_in_polygon_2d(cx, cy, &poly),
+                "Triangle centroid ({cx}, {cy}) from indices ({a},{b},{c}) is outside the L-shape"
+            );
+        }
+    }
+
+    #[test]
+    fn test_ear_clip_u_shape() {
+        // U-shaped concave polygon
+        let poly = vec![
+            (0.0, 0.0),
+            (1.0, 0.0),
+            (1.0, 3.0),
+            (2.0, 3.0),
+            (2.0, 0.0),
+            (3.0, 0.0),
+            (3.0, 4.0),
+            (0.0, 4.0),
+        ];
+        let tris = ear_clip(&poly);
+        assert_eq!(tris.len(), 6, "8-vertex polygon should produce 6 triangles");
+
+        for (a, b, c) in &tris {
+            let cx = (poly[*a].0 + poly[*b].0 + poly[*c].0) / 3.0;
+            let cy = (poly[*a].1 + poly[*b].1 + poly[*c].1) / 3.0;
+            assert!(
+                point_in_polygon_2d(cx, cy, &poly),
+                "Triangle centroid ({cx}, {cy}) is outside the U-shape"
+            );
+        }
+    }
+
+    #[test]
+    fn test_tessellate_concave_extrusion() {
+        // Extrude an L-profile and verify all triangle centroids stay inside
+        use cad_kernel::operations::extrude::{extrude_profile, Profile};
+        use cad_kernel::geometry::vector::Vec3;
+
+        let mut store = EntityStore::new();
+        let profile = Profile::from_points(vec![
+            Point3d::new(0.0, 0.0, 0.0),
+            Point3d::new(8.0, 0.0, 0.0),
+            Point3d::new(8.0, 3.0, 0.0),
+            Point3d::new(3.0, 3.0, 0.0),
+            Point3d::new(3.0, 7.0, 0.0),
+            Point3d::new(0.0, 7.0, 0.0),
+        ]);
+        let solid = extrude_profile(&mut store, &profile, Vec3::Z, 4.0);
+        let mesh = tessellate_solid(&store, solid);
+
+        // L-profile extruded: 2 caps * 4 tris + 6 side quads * 2 tris = 20
+        assert_eq!(mesh.triangle_count(), 20);
+
+        // Verify no degenerate triangles (zero area)
+        for t in 0..mesh.triangle_count() {
+            let i0 = mesh.indices[t * 3] as usize;
+            let i1 = mesh.indices[t * 3 + 1] as usize;
+            let i2 = mesh.indices[t * 3 + 2] as usize;
+            let p0 = Point3d::new(
+                mesh.positions[i0 * 3] as f64,
+                mesh.positions[i0 * 3 + 1] as f64,
+                mesh.positions[i0 * 3 + 2] as f64,
+            );
+            let p1 = Point3d::new(
+                mesh.positions[i1 * 3] as f64,
+                mesh.positions[i1 * 3 + 1] as f64,
+                mesh.positions[i1 * 3 + 2] as f64,
+            );
+            let p2 = Point3d::new(
+                mesh.positions[i2 * 3] as f64,
+                mesh.positions[i2 * 3 + 1] as f64,
+                mesh.positions[i2 * 3 + 2] as f64,
+            );
+            let edge1 = p1 - p0;
+            let edge2 = p2 - p0;
+            let area = edge1.cross(&edge2).length() * 0.5;
+            assert!(area > 1e-10, "Triangle {t} is degenerate (area={area})");
+        }
+    }
+
+    /// 2D point-in-polygon (ray casting) for test validation.
+    fn point_in_polygon_2d(px: f64, py: f64, polygon: &[(f64, f64)]) -> bool {
+        let n = polygon.len();
+        let mut inside = false;
+        let mut j = n - 1;
+        for i in 0..n {
+            let (xi, yi) = polygon[i];
+            let (xj, yj) = polygon[j];
+            if ((yi > py) != (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi) {
+                inside = !inside;
+            }
+            j = i;
+        }
+        inside
     }
 }
