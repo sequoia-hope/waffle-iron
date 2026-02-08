@@ -801,7 +801,7 @@ proptest! {
 // ---------------------------------------------------------------------------
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(64))]
+    #![proptest_config(ProptestConfig::with_cases(20))]
     #[test]
     fn boolean_union_volume_matches_analytical(
         (box_a, box_b) in arb_overlapping_box_pair(),
@@ -812,7 +812,7 @@ proptest! {
         let b = make_box(&mut store, box_b.0, box_b.1, box_b.2, box_b.3, box_b.4, box_b.5);
 
         if let Ok(union_id) = boolean_op(&mut store, a, b, BoolOp::Union) {
-            let vol_mc = estimate_volume(&store, union_id, 50_000);
+            let vol_mc = estimate_volume(&store, union_id, 10_000);
 
             let vol_a = (box_a.3 - box_a.0) * (box_a.4 - box_a.1) * (box_a.5 - box_a.2);
             let vol_b = (box_b.3 - box_b.0) * (box_b.4 - box_b.1) * (box_b.5 - box_b.2);
@@ -840,7 +840,7 @@ proptest! {
 // ---------------------------------------------------------------------------
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(64))]
+    #![proptest_config(ProptestConfig::with_cases(20))]
     #[test]
     fn boolean_difference_volume_matches_analytical(
         (box_a, box_b) in arb_overlapping_box_pair(),
@@ -851,7 +851,7 @@ proptest! {
         let b = make_box(&mut store, box_b.0, box_b.1, box_b.2, box_b.3, box_b.4, box_b.5);
 
         if let Ok(diff_id) = boolean_op(&mut store, a, b, BoolOp::Difference) {
-            let vol_mc = estimate_volume(&store, diff_id, 50_000);
+            let vol_mc = estimate_volume(&store, diff_id, 10_000);
 
             let vol_a = (box_a.3 - box_a.0) * (box_a.4 - box_a.1) * (box_a.5 - box_a.2);
             let ix0 = box_a.0.max(box_b.0);

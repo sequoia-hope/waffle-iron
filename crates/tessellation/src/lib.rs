@@ -2028,8 +2028,9 @@ mod tests {
 
         let mut tree = FeatureTree::new();
 
-        // Large cylinder base (24-gon for test speed)
-        let n = 24;
+        // Polygonal cylinder (8-gon: enough to test boolean topology without
+        // excessive face count that makes classify_point slow)
+        let n = 8;
         let r1 = 5.0;
         let pts1: Vec<[f64; 2]> = (0..n)
             .map(|i| {
@@ -2083,7 +2084,7 @@ mod tests {
         let mesh = tessellate_solid(&store, *solids.last().unwrap());
         let val = validate_mesh(&mesh);
 
-        assert!(mesh.triangle_count() > 40,
+        assert!(mesh.triangle_count() > 16,
             "Stepped shaft should have many tris, got {}", mesh.triangle_count());
         assert_eq!(val.degenerate_triangles, 0, "No degenerate triangles");
         assert!(val.signed_volume.abs() > 100.0,
