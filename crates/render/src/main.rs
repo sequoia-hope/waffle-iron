@@ -73,6 +73,7 @@ fn mesh_to_svg(mesh: &TriangleMesh, width: f64, height: f64, title: &str) -> Str
         i2: usize,
         depth: f64,
         brightness: f64,
+        is_backface: bool,
     }
 
     let num_tris = mesh.indices.len() / 3;
@@ -108,12 +109,22 @@ fn mesh_to_svg(mesh: &TriangleMesh, width: f64, height: f64, title: &str) -> Str
             (nx * light_dir.0 + ny * light_dir.1 + nz * light_dir.2) / (nlen * light_len);
         let brightness = 0.3 + 0.7 * dot.abs().min(1.0);
 
+        // Backface detection: compute signed area of projected 2D triangle.
+        // Negative area = backfacing = inside surface visible (winding error
+        // or open mesh).  We colour these red/orange so problems are obvious.
+        let (px0, py0) = projected.get(i0).copied().unwrap_or((0.0, 0.0));
+        let (px1, py1) = projected.get(i1).copied().unwrap_or((0.0, 0.0));
+        let (px2, py2) = projected.get(i2).copied().unwrap_or((0.0, 0.0));
+        let signed_area = (px1 - px0) * (py2 - py0) - (px2 - px0) * (py1 - py0);
+        let is_backface = signed_area < 0.0;
+
         tris.push(TriInfo {
             i0,
             i1,
             i2,
             depth,
             brightness,
+            is_backface,
         });
     }
 
@@ -135,9 +146,12 @@ fn mesh_to_svg(mesh: &TriangleMesh, width: f64, height: f64, title: &str) -> Str
         let (x2, y2) = (tx(projected[tri.i2].0), ty(projected[tri.i2].1));
 
         let b = tri.brightness;
-        let r = (100.0 * b) as u8;
-        let g = (160.0 * b) as u8;
-        let bl = (220.0 * b) as u8;
+        // Front faces: blue.  Back faces (inside surface): red/orange.
+        let (r, g, bl) = if tri.is_backface {
+            ((220.0 * b) as u8, (80.0 * b) as u8, (60.0 * b) as u8)
+        } else {
+            ((100.0 * b) as u8, (160.0 * b) as u8, (220.0 * b) as u8)
+        };
 
         svg.push_str(&format!(
             "  <polygon points=\"{x0:.1},{y0:.1} {x1:.1},{y1:.1} {x2:.1},{y2:.1}\" \

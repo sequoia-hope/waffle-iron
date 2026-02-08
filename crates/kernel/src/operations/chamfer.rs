@@ -109,13 +109,27 @@ pub fn chamfer_edge(
             let modified = replace_edge_verts(verts, &edge_v0, &edge_v1, &chamfer_a0, &chamfer_a1, tol);
             new_face_polys.push((modified, *normal));
         } else {
-            let modified: Vec<Point3d> = verts
-                .iter()
-                .flat_map(|v| {
+            // Non-adjacent face: insert both chamfer vertices at each shared
+            // endpoint, with ordering determined by the predecessor vertex to
+            // ensure correct twin linking with adjacent and bevel faces.
+            let n = verts.len();
+            let modified: Vec<Point3d> = (0..n)
+                .flat_map(|i| {
+                    let v = &verts[i];
                     if v.distance_to(&edge_v0) < tol {
-                        vec![chamfer_a0, chamfer_b0]
+                        let pred = &verts[(i + n - 1) % n];
+                        if pred.distance_to(&chamfer_a0) <= pred.distance_to(&chamfer_b0) {
+                            vec![chamfer_a0, chamfer_b0]
+                        } else {
+                            vec![chamfer_b0, chamfer_a0]
+                        }
                     } else if v.distance_to(&edge_v1) < tol {
-                        vec![chamfer_a1, chamfer_b1]
+                        let pred = &verts[(i + n - 1) % n];
+                        if pred.distance_to(&chamfer_a1) <= pred.distance_to(&chamfer_b1) {
+                            vec![chamfer_a1, chamfer_b1]
+                        } else {
+                            vec![chamfer_b1, chamfer_a1]
+                        }
                     } else {
                         vec![*v]
                     }

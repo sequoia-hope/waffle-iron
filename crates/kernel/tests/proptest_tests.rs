@@ -6,6 +6,11 @@ use cad_kernel::boolean::engine::{boolean_op, estimate_volume, BoolOp};
 use cad_kernel::geometry::point::Point3d;
 use cad_kernel::geometry::transform::{BoundingBox, Transform};
 use cad_kernel::geometry::vector::Vec3;
+use cad_kernel::operations::chamfer::chamfer_edge;
+use cad_kernel::operations::extrude::{extrude_profile, Profile};
+use cad_kernel::operations::feature::FeatureTree;
+use cad_kernel::operations::fillet::fillet_edge;
+use cad_kernel::operations::revolve::revolve_profile;
 use cad_kernel::topology::brep::EntityStore;
 use cad_kernel::topology::primitives::make_box;
 use cad_kernel::validation::audit::{full_verify, verify_topology_l0};
@@ -863,6 +868,294 @@ proptest! {
                 prop_assert!(rel_error < 0.15,
                     "Difference volume: MC={:.3} vs exact={:.3}, rel_error={:.3}",
                     vol_mc, vol_exact, rel_error);
+            }
+        }
+    }
+}
+
+// ===========================================================================
+// NEW: Random operations (Spiral 2)
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Strategy: convex polygon via sorted random angles
+// ---------------------------------------------------------------------------
+
+/// Generate a random convex polygon with `n` vertices (3..=8) on the XY plane,
+/// radius in [1, 10]. Points are evenly spaced around the origin with random
+/// perturbation to avoid degenerate (coincident vertex) configurations.
+fn arb_convex_polygon(
+) -> impl Strategy<Value = Vec<Point3d>> {
+    (3usize..=8, 1.0f64..10.0)
+        .prop_flat_map(|(n, radius)| {
+            // Generate `n` perturbation offsets; final angle = base_angle + offset
+            proptest::collection::vec(0.0f64..0.8, n)
+                .prop_map(move |offsets| {
+                    let step = std::f64::consts::TAU / n as f64;
+                    offsets
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &off)| {
+                            // Evenly space base angles, then perturb within half the step
+                            let theta = step * i as f64 + off * step * 0.5;
+                            Point3d::new(radius * theta.cos(), radius * theta.sin(), 0.0)
+                        })
+                        .collect::<Vec<_>>()
+                })
+        })
+}
+
+/// Generate a random unit direction vector from spherical coordinates.
+fn arb_unit_direction() -> impl Strategy<Value = Vec3> {
+    (0.01f64..std::f64::consts::PI - 0.01, 0.0f64..std::f64::consts::TAU)
+        .prop_map(|(theta, phi)| {
+            Vec3::new(
+                theta.sin() * phi.cos(),
+                theta.sin() * phi.sin(),
+                theta.cos(),
+            )
+        })
+}
+
+// ---------------------------------------------------------------------------
+// 26. Random extrusions pass topology audit
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(128))]
+    #[test]
+    fn random_extrusion_passes_topology(
+        polygon in arb_convex_polygon(),
+        distance in 0.1f64..50.0,
+        direction in arb_unit_direction(),
+    ) {
+        let mut store = EntityStore::new();
+        let profile = Profile::from_points(polygon);
+
+        let result = extrude_profile(&mut store, &profile, direction, distance);
+        prop_assert!(result.is_ok(), "Extrude should succeed: {:?}", result.err());
+        let solid_id = result.unwrap();
+
+        // Topology audit
+        let audit = verify_topology_l0(&store, solid_id);
+        prop_assert!(audit.euler_valid,
+            "Euler formula violated for random extrusion: {:?}", audit.errors);
+        prop_assert!(audit.all_faces_closed,
+            "Open faces in random extrusion: {:?}", audit.errors);
+
+        // Volume should be positive (MC estimate)
+        let vol = estimate_volume(&store, solid_id, 5_000);
+        prop_assert!(vol > 0.0,
+            "Extruded solid should have positive volume, got {}", vol);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 27. Random revolves pass topology audit
+// ---------------------------------------------------------------------------
+
+/// Generate a random revolve profile: 2-6 points with positive X.
+fn arb_revolve_profile() -> impl Strategy<Value = Vec<Point3d>> {
+    (2usize..=6).prop_flat_map(|n| {
+        proptest::collection::vec(
+            (1.0f64..10.0, 0.0f64..20.0),
+            n,
+        ).prop_map(|coords| {
+            coords
+                .iter()
+                .enumerate()
+                .map(|(i, &(r, _))| {
+                    // Space points along Y axis, ensure positive X
+                    let y = i as f64 * 2.0;
+                    Point3d::new(r, 0.0, y)
+                })
+                .collect::<Vec<_>>()
+        })
+    })
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(64))]
+    #[test]
+    fn random_revolve_passes_topology(
+        profile in arb_revolve_profile(),
+        angle_deg in 10.0f64..360.0,
+        num_segments in 8usize..=32,
+    ) {
+        let mut store = EntityStore::new();
+        let angle_rad = angle_deg.to_radians();
+
+        let result = revolve_profile(
+            &mut store,
+            &profile,
+            Point3d::ORIGIN,
+            Vec3::Z,
+            angle_rad,
+            num_segments,
+        );
+        prop_assert!(result.is_ok(), "Revolve should succeed: {:?}", result.err());
+        let solid_id = result.unwrap();
+
+        // Topology audit
+        let audit = verify_topology_l0(&store, solid_id);
+        prop_assert!(audit.all_faces_closed,
+            "Open faces in random revolve: {:?}", audit.errors);
+
+        // Bounding box sanity: should be finite and non-degenerate
+        let bb = store.solid_bounding_box(solid_id);
+        prop_assert!(bb.max.x > bb.min.x, "BB degenerate in X");
+        prop_assert!(bb.max.z > bb.min.z, "BB degenerate in Z");
+        prop_assert!(bb.max.x.is_finite(), "BB max.x not finite");
+        prop_assert!(bb.min.x.is_finite(), "BB min.x not finite");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 28. Random fillet on box passes topology audit
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(128))]
+    #[test]
+    fn random_fillet_on_box_passes_topology(
+        dx in 1.0f64..20.0,
+        dy in 1.0f64..20.0,
+        dz in 1.0f64..20.0,
+        edge_idx in 0usize..12,
+        radius_frac in 0.01f64..0.24,
+    ) {
+        let mut store = EntityStore::new();
+        let box_id = make_box(&mut store, 0.0, 0.0, 0.0, dx, dy, dz);
+
+        // Get the edge at the given index
+        let edges = FeatureTree::collect_unique_edges(&store, box_id);
+        let edge_idx = edge_idx % edges.len();
+        let (v0, v1) = edges[edge_idx];
+
+        // Radius is a fraction of the smallest dimension
+        let min_dim = dx.min(dy).min(dz);
+        let radius = min_dim * radius_frac;
+
+        let result = fillet_edge(&mut store, box_id, v0, v1, radius, 4);
+        prop_assert!(result.is_ok(), "Fillet should succeed: {:?}", result.err());
+        let fillet_id = result.unwrap();
+
+        // Topology: loops should all be closed
+        let audit = verify_topology_l0(&store, fillet_id);
+        prop_assert!(audit.all_faces_closed,
+            "Open faces in filleted box: {:?}", audit.errors);
+
+        // Face count should be > 6 (box has 6, fillet adds strip faces)
+        let solid = &store.solids[fillet_id];
+        let shell = &store.shells[solid.shells[0]];
+        prop_assert!(shell.faces.len() > 6,
+            "Filleted box should have more than 6 faces, got {}", shell.faces.len());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 29. Random chamfer on box passes topology audit
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(128))]
+    #[test]
+    fn random_chamfer_on_box_passes_topology(
+        dx in 1.0f64..20.0,
+        dy in 1.0f64..20.0,
+        dz in 1.0f64..20.0,
+        edge_idx in 0usize..12,
+        dist_frac in 0.01f64..0.24,
+    ) {
+        let mut store = EntityStore::new();
+        let box_id = make_box(&mut store, 0.0, 0.0, 0.0, dx, dy, dz);
+
+        // Get the edge at the given index
+        let edges = FeatureTree::collect_unique_edges(&store, box_id);
+        let edge_idx = edge_idx % edges.len();
+        let (v0, v1) = edges[edge_idx];
+
+        // Distance is a fraction of the smallest dimension
+        let min_dim = dx.min(dy).min(dz);
+        let distance = min_dim * dist_frac;
+
+        let result = chamfer_edge(&mut store, box_id, v0, v1, distance);
+        prop_assert!(result.is_ok(), "Chamfer should succeed: {:?}", result.err());
+        let chamfer_id = result.unwrap();
+
+        // Topology: loops should all be closed
+        let audit = verify_topology_l0(&store, chamfer_id);
+        prop_assert!(audit.all_faces_closed,
+            "Open faces in chamfered box: {:?}", audit.errors);
+
+        // Chamfer produces exactly 7 faces (6 original + 1 bevel)
+        let solid = &store.solids[chamfer_id];
+        let shell = &store.shells[solid.shells[0]];
+        prop_assert_eq!(shell.faces.len(), 7,
+            "Chamfered box should have 7 faces, got {}", shell.faces.len());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 30. Boolean volume identity: vol(A∪B) ≈ vol(A) + vol(B) - vol(A∩B)
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(64))]
+    #[test]
+    fn boolean_volume_identity_mc(
+        (box_a, box_b) in arb_overlapping_box_pair(),
+    ) {
+        // Compute analytical volumes for reference
+        let vol_a = (box_a.3 - box_a.0) * (box_a.4 - box_a.1) * (box_a.5 - box_a.2);
+        let vol_b = (box_b.3 - box_b.0) * (box_b.4 - box_b.1) * (box_b.5 - box_b.2);
+
+        let ix0 = box_a.0.max(box_b.0);
+        let iy0 = box_a.1.max(box_b.1);
+        let iz0 = box_a.2.max(box_b.2);
+        let ix1 = box_a.3.min(box_b.3);
+        let iy1 = box_a.4.min(box_b.4);
+        let iz1 = box_a.5.min(box_b.5);
+        let vol_inter_exact = ((ix1 - ix0).max(0.0)) * ((iy1 - iy0).max(0.0)) * ((iz1 - iz0).max(0.0));
+
+        // Skip tiny volumes where MC is unreliable
+        if vol_a < 1.0 || vol_b < 1.0 || vol_inter_exact < 0.5 {
+            return Ok(());
+        }
+
+        let vol_union_exact = vol_a + vol_b - vol_inter_exact;
+        let vol_diff_exact = vol_a - vol_inter_exact;
+
+        // Compute MC estimates from boolean operations
+        let mut store = EntityStore::new();
+        let a = make_box(&mut store, box_a.0, box_a.1, box_a.2, box_a.3, box_a.4, box_a.5);
+        let b = make_box(&mut store, box_b.0, box_b.1, box_b.2, box_b.3, box_b.4, box_b.5);
+
+        if let Ok(union_id) = boolean_op(&mut store, a, b, BoolOp::Union) {
+            let vol_union_mc = estimate_volume(&store, union_id, 5_000);
+
+            // vol(A∪B) ≈ vol(A) + vol(B) - vol(A∩B)
+            if vol_union_exact > 1.0 {
+                let rel_error = (vol_union_mc - vol_union_exact).abs() / vol_union_exact;
+                prop_assert!(rel_error < 0.15,
+                    "Union volume identity: MC={:.3} vs exact={:.3}, rel_error={:.3}",
+                    vol_union_mc, vol_union_exact, rel_error);
+            }
+        }
+
+        // Difference: vol(A-B) ≈ vol(A) - vol(A∩B)
+        let mut store2 = EntityStore::new();
+        let a2 = make_box(&mut store2, box_a.0, box_a.1, box_a.2, box_a.3, box_a.4, box_a.5);
+        let b2 = make_box(&mut store2, box_b.0, box_b.1, box_b.2, box_b.3, box_b.4, box_b.5);
+
+        if let Ok(diff_id) = boolean_op(&mut store2, a2, b2, BoolOp::Difference) {
+            let vol_diff_mc = estimate_volume(&store2, diff_id, 5_000);
+
+            if vol_diff_exact > 1.0 {
+                let rel_error = (vol_diff_mc - vol_diff_exact).abs() / vol_diff_exact;
+                prop_assert!(rel_error < 0.15,
+                    "Difference volume identity: MC={:.3} vs exact={:.3}, rel_error={:.3}",
+                    vol_diff_mc, vol_diff_exact, rel_error);
             }
         }
     }

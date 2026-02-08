@@ -1,7 +1,10 @@
+pub mod assembly;
 pub mod constraint;
 pub mod sketch;
 pub mod solver;
 
+pub use assembly::{Assembly, AssemblyBody, AssemblyConstraint, LocalFace, LocalAxis};
+pub use assembly::{solve_assembly, assembly_dof};
 pub use constraint::*;
 pub use sketch::*;
 pub use solver::*;

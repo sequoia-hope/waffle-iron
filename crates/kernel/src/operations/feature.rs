@@ -8,7 +8,9 @@ use crate::geometry::vector::Vec3;
 use crate::operations::chamfer::chamfer_edge;
 use crate::operations::extrude::{extrude_profile, Profile};
 use crate::operations::fillet::fillet_edge;
+use crate::operations::loft::loft_profiles;
 use crate::operations::revolve::revolve_profile;
+use crate::operations::sweep::sweep_profile;
 use crate::topology::brep::{EntityStore, SolidId};
 
 // ─── Error type ─────────────────────────────────────────────────────────────
@@ -126,6 +128,16 @@ pub enum Feature {
     BooleanOp {
         op_type: BooleanOpType,
         tool_feature: usize,
+    },
+    /// Loft between two profiles.
+    Loft {
+        bottom_sketch_index: usize,
+        top_sketch_index: usize,
+    },
+    /// Sweep a profile along a path.
+    Sweep {
+        sketch_index: usize,
+        path: Vec<[f64; 3]>,
     },
 }
 
@@ -414,6 +426,50 @@ impl FeatureTree {
                             })?;
                     }
                     solids.push(current);
+                }
+                Feature::Loft {
+                    bottom_sketch_index,
+                    top_sketch_index,
+                } => {
+                    let bottom_pts = sketch_profiles.get(*bottom_sketch_index).ok_or(
+                        FeatureError::InvalidSketchIndex {
+                            feature_index: fi,
+                            sketch_index: *bottom_sketch_index,
+                        },
+                    )?;
+                    let top_pts = sketch_profiles.get(*top_sketch_index).ok_or(
+                        FeatureError::InvalidSketchIndex {
+                            feature_index: fi,
+                            sketch_index: *top_sketch_index,
+                        },
+                    )?;
+                    let solid = loft_profiles(store, bottom_pts, top_pts)
+                        .map_err(|e| FeatureError::OperationFailed {
+                            feature_index: fi,
+                            message: e.to_string(),
+                        })?;
+                    solids.push(solid);
+                }
+                Feature::Sweep {
+                    sketch_index,
+                    path,
+                } => {
+                    let pts = sketch_profiles.get(*sketch_index).ok_or(
+                        FeatureError::InvalidSketchIndex {
+                            feature_index: fi,
+                            sketch_index: *sketch_index,
+                        },
+                    )?;
+                    let path_pts: Vec<Point3d> = path
+                        .iter()
+                        .map(|p| Point3d::new(p[0], p[1], p[2]))
+                        .collect();
+                    let solid = sweep_profile(store, pts, &path_pts)
+                        .map_err(|e| FeatureError::OperationFailed {
+                            feature_index: fi,
+                            message: e.to_string(),
+                        })?;
+                    solids.push(solid);
                 }
                 Feature::BooleanOp {
                     op_type,

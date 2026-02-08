@@ -99,59 +99,62 @@ pub fn fillet_edge(
     // Collect all new face point-lists
     let mut new_face_polys: Vec<(Vec<Point3d>, Vec3)> = Vec::new();
 
+    // arc_points[0] has offset = -normal_a * r, which is the face B tangent point
+    // arc_points[last] has offset = -normal_b * r, which is the face A tangent point
+    let last_arc = arc_points.len() - 1;
+
     for (fi, (verts, normal)) in face_polygons.iter().enumerate() {
         if fi == fi_a {
+            // Face A: use arc_points[LAST] (the face A tangent — on face A's plane)
+            let new_v0 = arc_points[last_arc].0;
+            let new_v1 = arc_points[last_arc].1;
+            let modified = replace_edge_verts(verts, &edge_v0, &edge_v1, &new_v0, &new_v1, tol);
+            new_face_polys.push((modified, *normal));
+        } else if fi == fi_b {
+            // Face B: use arc_points[0] (the face B tangent — on face B's plane)
             let new_v0 = arc_points[0].0;
             let new_v1 = arc_points[0].1;
             let modified = replace_edge_verts(verts, &edge_v0, &edge_v1, &new_v0, &new_v1, tol);
             new_face_polys.push((modified, *normal));
-        } else if fi == fi_b {
-            let last = arc_points.len() - 1;
-            let new_v0 = arc_points[last].0;
-            let new_v1 = arc_points[last].1;
-            let modified = replace_edge_verts(verts, &edge_v0, &edge_v1, &new_v0, &new_v1, tol);
-            new_face_polys.push((modified, *normal));
         } else {
-            let first_v0 = arc_points[0].0;
-            let first_v1 = arc_points[0].1;
-            let last_v0 = arc_points[arc_points.len() - 1].0;
-            let last_v1 = arc_points[arc_points.len() - 1].1;
-
-            let modified: Vec<Point3d> = verts
-                .iter()
-                .flat_map(|v| {
-                    if v.distance_to(&edge_v0) < tol {
-                        vec![first_v0, last_v0]
-                    } else if v.distance_to(&edge_v1) < tol {
-                        vec![first_v1, last_v1]
-                    } else {
-                        vec![*v]
-                    }
-                })
-                .collect();
+            // Non-adjacent face: insert ALL arc points at each shared vertex,
+            // with ordering determined by polygon context (distance heuristic).
+            let modified = replace_vertex_with_arc_chain(
+                verts, &edge_v0, &edge_v1, &arc_points, tol,
+            );
             new_face_polys.push((modified, *normal));
         }
     }
 
     // Add fillet strip faces (one quad per arc segment)
-    for i in 0..(arc_points.len() - 1) {
+    let edge_mid = Point3d::new(
+        (edge_v0.x + edge_v1.x) / 2.0,
+        (edge_v0.y + edge_v1.y) / 2.0,
+        (edge_v0.z + edge_v1.z) / 2.0,
+    );
+    for i in 0..last_arc {
         let (a0, a1) = arc_points[i];
         let (b0, b1) = arc_points[i + 1];
-        let quad = vec![a0, a1, b1, b0];
 
         let mid = Point3d::new(
             (a0.x + a1.x + b0.x + b1.x) / 4.0,
             (a0.y + a1.y + b0.y + b1.y) / 4.0,
             (a0.z + a1.z + b0.z + b1.z) / 4.0,
         );
-        let edge_mid = Point3d::new(
-            (edge_v0.x + edge_v1.x) / 2.0,
-            (edge_v0.y + edge_v1.y) / 2.0,
-            (edge_v0.z + edge_v1.z) / 2.0,
-        );
         let outward = (mid - edge_mid).normalized().unwrap_or(
             (normal_a + normal_b).normalized().unwrap_or(Vec3::Z),
         );
+
+        // Determine correct quad winding by checking geometric normal
+        let v1 = Vec3::new(a1.x - a0.x, a1.y - a0.y, a1.z - a0.z);
+        let v2 = Vec3::new(b0.x - a0.x, b0.y - a0.y, b0.z - a0.z);
+        let geo_normal = v1.cross(&v2);
+
+        let quad = if geo_normal.dot(&outward) >= 0.0 {
+            vec![a0, a1, b1, b0]
+        } else {
+            vec![b0, b1, a1, a0]
+        };
 
         new_face_polys.push((quad, outward));
     }
@@ -254,6 +257,64 @@ fn replace_edge_verts(
             }
         })
         .collect()
+}
+
+/// Replace occurrences of edge_v0 / edge_v1 in a polygon with the FULL arc
+/// point chain, using a distance-based heuristic to determine ordering.
+///
+/// For each vertex matching edge_v0 or edge_v1, the predecessor vertex in the
+/// polygon determines whether the arc points should be inserted in forward
+/// (index 0..last) or reverse (last..0) order.  The predecessor is closer to
+/// one end of the arc; we start from that end so that shared edges between
+/// the non-adjacent face and the adjacent/strip faces have opposite traversal
+/// directions, enabling proper twin linking.
+fn replace_vertex_with_arc_chain(
+    verts: &[Point3d],
+    edge_v0: &Point3d,
+    edge_v1: &Point3d,
+    arc_points: &[(Point3d, Point3d)],
+    tol: f64,
+) -> Vec<Point3d> {
+    let n = verts.len();
+    let mut result = Vec::new();
+
+    for i in 0..n {
+        let v = &verts[i];
+
+        if v.distance_to(edge_v0) < tol {
+            let pred = &verts[(i + n - 1) % n];
+            let arc_first = arc_points[0].0;
+            let arc_last = arc_points[arc_points.len() - 1].0;
+
+            if pred.distance_to(&arc_first) <= pred.distance_to(&arc_last) {
+                for ap in arc_points {
+                    result.push(ap.0);
+                }
+            } else {
+                for ap in arc_points.iter().rev() {
+                    result.push(ap.0);
+                }
+            }
+        } else if v.distance_to(edge_v1) < tol {
+            let pred = &verts[(i + n - 1) % n];
+            let arc_first = arc_points[0].1;
+            let arc_last = arc_points[arc_points.len() - 1].1;
+
+            if pred.distance_to(&arc_first) <= pred.distance_to(&arc_last) {
+                for ap in arc_points {
+                    result.push(ap.1);
+                }
+            } else {
+                for ap in arc_points.iter().rev() {
+                    result.push(ap.1);
+                }
+            }
+        } else {
+            result.push(*v);
+        }
+    }
+
+    result
 }
 
 /// Quantize a point to integer coordinates for vertex dedup.

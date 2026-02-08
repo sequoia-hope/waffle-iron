@@ -1,9 +1,127 @@
 use std::collections::HashMap;
 
 use cad_kernel::geometry::point::Point3d;
+use cad_kernel::geometry::surfaces::Surface;
 use cad_kernel::geometry::vector::Vec3;
 use cad_kernel::topology::brep::*;
 use serde::{Deserialize, Serialize};
+
+// ─── Adaptive Tessellation Config ──────────────────────────────────────────
+
+/// Configuration for curvature-aware adaptive tessellation.
+///
+/// Controls how many segments are used for curved surfaces based on chord
+/// error -- the maximum distance between the true surface and the triangle
+/// edge midpoint.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct TessellationConfig {
+    /// Maximum distance between the surface and a triangle edge midpoint.
+    pub max_chord_error: f64,
+    /// Minimum segments for curved surfaces.
+    pub min_segments: usize,
+    /// Maximum segments for curved surfaces.
+    pub max_segments: usize,
+    /// Segments to use when no config is provided (backwards compatibility).
+    pub default_segments: usize,
+}
+
+impl Default for TessellationConfig {
+    fn default() -> Self {
+        Self {
+            max_chord_error: 0.01,
+            min_segments: 8,
+            max_segments: 128,
+            default_segments: 16,
+        }
+    }
+}
+
+/// Compute the number of segments needed to tessellate a circle of given
+/// radius such that the chord error stays within `max_error`.
+///
+/// For a regular n-gon inscribed in a circle of radius r, the chord error
+/// (sagitta) is: `error = r * (1 - cos(pi / n))`.
+/// Solving for n: `n = pi / acos(1 - error / r)`.
+/// The result is clamped between `min` and `max`.
+pub fn segments_for_chord_error(radius: f64, max_error: f64, min: usize, max: usize) -> usize {
+    if radius <= 0.0 || max_error <= 0.0 {
+        return min;
+    }
+    let ratio = max_error / radius;
+    if ratio >= 1.0 {
+        // Chord error is larger than the radius; minimum segments suffice.
+        return min;
+    }
+    let arg = 1.0 - ratio;
+    // arg is in (0, 1), so acos is well-defined
+    let n = std::f64::consts::PI / arg.acos();
+    let n = n.ceil() as usize;
+    n.clamp(min, max)
+}
+
+/// Compute adaptive UV divisions for a surface based on its type and chord error.
+fn adaptive_divisions(surface: &Surface, config: &TessellationConfig) -> (usize, usize) {
+    match surface {
+        Surface::Plane(_) => {
+            // Planar faces are exact with any number of segments; not used
+            // for UV-grid tessellation anyway.
+            (1, 1)
+        }
+        Surface::Cylinder(cyl) => {
+            let u_segs = segments_for_chord_error(
+                cyl.radius,
+                config.max_chord_error,
+                config.min_segments,
+                config.max_segments,
+            );
+            // v direction is linear along the axis -- one segment suffices
+            // for a single face, but callers may want more for long cylinders.
+            (u_segs, 1)
+        }
+        Surface::Sphere(sph) => {
+            let segs = segments_for_chord_error(
+                sph.radius,
+                config.max_chord_error,
+                config.min_segments,
+                config.max_segments,
+            );
+            // Use same segment count for both longitude and latitude
+            (segs, segs / 2)
+        }
+        Surface::Cone(cone) => {
+            // Use the maximum radius reachable in the typical parameter range.
+            // For a cone, radius at distance v from apex = v * tan(half_angle).
+            // We estimate the larger radius (v=1 is a reasonable default extent).
+            let r_estimate = cone.half_angle.tan().abs();
+            let u_segs = segments_for_chord_error(
+                r_estimate.max(0.01),
+                config.max_chord_error,
+                config.min_segments,
+                config.max_segments,
+            );
+            (u_segs, 1)
+        }
+        Surface::Torus(torus) => {
+            let u_segs = segments_for_chord_error(
+                torus.major_radius,
+                config.max_chord_error,
+                config.min_segments,
+                config.max_segments,
+            );
+            let v_segs = segments_for_chord_error(
+                torus.minor_radius,
+                config.max_chord_error,
+                config.min_segments,
+                config.max_segments,
+            );
+            (u_segs, v_segs)
+        }
+        Surface::Nurbs(_) => {
+            // NURBS: use default segments (no simple radius to derive from)
+            (config.default_segments, config.default_segments)
+        }
+    }
+}
 
 /// A triangle mesh for rendering and export.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -594,6 +712,115 @@ pub fn tessellate_solid(store: &EntityStore, solid_id: SolidId) -> TriangleMesh 
     mesh
 }
 
+/// Tessellate an entire solid with adaptive curvature-based segment counts.
+///
+/// For planar faces, this uses ear-clipping (same as `tessellate_solid`).
+/// For curved faces (cylinder, sphere, cone, torus), the number of segments
+/// is computed from the surface radius and `config.max_chord_error` so that
+/// the mesh stays within the specified tolerance of the true surface.
+pub fn tessellate_solid_adaptive(
+    store: &EntityStore,
+    solid_id: SolidId,
+    config: &TessellationConfig,
+) -> TriangleMesh {
+    let solid = &store.solids[solid_id];
+    let mut mesh = TriangleMesh::new();
+
+    for &shell_id in &solid.shells {
+        let shell = &store.shells[shell_id];
+        for &face_id in &shell.faces {
+            let face = &store.faces[face_id];
+            let face_mesh = match &face.surface {
+                Surface::Plane(_) => {
+                    // Planar: ear-clipping is exact, no adaptation needed
+                    tessellate_planar_face(store, face_id)
+                }
+                _ => {
+                    // Curved: compute adaptive UV divisions from surface curvature
+                    let (u_divs, v_divs) = adaptive_divisions(&face.surface, config);
+                    let u_range = compute_face_u_range(store, face_id);
+                    let v_range = compute_face_v_range(store, face_id);
+                    tessellate_surface_grid(&face.surface, u_range, v_range, u_divs, v_divs)
+                }
+            };
+            mesh.merge(&face_mesh);
+        }
+    }
+
+    mesh.weld_vertices(1e-5);
+    repair_winding(&mut mesh);
+    mesh
+}
+
+/// Estimate the u-parameter range for a face from its boundary edges.
+fn compute_face_u_range(store: &EntityStore, face_id: FaceId) -> (f64, f64) {
+    let face = &store.faces[face_id];
+    let loop_data = &store.loops[face.outer_loop];
+    if loop_data.half_edges.is_empty() {
+        return (0.0, std::f64::consts::TAU);
+    }
+    let mut min_u = f64::INFINITY;
+    let mut max_u = f64::NEG_INFINITY;
+    for &he_id in &loop_data.half_edges {
+        let he = &store.half_edges[he_id];
+        let t_lo = he.t_start.min(he.t_end);
+        let t_hi = he.t_start.max(he.t_end);
+        if t_lo < min_u {
+            min_u = t_lo;
+        }
+        if t_hi > max_u {
+            max_u = t_hi;
+        }
+    }
+    if min_u.is_infinite() || max_u.is_infinite() {
+        (0.0, std::f64::consts::TAU)
+    } else {
+        (min_u, max_u)
+    }
+}
+
+/// Estimate the v-parameter range for a face from its boundary edges.
+fn compute_face_v_range(store: &EntityStore, face_id: FaceId) -> (f64, f64) {
+    let face = &store.faces[face_id];
+    // For common analytic surfaces, derive v-range from vertex positions
+    match &face.surface {
+        Surface::Cylinder(cyl) => {
+            // v is the height along the axis
+            let loop_data = &store.loops[face.outer_loop];
+            let mut min_v = f64::INFINITY;
+            let mut max_v = f64::NEG_INFINITY;
+            for &he_id in &loop_data.half_edges {
+                let he = &store.half_edges[he_id];
+                let p = store.vertices[he.start_vertex].point;
+                let v = (p - cyl.origin).dot(&cyl.axis);
+                if v < min_v { min_v = v; }
+                if v > max_v { max_v = v; }
+            }
+            if min_v.is_infinite() { (0.0, 1.0) } else { (min_v, max_v) }
+        }
+        Surface::Sphere(_) => {
+            (-std::f64::consts::FRAC_PI_2, std::f64::consts::FRAC_PI_2)
+        }
+        Surface::Torus(_) => {
+            (0.0, std::f64::consts::TAU)
+        }
+        Surface::Cone(_) => {
+            let loop_data = &store.loops[face.outer_loop];
+            let mut min_v = f64::INFINITY;
+            let mut max_v = f64::NEG_INFINITY;
+            for &he_id in &loop_data.half_edges {
+                let he = &store.half_edges[he_id];
+                let t_lo = he.t_start.min(he.t_end);
+                let t_hi = he.t_start.max(he.t_end);
+                if t_lo < min_v { min_v = t_lo; }
+                if t_hi > max_v { max_v = t_hi; }
+            }
+            if min_v.is_infinite() { (0.0, 1.0) } else { (min_v, max_v) }
+        }
+        _ => (0.0, 1.0),
+    }
+}
+
 /// Tessellate a parametric surface by sampling on a UV grid.
 pub fn tessellate_surface_grid(
     surface: &cad_kernel::geometry::surfaces::Surface,
@@ -725,6 +952,50 @@ pub fn mesh_to_stl(mesh: &TriangleMesh) -> Vec<u8> {
     }
 
     buf
+}
+
+/// Export a triangle mesh to 3MF model XML format.
+///
+/// 3MF (3D Manufacturing Format) is the modern standard for 3D printing,
+/// replacing STL with better precision, smaller files, and richer metadata.
+/// This produces the raw model XML content (not ZIP-packaged).
+pub fn mesh_to_3mf(mesh: &TriangleMesh) -> String {
+    let mut xml = String::new();
+    xml.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+    xml.push_str("<model unit=\"millimeter\" xmlns=\"http://schemas.microsoft.com/3dmanufacturing/core/2015/02\">\n");
+    xml.push_str("  <resources>\n");
+    xml.push_str("    <object id=\"1\" type=\"model\">\n");
+    xml.push_str("      <mesh>\n");
+
+    // Vertices
+    xml.push_str("        <vertices>\n");
+    for i in 0..mesh.vertex_count() {
+        let x = mesh.positions[i * 3];
+        let y = mesh.positions[i * 3 + 1];
+        let z = mesh.positions[i * 3 + 2];
+        xml.push_str(&format!("          <vertex x=\"{x}\" y=\"{y}\" z=\"{z}\"/>\n"));
+    }
+    xml.push_str("        </vertices>\n");
+
+    // Triangles
+    xml.push_str("        <triangles>\n");
+    for t in 0..mesh.triangle_count() {
+        let v1 = mesh.indices[t * 3];
+        let v2 = mesh.indices[t * 3 + 1];
+        let v3 = mesh.indices[t * 3 + 2];
+        xml.push_str(&format!("          <triangle v1=\"{v1}\" v2=\"{v2}\" v3=\"{v3}\"/>\n"));
+    }
+    xml.push_str("        </triangles>\n");
+
+    xml.push_str("      </mesh>\n");
+    xml.push_str("    </object>\n");
+    xml.push_str("  </resources>\n");
+    xml.push_str("  <build>\n");
+    xml.push_str("    <item objectid=\"1\"/>\n");
+    xml.push_str("  </build>\n");
+    xml.push_str("</model>\n");
+
+    xml
 }
 
 #[cfg(test)]
@@ -1059,6 +1330,80 @@ mod tests {
         assert_eq!(tri_count, 12);
     }
 
+    // ── 3MF export tests ──────────────────────────────────────────────
+
+    #[test]
+    fn test_3mf_export_box() {
+        let mut store = EntityStore::new();
+        let solid_id = make_box(&mut store, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0);
+        let mesh = tessellate_solid(&store, solid_id);
+        let xml = mesh_to_3mf(&mesh);
+
+        // Verify XML structure
+        assert!(xml.starts_with("<?xml version=\"1.0\""));
+        assert!(xml.contains("<model unit=\"millimeter\""));
+        assert!(xml.contains("<object id=\"1\" type=\"model\">"));
+        assert!(xml.contains("<vertices>"));
+        assert!(xml.contains("<triangles>"));
+        assert!(xml.contains("<build>"));
+        assert!(xml.contains("<item objectid=\"1\"/>"));
+
+        // Count vertex and triangle elements
+        let vertex_count = xml.matches("<vertex ").count();
+        let triangle_count = xml.matches("<triangle ").count();
+        assert_eq!(vertex_count, 8, "3MF should have 8 welded vertices for a box");
+        assert_eq!(triangle_count, 12, "3MF should have 12 triangles for a box");
+    }
+
+    #[test]
+    fn test_3mf_export_vertex_coords() {
+        let mut store = EntityStore::new();
+        let solid_id = make_box(&mut store, 0.0, 0.0, 0.0, 2.0, 3.0, 4.0);
+        let mesh = tessellate_solid(&store, solid_id);
+        let xml = mesh_to_3mf(&mesh);
+
+        // Verify vertex elements contain expected coordinate attributes
+        for line in xml.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("<vertex ") {
+                assert!(trimmed.contains("x=\""));
+                assert!(trimmed.contains("y=\""));
+                assert!(trimmed.contains("z=\""));
+            }
+        }
+    }
+
+    #[test]
+    fn test_3mf_export_triangle_indices() {
+        let mut store = EntityStore::new();
+        let solid_id = make_box(&mut store, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0);
+        let mesh = tessellate_solid(&store, solid_id);
+        let xml = mesh_to_3mf(&mesh);
+
+        // Verify triangle elements have valid index attributes
+        let v_count = mesh.vertex_count();
+        for line in xml.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("<triangle ") {
+                assert!(trimmed.contains("v1=\""));
+                assert!(trimmed.contains("v2=\""));
+                assert!(trimmed.contains("v3=\""));
+
+                // Parse and validate indices
+                for attr in ["v1", "v2", "v3"] {
+                    let pattern = format!("{attr}=\"");
+                    if let Some(start) = trimmed.find(&pattern) {
+                        let rest = &trimmed[start + pattern.len()..];
+                        if let Some(end) = rest.find('"') {
+                            let idx: usize = rest[..end].parse().expect("index should be numeric");
+                            assert!(idx < v_count, "triangle index {idx} out of range [0, {v_count})");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // ── Mesh quality tests ─────────────────────────────────────────────
 
     #[test]
@@ -1128,12 +1473,89 @@ mod tests {
         let mesh = tessellate_solid(&store, filleted);
         let val = validate_mesh(&mesh);
 
-        // Filleted solids may have boundary edges due to face reconstruction,
-        // but should have no degenerate triangles and positive volume
         assert_eq!(val.degenerate_triangles, 0, "No degenerate triangles");
         assert!(val.signed_volume > 0.0, "Volume should be positive");
         assert!(mesh.triangle_count() > 12, "Filleted box should have more than 12 triangles");
         assert!(mesh.vertex_count() > 8, "Filleted box should have more than 8 vertices");
+        assert_eq!(val.boundary_edges, 0,
+            "Filleted box mesh should be watertight (boundary_edges={})", val.boundary_edges);
+        assert_eq!(val.non_manifold_edges, 0,
+            "Filleted box mesh should be manifold (non_manifold_edges={})", val.non_manifold_edges);
+    }
+
+    #[test]
+    fn test_fillet_watertight_various_edges() {
+        use cad_kernel::operations::fillet::fillet_edge;
+
+        // Fillet each of the 12 edges of a box individually and verify watertightness
+        let edges: Vec<(Point3d, Point3d)> = vec![
+            // Bottom face edges (z=0)
+            (Point3d::new(0.0, 0.0, 0.0), Point3d::new(10.0, 0.0, 0.0)),
+            (Point3d::new(10.0, 0.0, 0.0), Point3d::new(10.0, 8.0, 0.0)),
+            (Point3d::new(10.0, 8.0, 0.0), Point3d::new(0.0, 8.0, 0.0)),
+            (Point3d::new(0.0, 8.0, 0.0), Point3d::new(0.0, 0.0, 0.0)),
+            // Top face edges (z=6)
+            (Point3d::new(0.0, 0.0, 6.0), Point3d::new(10.0, 0.0, 6.0)),
+            (Point3d::new(10.0, 0.0, 6.0), Point3d::new(10.0, 8.0, 6.0)),
+            (Point3d::new(10.0, 8.0, 6.0), Point3d::new(0.0, 8.0, 6.0)),
+            (Point3d::new(0.0, 8.0, 6.0), Point3d::new(0.0, 0.0, 6.0)),
+            // Vertical edges
+            (Point3d::new(0.0, 0.0, 0.0), Point3d::new(0.0, 0.0, 6.0)),
+            (Point3d::new(10.0, 0.0, 0.0), Point3d::new(10.0, 0.0, 6.0)),
+            (Point3d::new(10.0, 8.0, 0.0), Point3d::new(10.0, 8.0, 6.0)),
+            (Point3d::new(0.0, 8.0, 0.0), Point3d::new(0.0, 8.0, 6.0)),
+        ];
+
+        for (idx, (v0, v1)) in edges.iter().enumerate() {
+            let mut store = EntityStore::new();
+            let box_id = make_box(&mut store, 0.0, 0.0, 0.0, 10.0, 8.0, 6.0);
+            let filleted = fillet_edge(&mut store, box_id, *v0, *v1, 1.0, 4).unwrap();
+            let mesh = tessellate_solid(&store, filleted);
+            let val = validate_mesh(&mesh);
+
+            assert_eq!(val.boundary_edges, 0,
+                "Edge {idx} ({v0:?} -> {v1:?}): boundary_edges={}", val.boundary_edges);
+            assert_eq!(val.non_manifold_edges, 0,
+                "Edge {idx}: non_manifold_edges={}", val.non_manifold_edges);
+            assert!(val.signed_volume > 0.0,
+                "Edge {idx}: volume should be positive, got {}", val.signed_volume);
+        }
+    }
+
+    #[test]
+    fn test_multi_fillet_enclosure_watertight() {
+        use cad_kernel::operations::fillet::fillet_edge;
+        use cad_kernel::operations::feature::FeatureTree;
+
+        // Multi-fillet enclosure (same as render example): box with 4 vertical edges filleted
+        let mut store = EntityStore::new();
+        let base = make_box(&mut store, 0.0, 0.0, 0.0, 14.0, 10.0, 6.0);
+
+        let unique_edges = FeatureTree::collect_unique_edges(&store, base);
+        let mut vertical_edges: Vec<(Point3d, Point3d)> = Vec::new();
+        for (a, b) in &unique_edges {
+            let dx = (a.x - b.x).abs();
+            let dy = (a.y - b.y).abs();
+            let dz = (a.z - b.z).abs();
+            if dz > 1.0 && dx < 0.01 && dy < 0.01 {
+                vertical_edges.push((*a, *b));
+            }
+        }
+
+        let mut current = base;
+        for (v0, v1) in &vertical_edges {
+            current = fillet_edge(&mut store, current, *v0, *v1, 2.0, 8).unwrap();
+        }
+
+        let mesh = tessellate_solid(&store, current);
+        let val = validate_mesh(&mesh);
+
+        assert_eq!(val.boundary_edges, 0,
+            "Multi-fillet enclosure should be watertight (boundary_edges={})", val.boundary_edges);
+        assert_eq!(val.non_manifold_edges, 0,
+            "Multi-fillet enclosure should be manifold (non_manifold_edges={})", val.non_manifold_edges);
+        assert!(val.signed_volume > 0.0,
+            "Multi-fillet enclosure should have positive volume, got {}", val.signed_volume);
     }
 
     #[test]
@@ -1773,5 +2195,156 @@ mod tests {
         // Volume = 4*4*3 = 48
         assert!((val.signed_volume - 48.0).abs() < 1.0,
             "Extruded box volume should be ~48, got {}", val.signed_volume);
+    }
+
+    // ── Adaptive tessellation tests ─────────────────────────────────
+
+    #[test]
+    fn test_segments_for_chord_error_basic() {
+        // For a unit circle with chord error 0.01, we need many segments
+        let n = segments_for_chord_error(1.0, 0.01, 8, 128);
+        assert!(n > 16, "Unit circle with 0.01 error should need >16 segs, got {n}");
+        assert!(n <= 128, "Should be within max");
+
+        // Loose chord error should give fewer segments
+        let n_loose = segments_for_chord_error(1.0, 1.0, 8, 128);
+        assert_eq!(n_loose, 8, "Chord error >= radius should give min segments");
+
+        // Tight chord error should give more
+        let n_tight = segments_for_chord_error(1.0, 0.001, 8, 128);
+        assert!(n_tight > n, "Tighter error should need more segments: tight={n_tight}, normal={n}");
+    }
+
+    #[test]
+    fn test_segments_for_chord_error_large_radius() {
+        // Larger radius needs more segments for same error
+        let n_small = segments_for_chord_error(1.0, 0.01, 8, 256);
+        let n_large = segments_for_chord_error(10.0, 0.01, 8, 256);
+        assert!(n_large > n_small,
+            "Larger radius should need more segments: large={n_large}, small={n_small}");
+    }
+
+    #[test]
+    fn test_segments_for_chord_error_clamping() {
+        // Should clamp to min
+        let n = segments_for_chord_error(0.001, 100.0, 12, 128);
+        assert_eq!(n, 12, "Should clamp to min_segments");
+
+        // Should clamp to max
+        let n = segments_for_chord_error(1000.0, 0.0001, 8, 64);
+        assert_eq!(n, 64, "Should clamp to max_segments");
+    }
+
+    #[test]
+    fn test_segments_for_chord_error_edge_cases() {
+        assert_eq!(segments_for_chord_error(0.0, 0.01, 8, 128), 8, "Zero radius returns min");
+        assert_eq!(segments_for_chord_error(1.0, 0.0, 8, 128), 8, "Zero error returns min");
+        assert_eq!(segments_for_chord_error(-1.0, 0.01, 8, 128), 8, "Negative radius returns min");
+    }
+
+    #[test]
+    fn test_adaptive_tessellation_config_default() {
+        let config = TessellationConfig::default();
+        assert_eq!(config.max_chord_error, 0.01);
+        assert_eq!(config.min_segments, 8);
+        assert_eq!(config.max_segments, 128);
+        assert_eq!(config.default_segments, 16);
+    }
+
+    #[test]
+    fn test_adaptive_box_same_regardless_of_chord_error() {
+        // Planar faces should produce the same triangle count regardless of chord error
+        let mut store = EntityStore::new();
+        let solid_id = make_box(&mut store, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0);
+
+        let tight = TessellationConfig {
+            max_chord_error: 0.001,
+            ..TessellationConfig::default()
+        };
+        let loose = TessellationConfig {
+            max_chord_error: 1.0,
+            ..TessellationConfig::default()
+        };
+
+        let mesh_tight = tessellate_solid_adaptive(&store, solid_id, &tight);
+        let mesh_loose = tessellate_solid_adaptive(&store, solid_id, &loose);
+        let mesh_default = tessellate_solid(&store, solid_id);
+
+        assert_eq!(mesh_tight.triangle_count(), mesh_loose.triangle_count(),
+            "Box should have same tri count regardless of chord error");
+        assert_eq!(mesh_tight.triangle_count(), mesh_default.triangle_count(),
+            "Adaptive box should match default box tessellation");
+    }
+
+    #[test]
+    fn test_adaptive_sphere_tight_more_tris() {
+        use cad_kernel::geometry::surfaces::{Sphere, Surface};
+
+        // Test the surface grid tessellation directly with adaptive divisions
+        let sphere = Surface::Sphere(Sphere::new(Point3d::ORIGIN, 5.0));
+
+        let tight = TessellationConfig {
+            max_chord_error: 0.001,
+            ..TessellationConfig::default()
+        };
+        let loose = TessellationConfig {
+            max_chord_error: 1.0,
+            ..TessellationConfig::default()
+        };
+
+        let (u_tight, v_tight) = adaptive_divisions(&sphere, &tight);
+        let (u_loose, v_loose) = adaptive_divisions(&sphere, &loose);
+
+        assert!(u_tight > u_loose,
+            "Tight chord error should yield more u divisions: tight={u_tight}, loose={u_loose}");
+        assert!(v_tight > v_loose,
+            "Tight chord error should yield more v divisions: tight={v_tight}, loose={v_loose}");
+
+        // Verify minimum segments are respected
+        assert!(u_loose >= 8, "Loose should still have >= min_segments");
+        assert!(v_loose >= 4, "Loose v should be >= min/2");
+    }
+
+    #[test]
+    fn test_adaptive_cylinder_divisions() {
+        use cad_kernel::geometry::surfaces::{Cylinder, Surface};
+
+        let cyl = Surface::Cylinder(Cylinder::new(Point3d::ORIGIN, Vec3::Z, 10.0));
+
+        let config = TessellationConfig {
+            max_chord_error: 0.01,
+            ..TessellationConfig::default()
+        };
+
+        let (u_divs, v_divs) = adaptive_divisions(&cyl, &config);
+        // Cylinder with R=10, error=0.01 needs many segments
+        assert!(u_divs > 16, "R=10 cylinder with 0.01 error should need >16 u-segs, got {u_divs}");
+        // v is linear for cylinders
+        assert_eq!(v_divs, 1, "Cylinder v is linear, should be 1");
+    }
+
+    #[test]
+    fn test_adaptive_torus_divisions() {
+        use cad_kernel::geometry::surfaces::{Torus, Surface};
+
+        let torus = Surface::Torus(Torus::new(Point3d::ORIGIN, Vec3::Z, 10.0, 2.0));
+
+        let config = TessellationConfig::default();
+        let (u_divs, v_divs) = adaptive_divisions(&torus, &config);
+
+        // Major radius is larger so should need more segments
+        assert!(u_divs > v_divs,
+            "Torus major (R=10) should need more segs than minor (r=2): u={u_divs}, v={v_divs}");
+    }
+
+    #[test]
+    fn test_backwards_compat_tessellate_solid_unchanged() {
+        // tessellate_solid without config should produce same results as before
+        let mut store = EntityStore::new();
+        let solid_id = make_box(&mut store, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0);
+
+        let mesh = tessellate_solid(&store, solid_id);
+        assert_eq!(mesh.vertex_count(), 8, "Box should still have 8 vertices");
+        assert_eq!(mesh.triangle_count(), 12, "Box should still have 12 triangles");
     }
 }

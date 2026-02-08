@@ -2,7 +2,9 @@ pub mod chamfer;
 pub mod extrude;
 pub mod feature;
 pub mod fillet;
+pub mod loft;
 pub mod revolve;
+pub mod sweep;
 
 use std::fmt;
 
@@ -28,6 +30,16 @@ pub enum OperationError {
         required: usize,
         provided: usize,
     },
+    /// Loft profiles have different vertex counts.
+    ProfileMismatch {
+        bottom_count: usize,
+        top_count: usize,
+    },
+    /// Path has too few points for a sweep.
+    InsufficientPath {
+        required: usize,
+        provided: usize,
+    },
 }
 
 impl fmt::Display for OperationError {
@@ -43,6 +55,12 @@ impl fmt::Display for OperationError {
             Self::EdgeNotFound => write!(f, "specified edge not found on solid"),
             Self::InsufficientSegments { required, provided } => {
                 write!(f, "need at least {required} segments, got {provided}")
+            }
+            Self::ProfileMismatch { bottom_count, top_count } => {
+                write!(f, "loft profiles have different vertex counts: bottom={bottom_count}, top={top_count}")
+            }
+            Self::InsufficientPath { required, provided } => {
+                write!(f, "path has {provided} points, need at least {required}")
             }
         }
     }

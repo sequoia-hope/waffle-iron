@@ -8,13 +8,18 @@ use cad_kernel::operations::feature::{
     BooleanOpType, Feature, FeatureTree, Parameter, SketchConstraint, SketchProfile,
 };
 use cad_kernel::operations::fillet::fillet_edge;
+use cad_kernel::operations::loft::loft_profiles;
 use cad_kernel::operations::revolve::revolve_profile;
+use cad_kernel::operations::sweep::sweep_profile;
 use cad_kernel::topology::brep::EntityStore;
 use cad_kernel::topology::primitives;
 use cad_kernel::boolean::engine::{boolean_op, BoolOp};
 use cad_kernel::validation::audit::full_verify;
 use cad_solver::{Constraint, Sketch, SolverConfig, SolverWarning, solve_sketch, degrees_of_freedom};
-use cad_tessellation::{tessellate_solid, mesh_to_obj, mesh_to_stl, TriangleMesh};
+use cad_tessellation::{
+    tessellate_solid, tessellate_solid_adaptive, mesh_to_obj, mesh_to_stl, mesh_to_3mf,
+    TessellationConfig, TriangleMesh,
+};
 
 /// The main CAD engine state, designed to be used from WASM.
 #[derive(Default)]
@@ -175,6 +180,34 @@ impl CadEngine {
         Ok(self.solids.len() - 1)
     }
 
+    /// Loft between two polygon profiles. Returns the solid index.
+    pub fn loft_polygons(
+        &mut self,
+        bottom: &[(f64, f64, f64)],
+        top: &[(f64, f64, f64)],
+    ) -> Result<usize, String> {
+        let bottom_pts: Vec<Point3d> = bottom.iter().map(|&(x, y, z)| Point3d::new(x, y, z)).collect();
+        let top_pts: Vec<Point3d> = top.iter().map(|&(x, y, z)| Point3d::new(x, y, z)).collect();
+        let solid_id = loft_profiles(&mut self.store, &bottom_pts, &top_pts)
+            .map_err(|e| format!("Loft failed: {e}"))?;
+        self.solids.push(solid_id);
+        Ok(self.solids.len() - 1)
+    }
+
+    /// Sweep a polygon profile along a polyline path. Returns the solid index.
+    pub fn sweep_polygon(
+        &mut self,
+        profile: &[(f64, f64, f64)],
+        path: &[(f64, f64, f64)],
+    ) -> Result<usize, String> {
+        let prof_pts: Vec<Point3d> = profile.iter().map(|&(x, y, z)| Point3d::new(x, y, z)).collect();
+        let path_pts: Vec<Point3d> = path.iter().map(|&(x, y, z)| Point3d::new(x, y, z)).collect();
+        let solid_id = sweep_profile(&mut self.store, &prof_pts, &path_pts)
+            .map_err(|e| format!("Sweep failed: {e}"))?;
+        self.solids.push(solid_id);
+        Ok(self.solids.len() - 1)
+    }
+
     // ── Edge operations ─────────────────────────────────────────────
 
     /// Chamfer an edge of a solid. Returns new solid index.
@@ -251,6 +284,24 @@ impl CadEngine {
         MeshData::from(mesh)
     }
 
+    /// Tessellate a solid with adaptive curvature-based segment counts.
+    ///
+    /// `chord_error` controls mesh quality: smaller values produce more
+    /// triangles for curved surfaces. Planar faces are unaffected.
+    /// Pass `None` to use the default chord error (0.01).
+    pub fn tessellate_adaptive(&self, solid_idx: usize, chord_error: Option<f64>) -> MeshData {
+        let solid_id = self.solids[solid_idx];
+        let config = match chord_error {
+            Some(err) => TessellationConfig {
+                max_chord_error: err,
+                ..TessellationConfig::default()
+            },
+            None => TessellationConfig::default(),
+        };
+        let mesh = tessellate_solid_adaptive(&self.store, solid_id, &config);
+        MeshData::from(mesh)
+    }
+
     /// Export a solid to OBJ format.
     pub fn export_obj(&self, solid_idx: usize) -> String {
         let solid_id = self.solids[solid_idx];
@@ -263,6 +314,13 @@ impl CadEngine {
         let solid_id = self.solids[solid_idx];
         let mesh = tessellate_solid(&self.store, solid_id);
         mesh_to_stl(&mesh)
+    }
+
+    /// Export a solid to 3MF model XML format.
+    pub fn export_3mf(&self, solid_idx: usize) -> String {
+        let solid_id = self.solids[solid_idx];
+        let mesh = tessellate_solid(&self.store, solid_id);
+        mesh_to_3mf(&mesh)
     }
 
     // ── Model queries ───────────────────────────────────────────────
@@ -406,6 +464,23 @@ impl CadEngine {
             axis_direction: [axis_direction.0, axis_direction.1, axis_direction.2],
             angle: Parameter::new("revolve_angle", angle),
             segments,
+        })
+    }
+
+    /// Add a loft feature between two sketch profiles.
+    pub fn add_loft_feature(&mut self, bottom_sketch_idx: usize, top_sketch_idx: usize) -> usize {
+        self.feature_tree.add_feature(Feature::Loft {
+            bottom_sketch_index: bottom_sketch_idx,
+            top_sketch_index: top_sketch_idx,
+        })
+    }
+
+    /// Add a sweep feature with a sketch profile and a path.
+    pub fn add_sweep_feature(&mut self, sketch_idx: usize, path: &[(f64, f64, f64)]) -> usize {
+        let path_pts: Vec<[f64; 3]> = path.iter().map(|&(x, y, z)| [x, y, z]).collect();
+        self.feature_tree.add_feature(Feature::Sweep {
+            sketch_index: sketch_idx,
+            path: path_pts,
         })
     }
 
@@ -772,6 +847,20 @@ mod tests {
         let idx = engine.create_box(0.0, 0.0, 0.0, 1.0, 1.0, 1.0);
         let stl = engine.export_stl(idx);
         assert!(stl.len() > 84);
+    }
+
+    #[test]
+    fn test_engine_export_3mf() {
+        let mut engine = CadEngine::new();
+        let idx = engine.create_box(0.0, 0.0, 0.0, 1.0, 1.0, 1.0);
+        let xml = engine.export_3mf(idx);
+        assert!(xml.contains("<model unit=\"millimeter\""));
+        assert!(xml.contains("<vertices>"));
+        assert!(xml.contains("<triangles>"));
+        let vertex_count = xml.matches("<vertex ").count();
+        let triangle_count = xml.matches("<triangle ").count();
+        assert_eq!(vertex_count, 8, "3MF should have 8 welded vertices for a box");
+        assert_eq!(triangle_count, 12, "3MF should have 12 triangles for a box");
     }
 
     #[test]
