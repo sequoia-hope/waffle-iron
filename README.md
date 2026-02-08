@@ -129,6 +129,12 @@ cargo run -p cad-render      # generate SVG renders + OBJ/STL exports (~50s)
 
 Exported mesh files are written to `docs/exports/` (OBJ, STL).
 
+After cloning, enable the pre-push hook so README renders stay current:
+
+```bash
+git config core.hooksPath .githooks
+```
+
 ## Tests
 
 403 tests across 5 crates:

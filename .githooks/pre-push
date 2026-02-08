@@ -1,0 +1,20 @@
+#!/bin/bash
+# Pre-push hook: regenerate docs renders and stage them if changed.
+# This ensures README images always reflect the current codebase.
+#
+# Setup: git config core.hooksPath .githooks
+
+set -e
+
+echo "pre-push: regenerating docs/renders..."
+cargo run -p cad-render --release --quiet 2>/dev/null
+
+# Check if any renders changed
+if ! git diff --quiet docs/renders/ docs/exports/ 2>/dev/null; then
+    echo "pre-push: renders changed, amending commit..."
+    git add docs/renders/ docs/exports/
+    git commit --amend --no-edit --no-verify
+    echo "pre-push: renders updated and committed."
+else
+    echo "pre-push: renders are up to date."
+fi
