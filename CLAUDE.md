@@ -1,5 +1,13 @@
 # Open-Source Parametric CAD System — Agent Team Guide
 
+## Setup
+
+After cloning, run this once to enable the pre-push hook that keeps README renders current:
+
+```bash
+git config core.hooksPath .githooks
+```
+
 ## Project Vision
 
 Build a production-grade open-source parametric CAD system competitive with SolidWorks and Onshape. The core bottleneck is the CAD kernel — no adequate open-source B-Rep kernel exists today. OpenCASCADE is unmaintainable, FreeCAD has never been good enough, and every other option is incomplete. Coding agents make a clean-sheet kernel feasible for the first time.
