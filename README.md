@@ -79,6 +79,14 @@ crates/
 - Full geometry verification (edge parameterization, surface containment, tolerance-based)
 - Structured tracing instrumentation on key operations
 
+**Hierarchical BRepValidator**
+- Level 0-1: Topology (Euler-Poincare, twin consistency, loop closure, vertex-on-curve)
+- Level 2: Geometric consistency (SameParameter edge-surface check, degenerate edge/face detection)
+- Level 3: Spatial coherence (free edges, non-manifold edges, self-intersection via sweep-and-prune)
+- Level 5: Continuity (G0 positional, G1 tangent measurement across shared edges)
+- Structured `ValidationReport` with error codes, numeric values, and tolerance thresholds
+- Operation test harness with pre/post validation and volume delta tracking
+
 **Solid Operations**
 - Primitives: box, cylinder, sphere (configurable segment counts)
 - Extrude: arbitrary 2D profiles along a direction
@@ -115,17 +123,17 @@ crates/
 
 ```bash
 cargo build --workspace
-cargo test --workspace       # 330 tests
-cargo run -p cad-render      # generate SVG renders + OBJ/STL exports
+cargo test --workspace       # 403 tests
+cargo run -p cad-render      # generate SVG renders + OBJ/STL exports (~50s)
 ```
 
 Exported mesh files are written to `docs/exports/` (OBJ, STL).
 
 ## Tests
 
-330 tests across 5 crates:
-- **189** kernel (topology, geometry, boolean, surface intersection, face splitting, operations, validation, traits)
-- **27** property-based (proptest: random AABB booleans, transforms, vectors, primitives, volume identity)
-- **47** solver (13 constraint types, DOF tracking, over/under-constrained detection, edge cases)
-- **36** tessellation (ear-clipping, mesh quality, feature tree validation, OBJ/STL export)
-- **31** wasm-bridge (primitives, features, constraints, boolean, DOF, solver warnings, export)
+403 tests across 5 crates:
+- **228** kernel (topology, geometry, boolean, surface intersection, face splitting, operations, validation, traits)
+- **32** property-based (proptest: random AABB booleans, transforms, vectors, primitives, volume identity)
+- **60** solver (13 constraint types, DOF tracking, over/under-constrained detection, edge cases)
+- **51** tessellation (ear-clipping, mesh quality, feature tree validation, OBJ/STL export)
+- **32** wasm-bridge (primitives, features, constraints, boolean, DOF, solver warnings, export)

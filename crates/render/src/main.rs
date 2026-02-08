@@ -14,6 +14,7 @@ use cad_kernel::topology::brep::EntityStore;
 use cad_kernel::topology::primitives::{make_box, make_cylinder, make_sphere};
 use cad_tessellation::{mesh_to_obj, mesh_to_stl, tessellate_solid, validate_mesh, TriangleMesh};
 use std::fs;
+use std::time::Instant;
 
 /// Simple isometric projection: 3D -> 2D
 fn project(x: f64, y: f64, z: f64) -> (f64, f64) {
@@ -191,6 +192,7 @@ fn validate_and_report(name: &str, mesh: &TriangleMesh) {
 }
 
 fn main() {
+    let total_start = Instant::now();
     fs::create_dir_all("docs/renders").expect("create docs/renders dir");
     fs::create_dir_all("docs/exports").expect("create docs/exports dir");
 
@@ -582,8 +584,9 @@ fn main() {
     {
         let mut tree = FeatureTree::new();
 
-        // Large cylinder base (approximated as 24-sided polygon)
-        let n_sides = 48;
+        // Polygonal cylinder (24-gon: smooth enough for renders without
+        // making boolean classify_point prohibitively slow)
+        let n_sides = 24;
         let r1 = 5.0;
         let pts1: Vec<[f64; 2]> = (0..n_sides)
             .map(|i| {
@@ -635,12 +638,14 @@ fn main() {
         let mut store = EntityStore::new();
         let solids = tree.evaluate(&mut store).expect("stepped shaft");
         let mesh = tessellate_solid(&store, *solids.last().unwrap());
-        let svg = mesh_to_svg(&mesh, 400.0, 350.0, "Stepped Shaft (48-gon, boolean union)");
+        let svg = mesh_to_svg(&mesh, 400.0, 350.0, "Stepped Shaft (24-gon, boolean union)");
         fs::write("docs/renders/ft_stepped_shaft.svg", svg).unwrap();
         validate_and_report("ft_stepped_shaft", &mesh);
         fs::write("docs/exports/ft_stepped_shaft.obj", mesh_to_obj(&mesh)).unwrap();
     }
 
+    let elapsed = total_start.elapsed();
     println!("\nSVGs written to docs/renders/");
     println!("OBJ/STL files written to docs/exports/");
+    println!("Total render time: {:.1}s", elapsed.as_secs_f64());
 }
