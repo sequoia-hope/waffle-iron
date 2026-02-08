@@ -70,13 +70,17 @@ pub fn classify_point(
 }
 
 /// Count the number of times a ray crosses the boundary of a solid.
+///
+/// Collects all hit `t` parameters, then deduplicates hits that are within
+/// tolerance of each other.  This avoids double-counting when multiple
+/// coplanar faces (e.g. grid-decomposed quads) lie on the same plane.
 fn count_ray_crossings(
     store: &EntityStore,
     solid_id: SolidId,
     ray: &Ray,
     tolerance: f64,
 ) -> usize {
-    let mut crossings = 0;
+    let mut hit_ts: Vec<f64> = Vec::new();
     let solid = &store.solids[solid_id];
 
     for &shell_id in &solid.shells {
@@ -88,9 +92,8 @@ fn count_ray_crossings(
                 crate::geometry::surfaces::Surface::Plane(plane) => {
                     if let Some(hit) = intersection::ray_plane(ray, plane) {
                         if hit.t > tolerance {
-                            // Check if hit point is within the face boundary
                             if is_point_in_face_2d(store, face_id, &hit.point, tolerance) {
-                                crossings += 1;
+                                hit_ts.push(hit.t);
                             }
                         }
                     }
@@ -99,7 +102,7 @@ fn count_ray_crossings(
                     let hits = intersection::ray_sphere(ray, sphere);
                     for hit in hits {
                         if hit.t > tolerance {
-                            crossings += 1;
+                            hit_ts.push(hit.t);
                         }
                     }
                 }
@@ -107,8 +110,7 @@ fn count_ray_crossings(
                     let hits = intersection::ray_cylinder(ray, cyl);
                     for hit in hits {
                         if hit.t > tolerance {
-                            // Simplified: accept all hits (proper implementation would check face bounds)
-                            crossings += 1;
+                            hit_ts.push(hit.t);
                         }
                     }
                 }
@@ -119,7 +121,28 @@ fn count_ray_crossings(
         }
     }
 
-    crossings
+    // Deduplicate hits at (nearly) the same t — coplanar faces produce
+    // multiple hits at the same distance along the ray.
+    deduplicate_crossings(&mut hit_ts, tolerance)
+}
+
+/// Sort hit parameters and merge clusters within `tolerance` of each other.
+/// Returns the number of distinct crossings.
+fn deduplicate_crossings(ts: &mut Vec<f64>, tolerance: f64) -> usize {
+    if ts.is_empty() {
+        return 0;
+    }
+    ts.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut count = 1;
+    let mut last = ts[0];
+    for &t in ts.iter().skip(1) {
+        if (t - last).abs() > tolerance {
+            count += 1;
+        }
+        last = t;
+    }
+    count
 }
 
 /// Check if a point is approximately within a face (simplified 2D point-in-polygon).
@@ -205,6 +228,7 @@ fn is_point_near_face(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::boolean::engine::{boolean_op, estimate_volume, BoolOp};
     use crate::topology::primitives::make_box;
 
     #[test]
@@ -225,5 +249,72 @@ mod tests {
         let outside = Point3d::new(20.0, 20.0, 20.0);
         let result = classify_point(&store, solid_id, &outside, 1e-7);
         assert_eq!(result, PointClassification::Outside);
+    }
+
+    #[test]
+    fn test_classify_correct_for_boolean_union() {
+        let mut store = EntityStore::new();
+        let a = make_box(&mut store, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0);
+        let b = make_box(&mut store, 1.0, 1.0, 1.0, 3.0, 3.0, 3.0);
+        let union_id = boolean_op(&mut store, a, b, BoolOp::Union).unwrap();
+
+        let tol = 1e-7;
+        assert_eq!(classify_point(&store, union_id, &Point3d::new(0.5, 0.5, 0.5), tol),
+            PointClassification::Inside, "inside A only");
+        assert_eq!(classify_point(&store, union_id, &Point3d::new(2.5, 2.5, 2.5), tol),
+            PointClassification::Inside, "inside B only");
+        assert_eq!(classify_point(&store, union_id, &Point3d::new(1.5, 1.5, 1.5), tol),
+            PointClassification::Inside, "inside A and B");
+        assert_eq!(classify_point(&store, union_id, &Point3d::new(-1.0, -1.0, -1.0), tol),
+            PointClassification::Outside, "outside both");
+        assert_eq!(classify_point(&store, union_id, &Point3d::new(4.0, 4.0, 4.0), tol),
+            PointClassification::Outside, "far outside both");
+    }
+
+    #[test]
+    fn test_union_volume_estimate() {
+        let mut store = EntityStore::new();
+        let a = make_box(&mut store, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0);
+        let b = make_box(&mut store, 1.0, 1.0, 1.0, 3.0, 3.0, 3.0);
+        let union_id = boolean_op(&mut store, a, b, BoolOp::Union).unwrap();
+
+        // vol(A) = 8, vol(B) = 8, vol(A cap B) = 1, vol(A cup B) = 15
+        let vol = estimate_volume(&store, union_id, 100_000);
+        let rel_error = (vol - 15.0).abs() / 15.0;
+        assert!(rel_error < 0.10,
+            "Union volume: MC={:.3}, expected=15.0, rel_error={:.3}", vol, rel_error);
+    }
+
+    #[test]
+    fn test_difference_volume_estimate() {
+        let mut store = EntityStore::new();
+        let a = make_box(&mut store, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0);
+        let b = make_box(&mut store, 1.0, 1.0, 1.0, 3.0, 3.0, 3.0);
+        let diff_id = boolean_op(&mut store, a, b, BoolOp::Difference).unwrap();
+
+        // vol(A \ B) = vol(A) - vol(A cap B) = 8 - 1 = 7
+        let vol = estimate_volume(&store, diff_id, 100_000);
+        let rel_error = (vol - 7.0).abs() / 7.0;
+        assert!(rel_error < 0.10,
+            "Difference volume: MC={:.3}, expected=7.0, rel_error={:.3}", vol, rel_error);
+    }
+
+    #[test]
+    fn test_deduplicate_crossings_basic() {
+        let mut ts = vec![];
+        assert_eq!(deduplicate_crossings(&mut ts, 1e-7), 0);
+
+        let mut ts = vec![1.0];
+        assert_eq!(deduplicate_crossings(&mut ts, 1e-7), 1);
+
+        let mut ts = vec![1.0, 5.0];
+        assert_eq!(deduplicate_crossings(&mut ts, 1e-7), 2);
+
+        // Two hits at same t -> 1 crossing (coplanar faces)
+        let mut ts = vec![1.0, 1.0 + 1e-10, 5.0];
+        assert_eq!(deduplicate_crossings(&mut ts, 1e-7), 2);
+
+        let mut ts = vec![3.0, 3.0 + 1e-10, 3.0 + 2e-10, 3.0 + 3e-10];
+        assert_eq!(deduplicate_crossings(&mut ts, 1e-7), 1);
     }
 }

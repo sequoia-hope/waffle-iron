@@ -1,6 +1,6 @@
 use super::curves::{Line3d, Ray};
 use super::point::Point3d;
-use super::surfaces::{Plane, Sphere, Cylinder, Surface};
+use super::surfaces::{Cone, Cylinder, Plane, Sphere, Surface, Torus};
 use super::vector::Vec3;
 
 /// Result of a curve-curve intersection.
@@ -149,6 +149,335 @@ pub fn ray_cylinder(ray: &Ray, cyl: &Cylinder) -> Vec<RaySurfaceHit> {
 
     hits.sort_by(|a, b| a.t.partial_cmp(&b.t).unwrap());
     hits
+}
+
+// ─── Ray-Cone Intersection ─────────────────────────────────────────────────
+
+/// Intersect a ray with an infinite double cone.
+///
+/// The cone is defined by apex, axis direction, and half-angle.
+/// The equation is: (P-apex)·axis)² = |P-apex|² cos²(half_angle)
+/// which rearranges to a standard quadratic in t.
+pub fn ray_cone(ray: &Ray, cone: &Cone) -> Vec<RaySurfaceHit> {
+    let co = ray.origin - cone.apex;
+    let cos_a = cone.half_angle.cos();
+    let cos2 = cos_a * cos_a;
+
+    let d_dot_a = ray.direction.dot(&cone.axis);
+    let co_dot_a = co.dot(&cone.axis);
+
+    let a = d_dot_a * d_dot_a - cos2 * ray.direction.dot(&ray.direction);
+    let b = 2.0 * (d_dot_a * co_dot_a - cos2 * co.dot(&ray.direction));
+    let c = co_dot_a * co_dot_a - cos2 * co.dot(&co);
+
+    let discriminant = b * b - 4.0 * a * c;
+
+    if discriminant < -1e-12 {
+        return vec![];
+    }
+    let discriminant = discriminant.max(0.0);
+
+    // Handle degenerate case where ray is along the cone surface (a ≈ 0)
+    if a.abs() < 1e-15 {
+        if b.abs() < 1e-15 {
+            return vec![];
+        }
+        let t = -c / b;
+        if t >= 0.0 {
+            let point = ray.at(t);
+            let normal = cone_normal(cone, &point);
+            return vec![RaySurfaceHit { point, t, normal }];
+        }
+        return vec![];
+    }
+
+    let sqrt_disc = discriminant.sqrt();
+    let mut hits = vec![];
+
+    for sign in [-1.0, 1.0] {
+        let t = (-b + sign * sqrt_disc) / (2.0 * a);
+        if t >= 0.0 {
+            let point = ray.at(t);
+            let normal = cone_normal(cone, &point);
+            hits.push(RaySurfaceHit { point, t, normal });
+        }
+    }
+
+    hits.sort_by(|a, b| a.t.partial_cmp(&b.t).unwrap());
+    hits
+}
+
+/// Compute the outward normal of a cone at a given point.
+fn cone_normal(cone: &Cone, point: &Point3d) -> Vec3 {
+    let v = *point - cone.apex;
+    let v_along = cone.axis * v.dot(&cone.axis);
+    let v_radial = v - v_along;
+    let radial_len = v_radial.length();
+    if radial_len < 1e-15 {
+        // At the apex — normal is undefined; return axis as fallback
+        return cone.axis;
+    }
+    let radial_dir = v_radial * (1.0 / radial_len);
+    // Normal is perpendicular to the cone surface: tilt radial outward by (90° - half_angle)
+    let cos_a = cone.half_angle.cos();
+    let sin_a = cone.half_angle.sin();
+    // Determine which side of apex the point is on
+    let along_dist = v.dot(&cone.axis);
+    let axis_sign = if along_dist >= 0.0 { 1.0 } else { -1.0 };
+    (radial_dir * cos_a - cone.axis * sin_a * axis_sign).normalize()
+}
+
+// ─── Ray-Torus Intersection ────────────────────────────────────────────────
+
+/// Intersect a ray with a torus.
+///
+/// The torus is centered at `center` with axis `axis`, major radius `R`, and
+/// minor radius `r`. The implicit equation in the torus local frame (axis = Z) is:
+///   (x² + y² + z² + R² - r²)² = 4R²(x² + y²)
+///
+/// Substituting the parametric ray P = O + tD gives a quartic in t.
+/// We solve using the depressed quartic / Ferrari's method.
+pub fn ray_torus(ray: &Ray, torus: &Torus) -> Vec<RaySurfaceHit> {
+    let big_r = torus.major_radius;
+    let small_r = torus.minor_radius;
+
+    // Transform ray into torus local frame where axis = Z and center = origin
+    let (local_origin, local_dir) = to_torus_local(ray, torus);
+
+    let ox = local_origin.x;
+    let oy = local_origin.y;
+    let oz = local_origin.z;
+    let dx = local_dir.x;
+    let dy = local_dir.y;
+    let dz = local_dir.z;
+
+    // Precompute dot products in local frame
+    let sum_d2 = dx * dx + dy * dy + dz * dz; // should be 1 for normalized ray
+    let sum_od = ox * dx + oy * dy + oz * dz;
+    let sum_o2 = ox * ox + oy * oy + oz * oz;
+
+    let r2 = big_r * big_r;
+    let s2 = small_r * small_r;
+    let k = sum_o2 - r2 - s2;
+
+    // Quartic coefficients: a4*t^4 + a3*t^3 + a2*t^2 + a1*t + a0 = 0
+    let a4 = sum_d2 * sum_d2;
+    let a3 = 4.0 * sum_d2 * sum_od;
+    let a2 = 2.0 * sum_d2 * k + 4.0 * sum_od * sum_od + 4.0 * r2 * dz * dz;
+    let a1 = 4.0 * k * sum_od + 8.0 * r2 * oz * dz;
+    let a0 = k * k - 4.0 * r2 * (s2 - oz * oz);
+
+    let roots = solve_quartic(a4, a3, a2, a1, a0);
+
+    let mut hits = Vec::new();
+    for t in roots {
+        if t >= -1e-10 {
+            let t = t.max(0.0);
+            let point = ray.at(t);
+            let normal = torus_normal(torus, &point);
+            hits.push(RaySurfaceHit { point, t, normal });
+        }
+    }
+
+    hits.sort_by(|a, b| a.t.partial_cmp(&b.t).unwrap());
+    // Deduplicate near-coincident hits (tangent touches)
+    hits.dedup_by(|a, b| (a.t - b.t).abs() < 1e-8);
+    hits
+}
+
+/// Transform a ray into the torus local coordinate frame (center=origin, axis=Z).
+fn to_torus_local(ray: &Ray, torus: &Torus) -> (Point3d, Vec3) {
+    let z_axis = torus.axis;
+    let x_axis = if z_axis.x.abs() < 0.9 {
+        Vec3::X.cross(&z_axis).normalize()
+    } else {
+        Vec3::Y.cross(&z_axis).normalize()
+    };
+    let y_axis = z_axis.cross(&x_axis);
+
+    let rel = ray.origin - torus.center;
+    let local_origin = Point3d::new(
+        rel.dot(&x_axis),
+        rel.dot(&y_axis),
+        rel.dot(&z_axis),
+    );
+    let local_dir = Vec3::new(
+        ray.direction.dot(&x_axis),
+        ray.direction.dot(&y_axis),
+        ray.direction.dot(&z_axis),
+    );
+    (local_origin, local_dir)
+}
+
+/// Compute the outward normal of a torus at a given point.
+fn torus_normal(torus: &Torus, point: &Point3d) -> Vec3 {
+    let v = *point - torus.center;
+    let along_axis = v.dot(&torus.axis);
+    let radial = v - torus.axis * along_axis;
+    let radial_len = radial.length();
+    if radial_len < 1e-15 {
+        return torus.axis;
+    }
+    let radial_dir = radial * (1.0 / radial_len);
+    // Center of the tube circle nearest to the point
+    let tube_center = torus.center + radial_dir * torus.major_radius;
+    (*point - tube_center).normalize()
+}
+
+// ─── Quartic Solver (Ferrari's method) ─────────────────────────────────────
+
+/// Solve a quartic equation: a*x^4 + b*x^3 + c*x^2 + d*x + e = 0
+/// Returns all real roots.
+fn solve_quartic(a: f64, b: f64, c: f64, d: f64, e: f64) -> Vec<f64> {
+    if a.abs() < 1e-15 {
+        return solve_cubic(b, c, d, e);
+    }
+
+    // Normalize: x^4 + px^3 + qx^2 + rx + s = 0
+    let p = b / a;
+    let q = c / a;
+    let r = d / a;
+    let s = e / a;
+
+    // Depressed quartic via substitution x = t - p/4:
+    // t^4 + alpha*t^2 + beta*t + gamma = 0
+    let p2 = p * p;
+    let alpha = q - 3.0 * p2 / 8.0;
+    let beta = r - p * q / 2.0 + p2 * p / 8.0;
+    let gamma = s - p * r / 4.0 + p2 * q / 16.0 - 3.0 * p2 * p2 / 256.0;
+
+    let shift = -p / 4.0;
+
+    if beta.abs() < 1e-15 {
+        // Biquadratic: t^4 + alpha*t^2 + gamma = 0
+        let disc = alpha * alpha - 4.0 * gamma;
+        if disc < -1e-15 {
+            return vec![];
+        }
+        let disc = disc.max(0.0).sqrt();
+        let mut roots = Vec::new();
+        for u2 in [(-alpha + disc) / 2.0, (-alpha - disc) / 2.0] {
+            if u2 >= -1e-15 {
+                let u = u2.max(0.0).sqrt();
+                roots.push(u + shift);
+                if u > 1e-10 {
+                    roots.push(-u + shift);
+                }
+            }
+        }
+        return roots;
+    }
+
+    // Ferrari's method: find a root of the resolvent cubic
+    // y^3 - alpha/2 * y^2 - gamma * y + (alpha*gamma - beta^2)/2 = 0
+    // which we write as: y^3 + c2*y^2 + c1*y + c0 = 0
+    let c2 = -alpha / 2.0;
+    let c1 = -gamma;
+    let c0 = (alpha * gamma - beta * beta) / 2.0;
+
+    let cubic_roots = solve_cubic(1.0, c2, c1, c0);
+
+    // Pick the resolvent root that gives a positive discriminant
+    let mut y = cubic_roots[0];
+    for &yr in &cubic_roots {
+        if 2.0 * yr - alpha > 1e-15 {
+            y = yr;
+            break;
+        }
+    }
+
+    let w2 = 2.0 * y - alpha;
+    if w2 < -1e-12 {
+        return vec![];
+    }
+    let w = w2.max(0.0).sqrt();
+
+    if w.abs() < 1e-12 {
+        // Degenerate case
+        return vec![];
+    }
+
+    let mut roots = Vec::new();
+
+    // Two quadratics: t^2 + w*t + (y + beta/(2w)) = 0
+    //                 t^2 - w*t + (y - beta/(2w)) = 0
+    let bw = beta / (2.0 * w);
+    for (sign_w, offset) in [(1.0, y + bw), (-1.0, y - bw)] {
+        let disc = sign_w * sign_w * w * w / 4.0 - offset;
+        if disc >= -1e-12 {
+            let sq = disc.max(0.0).sqrt();
+            roots.push(-sign_w * w / 2.0 + sq + shift);
+            roots.push(-sign_w * w / 2.0 - sq + shift);
+        }
+    }
+
+    roots
+}
+
+/// Solve a cubic equation: a*x^3 + b*x^2 + c*x + d = 0
+/// Returns all real roots using Cardano's method.
+fn solve_cubic(a: f64, b: f64, c: f64, d: f64) -> Vec<f64> {
+    if a.abs() < 1e-15 {
+        return solve_quadratic(b, c, d);
+    }
+
+    // Normalize: x^3 + px^2 + qx + r = 0
+    let p = b / a;
+    let q = c / a;
+    let r = d / a;
+
+    // Depressed cubic via x = t - p/3: t^3 + at + b = 0
+    let a_dep = q - p * p / 3.0;
+    let b_dep = r - p * q / 3.0 + 2.0 * p * p * p / 27.0;
+    let shift = -p / 3.0;
+
+    let disc = -4.0 * a_dep * a_dep * a_dep - 27.0 * b_dep * b_dep;
+
+    if disc > 1e-15 {
+        // Three distinct real roots (trigonometric method)
+        let m = (-a_dep / 3.0).sqrt();
+        let theta = (-b_dep / (2.0 * m * m * m)).acos() / 3.0;
+        let two_pi_3 = 2.0 * std::f64::consts::PI / 3.0;
+        vec![
+            2.0 * m * theta.cos() + shift,
+            2.0 * m * (theta - two_pi_3).cos() + shift,
+            2.0 * m * (theta + two_pi_3).cos() + shift,
+        ]
+    } else {
+        // One real root (Cardano's formula)
+        let half_b = b_dep / 2.0;
+        let q3_over_27 = a_dep * a_dep * a_dep / 27.0;
+        let inner = half_b * half_b + q3_over_27;
+        let sqrt_inner = inner.max(0.0).sqrt();
+
+        let u = cbrt(-half_b + sqrt_inner);
+        let v = cbrt(-half_b - sqrt_inner);
+        vec![u + v + shift]
+    }
+}
+
+fn cbrt(x: f64) -> f64 {
+    if x >= 0.0 {
+        x.cbrt()
+    } else {
+        -(-x).cbrt()
+    }
+}
+
+/// Solve a quadratic equation: a*x^2 + b*x + c = 0
+fn solve_quadratic(a: f64, b: f64, c: f64) -> Vec<f64> {
+    if a.abs() < 1e-15 {
+        if b.abs() < 1e-15 {
+            return vec![];
+        }
+        return vec![-c / b];
+    }
+    let disc = b * b - 4.0 * a * c;
+    if disc < -1e-15 {
+        return vec![];
+    }
+    let disc = disc.max(0.0).sqrt();
+    vec![(-b + disc) / (2.0 * a), (-b - disc) / (2.0 * a)]
 }
 
 // ─── Ray-AABB Intersection (for BVH) ──────────────────────────────────────
@@ -377,5 +706,257 @@ mod tests {
             &Point3d::new(1.0, 1.0, 1.0),
         );
         assert!(t.is_none());
+    }
+
+    // ── Ray-Cone Tests ─────────────────────────────────────────────
+
+    #[test]
+    fn test_ray_cone_through_axis() {
+        // Cone with apex at origin, axis along Z, half-angle 45°
+        let cone = Cone::new(Point3d::ORIGIN, Vec3::Z, std::f64::consts::FRAC_PI_4);
+        // Ray along X at z=5 — should hit at x=±5
+        let ray = Ray::new(Point3d::new(-10.0, 0.0, 5.0), Vec3::X);
+        let hits = ray_cone(&ray, &cone);
+        assert_eq!(hits.len(), 2, "Ray should hit cone twice, got {}", hits.len());
+        // At z=5 with half_angle=45°, radius = 5
+        assert!((hits[0].point.x - (-5.0)).abs() < 1e-8, "First hit x={}", hits[0].point.x);
+        assert!((hits[1].point.x - 5.0).abs() < 1e-8, "Second hit x={}", hits[1].point.x);
+    }
+
+    #[test]
+    fn test_ray_cone_along_axis() {
+        // Ray along the cone axis — hits at apex only (tangent)
+        let cone = Cone::new(Point3d::ORIGIN, Vec3::Z, std::f64::consts::FRAC_PI_4);
+        let ray = Ray::new(Point3d::new(0.0, 0.0, -10.0), Vec3::Z);
+        let hits = ray_cone(&ray, &cone);
+        // Ray along axis of double cone: passes through apex
+        assert!(!hits.is_empty(), "Ray along axis should hit cone");
+        // One of the hits should be near the apex
+        let near_apex = hits.iter().any(|h| h.point.distance_to(&Point3d::ORIGIN) < 1e-6);
+        assert!(near_apex, "One hit should be near apex");
+    }
+
+    #[test]
+    fn test_ray_cone_miss() {
+        let cone = Cone::new(Point3d::ORIGIN, Vec3::Z, 0.1); // narrow cone
+        // Ray perpendicular to axis but not intersecting: a ray parallel to Z that is
+        // far from the axis will always hit the double cone (which extends infinitely).
+        // Instead, use a ray perpendicular to the axis at a height where the cone
+        // radius is smaller than the ray offset.
+        // At z=1, radius = tan(0.1) ≈ 0.1003. Ray at y=5, z=1 along X misses.
+        let ray = Ray::new(Point3d::new(-10.0, 5.0, 1.0), Vec3::X);
+        let hits = ray_cone(&ray, &cone);
+        assert!(hits.is_empty(), "Ray should miss narrow cone, got {} hits", hits.len());
+    }
+
+    #[test]
+    fn test_ray_cone_tangent() {
+        // Cone with half-angle 45°, apex at origin, axis along Z
+        let cone = Cone::new(Point3d::ORIGIN, Vec3::Z, std::f64::consts::FRAC_PI_4);
+        // Ray tangent to cone: at z=1, the cone radius is 1.
+        // A ray at y=1 parallel to X at z=1 should be tangent
+        let ray = Ray::new(Point3d::new(-10.0, 1.0, 1.0), Vec3::X);
+        let hits = ray_cone(&ray, &cone);
+        // Tangent means discriminant ≈ 0, so we get 1 or 2 very close hits
+        assert!(!hits.is_empty(), "Tangent ray should produce hits");
+        if hits.len() == 2 {
+            assert!((hits[0].t - hits[1].t).abs() < 1e-4,
+                "Tangent hits should be nearly coincident");
+        }
+    }
+
+    #[test]
+    fn test_ray_cone_perpendicular_to_axis() {
+        // Cone apex at (0,0,0), axis Z, half-angle 30°
+        let angle = std::f64::consts::PI / 6.0; // 30°
+        let cone = Cone::new(Point3d::ORIGIN, Vec3::Z, angle);
+        // Ray perpendicular to axis at z=10
+        let ray = Ray::new(Point3d::new(-20.0, 0.0, 10.0), Vec3::X);
+        let hits = ray_cone(&ray, &cone);
+        assert_eq!(hits.len(), 2, "Should get 2 hits");
+        // At z=10, radius = 10 * tan(30°)
+        let expected_r = 10.0 * angle.tan();
+        assert!((hits[0].point.x.abs() - expected_r).abs() < 1e-6,
+            "Hit at x={}, expected ±{}", hits[0].point.x, expected_r);
+    }
+
+    #[test]
+    fn test_ray_cone_double_cone() {
+        // Double cone: a ray perpendicular to axis that passes through both nappes.
+        // Apex at (0,0,5), axis Z, half-angle 45°.
+        // At z=8 (3 above apex), upper nappe radius = 3. At z=2 (3 below apex), lower nappe radius = 3.
+        // A vertical ray at x=1, y=0 should hit the upper nappe at z=5+1=6 and z=5-1=4.
+        let cone = Cone::new(Point3d::new(0.0, 0.0, 5.0), Vec3::Z, std::f64::consts::FRAC_PI_4);
+        let ray = Ray::new(Point3d::new(1.0, 0.0, -10.0), Vec3::Z);
+        let hits = ray_cone(&ray, &cone);
+        assert_eq!(hits.len(), 2, "Ray should hit both nappes of double cone, got {}", hits.len());
+        let mut z_vals: Vec<f64> = hits.iter().map(|h| h.point.z).collect();
+        z_vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        // At x=1 with half-angle 45°, the cone surface is at z = apex_z ± 1
+        assert!((z_vals[0] - 4.0).abs() < 1e-6, "Lower nappe hit z={}, expected 4.0", z_vals[0]);
+        assert!((z_vals[1] - 6.0).abs() < 1e-6, "Upper nappe hit z={}, expected 6.0", z_vals[1]);
+    }
+
+    #[test]
+    fn test_ray_cone_normals_point_outward() {
+        let cone = Cone::new(Point3d::ORIGIN, Vec3::Z, std::f64::consts::FRAC_PI_4);
+        let ray = Ray::new(Point3d::new(-10.0, 0.0, 5.0), Vec3::X);
+        let hits = ray_cone(&ray, &cone);
+        for hit in &hits {
+            let to_point = hit.point - cone.apex;
+            let radial = to_point - cone.axis * to_point.dot(&cone.axis);
+            // Normal should have a component in the radial direction
+            assert!(hit.normal.dot(&radial) > -1e-6,
+                "Normal should point outward from cone axis");
+        }
+    }
+
+    // ── Ray-Torus Tests ────────────────────────────────────────────
+
+    #[test]
+    fn test_ray_torus_through_center() {
+        // Torus at origin, axis Z, R=5, r=1
+        let torus = Torus::new(Point3d::ORIGIN, Vec3::Z, 5.0, 1.0);
+        // Ray along X axis — should hit 4 times (enter outer, exit inner, enter inner, exit outer)
+        let ray = Ray::new(Point3d::new(-10.0, 0.0, 0.0), Vec3::X);
+        let hits = ray_torus(&ray, &torus);
+        assert_eq!(hits.len(), 4, "Ray through torus center should hit 4 times, got {}", hits.len());
+        // Hits at x = -6, -4, 4, 6
+        let expected_x = [-6.0, -4.0, 4.0, 6.0];
+        for (hit, &ex) in hits.iter().zip(expected_x.iter()) {
+            assert!((hit.point.x - ex).abs() < 1e-6,
+                "Expected x={}, got x={}", ex, hit.point.x);
+        }
+    }
+
+    #[test]
+    fn test_ray_torus_miss() {
+        let torus = Torus::new(Point3d::ORIGIN, Vec3::Z, 5.0, 1.0);
+        // Ray far above the torus
+        let ray = Ray::new(Point3d::new(-10.0, 0.0, 10.0), Vec3::X);
+        let hits = ray_torus(&ray, &torus);
+        assert!(hits.is_empty(), "Ray far above torus should miss");
+    }
+
+    #[test]
+    fn test_ray_torus_along_axis() {
+        let torus = Torus::new(Point3d::ORIGIN, Vec3::Z, 5.0, 1.0);
+        // Ray along the torus axis (Z axis)
+        let ray = Ray::new(Point3d::new(0.0, 0.0, -10.0), Vec3::Z);
+        let hits = ray_torus(&ray, &torus);
+        // The torus tube doesn't cross the axis (R=5 > r=1), so ray along axis misses
+        assert!(hits.is_empty(), "Ray along axis should miss torus when R > r");
+    }
+
+    #[test]
+    fn test_ray_torus_two_hits() {
+        // Ray that grazes just one tube of the torus
+        let torus = Torus::new(Point3d::ORIGIN, Vec3::Z, 5.0, 1.0);
+        // Ray at y=0, z=0 hitting from above at x=5 (center of tube)
+        let ray = Ray::new(Point3d::new(5.0, 0.0, 10.0), -Vec3::Z);
+        let hits = ray_torus(&ray, &torus);
+        assert_eq!(hits.len(), 2, "Ray through one tube should hit twice, got {}", hits.len());
+        // Hits at z = ±1 (tube radius)
+        assert!((hits[0].point.z - 1.0).abs() < 1e-6, "First hit z={}", hits[0].point.z);
+        assert!((hits[1].point.z - (-1.0)).abs() < 1e-6, "Second hit z={}", hits[1].point.z);
+    }
+
+    #[test]
+    fn test_ray_torus_normals_point_outward() {
+        let torus = Torus::new(Point3d::ORIGIN, Vec3::Z, 5.0, 1.0);
+        let ray = Ray::new(Point3d::new(-10.0, 0.0, 0.0), Vec3::X);
+        let hits = ray_torus(&ray, &torus);
+        for hit in &hits {
+            // Normal at hit point should point away from the nearest tube center
+            let v = hit.point - torus.center;
+            let along = torus.axis * v.dot(&torus.axis);
+            let radial = v - along;
+            let radial_dir = radial.normalize();
+            let tube_center = torus.center + radial_dir * torus.major_radius;
+            let to_surface = hit.point - tube_center;
+            // Normal should be roughly aligned with to_surface direction
+            let dot = hit.normal.dot(&to_surface.normalize());
+            assert!(dot > 0.5, "Normal should point outward from tube center, dot={}", dot);
+        }
+    }
+
+    #[test]
+    fn test_ray_torus_offset_center() {
+        // Torus not at origin
+        let torus = Torus::new(Point3d::new(10.0, 0.0, 0.0), Vec3::Z, 3.0, 0.5);
+        let ray = Ray::new(Point3d::new(0.0, 0.0, 0.0), Vec3::X);
+        let hits = ray_torus(&ray, &torus);
+        // Should hit: enter at x=10-3-0.5=6.5, exit at x=10-3+0.5=7.5,
+        //             enter at x=10+3-0.5=12.5, exit at x=10+3+0.5=13.5
+        assert_eq!(hits.len(), 4, "Should get 4 hits, got {}", hits.len());
+        let expected_x = [6.5, 7.5, 12.5, 13.5];
+        for (hit, &ex) in hits.iter().zip(expected_x.iter()) {
+            assert!((hit.point.x - ex).abs() < 1e-4,
+                "Expected x={}, got x={}", ex, hit.point.x);
+        }
+    }
+
+    #[test]
+    fn test_ray_torus_tangent_outer() {
+        // Ray tangent to the outer edge of torus
+        let torus = Torus::new(Point3d::ORIGIN, Vec3::Z, 5.0, 1.0);
+        // Outer radius = R + r = 6. Ray at y=6, parallel to X
+        let ray = Ray::new(Point3d::new(-10.0, 6.0, 0.0), Vec3::X);
+        let hits = ray_torus(&ray, &torus);
+        // Tangent to outer surface — should get 0 or 2 very close hits
+        assert!(hits.len() <= 2, "Tangent ray should produce <= 2 hits, got {}", hits.len());
+    }
+
+    // ── Quartic/Cubic Solver Tests ─────────────────────────────────
+
+    #[test]
+    fn test_solve_quadratic() {
+        // x^2 - 5x + 6 = 0 -> x = 2, 3
+        let roots = solve_quadratic(1.0, -5.0, 6.0);
+        assert_eq!(roots.len(), 2);
+        let mut sorted = roots.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert!((sorted[0] - 2.0).abs() < 1e-10);
+        assert!((sorted[1] - 3.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_solve_cubic_three_roots() {
+        // (x-1)(x-2)(x-3) = x^3 - 6x^2 + 11x - 6
+        let roots = solve_cubic(1.0, -6.0, 11.0, -6.0);
+        assert_eq!(roots.len(), 3, "Should have 3 roots, got {:?}", roots);
+        let mut sorted = roots.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert!((sorted[0] - 1.0).abs() < 1e-8, "Root 0: {}", sorted[0]);
+        assert!((sorted[1] - 2.0).abs() < 1e-8, "Root 1: {}", sorted[1]);
+        assert!((sorted[2] - 3.0).abs() < 1e-8, "Root 2: {}", sorted[2]);
+    }
+
+    #[test]
+    fn test_solve_quartic_four_roots() {
+        // (x-1)(x-2)(x-3)(x-4) = x^4 - 10x^3 + 35x^2 - 50x + 24
+        let roots = solve_quartic(1.0, -10.0, 35.0, -50.0, 24.0);
+        let mut sorted = roots.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        sorted.dedup_by(|a, b| (*a - *b).abs() < 1e-6);
+        assert_eq!(sorted.len(), 4, "Should have 4 roots, got {:?}", sorted);
+        assert!((sorted[0] - 1.0).abs() < 1e-6, "Root 0: {}", sorted[0]);
+        assert!((sorted[1] - 2.0).abs() < 1e-6, "Root 1: {}", sorted[1]);
+        assert!((sorted[2] - 3.0).abs() < 1e-6, "Root 2: {}", sorted[2]);
+        assert!((sorted[3] - 4.0).abs() < 1e-6, "Root 3: {}", sorted[3]);
+    }
+
+    #[test]
+    fn test_solve_quartic_biquadratic() {
+        // x^4 - 5x^2 + 4 = (x^2-1)(x^2-4) -> x = ±1, ±2
+        let roots = solve_quartic(1.0, 0.0, -5.0, 0.0, 4.0);
+        let mut sorted = roots.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        sorted.dedup_by(|a, b| (*a - *b).abs() < 1e-6);
+        assert_eq!(sorted.len(), 4, "Should have 4 roots, got {:?}", sorted);
+        assert!((sorted[0] - (-2.0)).abs() < 1e-6);
+        assert!((sorted[1] - (-1.0)).abs() < 1e-6);
+        assert!((sorted[2] - 1.0).abs() < 1e-6);
+        assert!((sorted[3] - 2.0).abs() < 1e-6);
     }
 }

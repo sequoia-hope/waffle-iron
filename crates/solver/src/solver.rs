@@ -1,6 +1,20 @@
 use crate::sketch::Sketch;
 use crate::constraint::{Constraint, SketchEntity};
+use nalgebra::{DMatrix, SVD};
 use thiserror::Error;
+
+/// Warnings produced during solving (non-fatal).
+#[derive(Debug, Clone, PartialEq)]
+pub enum SolverWarning {
+    /// The system has redundant constraints.
+    OverConstrained { redundant_constraints: usize },
+    /// Some parameters still have freedom after solving.
+    UnderConstrained {
+        dof: usize,
+        /// Indices of parameters that have the most freedom (from null-space analysis).
+        free_params: Vec<usize>,
+    },
+}
 
 /// Result of running the constraint solver.
 #[derive(Debug)]
@@ -9,6 +23,10 @@ pub struct SolverResult {
     pub iterations: usize,
     pub final_residual: f64,
     pub params: Vec<f64>,
+    /// Degrees of freedom after solving (0 = fully constrained).
+    pub dof: usize,
+    /// Any warnings about the constraint system.
+    pub warnings: Vec<SolverWarning>,
 }
 
 #[derive(Debug, Error)]
@@ -22,6 +40,106 @@ pub enum SolverError {
     UnderConstrained { dof: i64 },
     #[error("Over-constrained system: constraints are contradictory")]
     OverConstrained,
+}
+
+/// Compute the degrees of freedom of a sketch at its current state.
+///
+/// DOF = total_params - rank(Jacobian). A fully constrained sketch has DOF = 0.
+/// Uses SVD to determine the numerical rank of the Jacobian.
+pub fn degrees_of_freedom(sketch: &Sketch) -> usize {
+    let n = sketch.params.len();
+    if n == 0 {
+        return 0;
+    }
+    if sketch.constraints.is_empty() {
+        return n;
+    }
+
+    let residuals = collect_residuals(sketch, &sketch.params);
+    let m = residuals.len();
+    if m == 0 {
+        return n;
+    }
+
+    let jac_flat = build_jacobian(sketch, &sketch.params, m, n);
+    let rank = jacobian_rank(&jac_flat, m, n);
+    n.saturating_sub(rank)
+}
+
+/// Analyze the constraint system for over/under-constrained conditions.
+/// Returns (dof, warnings).
+fn analyze_constraints(sketch: &Sketch, params: &[f64]) -> (usize, Vec<SolverWarning>) {
+    let n = params.len();
+    let mut warnings = Vec::new();
+
+    if n == 0 || sketch.constraints.is_empty() {
+        return (n, warnings);
+    }
+
+    let residuals = collect_residuals(sketch, params);
+    let m = residuals.len();
+    if m == 0 {
+        return (n, warnings);
+    }
+
+    let jac_flat = build_jacobian(sketch, params, m, n);
+    let rank = jacobian_rank(&jac_flat, m, n);
+    let dof = n.saturating_sub(rank);
+
+    // Over-constrained: more residual equations than rank means redundant constraints
+    if m > rank {
+        warnings.push(SolverWarning::OverConstrained {
+            redundant_constraints: m - rank,
+        });
+    }
+
+    // Under-constrained: identify free parameters from null space
+    if dof > 0 {
+        let free_params = find_free_params(&jac_flat, m, n, rank);
+        warnings.push(SolverWarning::UnderConstrained {
+            dof,
+            free_params,
+        });
+    }
+
+    (dof, warnings)
+}
+
+/// Compute the numerical rank of a Jacobian matrix using SVD.
+fn jacobian_rank(jac_flat: &[f64], m: usize, n: usize) -> usize {
+    let mat = DMatrix::from_row_slice(m, n, jac_flat);
+    let svd = SVD::new(mat, false, true);
+    let singular_values = &svd.singular_values;
+
+    // Rank = number of singular values above threshold
+    let max_sv = singular_values.iter().cloned().fold(0.0_f64, f64::max);
+    let threshold = max_sv * (m.max(n) as f64) * f64::EPSILON;
+
+    singular_values.iter().filter(|&&s| s > threshold).count()
+}
+
+/// Identify which parameters are most free (under-constrained) using null-space analysis.
+fn find_free_params(jac_flat: &[f64], m: usize, n: usize, rank: usize) -> Vec<usize> {
+    let mat = DMatrix::from_row_slice(m, n, jac_flat);
+    let svd = SVD::new(mat, false, true);
+
+    let mut free_params = Vec::new();
+
+    // The null space is spanned by the right singular vectors corresponding to
+    // singular values that are (near-)zero.
+    if let Some(ref v_t) = svd.v_t {
+        for i in rank..v_t.nrows().min(n) {
+            // Each null-space vector: find which parameters have significant components
+            for j in 0..n {
+                if v_t[(i, j)].abs() > 0.1 && !free_params.contains(&j) {
+                    free_params.push(j);
+                }
+            }
+        }
+    }
+
+    free_params.sort();
+    free_params
 }
 
 /// Configuration for the Gauss-Newton / Levenberg-Marquardt solver.
@@ -59,6 +177,12 @@ pub fn solve_sketch(sketch: &mut Sketch, config: &SolverConfig) -> Result<Solver
             converged: true,
             iterations: 0,
             final_residual: 0.0,
+            dof: n,
+            warnings: if n > 0 {
+                vec![SolverWarning::UnderConstrained { dof: n, free_params: (0..n).collect() }]
+            } else {
+                vec![]
+            },
             params: params.clone(),
         });
     }
@@ -73,11 +197,14 @@ pub fn solve_sketch(sketch: &mut Sketch, config: &SolverConfig) -> Result<Solver
         let total_sq: f64 = residuals.iter().map(|r| r * r).sum();
         if total_sq < config.tolerance {
             sketch.params = params.clone();
+            let (dof, warnings) = analyze_constraints(sketch, &sketch.params);
             return Ok(SolverResult {
                 converged: true,
                 iterations: iteration,
                 final_residual: total_sq,
-                params,
+                dof,
+                warnings,
+                params: sketch.params.clone(),
             });
         }
 
@@ -151,10 +278,13 @@ pub fn solve_sketch(sketch: &mut Sketch, config: &SolverConfig) -> Result<Solver
     sketch.params = params.clone();
 
     if final_residual < config.tolerance {
+        let (dof, warnings) = analyze_constraints(sketch, &sketch.params);
         Ok(SolverResult {
             converged: true,
             iterations: config.max_iterations,
             final_residual,
+            dof,
+            warnings,
             params,
         })
     } else {
@@ -1028,5 +1158,422 @@ mod tests {
         let x = solve_linear_system(&a, &b, 2).unwrap();
         assert!((x[0] - 1.6).abs() < 1e-10);
         assert!((x[1] - 1.8).abs() < 1e-10);
+    }
+
+    // ============================================================
+    // DOF tracking and analysis tests
+    // ============================================================
+
+    #[test]
+    fn test_dof_single_unconstrained_point() {
+        // A single point with no constraints has 2 DOF (x, y)
+        let sketch = {
+            let mut s = Sketch::new();
+            s.add_point(1.0, 2.0);
+            s
+        };
+        let dof = crate::degrees_of_freedom(&sketch);
+        assert_eq!(dof, 2, "Unconstrained point should have 2 DOF");
+    }
+
+    #[test]
+    fn test_dof_two_unconstrained_points() {
+        let sketch = {
+            let mut s = Sketch::new();
+            s.add_point(0.0, 0.0);
+            s.add_point(5.0, 5.0);
+            s
+        };
+        let dof = crate::degrees_of_freedom(&sketch);
+        assert_eq!(dof, 4, "Two unconstrained points should have 4 DOF");
+    }
+
+    #[test]
+    fn test_dof_fixed_point() {
+        // A single fixed point has 0 DOF
+        let sketch = {
+            let mut s = Sketch::new();
+            let p = s.add_point(1.0, 2.0);
+            s.add_constraint(Constraint::Fixed { point: p, x: 1.0, y: 2.0 });
+            s
+        };
+        let dof = crate::degrees_of_freedom(&sketch);
+        assert_eq!(dof, 0, "Fixed point should have 0 DOF");
+    }
+
+    #[test]
+    fn test_dof_fully_constrained_rectangle() {
+        // Rectangle: 4 points = 8 params
+        // Fix origin (2), horiz bottom (1), horiz top (1), vert right (1), vert left (1),
+        // dist bottom (1), dist right (1) = 8 constraints (but some have 2 residuals)
+        let mut sketch = Sketch::new();
+        let p0 = sketch.add_point(0.0, 0.0);
+        let p1 = sketch.add_point(10.0, 0.0);
+        let p2 = sketch.add_point(10.0, 5.0);
+        let p3 = sketch.add_point(0.0, 5.0);
+
+        let l0 = sketch.add_line(p0, p1);
+        let l1 = sketch.add_line(p1, p2);
+        let l2 = sketch.add_line(p2, p3);
+        let l3 = sketch.add_line(p3, p0);
+
+        sketch.add_constraint(Constraint::Fixed { point: p0, x: 0.0, y: 0.0 });
+        sketch.add_constraint(Constraint::Horizontal { line: l0 });
+        sketch.add_constraint(Constraint::Horizontal { line: l2 });
+        sketch.add_constraint(Constraint::Vertical { line: l1 });
+        sketch.add_constraint(Constraint::Vertical { line: l3 });
+        sketch.add_constraint(Constraint::Distance { point_a: p0, point_b: p1, value: 10.0 });
+        sketch.add_constraint(Constraint::Distance { point_a: p1, point_b: p2, value: 5.0 });
+
+        let dof = crate::degrees_of_freedom(&sketch);
+        assert_eq!(dof, 0, "Fully constrained rectangle should have 0 DOF");
+    }
+
+    #[test]
+    fn test_dof_under_constrained_reports_warning() {
+        // One point with only a horizontal constraint on a line - still has freedom
+        let mut sketch = Sketch::new();
+        let p1 = sketch.add_point(0.0, 0.0);
+        let p2 = sketch.add_point(10.0, 3.0);
+        let line = sketch.add_line(p1, p2);
+        sketch.add_constraint(Constraint::Horizontal { line });
+
+        let config = SolverConfig::default();
+        let result = solve_sketch(&mut sketch, &config).unwrap();
+        assert!(result.converged);
+        assert!(result.dof > 0, "Should have remaining DOF");
+        assert!(
+            result.warnings.iter().any(|w| matches!(w, SolverWarning::UnderConstrained { .. })),
+            "Should report under-constrained warning"
+        );
+    }
+
+    #[test]
+    fn test_dof_over_constrained_redundant_reports_warning() {
+        // Two identical horizontal constraints on the same line = redundant
+        let mut sketch = Sketch::new();
+        let p1 = sketch.add_point(0.0, 0.0);
+        let p2 = sketch.add_point(10.0, 0.0);
+        let line = sketch.add_line(p1, p2);
+        sketch.add_constraint(Constraint::Horizontal { line });
+        sketch.add_constraint(Constraint::Horizontal { line }); // redundant
+
+        let config = SolverConfig::default();
+        let result = solve_sketch(&mut sketch, &config).unwrap();
+        assert!(result.converged);
+        assert!(
+            result.warnings.iter().any(|w| matches!(w, SolverWarning::OverConstrained { .. })),
+            "Should report over-constrained warning for redundant constraints"
+        );
+    }
+
+    // ============================================================
+    // Edge case: coincident on already-coincident points
+    // ============================================================
+
+    #[test]
+    fn test_edge_coincident_already_satisfied() {
+        let mut sketch = Sketch::new();
+        let p1 = sketch.add_point(5.0, 3.0);
+        let p2 = sketch.add_point(5.0, 3.0); // already coincident
+
+        sketch.add_constraint(Constraint::Coincident { point_a: p1, point_b: p2 });
+
+        let config = SolverConfig::default();
+        let result = solve_sketch(&mut sketch, &config).unwrap();
+        assert!(result.converged);
+        assert_eq!(result.iterations, 0, "Should converge immediately");
+        assert!(result.final_residual < 1e-10);
+    }
+
+    // ============================================================
+    // Edge case: parallel constraint on already-parallel lines
+    // ============================================================
+
+    #[test]
+    fn test_edge_parallel_already_satisfied() {
+        let mut sketch = Sketch::new();
+        let p1 = sketch.add_point(0.0, 0.0);
+        let p2 = sketch.add_point(10.0, 0.0);
+        let p3 = sketch.add_point(0.0, 5.0);
+        let p4 = sketch.add_point(10.0, 5.0);
+        let l1 = sketch.add_line(p1, p2);
+        let l2 = sketch.add_line(p3, p4);
+
+        sketch.add_constraint(Constraint::Parallel { line_a: l1, line_b: l2 });
+
+        let config = SolverConfig::default();
+        let result = solve_sketch(&mut sketch, &config).unwrap();
+        assert!(result.converged);
+        assert_eq!(result.iterations, 0, "Already-parallel lines should converge immediately");
+    }
+
+    // ============================================================
+    // Edge case: perpendicular + angle(90deg) — redundant constraints
+    // ============================================================
+
+    #[test]
+    fn test_edge_perpendicular_plus_angle_90_redundant() {
+        let mut sketch = Sketch::new();
+        let p1 = sketch.add_point(0.0, 0.0);
+        let p2 = sketch.add_point(10.0, 0.0);
+        let p3 = sketch.add_point(0.0, 0.0);
+        let p4 = sketch.add_point(0.0, 10.0);
+        let l1 = sketch.add_line(p1, p2);
+        let l2 = sketch.add_line(p3, p4);
+
+        // Fix everything except p4
+        sketch.add_constraint(Constraint::Fixed { point: p1, x: 0.0, y: 0.0 });
+        sketch.add_constraint(Constraint::Fixed { point: p2, x: 10.0, y: 0.0 });
+        sketch.add_constraint(Constraint::Fixed { point: p3, x: 0.0, y: 0.0 });
+        // Both perpendicular and 90-degree angle = redundant
+        sketch.add_constraint(Constraint::Perpendicular { line_a: l1, line_b: l2 });
+        sketch.add_constraint(Constraint::Angle {
+            line_a: l1,
+            line_b: l2,
+            value: std::f64::consts::FRAC_PI_2,
+        });
+
+        let config = SolverConfig::default();
+        let result = solve_sketch(&mut sketch, &config).unwrap();
+        assert!(result.converged);
+        // Should detect redundancy
+        assert!(
+            result.warnings.iter().any(|w| matches!(w, SolverWarning::OverConstrained { .. })),
+            "Perpendicular + Angle(90) are redundant, should warn"
+        );
+    }
+
+    // ============================================================
+    // Edge case: over-constrained triangle
+    // ============================================================
+
+    #[test]
+    fn test_edge_over_constrained_triangle() {
+        // 3 points with 3 distance constraints (triangle) + fix one point
+        // This is well-constrained (DOF = 6 params - 6 constraints leaving 1 rotational DOF
+        // unless we also fix rotation). But adding redundant angle constraints
+        // makes it over-constrained.
+        let mut sketch = Sketch::new();
+        let p0 = sketch.add_point(0.0, 0.0);
+        let p1 = sketch.add_point(3.0, 0.0);
+        let p2 = sketch.add_point(0.0, 4.0);
+
+        // Fix one point and constrain horizontal to remove rotation
+        sketch.add_constraint(Constraint::Fixed { point: p0, x: 0.0, y: 0.0 });
+
+        let l01 = sketch.add_line(p0, p1);
+        sketch.add_constraint(Constraint::Horizontal { line: l01 });
+
+        // 3 distances fully determine the triangle (with fixed point + horizontal)
+        sketch.add_constraint(Constraint::Distance { point_a: p0, point_b: p1, value: 3.0 });
+        sketch.add_constraint(Constraint::Distance { point_a: p1, point_b: p2, value: 5.0 });
+        sketch.add_constraint(Constraint::Distance { point_a: p0, point_b: p2, value: 4.0 });
+
+        let config = SolverConfig { max_iterations: 200, ..SolverConfig::default() };
+        let result = solve_sketch(&mut sketch, &config);
+        assert!(result.is_ok(), "Over-constrained but consistent triangle should converge: {:?}", result.err());
+
+        let r = result.unwrap();
+        assert!(r.converged);
+        assert!(r.final_residual < 1e-8, "Residual too high: {}", r.final_residual);
+
+        // Verify the 3-4-5 triangle
+        let (x0, y0) = sketch.point_position(p0);
+        let (x1, y1) = sketch.point_position(p1);
+        let (x2, y2) = sketch.point_position(p2);
+        let d01 = ((x1 - x0).powi(2) + (y1 - y0).powi(2)).sqrt();
+        let d12 = ((x2 - x1).powi(2) + (y2 - y1).powi(2)).sqrt();
+        let d02 = ((x2 - x0).powi(2) + (y2 - y0).powi(2)).sqrt();
+        assert!((d01 - 3.0).abs() < 0.1, "d01 = {d01}");
+        assert!((d12 - 5.0).abs() < 0.1, "d12 = {d12}");
+        assert!((d02 - 4.0).abs() < 0.1, "d02 = {d02}");
+    }
+
+    // ============================================================
+    // Edge case: conflicting constraints
+    // ============================================================
+
+    #[test]
+    fn test_edge_conflicting_constraints() {
+        // distance(A,B) = 5 AND distance(A,B) = 10 — contradictory
+        let mut sketch = Sketch::new();
+        let p1 = sketch.add_point(0.0, 0.0);
+        let p2 = sketch.add_point(3.0, 4.0);
+
+        sketch.add_constraint(Constraint::Fixed { point: p1, x: 0.0, y: 0.0 });
+        sketch.add_constraint(Constraint::Distance { point_a: p1, point_b: p2, value: 5.0 });
+        sketch.add_constraint(Constraint::Distance { point_a: p1, point_b: p2, value: 10.0 });
+
+        let config = SolverConfig::default();
+        let result = solve_sketch(&mut sketch, &config);
+        // Should fail to converge because constraints are contradictory
+        assert!(
+            result.is_err(),
+            "Conflicting constraints should fail to converge"
+        );
+    }
+
+    // ============================================================
+    // Edge case: fully constrained rectangle with DOF=0 verification
+    // ============================================================
+
+    #[test]
+    fn test_edge_fully_constrained_rectangle_dof_zero() {
+        let mut sketch = Sketch::new();
+        let p0 = sketch.add_point(0.1, -0.1);
+        let p1 = sketch.add_point(9.8, 0.2);
+        let p2 = sketch.add_point(10.1, 4.9);
+        let p3 = sketch.add_point(-0.1, 5.1);
+
+        let l0 = sketch.add_line(p0, p1);
+        let l1 = sketch.add_line(p1, p2);
+        let l2 = sketch.add_line(p2, p3);
+        let l3 = sketch.add_line(p3, p0);
+
+        sketch.add_constraint(Constraint::Fixed { point: p0, x: 0.0, y: 0.0 });
+        sketch.add_constraint(Constraint::Horizontal { line: l0 });
+        sketch.add_constraint(Constraint::Horizontal { line: l2 });
+        sketch.add_constraint(Constraint::Vertical { line: l1 });
+        sketch.add_constraint(Constraint::Vertical { line: l3 });
+        sketch.add_constraint(Constraint::Distance { point_a: p0, point_b: p1, value: 10.0 });
+        sketch.add_constraint(Constraint::Distance { point_a: p1, point_b: p2, value: 5.0 });
+
+        let config = SolverConfig { max_iterations: 200, ..SolverConfig::default() };
+        let result = solve_sketch(&mut sketch, &config).unwrap();
+        assert!(result.converged);
+        assert_eq!(result.dof, 0, "Fully constrained rectangle should have DOF=0");
+        // No under-constrained warning
+        assert!(
+            !result.warnings.iter().any(|w| matches!(w, SolverWarning::UnderConstrained { .. })),
+            "Fully constrained rectangle should not report under-constrained"
+        );
+    }
+
+    // ============================================================
+    // Edge case: tangent circle to line
+    // ============================================================
+
+    #[test]
+    fn test_edge_tangent_circle_to_line_at_point() {
+        let mut sketch = Sketch::new();
+        // Horizontal line y=0
+        let p1 = sketch.add_point(-10.0, 0.0);
+        let p2 = sketch.add_point(10.0, 0.0);
+        let line = sketch.add_line(p1, p2);
+
+        // Circle centered at (0, r) with radius r should be tangent to y=0
+        let circ = sketch.add_circle(0.0, 4.0, 4.0);
+
+        sketch.add_constraint(Constraint::Fixed { point: p1, x: -10.0, y: 0.0 });
+        sketch.add_constraint(Constraint::Fixed { point: p2, x: 10.0, y: 0.0 });
+        sketch.add_constraint(Constraint::Radius { entity: circ, value: 3.0 });
+        sketch.add_constraint(Constraint::Tangent { entity_a: line, entity_b: circ });
+
+        let config = SolverConfig { max_iterations: 200, ..SolverConfig::default() };
+        let result = solve_sketch(&mut sketch, &config);
+        assert!(result.is_ok(), "Tangent circle to line should converge: {:?}", result.err());
+
+        let r = result.unwrap();
+        assert!(r.converged);
+
+        // Circle center y should be +/-3 (radius away from line y=0)
+        let (_, cy, cr) = sketch.circle_geometry(circ);
+        assert!((cr - 3.0).abs() < 0.1, "Radius should be 3, got {cr}");
+        assert!((cy.abs() - 3.0).abs() < 0.5, "Center y should be +/-3, got {cy}");
+    }
+
+    // ============================================================
+    // Edge case: solver convergence verification
+    // ============================================================
+
+    #[test]
+    fn test_convergence_well_posed_residual_tolerance() {
+        // Well-posed: fixed point + distance constraint
+        let mut sketch = Sketch::new();
+        let p1 = sketch.add_point(0.0, 0.0);
+        let p2 = sketch.add_point(1.0, 1.0);
+
+        sketch.add_constraint(Constraint::Fixed { point: p1, x: 0.0, y: 0.0 });
+        sketch.add_constraint(Constraint::Fixed { point: p2, x: 5.0, y: 5.0 });
+
+        let config = SolverConfig::default();
+        let result = solve_sketch(&mut sketch, &config).unwrap();
+        assert!(result.converged);
+        assert!(result.final_residual < 1e-10, "Residual should be < 1e-10, got {}", result.final_residual);
+    }
+
+    #[test]
+    fn test_convergence_over_constrained_consistent() {
+        // Over-constrained but consistent: fix point twice to the same location
+        let mut sketch = Sketch::new();
+        let p = sketch.add_point(1.0, 2.0);
+        sketch.add_constraint(Constraint::Fixed { point: p, x: 5.0, y: 5.0 });
+        sketch.add_constraint(Constraint::Fixed { point: p, x: 5.0, y: 5.0 }); // same constraint
+
+        let config = SolverConfig::default();
+        let result = solve_sketch(&mut sketch, &config).unwrap();
+        assert!(result.converged, "Over-constrained but consistent should converge");
+        assert!(result.final_residual < 1e-10);
+    }
+
+    // ============================================================
+    // DOF analysis function tests
+    // ============================================================
+
+    #[test]
+    fn test_dof_empty_sketch() {
+        let sketch = Sketch::new();
+        assert_eq!(crate::degrees_of_freedom(&sketch), 0);
+    }
+
+    #[test]
+    fn test_dof_circle_unconstrained() {
+        // Circle has 3 params: cx, cy, r
+        let sketch = {
+            let mut s = Sketch::new();
+            s.add_circle(0.0, 0.0, 5.0);
+            s
+        };
+        assert_eq!(crate::degrees_of_freedom(&sketch), 3);
+    }
+
+    #[test]
+    fn test_dof_circle_with_radius_constraint() {
+        // Circle with radius constraint: 3 params - 1 constraint = 2 DOF (center position)
+        let sketch = {
+            let mut s = Sketch::new();
+            let c = s.add_circle(0.0, 0.0, 5.0);
+            s.add_constraint(Constraint::Radius { entity: c, value: 5.0 });
+            s
+        };
+        assert_eq!(crate::degrees_of_freedom(&sketch), 2);
+    }
+
+    #[test]
+    fn test_dof_circle_fully_constrained() {
+        // Circle with fixed center + radius = 0 DOF
+        let sketch = {
+            let mut s = Sketch::new();
+            let c = s.add_circle(0.0, 0.0, 5.0);
+            s.add_constraint(Constraint::Fixed { point: c, x: 0.0, y: 0.0 });
+            s.add_constraint(Constraint::Radius { entity: c, value: 5.0 });
+            s
+        };
+        assert_eq!(crate::degrees_of_freedom(&sketch), 0);
+    }
+
+    #[test]
+    fn test_solver_result_includes_warnings_field() {
+        // Verify that SolverResult has warnings even for well-posed problems
+        let mut sketch = Sketch::new();
+        let p = sketch.add_point(1.0, 2.0);
+        sketch.add_constraint(Constraint::Fixed { point: p, x: 1.0, y: 2.0 });
+
+        let config = SolverConfig::default();
+        let result = solve_sketch(&mut sketch, &config).unwrap();
+        // Fully constrained: no warnings expected
+        assert!(result.warnings.is_empty(), "Fully constrained should have no warnings: {:?}", result.warnings);
+        assert_eq!(result.dof, 0);
     }
 }

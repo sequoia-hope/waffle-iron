@@ -226,7 +226,7 @@ fn main() {
             Point3d::new(3.0, 7.0, 0.0),
             Point3d::new(0.0, 7.0, 0.0),
         ]);
-        let solid = extrude_profile(&mut store, &profile, Vec3::Z, 4.0);
+        let solid = extrude_profile(&mut store, &profile, Vec3::Z, 4.0).unwrap();
         let mesh = tessellate_solid(&store, solid);
         let svg = mesh_to_svg(&mesh, 400.0, 300.0, "Extruded L-Profile (h=4)");
         fs::write("docs/renders/extrude_l.svg", svg).unwrap();
@@ -249,7 +249,8 @@ fn main() {
             Vec3::new(0.0, 0.0, 1.0),
             std::f64::consts::TAU,
             96,
-        );
+        )
+        .unwrap();
         let mesh = tessellate_solid(&store, solid);
         let svg = mesh_to_svg(&mesh, 400.0, 300.0, "Revolved Vase (96 seg)");
         fs::write("docs/renders/revolve_vase.svg", svg).unwrap();
@@ -263,7 +264,7 @@ fn main() {
         let box_id = make_box(&mut store, 0.0, 0.0, 0.0, 10.0, 8.0, 6.0);
         let v0 = Point3d::new(0.0, 0.0, 0.0);
         let v1 = Point3d::new(10.0, 0.0, 0.0);
-        let chamfered = chamfer_edge(&mut store, box_id, v0, v1, 1.5);
+        let chamfered = chamfer_edge(&mut store, box_id, v0, v1, 1.5).unwrap();
         let mesh = tessellate_solid(&store, chamfered);
         let svg = mesh_to_svg(&mesh, 400.0, 300.0, "Chamfered Box (d=1.5)");
         fs::write("docs/renders/chamfer_box.svg", svg).unwrap();
@@ -276,7 +277,7 @@ fn main() {
         let box_id = make_box(&mut store, 0.0, 0.0, 0.0, 10.0, 8.0, 6.0);
         let v0 = Point3d::new(0.0, 0.0, 0.0);
         let v1 = Point3d::new(10.0, 0.0, 0.0);
-        let filleted = fillet_edge(&mut store, box_id, v0, v1, 1.5, 32);
+        let filleted = fillet_edge(&mut store, box_id, v0, v1, 1.5, 32).unwrap();
         let mesh = tessellate_solid(&store, filleted);
         let svg = mesh_to_svg(&mesh, 400.0, 300.0, "Filleted Box (r=1.5, 32 seg)");
         fs::write("docs/renders/fillet_box.svg", svg).unwrap();
@@ -392,7 +393,7 @@ fn main() {
 
         let mut current = base;
         for (v0, v1) in &vertical_edges {
-            current = fillet_edge(&mut store, current, *v0, *v1, 2.0, 32);
+            current = fillet_edge(&mut store, current, *v0, *v1, 2.0, 32).unwrap();
         }
 
         let mesh = tessellate_solid(&store, current);
@@ -554,7 +555,8 @@ fn main() {
             Vec3::new(0.0, 0.0, 1.0),
             std::f64::consts::TAU,
             96,
-        );
+        )
+        .unwrap();
         let mesh = tessellate_solid(&store, solid);
         let svg = mesh_to_svg(&mesh, 400.0, 350.0, "Chess Pawn (18-pt profile, 96 seg)");
         fs::write("docs/renders/ft_chess_pawn.svg", svg).unwrap();

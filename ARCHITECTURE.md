@@ -118,27 +118,30 @@ All three levels are combined in `full_verify()` which returns a `VerificationRe
 ### Implemented
 
 - B-Rep data model with arena storage and typed keys.
-- Euler operators: mvfs, mev, mef.
-- Primitive solids: box (with proper edge twins), cylinder, sphere.
+- Euler operators: mvfs, mev, mef with structured tracing.
+- Primitive solids: box, cylinder, sphere — all with proper half-edge twin linking.
 - Geometry: points, vectors, transforms, bounding boxes, lines, circles, ellipses, NURBS curves, planes, spheres, cylinders, cones, tori.
-- Ray-surface intersection: plane, sphere, cylinder.
-- Profile extrusion along arbitrary direction.
-- Parametric feature tree data model (Sketch, Extrude, Revolve, Fillet, Chamfer, Boolean).
-- Boolean operations: bounding-box pre-check, face classification via ray-cast point-in-solid, face selection by operation type.
-- 2D constraint solver with gradient descent.
+- Ray-surface intersection: plane, sphere, cylinder, cone, torus.
+- Surface-surface intersection: plane-plane, plane-cylinder, plane-sphere.
+- Profile extrusion along arbitrary direction (returns Result with OperationError).
+- Revolve, fillet, and chamfer operations (all return Result with OperationError).
+- Parametric feature tree (Sketch, Extrude, Revolve, Fillet, Chamfer, Boolean) with error propagation.
+- Boolean operations: AABB grid decomposition (Tier 1), face splitting for box-cylinder/box-sphere (Tier 2).
+- Face splitting along intersection curves with vertex deduplication.
+- 2D constraint solver: Gauss-Newton with Levenberg-Marquardt, analytic Jacobians.
+- DOF tracking via SVD, over/under-constrained detection.
 - Planar face tessellation (fan triangulation) and UV-grid surface tessellation.
-- WASM bridge with JSON serialization.
-- Multi-level topology and geometry verification.
-- Monte Carlo volume estimation.
+- WASM bridge with JSON serialization, DOF exposure, solver warnings.
+- Multi-level topology and geometry verification with Tolerance struct.
+- Monte Carlo volume estimation with deduplicated ray crossings.
+- Trait abstractions: BooleanEngine, SketchSolver, CurveEval, SurfaceEval, CurveValidation, SurfaceValidation.
+- Structured tracing on Boolean ops, Euler operators, validation, primitives.
 
 ### Planned / In Progress
 
-- Proper half-edge twin linking for cylinder and sphere primitives.
-- Dangling vertex detection and normal consistency checks in topology audit.
-- Surface-surface intersection for Boolean operations on curved faces.
-- Revolve, fillet, and chamfer operation implementations (data model exists, execution pending).
+- Boolean Tier 3: arbitrary convex polyhedra.
 - NURBS surface tessellation with adaptive refinement.
-- Full Levenberg-Marquardt solver with Jacobian (current solver uses finite-difference gradient descent).
 - TypeScript GUI with Three.js rendering.
 - `wasm-bindgen` / `wasm-pack` integration for the WASM bridge.
 - Parametric expression evaluation for feature parameters.
+- STEP file import/export.

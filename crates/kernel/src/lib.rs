@@ -3,6 +3,13 @@ pub mod topology;
 pub mod boolean;
 pub mod operations;
 pub mod validation;
+pub mod traits;
+
+// Re-export key traits at crate root for convenience.
+pub use boolean::BooleanEngine;
+pub use boolean::DefaultBooleanEngine;
+pub use geometry::{CurveEval, SurfaceEval};
+pub use traits::{CurveValidation, SurfaceValidation, SolidVerification, DefaultSolidVerifier};
 
 /// Global tolerance configuration for geometric comparisons.
 #[derive(Debug, Clone, Copy)]

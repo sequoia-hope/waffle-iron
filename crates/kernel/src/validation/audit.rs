@@ -1,14 +1,28 @@
+use tracing::{info, instrument};
+
 use crate::topology::brep::*;
 
 /// Multi-level verification for B-Rep solids.
 /// These checks are meant to be run automatically in tests and debug builds.
 
 /// L0: Topological invariant checks.
+#[instrument(skip(store))]
 pub fn verify_topology_l0(store: &EntityStore, solid_id: SolidId) -> TopologyAudit {
-    audit_solid(store, solid_id)
+    let audit = audit_solid(store, solid_id);
+    info!(
+        euler_valid = audit.euler_valid,
+        all_faces_closed = audit.all_faces_closed,
+        all_edges_two_faced = audit.all_edges_two_faced,
+        no_dangling_vertices = audit.no_dangling_vertices,
+        normals_consistent = audit.normals_consistent,
+        error_count = audit.errors.len(),
+        "topology L0 audit complete"
+    );
+    audit
 }
 
 /// L1: Geometric consistency checks.
+#[instrument(skip(store))]
 pub fn verify_geometry_l1(store: &EntityStore, solid_id: SolidId) -> Vec<GeometryError> {
     let mut errors = Vec::new();
     let solid = &store.solids[solid_id];
@@ -37,7 +51,7 @@ pub fn verify_geometry_l1(store: &EntityStore, solid_id: SolidId) -> Vec<Geometr
                 let start_dist = edge_start.point.distance_to(&curve_start);
                 let end_dist = edge_end.point.distance_to(&curve_end);
 
-                let geom_tol = 0.1; // generous tolerance for primitive construction
+                let geom_tol = crate::default_tolerance().coincidence;
                 if start_dist > geom_tol {
                     errors.push(GeometryError::VertexCurveMismatch {
                         vertex: edge.start_vertex,
@@ -57,6 +71,10 @@ pub fn verify_geometry_l1(store: &EntityStore, solid_id: SolidId) -> Vec<Geometr
         }
     }
 
+    info!(
+        geometry_error_count = errors.len(),
+        "geometry L1 check complete"
+    );
     errors
 }
 
@@ -78,15 +96,23 @@ pub enum GeometryError {
 }
 
 /// Full verification combining all levels.
+#[instrument(skip(store))]
 pub fn full_verify(store: &EntityStore, solid_id: SolidId) -> VerificationReport {
     let topo = verify_topology_l0(store, solid_id);
     let geom_errors = verify_geometry_l1(store, solid_id);
 
-    VerificationReport {
+    let report = VerificationReport {
         topology_valid: topo.all_valid(),
         topology_audit: topo,
         geometry_errors: geom_errors,
-    }
+    };
+    info!(
+        valid = report.is_valid(),
+        topology_valid = report.topology_valid,
+        geometry_errors = report.geometry_errors.len(),
+        "full verification complete"
+    );
+    report
 }
 
 #[derive(Debug)]
@@ -134,5 +160,23 @@ mod tests {
 
         let report = full_verify(&store, solid_id);
         assert!(report.topology_valid);
+    }
+
+    #[test]
+    fn test_tracing_does_not_affect_audit_results() {
+        let mut store = EntityStore::new();
+        let solid_id = make_box(&mut store, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0);
+
+        let audit = verify_topology_l0(&store, solid_id);
+        assert!(audit.euler_valid);
+        assert!(audit.all_faces_closed);
+        assert!(audit.all_edges_two_faced);
+        assert!(audit.all_valid());
+
+        let geom_errors = verify_geometry_l1(&store, solid_id);
+        assert!(geom_errors.is_empty());
+
+        let report = full_verify(&store, solid_id);
+        assert!(report.is_valid());
     }
 }

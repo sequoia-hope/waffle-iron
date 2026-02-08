@@ -69,13 +69,15 @@ crates/
 - Points, vectors, transforms, bounding boxes
 - Curves: lines, circles, ellipses, NURBS
 - Surfaces: planes, cylinders, cones, spheres, tori, NURBS
-- Ray intersection: plane, sphere, cylinder, AABB, line-line
+- Ray intersection: plane, sphere, cylinder, cone, torus, AABB, line-line
+- Surface-surface intersection: plane-plane, plane-cylinder, plane-sphere
 
 **B-Rep Topology**
 - Half-edge data structure with SlotMap arena allocation
 - Euler-Poincare validation (V - E + F = 2)
 - Topology auditing (closed loops, twin consistency, dangling vertices, normal consistency)
-- Full geometry verification (edge parameterization, surface containment)
+- Full geometry verification (edge parameterization, surface containment, tolerance-based)
+- Structured tracing instrumentation on key operations
 
 **Solid Operations**
 - Primitives: box, cylinder, sphere (configurable segment counts)
@@ -83,7 +85,8 @@ crates/
 - Revolve: profiles around an arbitrary axis with configurable segments
 - Fillet: smooth rounded edges with configurable segment count (slerp interpolation)
 - Chamfer: edge beveling on box primitives
-- Boolean: union, intersection, difference (AABB grid decomposition)
+- Boolean: union, intersection, difference (AABB grid decomposition + face splitting for Tier 2)
+- All operations return `Result` with structured error types (`OperationError`)
 
 **Parametric Feature Tree**
 - Sketch, Extrude, Revolve, Fillet, Chamfer, Boolean features
@@ -96,6 +99,8 @@ crates/
 - 13 constraint types: coincident, distance, angle, parallel, perpendicular, horizontal, vertical, tangent, symmetric, equal, radius, fixed, point-on-entity
 - Gauss-Newton with Levenberg-Marquardt damping
 - Analytic Jacobians for quadratic convergence
+- Degrees-of-freedom tracking via SVD-based Jacobian rank analysis
+- Over-constrained and under-constrained detection with diagnostics
 
 **Tessellation & Export**
 - Ear-clipping triangulation for planar faces (handles concave polygons)
@@ -110,7 +115,7 @@ crates/
 
 ```bash
 cargo build --workspace
-cargo test --workspace       # 193 tests
+cargo test --workspace       # 330 tests
 cargo run -p cad-render      # generate SVG renders + OBJ/STL exports
 ```
 
@@ -118,9 +123,9 @@ Exported mesh files are written to `docs/exports/` (OBJ, STL).
 
 ## Tests
 
-193 tests across 5 crates:
-- **99** kernel (topology, geometry, boolean, chamfer, fillet, feature tree, validation)
-- **10** property-based (proptest)
-- **24** solver (13 constraint types, linear system, multi-constraint sketches)
+330 tests across 5 crates:
+- **189** kernel (topology, geometry, boolean, surface intersection, face splitting, operations, validation, traits)
+- **27** property-based (proptest: random AABB booleans, transforms, vectors, primitives, volume identity)
+- **47** solver (13 constraint types, DOF tracking, over/under-constrained detection, edge cases)
 - **36** tessellation (ear-clipping, mesh quality, feature tree validation, OBJ/STL export)
-- **24** wasm-bridge (primitives, features, constraints, boolean, export)
+- **31** wasm-bridge (primitives, features, constraints, boolean, DOF, solver warnings, export)

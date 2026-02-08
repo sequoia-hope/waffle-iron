@@ -1,8 +1,11 @@
-use crate::geometry::curves::{Curve, Line3d};
+use std::collections::HashMap;
+
 use crate::geometry::point::Point3d;
 use crate::geometry::surfaces::{Plane, Surface};
 use crate::geometry::vector::Vec3;
+use crate::operations::OperationError;
 use crate::topology::brep::*;
+use crate::topology::primitives::create_face_edge_twinned;
 
 /// Fillet (round) an edge of a solid with a circular arc.
 ///
@@ -12,7 +15,8 @@ use crate::topology::brep::*;
 /// 2. Computing arc points along the fillet radius
 /// 3. Building new faces: trimmed originals + fillet strip
 ///
-/// Returns a new solid (the original is not modified).
+/// Returns a new solid (the original is not modified), or an error if the
+/// radius is not positive or the edge is not found.
 pub fn fillet_edge(
     store: &mut EntityStore,
     solid_id: SolidId,
@@ -20,7 +24,14 @@ pub fn fillet_edge(
     edge_v1: Point3d,
     radius: f64,
     segments: usize,
-) -> SolidId {
+) -> Result<SolidId, OperationError> {
+    if radius <= 0.0 {
+        return Err(OperationError::InvalidDimension {
+            parameter: "radius",
+            value: radius,
+        });
+    }
+
     let solid = &store.solids[solid_id];
     let shell_id = solid.shells[0];
     let shell = &store.shells[shell_id];
@@ -40,7 +51,7 @@ pub fn fillet_edge(
     }
 
     // Find the two faces adjacent to the specified edge
-    let tol = 1e-6;
+    let tol = crate::default_tolerance().coincidence;
     let mut adjacent_face_indices: Vec<usize> = Vec::new();
 
     for (fi, (verts, _)) in face_polygons.iter().enumerate() {
@@ -58,9 +69,7 @@ pub fn fillet_edge(
     }
 
     if adjacent_face_indices.len() != 2 {
-        // Can't fillet — return a clone of the original
-        let shells = store.solids[solid_id].shells.clone();
-        return store.solids.insert(Solid { shells });
+        return Err(OperationError::EdgeNotFound);
     }
 
     let fi_a = adjacent_face_indices[0];
@@ -69,7 +78,6 @@ pub fn fillet_edge(
     let normal_b = face_polygons[fi_b].1;
 
     // Compute the fillet arc points along the edge
-    // The arc goes from face_a's surface to face_b's surface
     let segments = segments.max(2);
     let arc_points = compute_fillet_arc_points(
         &edge_v0, &edge_v1, &normal_a, &normal_b, radius, segments,
@@ -84,23 +92,26 @@ pub fn fillet_edge(
     });
     store.solids[new_solid_id].shells.push(new_shell_id);
 
-    // For each original face, emit modified or unchanged version
+    // Vertex dedup map and edge twin linking map
+    let mut vertex_map: HashMap<(i64, i64, i64), VertexId> = HashMap::new();
+    let mut edge_map: HashMap<(VertexId, VertexId), HalfEdgeId> = HashMap::new();
+
+    // Collect all new face point-lists
+    let mut new_face_polys: Vec<(Vec<Point3d>, Vec3)> = Vec::new();
+
     for (fi, (verts, normal)) in face_polygons.iter().enumerate() {
         if fi == fi_a {
-            // Replace the edge vertices with the first arc point on face A side
             let new_v0 = arc_points[0].0;
             let new_v1 = arc_points[0].1;
             let modified = replace_edge_verts(verts, &edge_v0, &edge_v1, &new_v0, &new_v1, tol);
-            create_fillet_face(store, new_shell_id, &modified, *normal);
+            new_face_polys.push((modified, *normal));
         } else if fi == fi_b {
-            // Replace the edge vertices with the last arc point on face B side
             let last = arc_points.len() - 1;
             let new_v0 = arc_points[last].0;
             let new_v1 = arc_points[last].1;
             let modified = replace_edge_verts(verts, &edge_v0, &edge_v1, &new_v0, &new_v1, tol);
-            create_fillet_face(store, new_shell_id, &modified, *normal);
+            new_face_polys.push((modified, *normal));
         } else {
-            // Unchanged faces that touch the edge vertices get updated
             let first_v0 = arc_points[0].0;
             let first_v1 = arc_points[0].1;
             let last_v0 = arc_points[arc_points.len() - 1].0;
@@ -118,7 +129,7 @@ pub fn fillet_edge(
                     }
                 })
                 .collect();
-            create_fillet_face(store, new_shell_id, &modified, *normal);
+            new_face_polys.push((modified, *normal));
         }
     }
 
@@ -128,7 +139,6 @@ pub fn fillet_edge(
         let (b0, b1) = arc_points[i + 1];
         let quad = vec![a0, a1, b1, b0];
 
-        // Compute outward normal for this fillet segment
         let mid = Point3d::new(
             (a0.x + a1.x + b0.x + b1.x) / 4.0,
             (a0.y + a1.y + b0.y + b1.y) / 4.0,
@@ -143,15 +153,47 @@ pub fn fillet_edge(
             (normal_a + normal_b).normalized().unwrap_or(Vec3::Z),
         );
 
-        create_fillet_face(store, new_shell_id, &quad, outward);
+        new_face_polys.push((quad, outward));
     }
 
-    new_solid_id
+    // Create all faces with vertex dedup and twin linking
+    for (points, normal) in &new_face_polys {
+        if points.len() < 3 {
+            continue;
+        }
+
+        let vertex_ids: Vec<VertexId> = points
+            .iter()
+            .map(|p| get_or_create_vertex(store, &mut vertex_map, *p))
+            .collect();
+
+        let center = compute_centroid_from_points(points);
+        let surface = Surface::Plane(Plane::new(center, *normal));
+
+        let loop_id = store.loops.insert(Loop {
+            half_edges: vec![],
+            face: FaceId::default(),
+        });
+        let face_id = store.faces.insert(Face {
+            surface,
+            outer_loop: loop_id,
+            inner_loops: vec![],
+            same_sense: true,
+            shell: new_shell_id,
+        });
+        store.loops[loop_id].face = face_id;
+        store.shells[new_shell_id].faces.push(face_id);
+
+        for i in 0..vertex_ids.len() {
+            let next = (i + 1) % vertex_ids.len();
+            create_face_edge_twinned(store, vertex_ids[i], vertex_ids[next], face_id, loop_id, &mut edge_map);
+        }
+    }
+
+    Ok(new_solid_id)
 }
 
 /// Compute fillet arc points for both endpoints of the edge.
-///
-/// Returns a Vec of (point_at_v0, point_at_v1) pairs tracing the arc.
 fn compute_fillet_arc_points(
     edge_v0: &Point3d,
     edge_v1: &Point3d,
@@ -162,14 +204,11 @@ fn compute_fillet_arc_points(
 ) -> Vec<(Point3d, Point3d)> {
     let mut result = Vec::with_capacity(segments + 1);
 
-    // The fillet arc transitions from face A's normal direction to face B's normal direction
-    // We move edge_v0/v1 inward along each normal by radius, then trace an arc
     let offset_a = *normal_a * (-radius);
     let offset_b = *normal_b * (-radius);
 
     for i in 0..=segments {
         let t = i as f64 / segments as f64;
-        // Spherical-linear interpolation (slerp) of the offset direction
         let offset = slerp_vec3(&offset_a, &offset_b, t);
 
         let p0 = *edge_v0 + offset;
@@ -186,8 +225,7 @@ fn slerp_vec3(a: &Vec3, b: &Vec3, t: f64) -> Vec3 {
     let dot = dot.clamp(-1.0, 1.0);
     let theta = dot.acos();
 
-    if theta.abs() < 1e-10 {
-        // Vectors are nearly parallel, use linear interpolation
+    if theta.abs() < crate::default_tolerance().angular {
         *a * (1.0 - t) + *b * t
     } else {
         let sin_theta = theta.sin();
@@ -218,88 +256,78 @@ fn replace_edge_verts(
         .collect()
 }
 
-fn create_fillet_face(
+/// Quantize a point to integer coordinates for vertex dedup.
+fn quantize_point(p: &Point3d) -> (i64, i64, i64) {
+    let scale = 1e8;
+    (
+        (p.x * scale).round() as i64,
+        (p.y * scale).round() as i64,
+        (p.z * scale).round() as i64,
+    )
+}
+
+/// Get an existing vertex at this position or create a new one.
+fn get_or_create_vertex(
     store: &mut EntityStore,
-    shell_id: ShellId,
-    verts: &[Point3d],
-    normal: Vec3,
-) {
-    if verts.len() < 3 {
-        return;
-    }
-
-    let vertex_ids: Vec<VertexId> = verts
-        .iter()
-        .map(|p| {
-            store.vertices.insert(Vertex {
-                point: *p,
-                tolerance: 1e-7,
-            })
+    vertex_map: &mut HashMap<(i64, i64, i64), VertexId>,
+    point: Point3d,
+) -> VertexId {
+    let key = quantize_point(&point);
+    *vertex_map.entry(key).or_insert_with(|| {
+        store.vertices.insert(Vertex {
+            point,
+            tolerance: crate::default_tolerance().coincidence,
         })
-        .collect();
+    })
+}
 
-    let center = {
-        let n = verts.len() as f64;
-        let (sx, sy, sz) = verts.iter().fold((0.0, 0.0, 0.0), |(x, y, z), p| {
-            (x + p.x, y + p.y, z + p.z)
-        });
-        Point3d::new(sx / n, sy / n, sz / n)
-    };
-
-    let surface = Surface::Plane(Plane::new(center, normal));
-
-    let loop_id = store.loops.insert(Loop {
-        half_edges: vec![],
-        face: FaceId::default(),
+fn compute_centroid_from_points(points: &[Point3d]) -> Point3d {
+    let n = points.len() as f64;
+    let (sx, sy, sz) = points.iter().fold((0.0, 0.0, 0.0), |(x, y, z), p| {
+        (x + p.x, y + p.y, z + p.z)
     });
-
-    let face_id = store.faces.insert(Face {
-        surface,
-        outer_loop: loop_id,
-        inner_loops: vec![],
-        same_sense: true,
-        shell: shell_id,
-    });
-
-    store.loops[loop_id].face = face_id;
-    store.shells[shell_id].faces.push(face_id);
-
-    for i in 0..vertex_ids.len() {
-        let next = (i + 1) % vertex_ids.len();
-        let v_start = vertex_ids[i];
-        let v_end = vertex_ids[next];
-        let p_start = verts[i];
-        let p_end = verts[next];
-        let line = Line3d::from_points(p_start, p_end);
-
-        let he_id = store.half_edges.insert_with_key(|_| HalfEdge {
-            edge: EdgeId::default(),
-            twin: HalfEdgeId::default(),
-            face: face_id,
-            loop_id,
-            start_vertex: v_start,
-            end_vertex: v_end,
-            t_start: 0.0,
-            t_end: p_start.distance_to(&p_end),
-            forward: true,
-        });
-
-        let edge_id = store.edges.insert(Edge {
-            curve: Curve::Line(line),
-            half_edges: (he_id, he_id),
-            start_vertex: v_start,
-            end_vertex: v_end,
-        });
-
-        store.half_edges[he_id].edge = edge_id;
-        store.loops[loop_id].half_edges.push(he_id);
-    }
+    Point3d::new(sx / n, sy / n, sz / n)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::operations::OperationError;
     use crate::topology::primitives::make_box;
+    use crate::validation::audit::verify_topology_l0;
+
+    /// Verify twin linking: no self-twins, and if twinned, twin(twin(he)) == he.
+    fn assert_no_self_twins(store: &EntityStore, solid_id: SolidId) {
+        let solid = &store.solids[solid_id];
+        let mut twinned = 0usize;
+        for &shell_id in &solid.shells {
+            let shell = &store.shells[shell_id];
+            for &face_id in &shell.faces {
+                let face = &store.faces[face_id];
+                let loop_data = &store.loops[face.outer_loop];
+                for &he_id in &loop_data.half_edges {
+                    let he = &store.half_edges[he_id];
+                    assert_ne!(
+                        he_id, he.twin,
+                        "Half-edge has self-twin (twin points to itself)"
+                    );
+                    if store.half_edges.contains_key(he.twin) {
+                        twinned += 1;
+                        let twin = &store.half_edges[he.twin];
+                        assert_eq!(
+                            twin.twin, he_id,
+                            "twin(twin(he)) != he — twin symmetry violated"
+                        );
+                        assert_ne!(
+                            he.face, twin.face,
+                            "Twin half-edges belong to the same face"
+                        );
+                    }
+                }
+            }
+        }
+        assert!(twinned > 0, "No twinned edges found at all");
+    }
 
     #[test]
     fn test_fillet_box_edge() {
@@ -308,16 +336,19 @@ mod tests {
 
         let v0 = Point3d::new(0.0, 0.0, 0.0);
         let v1 = Point3d::new(10.0, 0.0, 0.0);
-        let result = fillet_edge(&mut store, box_id, v0, v1, 2.0, 4);
+        let result = fillet_edge(&mut store, box_id, v0, v1, 2.0, 4).unwrap();
 
         let shell = &store.shells[store.solids[result].shells[0]];
-        // Original 6 faces + 4 fillet strip segments = 10
-        // (two adjacent faces trimmed, four non-adjacent faces get split vertices)
         assert!(
             shell.faces.len() >= 9,
             "Filleted box should have at least 9 faces, got {}",
             shell.faces.len()
         );
+
+        let audit = verify_topology_l0(&store, result);
+        assert!(audit.all_faces_closed, "Filleted box has open loops");
+
+        assert_no_self_twins(&store, result);
     }
 
     #[test]
@@ -327,10 +358,9 @@ mod tests {
 
         let v0 = Point3d::new(0.0, 0.0, 0.0);
         let v1 = Point3d::new(10.0, 0.0, 0.0);
-        let result = fillet_edge(&mut store, box_id, v0, v1, 2.0, 4);
+        let result = fillet_edge(&mut store, box_id, v0, v1, 2.0, 4).unwrap();
 
         let bb = store.solid_bounding_box(result);
-        // Bounding box should be <= original (fillet removes material)
         assert!(bb.max.x <= 10.0 + 1e-6);
         assert!(bb.max.y <= 10.0 + 1e-6);
         assert!(bb.max.z <= 10.0 + 1e-6);
@@ -344,9 +374,8 @@ mod tests {
         let v0 = Point3d::new(99.0, 99.0, 99.0);
         let v1 = Point3d::new(100.0, 99.0, 99.0);
         let result = fillet_edge(&mut store, box_id, v0, v1, 2.0, 4);
-
-        let shell = &store.shells[store.solids[result].shells[0]];
-        assert_eq!(shell.faces.len(), 6, "Non-existent edge fillet should return unchanged");
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), OperationError::EdgeNotFound));
     }
 
     #[test]
@@ -356,14 +385,58 @@ mod tests {
 
         let v0 = Point3d::new(0.0, 0.0, 0.0);
         let v1 = Point3d::new(10.0, 0.0, 0.0);
-        let result = fillet_edge(&mut store, box_id, v0, v1, 1.5, 8);
+        let result = fillet_edge(&mut store, box_id, v0, v1, 1.5, 8).unwrap();
 
         let shell = &store.shells[store.solids[result].shells[0]];
-        // With 8 segments we get 8 strip faces + 6 modified original faces
         assert!(
             shell.faces.len() >= 13,
             "8-segment fillet should produce many faces, got {}",
             shell.faces.len()
         );
+
+        let audit = verify_topology_l0(&store, result);
+        assert!(audit.all_faces_closed, "Multi-segment fillet has open loops");
+
+        assert_no_self_twins(&store, result);
+    }
+
+    #[test]
+    fn test_fillet_radius_larger_than_edge() {
+        let mut store = EntityStore::new();
+        let box_id = make_box(&mut store, 0.0, 0.0, 0.0, 5.0, 5.0, 5.0);
+
+        let v0 = Point3d::new(0.0, 0.0, 0.0);
+        let v1 = Point3d::new(5.0, 0.0, 0.0);
+        let result = fillet_edge(&mut store, box_id, v0, v1, 10.0, 4).unwrap();
+
+        let shell = &store.shells[store.solids[result].shells[0]];
+        assert!(shell.faces.len() >= 6, "Oversized fillet should still produce faces");
+    }
+
+    #[test]
+    fn test_fillet_minimum_segments() {
+        let mut store = EntityStore::new();
+        let box_id = make_box(&mut store, 0.0, 0.0, 0.0, 10.0, 10.0, 10.0);
+
+        let v0 = Point3d::new(0.0, 0.0, 0.0);
+        let v1 = Point3d::new(10.0, 0.0, 0.0);
+        let result = fillet_edge(&mut store, box_id, v0, v1, 2.0, 1).unwrap();
+
+        let shell = &store.shells[store.solids[result].shells[0]];
+        assert!(shell.faces.len() >= 7, "Minimum-segment fillet should produce faces");
+    }
+
+    #[test]
+    fn test_fillet_zero_radius_returns_error() {
+        let mut store = EntityStore::new();
+        let box_id = make_box(&mut store, 0.0, 0.0, 0.0, 10.0, 10.0, 10.0);
+        let v0 = Point3d::new(0.0, 0.0, 0.0);
+        let v1 = Point3d::new(10.0, 0.0, 0.0);
+        let result = fillet_edge(&mut store, box_id, v0, v1, 0.0, 4);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            OperationError::InvalidDimension { parameter: "radius", .. }
+        ));
     }
 }

@@ -877,7 +877,7 @@ mod tests {
             Point3d::new(3.0, 7.0, 0.0),
             Point3d::new(0.0, 7.0, 0.0),
         ]);
-        let solid = extrude_profile(&mut store, &profile, Vec3::Z, 4.0);
+        let solid = extrude_profile(&mut store, &profile, Vec3::Z, 4.0).unwrap();
         let mesh = tessellate_solid(&store, solid);
 
         // L-profile extruded: 2 caps * 4 tris + 6 side quads * 2 tris = 20
@@ -937,7 +937,7 @@ mod tests {
 
         let v0 = Point3d::new(0.0, 0.0, 0.0);
         let v1 = Point3d::new(10.0, 0.0, 0.0);
-        let filleted = fillet_edge(&mut store, box_id, v0, v1, 1.5, 4);
+        let filleted = fillet_edge(&mut store, box_id, v0, v1, 1.5, 4).unwrap();
 
         let mesh = tessellate_solid(&store, filleted);
         assert!(mesh.triangle_count() > 12, "Filleted solid should have more than 12 triangles");
@@ -987,7 +987,7 @@ mod tests {
             Point3d::new(3.0, 7.0, 0.0),
             Point3d::new(0.0, 7.0, 0.0),
         ]);
-        let solid = extrude_profile(&mut store, &profile, Vec3::Z, 4.0);
+        let solid = extrude_profile(&mut store, &profile, Vec3::Z, 4.0).unwrap();
 
         // 2. Tessellate
         let mesh = tessellate_solid(&store, solid);
@@ -1017,7 +1017,7 @@ mod tests {
         let solid = revolve_profile(
             &mut store, &profile, Point3d::ORIGIN,
             Vec3::Z, std::f64::consts::TAU, 16,
-        );
+        ).unwrap();
 
         let mesh = tessellate_solid(&store, solid);
         assert!(mesh.triangle_count() > 0, "Revolved solid should produce triangles");
@@ -1075,7 +1075,7 @@ mod tests {
             Point3d::new(3.0, 7.0, 0.0),
             Point3d::new(0.0, 7.0, 0.0),
         ]);
-        let solid = extrude_profile(&mut store, &profile, Vec3::Z, 4.0);
+        let solid = extrude_profile(&mut store, &profile, Vec3::Z, 4.0).unwrap();
         let mesh = tessellate_solid(&store, solid);
         let val = validate_mesh(&mesh);
 
@@ -1106,7 +1106,7 @@ mod tests {
             Point3d::new(3.0, 7.0, 0.0),
             Point3d::new(0.0, 7.0, 0.0),
         ]);
-        let solid = extrude_profile(&mut store, &profile, Vec3::Z, 4.0);
+        let solid = extrude_profile(&mut store, &profile, Vec3::Z, 4.0).unwrap();
         let mesh = tessellate_solid(&store, solid);
         let val = validate_mesh(&mesh);
 
@@ -1124,7 +1124,7 @@ mod tests {
         let v0 = Point3d::new(4.0, 3.0, 0.0);
         let v1 = Point3d::new(4.0, 3.0, 2.0);
 
-        let filleted = fillet_edge(&mut store, solid_id, v0, v1, 0.5, 4);
+        let filleted = fillet_edge(&mut store, solid_id, v0, v1, 0.5, 4).unwrap();
         let mesh = tessellate_solid(&store, filleted);
         let val = validate_mesh(&mesh);
 
@@ -1149,7 +1149,7 @@ mod tests {
         let solid = revolve_profile(
             &mut store, &profile, Point3d::ORIGIN,
             Vec3::Z, std::f64::consts::TAU, 16,
-        );
+        ).unwrap();
 
         let mesh = tessellate_solid(&store, solid);
         let val = validate_mesh(&mesh);
@@ -1424,7 +1424,7 @@ mod tests {
 
         let mut current = base;
         for (v0, v1) in &vertical_edges {
-            current = fillet_edge(&mut store, current, *v0, *v1, 2.0, 8);
+            current = fillet_edge(&mut store, current, *v0, *v1, 2.0, 8).unwrap();
         }
 
         let mesh = tessellate_solid(&store, current);
@@ -1584,7 +1584,7 @@ mod tests {
         let solid = revolve_profile(
             &mut store, &profile, Point3d::ORIGIN,
             Vec3::new(0.0, 0.0, 1.0), std::f64::consts::TAU, 48,
-        );
+        ).unwrap();
         let mesh = tessellate_solid(&store, solid);
         let val = validate_mesh(&mesh);
 
@@ -1726,7 +1726,7 @@ mod tests {
         let solid = revolve_profile(
             &mut store, &profile, Point3d::ORIGIN,
             Vec3::Z, std::f64::consts::TAU, 48,
-        );
+        ).unwrap();
         let mesh = tessellate_solid(&store, solid);
         let obj = mesh_to_obj(&mesh);
 
@@ -1760,7 +1760,7 @@ mod tests {
             Point3d::new(4.0, 4.0, 0.0),
             Point3d::new(0.0, 4.0, 0.0),
         ]);
-        let solid = extrude_profile(&mut store, &profile, Vec3::Z, 3.0);
+        let solid = extrude_profile(&mut store, &profile, Vec3::Z, 3.0).unwrap();
 
         // Extrusion mesh should be watertight and printable
         let mesh = tessellate_solid(&store, solid);

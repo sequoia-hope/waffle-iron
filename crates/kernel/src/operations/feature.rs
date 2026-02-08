@@ -47,6 +47,11 @@ pub enum FeatureError {
         tool_index: usize,
         solid_count: usize,
     },
+    /// An operation (extrude, revolve, etc.) returned an error.
+    OperationFailed {
+        feature_index: usize,
+        message: String,
+    },
 }
 
 impl fmt::Display for FeatureError {
@@ -64,6 +69,8 @@ impl fmt::Display for FeatureError {
                 write!(f, "Feature {feature_index}: solver failed: {message}"),
             Self::InvalidToolIndex { feature_index, tool_index, solid_count } =>
                 write!(f, "Feature {feature_index}: tool index {tool_index} out of range ({solid_count} solids)"),
+            Self::OperationFailed { feature_index, message } =>
+                write!(f, "Feature {feature_index}: operation failed: {message}"),
         }
     }
 }
@@ -294,12 +301,24 @@ impl FeatureTree {
                     let dist = self.resolve_parameter(distance);
 
                     if *symmetric {
-                        let s1 = extrude_profile(store, &profile, dir, dist / 2.0);
-                        let s2 = extrude_profile(store, &profile, -dir, dist / 2.0);
+                        let s1 = extrude_profile(store, &profile, dir, dist / 2.0)
+                            .map_err(|e| FeatureError::OperationFailed {
+                                feature_index: fi,
+                                message: e.to_string(),
+                            })?;
+                        let s2 = extrude_profile(store, &profile, -dir, dist / 2.0)
+                            .map_err(|e| FeatureError::OperationFailed {
+                                feature_index: fi,
+                                message: e.to_string(),
+                            })?;
                         let combined = boolean_op(store, s1, s2, BoolOp::Union);
                         solids.push(combined.unwrap_or(s1));
                     } else {
-                        let solid = extrude_profile(store, &profile, dir, dist);
+                        let solid = extrude_profile(store, &profile, dir, dist)
+                            .map_err(|e| FeatureError::OperationFailed {
+                                feature_index: fi,
+                                message: e.to_string(),
+                            })?;
                         solids.push(solid);
                     }
                 }
@@ -330,7 +349,11 @@ impl FeatureTree {
                     // Sketch points are (u, v, 0) from XY plane; for revolve
                     // around Z they need to be in XZ plane: (u, 0, v).
                     let profile_pts = Self::remap_for_revolve(pts, &dir);
-                    let solid = revolve_profile(store, &profile_pts, origin, dir, ang, *segments);
+                    let solid = revolve_profile(store, &profile_pts, origin, dir, ang, *segments)
+                        .map_err(|e| FeatureError::OperationFailed {
+                            feature_index: fi,
+                            message: e.to_string(),
+                        })?;
                     solids.push(solid);
                 }
                 Feature::Chamfer {
@@ -354,7 +377,11 @@ impl FeatureTree {
                             });
                         }
                         let (v0, v1) = edges[idx];
-                        current = chamfer_edge(store, current, v0, v1, dist);
+                        current = chamfer_edge(store, current, v0, v1, dist)
+                            .map_err(|e| FeatureError::OperationFailed {
+                                feature_index: fi,
+                                message: e.to_string(),
+                            })?;
                     }
                     solids.push(current);
                 }
@@ -380,7 +407,11 @@ impl FeatureTree {
                             });
                         }
                         let (v0, v1) = edges[idx];
-                        current = fillet_edge(store, current, v0, v1, r, *segments);
+                        current = fillet_edge(store, current, v0, v1, r, *segments)
+                            .map_err(|e| FeatureError::OperationFailed {
+                                feature_index: fi,
+                                message: e.to_string(),
+                            })?;
                     }
                     solids.push(current);
                 }
@@ -600,7 +631,7 @@ impl FeatureTree {
 
         // Deduplicate: two edges match if their endpoints are within tolerance
         // (either same direction or reversed)
-        let tol = 1e-6;
+        let tol = crate::default_tolerance().coincidence;
         let mut unique: Vec<(Point3d, Point3d)> = Vec::new();
 
         for (a, b) in &all_edges {

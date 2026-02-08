@@ -2,11 +2,13 @@
 
 use proptest::prelude::*;
 
+use cad_kernel::boolean::engine::{boolean_op, estimate_volume, BoolOp};
 use cad_kernel::geometry::point::Point3d;
 use cad_kernel::geometry::transform::{BoundingBox, Transform};
 use cad_kernel::geometry::vector::Vec3;
 use cad_kernel::topology::brep::EntityStore;
 use cad_kernel::topology::primitives::make_box;
+use cad_kernel::validation::audit::{full_verify, verify_topology_l0};
 
 // ---------------------------------------------------------------------------
 // Strategy helpers
@@ -32,7 +34,42 @@ fn arb_angle() -> impl Strategy<Value = f64> {
     -std::f64::consts::PI..std::f64::consts::PI
 }
 
+/// Two overlapping AABB boxes. The second box is offset from the first by
+/// a fraction of the first box's extent, guaranteeing overlap.
+fn arb_overlapping_box_pair(
+) -> impl Strategy<Value = ((f64, f64, f64, f64, f64, f64), (f64, f64, f64, f64, f64, f64))> {
+    (
+        -8.0f64..4.0,
+        -8.0f64..4.0,
+        -8.0f64..4.0,
+        1.0f64..4.0,
+        1.0f64..4.0,
+        1.0f64..4.0,
+        0.1f64..0.9,
+        0.1f64..0.9,
+        0.1f64..0.9,
+        1.0f64..4.0,
+        1.0f64..4.0,
+        1.0f64..4.0,
+    )
+        .prop_map(
+            |(ox, oy, oz, dx_a, dy_a, dz_a, fx, fy, fz, dx_b, dy_b, dz_b)| {
+                let a = (ox, oy, oz, ox + dx_a, oy + dy_a, oz + dz_a);
+                // Second box starts partway through the first box, guaranteeing overlap
+                let bx0 = ox + dx_a * fx;
+                let by0 = oy + dy_a * fy;
+                let bz0 = oz + dz_a * fz;
+                let b = (bx0, by0, bz0, bx0 + dx_b, by0 + dy_b, bz0 + dz_b);
+                (a, b)
+            },
+        )
+}
+
 const TOL: f64 = 1e-6;
+
+// ===========================================================================
+// Existing tests (1-10)
+// ===========================================================================
 
 // ---------------------------------------------------------------------------
 // 1. Point distance symmetry: distance(a, b) == distance(b, a)
@@ -277,5 +314,556 @@ proptest! {
         prop_assert!((at_one.x - b.x).abs() < TOL, "lerp(1) x: {} != {}", at_one.x, b.x);
         prop_assert!((at_one.y - b.y).abs() < TOL, "lerp(1) y: {} != {}", at_one.y, b.y);
         prop_assert!((at_one.z - b.z).abs() < TOL, "lerp(1) z: {} != {}", at_one.z, b.z);
+    }
+}
+
+// ===========================================================================
+// NEW: Random AABB Boolean operations
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// 11. Boolean intersection volume matches analytical value
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(64))]
+    #[test]
+    fn boolean_intersection_volume_matches_analytical(
+        (box_a, box_b) in arb_overlapping_box_pair(),
+    ) {
+        let mut store = EntityStore::new();
+
+        let a = make_box(&mut store, box_a.0, box_a.1, box_a.2, box_a.3, box_a.4, box_a.5);
+        let b = make_box(&mut store, box_b.0, box_b.1, box_b.2, box_b.3, box_b.4, box_b.5);
+
+        if let Ok(inter_id) = boolean_op(&mut store, a, b, BoolOp::Intersection) {
+            let vol_mc = estimate_volume(&store, inter_id, 50_000);
+
+            // Analytical intersection volume
+            let ix0 = box_a.0.max(box_b.0);
+            let iy0 = box_a.1.max(box_b.1);
+            let iz0 = box_a.2.max(box_b.2);
+            let ix1 = box_a.3.min(box_b.3);
+            let iy1 = box_a.4.min(box_b.4);
+            let iz1 = box_a.5.min(box_b.5);
+            let vol_exact = ((ix1 - ix0).max(0.0)) * ((iy1 - iy0).max(0.0)) * ((iz1 - iz0).max(0.0));
+
+            if vol_exact > 0.5 {
+                let rel_error = (vol_mc - vol_exact).abs() / vol_exact;
+                prop_assert!(rel_error < 0.15,
+                    "Intersection volume: MC={:.3} vs exact={:.3}, rel_error={:.3}",
+                    vol_mc, vol_exact, rel_error);
+            }
+
+            // Verify the intersection bounding box is correct
+            let bb = store.solid_bounding_box(inter_id);
+            prop_assert!((bb.min.x - ix0).abs() < 1e-9, "inter bb.min.x");
+            prop_assert!((bb.min.y - iy0).abs() < 1e-9, "inter bb.min.y");
+            prop_assert!((bb.min.z - iz0).abs() < 1e-9, "inter bb.min.z");
+            prop_assert!((bb.max.x - ix1).abs() < 1e-9, "inter bb.max.x");
+            prop_assert!((bb.max.y - iy1).abs() < 1e-9, "inter bb.max.y");
+            prop_assert!((bb.max.z - iz1).abs() < 1e-9, "inter bb.max.z");
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 12. Boolean results pass topology audit (all three operations)
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(64))]
+    #[test]
+    fn boolean_results_pass_topology_audit(
+        (box_a, box_b) in arb_overlapping_box_pair(),
+    ) {
+        let mut store = EntityStore::new();
+
+        let solid_a = make_box(&mut store, box_a.0, box_a.1, box_a.2, box_a.3, box_a.4, box_a.5);
+        let solid_b = make_box(&mut store, box_b.0, box_b.1, box_b.2, box_b.3, box_b.4, box_b.5);
+
+        // Test all three operations
+        for op in &[BoolOp::Union, BoolOp::Intersection, BoolOp::Difference] {
+            let a = make_box(&mut store, box_a.0, box_a.1, box_a.2, box_a.3, box_a.4, box_a.5);
+            let b = make_box(&mut store, box_b.0, box_b.1, box_b.2, box_b.3, box_b.4, box_b.5);
+
+            if let Ok(result_id) = boolean_op(&mut store, a, b, *op) {
+                let audit = verify_topology_l0(&store, result_id);
+                prop_assert!(audit.euler_valid,
+                    "Euler formula violated for {:?}: {:?}", op, audit.errors);
+                prop_assert!(audit.all_faces_closed,
+                    "Open faces for {:?}: {:?}", op, audit.errors);
+            }
+        }
+
+        // Verify inputs are still valid after boolean ops
+        let audit_a = verify_topology_l0(&store, solid_a);
+        prop_assert!(audit_a.euler_valid, "Input A topology corrupted after booleans");
+
+        let audit_b = verify_topology_l0(&store, solid_b);
+        prop_assert!(audit_b.euler_valid, "Input B topology corrupted after booleans");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 12b. Regression tests for previously-broken AABB boolean topology
+//
+// These cases previously failed because create_grid_quad created duplicate
+// vertices. Now fixed: vertices are shared via coordinate map and edges
+// are properly twin-linked.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn regression_aabb_union_euler_valid() {
+    let mut store = EntityStore::new();
+    let a = make_box(&mut store, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0);
+    let b = make_box(&mut store, 0.1, 0.1, 0.1, 1.1, 1.1, 1.1);
+
+    let result = boolean_op(&mut store, a, b, BoolOp::Union);
+    assert!(result.is_ok(), "Union should succeed");
+    let result_id = result.unwrap();
+
+    let audit = verify_topology_l0(&store, result_id);
+    assert!(audit.euler_valid, "Euler formula should hold: {:?}", audit.errors);
+    assert!(audit.all_faces_closed, "All faces should be closed: {:?}", audit.errors);
+}
+
+#[test]
+fn regression_aabb_difference_euler_valid() {
+    let mut store = EntityStore::new();
+    let a = make_box(&mut store, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0);
+    let b = make_box(&mut store, 0.1, 0.1, 0.1, 1.1, 1.1, 1.1);
+
+    let result = boolean_op(&mut store, a, b, BoolOp::Difference);
+    assert!(result.is_ok(), "Difference should succeed");
+    let result_id = result.unwrap();
+
+    let audit = verify_topology_l0(&store, result_id);
+    assert!(audit.euler_valid, "Euler formula should hold: {:?}", audit.errors);
+    assert!(audit.all_faces_closed, "All faces should be closed: {:?}", audit.errors);
+}
+
+// ---------------------------------------------------------------------------
+// 13. Boolean result bounding boxes are sane
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(64))]
+    #[test]
+    fn boolean_result_bounding_box_sane(
+        (box_a, box_b) in arb_overlapping_box_pair(),
+    ) {
+        let mut store = EntityStore::new();
+
+        let bb_a = BoundingBox::new(
+            Point3d::new(box_a.0, box_a.1, box_a.2),
+            Point3d::new(box_a.3, box_a.4, box_a.5),
+        );
+        let bb_b = BoundingBox::new(
+            Point3d::new(box_b.0, box_b.1, box_b.2),
+            Point3d::new(box_b.3, box_b.4, box_b.5),
+        );
+        let combined_bb = bb_a.union(&bb_b);
+
+        for op in &[BoolOp::Union, BoolOp::Intersection, BoolOp::Difference] {
+            let a = make_box(&mut store, box_a.0, box_a.1, box_a.2, box_a.3, box_a.4, box_a.5);
+            let b = make_box(&mut store, box_b.0, box_b.1, box_b.2, box_b.3, box_b.4, box_b.5);
+
+            if let Ok(result_id) = boolean_op(&mut store, a, b, *op) {
+                let result_bb = store.solid_bounding_box(result_id);
+
+                // Result BB must be contained within the union of input BBs (with small margin)
+                let margin = 0.01;
+                prop_assert!(result_bb.min.x >= combined_bb.min.x - margin,
+                    "{:?} result min.x={} < combined min.x={}", op, result_bb.min.x, combined_bb.min.x);
+                prop_assert!(result_bb.min.y >= combined_bb.min.y - margin,
+                    "{:?} result min.y={} < combined min.y={}", op, result_bb.min.y, combined_bb.min.y);
+                prop_assert!(result_bb.min.z >= combined_bb.min.z - margin,
+                    "{:?} result min.z={} < combined min.z={}", op, result_bb.min.z, combined_bb.min.z);
+                prop_assert!(result_bb.max.x <= combined_bb.max.x + margin,
+                    "{:?} result max.x={} > combined max.x={}", op, result_bb.max.x, combined_bb.max.x);
+                prop_assert!(result_bb.max.y <= combined_bb.max.y + margin,
+                    "{:?} result max.y={} > combined max.y={}", op, result_bb.max.y, combined_bb.max.y);
+                prop_assert!(result_bb.max.z <= combined_bb.max.z + margin,
+                    "{:?} result max.z={} > combined max.z={}", op, result_bb.max.z, combined_bb.max.z);
+            }
+        }
+    }
+}
+
+// ===========================================================================
+// NEW: Random transform properties
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// 14. T * T^(-1) ~ Identity
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #[test]
+    fn transform_compose_with_inverse_is_identity(
+        (tx, ty, tz) in arb_translation(),
+        angle_x in arb_angle(),
+        angle_y in arb_angle(),
+        angle_z in arb_angle(),
+    ) {
+        let t = Transform::rotation_x(angle_x)
+            .then(&Transform::rotation_y(angle_y))
+            .then(&Transform::rotation_z(angle_z))
+            .then(&Transform::translation(tx, ty, tz));
+
+        if let Some(inv) = t.inverse() {
+            let product = t.then(&inv);
+            let identity = Transform::identity();
+
+            for i in 0..16 {
+                prop_assert!((product.m[i] - identity.m[i]).abs() < 1e-6,
+                    "T*T^-1 not identity at index {}: got {}, expected {}",
+                    i, product.m[i], identity.m[i]);
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 15. Transform composition is associative: (T1 * T2) * T3 ~ T1 * (T2 * T3)
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #[test]
+    fn transform_associativity(
+        (t1x, t1y, t1z) in arb_translation(),
+        (t2x, t2y, t2z) in arb_translation(),
+        (t3x, t3y, t3z) in arb_translation(),
+        a1 in arb_angle(),
+        a2 in arb_angle(),
+        a3 in arb_angle(),
+    ) {
+        let t1 = Transform::rotation_z(a1).then(&Transform::translation(t1x, t1y, t1z));
+        let t2 = Transform::rotation_x(a2).then(&Transform::translation(t2x, t2y, t2z));
+        let t3 = Transform::rotation_y(a3).then(&Transform::translation(t3x, t3y, t3z));
+
+        let left = t1.then(&t2).then(&t3);   // (T1 * T2) * T3
+        let right = t1.then(&t2.then(&t3));   // T1 * (T2 * T3)
+
+        for i in 0..16 {
+            prop_assert!((left.m[i] - right.m[i]).abs() < 1e-6,
+                "Associativity violated at index {}: {} != {}",
+                i, left.m[i], right.m[i]);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 16. Rigid transforms preserve distance
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #[test]
+    fn rigid_transform_preserves_distance(
+        (ax, ay, az) in arb_point(),
+        (bx, by, bz) in arb_point(),
+        (tx, ty, tz) in arb_translation(),
+        angle_x in arb_angle(),
+        angle_y in arb_angle(),
+        angle_z in arb_angle(),
+    ) {
+        let a = Point3d::new(ax, ay, az);
+        let b = Point3d::new(bx, by, bz);
+
+        // Build a rigid transform (rotation + translation, no scaling)
+        let t = Transform::rotation_x(angle_x)
+            .then(&Transform::rotation_y(angle_y))
+            .then(&Transform::rotation_z(angle_z))
+            .then(&Transform::translation(tx, ty, tz));
+
+        let ta = t.transform_point(&a);
+        let tb = t.transform_point(&b);
+
+        let d_orig = a.distance_to(&b);
+        let d_trans = ta.distance_to(&tb);
+
+        // Rigid transforms must preserve distance exactly
+        prop_assert!((d_orig - d_trans).abs() < 1e-4,
+            "Rigid transform changed distance: {} -> {} (delta={})",
+            d_orig, d_trans, (d_orig - d_trans).abs());
+    }
+}
+
+// ===========================================================================
+// NEW: Random point/vector operations
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// 17. Cross product orthogonality: (a x b) . a ~ 0 and (a x b) . b ~ 0
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #[test]
+    fn cross_product_orthogonality(
+        (ax, ay, az) in arb_point(),
+        (bx, by, bz) in arb_point(),
+    ) {
+        let a = Vec3::new(ax, ay, az);
+        let b = Vec3::new(bx, by, bz);
+        let cross = a.cross(&b);
+
+        let dot_a = cross.dot(&a);
+        let dot_b = cross.dot(&b);
+
+        // Scale tolerance by magnitude of inputs to handle large values
+        let scale = a.length() * b.length() * 1e-9 + 1e-9;
+        prop_assert!(dot_a.abs() < scale,
+            "(axb).a = {} (expected ~0, scale={})", dot_a, scale);
+        prop_assert!(dot_b.abs() < scale,
+            "(axb).b = {} (expected ~0, scale={})", dot_b, scale);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 18. Cross product magnitude: |a x b| = |a| * |b| * sin(angle)
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #[test]
+    fn cross_product_magnitude(
+        (ax, ay, az) in arb_point(),
+        (bx, by, bz) in arb_point(),
+    ) {
+        let a = Vec3::new(ax, ay, az);
+        let b = Vec3::new(bx, by, bz);
+
+        let cross_len = a.cross(&b).length();
+        let angle = a.angle_to(&b);
+        let expected = a.length() * b.length() * angle.sin().abs();
+
+        // Skip near-zero vectors where numerical error dominates
+        if a.length() > 1e-6 && b.length() > 1e-6 {
+            let scale = a.length() * b.length();
+            let tol = scale * 1e-9 + 1e-9;
+            prop_assert!((cross_len - expected).abs() < tol,
+                "|axb|={} != |a|*|b|*sin(angle)={} (tol={})", cross_len, expected, tol);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 19. Vector triangle inequality: |a + b| <= |a| + |b|
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #[test]
+    fn vector_triangle_inequality(
+        (ax, ay, az) in arb_point(),
+        (bx, by, bz) in arb_point(),
+    ) {
+        let a = Vec3::new(ax, ay, az);
+        let b = Vec3::new(bx, by, bz);
+
+        let sum_len = (a + b).length();
+        let individual_sum = a.length() + b.length();
+
+        prop_assert!(sum_len <= individual_sum + TOL,
+            "|a+b|={} > |a|+|b|={}", sum_len, individual_sum);
+    }
+}
+
+// ===========================================================================
+// NEW: Random primitive construction
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// 20. Random boxes pass full verification
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #[test]
+    fn random_box_passes_full_verify(
+        (ox, oy, oz) in arb_point(),
+        dx in arb_positive_dim(),
+        dy in arb_positive_dim(),
+        dz in arb_positive_dim(),
+    ) {
+        let mut store = EntityStore::new();
+        let solid_id = make_box(&mut store, ox, oy, oz, ox + dx, oy + dy, oz + dz);
+
+        let report = full_verify(&store, solid_id);
+        prop_assert!(report.topology_valid,
+            "Box ({},{},{}) + ({},{},{}) failed topology: {:?}",
+            ox, oy, oz, dx, dy, dz, report.topology_audit.errors);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 21. Random box bounding box matches expected dimensions
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #[test]
+    fn random_box_bounding_box_matches(
+        (ox, oy, oz) in arb_point(),
+        dx in arb_positive_dim(),
+        dy in arb_positive_dim(),
+        dz in arb_positive_dim(),
+    ) {
+        let mut store = EntityStore::new();
+        let solid_id = make_box(&mut store, ox, oy, oz, ox + dx, oy + dy, oz + dz);
+
+        let bb = store.solid_bounding_box(solid_id);
+
+        prop_assert!((bb.min.x - ox).abs() < 1e-9,
+            "bb.min.x={} != ox={}", bb.min.x, ox);
+        prop_assert!((bb.min.y - oy).abs() < 1e-9,
+            "bb.min.y={} != oy={}", bb.min.y, oy);
+        prop_assert!((bb.min.z - oz).abs() < 1e-9,
+            "bb.min.z={} != oz={}", bb.min.z, oz);
+        prop_assert!((bb.max.x - (ox + dx)).abs() < 1e-9,
+            "bb.max.x={} != ox+dx={}", bb.max.x, ox + dx);
+        prop_assert!((bb.max.y - (oy + dy)).abs() < 1e-9,
+            "bb.max.y={} != oy+dy={}", bb.max.y, oy + dy);
+        prop_assert!((bb.max.z - (oz + dz)).abs() < 1e-9,
+            "bb.max.z={} != oz+dz={}", bb.max.z, oz + dz);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 22. Random box volume matches expected via Monte Carlo
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(64))]
+    #[test]
+    fn random_box_volume_matches_expected(
+        dx in 1.0f64..20.0,
+        dy in 1.0f64..20.0,
+        dz in 1.0f64..20.0,
+    ) {
+        let mut store = EntityStore::new();
+        let solid_id = make_box(&mut store, 0.0, 0.0, 0.0, dx, dy, dz);
+
+        let expected_vol = dx * dy * dz;
+        let estimated_vol = estimate_volume(&store, solid_id, 50_000);
+
+        if expected_vol > 1.0 {
+            let rel_error = (estimated_vol - expected_vol).abs() / expected_vol;
+            prop_assert!(rel_error < 0.15,
+                "Volume mismatch: estimated={:.3}, expected={:.3}, rel_error={:.3}",
+                estimated_vol, expected_vol, rel_error);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 23. Boolean volume identity using analytical volumes
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+    #[test]
+    fn boolean_volume_identity_analytical(
+        (box_a, box_b) in arb_overlapping_box_pair(),
+    ) {
+        let vol_a = (box_a.3 - box_a.0) * (box_a.4 - box_a.1) * (box_a.5 - box_a.2);
+        let vol_b = (box_b.3 - box_b.0) * (box_b.4 - box_b.1) * (box_b.5 - box_b.2);
+
+        // Analytical intersection volume
+        let ix0 = box_a.0.max(box_b.0);
+        let iy0 = box_a.1.max(box_b.1);
+        let iz0 = box_a.2.max(box_b.2);
+        let ix1 = box_a.3.min(box_b.3);
+        let iy1 = box_a.4.min(box_b.4);
+        let iz1 = box_a.5.min(box_b.5);
+        let vol_inter = ((ix1 - ix0).max(0.0)) * ((iy1 - iy0).max(0.0)) * ((iz1 - iz0).max(0.0));
+
+        let vol_union = vol_a + vol_b - vol_inter;
+        let vol_diff = vol_a - vol_inter;
+
+        // Basic sanity checks on volumes
+        prop_assert!(vol_union >= vol_a - 1e-9, "union < A: {} < {}", vol_union, vol_a);
+        prop_assert!(vol_union >= vol_b - 1e-9, "union < B: {} < {}", vol_union, vol_b);
+        prop_assert!(vol_union <= vol_a + vol_b + 1e-9,
+            "union > A+B: {} > {}", vol_union, vol_a + vol_b);
+        prop_assert!(vol_inter >= 0.0 - 1e-9, "negative intersection volume");
+        prop_assert!(vol_inter <= vol_a.min(vol_b) + 1e-9,
+            "intersection > min(A,B): {} > {}", vol_inter, vol_a.min(vol_b));
+        prop_assert!(vol_diff >= 0.0 - 1e-9, "negative difference volume");
+        prop_assert!(vol_diff <= vol_a + 1e-9, "difference > A: {} > {}", vol_diff, vol_a);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 24. Boolean union volume matches analytical value via MC estimation
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(64))]
+    #[test]
+    fn boolean_union_volume_matches_analytical(
+        (box_a, box_b) in arb_overlapping_box_pair(),
+    ) {
+        let mut store = EntityStore::new();
+
+        let a = make_box(&mut store, box_a.0, box_a.1, box_a.2, box_a.3, box_a.4, box_a.5);
+        let b = make_box(&mut store, box_b.0, box_b.1, box_b.2, box_b.3, box_b.4, box_b.5);
+
+        if let Ok(union_id) = boolean_op(&mut store, a, b, BoolOp::Union) {
+            let vol_mc = estimate_volume(&store, union_id, 50_000);
+
+            let vol_a = (box_a.3 - box_a.0) * (box_a.4 - box_a.1) * (box_a.5 - box_a.2);
+            let vol_b = (box_b.3 - box_b.0) * (box_b.4 - box_b.1) * (box_b.5 - box_b.2);
+            let ix0 = box_a.0.max(box_b.0);
+            let iy0 = box_a.1.max(box_b.1);
+            let iz0 = box_a.2.max(box_b.2);
+            let ix1 = box_a.3.min(box_b.3);
+            let iy1 = box_a.4.min(box_b.4);
+            let iz1 = box_a.5.min(box_b.5);
+            let vol_inter = ((ix1 - ix0).max(0.0)) * ((iy1 - iy0).max(0.0)) * ((iz1 - iz0).max(0.0));
+            let vol_exact = vol_a + vol_b - vol_inter;
+
+            if vol_exact > 0.5 {
+                let rel_error = (vol_mc - vol_exact).abs() / vol_exact;
+                prop_assert!(rel_error < 0.15,
+                    "Union volume: MC={:.3} vs exact={:.3}, rel_error={:.3}",
+                    vol_mc, vol_exact, rel_error);
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 25. Boolean difference volume matches analytical value via MC estimation
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(64))]
+    #[test]
+    fn boolean_difference_volume_matches_analytical(
+        (box_a, box_b) in arb_overlapping_box_pair(),
+    ) {
+        let mut store = EntityStore::new();
+
+        let a = make_box(&mut store, box_a.0, box_a.1, box_a.2, box_a.3, box_a.4, box_a.5);
+        let b = make_box(&mut store, box_b.0, box_b.1, box_b.2, box_b.3, box_b.4, box_b.5);
+
+        if let Ok(diff_id) = boolean_op(&mut store, a, b, BoolOp::Difference) {
+            let vol_mc = estimate_volume(&store, diff_id, 50_000);
+
+            let vol_a = (box_a.3 - box_a.0) * (box_a.4 - box_a.1) * (box_a.5 - box_a.2);
+            let ix0 = box_a.0.max(box_b.0);
+            let iy0 = box_a.1.max(box_b.1);
+            let iz0 = box_a.2.max(box_b.2);
+            let ix1 = box_a.3.min(box_b.3);
+            let iy1 = box_a.4.min(box_b.4);
+            let iz1 = box_a.5.min(box_b.5);
+            let vol_inter = ((ix1 - ix0).max(0.0)) * ((iy1 - iy0).max(0.0)) * ((iz1 - iz0).max(0.0));
+            let vol_exact = vol_a - vol_inter;
+
+            if vol_exact > 0.5 {
+                let rel_error = (vol_mc - vol_exact).abs() / vol_exact;
+                prop_assert!(rel_error < 0.15,
+                    "Difference volume: MC={:.3} vs exact={:.3}, rel_error={:.3}",
+                    vol_mc, vol_exact, rel_error);
+            }
+        }
     }
 }
