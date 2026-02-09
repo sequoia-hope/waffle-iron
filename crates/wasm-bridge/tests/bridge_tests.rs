@@ -228,7 +228,7 @@ fn dispatch_hover_entity_returns_hover_changed() {
 }
 
 #[test]
-fn dispatch_unimplemented_returns_error() {
+fn dispatch_undo_empty_returns_error() {
     let mut state = EngineState::new();
     let mut kernel = MockKernel::new();
 
@@ -236,7 +236,24 @@ fn dispatch_unimplemented_returns_error() {
 
     assert!(matches!(response, EngineToUi::Error { .. }));
     if let EngineToUi::Error { message, .. } = &response {
-        assert!(message.contains("not implemented"));
+        assert!(
+            message.contains("undo"),
+            "Expected 'undo' error, got: {}",
+            message
+        );
+    }
+}
+
+#[test]
+fn dispatch_unimplemented_returns_error() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    let response = wasm_bridge::dispatch(&mut state, UiToEngine::ExportStep, &mut kernel);
+
+    assert!(matches!(response, EngineToUi::Error { .. }));
+    if let EngineToUi::Error { message, .. } = &response {
+        assert!(message.contains("not implemented") || message.contains("Not"));
     }
 }
 
@@ -302,4 +319,107 @@ fn engine_state_no_sketch_errors() {
 
     let result = state.finish_sketch();
     assert!(result.is_err());
+}
+
+// ── Undo/Redo Dispatch Tests ──────────────────────────────────────────
+
+#[test]
+fn dispatch_undo_redo_cycle() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    // Add a feature via dispatch
+    let op = make_sketch_operation();
+    let response = wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::AddFeature { operation: op },
+        &mut kernel,
+    );
+    assert!(matches!(response, EngineToUi::ModelUpdated { .. }));
+    assert_eq!(state.engine.tree.features.len(), 1);
+
+    // Undo
+    let response = wasm_bridge::dispatch(&mut state, UiToEngine::Undo, &mut kernel);
+    assert!(matches!(response, EngineToUi::ModelUpdated { .. }));
+    assert_eq!(state.engine.tree.features.len(), 0);
+
+    // Redo
+    let response = wasm_bridge::dispatch(&mut state, UiToEngine::Redo, &mut kernel);
+    assert!(matches!(response, EngineToUi::ModelUpdated { .. }));
+    assert_eq!(state.engine.tree.features.len(), 1);
+}
+
+// ── Save/Load Dispatch Tests ──────────────────────────────────────────
+
+#[test]
+fn dispatch_save_produces_json() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    // Add a feature
+    let op = make_sketch_operation();
+    wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::AddFeature { operation: op },
+        &mut kernel,
+    );
+
+    // Save
+    let response = wasm_bridge::dispatch(&mut state, UiToEngine::SaveProject, &mut kernel);
+
+    if let EngineToUi::SaveReady { json_data } = response {
+        assert!(json_data.contains("waffle-iron"));
+        assert!(json_data.contains("Sketch"));
+    } else {
+        panic!("Expected SaveReady, got {:?}", response);
+    }
+}
+
+#[test]
+fn dispatch_load_restores_tree() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    // Add a feature and save
+    let op = make_sketch_operation();
+    wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::AddFeature { operation: op },
+        &mut kernel,
+    );
+
+    let save_response = wasm_bridge::dispatch(&mut state, UiToEngine::SaveProject, &mut kernel);
+    let json_data = if let EngineToUi::SaveReady { json_data } = save_response {
+        json_data
+    } else {
+        panic!("Expected SaveReady");
+    };
+
+    // Clear state
+    let mut new_state = EngineState::new();
+    assert_eq!(new_state.engine.tree.features.len(), 0);
+
+    // Load
+    let response = wasm_bridge::dispatch(
+        &mut new_state,
+        UiToEngine::LoadProject { data: json_data },
+        &mut kernel,
+    );
+
+    assert!(matches!(response, EngineToUi::ModelUpdated { .. }));
+    assert_eq!(new_state.engine.tree.features.len(), 1);
+}
+
+/// Helper: create a minimal sketch operation for dispatch tests.
+fn make_sketch_operation() -> Operation {
+    use waffle_types::Sketch;
+    Operation::Sketch {
+        sketch: Sketch {
+            id: Uuid::new_v4(),
+            plane: make_geom_ref(),
+            entities: Vec::new(),
+            constraints: Vec::new(),
+            solve_status: SolveStatus::FullyConstrained,
+        },
+    }
 }

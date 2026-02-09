@@ -18,11 +18,15 @@
 - [ ] postMessage sender for outgoing results
 - [ ] Worker error handling (onerror)
 
-### M4: Command Dispatch (partial) ✅
+### M4: Command Dispatch ✅
 - [x] Deserialize UiToEngine in Worker
 - [x] Dispatch to appropriate engine function
-- [x] Handle all command variants (feature ops, selection, hover; undo/redo/file ops return NotImplemented)
-- [x] Test: send command → verify engine receives it (5 dispatch tests)
+- [x] Handle all command variants (feature ops, selection, hover, undo/redo, save/load)
+- [x] Undo/Redo wired to feature-engine undo/redo
+- [x] SaveProject: serializes feature tree to JSON via file-format
+- [x] LoadProject: deserializes, replaces tree, rebuilds
+- [x] ExportStep: not yet wired (requires TruckKernel, not generic KernelBundle)
+- [x] Tests: 8 dispatch tests + 7 serde tests + 2 engine state tests
 
 ### M5: Result Callback
 - [ ] Serialize EngineToUi in Worker

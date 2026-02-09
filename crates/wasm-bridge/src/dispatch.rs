@@ -1,4 +1,5 @@
 use feature_engine::types::Operation;
+use file_format::ProjectMetadata;
 use modeling_ops::KernelBundle;
 
 use crate::engine_state::{BridgeError, EngineState};
@@ -89,13 +90,15 @@ fn handle_message(
         }
 
         // -- History --
-        UiToEngine::Undo => Err(BridgeError::NotImplemented {
-            operation: "Undo".to_string(),
-        }),
+        UiToEngine::Undo => {
+            state.engine.undo(kb)?;
+            Ok(model_updated_response(state))
+        }
 
-        UiToEngine::Redo => Err(BridgeError::NotImplemented {
-            operation: "Redo".to_string(),
-        }),
+        UiToEngine::Redo => {
+            state.engine.redo(kb)?;
+            Ok(model_updated_response(state))
+        }
 
         // -- Selection --
         UiToEngine::SelectEntity { geom_ref } => {
@@ -111,16 +114,25 @@ fn handle_message(
         }
 
         // -- File operations --
-        UiToEngine::SaveProject => Err(BridgeError::NotImplemented {
-            operation: "SaveProject".to_string(),
-        }),
+        UiToEngine::SaveProject => {
+            let meta = ProjectMetadata::new(&state.project_name);
+            let json = file_format::save_project(&state.engine.tree, &meta);
+            Ok(EngineToUi::SaveReady { json_data: json })
+        }
 
-        UiToEngine::LoadProject { .. } => Err(BridgeError::NotImplemented {
-            operation: "LoadProject".to_string(),
-        }),
+        UiToEngine::LoadProject { data } => {
+            let (tree, meta) =
+                file_format::load_project(&data).map_err(|e| BridgeError::Serialization {
+                    reason: e.to_string(),
+                })?;
+            state.project_name = meta.name;
+            state.engine.tree = tree;
+            state.engine.rebuild_from_scratch(kb);
+            Ok(model_updated_response(state))
+        }
 
         UiToEngine::ExportStep => Err(BridgeError::NotImplemented {
-            operation: "ExportStep".to_string(),
+            operation: "ExportStep (requires TruckKernel)".to_string(),
         }),
     }
 }

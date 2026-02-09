@@ -100,6 +100,12 @@ pub enum EngineToUi {
         feature_id: Option<Uuid>,
     },
 
+    /// Save project is ready.
+    SaveReady { json_data: String },
+
+    /// Project loaded successfully.
+    ProjectLoaded { feature_tree: FeatureTree },
+
     /// STEP export is ready.
     ExportReady { step_data: String },
 }

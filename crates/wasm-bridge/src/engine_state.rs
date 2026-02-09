@@ -13,6 +13,8 @@ pub struct EngineState {
     pub selection: Vec<GeomRef>,
     /// Current hover state.
     pub hover: Option<GeomRef>,
+    /// Project name for save operations.
+    pub project_name: String,
 }
 
 /// An active sketch editing session.
@@ -35,6 +37,7 @@ impl EngineState {
             active_sketch: None,
             selection: Vec::new(),
             hover: None,
+            project_name: "Untitled".to_string(),
         }
     }
 
