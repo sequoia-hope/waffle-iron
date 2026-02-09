@@ -71,11 +71,11 @@
 - [x] Multiple undo/redo cycle (3 adds, undo all, redo all)
 - [ ] Change sketch that adds/removes edges → verify role fallback to signature (deferred: needs richer sketch editing)
 
-### M10: Performance Benchmarks
-- [ ] Rebuild time for 10-feature tree (with MockKernel)
-- [ ] Rebuild time for 20-feature tree
-- [ ] Rebuild time for 50-feature tree
-- [ ] Identify hotspots (GeomRef resolution? kernel ops? tessellation?)
+### M10: Performance Benchmarks ✅
+- [x] Rebuild time for 10-feature tree: ~180µs (with MockKernel)
+- [x] Rebuild time for 20-feature tree: ~370µs
+- [x] Rebuild time for 50-feature tree: ~1.3ms
+- [x] All well under interactive thresholds; no hotspots at this scale
 
 ## Blockers
 

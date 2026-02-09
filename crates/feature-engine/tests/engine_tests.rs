@@ -1187,3 +1187,62 @@ fn stress_multiple_undo_redo_cycle() {
     assert!(engine.get_result(s2).is_some());
     assert!(engine.get_result(s3).is_some());
 }
+
+// ── M10: Performance Benchmarks ─────────────────────────────────────────
+
+/// Build a tree of N sketch+extrude pairs and return rebuild time.
+fn bench_rebuild_n_features(n: usize) -> std::time::Duration {
+    let mut engine = Engine::new();
+    let mut kernel = MockKernel::new();
+
+    // Build tree: alternating sketch + extrude
+    let mut sketch_ids = Vec::new();
+    for i in 0..n {
+        let s = engine
+            .add_feature(format!("Sketch {}", i), make_sketch_op(), &mut kernel)
+            .unwrap();
+        sketch_ids.push(s);
+        engine
+            .add_feature(format!("Extrude {}", i), make_extrude_op(s), &mut kernel)
+            .unwrap();
+    }
+
+    // Measure full rebuild from scratch
+    let start = std::time::Instant::now();
+    engine.rebuild_from_scratch(&mut kernel);
+    start.elapsed()
+}
+
+#[test]
+fn bench_rebuild_10_features() {
+    let elapsed = bench_rebuild_n_features(5); // 5 sketch+extrude = 10 features
+    eprintln!("Rebuild 10 features: {:?}", elapsed);
+    // Sanity check: should complete in under 1 second with MockKernel
+    assert!(
+        elapsed.as_secs() < 1,
+        "10-feature rebuild took too long: {:?}",
+        elapsed
+    );
+}
+
+#[test]
+fn bench_rebuild_20_features() {
+    let elapsed = bench_rebuild_n_features(10); // 10 pairs = 20 features
+    eprintln!("Rebuild 20 features: {:?}", elapsed);
+    assert!(
+        elapsed.as_secs() < 1,
+        "20-feature rebuild took too long: {:?}",
+        elapsed
+    );
+}
+
+#[test]
+fn bench_rebuild_50_features() {
+    let elapsed = bench_rebuild_n_features(25); // 25 pairs = 50 features
+    eprintln!("Rebuild 50 features: {:?}", elapsed);
+    assert!(
+        elapsed.as_secs() < 2,
+        "50-feature rebuild took too long: {:?}",
+        elapsed
+    );
+}

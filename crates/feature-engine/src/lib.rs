@@ -302,6 +302,12 @@ impl Engine {
         self.errors = state.errors;
     }
 
+    /// Full rebuild from scratch (clears all results first).
+    pub fn rebuild_from_scratch(&mut self, kb: &mut dyn KernelBundle) {
+        self.feature_results.clear();
+        self.rebuild(kb, 0);
+    }
+
     /// Get the OpResult for a feature.
     pub fn get_result(&self, feature_id: Uuid) -> Option<&OpResult> {
         self.feature_results.get(&feature_id)
