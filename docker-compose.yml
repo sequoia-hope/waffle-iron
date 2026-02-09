@@ -1,0 +1,34 @@
+services:
+  claude-remote:
+    build: .
+    container_name: waffle-iron-claude
+    restart: unless-stopped
+    entrypoint: /home/claude/entrypoint.sh
+    ports:
+      - "${TAILSCALE_IP:?Set TAILSCALE_IP in .env}:7681:7681"
+    volumes:
+      # Mount this repo as the workspace
+      - .:/home/claude/workspace
+      # Cargo registry cache (avoid re-downloading crates on rebuild)
+      - cargo-registry:/home/claude/.cargo/registry
+      - cargo-git:/home/claude/.cargo/git
+      # Build cache (persist target/ across container restarts)
+      - cargo-target:/home/claude/workspace/target
+      # Claude auth persistence
+      - ${HOME}/.claude:/home/claude/.claude
+      - ${HOME}/.claude.json:/home/claude/.claude.json
+      # Git config (read-only)
+      - ${HOME}/.gitconfig:/home/claude/.gitconfig:ro
+      # SSH keys for git operations (read-only)
+      - ${HOME}/.ssh:/home/claude/.ssh:ro
+    environment:
+      - TTYD_USER=${TTYD_USER:-}
+      - TTYD_PASS=${TTYD_PASS:-}
+      - GH_TOKEN=${GH_TOKEN:-}
+      - WORKSPACE=/home/claude/workspace
+      - SESSION_NAME=${SESSION_NAME:-waffle-iron}
+
+volumes:
+  cargo-registry:
+  cargo-git:
+  cargo-target:

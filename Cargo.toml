@@ -1,3 +1,9 @@
 [workspace]
-members = ["crates/kernel-fork"]
+members = ["crates/kernel-fork", "crates/sketch-solver"]
 resolver = "2"
+
+[patch.crates-io]
+# Patched slvs: removed -x c++ -std=c++11 from bindgen clang args in build.rs.
+# The header (slvs.h) is pure C; C++ mode causes bindgen to silently fail
+# with newer libclang (only generates constants, skips structs/functions).
+slvs = { path = "crates/slvs-patch/slvs-0.6.0" }
