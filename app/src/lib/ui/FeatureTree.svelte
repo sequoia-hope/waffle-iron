@@ -6,6 +6,8 @@
 		deleteFeature,
 		suppressFeature,
 		setRollbackIndex,
+		reorderFeature,
+		renameFeature,
 		send,
 		isEngineReady
 	} from '$lib/engine/store.svelte.js';
@@ -18,6 +20,12 @@
 
 	/** @type {{ featureId: string, value: string } | null} */
 	let renaming = $state(null);
+
+	// Drag-and-drop state
+	/** @type {string | null} */
+	let dragFeatureId = $state(null);
+	/** @type {number | null} */
+	let dropTargetIndex = $state(null);
 
 	function handleClick(featureId) {
 		selectFeature(featureId);
@@ -45,11 +53,23 @@
 	function handleRename(e) {
 		if (!renaming) return;
 		if (e.key === 'Enter') {
-			// Rename would be an EditFeature with updated name — for now just close
+			const trimmed = renaming.value.trim();
+			if (trimmed) {
+				renameFeature(renaming.featureId, trimmed);
+			}
 			renaming = null;
 		} else if (e.key === 'Escape') {
 			renaming = null;
 		}
+	}
+
+	function handleRenameBlur() {
+		if (!renaming) return;
+		const trimmed = renaming.value.trim();
+		if (trimmed) {
+			renameFeature(renaming.featureId, trimmed);
+		}
+		renaming = null;
 	}
 
 	function handleDelete() {
@@ -80,6 +100,38 @@
 		}
 	}
 
+	// -- Drag and drop --
+
+	function handleDragStart(e, feature) {
+		dragFeatureId = feature.id;
+		e.dataTransfer.effectAllowed = 'move';
+		e.dataTransfer.setData('text/plain', feature.id);
+	}
+
+	function handleDragOver(e, index) {
+		e.preventDefault();
+		e.dataTransfer.dropEffect = 'move';
+		dropTargetIndex = index;
+	}
+
+	function handleDragLeave() {
+		dropTargetIndex = null;
+	}
+
+	function handleDrop(e, targetIndex) {
+		e.preventDefault();
+		if (dragFeatureId) {
+			reorderFeature(dragFeatureId, targetIndex);
+		}
+		dragFeatureId = null;
+		dropTargetIndex = null;
+	}
+
+	function handleDragEnd() {
+		dragFeatureId = null;
+		dropTargetIndex = null;
+	}
+
 	// Rollback slider
 	let rollbackValue = $derived(tree.active_index ?? tree.features.length);
 
@@ -100,14 +152,23 @@
 		{:else}
 			{#each tree.features as feature, i (feature.id)}
 				{@const isAfterRollback = tree.active_index !== null && i > tree.active_index}
+				{@const isDragging = dragFeatureId === feature.id}
 				<div
 					class="tree-item"
 					class:selected={selectedId === feature.id}
 					class:suppressed={feature.suppressed}
 					class:after-rollback={isAfterRollback}
+					class:dragging={isDragging}
+					class:drop-above={dropTargetIndex === i && dragFeatureId !== feature.id}
+					draggable="true"
 					onclick={() => handleClick(feature.id)}
 					ondblclick={() => handleDblClick(feature)}
 					oncontextmenu={(e) => handleContextMenu(e, feature)}
+					ondragstart={(e) => handleDragStart(e, feature)}
+					ondragover={(e) => handleDragOver(e, i)}
+					ondragleave={handleDragLeave}
+					ondrop={(e) => handleDrop(e, i)}
+					ondragend={handleDragEnd}
 					role="treeitem"
 					tabindex="0"
 				>
@@ -117,7 +178,7 @@
 							class="rename-input"
 							bind:value={renaming.value}
 							onkeydown={handleRename}
-							onblur={() => (renaming = null)}
+							onblur={handleRenameBlur}
 						/>
 					{:else}
 						<span class="tree-label">{feature.name}</span>
@@ -197,9 +258,11 @@
 		display: flex;
 		align-items: center;
 		padding: 3px 12px;
-		cursor: pointer;
+		cursor: grab;
 		gap: 6px;
 		user-select: none;
+		transition: border-top 0.1s;
+		border-top: 2px solid transparent;
 	}
 
 	.tree-item:hover {
@@ -219,6 +282,14 @@
 
 	.tree-item.after-rollback {
 		opacity: 0.3;
+	}
+
+	.tree-item.dragging {
+		opacity: 0.4;
+	}
+
+	.tree-item.drop-above {
+		border-top: 2px solid var(--accent);
 	}
 
 	.tree-icon {

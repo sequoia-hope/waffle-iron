@@ -31,6 +31,7 @@
 - [x] SolveSketch: wired to sketch-solver (native builds only)
 - [x] Full sketch workflow: BeginSketch → AddEntity → Solve → FinishSketch
 - [x] ExportStep: not yet wired (requires TruckKernel, not generic KernelBundle)
+- [x] ReorderFeature and RenameFeature message dispatch wired
 - [x] Tests: 21 total (7 serde + 8 dispatch + 3 engine state + 3 sketch workflow)
 
 ### M5: Result Callback ✅

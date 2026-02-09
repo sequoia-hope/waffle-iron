@@ -79,6 +79,17 @@ impl FeatureTree {
         self.active_index = index;
     }
 
+    /// Rename a feature.
+    pub fn rename_feature(&mut self, id: Uuid, new_name: String) -> Result<String, EngineError> {
+        let feature = self
+            .features
+            .iter_mut()
+            .find(|f| f.id == id)
+            .ok_or(EngineError::FeatureNotFound { id })?;
+        let old_name = std::mem::replace(&mut feature.name, new_name);
+        Ok(old_name)
+    }
+
     /// Find a feature by ID.
     pub fn find_feature(&self, id: Uuid) -> Option<&Feature> {
         self.features.iter().find(|f| f.id == id)

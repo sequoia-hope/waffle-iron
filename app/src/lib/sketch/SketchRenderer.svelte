@@ -286,7 +286,7 @@
 			return { type: 'dashed-line', geometry: new THREE.BufferGeometry().setFromPoints([w1, w2]) };
 		}
 
-		if (snap.type === 'on-entity') {
+		if (snap.type === 'on-entity' || snap.type === 'tangent' || snap.type === 'perpendicular') {
 			return { type: 'point', world: sketchToWorld(snap.x, snap.y, plane) };
 		}
 

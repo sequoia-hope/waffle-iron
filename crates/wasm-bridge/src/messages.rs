@@ -47,6 +47,16 @@ pub enum UiToEngine {
         feature_id: Uuid,
         suppressed: bool,
     },
+    /// Reorder a feature to a new position.
+    ReorderFeature {
+        feature_id: Uuid,
+        new_position: usize,
+    },
+    /// Rename a feature.
+    RenameFeature {
+        feature_id: Uuid,
+        new_name: String,
+    },
     /// Set the rollback index.
     SetRollbackIndex {
         index: Option<usize>,

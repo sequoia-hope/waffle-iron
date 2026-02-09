@@ -48,7 +48,8 @@
 ### M6: Tessellation Wrapper ✓
 - [x] Wrap `MeshableShape::triangulation()` → `RenderMesh`
 - [x] Face-range metadata computation (per-face triangle index ranges)
-- [ ] `EdgeRenderData` extraction (sharp edge line segments) — type defined, extraction deferred
+- [x] `EdgeRenderData` extraction via `extract_edges()` — samples edge curves into polylines
+- [x] Test: box produces 12 edge ranges, cylinder produces 3+ edge ranges
 - [x] Tolerance parameter passthrough
 - [x] Test: tessellate box, verify face_ranges cover all triangles
 

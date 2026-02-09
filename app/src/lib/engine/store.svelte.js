@@ -561,6 +561,26 @@ export async function editFeature(featureId, operation) {
 }
 
 /**
+ * Reorder a feature to a new position in the tree.
+ * @param {string} featureId
+ * @param {number} newPosition
+ */
+export async function reorderFeature(featureId, newPosition) {
+	if (!bridge || !engineReady) return;
+	await bridge.send({ type: 'ReorderFeature', feature_id: featureId, new_position: newPosition });
+}
+
+/**
+ * Rename a feature.
+ * @param {string} featureId
+ * @param {string} newName
+ */
+export async function renameFeature(featureId, newName) {
+	if (!bridge || !engineReady) return;
+	await bridge.send({ type: 'RenameFeature', feature_id: featureId, new_name: newName });
+}
+
+/**
  * Undo the last action.
  */
 export async function undo() {

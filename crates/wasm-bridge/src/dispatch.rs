@@ -97,6 +97,22 @@ fn handle_message(
             Ok(model_updated_response(state))
         }
 
+        UiToEngine::ReorderFeature {
+            feature_id,
+            new_position,
+        } => {
+            state.engine.reorder_feature(feature_id, new_position, kb)?;
+            Ok(model_updated_response(state))
+        }
+
+        UiToEngine::RenameFeature {
+            feature_id,
+            new_name,
+        } => {
+            state.engine.rename_feature(feature_id, new_name)?;
+            Ok(model_updated_response(state))
+        }
+
         UiToEngine::SetRollbackIndex { index } => {
             state.engine.set_rollback(index, kb);
             Ok(model_updated_response(state))

@@ -7,7 +7,7 @@
 - [x] Three-column layout (tree + viewport + properties)
 - [x] Toolbar at top
 - [x] Status bar at bottom
-- [ ] Responsive resizing (draggable panel borders) — deferred
+- [x] Responsive resizing (draggable panel borders)
 
 ### M2: Feature Tree Display ✅
 - [x] Render feature list with icons
@@ -18,9 +18,9 @@
 
 ### M3: Feature Tree Interactions ✅
 - [x] Click to select
-- [x] Double-click to rename (UI ready, rename message deferred)
+- [x] Double-click to rename (wired to RenameFeature message)
 - [x] Right-click context menu (suppress/delete)
-- [ ] Drag-and-drop reorder — deferred
+- [x] Drag-and-drop reorder (wired to ReorderFeature message)
 - [x] Produce DeleteFeature/SuppressFeature messages via store
 
 ### M4: Toolbar with Tool State ✅
@@ -76,6 +76,7 @@
 
 ## Notes
 
-- Drag-and-drop reorder and viewport context menu deferred to future iteration
-- Draggable panel borders deferred to future iteration
-- Feature rename sends no message yet (UI ready, needs RenameFeature message type)
+- Viewport context menu deferred to future iteration
+- Feature rename wired to RenameFeature message through wasm-bridge
+- Feature reorder wired to ReorderFeature message through wasm-bridge
+- Responsive panel resizing uses draggable dividers with min/max constraints

@@ -54,7 +54,8 @@
 - [x] On-entity snap (lines, circles — 5px threshold)
 - [x] Visual snap indicators (green dot for coincident/on-entity, dashed line for H/V)
 - [x] Auto-constraint application (H/V constraints auto-added on line creation)
-- [ ] Tangent snap — deferred (requires arc-line intersection logic)
+- [x] Tangent snap (line-to-circle tangent point computation)
+- [x] Perpendicular snap (point projection onto line foot)
 - [ ] Configurable threshold settings — deferred
 
 ### M9: Visual Feedback
@@ -62,7 +63,7 @@
 - [x] Entity/constraint counts in status bar
 - [ ] Full DOF counter (requires solver — currently NotImplemented in WASM)
 - [ ] Failed constraint highlighting — deferred
-- [ ] Construction geometry dashed display — deferred
+- [x] Construction geometry dashed display (done in M11)
 
 ### M10: Profile Selection ✅
 - [x] Click inside closed loop → identify profile

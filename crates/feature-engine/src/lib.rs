@@ -151,6 +151,17 @@ impl Engine {
         Ok(())
     }
 
+    /// Rename a feature. No rebuild needed.
+    pub fn rename_feature(&mut self, id: Uuid, new_name: String) -> Result<(), EngineError> {
+        let old_name = self.tree.rename_feature(id, new_name.clone())?;
+        self.undo_stack.push(Command::RenameFeature {
+            feature_id: id,
+            old_name,
+            new_name,
+        });
+        Ok(())
+    }
+
     /// Set rollback index and rebuild. Not undoable.
     pub fn set_rollback(&mut self, index: Option<usize>, kb: &mut dyn KernelBundle) {
         self.tree.set_rollback(index);
@@ -229,6 +240,14 @@ impl Engine {
                 let _ = self.tree.set_suppressed(*feature_id, *old_suppressed);
                 pos
             }
+            Command::RenameFeature {
+                feature_id,
+                old_name,
+                ..
+            } => {
+                let _ = self.tree.rename_feature(*feature_id, old_name.clone());
+                0 // No rebuild needed for rename
+            }
         }
     }
 
@@ -278,6 +297,14 @@ impl Engine {
                 let pos = self.tree.feature_index(*feature_id).unwrap_or(0);
                 let _ = self.tree.set_suppressed(*feature_id, *new_suppressed);
                 pos
+            }
+            Command::RenameFeature {
+                feature_id,
+                new_name,
+                ..
+            } => {
+                let _ = self.tree.rename_feature(*feature_id, new_name.clone());
+                0 // No rebuild needed for rename
             }
         }
     }

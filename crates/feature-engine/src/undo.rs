@@ -28,6 +28,11 @@ pub enum Command {
         old_suppressed: bool,
         new_suppressed: bool,
     },
+    RenameFeature {
+        feature_id: Uuid,
+        old_name: String,
+        new_name: String,
+    },
 }
 
 /// Two-stack undo/redo history.

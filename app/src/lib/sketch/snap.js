@@ -12,7 +12,9 @@ import { findPointNear, findLineNear, findCircleNear, getSketchPositions, getSke
  * @typedef {{ type: 'horizontal', x: number, y: number, fromX: number, fromY: number }} HorizontalSnap
  * @typedef {{ type: 'vertical', x: number, y: number, fromX: number, fromY: number }} VerticalSnap
  * @typedef {{ type: 'on-entity', x: number, y: number, entityId: number }} OnEntitySnap
- * @typedef {CoincidentSnap | HorizontalSnap | VerticalSnap | OnEntitySnap} SnapIndicator
+ * @typedef {{ type: 'tangent', x: number, y: number, entityId: number }} TangentSnap
+ * @typedef {{ type: 'perpendicular', x: number, y: number, entityId: number }} PerpendicularSnap
+ * @typedef {CoincidentSnap | HorizontalSnap | VerticalSnap | OnEntitySnap | TangentSnap | PerpendicularSnap} SnapIndicator
  */
 
 /**
@@ -126,6 +128,18 @@ export function detectSnaps(x, y, fromPointId, screenPixelSize) {
 		}
 	}
 
+	// 4. Tangent snap — when drawing from a point, check if the cursor forms a tangent to a circle/arc
+	if (fromPointId != null) {
+		const tangent = detectTangentSnap(x, y, fromPointId, onEntityThreshold);
+		if (tangent) return tangent;
+	}
+
+	// 5. Perpendicular snap — when drawing from a point, check if cursor forms perpendicular to a line
+	if (fromPointId != null) {
+		const perp = detectPerpendicularSnap(x, y, fromPointId, onEntityThreshold);
+		if (perp) return perp;
+	}
+
 	// No snap
 	return { x, y, constraints: [], indicator: null };
 }
@@ -141,4 +155,138 @@ function projectOntoSegment(px, py, ax, ay, bx, by) {
 	let t = ((px - ax) * abx + (py - ay) * aby) / len2;
 	t = Math.max(0, Math.min(1, t));
 	return { x: ax + t * abx, y: ay + t * aby };
+}
+
+/**
+ * Detect tangent snap from a point to a circle/arc.
+ * A line from fromPoint to the tangent point on a circle is perpendicular to the radius.
+ *
+ * @param {number} x - Cursor X
+ * @param {number} y - Cursor Y
+ * @param {number} fromPointId - Point we're drawing from
+ * @param {number} threshold - Snap threshold in sketch units
+ * @returns {SnapResult | null}
+ */
+function detectTangentSnap(x, y, fromPointId, threshold) {
+	const positions = getSketchPositions();
+	const fromPos = positions.get(fromPointId);
+	if (!fromPos) return null;
+
+	const entities = getSketchEntities();
+
+	for (const entity of entities) {
+		if (entity.type !== 'Circle' && entity.type !== 'Arc') continue;
+		const center = positions.get(entity.center_id);
+		if (!center) continue;
+
+		let radius;
+		if (entity.type === 'Circle') {
+			radius = entity.radius;
+		} else {
+			const startPt = positions.get(entity.start_id);
+			if (!startPt) continue;
+			radius = Math.sqrt((startPt.x - center.x) ** 2 + (startPt.y - center.y) ** 2);
+		}
+
+		// Distance from fromPoint to center
+		const dx = fromPos.x - center.x;
+		const dy = fromPos.y - center.y;
+		const distToCenter = Math.sqrt(dx * dx + dy * dy);
+
+		// Tangent only makes sense if fromPoint is outside the circle
+		if (distToCenter <= radius) continue;
+
+		// Tangent length from fromPoint to tangent point: sqrt(d^2 - r^2)
+		const tangentLen = Math.sqrt(distToCenter * distToCenter - radius * radius);
+
+		// Angle from center to fromPoint
+		const baseAngle = Math.atan2(dy, dx);
+		// Half-angle of the tangent: asin(r/d)
+		const halfAngle = Math.asin(radius / distToCenter);
+
+		// Two tangent points
+		const tangentPoints = [
+			{
+				x: center.x + radius * Math.cos(baseAngle + Math.PI / 2 + halfAngle - Math.PI / 2),
+				y: center.y + radius * Math.sin(baseAngle + Math.PI / 2 + halfAngle - Math.PI / 2)
+			},
+			{
+				x: center.x + radius * Math.cos(baseAngle - Math.PI / 2 - halfAngle + Math.PI / 2),
+				y: center.y + radius * Math.sin(baseAngle - Math.PI / 2 - halfAngle + Math.PI / 2)
+			}
+		];
+
+		// More direct computation: tangent point angles from center
+		const tp1Angle = baseAngle + (Math.PI - halfAngle);
+		const tp2Angle = baseAngle - (Math.PI - halfAngle);
+		const tp1 = { x: center.x + radius * Math.cos(tp1Angle), y: center.y + radius * Math.sin(tp1Angle) };
+		const tp2 = { x: center.x + radius * Math.cos(tp2Angle), y: center.y + radius * Math.sin(tp2Angle) };
+
+		// Check if cursor is near either tangent point
+		for (const tp of [tp1, tp2]) {
+			const dist = Math.sqrt((x - tp.x) ** 2 + (y - tp.y) ** 2);
+			if (dist < threshold * 2) {
+				return {
+					x: tp.x, y: tp.y,
+					constraints: [{ type: 'Tangent', entity_a: fromPointId, entity_b: entity.id }],
+					indicator: { type: 'tangent', x: tp.x, y: tp.y, entityId: entity.id }
+				};
+			}
+		}
+	}
+
+	return null;
+}
+
+/**
+ * Detect perpendicular snap from a point to a line.
+ * The foot of perpendicular from fromPoint onto the line.
+ *
+ * @param {number} x - Cursor X
+ * @param {number} y - Cursor Y
+ * @param {number} fromPointId - Point we're drawing from
+ * @param {number} threshold - Snap threshold in sketch units
+ * @returns {SnapResult | null}
+ */
+function detectPerpendicularSnap(x, y, fromPointId, threshold) {
+	const positions = getSketchPositions();
+	const fromPos = positions.get(fromPointId);
+	if (!fromPos) return null;
+
+	const entities = getSketchEntities();
+
+	for (const entity of entities) {
+		if (entity.type !== 'Line') continue;
+		const p1 = positions.get(entity.start_id);
+		const p2 = positions.get(entity.end_id);
+		if (!p1 || !p2) continue;
+
+		// Skip if fromPoint is an endpoint of this line
+		if (entity.start_id === fromPointId || entity.end_id === fromPointId) continue;
+
+		// Project fromPoint onto the line (unclamped)
+		const abx = p2.x - p1.x;
+		const aby = p2.y - p1.y;
+		const len2 = abx * abx + aby * aby;
+		if (len2 < 1e-12) continue;
+
+		const t = ((fromPos.x - p1.x) * abx + (fromPos.y - p1.y) * aby) / len2;
+		// Only snap if foot is within the segment
+		if (t < 0 || t > 1) continue;
+
+		const footX = p1.x + t * abx;
+		const footY = p1.y + t * aby;
+
+		// Check if cursor is near the perpendicular foot
+		const dist = Math.sqrt((x - footX) ** 2 + (y - footY) ** 2);
+		if (dist < threshold * 2) {
+			return {
+				x: footX, y: footY,
+				constraints: [{ type: 'Perpendicular', entity_a: fromPointId, entity_b: entity.id }],
+				indicator: { type: 'perpendicular', x: footX, y: footY, entityId: entity.id }
+			};
+		}
+	}
+
+	return null;
 }
