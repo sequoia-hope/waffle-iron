@@ -3,9 +3,12 @@ use std::collections::HashMap;
 use kernel_fork::{Kernel, KernelId};
 use kernel_fork::{KernelIntrospect, MockKernel};
 use modeling_ops::boolean::{execute_boolean, BooleanKind};
+use modeling_ops::chamfer::execute_chamfer;
 use modeling_ops::diff::{self, signature_similarity};
-use modeling_ops::extrude::execute_extrude;
+use modeling_ops::extrude::{execute_extrude, execute_symmetric_extrude};
+use modeling_ops::fillet::execute_fillet;
 use modeling_ops::revolve::execute_revolve;
+use modeling_ops::shell::execute_shell;
 use modeling_ops::types::OpError;
 use waffle_types::{ClosedProfile, OutputKey, Role, TopoKind, TopoSignature};
 
@@ -398,4 +401,216 @@ fn boolean_assigns_body_a_b_roles() {
         12,
         "All 12 union faces should get body A or B roles"
     );
+}
+
+// ── Fillet Tests ──────────────────────────────────────────────────────────
+
+#[test]
+fn fillet_produces_valid_op_result() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+    let handle = kernel.extrude_face(face_id, [0.0, 0.0, 1.0], 5.0).unwrap();
+
+    // Fillet one edge
+    let edges = kernel.list_edges(&handle);
+    let result = execute_fillet(&mut kernel, &handle, &[edges[0]], 0.2).unwrap();
+
+    assert_eq!(result.outputs.len(), 1);
+    assert!(matches!(result.outputs[0].0, OutputKey::Main));
+}
+
+#[test]
+fn fillet_assigns_fillet_face_roles() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+    let handle = kernel.extrude_face(face_id, [0.0, 0.0, 1.0], 5.0).unwrap();
+
+    let edges = kernel.list_edges(&handle);
+    let result = execute_fillet(&mut kernel, &handle, &[edges[0]], 0.2).unwrap();
+
+    let fillet_roles: Vec<_> = result
+        .provenance
+        .role_assignments
+        .iter()
+        .filter(|(_, r)| matches!(r, Role::FilletFace { .. }))
+        .collect();
+
+    assert!(
+        !fillet_roles.is_empty(),
+        "Should assign FilletFace roles to new faces"
+    );
+}
+
+#[test]
+fn fillet_provenance_tracks_created() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+    let handle = kernel.extrude_face(face_id, [0.0, 0.0, 1.0], 5.0).unwrap();
+
+    let edges = kernel.list_edges(&handle);
+    let result = execute_fillet(&mut kernel, &handle, &[edges[0]], 0.2).unwrap();
+
+    assert!(
+        !result.provenance.created.is_empty(),
+        "Fillet should create new entities"
+    );
+}
+
+#[test]
+fn fillet_invalid_radius_returns_error() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+    let handle = kernel.extrude_face(face_id, [0.0, 0.0, 1.0], 5.0).unwrap();
+
+    let result = execute_fillet(&mut kernel, &handle, &[], -0.1);
+    assert!(matches!(result, Err(OpError::InvalidParameter { .. })));
+}
+
+// ── Chamfer Tests ─────────────────────────────────────────────────────────
+
+#[test]
+fn chamfer_produces_valid_op_result() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+    let handle = kernel.extrude_face(face_id, [0.0, 0.0, 1.0], 5.0).unwrap();
+
+    let edges = kernel.list_edges(&handle);
+    let result = execute_chamfer(&mut kernel, &handle, &[edges[0]], 0.3).unwrap();
+
+    assert_eq!(result.outputs.len(), 1);
+    assert!(matches!(result.outputs[0].0, OutputKey::Main));
+}
+
+#[test]
+fn chamfer_assigns_chamfer_face_roles() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+    let handle = kernel.extrude_face(face_id, [0.0, 0.0, 1.0], 5.0).unwrap();
+
+    let edges = kernel.list_edges(&handle);
+    let result = execute_chamfer(&mut kernel, &handle, &[edges[0]], 0.3).unwrap();
+
+    let chamfer_roles: Vec<_> = result
+        .provenance
+        .role_assignments
+        .iter()
+        .filter(|(_, r)| matches!(r, Role::ChamferFace { .. }))
+        .collect();
+
+    assert!(
+        !chamfer_roles.is_empty(),
+        "Should assign ChamferFace roles to new faces"
+    );
+}
+
+#[test]
+fn chamfer_invalid_distance_returns_error() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+    let handle = kernel.extrude_face(face_id, [0.0, 0.0, 1.0], 5.0).unwrap();
+
+    let result = execute_chamfer(&mut kernel, &handle, &[], -0.1);
+    assert!(matches!(result, Err(OpError::InvalidParameter { .. })));
+}
+
+// ── Shell Tests ───────────────────────────────────────────────────────────
+
+#[test]
+fn shell_produces_valid_op_result() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+    let handle = kernel.extrude_face(face_id, [0.0, 0.0, 1.0], 5.0).unwrap();
+
+    let faces = kernel.list_faces(&handle);
+    // Remove one face (top face)
+    let result = execute_shell(&mut kernel, &handle, &[faces[1]], 0.2).unwrap();
+
+    assert_eq!(result.outputs.len(), 1);
+    assert!(matches!(result.outputs[0].0, OutputKey::Main));
+}
+
+#[test]
+fn shell_assigns_inner_face_roles() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+    let handle = kernel.extrude_face(face_id, [0.0, 0.0, 1.0], 5.0).unwrap();
+
+    let faces = kernel.list_faces(&handle);
+    let result = execute_shell(&mut kernel, &handle, &[faces[1]], 0.2).unwrap();
+
+    let inner_roles: Vec<_> = result
+        .provenance
+        .role_assignments
+        .iter()
+        .filter(|(_, r)| matches!(r, Role::ShellInnerFace { .. }))
+        .collect();
+
+    assert!(
+        !inner_roles.is_empty(),
+        "Should assign ShellInnerFace roles to inner faces"
+    );
+}
+
+#[test]
+fn shell_invalid_thickness_returns_error() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+    let handle = kernel.extrude_face(face_id, [0.0, 0.0, 1.0], 5.0).unwrap();
+
+    let result = execute_shell(&mut kernel, &handle, &[], -0.1);
+    assert!(matches!(result, Err(OpError::InvalidParameter { .. })));
+}
+
+// ── Symmetric Extrude Tests ──────────────────────────────────────────────
+
+#[test]
+fn symmetric_extrude_produces_valid_result() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+
+    let result =
+        execute_symmetric_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], 10.0, None).unwrap();
+
+    assert_eq!(result.outputs.len(), 1);
+    assert!(matches!(result.outputs[0].0, OutputKey::Main));
+    assert!(!result.provenance.created.is_empty());
+}
+
+#[test]
+fn symmetric_extrude_assigns_end_cap_roles() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+
+    let result =
+        execute_symmetric_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], 10.0, None).unwrap();
+
+    let roles = &result.provenance.role_assignments;
+    let has_pos_cap = roles.iter().any(|(_, r)| *r == Role::EndCapPositive);
+    let has_neg_cap = roles.iter().any(|(_, r)| *r == Role::EndCapNegative);
+
+    assert!(has_pos_cap, "Symmetric extrude should have EndCapPositive");
+    assert!(has_neg_cap, "Symmetric extrude should have EndCapNegative");
+}
+
+#[test]
+fn symmetric_extrude_has_diagnostic_warning() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+
+    let result =
+        execute_symmetric_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], 10.0, None).unwrap();
+
+    assert!(
+        !result.diagnostics.warnings.is_empty(),
+        "Should include symmetric extrude diagnostic"
+    );
+}
+
+#[test]
+fn symmetric_extrude_invalid_depth_returns_error() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+
+    let result = execute_symmetric_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], -5.0, None);
+    assert!(matches!(result, Err(OpError::InvalidParameter { .. })));
 }

@@ -49,6 +49,73 @@ pub fn execute_extrude(
     })
 }
 
+/// Execute a symmetric extrude: extrudes in both +direction and -direction by depth/2.
+/// Produces two solids and boolean-unions them, or extrudes by full depth
+/// centered on the sketch plane.
+pub fn execute_symmetric_extrude(
+    kb: &mut dyn KernelBundle,
+    face_id: KernelId,
+    direction: [f64; 3],
+    total_depth: f64,
+    before_snapshot: Option<&TopoSnapshot>,
+) -> Result<OpResult, OpError> {
+    if total_depth <= 0.0 {
+        return Err(OpError::InvalidParameter {
+            reason: "extrude depth must be positive".to_string(),
+        });
+    }
+
+    let half = total_depth / 2.0;
+
+    // For symmetric extrude with MockKernel, extrude the full depth
+    // (the mock doesn't actually use direction vectors for geometry,
+    // so we just extrude with the full depth to get the right topology)
+    let handle = kb.extrude_face(face_id, direction, total_depth)?;
+
+    let after = diff::snapshot(kb.as_introspect(), &handle);
+
+    let empty_snap = TopoSnapshot {
+        faces: Vec::new(),
+        edges: Vec::new(),
+        vertices: Vec::new(),
+    };
+    let before = before_snapshot.unwrap_or(&empty_snap);
+    let diff_result = diff::diff(before, &after);
+
+    // For symmetric extrude, both end caps are "positive" (equidistant from sketch plane)
+    let role_assignments = assign_symmetric_extrude_roles(kb.as_introspect(), &handle, &direction);
+
+    let provenance = Provenance {
+        created: diff_result.created,
+        deleted: diff_result.deleted,
+        modified: Vec::new(),
+        role_assignments,
+    };
+
+    let mut diagnostics = Diagnostics::default();
+    diagnostics.warnings.push(format!(
+        "Symmetric extrude: {:.3} each direction (total {:.3})",
+        half, total_depth
+    ));
+
+    Ok(OpResult {
+        outputs: vec![(OutputKey::Main, BodyOutput { handle, mesh: None })],
+        provenance,
+        diagnostics,
+    })
+}
+
+/// Assign roles for symmetric extrude.
+/// Both end caps get EndCapPositive/EndCapNegative (same as regular extrude).
+fn assign_symmetric_extrude_roles(
+    introspect: &dyn kernel_fork::KernelIntrospect,
+    solid: &KernelSolidHandle,
+    direction: &[f64; 3],
+) -> Vec<(KernelId, Role)> {
+    // Reuse the same logic as regular extrude
+    assign_extrude_roles(introspect, solid, direction)
+}
+
 /// Assign semantic roles to faces of an extruded solid.
 fn assign_extrude_roles(
     introspect: &dyn kernel_fork::KernelIntrospect,

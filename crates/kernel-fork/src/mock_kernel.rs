@@ -881,10 +881,14 @@ impl Kernel for MockKernel {
             let chamfer_face = MockFace {
                 id: self.alloc_id(),
                 edges: vec![e1.id, e2.id],
-                normal: [0.0, 0.0, 1.0],
+                normal: [
+                    0.0,
+                    -std::f64::consts::FRAC_1_SQRT_2,
+                    -std::f64::consts::FRAC_1_SQRT_2,
+                ],
                 centroid,
                 area: orig_edge.length * distance * std::f64::consts::SQRT_2,
-                surface_type: "planar".to_string(),
+                surface_type: "chamfer".to_string(),
             };
 
             new_vertices.push(v1);
@@ -1016,7 +1020,7 @@ impl Kernel for MockKernel {
                 normal: inner_normal,
                 centroid: inner_centroid,
                 area: f.area * (1.0 - thickness / f.area.sqrt()).max(0.01),
-                surface_type: f.surface_type.clone(),
+                surface_type: format!("offset_{}", f.surface_type),
             });
         }
 
@@ -1517,9 +1521,9 @@ mod tests {
         assert_eq!(faces.len(), 7, "Chamfer adds 1 planar face");
         assert_eq!(edges.len(), 13, "Chamfer replaces 1 edge with 2");
 
-        // Chamfer face should be planar
+        // Chamfer face should have chamfer surface type
         let chamfer_face_sig = kernel.compute_signature(faces[6], TopoKind::Face);
-        assert_eq!(chamfer_face_sig.surface_type.as_deref(), Some("planar"));
+        assert_eq!(chamfer_face_sig.surface_type.as_deref(), Some("chamfer"));
     }
 
     #[test]
