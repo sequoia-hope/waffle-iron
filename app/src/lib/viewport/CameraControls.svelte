@@ -9,6 +9,16 @@
 	let cameraRef = $state(null);
 	let controlsRef = $state(null);
 
+	const standardViews = {
+		front:  { pos: [0, 0, 1],  up: [0, 1, 0] },
+		back:   { pos: [0, 0, -1], up: [0, 1, 0] },
+		top:    { pos: [0, 1, 0],  up: [0, 0, -1] },
+		bottom: { pos: [0, -1, 0], up: [0, 0, 1] },
+		left:   { pos: [-1, 0, 0], up: [0, 1, 0] },
+		right:  { pos: [1, 0, 0],  up: [0, 1, 0] },
+		iso:    { pos: [1, 1, 1],  up: [0, 1, 0] }
+	};
+
 	/**
 	 * Fit camera to view all visible objects in the scene.
 	 */
@@ -43,16 +53,49 @@
 		}
 	}
 
+	/**
+	 * Snap camera to a standard view direction.
+	 * @param {string} viewName
+	 */
+	function snapToView(viewName) {
+		const view = standardViews[viewName];
+		if (!view || !cameraRef) return;
+
+		const target = controlsRef ? controlsRef.target.clone() : new THREE.Vector3(0, 0, 0);
+		const dist = cameraRef.position.distanceTo(target) || 10;
+
+		const newPos = new THREE.Vector3(...view.pos).normalize().multiplyScalar(dist);
+		newPos.add(target);
+		cameraRef.position.copy(newPos);
+		cameraRef.up.set(...view.up);
+		cameraRef.lookAt(target);
+		cameraRef.updateProjectionMatrix();
+
+		if (controlsRef) {
+			controlsRef.update();
+		}
+	}
+
 	onMount(() => {
 		/** @param {KeyboardEvent} e */
 		function onKeyDown(e) {
+			if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 			if (e.key === 'f' || e.key === 'F') {
-				if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 				fitAll();
 			}
 		}
+
+		/** @param {CustomEvent} e */
+		function onSnapView(e) {
+			snapToView(e.detail.view);
+		}
+
 		window.addEventListener('keydown', onKeyDown);
-		return () => window.removeEventListener('keydown', onKeyDown);
+		window.addEventListener('waffle-snap-view', /** @type {EventListener} */ (onSnapView));
+		return () => {
+			window.removeEventListener('keydown', onKeyDown);
+			window.removeEventListener('waffle-snap-view', /** @type {EventListener} */ (onSnapView));
+		};
 	});
 </script>
 

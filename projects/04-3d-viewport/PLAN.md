@@ -46,20 +46,20 @@
 - [x] Clear selection on background click (onpointermissed)
 
 ### M8: Sketch-Mode Transparency
-- [ ] Transition to sketch mode: solid becomes transparent
-- [ ] Display sketch plane
-- [ ] Transition back on sketch finish
-- [ ] Smooth opacity animation
+- [x] Transition to sketch mode: solid becomes transparent (opacity 0.2, depthWrite off)
+- [x] Display sketch plane (grid + border + semi-transparent background)
+- [x] Transition back on sketch finish (enterSketchMode/exitSketchMode in store)
+- [x] Sketch plane orientation from normal vector
 
 ### M9: Datum Visualization
-- [ ] Render datum planes (semi-transparent with border)
-- [ ] Render datum axes (lines with arrows)
-- [ ] Origin triad
+- [x] Render datum planes (XY/XZ/YZ, semi-transparent with colored borders)
+- [x] Render datum axes (lines with arrowhead cones, X=red Y=green Z=blue)
+- [x] Origin triad (sphere at origin + colored axis lines + cone tips)
 
 ### M10: Coordinate Gizmo
-- [ ] Small axis triad in viewport corner
-- [ ] Shows camera orientation
-- [ ] Click to snap to standard views
+- [x] Small axis triad in viewport corner (orthographic overlay, bottom-right)
+- [x] Shows camera orientation (gizmo rotation synced with main camera)
+- [x] Click to snap to standard views (Front/Back/Top/Bottom/Left/Right/Iso)
 
 ## Blockers
 
@@ -76,18 +76,24 @@
 - Edge rendering uses polygonOffset to prevent z-fighting.
 - Per-face highlighting uses BufferGeometry groups with material arrays.
 - Grid floor added via @threlte/extras Grid component for visual reference.
-- CADmium used Threlte successfully — referenced their viewport setup.
 - Scene.svelte wraps all 3D content and initializes interactivity plugin.
+- ViewCube split into ViewCubeGizmo (three.js overlay in Canvas) and ViewCubeButtons (HTML overlay outside Canvas). Communication via CustomEvent 'waffle-snap-view'.
+- Sketch plane grid/border rendered as LineSegments in a Group oriented by plane normal.
+- Datum planes at 6% opacity to avoid cluttering the view.
 
 ## Implementation Files
 
 | File | Purpose |
 |------|---------|
-| `app/src/lib/viewport/Viewport.svelte` | Canvas wrapper |
+| `app/src/lib/viewport/Viewport.svelte` | Canvas wrapper + HTML overlays |
 | `app/src/lib/viewport/Scene.svelte` | Scene root, initializes interactivity |
-| `app/src/lib/viewport/CadModel.svelte` | Mesh rendering with face-range picking |
-| `app/src/lib/viewport/CameraControls.svelte` | OrbitControls + fit-all |
+| `app/src/lib/viewport/CadModel.svelte` | Mesh rendering with face-range picking + sketch transparency |
+| `app/src/lib/viewport/CameraControls.svelte` | OrbitControls + fit-all + snap-to-view |
 | `app/src/lib/viewport/Lighting.svelte` | Ambient + directional + hemisphere |
 | `app/src/lib/viewport/EdgeOverlay.svelte` | Edge line segments overlay |
 | `app/src/lib/viewport/GridFloor.svelte` | Infinite grid floor |
-| `app/src/lib/engine/store.svelte.js` | Engine state + hover/selection state |
+| `app/src/lib/viewport/SketchPlane.svelte` | Sketch-mode plane with grid and border |
+| `app/src/lib/viewport/DatumVis.svelte` | XY/XZ/YZ datum planes + origin triad |
+| `app/src/lib/viewport/ViewCubeGizmo.svelte` | Orientation gizmo (three.js overlay) |
+| `app/src/lib/viewport/ViewCubeButtons.svelte` | Standard view buttons (HTML overlay) |
+| `app/src/lib/engine/store.svelte.js` | Engine state + hover/selection/sketch-mode state |

@@ -28,6 +28,9 @@ let hoveredRef = $state(null);
 /** @type {Array<any>} */
 let selectedRefs = $state([]);
 
+/** @type {{ active: boolean, origin: [number, number, number], normal: [number, number, number] }} */
+let sketchMode = $state({ active: false, origin: [0, 0, 0], normal: [0, 0, 1] });
+
 /** @type {EngineBridge | null} */
 let bridge = null;
 
@@ -187,4 +190,24 @@ export function geomRefEquals(a, b) {
  */
 export function isSelected(ref) {
 	return selectedRefs.some((r) => geomRefEquals(r, ref));
+}
+
+export function getSketchMode() {
+	return sketchMode;
+}
+
+/**
+ * Enter sketch mode on a plane.
+ * @param {[number, number, number]} origin - plane origin
+ * @param {[number, number, number]} normal - plane normal
+ */
+export function enterSketchMode(origin = [0, 0, 0], normal = [0, 0, 1]) {
+	sketchMode = { active: true, origin, normal };
+}
+
+/**
+ * Exit sketch mode.
+ */
+export function exitSketchMode() {
+	sketchMode = { active: false, origin: [0, 0, 0], normal: [0, 0, 1] };
 }

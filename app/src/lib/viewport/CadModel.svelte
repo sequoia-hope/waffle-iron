@@ -8,6 +8,7 @@
 		clearSelection,
 		getHoveredRef,
 		getSelectedRefs,
+		getSketchMode,
 		geomRefEquals,
 		isSelected
 	} from '$lib/engine/store.svelte.js';
@@ -72,15 +73,21 @@
 	}
 
 	/**
-	 * Build materials array for face ranges based on hover/selection state.
+	 * Build materials array for face ranges based on hover/selection/sketch-mode state.
 	 */
-	function buildMaterials(faceRanges, hoveredRef, selectedRefs) {
+	function buildMaterials(faceRanges, hoveredRef, selectedRefs, inSketchMode) {
+		const transparent = inSketchMode;
+		const opacity = transparent ? 0.2 : 1.0;
+
 		if (!faceRanges || faceRanges.length === 0) {
 			return [
 				new THREE.MeshStandardMaterial({
 					color: DEFAULT_COLOR,
 					metalness: 0.3,
-					roughness: 0.6
+					roughness: 0.6,
+					transparent,
+					opacity,
+					depthWrite: !transparent
 				})
 			];
 		}
@@ -89,26 +96,38 @@
 			const ref = range.geom_ref;
 			let color = DEFAULT_COLOR;
 
-			if (selectedRefs.some((r) => geomRefEquals(r, ref))) {
-				color = SELECTED_COLOR;
-			} else if (hoveredRef && geomRefEquals(hoveredRef, ref)) {
-				color = HOVER_COLOR;
+			if (!inSketchMode) {
+				if (selectedRefs.some((r) => geomRefEquals(r, ref))) {
+					color = SELECTED_COLOR;
+				} else if (hoveredRef && geomRefEquals(hoveredRef, ref)) {
+					color = HOVER_COLOR;
+				}
 			}
 
 			return new THREE.MeshStandardMaterial({
 				color,
 				metalness: 0.3,
-				roughness: 0.6
+				roughness: 0.6,
+				transparent,
+				opacity,
+				depthWrite: !transparent
 			});
 		});
 	}
 
 	// Create fallback test box geometry + material
 	const testGeometry = new THREE.BoxGeometry(2, 2, 2);
-	const testMaterial = new THREE.MeshStandardMaterial({
-		color: DEFAULT_COLOR,
-		metalness: 0.3,
-		roughness: 0.6
+
+	let testMaterial = $derived.by(() => {
+		const inSketch = getSketchMode()?.active ?? false;
+		return new THREE.MeshStandardMaterial({
+			color: DEFAULT_COLOR,
+			metalness: 0.3,
+			roughness: 0.6,
+			transparent: inSketch,
+			opacity: inSketch ? 0.2 : 1.0,
+			depthWrite: !inSketch
+		});
 	});
 
 	// Derive engine meshes with geometry objects
@@ -122,11 +141,12 @@
 		}));
 	});
 
-	// Build material arrays reactively based on hover/selection
+	// Build material arrays reactively based on hover/selection/sketch-mode
 	let meshMaterials = $derived.by(() => {
 		const hRef = getHoveredRef();
 		const sRefs = getSelectedRefs();
-		return engineMeshes.map((m) => buildMaterials(m.faceRanges, hRef, sRefs));
+		const inSketch = getSketchMode()?.active ?? false;
+		return engineMeshes.map((m) => buildMaterials(m.faceRanges, hRef, sRefs, inSketch));
 	});
 
 	let showTestBox = $derived(engineMeshes.length === 0);
