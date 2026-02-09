@@ -55,19 +55,21 @@
 - [x] Fix: active_features() panic on empty tree with rollback
 - [x] Fix: rebuild clears results for features beyond rollback window
 
-### M8: Integration Test — Full Pipeline
-- [ ] Sketch rectangle → extrude → fillet top edges → change sketch width → verify:
-  - Rebuild succeeds
-  - Fillet references still resolve (role: FilletFace)
-  - Final geometry is correct (different width, same fillets)
-- [ ] Test with MockKernel
+### M8: Integration Test — Full Pipeline ✅
+- [x] Sketch → extrude → sketch → extrude → boolean union → verify all results
+- [x] Edit early feature → verify downstream rebuild succeeds with no errors
+- [x] Undo/redo edit → verify state roundtrips correctly
+- [x] Rollback mid-tree → verify inactive features lose results, restore recovers
+- [ ] Fillet pipeline test (deferred: fillet not yet implemented in MockKernel)
 
-### M9: Persistent Naming Stress Tests
-- [ ] Add feature in middle of tree → verify downstream refs survive
-- [ ] Remove feature from middle → verify error on dependent features
-- [ ] Suppress feature → verify downstream suppressed or errored
-- [ ] Reorder features → verify refs update correctly
-- [ ] Change sketch that adds/removes edges → verify role fallback to signature
+### M9: Persistent Naming Stress Tests ✅
+- [x] Add feature in middle of tree → verify downstream refs survive
+- [x] Remove feature from middle → verify error on dependent features
+- [x] Suppress feature → verify downstream errored; unsuppress recovers
+- [x] Reorder features → verify UUID-based refs survive position changes
+- [x] Reorder extrude before its sketch → verify failure
+- [x] Multiple undo/redo cycle (3 adds, undo all, redo all)
+- [ ] Change sketch that adds/removes edges → verify role fallback to signature (deferred: needs richer sketch editing)
 
 ### M10: Performance Benchmarks
 - [ ] Rebuild time for 10-feature tree (with MockKernel)

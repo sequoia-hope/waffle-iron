@@ -786,3 +786,404 @@ fn rollback_is_not_undoable() {
     assert_eq!(engine.tree.features.len(), 0);
     assert!(engine.get_result(id).is_none());
 }
+
+// ── Helper: make_extrude_op with custom depth ────────────────────────────
+
+fn make_extrude_op_depth(sketch_id: Uuid, depth: f64) -> Operation {
+    Operation::Extrude {
+        params: ExtrudeParams {
+            sketch_id,
+            profile_index: 0,
+            depth,
+            direction: None,
+            symmetric: false,
+            cut: false,
+            target_body: None,
+        },
+    }
+}
+
+/// Create a boolean union operation referencing two extrude features.
+fn make_boolean_union(extrude_a_id: Uuid, extrude_b_id: Uuid) -> Operation {
+    Operation::BooleanCombine {
+        params: BooleanParams {
+            body_a: GeomRef {
+                kind: TopoKind::Face,
+                anchor: Anchor::FeatureOutput {
+                    feature_id: extrude_a_id,
+                    output_key: OutputKey::Main,
+                },
+                selector: Selector::Role {
+                    role: Role::EndCapPositive,
+                    index: 0,
+                },
+                policy: ResolvePolicy::Strict,
+            },
+            body_b: GeomRef {
+                kind: TopoKind::Face,
+                anchor: Anchor::FeatureOutput {
+                    feature_id: extrude_b_id,
+                    output_key: OutputKey::Main,
+                },
+                selector: Selector::Role {
+                    role: Role::EndCapPositive,
+                    index: 0,
+                },
+                policy: ResolvePolicy::Strict,
+            },
+            operation: BooleanOp::Union,
+        },
+    }
+}
+
+// ── M8: Full Pipeline Integration Tests ──────────────────────────────────
+
+#[test]
+fn full_pipeline_sketch_extrude_boolean_rebuild() {
+    let mut engine = Engine::new();
+    let mut kernel = MockKernel::new();
+
+    // Build: sketch1 → extrude1 → sketch2 → extrude2 → boolean union
+    let s1 = engine
+        .add_feature("Sketch 1".to_string(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    let e1 = engine
+        .add_feature("Extrude 1".to_string(), make_extrude_op(s1), &mut kernel)
+        .unwrap();
+    let s2 = engine
+        .add_feature("Sketch 2".to_string(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    let e2 = engine
+        .add_feature("Extrude 2".to_string(), make_extrude_op(s2), &mut kernel)
+        .unwrap();
+    let bool_id = engine
+        .add_feature(
+            "Boolean Union".to_string(),
+            make_boolean_union(e1, e2),
+            &mut kernel,
+        )
+        .unwrap();
+
+    // All 5 features should have results
+    assert!(engine.get_result(s1).is_some());
+    assert!(engine.get_result(e1).is_some());
+    assert!(engine.get_result(s2).is_some());
+    assert!(engine.get_result(e2).is_some());
+    assert!(engine.get_result(bool_id).is_some());
+
+    // Boolean result should have outputs
+    let bool_result = engine.get_result(bool_id).unwrap();
+    assert_eq!(bool_result.outputs.len(), 1);
+    assert!(!bool_result.provenance.role_assignments.is_empty());
+}
+
+#[test]
+fn full_pipeline_edit_early_feature_rebuilds_downstream() {
+    let mut engine = Engine::new();
+    let mut kernel = MockKernel::new();
+
+    // Build pipeline
+    let s1 = engine
+        .add_feature("Sketch 1".to_string(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    let e1 = engine
+        .add_feature("Extrude 1".to_string(), make_extrude_op(s1), &mut kernel)
+        .unwrap();
+    let s2 = engine
+        .add_feature("Sketch 2".to_string(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    let e2 = engine
+        .add_feature("Extrude 2".to_string(), make_extrude_op(s2), &mut kernel)
+        .unwrap();
+    let bool_id = engine
+        .add_feature(
+            "Boolean Union".to_string(),
+            make_boolean_union(e1, e2),
+            &mut kernel,
+        )
+        .unwrap();
+
+    // Edit extrude1 depth — should trigger rebuild of extrude1 + boolean
+    engine
+        .edit_feature(e1, make_extrude_op_depth(s1, 15.0), &mut kernel)
+        .unwrap();
+
+    // All results should still be present after rebuild
+    assert!(engine.get_result(s1).is_some());
+    assert!(engine.get_result(e1).is_some());
+    assert!(engine.get_result(s2).is_some());
+    assert!(engine.get_result(e2).is_some());
+    assert!(engine.get_result(bool_id).is_some());
+    assert!(
+        engine.errors.is_empty(),
+        "No rebuild errors: {:?}",
+        engine.errors
+    );
+}
+
+#[test]
+fn full_pipeline_undo_edit_restores_state() {
+    let mut engine = Engine::new();
+    let mut kernel = MockKernel::new();
+
+    let s1 = engine
+        .add_feature("Sketch 1".to_string(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    let e1 = engine
+        .add_feature("Extrude 1".to_string(), make_extrude_op(s1), &mut kernel)
+        .unwrap();
+
+    // Edit depth
+    engine
+        .edit_feature(e1, make_extrude_op_depth(s1, 20.0), &mut kernel)
+        .unwrap();
+
+    // Undo the edit
+    engine.undo(&mut kernel).unwrap();
+
+    // Verify original depth restored
+    if let Operation::Extrude { params } = &engine.tree.find_feature(e1).unwrap().operation {
+        assert_eq!(params.depth, 5.0);
+    } else {
+        panic!("Expected Extrude");
+    }
+
+    // Redo the edit
+    engine.redo(&mut kernel).unwrap();
+
+    // Verify edited depth
+    if let Operation::Extrude { params } = &engine.tree.find_feature(e1).unwrap().operation {
+        assert_eq!(params.depth, 20.0);
+    } else {
+        panic!("Expected Extrude");
+    }
+}
+
+#[test]
+fn full_pipeline_rollback_mid_tree_and_restore() {
+    let mut engine = Engine::new();
+    let mut kernel = MockKernel::new();
+
+    let s1 = engine
+        .add_feature("Sketch 1".to_string(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    let e1 = engine
+        .add_feature("Extrude 1".to_string(), make_extrude_op(s1), &mut kernel)
+        .unwrap();
+    let s2 = engine
+        .add_feature("Sketch 2".to_string(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    let e2 = engine
+        .add_feature("Extrude 2".to_string(), make_extrude_op(s2), &mut kernel)
+        .unwrap();
+
+    // Rollback to after extrude1 (index 1) — sketch2 + extrude2 inactive
+    engine.set_rollback(Some(1), &mut kernel);
+    assert!(engine.get_result(s1).is_some());
+    assert!(engine.get_result(e1).is_some());
+    assert!(engine.get_result(s2).is_none());
+    assert!(engine.get_result(e2).is_none());
+
+    // Restore all
+    engine.set_rollback(None, &mut kernel);
+    assert!(engine.get_result(s1).is_some());
+    assert!(engine.get_result(e1).is_some());
+    assert!(engine.get_result(s2).is_some());
+    assert!(engine.get_result(e2).is_some());
+}
+
+// ── M9: Persistent Naming Stress Tests ──────────────────────────────────
+
+#[test]
+fn stress_add_feature_mid_tree_downstream_survives() {
+    let mut engine = Engine::new();
+    let mut kernel = MockKernel::new();
+
+    // Build: sketch → extrude
+    let s1 = engine
+        .add_feature("Sketch 1".to_string(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    let e1 = engine
+        .add_feature("Extrude 1".to_string(), make_extrude_op(s1), &mut kernel)
+        .unwrap();
+
+    // Insert a second sketch at position 1 (between sketch1 and extrude1)
+    // We use the engine API which appends, then reorder
+    let s2 = engine
+        .add_feature("Sketch 2".to_string(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    engine.reorder_feature(s2, 1, &mut kernel).unwrap();
+
+    // Tree should be: [s1, s2, e1]
+    assert_eq!(engine.tree.features[0].id, s1);
+    assert_eq!(engine.tree.features[1].id, s2);
+    assert_eq!(engine.tree.features[2].id, e1);
+
+    // Extrude1 still references sketch1 by ID — should still work
+    assert!(engine.get_result(e1).is_some());
+    assert!(
+        engine.errors.is_empty(),
+        "Downstream refs should survive mid-tree insert: {:?}",
+        engine.errors
+    );
+}
+
+#[test]
+fn stress_remove_mid_tree_dependent_errors() {
+    let mut engine = Engine::new();
+    let mut kernel = MockKernel::new();
+
+    // Build: sketch → extrude (extrude depends on sketch)
+    let s1 = engine
+        .add_feature("Sketch 1".to_string(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    let e1 = engine
+        .add_feature("Extrude 1".to_string(), make_extrude_op(s1), &mut kernel)
+        .unwrap();
+
+    // Remove the sketch — extrude should error on rebuild
+    engine.remove_feature(s1, &mut kernel).unwrap();
+
+    assert_eq!(engine.tree.features.len(), 1);
+    // Extrude can't find its sketch reference, should have an error
+    assert!(engine.get_result(e1).is_none());
+    assert!(
+        !engine.errors.is_empty(),
+        "Removing dependency should cause rebuild error"
+    );
+}
+
+#[test]
+fn stress_suppress_dependency_errors_downstream() {
+    let mut engine = Engine::new();
+    let mut kernel = MockKernel::new();
+
+    let s1 = engine
+        .add_feature("Sketch 1".to_string(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    let e1 = engine
+        .add_feature("Extrude 1".to_string(), make_extrude_op(s1), &mut kernel)
+        .unwrap();
+
+    // Suppress the sketch — extrude should error (sketch has no result)
+    engine.set_suppressed(s1, true, &mut kernel).unwrap();
+
+    assert!(engine.get_result(s1).is_none());
+    assert!(engine.get_result(e1).is_none());
+    assert!(
+        !engine.errors.is_empty(),
+        "Suppressing dependency should error downstream"
+    );
+
+    // Unsuppress — extrude should recover
+    engine.set_suppressed(s1, false, &mut kernel).unwrap();
+
+    assert!(engine.get_result(s1).is_some());
+    assert!(engine.get_result(e1).is_some());
+    assert!(
+        engine.errors.is_empty(),
+        "Unsuppressing should recover: {:?}",
+        engine.errors
+    );
+}
+
+#[test]
+fn stress_reorder_preserves_refs() {
+    let mut engine = Engine::new();
+    let mut kernel = MockKernel::new();
+
+    // Build: s1, s2, e1(refs s1), e2(refs s2)
+    let s1 = engine
+        .add_feature("Sketch 1".to_string(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    let s2 = engine
+        .add_feature("Sketch 2".to_string(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    let e1 = engine
+        .add_feature("Extrude 1".to_string(), make_extrude_op(s1), &mut kernel)
+        .unwrap();
+    let e2 = engine
+        .add_feature("Extrude 2".to_string(), make_extrude_op(s2), &mut kernel)
+        .unwrap();
+
+    // Swap s2 and s1: [s2, s1, e1, e2]
+    engine.reorder_feature(s2, 0, &mut kernel).unwrap();
+
+    // Both extrudes should still resolve — they reference by UUID, not position
+    assert!(engine.get_result(e1).is_some());
+    assert!(engine.get_result(e2).is_some());
+    assert!(
+        engine.errors.is_empty(),
+        "Reorder should not break UUID-based refs: {:?}",
+        engine.errors
+    );
+}
+
+#[test]
+fn stress_reorder_extrude_before_sketch_fails() {
+    let mut engine = Engine::new();
+    let mut kernel = MockKernel::new();
+
+    let s1 = engine
+        .add_feature("Sketch 1".to_string(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    let e1 = engine
+        .add_feature("Extrude 1".to_string(), make_extrude_op(s1), &mut kernel)
+        .unwrap();
+
+    // Move extrude before its sketch: [e1, s1]
+    engine.reorder_feature(e1, 0, &mut kernel).unwrap();
+
+    assert_eq!(engine.tree.features[0].id, e1);
+    assert_eq!(engine.tree.features[1].id, s1);
+
+    // Extrude executes before sketch, so sketch result doesn't exist yet
+    assert!(engine.get_result(e1).is_none());
+    assert!(
+        !engine.errors.is_empty(),
+        "Extrude before its sketch should fail"
+    );
+}
+
+#[test]
+fn stress_multiple_undo_redo_cycle() {
+    let mut engine = Engine::new();
+    let mut kernel = MockKernel::new();
+
+    // Add 3 features
+    let s1 = engine
+        .add_feature("A".to_string(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    let s2 = engine
+        .add_feature("B".to_string(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    let s3 = engine
+        .add_feature("C".to_string(), make_sketch_op(), &mut kernel)
+        .unwrap();
+
+    assert_eq!(engine.tree.features.len(), 3);
+
+    // Undo all 3
+    engine.undo(&mut kernel).unwrap();
+    assert_eq!(engine.tree.features.len(), 2);
+    engine.undo(&mut kernel).unwrap();
+    assert_eq!(engine.tree.features.len(), 1);
+    engine.undo(&mut kernel).unwrap();
+    assert_eq!(engine.tree.features.len(), 0);
+
+    // Redo all 3
+    engine.redo(&mut kernel).unwrap();
+    assert_eq!(engine.tree.features.len(), 1);
+    assert_eq!(engine.tree.features[0].id, s1);
+    engine.redo(&mut kernel).unwrap();
+    assert_eq!(engine.tree.features.len(), 2);
+    assert_eq!(engine.tree.features[1].id, s2);
+    engine.redo(&mut kernel).unwrap();
+    assert_eq!(engine.tree.features.len(), 3);
+    assert_eq!(engine.tree.features[2].id, s3);
+
+    // All results present
+    assert!(engine.get_result(s1).is_some());
+    assert!(engine.get_result(s2).is_some());
+    assert!(engine.get_result(s3).is_some());
+}
