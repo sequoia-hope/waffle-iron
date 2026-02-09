@@ -2,7 +2,10 @@
 	import {
 		getSelectedFeature,
 		editFeature,
-		isEngineReady
+		isEngineReady,
+		getSketchMode,
+		getSnapSettings,
+		updateSnapSettings
 	} from '$lib/engine/store.svelte.js';
 
 	let feature = $derived(getSelectedFeature());
@@ -76,13 +79,57 @@
 	}
 
 	let fields = $derived(feature ? getFields(feature.operation) : []);
+	let inSketch = $derived(getSketchMode()?.active ?? false);
+	let snap = $derived(getSnapSettings());
 </script>
 
 <div class="property-editor">
 	<div class="panel-header">Properties</div>
 	<div class="editor-content">
+		{#if inSketch}
+			<div class="section-header">Snap Settings</div>
+			<div class="fields">
+				<div class="field-row">
+					<label class="field-label">Point snap (px)</label>
+					<input
+						class="field-input"
+						type="number"
+						min="1"
+						max="30"
+						step="1"
+						value={snap.coincidentPx}
+						onchange={(e) => updateSnapSettings({ coincidentPx: parseInt(e.target.value) || 8 })}
+					/>
+				</div>
+				<div class="field-row">
+					<label class="field-label">Entity snap (px)</label>
+					<input
+						class="field-input"
+						type="number"
+						min="1"
+						max="20"
+						step="1"
+						value={snap.onEntityPx}
+						onchange={(e) => updateSnapSettings({ onEntityPx: parseInt(e.target.value) || 5 })}
+					/>
+				</div>
+				<div class="field-row">
+					<label class="field-label">H/V angle (deg)</label>
+					<input
+						class="field-input"
+						type="number"
+						min="1"
+						max="15"
+						step="0.5"
+						value={snap.hvAngleDeg}
+						onchange={(e) => updateSnapSettings({ hvAngleDeg: parseFloat(e.target.value) || 3 })}
+					/>
+				</div>
+			</div>
+		{/if}
+
 		{#if !feature}
-			<div class="empty-state">Select a feature to edit its properties</div>
+			<div class="empty-state">{inSketch ? '' : 'Select a feature to edit its properties'}</div>
 		{:else}
 			<div class="feature-header">
 				<span class="feature-type">{feature.operation?.type ?? 'Unknown'}</span>
@@ -154,6 +201,17 @@
 		color: var(--text-muted);
 		font-style: italic;
 		font-size: 12px;
+	}
+
+	.section-header {
+		font-size: 10px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		color: var(--text-secondary);
+		padding-bottom: 6px;
+		margin-bottom: 6px;
+		border-bottom: 1px solid var(--border-color);
 	}
 
 	.feature-header {

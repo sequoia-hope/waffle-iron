@@ -9,7 +9,8 @@
 		getActiveTool,
 		getRebuildTime,
 		getSketchEntities,
-		getSketchConstraints
+		getSketchConstraints,
+		getSketchCursorPos
 	} from '$lib/engine/store.svelte.js';
 
 	let error = $derived(getLastError());
@@ -36,6 +37,11 @@
 		return `Entities: ${sketchEntities.length} | Constraints: ${sketchConstraints.length}`;
 	});
 
+	let cursorPos = $derived(getSketchCursorPos());
+	let cursorText = $derived.by(() => {
+		if (!inSketch || !cursorPos) return '';
+		return `X: ${cursorPos.x.toFixed(2)}  Y: ${cursorPos.y.toFixed(2)}`;
+	});
 	let modeText = $derived(inSketch ? `Sketch Mode \u2022 Tool: ${tool}` : '');
 </script>
 
@@ -48,6 +54,10 @@
 		{/if}
 	</div>
 	<div class="status-right">
+		{#if cursorText}
+			<span class="status-cursor">{cursorText}</span>
+			<span class="status-sep">\u2502</span>
+		{/if}
 		{#if sketchInfoText}
 			<span class="status-sketch">{sketchInfoText}</span>
 			<span class="status-sep">\u2502</span>
@@ -120,6 +130,13 @@
 
 	.status-selection, .status-rebuild {
 		opacity: 0.8;
+	}
+
+	.status-cursor {
+		font-family: monospace;
+		opacity: 0.85;
+		color: #aaddff;
+		font-size: 10px;
 	}
 
 	.status-engine {

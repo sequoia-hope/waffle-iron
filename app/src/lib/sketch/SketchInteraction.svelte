@@ -3,7 +3,8 @@
 	import * as THREE from 'three';
 	import {
 		getSketchMode,
-		getActiveTool
+		getActiveTool,
+		setSketchCursorPos
 	} from '$lib/engine/store.svelte.js';
 	import { buildSketchPlane, screenToSketchCoords } from './sketchCoords.js';
 	import { handleToolEvent, resetTool } from './tools.js';
@@ -55,6 +56,10 @@
 
 		const screenPixelSize = getScreenPixelSize();
 		const shiftKey = nativeEvent.shiftKey ?? false;
+
+		if (eventType === 'pointermove') {
+			setSketchCursorPos({ x: coords.x, y: coords.y });
+		}
 
 		handleToolEvent(activeTool, eventType, coords.x, coords.y, screenPixelSize, shiftKey);
 	}

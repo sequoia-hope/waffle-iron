@@ -70,6 +70,19 @@ let selectedProfileIndex = $state(null);
 /** @type {number | null} */
 let hoveredProfileIndex = $state(null);
 
+/** @type {{ x: number, y: number } | null} */
+let sketchCursorPos = $state(null);
+
+/** @type {Set<number>} Entity IDs that appear over-constrained */
+let overConstrainedEntities = $state(new Set());
+
+/** Configurable snap thresholds */
+let snapSettings = $state({
+	coincidentPx: 8,
+	onEntityPx: 5,
+	hvAngleDeg: 3
+});
+
 /** @type {EngineBridge | null} */
 let bridge = null;
 
@@ -243,6 +256,11 @@ export function getSketchMode() {
 export function enterSketchMode(origin = [0, 0, 0], normal = [0, 0, 1]) {
 	resetSketchState();
 	sketchMode = { active: true, origin, normal };
+
+	// Dispatch event so CameraControls aligns to the sketch plane
+	if (typeof window !== 'undefined') {
+		window.dispatchEvent(new CustomEvent('waffle-align-to-plane', { detail: { origin, normal } }));
+	}
 }
 
 /**
@@ -325,6 +343,7 @@ export function addLocalEntity(entity) {
  */
 export function addLocalConstraint(constraint) {
 	sketchConstraints = [...sketchConstraints, constraint];
+	recomputeOverConstrained();
 
 	if (bridge && engineReady) {
 		bridge.send({ type: 'AddConstraint', constraint }).catch(() => {});
@@ -468,6 +487,47 @@ export function toggleConstruction(entityId) {
 }
 
 /**
+ * Detect over-constrained entities by checking constraint count vs DOF.
+ * Simple heuristic: count constraints per entity; if an entity has more
+ * same-type constraints than allowed, flag it.
+ */
+function recomputeOverConstrained() {
+	// Count constraints applied to each entity
+	/** @type {Map<number, number>} entity ID -> constraint count */
+	const constraintCount = new Map();
+
+	for (const c of sketchConstraints) {
+		// entity-level constraints (H, V)
+		if (c.entity != null) {
+			constraintCount.set(c.entity, (constraintCount.get(c.entity) || 0) + 1);
+		}
+		// Point-pair constraints (coincident, distance, etc.)
+		if (c.point_a != null) constraintCount.set(c.point_a, (constraintCount.get(c.point_a) || 0) + 1);
+		if (c.point_b != null) constraintCount.set(c.point_b, (constraintCount.get(c.point_b) || 0) + 1);
+		if (c.entity_a != null) constraintCount.set(c.entity_a, (constraintCount.get(c.entity_a) || 0) + 1);
+		if (c.entity_b != null) constraintCount.set(c.entity_b, (constraintCount.get(c.entity_b) || 0) + 1);
+	}
+
+	const overconstrained = new Set();
+
+	// A line with >1 of the same H/V constraints is over-constrained
+	// Also, H+V on same line = fully constrained direction (OK)
+	// Simple: flag lines with >2 geometric constraints
+	for (const entity of sketchEntities) {
+		const count = constraintCount.get(entity.id) || 0;
+		if (entity.type === 'Line' && count > 2) {
+			overconstrained.add(entity.id);
+		}
+		// Points with >2 constraints (each constraint removes 1 DOF, point has 2 DOF)
+		if (entity.type === 'Point' && count > 2) {
+			overconstrained.add(entity.id);
+		}
+	}
+
+	overConstrainedEntities = overconstrained;
+}
+
+/**
  * Re-extract profiles from current sketch entities.
  */
 function reExtractProfiles() {
@@ -495,6 +555,8 @@ export function resetSketchState() {
 	extractedProfilesState = [];
 	selectedProfileIndex = null;
 	hoveredProfileIndex = null;
+	sketchCursorPos = null;
+	overConstrainedEntities = new Set();
 }
 
 // Sketch state getters/setters
@@ -519,6 +581,21 @@ export function setSelectedProfileIndex(idx) { selectedProfileIndex = idx; }
 export function getHoveredProfileIndex() { return hoveredProfileIndex; }
 /** @param {number | null} idx */
 export function setHoveredProfileIndex(idx) { hoveredProfileIndex = idx; }
+
+export function getOverConstrainedEntities() { return overConstrainedEntities; }
+
+export function getSketchCursorPos() { return sketchCursorPos; }
+/** @param {{ x: number, y: number } | null} pos */
+export function setSketchCursorPos(pos) { sketchCursorPos = pos; }
+
+export function getSnapSettings() { return snapSettings; }
+/**
+ * Update snap threshold settings.
+ * @param {Partial<{ coincidentPx: number, onEntityPx: number, hvAngleDeg: number }>} updates
+ */
+export function updateSnapSettings(updates) {
+	snapSettings = { ...snapSettings, ...updates };
+}
 
 // -- Engine commands --
 

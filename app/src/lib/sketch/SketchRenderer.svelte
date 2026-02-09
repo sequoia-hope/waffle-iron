@@ -10,13 +10,17 @@
 		getSketchConstraints,
 		getExtractedProfiles,
 		getSelectedProfileIndex,
-		getHoveredProfileIndex
+		getHoveredProfileIndex,
+		getOverConstrainedEntities
 	} from '$lib/engine/store.svelte.js';
 	import { getPreview, getSnapIndicator } from './tools.js';
 	import { buildSketchPlane, sketchToWorld } from './sketchCoords.js';
 	import { profileToPolygon } from './profiles.js';
 
 	// Color scheme
+	const COLOR_AXIS_X = 0xcc4444;     // red, sketch X axis
+	const COLOR_AXIS_Y = 0x44aa44;     // green, sketch Y axis
+	const COLOR_ORIGIN = 0xffffff;     // white, origin marker
 	const COLOR_DEFAULT = 0x4488ff;    // blue, under-constrained
 	const COLOR_SELECTED = 0xffdd44;   // yellow, selected
 	const COLOR_HOVERED = 0x88bbff;    // light blue, hovered
@@ -25,6 +29,7 @@
 	const COLOR_CONSTRUCTION = 0x6677aa; // dimmer blue, construction
 	const COLOR_PROFILE_HOVER = 0x55cc88;  // green-ish, profile hover
 	const COLOR_PROFILE_SELECT = 0x44ff88; // bright green, profile selected
+	const COLOR_OVERCONSTRAINED = 0xff4444; // red, over-constrained
 
 	let sm = $derived(getSketchMode());
 	let entities = $derived(getSketchEntities());
@@ -35,6 +40,7 @@
 	let profiles = $derived(getExtractedProfiles());
 	let selectedProfile = $derived(getSelectedProfileIndex());
 	let hoveredProfile = $derived(getHoveredProfileIndex());
+	let overConstrained = $derived(getOverConstrainedEntities());
 
 	let plane = $derived(sm?.active ? buildSketchPlane(sm.origin, sm.normal) : null);
 
@@ -66,6 +72,7 @@
 	function entityColor(entityId) {
 		if (selection.has(entityId)) return COLOR_SELECTED;
 		if (hoverEntity === entityId) return COLOR_HOVERED;
+		if (overConstrained.has(entityId)) return COLOR_OVERCONSTRAINED;
 		if (selectedProfileEntityIds.has(entityId)) return COLOR_PROFILE_SELECT;
 		if (hoveredProfileEntityIds.has(entityId)) return COLOR_PROFILE_HOVER;
 		if (isConstruction(entityId)) return COLOR_CONSTRUCTION;
@@ -324,6 +331,26 @@
 	const pointGeometry = new THREE.SphereGeometry(0.06, 8, 8);
 	const snapPointGeometry = new THREE.SphereGeometry(0.08, 8, 8);
 	const snapPointMaterial = new THREE.MeshBasicMaterial({ color: COLOR_SNAP, depthTest: false });
+	const originGeometry = new THREE.SphereGeometry(0.05, 8, 8);
+	const originMaterial = new THREE.MeshBasicMaterial({ color: COLOR_ORIGIN, depthTest: false, transparent: true, opacity: 0.6 });
+	const axisXMaterial = new THREE.LineBasicMaterial({ color: COLOR_AXIS_X, depthTest: false, transparent: true, opacity: 0.4 });
+	const axisYMaterial = new THREE.LineBasicMaterial({ color: COLOR_AXIS_Y, depthTest: false, transparent: true, opacity: 0.4 });
+
+	// -- Sketch axes geometry --
+	const AXIS_LENGTH = 50;
+	let axisXGeo = $derived.by(() => {
+		if (!plane) return null;
+		const p1 = sketchToWorld(-AXIS_LENGTH, 0, plane);
+		const p2 = sketchToWorld(AXIS_LENGTH, 0, plane);
+		return new THREE.BufferGeometry().setFromPoints([p1, p2]);
+	});
+	let axisYGeo = $derived.by(() => {
+		if (!plane) return null;
+		const p1 = sketchToWorld(0, -AXIS_LENGTH, plane);
+		const p2 = sketchToWorld(0, AXIS_LENGTH, plane);
+		return new THREE.BufferGeometry().setFromPoints([p1, p2]);
+	});
+	let originWorld = $derived(plane ? sketchToWorld(0, 0, plane) : null);
 
 	/**
 	 * Callback to compute line distances for dashed materials.
@@ -336,6 +363,18 @@
 </script>
 
 {#if sm?.active && plane}
+	<!-- Sketch axes -->
+	{#if axisXGeo}
+		<T.Line geometry={axisXGeo} material={axisXMaterial} renderOrder={7} />
+	{/if}
+	{#if axisYGeo}
+		<T.Line geometry={axisYGeo} material={axisYMaterial} renderOrder={7} />
+	{/if}
+	{#if originWorld}
+		<T.Mesh geometry={originGeometry} material={originMaterial}
+			position={[originWorld.x, originWorld.y, originWorld.z]} renderOrder={7} />
+	{/if}
+
 	<!-- Profile fills (behind entities) -->
 	{#each profileFills as fill (fill.index)}
 		<T.Mesh geometry={fill.geometry} renderOrder={8}>

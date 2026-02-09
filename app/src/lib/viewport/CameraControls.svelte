@@ -76,6 +76,41 @@
 		}
 	}
 
+	/**
+	 * Align camera to look face-on at a sketch plane.
+	 * @param {[number, number, number]} origin
+	 * @param {[number, number, number]} normal
+	 */
+	function alignToPlane(origin, normal) {
+		if (!cameraRef) return;
+
+		const n = new THREE.Vector3(normal[0], normal[1], normal[2]).normalize();
+		const o = new THREE.Vector3(origin[0], origin[1], origin[2]);
+		const dist = cameraRef.position.distanceTo(
+			controlsRef ? controlsRef.target.clone() : o
+		) || 10;
+
+		// Position camera along the normal direction
+		const newPos = o.clone().addScaledVector(n, dist);
+		cameraRef.position.copy(newPos);
+
+		// Choose an appropriate up vector (perpendicular to normal)
+		const worldUp = new THREE.Vector3(0, 1, 0);
+		if (Math.abs(n.dot(worldUp)) > 0.99) {
+			cameraRef.up.set(0, 0, -Math.sign(n.y));
+		} else {
+			cameraRef.up.copy(worldUp);
+		}
+
+		cameraRef.lookAt(o);
+		cameraRef.updateProjectionMatrix();
+
+		if (controlsRef) {
+			controlsRef.target.copy(o);
+			controlsRef.update();
+		}
+	}
+
 	onMount(() => {
 		/** @param {KeyboardEvent} e */
 		function onKeyDown(e) {
@@ -90,11 +125,18 @@
 			snapToView(e.detail.view);
 		}
 
+		/** @param {CustomEvent} e */
+		function onAlignToPlane(e) {
+			alignToPlane(e.detail.origin, e.detail.normal);
+		}
+
 		window.addEventListener('keydown', onKeyDown);
 		window.addEventListener('waffle-snap-view', /** @type {EventListener} */ (onSnapView));
+		window.addEventListener('waffle-align-to-plane', /** @type {EventListener} */ (onAlignToPlane));
 		return () => {
 			window.removeEventListener('keydown', onKeyDown);
 			window.removeEventListener('waffle-snap-view', /** @type {EventListener} */ (onSnapView));
+			window.removeEventListener('waffle-align-to-plane', /** @type {EventListener} */ (onAlignToPlane));
 		};
 	});
 </script>

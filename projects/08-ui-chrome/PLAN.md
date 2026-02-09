@@ -51,7 +51,7 @@
 
 ### M8: Context Menus ✅
 - [x] Feature tree right-click menu (suppress/delete)
-- [ ] Viewport right-click menu — deferred
+- [x] Viewport right-click menu (ViewportContextMenu.svelte)
 
 ### M9: Keyboard Shortcuts ✅
 - [x] Modeling shortcuts (S=Sketch, E=Extrude)
@@ -76,7 +76,7 @@
 
 ## Notes
 
-- Viewport context menu deferred to future iteration
+- Viewport context menu implemented: Fit All, standard views, New Sketch
 - Feature rename wired to RenameFeature message through wasm-bridge
 - Feature reorder wired to ReorderFeature message through wasm-bridge
 - Responsive panel resizing uses draggable dividers with min/max constraints

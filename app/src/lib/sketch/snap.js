@@ -5,7 +5,7 @@
  * and returns snapped coordinates + snap indicators for visual feedback.
  */
 
-import { findPointNear, findLineNear, findCircleNear, getSketchPositions, getSketchEntities } from '$lib/engine/store.svelte.js';
+import { findPointNear, findLineNear, findCircleNear, getSketchPositions, getSketchEntities, getSnapSettings } from '$lib/engine/store.svelte.js';
 
 /**
  * @typedef {{ type: 'coincident', x: number, y: number, pointId: number }} CoincidentSnap
@@ -21,11 +21,10 @@ import { findPointNear, findLineNear, findCircleNear, getSketchPositions, getSke
  * @typedef {{ x: number, y: number, snapPointId?: number, constraints: Array<object>, indicator: SnapIndicator | null }} SnapResult
  */
 
-/** Snap threshold in pixels (scaled by screenPixelSize) */
-const COINCIDENT_PX = 8;
-const ON_ENTITY_PX = 5;
-/** Angle threshold in degrees for H/V snap */
-const HV_ANGLE_DEG = 3;
+/** Default snap thresholds (overridden by configurable settings) */
+const DEFAULT_COINCIDENT_PX = 8;
+const DEFAULT_ON_ENTITY_PX = 5;
+const DEFAULT_HV_ANGLE_DEG = 3;
 
 /**
  * Detect snaps for a cursor position.
@@ -37,8 +36,10 @@ const HV_ANGLE_DEG = 3;
  * @returns {SnapResult}
  */
 export function detectSnaps(x, y, fromPointId, screenPixelSize) {
-	const coincidentThreshold = COINCIDENT_PX * screenPixelSize;
-	const onEntityThreshold = ON_ENTITY_PX * screenPixelSize;
+	const settings = getSnapSettings();
+	const coincidentThreshold = (settings.coincidentPx ?? DEFAULT_COINCIDENT_PX) * screenPixelSize;
+	const onEntityThreshold = (settings.onEntityPx ?? DEFAULT_ON_ENTITY_PX) * screenPixelSize;
+	const hvAngleDeg = settings.hvAngleDeg ?? DEFAULT_HV_ANGLE_DEG;
 
 	// 1. Coincident snap — highest priority
 	const nearPoint = findPointNear(x, y, coincidentThreshold);
@@ -63,7 +64,7 @@ export function detectSnaps(x, y, fromPointId, screenPixelSize) {
 			if (len > 0.001) {
 				const angleDeg = Math.abs(Math.atan2(dy, dx)) * (180 / Math.PI);
 				// Near horizontal (angle near 0 or 180)
-				if (angleDeg < HV_ANGLE_DEG || angleDeg > (180 - HV_ANGLE_DEG)) {
+				if (angleDeg < hvAngleDeg || angleDeg > (180 - hvAngleDeg)) {
 					return {
 						x, y: fromPos.y,
 						constraints: [{ type: 'Horizontal' }],
@@ -71,7 +72,7 @@ export function detectSnaps(x, y, fromPointId, screenPixelSize) {
 					};
 				}
 				// Near vertical (angle near 90)
-				if (Math.abs(angleDeg - 90) < HV_ANGLE_DEG) {
+				if (Math.abs(angleDeg - 90) < hvAngleDeg) {
 					return {
 						x: fromPos.x, y,
 						constraints: [{ type: 'Vertical' }],

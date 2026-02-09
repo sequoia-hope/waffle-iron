@@ -6,8 +6,8 @@
 - [x] Click face → enter sketch mode (via toolbar Sketch button)
 - [x] Solid becomes transparent (CadModel sketch-mode opacity)
 - [x] Sketch plane displayed (SketchPlane.svelte grid overlay)
-- [ ] Camera aligns to sketch plane — deferred
-- [ ] 2D coordinate overlay — deferred
+- [x] Camera aligns to sketch plane (dispatches waffle-align-to-plane event)
+- [x] 2D coordinate overlay (X/Y axes + origin marker + cursor readout in status bar)
 - [x] Exit sketch mode (Finish button / Escape key)
 
 ### M2: Line Tool ✅
@@ -56,13 +56,13 @@
 - [x] Auto-constraint application (H/V constraints auto-added on line creation)
 - [x] Tangent snap (line-to-circle tangent point computation)
 - [x] Perpendicular snap (point projection onto line foot)
-- [ ] Configurable threshold settings — deferred
+- [x] Configurable threshold settings (snap settings in Property Editor)
 
 ### M9: Visual Feedback
 - [x] Color coding: blue (default), yellow (selected), light blue (hovered)
 - [x] Entity/constraint counts in status bar
 - [ ] Full DOF counter (requires solver — currently NotImplemented in WASM)
-- [ ] Failed constraint highlighting — deferred
+- [x] Failed constraint highlighting (over-constrained entities shown in red)
 - [x] Construction geometry dashed display (done in M11)
 
 ### M10: Profile Selection ✅
