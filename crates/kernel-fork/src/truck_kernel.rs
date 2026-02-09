@@ -348,6 +348,220 @@ mod tests {
         assert_eq!(faces.len(), 6, "Extruded rectangle should have 6 faces");
     }
 
+    /// Benchmark boolean operations at various tolerances.
+    /// Uses catch_unwind since truck panics at certain tolerances.
+    /// Run with: cargo test -p kernel-fork bench_boolean -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn bench_boolean_tolerances() {
+        let tolerances = [0.05, 0.1, 0.2, 0.5];
+        let box_solid = primitives::make_box(2.0, 2.0, 2.0);
+        let cyl_solid = primitives::make_cylinder(0.5, 3.0);
+
+        println!("\n=== Boolean: Box(2x2x2) vs Cylinder(r=0.5, h=3) ===");
+
+        for (name, op_name) in [("union", "or"), ("subtract", "sub"), ("intersect", "and")] {
+            println!("--- {} ---", name);
+            for tol in &tolerances {
+                let a = box_solid.clone();
+                let b = cyl_solid.clone();
+                let t = *tol;
+                let start = std::time::Instant::now();
+                let result =
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match op_name {
+                        "or" => truck_shapeops::or(&a, &b, t),
+                        "sub" => {
+                            let mut b2 = b;
+                            b2.not();
+                            truck_shapeops::and(&a, &b2, t)
+                        }
+                        "and" => truck_shapeops::and(&a, &b, t),
+                        _ => unreachable!(),
+                    }));
+                let elapsed = start.elapsed();
+                let status = match &result {
+                    Ok(Some(_)) => "OK",
+                    Ok(None) => "FAILED (None)",
+                    Err(_) => "PANIC",
+                };
+                println!("  tol={:.2} → {:?} [{}]", tol, elapsed, status);
+            }
+        }
+
+        // Box-box booleans with coplanar faces (shared origin)
+        println!("\n=== Box-Box Booleans (coplanar, origin-aligned, tol=0.05) ===");
+        let box_a = primitives::make_box(2.0, 2.0, 2.0);
+        let box_b = primitives::make_box(1.0, 1.0, 1.0);
+
+        for (name, op_name) in [("union", "or"), ("subtract", "sub"), ("intersect", "and")] {
+            let a = box_a.clone();
+            let b = box_b.clone();
+            let start = std::time::Instant::now();
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match op_name {
+                "or" => truck_shapeops::or(&a, &b, 0.05),
+                "sub" => {
+                    let mut b2 = b;
+                    b2.not();
+                    truck_shapeops::and(&a, &b2, 0.05)
+                }
+                "and" => truck_shapeops::and(&a, &b, 0.05),
+                _ => unreachable!(),
+            }));
+            let elapsed = start.elapsed();
+            let status = match &result {
+                Ok(Some(_)) => "OK",
+                Ok(None) => "FAILED (None)",
+                Err(_) => "PANIC",
+            };
+            println!("  {} → {:?} [{}]", name, elapsed, status);
+        }
+
+        // Box-box with offset (no coplanar faces)
+        println!("\n=== Box-Box Booleans (offset, no coplanar faces, tol=0.05) ===");
+        // Create offset box by extruding a face at (0.5, 0.5, 0.5)
+        let box_a2 = primitives::make_box(2.0, 2.0, 2.0);
+        // Build an offset box manually using tsweep from an offset position
+        let v = truck_modeling::builder::vertex(Point3::new(0.5, 0.5, 0.5));
+        let e = truck_modeling::builder::tsweep(&v, Vector3::new(1.0, 0.0, 0.0));
+        let f = truck_modeling::builder::tsweep(&e, Vector3::new(0.0, 1.0, 0.0));
+        let box_b2: Solid = truck_modeling::builder::tsweep(&f, Vector3::new(0.0, 0.0, 1.0));
+
+        for (name, op_name) in [("union", "or"), ("subtract", "sub"), ("intersect", "and")] {
+            let a = box_a2.clone();
+            let b = box_b2.clone();
+            let start = std::time::Instant::now();
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match op_name {
+                "or" => truck_shapeops::or(&a, &b, 0.05),
+                "sub" => {
+                    let mut b2 = b;
+                    b2.not();
+                    truck_shapeops::and(&a, &b2, 0.05)
+                }
+                "and" => truck_shapeops::and(&a, &b, 0.05),
+                _ => unreachable!(),
+            }));
+            let elapsed = start.elapsed();
+            let status = match &result {
+                Ok(Some(_)) => "OK",
+                Ok(None) => "FAILED (None)",
+                Err(_) => "PANIC",
+            };
+            println!("  {} → {:?} [{}]", name, elapsed, status);
+        }
+    }
+
+    /// STEP export investigation: simple box (should work)
+    #[test]
+    fn test_step_export_simple_box() {
+        use truck_stepio::out::*;
+        use truck_topology::compress::CompressedSolid;
+
+        let solid = primitives::make_box(1.0, 2.0, 3.0);
+        let compressed: CompressedSolid<_, _, _> = solid.compress();
+        let step_model = StepModel::from(&compressed);
+        let header = StepHeaderDescriptor {
+            file_name: "test_box.step".to_string(),
+            ..Default::default()
+        };
+        let complete = CompleteStepDisplay::new(step_model, header);
+        let step_string = complete.to_string();
+
+        assert!(
+            step_string.contains("ISO-10303-21"),
+            "Should have STEP header"
+        );
+        assert!(
+            step_string.contains("MANIFOLD_SOLID_BREP"),
+            "Should have solid BREP entity"
+        );
+        assert!(
+            step_string.contains("FACE_SURFACE"),
+            "Should have face entities"
+        );
+        assert!(
+            step_string.contains("ENDSEC"),
+            "Should have proper STEP footer"
+        );
+    }
+
+    /// STEP export investigation: cylinder (revolved geometry)
+    #[test]
+    fn test_step_export_cylinder() {
+        use truck_stepio::out::*;
+        use truck_topology::compress::CompressedSolid;
+
+        let solid = primitives::make_cylinder(1.0, 2.0);
+        let compressed: CompressedSolid<_, _, _> = solid.compress();
+        let step_model = StepModel::from(&compressed);
+        let header = StepHeaderDescriptor {
+            file_name: "test_cylinder.step".to_string(),
+            ..Default::default()
+        };
+        let complete = CompleteStepDisplay::new(step_model, header);
+        let step_string = complete.to_string();
+
+        assert!(
+            step_string.contains("ISO-10303-21"),
+            "Should have STEP header"
+        );
+        assert!(
+            step_string.contains("MANIFOLD_SOLID_BREP"),
+            "Should have solid BREP entity"
+        );
+    }
+
+    /// STEP export investigation: boolean result
+    /// truck-stepio docs say "Shapes created by set operations cannot be output yet."
+    /// This test verifies that claim and documents the failure mode.
+    #[test]
+    #[ignore]
+    fn investigate_step_export_boolean_result() {
+        use truck_stepio::out::*;
+        use truck_topology::compress::CompressedSolid;
+
+        // Create two offset boxes and union them
+        let box_a = primitives::make_box(2.0, 2.0, 2.0);
+        let v = truck_modeling::builder::vertex(Point3::new(0.5, 0.5, 0.5));
+        let e = truck_modeling::builder::tsweep(&v, Vector3::new(1.0, 0.0, 0.0));
+        let f = truck_modeling::builder::tsweep(&e, Vector3::new(0.0, 1.0, 0.0));
+        let box_b: Solid = truck_modeling::builder::tsweep(&f, Vector3::new(0.0, 0.0, 1.0));
+
+        let result = truck_shapeops::or(&box_a, &box_b, 0.05);
+
+        match result {
+            Some(union_solid) => {
+                println!("\nBoolean union succeeded. Attempting STEP export...");
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let compressed: CompressedSolid<_, _, _> = union_solid.compress();
+                    let step_model = StepModel::from(&compressed);
+                    let header = StepHeaderDescriptor {
+                        file_name: "test_boolean.step".to_string(),
+                        ..Default::default()
+                    };
+                    let complete = CompleteStepDisplay::new(step_model, header);
+                    complete.to_string()
+                }));
+
+                match result {
+                    Ok(step_string) => {
+                        println!(
+                            "STEP export of boolean result SUCCEEDED ({} chars)",
+                            step_string.len()
+                        );
+                        assert!(step_string.contains("ISO-10303-21"));
+                    }
+                    Err(e) => {
+                        println!("STEP export of boolean result PANICKED: {:?}", e);
+                        println!("This confirms truck-stepio limitation.");
+                    }
+                }
+            }
+            None => {
+                println!("\nBoolean union returned None. Cannot test STEP export.");
+            }
+        }
+    }
+
     #[test]
     fn test_truck_kernel_store_and_tessellate_box() {
         let mut kernel = TruckKernel::new();

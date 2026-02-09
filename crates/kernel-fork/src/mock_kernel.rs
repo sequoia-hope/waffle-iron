@@ -532,35 +532,504 @@ impl Kernel for MockKernel {
 
     fn fillet_edges(
         &mut self,
-        _solid: &KernelSolidHandle,
-        _edges: &[KernelId],
-        _radius: f64,
+        solid: &KernelSolidHandle,
+        edges: &[KernelId],
+        radius: f64,
     ) -> Result<KernelSolidHandle, KernelError> {
-        Err(KernelError::NotSupported {
-            operation: "fillet_edges".to_string(),
-        })
+        if radius <= 0.0 {
+            return Err(KernelError::FilletFailed {
+                reason: "radius must be positive".to_string(),
+            });
+        }
+        let source = self
+            .solids
+            .get(&solid.id())
+            .ok_or(KernelError::EntityNotFound {
+                id: KernelId(solid.id()),
+            })?
+            .clone();
+
+        // Validate that all requested edges exist
+        let all_edge_ids: Vec<KernelId> = source.edges.iter().map(|e| e.id).collect();
+        for eid in edges {
+            if !all_edge_ids.contains(eid) {
+                return Err(KernelError::FilletFailed {
+                    reason: format!("edge {:?} not found in solid", eid),
+                });
+            }
+        }
+
+        // For each filleted edge: replace edge with a cylindrical face,
+        // add 2 new edges (fillet boundaries) and 2 new vertices.
+        // Topology: V+2n, E-n+2n=E+n, F+n where n = edges.len()
+        let mut id_map: HashMap<KernelId, KernelId> = HashMap::new();
+
+        // Re-ID existing vertices
+        let mut new_vertices = Vec::new();
+        for v in &source.vertices {
+            let new_id = self.alloc_id();
+            id_map.insert(v.id, new_id);
+            new_vertices.push(MockVertex {
+                id: new_id,
+                position: v.position,
+            });
+        }
+
+        // Re-ID existing edges, skipping filleted ones
+        let filleted_set: std::collections::HashSet<KernelId> = edges.iter().copied().collect();
+        let mut new_edges = Vec::new();
+        for e in &source.edges {
+            let new_id = self.alloc_id();
+            id_map.insert(e.id, new_id);
+            if !filleted_set.contains(&e.id) {
+                new_edges.push(MockEdge {
+                    id: new_id,
+                    start: id_map[&e.start],
+                    end: id_map[&e.end],
+                    length: e.length,
+                });
+            }
+        }
+
+        // Re-ID existing faces (with updated edge refs)
+        let mut new_faces = Vec::new();
+        for f in &source.faces {
+            let new_id = self.alloc_id();
+            id_map.insert(f.id, new_id);
+            // Replace filleted edge refs with placeholder; trimmed faces keep other edges
+            let face_edges: Vec<KernelId> = f
+                .edges
+                .iter()
+                .filter(|eid| !filleted_set.contains(eid))
+                .map(|eid| id_map[eid])
+                .collect();
+            new_faces.push(MockFace {
+                id: new_id,
+                edges: face_edges,
+                normal: f.normal,
+                centroid: f.centroid,
+                area: f.area, // trimmed area is approximate
+                surface_type: f.surface_type.clone(),
+            });
+        }
+
+        // Add fillet geometry for each filleted edge
+        for orig_eid in edges {
+            // Find the original edge to compute fillet geometry
+            let orig_edge = source.edges.iter().find(|e| e.id == *orig_eid).unwrap();
+            let sv = source
+                .vertices
+                .iter()
+                .find(|v| v.id == orig_edge.start)
+                .unwrap();
+            let ev = source
+                .vertices
+                .iter()
+                .find(|v| v.id == orig_edge.end)
+                .unwrap();
+
+            // Two new vertices at fillet tangent points (offset from original edge endpoints)
+            let v1 = MockVertex {
+                id: self.alloc_id(),
+                position: [
+                    sv.position[0] + radius * 0.01,
+                    sv.position[1] + radius * 0.01,
+                    sv.position[2],
+                ],
+            };
+            let v2 = MockVertex {
+                id: self.alloc_id(),
+                position: [
+                    ev.position[0] + radius * 0.01,
+                    ev.position[1] + radius * 0.01,
+                    ev.position[2],
+                ],
+            };
+
+            // Two new edges connecting fillet face to adjacent faces
+            let e1 = MockEdge {
+                id: self.alloc_id(),
+                start: id_map[&orig_edge.start],
+                end: v1.id,
+                length: radius,
+            };
+            let e2 = MockEdge {
+                id: self.alloc_id(),
+                start: id_map[&orig_edge.end],
+                end: v2.id,
+                length: radius,
+            };
+
+            // Fillet face (cylindrical)
+            let centroid = [
+                (sv.position[0] + ev.position[0]) / 2.0,
+                (sv.position[1] + ev.position[1]) / 2.0,
+                (sv.position[2] + ev.position[2]) / 2.0,
+            ];
+            let fillet_face = MockFace {
+                id: self.alloc_id(),
+                edges: vec![e1.id, e2.id],
+                normal: [0.0, 0.0, 1.0], // approximate
+                centroid,
+                area: orig_edge.length * radius * std::f64::consts::FRAC_PI_2,
+                surface_type: "cylindrical".to_string(),
+            };
+
+            new_vertices.push(v1);
+            new_vertices.push(v2);
+            new_edges.push(e1);
+            new_edges.push(e2);
+            new_faces.push(fillet_face);
+        }
+
+        let handle = self.alloc_handle();
+        self.solids.insert(
+            handle.id(),
+            MockSolid {
+                vertices: new_vertices,
+                edges: new_edges,
+                faces: new_faces,
+            },
+        );
+        Ok(handle)
     }
 
     fn chamfer_edges(
         &mut self,
-        _solid: &KernelSolidHandle,
-        _edges: &[KernelId],
-        _distance: f64,
+        solid: &KernelSolidHandle,
+        edges: &[KernelId],
+        distance: f64,
     ) -> Result<KernelSolidHandle, KernelError> {
-        Err(KernelError::NotSupported {
-            operation: "chamfer_edges".to_string(),
-        })
+        if distance <= 0.0 {
+            return Err(KernelError::Other {
+                message: "chamfer distance must be positive".to_string(),
+            });
+        }
+        let source = self
+            .solids
+            .get(&solid.id())
+            .ok_or(KernelError::EntityNotFound {
+                id: KernelId(solid.id()),
+            })?
+            .clone();
+
+        // Validate edges exist
+        let all_edge_ids: Vec<KernelId> = source.edges.iter().map(|e| e.id).collect();
+        for eid in edges {
+            if !all_edge_ids.contains(eid) {
+                return Err(KernelError::Other {
+                    message: format!("edge {:?} not found in solid", eid),
+                });
+            }
+        }
+
+        // Chamfer: same topology change as fillet but with planar chamfer face
+        let mut id_map: HashMap<KernelId, KernelId> = HashMap::new();
+        let filleted_set: std::collections::HashSet<KernelId> = edges.iter().copied().collect();
+
+        let mut new_vertices = Vec::new();
+        for v in &source.vertices {
+            let new_id = self.alloc_id();
+            id_map.insert(v.id, new_id);
+            new_vertices.push(MockVertex {
+                id: new_id,
+                position: v.position,
+            });
+        }
+
+        let mut new_edges = Vec::new();
+        for e in &source.edges {
+            let new_id = self.alloc_id();
+            id_map.insert(e.id, new_id);
+            if !filleted_set.contains(&e.id) {
+                new_edges.push(MockEdge {
+                    id: new_id,
+                    start: id_map[&e.start],
+                    end: id_map[&e.end],
+                    length: e.length,
+                });
+            }
+        }
+
+        let mut new_faces = Vec::new();
+        for f in &source.faces {
+            let new_id = self.alloc_id();
+            id_map.insert(f.id, new_id);
+            let face_edges: Vec<KernelId> = f
+                .edges
+                .iter()
+                .filter(|eid| !filleted_set.contains(eid))
+                .map(|eid| id_map[eid])
+                .collect();
+            new_faces.push(MockFace {
+                id: new_id,
+                edges: face_edges,
+                normal: f.normal,
+                centroid: f.centroid,
+                area: f.area,
+                surface_type: f.surface_type.clone(),
+            });
+        }
+
+        for orig_eid in edges {
+            let orig_edge = source.edges.iter().find(|e| e.id == *orig_eid).unwrap();
+
+            let v1 = MockVertex {
+                id: self.alloc_id(),
+                position: [
+                    source
+                        .vertices
+                        .iter()
+                        .find(|v| v.id == orig_edge.start)
+                        .unwrap()
+                        .position[0],
+                    source
+                        .vertices
+                        .iter()
+                        .find(|v| v.id == orig_edge.start)
+                        .unwrap()
+                        .position[1],
+                    source
+                        .vertices
+                        .iter()
+                        .find(|v| v.id == orig_edge.start)
+                        .unwrap()
+                        .position[2]
+                        + distance,
+                ],
+            };
+            let v2 = MockVertex {
+                id: self.alloc_id(),
+                position: [
+                    source
+                        .vertices
+                        .iter()
+                        .find(|v| v.id == orig_edge.end)
+                        .unwrap()
+                        .position[0],
+                    source
+                        .vertices
+                        .iter()
+                        .find(|v| v.id == orig_edge.end)
+                        .unwrap()
+                        .position[1],
+                    source
+                        .vertices
+                        .iter()
+                        .find(|v| v.id == orig_edge.end)
+                        .unwrap()
+                        .position[2]
+                        + distance,
+                ],
+            };
+
+            let e1 = MockEdge {
+                id: self.alloc_id(),
+                start: id_map[&orig_edge.start],
+                end: v1.id,
+                length: distance,
+            };
+            let e2 = MockEdge {
+                id: self.alloc_id(),
+                start: id_map[&orig_edge.end],
+                end: v2.id,
+                length: distance,
+            };
+
+            let centroid = [
+                (source
+                    .vertices
+                    .iter()
+                    .find(|v| v.id == orig_edge.start)
+                    .unwrap()
+                    .position[0]
+                    + source
+                        .vertices
+                        .iter()
+                        .find(|v| v.id == orig_edge.end)
+                        .unwrap()
+                        .position[0])
+                    / 2.0,
+                (source
+                    .vertices
+                    .iter()
+                    .find(|v| v.id == orig_edge.start)
+                    .unwrap()
+                    .position[1]
+                    + source
+                        .vertices
+                        .iter()
+                        .find(|v| v.id == orig_edge.end)
+                        .unwrap()
+                        .position[1])
+                    / 2.0,
+                (source
+                    .vertices
+                    .iter()
+                    .find(|v| v.id == orig_edge.start)
+                    .unwrap()
+                    .position[2]
+                    + source
+                        .vertices
+                        .iter()
+                        .find(|v| v.id == orig_edge.end)
+                        .unwrap()
+                        .position[2])
+                    / 2.0,
+            ];
+
+            let chamfer_face = MockFace {
+                id: self.alloc_id(),
+                edges: vec![e1.id, e2.id],
+                normal: [0.0, 0.0, 1.0],
+                centroid,
+                area: orig_edge.length * distance * std::f64::consts::SQRT_2,
+                surface_type: "planar".to_string(),
+            };
+
+            new_vertices.push(v1);
+            new_vertices.push(v2);
+            new_edges.push(e1);
+            new_edges.push(e2);
+            new_faces.push(chamfer_face);
+        }
+
+        let handle = self.alloc_handle();
+        self.solids.insert(
+            handle.id(),
+            MockSolid {
+                vertices: new_vertices,
+                edges: new_edges,
+                faces: new_faces,
+            },
+        );
+        Ok(handle)
     }
 
     fn shell(
         &mut self,
-        _solid: &KernelSolidHandle,
-        _faces_to_remove: &[KernelId],
-        _thickness: f64,
+        solid: &KernelSolidHandle,
+        faces_to_remove: &[KernelId],
+        thickness: f64,
     ) -> Result<KernelSolidHandle, KernelError> {
-        Err(KernelError::NotSupported {
-            operation: "shell".to_string(),
-        })
+        if thickness <= 0.0 {
+            return Err(KernelError::ShellFailed {
+                reason: "thickness must be positive".to_string(),
+            });
+        }
+        let source = self
+            .solids
+            .get(&solid.id())
+            .ok_or(KernelError::EntityNotFound {
+                id: KernelId(solid.id()),
+            })?
+            .clone();
+
+        // Validate that all faces to remove exist
+        let all_face_ids: Vec<KernelId> = source.faces.iter().map(|f| f.id).collect();
+        for fid in faces_to_remove {
+            if !all_face_ids.contains(fid) {
+                return Err(KernelError::ShellFailed {
+                    reason: format!("face {:?} not found in solid", fid),
+                });
+            }
+        }
+
+        let remove_set: std::collections::HashSet<KernelId> =
+            faces_to_remove.iter().copied().collect();
+
+        // Shell: keep outer faces (minus removed ones), add offset inner faces.
+        // For each kept face, create an offset inner face.
+        let mut id_map: HashMap<KernelId, KernelId> = HashMap::new();
+
+        // Re-ID outer vertices
+        let mut new_vertices = Vec::new();
+        for v in &source.vertices {
+            let new_id = self.alloc_id();
+            id_map.insert(v.id, new_id);
+            new_vertices.push(MockVertex {
+                id: new_id,
+                position: v.position,
+            });
+        }
+
+        // Re-ID outer edges
+        let mut new_edges = Vec::new();
+        for e in &source.edges {
+            let new_id = self.alloc_id();
+            id_map.insert(e.id, new_id);
+            new_edges.push(MockEdge {
+                id: new_id,
+                start: id_map[&e.start],
+                end: id_map[&e.end],
+                length: e.length,
+            });
+        }
+
+        // Re-ID outer faces (excluding removed ones)
+        let mut new_faces = Vec::new();
+        for f in &source.faces {
+            if remove_set.contains(&f.id) {
+                continue;
+            }
+            let new_id = self.alloc_id();
+            id_map.insert(f.id, new_id);
+            new_faces.push(MockFace {
+                id: new_id,
+                edges: f.edges.iter().map(|eid| id_map[eid]).collect(),
+                normal: f.normal,
+                centroid: f.centroid,
+                area: f.area,
+                surface_type: f.surface_type.clone(),
+            });
+        }
+
+        // Create inner offset faces for each kept face
+        for f in &source.faces {
+            if remove_set.contains(&f.id) {
+                continue;
+            }
+            // Inner face: offset centroid inward by thickness along inverted normal
+            let inner_centroid = [
+                f.centroid[0] - f.normal[0] * thickness,
+                f.centroid[1] - f.normal[1] * thickness,
+                f.centroid[2] - f.normal[2] * thickness,
+            ];
+            let inner_normal = [-f.normal[0], -f.normal[1], -f.normal[2]];
+
+            // Inner edges (new)
+            let mut inner_edge_ids = Vec::new();
+            for _ in &f.edges {
+                let ie = MockEdge {
+                    id: self.alloc_id(),
+                    start: self.alloc_id(), // placeholder vertex IDs
+                    end: self.alloc_id(),
+                    length: f.area.sqrt() * 0.25,
+                };
+                inner_edge_ids.push(ie.id);
+                new_edges.push(ie);
+            }
+
+            new_faces.push(MockFace {
+                id: self.alloc_id(),
+                edges: inner_edge_ids,
+                normal: inner_normal,
+                centroid: inner_centroid,
+                area: f.area * (1.0 - thickness / f.area.sqrt()).max(0.01),
+                surface_type: f.surface_type.clone(),
+            });
+        }
+
+        let handle = self.alloc_handle();
+        self.solids.insert(
+            handle.id(),
+            MockSolid {
+                vertices: new_vertices,
+                edges: new_edges,
+                faces: new_faces,
+            },
+        );
+        Ok(handle)
     }
 
     fn tessellate(
@@ -989,33 +1458,134 @@ mod tests {
     }
 
     #[test]
-    fn test_fillet_not_supported() {
+    fn test_fillet_single_edge() {
         let mut kernel = MockKernel::new();
-        let (handle, solid) = kernel.make_box_solid(1.0, 1.0, 1.0);
-        kernel.solids.insert(handle.id(), solid);
+        let (handle, solid) = kernel.make_box_solid(2.0, 2.0, 2.0);
+        kernel.solids.insert(handle.id(), solid.clone());
 
-        let result = kernel.fillet_edges(&handle, &[], 0.1);
-        assert!(matches!(result, Err(KernelError::NotSupported { .. })));
+        // Fillet the first edge
+        let edge_id = solid.edges[0].id;
+        let result = kernel.fillet_edges(&handle, &[edge_id], 0.2).unwrap();
+
+        let faces = kernel.list_faces(&result);
+        let edges = kernel.list_edges(&result);
+        let vertices = kernel.list_vertices(&result);
+
+        // Original: 6F, 12E, 8V. Fillet 1 edge: +1F, -1E+2E=+1E, +2V
+        assert_eq!(faces.len(), 7, "Fillet adds 1 cylindrical face");
+        assert_eq!(edges.len(), 13, "Fillet replaces 1 edge with 2 new edges");
+        assert_eq!(vertices.len(), 10, "Fillet adds 2 vertices");
+
+        // Verify the fillet face is cylindrical
+        let fillet_face_sig = kernel.compute_signature(faces[6], TopoKind::Face);
+        assert_eq!(fillet_face_sig.surface_type.as_deref(), Some("cylindrical"));
     }
 
     #[test]
-    fn test_chamfer_not_supported() {
+    fn test_fillet_invalid_radius() {
         let mut kernel = MockKernel::new();
         let (handle, solid) = kernel.make_box_solid(1.0, 1.0, 1.0);
         kernel.solids.insert(handle.id(), solid);
 
-        let result = kernel.chamfer_edges(&handle, &[], 0.1);
-        assert!(matches!(result, Err(KernelError::NotSupported { .. })));
+        let result = kernel.fillet_edges(&handle, &[], -0.1);
+        assert!(matches!(result, Err(KernelError::FilletFailed { .. })));
     }
 
     #[test]
-    fn test_shell_not_supported() {
+    fn test_fillet_invalid_edge() {
         let mut kernel = MockKernel::new();
         let (handle, solid) = kernel.make_box_solid(1.0, 1.0, 1.0);
         kernel.solids.insert(handle.id(), solid);
 
-        let result = kernel.shell(&handle, &[], 0.1);
-        assert!(matches!(result, Err(KernelError::NotSupported { .. })));
+        let result = kernel.fillet_edges(&handle, &[KernelId(99999)], 0.1);
+        assert!(matches!(result, Err(KernelError::FilletFailed { .. })));
+    }
+
+    #[test]
+    fn test_chamfer_single_edge() {
+        let mut kernel = MockKernel::new();
+        let (handle, solid) = kernel.make_box_solid(2.0, 2.0, 2.0);
+        kernel.solids.insert(handle.id(), solid.clone());
+
+        let edge_id = solid.edges[0].id;
+        let result = kernel.chamfer_edges(&handle, &[edge_id], 0.3).unwrap();
+
+        let faces = kernel.list_faces(&result);
+        let edges = kernel.list_edges(&result);
+
+        // Same topology change as fillet
+        assert_eq!(faces.len(), 7, "Chamfer adds 1 planar face");
+        assert_eq!(edges.len(), 13, "Chamfer replaces 1 edge with 2");
+
+        // Chamfer face should be planar
+        let chamfer_face_sig = kernel.compute_signature(faces[6], TopoKind::Face);
+        assert_eq!(chamfer_face_sig.surface_type.as_deref(), Some("planar"));
+    }
+
+    #[test]
+    fn test_chamfer_invalid_distance() {
+        let mut kernel = MockKernel::new();
+        let (handle, solid) = kernel.make_box_solid(1.0, 1.0, 1.0);
+        kernel.solids.insert(handle.id(), solid);
+
+        let result = kernel.chamfer_edges(&handle, &[], -0.1);
+        assert!(matches!(result, Err(KernelError::Other { .. })));
+    }
+
+    #[test]
+    fn test_shell_removes_face_and_adds_inner() {
+        let mut kernel = MockKernel::new();
+        let (handle, solid) = kernel.make_box_solid(2.0, 2.0, 2.0);
+        kernel.solids.insert(handle.id(), solid.clone());
+
+        // Remove one face (e.g., the top face)
+        let top_face_id = solid.faces[1].id; // top face (z=d)
+        let result = kernel.shell(&handle, &[top_face_id], 0.2).unwrap();
+
+        let faces = kernel.list_faces(&result);
+
+        // Original 6 faces - 1 removed = 5 outer faces + 5 inner faces = 10 faces
+        assert_eq!(faces.len(), 10, "Shell: 5 outer + 5 inner faces");
+    }
+
+    #[test]
+    fn test_shell_invalid_thickness() {
+        let mut kernel = MockKernel::new();
+        let (handle, solid) = kernel.make_box_solid(1.0, 1.0, 1.0);
+        kernel.solids.insert(handle.id(), solid);
+
+        let result = kernel.shell(&handle, &[], -0.1);
+        assert!(matches!(result, Err(KernelError::ShellFailed { .. })));
+    }
+
+    #[test]
+    fn test_shell_invalid_face() {
+        let mut kernel = MockKernel::new();
+        let (handle, solid) = kernel.make_box_solid(1.0, 1.0, 1.0);
+        kernel.solids.insert(handle.id(), solid);
+
+        let result = kernel.shell(&handle, &[KernelId(99999)], 0.1);
+        assert!(matches!(result, Err(KernelError::ShellFailed { .. })));
+    }
+
+    #[test]
+    fn test_fillet_multiple_edges() {
+        let mut kernel = MockKernel::new();
+        let (handle, solid) = kernel.make_box_solid(2.0, 2.0, 2.0);
+        kernel.solids.insert(handle.id(), solid.clone());
+
+        // Fillet 3 edges
+        let edge_ids: Vec<KernelId> = solid.edges[0..3].iter().map(|e| e.id).collect();
+        let result = kernel.fillet_edges(&handle, &edge_ids, 0.1).unwrap();
+
+        let faces = kernel.list_faces(&result);
+        let edges = kernel.list_edges(&result);
+        let vertices = kernel.list_vertices(&result);
+
+        // 3 filleted edges: +3F, +3E, +6V
+        assert_eq!(faces.len(), 9);
+        assert_eq!(edges.len(), 15);
+        assert_eq!(vertices.len(), 14);
     }
 
     #[test]
