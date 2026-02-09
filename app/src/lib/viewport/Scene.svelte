@@ -7,6 +7,9 @@
 	import GridFloor from './GridFloor.svelte';
 	import SketchPlane from './SketchPlane.svelte';
 	import DatumVis from './DatumVis.svelte';
+	import SketchRenderer from '$lib/sketch/SketchRenderer.svelte';
+	import SketchInteraction from '$lib/sketch/SketchInteraction.svelte';
+	import DimensionLabels from '$lib/sketch/DimensionLabels.svelte';
 
 	// Enable raycaster-based interactivity for all child meshes
 	interactivity();
@@ -19,3 +22,6 @@
 <GridFloor />
 <SketchPlane />
 <DatumVis />
+<SketchRenderer />
+<SketchInteraction />
+<DimensionLabels />

@@ -3,6 +3,10 @@
 	import Scene from './Scene.svelte';
 	import ViewCubeGizmo from './ViewCubeGizmo.svelte';
 	import ViewCubeButtons from './ViewCubeButtons.svelte';
+	import ConstraintMenu from '$lib/sketch/ConstraintMenu.svelte';
+
+	let constraintMenuPos = $state({ x: 0, y: 0 });
+	let constraintMenuVisible = $state(false);
 </script>
 
 <div class="viewport">
@@ -11,6 +15,7 @@
 		<ViewCubeGizmo />
 	</Canvas>
 	<ViewCubeButtons />
+	<ConstraintMenu bind:menuPos={constraintMenuPos} bind:visible={constraintMenuVisible} />
 </div>
 
 <style>

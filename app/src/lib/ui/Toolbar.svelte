@@ -10,6 +10,7 @@
 		redo,
 		send
 	} from '$lib/engine/store.svelte.js';
+	import { resetTool } from '$lib/sketch/tools.js';
 	import { onMount } from 'svelte';
 
 	let ready = $derived(isEngineReady());
@@ -74,8 +75,16 @@
 				case 'c': if (inSketch) setActiveTool('circle'); break;
 				case 'a': if (inSketch) setActiveTool('arc'); break;
 				case 'Escape':
-					if (inSketch) { handleFinishSketch(); }
-					else { setActiveTool('select'); }
+					if (inSketch) {
+						if (tool !== 'select') {
+							resetTool();
+							setActiveTool('select');
+						} else {
+							handleFinishSketch();
+						}
+					} else {
+						setActiveTool('select');
+					}
 					break;
 				case 'Delete':
 				case 'Backspace':

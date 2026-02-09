@@ -37,6 +37,29 @@ let selectedFeatureId = $state(null);
 /** @type {string} */
 let activeTool = $state('select');
 
+// -- Sketch drawing state --
+
+/** @type {Array<object>} */
+let sketchEntities = $state([]);
+
+/** @type {Array<object>} */
+let sketchConstraints = $state([]);
+
+/** @type {Map<number, {x: number, y: number}>} */
+let sketchPositions = $state(new Map());
+
+/** @type {number} */
+let nextEntityId = $state(1);
+
+/** @type {object | null} */
+let sketchSolveStatus = $state(null);
+
+/** @type {Set<number>} */
+let sketchSelection = $state(new Set());
+
+/** @type {number | null} */
+let sketchHover = $state(null);
+
 /** @type {EngineBridge | null} */
 let bridge = null;
 
@@ -208,6 +231,7 @@ export function getSketchMode() {
  * @param {[number, number, number]} normal - plane normal
  */
 export function enterSketchMode(origin = [0, 0, 0], normal = [0, 0, 1]) {
+	resetSketchState();
 	sketchMode = { active: true, origin, normal };
 }
 
@@ -215,6 +239,7 @@ export function enterSketchMode(origin = [0, 0, 0], normal = [0, 0, 1]) {
  * Exit sketch mode.
  */
 export function exitSketchMode() {
+	resetSketchState();
 	sketchMode = { active: false, origin: [0, 0, 0], normal: [0, 0, 1] };
 }
 
@@ -251,6 +276,195 @@ export function getActiveTool() {
 export function setActiveTool(tool) {
 	activeTool = tool;
 }
+
+// -- Sketch entity/constraint management --
+
+/**
+ * Allocate a new sketch entity ID.
+ * @returns {number}
+ */
+export function allocEntityId() {
+	return nextEntityId++;
+}
+
+/**
+ * Add a sketch entity locally and send to engine.
+ * @param {object} entity - SketchEntity object
+ */
+export function addLocalEntity(entity) {
+	sketchEntities = [...sketchEntities, entity];
+
+	// Update positions map for Point entities
+	if (entity.type === 'Point') {
+		const next = new Map(sketchPositions);
+		next.set(entity.id, { x: entity.x, y: entity.y });
+		sketchPositions = next;
+	}
+
+	// Send to engine
+	if (bridge && engineReady) {
+		bridge.send({ type: 'AddSketchEntity', entity }).catch(() => {});
+	}
+}
+
+/**
+ * Add a constraint locally and send to engine.
+ * @param {object} constraint - SketchConstraint object
+ */
+export function addLocalConstraint(constraint) {
+	sketchConstraints = [...sketchConstraints, constraint];
+
+	if (bridge && engineReady) {
+		bridge.send({ type: 'AddConstraint', constraint }).catch(() => {});
+	}
+}
+
+/**
+ * Update a dimensional constraint's value locally.
+ * @param {number} index - Index into sketchConstraints array
+ * @param {number} newValue - New dimension value
+ */
+export function updateConstraintValue(index, newValue) {
+	if (index < 0 || index >= sketchConstraints.length) return;
+	const c = { ...sketchConstraints[index] };
+	if ('value' in c) c.value = newValue;
+	else if ('value_degrees' in c) c.value_degrees = newValue;
+	sketchConstraints = [
+		...sketchConstraints.slice(0, index),
+		c,
+		...sketchConstraints.slice(index + 1)
+	];
+}
+
+/**
+ * Find a point near the given coordinates.
+ * @param {number} x
+ * @param {number} y
+ * @param {number} threshold
+ * @returns {{ id: number, x: number, y: number } | null}
+ */
+export function findPointNear(x, y, threshold) {
+	let closest = null;
+	let closestDist = threshold;
+	for (const [id, pos] of sketchPositions) {
+		const dx = pos.x - x;
+		const dy = pos.y - y;
+		const dist = Math.sqrt(dx * dx + dy * dy);
+		if (dist < closestDist) {
+			closestDist = dist;
+			closest = { id, x: pos.x, y: pos.y };
+		}
+	}
+	return closest;
+}
+
+/**
+ * Find a line near the given coordinates (perpendicular distance).
+ * @param {number} x
+ * @param {number} y
+ * @param {number} threshold
+ * @returns {{ id: number, dist: number } | null}
+ */
+export function findLineNear(x, y, threshold) {
+	let closest = null;
+	let closestDist = threshold;
+	for (const entity of sketchEntities) {
+		if (entity.type !== 'Line') continue;
+		const p1 = sketchPositions.get(entity.start_id);
+		const p2 = sketchPositions.get(entity.end_id);
+		if (!p1 || !p2) continue;
+
+		const dist = pointToSegmentDist(x, y, p1.x, p1.y, p2.x, p2.y);
+		if (dist < closestDist) {
+			closestDist = dist;
+			closest = { id: entity.id, dist };
+		}
+	}
+	return closest;
+}
+
+/**
+ * Find a circle/arc near the given coordinates (distance to circumference).
+ * @param {number} x
+ * @param {number} y
+ * @param {number} threshold
+ * @returns {{ id: number, dist: number } | null}
+ */
+export function findCircleNear(x, y, threshold) {
+	let closest = null;
+	let closestDist = threshold;
+	for (const entity of sketchEntities) {
+		if (entity.type !== 'Circle' && entity.type !== 'Arc') continue;
+		const center = sketchPositions.get(entity.center_id);
+		if (!center) continue;
+
+		let radius;
+		if (entity.type === 'Circle') {
+			radius = entity.radius;
+		} else {
+			const startPt = sketchPositions.get(entity.start_id);
+			if (!startPt) continue;
+			const dx = startPt.x - center.x;
+			const dy = startPt.y - center.y;
+			radius = Math.sqrt(dx * dx + dy * dy);
+		}
+
+		const dx = x - center.x;
+		const dy = y - center.y;
+		const distToCenter = Math.sqrt(dx * dx + dy * dy);
+		const dist = Math.abs(distToCenter - radius);
+		if (dist < closestDist) {
+			closestDist = dist;
+			closest = { id: entity.id, dist };
+		}
+	}
+	return closest;
+}
+
+/**
+ * Perpendicular distance from point to line segment.
+ */
+function pointToSegmentDist(px, py, ax, ay, bx, by) {
+	const abx = bx - ax, aby = by - ay;
+	const len2 = abx * abx + aby * aby;
+	if (len2 < 1e-12) {
+		const dx = px - ax, dy = py - ay;
+		return Math.sqrt(dx * dx + dy * dy);
+	}
+	let t = ((px - ax) * abx + (py - ay) * aby) / len2;
+	t = Math.max(0, Math.min(1, t));
+	const cx = ax + t * abx, cy = ay + t * aby;
+	const dx = px - cx, dy = py - cy;
+	return Math.sqrt(dx * dx + dy * dy);
+}
+
+/**
+ * Reset all sketch state. Called when entering/exiting sketch mode.
+ */
+export function resetSketchState() {
+	sketchEntities = [];
+	sketchConstraints = [];
+	sketchPositions = new Map();
+	nextEntityId = 1;
+	sketchSolveStatus = null;
+	sketchSelection = new Set();
+	sketchHover = null;
+}
+
+// Sketch state getters/setters
+
+export function getSketchEntities() { return sketchEntities; }
+export function getSketchConstraints() { return sketchConstraints; }
+export function getSketchPositions() { return sketchPositions; }
+export function getSketchSolveStatus() { return sketchSolveStatus; }
+
+export function getSketchSelection() { return sketchSelection; }
+/** @param {Set<number>} sel */
+export function setSketchSelection(sel) { sketchSelection = sel; }
+
+export function getSketchHover() { return sketchHover; }
+/** @param {number | null} id */
+export function setSketchHover(id) { sketchHover = id; }
 
 // -- Engine commands --
 

@@ -7,7 +7,9 @@
 		getSelectedRefs,
 		getSketchMode,
 		getActiveTool,
-		getRebuildTime
+		getRebuildTime,
+		getSketchEntities,
+		getSketchConstraints
 	} from '$lib/engine/store.svelte.js';
 
 	let error = $derived(getLastError());
@@ -16,6 +18,8 @@
 	let inSketch = $derived(getSketchMode()?.active ?? false);
 	let tool = $derived(getActiveTool());
 	let rebuildMs = $derived(getRebuildTime());
+	let sketchEntities = $derived(getSketchEntities());
+	let sketchConstraints = $derived(getSketchConstraints());
 
 	let selectionText = $derived.by(() => {
 		if (selectedRefs.length > 0) {
@@ -25,6 +29,11 @@
 			return selectedFeature.name;
 		}
 		return '';
+	});
+
+	let sketchInfoText = $derived.by(() => {
+		if (!inSketch) return '';
+		return `Entities: ${sketchEntities.length} | Constraints: ${sketchConstraints.length}`;
 	});
 
 	let modeText = $derived(inSketch ? `Sketch Mode \u2022 Tool: ${tool}` : '');
@@ -39,6 +48,10 @@
 		{/if}
 	</div>
 	<div class="status-right">
+		{#if sketchInfoText}
+			<span class="status-sketch">{sketchInfoText}</span>
+			<span class="status-sep">\u2502</span>
+		{/if}
 		{#if selectionText}
 			<span class="status-selection">{selectionText}</span>
 			<span class="status-sep">\u2502</span>
@@ -98,6 +111,11 @@
 
 	.status-mode {
 		opacity: 0.9;
+	}
+
+	.status-sketch {
+		opacity: 0.85;
+		color: #88bbff;
 	}
 
 	.status-selection, .status-rebuild {
