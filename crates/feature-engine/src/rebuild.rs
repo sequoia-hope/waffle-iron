@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use modeling_ops::{execute_boolean, execute_extrude, execute_revolve, BooleanKind, OpResult};
+use modeling_ops::{
+    execute_boolean, execute_chamfer, execute_extrude, execute_fillet, execute_revolve,
+    execute_shell, BooleanKind, OpResult,
+};
 use uuid::Uuid;
 
 use crate::resolve::resolve_with_fallback;
@@ -177,14 +180,83 @@ fn execute_feature(
             Ok(result)
         }
 
-        Operation::Fillet { .. } | Operation::Chamfer { .. } | Operation::Shell { .. } => {
-            Err(EngineError::OpError(modeling_ops::OpError::Kernel(
-                kernel_fork::KernelError::NotSupported {
-                    operation: "fillet/chamfer/shell".to_string(),
-                },
-            )))
+        Operation::Fillet { params } => {
+            // Find the most recent solid handle
+            let solid_handle = find_latest_solid_handle(feature, feature_results)?;
+
+            // Resolve edge GeomRefs to KernelIds
+            let mut edge_ids = Vec::new();
+            for edge_ref in &params.edges {
+                let resolved = resolve_with_fallback(edge_ref, feature_results).map_err(|e| {
+                    EngineError::ResolutionFailed {
+                        reason: format!("Failed to resolve fillet edge: {}", e),
+                    }
+                })?;
+                edge_ids.push(resolved.kernel_id);
+            }
+
+            let result = execute_fillet(kb, &solid_handle, &edge_ids, params.radius)?;
+            Ok(result)
+        }
+
+        Operation::Chamfer { params } => {
+            let solid_handle = find_latest_solid_handle(feature, feature_results)?;
+
+            let mut edge_ids = Vec::new();
+            for edge_ref in &params.edges {
+                let resolved = resolve_with_fallback(edge_ref, feature_results).map_err(|e| {
+                    EngineError::ResolutionFailed {
+                        reason: format!("Failed to resolve chamfer edge: {}", e),
+                    }
+                })?;
+                edge_ids.push(resolved.kernel_id);
+            }
+
+            let result = execute_chamfer(kb, &solid_handle, &edge_ids, params.distance)?;
+            Ok(result)
+        }
+
+        Operation::Shell { params } => {
+            let solid_handle = find_latest_solid_handle(feature, feature_results)?;
+
+            let mut face_ids = Vec::new();
+            for face_ref in &params.faces_to_remove {
+                let resolved = resolve_with_fallback(face_ref, feature_results).map_err(|e| {
+                    EngineError::ResolutionFailed {
+                        reason: format!("Failed to resolve shell face: {}", e),
+                    }
+                })?;
+                face_ids.push(resolved.kernel_id);
+            }
+
+            let result = execute_shell(kb, &solid_handle, &face_ids, params.thickness)?;
+            Ok(result)
         }
     }
+}
+
+/// Find the most recent solid handle from a feature's references.
+///
+/// For fillet/chamfer/shell, the edges/faces point to a specific feature's output.
+/// We find the solid handle by looking at the first GeomRef's anchor feature_id.
+/// If no references are provided, returns an error.
+fn find_latest_solid_handle(
+    feature: &Feature,
+    feature_results: &HashMap<Uuid, OpResult>,
+) -> Result<kernel_fork::KernelSolidHandle, EngineError> {
+    // Get the target feature from the first edge/face reference
+    let first_ref = match &feature.operation {
+        Operation::Fillet { params } => params.edges.first(),
+        Operation::Chamfer { params } => params.edges.first(),
+        Operation::Shell { params } => params.faces_to_remove.first(),
+        _ => None,
+    };
+
+    let geom_ref = first_ref.ok_or(EngineError::ResolutionFailed {
+        reason: "Fillet/chamfer/shell needs at least one edge/face reference".to_string(),
+    })?;
+
+    find_solid_handle(geom_ref, feature_results)
 }
 
 /// Find a sketch OpResult by sketch ID. Sketches produce empty OpResults

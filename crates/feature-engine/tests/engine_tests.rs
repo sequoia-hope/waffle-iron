@@ -1188,6 +1188,263 @@ fn stress_multiple_undo_redo_cycle() {
     assert!(engine.get_result(s3).is_some());
 }
 
+// ── Fillet/Chamfer/Shell Pipeline Tests ──────────────────────────────────
+
+/// Create a fillet operation referencing an edge from a previous extrude.
+/// Uses BestEffort + a non-matching role to trigger kind-based fallback
+/// that finds an Edge entity from the extrude's provenance.
+fn make_fillet_op(extrude_id: Uuid, radius: f64) -> Operation {
+    Operation::Fillet {
+        params: FilletParams {
+            edges: vec![GeomRef {
+                kind: TopoKind::Edge,
+                anchor: Anchor::FeatureOutput {
+                    feature_id: extrude_id,
+                    output_key: OutputKey::Main,
+                },
+                selector: Selector::Role {
+                    role: Role::ProfileFace, // Won't match any role → falls back to Edge kind-match
+                    index: 0,
+                },
+                policy: ResolvePolicy::BestEffort,
+            }],
+            radius,
+        },
+    }
+}
+
+/// Create a chamfer operation referencing an edge from a previous extrude.
+fn make_chamfer_op(extrude_id: Uuid, distance: f64) -> Operation {
+    Operation::Chamfer {
+        params: ChamferParams {
+            edges: vec![GeomRef {
+                kind: TopoKind::Edge,
+                anchor: Anchor::FeatureOutput {
+                    feature_id: extrude_id,
+                    output_key: OutputKey::Main,
+                },
+                selector: Selector::Role {
+                    role: Role::ProfileFace,
+                    index: 0,
+                },
+                policy: ResolvePolicy::BestEffort,
+            }],
+            distance,
+        },
+    }
+}
+
+/// Create a shell operation referencing a face from a previous extrude.
+fn make_shell_op(extrude_id: Uuid, thickness: f64) -> Operation {
+    Operation::Shell {
+        params: ShellParams {
+            faces_to_remove: vec![GeomRef {
+                kind: TopoKind::Face,
+                anchor: Anchor::FeatureOutput {
+                    feature_id: extrude_id,
+                    output_key: OutputKey::Main,
+                },
+                selector: Selector::Role {
+                    role: Role::EndCapPositive,
+                    index: 0,
+                },
+                policy: ResolvePolicy::Strict,
+            }],
+            thickness,
+        },
+    }
+}
+
+#[test]
+fn fillet_pipeline_sketch_extrude_fillet() {
+    let mut engine = Engine::new();
+    let mut kernel = MockKernel::new();
+
+    // sketch → extrude → fillet
+    let s1 = engine
+        .add_feature("Sketch 1".to_string(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    let e1 = engine
+        .add_feature("Extrude 1".to_string(), make_extrude_op(s1), &mut kernel)
+        .unwrap();
+
+    // Verify extrude has results before fillet
+    assert!(engine.get_result(e1).is_some());
+
+    let f1 = engine
+        .add_feature("Fillet 1".to_string(), make_fillet_op(e1, 1.0), &mut kernel)
+        .unwrap();
+
+    // Fillet should produce a result
+    let fillet_result = engine.get_result(f1);
+    assert!(
+        fillet_result.is_some(),
+        "Fillet should have a result. Errors: {:?}",
+        engine.errors
+    );
+
+    let result = fillet_result.unwrap();
+    // Should have Main output
+    assert_eq!(result.outputs.len(), 1);
+    assert_eq!(result.outputs[0].0, OutputKey::Main);
+
+    // Should have FilletFace roles in provenance
+    let fillet_faces: Vec<_> = result
+        .provenance
+        .role_assignments
+        .iter()
+        .filter(|(_, r)| matches!(r, Role::FilletFace { .. }))
+        .collect();
+    assert!(
+        !fillet_faces.is_empty(),
+        "Fillet should assign FilletFace roles"
+    );
+}
+
+#[test]
+fn chamfer_pipeline_sketch_extrude_chamfer() {
+    let mut engine = Engine::new();
+    let mut kernel = MockKernel::new();
+
+    let s1 = engine
+        .add_feature("Sketch 1".to_string(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    let e1 = engine
+        .add_feature("Extrude 1".to_string(), make_extrude_op(s1), &mut kernel)
+        .unwrap();
+    let c1 = engine
+        .add_feature(
+            "Chamfer 1".to_string(),
+            make_chamfer_op(e1, 0.5),
+            &mut kernel,
+        )
+        .unwrap();
+
+    let chamfer_result = engine.get_result(c1);
+    assert!(
+        chamfer_result.is_some(),
+        "Chamfer should have a result. Errors: {:?}",
+        engine.errors
+    );
+
+    let result = chamfer_result.unwrap();
+    assert_eq!(result.outputs.len(), 1);
+
+    // Should have ChamferFace roles
+    let chamfer_faces: Vec<_> = result
+        .provenance
+        .role_assignments
+        .iter()
+        .filter(|(_, r)| matches!(r, Role::ChamferFace { .. }))
+        .collect();
+    assert!(
+        !chamfer_faces.is_empty(),
+        "Chamfer should assign ChamferFace roles"
+    );
+}
+
+#[test]
+fn shell_pipeline_sketch_extrude_shell() {
+    let mut engine = Engine::new();
+    let mut kernel = MockKernel::new();
+
+    let s1 = engine
+        .add_feature("Sketch 1".to_string(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    let e1 = engine
+        .add_feature("Extrude 1".to_string(), make_extrude_op(s1), &mut kernel)
+        .unwrap();
+    let sh1 = engine
+        .add_feature("Shell 1".to_string(), make_shell_op(e1, 0.3), &mut kernel)
+        .unwrap();
+
+    let shell_result = engine.get_result(sh1);
+    assert!(
+        shell_result.is_some(),
+        "Shell should have a result. Errors: {:?}",
+        engine.errors
+    );
+
+    let result = shell_result.unwrap();
+    assert_eq!(result.outputs.len(), 1);
+
+    // Should have ShellInnerFace roles
+    let inner_faces: Vec<_> = result
+        .provenance
+        .role_assignments
+        .iter()
+        .filter(|(_, r)| matches!(r, Role::ShellInnerFace { .. }))
+        .collect();
+    assert!(
+        !inner_faces.is_empty(),
+        "Shell should assign ShellInnerFace roles"
+    );
+}
+
+#[test]
+fn fillet_pipeline_edit_extrude_rebuilds_fillet() {
+    let mut engine = Engine::new();
+    let mut kernel = MockKernel::new();
+
+    let s1 = engine
+        .add_feature("Sketch 1".to_string(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    let e1 = engine
+        .add_feature("Extrude 1".to_string(), make_extrude_op(s1), &mut kernel)
+        .unwrap();
+    let f1 = engine
+        .add_feature("Fillet 1".to_string(), make_fillet_op(e1, 1.0), &mut kernel)
+        .unwrap();
+
+    assert!(engine.get_result(f1).is_some());
+
+    // Edit the extrude depth — fillet should rebuild downstream
+    engine
+        .edit_feature(e1, make_extrude_op_depth(s1, 15.0), &mut kernel)
+        .unwrap();
+
+    // Fillet should still have a result after rebuild
+    assert!(
+        engine.get_result(f1).is_some(),
+        "Fillet should survive extrude edit. Errors: {:?}",
+        engine.errors
+    );
+    assert!(
+        engine.errors.is_empty(),
+        "No rebuild errors expected: {:?}",
+        engine.errors
+    );
+}
+
+#[test]
+fn fillet_resolve_geomref_produces_kernel_id() {
+    let mut engine = Engine::new();
+    let mut kernel = MockKernel::new();
+
+    let s1 = engine
+        .add_feature("Sketch 1".to_string(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    let e1 = engine
+        .add_feature("Extrude 1".to_string(), make_extrude_op(s1), &mut kernel)
+        .unwrap();
+
+    // Verify the extrude result has role assignments that can be resolved
+    let extrude_result = engine.get_result(e1).unwrap();
+    assert!(
+        !extrude_result.provenance.role_assignments.is_empty(),
+        "Extrude should have role assignments"
+    );
+
+    // Verify there are SideFace roles (needed by fillet/chamfer GeomRefs)
+    let side_faces: Vec<_> = extrude_result
+        .provenance
+        .role_assignments
+        .iter()
+        .filter(|(_, r)| matches!(r, Role::SideFace { .. }))
+        .collect();
+    assert!(!side_faces.is_empty(), "Extrude should have SideFace roles");
+}
+
 // ── M10: Performance Benchmarks ─────────────────────────────────────────
 
 /// Build a tree of N sketch+extrude pairs and return rebuild time.

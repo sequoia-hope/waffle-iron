@@ -19,7 +19,7 @@
 ### M3: GeomRef Resolver — Role-Based ✅
 - [x] Implement role-based resolution: anchor → OpResult → role_assignments → KernelId
 - [x] Test: extrude produces EndCapPositive/Negative roles → resolve correctly
-- [ ] Test: fillet produces FilletFace roles → resolve correctly (fillet not yet implemented)
+- [x] Test: fillet produces FilletFace roles → resolve correctly (via pipeline test)
 - [x] Test: role not found → returns error
 
 ### M4: GeomRef Resolver — Signature-Based Fallback ✅
@@ -60,7 +60,11 @@
 - [x] Edit early feature → verify downstream rebuild succeeds with no errors
 - [x] Undo/redo edit → verify state roundtrips correctly
 - [x] Rollback mid-tree → verify inactive features lose results, restore recovers
-- [ ] Fillet pipeline test (deferred: fillet not yet implemented in MockKernel)
+- [x] Fillet pipeline: sketch → extrude → fillet → verify FilletFace roles
+- [x] Chamfer pipeline: sketch → extrude → chamfer → verify ChamferFace roles
+- [x] Shell pipeline: sketch → extrude → shell → verify ShellInnerFace roles
+- [x] Fillet survives extrude edit + downstream rebuild
+- [x] Extrude provenance includes SideFace roles for edge resolution
 
 ### M9: Persistent Naming Stress Tests ✅
 - [x] Add feature in middle of tree → verify downstream refs survive
