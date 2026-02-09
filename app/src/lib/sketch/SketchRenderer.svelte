@@ -7,10 +7,14 @@
 		getSketchPositions,
 		getSketchSelection,
 		getSketchHover,
-		getSketchConstraints
+		getSketchConstraints,
+		getExtractedProfiles,
+		getSelectedProfileIndex,
+		getHoveredProfileIndex
 	} from '$lib/engine/store.svelte.js';
 	import { getPreview, getSnapIndicator } from './tools.js';
 	import { buildSketchPlane, sketchToWorld } from './sketchCoords.js';
+	import { profileToPolygon } from './profiles.js';
 
 	// Color scheme
 	const COLOR_DEFAULT = 0x4488ff;    // blue, under-constrained
@@ -18,6 +22,9 @@
 	const COLOR_HOVERED = 0x88bbff;    // light blue, hovered
 	const COLOR_PREVIEW = 0x6699cc;    // dimmer blue, preview
 	const COLOR_SNAP = 0x44cc44;       // green, snap indicator
+	const COLOR_CONSTRUCTION = 0x6677aa; // dimmer blue, construction
+	const COLOR_PROFILE_HOVER = 0x55cc88;  // green-ish, profile hover
+	const COLOR_PROFILE_SELECT = 0x44ff88; // bright green, profile selected
 
 	let sm = $derived(getSketchMode());
 	let entities = $derived(getSketchEntities());
@@ -25,17 +32,43 @@
 	let selection = $derived(getSketchSelection());
 	let hoverEntity = $derived(getSketchHover());
 	let constraints = $derived(getSketchConstraints());
+	let profiles = $derived(getExtractedProfiles());
+	let selectedProfile = $derived(getSelectedProfileIndex());
+	let hoveredProfile = $derived(getHoveredProfileIndex());
 
 	let plane = $derived(sm?.active ? buildSketchPlane(sm.origin, sm.normal) : null);
 
+	// Build sets of entity IDs in hovered/selected profiles for fast lookup
+	let hoveredProfileEntityIds = $derived.by(() => {
+		if (hoveredProfile == null || hoveredProfile >= profiles.length) return new Set();
+		return new Set(profiles[hoveredProfile].entityIds);
+	});
+	let selectedProfileEntityIds = $derived.by(() => {
+		if (selectedProfile == null || selectedProfile >= profiles.length) return new Set();
+		return new Set(profiles[selectedProfile].entityIds);
+	});
+
 	/**
-	 * Get entity color based on selection/hover state.
+	 * Check if entity is construction geometry.
+	 * @param {number} entityId
+	 * @returns {boolean}
+	 */
+	function isConstruction(entityId) {
+		const entity = entities.find(e => e.id === entityId);
+		return entity?.construction ?? false;
+	}
+
+	/**
+	 * Get entity color based on selection/hover/profile state.
 	 * @param {number} entityId
 	 * @returns {number}
 	 */
 	function entityColor(entityId) {
 		if (selection.has(entityId)) return COLOR_SELECTED;
 		if (hoverEntity === entityId) return COLOR_HOVERED;
+		if (selectedProfileEntityIds.has(entityId)) return COLOR_PROFILE_SELECT;
+		if (hoveredProfileEntityIds.has(entityId)) return COLOR_PROFILE_HOVER;
+		if (isConstruction(entityId)) return COLOR_CONSTRUCTION;
 		return COLOR_DEFAULT;
 	}
 
@@ -51,7 +84,7 @@
 			.map(e => {
 				const pos = positions.get(e.id);
 				if (!pos) return null;
-				return { id: e.id, world: sketchToWorld(pos.x, pos.y, plane) };
+				return { id: e.id, world: sketchToWorld(pos.x, pos.y, plane), construction: e.construction };
 			})
 			.filter(Boolean);
 	});
@@ -70,7 +103,7 @@
 				const w1 = sketchToWorld(p1.x, p1.y, plane);
 				const w2 = sketchToWorld(p2.x, p2.y, plane);
 				const geo = new THREE.BufferGeometry().setFromPoints([w1, w2]);
-				return { id: e.id, geometry: geo };
+				return { id: e.id, geometry: geo, construction: e.construction };
 			})
 			.filter(Boolean);
 	});
@@ -94,7 +127,7 @@
 					points.push(sketchToWorld(x, y, plane));
 				}
 				const geo = new THREE.BufferGeometry().setFromPoints(points);
-				return { id: e.id, geometry: geo };
+				return { id: e.id, geometry: geo, construction: e.construction };
 			})
 			.filter(Boolean);
 	});
@@ -131,9 +164,51 @@
 					points.push(sketchToWorld(x, y, plane));
 				}
 				const geo = new THREE.BufferGeometry().setFromPoints(points);
-				return { id: e.id, geometry: geo };
+				return { id: e.id, geometry: geo, construction: e.construction };
 			})
 			.filter(Boolean);
+	});
+
+	// -- Profile fill geometry --
+
+	let profileFills = $derived.by(() => {
+		if (!plane || profiles.length === 0) return [];
+		const fills = [];
+		for (let i = 0; i < profiles.length; i++) {
+			const isHovered = hoveredProfile === i;
+			const isSelected = selectedProfile === i;
+			if (!isHovered && !isSelected) continue;
+
+			const poly = profileToPolygon(profiles[i], entities, positions);
+			if (poly.length < 3) continue;
+
+			// Build THREE.Shape from polygon in sketch 2D coords
+			const shape = new THREE.Shape();
+			shape.moveTo(poly[0].x, poly[0].y);
+			for (let j = 1; j < poly.length; j++) {
+				shape.lineTo(poly[j].x, poly[j].y);
+			}
+			shape.closePath();
+
+			const shapeGeo = new THREE.ShapeGeometry(shape);
+			// Transform each vertex from sketch 2D to world 3D
+			const posAttr = shapeGeo.getAttribute('position');
+			for (let v = 0; v < posAttr.count; v++) {
+				const sx = posAttr.getX(v);
+				const sy = posAttr.getY(v);
+				const w = sketchToWorld(sx, sy, plane);
+				posAttr.setXYZ(v, w.x, w.y, w.z);
+			}
+			posAttr.needsUpdate = true;
+
+			fills.push({
+				index: i,
+				geometry: shapeGeo,
+				color: isSelected ? COLOR_PROFILE_SELECT : COLOR_PROFILE_HOVER,
+				opacity: isSelected ? 0.15 : 0.1
+			});
+		}
+		return fills;
 	});
 
 	// -- Preview geometry --
@@ -249,35 +324,95 @@
 	const pointGeometry = new THREE.SphereGeometry(0.06, 8, 8);
 	const snapPointGeometry = new THREE.SphereGeometry(0.08, 8, 8);
 	const snapPointMaterial = new THREE.MeshBasicMaterial({ color: COLOR_SNAP, depthTest: false });
+
+	/**
+	 * Callback to compute line distances for dashed materials.
+	 * Must be called after the Line is created in the scene.
+	 * @param {THREE.Line} lineObj
+	 */
+	function computeDashes(lineObj) {
+		lineObj.computeLineDistances();
+	}
 </script>
 
 {#if sm?.active && plane}
+	<!-- Profile fills (behind entities) -->
+	{#each profileFills as fill (fill.index)}
+		<T.Mesh geometry={fill.geometry} renderOrder={8}>
+			<T.MeshBasicMaterial
+				color={fill.color}
+				depthTest={false}
+				transparent
+				opacity={fill.opacity}
+				side={THREE.DoubleSide}
+			/>
+		</T.Mesh>
+	{/each}
+
 	<!-- Entity points -->
 	{#each pointData as pt (pt.id)}
 		<T.Mesh geometry={pointGeometry} position={[pt.world.x, pt.world.y, pt.world.z]} renderOrder={10}>
-			<T.MeshBasicMaterial color={entityColor(pt.id)} depthTest={false} />
+			<T.MeshBasicMaterial
+				color={entityColor(pt.id)}
+				depthTest={false}
+				transparent={pt.construction}
+				opacity={pt.construction ? 0.5 : 1}
+			/>
 		</T.Mesh>
 	{/each}
 
 	<!-- Entity lines -->
 	{#each lineData as line (line.id)}
-		<T.Line geometry={line.geometry} renderOrder={10}>
-			<T.LineBasicMaterial color={entityColor(line.id)} depthTest={false} linewidth={1} />
-		</T.Line>
+		{#if line.construction}
+			<T.Line geometry={line.geometry} renderOrder={10} oncreate={computeDashes}>
+				<T.LineDashedMaterial
+					color={entityColor(line.id)}
+					depthTest={false}
+					dashSize={0.15}
+					gapSize={0.08}
+				/>
+			</T.Line>
+		{:else}
+			<T.Line geometry={line.geometry} renderOrder={10}>
+				<T.LineBasicMaterial color={entityColor(line.id)} depthTest={false} linewidth={1} />
+			</T.Line>
+		{/if}
 	{/each}
 
 	<!-- Entity circles -->
 	{#each circleData as circle (circle.id)}
-		<T.Line geometry={circle.geometry} renderOrder={10}>
-			<T.LineBasicMaterial color={entityColor(circle.id)} depthTest={false} linewidth={1} />
-		</T.Line>
+		{#if circle.construction}
+			<T.Line geometry={circle.geometry} renderOrder={10} oncreate={computeDashes}>
+				<T.LineDashedMaterial
+					color={entityColor(circle.id)}
+					depthTest={false}
+					dashSize={0.15}
+					gapSize={0.08}
+				/>
+			</T.Line>
+		{:else}
+			<T.Line geometry={circle.geometry} renderOrder={10}>
+				<T.LineBasicMaterial color={entityColor(circle.id)} depthTest={false} linewidth={1} />
+			</T.Line>
+		{/if}
 	{/each}
 
 	<!-- Entity arcs -->
 	{#each arcData as arc (arc.id)}
-		<T.Line geometry={arc.geometry} renderOrder={10}>
-			<T.LineBasicMaterial color={entityColor(arc.id)} depthTest={false} linewidth={1} />
-		</T.Line>
+		{#if arc.construction}
+			<T.Line geometry={arc.geometry} renderOrder={10} oncreate={computeDashes}>
+				<T.LineDashedMaterial
+					color={entityColor(arc.id)}
+					depthTest={false}
+					dashSize={0.15}
+					gapSize={0.08}
+				/>
+			</T.Line>
+		{:else}
+			<T.Line geometry={arc.geometry} renderOrder={10}>
+				<T.LineBasicMaterial color={entityColor(arc.id)} depthTest={false} linewidth={1} />
+			</T.Line>
+		{/if}
 	{/each}
 
 	<!-- Preview geometry -->

@@ -17,9 +17,13 @@ import {
 	setSketchSelection,
 	setSketchHover,
 	findLineNear,
-	findCircleNear
+	findCircleNear,
+	getExtractedProfiles,
+	setSelectedProfileIndex,
+	setHoveredProfileIndex
 } from '$lib/engine/store.svelte.js';
 import { detectSnaps } from './snap.js';
+import { profileToPolygon, pointInPolygon } from './profiles.js';
 
 // -- Module state (reactive via $state in .svelte.js, but we use plain JS here) --
 
@@ -361,6 +365,14 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 		// Hit-test for hover
 		const hitId = hitTest(x, y, screenPixelSize);
 		setSketchHover(hitId);
+
+		// Profile hover detection (only when no entity is hovered)
+		if (hitId == null) {
+			const profileIdx = hitTestProfile(x, y);
+			setHoveredProfileIndex(profileIdx);
+		} else {
+			setHoveredProfileIndex(null);
+		}
 		return;
 	}
 
@@ -369,9 +381,23 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 		const selection = getSketchSelection();
 
 		if (hitId == null) {
-			if (!shiftKey) setSketchSelection(new Set());
+			// Check if clicking inside a profile region
+			const profileIdx = hitTestProfile(x, y);
+			if (profileIdx != null) {
+				setSelectedProfileIndex(profileIdx);
+				setSketchSelection(new Set());
+				return;
+			}
+
+			if (!shiftKey) {
+				setSketchSelection(new Set());
+				setSelectedProfileIndex(null);
+			}
 			return;
 		}
+
+		// Clicking an entity clears profile selection
+		setSelectedProfileIndex(null);
 
 		if (shiftKey) {
 			const next = new Set(selection);
@@ -385,6 +411,27 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 			setSketchSelection(new Set([hitId]));
 		}
 	}
+}
+
+/**
+ * Hit-test extracted profiles at the given sketch coordinates.
+ * Returns the index of the profile containing the point, or null.
+ *
+ * @param {number} x
+ * @param {number} y
+ * @returns {number | null}
+ */
+function hitTestProfile(x, y) {
+	const profiles = getExtractedProfiles();
+	const entities = getSketchEntities();
+	const positions = getSketchPositions();
+
+	for (let i = 0; i < profiles.length; i++) {
+		const poly = profileToPolygon(profiles[i], entities, positions);
+		if (poly.length < 3) continue;
+		if (pointInPolygon(x, y, poly)) return i;
+	}
+	return null;
 }
 
 /**

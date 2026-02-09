@@ -64,16 +64,20 @@
 - [ ] Failed constraint highlighting — deferred
 - [ ] Construction geometry dashed display — deferred
 
-### M10: Profile Selection
-- [ ] Click inside closed loop → identify profile
-- [ ] Highlight selected profile
-- [ ] Point-in-polygon test on solved geometry
-- [ ] Ready for extrusion/revolution
+### M10: Profile Selection ✅
+- [x] Click inside closed loop → identify profile
+- [x] Highlight selected profile (green) and hovered profile (light green)
+- [x] Point-in-polygon test via ray casting on sketch geometry
+- [x] Client-side profile extraction (half-edge minimal face algorithm)
+- [x] Semi-transparent fill for hovered/selected profiles
+- [x] Ready for extrusion/revolution (selectedProfileIndex in store)
 
-### M11: Construction Geometry
-- [ ] Toggle entity as construction
-- [ ] Visual distinction (dashed lines)
-- [ ] Exclude from profile extraction
+### M11: Construction Geometry ✅
+- [x] Toggle entity as construction (toggleConstruction in store)
+- [x] Visual distinction (LineDashedMaterial, dimmer color 0x6677aa)
+- [x] Exclude from profile extraction
+- [x] Toolbar button ("Constr") + keyboard shortcut (X)
+- [x] Works on all entity types (lines, circles, arcs, points)
 
 ## Implementation Summary
 
@@ -81,9 +85,10 @@
 | File | Purpose |
 |------|---------|
 | `app/src/lib/sketch/sketchCoords.js` | Screen→3D→2D coordinate projection |
-| `app/src/lib/sketch/tools.js` | Tool state machines (line, rect, circle, arc, select) |
+| `app/src/lib/sketch/tools.js` | Tool state machines (line, rect, circle, arc, select) + profile hit-test |
 | `app/src/lib/sketch/snap.js` | Auto-constraining: coincident, H/V, on-entity snap |
-| `app/src/lib/sketch/SketchRenderer.svelte` | Renders sketch entities + preview + snap indicators |
+| `app/src/lib/sketch/profiles.js` | Client-side closed-loop extraction (half-edge algorithm) |
+| `app/src/lib/sketch/SketchRenderer.svelte` | Renders sketch entities + preview + snap + profiles |
 | `app/src/lib/sketch/SketchInteraction.svelte` | Invisible plane capturing pointer events |
 | `app/src/lib/sketch/ConstraintMenu.svelte` | Right-click popup for manual constraints |
 | `app/src/lib/sketch/DimensionLabels.svelte` | Editable dimension labels via HTML overlay |
@@ -91,7 +96,7 @@
 ### Modified files
 | File | Changes |
 |------|---------|
-| `app/src/lib/engine/store.svelte.js` | Sketch entity/constraint state, ID allocator, hit-test helpers |
+| `app/src/lib/engine/store.svelte.js` | Sketch entity/constraint state, ID allocator, hit-test helpers, construction toggle, profile state |
 | `app/src/lib/viewport/Scene.svelte` | Import SketchRenderer + SketchInteraction + DimensionLabels |
 | `app/src/lib/viewport/Viewport.svelte` | Import ConstraintMenu HTML overlay |
 | `app/src/lib/ui/StatusBar.svelte` | Show entity/constraint counts in sketch mode |
@@ -101,7 +106,7 @@
 - SolveSketch returns NotImplemented in WASM (libslvs C++ can't compile to wasm32)
   - Entities/constraints accumulate correctly and are sent to engine
   - UI uses as-placed positions; solver would update positions when available
-- Profile selection (M10) depends on solver for accurate geometry
+  - Profile extraction uses client-side JS implementation (bypasses solver)
 
 ## Interface Change Requests
 

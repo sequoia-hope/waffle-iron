@@ -6,6 +6,7 @@
  */
 
 import { EngineBridge } from './bridge.js';
+import { extractProfiles } from '$lib/sketch/profiles.js';
 
 /** @type {{ features: Array<any>, active_index: number | null }} */
 let featureTree = $state({ features: [], active_index: null });
@@ -59,6 +60,15 @@ let sketchSelection = $state(new Set());
 
 /** @type {number | null} */
 let sketchHover = $state(null);
+
+/** @type {Array<{ entityIds: number[], isOuter: boolean }>} */
+let extractedProfilesState = $state([]);
+
+/** @type {number | null} */
+let selectedProfileIndex = $state(null);
+
+/** @type {number | null} */
+let hoveredProfileIndex = $state(null);
 
 /** @type {EngineBridge | null} */
 let bridge = null;
@@ -305,6 +315,8 @@ export function addLocalEntity(entity) {
 	if (bridge && engineReady) {
 		bridge.send({ type: 'AddSketchEntity', entity }).catch(() => {});
 	}
+
+	reExtractProfiles();
 }
 
 /**
@@ -439,6 +451,37 @@ function pointToSegmentDist(px, py, ax, ay, bx, by) {
 }
 
 /**
+ * Toggle an entity's construction flag.
+ * @param {number} entityId
+ */
+export function toggleConstruction(entityId) {
+	const idx = sketchEntities.findIndex(e => e.id === entityId);
+	if (idx < 0) return;
+	const entity = { ...sketchEntities[idx] };
+	entity.construction = !entity.construction;
+	sketchEntities = [
+		...sketchEntities.slice(0, idx),
+		entity,
+		...sketchEntities.slice(idx + 1)
+	];
+	reExtractProfiles();
+}
+
+/**
+ * Re-extract profiles from current sketch entities.
+ */
+function reExtractProfiles() {
+	extractedProfilesState = extractProfiles(sketchEntities, sketchPositions);
+	// Invalidate selections if profile list changed
+	if (selectedProfileIndex != null && selectedProfileIndex >= extractedProfilesState.length) {
+		selectedProfileIndex = null;
+	}
+	if (hoveredProfileIndex != null && hoveredProfileIndex >= extractedProfilesState.length) {
+		hoveredProfileIndex = null;
+	}
+}
+
+/**
  * Reset all sketch state. Called when entering/exiting sketch mode.
  */
 export function resetSketchState() {
@@ -449,6 +492,9 @@ export function resetSketchState() {
 	sketchSolveStatus = null;
 	sketchSelection = new Set();
 	sketchHover = null;
+	extractedProfilesState = [];
+	selectedProfileIndex = null;
+	hoveredProfileIndex = null;
 }
 
 // Sketch state getters/setters
@@ -465,6 +511,14 @@ export function setSketchSelection(sel) { sketchSelection = sel; }
 export function getSketchHover() { return sketchHover; }
 /** @param {number | null} id */
 export function setSketchHover(id) { sketchHover = id; }
+
+export function getExtractedProfiles() { return extractedProfilesState; }
+export function getSelectedProfileIndex() { return selectedProfileIndex; }
+/** @param {number | null} idx */
+export function setSelectedProfileIndex(idx) { selectedProfileIndex = idx; }
+export function getHoveredProfileIndex() { return hoveredProfileIndex; }
+/** @param {number | null} idx */
+export function setHoveredProfileIndex(idx) { hoveredProfileIndex = idx; }
 
 // -- Engine commands --
 

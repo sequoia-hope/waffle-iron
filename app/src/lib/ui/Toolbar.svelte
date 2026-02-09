@@ -8,7 +8,9 @@
 		exitSketchMode,
 		undo,
 		redo,
-		send
+		send,
+		getSketchSelection,
+		toggleConstruction
 	} from '$lib/engine/store.svelte.js';
 	import { resetTool } from '$lib/sketch/tools.js';
 	import { onMount } from 'svelte';
@@ -32,6 +34,7 @@
 		{ id: 'rectangle', label: 'Rect', shortcut: 'R' },
 		{ id: 'circle', label: 'Circle', shortcut: 'C' },
 		{ id: 'arc', label: 'Arc', shortcut: 'A' },
+		{ id: 'construction', label: 'Constr', shortcut: 'X' },
 	];
 
 	function handleToolClick(toolId) {
@@ -45,7 +48,18 @@
 			}
 			return;
 		}
+		if (toolId === 'construction') {
+			handleToggleConstruction();
+			return;
+		}
 		setActiveTool(toolId);
+	}
+
+	function handleToggleConstruction() {
+		const sel = getSketchSelection();
+		for (const id of sel) {
+			toggleConstruction(id);
+		}
 	}
 
 	function handleFinishSketch() {
@@ -74,6 +88,7 @@
 				case 'r': if (inSketch) setActiveTool('rectangle'); break;
 				case 'c': if (inSketch) setActiveTool('circle'); break;
 				case 'a': if (inSketch) setActiveTool('arc'); break;
+				case 'x': if (inSketch) handleToggleConstruction(); break;
 				case 'Escape':
 					if (inSketch) {
 						if (tool !== 'select') {
@@ -106,10 +121,10 @@
 			{#each sketchTools as t}
 				<button
 					class="toolbar-btn"
-					class:active={tool === t.id}
+					class:active={t.id !== 'construction' && tool === t.id}
 					disabled={!ready}
 					title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
-					onclick={() => setActiveTool(t.id)}
+					onclick={() => t.id === 'construction' ? handleToggleConstruction() : setActiveTool(t.id)}
 				>{t.label}</button>
 			{/each}
 		</div>
