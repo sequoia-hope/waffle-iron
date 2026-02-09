@@ -73,6 +73,13 @@ pub trait Kernel {
         tolerance: f64,
     ) -> Result<RenderMesh, KernelError>;
 
+    /// Extract edge polylines for rendering edge overlays.
+    fn extract_edges(
+        &mut self,
+        solid: &KernelSolidHandle,
+        tolerance: f64,
+    ) -> Result<EdgeRenderData, KernelError>;
+
     /// Create planar faces from closed sketch profiles.
     fn make_faces_from_profiles(
         &mut self,

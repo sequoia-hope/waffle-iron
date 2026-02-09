@@ -1050,6 +1050,35 @@ impl Kernel for MockKernel {
         Ok(Self::tessellate_box(s))
     }
 
+    fn extract_edges(
+        &mut self,
+        solid: &KernelSolidHandle,
+        _tolerance: f64,
+    ) -> Result<EdgeRenderData, KernelError> {
+        let s = self
+            .solids
+            .get(&solid.id())
+            .ok_or(KernelError::EntityNotFound {
+                id: KernelId(solid.id()),
+            })?;
+
+        // MockKernel edges don't carry geometric positions, so return
+        // edge ranges with empty vertex data (just the edge IDs and counts).
+        let mut edge_ranges = Vec::new();
+        for edge in &s.edges {
+            edge_ranges.push(EdgeRange {
+                edge_id: edge.id,
+                start_vertex: 0,
+                end_vertex: 0,
+            });
+        }
+
+        Ok(EdgeRenderData {
+            vertices: Vec::new(),
+            edge_ranges,
+        })
+    }
+
     fn make_faces_from_profiles(
         &mut self,
         profiles: &[ClosedProfile],

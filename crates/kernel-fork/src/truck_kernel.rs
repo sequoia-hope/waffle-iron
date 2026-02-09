@@ -267,6 +267,25 @@ impl Kernel for TruckKernel {
         tessellation::tessellate_solid(truck_solid, tolerance, &mut self.next_id)
     }
 
+    fn extract_edges(
+        &mut self,
+        solid: &KernelSolidHandle,
+        tolerance: f64,
+    ) -> Result<EdgeRenderData, KernelError> {
+        let truck_solid = self
+            .solids
+            .get(&solid.id())
+            .ok_or(KernelError::EntityNotFound {
+                id: KernelId(solid.id()),
+            })?;
+
+        Ok(tessellation::extract_edges(
+            truck_solid,
+            tolerance,
+            &mut self.next_id,
+        ))
+    }
+
     fn make_faces_from_profiles(
         &mut self,
         profiles: &[ClosedProfile],
@@ -610,6 +629,55 @@ mod tests {
         assert_eq!(
             covered, total_indices,
             "Face ranges should cover all indices"
+        );
+    }
+
+    #[test]
+    fn test_truck_kernel_extract_edges_box() {
+        let mut kernel = TruckKernel::new();
+        let solid = primitives::make_box(1.0, 1.0, 1.0);
+        let handle = kernel.store_solid(solid);
+
+        let edges = kernel.extract_edges(&handle, 0.1).unwrap();
+
+        assert!(!edges.vertices.is_empty(), "Edge data should have vertices");
+        // A box has 12 edges
+        assert_eq!(
+            edges.edge_ranges.len(),
+            12,
+            "Box should have 12 edge ranges"
+        );
+
+        // Verify each edge range references valid vertex data
+        for range in &edges.edge_ranges {
+            assert!(
+                range.end_vertex > range.start_vertex,
+                "Edge range should have at least 2 vertices"
+            );
+            assert!(
+                (range.end_vertex as usize) * 3 <= edges.vertices.len(),
+                "Edge range end should not exceed vertex count"
+            );
+        }
+    }
+
+    #[test]
+    fn test_truck_kernel_extract_edges_cylinder() {
+        let mut kernel = TruckKernel::new();
+        let solid = primitives::make_cylinder(1.0, 2.0);
+        let handle = kernel.store_solid(solid);
+
+        let edges = kernel.extract_edges(&handle, 0.1).unwrap();
+
+        assert!(
+            !edges.vertices.is_empty(),
+            "Cylinder edge data should have vertices"
+        );
+        // A cylinder has 3 edges: top circle, bottom circle, seam
+        assert!(
+            edges.edge_ranges.len() >= 3,
+            "Cylinder should have at least 3 edge ranges, got {}",
+            edges.edge_ranges.len()
         );
     }
 }

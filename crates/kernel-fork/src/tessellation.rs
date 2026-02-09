@@ -103,6 +103,61 @@ pub fn tessellate_solid(
     })
 }
 
+/// Extract edge polylines from a solid for rendering edge overlays.
+///
+/// Each edge curve is sampled into a polyline at the given tolerance.
+/// Returns `EdgeRenderData` with flat vertex arrays and per-edge ranges.
+pub fn extract_edges(solid: &TruckSolid, tolerance: f64, next_id: &mut u64) -> EdgeRenderData {
+    use std::collections::HashSet;
+    use truck_modeling::{BoundedCurve, ParameterDivision1D};
+
+    let mut vertices: Vec<f32> = Vec::new();
+    let mut edge_ranges: Vec<EdgeRange> = Vec::new();
+    let mut seen_edges = HashSet::new();
+
+    for shell in solid.boundaries().iter() {
+        for edge in shell.edge_iter() {
+            // Deduplicate edges (each edge appears in two faces)
+            let eid = edge.id();
+            if !seen_edges.insert(eid) {
+                continue;
+            }
+
+            let edge_id = KernelId(*next_id);
+            *next_id += 1;
+
+            let curve = edge.oriented_curve();
+            let range = curve.range_tuple();
+
+            let start_vertex = (vertices.len() / 3) as u32;
+
+            // Sample points along the edge curve
+            let (_params, points) = curve.parameter_division(range, tolerance);
+
+            for pt in &points {
+                vertices.push(pt[0] as f32);
+                vertices.push(pt[1] as f32);
+                vertices.push(pt[2] as f32);
+            }
+
+            let end_vertex = (vertices.len() / 3) as u32;
+
+            if end_vertex > start_vertex {
+                edge_ranges.push(EdgeRange {
+                    edge_id,
+                    start_vertex,
+                    end_vertex,
+                });
+            }
+        }
+    }
+
+    EdgeRenderData {
+        vertices,
+        edge_ranges,
+    }
+}
+
 /// Fallback tessellation: merge everything into a single PolygonMesh.
 fn tessellate_solid_merged(
     solid: &TruckSolid,
