@@ -6,6 +6,7 @@ members = [
     "crates/modeling-ops",
     "crates/feature-engine",
     "crates/wasm-bridge",
+    "crates/file-format",
 ]
 resolver = "2"
 
