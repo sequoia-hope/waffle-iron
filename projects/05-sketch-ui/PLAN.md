@@ -2,13 +2,13 @@
 
 ## Milestones
 
-### M1: Sketch Mode Activation
-- [ ] Click face → enter sketch mode
-- [ ] Solid becomes transparent
-- [ ] Sketch plane displayed
-- [ ] Camera aligns to sketch plane
-- [ ] 2D coordinate overlay
-- [ ] Exit sketch mode (Finish/Escape)
+### M1: Sketch Mode Activation ✅
+- [x] Click face → enter sketch mode (via toolbar Sketch button)
+- [x] Solid becomes transparent (CadModel sketch-mode opacity)
+- [x] Sketch plane displayed (SketchPlane.svelte grid overlay)
+- [ ] Camera aligns to sketch plane — deferred
+- [ ] 2D coordinate overlay — deferred
+- [x] Exit sketch mode (Finish button / Escape key)
 
 ### M2: Line Tool
 - [ ] Click-click line drawing

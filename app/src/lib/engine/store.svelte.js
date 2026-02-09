@@ -31,6 +31,12 @@ let selectedRefs = $state([]);
 /** @type {{ active: boolean, origin: [number, number, number], normal: [number, number, number] }} */
 let sketchMode = $state({ active: false, origin: [0, 0, 0], normal: [0, 0, 1] });
 
+/** @type {string | null} */
+let selectedFeatureId = $state(null);
+
+/** @type {string} */
+let activeTool = $state('select');
+
 /** @type {EngineBridge | null} */
 let bridge = null;
 
@@ -210,4 +216,94 @@ export function enterSketchMode(origin = [0, 0, 0], normal = [0, 0, 1]) {
  */
 export function exitSketchMode() {
 	sketchMode = { active: false, origin: [0, 0, 0], normal: [0, 0, 1] };
+}
+
+// -- Feature selection --
+
+export function getSelectedFeatureId() {
+	return selectedFeatureId;
+}
+
+/**
+ * @param {string | null} id
+ */
+export function selectFeature(id) {
+	selectedFeatureId = id;
+}
+
+/**
+ * Get the currently selected feature object.
+ */
+export function getSelectedFeature() {
+	if (!selectedFeatureId) return null;
+	return featureTree.features.find((f) => f.id === selectedFeatureId) ?? null;
+}
+
+// -- Active tool --
+
+export function getActiveTool() {
+	return activeTool;
+}
+
+/**
+ * @param {string} tool
+ */
+export function setActiveTool(tool) {
+	activeTool = tool;
+}
+
+// -- Engine commands --
+
+/**
+ * Delete a feature by ID.
+ * @param {string} featureId
+ */
+export async function deleteFeature(featureId) {
+	if (!bridge || !engineReady) return;
+	await bridge.send({ type: 'DeleteFeature', feature_id: featureId });
+}
+
+/**
+ * Suppress or unsuppress a feature.
+ * @param {string} featureId
+ * @param {boolean} suppressed
+ */
+export async function suppressFeature(featureId, suppressed) {
+	if (!bridge || !engineReady) return;
+	await bridge.send({ type: 'SuppressFeature', feature_id: featureId, suppressed });
+}
+
+/**
+ * Set the rollback index.
+ * @param {number | null} index
+ */
+export async function setRollbackIndex(index) {
+	if (!bridge || !engineReady) return;
+	await bridge.send({ type: 'SetRollbackIndex', index });
+}
+
+/**
+ * Edit a feature's operation.
+ * @param {string} featureId
+ * @param {object} operation
+ */
+export async function editFeature(featureId, operation) {
+	if (!bridge || !engineReady) return;
+	await bridge.send({ type: 'EditFeature', feature_id: featureId, operation });
+}
+
+/**
+ * Undo the last action.
+ */
+export async function undo() {
+	if (!bridge || !engineReady) return;
+	await bridge.send({ type: 'Undo' });
+}
+
+/**
+ * Redo the last undone action.
+ */
+export async function redo() {
+	if (!bridge || !engineReady) return;
+	await bridge.send({ type: 'Redo' });
 }
