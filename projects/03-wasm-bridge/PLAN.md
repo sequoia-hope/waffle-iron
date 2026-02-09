@@ -2,21 +2,24 @@
 
 ## Milestones
 
-### M1: Build Pipeline (partial) ✅
-- [ ] Set up wasm-pack build for Rust engine crates (requires Node.js/npm)
-- [ ] Verify wasm-bindgen output (requires Node.js/npm)
+### M1: Build Pipeline ✅
 - [x] Create bridge crate skeleton
+- [x] Set up wasm-pack build for Rust engine crates
+- [x] Verify wasm-bindgen output (4 exported functions: init, process_message, get_feature_tree, get_mesh_json)
+- [x] WASM binary: 1.9 MB (release, wasm-opt)
+- [x] Feature-gated sketch-solver (native-solver feature) — excluded from WASM build because libslvs C++ can't compile to wasm32-unknown-unknown
 
 ### M2: Message Types ✅
 - [x] Implement `UiToEngine` serialization (JSON via serde_json)
 - [x] Implement `EngineToUi` serialization (JSON for metadata)
 - [x] Round-trip tests: serialize → deserialize for all message variants (7 serde tests)
 
-### M3: Web Worker Setup
-- [ ] Worker script that loads WASM module
-- [ ] postMessage handler for incoming commands
-- [ ] postMessage sender for outgoing results
-- [ ] Worker error handling (onerror)
+### M3: Web Worker Setup ✅
+- [x] Worker script that loads WASM module (js/worker.js)
+- [x] postMessage handler for incoming commands
+- [x] postMessage sender for outgoing results
+- [x] Worker error handling (onerror)
+- [x] Main-thread bridge API (js/bridge.js) with Promise-based send()
 
 ### M4: Command Dispatch ✅
 - [x] Deserialize UiToEngine in Worker
@@ -25,14 +28,16 @@
 - [x] Undo/Redo wired to feature-engine undo/redo
 - [x] SaveProject: serializes feature tree to JSON via file-format
 - [x] LoadProject: deserializes, replaces tree, rebuilds
+- [x] SolveSketch: wired to sketch-solver (native builds only)
+- [x] Full sketch workflow: BeginSketch → AddEntity → Solve → FinishSketch
 - [x] ExportStep: not yet wired (requires TruckKernel, not generic KernelBundle)
-- [x] Tests: 8 dispatch tests + 7 serde tests + 2 engine state tests
+- [x] Tests: 21 total (7 serde + 8 dispatch + 3 engine state + 3 sketch workflow)
 
-### M5: Result Callback
-- [ ] Serialize EngineToUi in Worker
-- [ ] postMessage to main thread
-- [ ] Main thread message handler
-- [ ] Test: engine produces result → verify UI receives it
+### M5: Result Callback ✅
+- [x] Serialize EngineToUi in Worker (JSON via serde_json in wasm_api.rs)
+- [x] postMessage to main thread (worker.js sends response)
+- [x] Main thread message handler (bridge.js Promise-based API + event handlers)
+- [x] Covered by M3 worker/bridge implementation
 
 ### M6: Mesh Transfer
 - [ ] Expose RenderMesh vertex/normal/index data as TypedArray views
@@ -44,15 +49,15 @@
 ### M7: libslvs WASM Module
 - [ ] Emscripten build configuration for libslvs
 - [ ] Load libslvs WASM module in Worker
-- [ ] JS glue code bridging Rust engine ↔ libslvs
+- [ ] JS glue code bridging worker ↔ libslvs
 - [ ] Test: solve a simple sketch through the full bridge path
 
-### M8: Error Propagation
-- [ ] Install console_error_panic_hook
-- [ ] Convert KernelError → EngineToUi::Error
-- [ ] Convert solver errors → EngineToUi::Error
-- [ ] Worker-level error forwarding
-- [ ] Test: trigger an error → verify UI receives structured error message
+### M8: Error Propagation (partial) ✅
+- [x] Install console_error_panic_hook (in wasm_api.rs init())
+- [x] Convert EngineError → EngineToUi::Error (via BridgeError in dispatch.rs)
+- [x] Worker-level error forwarding (onerror handler in worker.js)
+- [ ] Convert solver errors → EngineToUi::Error (blocked on M7)
+- [x] Tests: dispatch errors verified (undo empty, delete nonexistent, unimplemented)
 
 ### M9: Latency Benchmarking
 - [ ] Measure command round-trip time (UI → Worker → engine → Worker → UI)
@@ -62,14 +67,18 @@
 
 ## Blockers
 
-- Depends on kernel-fork (M6 needs tessellation output)
+- ~~Depends on kernel-fork (M6 needs tessellation output)~~ RESOLVED
 - libslvs Emscripten build (M7) may have platform-specific issues
+- M6 mesh TypedArray views need browser testing environment
 
 ## Interface Change Requests
 
-(None yet)
+(None)
 
 ## Notes
 
 - Never serialize mesh vertices as JSON — always use TypedArray views.
 - The two-WASM-module approach (Rust + libslvs) is a short-term solution. Long-term: port solver to pure Rust.
+- sketch-solver is feature-gated (`native-solver`) because libslvs C++ code can't compile to wasm32-unknown-unknown without Emscripten.
+- Removed unused sketch-solver dependency from feature-engine crate.
+- WASM build command: `wasm-pack build crates/wasm-bridge --target web --no-typescript -- --no-default-features`

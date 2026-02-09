@@ -6,7 +6,6 @@ edition = "2021"
 [dependencies]
 kernel-fork = { path = "../kernel-fork" }
 modeling-ops = { path = "../modeling-ops" }
-sketch-solver = { path = "../sketch-solver" }
 waffle-types = { path = "../waffle-types" }
 uuid = { version = "1", features = ["v4", "serde"] }
 serde = { version = "1", features = ["derive"] }

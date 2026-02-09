@@ -410,6 +410,141 @@ fn dispatch_load_restores_tree() {
     assert_eq!(new_state.engine.tree.features.len(), 1);
 }
 
+// ── Sketch Workflow Dispatch Tests ────────────────────────────────────
+
+#[test]
+fn dispatch_solve_sketch_returns_solved() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    // Begin sketch
+    let response = wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::BeginSketch {
+            plane: make_geom_ref(),
+        },
+        &mut kernel,
+    );
+    assert!(matches!(response, EngineToUi::ModelUpdated { .. }));
+
+    // Add a rectangle: 4 points + 4 lines
+    for (id, x, y) in [
+        (1, 0.0, 0.0),
+        (2, 10.0, 0.0),
+        (3, 10.0, 10.0),
+        (4, 0.0, 10.0),
+    ] {
+        wasm_bridge::dispatch(
+            &mut state,
+            UiToEngine::AddSketchEntity {
+                entity: SketchEntity::Point {
+                    id,
+                    x,
+                    y,
+                    construction: false,
+                },
+            },
+            &mut kernel,
+        );
+    }
+    for (id, start, end) in [(10, 1, 2), (11, 2, 3), (12, 3, 4), (13, 4, 1)] {
+        wasm_bridge::dispatch(
+            &mut state,
+            UiToEngine::AddSketchEntity {
+                entity: SketchEntity::Line {
+                    id,
+                    start_id: start,
+                    end_id: end,
+                    construction: false,
+                },
+            },
+            &mut kernel,
+        );
+    }
+
+    // Add constraints: pin origin, fix width/height
+    wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::AddConstraint {
+            constraint: SketchConstraint::Dragged { point: 1 },
+        },
+        &mut kernel,
+    );
+    wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::AddConstraint {
+            constraint: SketchConstraint::Horizontal { entity: 10 },
+        },
+        &mut kernel,
+    );
+    wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::AddConstraint {
+            constraint: SketchConstraint::Vertical { entity: 11 },
+        },
+        &mut kernel,
+    );
+
+    // Solve
+    let response = wasm_bridge::dispatch(&mut state, UiToEngine::SolveSketch, &mut kernel);
+    if let EngineToUi::SketchSolved { solved } = &response {
+        // Should have positions for all 4 points
+        assert_eq!(solved.positions.len(), 4);
+        // Origin should be at (0,0)
+        let origin = solved.positions.get(&1).unwrap();
+        assert!((origin.0).abs() < 1e-6);
+        assert!((origin.1).abs() < 1e-6);
+    } else {
+        panic!("Expected SketchSolved, got {:?}", response);
+    }
+}
+
+#[test]
+fn dispatch_solve_without_sketch_returns_error() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    let response = wasm_bridge::dispatch(&mut state, UiToEngine::SolveSketch, &mut kernel);
+    assert!(matches!(response, EngineToUi::Error { .. }));
+}
+
+#[test]
+fn dispatch_full_sketch_workflow() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    // Begin → Add entities → Finish → verify feature added
+    wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::BeginSketch {
+            plane: make_geom_ref(),
+        },
+        &mut kernel,
+    );
+
+    wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::AddSketchEntity {
+            entity: SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+        },
+        &mut kernel,
+    );
+
+    let response = wasm_bridge::dispatch(&mut state, UiToEngine::FinishSketch, &mut kernel);
+    assert!(matches!(response, EngineToUi::ModelUpdated { .. }));
+    if let EngineToUi::ModelUpdated { feature_tree, .. } = &response {
+        assert_eq!(feature_tree.features.len(), 1);
+    }
+
+    // No active sketch after finish
+    assert!(state.active_sketch.is_none());
+}
+
 /// Helper: create a minimal sketch operation for dispatch tests.
 fn make_sketch_operation() -> Operation {
     use waffle_types::Sketch;
