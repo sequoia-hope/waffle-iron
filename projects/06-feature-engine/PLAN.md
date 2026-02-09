@@ -29,28 +29,31 @@
 - [x] Test: ambiguous signatures → BestEffort returns closest + warning
 - [x] Test: no match → Strict returns error
 
-### M5: Rebuild Algorithm
-- [ ] Identify earliest dirty feature
-- [ ] Replay features from dirty point forward
-- [ ] Resolve GeomRefs before each operation
-- [ ] Store OpResult per feature
-- [ ] Handle resolve failures (Strict vs BestEffort)
-- [ ] Trigger tessellation after rebuild
-- [ ] Test: change sketch dimension → verify rebuild produces correct geometry
+### M5: Rebuild Algorithm ✅
+- [x] Identify earliest dirty feature
+- [x] Replay features from dirty point forward
+- [x] Resolve GeomRefs before each operation (resolve_with_fallback in rebuild loop)
+- [x] Store OpResult per feature
+- [x] Handle resolve failures (Strict vs BestEffort)
+- [ ] Trigger tessellation after rebuild (deferred: no UI consumer yet)
+- [x] Test: change sketch dimension → verify rebuild produces correct geometry
+- [x] Test: rebuild error on missing sketch reference
 
-### M6: Undo/Redo
-- [ ] Command pattern: AddFeature, RemoveFeature, EditFeature, ReorderFeature, SuppressFeature
-- [ ] Each command stores inverse
-- [ ] Undo stack + redo stack
-- [ ] Redo stack cleared on new command
-- [ ] Rebuild after undo/redo
-- [ ] Test: add → undo → redo → verify state
+### M6: Undo/Redo ✅
+- [x] Command pattern: AddFeature, RemoveFeature, EditFeature, ReorderFeature, SuppressFeature
+- [x] Each command stores inverse (apply_inverse / apply_forward)
+- [x] Undo stack + redo stack (UndoStack in src/undo.rs)
+- [x] Redo stack cleared on new command
+- [x] Rebuild after undo/redo
+- [x] Test: add → undo → redo → verify state (8 undo/redo tests)
 
-### M7: Rollback
-- [ ] Set active_index → suppress features after index
-- [ ] Model state reflects the partial tree
-- [ ] Slider UI integration (via EngineToUi messages)
-- [ ] Test: set index → verify correct features are active
+### M7: Rollback ✅
+- [x] Set active_index → suppress features after index
+- [x] Model state reflects the partial tree
+- [ ] Slider UI integration (via EngineToUi messages — deferred to UI phase)
+- [x] Test: set index → verify correct features are active (3 rollback tests)
+- [x] Fix: active_features() panic on empty tree with rollback
+- [x] Fix: rebuild clears results for features beyond rollback window
 
 ### M8: Integration Test — Full Pipeline
 - [ ] Sketch rectangle → extrude → fillet top edges → change sketch width → verify:
