@@ -614,3 +614,304 @@ fn symmetric_extrude_invalid_depth_returns_error() {
     let result = execute_symmetric_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], -5.0, None);
     assert!(matches!(result, Err(OpError::InvalidParameter { .. })));
 }
+
+// ── M9: Comprehensive MockKernel Tests ──────────────────────────────────
+
+/// Verify Euler's formula V - E + F = 2 holds for a box solid.
+#[test]
+fn euler_formula_holds_for_extrude() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+    let handle = kernel.extrude_face(face_id, [0.0, 0.0, 1.0], 5.0).unwrap();
+
+    let v = kernel.list_vertices(&handle).len() as i32;
+    let e = kernel.list_edges(&handle).len() as i32;
+    let f = kernel.list_faces(&handle).len() as i32;
+
+    assert_eq!(
+        v - e + f,
+        2,
+        "Euler: V({v}) - E({e}) + F({f}) should equal 2"
+    );
+}
+
+/// Extrude → Fillet pipeline: fillet an edge of an extruded box.
+#[test]
+fn pipeline_extrude_then_fillet() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+    let handle = kernel.extrude_face(face_id, [0.0, 0.0, 1.0], 5.0).unwrap();
+
+    let edges = kernel.list_edges(&handle);
+    let result = execute_fillet(&mut kernel, &handle, &[edges[0]], 0.2).unwrap();
+
+    // Result should have 7 faces (6 original + 1 fillet)
+    let result_handle = &result.outputs[0].1.handle;
+    let result_faces = kernel.list_faces(result_handle);
+    assert_eq!(result_faces.len(), 7, "Fillet adds 1 face to box");
+
+    // Provenance should track creation of new entities
+    let created_faces = result
+        .provenance
+        .created
+        .iter()
+        .filter(|e| e.kind == TopoKind::Face)
+        .count();
+    assert!(created_faces >= 1, "At least 1 face created by fillet");
+}
+
+/// Extrude → Chamfer pipeline.
+#[test]
+fn pipeline_extrude_then_chamfer() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+    let handle = kernel.extrude_face(face_id, [0.0, 0.0, 1.0], 5.0).unwrap();
+
+    let edges = kernel.list_edges(&handle);
+    let result = execute_chamfer(&mut kernel, &handle, &[edges[0]], 0.3).unwrap();
+
+    let result_handle = &result.outputs[0].1.handle;
+    let result_faces = kernel.list_faces(result_handle);
+    assert_eq!(result_faces.len(), 7, "Chamfer adds 1 face to box");
+
+    let chamfer_count = result
+        .provenance
+        .role_assignments
+        .iter()
+        .filter(|(_, r)| matches!(r, Role::ChamferFace { .. }))
+        .count();
+    assert_eq!(chamfer_count, 1, "Exactly 1 chamfer face");
+}
+
+/// Extrude → Shell pipeline.
+#[test]
+fn pipeline_extrude_then_shell() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+    let handle = kernel.extrude_face(face_id, [0.0, 0.0, 1.0], 5.0).unwrap();
+
+    let faces = kernel.list_faces(&handle);
+    // Remove top face (index 1 is top in MockKernel box)
+    let result = execute_shell(&mut kernel, &handle, &[faces[1]], 0.2).unwrap();
+
+    let result_handle = &result.outputs[0].1.handle;
+    let result_faces = kernel.list_faces(result_handle);
+    // 6 original - 1 removed + 5 inner = 10
+    assert_eq!(result_faces.len(), 10, "Shell: 5 outer + 5 inner faces");
+
+    let inner_count = result
+        .provenance
+        .role_assignments
+        .iter()
+        .filter(|(_, r)| matches!(r, Role::ShellInnerFace { .. }))
+        .count();
+    assert_eq!(inner_count, 5, "5 inner faces for 5 kept outer faces");
+}
+
+/// Extrude → Boolean Union pipeline.
+#[test]
+fn pipeline_extrude_boolean_union() {
+    let mut kernel = MockKernel::new();
+    let face_a = make_face(&mut kernel);
+    let handle_a = kernel.extrude_face(face_a, [0.0, 0.0, 1.0], 3.0).unwrap();
+    let face_b = make_face(&mut kernel);
+    let handle_b = kernel.extrude_face(face_b, [0.0, 0.0, 1.0], 3.0).unwrap();
+
+    let snap_a = diff::snapshot(&kernel, &handle_a);
+    let snap_b = diff::snapshot(&kernel, &handle_b);
+
+    let result = execute_boolean(&mut kernel, &handle_a, &handle_b, BooleanKind::Union).unwrap();
+
+    let result_handle = &result.outputs[0].1.handle;
+    let result_faces = kernel.list_faces(result_handle);
+    assert_eq!(
+        result_faces.len(),
+        snap_a.faces.len() + snap_b.faces.len(),
+        "Mock union merges all faces"
+    );
+}
+
+/// Multiple fillet operations on different edges.
+#[test]
+fn fillet_multiple_edges() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+    let handle = kernel.extrude_face(face_id, [0.0, 0.0, 1.0], 5.0).unwrap();
+
+    let edges = kernel.list_edges(&handle);
+    // Fillet 3 edges at once
+    let result =
+        execute_fillet(&mut kernel, &handle, &[edges[0], edges[1], edges[2]], 0.15).unwrap();
+
+    let result_handle = &result.outputs[0].1.handle;
+    let result_faces = kernel.list_faces(result_handle);
+    // 6 original + 3 fillet faces = 9
+    assert_eq!(
+        result_faces.len(),
+        9,
+        "3 filleted edges → 3 new fillet faces"
+    );
+
+    let fillet_count = result
+        .provenance
+        .role_assignments
+        .iter()
+        .filter(|(_, r)| matches!(r, Role::FilletFace { .. }))
+        .count();
+    assert_eq!(fillet_count, 3, "3 FilletFace roles assigned");
+}
+
+/// Multiple chamfer operations on different edges.
+#[test]
+fn chamfer_multiple_edges() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+    let handle = kernel.extrude_face(face_id, [0.0, 0.0, 1.0], 5.0).unwrap();
+
+    let edges = kernel.list_edges(&handle);
+    let result = execute_chamfer(&mut kernel, &handle, &[edges[0], edges[1]], 0.25).unwrap();
+
+    let result_handle = &result.outputs[0].1.handle;
+    let result_faces = kernel.list_faces(result_handle);
+    assert_eq!(result_faces.len(), 8, "2 chamfered edges → 2 new faces");
+
+    let chamfer_count = result
+        .provenance
+        .role_assignments
+        .iter()
+        .filter(|(_, r)| matches!(r, Role::ChamferFace { .. }))
+        .count();
+    assert_eq!(chamfer_count, 2, "2 ChamferFace roles assigned");
+}
+
+/// Shell with multiple faces removed.
+#[test]
+fn shell_remove_multiple_faces() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+    let handle = kernel.extrude_face(face_id, [0.0, 0.0, 1.0], 5.0).unwrap();
+
+    let faces = kernel.list_faces(&handle);
+    // Remove top and bottom faces
+    let result = execute_shell(&mut kernel, &handle, &[faces[0], faces[1]], 0.2).unwrap();
+
+    let result_handle = &result.outputs[0].1.handle;
+    let result_faces = kernel.list_faces(result_handle);
+    // 6 - 2 removed + 4 inner = 8
+    assert_eq!(
+        result_faces.len(),
+        8,
+        "Shell removing 2 faces: 4 outer + 4 inner"
+    );
+}
+
+/// Provenance created entities all have valid signatures.
+#[test]
+fn provenance_created_entities_have_signatures() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+
+    let result = execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], 5.0, None).unwrap();
+
+    for entity in &result.provenance.created {
+        // Every created entity should have a non-empty signature
+        let sig = &entity.signature;
+        let has_some_data = sig.surface_type.is_some()
+            || sig.area.is_some()
+            || sig.centroid.is_some()
+            || sig.normal.is_some()
+            || sig.length.is_some();
+        assert!(
+            has_some_data,
+            "Created entity {:?} should have signature data",
+            entity.kernel_id
+        );
+    }
+}
+
+/// All ops produce consistent OutputKey::Main.
+#[test]
+fn all_ops_produce_main_output_key() {
+    let mut kernel = MockKernel::new();
+
+    // Extrude
+    let face_id = make_face(&mut kernel);
+    let extrude_result = execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], 5.0, None).unwrap();
+    assert!(matches!(extrude_result.outputs[0].0, OutputKey::Main));
+
+    // Revolve
+    let face_id2 = make_face(&mut kernel);
+    let revolve_result = execute_revolve(
+        &mut kernel,
+        face_id2,
+        [0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        std::f64::consts::PI,
+        None,
+    )
+    .unwrap();
+    assert!(matches!(revolve_result.outputs[0].0, OutputKey::Main));
+
+    // Symmetric extrude
+    let face_id3 = make_face(&mut kernel);
+    let sym_result =
+        execute_symmetric_extrude(&mut kernel, face_id3, [0.0, 0.0, 1.0], 10.0, None).unwrap();
+    assert!(matches!(sym_result.outputs[0].0, OutputKey::Main));
+}
+
+/// Verify diff detects topology changes after fillet.
+#[test]
+fn diff_detects_fillet_topology_changes() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+    let handle = kernel.extrude_face(face_id, [0.0, 0.0, 1.0], 5.0).unwrap();
+
+    let before = diff::snapshot(&kernel, &handle);
+    let edges = kernel.list_edges(&handle);
+    let fillet_handle = kernel.fillet_edges(&handle, &[edges[0]], 0.2).unwrap();
+    let after = diff::snapshot(&kernel, &fillet_handle);
+
+    let diff_result = diff::diff(&before, &after);
+
+    // Fillet adds new entities (fillet face, new edges, new vertices)
+    assert!(
+        !diff_result.created.is_empty(),
+        "Fillet creates new entities"
+    );
+
+    // After fillet, topology counts should change:
+    // faces: 6 → 7, edges: 12 → 13, vertices: 8 → 10
+    assert!(
+        after.faces.len() > before.faces.len(),
+        "Fillet adds faces: {} → {}",
+        before.faces.len(),
+        after.faces.len()
+    );
+}
+
+/// Verify that role assignment indices are sequential.
+#[test]
+fn role_indices_are_sequential() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+    let result = execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], 5.0, None).unwrap();
+
+    let side_indices: Vec<usize> = result
+        .provenance
+        .role_assignments
+        .iter()
+        .filter_map(|(_, r)| match r {
+            Role::SideFace { index } => Some(*index),
+            _ => None,
+        })
+        .collect();
+
+    // Side indices should be 0, 1, 2, 3 (in some order)
+    let mut sorted = side_indices.clone();
+    sorted.sort();
+    assert_eq!(
+        sorted,
+        vec![0, 1, 2, 3],
+        "Side face indices should be sequential 0-3"
+    );
+}

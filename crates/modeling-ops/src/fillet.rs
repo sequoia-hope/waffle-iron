@@ -47,36 +47,28 @@ pub fn execute_fillet(
 }
 
 /// Assign roles to faces of a filleted solid.
-/// New cylindrical faces get FilletFace roles.
+/// New faces that don't match any before face get FilletFace roles.
 fn assign_fillet_roles(
     introspect: &dyn kernel_fork::KernelIntrospect,
     solid: &KernelSolidHandle,
     before: &TopoSnapshot,
 ) -> Vec<(KernelId, Role)> {
     let result_faces = introspect.list_faces(solid);
-    let before_ids: std::collections::HashSet<KernelId> =
-        before.faces.iter().map(|(id, _)| *id).collect();
-
     let mut assignments = Vec::new();
     let mut fillet_index = 0;
 
     for &face_id in &result_faces {
         let sig = introspect.compute_signature(face_id, TopoKind::Face);
 
-        // Check if this is a new face (not in before snapshot by signature match)
-        let is_new = !before_ids.contains(&face_id);
-        let is_cylindrical = sig.surface_type.as_deref() == Some("cylindrical");
+        // Check if this face matches any before face by signature similarity
+        let best_match = before
+            .faces
+            .iter()
+            .map(|(_, s)| crate::diff::signature_similarity(&sig, s))
+            .fold(0.0_f64, |a, b| a.max(b));
 
-        if is_new && is_cylindrical {
-            assignments.push((
-                face_id,
-                Role::FilletFace {
-                    index: fillet_index,
-                },
-            ));
-            fillet_index += 1;
-        } else if is_new {
-            // New but not cylindrical — could be a trimmed face with new ID
+        if best_match < 0.7 {
+            // New face — likely a fillet face
             assignments.push((
                 face_id,
                 Role::FilletFace {
@@ -85,7 +77,6 @@ fn assign_fillet_roles(
             ));
             fillet_index += 1;
         }
-        // Surviving faces don't get new role assignments
     }
 
     assignments
