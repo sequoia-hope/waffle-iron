@@ -37,12 +37,15 @@
 - [x] Error handling for unknown migration paths
 - [ ] Define migration functions for version N → N+1 (when format changes)
 
-### M6: Round-Trip Tests
+### M6: Round-Trip Tests ✅
 - [x] Save → load round-trip for simple trees (load_round_trip_simple_tree)
 - [x] Feature ID preservation across round-trip
 - [x] Operation parameters preservation
 - [x] GeomRef preservation
-- [ ] Save → load → rebuild → compare topology (needs Engine integration)
+- [x] Save → load → rebuild → compare topology (round_trip_save_load_rebuild_produces_solid)
+- [x] Feature IDs preserved through rebuild (round_trip_preserves_feature_ids_through_rebuild)
+- [x] STEP export matches after round-trip (round_trip_step_export_matches_original)
+- [x] Topology comparison: created entities, roles match (round_trip_rebuild_topology_matches)
 
 ## Test Summary
 
@@ -52,11 +55,12 @@
 | M2 Save | 3 | ✅ All pass |
 | M3 Load | 10 | ✅ All pass |
 | M4 STEP Export | 3 | ✅ All pass |
-| **Total** | **22** | **✅** |
+| M6 Round-Trip | 4 | ✅ All pass |
+| **Total** | **26** | **✅** |
 
 ## Blockers
 
-- M6 (full round-trip with rebuild) needs Engine integration tests
+(None — all milestones complete)
 
 ## Notes
 

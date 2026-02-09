@@ -1585,3 +1585,229 @@ fn on_entity_point_on_line() {
     let (_, y3) = result.positions[&3];
     assert!((y3).abs() < 1e-6, "point on line should have y=0, got {y3}");
 }
+
+// ── M9: Performance Benchmarking ─────────────────────────────────────────────
+
+/// Build a chain of N connected rectangles, each with h/v constraints and dimensions.
+/// Returns (entities, constraints) with approximately 8*N entities and 7*N constraints.
+fn make_rectangle_chain(n: usize) -> (Vec<SketchEntity>, Vec<SketchConstraint>) {
+    let mut entities = Vec::new();
+    let mut constraints = Vec::new();
+    let mut next_id = 1u32;
+    let mut next_line_id = 1000u32;
+
+    for i in 0..n {
+        let x_off = (i as f64) * 110.0;
+        let p1 = next_id;
+        let p2 = next_id + 1;
+        let p3 = next_id + 2;
+        let p4 = next_id + 3;
+        next_id += 4;
+
+        entities.push(SketchEntity::Point {
+            id: p1,
+            x: x_off,
+            y: 0.0,
+            construction: false,
+        });
+        entities.push(SketchEntity::Point {
+            id: p2,
+            x: x_off + 100.0,
+            y: 0.0,
+            construction: false,
+        });
+        entities.push(SketchEntity::Point {
+            id: p3,
+            x: x_off + 100.0,
+            y: 50.0,
+            construction: false,
+        });
+        entities.push(SketchEntity::Point {
+            id: p4,
+            x: x_off,
+            y: 50.0,
+            construction: false,
+        });
+
+        let l1 = next_line_id;
+        let l2 = next_line_id + 1;
+        let l3 = next_line_id + 2;
+        let l4 = next_line_id + 3;
+        next_line_id += 4;
+
+        entities.push(SketchEntity::Line {
+            id: l1,
+            start_id: p1,
+            end_id: p2,
+            construction: false,
+        });
+        entities.push(SketchEntity::Line {
+            id: l2,
+            start_id: p2,
+            end_id: p3,
+            construction: false,
+        });
+        entities.push(SketchEntity::Line {
+            id: l3,
+            start_id: p3,
+            end_id: p4,
+            construction: false,
+        });
+        entities.push(SketchEntity::Line {
+            id: l4,
+            start_id: p4,
+            end_id: p1,
+            construction: false,
+        });
+
+        constraints.push(SketchConstraint::Horizontal { entity: l1 });
+        constraints.push(SketchConstraint::Horizontal { entity: l3 });
+        constraints.push(SketchConstraint::Vertical { entity: l2 });
+        constraints.push(SketchConstraint::Vertical { entity: l4 });
+        constraints.push(SketchConstraint::Distance {
+            entity_a: p1,
+            entity_b: p2,
+            value: 100.0,
+        });
+        constraints.push(SketchConstraint::Distance {
+            entity_a: p2,
+            entity_b: p3,
+            value: 50.0,
+        });
+
+        // Pin first rectangle's origin
+        if i == 0 {
+            constraints.push(SketchConstraint::Dragged { point: p1 });
+        } else {
+            // Connect to previous rectangle: coincident via distance=0
+            // Previous rectangle's p2 == current p1
+            constraints.push(SketchConstraint::Coincident {
+                point_a: p1 - 4 + 1, // previous p2
+                point_b: p1,
+            });
+        }
+    }
+
+    (entities, constraints)
+}
+
+#[test]
+fn bench_solve_10_constraints() {
+    // ~2 rectangles: 16 entities, ~14 constraints
+    let (entities, constraints) = make_rectangle_chain(2);
+    let constraint_count = constraints.len();
+    let sketch = make_sketch(entities, constraints);
+
+    let start = std::time::Instant::now();
+    let iterations = 100;
+    for _ in 0..iterations {
+        let _result = solve_sketch(&sketch);
+    }
+    let elapsed = start.elapsed();
+    let per_solve = elapsed / iterations;
+
+    eprintln!(
+        "M9 bench: {} constraints, {:.1}µs/solve ({} iterations)",
+        constraint_count,
+        per_solve.as_nanos() as f64 / 1000.0,
+        iterations
+    );
+
+    // Should be well under 1ms for a typical sketch
+    assert!(
+        per_solve.as_millis() < 10,
+        "Solve with ~{} constraints took {:?}, expected < 10ms",
+        constraint_count,
+        per_solve
+    );
+}
+
+#[test]
+fn bench_solve_50_constraints() {
+    // ~7 rectangles: 56 entities, ~49 constraints
+    let (entities, constraints) = make_rectangle_chain(7);
+    let constraint_count = constraints.len();
+    let sketch = make_sketch(entities, constraints);
+
+    let start = std::time::Instant::now();
+    let iterations = 50;
+    for _ in 0..iterations {
+        let _result = solve_sketch(&sketch);
+    }
+    let elapsed = start.elapsed();
+    let per_solve = elapsed / iterations;
+
+    eprintln!(
+        "M9 bench: {} constraints, {:.1}µs/solve ({} iterations)",
+        constraint_count,
+        per_solve.as_nanos() as f64 / 1000.0,
+        iterations
+    );
+
+    assert!(
+        per_solve.as_millis() < 10,
+        "Solve with ~{} constraints took {:?}, expected < 10ms",
+        constraint_count,
+        per_solve
+    );
+}
+
+#[test]
+fn bench_solve_100_constraints() {
+    // ~15 rectangles: 120 entities, ~105 constraints
+    let (entities, constraints) = make_rectangle_chain(15);
+    let constraint_count = constraints.len();
+    let sketch = make_sketch(entities, constraints);
+
+    let start = std::time::Instant::now();
+    let iterations = 20;
+    for _ in 0..iterations {
+        let _result = solve_sketch(&sketch);
+    }
+    let elapsed = start.elapsed();
+    let per_solve = elapsed / iterations;
+
+    eprintln!(
+        "M9 bench: {} constraints, {:.1}µs/solve ({} iterations)",
+        constraint_count,
+        per_solve.as_nanos() as f64 / 1000.0,
+        iterations
+    );
+
+    assert!(
+        per_solve.as_millis() < 50,
+        "Solve with ~{} constraints took {:?}, expected < 50ms",
+        constraint_count,
+        per_solve
+    );
+}
+
+#[test]
+fn bench_solve_300_constraints() {
+    // ~43 rectangles: 344 entities, ~301 constraints
+    let (entities, constraints) = make_rectangle_chain(43);
+    let constraint_count = constraints.len();
+    let sketch = make_sketch(entities, constraints);
+
+    let start = std::time::Instant::now();
+    let iterations = 10;
+    for _ in 0..iterations {
+        let _result = solve_sketch(&sketch);
+    }
+    let elapsed = start.elapsed();
+    let per_solve = elapsed / iterations;
+
+    eprintln!(
+        "M9 bench: {} constraints, {:.1}µs/solve ({} iterations)",
+        constraint_count,
+        per_solve.as_nanos() as f64 / 1000.0,
+        iterations
+    );
+
+    assert!(
+        per_solve.as_millis() < 100,
+        "Solve with ~{} constraints took {:?}, expected < 100ms",
+        constraint_count,
+        per_solve
+    );
+}

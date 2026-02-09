@@ -625,3 +625,168 @@ fn step_export_suppressed_only_returns_error() {
     // Sketch-only tree has no solid outputs
     assert!(result.is_err(), "Sketch-only tree should fail STEP export");
 }
+
+// ── M6: Full Round-Trip Tests ──────────────────────────────────────────
+
+#[test]
+fn round_trip_save_load_rebuild_produces_solid() {
+    use kernel_fork::TruckKernel;
+
+    // 1. Create a rebuild-compatible tree
+    let original_tree = make_rebuild_compatible_tree();
+    let meta = ProjectMetadata::new("Round Trip Rebuild");
+
+    // 2. Save to JSON
+    let json = save_project(&original_tree, &meta);
+
+    // 3. Load back
+    let (loaded_tree, loaded_meta) = load_project(&json).unwrap();
+    assert_eq!(loaded_meta.name, "Round Trip Rebuild");
+    assert_eq!(loaded_tree.features.len(), original_tree.features.len());
+
+    // 4. Rebuild with TruckKernel
+    let mut kb = TruckKernel::new();
+    let mut engine = feature_engine::Engine::new();
+    engine.tree = loaded_tree.clone();
+    engine.rebuild_from_scratch(&mut kb);
+
+    // 5. Verify the extrude produced a result
+    let extrude_id = loaded_tree.features[1].id;
+    let result = engine
+        .get_result(extrude_id)
+        .expect("Extrude should have a result after rebuild");
+
+    // Should have exactly one Main output
+    assert_eq!(result.outputs.len(), 1);
+    assert_eq!(result.outputs[0].0, OutputKey::Main);
+
+    // Should have created entities with face roles
+    assert!(
+        !result.provenance.created.is_empty(),
+        "Extrude should create entities"
+    );
+    assert!(
+        !result.provenance.role_assignments.is_empty(),
+        "Extrude should assign roles"
+    );
+}
+
+#[test]
+fn round_trip_preserves_feature_ids_through_rebuild() {
+    use kernel_fork::TruckKernel;
+
+    let original_tree = make_rebuild_compatible_tree();
+    let original_ids: Vec<Uuid> = original_tree.features.iter().map(|f| f.id).collect();
+
+    let meta = ProjectMetadata::new("ID Preservation");
+    let json = save_project(&original_tree, &meta);
+    let (loaded_tree, _) = load_project(&json).unwrap();
+
+    let loaded_ids: Vec<Uuid> = loaded_tree.features.iter().map(|f| f.id).collect();
+    assert_eq!(original_ids, loaded_ids);
+
+    // Rebuild and verify results are keyed by the same IDs
+    let mut kb = TruckKernel::new();
+    let mut engine = feature_engine::Engine::new();
+    engine.tree = loaded_tree;
+    engine.rebuild_from_scratch(&mut kb);
+
+    for id in &original_ids {
+        assert!(
+            engine.get_result(*id).is_some(),
+            "Feature {} should have a result",
+            id
+        );
+    }
+}
+
+#[test]
+fn round_trip_step_export_matches_original() {
+    use kernel_fork::TruckKernel;
+
+    // Build original tree and export STEP
+    let tree = make_rebuild_compatible_tree();
+    let mut kb = TruckKernel::new();
+    let original_step = export_step(&tree, &mut kb).unwrap();
+
+    // Save → load → export STEP again
+    let meta = ProjectMetadata::new("STEP Round Trip");
+    let json = save_project(&tree, &meta);
+    let (loaded_tree, _) = load_project(&json).unwrap();
+
+    let mut kb2 = TruckKernel::new();
+    let loaded_step = export_step(&loaded_tree, &mut kb2).unwrap();
+
+    // Both STEP exports should contain the same structural elements
+    assert!(original_step.contains("MANIFOLD_SOLID_BREP"));
+    assert!(loaded_step.contains("MANIFOLD_SOLID_BREP"));
+
+    // Count FACE_SURFACE entities — should be the same
+    let original_faces = original_step.matches("FACE_SURFACE").count();
+    let loaded_faces = loaded_step.matches("FACE_SURFACE").count();
+    assert_eq!(
+        original_faces, loaded_faces,
+        "Face count should match between original and round-tripped STEP"
+    );
+}
+
+#[test]
+fn round_trip_rebuild_topology_matches() {
+    use kernel_fork::TruckKernel;
+
+    // Build original
+    let tree = make_rebuild_compatible_tree();
+    let mut kb1 = TruckKernel::new();
+    let mut engine1 = feature_engine::Engine::new();
+    engine1.tree = tree.clone();
+    engine1.rebuild_from_scratch(&mut kb1);
+
+    // Save → load → rebuild
+    let meta = ProjectMetadata::new("Topology Match");
+    let json = save_project(&tree, &meta);
+    let (loaded_tree, _) = load_project(&json).unwrap();
+
+    let mut kb2 = TruckKernel::new();
+    let mut engine2 = feature_engine::Engine::new();
+    engine2.tree = loaded_tree;
+    engine2.rebuild_from_scratch(&mut kb2);
+
+    // Compare extrude results
+    let extrude_id = tree.features[1].id;
+    let result1 = engine1.get_result(extrude_id).unwrap();
+    let result2 = engine2.get_result(extrude_id).unwrap();
+
+    // Same number of outputs
+    assert_eq!(result1.outputs.len(), result2.outputs.len());
+
+    // Same number of created entities (faces, edges, vertices)
+    assert_eq!(
+        result1.provenance.created.len(),
+        result2.provenance.created.len(),
+        "Created entity count should match"
+    );
+
+    // Same number of role assignments
+    assert_eq!(
+        result1.provenance.role_assignments.len(),
+        result2.provenance.role_assignments.len(),
+        "Role assignment count should match"
+    );
+
+    // Same set of roles (by type, ignoring kernel IDs which differ between runs)
+    let mut roles1: Vec<Role> = result1
+        .provenance
+        .role_assignments
+        .iter()
+        .map(|(_, r)| r.clone())
+        .collect();
+    let mut roles2: Vec<Role> = result2
+        .provenance
+        .role_assignments
+        .iter()
+        .map(|(_, r)| r.clone())
+        .collect();
+    roles1.sort_by_key(|r| format!("{:?}", r));
+    roles2.sort_by_key(|r| format!("{:?}", r));
+    assert_eq!(roles1, roles2, "Role sets should match");
+}
