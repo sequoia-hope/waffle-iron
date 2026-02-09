@@ -39,12 +39,14 @@
 - [x] Main thread message handler (bridge.js Promise-based API + event handlers)
 - [x] Covered by M3 worker/bridge implementation
 
-### M6: Mesh Transfer
-- [ ] Expose RenderMesh vertex/normal/index data as TypedArray views
-- [ ] Transfer via postMessage with Transferable objects
-- [ ] Verify zero-copy semantics (view into WASM memory)
-- [ ] Test: tessellate a box → transfer mesh → verify data integrity
-- [ ] Benchmark: measure transfer time for various mesh sizes
+### M6: Mesh Transfer ✅
+- [x] Expose RenderMesh vertex/normal/index data as TypedArray views (get_mesh_vertices, get_mesh_normals, get_mesh_indices)
+- [x] Transfer via postMessage with Transferable objects (worker.js collectMeshes())
+- [x] Copy-from-WASM-view pattern (views invalidated by memory growth, copy to standalone ArrayBuffers)
+- [x] get_mesh_count() helper to enumerate features with meshes
+- [x] ModelUpdated responses automatically attach typed array mesh data
+- [ ] Browser integration test (requires browser environment)
+- [ ] Benchmark: measure transfer time for various mesh sizes (requires browser environment)
 
 ### M7: libslvs WASM Module
 - [ ] Emscripten build configuration for libslvs

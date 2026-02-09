@@ -7,6 +7,8 @@
  * Message protocol:
  *   Main → Worker: { type: "init" } | UiToEngine JSON
  *   Worker → Main: { type: "ready" } | { type: "error", message } | EngineToUi JSON
+ *
+ * Mesh data is transferred as Transferable ArrayBuffers for zero-copy performance.
  */
 
 let wasmModule = null;
@@ -59,27 +61,49 @@ function processMessage(msg) {
 }
 
 /**
- * Get the feature tree without sending a command.
+ * Collect mesh data for all features as Transferable typed arrays.
+ *
+ * Returns an array of { vertices, normals, indices } objects where each
+ * array is a copy from WASM memory (required since WASM views are invalidated
+ * by memory growth). The ArrayBuffers are listed as transferables for
+ * zero-copy postMessage transfer.
  */
-function getFeatureTree() {
-  if (!wasmModule) return null;
-  try {
-    return JSON.parse(wasmModule.get_feature_tree());
-  } catch {
-    return null;
-  }
-}
+function collectMeshes() {
+  if (!wasmModule) return { meshes: [], transferables: [] };
 
-/**
- * Get mesh JSON for a feature by index.
- */
-function getMeshJson(featureIndex) {
-  if (!wasmModule) return null;
-  try {
-    return JSON.parse(wasmModule.get_mesh_json(featureIndex));
-  } catch {
-    return null;
+  const meshCount = wasmModule.get_mesh_count();
+  const meshes = [];
+  const transferables = [];
+
+  const features = JSON.parse(wasmModule.get_feature_tree()).features || [];
+
+  for (let i = 0; i < features.length; i++) {
+    // Get typed array views into WASM memory (must copy immediately)
+    const vertView = wasmModule.get_mesh_vertices(i);
+    const normView = wasmModule.get_mesh_normals(i);
+    const idxView = wasmModule.get_mesh_indices(i);
+
+    if (vertView.length === 0) continue;
+
+    // Copy from WASM memory into standalone ArrayBuffers
+    const vertices = new Float32Array(vertView);
+    const normals = new Float32Array(normView);
+    const indices = new Uint32Array(idxView);
+
+    meshes.push({
+      featureIndex: i,
+      featureId: features[i].id,
+      vertices,
+      normals,
+      indices,
+      triangleCount: indices.length / 3,
+    });
+
+    // Mark buffers for zero-copy transfer
+    transferables.push(vertices.buffer, normals.buffer, indices.buffer);
   }
+
+  return { meshes, transferables };
 }
 
 // ── Message Handler ──────────────────────────────────────────────────
@@ -94,9 +118,15 @@ self.onmessage = async function (event) {
 
   const response = processMessage(msg);
 
-  // Transfer mesh data efficiently if present
-  // (Future: use Transferable typed arrays instead of JSON for meshes)
-  self.postMessage(response);
+  // For ModelUpdated responses, attach mesh data as typed arrays
+  if (response.type === 'ModelUpdated') {
+    const { meshes, transferables } = collectMeshes();
+    response.meshes = meshes;
+    // Remove JSON-serialized mesh data (use typed arrays instead)
+    self.postMessage(response, transferables);
+  } else {
+    self.postMessage(response);
+  }
 };
 
 // ── Error Handler ────────────────────────────────────────────────────

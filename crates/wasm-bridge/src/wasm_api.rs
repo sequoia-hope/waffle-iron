@@ -8,6 +8,7 @@ use wasm_bindgen::prelude::*;
 use crate::dispatch;
 use crate::engine_state::EngineState;
 use crate::messages::{EngineToUi, UiToEngine};
+use kernel_fork::RenderMesh;
 
 // Global engine state — single-threaded in the web worker.
 thread_local! {
@@ -111,5 +112,83 @@ pub fn get_mesh_json(feature_index: usize) -> String {
         }
 
         r#"{"error":"No mesh for this feature"}"#.to_string()
+    })
+}
+
+/// Get mesh vertex positions as a Float32Array view into WASM memory.
+///
+/// Returns the vertices of the latest (last) feature's mesh as a zero-copy
+/// typed array view. The array contains [x0, y0, z0, x1, y1, z1, ...].
+///
+/// IMPORTANT: The returned view is invalidated by any WASM memory growth.
+/// Copy or transfer the data immediately after calling this function.
+#[wasm_bindgen]
+pub fn get_mesh_vertices(feature_index: usize) -> js_sys::Float32Array {
+    with_mesh(feature_index, |mesh| unsafe {
+        js_sys::Float32Array::view(&mesh.vertices)
+    })
+    .unwrap_or_else(|| js_sys::Float32Array::new_with_length(0))
+}
+
+/// Get mesh vertex normals as a Float32Array view into WASM memory.
+///
+/// Returns [nx0, ny0, nz0, nx1, ny1, nz1, ...].
+#[wasm_bindgen]
+pub fn get_mesh_normals(feature_index: usize) -> js_sys::Float32Array {
+    with_mesh(feature_index, |mesh| unsafe {
+        js_sys::Float32Array::view(&mesh.normals)
+    })
+    .unwrap_or_else(|| js_sys::Float32Array::new_with_length(0))
+}
+
+/// Get mesh triangle indices as a Uint32Array view into WASM memory.
+///
+/// Returns [i0, i1, i2, i3, i4, i5, ...] where each triple is a triangle.
+#[wasm_bindgen]
+pub fn get_mesh_indices(feature_index: usize) -> js_sys::Uint32Array {
+    with_mesh(feature_index, |mesh| unsafe {
+        js_sys::Uint32Array::view(&mesh.indices)
+    })
+    .unwrap_or_else(|| js_sys::Uint32Array::new_with_length(0))
+}
+
+/// Get the number of features with mesh data.
+#[wasm_bindgen]
+pub fn get_mesh_count() -> usize {
+    ENGINE_STATE.with(|cell| {
+        let engine = cell.borrow();
+        let engine = match engine.as_ref() {
+            Some(e) => e,
+            None => return 0,
+        };
+
+        let mut count = 0;
+        for feature in &engine.state.engine.tree.features {
+            if let Some(result) = engine.state.engine.feature_results.get(&feature.id) {
+                if result.outputs.iter().any(|(_, body)| body.mesh.is_some()) {
+                    count += 1;
+                }
+            }
+        }
+        count
+    })
+}
+
+/// Helper: access the mesh for a feature and apply a function to it.
+fn with_mesh<T>(feature_index: usize, f: impl FnOnce(&RenderMesh) -> T) -> Option<T> {
+    ENGINE_STATE.with(|cell| {
+        let engine = cell.borrow();
+        let engine = engine.as_ref()?;
+
+        let features = &engine.state.engine.tree.features;
+        let feature = features.get(feature_index)?;
+        let result = engine.state.engine.feature_results.get(&feature.id)?;
+
+        for (_key, body) in &result.outputs {
+            if let Some(ref mesh) = body.mesh {
+                return Some(f(mesh));
+            }
+        }
+        None
     })
 }
