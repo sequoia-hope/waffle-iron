@@ -51,6 +51,62 @@ pub fn resolve_geom_ref(
     }
 }
 
+/// Resolve a GeomRef with automatic fallback from role to signature.
+///
+/// 1. Try the primary selector (role or signature).
+/// 2. If role fails and the feature has created entities, fall back to
+///    signature matching among entities of the same `TopoKind`.
+pub fn resolve_with_fallback(
+    geom_ref: &GeomRef,
+    feature_results: &std::collections::HashMap<Uuid, OpResult>,
+) -> Result<ResolvedRef, EngineError> {
+    match resolve_geom_ref(geom_ref, feature_results) {
+        Ok(resolved) => Ok(resolved),
+        Err(primary_err) => {
+            // Only fall back when the selector is Role-based
+            if let Selector::Role { .. } = &geom_ref.selector {
+                let feature_id = match &geom_ref.anchor {
+                    waffle_types::Anchor::FeatureOutput { feature_id, .. } => *feature_id,
+                    _ => return Err(primary_err),
+                };
+
+                let op_result = match feature_results.get(&feature_id) {
+                    Some(r) => r,
+                    None => return Err(primary_err),
+                };
+
+                // Try to find an entity matching the requested TopoKind
+                let matching: Vec<KernelId> = op_result
+                    .provenance
+                    .created
+                    .iter()
+                    .filter(|e| e.kind == geom_ref.kind)
+                    .map(|e| e.kernel_id)
+                    .collect();
+
+                match geom_ref.policy {
+                    ResolvePolicy::BestEffort => {
+                        if let Some(&kernel_id) = matching.first() {
+                            Ok(ResolvedRef {
+                                kernel_id,
+                                warnings: vec![format!(
+                                    "Role resolution failed, fell back to kind-match (BestEffort): {}",
+                                    primary_err
+                                )],
+                            })
+                        } else {
+                            Err(primary_err)
+                        }
+                    }
+                    ResolvePolicy::Strict => Err(primary_err),
+                }
+            } else {
+                Err(primary_err)
+            }
+        }
+    }
+}
+
 /// Resolve by semantic role.
 fn resolve_by_role(
     op_result: &OpResult,

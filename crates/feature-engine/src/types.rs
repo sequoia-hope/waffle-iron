@@ -23,7 +23,8 @@ impl FeatureTree {
     /// Return active features (up to active_index).
     pub fn active_features(&self) -> &[Feature] {
         match self.active_index {
-            Some(idx) => &self.features[..=idx.min(self.features.len().saturating_sub(1))],
+            Some(_) if self.features.is_empty() => &[],
+            Some(idx) => &self.features[..=idx.min(self.features.len() - 1)],
             None => &self.features,
         }
     }
@@ -149,4 +150,10 @@ pub enum EngineError {
         feature_name: String,
         reason: String,
     },
+
+    #[error("nothing to undo")]
+    NothingToUndo,
+
+    #[error("nothing to redo")]
+    NothingToRedo,
 }

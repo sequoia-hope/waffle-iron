@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use modeling_ops::{execute_boolean, execute_extrude, execute_revolve, BooleanKind, OpResult};
 use uuid::Uuid;
 
+use crate::resolve::resolve_with_fallback;
 use crate::types::{BooleanOp, EngineError, Feature, FeatureTree, Operation};
 use modeling_ops::KernelBundle;
 
@@ -46,6 +47,9 @@ pub fn rebuild(
         if feature.suppressed {
             continue;
         }
+
+        // Resolve any GeomRef references before executing the feature
+        resolve_feature_refs(feature, &state.feature_results, &mut state.warnings);
 
         match execute_feature(feature, kb, &state.feature_results) {
             Ok(result) => {
@@ -229,4 +233,28 @@ fn find_solid_handle(
             output_key, feature_id
         ),
     })
+}
+
+/// Resolve all GeomRef references for a feature, collecting warnings.
+///
+/// Currently `feature.references` is always empty, so this is
+/// forward-compatible plumbing for when features carry explicit refs.
+fn resolve_feature_refs(
+    feature: &Feature,
+    feature_results: &HashMap<Uuid, OpResult>,
+    warnings: &mut Vec<String>,
+) {
+    for geom_ref in &feature.references {
+        match resolve_with_fallback(geom_ref, feature_results) {
+            Ok(resolved) => {
+                warnings.extend(resolved.warnings);
+            }
+            Err(e) => {
+                warnings.push(format!(
+                    "Feature '{}': reference resolution warning: {}",
+                    feature.name, e
+                ));
+            }
+        }
+    }
 }
