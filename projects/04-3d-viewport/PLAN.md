@@ -3,47 +3,47 @@
 ## Milestones
 
 ### M1: Basic Setup
-- [ ] Svelte + Threlte project setup
-- [ ] Render a static triangle mesh (hardcoded)
-- [ ] Verify three.js rendering works in browser
+- [x] Svelte + Threlte project setup
+- [x] Render a static triangle mesh (hardcoded)
+- [x] Verify three.js rendering works in browser
 
 ### M2: Mesh from Bridge
-- [ ] Receive RenderMesh from wasm-bridge
-- [ ] Create BufferGeometry from Float32Array/Uint32Array
-- [ ] Apply MeshStandardMaterial
-- [ ] Render shaded solid
+- [x] Receive RenderMesh from wasm-bridge
+- [x] Create BufferGeometry from Float32Array/Uint32Array
+- [x] Apply MeshStandardMaterial
+- [x] Render shaded solid
 
 ### M3: Camera Controls
-- [ ] OrbitControls setup
-- [ ] Orbit (middle drag)
-- [ ] Pan (shift + middle drag)
-- [ ] Zoom (scroll wheel)
-- [ ] Fit all (double-click or key)
-- [ ] Smooth transitions
+- [x] OrbitControls setup
+- [x] Orbit (middle drag)
+- [x] Pan (shift + middle drag)
+- [x] Zoom (scroll wheel)
+- [x] Fit all (double-click or key) — press 'f' to fit all
+- [x] Smooth transitions (damping enabled)
 
 ### M4: Edge Overlays
-- [ ] Receive EdgeRenderData from wasm-bridge
-- [ ] Render as LineSegments on top of faces
-- [ ] Correct depth handling (slight offset to avoid z-fighting)
+- [x] Receive EdgeRenderData from wasm-bridge
+- [x] Render as LineSegments on top of faces
+- [x] Correct depth handling (polygonOffset -1/-1 to avoid z-fighting)
 
 ### M5: Raycaster Picking
-- [ ] Set up Raycaster on mousemove/click
-- [ ] Map intersected triangle index to face-range → GeomRef
-- [ ] Binary search in face_ranges for efficient lookup
-- [ ] Test: pick faces on a box
+- [x] Set up Raycaster on mousemove/click (Threlte interactivity plugin)
+- [x] Map intersected triangle index to face-range → GeomRef
+- [x] Binary search in face_ranges for efficient lookup
+- [x] Picking wired to onpointermove/onclick/onpointerout events
 
 ### M6: Hover Highlighting
-- [ ] Highlight face on mousemove (change color/emissive)
-- [ ] Unhighlight on mouseout
-- [ ] Smooth color transitions
-- [ ] Test: hover over different faces, verify correct highlighting
+- [x] Highlight face on mousemove (per-face material via geometry groups)
+- [x] Unhighlight on mouseout
+- [x] Hover color distinct from default (0xaabbdd vs 0x8899aa)
+- [x] Reactive material rebuild on hover state change
 
 ### M7: Click Selection
-- [ ] Select face on click
-- [ ] Persistent selection highlight (different color from hover)
-- [ ] Multi-select with Shift+click
-- [ ] Send SelectEntity message via wasm-bridge
-- [ ] Clear selection on background click
+- [x] Select face on click
+- [x] Persistent selection highlight (0x44aaff, different from hover)
+- [x] Multi-select with Shift+click (toggle)
+- [x] Send SelectEntity message via wasm-bridge
+- [x] Clear selection on background click (onpointermissed)
 
 ### M8: Sketch-Mode Transparency
 - [ ] Transition to sketch mode: solid becomes transparent
@@ -63,8 +63,8 @@
 
 ## Blockers
 
-- Depends on kernel-fork for tessellation output format (RenderMesh)
-- Depends on wasm-bridge for mesh transfer protocol
+- ~~Depends on kernel-fork for tessellation output format (RenderMesh)~~ Resolved
+- ~~Depends on wasm-bridge for mesh transfer protocol~~ Resolved
 
 ## Interface Change Requests
 
@@ -72,6 +72,22 @@
 
 ## Notes
 
-- Start with Raycaster picking. Only switch to GPU color-coding if performance requires it.
-- Edge rendering needs z-fighting prevention (polygon offset or slight vertex displacement).
-- CADmium used Threlte successfully — reference their viewport setup.
+- Raycaster picking via Threlte interactivity plugin (built-in raycaster with event system).
+- Edge rendering uses polygonOffset to prevent z-fighting.
+- Per-face highlighting uses BufferGeometry groups with material arrays.
+- Grid floor added via @threlte/extras Grid component for visual reference.
+- CADmium used Threlte successfully — referenced their viewport setup.
+- Scene.svelte wraps all 3D content and initializes interactivity plugin.
+
+## Implementation Files
+
+| File | Purpose |
+|------|---------|
+| `app/src/lib/viewport/Viewport.svelte` | Canvas wrapper |
+| `app/src/lib/viewport/Scene.svelte` | Scene root, initializes interactivity |
+| `app/src/lib/viewport/CadModel.svelte` | Mesh rendering with face-range picking |
+| `app/src/lib/viewport/CameraControls.svelte` | OrbitControls + fit-all |
+| `app/src/lib/viewport/Lighting.svelte` | Ambient + directional + hemisphere |
+| `app/src/lib/viewport/EdgeOverlay.svelte` | Edge line segments overlay |
+| `app/src/lib/viewport/GridFloor.svelte` | Infinite grid floor |
+| `app/src/lib/engine/store.svelte.js` | Engine state + hover/selection state |

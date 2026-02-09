@@ -1,15 +1,11 @@
 <script>
 	import { Canvas } from '@threlte/core';
-	import CadModel from './CadModel.svelte';
-	import CameraControls from './CameraControls.svelte';
-	import Lighting from './Lighting.svelte';
+	import Scene from './Scene.svelte';
 </script>
 
 <div class="viewport">
 	<Canvas>
-		<Lighting />
-		<CameraControls />
-		<CadModel />
+		<Scene />
 	</Canvas>
 </div>
 
