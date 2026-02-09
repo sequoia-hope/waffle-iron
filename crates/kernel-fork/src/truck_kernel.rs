@@ -50,6 +50,32 @@ impl TruckKernel {
     pub(crate) fn get_solid(&self, handle: &KernelSolidHandle) -> Option<&Solid> {
         self.solids.get(&handle.id())
     }
+
+    /// Export a solid to STEP AP203 format string.
+    pub fn export_step(
+        &self,
+        handle: &KernelSolidHandle,
+        file_name: &str,
+    ) -> Result<String, KernelError> {
+        use truck_stepio::out::*;
+        use truck_topology::compress::CompressedSolid;
+
+        let solid = self
+            .solids
+            .get(&handle.id())
+            .ok_or(KernelError::EntityNotFound {
+                id: KernelId(handle.id()),
+            })?;
+
+        let compressed: CompressedSolid<_, _, _> = solid.compress();
+        let step_model = StepModel::from(&compressed);
+        let header = StepHeaderDescriptor {
+            file_name: file_name.to_string(),
+            ..Default::default()
+        };
+        let complete = CompleteStepDisplay::new(step_model, header);
+        Ok(complete.to_string())
+    }
 }
 
 impl Default for TruckKernel {

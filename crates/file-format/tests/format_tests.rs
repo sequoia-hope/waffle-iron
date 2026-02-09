@@ -2,7 +2,9 @@ use feature_engine::types::{
     BooleanOp, BooleanParams, ChamferParams, ExtrudeParams, Feature, FeatureTree, FilletParams,
     Operation, RevolveParams, ShellParams,
 };
-use file_format::{load_project, save_project, LoadError, ProjectMetadata, FORMAT_VERSION};
+use file_format::{
+    export_step, load_project, save_project, LoadError, ProjectMetadata, FORMAT_VERSION,
+};
 use uuid::Uuid;
 use waffle_types::{
     Anchor, GeomRef, OutputKey, ResolvePolicy, Role, Selector, Sketch, SketchConstraint,
@@ -495,4 +497,131 @@ fn load_preserves_suppressed_features() {
 
     assert!(!loaded_tree.features[0].suppressed);
     assert!(loaded_tree.features[1].suppressed);
+}
+
+// ── M4: STEP Export Tests ──────────────────────────────────────────────
+
+/// Create a tree where sketch_id in ExtrudeParams matches the sketch Feature.id
+/// (required for Engine rebuild to find the sketch result).
+fn make_rebuild_compatible_tree() -> FeatureTree {
+    let sketch_feature_id = Uuid::new_v4();
+
+    let plane_ref = GeomRef {
+        kind: TopoKind::Face,
+        anchor: Anchor::Datum {
+            datum_id: Uuid::nil(),
+        },
+        selector: Selector::Role {
+            role: Role::EndCapPositive,
+            index: 0,
+        },
+        policy: ResolvePolicy::BestEffort,
+    };
+
+    let sketch = Sketch {
+        id: sketch_feature_id, // Same as the Feature.id
+        plane: plane_ref,
+        entities: vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 1.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 1.0,
+                y: 1.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 4,
+                x: 0.0,
+                y: 1.0,
+                construction: false,
+            },
+        ],
+        constraints: Vec::new(),
+        solve_status: SolveStatus::FullyConstrained,
+    };
+
+    let sketch_feature = Feature {
+        id: sketch_feature_id,
+        name: "Sketch 1".to_string(),
+        operation: Operation::Sketch { sketch },
+        suppressed: false,
+        references: Vec::new(),
+    };
+
+    let extrude_feature = Feature {
+        id: Uuid::new_v4(),
+        name: "Extrude 1".to_string(),
+        operation: Operation::Extrude {
+            params: ExtrudeParams {
+                sketch_id: sketch_feature_id, // Points to Feature.id
+                profile_index: 0,
+                depth: 5.0,
+                direction: None,
+                symmetric: false,
+                cut: false,
+                target_body: None,
+            },
+        },
+        suppressed: false,
+        references: Vec::new(),
+    };
+
+    let mut tree = FeatureTree::new();
+    tree.features.push(sketch_feature);
+    tree.features.push(extrude_feature);
+    tree
+}
+
+#[test]
+fn step_export_simple_box() {
+    use kernel_fork::TruckKernel;
+
+    let tree = make_rebuild_compatible_tree();
+    let mut kb = TruckKernel::new();
+
+    let step = export_step(&tree, &mut kb).unwrap();
+
+    assert!(step.contains("ISO-10303-21"), "Should have STEP header");
+    assert!(
+        step.contains("MANIFOLD_SOLID_BREP"),
+        "Should have solid BREP entity"
+    );
+    assert!(step.contains("FACE_SURFACE"), "Should have face entities");
+    assert!(step.contains("ENDSEC"), "Should have proper STEP footer");
+}
+
+#[test]
+fn step_export_empty_tree_returns_error() {
+    use kernel_fork::TruckKernel;
+
+    let tree = FeatureTree::new();
+    let mut kb = TruckKernel::new();
+
+    let result = export_step(&tree, &mut kb);
+    assert!(result.is_err(), "Empty tree should fail STEP export");
+}
+
+#[test]
+fn step_export_suppressed_only_returns_error() {
+    use kernel_fork::TruckKernel;
+
+    let mut tree = make_simple_tree();
+    // Suppress the extrude — only sketch remains, which has no solid
+    tree.features[1].suppressed = true;
+
+    let mut kb = TruckKernel::new();
+    let result = export_step(&tree, &mut kb);
+    // Sketch-only tree has no solid outputs
+    assert!(result.is_err(), "Sketch-only tree should fail STEP export");
 }

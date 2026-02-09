@@ -5,7 +5,7 @@ use crate::truck_kernel::TruckKernel;
 use crate::types::*;
 
 use truck_modeling::geometry::Surface;
-use truck_modeling::topology::{Edge, Face, Vertex};
+use truck_modeling::topology::{Edge, Face, Solid, Vertex};
 
 /// KernelIntrospect implementation that delegates to TruckKernel's stored solids.
 pub struct TruckIntrospect<'a> {
@@ -20,262 +20,35 @@ impl<'a> TruckIntrospect<'a> {
 
 impl KernelIntrospect for TruckIntrospect<'_> {
     fn list_faces(&self, solid: &KernelSolidHandle) -> Vec<KernelId> {
-        let Some(truck_solid) = self.kernel.get_solid(solid) else {
-            return Vec::new();
-        };
-
-        let mut ids = Vec::new();
-        for shell in truck_solid.boundaries().iter() {
-            for (i, _face) in shell.face_iter().enumerate() {
-                ids.push(KernelId(solid.id() * 10000 + i as u64));
-            }
-        }
-        ids
+        list_faces_impl(self.kernel.get_solid(solid), solid)
     }
 
     fn list_edges(&self, solid: &KernelSolidHandle) -> Vec<KernelId> {
-        let Some(truck_solid) = self.kernel.get_solid(solid) else {
-            return Vec::new();
-        };
-
-        let mut seen = std::collections::HashSet::new();
-        let mut ids = Vec::new();
-        let mut idx = 0u64;
-        for shell in truck_solid.boundaries().iter() {
-            for edge in shell.edge_iter() {
-                let eid = edge.id();
-                if seen.insert(eid) {
-                    ids.push(KernelId(solid.id() * 10000 + 1000 + idx));
-                    idx += 1;
-                }
-            }
-        }
-        ids
+        list_edges_impl(self.kernel.get_solid(solid), solid)
     }
 
     fn list_vertices(&self, solid: &KernelSolidHandle) -> Vec<KernelId> {
-        let Some(truck_solid) = self.kernel.get_solid(solid) else {
-            return Vec::new();
-        };
-
-        let mut seen = std::collections::HashSet::new();
-        let mut ids = Vec::new();
-        let mut idx = 0u64;
-        for shell in truck_solid.boundaries().iter() {
-            for v in shell.vertex_iter() {
-                let vid = v.id();
-                if seen.insert(vid) {
-                    ids.push(KernelId(solid.id() * 10000 + 2000 + idx));
-                    idx += 1;
-                }
-            }
-        }
-        ids
+        list_vertices_impl(self.kernel.get_solid(solid), solid)
     }
 
     fn face_edges(&self, face: KernelId) -> Vec<KernelId> {
-        let handle_id = face.0 / 10000;
-        let face_idx = (face.0 % 10000) as usize;
-
-        let handle = KernelSolidHandle(handle_id);
-        let Some(truck_solid) = self.kernel.get_solid(&handle) else {
-            return Vec::new();
-        };
-
-        for shell in truck_solid.boundaries().iter() {
-            let faces: Vec<_> = shell.face_iter().collect();
-            if face_idx >= faces.len() {
-                continue;
-            }
-            let target_face = &faces[face_idx];
-
-            // Collect unique shell edges with their indices
-            let mut edge_id_to_idx = std::collections::HashMap::new();
-            let mut idx = 0u64;
-            let mut seen = std::collections::HashSet::new();
-            for edge in shell.edge_iter() {
-                let eid = edge.id();
-                if seen.insert(eid) {
-                    edge_id_to_idx.insert(eid, idx);
-                    idx += 1;
-                }
-            }
-
-            let mut result = Vec::new();
-            for wire in target_face.boundaries() {
-                for edge in wire.edge_iter() {
-                    if let Some(&ei) = edge_id_to_idx.get(&edge.id()) {
-                        result.push(KernelId(handle_id * 10000 + 1000 + ei));
-                    }
-                }
-            }
-            return result;
-        }
-        Vec::new()
+        face_edges_impl(face, |h| self.kernel.get_solid(h))
     }
 
     fn edge_faces(&self, edge: KernelId) -> Vec<KernelId> {
-        let handle_id = edge.0 / 10000;
-        let edge_offset = (edge.0 % 10000).saturating_sub(1000) as usize;
-
-        let handle = KernelSolidHandle(handle_id);
-        let Some(truck_solid) = self.kernel.get_solid(&handle) else {
-            return Vec::new();
-        };
-
-        let mut result = Vec::new();
-        for shell in truck_solid.boundaries().iter() {
-            // Build edge index -> EdgeID mapping
-            let mut edge_ids = Vec::new();
-            let mut seen = std::collections::HashSet::new();
-            for e in shell.edge_iter() {
-                let eid = e.id();
-                if seen.insert(eid) {
-                    edge_ids.push(eid);
-                }
-            }
-
-            if edge_offset >= edge_ids.len() {
-                continue;
-            }
-            let target_edge_id = edge_ids[edge_offset];
-
-            for (fi, face) in shell.face_iter().enumerate() {
-                let has_edge = face
-                    .boundaries()
-                    .iter()
-                    .flat_map(|w| w.edge_iter())
-                    .any(|e| e.id() == target_edge_id);
-
-                if has_edge {
-                    result.push(KernelId(handle_id * 10000 + fi as u64));
-                }
-            }
-        }
-        result
+        edge_faces_impl(edge, |h| self.kernel.get_solid(h))
     }
 
     fn edge_vertices(&self, edge: KernelId) -> (KernelId, KernelId) {
-        let handle_id = edge.0 / 10000;
-        let edge_offset = (edge.0 % 10000).saturating_sub(1000) as usize;
-
-        let handle = KernelSolidHandle(handle_id);
-        let Some(truck_solid) = self.kernel.get_solid(&handle) else {
-            return (KernelId(0), KernelId(0));
-        };
-
-        for shell in truck_solid.boundaries().iter() {
-            let mut edge_list = Vec::new();
-            let mut seen_edges = std::collections::HashSet::new();
-            for e in shell.edge_iter() {
-                let eid = e.id();
-                if seen_edges.insert(eid) {
-                    edge_list.push(e);
-                }
-            }
-
-            if edge_offset >= edge_list.len() {
-                continue;
-            }
-
-            let target_edge = &edge_list[edge_offset];
-            let front_vid = target_edge.front().id();
-            let back_vid = target_edge.back().id();
-
-            // Build vertex index mapping
-            let mut vert_id_to_idx = std::collections::HashMap::new();
-            let mut seen_verts = std::collections::HashSet::new();
-            let mut idx = 0u64;
-            for v in shell.vertex_iter() {
-                let vid = v.id();
-                if seen_verts.insert(vid) {
-                    vert_id_to_idx.insert(vid, idx);
-                    idx += 1;
-                }
-            }
-
-            let v1 = vert_id_to_idx
-                .get(&front_vid)
-                .map(|&i| KernelId(handle_id * 10000 + 2000 + i))
-                .unwrap_or(KernelId(0));
-            let v2 = vert_id_to_idx
-                .get(&back_vid)
-                .map(|&i| KernelId(handle_id * 10000 + 2000 + i))
-                .unwrap_or(KernelId(0));
-
-            return (v1, v2);
-        }
-
-        (KernelId(0), KernelId(0))
+        edge_vertices_impl(edge, |h| self.kernel.get_solid(h))
     }
 
     fn face_neighbors(&self, face: KernelId) -> Vec<KernelId> {
-        let edge_ids = self.face_edges(face);
-        let mut neighbors = Vec::new();
-        let mut seen = std::collections::HashSet::new();
-
-        for eid in &edge_ids {
-            let faces = self.edge_faces(*eid);
-            for fid in faces {
-                if fid != face && seen.insert(fid) {
-                    neighbors.push(fid);
-                }
-            }
-        }
-        neighbors
+        face_neighbors_impl(face, |h| self.kernel.get_solid(h))
     }
 
     fn compute_signature(&self, entity: KernelId, kind: TopoKind) -> TopoSignature {
-        let handle_id = entity.0 / 10000;
-        let handle = KernelSolidHandle(handle_id);
-
-        let Some(truck_solid) = self.kernel.get_solid(&handle) else {
-            return TopoSignature::empty();
-        };
-
-        match kind {
-            TopoKind::Face => {
-                let face_idx = (entity.0 % 10000) as usize;
-                for shell in truck_solid.boundaries().iter() {
-                    let faces: Vec<_> = shell.face_iter().collect();
-                    if face_idx < faces.len() {
-                        return compute_face_signature(faces[face_idx]);
-                    }
-                }
-            }
-            TopoKind::Edge => {
-                let edge_offset = (entity.0 % 10000).saturating_sub(1000) as usize;
-                for shell in truck_solid.boundaries().iter() {
-                    let mut unique_edges = Vec::new();
-                    let mut seen = std::collections::HashSet::new();
-                    for e in shell.edge_iter() {
-                        if seen.insert(e.id()) {
-                            unique_edges.push(e);
-                        }
-                    }
-                    if edge_offset < unique_edges.len() {
-                        return compute_edge_signature(&unique_edges[edge_offset]);
-                    }
-                }
-            }
-            TopoKind::Vertex => {
-                let vert_offset = (entity.0 % 10000).saturating_sub(2000) as usize;
-                for shell in truck_solid.boundaries().iter() {
-                    let mut unique_verts = Vec::new();
-                    let mut seen = std::collections::HashSet::new();
-                    for v in shell.vertex_iter() {
-                        if seen.insert(v.id()) {
-                            unique_verts.push(v);
-                        }
-                    }
-                    if vert_offset < unique_verts.len() {
-                        return compute_vertex_signature(&unique_verts[vert_offset]);
-                    }
-                }
-            }
-            _ => {}
-        }
-        TopoSignature::empty()
+        compute_signature_impl(entity, kind, |h| self.kernel.get_solid(h))
     }
 
     fn compute_all_signatures(
@@ -283,19 +56,347 @@ impl KernelIntrospect for TruckIntrospect<'_> {
         solid: &KernelSolidHandle,
         kind: TopoKind,
     ) -> Vec<(KernelId, TopoSignature)> {
-        let ids = match kind {
-            TopoKind::Face => self.list_faces(solid),
-            TopoKind::Edge => self.list_edges(solid),
-            TopoKind::Vertex => self.list_vertices(solid),
-            _ => Vec::new(),
-        };
-        ids.into_iter()
-            .map(|id| {
-                let sig = self.compute_signature(id, kind);
-                (id, sig)
-            })
-            .collect()
+        compute_all_signatures_impl(self, solid, kind)
     }
+}
+
+/// Direct KernelIntrospect implementation on TruckKernel.
+/// This allows TruckKernel to satisfy the KernelBundle blanket impl (Kernel + KernelIntrospect).
+impl KernelIntrospect for TruckKernel {
+    fn list_faces(&self, solid: &KernelSolidHandle) -> Vec<KernelId> {
+        list_faces_impl(self.get_solid(solid), solid)
+    }
+
+    fn list_edges(&self, solid: &KernelSolidHandle) -> Vec<KernelId> {
+        list_edges_impl(self.get_solid(solid), solid)
+    }
+
+    fn list_vertices(&self, solid: &KernelSolidHandle) -> Vec<KernelId> {
+        list_vertices_impl(self.get_solid(solid), solid)
+    }
+
+    fn face_edges(&self, face: KernelId) -> Vec<KernelId> {
+        face_edges_impl(face, |h| self.get_solid(h))
+    }
+
+    fn edge_faces(&self, edge: KernelId) -> Vec<KernelId> {
+        edge_faces_impl(edge, |h| self.get_solid(h))
+    }
+
+    fn edge_vertices(&self, edge: KernelId) -> (KernelId, KernelId) {
+        edge_vertices_impl(edge, |h| self.get_solid(h))
+    }
+
+    fn face_neighbors(&self, face: KernelId) -> Vec<KernelId> {
+        face_neighbors_impl(face, |h| self.get_solid(h))
+    }
+
+    fn compute_signature(&self, entity: KernelId, kind: TopoKind) -> TopoSignature {
+        compute_signature_impl(entity, kind, |h| self.get_solid(h))
+    }
+
+    fn compute_all_signatures(
+        &self,
+        solid: &KernelSolidHandle,
+        kind: TopoKind,
+    ) -> Vec<(KernelId, TopoSignature)> {
+        compute_all_signatures_impl(self, solid, kind)
+    }
+}
+
+// ── Shared implementation functions ─────────────────────────────────────
+
+fn list_faces_impl(truck_solid: Option<&Solid>, solid: &KernelSolidHandle) -> Vec<KernelId> {
+    let Some(truck_solid) = truck_solid else {
+        return Vec::new();
+    };
+
+    let mut ids = Vec::new();
+    for shell in truck_solid.boundaries().iter() {
+        for (i, _face) in shell.face_iter().enumerate() {
+            ids.push(KernelId(solid.id() * 10000 + i as u64));
+        }
+    }
+    ids
+}
+
+fn list_edges_impl(truck_solid: Option<&Solid>, solid: &KernelSolidHandle) -> Vec<KernelId> {
+    let Some(truck_solid) = truck_solid else {
+        return Vec::new();
+    };
+
+    let mut seen = std::collections::HashSet::new();
+    let mut ids = Vec::new();
+    let mut idx = 0u64;
+    for shell in truck_solid.boundaries().iter() {
+        for edge in shell.edge_iter() {
+            let eid = edge.id();
+            if seen.insert(eid) {
+                ids.push(KernelId(solid.id() * 10000 + 1000 + idx));
+                idx += 1;
+            }
+        }
+    }
+    ids
+}
+
+fn list_vertices_impl(truck_solid: Option<&Solid>, solid: &KernelSolidHandle) -> Vec<KernelId> {
+    let Some(truck_solid) = truck_solid else {
+        return Vec::new();
+    };
+
+    let mut seen = std::collections::HashSet::new();
+    let mut ids = Vec::new();
+    let mut idx = 0u64;
+    for shell in truck_solid.boundaries().iter() {
+        for v in shell.vertex_iter() {
+            let vid = v.id();
+            if seen.insert(vid) {
+                ids.push(KernelId(solid.id() * 10000 + 2000 + idx));
+                idx += 1;
+            }
+        }
+    }
+    ids
+}
+
+fn face_edges_impl<'a, F>(face: KernelId, get_solid: F) -> Vec<KernelId>
+where
+    F: Fn(&KernelSolidHandle) -> Option<&'a Solid>,
+{
+    let handle_id = face.0 / 10000;
+    let face_idx = (face.0 % 10000) as usize;
+
+    let handle = KernelSolidHandle(handle_id);
+    let Some(truck_solid) = get_solid(&handle) else {
+        return Vec::new();
+    };
+
+    for shell in truck_solid.boundaries().iter() {
+        let faces: Vec<_> = shell.face_iter().collect();
+        if face_idx >= faces.len() {
+            continue;
+        }
+        let target_face = &faces[face_idx];
+
+        // Collect unique shell edges with their indices
+        let mut edge_id_to_idx = std::collections::HashMap::new();
+        let mut idx = 0u64;
+        let mut seen = std::collections::HashSet::new();
+        for edge in shell.edge_iter() {
+            let eid = edge.id();
+            if seen.insert(eid) {
+                edge_id_to_idx.insert(eid, idx);
+                idx += 1;
+            }
+        }
+
+        let mut result = Vec::new();
+        for wire in target_face.boundaries() {
+            for edge in wire.edge_iter() {
+                if let Some(&ei) = edge_id_to_idx.get(&edge.id()) {
+                    result.push(KernelId(handle_id * 10000 + 1000 + ei));
+                }
+            }
+        }
+        return result;
+    }
+    Vec::new()
+}
+
+fn edge_faces_impl<'a, F>(edge: KernelId, get_solid: F) -> Vec<KernelId>
+where
+    F: Fn(&KernelSolidHandle) -> Option<&'a Solid>,
+{
+    let handle_id = edge.0 / 10000;
+    let edge_offset = (edge.0 % 10000).saturating_sub(1000) as usize;
+
+    let handle = KernelSolidHandle(handle_id);
+    let Some(truck_solid) = get_solid(&handle) else {
+        return Vec::new();
+    };
+
+    let mut result = Vec::new();
+    for shell in truck_solid.boundaries().iter() {
+        // Build edge index -> EdgeID mapping
+        let mut edge_ids = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for e in shell.edge_iter() {
+            let eid = e.id();
+            if seen.insert(eid) {
+                edge_ids.push(eid);
+            }
+        }
+
+        if edge_offset >= edge_ids.len() {
+            continue;
+        }
+        let target_edge_id = edge_ids[edge_offset];
+
+        for (fi, face) in shell.face_iter().enumerate() {
+            let has_edge = face
+                .boundaries()
+                .iter()
+                .flat_map(|w| w.edge_iter())
+                .any(|e| e.id() == target_edge_id);
+
+            if has_edge {
+                result.push(KernelId(handle_id * 10000 + fi as u64));
+            }
+        }
+    }
+    result
+}
+
+fn edge_vertices_impl<'a, F>(edge: KernelId, get_solid: F) -> (KernelId, KernelId)
+where
+    F: Fn(&KernelSolidHandle) -> Option<&'a Solid>,
+{
+    let handle_id = edge.0 / 10000;
+    let edge_offset = (edge.0 % 10000).saturating_sub(1000) as usize;
+
+    let handle = KernelSolidHandle(handle_id);
+    let Some(truck_solid) = get_solid(&handle) else {
+        return (KernelId(0), KernelId(0));
+    };
+
+    for shell in truck_solid.boundaries().iter() {
+        let mut edge_list = Vec::new();
+        let mut seen_edges = std::collections::HashSet::new();
+        for e in shell.edge_iter() {
+            let eid = e.id();
+            if seen_edges.insert(eid) {
+                edge_list.push(e);
+            }
+        }
+
+        if edge_offset >= edge_list.len() {
+            continue;
+        }
+
+        let target_edge = &edge_list[edge_offset];
+        let front_vid = target_edge.front().id();
+        let back_vid = target_edge.back().id();
+
+        // Build vertex index mapping
+        let mut vert_id_to_idx = std::collections::HashMap::new();
+        let mut seen_verts = std::collections::HashSet::new();
+        let mut idx = 0u64;
+        for v in shell.vertex_iter() {
+            let vid = v.id();
+            if seen_verts.insert(vid) {
+                vert_id_to_idx.insert(vid, idx);
+                idx += 1;
+            }
+        }
+
+        let v1 = vert_id_to_idx
+            .get(&front_vid)
+            .map(|&i| KernelId(handle_id * 10000 + 2000 + i))
+            .unwrap_or(KernelId(0));
+        let v2 = vert_id_to_idx
+            .get(&back_vid)
+            .map(|&i| KernelId(handle_id * 10000 + 2000 + i))
+            .unwrap_or(KernelId(0));
+
+        return (v1, v2);
+    }
+
+    (KernelId(0), KernelId(0))
+}
+
+fn face_neighbors_impl<'a, F>(face: KernelId, get_solid: F) -> Vec<KernelId>
+where
+    F: Fn(&KernelSolidHandle) -> Option<&'a Solid>,
+{
+    let edge_ids = face_edges_impl(face, &get_solid);
+    let mut neighbors = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for eid in &edge_ids {
+        let faces = edge_faces_impl(*eid, &get_solid);
+        for fid in faces {
+            if fid != face && seen.insert(fid) {
+                neighbors.push(fid);
+            }
+        }
+    }
+    neighbors
+}
+
+fn compute_signature_impl<'a, F>(entity: KernelId, kind: TopoKind, get_solid: F) -> TopoSignature
+where
+    F: Fn(&KernelSolidHandle) -> Option<&'a Solid>,
+{
+    let handle_id = entity.0 / 10000;
+    let handle = KernelSolidHandle(handle_id);
+
+    let Some(truck_solid) = get_solid(&handle) else {
+        return TopoSignature::empty();
+    };
+
+    match kind {
+        TopoKind::Face => {
+            let face_idx = (entity.0 % 10000) as usize;
+            for shell in truck_solid.boundaries().iter() {
+                let faces: Vec<_> = shell.face_iter().collect();
+                if face_idx < faces.len() {
+                    return compute_face_signature(faces[face_idx]);
+                }
+            }
+        }
+        TopoKind::Edge => {
+            let edge_offset = (entity.0 % 10000).saturating_sub(1000) as usize;
+            for shell in truck_solid.boundaries().iter() {
+                let mut unique_edges = Vec::new();
+                let mut seen = std::collections::HashSet::new();
+                for e in shell.edge_iter() {
+                    if seen.insert(e.id()) {
+                        unique_edges.push(e);
+                    }
+                }
+                if edge_offset < unique_edges.len() {
+                    return compute_edge_signature(&unique_edges[edge_offset]);
+                }
+            }
+        }
+        TopoKind::Vertex => {
+            let vert_offset = (entity.0 % 10000).saturating_sub(2000) as usize;
+            for shell in truck_solid.boundaries().iter() {
+                let mut unique_verts = Vec::new();
+                let mut seen = std::collections::HashSet::new();
+                for v in shell.vertex_iter() {
+                    if seen.insert(v.id()) {
+                        unique_verts.push(v);
+                    }
+                }
+                if vert_offset < unique_verts.len() {
+                    return compute_vertex_signature(&unique_verts[vert_offset]);
+                }
+            }
+        }
+        _ => {}
+    }
+    TopoSignature::empty()
+}
+
+fn compute_all_signatures_impl(
+    introspect: &dyn KernelIntrospect,
+    solid: &KernelSolidHandle,
+    kind: TopoKind,
+) -> Vec<(KernelId, TopoSignature)> {
+    let ids = match kind {
+        TopoKind::Face => introspect.list_faces(solid),
+        TopoKind::Edge => introspect.list_edges(solid),
+        TopoKind::Vertex => introspect.list_vertices(solid),
+        _ => Vec::new(),
+    };
+    ids.into_iter()
+        .map(|id| {
+            let sig = introspect.compute_signature(id, kind);
+            (id, sig)
+        })
+        .collect()
 }
 
 fn compute_face_signature(face: &Face) -> TopoSignature {
@@ -458,6 +559,30 @@ mod tests {
         for face in &faces {
             let neighbors = introspect.face_neighbors(*face);
             assert_eq!(neighbors.len(), 4, "Each box face should have 4 neighbors");
+        }
+    }
+
+    /// TruckKernel directly implements KernelIntrospect (no TruckIntrospect wrapper needed).
+    /// This means TruckKernel satisfies the KernelBundle blanket impl.
+    #[test]
+    fn test_truck_kernel_direct_introspect() {
+        let mut kernel = TruckKernel::new();
+        let solid = primitives::make_box(2.0, 3.0, 4.0);
+        let handle = kernel.store_solid(solid);
+
+        // Use KernelIntrospect methods directly on TruckKernel
+        let faces = kernel.list_faces(&handle);
+        let edges = kernel.list_edges(&handle);
+        let vertices = kernel.list_vertices(&handle);
+
+        assert_eq!(faces.len(), 6);
+        assert_eq!(edges.len(), 12);
+        assert_eq!(vertices.len(), 8);
+
+        // Verify signatures work directly
+        for face in &faces {
+            let sig = kernel.compute_signature(*face, TopoKind::Face);
+            assert_eq!(sig.surface_type.as_deref(), Some("planar"));
         }
     }
 }

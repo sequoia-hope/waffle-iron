@@ -67,12 +67,14 @@
 - [x] All ops produce OutputKey::Main consistency check
 - [x] Fixed fillet role assignment to use signature_similarity (consistent with chamfer/shell)
 
-### M10: Integration with TruckKernel — BLOCKED
-- [ ] Run all tests with TruckKernel
-- **Blocker 1**: TruckKernel doesn't implement `KernelBundle` — `KernelIntrospect` is on separate `TruckIntrospect` struct (borrows from TruckKernel). Need either a wrapper or to refactor modeling-ops to accept split Kernel + KernelIntrospect.
-- **Blocker 2**: TruckKernel fillet/chamfer/shell return `NotSupported` — truck lacks these APIs.
-- **Blocker 3**: Boolean operations are unreliable in truck 0.4 (panics, None returns for box-cylinder and coplanar faces).
-- Only extrude and revolve are viable with TruckKernel, but blocked by KernelBundle architecture.
+### M10: Integration with TruckKernel — PARTIAL ✅
+- [x] Refactored truck_introspect.rs: extracted shared impl functions, implemented KernelIntrospect directly on TruckKernel (resolves Blocker 1)
+- [x] TruckKernel now satisfies KernelBundle trait
+- [x] Extrude integration tests (4): valid OpResult, correct topology, role assignment, provenance signatures
+- [x] Revolve integration tests (2): valid OpResult, role assignment (side faces verified; start/end face heuristic doesn't work with real truck normals)
+- [x] Not-supported tests (3): fillet, chamfer, shell correctly return NotSupported
+- **Remaining limitation**: Boolean operations unreliable in truck 0.4 (panics/None for box-cylinder and coplanar faces)
+- **Remaining limitation**: Revolve role detection heuristic (normal-axis dot product) doesn't reliably identify RevStartFace/RevEndFace with real truck geometry
 
 ## Test Summary
 
@@ -84,7 +86,8 @@
 | M7 Shell | 3 | ✅ All pass |
 | M8 Symmetric Extrude | 4 | ✅ All pass |
 | M9 Comprehensive | 12 | ✅ All pass |
-| **Total** | **45** | **✅** |
+| M10 TruckKernel | 9 | ✅ All pass |
+| **Total** | **54** | **✅** |
 
 ## Signature Similarity Gotchas
 
@@ -98,7 +101,8 @@
 ## Blockers
 
 - Cut extrude deferred: needs multi-body pipeline (extrude + boolean subtract in one operation)
-- TruckKernel integration limited by boolean failures (see kernel-fork PLAN.md)
+- TruckKernel boolean operations unreliable in truck 0.4
+- Revolve role heuristic needs improvement for real geometry (normal-axis dot product too simplistic)
 
 ## Interface Change Requests
 

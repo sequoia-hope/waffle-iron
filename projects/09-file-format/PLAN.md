@@ -23,13 +23,13 @@
 - [x] Validate format version (reject future versions)
 - [x] Tests: load_round_trip_simple_tree, load_preserves_feature_ids, load_preserves_operation_params, load_preserves_sketch_entities_and_constraints, load_preserves_geom_refs, load_rejects_unknown_format, load_rejects_future_version, load_rejects_invalid_json, load_preserves_active_index, load_preserves_suppressed_features
 
-### M4: STEP Export
-- [ ] `export_step(tree: &FeatureTree, engine: &mut Engine) -> Result<String, ExportError>`
-- [ ] Rebuild model to get final solid
-- [ ] Export via truck's ruststep (AP203)
-- [ ] Handle export failures gracefully
-- [ ] Test: export a simple box → verify valid STEP output
-- **Blocker**: TruckKernel doesn't implement KernelBundle (see modeling-ops M10 notes)
+### M4: STEP Export ✅
+- [x] `export_step(tree: &FeatureTree, kb: &mut TruckKernel) -> Result<String, ExportError>`
+- [x] Rebuild model from FeatureTree using Engine + TruckKernel
+- [x] Export final solid via truck's CompressedSolid + StepModel (AP203)
+- [x] Handle export failures: NoSolid, StepExportFailed errors
+- [x] Tests: step_export_simple_box (validates ISO-10303-21, MANIFOLD_SOLID_BREP, FACE_SURFACE), step_export_empty_tree_returns_error, step_export_suppressed_only_returns_error
+- **Note**: Blocker resolved — TruckKernel now implements KernelIntrospect directly
 
 ### M5: Version Migration ✅
 - [x] Migration framework defined (migrate.rs)
@@ -51,11 +51,11 @@
 | M1 Schema | 6 | ✅ All pass |
 | M2 Save | 3 | ✅ All pass |
 | M3 Load | 10 | ✅ All pass |
-| **Total** | **19** | **✅** |
+| M4 STEP Export | 3 | ✅ All pass |
+| **Total** | **22** | **✅** |
 
 ## Blockers
 
-- M4 (STEP export) blocked: TruckKernel doesn't implement KernelBundle trait
 - M6 (full round-trip with rebuild) needs Engine integration tests
 
 ## Notes

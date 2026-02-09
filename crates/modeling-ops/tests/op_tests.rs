@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use kernel_fork::{Kernel, KernelId};
-use kernel_fork::{KernelIntrospect, MockKernel};
+use kernel_fork::{Kernel, KernelId, KernelIntrospect};
+use kernel_fork::{MockKernel, TruckKernel};
 use modeling_ops::boolean::{execute_boolean, BooleanKind};
 use modeling_ops::chamfer::execute_chamfer;
 use modeling_ops::diff::{self, signature_similarity};
@@ -913,5 +913,219 @@ fn role_indices_are_sequential() {
         sorted,
         vec![0, 1, 2, 3],
         "Side face indices should be sequential 0-3"
+    );
+}
+
+// ── M10: TruckKernel Integration Tests ─────────────────────────────────
+
+/// Helper: create a face from a rectangular profile using TruckKernel.
+fn make_truck_face(kernel: &mut TruckKernel) -> KernelId {
+    let profile = ClosedProfile {
+        entity_ids: vec![1, 2, 3, 4],
+        is_outer: true,
+    };
+    let mut positions = HashMap::new();
+    positions.insert(1, (0.0, 0.0));
+    positions.insert(2, (2.0, 0.0));
+    positions.insert(3, (2.0, 3.0));
+    positions.insert(4, (0.0, 3.0));
+
+    let face_ids = kernel
+        .make_faces_from_profiles(
+            &[profile],
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0],
+            &positions,
+        )
+        .unwrap();
+    face_ids[0]
+}
+
+#[test]
+fn truck_extrude_produces_valid_op_result() {
+    let mut kernel = TruckKernel::new();
+    let face_id = make_truck_face(&mut kernel);
+
+    let result = execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], 5.0, None).unwrap();
+
+    assert_eq!(result.outputs.len(), 1);
+    assert!(matches!(result.outputs[0].0, OutputKey::Main));
+    assert!(
+        !result.provenance.created.is_empty(),
+        "Should have created entities"
+    );
+}
+
+#[test]
+fn truck_extrude_has_correct_topology() {
+    let mut kernel = TruckKernel::new();
+    let face_id = make_truck_face(&mut kernel);
+
+    let result = execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], 5.0, None).unwrap();
+    let handle = &result.outputs[0].1.handle;
+
+    let faces = kernel.list_faces(handle);
+    let edges = kernel.list_edges(handle);
+    let vertices = kernel.list_vertices(handle);
+
+    assert_eq!(faces.len(), 6, "Extruded rectangle should have 6 faces");
+    assert_eq!(edges.len(), 12, "Extruded rectangle should have 12 edges");
+    assert_eq!(
+        vertices.len(),
+        8,
+        "Extruded rectangle should have 8 vertices"
+    );
+
+    // Euler formula: V - E + F = 2
+    let euler = vertices.len() as i32 - edges.len() as i32 + faces.len() as i32;
+    assert_eq!(euler, 2, "Euler formula V-E+F=2 should hold");
+}
+
+#[test]
+fn truck_extrude_assigns_roles() {
+    let mut kernel = TruckKernel::new();
+    let face_id = make_truck_face(&mut kernel);
+
+    let result = execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], 5.0, None).unwrap();
+
+    let roles = &result.provenance.role_assignments;
+    let end_cap_pos = roles
+        .iter()
+        .filter(|(_, r)| *r == Role::EndCapPositive)
+        .count();
+    let end_cap_neg = roles
+        .iter()
+        .filter(|(_, r)| *r == Role::EndCapNegative)
+        .count();
+    let side = roles
+        .iter()
+        .filter(|(_, r)| matches!(r, Role::SideFace { .. }))
+        .count();
+
+    assert_eq!(end_cap_pos, 1, "Should have 1 EndCapPositive");
+    assert_eq!(end_cap_neg, 1, "Should have 1 EndCapNegative");
+    assert_eq!(side, 4, "Should have 4 SideFaces");
+}
+
+#[test]
+fn truck_extrude_provenance_has_signatures() {
+    let mut kernel = TruckKernel::new();
+    let face_id = make_truck_face(&mut kernel);
+
+    let result = execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], 5.0, None).unwrap();
+
+    // All created entities should have signatures
+    for entity_record in &result.provenance.created {
+        assert!(
+            entity_record.signature.surface_type.is_some(),
+            "Entity {:?} should have surface_type in signature",
+            entity_record.kernel_id
+        );
+    }
+}
+
+#[test]
+fn truck_revolve_produces_valid_op_result() {
+    let mut kernel = TruckKernel::new();
+    let face_id = make_truck_face(&mut kernel);
+
+    let result = execute_revolve(
+        &mut kernel,
+        face_id,
+        [0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        std::f64::consts::FRAC_PI_2,
+        None,
+    )
+    .unwrap();
+
+    assert_eq!(result.outputs.len(), 1);
+    assert!(matches!(result.outputs[0].0, OutputKey::Main));
+    assert!(
+        !result.provenance.created.is_empty(),
+        "Should have created entities"
+    );
+}
+
+#[test]
+fn truck_revolve_assigns_roles() {
+    let mut kernel = TruckKernel::new();
+    let face_id = make_truck_face(&mut kernel);
+
+    // Partial revolve (90 degrees)
+    let result = execute_revolve(
+        &mut kernel,
+        face_id,
+        [0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        std::f64::consts::FRAC_PI_2,
+        None,
+    )
+    .unwrap();
+
+    let handle = &result.outputs[0].1.handle;
+    let face_count = kernel.list_faces(handle).len();
+    let roles = &result.provenance.role_assignments;
+
+    // Every face gets a role assignment
+    assert_eq!(
+        roles.len(),
+        face_count,
+        "Every face should get a role assignment"
+    );
+
+    // At least some side faces (the revolve role heuristic is normal-based;
+    // with real geometry, start/end face detection depends on normal alignment
+    // with the axis, which may classify them as side faces instead)
+    let side_count = roles
+        .iter()
+        .filter(|(_, r)| matches!(r, Role::SideFace { .. }))
+        .count();
+    assert!(side_count > 0, "Should have side faces");
+}
+
+#[test]
+fn truck_fillet_returns_not_supported() {
+    let mut kernel = TruckKernel::new();
+    let face_id = make_truck_face(&mut kernel);
+    let result = execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], 5.0, None).unwrap();
+    let handle = &result.outputs[0].1.handle;
+
+    let edges = kernel.list_edges(handle);
+    let fillet_result = execute_fillet(&mut kernel, handle, &[edges[0]], 0.5);
+    assert!(
+        fillet_result.is_err(),
+        "TruckKernel fillet should return error"
+    );
+}
+
+#[test]
+fn truck_chamfer_returns_not_supported() {
+    let mut kernel = TruckKernel::new();
+    let face_id = make_truck_face(&mut kernel);
+    let result = execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], 5.0, None).unwrap();
+    let handle = &result.outputs[0].1.handle;
+
+    let edges = kernel.list_edges(handle);
+    let chamfer_result = execute_chamfer(&mut kernel, handle, &[edges[0]], 0.5);
+    assert!(
+        chamfer_result.is_err(),
+        "TruckKernel chamfer should return error"
+    );
+}
+
+#[test]
+fn truck_shell_returns_not_supported() {
+    let mut kernel = TruckKernel::new();
+    let face_id = make_truck_face(&mut kernel);
+    let result = execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], 5.0, None).unwrap();
+    let handle = &result.outputs[0].1.handle;
+
+    let faces = kernel.list_faces(handle);
+    let shell_result = execute_shell(&mut kernel, handle, &[faces[0]], 0.5);
+    assert!(
+        shell_result.is_err(),
+        "TruckKernel shell should return error"
     );
 }
