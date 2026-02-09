@@ -2,15 +2,15 @@
 
 ## Milestones
 
-### M1: Build Pipeline
-- [ ] Set up wasm-pack build for Rust engine crates
-- [ ] Verify wasm-bindgen output
-- [ ] Create bridge crate skeleton
+### M1: Build Pipeline (partial) ✅
+- [ ] Set up wasm-pack build for Rust engine crates (requires Node.js/npm)
+- [ ] Verify wasm-bindgen output (requires Node.js/npm)
+- [x] Create bridge crate skeleton
 
-### M2: Message Types
-- [ ] Implement `UiToEngine` serialization (JSON via serde_json)
-- [ ] Implement `EngineToUi` serialization (JSON for metadata)
-- [ ] Round-trip tests: serialize → deserialize for all message variants
+### M2: Message Types ✅
+- [x] Implement `UiToEngine` serialization (JSON via serde_json)
+- [x] Implement `EngineToUi` serialization (JSON for metadata)
+- [x] Round-trip tests: serialize → deserialize for all message variants (7 serde tests)
 
 ### M3: Web Worker Setup
 - [ ] Worker script that loads WASM module
@@ -18,11 +18,11 @@
 - [ ] postMessage sender for outgoing results
 - [ ] Worker error handling (onerror)
 
-### M4: Command Dispatch
-- [ ] Deserialize UiToEngine in Worker
-- [ ] Dispatch to appropriate engine function
-- [ ] Handle all command variants
-- [ ] Test: send command → verify engine receives it
+### M4: Command Dispatch (partial) ✅
+- [x] Deserialize UiToEngine in Worker
+- [x] Dispatch to appropriate engine function
+- [x] Handle all command variants (feature ops, selection, hover; undo/redo/file ops return NotImplemented)
+- [x] Test: send command → verify engine receives it (5 dispatch tests)
 
 ### M5: Result Callback
 - [ ] Serialize EngineToUi in Worker

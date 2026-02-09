@@ -1,5 +1,12 @@
 [workspace]
-members = ["crates/kernel-fork", "crates/sketch-solver"]
+members = [
+    "crates/waffle-types",
+    "crates/kernel-fork",
+    "crates/sketch-solver",
+    "crates/modeling-ops",
+    "crates/feature-engine",
+    "crates/wasm-bridge",
+]
 resolver = "2"
 
 [patch.crates-io]

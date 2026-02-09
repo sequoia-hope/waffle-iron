@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
 
+// Re-export shared types from waffle-types
+pub use waffle_types::{ClosedProfile, TopoKind, TopoSignature};
+
 /// Opaque handle to a solid in the geometry kernel.
 /// NEVER persisted. Valid only for the current kernel session.
 #[derive(Debug, Clone)]
@@ -16,51 +19,6 @@ impl KernelSolidHandle {
 /// NEVER persisted — use GeomRef for persistent references.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct KernelId(pub u64);
-
-/// The kind of topological entity.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum TopoKind {
-    Vertex,
-    Edge,
-    Face,
-    Shell,
-    Solid,
-}
-
-/// Geometric signature of a topological entity.
-/// Used for signature-based matching when role-based resolution fails.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TopoSignature {
-    /// Surface type (planar, cylindrical, conical, spherical, toroidal, nurbs).
-    pub surface_type: Option<String>,
-    /// Surface area (for faces).
-    pub area: Option<f64>,
-    /// Centroid position [x, y, z].
-    pub centroid: Option<[f64; 3]>,
-    /// Outward-pointing normal at centroid (for faces).
-    pub normal: Option<[f64; 3]>,
-    /// Axis-aligned bounding box [min_x, min_y, min_z, max_x, max_y, max_z].
-    pub bbox: Option<[f64; 6]>,
-    /// Hash of the adjacency structure.
-    pub adjacency_hash: Option<u64>,
-    /// Edge length (for edges).
-    pub length: Option<f64>,
-}
-
-impl TopoSignature {
-    pub fn empty() -> Self {
-        Self {
-            surface_type: None,
-            area: None,
-            centroid: None,
-            normal: None,
-            bbox: None,
-            adjacency_hash: None,
-            length: None,
-        }
-    }
-}
 
 /// Errors from kernel operations.
 #[derive(Debug, Clone, thiserror::Error)]
@@ -129,15 +87,6 @@ pub struct EdgeRange {
     pub start_vertex: u32,
     /// End index in the vertices array.
     pub end_vertex: u32,
-}
-
-/// A closed loop of sketch entities suitable for extrusion or revolution.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ClosedProfile {
-    /// Ordered entity IDs forming the closed loop.
-    pub entity_ids: Vec<u32>,
-    /// Whether the profile winds counter-clockwise (outward) or clockwise (hole).
-    pub is_outer: bool,
 }
 
 // Custom Serialize/Deserialize for KernelId (needed for FaceRange/EdgeRange serialization)

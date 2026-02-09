@@ -1,11 +1,15 @@
 [package]
-name = "sketch-solver"
+name = "wasm-bridge"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+feature-engine = { path = "../feature-engine" }
+kernel-fork = { path = "../kernel-fork" }
+modeling-ops = { path = "../modeling-ops" }
+sketch-solver = { path = "../sketch-solver" }
 waffle-types = { path = "../waffle-types" }
-slvs = "0.6"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
 thiserror = "1"
