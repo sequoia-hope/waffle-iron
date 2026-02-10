@@ -3,11 +3,13 @@
 	import { OrbitControls } from '@threlte/extras';
 	import { onMount } from 'svelte';
 	import * as THREE from 'three';
+	import { getSketchMode } from '$lib/engine/store.svelte.js';
 
 	const { scene } = useThrelte();
 
 	let cameraRef = $state(null);
 	let controlsRef = $state(null);
+	let sketchActive = $derived(getSketchMode()?.active ?? false);
 
 	const standardViews = {
 		front:  { pos: [0, 0, 1],  up: [0, 1, 0] },
@@ -151,6 +153,7 @@
 >
 	<OrbitControls
 		bind:ref={controlsRef}
+		enabled={!sketchActive}
 		enableDamping
 		dampingFactor={0.15}
 		minDistance={0.5}

@@ -1,5 +1,6 @@
 <script>
-	import { T, useThrelte } from '@threlte/core';
+	import { useThrelte } from '@threlte/core';
+	import { onMount } from 'svelte';
 	import * as THREE from 'three';
 	import {
 		getSketchMode,
@@ -11,76 +12,75 @@
 
 	const { camera, renderer } = useThrelte();
 
-	let sm = $derived(getSketchMode());
-	let activeTool = $derived(getActiveTool());
-	let plane = $derived(sm?.active ? buildSketchPlane(sm.origin, sm.normal) : null);
+	// renderer is a plain THREE.WebGLRenderer, renderer.domElement is the canvas
+	// camera is a Svelte store — use camera.current to get the THREE.Camera
 
-	// Large invisible plane for pointer capture
-	const planeGeo = new THREE.PlaneGeometry(200, 200);
-	const planeMat = new THREE.MeshBasicMaterial({
-		visible: false,
-		side: THREE.DoubleSide
-	});
+	let activeTool = $derived(getActiveTool());
 
 	/**
 	 * Compute sketch units per screen pixel for dynamic thresholds.
 	 */
-	function getScreenPixelSize() {
-		if (!$camera || !plane) return 0.01;
-		const cam = $camera;
+	function getScreenPixelSize(cam, planeOrigin, canvasHeight) {
+		if (!cam) return 0.01;
 		if (cam instanceof THREE.PerspectiveCamera) {
-			const dist = cam.position.distanceTo(plane.origin);
+			const dist = cam.position.distanceTo(planeOrigin);
 			const vFov = cam.fov * (Math.PI / 180);
 			const heightAtDist = 2 * dist * Math.tan(vFov / 2);
-			return heightAtDist / ($renderer?.domElement?.clientHeight || 800);
+			return heightAtDist / (canvasHeight || 800);
 		}
-		// Orthographic
 		if (cam instanceof THREE.OrthographicCamera) {
 			const height = cam.top - cam.bottom;
-			return height / ($renderer?.domElement?.clientHeight || 800);
+			return height / (canvasHeight || 800);
 		}
 		return 0.01;
 	}
 
-	/**
-	 * Convert a Threlte pointer event to sketch coordinates and delegate to tool.
-	 */
-	function onPointerEvent(eventType, event) {
-		if (!plane || !$camera || !$renderer?.domElement) return;
+	onMount(() => {
+		const canvas = renderer.domElement;
+		if (!canvas) return;
 
-		const domEl = $renderer.domElement;
-		const nativeEvent = event.nativeEvent || event;
+		/** @param {PointerEvent} e */
+		function handler(e) {
+			const sm = getSketchMode();
+			if (!sm?.active) return;
 
-		const coords = screenToSketchCoords(nativeEvent, domEl, $camera, plane);
-		if (!coords) return;
+			const cam = camera.current;
+			if (!cam) return;
 
-		const screenPixelSize = getScreenPixelSize();
-		const shiftKey = nativeEvent.shiftKey ?? false;
+			const plane = buildSketchPlane(sm.origin, sm.normal);
+			if (!plane) return;
 
-		if (eventType === 'pointermove') {
-			setSketchCursorPos({ x: coords.x, y: coords.y });
+			const coords = screenToSketchCoords(e, canvas, cam, plane);
+			if (!coords) return;
+
+			const screenPixelSize = getScreenPixelSize(cam, plane.origin, canvas.clientHeight);
+			const shiftKey = e.shiftKey;
+			const tool = getActiveTool();
+
+			if (e.type === 'pointermove') {
+				setSketchCursorPos({ x: coords.x, y: coords.y });
+			}
+
+			handleToolEvent(tool, e.type, coords.x, coords.y, screenPixelSize, shiftKey);
 		}
 
-		handleToolEvent(activeTool, eventType, coords.x, coords.y, screenPixelSize, shiftKey);
-	}
+		canvas.addEventListener('pointerdown', handler);
+		canvas.addEventListener('pointermove', handler);
+		canvas.addEventListener('pointerup', handler);
+
+		return () => {
+			canvas.removeEventListener('pointerdown', handler);
+			canvas.removeEventListener('pointermove', handler);
+			canvas.removeEventListener('pointerup', handler);
+		};
+	});
 
 	// Reset tool state when switching tools
 	$effect(() => {
-		// Access activeTool to establish dependency
 		const _ = activeTool;
 		resetTool();
 	});
 </script>
 
-{#if sm?.active && plane}
-	<T.Mesh
-		geometry={planeGeo}
-		material={planeMat}
-		position={[plane.origin.x, plane.origin.y, plane.origin.z]}
-		quaternion={plane.quaternion}
-		renderOrder={-1}
-		onpointerdown={(e) => onPointerEvent('pointerdown', e)}
-		onpointermove={(e) => onPointerEvent('pointermove', e)}
-		onpointerup={(e) => onPointerEvent('pointerup', e)}
-	/>
-{/if}
+<!-- Minimal template for Svelte 5 lifecycle -->
+{#if false}{/if}

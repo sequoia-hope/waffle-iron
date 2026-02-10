@@ -145,6 +145,24 @@ export async function initEngine() {
 		statusMessage = `Failed to load engine: ${lastError}`;
 		console.error('Engine initialization failed:', err);
 	}
+
+	// Expose debug/test API for browser console and Playwright tests
+	if (typeof window !== 'undefined') {
+		window.__waffle = {
+			getState: () => ({
+				engineReady,
+				sketchMode: { ...sketchMode },
+				activeTool,
+				entityCount: sketchEntities.length,
+			}),
+			getEntities: () => [...sketchEntities],
+			getPositions: () => new Map(sketchPositions),
+			enterSketch: (origin, normal) => enterSketchMode(origin, normal),
+			exitSketch: () => exitSketchMode(),
+			setTool: (tool) => setActiveTool(tool),
+			finishSketch: () => finishSketch(),
+		};
+	}
 }
 
 /**
