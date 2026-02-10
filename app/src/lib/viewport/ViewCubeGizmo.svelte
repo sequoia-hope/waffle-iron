@@ -1,9 +1,8 @@
 <script>
-	import { useThrelte } from '@threlte/core';
-	import { onMount } from 'svelte';
+	import { useThrelte, useTask } from '@threlte/core';
 	import * as THREE from 'three';
 
-	const { camera, renderer } = useThrelte();
+	const { camera, renderer, autoRenderTask, renderStage } = useThrelte();
 
 	// Separate scene/camera for the orientation gizmo
 	const gizmoScene = new THREE.Scene();
@@ -73,14 +72,12 @@
 
 	const gizmoSize = 120;
 
-	onMount(() => {
-		let animId;
-
-		function renderGizmo() {
-			if (!renderer || !camera.current) {
-				animId = requestAnimationFrame(renderGizmo);
-				return;
-			}
+	// Run gizmo rendering AFTER the main scene render, within Threlte's render stage.
+	// autoInvalidate keeps the render loop alive so the gizmo continuously updates.
+	useTask(
+		'gizmo-render',
+		() => {
+			if (!renderer || !camera.current) return;
 
 			const gl = /** @type {THREE.WebGLRenderer} */ (renderer);
 
@@ -99,11 +96,11 @@
 			gl.setScissorTest(false);
 			gl.setViewport(0, 0, dim.x, dim.y);
 			gl.autoClear = true;
-
-			animId = requestAnimationFrame(renderGizmo);
+		},
+		{
+			stage: renderStage,
+			after: autoRenderTask,
+			autoInvalidate: true
 		}
-
-		animId = requestAnimationFrame(renderGizmo);
-		return () => cancelAnimationFrame(animId);
-	});
+	);
 </script>

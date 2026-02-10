@@ -52,10 +52,12 @@ RUN userdel -r ubuntu 2>/dev/null || true \
     && useradd --uid $USER_UID --gid $USER_GID -m -s /bin/bash $USERNAME \
     && echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/$USERNAME
 
-# Copy tmux config and entrypoint from submodule
+# Copy tmux config, keyboard bar, and entrypoint from submodule
 COPY --chown=$USERNAME:$USERNAME claude-remote/tmux.conf /home/$USERNAME/.tmux.conf
 COPY --chown=$USERNAME:$USERNAME claude-remote/entrypoint.sh /home/$USERNAME/entrypoint.sh
-RUN chmod +x /home/$USERNAME/entrypoint.sh
+COPY --chown=$USERNAME:$USERNAME claude-remote/setup-keyboard.sh /home/$USERNAME/setup-keyboard.sh
+COPY --chown=$USERNAME:$USERNAME claude-remote/keyboard-bar.html /home/$USERNAME/keyboard-bar.html
+RUN chmod +x /home/$USERNAME/entrypoint.sh /home/$USERNAME/setup-keyboard.sh
 
 USER $USERNAME
 WORKDIR /home/$USERNAME
