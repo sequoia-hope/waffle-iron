@@ -5,7 +5,14 @@ use uuid::Uuid;
 use waffle_types::*;
 
 /// Create a simple sketch operation for testing.
+/// Includes solved positions and a closed profile for the rectangle.
 fn make_sketch_op() -> Operation {
+    let mut solved_positions = std::collections::HashMap::new();
+    solved_positions.insert(1, (0.0, 0.0));
+    solved_positions.insert(2, (1.0, 0.0));
+    solved_positions.insert(3, (1.0, 1.0));
+    solved_positions.insert(4, (0.0, 1.0));
+
     let sketch = Sketch {
         id: Uuid::new_v4(),
         plane: GeomRef {
@@ -47,6 +54,11 @@ fn make_sketch_op() -> Operation {
         ],
         constraints: Vec::new(),
         solve_status: SolveStatus::FullyConstrained,
+        solved_positions,
+        solved_profiles: vec![ClosedProfile {
+            entity_ids: vec![1, 2, 3, 4],
+            is_outer: true,
+        }],
     };
     Operation::Sketch { sketch }
 }

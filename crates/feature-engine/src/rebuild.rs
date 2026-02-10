@@ -9,6 +9,7 @@ use uuid::Uuid;
 use crate::resolve::resolve_with_fallback;
 use crate::types::{BooleanOp, EngineError, Feature, FeatureTree, Operation};
 use modeling_ops::KernelBundle;
+use waffle_types::Sketch;
 
 /// State of the engine after a rebuild.
 #[derive(Debug)]
@@ -54,7 +55,7 @@ pub fn rebuild(
         // Resolve any GeomRef references before executing the feature
         resolve_feature_refs(feature, &state.feature_results, &mut state.warnings);
 
-        match execute_feature(feature, kb, &state.feature_results) {
+        match execute_feature(feature, kb, &state.feature_results, tree) {
             Ok(result) => {
                 state.feature_results.insert(feature.id, result);
             }
@@ -73,6 +74,7 @@ fn execute_feature(
     feature: &Feature,
     kb: &mut dyn KernelBundle,
     feature_results: &HashMap<Uuid, OpResult>,
+    tree: &FeatureTree,
 ) -> Result<OpResult, EngineError> {
     match &feature.operation {
         Operation::Sketch { .. } => {
@@ -91,27 +93,32 @@ fn execute_feature(
         }
 
         Operation::Extrude { params } => {
-            // Find the sketch feature to get profiles
             let _sketch_result = find_sketch_result(params.sketch_id, feature_results)?;
+            let sketch = find_sketch_in_tree(params.sketch_id, tree)?;
 
-            // For now, create a face from the profile and extrude it
             let direction = params.direction.unwrap_or([0.0, 0.0, 1.0]);
-            let profiles = vec![waffle_types::ClosedProfile {
-                entity_ids: vec![1, 2, 3, 4], // placeholder
-                is_outer: true,
-            }];
-            let mut positions = HashMap::new();
-            positions.insert(1, (0.0, 0.0));
-            positions.insert(2, (1.0, 0.0));
-            positions.insert(3, (1.0, 1.0));
-            positions.insert(4, (0.0, 1.0));
 
+            if sketch.solved_profiles.is_empty() {
+                return Err(EngineError::ProfileOutOfRange {
+                    index: params.profile_index,
+                    count: 0,
+                });
+            }
+            if params.profile_index >= sketch.solved_profiles.len() {
+                return Err(EngineError::ProfileOutOfRange {
+                    index: params.profile_index,
+                    count: sketch.solved_profiles.len(),
+                });
+            }
+
+            // TODO: derive origin/normal/x_axis from sketch plane GeomRef
+            // For now, sketches are always on XY plane.
             let face_ids = kb.make_faces_from_profiles(
-                &profiles,
+                &sketch.solved_profiles,
                 [0.0, 0.0, 0.0],
                 [0.0, 0.0, 1.0],
                 [1.0, 0.0, 0.0],
-                &positions,
+                &sketch.solved_positions,
             )?;
 
             if face_ids.is_empty() {
@@ -121,30 +128,34 @@ fn execute_feature(
                 });
             }
 
-            let result = execute_extrude(kb, face_ids[0], direction, params.depth, None)?;
+            let face_index = params.profile_index.min(face_ids.len() - 1);
+            let result = execute_extrude(kb, face_ids[face_index], direction, params.depth, None)?;
             Ok(result)
         }
 
         Operation::Revolve { params } => {
-            let _sketch_feature = find_sketch_result(params.sketch_id, feature_results)?;
+            let _sketch_result = find_sketch_result(params.sketch_id, feature_results)?;
+            let sketch = find_sketch_in_tree(params.sketch_id, tree)?;
 
-            // Create a profile face
-            let profiles = vec![waffle_types::ClosedProfile {
-                entity_ids: vec![1, 2, 3, 4],
-                is_outer: true,
-            }];
-            let mut positions = HashMap::new();
-            positions.insert(1, (0.0, 0.0));
-            positions.insert(2, (1.0, 0.0));
-            positions.insert(3, (1.0, 1.0));
-            positions.insert(4, (0.0, 1.0));
+            if sketch.solved_profiles.is_empty() {
+                return Err(EngineError::ProfileOutOfRange {
+                    index: params.profile_index,
+                    count: 0,
+                });
+            }
+            if params.profile_index >= sketch.solved_profiles.len() {
+                return Err(EngineError::ProfileOutOfRange {
+                    index: params.profile_index,
+                    count: sketch.solved_profiles.len(),
+                });
+            }
 
             let face_ids = kb.make_faces_from_profiles(
-                &profiles,
+                &sketch.solved_profiles,
                 [0.0, 0.0, 0.0],
                 [0.0, 0.0, 1.0],
                 [1.0, 0.0, 0.0],
-                &positions,
+                &sketch.solved_positions,
             )?;
 
             if face_ids.is_empty() {
@@ -154,9 +165,10 @@ fn execute_feature(
                 });
             }
 
+            let face_index = params.profile_index.min(face_ids.len() - 1);
             let result = execute_revolve(
                 kb,
-                face_ids[0],
+                face_ids[face_index],
                 params.axis_origin,
                 params.axis_direction,
                 params.angle,
@@ -257,6 +269,18 @@ fn find_latest_solid_handle(
     })?;
 
     find_solid_handle(geom_ref, feature_results)
+}
+
+/// Find the Sketch data from a feature in the tree by sketch feature ID.
+fn find_sketch_in_tree(sketch_id: Uuid, tree: &FeatureTree) -> Result<&Sketch, EngineError> {
+    for feature in &tree.features {
+        if feature.id == sketch_id {
+            if let Operation::Sketch { sketch } = &feature.operation {
+                return Ok(sketch);
+            }
+        }
+    }
+    Err(EngineError::SketchNotFound { id: sketch_id })
 }
 
 /// Find a sketch OpResult by sketch ID. Sketches produce empty OpResults

@@ -24,6 +24,8 @@ fn make_sketch(entities: Vec<SketchEntity>, constraints: Vec<SketchConstraint>) 
         entities,
         constraints,
         solve_status: SolveStatus::UnderConstrained { dof: 99 },
+        solved_positions: std::collections::HashMap::new(),
+        solved_profiles: Vec::new(),
     }
 }
 

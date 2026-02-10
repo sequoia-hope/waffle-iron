@@ -76,6 +76,9 @@ let sketchCursorPos = $state(null);
 /** @type {Set<number>} Entity IDs that appear over-constrained */
 let overConstrainedEntities = $state(new Set());
 
+/** @type {{ sketchId: string, sketchName: string, profileCount: number } | null} */
+let extrudeDialogState = $state(null);
+
 /** Configurable snap thresholds */
 let snapSettings = $state({
 	coincidentPx: 8,
@@ -608,6 +611,101 @@ export function getOverConstrainedEntities() { return overConstrainedEntities; }
 export function getSketchCursorPos() { return sketchCursorPos; }
 /** @param {{ x: number, y: number } | null} pos */
 export function setSketchCursorPos(pos) { sketchCursorPos = pos; }
+
+// -- Extrude dialog --
+
+export function getExtrudeDialogState() { return extrudeDialogState; }
+
+/**
+ * Show the extrude dialog. Auto-selects the last sketch in the feature tree.
+ */
+export function showExtrudeDialog() {
+	const tree = featureTree;
+	if (!tree || !tree.features) return;
+
+	// Find the last sketch feature
+	let lastSketch = null;
+	for (let i = tree.features.length - 1; i >= 0; i--) {
+		const f = tree.features[i];
+		if (f.operation?.type === 'Sketch') {
+			lastSketch = f;
+			break;
+		}
+	}
+
+	if (!lastSketch) return;
+
+	const profileCount = lastSketch.operation?.sketch?.solved_profiles?.length ?? 0;
+	extrudeDialogState = {
+		sketchId: lastSketch.id,
+		sketchName: lastSketch.name,
+		profileCount
+	};
+}
+
+export function hideExtrudeDialog() {
+	extrudeDialogState = null;
+}
+
+/**
+ * Apply an extrude operation from the dialog.
+ * @param {number} depth
+ * @param {number} profileIndex
+ */
+export async function applyExtrude(depth, profileIndex) {
+	if (!extrudeDialogState || !bridge || !engineReady) return;
+
+	await bridge.send({
+		type: 'AddFeature',
+		operation: {
+			type: 'Extrude',
+			params: {
+				sketch_id: extrudeDialogState.sketchId,
+				profile_index: profileIndex,
+				depth,
+				direction: null,
+				symmetric: false,
+				cut: false,
+				target_body: null
+			}
+		}
+	});
+
+	extrudeDialogState = null;
+}
+
+/**
+ * Finish the active sketch, sending solved positions and profiles to the engine.
+ * Returns the sketch feature info (for optional extrude dialog follow-up).
+ */
+export async function finishSketch() {
+	if (!bridge || !engineReady) return;
+
+	// Serialize positions map to plain object with string keys
+	const posObj = {};
+	for (const [id, pos] of sketchPositions) {
+		posObj[id] = [pos.x, pos.y];
+	}
+
+	// Convert extractedProfiles to the ClosedProfile format
+	const profiles = extractedProfilesState.map((p) => ({
+		entity_ids: p.entityIds,
+		is_outer: p.isOuter
+	}));
+
+	const profileCount = profiles.length;
+
+	exitSketchMode();
+	setActiveTool('select');
+
+	await bridge.send({
+		type: 'FinishSketch',
+		solved_positions: posObj,
+		solved_profiles: profiles
+	});
+
+	return { profileCount };
+}
 
 export function getSnapSettings() { return snapSettings; }
 /**

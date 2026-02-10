@@ -8,6 +8,12 @@ use wasm_bridge::*;
 // ── Helper functions ─────────────────────────────────────────────────────
 
 fn make_sketch_op() -> Operation {
+    let mut solved_positions = std::collections::HashMap::new();
+    solved_positions.insert(1, (0.0, 0.0));
+    solved_positions.insert(2, (1.0, 0.0));
+    solved_positions.insert(3, (1.0, 1.0));
+    solved_positions.insert(4, (0.0, 1.0));
+
     let sketch = Sketch {
         id: Uuid::new_v4(),
         plane: GeomRef {
@@ -49,6 +55,11 @@ fn make_sketch_op() -> Operation {
         ],
         constraints: Vec::new(),
         solve_status: SolveStatus::FullyConstrained,
+        solved_positions,
+        solved_profiles: vec![ClosedProfile {
+            entity_ids: vec![1, 2, 3, 4],
+            is_outer: true,
+        }],
     };
     Operation::Sketch { sketch }
 }
@@ -299,7 +310,9 @@ fn engine_state_sketch_workflow() {
         .unwrap();
 
     // Finish sketch
-    let sketch = state.finish_sketch().unwrap();
+    let sketch = state
+        .finish_sketch(std::collections::HashMap::new(), Vec::new())
+        .unwrap();
     assert_eq!(sketch.entities.len(), 1);
     assert_eq!(sketch.constraints.len(), 1);
     assert!(state.active_sketch.is_none());
@@ -317,7 +330,7 @@ fn engine_state_no_sketch_errors() {
     });
     assert!(result.is_err());
 
-    let result = state.finish_sketch();
+    let result = state.finish_sketch(std::collections::HashMap::new(), Vec::new());
     assert!(result.is_err());
 }
 
@@ -535,7 +548,14 @@ fn dispatch_full_sketch_workflow() {
         &mut kernel,
     );
 
-    let response = wasm_bridge::dispatch(&mut state, UiToEngine::FinishSketch, &mut kernel);
+    let response = wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::FinishSketch {
+            solved_positions: std::collections::HashMap::new(),
+            solved_profiles: Vec::new(),
+        },
+        &mut kernel,
+    );
     assert!(matches!(response, EngineToUi::ModelUpdated { .. }));
     if let EngineToUi::ModelUpdated { feature_tree, .. } = &response {
         assert_eq!(feature_tree.features.len(), 1);
@@ -543,6 +563,100 @@ fn dispatch_full_sketch_workflow() {
 
     // No active sketch after finish
     assert!(state.active_sketch.is_none());
+}
+
+// ── Sketch → Extrude Integration Test ─────────────────────────────────
+
+#[test]
+fn dispatch_sketch_then_extrude_produces_solid() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    // Begin sketch
+    wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::BeginSketch {
+            plane: make_geom_ref(),
+        },
+        &mut kernel,
+    );
+
+    // Add a rectangle: 4 points + 4 lines
+    for (id, x, y) in [
+        (1, 0.0, 0.0),
+        (2, 10.0, 0.0),
+        (3, 10.0, 10.0),
+        (4, 0.0, 10.0),
+    ] {
+        wasm_bridge::dispatch(
+            &mut state,
+            UiToEngine::AddSketchEntity {
+                entity: SketchEntity::Point {
+                    id,
+                    x,
+                    y,
+                    construction: false,
+                },
+            },
+            &mut kernel,
+        );
+    }
+    for (id, start, end) in [(10, 1, 2), (11, 2, 3), (12, 3, 4), (13, 4, 1)] {
+        wasm_bridge::dispatch(
+            &mut state,
+            UiToEngine::AddSketchEntity {
+                entity: SketchEntity::Line {
+                    id,
+                    start_id: start,
+                    end_id: end,
+                    construction: false,
+                },
+            },
+            &mut kernel,
+        );
+    }
+
+    // FinishSketch with solved positions and a profile
+    let mut solved_positions = std::collections::HashMap::new();
+    solved_positions.insert(1, (0.0, 0.0));
+    solved_positions.insert(2, (10.0, 0.0));
+    solved_positions.insert(3, (10.0, 10.0));
+    solved_positions.insert(4, (0.0, 10.0));
+
+    let solved_profiles = vec![ClosedProfile {
+        entity_ids: vec![1, 2, 3, 4],
+        is_outer: true,
+    }];
+
+    let response = wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::FinishSketch {
+            solved_positions,
+            solved_profiles,
+        },
+        &mut kernel,
+    );
+    assert!(matches!(response, EngineToUi::ModelUpdated { .. }));
+    let sketch_id = if let EngineToUi::ModelUpdated { feature_tree, .. } = &response {
+        assert_eq!(feature_tree.features.len(), 1);
+        feature_tree.features[0].id
+    } else {
+        panic!("Expected ModelUpdated");
+    };
+
+    // Now extrude
+    let response = wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::AddFeature {
+            operation: make_extrude_op(sketch_id),
+        },
+        &mut kernel,
+    );
+    assert!(matches!(response, EngineToUi::ModelUpdated { .. }));
+    if let EngineToUi::ModelUpdated { feature_tree, .. } = &response {
+        assert_eq!(feature_tree.features.len(), 2);
+        assert_eq!(feature_tree.features[1].name, "Extrude");
+    }
 }
 
 /// Helper: create a minimal sketch operation for dispatch tests.
@@ -555,6 +669,8 @@ fn make_sketch_operation() -> Operation {
             entities: Vec::new(),
             constraints: Vec::new(),
             solve_status: SolveStatus::FullyConstrained,
+            solved_positions: std::collections::HashMap::new(),
+            solved_profiles: Vec::new(),
         },
     }
 }

@@ -1,5 +1,7 @@
+use std::collections::HashMap;
+
 use feature_engine::Engine;
-use waffle_types::{GeomRef, Sketch, SketchConstraint, SketchEntity, SolveStatus};
+use waffle_types::{ClosedProfile, GeomRef, Sketch, SketchConstraint, SketchEntity, SolveStatus};
 
 /// The engine state wrapper for the WASM bridge.
 ///
@@ -87,12 +89,21 @@ impl EngineState {
             entities: active.entities.clone(),
             constraints: active.constraints.clone(),
             solve_status: active.solve_status.clone(),
+            solved_positions: HashMap::new(),
+            solved_profiles: Vec::new(),
         })
     }
 
     /// Finish the active sketch and commit it as a feature.
-    pub fn finish_sketch(&mut self) -> Result<Sketch, BridgeError> {
-        let sketch = self.build_sketch()?;
+    /// Accepts solved positions and profiles from the JS-side solver.
+    pub fn finish_sketch(
+        &mut self,
+        solved_positions: HashMap<u32, (f64, f64)>,
+        solved_profiles: Vec<ClosedProfile>,
+    ) -> Result<Sketch, BridgeError> {
+        let mut sketch = self.build_sketch()?;
+        sketch.solved_positions = solved_positions;
+        sketch.solved_profiles = solved_profiles;
         self.active_sketch = None;
         Ok(sketch)
     }

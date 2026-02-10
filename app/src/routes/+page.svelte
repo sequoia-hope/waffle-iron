@@ -5,6 +5,7 @@
 	import PropertyEditor from '$lib/ui/PropertyEditor.svelte';
 	import StatusBar from '$lib/ui/StatusBar.svelte';
 	import Viewport from '$lib/viewport/Viewport.svelte';
+	import ExtrudeDialog from '$lib/ui/ExtrudeDialog.svelte';
 	import { initEngine } from '$lib/engine/store.svelte.js';
 
 	let leftWidth = $state(200);
@@ -82,6 +83,8 @@
 		<StatusBar />
 	</div>
 </div>
+
+<ExtrudeDialog />
 
 <style>
 	.app-shell {

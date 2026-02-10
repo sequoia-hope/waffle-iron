@@ -81,5 +81,6 @@
 		renderOrder={-1}
 		onpointerdown={(e) => onPointerEvent('pointerdown', e)}
 		onpointermove={(e) => onPointerEvent('pointermove', e)}
+		onpointerup={(e) => onPointerEvent('pointerup', e)}
 	/>
 {/if}

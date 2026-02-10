@@ -1,9 +1,41 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use feature_engine::types::{FeatureTree, Operation};
 use kernel_fork::{EdgeRenderData, RenderMesh};
-use waffle_types::{GeomRef, SketchConstraint, SketchEntity, SolvedSketch};
+use waffle_types::{ClosedProfile, GeomRef, SketchConstraint, SketchEntity, SolvedSketch};
+
+/// Serde helper for HashMap<u32, (f64, f64)> — JSON string keys ↔ u32.
+mod u32_key_map {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use std::collections::HashMap;
+
+    pub fn serialize<S>(map: &HashMap<u32, (f64, f64)>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let string_map: HashMap<String, (f64, f64)> =
+            map.iter().map(|(k, v)| (k.to_string(), *v)).collect();
+        string_map.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<HashMap<u32, (f64, f64)>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let string_map: HashMap<String, (f64, f64)> = HashMap::deserialize(deserializer)?;
+        string_map
+            .into_iter()
+            .map(|(k, v)| {
+                k.parse::<u32>()
+                    .map(|key| (key, v))
+                    .map_err(serde::de::Error::custom)
+            })
+            .collect()
+    }
+}
 
 /// Messages from the UI (JavaScript main thread) to the engine (WASM Worker).
 /// Serialized as JSON for postMessage transfer.
@@ -26,7 +58,12 @@ pub enum UiToEngine {
     /// Run the constraint solver on the active sketch.
     SolveSketch,
     /// Exit sketch mode and commit the sketch as a feature.
-    FinishSketch,
+    FinishSketch {
+        #[serde(default, with = "u32_key_map")]
+        solved_positions: HashMap<u32, (f64, f64)>,
+        #[serde(default)]
+        solved_profiles: Vec<ClosedProfile>,
+    },
 
     // -- Feature operations --
     /// Add a new feature to the feature tree.

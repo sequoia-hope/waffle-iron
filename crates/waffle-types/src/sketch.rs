@@ -4,6 +4,38 @@ use uuid::Uuid;
 
 use crate::geom_ref::GeomRef;
 
+/// Serde helper for HashMap<u32, (f64, f64)>.
+/// JSON only supports string keys, so we need custom (de)serialization.
+mod u32_key_map {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use std::collections::HashMap;
+
+    pub fn serialize<S>(map: &HashMap<u32, (f64, f64)>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // Convert to string keys for JSON
+        let string_map: HashMap<String, (f64, f64)> =
+            map.iter().map(|(k, v)| (k.to_string(), *v)).collect();
+        string_map.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<HashMap<u32, (f64, f64)>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let string_map: HashMap<String, (f64, f64)> = HashMap::deserialize(deserializer)?;
+        string_map
+            .into_iter()
+            .map(|(k, v)| {
+                k.parse::<u32>()
+                    .map(|key| (key, v))
+                    .map_err(serde::de::Error::custom)
+            })
+            .collect()
+    }
+}
+
 /// A 2D sketch on a plane. Contains geometric entities and constraints.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sketch {
@@ -17,6 +49,12 @@ pub struct Sketch {
     pub constraints: Vec<SketchConstraint>,
     /// Current solve status (updated after each solve).
     pub solve_status: SolveStatus,
+    /// Solved positions for all points. Key is point entity ID.
+    #[serde(default, with = "u32_key_map")]
+    pub solved_positions: HashMap<u32, (f64, f64)>,
+    /// Closed profiles extracted from the solved geometry.
+    #[serde(default)]
+    pub solved_profiles: Vec<ClosedProfile>,
 }
 
 /// A geometric entity in a sketch.

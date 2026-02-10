@@ -7,8 +7,8 @@ use file_format::{
 };
 use uuid::Uuid;
 use waffle_types::{
-    Anchor, GeomRef, OutputKey, ResolvePolicy, Role, Selector, Sketch, SketchConstraint,
-    SketchEntity, SolveStatus, TopoKind,
+    Anchor, ClosedProfile, GeomRef, OutputKey, ResolvePolicy, Role, Selector, Sketch,
+    SketchConstraint, SketchEntity, SolveStatus, TopoKind,
 };
 
 // ── Helper Functions ─────────────────────────────────────────────────────
@@ -86,6 +86,18 @@ fn make_sketch_feature(name: &str) -> Feature {
             SketchConstraint::Vertical { entity: 8 },
         ],
         solve_status: SolveStatus::FullyConstrained,
+        solved_positions: {
+            let mut m = std::collections::HashMap::new();
+            m.insert(1, (0.0, 0.0));
+            m.insert(2, (100.0, 0.0));
+            m.insert(3, (100.0, 50.0));
+            m.insert(4, (0.0, 50.0));
+            m
+        },
+        solved_profiles: vec![ClosedProfile {
+            entity_ids: vec![1, 2, 3, 4],
+            is_outer: true,
+        }],
     };
 
     Feature {
@@ -549,6 +561,18 @@ fn make_rebuild_compatible_tree() -> FeatureTree {
         ],
         constraints: Vec::new(),
         solve_status: SolveStatus::FullyConstrained,
+        solved_positions: {
+            let mut m = std::collections::HashMap::new();
+            m.insert(1, (0.0, 0.0));
+            m.insert(2, (1.0, 0.0));
+            m.insert(3, (1.0, 1.0));
+            m.insert(4, (0.0, 1.0));
+            m
+        },
+        solved_profiles: vec![ClosedProfile {
+            entity_ids: vec![1, 2, 3, 4],
+            is_outer: true,
+        }],
     };
 
     let sketch_feature = Feature {

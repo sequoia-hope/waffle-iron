@@ -5,12 +5,12 @@
 		setActiveTool,
 		getSketchMode,
 		enterSketchMode,
-		exitSketchMode,
 		undo,
 		redo,
-		send,
 		getSketchSelection,
-		toggleConstruction
+		toggleConstruction,
+		finishSketch,
+		showExtrudeDialog
 	} from '$lib/engine/store.svelte.js';
 	import { resetTool } from '$lib/sketch/tools.js';
 	import { onMount } from 'svelte';
@@ -40,12 +40,15 @@
 	function handleToolClick(toolId) {
 		if (toolId === 'sketch') {
 			if (inSketch) {
-				exitSketchMode();
-				setActiveTool('select');
+				handleFinishSketch();
 			} else {
 				enterSketchMode([0, 0, 0], [0, 0, 1]);
 				setActiveTool('line');
 			}
+			return;
+		}
+		if (toolId === 'extrude' && !inSketch) {
+			showExtrudeDialog();
 			return;
 		}
 		if (toolId === 'construction') {
@@ -63,9 +66,7 @@
 	}
 
 	function handleFinishSketch() {
-		exitSketchMode();
-		setActiveTool('select');
-		send({ type: 'FinishSketch' }).catch(() => {});
+		finishSketch().catch(() => {});
 	}
 
 	onMount(() => {
