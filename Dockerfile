@@ -4,6 +4,8 @@
 FROM ubuntu:24.04
 
 ARG TTYD_VERSION=1.7.7
+ARG NODE_MAJOR=18
+ARG EMSDK_VERSION=latest
 
 # System packages + GitHub CLI + Waffle Iron build dependencies
 RUN apt-get update && apt-get install -y \
@@ -11,6 +13,7 @@ RUN apt-get update && apt-get install -y \
     tmux \
     ca-certificates \
     locales \
+    python3 \
     # C/C++ toolchain (required by slvs crate / libslvs)
     build-essential \
     cmake \
@@ -24,6 +27,11 @@ RUN apt-get update && apt-get install -y \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
        > /etc/apt/sources.list.d/github-cli.list \
     && apt-get update && apt-get install -y gh \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js (for SvelteKit dev server)
+RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
+    && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # UTF-8 locale
@@ -51,12 +59,21 @@ RUN chmod +x /home/$USERNAME/entrypoint.sh
 
 USER $USERNAME
 WORKDIR /home/$USERNAME
-ENV PATH="/home/$USERNAME/.local/bin:/home/$USERNAME/.cargo/bin:$PATH"
+ENV PATH="/home/$USERNAME/.local/bin:/home/$USERNAME/.cargo/bin:/home/$USERNAME/emsdk:/home/$USERNAME/emsdk/upstream/emscripten:$PATH"
+ENV EMSDK="/home/$USERNAME/emsdk"
 
-# Install Rust toolchain
+# Install Rust toolchain + wasm-pack
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
     && . /home/$USERNAME/.cargo/env \
-    && rustup component add clippy rustfmt
+    && rustup component add clippy rustfmt \
+    && rustup target add wasm32-unknown-unknown \
+    && curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+# Install Emscripten SDK (for building libslvs WASM)
+RUN git clone https://github.com/emscripten-core/emsdk.git /home/$USERNAME/emsdk \
+    && cd /home/$USERNAME/emsdk \
+    && ./emsdk install ${EMSDK_VERSION} \
+    && ./emsdk activate ${EMSDK_VERSION}
 
 # Install Claude Code
 RUN curl -fsSL https://claude.ai/install.sh | bash
@@ -64,4 +81,5 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 # Create workspace directory
 RUN mkdir -p /home/$USERNAME/workspace
 
-EXPOSE 7681
+# 7681 = ttyd web terminal, 5173 = Vite dev server
+EXPOSE 7681 5173

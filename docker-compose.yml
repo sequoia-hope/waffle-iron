@@ -6,6 +6,7 @@ services:
     entrypoint: /home/claude/entrypoint.sh
     ports:
       - "${TAILSCALE_IP:?Set TAILSCALE_IP in .env}:7681:7681"
+      - "${TAILSCALE_IP:?Set TAILSCALE_IP in .env}:5173:5173"
     volumes:
       # Mount this repo as the workspace
       - .:/home/claude/workspace
