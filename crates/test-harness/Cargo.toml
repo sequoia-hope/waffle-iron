@@ -1,0 +1,16 @@
+[package]
+name = "test-harness"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+kernel-fork = { path = "../kernel-fork" }
+feature-engine = { path = "../feature-engine" }
+modeling-ops = { path = "../modeling-ops" }
+wasm-bridge = { path = "../wasm-bridge" }
+waffle-types = { path = "../waffle-types" }
+file-format = { path = "../file-format" }
+uuid = { version = "1", features = ["v4"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
