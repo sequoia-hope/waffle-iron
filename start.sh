@@ -52,6 +52,23 @@ HOST_TTYD_PID=$!
 echo "$HOST_TTYD_PID" > "$PID_FILE"
 echo "Control terminal started (PID $HOST_TTYD_PID) on :8081"
 
+# --- Control API (restart buttons on landing page) ---
+API_PID_FILE="/tmp/waffle-iron-control-api.pid"
+
+if [ -f "$API_PID_FILE" ]; then
+    old_pid=$(cat "$API_PID_FILE")
+    if kill -0 "$old_pid" 2>/dev/null; then
+        kill "$old_pid" 2>/dev/null || true
+        sleep 0.3
+    fi
+    rm -f "$API_PID_FILE"
+fi
+
+python3 "$REPO_DIR/control-api.py" "$TAILSCALE_IP" 8084 &
+API_PID=$!
+echo "$API_PID" > "$API_PID_FILE"
+echo "Control API started (PID $API_PID) on :8084"
+
 # --- Docker services ---
 ./run.sh
 
