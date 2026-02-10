@@ -10,7 +10,8 @@
 		getRebuildTime,
 		getSketchEntities,
 		getSketchConstraints,
-		getSketchCursorPos
+		getSketchCursorPos,
+		getSketchSolveStatus
 	} from '$lib/engine/store.svelte.js';
 
 	let error = $derived(getLastError());
@@ -32,9 +33,14 @@
 		return '';
 	});
 
+	let solveStatus = $derived(getSketchSolveStatus());
 	let sketchInfoText = $derived.by(() => {
 		if (!inSketch) return '';
-		return `Entities: ${sketchEntities.length} | Constraints: ${sketchConstraints.length}`;
+		let text = `Entities: ${sketchEntities.length} | Constraints: ${sketchConstraints.length}`;
+		if (solveStatus && solveStatus.dof >= 0) {
+			text += ` | DOF: ${solveStatus.dof}`;
+		}
+		return text;
 	});
 
 	let cursorPos = $derived(getSketchCursorPos());

@@ -74,7 +74,9 @@
 - [x] Document two-module WASM architecture (Rust via wasm-pack + libslvs via Emscripten)
 - [x] Analyze bridge overhead (<0.1ms, negligible vs. solve time)
 - [x] Projected WASM solve times: 2-15ms for 14-301 constraints (within interactive budget)
-- [ ] Prototype Emscripten build (deferred: requires emsdk installation)
+- [x] Emscripten build: slvs.wasm (226KB) + slvs.js (15KB) via em++ with Emscripten 5.0.0
+- [x] JS bridge: slvs-solver.js maps SketchEntity/SketchConstraint to slvs C API structs
+- [x] Worker integration: SolveSketchLocal message type bypasses Rust engine, calls libslvs directly
 
 ## Blockers
 

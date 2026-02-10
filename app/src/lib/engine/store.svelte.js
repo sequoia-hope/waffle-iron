@@ -105,6 +105,23 @@ export async function initEngine() {
 		statusMessage = `Model updated (${meshes.length} ${meshes.length === 1 ? 'body' : 'bodies'})`;
 	});
 
+	bridge.on('sketchSolved', (msg) => {
+		if (msg.positions && msg.status !== 'not_ready' && msg.status !== 'solver_not_ready') {
+			const newPositions = new Map();
+			for (const [id, pos] of Object.entries(msg.positions)) {
+				newPositions.set(Number(id), pos);
+			}
+			sketchPositions = newPositions;
+			reExtractProfiles();
+		}
+		sketchSolveStatus = {
+			status: msg.status,
+			dof: msg.dof ?? -1,
+			failed: msg.failed || [],
+			solveTime: msg.solveTime
+		};
+	});
+
 	bridge.on('error', (msg) => {
 		lastError = msg.message;
 		statusMessage = `Error: ${msg.message}`;
@@ -348,6 +365,8 @@ export function addLocalConstraint(constraint) {
 	if (bridge && engineReady) {
 		bridge.send({ type: 'AddConstraint', constraint }).catch(() => {});
 	}
+
+	triggerSolve();
 }
 
 /**
@@ -365,6 +384,8 @@ export function updateConstraintValue(index, newValue) {
 		c,
 		...sketchConstraints.slice(index + 1)
 	];
+
+	triggerSolve();
 }
 
 /**
@@ -595,6 +616,31 @@ export function getSnapSettings() { return snapSettings; }
  */
 export function updateSnapSettings(updates) {
 	snapSettings = { ...snapSettings, ...updates };
+}
+
+/**
+ * Trigger a constraint solve via the libslvs solver in the worker.
+ * Sends current sketch state to the worker for solving.
+ */
+export function triggerSolve() {
+	if (!bridge || !engineReady) return;
+	if (!sketchMode.active) return;
+	if (sketchEntities.length === 0) return;
+
+	// Serialize positions map to plain object for postMessage
+	const posObj = {};
+	for (const [id, pos] of sketchPositions) {
+		posObj[id] = pos;
+	}
+
+	bridge
+		.send({
+			type: 'SolveSketchLocal',
+			entities: sketchEntities,
+			constraints: sketchConstraints,
+			positions: posObj
+		})
+		.catch(() => {});
 }
 
 // -- Engine commands --

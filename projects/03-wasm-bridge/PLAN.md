@@ -49,17 +49,20 @@
 - [ ] Browser integration test (requires browser environment)
 - [ ] Benchmark: measure transfer time for various mesh sizes (requires browser environment)
 
-### M7: libslvs WASM Module
-- [ ] Emscripten build configuration for libslvs
-- [ ] Load libslvs WASM module in Worker
-- [ ] JS glue code bridging worker ↔ libslvs
-- [ ] Test: solve a simple sketch through the full bridge path
+### M7: libslvs WASM Module ✅
+- [x] Emscripten build: em++ compiles vendored SolveSpace C++ + mimalloc to slvs.wasm (226KB)
+- [x] Worker loads libslvs via fetch+blob dynamic import (bypasses Vite bundling)
+- [x] JS bridge (slvs-solver.js): maps sketch entities/constraints to slvs C API structs on Emscripten heap
+- [x] SolveSketchLocal worker message type: intercepts solve requests, calls libslvs, returns solved positions
+- [x] Store integration: triggerSolve() sends sketch state to worker, handles SketchSolved response
+- [x] DOF counter displayed in status bar
+- [ ] Browser integration test (requires browser environment)
 
 ### M8: Error Propagation (partial) ✅
 - [x] Install console_error_panic_hook (in wasm_api.rs init())
 - [x] Convert EngineError → EngineToUi::Error (via BridgeError in dispatch.rs)
 - [x] Worker-level error forwarding (onerror handler in worker.js)
-- [ ] Convert solver errors → EngineToUi::Error (blocked on M7)
+- [x] Convert solver errors → SketchSolved response with error status (via JS bridge)
 - [x] Tests: dispatch errors verified (undo empty, delete nonexistent, unimplemented)
 
 ### M9: Latency Benchmarking

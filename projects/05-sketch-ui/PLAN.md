@@ -61,7 +61,7 @@
 ### M9: Visual Feedback
 - [x] Color coding: blue (default), yellow (selected), light blue (hovered)
 - [x] Entity/constraint counts in status bar
-- [ ] Full DOF counter (requires solver — currently NotImplemented in WASM)
+- [x] Full DOF counter (libslvs WASM solver integrated — DOF shown in status bar)
 - [x] Failed constraint highlighting (over-constrained entities shown in red)
 - [x] Construction geometry dashed display (done in M11)
 
@@ -104,10 +104,7 @@
 
 ## Blockers
 
-- SolveSketch returns NotImplemented in WASM (libslvs C++ can't compile to wasm32)
-  - Entities/constraints accumulate correctly and are sent to engine
-  - UI uses as-placed positions; solver would update positions when available
-  - Profile extraction uses client-side JS implementation (bypasses solver)
+(None — libslvs WASM solver now integrated via Emscripten build)
 
 ## Interface Change Requests
 
