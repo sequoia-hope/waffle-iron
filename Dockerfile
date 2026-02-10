@@ -57,6 +57,7 @@ COPY --chown=$USERNAME:$USERNAME claude-remote/tmux.conf /home/$USERNAME/.tmux.c
 COPY --chown=$USERNAME:$USERNAME claude-remote/entrypoint.sh /home/$USERNAME/entrypoint.sh
 COPY --chown=$USERNAME:$USERNAME claude-remote/setup-keyboard.sh /home/$USERNAME/setup-keyboard.sh
 COPY --chown=$USERNAME:$USERNAME claude-remote/keyboard-bar.html /home/$USERNAME/keyboard-bar.html
+COPY --chown=$USERNAME:$USERNAME claude-remote/ws-proxy.html /home/$USERNAME/ws-proxy.html
 RUN chmod +x /home/$USERNAME/entrypoint.sh /home/$USERNAME/setup-keyboard.sh
 
 USER $USERNAME
@@ -83,5 +84,5 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 # Create workspace directory
 RUN mkdir -p /home/$USERNAME/workspace
 
-# 7681 = ttyd web terminal, 5173 = Vite dev server
+# 7681 = ttyd web terminal (mapped to 8082 externally), 5173 = Vite dev server (mapped to 8083)
 EXPOSE 7681 5173

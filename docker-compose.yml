@@ -5,8 +5,8 @@ services:
     restart: unless-stopped
     entrypoint: /home/claude/entrypoint.sh
     ports:
-      - "${TAILSCALE_IP:?Set TAILSCALE_IP in .env}:7681:7681"
-      - "${TAILSCALE_IP:?Set TAILSCALE_IP in .env}:5173:5173"
+      - "${TAILSCALE_IP:?Set TAILSCALE_IP in .env}:8082:7681"
+      - "${TAILSCALE_IP:?Set TAILSCALE_IP in .env}:8083:5173"
     volumes:
       # Mount this repo as the workspace
       - .:/home/claude/workspace
@@ -28,6 +28,16 @@ services:
       - GH_TOKEN=${GH_TOKEN:-}
       - WORKSPACE=/home/claude/workspace
       - SESSION_NAME=${SESSION_NAME:-waffle-iron}
+
+  landing-page:
+    image: nginx:alpine
+    container_name: waffle-iron-landing
+    restart: unless-stopped
+    ports:
+      - "${TAILSCALE_IP:?Set TAILSCALE_IP in .env}:8080:80"
+    volumes:
+      - ./claude-remote/landing/index.html:/usr/share/nginx/html/index.html:ro
+      - ./claude-remote/landing/nginx.conf:/etc/nginx/conf.d/default.conf:ro
 
 volumes:
   cargo-registry:
