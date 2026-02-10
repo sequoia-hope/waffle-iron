@@ -96,7 +96,7 @@ fn execute_feature(
             let _sketch_result = find_sketch_result(params.sketch_id, feature_results)?;
             let sketch = find_sketch_in_tree(params.sketch_id, tree)?;
 
-            let direction = params.direction.unwrap_or([0.0, 0.0, 1.0]);
+            let direction = params.direction.unwrap_or(sketch.plane_normal);
 
             if sketch.solved_profiles.is_empty() {
                 return Err(EngineError::ProfileOutOfRange {
@@ -111,13 +111,12 @@ fn execute_feature(
                 });
             }
 
-            // TODO: derive origin/normal/x_axis from sketch plane GeomRef
-            // For now, sketches are always on XY plane.
+            let x_axis = tangent_x_from_normal(sketch.plane_normal);
             let face_ids = kb.make_faces_from_profiles(
                 &sketch.solved_profiles,
-                [0.0, 0.0, 0.0],
-                [0.0, 0.0, 1.0],
-                [1.0, 0.0, 0.0],
+                sketch.plane_origin,
+                sketch.plane_normal,
+                x_axis,
                 &sketch.solved_positions,
             )?;
 
@@ -150,11 +149,12 @@ fn execute_feature(
                 });
             }
 
+            let x_axis = tangent_x_from_normal(sketch.plane_normal);
             let face_ids = kb.make_faces_from_profiles(
                 &sketch.solved_profiles,
-                [0.0, 0.0, 0.0],
-                [0.0, 0.0, 1.0],
-                [1.0, 0.0, 0.0],
+                sketch.plane_origin,
+                sketch.plane_normal,
+                x_axis,
                 &sketch.solved_positions,
             )?;
 
@@ -329,6 +329,26 @@ fn find_solid_handle(
             output_key, feature_id
         ),
     })
+}
+
+/// Compute a tangent X axis from a plane normal.
+/// Picks an arbitrary perpendicular vector, avoiding near-parallel with the normal.
+fn tangent_x_from_normal(n: [f64; 3]) -> [f64; 3] {
+    let up = if n[0].abs() < 0.9 {
+        [1.0, 0.0, 0.0]
+    } else {
+        [0.0, 1.0, 0.0]
+    };
+    let cx = [
+        n[1] * up[2] - n[2] * up[1],
+        n[2] * up[0] - n[0] * up[2],
+        n[0] * up[1] - n[1] * up[0],
+    ];
+    let len = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
+    if len < 1e-12 {
+        return [1.0, 0.0, 0.0];
+    }
+    [cx[0] / len, cx[1] / len, cx[2] / len]
 }
 
 /// Resolve all GeomRef references for a feature, collecting warnings.

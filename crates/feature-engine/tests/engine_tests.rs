@@ -26,6 +26,8 @@ fn make_sketch_op() -> Operation {
             },
             policy: ResolvePolicy::Strict,
         },
+        plane_origin: [0.0, 0.0, 0.0],
+        plane_normal: [0.0, 0.0, 1.0],
         entities: vec![
             SketchEntity::Point {
                 id: 1,

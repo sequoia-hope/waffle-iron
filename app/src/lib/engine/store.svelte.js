@@ -79,6 +79,9 @@ let overConstrainedEntities = $state(new Set());
 /** @type {{ sketchId: string, sketchName: string, profileCount: number } | null} */
 let extrudeDialogState = $state(null);
 
+/** @type {{ sketchId: string, sketchName: string, profileCount: number } | null} */
+let revolveDialogState = $state(null);
+
 /** Configurable snap thresholds */
 let snapSettings = $state({
 	coincidentPx: 8,
@@ -674,6 +677,122 @@ export async function applyExtrude(depth, profileIndex) {
 	extrudeDialogState = null;
 }
 
+// -- Revolve dialog --
+
+export function getRevolveDialogState() { return revolveDialogState; }
+
+/**
+ * Show the revolve dialog. Auto-selects the last sketch in the feature tree.
+ */
+export function showRevolveDialog() {
+	const tree = featureTree;
+	if (!tree || !tree.features) return;
+
+	let lastSketch = null;
+	for (let i = tree.features.length - 1; i >= 0; i--) {
+		const f = tree.features[i];
+		if (f.operation?.type === 'Sketch') {
+			lastSketch = f;
+			break;
+		}
+	}
+
+	if (!lastSketch) return;
+
+	const profileCount = lastSketch.operation?.sketch?.solved_profiles?.length ?? 0;
+	revolveDialogState = {
+		sketchId: lastSketch.id,
+		sketchName: lastSketch.name,
+		profileCount
+	};
+}
+
+export function hideRevolveDialog() {
+	revolveDialogState = null;
+}
+
+/**
+ * Apply a revolve operation from the dialog.
+ * @param {number} angleDeg - angle in degrees
+ * @param {[number,number,number]} axisOrigin
+ * @param {[number,number,number]} axisDir
+ * @param {number} profileIndex
+ */
+export async function applyRevolve(angleDeg, axisOrigin, axisDir, profileIndex) {
+	if (!revolveDialogState || !bridge || !engineReady) return;
+
+	const angleRad = angleDeg * Math.PI / 180;
+
+	await bridge.send({
+		type: 'AddFeature',
+		operation: {
+			type: 'Revolve',
+			params: {
+				sketch_id: revolveDialogState.sketchId,
+				profile_index: profileIndex,
+				axis_origin: axisOrigin,
+				axis_direction: axisDir,
+				angle: angleRad
+			}
+		}
+	});
+
+	revolveDialogState = null;
+}
+
+// -- Sketch-on-face: compute face plane from mesh data --
+
+/**
+ * Compute the plane (origin + normal) for a face GeomRef from mesh triangle data.
+ * @param {any} geomRef
+ * @returns {{ origin: [number,number,number], normal: [number,number,number] } | null}
+ */
+export function computeFacePlane(geomRef) {
+	if (!geomRef) return null;
+
+	for (const mesh of meshes) {
+		if (!mesh.faceRanges) continue;
+		for (const range of mesh.faceRanges) {
+			if (!range.geom_ref) continue;
+			if (!geomRefEquals(range.geom_ref, geomRef)) continue;
+
+			// Get first triangle from this face range
+			const triStart = range.start_index * 3;
+			if (triStart + 2 >= mesh.indices.length) continue;
+
+			const i0 = mesh.indices[triStart];
+			const i1 = mesh.indices[triStart + 1];
+			const i2 = mesh.indices[triStart + 2];
+
+			const v0 = [mesh.vertices[i0 * 3], mesh.vertices[i0 * 3 + 1], mesh.vertices[i0 * 3 + 2]];
+			const v1 = [mesh.vertices[i1 * 3], mesh.vertices[i1 * 3 + 1], mesh.vertices[i1 * 3 + 2]];
+			const v2 = [mesh.vertices[i2 * 3], mesh.vertices[i2 * 3 + 1], mesh.vertices[i2 * 3 + 2]];
+
+			// edge vectors
+			const e1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
+			const e2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
+
+			// cross product
+			const nx = e1[1] * e2[2] - e1[2] * e2[1];
+			const ny = e1[2] * e2[0] - e1[0] * e2[2];
+			const nz = e1[0] * e2[1] - e1[1] * e2[0];
+			const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+			if (len < 1e-12) continue;
+
+			const normal = /** @type {[number,number,number]} */ ([nx / len, ny / len, nz / len]);
+			const origin = /** @type {[number,number,number]} */ ([
+				(v0[0] + v1[0] + v2[0]) / 3,
+				(v0[1] + v1[1] + v2[1]) / 3,
+				(v0[2] + v1[2] + v2[2]) / 3
+			]);
+
+			return { origin, normal };
+		}
+	}
+
+	return null;
+}
+
 /**
  * Finish the active sketch, sending solved positions and profiles to the engine.
  * Returns the sketch feature info (for optional extrude dialog follow-up).
@@ -695,13 +814,19 @@ export async function finishSketch() {
 
 	const profileCount = profiles.length;
 
+	// Capture plane geometry before exiting sketch mode
+	const planeOrigin = sketchMode.origin;
+	const planeNormal = sketchMode.normal;
+
 	exitSketchMode();
 	setActiveTool('select');
 
 	await bridge.send({
 		type: 'FinishSketch',
 		solved_positions: posObj,
-		solved_profiles: profiles
+		solved_profiles: profiles,
+		plane_origin: planeOrigin,
+		plane_normal: planeNormal
 	});
 
 	return { profileCount };

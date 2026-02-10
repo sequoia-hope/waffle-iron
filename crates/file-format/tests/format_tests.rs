@@ -29,6 +29,8 @@ fn make_sketch_feature(name: &str) -> Feature {
     let sketch = Sketch {
         id: Uuid::new_v4(),
         plane: plane_ref,
+        plane_origin: [0.0, 0.0, 0.0],
+        plane_normal: [0.0, 0.0, 1.0],
         entities: vec![
             SketchEntity::Point {
                 id: 1,
@@ -533,6 +535,8 @@ fn make_rebuild_compatible_tree() -> FeatureTree {
     let sketch = Sketch {
         id: sketch_feature_id, // Same as the Feature.id
         plane: plane_ref,
+        plane_origin: [0.0, 0.0, 0.0],
+        plane_normal: [0.0, 0.0, 1.0],
         entities: vec![
             SketchEntity::Point {
                 id: 1,

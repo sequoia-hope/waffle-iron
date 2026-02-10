@@ -86,6 +86,8 @@ impl EngineState {
         Ok(Sketch {
             id: uuid::Uuid::new_v4(),
             plane: active.plane.clone(),
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
             entities: active.entities.clone(),
             constraints: active.constraints.clone(),
             solve_status: active.solve_status.clone(),
@@ -95,15 +97,19 @@ impl EngineState {
     }
 
     /// Finish the active sketch and commit it as a feature.
-    /// Accepts solved positions and profiles from the JS-side solver.
+    /// Accepts solved positions, profiles, and plane geometry from the JS-side solver.
     pub fn finish_sketch(
         &mut self,
         solved_positions: HashMap<u32, (f64, f64)>,
         solved_profiles: Vec<ClosedProfile>,
+        plane_origin: [f64; 3],
+        plane_normal: [f64; 3],
     ) -> Result<Sketch, BridgeError> {
         let mut sketch = self.build_sketch()?;
         sketch.solved_positions = solved_positions;
         sketch.solved_profiles = solved_profiles;
+        sketch.plane_origin = plane_origin;
+        sketch.plane_normal = plane_normal;
         self.active_sketch = None;
         Ok(sketch)
     }

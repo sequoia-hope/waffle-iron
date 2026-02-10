@@ -65,8 +65,15 @@ fn handle_message(
         UiToEngine::FinishSketch {
             solved_positions,
             solved_profiles,
+            plane_origin,
+            plane_normal,
         } => {
-            let sketch = state.finish_sketch(solved_positions, solved_profiles)?;
+            let sketch = state.finish_sketch(
+                solved_positions,
+                solved_profiles,
+                plane_origin,
+                plane_normal,
+            )?;
             let op = Operation::Sketch { sketch };
             state.engine.add_feature("Sketch".to_string(), op, kb)?;
             Ok(model_updated_response(state))

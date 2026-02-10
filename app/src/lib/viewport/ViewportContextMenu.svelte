@@ -3,7 +3,8 @@
 		getSelectedRefs,
 		getSketchMode,
 		enterSketchMode,
-		isEngineReady
+		isEngineReady,
+		computeFacePlane
 	} from '$lib/engine/store.svelte.js';
 
 	let { visible = $bindable(false), pos = $bindable({ x: 0, y: 0 }) } = $props();
@@ -23,6 +24,15 @@
 	}
 
 	function handleNewSketch() {
+		const refs = getSelectedRefs();
+		if (refs.length > 0) {
+			const plane = computeFacePlane(refs[0]);
+			if (plane) {
+				enterSketchMode(plane.origin, plane.normal);
+				visible = false;
+				return;
+			}
+		}
 		enterSketchMode([0, 0, 0], [0, 0, 1]);
 		visible = false;
 	}

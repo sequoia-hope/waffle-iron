@@ -27,6 +27,8 @@ fn make_sketch_op() -> Operation {
             },
             policy: ResolvePolicy::Strict,
         },
+        plane_origin: [0.0, 0.0, 0.0],
+        plane_normal: [0.0, 0.0, 1.0],
         entities: vec![
             SketchEntity::Point {
                 id: 1,
@@ -311,7 +313,12 @@ fn engine_state_sketch_workflow() {
 
     // Finish sketch
     let sketch = state
-        .finish_sketch(std::collections::HashMap::new(), Vec::new())
+        .finish_sketch(
+            std::collections::HashMap::new(),
+            Vec::new(),
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+        )
         .unwrap();
     assert_eq!(sketch.entities.len(), 1);
     assert_eq!(sketch.constraints.len(), 1);
@@ -330,7 +337,12 @@ fn engine_state_no_sketch_errors() {
     });
     assert!(result.is_err());
 
-    let result = state.finish_sketch(std::collections::HashMap::new(), Vec::new());
+    let result = state.finish_sketch(
+        std::collections::HashMap::new(),
+        Vec::new(),
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+    );
     assert!(result.is_err());
 }
 
@@ -553,6 +565,8 @@ fn dispatch_full_sketch_workflow() {
         UiToEngine::FinishSketch {
             solved_positions: std::collections::HashMap::new(),
             solved_profiles: Vec::new(),
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
         },
         &mut kernel,
     );
@@ -633,6 +647,8 @@ fn dispatch_sketch_then_extrude_produces_solid() {
         UiToEngine::FinishSketch {
             solved_positions,
             solved_profiles,
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
         },
         &mut kernel,
     );
@@ -666,6 +682,8 @@ fn make_sketch_operation() -> Operation {
         sketch: Sketch {
             id: Uuid::new_v4(),
             plane: make_geom_ref(),
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
             entities: Vec::new(),
             constraints: Vec::new(),
             solve_status: SolveStatus::FullyConstrained,

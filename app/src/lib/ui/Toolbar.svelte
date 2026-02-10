@@ -10,7 +10,8 @@
 		getSketchSelection,
 		toggleConstruction,
 		finishSketch,
-		showExtrudeDialog
+		showExtrudeDialog,
+		showRevolveDialog
 	} from '$lib/engine/store.svelte.js';
 	import { resetTool } from '$lib/sketch/tools.js';
 	import { onMount } from 'svelte';
@@ -49,6 +50,10 @@
 		}
 		if (toolId === 'extrude' && !inSketch) {
 			showExtrudeDialog();
+			return;
+		}
+		if (toolId === 'revolve' && !inSketch) {
+			showRevolveDialog();
 			return;
 		}
 		if (toolId === 'construction') {

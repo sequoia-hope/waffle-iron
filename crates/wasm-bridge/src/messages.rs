@@ -37,6 +37,14 @@ mod u32_key_map {
     }
 }
 
+fn default_origin() -> [f64; 3] {
+    [0.0, 0.0, 0.0]
+}
+
+fn default_normal() -> [f64; 3] {
+    [0.0, 0.0, 1.0]
+}
+
 /// Messages from the UI (JavaScript main thread) to the engine (WASM Worker).
 /// Serialized as JSON for postMessage transfer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,6 +71,10 @@ pub enum UiToEngine {
         solved_positions: HashMap<u32, (f64, f64)>,
         #[serde(default)]
         solved_profiles: Vec<ClosedProfile>,
+        #[serde(default = "default_origin")]
+        plane_origin: [f64; 3],
+        #[serde(default = "default_normal")]
+        plane_normal: [f64; 3],
     },
 
     // -- Feature operations --

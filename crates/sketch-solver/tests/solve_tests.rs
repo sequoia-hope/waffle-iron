@@ -21,6 +21,8 @@ fn make_sketch(entities: Vec<SketchEntity>, constraints: Vec<SketchConstraint>) 
     Sketch {
         id: Uuid::new_v4(),
         plane: dummy_geom_ref(),
+        plane_origin: [0.0, 0.0, 0.0],
+        plane_normal: [0.0, 0.0, 1.0],
         entities,
         constraints,
         solve_status: SolveStatus::UnderConstrained { dof: 99 },

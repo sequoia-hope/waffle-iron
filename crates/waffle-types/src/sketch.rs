@@ -43,6 +43,12 @@ pub struct Sketch {
     pub id: Uuid,
     /// The plane this sketch lies on, referenced via GeomRef.
     pub plane: GeomRef,
+    /// Origin of the sketch plane in 3D world space.
+    #[serde(default = "default_origin")]
+    pub plane_origin: [f64; 3],
+    /// Normal of the sketch plane in 3D world space.
+    #[serde(default = "default_normal")]
+    pub plane_normal: [f64; 3],
     /// Geometric entities in this sketch.
     pub entities: Vec<SketchEntity>,
     /// Constraints between entities.
@@ -55,6 +61,14 @@ pub struct Sketch {
     /// Closed profiles extracted from the solved geometry.
     #[serde(default)]
     pub solved_profiles: Vec<ClosedProfile>,
+}
+
+fn default_origin() -> [f64; 3] {
+    [0.0, 0.0, 0.0]
+}
+
+fn default_normal() -> [f64; 3] {
+    [0.0, 0.0, 1.0]
 }
 
 /// A geometric entity in a sketch.
