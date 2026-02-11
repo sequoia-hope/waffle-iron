@@ -1,0 +1,29 @@
+[
+	{
+		"action": "click",
+		"params": [400, 300],
+		"comment": "First click selects front face"
+	},
+	{
+		"action": "wait",
+		"params": [200]
+	},
+	{
+		"action": "click",
+		"params": [400, 300],
+		"comment": "Second click at same position cycles to next face"
+	},
+	{
+		"action": "wait",
+		"params": [200]
+	},
+	{
+		"action": "click",
+		"params": [400, 300],
+		"comment": "Third click cycles further"
+	},
+	{
+		"action": "wait",
+		"params": [200]
+	}
+]

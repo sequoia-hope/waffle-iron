@@ -89,6 +89,24 @@ let snapSettings = $state({
 	hvAngleDeg: 3
 });
 
+// -- Camera state refs (set by CameraControls) --
+
+/** @type {import('three').PerspectiveCamera | null} */
+let cameraObject = null;
+
+/** @type {any | null} OrbitControls ref */
+let controlsObject = null;
+
+// -- Box selection state --
+
+/** @type {{ active: boolean, startX: number, startY: number, endX: number, endY: number, mode: 'window'|'crossing' }} */
+let boxSelectState = $state({ active: false, startX: 0, startY: 0, endX: 0, endY: 0, mode: 'window' });
+
+// -- Select Other cycle state --
+
+/** @type {{ intersections: Array<any>, cycleIndex: number, lastScreenX: number, lastScreenY: number }} */
+let selectOtherState = $state({ intersections: [], cycleIndex: 0, lastScreenX: -1, lastScreenY: -1 });
+
 /** @type {EngineBridge | null} */
 let bridge = null;
 
@@ -181,31 +199,19 @@ export async function initEngine() {
 			saveProject: () => saveProject(),
 			loadProject: (jsonData) => loadProject(jsonData),
 			exportStl: () => exportStl(),
-			getCameraState: () => {
-				const canvas = document.querySelector('canvas');
-				if (!canvas) return null;
-				// Read camera from three.js scene via the global renderer
-				try {
-					const threeCanvas = canvas;
-					// Access three.js internals through __r3f if available, otherwise scan for camera
-					const cam = threeCanvas.__three_camera;
-					if (cam) {
-						return {
-							position: [cam.position.x, cam.position.y, cam.position.z],
-							target: cam.__orbitTarget ? [cam.__orbitTarget.x, cam.__orbitTarget.y, cam.__orbitTarget.z] : null,
-							fov: cam.fov,
-						};
-					}
-				} catch (_) {}
-				return null;
-			},
+			getCameraState: () => getCameraState(),
 			getConstraints: () => [...sketchConstraints],
 			getProfiles: () => [...extractedProfilesState],
 			getExtrudeDialogState: () => extrudeDialogState,
 			getRevolveDialogState: () => revolveDialogState,
 			getSelectedRefs: () => [...selectedRefs],
+			getHoveredRef: () => hoveredRef,
 			selectRef: (ref, additive) => selectRef(ref, additive),
 			clearSelection: () => clearSelection(),
+			setHoveredRef: (ref) => setHoveredRef(ref),
+			getBoxSelectState: () => ({ ...boxSelectState }),
+			getSelectOtherState: () => ({ ...selectOtherState }),
+			getRebuildTime: () => rebuildTime,
 		};
 	}
 }
@@ -946,6 +952,71 @@ export async function finishSketch() {
 	});
 
 	return { profileCount };
+}
+
+// -- Camera state accessors (used by CameraControls and __waffle) --
+
+/**
+ * Store camera and controls references. Called by CameraControls on mount.
+ * @param {import('three').PerspectiveCamera} camera
+ * @param {any} controls - OrbitControls instance
+ */
+export function setCameraRefs(camera, controls) {
+	cameraObject = camera;
+	controlsObject = controls;
+}
+
+/**
+ * Get camera state for tests and external access.
+ * @returns {{ position: number[], target: number[], fov: number, up: number[] } | null}
+ */
+export function getCameraState() {
+	if (!cameraObject) return null;
+	const pos = cameraObject.position;
+	const up = cameraObject.up;
+	const target = controlsObject?.target;
+	return {
+		position: [pos.x, pos.y, pos.z],
+		target: target ? [target.x, target.y, target.z] : [0, 0, 0],
+		fov: cameraObject.fov,
+		up: [up.x, up.y, up.z],
+	};
+}
+
+/**
+ * Get the camera object directly (for raycasting, zoom-to-cursor, etc.)
+ * @returns {import('three').PerspectiveCamera | null}
+ */
+export function getCameraObject() {
+	return cameraObject;
+}
+
+/**
+ * Get the OrbitControls instance directly.
+ * @returns {any | null}
+ */
+export function getControlsObject() {
+	return controlsObject;
+}
+
+// -- Box selection state --
+
+export function getBoxSelectState() { return boxSelectState; }
+/**
+ * @param {Partial<typeof boxSelectState>} updates
+ */
+export function setBoxSelectState(updates) {
+	boxSelectState = { ...boxSelectState, ...updates };
+}
+
+// -- Select Other state --
+
+export function getSelectOtherState() { return selectOtherState; }
+/**
+ * @param {Partial<typeof selectOtherState>} updates
+ */
+export function setSelectOtherState(updates) {
+	selectOtherState = { ...selectOtherState, ...updates };
 }
 
 export function getSnapSettings() { return snapSettings; }

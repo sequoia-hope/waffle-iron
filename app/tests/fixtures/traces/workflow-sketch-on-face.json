@@ -1,0 +1,20 @@
+[
+	{
+		"action": "click",
+		"params": [400, 300],
+		"comment": "Select front face of test box"
+	},
+	{
+		"action": "wait",
+		"params": [300]
+	},
+	{
+		"action": "click",
+		"params": [400, 50],
+		"comment": "Click sketch toolbar to start sketch on selected face"
+	},
+	{
+		"action": "wait",
+		"params": [500]
+	}
+]

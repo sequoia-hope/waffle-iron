@@ -1,0 +1,34 @@
+[
+	{
+		"action": "click",
+		"params": [400, 50],
+		"comment": "Click sketch toolbar button (approximate)"
+	},
+	{
+		"action": "wait",
+		"params": [500]
+	},
+	{
+		"action": "click",
+		"params": [440, 50],
+		"comment": "Click circle tool button (approximate)"
+	},
+	{
+		"action": "wait",
+		"params": [200]
+	},
+	{
+		"action": "click",
+		"params": [400, 300],
+		"comment": "Circle center"
+	},
+	{
+		"action": "click",
+		"params": [440, 300],
+		"comment": "Circle edge (radius = 40px)"
+	},
+	{
+		"action": "wait",
+		"params": [200]
+	}
+]

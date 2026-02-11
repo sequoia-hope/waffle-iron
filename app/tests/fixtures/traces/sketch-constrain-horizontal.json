@@ -1,0 +1,35 @@
+[
+	{
+		"action": "click",
+		"params": [400, 50],
+		"comment": "Click sketch toolbar button"
+	},
+	{
+		"action": "wait",
+		"params": [500]
+	},
+	{
+		"action": "click",
+		"params": [400, 50],
+		"comment": "Click line tool"
+	},
+	{
+		"action": "wait",
+		"params": [200]
+	},
+	{
+		"action": "click",
+		"params": [350, 300],
+		"comment": "First point"
+	},
+	{
+		"action": "click",
+		"params": [450, 310],
+		"comment": "Second point (nearly horizontal)"
+	},
+	{
+		"action": "wait",
+		"params": [200],
+		"comment": "Line drawn, constraint auto-applied if close enough to horizontal"
+	}
+]

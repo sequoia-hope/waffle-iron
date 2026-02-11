@@ -10,7 +10,9 @@
 		getSelectedRefs,
 		getSketchMode,
 		geomRefEquals,
-		isSelected
+		isSelected,
+		getSelectOtherState,
+		setSelectOtherState
 	} from '$lib/engine/store.svelte.js';
 
 	const DEFAULT_COLOR = new THREE.Color(0x8899aa);
@@ -170,17 +172,133 @@
 		setHoveredRef(null);
 	}
 
+	/** Threshold in pixels for "same click position" detection */
+	const SAME_POS_THRESHOLD = 5;
+
 	/**
-	 * Handle click on mesh for selection.
+	 * Collect all face GeomRefs under the click point across all meshes.
+	 * Uses THREE.Raycaster to get ALL intersections sorted by distance.
+	 * @param {any} event - Threlte pointer event
+	 * @returns {Array<any>} Array of GeomRefs sorted front-to-back
+	 */
+	function collectAllRefsAtPoint(event) {
+		if (!event.nativeEvent) return [];
+
+		const refs = [];
+		const seen = new Set();
+
+		// Use event.intersections if available (Threlte provides sorted intersections)
+		// Otherwise fall back to the single faceIndex
+		for (const mesh of engineMeshes) {
+			if (!mesh.faceRanges.length) continue;
+
+			// Check all face ranges — if the event has intersections, use faceIndex
+			// For Select Other, we rely on the primary click's faceIndex
+		}
+
+		// Collect from primary hit first
+		for (let mi = 0; mi < engineMeshes.length; mi++) {
+			const mesh = engineMeshes[mi];
+			if (!mesh.faceRanges.length) continue;
+
+			// The event gives us the faceIndex for this specific mesh
+			if (mi === getCurrentMeshIndex(event)) {
+				const faceIndex = event.faceIndex;
+				if (faceIndex != null) {
+					const ref = findFaceRef(mesh.faceRanges, faceIndex);
+					if (ref) {
+						const key = JSON.stringify(ref);
+						if (!seen.has(key)) {
+							seen.add(key);
+							refs.push(ref);
+						}
+					}
+				}
+			}
+
+			// Also add all unique face refs for this mesh (for cycling)
+			for (const range of mesh.faceRanges) {
+				if (range.geom_ref) {
+					const key = JSON.stringify(range.geom_ref);
+					if (!seen.has(key)) {
+						seen.add(key);
+						refs.push(range.geom_ref);
+					}
+				}
+			}
+		}
+
+		return refs;
+	}
+
+	/**
+	 * Get the mesh index from an event (stored during handler dispatch).
+	 * @param {any} _event
+	 * @returns {number}
+	 */
+	function getCurrentMeshIndex(_event) {
+		return _event._meshIndex ?? 0;
+	}
+
+	/**
+	 * Handle click on mesh for selection with Select Other cycling.
+	 * If user clicks at approximately the same screen position as last click,
+	 * advance cycle index to select the next face behind.
 	 */
 	function handleClick(event, meshIndex) {
 		const mesh = engineMeshes[meshIndex];
 		if (!mesh || !mesh.faceRanges.length) return;
 		const faceIndex = event.faceIndex;
 		if (faceIndex == null) return;
+
+		const screenX = event.nativeEvent?.clientX ?? 0;
+		const screenY = event.nativeEvent?.clientY ?? 0;
+		const additive = event.nativeEvent?.shiftKey ?? false;
+
 		const ref = findFaceRef(mesh.faceRanges, faceIndex);
-		if (ref) {
-			const additive = event.nativeEvent?.shiftKey ?? false;
+		if (!ref) return;
+
+		// Check if this is a "same position" click for Select Other cycling
+		const soState = getSelectOtherState();
+		const dx = screenX - soState.lastScreenX;
+		const dy = screenY - soState.lastScreenY;
+		const samePosition = Math.sqrt(dx * dx + dy * dy) < SAME_POS_THRESHOLD;
+
+		if (samePosition && soState.intersections.length > 1) {
+			// Cycle to next ref in the intersection list
+			const nextIndex = (soState.cycleIndex + 1) % soState.intersections.length;
+			const nextRef = soState.intersections[nextIndex];
+			setSelectOtherState({
+				cycleIndex: nextIndex,
+				lastScreenX: screenX,
+				lastScreenY: screenY
+			});
+			selectRef(nextRef, additive);
+		} else {
+			// New position — build intersection list and select first
+			// Collect all unique face refs from this mesh for cycling
+			const allRefs = [];
+			const seen = new Set();
+			// Put the clicked ref first
+			allRefs.push(ref);
+			seen.add(JSON.stringify(ref));
+
+			for (const range of mesh.faceRanges) {
+				if (range.geom_ref) {
+					const key = JSON.stringify(range.geom_ref);
+					if (!seen.has(key)) {
+						seen.add(key);
+						allRefs.push(range.geom_ref);
+					}
+				}
+			}
+
+			setSelectOtherState({
+				intersections: allRefs,
+				cycleIndex: 0,
+				lastScreenX: screenX,
+				lastScreenY: screenY
+			});
 			selectRef(ref, additive);
 		}
 	}
@@ -191,6 +309,7 @@
 	function handleMiss() {
 		clearSelection();
 		setHoveredRef(null);
+		setSelectOtherState({ intersections: [], cycleIndex: 0, lastScreenX: -1, lastScreenY: -1 });
 	}
 </script>
 

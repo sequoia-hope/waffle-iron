@@ -1,0 +1,38 @@
+[
+	{
+		"action": "wheel",
+		"params": [400, 300, -200],
+		"comment": "Zoom in toward model"
+	},
+	{
+		"action": "wait",
+		"params": [300]
+	},
+	{
+		"action": "click",
+		"params": [400, 300],
+		"comment": "Select a face"
+	},
+	{
+		"action": "wait",
+		"params": [200]
+	},
+	{
+		"action": "wheel",
+		"params": [400, 300, 200],
+		"comment": "Zoom out"
+	},
+	{
+		"action": "wait",
+		"params": [300]
+	},
+	{
+		"action": "click",
+		"params": [100, 100],
+		"comment": "Click empty space to deselect"
+	},
+	{
+		"action": "wait",
+		"params": [200]
+	}
+]

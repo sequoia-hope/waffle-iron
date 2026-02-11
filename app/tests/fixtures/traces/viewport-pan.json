@@ -1,0 +1,16 @@
+[
+	{
+		"action": "key",
+		"params": ["Shift"],
+		"comment": "Hold shift for pan mode context"
+	},
+	{
+		"action": "drag",
+		"params": [400, 300, 350, 250],
+		"comment": "Pan the camera"
+	},
+	{
+		"action": "wait",
+		"params": [200]
+	}
+]

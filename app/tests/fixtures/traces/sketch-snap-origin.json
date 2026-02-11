@@ -1,0 +1,34 @@
+[
+	{
+		"action": "click",
+		"params": [400, 50],
+		"comment": "Click sketch toolbar button"
+	},
+	{
+		"action": "wait",
+		"params": [500]
+	},
+	{
+		"action": "click",
+		"params": [400, 50],
+		"comment": "Click line tool"
+	},
+	{
+		"action": "wait",
+		"params": [200]
+	},
+	{
+		"action": "click",
+		"params": [400, 300],
+		"comment": "Click near origin (should snap)"
+	},
+	{
+		"action": "click",
+		"params": [500, 300],
+		"comment": "End point"
+	},
+	{
+		"action": "wait",
+		"params": [200]
+	}
+]

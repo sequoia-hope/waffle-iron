@@ -1,0 +1,11 @@
+[
+	{
+		"action": "drag",
+		"params": [300, 200, 500, 400],
+		"comment": "Left-to-right drag for window selection (fully enclosed)"
+	},
+	{
+		"action": "wait",
+		"params": [300]
+	}
+]

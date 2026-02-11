@@ -1,0 +1,20 @@
+[
+	{
+		"action": "drag",
+		"params": [400, 300, 600, 400],
+		"comment": "Orbit away from default"
+	},
+	{
+		"action": "wait",
+		"params": [200]
+	},
+	{
+		"action": "key",
+		"params": ["f"],
+		"comment": "Fit-all key"
+	},
+	{
+		"action": "wait",
+		"params": [500]
+	}
+]

@@ -1,0 +1,35 @@
+[
+	{
+		"action": "click",
+		"params": [400, 50],
+		"comment": "Click sketch toolbar button (approximate)"
+	},
+	{
+		"action": "wait",
+		"params": [500],
+		"comment": "Wait for sketch mode activation"
+	},
+	{
+		"action": "click",
+		"params": [400, 50],
+		"comment": "Click line tool button (approximate)"
+	},
+	{
+		"action": "wait",
+		"params": [200]
+	},
+	{
+		"action": "click",
+		"params": [350, 300],
+		"comment": "First line point"
+	},
+	{
+		"action": "click",
+		"params": [450, 250],
+		"comment": "Second line point"
+	},
+	{
+		"action": "wait",
+		"params": [200]
+	}
+]

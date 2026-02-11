@@ -1,0 +1,20 @@
+[
+	{
+		"action": "click",
+		"params": [400, 300],
+		"comment": "Click on center face of test box"
+	},
+	{
+		"action": "wait",
+		"params": [200]
+	},
+	{
+		"action": "click",
+		"params": [400, 300],
+		"comment": "Click same position (select other cycle)"
+	},
+	{
+		"action": "wait",
+		"params": [200]
+	}
+]

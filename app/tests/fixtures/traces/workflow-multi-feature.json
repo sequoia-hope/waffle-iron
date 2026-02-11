@@ -1,0 +1,52 @@
+[
+	{
+		"action": "click",
+		"params": [400, 50],
+		"comment": "Click sketch toolbar button"
+	},
+	{
+		"action": "wait",
+		"params": [500]
+	},
+	{
+		"action": "click",
+		"params": [420, 50],
+		"comment": "Click rectangle tool"
+	},
+	{
+		"action": "wait",
+		"params": [200]
+	},
+	{
+		"action": "click",
+		"params": [370, 280],
+		"comment": "First corner"
+	},
+	{
+		"action": "click",
+		"params": [430, 330],
+		"comment": "Opposite corner"
+	},
+	{
+		"action": "wait",
+		"params": [300]
+	},
+	{
+		"action": "key",
+		"params": ["Escape"],
+		"comment": "Finish sketch"
+	},
+	{
+		"action": "wait",
+		"params": [500]
+	},
+	{
+		"action": "click",
+		"params": [400, 50],
+		"comment": "Start second sketch"
+	},
+	{
+		"action": "wait",
+		"params": [500]
+	}
+]

@@ -1,0 +1,16 @@
+[
+	{
+		"action": "drag",
+		"params": [400, 300, 500, 350],
+		"comment": "Orbit the camera by dragging across canvas"
+	},
+	{
+		"action": "wait",
+		"params": [300]
+	},
+	{
+		"action": "drag",
+		"params": [500, 350, 450, 250],
+		"comment": "Orbit back partially"
+	}
+]

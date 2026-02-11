@@ -7,6 +7,7 @@
 	import GridFloor from './GridFloor.svelte';
 	import SketchPlane from './SketchPlane.svelte';
 	import DatumVis from './DatumVis.svelte';
+	import BoxSelect from './BoxSelect.svelte';
 	import SketchRenderer from '$lib/sketch/SketchRenderer.svelte';
 	import SketchInteraction from '$lib/sketch/SketchInteraction.svelte';
 	import DimensionLabels from '$lib/sketch/DimensionLabels.svelte';
@@ -22,6 +23,7 @@
 <GridFloor />
 <SketchPlane />
 <DatumVis />
+<BoxSelect />
 <SketchRenderer />
 <SketchInteraction />
 <DimensionLabels />

@@ -1,0 +1,25 @@
+[
+	{
+		"action": "wheel",
+		"params": [400, 300, -120],
+		"comment": "Zoom in toward center"
+	},
+	{
+		"action": "wait",
+		"params": [300]
+	},
+	{
+		"action": "wheel",
+		"params": [400, 300, -120],
+		"comment": "Zoom in again"
+	},
+	{
+		"action": "wait",
+		"params": [300]
+	},
+	{
+		"action": "wheel",
+		"params": [400, 300, 120],
+		"comment": "Zoom out"
+	}
+]

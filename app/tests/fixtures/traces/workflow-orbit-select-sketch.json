@@ -1,0 +1,38 @@
+[
+	{
+		"action": "drag",
+		"params": [400, 300, 500, 250],
+		"comment": "Orbit to new angle"
+	},
+	{
+		"action": "wait",
+		"params": [200]
+	},
+	{
+		"action": "click",
+		"params": [400, 300],
+		"comment": "Select front face"
+	},
+	{
+		"action": "wait",
+		"params": [300]
+	},
+	{
+		"action": "click",
+		"params": [400, 50],
+		"comment": "Enter sketch mode"
+	},
+	{
+		"action": "wait",
+		"params": [500]
+	},
+	{
+		"action": "key",
+		"params": ["Escape"],
+		"comment": "Exit sketch mode"
+	},
+	{
+		"action": "wait",
+		"params": [300]
+	}
+]

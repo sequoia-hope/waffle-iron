@@ -1,0 +1,11 @@
+[
+	{
+		"action": "drag",
+		"params": [500, 400, 300, 200],
+		"comment": "Right-to-left drag for crossing selection (any touching)"
+	},
+	{
+		"action": "wait",
+		"params": [300]
+	}
+]

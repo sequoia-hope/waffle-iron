@@ -1,0 +1,11 @@
+[
+	{
+		"action": "click",
+		"params": [370, 270],
+		"comment": "Click near edge of test box"
+	},
+	{
+		"action": "wait",
+		"params": [200]
+	}
+]
