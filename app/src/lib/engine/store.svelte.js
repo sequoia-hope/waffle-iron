@@ -203,6 +203,9 @@ export async function initEngine() {
 			getProfiles: () => [...extractedProfilesState],
 			getExtrudeDialogState: () => extrudeDialogState,
 			getRevolveDialogState: () => revolveDialogState,
+			getSelectedRefs: () => [...selectedRefs],
+			selectRef: (ref, additive) => selectRef(ref, additive),
+			clearSelection: () => clearSelection(),
 		};
 	}
 }
@@ -313,6 +316,7 @@ export function geomRefEquals(a, b) {
 		a.kind?.type === b.kind?.type &&
 		a.anchor?.type === b.anchor?.type &&
 		a.anchor?.feature_id === b.anchor?.feature_id &&
+		a.anchor?.plane === b.anchor?.plane &&
 		a.selector?.type === b.selector?.type &&
 		JSON.stringify(a.selector) === JSON.stringify(b.selector)
 	);
@@ -823,6 +827,16 @@ export async function applyRevolve(angleDeg, axisOrigin, axisDir, profileIndex) 
  */
 export function computeFacePlane(geomRef) {
 	if (!geomRef) return null;
+
+	// Handle datum planes directly
+	if (geomRef.anchor?.type === 'DatumPlane') {
+		const planes = {
+			XY: { origin: /** @type {[number,number,number]} */ ([0, 0, 0]), normal: /** @type {[number,number,number]} */ ([0, 0, 1]) },
+			XZ: { origin: /** @type {[number,number,number]} */ ([0, 0, 0]), normal: /** @type {[number,number,number]} */ ([0, 1, 0]) },
+			YZ: { origin: /** @type {[number,number,number]} */ ([0, 0, 0]), normal: /** @type {[number,number,number]} */ ([1, 0, 0]) },
+		};
+		return planes[geomRef.anchor.plane] ?? null;
+	}
 
 	for (const mesh of meshes) {
 		if (!mesh.faceRanges) continue;

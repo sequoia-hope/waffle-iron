@@ -14,7 +14,9 @@
 		showRevolveDialog,
 		saveProject,
 		loadProject,
-		exportStl
+		exportStl,
+		getSelectedRefs,
+		computeFacePlane
 	} from '$lib/engine/store.svelte.js';
 	import { resetTool } from '$lib/sketch/tools.js';
 	import { onMount } from 'svelte';
@@ -46,6 +48,15 @@
 			if (inSketch) {
 				handleFinishSketch();
 			} else {
+				const refs = getSelectedRefs();
+				if (refs.length > 0) {
+					const plane = computeFacePlane(refs[0]);
+					if (plane) {
+						enterSketchMode(plane.origin, plane.normal);
+						setActiveTool('line');
+						return;
+					}
+				}
 				enterSketchMode([0, 0, 0], [0, 0, 1]);
 				setActiveTool('line');
 			}
