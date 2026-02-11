@@ -7,6 +7,7 @@
 
 import { EngineBridge } from './bridge.js';
 import { extractProfiles } from '$lib/sketch/profiles.js';
+import { getPreview, getSnapIndicator } from '$lib/sketch/tools.js';
 
 /** @type {{ features: Array<any>, active_index: number | null }} */
 let featureTree = $state({ features: [], active_index: null });
@@ -219,6 +220,10 @@ export async function initEngine() {
 			showDimensionPopup: (popup) => showDimensionPopup(popup),
 			hideDimensionPopup: () => hideDimensionPopup(),
 			applyDimensionFromPopup: (value) => applyDimensionFromPopup(value),
+			getSnapIndicator: () => getSnapIndicator(),
+			getPreview: () => getPreview(),
+			getSolveStatus: () => sketchSolveStatus ? { ...sketchSolveStatus } : null,
+			getOverConstrained: () => [...overConstrainedEntities],
 		};
 	}
 }

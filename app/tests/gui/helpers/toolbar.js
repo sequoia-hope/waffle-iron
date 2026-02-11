@@ -78,6 +78,18 @@ export async function clickSelect(page) {
 }
 
 /**
+ * Click the Dimension sketch tool button.
+ * @param {import('@playwright/test').Page} page
+ */
+export async function clickDimension(page) {
+	await page.locator('[data-testid="toolbar-btn-dimension"]').click();
+	await page.waitForFunction(
+		() => window.__waffle?.getState()?.activeTool === 'dimension',
+		{ timeout: 3000 }
+	);
+}
+
+/**
  * Click the Finish Sketch button and wait for sketch mode to deactivate.
  * @param {import('@playwright/test').Page} page
  */
