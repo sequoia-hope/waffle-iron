@@ -393,6 +393,93 @@ mod tests {
         assert_eq!(faces.len(), 6, "Extruded rectangle should have 6 faces");
     }
 
+    /// Verify box-cylinder boolean subtract (punched cube).
+    /// The cylinder must pierce through the box (not at edges/corners/coplanar faces).
+    #[test]
+    fn test_boolean_subtract_box_cylinder() {
+        use truck_modeling::builder;
+
+        // Cube [0,1]^3
+        let v = builder::vertex(Point3::new(0.0, 0.0, 0.0));
+        let e = builder::tsweep(&v, Vector3::unit_x());
+        let f = builder::tsweep(&e, Vector3::unit_y());
+        let cube: Solid = builder::tsweep(&f, Vector3::unit_z());
+
+        // Cylinder centered at (0.5, 0.5), r=0.25, extends z=-0.5 to z=1.5
+        // (fully pierces top and bottom faces, well inside edges)
+        let v = builder::vertex(Point3::new(0.5, 0.25, -0.5));
+        let w = builder::rsweep(
+            &v,
+            Point3::new(0.5, 0.5, 0.0),
+            Vector3::unit_z(),
+            Rad(7.0),
+        );
+        let f = builder::try_attach_plane(&[w]).unwrap();
+        let mut cylinder = builder::tsweep(&f, Vector3::unit_z() * 2.0);
+        cylinder.not();
+
+        let result = truck_shapeops::and(&cube, &cylinder, 0.05);
+        assert!(result.is_some(), "Box-cylinder boolean should succeed");
+
+        let solid = result.unwrap();
+        let shell = &solid.boundaries()[0];
+        use truck_topology::shell::ShellCondition;
+        assert_eq!(
+            shell.shell_condition(),
+            ShellCondition::Closed,
+            "Result shell must be Closed"
+        );
+    }
+
+    /// Verify box-box boolean operations with offset (non-coplanar faces).
+    #[test]
+    fn test_boolean_ops_box_box_offset() {
+        use truck_modeling::builder;
+        use truck_topology::shell::ShellCondition;
+
+        let box_a: Solid = {
+            let v = builder::vertex(Point3::new(0.0, 0.0, 0.0));
+            let e = builder::tsweep(&v, Vector3::new(2.0, 0.0, 0.0));
+            let f = builder::tsweep(&e, Vector3::new(0.0, 2.0, 0.0));
+            builder::tsweep(&f, Vector3::new(0.0, 0.0, 2.0))
+        };
+        let box_b: Solid = {
+            let v = builder::vertex(Point3::new(0.5, 0.5, 0.5));
+            let e = builder::tsweep(&v, Vector3::new(1.0, 0.0, 0.0));
+            let f = builder::tsweep(&e, Vector3::new(0.0, 1.0, 0.0));
+            builder::tsweep(&f, Vector3::new(0.0, 0.0, 1.0))
+        };
+
+        // AND (intersection)
+        let result = truck_shapeops::and(&box_a, &box_b, 0.05);
+        assert!(result.is_some(), "Box-box AND should succeed");
+        let solid = result.unwrap();
+        assert_eq!(
+            solid.boundaries()[0].shell_condition(),
+            ShellCondition::Closed
+        );
+
+        // OR (union)
+        let result = truck_shapeops::or(&box_a, &box_b, 0.05);
+        assert!(result.is_some(), "Box-box OR should succeed");
+        let solid = result.unwrap();
+        assert_eq!(
+            solid.boundaries()[0].shell_condition(),
+            ShellCondition::Closed
+        );
+
+        // Subtract (AND with NOT)
+        let mut box_b_neg = box_b.clone();
+        box_b_neg.not();
+        let result = truck_shapeops::and(&box_a, &box_b_neg, 0.05);
+        assert!(result.is_some(), "Box-box SUBTRACT should succeed");
+        let solid = result.unwrap();
+        assert_eq!(
+            solid.boundaries()[0].shell_condition(),
+            ShellCondition::Closed
+        );
+    }
+
     /// Benchmark boolean operations at various tolerances.
     /// Uses catch_unwind since truck panics at certain tolerances.
     /// Run with: cargo test -p kernel-fork bench_boolean -- --ignored --nocapture
@@ -492,6 +579,186 @@ mod tests {
                 Err(_) => "PANIC",
             };
             println!("  {} → {:?} [{}]", name, elapsed, status);
+        }
+    }
+
+    /// Diagnostic: test boolean ops with different cylinder placements to isolate
+    /// which geometric configurations work vs. fail.
+    /// Run with: cargo test -p kernel-fork diag_boolean_configs -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn diag_boolean_configs() {
+        use truck_modeling::builder;
+
+        println!("\n=== Diagnostic: Boolean Operation Configurations ===\n");
+
+        // Config 1: Punched cube (truck's own test case — cylinder fully inside box)
+        {
+            let v = builder::vertex(Point3::new(0.0, 0.0, 0.0));
+            let e = builder::tsweep(&v, Vector3::unit_x());
+            let f = builder::tsweep(&e, Vector3::unit_y());
+            let cube: Solid = builder::tsweep(&f, Vector3::unit_z());
+
+            let v = builder::vertex(Point3::new(0.5, 0.25, -0.5));
+            let w = builder::rsweep(
+                &v,
+                Point3::new(0.5, 0.5, 0.0),
+                Vector3::unit_z(),
+                Rad(7.0),
+            );
+            let f = builder::try_attach_plane(&[w]).unwrap();
+            let mut cylinder = builder::tsweep(&f, Vector3::unit_z() * 2.0);
+            cylinder.not();
+
+            let start = std::time::Instant::now();
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                truck_shapeops::and(&cube, &cylinder, 0.05)
+            }));
+            let elapsed = start.elapsed();
+            let status = match &result {
+                Ok(Some(solid)) => {
+                    let cond = solid.boundaries()[0].shell_condition();
+                    format!("OK (shell: {:?})", cond)
+                }
+                Ok(None) => "FAILED (None)".to_string(),
+                Err(_) => "PANIC".to_string(),
+            };
+            println!("1. Punched cube (cyl inside box): {:?} [{}]", elapsed, status);
+        }
+
+        // Config 2: Cylinder centered in box face (partially overlapping)
+        {
+            let cube = primitives::make_box(2.0, 2.0, 2.0);
+            // Cylinder at center of box, radius 0.5, extends through
+            let v = builder::vertex(Point3::new(1.5, 1.0, -0.5));
+            let w = builder::rsweep(
+                &v,
+                Point3::new(1.0, 1.0, 0.0),
+                Vector3::unit_z(),
+                Rad(7.0),
+            );
+            let f = builder::try_attach_plane(&[w]).unwrap();
+            let cylinder: Solid = builder::tsweep(&f, Vector3::unit_z() * 3.0);
+
+            let start = std::time::Instant::now();
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                truck_shapeops::and(&cube, &cylinder, 0.05)
+            }));
+            let elapsed = start.elapsed();
+            let status = match &result {
+                Ok(Some(solid)) => {
+                    let cond = solid.boundaries()[0].shell_condition();
+                    format!("OK (shell: {:?})", cond)
+                }
+                Ok(None) => "FAILED (None)".to_string(),
+                Err(_) => "PANIC".to_string(),
+            };
+            println!("2. Cylinder at box center: {:?} [{}]", elapsed, status);
+        }
+
+        // Config 3: Our original test — cylinder at origin corner
+        {
+            let cube = primitives::make_box(2.0, 2.0, 2.0);
+            let cylinder = primitives::make_cylinder(0.5, 3.0);
+
+            let start = std::time::Instant::now();
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                truck_shapeops::and(&cube, &cylinder, 0.05)
+            }));
+            let elapsed = start.elapsed();
+            let status = match &result {
+                Ok(Some(solid)) => {
+                    let cond = solid.boundaries()[0].shell_condition();
+                    format!("OK (shell: {:?})", cond)
+                }
+                Ok(None) => "FAILED (None)".to_string(),
+                Err(_) => "PANIC".to_string(),
+            };
+            println!("3. Cylinder at box corner (original): {:?} [{}]", elapsed, status);
+        }
+
+        // Config 4: Cylinder centered (2pi), z-offset to avoid coplanar bottom
+        {
+            let cube = primitives::make_box(2.0, 2.0, 2.0);
+            // Build cylinder at (1,1,-0.5) with r=0.3, h=3 — NO coplanar faces
+            let v = builder::vertex(Point3::new(1.3, 1.0, -0.5));
+            let w = builder::rsweep(
+                &v,
+                Point3::new(1.0, 1.0, 0.0),
+                Vector3::unit_z(),
+                Rad(2.0 * std::f64::consts::PI),
+            );
+            let f = builder::try_attach_plane(&[w]).unwrap();
+            let cylinder: Solid = builder::tsweep(&f, Vector3::unit_z() * 3.0);
+
+            let start = std::time::Instant::now();
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                truck_shapeops::and(&cube, &cylinder, 0.05)
+            }));
+            let elapsed = start.elapsed();
+            let status = match &result {
+                Ok(Some(solid)) => {
+                    let cond = solid.boundaries()[0].shell_condition();
+                    format!("OK (shell: {:?})", cond)
+                }
+                Ok(None) => "FAILED (None)".to_string(),
+                Err(_) => "PANIC".to_string(),
+            };
+            println!("4. Cylinder centered (2pi), inside box: {:?} [{}]", elapsed, status);
+        }
+
+        // Config 5: Cylinder intersecting box face (partially in, partially out)
+        {
+            let cube = primitives::make_box(2.0, 2.0, 2.0);
+            // Cylinder at (1,2,0) — half inside, half outside the y=2 face
+            let v = builder::vertex(Point3::new(1.5, 2.0, -0.5));
+            let w = builder::rsweep(
+                &v,
+                Point3::new(1.0, 2.0, 0.0),
+                Vector3::unit_z(),
+                Rad(7.0),
+            );
+            let f = builder::try_attach_plane(&[w]).unwrap();
+            let cylinder: Solid = builder::tsweep(&f, Vector3::unit_z() * 3.0);
+
+            let start = std::time::Instant::now();
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                truck_shapeops::and(&cube, &cylinder, 0.05)
+            }));
+            let elapsed = start.elapsed();
+            let status = match &result {
+                Ok(Some(solid)) => {
+                    let cond = solid.boundaries()[0].shell_condition();
+                    format!("OK (shell: {:?})", cond)
+                }
+                Ok(None) => "FAILED (None)".to_string(),
+                Err(_) => "PANIC".to_string(),
+            };
+            println!("5. Cylinder at face boundary: {:?} [{}]", elapsed, status);
+        }
+
+        // Config 6: Box-box fully overlapping (offset)
+        {
+            let box_a = primitives::make_box(2.0, 2.0, 2.0);
+            let v = builder::vertex(Point3::new(0.5, 0.5, 0.5));
+            let e = builder::tsweep(&v, Vector3::new(1.0, 0.0, 0.0));
+            let f = builder::tsweep(&e, Vector3::new(0.0, 1.0, 0.0));
+            let box_b: Solid = builder::tsweep(&f, Vector3::new(0.0, 0.0, 1.0));
+
+            let start = std::time::Instant::now();
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                truck_shapeops::and(&box_a, &box_b, 0.05)
+            }));
+            let elapsed = start.elapsed();
+            let status = match &result {
+                Ok(Some(solid)) => {
+                    let cond = solid.boundaries()[0].shell_condition();
+                    format!("OK (shell: {:?})", cond)
+                }
+                Ok(None) => "FAILED (None)".to_string(),
+                Err(_) => "PANIC".to_string(),
+            };
+            println!("6. Box-box offset (intersect): {:?} [{}]", elapsed, status);
         }
     }
 
