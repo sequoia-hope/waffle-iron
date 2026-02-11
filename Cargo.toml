@@ -16,3 +16,15 @@ resolver = "2"
 # The header (slvs.h) is pure C; C++ mode causes bindgen to silently fail
 # with newer libclang (only generates constants, skips structs/functions).
 slvs = { path = "crates/slvs-patch/slvs-0.6.0" }
+
+# Local truck fork for boolean operation improvements.
+# Pinned to truck-shapeops-v0.4.0 tag as baseline.
+truck-base = { path = "vendor/truck/truck-base" }
+truck-geotrait = { path = "vendor/truck/truck-geotrait" }
+truck-topology = { path = "vendor/truck/truck-topology" }
+truck-geometry = { path = "vendor/truck/truck-geometry" }
+truck-modeling = { path = "vendor/truck/truck-modeling" }
+truck-shapeops = { path = "vendor/truck/truck-shapeops" }
+truck-meshalgo = { path = "vendor/truck/truck-meshalgo" }
+truck-stepio = { path = "vendor/truck/truck-stepio" }
+truck-polymesh = { path = "vendor/truck/truck-polymesh" }
