@@ -342,7 +342,10 @@ test.describe('dimension popup DOM interaction', () => {
 
 		const constraintsBefore = await getConstraintCount(waffle.page);
 
-		// Blur the input (clicking elsewhere is unreliable in headless)
+		// Ensure input is focused (focus is deferred via requestAnimationFrame),
+		// then blur to trigger dismiss
+		await input.focus();
+		await waffle.page.waitForTimeout(100);
 		await waffle.page.evaluate(() => {
 			document.querySelector('.dimension-input')?.blur();
 		});
