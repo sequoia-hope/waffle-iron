@@ -76,3 +76,23 @@ export function sketchToWorld(x, y, sketchPlane) {
 		.addScaledVector(sketchPlane.xAxis, x)
 		.addScaledVector(sketchPlane.yAxis, y);
 }
+
+/**
+ * Convert 2D sketch coordinates to screen pixel coordinates.
+ *
+ * @param {number} sketchX - Sketch X coordinate
+ * @param {number} sketchY - Sketch Y coordinate
+ * @param {{ origin: THREE.Vector3, xAxis: THREE.Vector3, yAxis: THREE.Vector3 }} sketchPlane - From buildSketchPlane()
+ * @param {THREE.Camera} camera - The scene camera
+ * @param {HTMLCanvasElement} canvas - The renderer canvas element
+ * @returns {{ x: number, y: number }}
+ */
+export function sketchToScreen(sketchX, sketchY, sketchPlane, camera, canvas) {
+	const world = sketchToWorld(sketchX, sketchY, sketchPlane);
+	const ndc = world.project(camera);
+	const rect = canvas.getBoundingClientRect();
+	return {
+		x: rect.left + ((ndc.x + 1) / 2) * rect.width,
+		y: rect.top + ((1 - ndc.y) / 2) * rect.height
+	};
+}

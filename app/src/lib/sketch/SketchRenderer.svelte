@@ -1,5 +1,6 @@
 <script>
 	import { T, useThrelte } from '@threlte/core';
+	import { HTML } from '@threlte/extras';
 	import * as THREE from 'three';
 	import {
 		getSketchMode,
@@ -8,6 +9,7 @@
 		getSketchSelection,
 		getSketchHover,
 		getSketchConstraints,
+		getSketchSolveStatus,
 		getExtractedProfiles,
 		getSelectedProfileIndex,
 		getHoveredProfileIndex,
@@ -30,6 +32,7 @@
 	const COLOR_PROFILE_HOVER = 0x55cc88;  // green-ish, profile hover
 	const COLOR_PROFILE_SELECT = 0x44ff88; // bright green, profile selected
 	const COLOR_OVERCONSTRAINED = 0xff4444; // red, over-constrained
+	const COLOR_FULLY_CONSTRAINED = 0x44cc88; // green, fully constrained (DOF=0)
 
 	let sm = $derived(getSketchMode());
 	let entities = $derived(getSketchEntities());
@@ -41,6 +44,11 @@
 	let selectedProfile = $derived(getSelectedProfileIndex());
 	let hoveredProfile = $derived(getHoveredProfileIndex());
 	let overConstrained = $derived(getOverConstrainedEntities());
+
+	let isFullyConstrained = $derived.by(() => {
+		const status = getSketchSolveStatus();
+		return status?.dof === 0 && status?.status !== 'error';
+	});
 
 	let plane = $derived(sm?.active ? buildSketchPlane(sm.origin, sm.normal) : null);
 
@@ -76,6 +84,7 @@
 		if (selectedProfileEntityIds.has(entityId)) return COLOR_PROFILE_SELECT;
 		if (hoveredProfileEntityIds.has(entityId)) return COLOR_PROFILE_HOVER;
 		if (isConstruction(entityId)) return COLOR_CONSTRUCTION;
+		if (isFullyConstrained) return COLOR_FULLY_CONSTRAINED;
 		return COLOR_DEFAULT;
 	}
 
@@ -279,6 +288,15 @@
 
 	// -- Snap indicator geometry --
 
+	const snapLabelMap = {
+		'coincident': 'Coincident',
+		'horizontal': 'Horizontal',
+		'vertical': 'Vertical',
+		'on-entity': 'On Entity',
+		'tangent': 'Tangent',
+		'perpendicular': 'Perpendicular'
+	};
+
 	let snapGeo = $derived.by(() => {
 		const snap = getSnapIndicator();
 		if (!snap || !plane) return null;
@@ -298,6 +316,15 @@
 		}
 
 		return null;
+	});
+
+	let snapLabelData = $derived.by(() => {
+		const snap = getSnapIndicator();
+		if (!snap || !plane) return null;
+		const text = snapLabelMap[snap.type];
+		if (!text) return null;
+		const world = sketchToWorld(snap.x + 0.15, snap.y + 0.15, plane);
+		return { text, world };
 	});
 
 	// Constraint label data
@@ -471,6 +498,13 @@
 		{/if}
 	{/if}
 
+	<!-- Snap text label -->
+	{#if snapLabelData}
+		<HTML position={[snapLabelData.world.x, snapLabelData.world.y, snapLabelData.world.z]} center={false} pointerEvents="none">
+			<span class="snap-label">{snapLabelData.text}</span>
+		</HTML>
+	{/if}
+
 	<!-- Constraint labels -->
 	{#each constraintLabels as label, i}
 		<T.Mesh position={[label.world.x, label.world.y, label.world.z]} renderOrder={12}>
@@ -479,3 +513,17 @@
 		</T.Mesh>
 	{/each}
 {/if}
+
+<style>
+	:global(.snap-label) {
+		background: rgba(30, 50, 30, 0.85);
+		color: #44cc44;
+		border: 1px solid #44cc44;
+		border-radius: 3px;
+		padding: 1px 5px;
+		font-size: 10px;
+		font-family: system-ui, sans-serif;
+		white-space: nowrap;
+		pointer-events: none;
+	}
+</style>

@@ -8,7 +8,10 @@
 		undo,
 		redo,
 		getSketchSelection,
+		getSketchEntities,
+		getSketchPositions,
 		toggleConstruction,
+		addLocalConstraint,
 		finishSketch,
 		showExtrudeDialog,
 		showRevolveDialog,
@@ -18,12 +21,35 @@
 		getSelectedRefs,
 		computeFacePlane
 	} from '$lib/engine/store.svelte.js';
+	import { getApplicableConstraints } from '$lib/sketch/constraintLogic.js';
 	import { resetTool } from '$lib/sketch/tools.js';
 	import { onMount } from 'svelte';
 
 	let ready = $derived(isEngineReady());
 	let tool = $derived(getActiveTool());
 	let inSketch = $derived(getSketchMode()?.active ?? false);
+	let selection = $derived(getSketchSelection());
+	let entities = $derived(getSketchEntities());
+	let positions = $derived(getSketchPositions());
+
+	let applicable = $derived(inSketch ? getApplicableConstraints(selection, entities, positions) : {});
+
+	const constraintButtons = [
+		{ id: 'horizontal', label: 'H', title: 'Horizontal' },
+		{ id: 'vertical', label: 'V', title: 'Vertical' },
+		{ id: 'coincident', label: 'Co', title: 'Coincident' },
+		{ id: 'perpendicular', label: 'Perp', title: 'Perpendicular' },
+		{ id: 'parallel', label: 'Par', title: 'Parallel' },
+		{ id: 'equal', label: 'Eq', title: 'Equal' },
+		{ id: 'tangent', label: 'Tan', title: 'Tangent' },
+		{ id: 'midpoint', label: 'Mid', title: 'Midpoint' },
+		{ id: 'fix', label: 'Fix', title: 'Fix Point' },
+	];
+
+	function applyConstraint(id) {
+		const builder = applicable[id];
+		if (builder) addLocalConstraint(builder());
+	}
 
 	const modelingTools = [
 		{ id: 'sketch', label: 'Sketch', shortcut: 'S' },
@@ -115,6 +141,7 @@
 				case 'c': if (inSketch) setActiveTool('circle'); break;
 				case 'a': if (inSketch) setActiveTool('arc'); break;
 				case 'x': if (inSketch) handleToggleConstruction(); break;
+			case 'd': if (inSketch) setActiveTool('dimension'); break;
 				case 'Escape':
 					if (inSketch) {
 						if (tool !== 'select') {
@@ -155,6 +182,26 @@
 				>{t.label}</button>
 			{/each}
 		</div>
+		<div class="toolbar-sep"></div>
+		<div class="toolbar-group">
+			{#each constraintButtons as cb}
+				<button
+					class="constraint-btn"
+					disabled={!applicable[cb.id]}
+					title={cb.title}
+					data-testid="toolbar-constraint-{cb.id}"
+					onclick={() => applyConstraint(cb.id)}
+				>{cb.label}</button>
+			{/each}
+		</div>
+		<div class="toolbar-sep"></div>
+		<button
+			class="toolbar-btn"
+			class:active={tool === 'dimension'}
+			title="Smart Dimension (D)"
+			data-testid="toolbar-btn-dimension"
+			onclick={() => setActiveTool('dimension')}
+		>Dim</button>
 		<div class="toolbar-sep"></div>
 		<button class="toolbar-btn finish-btn" data-testid="toolbar-btn-finish-sketch" onclick={handleFinishSketch}>
 			Finish Sketch
@@ -254,6 +301,28 @@
 	.toolbar-btn:disabled {
 		color: var(--text-muted);
 		cursor: default;
+	}
+
+	.constraint-btn {
+		background: transparent;
+		border: 1px solid transparent;
+		color: var(--text-primary);
+		padding: 3px 5px;
+		border-radius: 3px;
+		cursor: pointer;
+		font-size: 11px;
+		white-space: nowrap;
+	}
+
+	.constraint-btn:hover:not(:disabled) {
+		background: var(--bg-hover);
+		border-color: var(--border-color);
+	}
+
+	.constraint-btn:disabled {
+		color: var(--text-muted);
+		cursor: default;
+		opacity: 0.4;
 	}
 
 	.finish-btn {

@@ -4,6 +4,7 @@
 	import ViewCubeGizmo from './ViewCubeGizmo.svelte';
 	import ViewCubeButtons from './ViewCubeButtons.svelte';
 	import ConstraintMenu from '$lib/sketch/ConstraintMenu.svelte';
+	import DimensionInput from '$lib/sketch/DimensionInput.svelte';
 	import ViewportContextMenu from './ViewportContextMenu.svelte';
 
 	let constraintMenuPos = $state({ x: 0, y: 0 });
@@ -25,6 +26,7 @@
 	</Canvas>
 	<ViewCubeButtons />
 	<ConstraintMenu bind:menuPos={constraintMenuPos} bind:visible={constraintMenuVisible} />
+	<DimensionInput />
 	<ViewportContextMenu bind:pos={ctxMenuPos} bind:visible={ctxMenuVisible} />
 </div>
 

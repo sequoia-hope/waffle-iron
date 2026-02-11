@@ -82,6 +82,9 @@ let extrudeDialogState = $state(null);
 /** @type {{ sketchId: string, sketchName: string, profileCount: number } | null} */
 let revolveDialogState = $state(null);
 
+/** @type {{ entityA: number, entityB: number | null, sketchX: number, sketchY: number, dimType: 'distance'|'radius'|'angle', defaultValue: number } | null} */
+let dimensionPopup = $state(null);
+
 /** Configurable snap thresholds */
 let snapSettings = $state({
 	coincidentPx: 8,
@@ -212,6 +215,10 @@ export async function initEngine() {
 			getBoxSelectState: () => ({ ...boxSelectState }),
 			getSelectOtherState: () => ({ ...selectOtherState }),
 			getRebuildTime: () => rebuildTime,
+			getDimensionPopup: () => dimensionPopup ? { ...dimensionPopup } : null,
+			showDimensionPopup: (popup) => showDimensionPopup(popup),
+			hideDimensionPopup: () => hideDimensionPopup(),
+			applyDimensionFromPopup: (value) => applyDimensionFromPopup(value),
 		};
 	}
 }
@@ -1039,6 +1046,47 @@ export function getSelectOtherState() { return selectOtherState; }
  */
 export function setSelectOtherState(updates) {
 	selectOtherState = { ...selectOtherState, ...updates };
+}
+
+// -- Dimension popup --
+
+export function getDimensionPopup() { return dimensionPopup; }
+
+/**
+ * Show the dimension input popup.
+ * @param {{ entityA: number, entityB: number | null, sketchX: number, sketchY: number, dimType: 'distance'|'radius'|'angle', defaultValue: number }} popup
+ */
+export function showDimensionPopup(popup) { dimensionPopup = popup; }
+
+export function hideDimensionPopup() { dimensionPopup = null; }
+
+/**
+ * Apply the dimension value from the popup as a constraint.
+ * @param {number} value
+ */
+export function applyDimensionFromPopup(value) {
+	if (!dimensionPopup) return;
+	const p = dimensionPopup;
+
+	if (p.dimType === 'distance') {
+		if (p.entityB != null) {
+			addLocalConstraint({ type: 'Distance', entity_a: p.entityA, entity_b: p.entityB, value });
+		} else {
+			// Single line — distance between endpoints
+			const entity = sketchEntities.find(e => e.id === p.entityA);
+			if (entity && entity.type === 'Line') {
+				addLocalConstraint({ type: 'Distance', entity_a: entity.start_id, entity_b: entity.end_id, value });
+			}
+		}
+	} else if (p.dimType === 'radius') {
+		addLocalConstraint({ type: 'Radius', entity: p.entityA, value });
+	} else if (p.dimType === 'angle') {
+		if (p.entityB != null) {
+			addLocalConstraint({ type: 'Angle', line_a: p.entityA, line_b: p.entityB, value_degrees: value });
+		}
+	}
+
+	dimensionPopup = null;
 }
 
 export function getSnapSettings() { return snapSettings; }

@@ -20,7 +20,9 @@ import {
 	findCircleNear,
 	getExtractedProfiles,
 	setSelectedProfileIndex,
-	setHoveredProfileIndex
+	setHoveredProfileIndex,
+	showDimensionPopup,
+	hideDimensionPopup
 } from '$lib/engine/store.svelte.js';
 import { detectSnaps } from './snap.js';
 import { profileToPolygon, pointInPolygon } from './profiles.js';
@@ -47,6 +49,9 @@ let centerPointId = null;
 let arcStartPos = null;
 /** @type {number | null} */
 let arcStartPointId = null;
+
+/** @type {{ id: number, type: string } | null} */
+let dimFirstEntity = null;
 
 /** @type {import('./snap.js').SnapIndicator | null} */
 let currentSnapIndicator = null;
@@ -78,8 +83,10 @@ export function resetTool() {
 	centerPointId = null;
 	arcStartPos = null;
 	arcStartPointId = null;
+	dimFirstEntity = null;
 	currentPreview = null;
 	currentSnapIndicator = null;
+	hideDimensionPopup();
 }
 
 /**
@@ -135,6 +142,9 @@ export function handleToolEvent(activeTool, eventType, sketchX, sketchY, screenP
 		case 'select':
 			handleSelectTool(eventType, sketchX, sketchY, screenPixelSize, shiftKey);
 			break;
+		case 'dimension':
+			handleDimensionTool(eventType, sketchX, sketchY, screenPixelSize);
+			break;
 	}
 }
 
@@ -174,12 +184,16 @@ function handleLineTool(eventType, x, y, screenPixelSize) {
 				construction: false
 			});
 
-			// Auto-apply H/V constraints from snap
+			// Auto-apply constraints from snap (H/V/Tangent/Perpendicular)
 			for (const c of snap.constraints) {
 				if (c.type === 'Horizontal') {
 					addLocalConstraint({ type: 'Horizontal', entity: lineId });
 				} else if (c.type === 'Vertical') {
 					addLocalConstraint({ type: 'Vertical', entity: lineId });
+				} else if (c.type === 'Tangent' && c.entity_b != null) {
+					addLocalConstraint({ type: 'Tangent', line: lineId, curve: c.entity_b });
+				} else if (c.type === 'Perpendicular' && c.entity_b != null) {
+					addLocalConstraint({ type: 'Perpendicular', line_a: lineId, line_b: c.entity_b });
 				}
 			}
 
@@ -460,4 +474,135 @@ function hitTest(x, y, screenPixelSize) {
 	if (nearCircle) return nearCircle.id;
 
 	return null;
+}
+
+// ---- Dimension Tool ----
+
+/**
+ * Smart Dimension tool state machine.
+ *
+ * idle → click line → show distance popup (line length)
+ * idle → click circle/arc → show radius popup
+ * idle → click point → firstEntityPicked → click second point → distance popup
+ * idle → click point → firstEntityPicked → click line → distance popup
+ */
+function handleDimensionTool(eventType, x, y, screenPixelSize) {
+	currentSnapIndicator = null;
+	currentPreview = null;
+
+	if (eventType === 'pointermove') {
+		const hitId = hitTest(x, y, screenPixelSize);
+		setSketchHover(hitId);
+		return;
+	}
+
+	if (eventType !== 'pointerdown') return;
+
+	const entities = getSketchEntities();
+	const positions = getSketchPositions();
+	const hitId = hitTest(x, y, screenPixelSize);
+	if (hitId == null) return;
+
+	const entity = entities.find(e => e.id === hitId);
+	if (!entity) return;
+
+	if (toolState === 'idle') {
+		// Single-click dimension: line → distance, circle/arc → radius
+		if (entity.type === 'Line') {
+			const p1 = positions.get(entity.start_id);
+			const p2 = positions.get(entity.end_id);
+			if (p1 && p2) {
+				const dx = p2.x - p1.x, dy = p2.y - p1.y;
+				const len = Math.sqrt(dx * dx + dy * dy);
+				const mx = (p1.x + p2.x) / 2;
+				const my = (p1.y + p2.y) / 2;
+				showDimensionPopup({
+					entityA: entity.id,
+					entityB: null,
+					sketchX: mx,
+					sketchY: my,
+					dimType: 'distance',
+					defaultValue: parseFloat(len.toFixed(4))
+				});
+			}
+			return;
+		}
+
+		if (entity.type === 'Circle' || entity.type === 'Arc') {
+			const center = positions.get(entity.center_id);
+			let radius = entity.radius;
+			if (entity.type === 'Arc') {
+				const startPt = positions.get(entity.start_id);
+				if (startPt && center) {
+					const dx = startPt.x - center.x, dy = startPt.y - center.y;
+					radius = Math.sqrt(dx * dx + dy * dy);
+				}
+			}
+			if (center) {
+				showDimensionPopup({
+					entityA: entity.id,
+					entityB: null,
+					sketchX: center.x + (radius || 1) * 0.7,
+					sketchY: center.y + (radius || 1) * 0.7,
+					dimType: 'radius',
+					defaultValue: parseFloat((radius || 1).toFixed(4))
+				});
+			}
+			return;
+		}
+
+		if (entity.type === 'Point') {
+			dimFirstEntity = { id: entity.id, type: 'Point' };
+			toolState = 'firstEntityPicked';
+			return;
+		}
+	} else if (toolState === 'firstEntityPicked' && dimFirstEntity) {
+		// Second click: point-to-point or point-to-line distance
+		if (entity.type === 'Point' && entity.id !== dimFirstEntity.id) {
+			const pA = positions.get(dimFirstEntity.id);
+			const pB = positions.get(entity.id);
+			if (pA && pB) {
+				const dx = pB.x - pA.x, dy = pB.y - pA.y;
+				const dist = Math.sqrt(dx * dx + dy * dy);
+				const mx = (pA.x + pB.x) / 2;
+				const my = (pA.y + pB.y) / 2;
+				showDimensionPopup({
+					entityA: dimFirstEntity.id,
+					entityB: entity.id,
+					sketchX: mx,
+					sketchY: my,
+					dimType: 'distance',
+					defaultValue: parseFloat(dist.toFixed(4))
+				});
+			}
+			toolState = 'idle';
+			dimFirstEntity = null;
+			return;
+		}
+
+		if (entity.type === 'Line') {
+			const pos = positions.get(dimFirstEntity.id);
+			const p1 = positions.get(entity.start_id);
+			const p2 = positions.get(entity.end_id);
+			if (pos && p1 && p2) {
+				const mx = (pos.x + (p1.x + p2.x) / 2) / 2;
+				const my = (pos.y + (p1.y + p2.y) / 2) / 2;
+				showDimensionPopup({
+					entityA: dimFirstEntity.id,
+					entityB: entity.id,
+					sketchX: mx,
+					sketchY: my,
+					dimType: 'distance',
+					defaultValue: 1.0
+				});
+			}
+			toolState = 'idle';
+			dimFirstEntity = null;
+			return;
+		}
+
+		// Clicked something invalid — reset
+		toolState = 'idle';
+		dimFirstEntity = null;
+	}
 }
