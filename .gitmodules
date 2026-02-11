@@ -3,4 +3,4 @@
 	url = https://github.com/sequoia-hope/claude-remote.git
 [submodule "vendor/truck"]
 	path = vendor/truck
-	url = https://github.com/ricosjp/truck.git
+	url = https://github.com/sequoia-hope/truck.git
