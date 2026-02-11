@@ -157,9 +157,11 @@ The "Sketch on Face" button exists in the viewport context menu (`ViewportContex
 - **No primitives:** No `make_box()`, `make_cylinder()` — everything via successive sweeps
 
 **Options:**
-- **A) Stay with truck:** Accept no fillet/chamfer/shell. Focus on extrude/revolve pipeline. Defer advanced operations.
-- **B) OpenCascade-rs:** Would provide fillet/chamfer/shell/robust booleans. But: C++ FFI, WASM build complexity, larger binary.
+- **A) Stay with truck:** Accept no fillet/chamfer/shell for now. Focus on extrude/revolve pipeline. Defer advanced operations.
+- **B) Improve truck:** Contribute upstream or vendor patches for fillet/chamfer/shell. truck is our chosen kernel — the project's goal is to build on truck, not replace it.
 - **C) Hybrid:** Use truck for extrude/revolve/tessellation. Add targeted native implementations for fillet (cylindrical surface construction) and chamfer (planar cut).
+
+**Note:** OpenCascade-rs may be useful as a reference implementation for testing and validating our results, but replacing truck with OpenCascade is not a direction for this project. truck is the chosen kernel.
 
 ### Two-WASM-Module Solver — Working Well
 
@@ -282,29 +284,25 @@ Single file managing: engine state, feature tree, meshes, selection, hover, sket
 
 **Risk:** Medium. Boolean reliability is unpredictable.
 
-### Direction C: "Kernel Decision" (strategic)
+### Direction C: "Improve truck Kernel" (strategic)
 
-**Goal:** Resolve the truck limitation permanently before building more on top.
+**Goal:** Resolve truck's fillet/chamfer/shell limitations by contributing improvements upstream or maintaining vendor patches.
 
 **Steps:**
-1. Evaluate [opencascade-rs](https://github.com/bschwind/opencascade-rs) maturity
-   - Does it compile to WASM?
-   - Does it have fillet, chamfer, shell operations?
-   - What's the binary size?
-   - How do boolean operations perform?
-2. If viable: implement `OpenCascadeKernel` behind the existing `Kernel` + `KernelIntrospect` traits
-3. If not viable: document truck limitations formally, ship with workarounds
-4. Proceed with Direction B on whichever kernel
+1. Identify specific truck gaps blocking fillet/chamfer/shell (topology construction, edge ID mapping)
+2. Prototype implementations in our vendored fork (`vendor/truck/`)
+3. Contribute viable fixes upstream; maintain vendor patches for the rest
+4. Optionally use OpenCascade-rs as a **reference implementation** for validating correctness (not as a replacement)
 
-**Defers:** Everything else until kernel decision is made
+**Defers:** Everything else until core operations are working
 
-**Scope:** ~2 sessions for evaluation, ~6 sessions for kernel swap if viable
+**Scope:** ~4-6 sessions for targeted truck improvements
 
-**Risk:** High. OpenCascade-rs may not be WASM-ready. Kernel swap is a large change even with the trait abstraction.
+**Risk:** Medium. truck's BREP internals are complex, but our vendor fork gives full control. The `Kernel` trait abstraction isolates changes.
 
 ### Recommendation
 
-**Start with Direction A.** It delivers the most critical user-visible improvement (a working parametric pipeline) with the lowest risk. Direction B can follow incrementally. Direction C should be a parallel investigation that doesn't block progress.
+**Start with Direction A.** It delivers the most critical user-visible improvement (a working parametric pipeline) with the lowest risk. Direction B can follow incrementally. Direction C (improving truck) should be a parallel investigation that doesn't block progress.
 
 ---
 

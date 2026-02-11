@@ -102,7 +102,7 @@
 
 4. **Boolean unreliability blocks chamfer**: Chamfer via boolean subtraction of a wedge tool body depends on reliable booleans. Benchmarks show booleans fail for coplanar faces and box-cylinder operations.
 
-**Resolution**: MockKernel implementations enable other teams (feature-engine, modeling-ops) to test against deterministic fillet/chamfer/shell behavior. TruckKernel implementations require either (a) a significant refactor to add entity ID mapping + manual topology construction, or (b) switching to a more capable kernel like OpenCascade.
+**Resolution**: MockKernel implementations enable other teams (feature-engine, modeling-ops) to test against deterministic fillet/chamfer/shell behavior. TruckKernel implementations require a significant refactor to add entity ID mapping + manual topology construction. truck is our chosen kernel — future work should focus on improving our vendored fork rather than replacing it.
 
 ## Interface Change Requests
 
