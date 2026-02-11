@@ -135,4 +135,7 @@ pub enum BridgeError {
 
     #[error("not implemented: {operation}")]
     NotImplemented { operation: String },
+
+    #[error("no mesh data available for export")]
+    NoMeshData,
 }

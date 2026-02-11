@@ -131,6 +131,7 @@ pub enum UiToEngine {
         data: String,
     },
     ExportStep,
+    ExportStl,
 }
 
 /// Messages from the engine (WASM Worker) to the UI (JavaScript main thread).
@@ -167,4 +168,7 @@ pub enum EngineToUi {
 
     /// STEP export is ready.
     ExportReady { step_data: String },
+
+    /// STL export is ready (base64-encoded binary STL).
+    StlExportReady { stl_data: String },
 }

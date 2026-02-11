@@ -1,6 +1,9 @@
+use base64::Engine as _;
 use feature_engine::types::Operation;
 use file_format::ProjectMetadata;
+use kernel_fork::RenderMesh;
 use modeling_ops::KernelBundle;
+use waffle_types::OutputKey;
 
 use crate::engine_state::{BridgeError, EngineState};
 use crate::messages::{EngineToUi, UiToEngine};
@@ -173,6 +176,18 @@ fn handle_message(
         UiToEngine::ExportStep => Err(BridgeError::NotImplemented {
             operation: "ExportStep (requires TruckKernel)".to_string(),
         }),
+
+        UiToEngine::ExportStl => {
+            let mesh = find_last_mesh(state);
+            match mesh {
+                Some(mesh) => {
+                    let bytes = crate::stl_export::render_mesh_to_stl(&mesh);
+                    let stl_data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                    Ok(EngineToUi::StlExportReady { stl_data })
+                }
+                None => Err(BridgeError::NoMeshData),
+            }
+        }
     }
 }
 
@@ -183,6 +198,27 @@ fn model_updated_response(state: &EngineState) -> EngineToUi {
         meshes: Vec::new(),
         edges: Vec::new(),
     }
+}
+
+/// Find the last active feature's mesh data by iterating features in reverse.
+fn find_last_mesh(state: &EngineState) -> Option<RenderMesh> {
+    let tree = &state.engine.tree;
+    let limit = tree.active_index.unwrap_or(tree.features.len());
+    for feature in tree.features[..limit].iter().rev() {
+        if feature.suppressed {
+            continue;
+        }
+        if let Some(result) = state.engine.feature_results.get(&feature.id) {
+            for (key, body) in &result.outputs {
+                if *key == OutputKey::Main {
+                    if let Some(mesh) = &body.mesh {
+                        return Some(mesh.clone());
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Derive a human-readable feature name from an operation.

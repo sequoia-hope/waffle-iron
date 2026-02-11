@@ -13,7 +13,8 @@
 		showExtrudeDialog,
 		showRevolveDialog,
 		saveProject,
-		loadProject
+		loadProject,
+		exportStl
 	} from '$lib/engine/store.svelte.js';
 	import { resetTool } from '$lib/sketch/tools.js';
 	import { onMount } from 'svelte';
@@ -166,6 +167,7 @@
 	<div class="toolbar-group">
 		<button class="toolbar-btn" disabled={!ready} title="Save (Ctrl+S)" onclick={() => saveProject()}>Save</button>
 		<button class="toolbar-btn" disabled={!ready} title="Open (Ctrl+O)" onclick={() => loadProject()}>Open</button>
+		<button class="toolbar-btn" disabled={!ready} title="Export STL" onclick={() => exportStl()}>Export STL</button>
 	</div>
 
 	<div class="toolbar-spacer"></div>

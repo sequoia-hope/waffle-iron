@@ -180,6 +180,7 @@ export async function initEngine() {
 			showExtrudeDialog: () => showExtrudeDialog(),
 			saveProject: () => saveProject(),
 			loadProject: (jsonData) => loadProject(jsonData),
+			exportStl: () => exportStl(),
 		};
 	}
 }
@@ -1051,6 +1052,38 @@ export async function saveProject() {
 	}
 
 	return jsonData;
+}
+
+/**
+ * Export the current model as a binary STL file (browser download).
+ * Sends ExportStl to engine, receives StlExportReady { stl_data } (base64),
+ * decodes and triggers download as 'model.stl'.
+ * @returns {Promise<boolean>} True if export succeeded
+ */
+export async function exportStl() {
+	if (!bridge || !engineReady) return false;
+	const response = await bridge.send({ type: 'ExportStl' });
+	if (response.type !== 'StlExportReady' || !response.stl_data) return false;
+
+	// Decode base64 to binary
+	if (typeof document !== 'undefined') {
+		const binary = atob(response.stl_data);
+		const bytes = new Uint8Array(binary.length);
+		for (let i = 0; i < binary.length; i++) {
+			bytes[i] = binary.charCodeAt(i);
+		}
+		const blob = new Blob([bytes], { type: 'application/octet-stream' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = 'model.stl';
+		document.body.appendChild(a);
+		a.click();
+		document.body.removeChild(a);
+		URL.revokeObjectURL(url);
+	}
+
+	return true;
 }
 
 /**

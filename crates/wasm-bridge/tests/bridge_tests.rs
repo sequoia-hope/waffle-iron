@@ -675,6 +675,42 @@ fn dispatch_sketch_then_extrude_produces_solid() {
     }
 }
 
+// ── STL Export Tests ────────────────────────────────────────────────────
+
+#[test]
+fn serde_roundtrip_export_stl() {
+    let msg = UiToEngine::ExportStl;
+    let json = serde_json::to_string(&msg).unwrap();
+    assert!(json.contains("\"type\":\"ExportStl\""));
+    let deserialized: UiToEngine = serde_json::from_str(&json).unwrap();
+    assert!(matches!(deserialized, UiToEngine::ExportStl));
+
+    let response = EngineToUi::StlExportReady {
+        stl_data: "AAAA".to_string(),
+    };
+    let json = serde_json::to_string(&response).unwrap();
+    assert!(json.contains("\"type\":\"StlExportReady\""));
+    let deserialized: EngineToUi = serde_json::from_str(&json).unwrap();
+    assert!(matches!(deserialized, EngineToUi::StlExportReady { .. }));
+}
+
+#[test]
+fn dispatch_export_stl_no_features() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    let response = wasm_bridge::dispatch(&mut state, UiToEngine::ExportStl, &mut kernel);
+
+    assert!(matches!(response, EngineToUi::Error { .. }));
+    if let EngineToUi::Error { message, .. } = &response {
+        assert!(
+            message.contains("mesh"),
+            "Expected 'mesh' error, got: {}",
+            message
+        );
+    }
+}
+
 /// Helper: create a minimal sketch operation for dispatch tests.
 fn make_sketch_operation() -> Operation {
     use waffle_types::Sketch;
