@@ -8,7 +8,8 @@ use wasm_bindgen::prelude::*;
 use crate::dispatch;
 use crate::engine_state::EngineState;
 use crate::messages::{EngineToUi, UiToEngine};
-use kernel_fork::RenderMesh;
+use kernel_fork::{Kernel, RenderMesh};
+use modeling_ops::KernelBundle;
 
 // Global engine state — single-threaded in the web worker.
 thread_local! {
@@ -59,7 +60,14 @@ pub fn process_message(json_input: &str) -> String {
             }
         };
 
-        dispatch::dispatch(&mut engine.state, msg, &mut engine.kernel)
+        let response = dispatch::dispatch(&mut engine.state, msg, &mut engine.kernel);
+
+        // After dispatch, tessellate any solids that don't have mesh data yet
+        if matches!(response, EngineToUi::ModelUpdated { .. }) {
+            tessellate_missing_meshes(&mut engine.state, &mut engine.kernel);
+        }
+
+        response
     });
 
     serde_json::to_string(&response).unwrap_or_else(|e| {
@@ -191,4 +199,35 @@ fn with_mesh<T>(feature_index: usize, f: impl FnOnce(&RenderMesh) -> T) -> Optio
         }
         None
     })
+}
+
+/// Tessellate all feature results that have a solid handle but no mesh data.
+fn tessellate_missing_meshes(state: &mut EngineState, kernel: &mut impl KernelBundle) {
+    let feature_ids: Vec<uuid::Uuid> = state.engine.tree.features.iter().map(|f| f.id).collect();
+
+    for fid in feature_ids {
+        let needs_tessellation = state
+            .engine
+            .feature_results
+            .get(&fid)
+            .map(|r| r.outputs.iter().any(|(_, body)| body.mesh.is_none()))
+            .unwrap_or(false);
+
+        if !needs_tessellation {
+            continue;
+        }
+
+        if let Some(result) = state.engine.feature_results.get_mut(&fid) {
+            for (_key, body) in &mut result.outputs {
+                if body.mesh.is_none() {
+                    match kernel.tessellate(&body.handle, 0.1) {
+                        Ok(mesh) => {
+                            body.mesh = Some(mesh);
+                        }
+                        Err(_) => {}
+                    }
+                }
+            }
+        }
+    }
 }

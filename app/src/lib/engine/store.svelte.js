@@ -161,6 +161,16 @@ export async function initEngine() {
 			exitSketch: () => exitSketchMode(),
 			setTool: (tool) => setActiveTool(tool),
 			finishSketch: () => finishSketch(),
+			getFeatureTree: () => featureTree,
+			getMeshes: () => meshes.map(m => ({
+				featureId: m.featureId,
+				vertexCount: m.vertices?.length / 3,
+				triangleCount: m.triangleCount,
+				hasNormals: m.normals?.length > 0,
+				hasIndices: m.indices?.length > 0,
+			})),
+			applyExtrude: (depth, profileIndex) => applyExtrude(depth, profileIndex),
+			showExtrudeDialog: () => showExtrudeDialog(),
 		};
 	}
 }
@@ -297,6 +307,20 @@ export function getSketchMode() {
 export function enterSketchMode(origin = [0, 0, 0], normal = [0, 0, 1]) {
 	resetSketchState();
 	sketchMode = { active: true, origin, normal };
+
+	// Notify the engine about the new sketch session
+	if (bridge && engineReady) {
+		const datumId = crypto.randomUUID();
+		bridge.send({
+			type: 'BeginSketch',
+			plane: {
+				kind: { type: 'Face' },
+				anchor: { type: 'Datum', datum_id: datumId },
+				selector: { type: 'Role', role: { type: 'EndCapPositive' }, index: 0 },
+				policy: { type: 'BestEffort' },
+			}
+		}).catch(() => {});
+	}
 
 	// Dispatch event so CameraControls aligns to the sketch plane
 	if (typeof window !== 'undefined') {
@@ -824,17 +848,44 @@ export async function finishSketch() {
 		posObj[id] = [pos.x, pos.y];
 	}
 
-	// Convert extractedProfiles to the ClosedProfile format
-	const profiles = extractedProfilesState.map((p) => ({
-		entity_ids: p.entityIds,
-		is_outer: p.isOuter
-	}));
+	// Convert extractedProfiles to the ClosedProfile format.
+	// The profile extraction stores line/arc entity IDs, but the kernel expects
+	// point IDs (looked up in solved_positions). Convert by chaining line endpoints.
+	const profiles = extractedProfilesState.map((p) => {
+		const pointIds = [];
+		const lineEntities = [...p.entityIds].map(id => sketchEntities.find(e => e.id === id)).filter(Boolean);
+
+		if (lineEntities.length === 0) return { entity_ids: [...p.entityIds], is_outer: p.isOuter };
+
+		// Chain lines: find start point of each line following end→start connections
+		let current = lineEntities[0];
+		pointIds.push(current.start_id);
+		let prevEnd = current.end_id;
+
+		for (let i = 1; i < lineEntities.length; i++) {
+			const next = lineEntities[i];
+			// Determine direction: if next.start_id === prevEnd, use start_id; otherwise use end_id
+			if (next.start_id === prevEnd) {
+				pointIds.push(next.start_id);
+				prevEnd = next.end_id;
+			} else if (next.end_id === prevEnd) {
+				pointIds.push(next.end_id);
+				prevEnd = next.start_id;
+			} else {
+				// Not connected — just add start_id
+				pointIds.push(next.start_id);
+				prevEnd = next.end_id;
+			}
+		}
+
+		return { entity_ids: pointIds, is_outer: p.isOuter };
+	});
 
 	const profileCount = profiles.length;
 
-	// Capture plane geometry before exiting sketch mode
-	const planeOrigin = sketchMode.origin;
-	const planeNormal = sketchMode.normal;
+	// Capture plane geometry before exiting sketch mode (spread to unwrap proxies)
+	const planeOrigin = [...sketchMode.origin];
+	const planeNormal = [...sketchMode.normal];
 
 	exitSketchMode();
 	setActiveTool('select');
@@ -868,17 +919,21 @@ export function triggerSolve() {
 	if (!sketchMode.active) return;
 	if (sketchEntities.length === 0) return;
 
-	// Serialize positions map to plain object for postMessage
+	// Serialize positions map to plain object for postMessage (clone values to unwrap proxies)
 	const posObj = {};
 	for (const [id, pos] of sketchPositions) {
-		posObj[id] = pos;
+		posObj[id] = { x: pos.x, y: pos.y };
 	}
+
+	// Deep-clone reactive state to avoid DataCloneError from Svelte 5 proxies
+	const entities = JSON.parse(JSON.stringify(sketchEntities));
+	const constraints = JSON.parse(JSON.stringify(sketchConstraints));
 
 	bridge
 		.send({
 			type: 'SolveSketchLocal',
-			entities: sketchEntities,
-			constraints: sketchConstraints,
+			entities,
+			constraints,
 			positions: posObj
 		})
 		.catch(() => {});

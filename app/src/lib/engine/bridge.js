@@ -68,8 +68,12 @@ export class EngineBridge {
 				return;
 			}
 
-			this._pendingCallbacks.push({ resolve, reject });
-			this._worker.postMessage(message);
+			try {
+				this._worker.postMessage(message);
+				this._pendingCallbacks.push({ resolve, reject });
+			} catch (err) {
+				reject(err);
+			}
 		});
 	}
 
