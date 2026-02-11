@@ -45,9 +45,6 @@
 	function onWheel(e) {
 		if (!cameraRef || !controlsRef) return;
 
-		// Don't override zoom during sketch mode (let OrbitControls handle it)
-		if (sketchActive) return;
-
 		e.preventDefault();
 		e.stopPropagation();
 
@@ -257,6 +254,24 @@
 			setCameraRefs(cameraRef, controlsRef);
 		}
 	});
+
+	// Remap mouse buttons in sketch mode: left-click for sketch tools, middle for orbit
+	$effect(() => {
+		if (!controlsRef) return;
+		if (sketchActive) {
+			controlsRef.mouseButtons = {
+				LEFT: -1,       // Disable left-button orbit (sketch tools handle left click)
+				MIDDLE: THREE.MOUSE.ROTATE,
+				RIGHT: THREE.MOUSE.PAN
+			};
+		} else {
+			controlsRef.mouseButtons = {
+				LEFT: THREE.MOUSE.ROTATE,
+				MIDDLE: THREE.MOUSE.DOLLY,
+				RIGHT: THREE.MOUSE.PAN
+			};
+		}
+	});
 </script>
 
 <T.PerspectiveCamera
@@ -269,10 +284,9 @@
 >
 	<OrbitControls
 		bind:ref={controlsRef}
-		enabled={!sketchActive}
 		enableDamping
 		dampingFactor={0.15}
-		enableZoom={sketchActive}
+		enableZoom={false}
 		minDistance={0.05}
 		maxDistance={200}
 	/>

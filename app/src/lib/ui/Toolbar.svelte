@@ -84,8 +84,12 @@
 		}
 	}
 
-	function handleFinishSketch() {
-		finishSketch().catch(() => {});
+	async function handleFinishSketch() {
+		try {
+			await finishSketch();
+		} catch (err) {
+			console.error('Finish sketch error:', err);
+		}
 	}
 
 	onMount(() => {

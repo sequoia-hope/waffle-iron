@@ -269,7 +269,7 @@ export function getSelectedRefs() {
  */
 export function setHoveredRef(ref) {
 	hoveredRef = ref;
-	if (bridge && engineReady) {
+	if (bridge && engineReady && !isDatumPlaneRef(ref)) {
 		bridge.send({ type: 'HoverEntity', geom_ref: ref });
 	}
 }
@@ -298,9 +298,20 @@ export function selectRef(ref, additive = false) {
 
 	if (bridge && engineReady) {
 		for (const r of selectedRefs) {
-			bridge.send({ type: 'SelectEntity', geom_ref: r });
+			if (!isDatumPlaneRef(r)) {
+				bridge.send({ type: 'SelectEntity', geom_ref: r });
+			}
 		}
 	}
+}
+
+/**
+ * Check if a geom ref uses the JS-only DatumPlane anchor (not known to Rust engine).
+ * @param {any} ref
+ * @returns {boolean}
+ */
+function isDatumPlaneRef(ref) {
+	return ref?.anchor?.type === 'DatumPlane';
 }
 
 /**
@@ -361,7 +372,10 @@ export function enterSketchMode(origin = [0, 0, 0], normal = [0, 0, 1]) {
 				selector: { type: 'Role', role: { type: 'EndCapPositive' }, index: 0 },
 				policy: { type: 'BestEffort' },
 			}
-		}).catch(() => {});
+		}).catch(err => {
+			console.error('BeginSketch failed:', err);
+			statusMessage = 'Failed to start sketch';
+		});
 	}
 
 	// Dispatch event so CameraControls aligns to the sketch plane
@@ -438,7 +452,7 @@ export function addLocalEntity(entity) {
 
 	// Send to engine
 	if (bridge && engineReady) {
-		bridge.send({ type: 'AddSketchEntity', entity }).catch(() => {});
+		bridge.send({ type: 'AddSketchEntity', entity }).catch(err => console.error('AddSketchEntity failed:', err));
 	}
 
 	reExtractProfiles();
@@ -940,16 +954,24 @@ export async function finishSketch() {
 	const planeOrigin = [...sketchMode.origin];
 	const planeNormal = [...sketchMode.normal];
 
-	exitSketchMode();
-	setActiveTool('select');
-
-	await bridge.send({
-		type: 'FinishSketch',
-		solved_positions: posObj,
-		solved_profiles: profiles,
-		plane_origin: planeOrigin,
-		plane_normal: planeNormal
-	});
+	// Send to engine FIRST, exit sketch mode only on success
+	try {
+		await bridge.send({
+			type: 'FinishSketch',
+			solved_positions: posObj,
+			solved_profiles: profiles,
+			plane_origin: planeOrigin,
+			plane_normal: planeNormal
+		});
+		// Only clear sketch state after successful commit
+		exitSketchMode();
+		setActiveTool('select');
+	} catch (err) {
+		console.error('FinishSketch failed:', err);
+		statusMessage = `Sketch save failed: ${err.message}`;
+		lastError = err.message;
+		// Sketch state is preserved — user can retry or fix issues
+	}
 
 	return { profileCount };
 }
