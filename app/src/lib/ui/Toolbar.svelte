@@ -11,7 +11,9 @@
 		toggleConstruction,
 		finishSketch,
 		showExtrudeDialog,
-		showRevolveDialog
+		showRevolveDialog,
+		saveProject,
+		loadProject
 	} from '$lib/engine/store.svelte.js';
 	import { resetTool } from '$lib/sketch/tools.js';
 	import { onMount } from 'svelte';
@@ -81,6 +83,8 @@
 			if (!ready) return;
 
 			if (e.ctrlKey || e.metaKey) {
+				if (e.key === 's') { e.preventDefault(); saveProject(); return; }
+				if (e.key === 'o') { e.preventDefault(); loadProject(); return; }
 				if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
 				if (e.key === 'z' && e.shiftKey) { e.preventDefault(); redo(); }
 				if (e.key === 'Z') { e.preventDefault(); redo(); }
@@ -157,6 +161,11 @@
 	<div class="toolbar-group">
 		<button class="toolbar-btn" disabled={!ready} title="Undo (Ctrl+Z)" onclick={undo}>Undo</button>
 		<button class="toolbar-btn" disabled={!ready} title="Redo (Ctrl+Shift+Z)" onclick={redo}>Redo</button>
+	</div>
+	<div class="toolbar-sep"></div>
+	<div class="toolbar-group">
+		<button class="toolbar-btn" disabled={!ready} title="Save (Ctrl+S)" onclick={() => saveProject()}>Save</button>
+		<button class="toolbar-btn" disabled={!ready} title="Open (Ctrl+O)" onclick={() => loadProject()}>Open</button>
 	</div>
 
 	<div class="toolbar-spacer"></div>

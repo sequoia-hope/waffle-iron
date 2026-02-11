@@ -147,6 +147,62 @@ test.describe('sketch → extrude pipeline', () => {
 		expect(len).toBeCloseTo(1.0, 3);
 	});
 
+	test('save/load roundtrip preserves feature tree', async ({ page }) => {
+		const ready = await waitForEngine(page);
+		test.skip(!ready, 'Engine not ready (WASM may not have loaded)');
+
+		await enterSketchAndWait(page, 'rectangle');
+
+		const canvas = page.locator('canvas');
+		await expect(canvas).toBeVisible();
+		const box = await canvas.boundingBox();
+		if (!box) { test.skip(true, 'Canvas not visible'); return; }
+
+		// Draw rectangle
+		await canvas.click({ position: { x: Math.round(box.width * 0.3), y: Math.round(box.height * 0.3) } });
+		await page.waitForTimeout(300);
+		await canvas.click({ position: { x: Math.round(box.width * 0.7), y: Math.round(box.height * 0.7) } });
+		await page.waitForTimeout(500);
+
+		// Finish sketch and extrude
+		await page.evaluate(() => { window.__waffle.finishSketch(); });
+		await page.waitForFunction(
+			() => window.__waffle.getFeatureTree()?.features?.some(f => f.operation?.type === 'Sketch'),
+			{ timeout: 10000 }
+		);
+		await page.evaluate(() => {
+			window.__waffle.showExtrudeDialog();
+			window.__waffle.applyExtrude(10, 0);
+		});
+		await page.waitForTimeout(3000);
+
+		// Verify we have 2 features before save
+		const treeBefore = await page.evaluate(() => window.__waffle.getFeatureTree());
+		expect(treeBefore.features.length).toBe(2);
+
+		// Save project — returns JSON string
+		const jsonData = await page.evaluate(() => window.__waffle.saveProject());
+		expect(jsonData).toBeTruthy();
+		expect(typeof jsonData).toBe('string');
+
+		// Parse and verify format
+		const parsed = JSON.parse(jsonData);
+		expect(parsed.format).toBe('waffle-iron');
+		expect(parsed.features).toBeDefined();
+		// features is a FeatureTree object with its own .features array
+		expect(parsed.features.features.length).toBe(2);
+
+		// Load the saved data back
+		await page.evaluate((data) => window.__waffle.loadProject(data), jsonData);
+		await page.waitForTimeout(2000);
+
+		// Verify feature tree restored
+		const treeAfter = await page.evaluate(() => window.__waffle.getFeatureTree());
+		expect(treeAfter.features.length).toBe(2);
+		expect(treeAfter.features.some(f => f.operation?.type === 'Sketch')).toBe(true);
+		expect(treeAfter.features.some(f => f.operation?.type === 'Extrude')).toBe(true);
+	});
+
 	test('sketch-on-face enters sketch mode with correct plane', async ({ page }) => {
 		const ready = await waitForEngine(page);
 		test.skip(!ready, 'Engine not ready (WASM may not have loaded)');

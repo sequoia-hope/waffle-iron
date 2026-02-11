@@ -178,6 +178,8 @@ export async function initEngine() {
 			computeFacePlane: (geomRef) => computeFacePlane(geomRef),
 			applyExtrude: (depth, profileIndex) => applyExtrude(depth, profileIndex),
 			showExtrudeDialog: () => showExtrudeDialog(),
+			saveProject: () => saveProject(),
+			loadProject: (jsonData) => loadProject(jsonData),
 		};
 	}
 }
@@ -1021,4 +1023,63 @@ export async function undo() {
 export async function redo() {
 	if (!bridge || !engineReady) return;
 	await bridge.send({ type: 'Redo' });
+}
+
+/**
+ * Save the current project to a .waffle file (browser download).
+ * Sends SaveProject to engine, receives SaveReady { json_data }, triggers download.
+ * @returns {Promise<string | null>} The JSON data string, or null on failure
+ */
+export async function saveProject() {
+	if (!bridge || !engineReady) return null;
+	const response = await bridge.send({ type: 'SaveProject' });
+	if (response.type !== 'SaveReady' || !response.json_data) return null;
+
+	const jsonData = response.json_data;
+
+	// Trigger browser file download
+	if (typeof document !== 'undefined') {
+		const blob = new Blob([jsonData], { type: 'application/json' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = 'project.waffle';
+		document.body.appendChild(a);
+		a.click();
+		document.body.removeChild(a);
+		URL.revokeObjectURL(url);
+	}
+
+	return jsonData;
+}
+
+/**
+ * Load a project from a .waffle/.json file (browser file picker).
+ * Opens a hidden file input, reads the file, sends LoadProject { data } to engine.
+ * The engine responds with ModelUpdated, which is handled by the existing callback.
+ * @param {string} [jsonData] - Optional JSON string to load directly (for programmatic use)
+ * @returns {Promise<boolean>} True if load was initiated
+ */
+export async function loadProject(jsonData) {
+	if (!bridge || !engineReady) return false;
+
+	if (jsonData) {
+		await bridge.send({ type: 'LoadProject', data: jsonData });
+		return true;
+	}
+
+	// Open file picker
+	return new Promise((resolve) => {
+		const input = document.createElement('input');
+		input.type = 'file';
+		input.accept = '.waffle,.json';
+		input.onchange = async () => {
+			const file = input.files?.[0];
+			if (!file) { resolve(false); return; }
+			const text = await file.text();
+			await bridge.send({ type: 'LoadProject', data: text });
+			resolve(true);
+		};
+		input.click();
+	});
 }
