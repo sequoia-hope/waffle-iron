@@ -1,4 +1,29 @@
 /**
+ * Get face data for a specific feature by index.
+ *
+ * Returns a JSON array of face ranges enriched with GeomRef data.
+ * Each entry contains a `geom_ref` (persistent geometry reference) plus
+ * `start_index` and `end_index` into the mesh indices array.
+ *
+ * For faces with role assignments from provenance, a Role-based selector is used.
+ * For faces without roles, a Signature-based selector with a centroid fallback is used.
+ * @param {number} feature_index
+ * @returns {string}
+ */
+export function get_face_data(feature_index) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.get_face_data(feature_index);
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
  * Get the current feature tree as JSON.
  *
  * Useful for the UI to query state without sending a full command.

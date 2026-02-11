@@ -8,8 +8,9 @@ use wasm_bindgen::prelude::*;
 use crate::dispatch;
 use crate::engine_state::EngineState;
 use crate::messages::{EngineToUi, UiToEngine};
-use kernel_fork::{Kernel, RenderMesh};
+use kernel_fork::RenderMesh;
 use modeling_ops::KernelBundle;
+use waffle_types::{Anchor, GeomRef, OutputKey, ResolvePolicy, Selector, TopoKind, TopoSignature};
 
 // Global engine state — single-threaded in the web worker.
 thread_local! {
@@ -179,6 +180,107 @@ pub fn get_mesh_count() -> usize {
             }
         }
         count
+    })
+}
+
+/// Get face data for a specific feature by index.
+///
+/// Returns a JSON array of face ranges enriched with GeomRef data.
+/// Each entry contains a `geom_ref` (persistent geometry reference) plus
+/// `start_index` and `end_index` into the mesh indices array.
+///
+/// For faces with role assignments from provenance, a Role-based selector is used.
+/// For faces without roles, a Signature-based selector with a centroid fallback is used.
+#[wasm_bindgen]
+pub fn get_face_data(feature_index: usize) -> String {
+    ENGINE_STATE.with(|cell| {
+        let engine = cell.borrow();
+        let engine = match engine.as_ref() {
+            Some(e) => e,
+            None => return "[]".to_string(),
+        };
+
+        let features = &engine.state.engine.tree.features;
+        let feature = match features.get(feature_index) {
+            Some(f) => f,
+            None => return "[]".to_string(),
+        };
+
+        let feature_id = feature.id;
+        let result = match engine.state.engine.feature_results.get(&feature_id) {
+            Some(r) => r,
+            None => return "[]".to_string(),
+        };
+
+        // Find the first output with a mesh
+        let mut found_mesh = None;
+        let mut found_key = None;
+        for (key, body) in &result.outputs {
+            if let Some(ref mesh) = body.mesh {
+                found_mesh = Some(mesh);
+                found_key = Some(key.clone());
+                break;
+            }
+        }
+
+        let mesh = match found_mesh {
+            Some(m) => m,
+            None => return "[]".to_string(),
+        };
+        let output_key = found_key.unwrap();
+
+        // Build a lookup from KernelId → Role from provenance
+        let role_map: std::collections::HashMap<_, _> =
+            result.provenance.role_assignments.iter().cloned().collect();
+
+        // Build face data entries
+        let mut entries = Vec::new();
+        for (face_idx, range) in mesh.face_ranges.iter().enumerate() {
+            let geom_ref = if let Some(role) = role_map.get(&range.face_id) {
+                // Role-based selector — stable across rebuilds
+                GeomRef {
+                    kind: TopoKind::Face,
+                    anchor: Anchor::FeatureOutput {
+                        feature_id,
+                        output_key: output_key.clone(),
+                    },
+                    selector: Selector::Role {
+                        role: role.clone(),
+                        index: 0,
+                    },
+                    policy: ResolvePolicy::BestEffort,
+                }
+            } else {
+                // Signature-based fallback using face index
+                GeomRef {
+                    kind: TopoKind::Face,
+                    anchor: Anchor::FeatureOutput {
+                        feature_id,
+                        output_key: output_key.clone(),
+                    },
+                    selector: Selector::Signature {
+                        signature: TopoSignature {
+                            surface_type: None,
+                            area: None,
+                            centroid: None,
+                            normal: None,
+                            bbox: None,
+                            adjacency_hash: Some(face_idx as u64),
+                            length: None,
+                        },
+                    },
+                    policy: ResolvePolicy::BestEffort,
+                }
+            };
+
+            entries.push(serde_json::json!({
+                "geom_ref": geom_ref,
+                "start_index": range.start_index,
+                "end_index": range.end_index,
+            }));
+        }
+
+        serde_json::to_string(&entries).unwrap_or_else(|_| "[]".to_string())
     })
 }
 

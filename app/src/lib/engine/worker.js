@@ -146,13 +146,23 @@ function collectMeshes() {
 		const normals = new Float32Array(normView);
 		const indices = new Uint32Array(idxView);
 
+		// Get face range data with GeomRef enrichment
+		let faceRanges = [];
+		try {
+			const faceDataJson = wasmModule.get_face_data(i);
+			faceRanges = JSON.parse(faceDataJson);
+		} catch (_e) {
+			// Face data unavailable — proceed without face picking
+		}
+
 		meshes.push({
 			featureIndex: i,
 			featureId: features[i].id,
 			vertices,
 			normals,
 			indices,
-			triangleCount: indices.length / 3
+			triangleCount: indices.length / 3,
+			faceRanges
 		});
 
 		transferables.push(vertices.buffer, normals.buffer, indices.buffer);

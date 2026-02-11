@@ -168,7 +168,14 @@ export async function initEngine() {
 				triangleCount: m.triangleCount,
 				hasNormals: m.normals?.length > 0,
 				hasIndices: m.indices?.length > 0,
+				faceRangeCount: m.faceRanges?.length ?? 0,
+				faceRanges: (m.faceRanges || []).map(r => ({
+					geom_ref: r.geom_ref,
+					start_index: r.start_index,
+					end_index: r.end_index,
+				})),
 			})),
+			computeFacePlane: (geomRef) => computeFacePlane(geomRef),
 			applyExtrude: (depth, profileIndex) => applyExtrude(depth, profileIndex),
 			showExtrudeDialog: () => showExtrudeDialog(),
 		};
@@ -799,7 +806,8 @@ export function computeFacePlane(geomRef) {
 			if (!geomRefEquals(range.geom_ref, geomRef)) continue;
 
 			// Get first triangle from this face range
-			const triStart = range.start_index * 3;
+			// start_index is already an index into the indices array
+			const triStart = range.start_index;
 			if (triStart + 2 >= mesh.indices.length) continue;
 
 			const i0 = mesh.indices[triStart];
