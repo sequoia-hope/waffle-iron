@@ -87,15 +87,18 @@ export async function waitForConstraintCount(page, n, timeout = 5000) {
  */
 export async function setSketchSelection(page, entityIds) {
 	await page.evaluate((ids) => {
-		// Access the store's setSketchSelection function via internal API
-		// Since __waffle doesn't expose this directly, we use the module's exported function
-		// The Svelte store module exposes setSketchSelection
-		const { setSketchSelection } = window.__waffleInternal ?? {};
-		if (setSketchSelection) {
-			setSketchSelection(new Set(ids));
-		}
+		window.__waffle?.setSketchSelection(ids);
 	}, entityIds);
 	await page.waitForTimeout(100);
+}
+
+/**
+ * Get the current sketch selection entity IDs.
+ * @param {import('@playwright/test').Page} page
+ * @returns {Promise<number[]>}
+ */
+export async function getSketchSelection(page) {
+	return page.evaluate(() => window.__waffle?.getSketchSelection() ?? []);
 }
 
 /**

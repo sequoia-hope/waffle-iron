@@ -342,13 +342,15 @@ test.describe('dimension popup DOM interaction', () => {
 
 		const constraintsBefore = await getConstraintCount(waffle.page);
 
-		// Click elsewhere to blur
-		await clickAt(waffle.page, -200, -200);
-		await waffle.page.waitForTimeout(300);
-
-		// Popup should be dismissed without creating constraint
-		const popup = await getDimensionPopupState(waffle.page);
-		expect(popup).toBeNull();
+		// Blur the input (clicking elsewhere is unreliable in headless)
+		await waffle.page.evaluate(() => {
+			document.querySelector('.dimension-input')?.blur();
+		});
+		// Wait for popup to be dismissed
+		await waffle.page.waitForFunction(
+			() => window.__waffle?.getDimensionPopup() == null,
+			{ timeout: 3000 }
+		);
 
 		const constraintsAfter = await getConstraintCount(waffle.page);
 		expect(constraintsAfter).toBe(constraintsBefore);

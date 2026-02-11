@@ -224,6 +224,8 @@ export async function initEngine() {
 			getPreview: () => getPreview(),
 			getSolveStatus: () => sketchSolveStatus ? { ...sketchSolveStatus } : null,
 			getOverConstrained: () => [...overConstrainedEntities],
+			getSketchSelection: () => [...sketchSelection],
+			setSketchSelection: (ids) => { sketchSelection = new Set(ids); },
 		};
 	}
 }
