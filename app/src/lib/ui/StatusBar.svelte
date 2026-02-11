@@ -51,9 +51,9 @@
 	let modeText = $derived(inSketch ? `Sketch Mode \u2022 Tool: ${tool}` : '');
 </script>
 
-<div class="statusbar" class:error={!!error}>
+<div class="statusbar" class:error={!!error} data-testid="statusbar">
 	<div class="status-left">
-		<span class="status-text">{getStatusMessage()}</span>
+		<span class="status-text" data-testid="status-message">{getStatusMessage()}</span>
 		{#if modeText}
 			<span class="status-sep">\u2502</span>
 			<span class="status-mode">{modeText}</span>

@@ -181,6 +181,28 @@ export async function initEngine() {
 			saveProject: () => saveProject(),
 			loadProject: (jsonData) => loadProject(jsonData),
 			exportStl: () => exportStl(),
+			getCameraState: () => {
+				const canvas = document.querySelector('canvas');
+				if (!canvas) return null;
+				// Read camera from three.js scene via the global renderer
+				try {
+					const threeCanvas = canvas;
+					// Access three.js internals through __r3f if available, otherwise scan for camera
+					const cam = threeCanvas.__three_camera;
+					if (cam) {
+						return {
+							position: [cam.position.x, cam.position.y, cam.position.z],
+							target: cam.__orbitTarget ? [cam.__orbitTarget.x, cam.__orbitTarget.y, cam.__orbitTarget.z] : null,
+							fov: cam.fov,
+						};
+					}
+				} catch (_) {}
+				return null;
+			},
+			getConstraints: () => [...sketchConstraints],
+			getProfiles: () => [...extractedProfilesState],
+			getExtrudeDialogState: () => extrudeDialogState,
+			getRevolveDialogState: () => revolveDialogState,
 		};
 	}
 }

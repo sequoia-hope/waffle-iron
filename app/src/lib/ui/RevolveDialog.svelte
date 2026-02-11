@@ -28,6 +28,24 @@
 		}
 	});
 
+	// Listen for keydown at window level so Escape works even without focus
+	$effect(() => {
+		if (!dialogState) return;
+		function onKeyDown(e) {
+			if (e.key === 'Enter') {
+				e.preventDefault();
+				e.stopPropagation();
+				handleApply();
+			} else if (e.key === 'Escape') {
+				e.preventDefault();
+				e.stopPropagation();
+				handleCancel();
+			}
+		}
+		window.addEventListener('keydown', onKeyDown, { capture: true });
+		return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
+	});
+
 	function handleApply() {
 		applyRevolve(
 			angle,
@@ -54,7 +72,7 @@
 
 {#if dialogState}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="overlay" onkeydown={handleKeydown}>
+	<div class="overlay" onkeydown={handleKeydown} data-testid="revolve-dialog">
 		<div class="dialog">
 			<div class="dialog-header">
 				<span class="dialog-title">Revolve</span>
@@ -104,8 +122,8 @@
 				{/if}
 			</div>
 			<div class="dialog-footer">
-				<button class="btn btn-cancel" onclick={handleCancel}>Cancel</button>
-				<button class="btn btn-apply" onclick={handleApply}>Apply</button>
+				<button class="btn btn-cancel" data-testid="revolve-cancel" onclick={handleCancel}>Cancel</button>
+				<button class="btn btn-apply" data-testid="revolve-apply" onclick={handleApply}>Apply</button>
 			</div>
 		</div>
 	</div>

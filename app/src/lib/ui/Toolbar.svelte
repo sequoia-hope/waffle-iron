@@ -123,7 +123,7 @@
 	});
 </script>
 
-<div class="toolbar">
+<div class="toolbar" data-testid="toolbar">
 	<div class="toolbar-brand">Waffle Iron</div>
 
 	{#if inSketch}
@@ -135,12 +135,13 @@
 					class:active={t.id !== 'construction' && tool === t.id}
 					disabled={!ready}
 					title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
+					data-testid="toolbar-btn-{t.id}"
 					onclick={() => t.id === 'construction' ? handleToggleConstruction() : setActiveTool(t.id)}
 				>{t.label}</button>
 			{/each}
 		</div>
 		<div class="toolbar-sep"></div>
-		<button class="toolbar-btn finish-btn" onclick={handleFinishSketch}>
+		<button class="toolbar-btn finish-btn" data-testid="toolbar-btn-finish-sketch" onclick={handleFinishSketch}>
 			Finish Sketch
 		</button>
 	{:else}
@@ -152,6 +153,7 @@
 					class:active={tool === t.id}
 					disabled={!ready}
 					title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
+					data-testid="toolbar-btn-{t.id}"
 					onclick={() => handleToolClick(t.id)}
 				>{t.label}</button>
 			{/each}
@@ -173,9 +175,9 @@
 	<div class="toolbar-spacer"></div>
 	<div class="toolbar-status">
 		{#if ready}
-			<span class="status-dot ready"></span>
+			<span class="status-dot ready" data-testid="status-dot"></span>
 		{:else}
-			<span class="status-dot loading"></span>
+			<span class="status-dot loading" data-testid="status-dot"></span>
 		{/if}
 	</div>
 </div>

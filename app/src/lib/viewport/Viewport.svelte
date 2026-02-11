@@ -18,7 +18,7 @@
 	}
 </script>
 
-<div class="viewport" oncontextmenu={handleContextMenu}>
+<div class="viewport" data-testid="viewport" oncontextmenu={handleContextMenu}>
 	<Canvas>
 		<Scene />
 		<ViewCubeGizmo />

@@ -16,6 +16,24 @@
 		}
 	});
 
+	// Listen for keydown at window level so Escape works even without focus
+	$effect(() => {
+		if (!dialogState) return;
+		function onKeyDown(e) {
+			if (e.key === 'Enter') {
+				e.preventDefault();
+				e.stopPropagation();
+				handleApply();
+			} else if (e.key === 'Escape') {
+				e.preventDefault();
+				e.stopPropagation();
+				handleCancel();
+			}
+		}
+		window.addEventListener('keydown', onKeyDown, { capture: true });
+		return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
+	});
+
 	function handleApply() {
 		applyExtrude(depth, profileIndex).catch(() => {});
 	}
@@ -37,7 +55,7 @@
 
 {#if dialogState}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="overlay" onkeydown={handleKeydown}>
+	<div class="overlay" onkeydown={handleKeydown} data-testid="extrude-dialog">
 		<div class="dialog">
 			<div class="dialog-header">
 				<span class="dialog-title">Extrude</span>
@@ -52,6 +70,7 @@
 					<label for="extrude-depth">Depth</label>
 					<input
 						id="extrude-depth"
+						data-testid="extrude-depth"
 						type="number"
 						bind:value={depth}
 						step="1"
@@ -70,8 +89,8 @@
 				{/if}
 			</div>
 			<div class="dialog-footer">
-				<button class="btn btn-cancel" onclick={handleCancel}>Cancel</button>
-				<button class="btn btn-apply" onclick={handleApply}>Apply</button>
+				<button class="btn btn-cancel" data-testid="extrude-cancel" onclick={handleCancel}>Cancel</button>
+				<button class="btn btn-apply" data-testid="extrude-apply" onclick={handleApply}>Apply</button>
 			</div>
 		</div>
 	</div>
