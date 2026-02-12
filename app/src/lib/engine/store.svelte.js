@@ -226,6 +226,8 @@ export async function initEngine() {
 			getOverConstrained: () => [...overConstrainedEntities],
 			getSketchSelection: () => [...sketchSelection],
 			setSketchSelection: (ids) => { sketchSelection = new Set(ids); },
+			undo: () => undo(),
+			redo: () => redo(),
 		};
 	}
 }

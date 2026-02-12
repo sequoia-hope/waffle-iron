@@ -224,8 +224,8 @@
 
 	<div class="toolbar-sep"></div>
 	<div class="toolbar-group">
-		<button class="toolbar-btn" disabled={!ready} title="Undo (Ctrl+Z)" onclick={undo}>Undo</button>
-		<button class="toolbar-btn" disabled={!ready} title="Redo (Ctrl+Shift+Z)" onclick={redo}>Redo</button>
+		<button class="toolbar-btn" data-testid="toolbar-btn-undo" disabled={!ready} title="Undo (Ctrl+Z)" onclick={undo}>Undo</button>
+		<button class="toolbar-btn" data-testid="toolbar-btn-redo" disabled={!ready} title="Redo (Ctrl+Shift+Z)" onclick={redo}>Redo</button>
 	</div>
 	<div class="toolbar-sep"></div>
 	<div class="toolbar-group">

@@ -1,119 +1,100 @@
-import { test, expect } from '@playwright/test';
-
-async function waitForEngine(page, timeout = 15000) {
-	return page
-		.waitForFunction(
-			() => window.__waffle && window.__waffle.getState().engineReady,
-			{ timeout }
-		)
-		.then(() => true)
-		.catch(() => false);
-}
-
-async function enterSketchAndWait(page, tool = 'line') {
-	await page.evaluate(({ tool }) => {
-		window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]);
-		window.__waffle.setTool(tool);
-	}, { tool });
-
-	await page.waitForFunction(
-		({ tool }) => {
-			const state = window.__waffle?.getState();
-			return state?.sketchMode?.active === true && state?.activeTool === tool;
-		},
-		{ tool },
-		{ timeout: 5000 }
-	);
-
-	await page.waitForTimeout(300);
-}
+/**
+ * Pipeline tests — full sketch → extrude workflows via real GUI events.
+ *
+ * Previously these tests bypassed the GUI entirely via __waffle API calls
+ * (enterSketch, finishSketch, showExtrudeDialog, applyExtrude).
+ * Now they route through actual toolbar button clicks and dialog interactions.
+ *
+ * __waffle is only used for state VERIFICATION, not for triggering actions.
+ */
+import { test, expect } from './gui/helpers/waffle-test.js';
+import {
+	clickSketch,
+	clickRectangle,
+	clickFinishSketch,
+	clickExtrude,
+} from './gui/helpers/toolbar.js';
+import { drawRectangle } from './gui/helpers/canvas.js';
+import {
+	getEntities,
+	getFeatureCount,
+	getFeatureTree,
+	hasFeatureOfType,
+	hasMeshWithGeometry,
+	getMeshes,
+	waitForEntityCount,
+	waitForFeatureCount,
+} from './gui/helpers/state.js';
 
 test.describe('sketch → extrude pipeline', () => {
-	test.beforeEach(async ({ page }) => {
-		await page.goto('/');
-	});
+	test('sketch → finish → extrude → verify 3D mesh', async ({ waffle }) => {
+		// Step 1: Click Sketch button (real toolbar click)
+		await clickSketch(waffle.page);
 
-	test('sketch → finish → extrude → verify 3D mesh', async ({ page }) => {
-		const ready = await waitForEngine(page);
-		test.skip(!ready, 'Engine not ready (WASM may not have loaded)');
+		// Step 2: Click Rectangle tool (real toolbar click)
+		await clickRectangle(waffle.page);
 
-		await enterSketchAndWait(page, 'rectangle');
+		// Step 3: Draw rectangle (real canvas clicks)
+		await drawRectangle(waffle.page, -80, -60, 80, 60);
+		try {
+			await waitForEntityCount(waffle.page, 8, 3000);
+		} catch {
+			await waffle.dumpState('pipeline-draw-failed');
+		}
 
-		const canvas = page.locator('canvas');
-		await expect(canvas).toBeVisible();
-		const box = await canvas.boundingBox();
-		if (!box) { test.skip(true, 'Canvas not visible'); return; }
-
-		// Draw rectangle (two-click corners)
-		await canvas.click({ position: { x: Math.round(box.width * 0.3), y: Math.round(box.height * 0.3) } });
-		await page.waitForTimeout(300);
-		await canvas.click({ position: { x: Math.round(box.width * 0.7), y: Math.round(box.height * 0.7) } });
-		await page.waitForTimeout(500);
-
-		// Verify 4 lines were created
-		const entities = await page.evaluate(() => window.__waffle.getEntities());
+		// Verify 4 lines created
+		const entities = await getEntities(waffle.page);
 		expect(entities.filter(e => e.type === 'Line').length).toBe(4);
 
-		// Finish sketch
-		await page.evaluate(() => { window.__waffle.finishSketch(); });
+		// Step 4: Click Finish Sketch button (real toolbar click)
+		await clickFinishSketch(waffle.page);
+		try {
+			await waitForFeatureCount(waffle.page, 1, 10000);
+		} catch {
+			await waffle.dumpState('pipeline-finish-failed');
+		}
 
-		await page.waitForFunction(
-			() => window.__waffle.getFeatureTree()?.features?.some(f => f.operation?.type === 'Sketch'),
-			{ timeout: 10000 }
-		);
+		// Step 5: Click Extrude button, fill depth, click Apply (real dialog interaction)
+		await clickExtrude(waffle.page);
+		const depthInput = waffle.page.locator('[data-testid="extrude-depth"]');
+		await depthInput.fill('10');
+		await waffle.page.locator('[data-testid="extrude-apply"]').click();
 
-		// Extrude the sketch profile
-		await page.evaluate(() => {
-			window.__waffle.showExtrudeDialog();
-			window.__waffle.applyExtrude(10, 0);
-		});
+		try {
+			await waitForFeatureCount(waffle.page, 2, 10000);
+		} catch {
+			await waffle.dumpState('pipeline-extrude-failed');
+		}
 
-		await page.waitForTimeout(3000);
-
-		// Verify feature tree
-		const finalTree = await page.evaluate(() => window.__waffle.getFeatureTree());
-		expect(finalTree.features.length).toBe(2);
-		expect(finalTree.features.some(f => f.operation?.type === 'Sketch')).toBe(true);
-		expect(finalTree.features.some(f => f.operation?.type === 'Extrude')).toBe(true);
+		// Verify feature tree (read-only verification via __waffle)
+		const tree = await getFeatureTree(waffle.page);
+		expect(tree.features.length).toBe(2);
+		expect(await hasFeatureOfType(waffle.page, 'Sketch')).toBe(true);
+		expect(await hasFeatureOfType(waffle.page, 'Extrude')).toBe(true);
 
 		// Verify 3D mesh was generated
-		const meshes = await page.evaluate(() => window.__waffle.getMeshes());
-		expect(meshes.length).toBeGreaterThan(0);
-		const meshWithGeometry = meshes.find(m => m.triangleCount > 0 && m.vertexCount > 0);
-		expect(meshWithGeometry).toBeTruthy();
+		expect(await hasMeshWithGeometry(waffle.page)).toBe(true);
 	});
 
-	test('extruded solid has pickable faces with GeomRefs', async ({ page }) => {
-		const ready = await waitForEngine(page);
-		test.skip(!ready, 'Engine not ready (WASM may not have loaded)');
+	test('extruded solid has pickable faces with GeomRefs', async ({ waffle }) => {
+		// Full GUI workflow: sketch → draw → finish → extrude
+		await clickSketch(waffle.page);
+		await clickRectangle(waffle.page);
+		await drawRectangle(waffle.page, -80, -60, 80, 60);
+		try { await waitForEntityCount(waffle.page, 8, 3000); } catch {}
 
-		await enterSketchAndWait(page, 'rectangle');
+		await clickFinishSketch(waffle.page);
+		try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {}
 
-		const canvas = page.locator('canvas');
-		await expect(canvas).toBeVisible();
-		const box = await canvas.boundingBox();
-		if (!box) { test.skip(true, 'Canvas not visible'); return; }
+		await clickExtrude(waffle.page);
+		await waffle.page.locator('[data-testid="extrude-depth"]').fill('10');
+		await waffle.page.locator('[data-testid="extrude-apply"]').click();
+		try { await waitForFeatureCount(waffle.page, 2, 10000); } catch {
+			await waffle.dumpState('pipeline-geomref-extrude-failed');
+		}
 
-		// Draw rectangle
-		await canvas.click({ position: { x: Math.round(box.width * 0.3), y: Math.round(box.height * 0.3) } });
-		await page.waitForTimeout(300);
-		await canvas.click({ position: { x: Math.round(box.width * 0.7), y: Math.round(box.height * 0.7) } });
-		await page.waitForTimeout(500);
-
-		// Finish sketch and extrude
-		await page.evaluate(() => { window.__waffle.finishSketch(); });
-		await page.waitForFunction(
-			() => window.__waffle.getFeatureTree()?.features?.some(f => f.operation?.type === 'Sketch'),
-			{ timeout: 10000 }
-		);
-		await page.evaluate(() => {
-			window.__waffle.showExtrudeDialog();
-			window.__waffle.applyExtrude(10, 0);
-		});
-		await page.waitForTimeout(3000);
-
-		// Verify face ranges are present on the mesh
-		const meshes = await page.evaluate(() => window.__waffle.getMeshes());
+		// Verify face ranges (read-only verification)
+		const meshes = await getMeshes(waffle.page);
 		const meshWithFaces = meshes.find(m => m.faceRangeCount > 0);
 		expect(meshWithFaces).toBeTruthy();
 
@@ -132,7 +113,7 @@ test.describe('sketch → extrude pipeline', () => {
 
 		// Verify computeFacePlane works for at least one face
 		const firstRef = meshWithFaces.faceRanges[0].geom_ref;
-		const plane = await page.evaluate(
+		const plane = await waffle.page.evaluate(
 			(ref) => window.__waffle.computeFacePlane(ref),
 			firstRef
 		);
@@ -147,93 +128,65 @@ test.describe('sketch → extrude pipeline', () => {
 		expect(len).toBeCloseTo(1.0, 3);
 	});
 
-	test('save/load roundtrip preserves feature tree', async ({ page }) => {
-		const ready = await waitForEngine(page);
-		test.skip(!ready, 'Engine not ready (WASM may not have loaded)');
+	test('save/load roundtrip preserves feature tree', async ({ waffle }) => {
+		// Full GUI workflow
+		await clickSketch(waffle.page);
+		await clickRectangle(waffle.page);
+		await drawRectangle(waffle.page, -80, -60, 80, 60);
+		try { await waitForEntityCount(waffle.page, 8, 3000); } catch {}
 
-		await enterSketchAndWait(page, 'rectangle');
+		await clickFinishSketch(waffle.page);
+		try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {}
 
-		const canvas = page.locator('canvas');
-		await expect(canvas).toBeVisible();
-		const box = await canvas.boundingBox();
-		if (!box) { test.skip(true, 'Canvas not visible'); return; }
+		await clickExtrude(waffle.page);
+		await waffle.page.locator('[data-testid="extrude-depth"]').fill('10');
+		await waffle.page.locator('[data-testid="extrude-apply"]').click();
+		try { await waitForFeatureCount(waffle.page, 2, 10000); } catch {}
 
-		// Draw rectangle
-		await canvas.click({ position: { x: Math.round(box.width * 0.3), y: Math.round(box.height * 0.3) } });
-		await page.waitForTimeout(300);
-		await canvas.click({ position: { x: Math.round(box.width * 0.7), y: Math.round(box.height * 0.7) } });
-		await page.waitForTimeout(500);
-
-		// Finish sketch and extrude
-		await page.evaluate(() => { window.__waffle.finishSketch(); });
-		await page.waitForFunction(
-			() => window.__waffle.getFeatureTree()?.features?.some(f => f.operation?.type === 'Sketch'),
-			{ timeout: 10000 }
-		);
-		await page.evaluate(() => {
-			window.__waffle.showExtrudeDialog();
-			window.__waffle.applyExtrude(10, 0);
-		});
-		await page.waitForTimeout(3000);
-
-		// Verify we have 2 features before save
-		const treeBefore = await page.evaluate(() => window.__waffle.getFeatureTree());
+		// Verify 2 features before save
+		const treeBefore = await getFeatureTree(waffle.page);
 		expect(treeBefore.features.length).toBe(2);
 
-		// Save project — returns JSON string
-		const jsonData = await page.evaluate(() => window.__waffle.saveProject());
+		// Save project (API call — no GUI save dialog exists yet)
+		const jsonData = await waffle.page.evaluate(() => window.__waffle.saveProject());
 		expect(jsonData).toBeTruthy();
 		expect(typeof jsonData).toBe('string');
 
 		// Parse and verify format
 		const parsed = JSON.parse(jsonData);
 		expect(parsed.format).toBe('waffle-iron');
-		expect(parsed.features).toBeDefined();
-		// features is a FeatureTree object with its own .features array
 		expect(parsed.features.features.length).toBe(2);
 
-		// Load the saved data back
-		await page.evaluate((data) => window.__waffle.loadProject(data), jsonData);
-		await page.waitForTimeout(2000);
+		// Load back (API call — no GUI open dialog exists yet)
+		await waffle.page.evaluate((data) => window.__waffle.loadProject(data), jsonData);
+		await waffle.page.waitForTimeout(2000);
 
 		// Verify feature tree restored
-		const treeAfter = await page.evaluate(() => window.__waffle.getFeatureTree());
+		const treeAfter = await getFeatureTree(waffle.page);
 		expect(treeAfter.features.length).toBe(2);
-		expect(treeAfter.features.some(f => f.operation?.type === 'Sketch')).toBe(true);
-		expect(treeAfter.features.some(f => f.operation?.type === 'Extrude')).toBe(true);
+		expect(await hasFeatureOfType(waffle.page, 'Sketch')).toBe(true);
+		expect(await hasFeatureOfType(waffle.page, 'Extrude')).toBe(true);
 	});
 
-	test('sketch-on-face enters sketch mode with correct plane', async ({ page }) => {
-		const ready = await waitForEngine(page);
-		test.skip(!ready, 'Engine not ready (WASM may not have loaded)');
+	test('sketch-on-face enters sketch mode with correct plane', async ({ waffle }) => {
+		// Full GUI workflow to create extruded box
+		await clickSketch(waffle.page);
+		await clickRectangle(waffle.page);
+		await drawRectangle(waffle.page, -80, -60, 80, 60);
+		try { await waitForEntityCount(waffle.page, 8, 3000); } catch {}
 
-		await enterSketchAndWait(page, 'rectangle');
+		await clickFinishSketch(waffle.page);
+		try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {}
 
-		const canvas = page.locator('canvas');
-		await expect(canvas).toBeVisible();
-		const box = await canvas.boundingBox();
-		if (!box) { test.skip(true, 'Canvas not visible'); return; }
+		await clickExtrude(waffle.page);
+		await waffle.page.locator('[data-testid="extrude-depth"]').fill('10');
+		await waffle.page.locator('[data-testid="extrude-apply"]').click();
+		try { await waitForFeatureCount(waffle.page, 2, 10000); } catch {
+			await waffle.dumpState('pipeline-sof-extrude-failed');
+		}
 
-		// Draw rectangle
-		await canvas.click({ position: { x: Math.round(box.width * 0.3), y: Math.round(box.height * 0.3) } });
-		await page.waitForTimeout(300);
-		await canvas.click({ position: { x: Math.round(box.width * 0.7), y: Math.round(box.height * 0.7) } });
-		await page.waitForTimeout(500);
-
-		// Finish sketch and extrude
-		await page.evaluate(() => { window.__waffle.finishSketch(); });
-		await page.waitForFunction(
-			() => window.__waffle.getFeatureTree()?.features?.some(f => f.operation?.type === 'Sketch'),
-			{ timeout: 10000 }
-		);
-		await page.evaluate(() => {
-			window.__waffle.showExtrudeDialog();
-			window.__waffle.applyExtrude(10, 0);
-		});
-		await page.waitForTimeout(3000);
-
-		// Get a face ref and compute its plane
-		const faceRef = await page.evaluate(() => {
+		// Get a face ref (read-only API — face picking requires 3D raycast)
+		const faceRef = await waffle.page.evaluate(() => {
 			const meshes = window.__waffle.getMeshes();
 			const mesh = meshes.find(m => m.faceRangeCount > 0);
 			if (!mesh || mesh.faceRanges.length === 0) return null;
@@ -241,19 +194,17 @@ test.describe('sketch → extrude pipeline', () => {
 		});
 		expect(faceRef).toBeTruthy();
 
-		const plane = await page.evaluate(
-			(ref) => window.__waffle.computeFacePlane(ref),
-			faceRef
-		);
-		expect(plane).toBeTruthy();
+		// Select the face (programmatic — 3D face picking is a raycast operation)
+		await waffle.page.evaluate((ref) => {
+			window.__waffle.selectRef(ref);
+		}, faceRef);
+		await waffle.page.waitForTimeout(200);
 
-		// Enter sketch on the computed face plane
-		await page.evaluate(({ origin, normal }) => {
-			window.__waffle.enterSketch(origin, normal);
-		}, plane);
+		// Click Sketch button (real toolbar click) to enter sketch on selected face
+		await clickSketch(waffle.page);
 
 		// Verify sketch mode is active
-		const state = await page.evaluate(() => window.__waffle.getState());
+		const state = await waffle.page.evaluate(() => window.__waffle.getState());
 		expect(state.sketchMode.active).toBe(true);
 	});
 });
