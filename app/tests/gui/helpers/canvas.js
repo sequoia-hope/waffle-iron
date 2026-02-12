@@ -109,6 +109,23 @@ export async function orbitDrag(page, startX, startY, endX, endY) {
 }
 
 /**
+ * Move the mouse to a position on the canvas without clicking.
+ * Useful for triggering hover/snap events during drawing.
+ * @param {import('@playwright/test').Page} page
+ * @param {number} xOffset - pixels from center
+ * @param {number} yOffset - pixels from center
+ */
+export async function moveTo(page, xOffset, yOffset) {
+	const bounds = await getCanvasBounds(page);
+	if (!bounds) throw new Error('Canvas not visible');
+
+	const x = bounds.centerX + xOffset;
+	const y = bounds.centerY + yOffset;
+	await page.mouse.move(x, y);
+	await page.waitForTimeout(100);
+}
+
+/**
  * Zoom via mouse wheel at canvas center.
  * @param {import('@playwright/test').Page} page
  * @param {number} deltaY - positive = zoom out, negative = zoom in
