@@ -7,14 +7,14 @@
  *
  * __waffle is only used for state VERIFICATION, not for triggering actions.
  */
-import { test, expect } from './gui/helpers/waffle-test.js';
+import { test, expect } from './helpers/waffle-test.js';
 import {
 	clickSketch,
 	clickRectangle,
 	clickFinishSketch,
 	clickExtrude,
-} from './gui/helpers/toolbar.js';
-import { drawRectangle } from './gui/helpers/canvas.js';
+} from './helpers/toolbar.js';
+import { drawRectangle } from './helpers/canvas.js';
 import {
 	getEntities,
 	getFeatureCount,
@@ -24,7 +24,7 @@ import {
 	getMeshes,
 	waitForEntityCount,
 	waitForFeatureCount,
-} from './gui/helpers/state.js';
+} from './helpers/state.js';
 
 test.describe('sketch → extrude pipeline', () => {
 	test('sketch → finish → extrude → verify 3D mesh', async ({ waffle }) => {
