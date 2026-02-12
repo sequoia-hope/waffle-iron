@@ -8,11 +8,13 @@
 	let dialogState = $derived(getExtrudeDialogState());
 	let depth = $state(10);
 	let profileIndex = $state(0);
+	let cut = $state(false);
 
 	$effect(() => {
 		if (dialogState) {
 			depth = 10;
 			profileIndex = 0;
+			cut = false;
 		}
 	});
 
@@ -35,7 +37,7 @@
 	});
 
 	function handleApply() {
-		applyExtrude(depth, profileIndex).catch(() => {});
+		applyExtrude(depth, profileIndex, cut).catch(() => {});
 	}
 
 	function handleCancel() {
@@ -77,7 +79,16 @@
 						min="0.1"
 					/>
 				</div>
-				{#if dialogState.profileCount > 1}
+				<div class="field">
+					<label for="extrude-cut">Cut</label>
+					<input
+						id="extrude-cut"
+						data-testid="extrude-cut"
+						type="checkbox"
+						bind:checked={cut}
+					/>
+				</div>
+			{#if dialogState.profileCount > 1}
 					<div class="field">
 						<label for="extrude-profile">Profile</label>
 						<select id="extrude-profile" bind:value={profileIndex}>
@@ -171,7 +182,7 @@
 		color: var(--text-primary, #eee);
 	}
 
-	.field input,
+	.field input[type="number"],
 	.field select {
 		background: var(--bg-primary, #1e1e1e);
 		border: 1px solid var(--border-color, #444);
@@ -180,6 +191,11 @@
 		border-radius: 3px;
 		font-size: 12px;
 		width: 120px;
+	}
+
+	.field input[type="checkbox"] {
+		width: auto;
+		accent-color: var(--accent, #0078d4);
 	}
 
 	.field input:focus,

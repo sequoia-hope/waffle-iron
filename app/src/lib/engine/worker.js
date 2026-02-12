@@ -17,8 +17,11 @@ let wasmModule = null;
 async function loadSlvsFactory() {
 	const resp = await fetch('/pkg/slvs/slvs.js');
 	const text = await resp.text();
-	// Add ES module exports to the Emscripten output
-	const moduleText = text + '\nexport { createSlvsModule };\nexport default createSlvsModule;';
+	// Add ES module exports only if the Emscripten output doesn't already have them
+	let moduleText = text;
+	if (!text.includes('export default')) {
+		moduleText += '\nexport { createSlvsModule };\nexport default createSlvsModule;';
+	}
 	const blob = new Blob([moduleText], { type: 'text/javascript' });
 	const blobUrl = URL.createObjectURL(blob);
 	const mod = await import(/* @vite-ignore */ blobUrl);
@@ -125,7 +128,11 @@ function handleSolveSketch(msg) {
 }
 
 /**
- * Collect mesh data for all features as Transferable typed arrays.
+ * Collect mesh data for features as Transferable typed arrays.
+ *
+ * Only returns the LAST mesh with geometry for each body. In a single-body
+ * workflow (extrude → cut → fillet etc.), later features replace earlier ones.
+ * This prevents the original extrude mesh from overlapping the boolean result.
  */
 function collectMeshes() {
 	if (!wasmModule) return { meshes: [], transferables: [] };
@@ -135,12 +142,27 @@ function collectMeshes() {
 
 	const features = JSON.parse(wasmModule.get_feature_tree()).features || [];
 
+	// Iterate in reverse so the LAST mesh-producing feature wins.
+	// For single-body workflows this gives us the final result only.
+	let lastMeshIndex = -1;
+	for (let i = features.length - 1; i >= 0; i--) {
+		const vertView = wasmModule.get_mesh_vertices(i);
+		if (vertView.length > 0) {
+			lastMeshIndex = i;
+			break;
+		}
+	}
+
 	for (let i = 0; i < features.length; i++) {
 		const vertView = wasmModule.get_mesh_vertices(i);
 		const normView = wasmModule.get_mesh_normals(i);
 		const idxView = wasmModule.get_mesh_indices(i);
 
 		if (vertView.length === 0) continue;
+
+		// In single-body mode, skip earlier meshes if a later one exists
+		// (the later mesh is the boolean/fillet/shell result that replaces it)
+		if (lastMeshIndex > i) continue;
 
 		const vertices = new Float32Array(vertView);
 		const normals = new Float32Array(normView);

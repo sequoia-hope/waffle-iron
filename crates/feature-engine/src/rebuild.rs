@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::resolve::resolve_with_fallback;
 use crate::types::{BooleanOp, EngineError, Feature, FeatureTree, Operation};
 use modeling_ops::KernelBundle;
-use waffle_types::Sketch;
+use waffle_types::{OutputKey, Sketch};
 
 /// State of the engine after a rebuild.
 #[derive(Debug)]
@@ -111,10 +111,30 @@ fn execute_feature(
                 });
             }
 
+            // For cut extrudes, reverse the direction to go INTO the target body.
+            // Offset the profile slightly outward (along normal) and extend depth
+            // by 2*epsilon to avoid coplanar faces with the target body,
+            // which causes truck's boolean to fail.
+            let eps = 0.01;
+            let (extrude_direction, extrude_depth, face_origin) = if params.cut {
+                let offset_origin = [
+                    sketch.plane_origin[0] + direction[0] * eps,
+                    sketch.plane_origin[1] + direction[1] * eps,
+                    sketch.plane_origin[2] + direction[2] * eps,
+                ];
+                (
+                    [-direction[0], -direction[1], -direction[2]],
+                    params.depth + 2.0 * eps,
+                    offset_origin,
+                )
+            } else {
+                (direction, params.depth, sketch.plane_origin)
+            };
+
             let x_axis = tangent_x_from_normal(sketch.plane_normal);
             let face_ids = kb.make_faces_from_profiles(
                 &sketch.solved_profiles,
-                sketch.plane_origin,
+                face_origin,
                 sketch.plane_normal,
                 x_axis,
                 &sketch.solved_positions,
@@ -128,8 +148,30 @@ fn execute_feature(
             }
 
             let face_index = params.profile_index.min(face_ids.len() - 1);
-            let result = execute_extrude(kb, face_ids[face_index], direction, params.depth, None)?;
-            Ok(result)
+            let extrude_result =
+                execute_extrude(kb, face_ids[face_index], extrude_direction, extrude_depth, None)?;
+
+            if params.cut {
+                // Find the target body to subtract from (most recent solid before this feature)
+                let target_handle = find_most_recent_solid(feature, feature_results, tree)
+                    .ok_or_else(|| EngineError::ResolutionFailed {
+                        reason: "Cut extrude requires an existing body to subtract from".into(),
+                    })?;
+
+                let tool_handle = extrude_result
+                    .outputs
+                    .first()
+                    .map(|(_, body)| body.handle.clone())
+                    .ok_or_else(|| EngineError::ResolutionFailed {
+                        reason: "Extrude produced no solid output for cut".into(),
+                    })?;
+
+                let boolean_result =
+                    execute_boolean(kb, &target_handle, &tool_handle, BooleanKind::Subtract)?;
+                Ok(boolean_result)
+            } else {
+                Ok(extrude_result)
+            }
         }
 
         Operation::Revolve { params } => {
@@ -269,6 +311,38 @@ fn find_latest_solid_handle(
     })?;
 
     find_solid_handle(geom_ref, feature_results)
+}
+
+/// Find the most recent solid handle from features built before the given feature.
+///
+/// Walks backwards through the feature tree to find the latest OpResult with a Main output.
+fn find_most_recent_solid(
+    current_feature: &Feature,
+    feature_results: &HashMap<Uuid, OpResult>,
+    tree: &FeatureTree,
+) -> Option<kernel_fork::KernelSolidHandle> {
+    let active = tree.active_features();
+    // Walk backwards from the current feature
+    for feature in active.iter().rev() {
+        if feature.id == current_feature.id {
+            continue;
+        }
+        if feature.suppressed {
+            continue;
+        }
+        // Skip sketch features (they produce no solid)
+        if matches!(&feature.operation, Operation::Sketch { .. }) {
+            continue;
+        }
+        if let Some(result) = feature_results.get(&feature.id) {
+            for (key, body_output) in &result.outputs {
+                if *key == OutputKey::Main {
+                    return Some(body_output.handle.clone());
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Find the Sketch data from a feature in the tree by sketch feature ID.

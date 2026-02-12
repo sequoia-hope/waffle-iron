@@ -49,6 +49,11 @@
 		return `X: ${cursorPos.x.toFixed(2)}  Y: ${cursorPos.y.toFixed(2)}`;
 	});
 	let modeText = $derived(inSketch ? `Sketch Mode \u2022 Tool: ${tool}` : '');
+
+	function getScreenshotUrl() {
+		const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+		return `http://${host}:8085/`;
+	}
 </script>
 
 <div class="statusbar" class:error={!!error} data-testid="statusbar">
@@ -78,7 +83,16 @@
 		{/if}
 		{#if isEngineReady()}
 			<span class="status-engine">WASM Active</span>
+			<span class="status-sep">{'\u2502'}</span>
 		{/if}
+		<a
+			class="status-dev-link"
+			href={getScreenshotUrl()}
+			target="_blank"
+			rel="noopener"
+			title="View screenshot workflow gallery (run: node app/tests/screenshot-workflow.mjs)"
+			data-testid="dev-screenshots-link"
+		>Screenshots</a>
 	</div>
 </div>
 

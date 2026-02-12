@@ -7,6 +7,7 @@ services:
     ports:
       - "${TAILSCALE_IP:?Set TAILSCALE_IP in .env}:8082:7681"
       - "${TAILSCALE_IP:?Set TAILSCALE_IP in .env}:8083:5173"
+      - "${TAILSCALE_IP:?Set TAILSCALE_IP in .env}:8085:8085"
     volumes:
       # Mount this repo as the workspace
       - .:/home/claude/workspace

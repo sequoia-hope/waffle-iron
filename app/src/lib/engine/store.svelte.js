@@ -176,6 +176,8 @@ export async function initEngine() {
 				sketchMode: { ...sketchMode },
 				activeTool,
 				entityCount: sketchEntities.length,
+				lastError,
+				statusMessage,
 			}),
 			getEntities: () => [...sketchEntities],
 			getPositions: () => new Map(sketchPositions),
@@ -198,7 +200,7 @@ export async function initEngine() {
 				})),
 			})),
 			computeFacePlane: (geomRef) => computeFacePlane(geomRef),
-			applyExtrude: (depth, profileIndex) => applyExtrude(depth, profileIndex),
+			applyExtrude: (depth, profileIndex, cut) => applyExtrude(depth, profileIndex, cut),
 			showExtrudeDialog: () => showExtrudeDialog(),
 			saveProject: () => saveProject(),
 			loadProject: (jsonData) => loadProject(jsonData),
@@ -286,7 +288,7 @@ export function getSelectedRefs() {
 export function setHoveredRef(ref) {
 	hoveredRef = ref;
 	if (bridge && engineReady && !isDatumPlaneRef(ref)) {
-		bridge.send({ type: 'HoverEntity', geom_ref: ref });
+		bridge.send({ type: 'HoverEntity', geom_ref: JSON.parse(JSON.stringify(ref)) });
 	}
 }
 
@@ -315,7 +317,7 @@ export function selectRef(ref, additive = false) {
 	if (bridge && engineReady) {
 		for (const r of selectedRefs) {
 			if (!isDatumPlaneRef(r)) {
-				bridge.send({ type: 'SelectEntity', geom_ref: r });
+				bridge.send({ type: 'SelectEntity', geom_ref: JSON.parse(JSON.stringify(r)) });
 			}
 		}
 	}
@@ -470,9 +472,9 @@ export function addLocalEntity(entity) {
 		sketchPositions = next;
 	}
 
-	// Send to engine
+	// Send to engine (deep-clone to avoid Svelte 5 proxy DataCloneError)
 	if (bridge && engineReady) {
-		bridge.send({ type: 'AddSketchEntity', entity }).catch(err => console.error('AddSketchEntity failed:', err));
+		bridge.send({ type: 'AddSketchEntity', entity: JSON.parse(JSON.stringify(entity)) }).catch(err => console.error('AddSketchEntity failed:', err));
 	}
 
 	reExtractProfiles();
@@ -487,7 +489,7 @@ export function addLocalConstraint(constraint) {
 	recomputeOverConstrained();
 
 	if (bridge && engineReady) {
-		bridge.send({ type: 'AddConstraint', constraint }).catch(() => {});
+		bridge.send({ type: 'AddConstraint', constraint: JSON.parse(JSON.stringify(constraint)) }).catch(() => {});
 	}
 
 	triggerSolve();
@@ -772,8 +774,9 @@ export function hideExtrudeDialog() {
  * Apply an extrude operation from the dialog.
  * @param {number} depth
  * @param {number} profileIndex
+ * @param {boolean} [cut=false] - If true, perform a cut (subtract) operation
  */
-export async function applyExtrude(depth, profileIndex) {
+export async function applyExtrude(depth, profileIndex, cut = false) {
 	if (!extrudeDialogState || !bridge || !engineReady) return;
 
 	await bridge.send({
@@ -786,7 +789,7 @@ export async function applyExtrude(depth, profileIndex) {
 				depth,
 				direction: null,
 				symmetric: false,
-				cut: false,
+				cut: !!cut,
 				target_body: null
 			}
 		}
@@ -942,8 +945,23 @@ export async function finishSketch() {
 		const pointIds = [];
 		const lineEntities = [...p.entityIds].map(id => sketchEntities.find(e => e.id === id)).filter(Boolean);
 
-		// Standalone circles: pass entity IDs directly (no start_id/end_id to chain)
+		// Standalone circles: approximate as polygon with N points on circumference
 		if (lineEntities.length === 1 && lineEntities[0].type === 'Circle') {
+			const circle = lineEntities[0];
+			const center = sketchPositions.get(circle.center_id);
+			if (center) {
+				const N = 32; // polygon approximation segments
+				const circlePointIds = [];
+				for (let ci = 0; ci < N; ci++) {
+					const angle = (2 * Math.PI * ci) / N;
+					const px = center.x + circle.radius * Math.cos(angle);
+					const py = center.y + circle.radius * Math.sin(angle);
+					const ptId = 90000 + circle.id * 100 + ci; // synthetic point IDs
+					posObj[ptId] = [px, py];
+					circlePointIds.push(ptId);
+				}
+				return { entity_ids: circlePointIds, is_outer: p.isOuter };
+			}
 			return { entity_ids: [...p.entityIds], is_outer: p.isOuter };
 		}
 
