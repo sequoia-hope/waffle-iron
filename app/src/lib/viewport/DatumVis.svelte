@@ -38,14 +38,14 @@
 
 	// --- Datum Planes (XY, XZ, YZ) ---
 
-	const planeSize = 5;
+	const planeSize = 1.5;
 	const planeGeometry = new THREE.PlaneGeometry(planeSize * 2, planeSize * 2);
 
 	// Create materials that we'll update reactively
 	const xyPlaneMaterial = new THREE.MeshBasicMaterial({
 		color: baseColors.XY,
 		transparent: true,
-		opacity: 0.06,
+		opacity: 0.02,
 		side: THREE.DoubleSide,
 		depthWrite: false
 	});
@@ -53,7 +53,7 @@
 	const xzPlaneMaterial = new THREE.MeshBasicMaterial({
 		color: baseColors.XZ,
 		transparent: true,
-		opacity: 0.06,
+		opacity: 0.02,
 		side: THREE.DoubleSide,
 		depthWrite: false
 	});
@@ -61,7 +61,7 @@
 	const yzPlaneMaterial = new THREE.MeshBasicMaterial({
 		color: baseColors.YZ,
 		transparent: true,
-		opacity: 0.06,
+		opacity: 0.02,
 		side: THREE.DoubleSide,
 		depthWrite: false
 	});
@@ -77,7 +77,7 @@
 
 		if (selected) return { opacity: 0.25, color: selectedColors[plane] };
 		if (hovered) return { opacity: 0.15, color: hoverColors[plane] };
-		return { opacity: 0.06, color: baseColors[plane] };
+		return { opacity: 0.02, color: baseColors[plane] };
 	}
 
 	// Reactive material updates
@@ -133,9 +133,9 @@
 
 	const borderGeo = buildPlaneBorder(planeSize);
 
-	const xyBorderMaterial = new THREE.LineBasicMaterial({ color: 0x6666cc, transparent: true, opacity: 0.3 });
-	const xzBorderMaterial = new THREE.LineBasicMaterial({ color: 0x66cc66, transparent: true, opacity: 0.3 });
-	const yzBorderMaterial = new THREE.LineBasicMaterial({ color: 0xcc6666, transparent: true, opacity: 0.3 });
+	const xyBorderMaterial = new THREE.LineBasicMaterial({ color: 0x6666cc, transparent: true, opacity: 0.08 });
+	const xzBorderMaterial = new THREE.LineBasicMaterial({ color: 0x66cc66, transparent: true, opacity: 0.08 });
+	const yzBorderMaterial = new THREE.LineBasicMaterial({ color: 0xcc6666, transparent: true, opacity: 0.08 });
 
 	// XZ plane needs 90deg rotation around X
 	const xzRotation = [-Math.PI / 2, 0, 0];

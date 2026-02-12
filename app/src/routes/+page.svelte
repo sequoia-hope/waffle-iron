@@ -7,6 +7,7 @@
 	import Viewport from '$lib/viewport/Viewport.svelte';
 	import ExtrudeDialog from '$lib/ui/ExtrudeDialog.svelte';
 	import RevolveDialog from '$lib/ui/RevolveDialog.svelte';
+	import SketchPlaneDialog from '$lib/ui/SketchPlaneDialog.svelte';
 	import { initEngine } from '$lib/engine/store.svelte.js';
 
 	let leftWidth = $state(200);
@@ -87,6 +88,7 @@
 
 <ExtrudeDialog />
 <RevolveDialog />
+<SketchPlaneDialog />
 
 <style>
 	.app-shell {

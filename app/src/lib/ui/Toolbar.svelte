@@ -19,7 +19,8 @@
 		loadProject,
 		exportStl,
 		getSelectedRefs,
-		computeFacePlane
+		computeFacePlane,
+		showSketchPlaneDialog
 	} from '$lib/engine/store.svelte.js';
 	import { getApplicableConstraints } from '$lib/sketch/constraintLogic.js';
 	import { resetTool } from '$lib/sketch/tools.js';
@@ -70,6 +71,7 @@
 	];
 
 	async function handleToolClick(toolId) {
+		console.log('[waffle-toolbar] handleToolClick:', toolId, { ready, inSketch });
 		if (toolId === 'sketch') {
 			if (inSketch) {
 				handleFinishSketch();
@@ -83,8 +85,9 @@
 						return;
 					}
 				}
-				await enterSketchMode([0, 0, 0], [0, 0, 1]);
-				setActiveTool('line');
+				// No face selected — show plane selection dialog
+				showSketchPlaneDialog();
+				return;
 			}
 			return;
 		}

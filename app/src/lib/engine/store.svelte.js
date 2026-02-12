@@ -86,6 +86,12 @@ let revolveDialogState = $state(null);
 /** @type {{ entityA: number, entityB: number | null, sketchX: number, sketchY: number, dimType: 'distance'|'radius'|'angle', defaultValue: number } | null} */
 let dimensionPopup = $state(null);
 
+// -- Sketch plane dialog state --
+
+let sketchPlaneDialogVisible = $state(false);
+/** @type {{ origin: [number,number,number], normal: [number,number,number], label: string } | null} */
+let sketchPlaneDialogSelection = $state(null);
+
 /** Configurable snap thresholds */
 let snapSettings = $state({
 	coincidentPx: 8,
@@ -230,6 +236,23 @@ export async function initEngine() {
 			setSketchSelection: (ids) => { sketchSelection = new Set(ids); },
 			undo: () => undo(),
 			redo: () => redo(),
+			diagnose: () => {
+				const d = {
+					engineReady,
+					bridgeExists: !!bridge,
+					sketchMode: { ...sketchMode },
+					activeTool,
+					entityCount: sketchEntities.length,
+					constraintCount: sketchConstraints.length,
+					featureCount: featureTree?.features?.length ?? 0,
+					meshCount: meshes.length,
+					lastError,
+					statusMessage,
+					userAgent: navigator.userAgent,
+				};
+				console.table(d);
+				return d;
+			},
 		};
 	}
 }
@@ -376,11 +399,17 @@ export function getSketchMode() {
  * @param {[number, number, number]} normal - plane normal
  */
 export async function enterSketchMode(origin = [0, 0, 0], normal = [0, 0, 1]) {
+	console.log('[waffle] enterSketchMode called', { origin, normal, bridgeExists: !!bridge, engineReady });
 	resetSketchState();
 
 	// Notify the engine about the new sketch session
 	if (bridge && engineReady) {
-		const datumId = crypto.randomUUID();
+		// crypto.randomUUID() requires secure context (HTTPS/localhost).
+		// Fall back to crypto.getRandomValues() which works everywhere.
+		const datumId = typeof crypto.randomUUID === 'function'
+			? crypto.randomUUID()
+			: ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+				(c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));
 		try {
 			await bridge.send({
 				type: 'BeginSketch',
@@ -391,14 +420,18 @@ export async function enterSketchMode(origin = [0, 0, 0], normal = [0, 0, 1]) {
 					policy: { type: 'BestEffort' },
 				}
 			});
+			console.log('[waffle] BeginSketch succeeded');
 		} catch (err) {
-			console.error('BeginSketch failed:', err);
+			console.error('[waffle] BeginSketch failed:', err);
 			statusMessage = 'Failed to start sketch';
 			return;
 		}
+	} else {
+		console.warn('[waffle] enterSketchMode: engine not ready, skipping BeginSketch message');
 	}
 
 	sketchMode = { active: true, origin, normal };
+	console.log('[waffle] sketchMode set to active');
 
 	// Dispatch event so CameraControls aligns to the sketch plane
 	if (typeof window !== 'undefined') {
@@ -1132,6 +1165,33 @@ export function getSnapSettings() { return snapSettings; }
  */
 export function updateSnapSettings(updates) {
 	snapSettings = { ...snapSettings, ...updates };
+}
+
+// -- Sketch plane dialog --
+
+export function getSketchPlaneDialogVisible() { return sketchPlaneDialogVisible; }
+export function getSketchPlaneDialogSelection() { return sketchPlaneDialogSelection; }
+
+/** @param {{ origin: [number,number,number], normal: [number,number,number], label: string } | null} sel */
+export function setSketchPlaneDialogSelection(sel) { sketchPlaneDialogSelection = sel; }
+
+export function showSketchPlaneDialog() {
+	sketchPlaneDialogSelection = null;
+	sketchPlaneDialogVisible = true;
+}
+
+export function hideSketchPlaneDialog() {
+	sketchPlaneDialogVisible = false;
+	sketchPlaneDialogSelection = null;
+}
+
+export async function confirmSketchPlaneDialog() {
+	if (!sketchPlaneDialogSelection) return;
+	const sel = sketchPlaneDialogSelection;
+	sketchPlaneDialogVisible = false;
+	sketchPlaneDialogSelection = null;
+	await enterSketchMode(sel.origin, sel.normal);
+	setActiveTool('line');
 }
 
 /**

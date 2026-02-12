@@ -9,5 +9,8 @@ export default {
 		fs: {
 			allow: ['..']
 		}
+	},
+	preview: {
+		allowedHosts: ['loaf.cama-minor.ts.net']
 	}
 };

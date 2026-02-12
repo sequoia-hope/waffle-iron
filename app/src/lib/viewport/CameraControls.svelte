@@ -3,7 +3,7 @@
 	import { OrbitControls } from '@threlte/extras';
 	import { onMount } from 'svelte';
 	import * as THREE from 'three';
-	import { getSketchMode, setCameraRefs } from '$lib/engine/store.svelte.js';
+	import { getSketchMode, setCameraRefs, getSketchPositions, getMeshes } from '$lib/engine/store.svelte.js';
 
 	const { scene, renderer } = useThrelte();
 
@@ -36,7 +36,7 @@
 	const MIN_DISTANCE = 0.05;
 
 	/** Maximum camera distance */
-	const MAX_DISTANCE = 200;
+	const MAX_DISTANCE = 2000;
 
 	/**
 	 * Handle wheel events for zoom-to-cursor behavior.
@@ -272,14 +272,51 @@
 			};
 		}
 	});
+
+	// Auto-fit camera when sketch grows beyond visible area (first sketch only)
+	$effect(() => {
+		if (!sketchActive || !cameraRef || !controlsRef) return;
+		const positions = getSketchPositions();
+		const hasMeshes = getMeshes().length > 0;
+		if (hasMeshes || positions.size < 2) return;
+
+		// Compute sketch AABB
+		let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+		for (const pos of positions.values()) {
+			if (pos.x < minX) minX = pos.x;
+			if (pos.y < minY) minY = pos.y;
+			if (pos.x > maxX) maxX = pos.x;
+			if (pos.y > maxY) maxY = pos.y;
+		}
+		const extentX = maxX - minX;
+		const extentY = maxY - minY;
+		const maxExtent = Math.max(extentX, extentY);
+		if (maxExtent < 0.01) return;
+
+		// Calculate visible range at current camera distance
+		const dist = cameraRef.position.distanceTo(controlsRef.target);
+		const fov = cameraRef.fov * (Math.PI / 180);
+		const visibleHeight = 2 * dist * Math.tan(fov / 2);
+
+		// If sketch fills >80% of view, zoom out to fit with 20% padding
+		if (maxExtent > visibleHeight * 0.8) {
+			const newDist = (maxExtent * 1.2) / (2 * Math.tan(fov / 2));
+			const direction = new THREE.Vector3()
+				.subVectors(cameraRef.position, controlsRef.target)
+				.normalize();
+			cameraRef.position.copy(controlsRef.target).addScaledVector(direction, newDist);
+			cameraRef.updateProjectionMatrix();
+			controlsRef.update();
+		}
+	});
 </script>
 
 <T.PerspectiveCamera
 	makeDefault
-	position={[5, 5, 5]}
+	position={[124, 124, 124]}
 	fov={50}
 	near={0.1}
-	far={1000}
+	far={5000}
 	bind:ref={cameraRef}
 >
 	<OrbitControls
@@ -288,6 +325,6 @@
 		dampingFactor={0.15}
 		enableZoom={false}
 		minDistance={0.05}
-		maxDistance={200}
+		maxDistance={2000}
 	/>
 </T.PerspectiveCamera>
