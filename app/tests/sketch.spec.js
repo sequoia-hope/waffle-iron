@@ -16,8 +16,8 @@ async function waitForWaffle(page, timeout = 15000) {
  * We verify by checking that the sketch mode state is active and the canvas exists.
  */
 async function enterSketchAndWait(page, tool = 'line') {
-	await page.evaluate(({ tool }) => {
-		window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]);
+	await page.evaluate(async ({ tool }) => {
+		await window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]);
 		window.__waffle.setTool(tool);
 	}, { tool });
 
@@ -44,9 +44,7 @@ test.describe('sketch interaction', () => {
 		const ready = await waitForWaffle(page);
 		test.skip(!ready, '__waffle API not available (engine may not have loaded)');
 
-		await page.evaluate(() => {
-			window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]);
-		});
+		await page.evaluate(() => window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
 
 		const state = await page.evaluate(() => window.__waffle.getState());
 		expect(state.sketchMode.active).toBe(true);
@@ -56,8 +54,8 @@ test.describe('sketch interaction', () => {
 		const ready = await waitForWaffle(page);
 		test.skip(!ready, '__waffle API not available');
 
-		await page.evaluate(() => {
-			window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]);
+		await page.evaluate(async () => {
+			await window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]);
 			window.__waffle.setTool('line');
 		});
 
@@ -128,8 +126,8 @@ test.describe('sketch interaction', () => {
 		const ready = await waitForWaffle(page);
 		test.skip(!ready, '__waffle API not available');
 
-		await page.evaluate(() => {
-			window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]);
+		await page.evaluate(async () => {
+			await window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]);
 			window.__waffle.setTool('line');
 		});
 
@@ -147,9 +145,7 @@ test.describe('sketch interaction', () => {
 		const ready = await waitForWaffle(page);
 		test.skip(!ready, '__waffle API not available');
 
-		await page.evaluate(() => {
-			window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]);
-		});
+		await page.evaluate(() => window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
 
 		let state = await page.evaluate(() => window.__waffle.getState());
 		expect(state.sketchMode.active).toBe(true);

@@ -23,17 +23,17 @@
 		visible = false;
 	}
 
-	function handleNewSketch() {
+	async function handleNewSketch() {
 		const refs = getSelectedRefs();
 		if (refs.length > 0) {
 			const plane = computeFacePlane(refs[0]);
 			if (plane) {
-				enterSketchMode(plane.origin, plane.normal);
+				await enterSketchMode(plane.origin, plane.normal);
 				visible = false;
 				return;
 			}
 		}
-		enterSketchMode([0, 0, 0], [0, 0, 1]);
+		await enterSketchMode([0, 0, 0], [0, 0, 1]);
 		visible = false;
 	}
 

@@ -69,7 +69,7 @@
 		{ id: 'construction', label: 'Constr', shortcut: 'X' },
 	];
 
-	function handleToolClick(toolId) {
+	async function handleToolClick(toolId) {
 		if (toolId === 'sketch') {
 			if (inSketch) {
 				handleFinishSketch();
@@ -78,12 +78,12 @@
 				if (refs.length > 0) {
 					const plane = computeFacePlane(refs[0]);
 					if (plane) {
-						enterSketchMode(plane.origin, plane.normal);
+						await enterSketchMode(plane.origin, plane.normal);
 						setActiveTool('line');
 						return;
 					}
 				}
-				enterSketchMode([0, 0, 0], [0, 0, 1]);
+				await enterSketchMode([0, 0, 0], [0, 0, 1]);
 				setActiveTool('line');
 			}
 			return;
@@ -216,7 +216,7 @@
 					disabled={!ready}
 					title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
 					data-testid="toolbar-btn-{t.id}"
-					onclick={() => handleToolClick(t.id)}
+					onclick={async () => { await handleToolClick(t.id); }}
 				>{t.label}</button>
 			{/each}
 		</div>

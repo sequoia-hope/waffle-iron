@@ -373,26 +373,30 @@ export function getSketchMode() {
  * @param {[number, number, number]} origin - plane origin
  * @param {[number, number, number]} normal - plane normal
  */
-export function enterSketchMode(origin = [0, 0, 0], normal = [0, 0, 1]) {
+export async function enterSketchMode(origin = [0, 0, 0], normal = [0, 0, 1]) {
 	resetSketchState();
-	sketchMode = { active: true, origin, normal };
 
 	// Notify the engine about the new sketch session
 	if (bridge && engineReady) {
 		const datumId = crypto.randomUUID();
-		bridge.send({
-			type: 'BeginSketch',
-			plane: {
-				kind: { type: 'Face' },
-				anchor: { type: 'Datum', datum_id: datumId },
-				selector: { type: 'Role', role: { type: 'EndCapPositive' }, index: 0 },
-				policy: { type: 'BestEffort' },
-			}
-		}).catch(err => {
+		try {
+			await bridge.send({
+				type: 'BeginSketch',
+				plane: {
+					kind: { type: 'Face' },
+					anchor: { type: 'Datum', datum_id: datumId },
+					selector: { type: 'Role', role: { type: 'EndCapPositive' }, index: 0 },
+					policy: { type: 'BestEffort' },
+				}
+			});
+		} catch (err) {
 			console.error('BeginSketch failed:', err);
 			statusMessage = 'Failed to start sketch';
-		});
+			return;
+		}
 	}
+
+	sketchMode = { active: true, origin, normal };
 
 	// Dispatch event so CameraControls aligns to the sketch plane
 	if (typeof window !== 'undefined') {
@@ -937,6 +941,11 @@ export async function finishSketch() {
 	const profiles = extractedProfilesState.map((p) => {
 		const pointIds = [];
 		const lineEntities = [...p.entityIds].map(id => sketchEntities.find(e => e.id === id)).filter(Boolean);
+
+		// Standalone circles: pass entity IDs directly (no start_id/end_id to chain)
+		if (lineEntities.length === 1 && lineEntities[0].type === 'Circle') {
+			return { entity_ids: [...p.entityIds], is_outer: p.isOuter };
+		}
 
 		if (lineEntities.length === 0) return { entity_ids: [...p.entityIds], is_outer: p.isOuter };
 
