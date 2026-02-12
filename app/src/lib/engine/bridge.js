@@ -30,6 +30,7 @@ export class EngineBridge {
 	 */
 	init(wasmUrl = '/pkg/wasm_bridge.js') {
 		return new Promise((resolve, reject) => {
+			console.log('[waffle-bridge] Creating worker...');
 			this._worker = new Worker(
 				new URL('./worker.js', import.meta.url),
 				{ type: 'module' }
@@ -38,17 +39,21 @@ export class EngineBridge {
 			/** @param {MessageEvent} event */
 			const onReady = (event) => {
 				const msg = event.data;
+				console.log('[waffle-bridge] Worker message during init:', msg.type);
 				if (msg.type === 'ready') {
 					this._worker?.removeEventListener('message', onReady);
 					this._worker?.addEventListener('message', (e) => this._handleMessage(e));
+					console.log('[waffle-bridge] Worker ready, switching to message handler');
 					resolve();
 				} else if (msg.type === 'Error') {
+					console.error('[waffle-bridge] Worker init error:', msg.message);
 					reject(new Error(msg.message));
 				}
 			};
 
 			this._worker.addEventListener('message', onReady);
 			this._worker.addEventListener('error', (e) => {
+				console.error('[waffle-bridge] Worker load error:', e.message);
 				reject(new Error(`Worker failed to load: ${e.message}`));
 			});
 

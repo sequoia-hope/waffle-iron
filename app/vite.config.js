@@ -6,6 +6,8 @@ import topLevelAwait from 'vite-plugin-top-level-await';
 export default {
 	plugins: [wasm(), topLevelAwait(), sveltekit()],
 	server: {
+		port: 8083,
+		host: '0.0.0.0',
 		fs: {
 			allow: ['..']
 		}
