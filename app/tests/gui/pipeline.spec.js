@@ -81,10 +81,14 @@ test.describe('sketch → extrude pipeline', () => {
 		await clickSketch(waffle.page);
 		await clickRectangle(waffle.page);
 		await drawRectangle(waffle.page, -80, -60, 80, 60);
-		try { await waitForEntityCount(waffle.page, 8, 3000); } catch {}
+		try { await waitForEntityCount(waffle.page, 8, 3000); } catch {
+			await waffle.dumpState('geomref-draw-failed');
+		}
 
 		await clickFinishSketch(waffle.page);
-		try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {}
+		try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {
+			await waffle.dumpState('geomref-finish-failed');
+		}
 
 		await clickExtrude(waffle.page);
 		await waffle.page.locator('[data-testid="extrude-depth"]').fill('10');
@@ -133,15 +137,21 @@ test.describe('sketch → extrude pipeline', () => {
 		await clickSketch(waffle.page);
 		await clickRectangle(waffle.page);
 		await drawRectangle(waffle.page, -80, -60, 80, 60);
-		try { await waitForEntityCount(waffle.page, 8, 3000); } catch {}
+		try { await waitForEntityCount(waffle.page, 8, 3000); } catch {
+			await waffle.dumpState('saveload-draw-failed');
+		}
 
 		await clickFinishSketch(waffle.page);
-		try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {}
+		try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {
+			await waffle.dumpState('saveload-finish-failed');
+		}
 
 		await clickExtrude(waffle.page);
 		await waffle.page.locator('[data-testid="extrude-depth"]').fill('10');
 		await waffle.page.locator('[data-testid="extrude-apply"]').click();
-		try { await waitForFeatureCount(waffle.page, 2, 10000); } catch {}
+		try { await waitForFeatureCount(waffle.page, 2, 10000); } catch {
+			await waffle.dumpState('saveload-extrude-failed');
+		}
 
 		// Verify 2 features before save
 		const treeBefore = await getFeatureTree(waffle.page);
@@ -173,10 +183,14 @@ test.describe('sketch → extrude pipeline', () => {
 		await clickSketch(waffle.page);
 		await clickRectangle(waffle.page);
 		await drawRectangle(waffle.page, -80, -60, 80, 60);
-		try { await waitForEntityCount(waffle.page, 8, 3000); } catch {}
+		try { await waitForEntityCount(waffle.page, 8, 3000); } catch {
+			await waffle.dumpState('sof-pipeline-draw-failed');
+		}
 
 		await clickFinishSketch(waffle.page);
-		try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {}
+		try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {
+			await waffle.dumpState('sof-pipeline-finish-failed');
+		}
 
 		await clickExtrude(waffle.page);
 		await waffle.page.locator('[data-testid="extrude-depth"]').fill('10');

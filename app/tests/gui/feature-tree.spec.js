@@ -27,7 +27,9 @@ async function createSketchFeature(waffle) {
 	await clickSketch(waffle.page);
 	await clickRectangle(waffle.page);
 	await drawRectangle(waffle.page, -80, -60, 80, 60);
-	try { await waitForEntityCount(waffle.page, 8, 3000); } catch {}
+	try { await waitForEntityCount(waffle.page, 8, 3000); } catch {
+		await waffle.dumpState('ft-sketch-draw-failed');
+	}
 
 	await clickFinishSketch(waffle.page);
 	try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {

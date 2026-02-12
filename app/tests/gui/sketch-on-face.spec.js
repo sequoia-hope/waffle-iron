@@ -33,10 +33,14 @@ async function createExtrudedBox(waffle) {
 	await clickSketch(waffle.page);
 	await clickRectangle(waffle.page);
 	await drawRectangle(waffle.page, -80, -60, 80, 60);
-	try { await waitForEntityCount(waffle.page, 8, 3000); } catch {}
+	try { await waitForEntityCount(waffle.page, 8, 3000); } catch {
+		await waffle.dumpState('sof-box-draw-failed');
+	}
 
 	await clickFinishSketch(waffle.page);
-	try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {}
+	try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {
+		await waffle.dumpState('sof-box-finish-failed');
+	}
 
 	await clickExtrude(waffle.page);
 	await waffle.page.locator('[data-testid="extrude-depth"]').fill('10');
@@ -142,7 +146,9 @@ test.describe('sketch on face via toolbar', () => {
 		// Draw a rectangle on the face
 		await clickRectangle(waffle.page);
 		await drawRectangle(waffle.page, -40, -30, 40, 30);
-		try { await waitForEntityCount(waffle.page, 8, 3000); } catch {}
+		try { await waitForEntityCount(waffle.page, 8, 3000); } catch {
+			await waffle.dumpState('sof-face-draw-failed');
+		}
 
 		// Finish the face sketch
 		await clickFinishSketch(waffle.page);

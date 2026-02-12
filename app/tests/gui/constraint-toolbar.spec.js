@@ -48,7 +48,9 @@ async function sketchWithTwoLines(waffle) {
 	await drawLine(waffle.page, -100, -50, 0, -50);
 	try {
 		await waitForEntityCount(waffle.page, 3, 3000);
-	} catch {}
+	} catch {
+		await waffle.dumpState('sketchWithTwoLines-line1-failed');
+	}
 
 	await pressKey(waffle.page, 'Escape');
 	await pressKey(waffle.page, 'l');

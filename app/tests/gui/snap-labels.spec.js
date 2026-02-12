@@ -18,20 +18,26 @@ test.describe('snap label visibility', () => {
 	test('snap indicator API returns data during drawing', async ({ waffle }) => {
 		await clickSketch(waffle.page);
 
-		// Draw a point (first click of a line)
-		await clickAt(waffle.page, 0, 0);
+		// Draw a line first to create snap targets
+		await drawLine(waffle.page, -80, 0, 80, 0);
+		await waitForEntityCount(waffle.page, 3, 3000);
+
+		// Start a new segment away from the line
+		await clickAt(waffle.page, 0, 100);
 		await waffle.page.waitForTimeout(200);
 
-		// Move cursor near the origin point — snap should detect coincident
-		await moveTo(waffle.page, 2, 2);
+		// Move cursor to the start of the first line (exact endpoint position)
+		await moveTo(waffle.page, -80, 0);
 		await waffle.page.waitForTimeout(200);
 
 		const snapData = await waffle.page.evaluate(() =>
 			window.__waffle?.getSnapIndicator()
 		);
-		// Snap indicator may or may not fire depending on the exact pixel mapping,
-		// but the API should return null or an object with .type
-		expect(snapData === null || typeof snapData === 'object').toBe(true);
+		// Moving to an exact endpoint should produce a snap indicator
+		expect(snapData).not.toBeNull();
+		expect(snapData.type).toBeTruthy();
+		expect(typeof snapData.x).toBe('number');
+		expect(typeof snapData.y).toBe('number');
 	});
 
 	test('coincident snap label appears when hovering near existing point', async ({ waffle }) => {
@@ -51,16 +57,20 @@ test.describe('snap label visibility', () => {
 		await clickAt(waffle.page, -200, 100);
 		await waffle.page.waitForTimeout(200);
 
-		// Move cursor to center (0,0) which should be near the origin or start of first line
-		await moveTo(waffle.page, 0, 0);
+		// Move cursor to the exact endpoint of the drawn line
+		await moveTo(waffle.page, -80, 0);
 		await waffle.page.waitForTimeout(300);
 
-		// Check for snap label in DOM
-		const snapLabel = waffle.page.locator('.snap-label');
-		const isVisible = await snapLabel.isVisible().catch(() => false);
+		// Verify the snap API detects a snap near the endpoint
+		const snapData = await waffle.page.evaluate(() =>
+			window.__waffle?.getSnapIndicator()
+		);
+		expect(snapData).not.toBeNull();
+		expect(snapData.type).toBeTruthy();
 
-		// Even if snap doesn't fire (depends on exact coordinates), verify the DOM structure
-		// The snap-label class is the correct selector
+		// If the DOM label appeared, verify its text is valid
+		const snapLabel = waffle.page.locator('.snap-label');
+		const isVisible = await snapLabel.isVisible();
 		if (isVisible) {
 			const text = await snapLabel.textContent();
 			expect(['Coincident', 'Horizontal', 'Vertical', 'On Entity', 'Tangent', 'Perpendicular']).toContain(text);
@@ -99,8 +109,8 @@ test.describe('snap label visibility', () => {
 		await clickAt(waffle.page, -100, 0);
 		await waffle.page.waitForTimeout(200);
 
-		// Move cursor to roughly same Y but different X — should trigger H snap
-		await moveTo(waffle.page, 100, 1); // 1 pixel off = within snap threshold
+		// Move cursor to exactly same Y but different X
+		await moveTo(waffle.page, 100, 0);
 		await waffle.page.waitForTimeout(300);
 
 		// Check snap indicator via API
@@ -108,15 +118,9 @@ test.describe('snap label visibility', () => {
 			window.__waffle?.getSnapIndicator()
 		);
 
-		// The snap might detect horizontal alignment (same Y)
-		if (snapData && snapData.type === 'horizontal') {
-			// Verify the snap label appears
-			const snapLabel = waffle.page.locator('.snap-label');
-			const isVisible = await snapLabel.isVisible().catch(() => false);
-			if (isVisible) {
-				await expect(snapLabel).toHaveText('Horizontal');
-			}
-		}
+		// A horizontal/vertical alignment snap should trigger
+		expect(snapData).not.toBeNull();
+		expect(['horizontal', 'vertical']).toContain(snapData.type);
 	});
 
 	test('vertical alignment snap detected during drawing', async ({ waffle }) => {
@@ -126,21 +130,17 @@ test.describe('snap label visibility', () => {
 		await clickAt(waffle.page, 0, -100);
 		await waffle.page.waitForTimeout(200);
 
-		// Move cursor to roughly same X but different Y
-		await moveTo(waffle.page, 1, 100); // 1 pixel off = within snap threshold
+		// Move cursor to exactly same X but different Y
+		await moveTo(waffle.page, 0, 100);
 		await waffle.page.waitForTimeout(300);
 
 		const snapData = await waffle.page.evaluate(() =>
 			window.__waffle?.getSnapIndicator()
 		);
 
-		if (snapData && snapData.type === 'vertical') {
-			const snapLabel = waffle.page.locator('.snap-label');
-			const isVisible = await snapLabel.isVisible().catch(() => false);
-			if (isVisible) {
-				await expect(snapLabel).toHaveText('Vertical');
-			}
-		}
+		// A horizontal/vertical alignment snap should trigger
+		expect(snapData).not.toBeNull();
+		expect(['horizontal', 'vertical']).toContain(snapData.type);
 	});
 });
 
@@ -173,12 +173,12 @@ test.describe('snap indicator geometry', () => {
 			window.__waffle?.getSnapIndicator()
 		);
 
-		if (snap) {
-			// All snap indicators must have type, x, y
-			expect(snap.type).toBeTruthy();
-			expect(typeof snap.x).toBe('number');
-			expect(typeof snap.y).toBe('number');
-			expect(['coincident', 'horizontal', 'vertical', 'on-entity', 'tangent', 'perpendicular']).toContain(snap.type);
-		}
+		// Moving near an endpoint should produce a non-null snap indicator
+		expect(snap).not.toBeNull();
+		// All snap indicators must have type, x, y
+		expect(snap.type).toBeTruthy();
+		expect(typeof snap.x).toBe('number');
+		expect(typeof snap.y).toBe('number');
+		expect(['coincident', 'horizontal', 'vertical', 'on-entity', 'tangent', 'perpendicular']).toContain(snap.type);
 	});
 });

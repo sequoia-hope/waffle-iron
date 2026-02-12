@@ -23,12 +23,18 @@ test.describe('solve status feedback', () => {
 	test('solve status is available via __waffle API', async ({ waffle }) => {
 		await clickSketch(waffle.page);
 
+		// Draw a line so the solver has something to process
+		await drawLine(waffle.page, -100, 0, 100, 0);
+		await waitForEntityCount(waffle.page, 3, 3000);
+		await waffle.page.waitForTimeout(500);
+
 		const status = await waffle.page.evaluate(() =>
 			window.__waffle?.getSolveStatus()
 		);
-		// Status may be null if no entities yet, or an object with dof/status
-		// Either is acceptable at this point
-		expect(status === null || typeof status === 'object').toBe(true);
+		// With entities drawn, solver should return a status object
+		expect(status).not.toBeNull();
+		expect(typeof status).toBe('object');
+		expect(typeof status.dof).toBe('number');
 	});
 
 	test('drawing entities produces non-null solve status', async ({ waffle }) => {
@@ -43,10 +49,8 @@ test.describe('solve status feedback', () => {
 			window.__waffle?.getSolveStatus()
 		);
 		// With entities, we should get a solve status
-		if (status) {
-			expect(typeof status.dof).toBe('number');
-			// DOF can be -1 (solver not yet computed), 0 (fully constrained), or >0
-		}
+		expect(status).not.toBeNull();
+		expect(typeof status.dof).toBe('number');
 	});
 
 	test('fully constraining a sketch reduces DOF to 0', async ({ waffle }) => {
@@ -80,10 +84,9 @@ test.describe('solve status feedback', () => {
 			window.__waffle?.getSolveStatus()
 		);
 
-		if (status) {
-			// With H + 2x fix, DOF should be 0 or -1 (if solver runs asynchronously)
-			expect(status.dof).toBeLessThanOrEqual(0);
-		}
+		// With H + 2x fix, DOF should be 0 or -1 (if solver runs asynchronously)
+		expect(status).not.toBeNull();
+		expect(status.dof).toBeLessThanOrEqual(0);
 	});
 
 	test('over-constrained entities array is available', async ({ waffle }) => {

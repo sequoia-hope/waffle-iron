@@ -53,9 +53,8 @@ test.describe('construction toggle button', () => {
 		// Check construction flag
 		const entitiesAfter = await getEntities(waffle.page);
 		const lineAfter = entitiesAfter.find(e => e.id === line.id);
-		if (lineAfter) {
-			expect(lineAfter.construction).toBe(true);
-		}
+		expect(lineAfter).toBeTruthy();
+		expect(lineAfter.construction).toBe(true);
 	});
 
 	test('X key toggles construction on selected entity', async ({ waffle }) => {
@@ -76,9 +75,8 @@ test.describe('construction toggle button', () => {
 
 		const entitiesAfter = await getEntities(waffle.page);
 		const lineAfter = entitiesAfter.find(e => e.id === line.id);
-		if (lineAfter) {
-			expect(lineAfter.construction).toBe(true);
-		}
+		expect(lineAfter).toBeTruthy();
+		expect(lineAfter.construction).toBe(true);
 	});
 
 	test('toggling construction twice returns to normal', async ({ waffle }) => {
@@ -111,9 +109,9 @@ test.describe('construction toggle button', () => {
 		const afterSecond = updatedLine?.construction;
 
 		// First toggle should change, second should revert
-		if (afterFirst !== undefined && afterSecond !== undefined) {
-			expect(afterFirst).not.toBe(afterSecond);
-		}
+		expect(afterFirst).toBeDefined();
+		expect(afterSecond).toBeDefined();
+		expect(afterFirst).not.toBe(afterSecond);
 	});
 
 	test('construction toggle is a no-op with empty selection', async ({ waffle }) => {
