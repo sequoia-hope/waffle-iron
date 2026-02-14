@@ -41,6 +41,11 @@
 
 		/** @param {PointerEvent} e */
 		function handler(e) {
+			// Skip secondary pointers (e.g. second finger in multi-touch)
+			if (!e.isPrimary) return;
+			// Skip right/middle mouse button on pointerdown
+			if (e.pointerType === 'mouse' && e.button !== 0 && e.type === 'pointerdown') return;
+
 			const sm = getSketchMode();
 			if (!sm?.active) return;
 

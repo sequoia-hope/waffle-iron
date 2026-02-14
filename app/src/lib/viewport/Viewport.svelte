@@ -36,5 +36,6 @@
 		height: 100%;
 		background: #1a1a2e;
 		position: relative;
+		touch-action: none;
 	}
 </style>

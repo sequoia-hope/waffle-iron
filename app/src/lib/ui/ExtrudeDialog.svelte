@@ -4,6 +4,7 @@
 		hideExtrudeDialog,
 		applyExtrude
 	} from '$lib/engine/store.svelte.js';
+	import { log } from '$lib/engine/logger.js';
 
 	let dialogState = $derived(getExtrudeDialogState());
 	let depth = $state(10);
@@ -37,7 +38,8 @@
 	});
 
 	function handleApply() {
-		applyExtrude(depth, profileIndex, cut).catch(() => {});
+		applyExtrude(depth, profileIndex, cut)
+			.catch(err => log('error', `Extrude dialog apply failed: ${err}`));
 	}
 
 	function handleCancel() {
@@ -126,6 +128,7 @@
 		border: 1px solid var(--border-color, #444);
 		border-radius: 6px;
 		min-width: 280px;
+		max-width: calc(100vw - 32px);
 		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 	}
 

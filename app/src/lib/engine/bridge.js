@@ -5,6 +5,8 @@
  * Provides a Promise-based interface for sending commands and receiving results.
  */
 
+import { log } from './logger.js';
+
 export class EngineBridge {
 	constructor() {
 		/** @type {Worker | null} */
@@ -30,7 +32,7 @@ export class EngineBridge {
 	 */
 	init(wasmUrl = '/pkg/wasm_bridge.js') {
 		return new Promise((resolve, reject) => {
-			console.log('[waffle-bridge] Creating worker...');
+			log('system', 'Creating engine worker');
 			this._worker = new Worker(
 				new URL('./worker.js', import.meta.url),
 				{ type: 'module' }
@@ -39,21 +41,20 @@ export class EngineBridge {
 			/** @param {MessageEvent} event */
 			const onReady = (event) => {
 				const msg = event.data;
-				console.log('[waffle-bridge] Worker message during init:', msg.type);
 				if (msg.type === 'ready') {
 					this._worker?.removeEventListener('message', onReady);
 					this._worker?.addEventListener('message', (e) => this._handleMessage(e));
-					console.log('[waffle-bridge] Worker ready, switching to message handler');
+					log('system', 'Engine worker ready');
 					resolve();
 				} else if (msg.type === 'Error') {
-					console.error('[waffle-bridge] Worker init error:', msg.message);
+					log('error', `Worker init error: ${msg.message}`);
 					reject(new Error(msg.message));
 				}
 			};
 
 			this._worker.addEventListener('message', onReady);
 			this._worker.addEventListener('error', (e) => {
-				console.error('[waffle-bridge] Worker load error:', e.message);
+				log('error', `Worker load error: ${e.message}`);
 				reject(new Error(`Worker failed to load: ${e.message}`));
 			});
 
@@ -73,10 +74,13 @@ export class EngineBridge {
 				return;
 			}
 
+			log('engine', `Send: ${message.type}`, { type: message.type });
+
 			try {
 				this._worker.postMessage(message);
 				this._pendingCallbacks.push({ resolve, reject });
 			} catch (err) {
+				log('error', `postMessage failed: ${err}`);
 				reject(err);
 			}
 		});
@@ -123,6 +127,13 @@ export class EngineBridge {
 	_handleMessage(event) {
 		const msg = event.data;
 		const pending = this._pendingCallbacks.shift();
+
+		// Build summary data for the log entry
+		const summary = { type: msg.type };
+		if (msg.type === 'ModelUpdated') summary.meshCount = msg.meshes?.length ?? 0;
+		if (msg.type === 'SketchSolved') { summary.dof = msg.dof; summary.status = msg.status; }
+		if (msg.type === 'Error') summary.message = msg.message;
+		log('engine', `Recv: ${msg.type}`, summary);
 
 		switch (msg.type) {
 			case 'ModelUpdated':

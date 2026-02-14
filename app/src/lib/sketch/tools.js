@@ -10,6 +10,8 @@ import {
 	allocEntityId,
 	addLocalEntity,
 	addLocalConstraint,
+	beginSketchAction,
+	endSketchAction,
 	findPointNear,
 	getSketchPositions,
 	getSketchEntities,
@@ -24,6 +26,7 @@ import {
 	showDimensionPopup,
 	hideDimensionPopup
 } from '$lib/engine/store.svelte.js';
+import { log } from '$lib/engine/logger.js';
 import { detectSnaps } from './snap.js';
 import { profileToPolygon, pointInPolygon } from './profiles.js';
 
@@ -82,6 +85,8 @@ export function getSnapIndicator() {
  * Reset the current tool state to idle.
  */
 export function resetTool() {
+	log('sketch', 'Tool reset');
+	endSketchAction();
 	toolState = 'idle';
 	startPointId = null;
 	startPos = null;
@@ -134,6 +139,9 @@ function findOrCreatePoint(x, y, screenPixelSize, snapPointId) {
  * @param {boolean} shiftKey - Whether shift is held
  */
 export function handleToolEvent(activeTool, eventType, sketchX, sketchY, screenPixelSize, shiftKey) {
+	if (eventType === 'pointerdown') {
+		log('sketch', `Tool ${activeTool} pointerdown`, { tool: activeTool, x: +sketchX.toFixed(2), y: +sketchY.toFixed(2) });
+	}
 	switch (activeTool) {
 		case 'line':
 			handleLineTool(eventType, sketchX, sketchY, screenPixelSize);
@@ -183,6 +191,7 @@ function handleLineTool(eventType, x, y, screenPixelSize) {
 
 	if (eventType === 'pointerdown') {
 		if (toolState === 'idle') {
+			beginSketchAction();
 			const pt = findOrCreatePoint(snap.x, snap.y, screenPixelSize, snap.snapPointId);
 			startPointId = pt.id;
 			startPos = { x: pt.x, y: pt.y };
@@ -221,6 +230,7 @@ function finalizeLine(snap, screenPixelSize) {
 		start_id: startPointId, end_id: endPt.id,
 		construction: false
 	});
+	log('sketch', 'Line created', { lineId, startId: startPointId, endId: endPt.id });
 
 	// Auto-apply constraints from snap (H/V/Tangent/Perpendicular)
 	for (const c of snap.constraints) {
@@ -235,8 +245,11 @@ function finalizeLine(snap, screenPixelSize) {
 		}
 	}
 
+	endSketchAction();
+
 	// Continuous chaining — end becomes next start (only for click-click, not drag)
 	if (!isDragging) {
+		beginSketchAction();
 		startPointId = endPt.id;
 		startPos = { x: endPt.x, y: endPt.y };
 		currentPreview = null;
@@ -277,6 +290,7 @@ function handleRectangleTool(eventType, x, y, screenPixelSize) {
 
 	if (eventType === 'pointerdown') {
 		if (toolState === 'idle') {
+			beginSketchAction();
 			const pt = findOrCreatePoint(snap.x, snap.y, screenPixelSize, snap.snapPointId);
 			startPointId = pt.id;
 			startPos = { x: pt.x, y: pt.y };
@@ -321,12 +335,15 @@ function finalizeRectangle(snap, screenPixelSize) {
 	const l4Id = allocEntityId();
 	addLocalEntity({ type: 'Line', id: l4Id, start_id: p4.id, end_id: p1.id, construction: false });
 
+	log('sketch', 'Rectangle created', { lineIds: [l1Id, l2Id, l3Id, l4Id] });
+
 	// Auto-apply H/V constraints
 	addLocalConstraint({ type: 'Horizontal', entity: l1Id });
 	addLocalConstraint({ type: 'Horizontal', entity: l3Id });
 	addLocalConstraint({ type: 'Vertical', entity: l2Id });
 	addLocalConstraint({ type: 'Vertical', entity: l4Id });
 
+	endSketchAction();
 	toolState = 'idle';
 	startPointId = null;
 	startPos = null;
@@ -364,6 +381,7 @@ function handleCircleTool(eventType, x, y, screenPixelSize) {
 
 	if (eventType === 'pointerdown') {
 		if (toolState === 'idle') {
+			beginSketchAction();
 			const pt = findOrCreatePoint(snap.x, snap.y, screenPixelSize, snap.snapPointId);
 			centerPointId = pt.id;
 			centerPos = { x: pt.x, y: pt.y };
@@ -400,8 +418,10 @@ function finalizeCircle(snap) {
 			center_id: centerPointId, radius,
 			construction: false
 		});
+		log('sketch', 'Circle created', { circleId, radius: +radius.toFixed(2) });
 	}
 
+	endSketchAction();
 	toolState = 'idle';
 	centerPointId = null;
 	centerPos = null;
@@ -446,6 +466,7 @@ function handleArcTool(eventType, x, y, screenPixelSize) {
 
 	if (eventType === 'pointerdown') {
 		if (toolState === 'idle') {
+			beginSketchAction();
 			const pt = findOrCreatePoint(snap.x, snap.y, screenPixelSize, snap.snapPointId);
 			centerPointId = pt.id;
 			centerPos = { x: pt.x, y: pt.y };
@@ -467,7 +488,9 @@ function handleArcTool(eventType, x, y, screenPixelSize) {
 				end_id: endPt.id,
 				construction: false
 			});
+			log('sketch', 'Arc created', { arcId });
 
+			endSketchAction();
 			toolState = 'idle';
 			centerPointId = null;
 			centerPos = null;

@@ -6,8 +6,10 @@
  */
 
 import { EngineBridge } from './bridge.js';
+import { log, getLogs, exportLogs, clearLogs } from './logger.js';
+import { showToast, initLoggerToasts } from '$lib/ui/toast.svelte.js';
 import { extractProfiles } from '$lib/sketch/profiles.js';
-import { getPreview, getSnapIndicator } from '$lib/sketch/tools.js';
+import { getPreview, getSnapIndicator, resetTool } from '$lib/sketch/tools.js';
 
 /** @type {{ features: Array<any>, active_index: number | null }} */
 let featureTree = $state({ features: [], active_index: null });
@@ -77,6 +79,15 @@ let sketchCursorPos = $state(null);
 /** @type {Set<number>} Entity IDs that appear over-constrained */
 let overConstrainedEntities = $state(new Set());
 
+// -- Sketch undo/redo --
+
+/** @type {Array<{ entities: object[], constraints: object[] }>} */
+let sketchUndoStack = $state([]);
+/** @type {Array<{ entities: object[], constraints: object[], cascadedConstraints?: object[] }>} */
+let sketchRedoStack = $state([]);
+/** @type {{ entities: object[], constraints: object[] } | null} */
+let pendingSketchAction = null;
+
 /** @type {{ sketchId: string, sketchName: string, profileCount: number } | null} */
 let extrudeDialogState = $state(null);
 
@@ -117,6 +128,12 @@ let boxSelectState = $state({ active: false, startX: 0, startY: 0, endX: 0, endY
 /** @type {{ intersections: Array<any>, cycleIndex: number, lastScreenX: number, lastScreenY: number }} */
 let selectOtherState = $state({ intersections: [], cycleIndex: 0, lastScreenX: -1, lastScreenY: -1 });
 
+// -- Mobile layout state --
+
+let isMobileLayout = $state(false);
+/** @type {'left' | 'right' | null} */
+let mobileActivePanel = $state(null);
+
 /** @type {EngineBridge | null} */
 let bridge = null;
 
@@ -137,6 +154,7 @@ export async function initEngine() {
 		}
 		lastError = null;
 		statusMessage = `Model updated (${meshes.length} ${meshes.length === 1 ? 'body' : 'bodies'})`;
+		log('engine', 'Model updated', { meshCount: meshes.length, featureCount: featureTree?.features?.length ?? 0 });
 	});
 
 	bridge.on('sketchSolved', (msg) => {
@@ -154,6 +172,7 @@ export async function initEngine() {
 			failed: msg.failed || [],
 			solveTime: msg.solveTime
 		};
+		log('engine', 'Sketch solved', { status: msg.status, dof: msg.dof });
 	});
 
 	bridge.on('error', (msg) => {
@@ -161,17 +180,19 @@ export async function initEngine() {
 		statusMessage = `Error: ${msg.message}`;
 	});
 
+	log('system', 'Engine init started');
 	try {
 		statusMessage = 'Loading WASM engine...';
 		await bridge.init('/pkg/wasm_bridge.js');
 		engineReady = true;
 		lastError = null;
 		statusMessage = 'Engine ready';
-		console.log('Engine ready');
+		log('system', 'Engine ready (WASM loaded)');
+		initLoggerToasts();
 	} catch (err) {
 		lastError = /** @type {Error} */ (err).message;
 		statusMessage = `Failed to load engine: ${lastError}`;
-		console.error('Engine initialization failed:', err);
+		log('error', `Engine init failed: ${lastError}`);
 	}
 
 	// Expose debug/test API for browser console and Playwright tests
@@ -232,10 +253,39 @@ export async function initEngine() {
 			getPreview: () => getPreview(),
 			getSolveStatus: () => sketchSolveStatus ? { ...sketchSolveStatus } : null,
 			getOverConstrained: () => [...overConstrainedEntities],
+			projectFaceCentroids: () => {
+				const cam = cameraObject;
+				const canvas = document.querySelector('canvas');
+				if (!cam || !canvas) return [];
+				const rect = canvas.getBoundingClientRect();
+				const results = [];
+				for (const mesh of meshes) {
+					if (!mesh.faceRanges) continue;
+					for (const range of mesh.faceRanges) {
+						if (!range.geom_ref) continue;
+						const i0 = mesh.indices[range.start_index];
+						const i1 = mesh.indices[range.start_index + 1];
+						const i2 = mesh.indices[range.start_index + 2];
+						const cx = (mesh.vertices[i0*3] + mesh.vertices[i1*3] + mesh.vertices[i2*3]) / 3;
+						const cy = (mesh.vertices[i0*3+1] + mesh.vertices[i1*3+1] + mesh.vertices[i2*3+1]) / 3;
+						const cz = (mesh.vertices[i0*3+2] + mesh.vertices[i1*3+2] + mesh.vertices[i2*3+2]) / 3;
+						const v = cam.position.clone().set(cx, cy, cz).project(cam);
+						const screenX = (v.x * 0.5 + 0.5) * rect.width + rect.left;
+						const screenY = (-v.y * 0.5 + 0.5) * rect.height + rect.top;
+						results.push({ geomRef: range.geom_ref, screenX, screenY, behindCamera: v.z > 1 });
+					}
+				}
+				return results.filter(r => !r.behindCamera);
+			},
 			getSketchSelection: () => [...sketchSelection],
 			setSketchSelection: (ids) => { sketchSelection = new Set(ids); },
+			addSketchEntity: (entity) => addLocalEntity(entity),
+			addSketchConstraint: (constraint) => addLocalConstraint(constraint),
 			undo: () => undo(),
 			redo: () => redo(),
+			getLogs: (filter) => getLogs(filter),
+			exportLogs: (filter) => exportLogs(filter),
+			clearLogs: () => clearLogs(),
 			diagnose: () => {
 				const d = {
 					engineReady,
@@ -326,6 +376,8 @@ export function selectRef(ref, additive = false) {
 		return;
 	}
 
+	log('ui', 'Select ref', { count: additive ? selectedRefs.length + 1 : 1 });
+
 	if (additive) {
 		const idx = selectedRefs.findIndex((r) => geomRefEquals(r, ref));
 		if (idx >= 0) {
@@ -399,7 +451,7 @@ export function getSketchMode() {
  * @param {[number, number, number]} normal - plane normal
  */
 export async function enterSketchMode(origin = [0, 0, 0], normal = [0, 0, 1]) {
-	console.log('[waffle] enterSketchMode called', { origin, normal, bridgeExists: !!bridge, engineReady });
+	log('action', 'Enter sketch mode', { origin, normal });
 	resetSketchState();
 
 	// Notify the engine about the new sketch session
@@ -420,18 +472,14 @@ export async function enterSketchMode(origin = [0, 0, 0], normal = [0, 0, 1]) {
 					policy: { type: 'BestEffort' },
 				}
 			});
-			console.log('[waffle] BeginSketch succeeded');
 		} catch (err) {
-			console.error('[waffle] BeginSketch failed:', err);
+			log('error', `BeginSketch failed: ${err}`);
 			statusMessage = 'Failed to start sketch';
 			return;
 		}
-	} else {
-		console.warn('[waffle] enterSketchMode: engine not ready, skipping BeginSketch message');
 	}
 
 	sketchMode = { active: true, origin, normal };
-	console.log('[waffle] sketchMode set to active');
 
 	// Dispatch event so CameraControls aligns to the sketch plane
 	if (typeof window !== 'undefined') {
@@ -443,6 +491,7 @@ export async function enterSketchMode(origin = [0, 0, 0], normal = [0, 0, 1]) {
  * Exit sketch mode.
  */
 export function exitSketchMode() {
+	log('action', 'Exit sketch mode');
 	resetSketchState();
 	sketchMode = { active: false, origin: [0, 0, 0], normal: [0, 0, 1] };
 }
@@ -478,6 +527,7 @@ export function getActiveTool() {
  * @param {string} tool
  */
 export function setActiveTool(tool) {
+	log('ui', 'Set active tool', { tool });
 	activeTool = tool;
 }
 
@@ -492,10 +542,32 @@ export function allocEntityId() {
 }
 
 /**
+ * Begin recording a sketch action (for undo grouping).
+ * Call before a tool creates entities/constraints.
+ */
+export function beginSketchAction() {
+	pendingSketchAction = { entities: [], constraints: [] };
+}
+
+/**
+ * End recording a sketch action and push to undo stack.
+ * Discards empty actions.
+ */
+export function endSketchAction() {
+	if (pendingSketchAction &&
+		(pendingSketchAction.entities.length || pendingSketchAction.constraints.length)) {
+		sketchUndoStack = [...sketchUndoStack, pendingSketchAction];
+		sketchRedoStack = [];
+	}
+	pendingSketchAction = null;
+}
+
+/**
  * Add a sketch entity locally and send to engine.
  * @param {object} entity - SketchEntity object
  */
 export function addLocalEntity(entity) {
+	log('sketch', `Entity added: ${entity.type}`, { id: entity.id, type: entity.type });
 	sketchEntities = [...sketchEntities, entity];
 
 	// Update positions map for Point entities
@@ -505,9 +577,18 @@ export function addLocalEntity(entity) {
 		sketchPositions = next;
 	}
 
+	// Record for sketch undo
+	const cloned = JSON.parse(JSON.stringify(entity));
+	if (pendingSketchAction) {
+		pendingSketchAction.entities.push(cloned);
+	} else if (sketchMode.active) {
+		sketchUndoStack = [...sketchUndoStack, { entities: [cloned], constraints: [] }];
+		sketchRedoStack = [];
+	}
+
 	// Send to engine (deep-clone to avoid Svelte 5 proxy DataCloneError)
 	if (bridge && engineReady) {
-		bridge.send({ type: 'AddSketchEntity', entity: JSON.parse(JSON.stringify(entity)) }).catch(err => console.error('AddSketchEntity failed:', err));
+		bridge.send({ type: 'AddSketchEntity', entity: cloned }).catch(err => console.error('AddSketchEntity failed:', err));
 	}
 
 	reExtractProfiles();
@@ -518,11 +599,22 @@ export function addLocalEntity(entity) {
  * @param {object} constraint - SketchConstraint object
  */
 export function addLocalConstraint(constraint) {
+	log('sketch', `Constraint added: ${constraint.type}`, { type: constraint.type });
 	sketchConstraints = [...sketchConstraints, constraint];
 	recomputeOverConstrained();
 
+	// Record for sketch undo
+	const cloned = JSON.parse(JSON.stringify(constraint));
+	if (pendingSketchAction) {
+		pendingSketchAction.constraints.push(cloned);
+	} else if (sketchMode.active) {
+		sketchUndoStack = [...sketchUndoStack, { entities: [], constraints: [cloned] }];
+		sketchRedoStack = [];
+	}
+
 	if (bridge && engineReady) {
-		bridge.send({ type: 'AddConstraint', constraint: JSON.parse(JSON.stringify(constraint)) }).catch(() => {});
+		bridge.send({ type: 'AddConstraint', constraint: cloned })
+			.catch(err => log('error', `AddConstraint failed: ${err}`));
 	}
 
 	triggerSolve();
@@ -737,6 +829,9 @@ export function resetSketchState() {
 	hoveredProfileIndex = null;
 	sketchCursorPos = null;
 	overConstrainedEntities = new Set();
+	sketchUndoStack = [];
+	sketchRedoStack = [];
+	pendingSketchAction = null;
 }
 
 // Sketch state getters/setters
@@ -792,6 +887,7 @@ export function showExtrudeDialog() {
 	if (!lastSketch) return;
 
 	const profileCount = lastSketch.operation?.sketch?.solved_profiles?.length ?? 0;
+	log('ui', 'Show extrude dialog', { sketchId: lastSketch.id, profileCount });
 	extrudeDialogState = {
 		sketchId: lastSketch.id,
 		sketchName: lastSketch.name,
@@ -812,23 +908,29 @@ export function hideExtrudeDialog() {
 export async function applyExtrude(depth, profileIndex, cut = false) {
 	if (!extrudeDialogState || !bridge || !engineReady) return;
 
-	await bridge.send({
-		type: 'AddFeature',
-		operation: {
-			type: 'Extrude',
-			params: {
-				sketch_id: extrudeDialogState.sketchId,
-				profile_index: profileIndex,
-				depth,
-				direction: null,
-				symmetric: false,
-				cut: !!cut,
-				target_body: null
+	log('action', 'Apply extrude', { depth, profileIndex, cut: !!cut });
+	try {
+		await bridge.send({
+			type: 'AddFeature',
+			operation: {
+				type: 'Extrude',
+				params: {
+					sketch_id: extrudeDialogState.sketchId,
+					profile_index: profileIndex,
+					depth,
+					direction: null,
+					symmetric: false,
+					cut: !!cut,
+					target_body: null
+				}
 			}
-		}
-	});
+		});
 
-	extrudeDialogState = null;
+		extrudeDialogState = null;
+	} catch (err) {
+		log('error', `Extrude failed: ${err.message}`);
+		showToast('error', `Extrude failed: ${err.message}`);
+	}
 }
 
 // -- Revolve dialog --
@@ -854,6 +956,7 @@ export function showRevolveDialog() {
 	if (!lastSketch) return;
 
 	const profileCount = lastSketch.operation?.sketch?.solved_profiles?.length ?? 0;
+	log('ui', 'Show revolve dialog', { sketchId: lastSketch.id, profileCount });
 	revolveDialogState = {
 		sketchId: lastSketch.id,
 		sketchName: lastSketch.name,
@@ -875,23 +978,29 @@ export function hideRevolveDialog() {
 export async function applyRevolve(angleDeg, axisOrigin, axisDir, profileIndex) {
 	if (!revolveDialogState || !bridge || !engineReady) return;
 
+	log('action', 'Apply revolve', { angle: angleDeg, profileIndex });
 	const angleRad = angleDeg * Math.PI / 180;
 
-	await bridge.send({
-		type: 'AddFeature',
-		operation: {
-			type: 'Revolve',
-			params: {
-				sketch_id: revolveDialogState.sketchId,
-				profile_index: profileIndex,
-				axis_origin: axisOrigin,
-				axis_direction: axisDir,
-				angle: angleRad
+	try {
+		await bridge.send({
+			type: 'AddFeature',
+			operation: {
+				type: 'Revolve',
+				params: {
+					sketch_id: revolveDialogState.sketchId,
+					profile_index: profileIndex,
+					axis_origin: axisOrigin,
+					axis_direction: axisDir,
+					angle: angleRad
+				}
 			}
-		}
-	});
+		});
 
-	revolveDialogState = null;
+		revolveDialogState = null;
+	} catch (err) {
+		log('error', `Revolve failed: ${err.message}`);
+		showToast('error', `Revolve failed: ${err.message}`);
+	}
 }
 
 // -- Sketch-on-face: compute face plane from mesh data --
@@ -1030,6 +1139,8 @@ export async function finishSketch() {
 	const planeOrigin = [...sketchMode.origin];
 	const planeNormal = [...sketchMode.normal];
 
+	log('action', 'Finish sketch', { entityCount: sketchEntities.length, profileCount });
+
 	// Send to engine FIRST, exit sketch mode only on success
 	try {
 		await bridge.send({
@@ -1043,7 +1154,7 @@ export async function finishSketch() {
 		exitSketchMode();
 		setActiveTool('select');
 	} catch (err) {
-		console.error('FinishSketch failed:', err);
+		log('error', `Finish sketch failed: ${err.message}`);
 		statusMessage = `Sketch save failed: ${err.message}`;
 		lastError = err.message;
 		// Sketch state is preserved — user can retry or fix issues
@@ -1176,6 +1287,7 @@ export function getSketchPlaneDialogSelection() { return sketchPlaneDialogSelect
 export function setSketchPlaneDialogSelection(sel) { sketchPlaneDialogSelection = sel; }
 
 export function showSketchPlaneDialog() {
+	log('ui', 'Show sketch plane dialog');
 	sketchPlaneDialogSelection = null;
 	sketchPlaneDialogVisible = true;
 }
@@ -1192,6 +1304,26 @@ export async function confirmSketchPlaneDialog() {
 	sketchPlaneDialogSelection = null;
 	await enterSketchMode(sel.origin, sel.normal);
 	setActiveTool('line');
+}
+
+// -- Mobile layout --
+
+export function getMobileLayout() { return isMobileLayout; }
+
+/** @param {boolean} val */
+export function setMobileLayout(val) {
+	isMobileLayout = val;
+	if (!val) mobileActivePanel = null;
+}
+
+export function getMobileActivePanel() { return mobileActivePanel; }
+
+/**
+ * Toggle a mobile panel. Only one panel open at a time.
+ * @param {'left' | 'right'} panel
+ */
+export function toggleMobilePanel(panel) {
+	mobileActivePanel = mobileActivePanel === panel ? null : panel;
 }
 
 /**
@@ -1220,7 +1352,7 @@ export function triggerSolve() {
 			constraints,
 			positions: posObj
 		})
-		.catch(() => {});
+		.catch(err => log('error', `SolveSketchLocal failed: ${err}`));
 }
 
 // -- Engine commands --
@@ -1231,6 +1363,7 @@ export function triggerSolve() {
  */
 export async function deleteFeature(featureId) {
 	if (!bridge || !engineReady) return;
+	log('action', 'Delete feature', { featureId });
 	await bridge.send({ type: 'DeleteFeature', feature_id: featureId });
 }
 
@@ -1241,6 +1374,7 @@ export async function deleteFeature(featureId) {
  */
 export async function suppressFeature(featureId, suppressed) {
 	if (!bridge || !engineReady) return;
+	log('action', 'Suppress feature', { featureId, suppressed });
 	await bridge.send({ type: 'SuppressFeature', feature_id: featureId, suppressed });
 }
 
@@ -1270,6 +1404,7 @@ export async function editFeature(featureId, operation) {
  */
 export async function reorderFeature(featureId, newPosition) {
 	if (!bridge || !engineReady) return;
+	log('action', 'Reorder feature', { featureId, newPosition });
 	await bridge.send({ type: 'ReorderFeature', feature_id: featureId, new_position: newPosition });
 }
 
@@ -1280,23 +1415,129 @@ export async function reorderFeature(featureId, newPosition) {
  */
 export async function renameFeature(featureId, newName) {
 	if (!bridge || !engineReady) return;
+	log('action', 'Rename feature', { featureId, newName });
 	await bridge.send({ type: 'RenameFeature', feature_id: featureId, new_name: newName });
 }
 
 /**
- * Undo the last action.
+ * Undo the last action. During sketch mode, undoes the last sketch drawing action.
+ * Outside sketch mode, undoes the last feature-level action.
  */
 export async function undo() {
+	if (sketchMode.active) {
+		log('action', 'Undo sketch');
+		undoSketchAction();
+		return;
+	}
+	log('action', 'Undo feature');
 	if (!bridge || !engineReady) return;
-	await bridge.send({ type: 'Undo' });
+	try {
+		await bridge.send({ type: 'Undo' });
+	} catch { /* NothingToUndo — no-op */ }
 }
 
 /**
- * Redo the last undone action.
+ * Redo the last undone action. During sketch mode, redoes the last sketch drawing action.
+ * Outside sketch mode, redoes the last feature-level action.
  */
 export async function redo() {
+	if (sketchMode.active) {
+		log('action', 'Redo sketch');
+		redoSketchAction();
+		return;
+	}
+	log('action', 'Redo feature');
 	if (!bridge || !engineReady) return;
-	await bridge.send({ type: 'Redo' });
+	try {
+		await bridge.send({ type: 'Redo' });
+	} catch { /* NothingToRedo — no-op */ }
+}
+
+/**
+ * Undo the last sketch drawing action. Removes entities/constraints and cascades.
+ */
+function undoSketchAction() {
+	if (sketchUndoStack.length === 0) return;
+	const action = sketchUndoStack[sketchUndoStack.length - 1];
+	sketchUndoStack = sketchUndoStack.slice(0, -1);
+
+	const idSet = new Set(action.entities.map(e => e.id));
+
+	// Find cascaded constraints (reference removed entities but not part of this action)
+	const actionConstraintJsons = new Set(action.constraints.map(c => JSON.stringify(c)));
+	const cascadedConstraints = [];
+	for (const c of sketchConstraints) {
+		const cJson = JSON.stringify(c);
+		if (actionConstraintJsons.has(cJson)) continue;
+		const refs = [c.entity, c.entity_a, c.entity_b, c.line, c.curve,
+			c.line_a, c.line_b, c.point].filter(v => v != null);
+		if (refs.some(id => idSet.has(id))) {
+			cascadedConstraints.push(JSON.parse(cJson));
+		}
+	}
+
+	// Remove entities
+	sketchEntities = sketchEntities.filter(e => !idSet.has(e.id));
+	const nextPos = new Map(sketchPositions);
+	for (const e of action.entities) {
+		if (e.type === 'Point') nextPos.delete(e.id);
+	}
+	sketchPositions = nextPos;
+
+	// Remove action constraints + cascaded constraints
+	const allRemovedJsons = new Set([
+		...action.constraints.map(c => JSON.stringify(c)),
+		...cascadedConstraints.map(c => JSON.stringify(c))
+	]);
+	sketchConstraints = sketchConstraints.filter(c => !allRemovedJsons.has(JSON.stringify(c)));
+
+	// Push to redo stack with cascaded info for restore
+	sketchRedoStack = [...sketchRedoStack, {
+		entities: action.entities,
+		constraints: action.constraints,
+		cascadedConstraints
+	}];
+
+	recomputeOverConstrained();
+	reExtractProfiles();
+	triggerSolve();
+	resetTool();
+}
+
+/**
+ * Redo the last undone sketch drawing action. Restores entities/constraints.
+ */
+function redoSketchAction() {
+	if (sketchRedoStack.length === 0) return;
+	const action = sketchRedoStack[sketchRedoStack.length - 1];
+	sketchRedoStack = sketchRedoStack.slice(0, -1);
+
+	// Re-add entities
+	for (const e of action.entities) {
+		const clone = JSON.parse(JSON.stringify(e));
+		sketchEntities = [...sketchEntities, clone];
+		if (clone.type === 'Point') {
+			const next = new Map(sketchPositions);
+			next.set(clone.id, { x: clone.x, y: clone.y });
+			sketchPositions = next;
+		}
+	}
+
+	// Re-add constraints (action + cascaded)
+	const allConstraints = [...action.constraints, ...(action.cascadedConstraints || [])];
+	for (const c of allConstraints) {
+		sketchConstraints = [...sketchConstraints, JSON.parse(JSON.stringify(c))];
+	}
+
+	// Push to undo stack (merge cascaded into constraints so undo removes them all)
+	sketchUndoStack = [...sketchUndoStack, {
+		entities: action.entities,
+		constraints: allConstraints
+	}];
+
+	recomputeOverConstrained();
+	reExtractProfiles();
+	triggerSolve();
 }
 
 /**
@@ -1306,10 +1547,13 @@ export async function redo() {
  */
 export async function saveProject() {
 	if (!bridge || !engineReady) return null;
+	log('action', 'Save project');
 	const response = await bridge.send({ type: 'SaveProject' });
 	if (response.type !== 'SaveReady' || !response.json_data) return null;
 
 	const jsonData = response.json_data;
+	log('action', 'Project saved', { bytes: jsonData.length });
+	showToast('success', 'Project saved');
 
 	// Trigger browser file download
 	if (typeof document !== 'undefined') {
@@ -1335,8 +1579,10 @@ export async function saveProject() {
  */
 export async function exportStl() {
 	if (!bridge || !engineReady) return false;
+	log('action', 'Export STL');
 	const response = await bridge.send({ type: 'ExportStl' });
 	if (response.type !== 'StlExportReady' || !response.stl_data) return false;
+	showToast('success', 'STL exported');
 
 	// Decode base64 to binary
 	if (typeof document !== 'undefined') {
@@ -1369,8 +1615,10 @@ export async function exportStl() {
 export async function loadProject(jsonData) {
 	if (!bridge || !engineReady) return false;
 
+	log('action', 'Load project');
 	if (jsonData) {
 		await bridge.send({ type: 'LoadProject', data: jsonData });
+		showToast('info', 'Project loaded');
 		return true;
 	}
 

@@ -23,7 +23,7 @@
 
 ### Overall Verdict
 
-The project has **strong** GUI test coverage for core workflows. The sketch-draw-extrude-revolve happy path is thoroughly tested through real DOM interactions. Feature tree, undo/redo, constraint toolbar, dimension tool, and construction mode all have dedicated test suites. Remaining gaps are minor: box-select drag, auto-tangent inference verification, and fillet/chamfer/shell parameter dialogs (which don't exist yet as UI components).
+The project has **strong** GUI test coverage for core workflows with **zero 🔴 items remaining**. The sketch-draw-extrude-revolve happy path is thoroughly tested through real DOM interactions. Feature tree, undo/redo, constraint toolbar, dimension tool, and construction mode all have dedicated test suites. Selection workflows (face picking, box select, select-other cycling) now use real mouse interactions through the full picking pipeline. Remaining gaps are minor: auto-tangent inference verification and fillet/chamfer/shell parameter dialogs (which don't exist yet as UI components).
 
 ---
 
@@ -47,8 +47,9 @@ The project has **strong** GUI test coverage for core workflows. The sketch-draw
 | Auto tangent/perpendicular | 🟡 | Snap detection tested; auto-constraint application verified via constraint count |
 | Fillet/Chamfer/Shell dialogs | 🟡 | Button visibility + click-safety tested (10 tests); no parameter dialogs exist |
 | Pipeline (end-to-end) | 🟢 | 4 real GUI tests: sketch→extrude, GeomRefs, save/load, sketch-on-face |
-| Box select via mouse drag | 🔴 | API-level tests only; no real drag selection tested |
-| Edge picking in viewport | 🔴 | API-level tests only; no real click-to-pick-edge tested |
+| Box select via mouse drag | 🟢 | Real drag selection + shift-click multi-select tested |
+| Edge/face picking in viewport | 🟢 | Real mouse clicks on 3D geometry through full picking pipeline |
+| Select-other cycling | 🟢 | Repeat-click cycling + shift-click additive selection tested |
 
 ---
 
@@ -83,9 +84,9 @@ The project has **strong** GUI test coverage for core workflows. The sketch-draw
 | `tests/gui/viewport.spec.js` | 8 | True GUI | 🟢 |
 | `tests/gui/viewport-advanced.spec.js` | 10 | Mixed (hover tests are API) | 🟡 |
 | `tests/gui/datum-planes.spec.js` | 11 | Mostly API bypass | 🟡 |
-| `tests/gui/selection/edge-pick.spec.js` | 5 | API bypass | 🔴 |
-| `tests/gui/selection/box-select.spec.js` | 5 | API bypass | 🔴 |
-| `tests/gui/selection/select-other.spec.js` | 5 | Mostly API bypass | 🔴 |
+| `tests/gui/selection/edge-pick.spec.js` | 5 | Hybrid (programmatic geometry + real mouse clicks) | 🟢 |
+| `tests/gui/selection/box-select.spec.js` | 5 | Hybrid (programmatic geometry + real mouse clicks/drag) | 🟢 |
+| `tests/gui/selection/select-other.spec.js` | 5 | Hybrid (programmatic geometry + real mouse clicks) | 🟢 |
 
 ### Infrastructure Tests
 
@@ -136,23 +137,29 @@ The project has **strong** GUI test coverage for core workflows. The sketch-draw
 **After:** 10 tests covering button visibility in modeling/sketch modes and click-safety (no crash).
 **Note:** Parameter dialogs don't exist yet. Only ExtrudeDialog and RevolveDialog are implemented. This is a feature gap, not a test gap.
 
+### 12. Box Select via Mouse Drag (was: API bypass only)
+**Before:** 5 tests all used `window.__waffle.selectRef()` directly. No real mouse drag.
+**After:** Rewritten with real mouse interactions. Geometry created programmatically (acceptable hybrid pattern), then all selection tested via real mouse events: `page.mouse.click()` for face picking, `keyboard.down('Shift')` + click for multi-select, multi-step `page.mouse.move()` drag for box selection. `__waffle` used only for state verification and coordinate discovery via `projectFaceCentroids()`.
+
+### 13. Edge/Face Picking in Viewport (was: API bypass only)
+**Before:** 5 tests used `window.__waffle.selectRef()` and `setHoveredRef()`. No real clicks on geometry.
+**After:** Rewritten with real mouse interactions through the full picking pipeline: `page.mouse.click()` → DOM pointer events → Threlte `interactivity()` → THREE.js raycaster → `findFaceRef()` → `selectRef()`. Tests verify face selection, hover detection, shift-click multi-select, and click-empty deselection — all via real GUI events.
+
+### 14. Select-Other Cycling (was: API bypass only)
+**Before:** 5 tests used `window.__waffle.selectRef()`. No real repeat-click cycling.
+**After:** Rewritten with real mouse interactions. Tests verify intersection list population, repeat-click cycling (cycle index advances), shift-click additive selection, and click-empty reset — all via real mouse events on actual extruded geometry.
+
 ---
 
 ## Remaining Gaps
 
-### 1. Box Select via Mouse Drag (🔴)
-5 existing tests all use `window.__waffle.selectRef()`. No test performs a real mouse drag to create a selection rectangle. This is a real gap but a lower-priority workflow.
-
-### 2. Edge Picking in Viewport (🔴)
-5 existing tests use `window.__waffle.selectRef()`. No test clicks on an edge in the 3D viewport via raycast. Headless WebGL raycasting is inherently unreliable, so this may require a tolerance-based approach.
-
-### 3. Datum Plane Clicking (🟡)
+### 1. Datum Plane Clicking (🟡)
 Datum planes are selected via API (`selectRef`), not by clicking their visual representation in the viewport. The Sketch button click after selection IS real.
 
-### 4. Auto Tangent/Perpendicular Verification (🟡)
+### 2. Auto Tangent/Perpendicular Verification (🟡)
 The snap system detects tangent/perpendicular snaps, and the auto-apply code exists in tools.js. Tests verify snap detection but don't create the specific geometry (arc tangent to line) needed to trigger auto-application.
 
-### 5. Fillet/Chamfer/Shell Parameter Dialogs (Feature Gap)
+### 3. Fillet/Chamfer/Shell Parameter Dialogs (Feature Gap)
 These dialogs don't exist as Svelte components. This is a feature gap, not a test gap. When dialogs are built, tests should be written to match the extrude/revolve dialog test pattern.
 
 ---
@@ -175,9 +182,9 @@ Some workflows require programmatic setup because headless Playwright cannot do 
 
 | Metric | Value |
 |---|---|
-| Total Playwright tests | 259 |
-| GUI workflows with 🟢 trust | 13 |
+| Total Playwright tests | 274 |
+| GUI workflows with 🟢 trust | 16 |
 | GUI workflows with 🟡 partial trust | 5 |
-| GUI workflows with 🔴 no trust | 2 (box select, edge picking) |
-| Previously 🔴 items now 🟢 | 11 |
+| GUI workflows with 🔴 no trust | 0 |
+| Previously 🔴 items now 🟢 | 14 |
 | Remaining untested toolbar buttons | 0 (all buttons have at least click-safety tests) |

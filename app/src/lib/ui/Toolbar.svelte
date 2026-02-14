@@ -20,7 +20,9 @@
 		exportStl,
 		getSelectedRefs,
 		computeFacePlane,
-		showSketchPlaneDialog
+		showSketchPlaneDialog,
+		getMobileLayout,
+		toggleMobilePanel
 	} from '$lib/engine/store.svelte.js';
 	import { getApplicableConstraints } from '$lib/sketch/constraintLogic.js';
 	import { resetTool } from '$lib/sketch/tools.js';
@@ -33,6 +35,7 @@
 	let entities = $derived(getSketchEntities());
 	let positions = $derived(getSketchPositions());
 
+	let isMobile = $derived(getMobileLayout());
 	let applicable = $derived(inSketch ? getApplicableConstraints(selection, entities, positions) : {});
 
 	const constraintButtons = [
@@ -238,6 +241,10 @@
 	</div>
 
 	<div class="toolbar-spacer"></div>
+	{#if isMobile}
+		<button class="toolbar-btn mobile-toggle" title="Feature Tree" onclick={() => toggleMobilePanel('left')}>Tree</button>
+		<button class="toolbar-btn mobile-toggle" title="Properties" onclick={() => toggleMobilePanel('right')}>Props</button>
+	{/if}
 	<div class="toolbar-status">
 		{#if ready}
 			<span class="status-dot ready" data-testid="status-dot"></span>
@@ -254,7 +261,7 @@
 		height: 100%;
 		background: var(--bg-secondary);
 		border-bottom: 1px solid var(--border-color);
-		padding: 0 8px;
+		padding: 0 max(8px, env(safe-area-inset-left, 0px));
 		gap: 4px;
 	}
 
@@ -363,5 +370,40 @@
 	@keyframes pulse {
 		0%, 100% { opacity: 1; }
 		50% { opacity: 0.3; }
+	}
+
+	.mobile-toggle {
+		display: none;
+	}
+
+	@media (max-width: 768px) {
+		.toolbar {
+			overflow-x: auto;
+			scrollbar-width: none;
+		}
+
+		.toolbar::-webkit-scrollbar {
+			display: none;
+		}
+
+		.toolbar-btn {
+			padding: 8px 12px;
+			min-height: 36px;
+		}
+
+		.constraint-btn {
+			padding: 6px 8px;
+			min-height: 36px;
+		}
+
+		.mobile-toggle {
+			display: inline-flex;
+		}
+	}
+
+	@media (max-width: 480px) {
+		.toolbar-brand {
+			display: none;
+		}
 	}
 </style>

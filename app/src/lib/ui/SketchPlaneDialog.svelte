@@ -94,6 +94,7 @@
 		border: 1px solid var(--border-color, #444);
 		border-radius: 6px;
 		min-width: 300px;
+		max-width: calc(100vw - 32px);
 		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 	}
 

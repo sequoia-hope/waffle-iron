@@ -255,7 +255,7 @@
 		}
 	});
 
-	// Remap mouse buttons in sketch mode: left-click for sketch tools, middle for orbit
+	// Remap mouse buttons and touch gestures in sketch mode
 	$effect(() => {
 		if (!controlsRef) return;
 		if (sketchActive) {
@@ -264,11 +264,19 @@
 				MIDDLE: THREE.MOUSE.ROTATE,
 				RIGHT: THREE.MOUSE.PAN
 			};
+			controlsRef.touches = {
+				ONE: -1,                        // Single finger = sketch only (no orbit)
+				TWO: THREE.TOUCH.DOLLY_ROTATE   // Two fingers = pinch zoom + rotate
+			};
 		} else {
 			controlsRef.mouseButtons = {
 				LEFT: THREE.MOUSE.ROTATE,
 				MIDDLE: THREE.MOUSE.DOLLY,
 				RIGHT: THREE.MOUSE.PAN
+			};
+			controlsRef.touches = {
+				ONE: THREE.TOUCH.ROTATE,        // Single finger = orbit
+				TWO: THREE.TOUCH.DOLLY_PAN      // Two fingers = pinch zoom + pan
 			};
 		}
 	});

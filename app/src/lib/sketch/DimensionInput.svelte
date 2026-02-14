@@ -103,4 +103,10 @@
 		border-color: #66ddaa;
 		box-shadow: 0 0 6px rgba(68, 204, 136, 0.3);
 	}
+
+	@media (max-width: 768px) {
+		.dimension-input {
+			font-size: 16px;
+		}
+	}
 </style>

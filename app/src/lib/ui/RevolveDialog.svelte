@@ -4,6 +4,7 @@
 		hideRevolveDialog,
 		applyRevolve
 	} from '$lib/engine/store.svelte.js';
+	import { log } from '$lib/engine/logger.js';
 
 	let dialogState = $derived(getRevolveDialogState());
 	let angle = $state(360);
@@ -52,7 +53,7 @@
 			[axisOriginX, axisOriginY, axisOriginZ],
 			[axisDirX, axisDirY, axisDirZ],
 			profileIndex
-		).catch(() => {});
+		).catch(err => log('error', `Revolve dialog apply failed: ${err}`));
 	}
 
 	function handleCancel() {
@@ -148,6 +149,7 @@
 		border: 1px solid var(--border-color, #444);
 		border-radius: 6px;
 		min-width: 300px;
+		max-width: calc(100vw - 32px);
 		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 	}
 

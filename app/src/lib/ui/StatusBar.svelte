@@ -104,6 +104,7 @@
 		height: 100%;
 		background: var(--accent);
 		padding: 0 8px;
+		padding-bottom: env(safe-area-inset-bottom, 0px);
 		font-size: 11px;
 		color: white;
 		gap: 8px;
