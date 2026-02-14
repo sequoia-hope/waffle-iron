@@ -148,6 +148,75 @@ export async function isEngineReady(page) {
 }
 
 /**
+ * Get the internal tool state machine state (e.g., 'idle', 'firstPointPlaced').
+ * @param {import('@playwright/test').Page} page
+ * @returns {Promise<string>}
+ */
+export async function getToolState(page) {
+	return page.evaluate(() => window.__waffle?.getToolState?.() ?? 'unknown');
+}
+
+/**
+ * Get the full drawing state (tool state, isDragging, positions).
+ * @param {import('@playwright/test').Page} page
+ * @returns {Promise<{toolState: string, isDragging: boolean, pointerDownPos: any, startPos: any, startPointId: any}>}
+ */
+export async function getDrawingState(page) {
+	return page.evaluate(() => window.__waffle?.getDrawingState?.() ?? {
+		toolState: 'unknown', isDragging: false,
+		pointerDownPos: null, startPos: null, startPointId: null
+	});
+}
+
+/**
+ * Get the tool event log (last N events).
+ * @param {import('@playwright/test').Page} page
+ * @returns {Promise<Array<{tool: string, event: string, x: number, y: number, toolState: string, isDragging: boolean, timestamp: number}>>}
+ */
+export async function getToolEventLog(page) {
+	return page.evaluate(() => window.__waffle?.getToolEventLog?.() ?? []);
+}
+
+/**
+ * Clear the tool event log.
+ * @param {import('@playwright/test').Page} page
+ */
+export async function clearToolEventLog(page) {
+	await page.evaluate(() => window.__waffle?.clearToolEventLog?.());
+}
+
+/**
+ * Wait until the tool state matches the expected value.
+ * @param {import('@playwright/test').Page} page
+ * @param {string} expected
+ * @param {number} timeout
+ */
+export async function waitForToolState(page, expected, timeout = 3000) {
+	await page.waitForFunction(
+		(exp) => window.__waffle?.getToolState?.() === exp,
+		expected,
+		{ timeout }
+	);
+}
+
+/**
+ * Wait until a tool event of the given type appears in the log.
+ * @param {import('@playwright/test').Page} page
+ * @param {string} eventType - e.g. 'pointerdown', 'pointerup'
+ * @param {number} timeout
+ */
+export async function waitForToolEvent(page, eventType, timeout = 3000) {
+	await page.waitForFunction(
+		(evt) => {
+			const log = window.__waffle?.getToolEventLog?.() ?? [];
+			return log.some(e => e.event === evt);
+		},
+		eventType,
+		{ timeout }
+	);
+}
+
+/**
  * Get the extrude dialog state (null if not visible).
  * @param {import('@playwright/test').Page} page
  * @returns {Promise<any>}

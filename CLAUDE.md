@@ -46,6 +46,21 @@ Global instructions for any Claude Code session working on Waffle Iron.
 - **WASM ↔ JS communication** goes through wasm-bridge only. No direct WASM imports in UI components.
 - **Kernel types don't leak.** Use the Kernel/KernelIntrospect traits. Never expose truck types to other crates.
 
+## GUI Test Rules
+
+- **NEVER swallow assertion errors.** No try/catch around expected-state waits.
+  If drawing should produce 3 entities, `waitForEntityCount(page, 3, 5000)`
+  must throw on timeout — that IS the test failure.
+- **Every drawing mode needs BOTH click-click AND click-drag tests.**
+  Use `drawLine()` for click-click, `dragLine()` for click-drag.
+- **Verify tool state, not just outputs.** Check `getToolState()` and
+  `getDrawingState()` at each step, not just final entity counts.
+- **Never use `__waffle.addSketchEntity()` to test drawing.** Drawing tests
+  must use real pointer events. API entity creation is only for test SETUP
+  (e.g., creating fixtures for constraint tests).
+- **Run `sketch-drawing-regression.spec.js` before every commit that touches
+  sketch code.** It's the canary — if it fails, drawing is broken.
+
 ## Sub-Project Directory Layout
 
 Each sub-project under `projects/` contains:

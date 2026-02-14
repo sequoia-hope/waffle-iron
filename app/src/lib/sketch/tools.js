@@ -65,6 +65,11 @@ let dimFirstEntity = null;
 /** @type {import('./snap.js').SnapIndicator | null} */
 let currentSnapIndicator = null;
 
+// -- Event instrumentation (ring buffer for test diagnostics) --
+/** @type {Array<{tool: string, event: string, x: number, y: number, toolState: string, isDragging: boolean, timestamp: number}>} */
+const toolEventLog = [];
+const MAX_EVENT_LOG = 50;
+
 /**
  * Get the current preview geometry for the renderer.
  * @returns {{ type: string, data: any } | null}
@@ -80,6 +85,28 @@ export function getPreview() {
 export function getSnapIndicator() {
 	return currentSnapIndicator;
 }
+
+// -- Tool state getters (for test instrumentation via __waffle) --
+
+/** @returns {string} */
+export function getToolState() { return toolState; }
+
+/** @returns {boolean} */
+export function getIsDragging() { return isDragging; }
+
+/** @returns {{ x: number, y: number } | null} */
+export function getPointerDownPos() { return pointerDownPos ? { ...pointerDownPos } : null; }
+
+/** @returns {{ x: number, y: number } | null} */
+export function getStartPos() { return startPos ? { ...startPos } : null; }
+
+/** @returns {number | null} */
+export function getStartPointId() { return startPointId; }
+
+/** @returns {Array<{tool: string, event: string, x: number, y: number, toolState: string, isDragging: boolean, timestamp: number}>} */
+export function getToolEventLog() { return [...toolEventLog]; }
+
+export function clearToolEventLog() { toolEventLog.length = 0; }
 
 /**
  * Reset the current tool state to idle.
@@ -139,6 +166,15 @@ function findOrCreatePoint(x, y, screenPixelSize, snapPointId) {
  * @param {boolean} shiftKey - Whether shift is held
  */
 export function handleToolEvent(activeTool, eventType, sketchX, sketchY, screenPixelSize, shiftKey) {
+	// Event instrumentation for test diagnostics
+	toolEventLog.push({
+		tool: activeTool, event: eventType,
+		x: +sketchX.toFixed(2), y: +sketchY.toFixed(2),
+		toolState, isDragging,
+		timestamp: Date.now()
+	});
+	if (toolEventLog.length > MAX_EVENT_LOG) toolEventLog.shift();
+
 	if (eventType === 'pointerdown') {
 		log('sketch', `Tool ${activeTool} pointerdown`, { tool: activeTool, x: +sketchX.toFixed(2), y: +sketchY.toFixed(2) });
 	}

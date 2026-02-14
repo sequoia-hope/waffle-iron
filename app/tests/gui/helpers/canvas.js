@@ -126,6 +126,79 @@ export async function moveTo(page, xOffset, yOffset) {
 }
 
 /**
+ * Draw a line by dragging from start to end.
+ * Uses mouse.down -> mouse.move(steps) -> mouse.up
+ * @param {import('@playwright/test').Page} page
+ * @param {number} x1 - start x offset from center
+ * @param {number} y1 - start y offset from center
+ * @param {number} x2 - end x offset from center
+ * @param {number} y2 - end y offset from center
+ * @param {number} steps - number of intermediate move steps
+ */
+export async function dragLine(page, x1, y1, x2, y2, steps = 10) {
+	const bounds = await getCanvasBounds(page);
+	if (!bounds) throw new Error('Canvas not visible');
+	const sx = bounds.centerX + x1, sy = bounds.centerY + y1;
+	const ex = bounds.centerX + x2, ey = bounds.centerY + y2;
+	await page.mouse.move(sx, sy);
+	await page.mouse.down();
+	for (let i = 1; i <= steps; i++) {
+		const t = i / steps;
+		await page.mouse.move(sx + (ex - sx) * t, sy + (ey - sy) * t);
+	}
+	await page.mouse.up();
+	await page.waitForTimeout(150);
+}
+
+/**
+ * Draw a rectangle by dragging from one corner to the opposite corner.
+ * @param {import('@playwright/test').Page} page
+ * @param {number} x1 - first corner x offset from center
+ * @param {number} y1 - first corner y offset from center
+ * @param {number} x2 - opposite corner x offset from center
+ * @param {number} y2 - opposite corner y offset from center
+ * @param {number} steps - number of intermediate move steps
+ */
+export async function dragRectangle(page, x1, y1, x2, y2, steps = 10) {
+	const bounds = await getCanvasBounds(page);
+	if (!bounds) throw new Error('Canvas not visible');
+	const sx = bounds.centerX + x1, sy = bounds.centerY + y1;
+	const ex = bounds.centerX + x2, ey = bounds.centerY + y2;
+	await page.mouse.move(sx, sy);
+	await page.mouse.down();
+	for (let i = 1; i <= steps; i++) {
+		const t = i / steps;
+		await page.mouse.move(sx + (ex - sx) * t, sy + (ey - sy) * t);
+	}
+	await page.mouse.up();
+	await page.waitForTimeout(150);
+}
+
+/**
+ * Draw a circle by dragging from center to edge.
+ * @param {import('@playwright/test').Page} page
+ * @param {number} cx - center x offset from canvas center
+ * @param {number} cy - center y offset from canvas center
+ * @param {number} rx - edge x offset from canvas center
+ * @param {number} ry - edge y offset from canvas center
+ * @param {number} steps - number of intermediate move steps
+ */
+export async function dragCircle(page, cx, cy, rx, ry, steps = 10) {
+	const bounds = await getCanvasBounds(page);
+	if (!bounds) throw new Error('Canvas not visible');
+	const sx = bounds.centerX + cx, sy = bounds.centerY + cy;
+	const ex = bounds.centerX + rx, ey = bounds.centerY + ry;
+	await page.mouse.move(sx, sy);
+	await page.mouse.down();
+	for (let i = 1; i <= steps; i++) {
+		const t = i / steps;
+		await page.mouse.move(sx + (ex - sx) * t, sy + (ey - sy) * t);
+	}
+	await page.mouse.up();
+	await page.waitForTimeout(150);
+}
+
+/**
  * Zoom via mouse wheel at canvas center.
  * @param {import('@playwright/test').Page} page
  * @param {number} deltaY - positive = zoom out, negative = zoom in

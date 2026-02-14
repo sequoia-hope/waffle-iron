@@ -9,7 +9,7 @@ import { EngineBridge } from './bridge.js';
 import { log, getLogs, exportLogs, clearLogs } from './logger.js';
 import { showToast, initLoggerToasts } from '$lib/ui/toast.svelte.js';
 import { extractProfiles } from '$lib/sketch/profiles.js';
-import { getPreview, getSnapIndicator, resetTool } from '$lib/sketch/tools.js';
+import { getPreview, getSnapIndicator, resetTool, getToolState as _getToolState, getIsDragging as _getIsDragging, getPointerDownPos as _getPointerDownPos, getStartPos as _getStartPos, getStartPointId as _getStartPointId, getToolEventLog as _getToolEventLog, clearToolEventLog as _clearToolEventLog } from '$lib/sketch/tools.js';
 
 /** @type {{ features: Array<any>, active_index: number | null }} */
 let featureTree = $state({ features: [], active_index: null });
@@ -251,6 +251,18 @@ export async function initEngine() {
 			applyDimensionFromPopup: (value) => applyDimensionFromPopup(value),
 			getSnapIndicator: () => getSnapIndicator(),
 			getPreview: () => getPreview(),
+			getToolState: () => _getToolState(),
+			getIsDragging: () => _getIsDragging(),
+			getPointerDownPos: () => _getPointerDownPos(),
+			getDrawingState: () => ({
+				toolState: _getToolState(),
+				isDragging: _getIsDragging(),
+				pointerDownPos: _getPointerDownPos(),
+				startPos: _getStartPos(),
+				startPointId: _getStartPointId(),
+			}),
+			getToolEventLog: () => _getToolEventLog(),
+			clearToolEventLog: () => _clearToolEventLog(),
 			getSolveStatus: () => sketchSolveStatus ? { ...sketchSolveStatus } : null,
 			getOverConstrained: () => [...overConstrainedEntities],
 			projectFaceCentroids: () => {

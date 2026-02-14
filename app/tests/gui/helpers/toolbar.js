@@ -6,8 +6,18 @@
  * Click the Sketch toolbar button and wait for sketch mode to activate.
  * @param {import('@playwright/test').Page} page
  */
-export async function clickSketch(page) {
+export async function clickSketch(page, plane = 'xy') {
 	await page.locator('[data-testid="toolbar-btn-sketch"]').click();
+	// Handle the sketch plane dialog if it appears
+	const dialog = page.locator('[data-testid="sketch-plane-dialog"]');
+	try {
+		await dialog.waitFor({ state: 'visible', timeout: 2000 });
+		// Select the requested plane
+		await page.locator(`[data-testid="plane-btn-${plane}-plane"]`).click();
+		await page.locator('[data-testid="sketch-plane-ok"]').click();
+	} catch {
+		// Dialog may not appear (e.g., sketch-on-face bypasses it)
+	}
 	// Wait for sketch mode to be active (toolbar switches to sketch tools)
 	await page.waitForFunction(
 		() => window.__waffle?.getState()?.sketchMode?.active === true,
