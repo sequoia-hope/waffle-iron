@@ -69,14 +69,17 @@
 			handleToolEvent(tool, e.type, coords.x, coords.y, screenPixelSize, shiftKey);
 		}
 
+		// pointerdown on canvas; pointermove/pointerup on window because
+		// OrbitControls calls setPointerCapture() which redirects pointer
+		// events away from the canvas during drags.
 		canvas.addEventListener('pointerdown', handler);
-		canvas.addEventListener('pointermove', handler);
-		canvas.addEventListener('pointerup', handler);
+		window.addEventListener('pointermove', handler);
+		window.addEventListener('pointerup', handler);
 
 		return () => {
 			canvas.removeEventListener('pointerdown', handler);
-			canvas.removeEventListener('pointermove', handler);
-			canvas.removeEventListener('pointerup', handler);
+			window.removeEventListener('pointermove', handler);
+			window.removeEventListener('pointerup', handler);
 		};
 	});
 

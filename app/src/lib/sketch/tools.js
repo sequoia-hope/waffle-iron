@@ -226,16 +226,16 @@ function handleLineTool(eventType, x, y, screenPixelSize) {
 	}
 
 	if (eventType === 'pointerdown') {
+		isDragging = false;
 		if (toolState === 'idle') {
 			beginSketchAction();
 			const pt = findOrCreatePoint(snap.x, snap.y, screenPixelSize, snap.snapPointId);
 			startPointId = pt.id;
 			startPos = { x: pt.x, y: pt.y };
 			pointerDownPos = { x: snap.x, y: snap.y };
-			isDragging = false;
 			toolState = 'firstPointPlaced';
 			currentPreview = null;
-		} else if (toolState === 'firstPointPlaced' && !isDragging) {
+		} else if (toolState === 'firstPointPlaced') {
 			// Click-click mode: second click places end point
 			finalizeLine(snap, screenPixelSize);
 		}
@@ -325,15 +325,15 @@ function handleRectangleTool(eventType, x, y, screenPixelSize) {
 	}
 
 	if (eventType === 'pointerdown') {
+		isDragging = false;
 		if (toolState === 'idle') {
 			beginSketchAction();
 			const pt = findOrCreatePoint(snap.x, snap.y, screenPixelSize, snap.snapPointId);
 			startPointId = pt.id;
 			startPos = { x: pt.x, y: pt.y };
 			pointerDownPos = { x: snap.x, y: snap.y };
-			isDragging = false;
 			toolState = 'firstCornerPlaced';
-		} else if (toolState === 'firstCornerPlaced' && !isDragging) {
+		} else if (toolState === 'firstCornerPlaced') {
 			// Click-click mode: second click places opposite corner
 			finalizeRectangle(snap, screenPixelSize);
 		}
@@ -416,15 +416,15 @@ function handleCircleTool(eventType, x, y, screenPixelSize) {
 	}
 
 	if (eventType === 'pointerdown') {
+		isDragging = false;
 		if (toolState === 'idle') {
 			beginSketchAction();
 			const pt = findOrCreatePoint(snap.x, snap.y, screenPixelSize, snap.snapPointId);
 			centerPointId = pt.id;
 			centerPos = { x: pt.x, y: pt.y };
 			pointerDownPos = { x: snap.x, y: snap.y };
-			isDragging = false;
 			toolState = 'centerPlaced';
-		} else if (toolState === 'centerPlaced' && !isDragging) {
+		} else if (toolState === 'centerPlaced') {
 			// Click-click mode: second click sets radius
 			finalizeCircle(snap);
 		}
@@ -501,15 +501,15 @@ function handleArcTool(eventType, x, y, screenPixelSize) {
 	}
 
 	if (eventType === 'pointerdown') {
+		isDragging = false;
 		if (toolState === 'idle') {
 			beginSketchAction();
 			const pt = findOrCreatePoint(snap.x, snap.y, screenPixelSize, snap.snapPointId);
 			centerPointId = pt.id;
 			centerPos = { x: pt.x, y: pt.y };
 			pointerDownPos = { x: snap.x, y: snap.y };
-			isDragging = false;
 			toolState = 'centerPlaced';
-		} else if (toolState === 'centerPlaced' && !isDragging) {
+		} else if (toolState === 'centerPlaced') {
 			const pt = findOrCreatePoint(snap.x, snap.y, screenPixelSize, snap.snapPointId);
 			arcStartPointId = pt.id;
 			arcStartPos = { x: pt.x, y: pt.y };
