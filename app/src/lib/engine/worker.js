@@ -173,8 +173,8 @@ function collectMeshes() {
 		try {
 			const faceDataJson = wasmModule.get_face_data(i);
 			faceRanges = JSON.parse(faceDataJson);
-		} catch (_e) {
-			// Face data unavailable — proceed without face picking
+		} catch (e) {
+			console.warn('Face data unavailable for feature', i, e);
 		}
 
 		meshes.push({

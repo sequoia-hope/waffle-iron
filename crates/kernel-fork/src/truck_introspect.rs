@@ -112,9 +112,11 @@ fn list_faces_impl(truck_solid: Option<&Solid>, solid: &KernelSolidHandle) -> Ve
     };
 
     let mut ids = Vec::new();
+    let mut face_idx: u64 = 0;
     for shell in truck_solid.boundaries().iter() {
-        for (i, _face) in shell.face_iter().enumerate() {
-            ids.push(KernelId(solid.id() * 10000 + i as u64));
+        for _face in shell.face_iter() {
+            ids.push(KernelId(solid.id() * 10000 + face_idx));
+            face_idx += 1;
         }
     }
     ids
@@ -172,12 +174,18 @@ where
         return Vec::new();
     };
 
+    // Accumulate face offset across shells to find the correct face
+    let mut face_offset = 0usize;
     for shell in truck_solid.boundaries().iter() {
         let faces: Vec<_> = shell.face_iter().collect();
-        if face_idx >= faces.len() {
-            continue;
-        }
-        let target_face = &faces[face_idx];
+        let local_idx = face_idx.checked_sub(face_offset);
+        face_offset += faces.len();
+
+        let local_idx = match local_idx {
+            Some(li) if li < faces.len() => li,
+            _ => continue,
+        };
+        let target_face = &faces[local_idx];
 
         // Collect unique shell edges with their indices
         let mut edge_id_to_idx = std::collections::HashMap::new();
@@ -217,6 +225,7 @@ where
     };
 
     let mut result = Vec::new();
+    let mut face_offset: u64 = 0;
     for shell in truck_solid.boundaries().iter() {
         // Build edge index -> EdgeID mapping
         let mut edge_ids = Vec::new();
@@ -229,6 +238,8 @@ where
         }
 
         if edge_offset >= edge_ids.len() {
+            let shell_face_count = shell.face_iter().count() as u64;
+            face_offset += shell_face_count;
             continue;
         }
         let target_edge_id = edge_ids[edge_offset];
@@ -241,9 +252,10 @@ where
                 .any(|e| e.id() == target_edge_id);
 
             if has_edge {
-                result.push(KernelId(handle_id * 10000 + fi as u64));
+                result.push(KernelId(handle_id * 10000 + face_offset + fi as u64));
             }
         }
+        face_offset += shell.face_iter().count() as u64;
     }
     result
 }
@@ -338,10 +350,15 @@ where
     match kind {
         TopoKind::Face => {
             let face_idx = (entity.0 % 10000) as usize;
+            let mut face_offset = 0usize;
             for shell in truck_solid.boundaries().iter() {
                 let faces: Vec<_> = shell.face_iter().collect();
-                if face_idx < faces.len() {
-                    return compute_face_signature(faces[face_idx]);
+                let local_idx = face_idx.checked_sub(face_offset);
+                face_offset += faces.len();
+                if let Some(li) = local_idx {
+                    if li < faces.len() {
+                        return compute_face_signature(faces[li]);
+                    }
                 }
             }
         }
@@ -498,6 +515,7 @@ fn sample_face_center(face: &Face, surface: &Surface) -> ([f64; 3], [f64; 3]) {
 mod tests {
     use super::*;
     use crate::primitives;
+    use crate::traits::Kernel;
 
     #[test]
     fn test_introspect_box_faces() {
@@ -559,6 +577,124 @@ mod tests {
         for face in &faces {
             let neighbors = introspect.face_neighbors(*face);
             assert_eq!(neighbors.len(), 4, "Each box face should have 4 neighbors");
+        }
+    }
+
+    /// Face IDs from list_faces() must exactly match face_id values in tessellated mesh face_ranges.
+    #[test]
+    fn test_box_face_id_consistency() {
+        let mut kernel = TruckKernel::new();
+        let solid = primitives::make_box(1.0, 1.0, 1.0);
+        let handle = kernel.store_solid(solid);
+
+        let introspect_ids: std::collections::HashSet<_> =
+            kernel.list_faces(&handle).into_iter().collect();
+        let mesh = kernel.tessellate(&handle, 0.1).unwrap();
+        let tess_ids: std::collections::HashSet<_> =
+            mesh.face_ranges.iter().map(|fr| fr.face_id).collect();
+
+        assert_eq!(
+            introspect_ids, tess_ids,
+            "Face IDs must match between introspection and tessellation for box"
+        );
+        assert_eq!(introspect_ids.len(), 6);
+    }
+
+    /// Same consistency check for a cylinder (curved surfaces, different topology).
+    #[test]
+    fn test_cylinder_face_id_consistency() {
+        let mut kernel = TruckKernel::new();
+        let solid = primitives::make_cylinder(1.0, 2.0);
+        let handle = kernel.store_solid(solid);
+
+        let introspect_ids: std::collections::HashSet<_> =
+            kernel.list_faces(&handle).into_iter().collect();
+        let mesh = kernel.tessellate(&handle, 0.1).unwrap();
+        let tess_ids: std::collections::HashSet<_> =
+            mesh.face_ranges.iter().map(|fr| fr.face_id).collect();
+
+        assert_eq!(
+            introspect_ids, tess_ids,
+            "Face IDs must match between introspection and tessellation for cylinder"
+        );
+        assert!(
+            introspect_ids.len() >= 3,
+            "Cylinder should have at least 3 faces, got {}",
+            introspect_ids.len()
+        );
+    }
+
+    /// Face IDs for boolean union of offset boxes must be consistent.
+    #[test]
+    fn test_boolean_result_face_id_consistency() {
+        use truck_modeling::{builder, Point3, Vector3};
+
+        let box_a = primitives::make_box(2.0, 2.0, 2.0);
+        let v = builder::vertex(Point3::new(0.5, 0.5, 0.5));
+        let e = builder::tsweep(&v, Vector3::new(1.0, 0.0, 0.0));
+        let f = builder::tsweep(&e, Vector3::new(0.0, 1.0, 0.0));
+        let box_b: truck_modeling::Solid = builder::tsweep(&f, Vector3::new(0.0, 0.0, 1.0));
+
+        let union = truck_shapeops::or(&box_a, &box_b, 0.05);
+        let union_solid = union.expect("Box-box offset union should succeed");
+
+        let mut kernel = TruckKernel::new();
+        let handle = kernel.store_solid(union_solid);
+
+        let introspect_ids: std::collections::HashSet<_> =
+            kernel.list_faces(&handle).into_iter().collect();
+        let mesh = kernel.tessellate(&handle, 0.1).unwrap();
+        let tess_ids: std::collections::HashSet<_> =
+            mesh.face_ranges.iter().map(|fr| fr.face_id).collect();
+
+        assert_eq!(
+            introspect_ids, tess_ids,
+            "Face IDs must match for boolean union result"
+        );
+        assert!(
+            !introspect_ids.is_empty(),
+            "Boolean result should have faces"
+        );
+    }
+
+    /// Documents the assumption that make_box and make_cylinder produce single-shell solids.
+    #[test]
+    fn test_single_shell_assumption() {
+        let box_solid = primitives::make_box(1.0, 1.0, 1.0);
+        assert_eq!(
+            box_solid.boundaries().len(),
+            1,
+            "make_box should produce a single-shell solid"
+        );
+
+        let cyl_solid = primitives::make_cylinder(1.0, 2.0);
+        assert_eq!(
+            cyl_solid.boundaries().len(),
+            1,
+            "make_cylinder should produce a single-shell solid"
+        );
+    }
+
+    /// Face IDs should be globally sequential: base+0 through base+N-1 with no resets.
+    #[test]
+    fn test_face_ids_globally_sequential() {
+        let mut kernel = TruckKernel::new();
+        let solid = primitives::make_box(1.0, 1.0, 1.0);
+        let handle = kernel.store_solid(solid);
+
+        let face_ids = kernel.list_faces(&handle);
+        let base = handle.id() * 10000;
+
+        for (i, fid) in face_ids.iter().enumerate() {
+            assert_eq!(
+                fid.0,
+                base + i as u64,
+                "Face ID {} should be base+{} = {}, got {}",
+                i,
+                i,
+                base + i as u64,
+                fid.0
+            );
         }
     }
 

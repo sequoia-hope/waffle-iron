@@ -1043,3 +1043,250 @@ fn reorder_sketch_after_extrude_causes_rebuild_error() {
     // will have rebuild errors since extrude precedes its sketch
     assert!(matches!(response, EngineToUi::ModelUpdated { .. }));
 }
+
+// ── Test 16: Provenance role assignments non-empty ─────────────────────
+
+#[test]
+fn provenance_role_assignments_non_empty() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    let sketch_id = create_rect_sketch(&mut state, &mut kernel, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
+    let extrude_id = add_extrude(&mut state, &mut kernel, sketch_id, 5.0, None);
+
+    let result = state
+        .engine
+        .get_result(extrude_id)
+        .expect("Extrude should have an OpResult");
+
+    assert_eq!(
+        result.provenance.role_assignments.len(),
+        6,
+        "Extrude of rectangle should assign 6 roles (2 end caps + 4 side faces)"
+    );
+
+    // Check that we have both EndCap and SideFace roles
+    let end_caps: Vec<_> = result
+        .provenance
+        .role_assignments
+        .iter()
+        .filter(|(_, r)| matches!(r, Role::EndCapPositive | Role::EndCapNegative))
+        .collect();
+    assert_eq!(end_caps.len(), 2, "Should have 2 end cap roles");
+
+    let side_faces: Vec<_> = result
+        .provenance
+        .role_assignments
+        .iter()
+        .filter(|(_, r)| matches!(r, Role::SideFace { .. }))
+        .collect();
+    assert_eq!(side_faces.len(), 4, "Should have 4 side face roles");
+}
+
+// ── Test 17: All face_range IDs exist in role_assignments ──────────────
+
+#[test]
+fn all_face_range_ids_in_role_assignments() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    let sketch_id = create_rect_sketch(&mut state, &mut kernel, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
+    let extrude_id = add_extrude(&mut state, &mut kernel, sketch_id, 5.0, None);
+
+    let result = state
+        .engine
+        .get_result(extrude_id)
+        .expect("Extrude should have an OpResult");
+
+    let role_ids: std::collections::HashSet<_> = result
+        .provenance
+        .role_assignments
+        .iter()
+        .map(|(id, _)| *id)
+        .collect();
+
+    let mesh = tessellate_feature(&state, &mut kernel, extrude_id);
+
+    for fr in &mesh.face_ranges {
+        assert!(
+            role_ids.contains(&fr.face_id),
+            "Face range face_id {:?} should exist in role_assignments",
+            fr.face_id
+        );
+    }
+}
+
+// ── Test 18: Role assignments match introspect IDs ─────────────────────
+
+#[test]
+fn role_assignments_match_introspect_ids() {
+    use kernel_fork::KernelIntrospect;
+
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    let sketch_id = create_rect_sketch(&mut state, &mut kernel, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
+    let extrude_id = add_extrude(&mut state, &mut kernel, sketch_id, 5.0, None);
+
+    let result = state
+        .engine
+        .get_result(extrude_id)
+        .expect("Extrude should have an OpResult");
+
+    let role_ids: std::collections::HashSet<_> = result
+        .provenance
+        .role_assignments
+        .iter()
+        .map(|(id, _)| *id)
+        .collect();
+
+    let handle = get_solid_handle(&state, extrude_id);
+    let introspect_ids: std::collections::HashSet<_> =
+        kernel.list_faces(&handle).into_iter().collect();
+
+    assert_eq!(
+        role_ids, introspect_ids,
+        "Role assignment KernelIds should match list_faces() KernelIds"
+    );
+}
+
+// ── Test 19: get_face_data produces role GeomRefs for all faces ────────
+
+#[test]
+fn get_face_data_produces_role_geomrefs() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    let sketch_id = create_rect_sketch(&mut state, &mut kernel, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
+    let extrude_id = add_extrude(&mut state, &mut kernel, sketch_id, 5.0, None);
+
+    let result = state
+        .engine
+        .get_result(extrude_id)
+        .expect("Extrude should have an OpResult");
+
+    // Build role_map the same way get_face_data() does
+    let role_map: std::collections::HashMap<_, _> =
+        result.provenance.role_assignments.iter().cloned().collect();
+
+    let mesh = tessellate_feature(&state, &mut kernel, extrude_id);
+
+    let mut role_hits = 0;
+    let mut signature_fallbacks = 0;
+
+    for range in &mesh.face_ranges {
+        if role_map.contains_key(&range.face_id) {
+            role_hits += 1;
+        } else {
+            signature_fallbacks += 1;
+        }
+    }
+
+    assert_eq!(
+        role_hits, 6,
+        "All 6 faces should get Role match, got {} role hits and {} fallbacks",
+        role_hits, signature_fallbacks
+    );
+    assert_eq!(
+        signature_fallbacks, 0,
+        "No faces should fall to Signature fallback"
+    );
+}
+
+// ── Test 20: Revolve face IDs in role assignments ──────────────────────
+
+#[test]
+fn revolve_face_ids_in_role_assignments() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    let sketch_id = create_rect_sketch(&mut state, &mut kernel, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
+
+    let response = wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::AddFeature {
+            operation: Operation::Revolve {
+                params: RevolveParams {
+                    sketch_id,
+                    profile_index: 0,
+                    axis_origin: [0.0, 0.0, 0.0],
+                    axis_direction: [0.0, 1.0, 0.0],
+                    angle: 360.0,
+                },
+            },
+        },
+        &mut kernel,
+    );
+
+    let revolve_id = match &response {
+        EngineToUi::ModelUpdated { feature_tree, .. } => feature_tree.features.last().unwrap().id,
+        other => panic!("Expected ModelUpdated, got {:?}", other),
+    };
+
+    let result = state
+        .engine
+        .get_result(revolve_id)
+        .expect("Revolve should have an OpResult");
+
+    assert!(
+        !result.provenance.role_assignments.is_empty(),
+        "Revolve should have role assignments"
+    );
+
+    let role_ids: std::collections::HashSet<_> = result
+        .provenance
+        .role_assignments
+        .iter()
+        .map(|(id, _)| *id)
+        .collect();
+
+    let mesh = tessellate_feature(&state, &mut kernel, revolve_id);
+
+    for fr in &mesh.face_ranges {
+        assert!(
+            role_ids.contains(&fr.face_id),
+            "Revolve face_range face_id {:?} should exist in role_assignments",
+            fr.face_id
+        );
+    }
+}
+
+// ── Test 21: Extrude on non-XY plane face IDs ─────────────────────────
+
+#[test]
+fn extrude_on_non_xy_plane_face_ids() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    // Sketch on XZ plane (normal = [0,1,0])
+    let sketch_id = create_rect_sketch(&mut state, &mut kernel, [0.0, 5.0, 0.0], [0.0, 1.0, 0.0]);
+    let extrude_id = add_extrude(&mut state, &mut kernel, sketch_id, 10.0, None);
+
+    let result = state
+        .engine
+        .get_result(extrude_id)
+        .expect("Non-XY extrude should have an OpResult");
+
+    assert_eq!(
+        result.provenance.role_assignments.len(),
+        6,
+        "Non-XY extrude should still have 6 role assignments"
+    );
+
+    let role_ids: std::collections::HashSet<_> = result
+        .provenance
+        .role_assignments
+        .iter()
+        .map(|(id, _)| *id)
+        .collect();
+
+    let mesh = tessellate_feature(&state, &mut kernel, extrude_id);
+
+    for fr in &mesh.face_ranges {
+        assert!(
+            role_ids.contains(&fr.face_id),
+            "Non-XY plane extrude face_range face_id {:?} should exist in role_assignments",
+            fr.face_id
+        );
+    }
+}

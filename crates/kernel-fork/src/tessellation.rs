@@ -17,6 +17,7 @@ pub fn tessellate_solid(
     solid: &TruckSolid,
     tolerance: f64,
     next_id: &mut u64,
+    solid_handle: &KernelSolidHandle,
 ) -> std::result::Result<RenderMesh, KernelError> {
     let meshed_solid = solid.triangulation(tolerance);
 
@@ -26,10 +27,13 @@ pub fn tessellate_solid(
     let mut face_ranges: Vec<FaceRange> = Vec::new();
 
     // Iterate the meshed solid's shells and faces
+    // Use the same face_idx counter as list_faces_impl in truck_introspect.rs
+    // so that face IDs match between tessellation and introspection.
+    let mut face_idx: u64 = 0;
     for shell in meshed_solid.boundaries().iter() {
         for face in shell.face_iter() {
-            let face_id = KernelId(*next_id);
-            *next_id += 1;
+            let face_id = KernelId(solid_handle.id() * 10000 + face_idx);
+            face_idx += 1;
 
             // Each meshed face's surface is Option<PolygonMesh>
             let maybe_mesh: Option<PolygonMesh> = face.surface();
@@ -92,7 +96,7 @@ pub fn tessellate_solid(
 
     // Fallback if nothing was tessellated
     if all_vertices.is_empty() {
-        return tessellate_solid_merged(solid, tolerance, next_id);
+        return tessellate_solid_merged(solid, tolerance, next_id, solid_handle);
     }
 
     Ok(RenderMesh {
@@ -162,7 +166,8 @@ pub fn extract_edges(solid: &TruckSolid, tolerance: f64, next_id: &mut u64) -> E
 fn tessellate_solid_merged(
     solid: &TruckSolid,
     tolerance: f64,
-    next_id: &mut u64,
+    _next_id: &mut u64,
+    solid_handle: &KernelSolidHandle,
 ) -> std::result::Result<RenderMesh, KernelError> {
     use truck_meshalgo::tessellation::MeshedShape;
 
@@ -195,8 +200,8 @@ fn tessellate_solid_merged(
         }
     }
 
-    let face_id = KernelId(*next_id);
-    *next_id += 1;
+    // Merged fallback: single face covering all triangles, use face_idx=0
+    let face_id = KernelId(solid_handle.id() * 10000);
 
     let face_ranges = vec![FaceRange {
         face_id,

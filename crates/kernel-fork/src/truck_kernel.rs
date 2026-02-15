@@ -264,7 +264,7 @@ impl Kernel for TruckKernel {
                 id: KernelId(solid.id()),
             })?;
 
-        tessellation::tessellate_solid(truck_solid, tolerance, &mut self.next_id)
+        tessellation::tessellate_solid(truck_solid, tolerance, &mut self.next_id, solid)
     }
 
     fn extract_edges(
@@ -890,6 +890,51 @@ mod tests {
                 println!("\nBoolean union returned None. Cannot test STEP export.");
             }
         }
+    }
+
+    /// Face IDs from introspection match tessellation for make_faces_from_profiles → extrude_face.
+    /// This is the realistic app path (not primitives::make_box).
+    #[test]
+    fn test_extruded_rect_face_id_consistency() {
+        use crate::traits::KernelIntrospect;
+
+        let mut kernel = TruckKernel::new();
+
+        let profile = ClosedProfile {
+            entity_ids: vec![1, 2, 3, 4],
+            is_outer: true,
+        };
+        let mut positions = HashMap::new();
+        positions.insert(1, (0.0, 0.0));
+        positions.insert(2, (10.0, 0.0));
+        positions.insert(3, (10.0, 10.0));
+        positions.insert(4, (0.0, 10.0));
+
+        let face_ids = kernel
+            .make_faces_from_profiles(
+                &[profile],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0],
+                &positions,
+            )
+            .unwrap();
+
+        let handle = kernel
+            .extrude_face(face_ids[0], [0.0, 0.0, 1.0], 5.0)
+            .unwrap();
+
+        let introspect_ids: std::collections::HashSet<_> =
+            kernel.list_faces(&handle).into_iter().collect();
+        let mesh = kernel.tessellate(&handle, 0.1).unwrap();
+        let tess_ids: std::collections::HashSet<_> =
+            mesh.face_ranges.iter().map(|fr| fr.face_id).collect();
+
+        assert_eq!(
+            introspect_ids, tess_ids,
+            "Face IDs must match for extruded rectangle"
+        );
+        assert_eq!(introspect_ids.len(), 6, "Extruded rect should have 6 faces");
     }
 
     #[test]
