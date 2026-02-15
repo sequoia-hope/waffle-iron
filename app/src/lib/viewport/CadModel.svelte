@@ -10,6 +10,7 @@
 		getSelectedRefs,
 		getSketchMode,
 		geomRefEquals,
+		geomRefSameRoleType,
 		isSelected,
 		getSelectOtherState,
 		setSelectOtherState
@@ -18,6 +19,52 @@
 	const DEFAULT_COLOR = new THREE.Color(0x8899aa);
 	const HOVER_COLOR = new THREE.Color(0xaabbdd);
 	const SELECTED_COLOR = new THREE.Color(0x44aaff);
+
+	/** Threshold: if a mesh has more SideFace ranges than this, group them visually */
+	const SIDE_FACE_GROUP_THRESHOLD = 8;
+
+	/**
+	 * Check if a GeomRef is a SideFace role.
+	 * @param {any} ref
+	 * @returns {boolean}
+	 */
+	function isGroupableSideFace(ref) {
+		return ref?.selector?.type === 'Role' && ref?.selector?.role?.type === 'SideFace';
+	}
+
+	/**
+	 * Check if SideFace grouping should be active for a set of face ranges.
+	 * Returns true when there are many SideFace ranges (polygon approximation of a curve).
+	 * @param {Array<{geom_ref: any}>} faceRanges
+	 * @returns {boolean}
+	 */
+	function shouldGroupSideFaces(faceRanges) {
+		if (!faceRanges) return false;
+		let sideFaceCount = 0;
+		for (const range of faceRanges) {
+			if (isGroupableSideFace(range.geom_ref)) {
+				sideFaceCount++;
+			}
+		}
+		return sideFaceCount > SIDE_FACE_GROUP_THRESHOLD;
+	}
+
+	/**
+	 * Canonicalize a SideFace ref to the first SideFace in the face ranges.
+	 * This allows all SideFace facets to match the same canonical ref.
+	 * @param {any} ref
+	 * @param {Array<{geom_ref: any}>} faceRanges
+	 * @returns {any}
+	 */
+	function canonicalizeSideFaceRef(ref, faceRanges) {
+		if (!isGroupableSideFace(ref)) return ref;
+		for (const range of faceRanges) {
+			if (isGroupableSideFace(range.geom_ref)) {
+				return range.geom_ref;
+			}
+		}
+		return ref;
+	}
 
 	/**
 	 * Binary search face_ranges to find the GeomRef owning a triangle index.
@@ -94,14 +141,22 @@
 			];
 		}
 
+		const groupSideFaces = shouldGroupSideFaces(faceRanges);
+		const compareFn = (a, b) => {
+			if (groupSideFaces && isGroupableSideFace(a) && isGroupableSideFace(b)) {
+				return geomRefSameRoleType(a, b);
+			}
+			return geomRefEquals(a, b);
+		};
+
 		return faceRanges.map((range) => {
 			const ref = range.geom_ref;
 			let color = DEFAULT_COLOR;
 
 			if (!inSketchMode) {
-				if (selectedRefs.some((r) => geomRefEquals(r, ref))) {
+				if (selectedRefs.some((r) => compareFn(r, ref))) {
 					color = SELECTED_COLOR;
-				} else if (hoveredRef && geomRefEquals(hoveredRef, ref)) {
+				} else if (hoveredRef && compareFn(hoveredRef, ref)) {
 					color = HOVER_COLOR;
 				}
 			}
@@ -161,7 +216,17 @@
 		if (!mesh || !mesh.faceRanges.length) return;
 		const faceIndex = event.faceIndex;
 		if (faceIndex == null) return;
-		const ref = findFaceRef(mesh.faceRanges, faceIndex);
+		let ref = findFaceRef(mesh.faceRanges, faceIndex);
+		if (!ref) return;
+
+		// Stop event from reaching datum planes behind this mesh
+		event.stopPropagation();
+
+		// Canonicalize SideFace refs when grouping so all facets highlight together
+		if (shouldGroupSideFaces(mesh.faceRanges)) {
+			ref = canonicalizeSideFaceRef(ref, mesh.faceRanges);
+		}
+
 		setHoveredRef(ref);
 	}
 
@@ -255,8 +320,16 @@
 		const screenY = event.nativeEvent?.clientY ?? 0;
 		const additive = event.nativeEvent?.shiftKey ?? false;
 
-		const ref = findFaceRef(mesh.faceRanges, faceIndex);
+		let ref = findFaceRef(mesh.faceRanges, faceIndex);
 		if (!ref) return;
+
+		// Stop event from reaching datum planes behind this mesh
+		event.stopPropagation();
+
+		// Canonicalize SideFace refs when grouping
+		if (shouldGroupSideFaces(mesh.faceRanges)) {
+			ref = canonicalizeSideFaceRef(ref, mesh.faceRanges);
+		}
 
 		// Check if this is a "same position" click for Select Other cycling
 		const soState = getSelectOtherState();

@@ -450,6 +450,26 @@ export function geomRefEquals(a, b) {
 }
 
 /**
+ * Check if two GeomRefs have the same role type (ignoring role index).
+ * Used for grouping SideFace facets from polygon-approximated curved surfaces.
+ * @param {any} a
+ * @param {any} b
+ * @returns {boolean}
+ */
+export function geomRefSameRoleType(a, b) {
+	if (!a || !b) return false;
+	return (
+		a.kind?.type === b.kind?.type &&
+		a.anchor?.type === b.anchor?.type &&
+		a.anchor?.feature_id === b.anchor?.feature_id &&
+		a.anchor?.plane === b.anchor?.plane &&
+		a.anchor?.id === b.anchor?.id &&
+		a.selector?.type === b.selector?.type &&
+		a.selector?.role?.type === b.selector?.role?.type
+	);
+}
+
+/**
  * Check if a GeomRef is currently selected.
  * @param {any} ref
  * @returns {boolean}

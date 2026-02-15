@@ -71,11 +71,13 @@
 
 	// Event handlers
 	function handleClick(ref, event) {
+		event.stopPropagation();
 		const additive = event.nativeEvent?.shiftKey ?? false;
 		selectRef(ref, additive);
 	}
 
-	function handlePointerEnter(ref) {
+	function handlePointerEnter(ref, event) {
+		if (event) event.stopPropagation();
 		setHoveredRef(ref);
 	}
 
@@ -144,7 +146,7 @@
 			geometry={planeGeometry}
 			material={pd.fillMaterial}
 			onclick={(e) => handleClick(pd.ref, e)}
-			onpointerenter={() => handlePointerEnter(pd.ref)}
+			onpointerenter={(e) => handlePointerEnter(pd.ref, e)}
 			onpointerleave={() => handlePointerLeave(pd.ref)}
 		/>
 		<T.LineSegments geometry={borderGeo} material={pd.borderMaterial} />
