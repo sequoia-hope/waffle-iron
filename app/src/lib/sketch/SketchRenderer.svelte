@@ -484,7 +484,7 @@
 	<!-- Preview geometry -->
 	{#if previewGeo}
 		{#if previewGeo.type === 'line'}
-			<T.Line geometry={previewGeo.geometry} material={previewDashedMaterial} renderOrder={10} />
+			<T.Line geometry={previewGeo.geometry} material={previewMaterial} renderOrder={10} />
 		{/if}
 	{/if}
 

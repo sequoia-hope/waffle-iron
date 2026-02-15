@@ -18,6 +18,7 @@
 		saveProject,
 		loadProject,
 		exportStl,
+		exportStep,
 		getSelectedRefs,
 		computeFacePlane,
 		showSketchPlaneDialog,
@@ -238,6 +239,7 @@
 		<button class="toolbar-btn" disabled={!ready} title="Save (Ctrl+S)" onclick={() => saveProject()}>Save</button>
 		<button class="toolbar-btn" disabled={!ready} title="Open (Ctrl+O)" onclick={() => loadProject()}>Open</button>
 		<button class="toolbar-btn" disabled={!ready} title="Export STL" onclick={() => exportStl()}>Export STL</button>
+		<button class="toolbar-btn" disabled={!ready} title="Export STEP" onclick={() => exportStep()}>Export STEP</button>
 	</div>
 
 	<div class="toolbar-spacer"></div>

@@ -6,15 +6,15 @@
 		hideSketchPlaneDialog,
 		confirmSketchPlaneDialog
 	} from '$lib/engine/store.svelte.js';
+	import { BUILTIN_PLANES, resolvePlane } from '$lib/engine/planes.js';
 
 	let visible = $derived(getSketchPlaneDialogVisible());
 	let selection = $derived(getSketchPlaneDialogSelection());
 
-	const planes = [
-		{ label: 'XY Plane', origin: /** @type {[number,number,number]} */ ([0, 0, 0]), normal: /** @type {[number,number,number]} */ ([0, 0, 1]) },
-		{ label: 'XZ Plane', origin: /** @type {[number,number,number]} */ ([0, 0, 0]), normal: /** @type {[number,number,number]} */ ([0, 1, 0]) },
-		{ label: 'YZ Plane', origin: /** @type {[number,number,number]} */ ([0, 0, 0]), normal: /** @type {[number,number,number]} */ ([1, 0, 0]) },
-	];
+	const planes = BUILTIN_PLANES.map((p) => {
+		const resolved = resolvePlane(p.definition);
+		return { label: p.name, origin: resolved.origin, normal: resolved.normal };
+	});
 
 	function selectPlane(plane) {
 		setSketchPlaneDialogSelection(plane);
@@ -61,7 +61,7 @@
 						<button
 							class="plane-btn"
 							class:selected={selection?.label === plane.label}
-							data-testid="plane-btn-{plane.label.replace(/\s/g, '-').toLowerCase()}"
+							data-testid="plane-btn-{plane.label.toLowerCase()}"
 							onclick={() => selectPlane(plane)}
 						>{plane.label}</button>
 					{/each}

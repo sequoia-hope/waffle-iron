@@ -9,8 +9,12 @@
 		reorderFeature,
 		renameFeature,
 		send,
-		isEngineReady
+		isEngineReady,
+		selectRef,
+		getSelectedRefs,
+		geomRefEquals
 	} from '$lib/engine/store.svelte.js';
+	import { BUILTIN_PLANES, makePlaneRef } from '$lib/engine/planes.js';
 
 	let tree = $derived(getFeatureTree());
 	let selectedId = $derived(getSelectedFeatureId());
@@ -26,6 +30,20 @@
 	let dragFeatureId = $state(null);
 	/** @type {number | null} */
 	let dropTargetIndex = $state(null);
+
+	// Origin section state
+	let originExpanded = $state(true);
+
+	// Build plane refs once
+	const planeRefs = BUILTIN_PLANES.map((p) => makePlaneRef(p.id));
+
+	function isPlaneSelected(index) {
+		return getSelectedRefs().some((r) => geomRefEquals(r, planeRefs[index]));
+	}
+
+	function handlePlaneClick(index) {
+		selectRef(planeRefs[index]);
+	}
 
 	function handleClick(featureId) {
 		selectFeature(featureId);
@@ -147,6 +165,34 @@
 <div class="feature-tree">
 	<div class="panel-header">Features</div>
 	<div class="tree-content">
+		<!-- Origin section -->
+		<div class="origin-section">
+			<button
+				class="origin-header"
+				onclick={() => originExpanded = !originExpanded}
+				data-testid="origin-toggle"
+			>
+				<span class="expand-icon">{originExpanded ? '\u25BE' : '\u25B8'}</span>
+				<span class="origin-label">Origin</span>
+			</button>
+			{#if originExpanded}
+				{#each BUILTIN_PLANES as plane, i (plane.id)}
+					<div
+						class="tree-item origin-item"
+						class:selected={isPlaneSelected(i)}
+						onclick={() => handlePlaneClick(i)}
+						role="treeitem"
+						tabindex="0"
+						data-testid="origin-plane-{plane.name.toLowerCase()}"
+					>
+						<span class="tree-icon origin-icon">{'\u25C7'}</span>
+						<span class="tree-label">{plane.name}</span>
+					</div>
+				{/each}
+			{/if}
+		</div>
+
+		<!-- Feature list -->
 		{#if tree.features.length === 0}
 			<div class="empty-state">No features yet</div>
 		{:else}
@@ -247,6 +293,50 @@
 		overflow-y: auto;
 	}
 
+	.origin-section {
+		border-bottom: 1px solid var(--border-color, #444);
+		margin-bottom: 2px;
+	}
+
+	.origin-header {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		width: 100%;
+		padding: 3px 8px;
+		background: none;
+		border: none;
+		color: var(--text-secondary, #aaa);
+		font-size: 11px;
+		cursor: pointer;
+		text-align: left;
+	}
+
+	.origin-header:hover {
+		background: var(--bg-hover, #333);
+	}
+
+	.expand-icon {
+		width: 10px;
+		font-size: 10px;
+		flex-shrink: 0;
+	}
+
+	.origin-label {
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.3px;
+	}
+
+	.origin-item {
+		padding-left: 22px;
+		cursor: pointer;
+	}
+
+	.origin-icon {
+		color: var(--text-muted, #666);
+	}
+
 	.empty-state {
 		padding: 16px 12px;
 		color: var(--text-muted);
@@ -273,6 +363,10 @@
 		background: rgba(0, 120, 212, 0.2);
 		border-left: 2px solid var(--accent);
 		padding-left: 10px;
+	}
+
+	.tree-item.origin-item.selected {
+		padding-left: 20px;
 	}
 
 	.tree-item.suppressed {

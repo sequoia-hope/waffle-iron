@@ -9,6 +9,7 @@
 
 	let cameraRef = $state(null);
 	let controlsRef = $state(null);
+	let hasAutoFitForMesh = false;
 	let sketchActive = $derived(getSketchMode()?.active ?? false);
 
 	const standardViews = {
@@ -105,6 +106,22 @@
 
 			// Shift the orbit target toward the zoom target point
 			controlsRef.target.lerp(_zoomTarget, TARGET_LERP_FACTOR);
+
+			// Clamp orbit target to stay near model — prevents drift into empty space
+			const modelBox = new THREE.Box3();
+			scene.traverse((obj) => {
+				if (/** @type {any} */ (obj).isMesh && obj.visible) modelBox.expandByObject(obj);
+			});
+			if (!modelBox.isEmpty()) {
+				const modelCenter = modelBox.getCenter(new THREE.Vector3());
+				const modelSize = modelBox.getSize(new THREE.Vector3());
+				const maxExtent = Math.max(modelSize.x, modelSize.y, modelSize.z, 1.0);
+				const maxDrift = maxExtent * 2.0;
+				const drift = controlsRef.target.distanceTo(modelCenter);
+				if (drift > maxDrift) {
+					controlsRef.target.lerpVectors(modelCenter, controlsRef.target, maxDrift / drift);
+				}
+			}
 		}
 
 		// Move camera to maintain the new distance from the (possibly shifted) target
@@ -255,17 +272,19 @@
 		}
 	});
 
-	// Remap mouse buttons and touch gestures in sketch mode
+	// Remap mouse buttons and touch gestures in sketch mode.
+	// Left-click goes to sketch tools during sketch; middle-click orbits.
+	// After exiting sketch, left-click orbit is restored.
 	$effect(() => {
 		if (!controlsRef) return;
 		if (sketchActive) {
 			controlsRef.mouseButtons = {
-				LEFT: -1,       // Disable left-button orbit (sketch tools handle left click)
+				LEFT: -1,       // Sketch tools handle left click
 				MIDDLE: THREE.MOUSE.ROTATE,
 				RIGHT: THREE.MOUSE.PAN
 			};
 			controlsRef.touches = {
-				ONE: -1,                        // Single finger = sketch only (no orbit)
+				ONE: -1,                        // Single finger = sketch only
 				TWO: THREE.TOUCH.DOLLY_ROTATE   // Two fingers = pinch zoom + rotate
 			};
 		} else {
@@ -278,7 +297,12 @@
 				ONE: THREE.TOUCH.ROTATE,        // Single finger = orbit
 				TWO: THREE.TOUCH.DOLLY_PAN      // Two fingers = pinch zoom + pan
 			};
+			// Ensure controls are re-enabled when leaving sketch mode.
+			// BoxSelect or other code may have set enabled=false during sketch.
+			controlsRef.enabled = true;
 		}
+		// Force OrbitControls to sync internal state after button remapping
+		controlsRef.update();
 	});
 
 	// Auto-fit camera when sketch grows beyond visible area (first sketch only)
@@ -317,11 +341,23 @@
 			controlsRef.update();
 		}
 	});
+
+	// Auto-fit camera when the first 3D mesh appears (e.g. after first extrude).
+	// Only fires once — subsequent model changes don't re-fit (respects user's camera).
+	$effect(() => {
+		const currentMeshes = getMeshes();
+		if (!hasAutoFitForMesh && currentMeshes.length > 0 && cameraRef && controlsRef) {
+			setTimeout(() => {
+				fitAll();
+				hasAutoFitForMesh = true;
+			}, 50);
+		}
+	});
 </script>
 
 <T.PerspectiveCamera
 	makeDefault
-	position={[124, 124, 124]}
+	position={[30, 30, 30]}
 	fov={50}
 	near={0.1}
 	far={5000}
@@ -330,7 +366,8 @@
 	<OrbitControls
 		bind:ref={controlsRef}
 		enableDamping
-		dampingFactor={0.15}
+		dampingFactor={0.25}
+		rotateSpeed={1.0}
 		enableZoom={false}
 		minDistance={0.05}
 		maxDistance={2000}
