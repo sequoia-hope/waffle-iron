@@ -76,6 +76,8 @@ fn make_extrude_op(sketch_id: Uuid) -> Operation {
             symmetric: false,
             cut: false,
             target_body: None,
+            depth_mode: feature_engine::types::DepthMode::Blind,
+            second_direction: None,
         },
     }
 }
@@ -160,6 +162,7 @@ fn serde_roundtrip_model_updated() {
         feature_tree: FeatureTree::new(),
         meshes: Vec::new(),
         edges: Vec::new(),
+        errors: Vec::new(),
     };
     let json = serde_json::to_string(&msg).unwrap();
     let deserialized: EngineToUi = serde_json::from_str(&json).unwrap();
@@ -258,7 +261,7 @@ fn dispatch_undo_empty_returns_error() {
 }
 
 #[test]
-fn dispatch_unimplemented_returns_error() {
+fn dispatch_export_step_no_features_returns_error() {
     let mut state = EngineState::new();
     let mut kernel = MockKernel::new();
 
@@ -266,7 +269,11 @@ fn dispatch_unimplemented_returns_error() {
 
     assert!(matches!(response, EngineToUi::Error { .. }));
     if let EngineToUi::Error { message, .. } = &response {
-        assert!(message.contains("not implemented") || message.contains("Not"));
+        assert!(
+            message.contains("mesh") || message.contains("data"),
+            "Expected 'no mesh data' error, got: {}",
+            message
+        );
     }
 }
 

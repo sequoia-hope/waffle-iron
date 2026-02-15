@@ -76,6 +76,8 @@ fn make_extrude_op(sketch_id: Uuid) -> Operation {
             symmetric: false,
             cut: false,
             target_body: None,
+            depth_mode: DepthMode::Blind,
+            second_direction: None,
         },
     }
 }
@@ -242,6 +244,8 @@ fn engine_edit_feature_triggers_rebuild() {
         symmetric: false,
         cut: false,
         target_body: None,
+        depth_mode: DepthMode::Blind,
+        second_direction: None,
     };
     let result = engine.edit_feature(e_id, Operation::Extrude { params: new_params }, &mut kernel);
     assert!(result.is_ok());
@@ -528,6 +532,8 @@ fn rebuild_after_edit_updates_results() {
             symmetric: false,
             cut: false,
             target_body: None,
+            depth_mode: DepthMode::Blind,
+            second_direction: None,
         },
     };
     engine.edit_feature(e_id, new_op, &mut kernel).unwrap();
@@ -638,6 +644,8 @@ fn undo_edit_feature() {
             symmetric: false,
             cut: false,
             target_body: None,
+            depth_mode: DepthMode::Blind,
+            second_direction: None,
         },
     };
     engine.edit_feature(e_id, new_op, &mut kernel).unwrap();
@@ -813,6 +821,8 @@ fn make_extrude_op_depth(sketch_id: Uuid, depth: f64) -> Operation {
             symmetric: false,
             cut: false,
             target_body: None,
+            depth_mode: DepthMode::Blind,
+            second_direction: None,
         },
     }
 }

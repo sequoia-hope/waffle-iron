@@ -283,6 +283,8 @@ impl ModelBuilder {
                         symmetric: false,
                         cut: false,
                         target_body: None,
+                        depth_mode: DepthMode::Blind,
+                        second_direction: None,
                     },
                 },
             },
@@ -314,6 +316,8 @@ impl ModelBuilder {
                         symmetric: false,
                         cut: true,
                         target_body: None,
+                        depth_mode: DepthMode::Blind,
+                        second_direction: None,
                     },
                 },
             },
@@ -346,6 +350,8 @@ impl ModelBuilder {
                         symmetric: false,
                         cut: false,
                         target_body: None,
+                        depth_mode: DepthMode::Blind,
+                        second_direction: None,
                     },
                 },
             },
@@ -353,6 +359,200 @@ impl ModelBuilder {
         );
 
         self.extract_last_feature_id(name, "AddFeature(ExtrudeOnFace)", response)
+    }
+
+    /// Add an extrude feature with full control over all parameters.
+    pub fn extrude_advanced(
+        &mut self,
+        name: &str,
+        sketch_name: &str,
+        params: ExtrudeParams,
+    ) -> Result<Uuid, HarnessError> {
+        self.check_name_available(name)?;
+        // Override sketch_id from the named sketch
+        let sketch_id = self.feature_id(sketch_name)?;
+        let mut p = params;
+        p.sketch_id = sketch_id;
+
+        let response = wasm_bridge::dispatch(
+            &mut self.state,
+            UiToEngine::AddFeature {
+                operation: Operation::Extrude { params: p },
+            },
+            self.kernel.as_mut(),
+        );
+
+        self.extract_last_feature_id(name, "AddFeature(ExtrudeAdvanced)", response)
+    }
+
+    /// Add an extrude feature with ThroughAll depth mode.
+    pub fn extrude_through_all(
+        &mut self,
+        name: &str,
+        sketch_name: &str,
+        cut: bool,
+    ) -> Result<Uuid, HarnessError> {
+        self.check_name_available(name)?;
+        let sketch_id = self.feature_id(sketch_name)?;
+
+        let response = wasm_bridge::dispatch(
+            &mut self.state,
+            UiToEngine::AddFeature {
+                operation: Operation::Extrude {
+                    params: ExtrudeParams {
+                        sketch_id,
+                        profile_index: 0,
+                        depth: 1.0, // fallback for ThroughAll
+                        direction: None,
+                        symmetric: false,
+                        cut,
+                        target_body: None,
+                        depth_mode: DepthMode::ThroughAll,
+                        second_direction: None,
+                    },
+                },
+            },
+            self.kernel.as_mut(),
+        );
+
+        self.extract_last_feature_id(name, "AddFeature(ExtrudeThroughAll)", response)
+    }
+
+    /// Add an extrude feature up to a reference (face, vertex, or datum plane).
+    pub fn extrude_up_to(
+        &mut self,
+        name: &str,
+        sketch_name: &str,
+        reference: waffle_types::GeomRef,
+    ) -> Result<Uuid, HarnessError> {
+        self.check_name_available(name)?;
+        let sketch_id = self.feature_id(sketch_name)?;
+
+        let response = wasm_bridge::dispatch(
+            &mut self.state,
+            UiToEngine::AddFeature {
+                operation: Operation::Extrude {
+                    params: ExtrudeParams {
+                        sketch_id,
+                        profile_index: 0,
+                        depth: 1.0, // fallback
+                        direction: None,
+                        symmetric: false,
+                        cut: false,
+                        target_body: None,
+                        depth_mode: DepthMode::UpTo { reference },
+                        second_direction: None,
+                    },
+                },
+            },
+            self.kernel.as_mut(),
+        );
+
+        self.extract_last_feature_id(name, "AddFeature(ExtrudeUpTo)", response)
+    }
+
+    /// Add an extrude feature with an explicit direction vector.
+    pub fn extrude_directed(
+        &mut self,
+        name: &str,
+        sketch_name: &str,
+        depth: f64,
+        direction: [f64; 3],
+        cut: bool,
+    ) -> Result<Uuid, HarnessError> {
+        self.check_name_available(name)?;
+        let sketch_id = self.feature_id(sketch_name)?;
+
+        let response = wasm_bridge::dispatch(
+            &mut self.state,
+            UiToEngine::AddFeature {
+                operation: Operation::Extrude {
+                    params: ExtrudeParams {
+                        sketch_id,
+                        profile_index: 0,
+                        depth,
+                        direction: Some(direction),
+                        symmetric: false,
+                        cut,
+                        target_body: None,
+                        depth_mode: DepthMode::Blind,
+                        second_direction: None,
+                    },
+                },
+            },
+            self.kernel.as_mut(),
+        );
+
+        self.extract_last_feature_id(name, "AddFeature(ExtrudeDirected)", response)
+    }
+
+    /// Add a bidirectional extrude with independent depths in each direction.
+    pub fn extrude_bidirectional(
+        &mut self,
+        name: &str,
+        sketch_name: &str,
+        depth: f64,
+        second_depth: f64,
+    ) -> Result<Uuid, HarnessError> {
+        self.check_name_available(name)?;
+        let sketch_id = self.feature_id(sketch_name)?;
+
+        let response = wasm_bridge::dispatch(
+            &mut self.state,
+            UiToEngine::AddFeature {
+                operation: Operation::Extrude {
+                    params: ExtrudeParams {
+                        sketch_id,
+                        profile_index: 0,
+                        depth,
+                        direction: None,
+                        symmetric: false,
+                        cut: false,
+                        target_body: None,
+                        depth_mode: DepthMode::Blind,
+                        second_direction: Some(SecondDirection::Blind {
+                            depth: second_depth,
+                        }),
+                    },
+                },
+            },
+            self.kernel.as_mut(),
+        );
+
+        self.extract_last_feature_id(name, "AddFeature(ExtrudeBidirectional)", response)
+    }
+
+    /// Add a symmetric extrude (equal depth in both directions).
+    pub fn extrude_symmetric(
+        &mut self,
+        name: &str,
+        sketch_name: &str,
+        total_depth: f64,
+    ) -> Result<Uuid, HarnessError> {
+        self.check_name_available(name)?;
+        let sketch_id = self.feature_id(sketch_name)?;
+
+        let response = wasm_bridge::dispatch(
+            &mut self.state,
+            UiToEngine::AddFeature {
+                operation: Operation::Extrude {
+                    params: ExtrudeParams {
+                        sketch_id,
+                        profile_index: 0,
+                        depth: total_depth / 2.0,
+                        direction: None,
+                        symmetric: false,
+                        cut: false,
+                        target_body: None,
+                        depth_mode: DepthMode::Blind,
+                        second_direction: Some(SecondDirection::Symmetric),
+                    },
+                },
+            },
+            self.kernel.as_mut(),
+        );
+
+        self.extract_last_feature_id(name, "AddFeature(ExtrudeSymmetric)", response)
     }
 
     /// Add a revolve feature.

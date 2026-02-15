@@ -347,6 +347,14 @@ impl Kernel for TruckKernel {
 
         Ok(face_ids)
     }
+
+    fn export_step(
+        &mut self,
+        solid: &KernelSolidHandle,
+        file_name: &str,
+    ) -> Result<String, KernelError> {
+        TruckKernel::export_step(self, solid, file_name)
+    }
 }
 
 #[cfg(test)]
@@ -408,12 +416,7 @@ mod tests {
         // Cylinder centered at (0.5, 0.5), r=0.25, extends z=-0.5 to z=1.5
         // (fully pierces top and bottom faces, well inside edges)
         let v = builder::vertex(Point3::new(0.5, 0.25, -0.5));
-        let w = builder::rsweep(
-            &v,
-            Point3::new(0.5, 0.5, 0.0),
-            Vector3::unit_z(),
-            Rad(7.0),
-        );
+        let w = builder::rsweep(&v, Point3::new(0.5, 0.5, 0.0), Vector3::unit_z(), Rad(7.0));
         let f = builder::try_attach_plane(&[w]).unwrap();
         let mut cylinder = builder::tsweep(&f, Vector3::unit_z() * 2.0);
         cylinder.not();
@@ -600,12 +603,7 @@ mod tests {
             let cube: Solid = builder::tsweep(&f, Vector3::unit_z());
 
             let v = builder::vertex(Point3::new(0.5, 0.25, -0.5));
-            let w = builder::rsweep(
-                &v,
-                Point3::new(0.5, 0.5, 0.0),
-                Vector3::unit_z(),
-                Rad(7.0),
-            );
+            let w = builder::rsweep(&v, Point3::new(0.5, 0.5, 0.0), Vector3::unit_z(), Rad(7.0));
             let f = builder::try_attach_plane(&[w]).unwrap();
             let mut cylinder = builder::tsweep(&f, Vector3::unit_z() * 2.0);
             cylinder.not();
@@ -623,7 +621,10 @@ mod tests {
                 Ok(None) => "FAILED (None)".to_string(),
                 Err(_) => "PANIC".to_string(),
             };
-            println!("1. Punched cube (cyl inside box): {:?} [{}]", elapsed, status);
+            println!(
+                "1. Punched cube (cyl inside box): {:?} [{}]",
+                elapsed, status
+            );
         }
 
         // Config 2: Cylinder centered in box face (partially overlapping)
@@ -631,12 +632,7 @@ mod tests {
             let cube = primitives::make_box(2.0, 2.0, 2.0);
             // Cylinder at center of box, radius 0.5, extends through
             let v = builder::vertex(Point3::new(1.5, 1.0, -0.5));
-            let w = builder::rsweep(
-                &v,
-                Point3::new(1.0, 1.0, 0.0),
-                Vector3::unit_z(),
-                Rad(7.0),
-            );
+            let w = builder::rsweep(&v, Point3::new(1.0, 1.0, 0.0), Vector3::unit_z(), Rad(7.0));
             let f = builder::try_attach_plane(&[w]).unwrap();
             let cylinder: Solid = builder::tsweep(&f, Vector3::unit_z() * 3.0);
 
@@ -674,7 +670,10 @@ mod tests {
                 Ok(None) => "FAILED (None)".to_string(),
                 Err(_) => "PANIC".to_string(),
             };
-            println!("3. Cylinder at box corner (original): {:?} [{}]", elapsed, status);
+            println!(
+                "3. Cylinder at box corner (original): {:?} [{}]",
+                elapsed, status
+            );
         }
 
         // Config 4: Cylinder centered (2pi), z-offset to avoid coplanar bottom
@@ -704,7 +703,10 @@ mod tests {
                 Ok(None) => "FAILED (None)".to_string(),
                 Err(_) => "PANIC".to_string(),
             };
-            println!("4. Cylinder centered (2pi), inside box: {:?} [{}]", elapsed, status);
+            println!(
+                "4. Cylinder centered (2pi), inside box: {:?} [{}]",
+                elapsed, status
+            );
         }
 
         // Config 5: Cylinder intersecting box face (partially in, partially out)
@@ -712,12 +714,7 @@ mod tests {
             let cube = primitives::make_box(2.0, 2.0, 2.0);
             // Cylinder at (1,2,0) — half inside, half outside the y=2 face
             let v = builder::vertex(Point3::new(1.5, 2.0, -0.5));
-            let w = builder::rsweep(
-                &v,
-                Point3::new(1.0, 2.0, 0.0),
-                Vector3::unit_z(),
-                Rad(7.0),
-            );
+            let w = builder::rsweep(&v, Point3::new(1.0, 2.0, 0.0), Vector3::unit_z(), Rad(7.0));
             let f = builder::try_attach_plane(&[w]).unwrap();
             let cylinder: Solid = builder::tsweep(&f, Vector3::unit_z() * 3.0);
 
@@ -760,6 +757,27 @@ mod tests {
             };
             println!("6. Box-box offset (intersect): {:?} [{}]", elapsed, status);
         }
+    }
+
+    /// Test export_step via the Kernel trait method.
+    #[test]
+    fn test_export_step_via_trait() {
+        use crate::traits::Kernel;
+
+        let mut kernel = TruckKernel::new();
+        let solid = primitives::make_box(1.0, 2.0, 3.0);
+        let handle = kernel.store_solid(solid);
+
+        let step_data = kernel.export_step(&handle, "trait_test.step").unwrap();
+
+        assert!(
+            step_data.contains("ISO-10303-21"),
+            "Should have STEP header"
+        );
+        assert!(
+            step_data.contains("MANIFOLD_SOLID_BREP"),
+            "Should have solid BREP entity"
+        );
     }
 
     /// STEP export investigation: simple box (should work)

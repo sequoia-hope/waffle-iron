@@ -64,6 +64,36 @@ pub enum Operation {
     BooleanCombine { params: BooleanParams },
 }
 
+/// Depth mode for extrude operations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum DepthMode {
+    /// Use the `depth` field directly.
+    Blind,
+    /// Project target body vertices onto extrude direction, use max extent + margin.
+    ThroughAll,
+    /// Extrude up to a reference (face centroid, vertex, or datum plane).
+    UpTo { reference: GeomRef },
+}
+
+/// Second direction for bidirectional extrude.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum SecondDirection {
+    /// Same depth as primary direction.
+    Symmetric,
+    /// Independent blind depth in second direction.
+    Blind { depth: f64 },
+    /// Through all in second direction.
+    ThroughAll,
+    /// Up to a reference in second direction.
+    UpTo { reference: GeomRef },
+}
+
+fn default_depth_mode() -> DepthMode {
+    DepthMode::Blind
+}
+
 /// Parameters for an extrude operation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtrudeParams {
@@ -74,6 +104,10 @@ pub struct ExtrudeParams {
     pub symmetric: bool,
     pub cut: bool,
     pub target_body: Option<GeomRef>,
+    #[serde(default = "default_depth_mode")]
+    pub depth_mode: DepthMode,
+    #[serde(default)]
+    pub second_direction: Option<SecondDirection>,
 }
 
 /// Parameters for a revolve operation.

@@ -80,6 +80,17 @@ pub trait Kernel {
         tolerance: f64,
     ) -> Result<EdgeRenderData, KernelError>;
 
+    /// Export a solid to STEP AP203 format string.
+    fn export_step(
+        &mut self,
+        _solid: &KernelSolidHandle,
+        _file_name: &str,
+    ) -> Result<String, KernelError> {
+        Err(KernelError::NotSupported {
+            operation: "export_step".to_string(),
+        })
+    }
+
     /// Create planar faces from closed sketch profiles.
     fn make_faces_from_profiles(
         &mut self,

@@ -8,6 +8,7 @@
 //! 5. Role/Provenance Verification — semantic role checks via oracle
 //! 6. Mesh Quality Verification — volume, surface area, bounding box
 
+use feature_engine::types::{DepthMode, ExtrudeParams, SecondDirection};
 use std::collections::HashMap;
 use test_harness::helpers::{mesh_bounding_box, mesh_surface_area, mesh_volume};
 use test_harness::oracle;
@@ -641,4 +642,160 @@ fn test_mesh_bounding_box_matches() {
             bb_max[i]
         );
     }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Category 7: Advanced Extrude Depth Modes
+// ══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_depth_mode_blind_default() {
+    // Old-style params (no depth_mode/second_direction) should still work
+    let mut m = ModelBuilder::mock();
+    m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m.extrude("box", "sk", 10.0).unwrap();
+
+    m.assert_has_solid("box").unwrap();
+    m.assert_no_errors().unwrap();
+
+    let (v, e, f) = m.topology_counts("box").unwrap();
+    assert_eq!((v, e, f), (8, 12, 6), "Blind extrude: V=8 E=12 F=6");
+}
+
+#[test]
+fn test_depth_mode_through_all_pipeline() {
+    // ThroughAll with an existing target body should compute depth from vertices
+    let mut m = ModelBuilder::mock();
+
+    // Base cube
+    m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m.extrude("cube", "base_sk", 10.0).unwrap();
+    m.assert_has_solid("cube").unwrap();
+
+    // ThroughAll cut from the top
+    m.circle_sketch("hole_sk", [0., 0., 10.], [0., 0., 1.], 5., 5., 2.5)
+        .unwrap();
+    m.extrude_through_all("hole", "hole_sk", true).unwrap();
+    m.assert_has_solid("hole").unwrap();
+    m.assert_no_errors().unwrap();
+}
+
+#[test]
+fn test_depth_mode_through_all_no_target() {
+    // ThroughAll without any existing body: uses fallback depth (100.0)
+    let mut m = ModelBuilder::mock();
+    m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m.extrude_through_all("ext", "sk", false).unwrap();
+    m.assert_has_solid("ext").unwrap();
+    m.assert_no_errors().unwrap();
+}
+
+#[test]
+fn test_second_direction_symmetric_pipeline() {
+    // Symmetric extrude creates union of two extrudes
+    let mut m = ModelBuilder::mock();
+    m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m.extrude_symmetric("sym_box", "sk", 20.0).unwrap();
+    m.assert_has_solid("sym_box").unwrap();
+    m.assert_no_errors().unwrap();
+}
+
+#[test]
+fn test_second_direction_asymmetric_pipeline() {
+    // Asymmetric bidirectional extrude with independent depths
+    let mut m = ModelBuilder::mock();
+    m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m.extrude_bidirectional("bidir", "sk", 10.0, 5.0).unwrap();
+    m.assert_has_solid("bidir").unwrap();
+    m.assert_no_errors().unwrap();
+}
+
+#[test]
+fn test_explicit_direction_pipeline() {
+    // Direction override is respected
+    let mut m = ModelBuilder::mock();
+    m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m.extrude_directed("dir_ext", "sk", 10.0, [1., 0., 0.], false)
+        .unwrap();
+    m.assert_has_solid("dir_ext").unwrap();
+    m.assert_no_errors().unwrap();
+}
+
+#[test]
+fn test_explicit_direction_cut() {
+    // Cut with explicit direction vector
+    let mut m = ModelBuilder::mock();
+    m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m.extrude("cube", "base_sk", 10.0).unwrap();
+
+    m.circle_sketch("cut_sk", [0., 0., 10.], [0., 0., 1.], 5., 5., 2.5)
+        .unwrap();
+    // Direction is the normal direction; code reverses it for cut operations
+    m.extrude_directed("cut", "cut_sk", 15.0, [0., 0., 1.], true)
+        .unwrap();
+    m.assert_has_solid("cut").unwrap();
+    m.assert_no_errors().unwrap();
+}
+
+#[test]
+fn test_backward_compat_symmetric_flag() {
+    // Using the old `symmetric: true` field should work like SecondDirection::Symmetric
+    let mut m = ModelBuilder::mock();
+    m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    let sketch_id = m.feature_id("sk").unwrap();
+
+    m.extrude_advanced(
+        "sym_compat",
+        "sk",
+        ExtrudeParams {
+            sketch_id,
+            profile_index: 0,
+            depth: 10.0,
+            direction: None,
+            symmetric: true,
+            cut: false,
+            target_body: None,
+            depth_mode: DepthMode::Blind,
+            second_direction: None, // old-style: symmetric flag only
+        },
+    )
+    .unwrap();
+    m.assert_has_solid("sym_compat").unwrap();
+    m.assert_no_errors().unwrap();
+}
+
+#[test]
+fn test_extrude_advanced_full_params() {
+    // Test extrude_advanced with custom params
+    let mut m = ModelBuilder::mock();
+    m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    let sketch_id = m.feature_id("sk").unwrap();
+
+    m.extrude_advanced(
+        "adv",
+        "sk",
+        ExtrudeParams {
+            sketch_id,
+            profile_index: 0,
+            depth: 15.0,
+            direction: Some([0., 0., 1.]),
+            symmetric: false,
+            cut: false,
+            target_body: None,
+            depth_mode: DepthMode::Blind,
+            second_direction: Some(SecondDirection::Blind { depth: 5.0 }),
+        },
+    )
+    .unwrap();
+    m.assert_has_solid("adv").unwrap();
+    m.assert_no_errors().unwrap();
 }

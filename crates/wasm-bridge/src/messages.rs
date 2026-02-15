@@ -143,6 +143,9 @@ pub enum EngineToUi {
         feature_tree: FeatureTree,
         meshes: Vec<RenderMesh>,
         edges: Vec<EdgeRenderData>,
+        /// Errors from features that failed during rebuild (feature_id, message).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        errors: Vec<(Uuid, String)>,
     },
 
     /// Sketch constraint solver completed.

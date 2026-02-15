@@ -173,9 +173,21 @@ fn handle_message(
             Ok(model_updated_response(state))
         }
 
-        UiToEngine::ExportStep => Err(BridgeError::NotImplemented {
-            operation: "ExportStep (requires TruckKernel)".to_string(),
-        }),
+        UiToEngine::ExportStep => {
+            let handle = find_last_solid_handle(state);
+            match handle {
+                Some(handle) => {
+                    let step_data = kb.export_step(&handle, "waffle_export.step").map_err(|e| {
+                        BridgeError::Engine(feature_engine::types::EngineError::RebuildFailed {
+                            feature_name: "STEP export".to_string(),
+                            reason: format!("{}", e),
+                        })
+                    })?;
+                    Ok(EngineToUi::ExportReady { step_data })
+                }
+                None => Err(BridgeError::NoMeshData),
+            }
+        }
 
         UiToEngine::ExportStl => {
             let mesh = find_last_mesh(state);
@@ -197,7 +209,27 @@ fn model_updated_response(state: &EngineState) -> EngineToUi {
         feature_tree: state.engine.tree.clone(),
         meshes: Vec::new(),
         edges: Vec::new(),
+        errors: state.engine.errors.clone(),
     }
+}
+
+/// Find the last active feature's solid handle by iterating features in reverse.
+fn find_last_solid_handle(state: &EngineState) -> Option<kernel_fork::KernelSolidHandle> {
+    let tree = &state.engine.tree;
+    let limit = tree.active_index.unwrap_or(tree.features.len());
+    for feature in tree.features[..limit].iter().rev() {
+        if feature.suppressed {
+            continue;
+        }
+        if let Some(result) = state.engine.feature_results.get(&feature.id) {
+            for (key, body) in &result.outputs {
+                if *key == OutputKey::Main {
+                    return Some(body.handle.clone());
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Find the last active feature's mesh data by iterating features in reverse.
