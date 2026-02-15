@@ -10,12 +10,30 @@
 	let depth = $state(10);
 	let profileIndex = $state(0);
 	let cut = $state(false);
+	let depthMode = $state('Blind');
+	let secondDir = $state('None');
+	let secondDepth = $state(10);
+	let showDirection = $state(false);
+	let dirX = $state(0);
+	let dirY = $state(0);
+	let dirZ = $state(1);
+
+	let showDepthInput = $derived(depthMode === 'Blind');
+	let depthLabel = $derived(secondDir === 'Symmetric' ? 'Depth (each side)' : 'Depth');
+	let showSecondDepthInput = $derived(secondDir === 'Blind');
 
 	$effect(() => {
 		if (dialogState) {
 			depth = 10;
 			profileIndex = 0;
 			cut = false;
+			depthMode = 'Blind';
+			secondDir = 'None';
+			secondDepth = 10;
+			showDirection = false;
+			dirX = 0;
+			dirY = 0;
+			dirZ = 1;
 		}
 	});
 
@@ -38,7 +56,13 @@
 	});
 
 	function handleApply() {
-		applyExtrude(depth, profileIndex, cut)
+		const opts = {
+			depthMode,
+			secondDir,
+			secondDepth,
+			direction: showDirection ? [dirX, dirY, dirZ] : null
+		};
+		applyExtrude(depth, profileIndex, cut, opts)
 			.catch(err => log('error', `Extrude dialog apply failed: ${err}`));
 	}
 
@@ -71,16 +95,29 @@
 					<span id="extrude-sketch" class="field-value">{dialogState.sketchName}</span>
 				</div>
 				<div class="field">
-					<label for="extrude-depth">Depth</label>
-					<input
-						id="extrude-depth"
-						data-testid="extrude-depth"
-						type="number"
-						bind:value={depth}
-						step="1"
-						min="0.1"
-					/>
+					<label for="extrude-depth-mode">Mode</label>
+					<select
+						id="extrude-depth-mode"
+						data-testid="extrude-depth-mode"
+						bind:value={depthMode}
+					>
+						<option value="Blind">Blind</option>
+						<option value="ThroughAll">Through All</option>
+					</select>
 				</div>
+				{#if showDepthInput}
+					<div class="field">
+						<label for="extrude-depth">{depthLabel}</label>
+						<input
+							id="extrude-depth"
+							data-testid="extrude-depth"
+							type="number"
+							bind:value={depth}
+							step="1"
+							min="0.1"
+						/>
+					</div>
+				{/if}
 				<div class="field">
 					<label for="extrude-cut">Cut</label>
 					<input
@@ -90,7 +127,33 @@
 						bind:checked={cut}
 					/>
 				</div>
-			{#if dialogState.profileCount > 1}
+				<div class="field">
+					<label for="extrude-second-dir">2nd Direction</label>
+					<select
+						id="extrude-second-dir"
+						data-testid="extrude-second-dir"
+						bind:value={secondDir}
+					>
+						<option value="None">None</option>
+						<option value="Symmetric">Symmetric</option>
+						<option value="Blind">Two Depths</option>
+						<option value="ThroughAll">Through All</option>
+					</select>
+				</div>
+				{#if showSecondDepthInput}
+					<div class="field">
+						<label for="extrude-second-depth">2nd Depth</label>
+						<input
+							id="extrude-second-depth"
+							data-testid="extrude-second-depth"
+							type="number"
+							bind:value={secondDepth}
+							step="1"
+							min="0.1"
+						/>
+					</div>
+				{/if}
+				{#if dialogState.profileCount > 1}
 					<div class="field">
 						<label for="extrude-profile">Profile</label>
 						<select id="extrude-profile" bind:value={profileIndex}>
@@ -98,6 +161,25 @@
 								<option value={i}>Profile {i + 1}</option>
 							{/each}
 						</select>
+					</div>
+				{/if}
+				<div class="field">
+					<label for="extrude-dir-override">Direction</label>
+					<input
+						id="extrude-dir-override"
+						data-testid="extrude-dir-override"
+						type="checkbox"
+						bind:checked={showDirection}
+					/>
+				</div>
+				{#if showDirection}
+					<div class="field-group">
+						<span class="group-label">Direction Vector</span>
+						<div class="vec3">
+							<label>X <input type="number" data-testid="extrude-dir-x" bind:value={dirX} step="0.1" /></label>
+							<label>Y <input type="number" data-testid="extrude-dir-y" bind:value={dirY} step="0.1" /></label>
+							<label>Z <input type="number" data-testid="extrude-dir-z" bind:value={dirZ} step="0.1" /></label>
+						</div>
 					</div>
 				{/if}
 			</div>
@@ -203,6 +285,45 @@
 
 	.field input:focus,
 	.field select:focus {
+		outline: none;
+		border-color: var(--accent, #0078d4);
+	}
+
+	.field-group {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.group-label {
+		font-size: 12px;
+		color: var(--text-secondary, #aaa);
+	}
+
+	.vec3 {
+		display: flex;
+		gap: 6px;
+	}
+
+	.vec3 label {
+		display: flex;
+		align-items: center;
+		gap: 2px;
+		font-size: 11px;
+		color: var(--text-muted, #888);
+	}
+
+	.vec3 input {
+		background: var(--bg-primary, #1e1e1e);
+		border: 1px solid var(--border-color, #444);
+		color: var(--text-primary, #eee);
+		padding: 3px 5px;
+		border-radius: 3px;
+		font-size: 11px;
+		width: 55px;
+	}
+
+	.vec3 input:focus {
 		outline: none;
 		border-color: var(--accent, #0078d4);
 	}

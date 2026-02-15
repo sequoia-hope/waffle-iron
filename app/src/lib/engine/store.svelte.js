@@ -10,6 +10,7 @@ import { log, getLogs, exportLogs, clearLogs } from './logger.js';
 import { showToast, initLoggerToasts } from '$lib/ui/toast.svelte.js';
 import { extractProfiles } from '$lib/sketch/profiles.js';
 import { getPreview, getSnapIndicator, resetTool, getToolState as _getToolState, getIsDragging as _getIsDragging, getPointerDownPos as _getPointerDownPos, getStartPos as _getStartPos, getStartPointId as _getStartPointId, getToolEventLog as _getToolEventLog, clearToolEventLog as _clearToolEventLog } from '$lib/sketch/tools.js';
+import { isDatumPlaneRef, getPlaneIdFromRef, getPlaneById, resolvePlane, BUILTIN_PLANES } from './planes.js';
 
 /** @type {{ features: Array<any>, active_index: number | null }} */
 let featureTree = $state({ features: [], active_index: null });
@@ -155,6 +156,14 @@ export async function initEngine() {
 		lastError = null;
 		statusMessage = `Model updated (${meshes.length} ${meshes.length === 1 ? 'body' : 'bodies'})`;
 		log('engine', 'Model updated', { meshCount: meshes.length, featureCount: featureTree?.features?.length ?? 0 });
+
+		// Surface rebuild errors (e.g. boolean failures) to the user
+		if (msg.errors && msg.errors.length > 0) {
+			for (const [featureId, errorMsg] of msg.errors) {
+				log('error', `Feature ${featureId} failed: ${errorMsg}`);
+				showToast('error', `Feature failed: ${errorMsg}`);
+			}
+		}
 	});
 
 	bridge.on('sketchSolved', (msg) => {
@@ -227,11 +236,12 @@ export async function initEngine() {
 				})),
 			})),
 			computeFacePlane: (geomRef) => computeFacePlane(geomRef),
-			applyExtrude: (depth, profileIndex, cut) => applyExtrude(depth, profileIndex, cut),
+			applyExtrude: (depth, profileIndex, cut, opts) => applyExtrude(depth, profileIndex, cut, opts),
 			showExtrudeDialog: () => showExtrudeDialog(),
 			saveProject: () => saveProject(),
 			loadProject: (jsonData) => loadProject(jsonData),
 			exportStl: () => exportStl(),
+			exportStep: () => exportStep(),
 			getCameraState: () => getCameraState(),
 			getConstraints: () => [...sketchConstraints],
 			getProfiles: () => [...extractedProfilesState],
@@ -289,6 +299,7 @@ export async function initEngine() {
 				}
 				return results.filter(r => !r.behindCamera);
 			},
+			getDatumPlanes: () => BUILTIN_PLANES,
 			getSketchSelection: () => [...sketchSelection],
 			setSketchSelection: (ids) => { sketchSelection = new Set(ids); },
 			addSketchEntity: (entity) => addLocalEntity(entity),
@@ -410,14 +421,7 @@ export function selectRef(ref, additive = false) {
 	}
 }
 
-/**
- * Check if a geom ref uses the JS-only DatumPlane anchor (not known to Rust engine).
- * @param {any} ref
- * @returns {boolean}
- */
-function isDatumPlaneRef(ref) {
-	return ref?.anchor?.type === 'DatumPlane';
-}
+// isDatumPlaneRef is imported from planes.js
 
 /**
  * Clear all selections.
@@ -439,6 +443,7 @@ export function geomRefEquals(a, b) {
 		a.anchor?.type === b.anchor?.type &&
 		a.anchor?.feature_id === b.anchor?.feature_id &&
 		a.anchor?.plane === b.anchor?.plane &&
+		a.anchor?.id === b.anchor?.id &&
 		a.selector?.type === b.selector?.type &&
 		JSON.stringify(a.selector) === JSON.stringify(b.selector)
 	);
@@ -917,10 +922,19 @@ export function hideExtrudeDialog() {
  * @param {number} profileIndex
  * @param {boolean} [cut=false] - If true, perform a cut (subtract) operation
  */
-export async function applyExtrude(depth, profileIndex, cut = false) {
+export async function applyExtrude(depth, profileIndex, cut = false, opts = {}) {
 	if (!extrudeDialogState || !bridge || !engineReady) return;
 
-	log('action', 'Apply extrude', { depth, profileIndex, cut: !!cut });
+	const { depthMode = 'Blind', secondDir = 'None', secondDepth = 10, direction = null } = opts;
+
+	const depth_mode = { type: depthMode };
+
+	let second_direction = null;
+	if (secondDir === 'Symmetric') second_direction = { type: 'Symmetric' };
+	else if (secondDir === 'Blind') second_direction = { type: 'Blind', depth: secondDepth };
+	else if (secondDir === 'ThroughAll') second_direction = { type: 'ThroughAll' };
+
+	log('action', 'Apply extrude', { depth, profileIndex, cut: !!cut, depthMode, secondDir, direction });
 	try {
 		await bridge.send({
 			type: 'AddFeature',
@@ -930,10 +944,12 @@ export async function applyExtrude(depth, profileIndex, cut = false) {
 					sketch_id: extrudeDialogState.sketchId,
 					profile_index: profileIndex,
 					depth,
-					direction: null,
-					symmetric: false,
+					direction: direction,
+					symmetric: secondDir === 'Symmetric',
 					cut: !!cut,
-					target_body: null
+					target_body: null,
+					depth_mode,
+					second_direction
 				}
 			}
 		});
@@ -1026,13 +1042,12 @@ export function computeFacePlane(geomRef) {
 	if (!geomRef) return null;
 
 	// Handle datum planes directly
-	if (geomRef.anchor?.type === 'DatumPlane') {
-		const planes = {
-			XY: { origin: /** @type {[number,number,number]} */ ([0, 0, 0]), normal: /** @type {[number,number,number]} */ ([0, 0, 1]) },
-			XZ: { origin: /** @type {[number,number,number]} */ ([0, 0, 0]), normal: /** @type {[number,number,number]} */ ([0, 1, 0]) },
-			YZ: { origin: /** @type {[number,number,number]} */ ([0, 0, 0]), normal: /** @type {[number,number,number]} */ ([1, 0, 0]) },
-		};
-		return planes[geomRef.anchor.plane] ?? null;
+	if (isDatumPlaneRef(geomRef)) {
+		const planeId = getPlaneIdFromRef(geomRef);
+		if (!planeId) return null;
+		const plane = getPlaneById(planeId);
+		if (!plane) return null;
+		return resolvePlane(plane.definition);
 	}
 
 	for (const mesh of meshes) {
@@ -1608,6 +1623,34 @@ export async function exportStl() {
 		const a = document.createElement('a');
 		a.href = url;
 		a.download = 'model.stl';
+		document.body.appendChild(a);
+		a.click();
+		document.body.removeChild(a);
+		URL.revokeObjectURL(url);
+	}
+
+	return true;
+}
+
+/**
+ * Export the current model as a STEP AP203 file (browser download).
+ * Sends ExportStep to engine, receives ExportReady { step_data },
+ * and triggers download as 'model.step'.
+ * @returns {Promise<boolean>} True if export succeeded
+ */
+export async function exportStep() {
+	if (!bridge || !engineReady) return false;
+	log('action', 'Export STEP');
+	const response = await bridge.send({ type: 'ExportStep' });
+	if (response.type !== 'ExportReady' || !response.step_data) return false;
+	showToast('success', 'STEP exported');
+
+	if (typeof document !== 'undefined') {
+		const blob = new Blob([response.step_data], { type: 'application/step' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = 'model.step';
 		document.body.appendChild(a);
 		a.click();
 		document.body.removeChild(a);
