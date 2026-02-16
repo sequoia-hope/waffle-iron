@@ -176,10 +176,12 @@ impl Kernel for TruckKernel {
         // Heal inputs if they have IntersectionCurve edges from previous booleans
         crate::healing::heal_intersection_curves(&solid_a, 0.001);
         crate::healing::heal_intersection_curves(&solid_b, 0.001);
-        let result = truck_shapeops::or(&solid_a, &solid_b, 0.05).ok_or_else(|| {
-            KernelError::BooleanFailed {
-                reason: "truck or() returned None".to_string(),
-            }
+
+        let result = crate::healing::try_boolean_with_perturbation(&solid_a, &solid_b, |a, b| {
+            truck_shapeops::or(a, b, 0.05)
+        })
+        .ok_or_else(|| KernelError::BooleanFailed {
+            reason: "truck or() returned None".to_string(),
         })?;
         crate::healing::heal_intersection_curves(&result, 0.001);
         Ok(self.store_solid(result))
@@ -197,7 +199,7 @@ impl Kernel for TruckKernel {
                 id: KernelId(a.id()),
             })?
             .clone();
-        let mut solid_b = self
+        let solid_b = self
             .solids
             .get(&b.id())
             .ok_or(KernelError::EntityNotFound {
@@ -209,11 +211,14 @@ impl Kernel for TruckKernel {
         // Heal inputs if they have IntersectionCurve edges from previous booleans.
         crate::healing::heal_intersection_curves(&solid_a, 0.001);
         crate::healing::heal_intersection_curves(&solid_b, 0.001);
-        solid_b.not();
-        let result = truck_shapeops::and(&solid_a, &solid_b, 0.05).ok_or_else(|| {
-            KernelError::BooleanFailed {
-                reason: "truck and() returned None for subtraction".to_string(),
-            }
+
+        let result = crate::healing::try_boolean_with_perturbation(&solid_a, &solid_b, |a, b| {
+            let mut b_neg = b.clone();
+            b_neg.not();
+            truck_shapeops::and(a, &b_neg, 0.05)
+        })
+        .ok_or_else(|| KernelError::BooleanFailed {
+            reason: "truck and() returned None for subtraction".to_string(),
         })?;
         crate::healing::heal_intersection_curves(&result, 0.001);
         Ok(self.store_solid(result))
@@ -242,10 +247,12 @@ impl Kernel for TruckKernel {
         // Heal inputs if they have IntersectionCurve edges from previous booleans
         crate::healing::heal_intersection_curves(&solid_a, 0.001);
         crate::healing::heal_intersection_curves(&solid_b, 0.001);
-        let result = truck_shapeops::and(&solid_a, &solid_b, 0.05).ok_or_else(|| {
-            KernelError::BooleanFailed {
-                reason: "truck and() returned None".to_string(),
-            }
+
+        let result = crate::healing::try_boolean_with_perturbation(&solid_a, &solid_b, |a, b| {
+            truck_shapeops::and(a, b, 0.05)
+        })
+        .ok_or_else(|| KernelError::BooleanFailed {
+            reason: "truck and() returned None".to_string(),
         })?;
         crate::healing::heal_intersection_curves(&result, 0.001);
         Ok(self.store_solid(result))

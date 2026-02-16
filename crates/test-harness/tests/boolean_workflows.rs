@@ -8,7 +8,7 @@
 //!   A — Boss-on-Boss Union (5 tests: 4 active, 1 ignored)
 //!   B — Cut Through Boss (4 tests: all active)
 //!   C — Cut Wrong Direction / Free Space (3 tests: all active)
-//!   D — Partial Overlap / Symmetric (5 tests: 3 active, 2 ignored)
+//!   D — Partial Overlap / Symmetric (5 tests: 4 active, 1 ignored)
 //!   E — Adversarial Cases (7 tests: 6 active, 1 ignored)
 
 use test_harness::helpers::{mesh_bounding_box, mesh_volume};
@@ -101,14 +101,16 @@ fn a2_boss_on_bottom_face_circle_union() {
 }
 
 /// A3: Circle boss on y=10 side face, extruded in +Y. Tests non-XY sketch plane.
-/// Coplanar face on side with non-XY sketch orientation causes truck boolean failure.
+///
+/// Tangent frame for normal [0,1,0]: x_axis=[0,0,-1], y_axis=[-1,0,0].
+/// Sketch coords (-5, 5) map to 3D center (-5, 10, 5) — inside the y=10 face.
 #[test]
-#[ignore = "truck 0.4: coplanar face at y=10 with degenerate boundary intersection — create_loops_stores returns None"]
 fn a3_boss_on_side_face_circle_union() {
     let mut m = base_cube();
 
-    // Circle boss on the y=10 face, normal [0,1,0], extruded in +Y
-    m.circle_sketch("boss_sk", [0., 10., 0.], [0., 1., 0.], 5., 5., 3.)
+    // Circle boss on the y=10 face, normal [0,1,0], extruded in +Y.
+    // Coords (-5, 5) → 3D (-5, 10, 5), inside cube's y=10 face.
+    m.circle_sketch("boss_sk", [0., 10., 0.], [0., 1., 0.], -5., 5., 3.)
         .unwrap();
     m.extrude("boss", "boss_sk", 5.0).unwrap();
     m.assert_has_solid("boss").unwrap();
@@ -427,8 +429,8 @@ fn d1_offset_boss_partial_overlap() {
 }
 
 /// D2: Boss on boss (double coplanar). Chained boolean.
+/// Fixed via coplanar perturbation retry in TruckKernel::boolean_union.
 #[test]
-#[ignore = "truck 0.4: chained boolean — double coplanar boss-on-boss stack"]
 fn d2_symmetric_boss_on_boss_stack() {
     let mut m = base_cube();
 
