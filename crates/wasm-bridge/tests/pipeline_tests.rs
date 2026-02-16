@@ -1290,3 +1290,91 @@ fn extrude_on_non_xy_plane_face_ids() {
         );
     }
 }
+
+// ── GAP W1: Numeric bounding-box oracle ───────────────────────────────
+
+#[test]
+fn bbox_extents_match_sketch_and_depth() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    // 10×10 rectangle on XY plane, extruded 10 units along Z
+    let sketch_id = create_rect_sketch(&mut state, &mut kernel, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
+    let extrude_id = add_extrude(&mut state, &mut kernel, sketch_id, 10.0, None);
+
+    let mesh = tessellate_feature(&state, &mut kernel, extrude_id);
+    let (bb_min, bb_max) = mesh_bounding_box(&mesh);
+
+    // MockKernel make_box_solid(side=10, side=10, depth=10) produces
+    // a box from (0,0,0) to (10,10,10). Verify each axis extent ≈ 10.
+    for axis in 0..3 {
+        let extent = bb_max[axis] - bb_min[axis];
+        assert!(
+            (extent - 10.0).abs() < 0.1,
+            "Axis {} extent should be ~10.0, got {} (min={}, max={})",
+            axis,
+            extent,
+            bb_min[axis],
+            bb_max[axis]
+        );
+    }
+    // Min should be near origin
+    for axis in 0..3 {
+        assert!(
+            bb_min[axis].abs() < 0.1,
+            "Axis {} min should be ~0.0, got {}",
+            axis,
+            bb_min[axis]
+        );
+    }
+    // Max should be near 10
+    for axis in 0..3 {
+        assert!(
+            (bb_max[axis] - 10.0).abs() < 0.1,
+            "Axis {} max should be ~10.0, got {}",
+            axis,
+            bb_max[axis]
+        );
+    }
+}
+
+// ── GAP W2: NaN/finite check on mesh data ─────────────────────────────
+
+#[test]
+fn all_mesh_floats_are_finite() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    let sketch_id = create_rect_sketch(&mut state, &mut kernel, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
+    let extrude_id = add_extrude(&mut state, &mut kernel, sketch_id, 10.0, None);
+
+    let mesh = tessellate_feature(&state, &mut kernel, extrude_id);
+
+    for (i, v) in mesh.vertices.iter().enumerate() {
+        assert!(
+            v.is_finite(),
+            "Vertex float at index {} is not finite: {}",
+            i,
+            v
+        );
+    }
+    for (i, n) in mesh.normals.iter().enumerate() {
+        assert!(
+            n.is_finite(),
+            "Normal float at index {} is not finite: {}",
+            i,
+            n
+        );
+    }
+    // Indices should be valid vertex references
+    let vertex_count = (mesh.vertices.len() / 3) as u32;
+    for (i, idx) in mesh.indices.iter().enumerate() {
+        assert!(
+            *idx < vertex_count,
+            "Index {} references vertex {} but only {} vertices exist",
+            i,
+            idx,
+            vertex_count
+        );
+    }
+}

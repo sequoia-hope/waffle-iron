@@ -117,6 +117,31 @@ mod tests {
     }
 
     #[test]
+    fn stl_export_degenerate_triangle_uses_zero_normal() {
+        // A degenerate triangle where all 3 vertices are collinear → zero-area
+        let mesh = RenderMesh {
+            vertices: vec![
+                0.0, 0.0, 0.0, // v0
+                1.0, 0.0, 0.0, // v1 (collinear with v0 and v2)
+                2.0, 0.0, 0.0, // v2 (collinear — cross product is zero)
+            ],
+            normals: vec![],
+            indices: vec![0, 1, 2],
+            face_ranges: vec![],
+        };
+        let stl = render_mesh_to_stl(&mesh);
+        assert_eq!(stl.len(), 134, "84 header + 1 * 50 = 134");
+
+        // Normal should be [0, 0, 0] for degenerate triangle
+        let nx = f32::from_le_bytes([stl[84], stl[85], stl[86], stl[87]]);
+        let ny = f32::from_le_bytes([stl[88], stl[89], stl[90], stl[91]]);
+        let nz = f32::from_le_bytes([stl[92], stl[93], stl[94], stl[95]]);
+        assert_eq!(nx, 0.0, "Degenerate triangle nx should be 0");
+        assert_eq!(ny, 0.0, "Degenerate triangle ny should be 0");
+        assert_eq!(nz, 0.0, "Degenerate triangle nz should be 0");
+    }
+
+    #[test]
     fn stl_export_multi_triangle() {
         // A quad made of 2 triangles
         let mesh = RenderMesh {

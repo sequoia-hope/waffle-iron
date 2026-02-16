@@ -718,6 +718,749 @@ fn dispatch_export_stl_no_features() {
     }
 }
 
+// ── GAP W3: Solve precision for all 4 corners ─────────────────────────
+
+#[cfg(feature = "native-solver")]
+#[test]
+fn dispatch_solve_sketch_checks_all_4_corners() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    // Begin sketch
+    wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::BeginSketch {
+            plane: make_geom_ref(),
+        },
+        &mut kernel,
+    );
+
+    // Add a rectangle: 4 points + 4 lines (10×10)
+    for (id, x, y) in [
+        (1, 0.0, 0.0),
+        (2, 10.0, 0.0),
+        (3, 10.0, 10.0),
+        (4, 0.0, 10.0),
+    ] {
+        wasm_bridge::dispatch(
+            &mut state,
+            UiToEngine::AddSketchEntity {
+                entity: SketchEntity::Point {
+                    id,
+                    x,
+                    y,
+                    construction: false,
+                },
+            },
+            &mut kernel,
+        );
+    }
+    for (id, start, end) in [(10, 1, 2), (11, 2, 3), (12, 3, 4), (13, 4, 1)] {
+        wasm_bridge::dispatch(
+            &mut state,
+            UiToEngine::AddSketchEntity {
+                entity: SketchEntity::Line {
+                    id,
+                    start_id: start,
+                    end_id: end,
+                    construction: false,
+                },
+            },
+            &mut kernel,
+        );
+    }
+
+    // Constraints: pin origin, fix horizontal/vertical edges
+    wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::AddConstraint {
+            constraint: SketchConstraint::Dragged { point: 1 },
+        },
+        &mut kernel,
+    );
+    wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::AddConstraint {
+            constraint: SketchConstraint::Horizontal { entity: 10 },
+        },
+        &mut kernel,
+    );
+    wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::AddConstraint {
+            constraint: SketchConstraint::Vertical { entity: 11 },
+        },
+        &mut kernel,
+    );
+
+    // Solve
+    let response = wasm_bridge::dispatch(&mut state, UiToEngine::SolveSketch, &mut kernel);
+    if let EngineToUi::SketchSolved { solved } = &response {
+        assert_eq!(solved.positions.len(), 4, "Should have 4 solved positions");
+
+        // Check ALL 4 corners with tolerance
+        let eps = 1e-4;
+        let expected = [
+            (1, 0.0, 0.0),
+            (2, 10.0, 0.0),
+            (3, 10.0, 10.0),
+            (4, 0.0, 10.0),
+        ];
+        for (id, ex, ey) in expected {
+            let pos = solved.positions.get(&id).unwrap_or_else(|| {
+                panic!("Missing solved position for point {}", id);
+            });
+            assert!(
+                (pos.0 - ex).abs() < eps && (pos.1 - ey).abs() < eps,
+                "Point {} expected ({}, {}), got ({}, {})",
+                id,
+                ex,
+                ey,
+                pos.0,
+                pos.1,
+            );
+        }
+    } else {
+        panic!("Expected SketchSolved, got {:?}", response);
+    }
+}
+
+// ── GAP W5: ExportStep with valid solid ────────────────────────────────
+
+#[test]
+fn dispatch_export_step_with_solid_reaches_kernel() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    // Build sketch + extrude via dispatch (same as sketch_then_extrude test)
+    wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::BeginSketch {
+            plane: make_geom_ref(),
+        },
+        &mut kernel,
+    );
+    for (id, x, y) in [
+        (1, 0.0, 0.0),
+        (2, 10.0, 0.0),
+        (3, 10.0, 10.0),
+        (4, 0.0, 10.0),
+    ] {
+        wasm_bridge::dispatch(
+            &mut state,
+            UiToEngine::AddSketchEntity {
+                entity: SketchEntity::Point {
+                    id,
+                    x,
+                    y,
+                    construction: false,
+                },
+            },
+            &mut kernel,
+        );
+    }
+    for (id, start, end) in [(10, 1, 2), (11, 2, 3), (12, 3, 4), (13, 4, 1)] {
+        wasm_bridge::dispatch(
+            &mut state,
+            UiToEngine::AddSketchEntity {
+                entity: SketchEntity::Line {
+                    id,
+                    start_id: start,
+                    end_id: end,
+                    construction: false,
+                },
+            },
+            &mut kernel,
+        );
+    }
+    let mut solved_positions = std::collections::HashMap::new();
+    solved_positions.insert(1, (0.0, 0.0));
+    solved_positions.insert(2, (10.0, 0.0));
+    solved_positions.insert(3, (10.0, 10.0));
+    solved_positions.insert(4, (0.0, 10.0));
+    let response = wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::FinishSketch {
+            solved_positions,
+            solved_profiles: vec![waffle_types::ClosedProfile {
+                entity_ids: vec![1, 2, 3, 4],
+                is_outer: true,
+            }],
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
+        },
+        &mut kernel,
+    );
+    let sketch_id = match &response {
+        EngineToUi::ModelUpdated { feature_tree, .. } => feature_tree.features[0].id,
+        other => panic!("Expected ModelUpdated, got {:?}", other),
+    };
+    wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::AddFeature {
+            operation: Operation::Extrude {
+                params: ExtrudeParams {
+                    sketch_id,
+                    profile_index: 0,
+                    depth: 5.0,
+                    direction: None,
+                    symmetric: false,
+                    cut: false,
+                    target_body: None,
+                    depth_mode: feature_engine::types::DepthMode::Blind,
+                    second_direction: None,
+                },
+            },
+        },
+        &mut kernel,
+    );
+
+    // ExportStep should find the solid handle but MockKernel's export_step
+    // returns NotSupported (default trait impl). Verify we get a kernel error
+    // rather than a "no mesh data" error — proving dispatch found the solid.
+    let response = wasm_bridge::dispatch(&mut state, UiToEngine::ExportStep, &mut kernel);
+    match &response {
+        EngineToUi::Error { message, .. } => {
+            assert!(
+                message.contains("not supported") || message.contains("STEP"),
+                "Expected kernel 'not supported' error, got: {}",
+                message
+            );
+            // Crucially, this should NOT be the NoMeshData error
+            assert!(
+                !message.contains("No mesh data"),
+                "Should not be 'No mesh data' — solid handle should have been found"
+            );
+        }
+        EngineToUi::ExportReady { .. } => {
+            // If MockKernel ever gets STEP export, this is also fine
+        }
+        other => panic!("Expected Error or ExportReady, got {:?}", other),
+    }
+}
+
+// ── GAP W6: RenameFeature nonexistent ID ───────────────────────────────
+
+#[test]
+fn dispatch_rename_nonexistent_feature_returns_error() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    let response = wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::RenameFeature {
+            feature_id: Uuid::new_v4(),
+            new_name: "Ghost".to_string(),
+        },
+        &mut kernel,
+    );
+
+    assert!(
+        matches!(response, EngineToUi::Error { .. }),
+        "RenameFeature with nonexistent ID should return Error, got {:?}",
+        response
+    );
+}
+
+// ── GAP W7: HoverEntity with None ──────────────────────────────────────
+
+#[test]
+fn dispatch_hover_entity_none_clears_hover() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    // First, set a hover
+    wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::HoverEntity {
+            geom_ref: Some(make_geom_ref()),
+        },
+        &mut kernel,
+    );
+    assert!(state.hover.is_some(), "Hover should be set");
+
+    // Now clear hover with None
+    let response = wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::HoverEntity { geom_ref: None },
+        &mut kernel,
+    );
+
+    assert!(
+        matches!(response, EngineToUi::HoverChanged { geom_ref: None }),
+        "HoverEntity(None) should return HoverChanged with None, got {:?}",
+        response
+    );
+    assert!(
+        state.hover.is_none(),
+        "State hover should be cleared after HoverEntity(None)"
+    );
+}
+
+// ── Serde Round-Trip Tests: remaining UiToEngine variants ───────────
+
+#[test]
+fn serde_roundtrip_begin_sketch() {
+    let msg = UiToEngine::BeginSketch {
+        plane: make_geom_ref(),
+    };
+    let json = serde_json::to_string(&msg).unwrap();
+    assert!(json.contains("\"type\":\"BeginSketch\""));
+    let d: UiToEngine = serde_json::from_str(&json).unwrap();
+    assert!(matches!(d, UiToEngine::BeginSketch { .. }));
+}
+
+#[test]
+fn serde_roundtrip_add_sketch_entity() {
+    let msg = UiToEngine::AddSketchEntity {
+        entity: SketchEntity::Circle {
+            id: 5,
+            center_id: 1,
+            radius: 7.5,
+            construction: true,
+        },
+    };
+    let json = serde_json::to_string(&msg).unwrap();
+    assert!(json.contains("\"type\":\"AddSketchEntity\""));
+    let d: UiToEngine = serde_json::from_str(&json).unwrap();
+    assert!(matches!(d, UiToEngine::AddSketchEntity { .. }));
+}
+
+#[test]
+fn serde_roundtrip_add_constraint() {
+    let msg = UiToEngine::AddConstraint {
+        constraint: SketchConstraint::Distance {
+            entity_a: 1,
+            entity_b: 2,
+            value: 42.5,
+        },
+    };
+    let json = serde_json::to_string(&msg).unwrap();
+    assert!(json.contains("\"type\":\"AddConstraint\""));
+    let d: UiToEngine = serde_json::from_str(&json).unwrap();
+    assert!(matches!(d, UiToEngine::AddConstraint { .. }));
+}
+
+#[test]
+fn serde_roundtrip_solve_sketch() {
+    let msg = UiToEngine::SolveSketch;
+    let json = serde_json::to_string(&msg).unwrap();
+    assert!(json.contains("\"type\":\"SolveSketch\""));
+    let d: UiToEngine = serde_json::from_str(&json).unwrap();
+    assert!(matches!(d, UiToEngine::SolveSketch));
+}
+
+#[test]
+fn serde_roundtrip_finish_sketch() {
+    let mut positions = std::collections::HashMap::new();
+    positions.insert(1, (0.0, 0.0));
+    positions.insert(2, (10.0, 5.0));
+    let msg = UiToEngine::FinishSketch {
+        solved_positions: positions.clone(),
+        solved_profiles: vec![ClosedProfile {
+            entity_ids: vec![1, 2, 3],
+            is_outer: true,
+        }],
+        plane_origin: [1.0, 2.0, 3.0],
+        plane_normal: [0.0, 1.0, 0.0],
+    };
+    let json = serde_json::to_string(&msg).unwrap();
+    assert!(json.contains("\"type\":\"FinishSketch\""));
+    let d: UiToEngine = serde_json::from_str(&json).unwrap();
+    if let UiToEngine::FinishSketch {
+        solved_positions,
+        solved_profiles,
+        plane_origin,
+        plane_normal,
+    } = d
+    {
+        assert_eq!(solved_positions.len(), 2);
+        assert_eq!(solved_positions[&1], (0.0, 0.0));
+        assert_eq!(solved_positions[&2], (10.0, 5.0));
+        assert_eq!(solved_profiles.len(), 1);
+        assert_eq!(plane_origin, [1.0, 2.0, 3.0]);
+        assert_eq!(plane_normal, [0.0, 1.0, 0.0]);
+    } else {
+        panic!("Expected FinishSketch");
+    }
+}
+
+#[test]
+fn serde_roundtrip_finish_sketch_defaults() {
+    // Deserialize without optional fields to test default_origin/default_normal
+    let json = r#"{"type":"FinishSketch"}"#;
+    let d: UiToEngine = serde_json::from_str(json).unwrap();
+    if let UiToEngine::FinishSketch {
+        solved_positions,
+        solved_profiles,
+        plane_origin,
+        plane_normal,
+    } = d
+    {
+        assert!(solved_positions.is_empty());
+        assert!(solved_profiles.is_empty());
+        assert_eq!(plane_origin, [0.0, 0.0, 0.0]);
+        assert_eq!(plane_normal, [0.0, 0.0, 1.0]);
+    } else {
+        panic!("Expected FinishSketch");
+    }
+}
+
+#[test]
+fn serde_roundtrip_reorder_feature() {
+    let msg = UiToEngine::ReorderFeature {
+        feature_id: Uuid::new_v4(),
+        new_position: 3,
+    };
+    let json = serde_json::to_string(&msg).unwrap();
+    assert!(json.contains("\"type\":\"ReorderFeature\""));
+    let d: UiToEngine = serde_json::from_str(&json).unwrap();
+    assert!(matches!(
+        d,
+        UiToEngine::ReorderFeature {
+            new_position: 3,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn serde_roundtrip_rename_feature() {
+    let msg = UiToEngine::RenameFeature {
+        feature_id: Uuid::new_v4(),
+        new_name: "My Feature".to_string(),
+    };
+    let json = serde_json::to_string(&msg).unwrap();
+    assert!(json.contains("\"type\":\"RenameFeature\""));
+    let d: UiToEngine = serde_json::from_str(&json).unwrap();
+    if let UiToEngine::RenameFeature { new_name, .. } = d {
+        assert_eq!(new_name, "My Feature");
+    } else {
+        panic!("Expected RenameFeature");
+    }
+}
+
+#[test]
+fn serde_roundtrip_undo_redo() {
+    let undo = UiToEngine::Undo;
+    let redo = UiToEngine::Redo;
+    let ju = serde_json::to_string(&undo).unwrap();
+    let jr = serde_json::to_string(&redo).unwrap();
+    assert!(ju.contains("\"type\":\"Undo\""));
+    assert!(jr.contains("\"type\":\"Redo\""));
+    let du: UiToEngine = serde_json::from_str(&ju).unwrap();
+    let dr: UiToEngine = serde_json::from_str(&jr).unwrap();
+    assert!(matches!(du, UiToEngine::Undo));
+    assert!(matches!(dr, UiToEngine::Redo));
+}
+
+#[test]
+fn serde_roundtrip_hover_entity() {
+    let msg = UiToEngine::HoverEntity {
+        geom_ref: Some(make_geom_ref()),
+    };
+    let json = serde_json::to_string(&msg).unwrap();
+    assert!(json.contains("\"type\":\"HoverEntity\""));
+    let d: UiToEngine = serde_json::from_str(&json).unwrap();
+    assert!(matches!(d, UiToEngine::HoverEntity { geom_ref: Some(_) }));
+
+    let msg_none = UiToEngine::HoverEntity { geom_ref: None };
+    let json_none = serde_json::to_string(&msg_none).unwrap();
+    let d_none: UiToEngine = serde_json::from_str(&json_none).unwrap();
+    assert!(matches!(d_none, UiToEngine::HoverEntity { geom_ref: None }));
+}
+
+#[test]
+fn serde_roundtrip_save_load_export() {
+    let save = UiToEngine::SaveProject;
+    let load = UiToEngine::LoadProject {
+        data: r#"{"test": true}"#.to_string(),
+    };
+    let export = UiToEngine::ExportStep;
+
+    for msg in [save, export] {
+        let json = serde_json::to_string(&msg).unwrap();
+        let _d: UiToEngine = serde_json::from_str(&json).unwrap();
+    }
+
+    let json = serde_json::to_string(&load).unwrap();
+    assert!(json.contains("\"type\":\"LoadProject\""));
+    let d: UiToEngine = serde_json::from_str(&json).unwrap();
+    if let UiToEngine::LoadProject { data } = d {
+        assert!(data.contains("test"));
+    } else {
+        panic!("Expected LoadProject");
+    }
+}
+
+// ── Serde Round-Trip Tests: remaining EngineToUi variants ───────────
+
+#[test]
+fn serde_roundtrip_sketch_solved() {
+    // Note: SolvedSketch.positions uses default HashMap serde (not u32_key_map),
+    // so non-empty HashMap<u32, _> can't roundtrip via JSON. Test with empty positions.
+    let msg = EngineToUi::SketchSolved {
+        solved: SolvedSketch {
+            positions: std::collections::HashMap::new(),
+            profiles: vec![ClosedProfile {
+                entity_ids: vec![1, 2],
+                is_outer: true,
+            }],
+            status: SolveStatus::UnderConstrained { dof: 2 },
+        },
+    };
+    let json = serde_json::to_string(&msg).unwrap();
+    assert!(json.contains("\"type\":\"SketchSolved\""));
+    let d: EngineToUi = serde_json::from_str(&json).unwrap();
+    assert!(matches!(d, EngineToUi::SketchSolved { .. }));
+}
+
+#[test]
+fn serde_roundtrip_hover_changed() {
+    let msg = EngineToUi::HoverChanged {
+        geom_ref: Some(make_geom_ref()),
+    };
+    let json = serde_json::to_string(&msg).unwrap();
+    assert!(json.contains("\"type\":\"HoverChanged\""));
+    let d: EngineToUi = serde_json::from_str(&json).unwrap();
+    assert!(matches!(d, EngineToUi::HoverChanged { geom_ref: Some(_) }));
+}
+
+#[test]
+fn serde_roundtrip_selection_changed() {
+    let msg = EngineToUi::SelectionChanged {
+        geom_refs: vec![make_geom_ref(), make_geom_ref()],
+    };
+    let json = serde_json::to_string(&msg).unwrap();
+    assert!(json.contains("\"type\":\"SelectionChanged\""));
+    let d: EngineToUi = serde_json::from_str(&json).unwrap();
+    if let EngineToUi::SelectionChanged { geom_refs } = d {
+        assert_eq!(geom_refs.len(), 2);
+    } else {
+        panic!("Expected SelectionChanged");
+    }
+}
+
+#[test]
+fn serde_roundtrip_save_ready() {
+    let msg = EngineToUi::SaveReady {
+        json_data: r#"{"format":"waffle-iron"}"#.to_string(),
+    };
+    let json = serde_json::to_string(&msg).unwrap();
+    assert!(json.contains("\"type\":\"SaveReady\""));
+    let d: EngineToUi = serde_json::from_str(&json).unwrap();
+    if let EngineToUi::SaveReady { json_data } = d {
+        assert!(json_data.contains("waffle-iron"));
+    } else {
+        panic!("Expected SaveReady");
+    }
+}
+
+#[test]
+fn serde_roundtrip_project_loaded() {
+    let msg = EngineToUi::ProjectLoaded {
+        feature_tree: FeatureTree::new(),
+    };
+    let json = serde_json::to_string(&msg).unwrap();
+    assert!(json.contains("\"type\":\"ProjectLoaded\""));
+    let d: EngineToUi = serde_json::from_str(&json).unwrap();
+    assert!(matches!(d, EngineToUi::ProjectLoaded { .. }));
+}
+
+#[test]
+fn serde_roundtrip_export_ready() {
+    let msg = EngineToUi::ExportReady {
+        step_data: "ISO-10303-21;".to_string(),
+    };
+    let json = serde_json::to_string(&msg).unwrap();
+    assert!(json.contains("\"type\":\"ExportReady\""));
+    let d: EngineToUi = serde_json::from_str(&json).unwrap();
+    if let EngineToUi::ExportReady { step_data } = d {
+        assert!(step_data.contains("ISO"));
+    } else {
+        panic!("Expected ExportReady");
+    }
+}
+
+#[test]
+fn serde_roundtrip_model_updated_with_errors() {
+    let msg = EngineToUi::ModelUpdated {
+        feature_tree: FeatureTree::new(),
+        meshes: Vec::new(),
+        edges: Vec::new(),
+        errors: vec![(Uuid::new_v4(), "rebuild failed".to_string())],
+    };
+    let json = serde_json::to_string(&msg).unwrap();
+    assert!(json.contains("rebuild failed"));
+    let d: EngineToUi = serde_json::from_str(&json).unwrap();
+    if let EngineToUi::ModelUpdated { errors, .. } = d {
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].1.contains("rebuild"));
+    } else {
+        panic!("Expected ModelUpdated");
+    }
+}
+
+#[test]
+fn serde_model_updated_empty_errors_skipped() {
+    let msg = EngineToUi::ModelUpdated {
+        feature_tree: FeatureTree::new(),
+        meshes: Vec::new(),
+        edges: Vec::new(),
+        errors: Vec::new(),
+    };
+    let json = serde_json::to_string(&msg).unwrap();
+    // skip_serializing_if = "Vec::is_empty" should omit the errors field
+    assert!(
+        !json.contains("\"errors\""),
+        "Empty errors should be skipped in serialization"
+    );
+}
+
+// ── Dispatch: Reorder & SetRollback ─────────────────────────────────
+
+#[test]
+fn dispatch_reorder_nonexistent_feature_returns_error() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    let response = wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::ReorderFeature {
+            feature_id: Uuid::new_v4(),
+            new_position: 0,
+        },
+        &mut kernel,
+    );
+    assert!(
+        matches!(response, EngineToUi::Error { .. }),
+        "Reorder nonexistent feature should error, got {:?}",
+        response
+    );
+}
+
+#[test]
+fn dispatch_set_rollback_index() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    // Add a feature
+    let op = make_sketch_operation();
+    wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::AddFeature { operation: op },
+        &mut kernel,
+    );
+
+    // Set rollback to 0 (before all features)
+    let response = wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::SetRollbackIndex { index: Some(0) },
+        &mut kernel,
+    );
+    assert!(matches!(response, EngineToUi::ModelUpdated { .. }));
+    assert_eq!(state.engine.tree.active_index, Some(0));
+
+    // Clear rollback
+    let response = wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::SetRollbackIndex { index: None },
+        &mut kernel,
+    );
+    assert!(matches!(response, EngineToUi::ModelUpdated { .. }));
+    assert_eq!(state.engine.tree.active_index, None);
+}
+
+#[test]
+fn dispatch_redo_empty_returns_error() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    let response = wasm_bridge::dispatch(&mut state, UiToEngine::Redo, &mut kernel);
+    assert!(
+        matches!(response, EngineToUi::Error { .. }),
+        "Redo on empty state should error, got {:?}",
+        response
+    );
+}
+
+#[test]
+fn dispatch_suppress_nonexistent_feature_returns_error() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    let response = wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::SuppressFeature {
+            feature_id: Uuid::new_v4(),
+            suppressed: true,
+        },
+        &mut kernel,
+    );
+    assert!(
+        matches!(response, EngineToUi::Error { .. }),
+        "Suppress nonexistent feature should error, got {:?}",
+        response
+    );
+}
+
+#[test]
+fn dispatch_edit_nonexistent_feature_returns_error() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    let response = wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::EditFeature {
+            feature_id: Uuid::new_v4(),
+            operation: make_sketch_operation(),
+        },
+        &mut kernel,
+    );
+    assert!(
+        matches!(response, EngineToUi::Error { .. }),
+        "Edit nonexistent feature should error, got {:?}",
+        response
+    );
+}
+
+#[test]
+fn dispatch_load_invalid_json_returns_error() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    let response = wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::LoadProject {
+            data: "not valid json".to_string(),
+        },
+        &mut kernel,
+    );
+    assert!(
+        matches!(response, EngineToUi::Error { .. }),
+        "Load invalid JSON should error, got {:?}",
+        response
+    );
+}
+
+#[test]
+fn dispatch_add_constraint_without_sketch_returns_error() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    let response = wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::AddConstraint {
+            constraint: SketchConstraint::Horizontal { entity: 1 },
+        },
+        &mut kernel,
+    );
+    assert!(
+        matches!(response, EngineToUi::Error { .. }),
+        "AddConstraint without active sketch should error"
+    );
+}
+
 /// Helper: create a minimal sketch operation for dispatch tests.
 fn make_sketch_operation() -> Operation {
     use waffle_types::Sketch;

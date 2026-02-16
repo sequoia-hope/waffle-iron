@@ -1637,6 +1637,144 @@ mod tests {
     }
 
     #[test]
+    fn test_tessellation_no_nan() {
+        let mut kernel = MockKernel::new();
+
+        // Test on box
+        let (h_box, s_box) = kernel.make_box_solid(1.0, 1.0, 1.0);
+        kernel.solids.insert(h_box.id(), s_box);
+        let mesh_box = kernel.tessellate(&h_box, 0.1).unwrap();
+
+        for (i, v) in mesh_box.vertices.iter().enumerate() {
+            assert!(v.is_finite(), "Box vertex[{}] = {} is not finite", i, v);
+        }
+        for (i, n) in mesh_box.normals.iter().enumerate() {
+            assert!(n.is_finite(), "Box normal[{}] = {} is not finite", i, n);
+        }
+
+        // Test on a different box (simulating cylinder since MockKernel only has boxes)
+        let (h2, s2) = kernel.make_box_solid(2.0, 3.0, 4.0);
+        kernel.solids.insert(h2.id(), s2);
+        let mesh2 = kernel.tessellate(&h2, 0.1).unwrap();
+
+        for (i, v) in mesh2.vertices.iter().enumerate() {
+            assert!(
+                v.is_finite(),
+                "Tall box vertex[{}] = {} is not finite",
+                i,
+                v
+            );
+        }
+        for (i, n) in mesh2.normals.iter().enumerate() {
+            assert!(
+                n.is_finite(),
+                "Tall box normal[{}] = {} is not finite",
+                i,
+                n
+            );
+        }
+    }
+
+    #[test]
+    fn test_tessellation_no_zero_area_triangles() {
+        let mut kernel = MockKernel::new();
+        let (handle, solid) = kernel.make_box_solid(1.0, 2.0, 3.0);
+        kernel.solids.insert(handle.id(), solid);
+
+        let mesh = kernel.tessellate(&handle, 0.1).unwrap();
+
+        // Check every triangle has non-zero area
+        let epsilon = 1e-12_f32;
+        assert_eq!(mesh.indices.len() % 3, 0, "Indices should be multiple of 3");
+        for tri in mesh.indices.chunks(3) {
+            let i0 = tri[0] as usize;
+            let i1 = tri[1] as usize;
+            let i2 = tri[2] as usize;
+
+            let v0 = [
+                mesh.vertices[i0 * 3],
+                mesh.vertices[i0 * 3 + 1],
+                mesh.vertices[i0 * 3 + 2],
+            ];
+            let v1 = [
+                mesh.vertices[i1 * 3],
+                mesh.vertices[i1 * 3 + 1],
+                mesh.vertices[i1 * 3 + 2],
+            ];
+            let v2 = [
+                mesh.vertices[i2 * 3],
+                mesh.vertices[i2 * 3 + 1],
+                mesh.vertices[i2 * 3 + 2],
+            ];
+
+            // Edge vectors
+            let e1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
+            let e2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
+
+            // Cross product
+            let cx = e1[1] * e2[2] - e1[2] * e2[1];
+            let cy = e1[2] * e2[0] - e1[0] * e2[2];
+            let cz = e1[0] * e2[1] - e1[1] * e2[0];
+            let area_2x = (cx * cx + cy * cy + cz * cz).sqrt();
+
+            assert!(
+                area_2x > epsilon,
+                "Triangle [{}, {}, {}] has zero area (2*area={})",
+                i0,
+                i1,
+                i2,
+                area_2x
+            );
+        }
+    }
+
+    #[test]
+    fn test_boolean_subtract_euler_and_topology_change() {
+        let mut kernel = MockKernel::new();
+        let (h_a, s_a) = kernel.make_box_solid(2.0, 2.0, 2.0);
+        kernel.solids.insert(h_a.id(), s_a);
+        let (h_b, s_b) = kernel.make_box_solid(1.0, 1.0, 1.0);
+        kernel.solids.insert(h_b.id(), s_b);
+
+        // Record input A's topology
+        let faces_a = kernel.list_faces(&h_a);
+        let edges_a = kernel.list_edges(&h_a);
+        let verts_a = kernel.list_vertices(&h_a);
+        let face_ids_a: std::collections::HashSet<_> = faces_a.iter().copied().collect();
+
+        let result = kernel.boolean_subtract(&h_a, &h_b).unwrap();
+
+        let faces_r = kernel.list_faces(&result);
+        let edges_r = kernel.list_edges(&result);
+        let verts_r = kernel.list_vertices(&result);
+
+        // Euler formula on result: V - E + F = 2
+        let v = verts_r.len() as i64;
+        let e = edges_r.len() as i64;
+        let f = faces_r.len() as i64;
+        assert_eq!(
+            v - e + f,
+            2,
+            "Euler formula V-E+F=2 must hold on subtract result (V={}, E={}, F={})",
+            v,
+            e,
+            f
+        );
+
+        // Result should have same counts as A (mock just re-IDs) but different IDs
+        assert_eq!(faces_r.len(), faces_a.len());
+        assert_eq!(edges_r.len(), edges_a.len());
+        assert_eq!(verts_r.len(), verts_a.len());
+
+        // Verify the result entity IDs are all different from input A
+        let face_ids_r: std::collections::HashSet<_> = faces_r.iter().copied().collect();
+        assert!(
+            face_ids_a.is_disjoint(&face_ids_r),
+            "Result face IDs must be re-allocated (different from input A)"
+        );
+    }
+
+    #[test]
     fn test_edge_faces_each_edge_has_two_faces() {
         let mut kernel = MockKernel::new();
         let (handle, solid) = kernel.make_box_solid(1.0, 1.0, 1.0);

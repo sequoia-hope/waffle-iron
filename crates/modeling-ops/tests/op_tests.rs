@@ -1129,3 +1129,365 @@ fn truck_shell_returns_not_supported() {
         "TruckKernel shell should return error"
     );
 }
+
+// ── Governance Gap Tests: Numeric Oracles & Branch Coverage ──────────
+
+/// GAP M5: Bounding box oracle for extrude.
+/// After extruding a 2×3 profile by depth=5 in Z, the tessellation bbox
+/// Z-extent should equal the depth parameter.
+#[test]
+fn extrude_bbox_oracle_z_extent_equals_depth() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+
+    let depth = 5.0;
+    let result =
+        execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], depth, None).unwrap();
+
+    let handle = &result.outputs[0].1.handle;
+    let mesh = kernel.tessellate(handle, 0.01).unwrap();
+
+    // Compute bounding box from tessellation vertices
+    assert!(
+        mesh.vertices.len() >= 3,
+        "Mesh should have at least one vertex"
+    );
+    let mut min_z = f32::INFINITY;
+    let mut max_z = f32::NEG_INFINITY;
+    for chunk in mesh.vertices.chunks(3) {
+        let z = chunk[2];
+        if z < min_z {
+            min_z = z;
+        }
+        if z > max_z {
+            max_z = z;
+        }
+    }
+
+    let z_extent = (max_z - min_z) as f64;
+    assert!(
+        (z_extent - depth).abs() < 0.1,
+        "Z-extent of tessellation bbox ({:.3}) should approximately equal depth ({:.3})",
+        z_extent,
+        depth
+    );
+}
+
+/// GAP M5 continued: Bounding box oracle with different depth.
+#[test]
+fn extrude_bbox_oracle_depth_10() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+
+    let depth = 10.0;
+    let result =
+        execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], depth, None).unwrap();
+
+    let handle = &result.outputs[0].1.handle;
+    let mesh = kernel.tessellate(handle, 0.01).unwrap();
+
+    let mut min_z = f32::INFINITY;
+    let mut max_z = f32::NEG_INFINITY;
+    for chunk in mesh.vertices.chunks(3) {
+        let z = chunk[2];
+        if z < min_z {
+            min_z = z;
+        }
+        if z > max_z {
+            max_z = z;
+        }
+    }
+
+    let z_extent = (max_z - min_z) as f64;
+    assert!(
+        (z_extent - depth).abs() < 0.1,
+        "Z-extent ({:.3}) should approximately equal depth ({:.3})",
+        z_extent,
+        depth
+    );
+}
+
+/// GAP M6: revolve_partial — specific role assertions.
+/// Partial revolve should assign exactly 1 RevStartFace and 1 RevEndFace.
+#[test]
+fn revolve_partial_specific_role_assertions() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+
+    let result = execute_revolve(
+        &mut kernel,
+        face_id,
+        [0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        std::f64::consts::FRAC_PI_2,
+        None,
+    )
+    .unwrap();
+
+    let roles = &result.provenance.role_assignments;
+    let handle = &result.outputs[0].1.handle;
+    let face_count = kernel.list_faces(handle).len();
+
+    let start_count = roles
+        .iter()
+        .filter(|(_, r)| *r == Role::RevStartFace)
+        .count();
+    let end_count = roles
+        .iter()
+        .filter(|(_, r)| *r == Role::RevEndFace)
+        .count();
+
+    assert_eq!(
+        start_count, 1,
+        "Partial revolve should have exactly 1 RevStartFace, got {}",
+        start_count
+    );
+    assert_eq!(
+        end_count, 1,
+        "Partial revolve should have exactly 1 RevEndFace, got {}",
+        end_count
+    );
+    assert_eq!(
+        roles.len(),
+        face_count,
+        "Every face ({}) should get a role assignment, got {}",
+        face_count,
+        roles.len()
+    );
+}
+
+/// GAP M7: revolve_full — SideFace indices are sequential 0..N-1.
+#[test]
+fn revolve_full_side_face_indices_sequential() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+
+    let result = execute_revolve(
+        &mut kernel,
+        face_id,
+        [0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        std::f64::consts::TAU,
+        None,
+    )
+    .unwrap();
+
+    let roles = &result.provenance.role_assignments;
+    let mut side_indices: Vec<usize> = roles
+        .iter()
+        .filter_map(|(_, r)| match r {
+            Role::SideFace { index } => Some(*index),
+            _ => None,
+        })
+        .collect();
+
+    assert!(
+        !side_indices.is_empty(),
+        "Full revolve should produce SideFace roles"
+    );
+
+    side_indices.sort();
+    let expected: Vec<usize> = (0..side_indices.len()).collect();
+    assert_eq!(
+        side_indices, expected,
+        "SideFace indices should be sequential 0..{}, got {:?}",
+        side_indices.len() - 1,
+        side_indices
+    );
+}
+
+/// GAP M8: Boolean mode distinction — different modes produce different results.
+#[test]
+fn boolean_modes_produce_distinct_results() {
+    let mut kernel = MockKernel::new();
+
+    // Create two boxes
+    let face_a = make_face(&mut kernel);
+    let handle_a = kernel
+        .extrude_face(face_a, [0.0, 0.0, 1.0], 2.0)
+        .unwrap();
+    let face_b = make_face(&mut kernel);
+    let handle_b = kernel
+        .extrude_face(face_b, [0.0, 0.0, 1.0], 2.0)
+        .unwrap();
+
+    let union_result =
+        execute_boolean(&mut kernel, &handle_a, &handle_b, BooleanKind::Union).unwrap();
+    let union_faces = kernel
+        .list_faces(&union_result.outputs[0].1.handle)
+        .len();
+
+    // Need fresh solids for subtract (MockKernel consumes handles)
+    let face_c = make_face(&mut kernel);
+    let handle_c = kernel
+        .extrude_face(face_c, [0.0, 0.0, 1.0], 2.0)
+        .unwrap();
+    let face_d = make_face(&mut kernel);
+    let handle_d = kernel
+        .extrude_face(face_d, [0.0, 0.0, 1.0], 2.0)
+        .unwrap();
+
+    let subtract_result =
+        execute_boolean(&mut kernel, &handle_c, &handle_d, BooleanKind::Subtract).unwrap();
+    let subtract_faces = kernel
+        .list_faces(&subtract_result.outputs[0].1.handle)
+        .len();
+
+    // Need fresh solids for intersect
+    let face_e = make_face(&mut kernel);
+    let handle_e = kernel
+        .extrude_face(face_e, [0.0, 0.0, 1.0], 2.0)
+        .unwrap();
+    let face_f = make_face(&mut kernel);
+    let handle_f = kernel
+        .extrude_face(face_f, [0.0, 0.0, 1.0], 2.0)
+        .unwrap();
+
+    let intersect_result =
+        execute_boolean(&mut kernel, &handle_e, &handle_f, BooleanKind::Intersect).unwrap();
+    let _intersect_faces = kernel
+        .list_faces(&intersect_result.outputs[0].1.handle)
+        .len();
+
+    // MockKernel: Union merges all faces (12), Subtract returns body A (6),
+    // Intersect creates a small box (6). Subtract face count != Union face count.
+    assert_ne!(
+        union_faces, subtract_faces,
+        "Union ({}) and Subtract ({}) should produce different face counts",
+        union_faces, subtract_faces
+    );
+    // Union should have more faces than intersect or subtract
+    assert!(
+        union_faces > subtract_faces,
+        "Union ({}) should have more faces than Subtract ({})",
+        union_faces, subtract_faces
+    );
+}
+
+/// GAP M1: Zero-depth extrude.
+/// execute_extrude with depth=0.0 should produce a degenerate solid
+/// (MockKernel allows it) rather than erroring.
+#[test]
+fn extrude_zero_depth_produces_degenerate_geometry() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+
+    // depth=0 is not explicitly validated by execute_extrude;
+    // MockKernel allows it and produces a flat box (d=0).
+    let result = execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], 0.0, None);
+
+    // Document behavior: MockKernel produces a valid (degenerate) result.
+    // A real kernel might want to reject this; for now it succeeds.
+    let result = result.unwrap();
+    assert_eq!(result.outputs.len(), 1, "Should still produce 1 output");
+
+    // Tessellate: Z-extent should be ~0
+    let handle = &result.outputs[0].1.handle;
+    let mesh = kernel.tessellate(handle, 0.01).unwrap();
+
+    let mut min_z = f32::INFINITY;
+    let mut max_z = f32::NEG_INFINITY;
+    for chunk in mesh.vertices.chunks(3) {
+        let z = chunk[2];
+        if z < min_z {
+            min_z = z;
+        }
+        if z > max_z {
+            max_z = z;
+        }
+    }
+
+    let z_extent = (max_z - min_z) as f64;
+    assert!(
+        z_extent < 0.01,
+        "Zero-depth extrude should have near-zero Z-extent, got {:.6}",
+        z_extent
+    );
+}
+
+/// GAP M2: assign_extrude_roles with no faces (tested indirectly).
+/// When the kernel produces a valid extrude, roles should cover all faces.
+/// We can't test empty faces directly since assign_extrude_roles is private,
+/// but we verify that every face gets a role assignment.
+#[test]
+fn extrude_roles_cover_all_faces() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+
+    let result =
+        execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], 5.0, None).unwrap();
+
+    let handle = &result.outputs[0].1.handle;
+    let face_count = kernel.list_faces(handle).len();
+    let role_count = result.provenance.role_assignments.len();
+
+    assert_eq!(
+        role_count, face_count,
+        "Every face ({}) should get exactly one role, got {}",
+        face_count, role_count
+    );
+}
+
+/// GAP M3: Extrude with zero-length direction vector.
+/// assign_extrude_roles should use the fallback direction [0,0,1]
+/// and not panic.
+#[test]
+fn extrude_zero_direction_uses_fallback() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+
+    // Direction [0,0,0] should hit the fallback path in assign_extrude_roles
+    let result = execute_extrude(&mut kernel, face_id, [0.0, 0.0, 0.0], 5.0, None).unwrap();
+
+    let roles = &result.provenance.role_assignments;
+    assert_eq!(roles.len(), 6, "Should still assign 6 roles for box faces");
+
+    // With fallback direction [0,0,1], the role assignment should work
+    // the same as a normal Z-extrude
+    let has_pos_cap = roles.iter().any(|(_, r)| *r == Role::EndCapPositive);
+    let has_neg_cap = roles.iter().any(|(_, r)| *r == Role::EndCapNegative);
+    assert!(
+        has_pos_cap,
+        "Fallback direction should still produce EndCapPositive"
+    );
+    assert!(
+        has_neg_cap,
+        "Fallback direction should still produce EndCapNegative"
+    );
+}
+
+/// GAP M9: Fillet with empty edges slice and positive radius.
+/// Should succeed but produce topology identical to the input (no fillet faces).
+#[test]
+fn fillet_empty_edges_preserves_topology() {
+    let mut kernel = MockKernel::new();
+    let face_id = make_face(&mut kernel);
+    let handle = kernel
+        .extrude_face(face_id, [0.0, 0.0, 1.0], 5.0)
+        .unwrap();
+
+    let faces_before = kernel.list_faces(&handle).len();
+
+    // Fillet with no edges selected — should succeed with no new fillet faces
+    let result = execute_fillet(&mut kernel, &handle, &[], 0.5).unwrap();
+
+    let result_handle = &result.outputs[0].1.handle;
+    let faces_after = kernel.list_faces(result_handle).len();
+
+    assert_eq!(
+        faces_before, faces_after,
+        "Fillet with no edges should preserve face count ({} vs {})",
+        faces_before, faces_after
+    );
+
+    let fillet_roles: Vec<_> = result
+        .provenance
+        .role_assignments
+        .iter()
+        .filter(|(_, r)| matches!(r, Role::FilletFace { .. }))
+        .collect();
+    assert!(
+        fillet_roles.is_empty(),
+        "Should assign no FilletFace roles when no edges are filleted"
+    );
+}

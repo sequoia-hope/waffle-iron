@@ -764,6 +764,57 @@ fn round_trip_step_export_matches_original() {
     );
 }
 
+// ── M5: Migration Tests ─────────────────────────────────────────────
+
+#[test]
+fn migrate_same_version_returns_tree_unchanged() {
+    let tree = make_simple_tree();
+    let original_len = tree.features.len();
+    let result = file_format::migrate::migrate(tree, 1, 1);
+    let migrated = result.unwrap();
+    assert_eq!(migrated.features.len(), original_len);
+}
+
+#[test]
+fn migrate_different_version_returns_error() {
+    let tree = FeatureTree::new();
+    let result = file_format::migrate::migrate(tree, 1, 2);
+    assert!(result.is_err());
+    if let Err(e) = result {
+        let msg = e.to_string();
+        assert!(msg.contains("migration failed"), "Got: {}", msg);
+        assert!(msg.contains("v1"), "Should mention source version: {}", msg);
+        assert!(msg.contains("v2"), "Should mention target version: {}", msg);
+    }
+}
+
+#[test]
+fn migrate_zero_to_one_returns_error() {
+    let tree = FeatureTree::new();
+    let result = file_format::migrate::migrate(tree, 0, 1);
+    assert!(result.is_err());
+}
+
+#[test]
+fn load_triggers_migration_path_for_old_version() {
+    // Manually construct a file with version 0 to exercise the migration code path in load.rs.
+    // Since FORMAT_VERSION is 1 and version 0 < 1, load_project will call migrate(tree, 0, 1),
+    // which should fail because no migration path exists from v0→v1.
+    let json = r#"{"format": "waffle-iron", "version": 0, "project": {"name": "old", "created": "2025-01-01T00:00:00Z", "modified": "2025-01-01T00:00:00Z"}, "features": {"features": [], "active_index": null}}"#;
+    let result = load_project(json);
+    assert!(
+        result.is_err(),
+        "Loading version 0 should trigger migration and fail"
+    );
+    let err = result.unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("migration"),
+        "Error should be a migration error, got: {}",
+        msg
+    );
+}
+
 #[test]
 fn round_trip_rebuild_topology_matches() {
     use kernel_fork::TruckKernel;

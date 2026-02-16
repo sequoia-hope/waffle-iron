@@ -721,4 +721,389 @@ mod tests {
             assert_eq!(sig.surface_type.as_deref(), Some("planar"));
         }
     }
+
+    // ── Coverage: None/empty paths ──────────────────────────────────
+
+    /// list_faces returns empty for nonexistent solid handle.
+    #[test]
+    fn test_list_faces_no_solid() {
+        let kernel = TruckKernel::new();
+        let bad = KernelSolidHandle(999);
+        assert!(kernel.list_faces(&bad).is_empty());
+    }
+
+    /// list_edges returns empty for nonexistent solid handle.
+    #[test]
+    fn test_list_edges_no_solid() {
+        let kernel = TruckKernel::new();
+        let bad = KernelSolidHandle(999);
+        assert!(kernel.list_edges(&bad).is_empty());
+    }
+
+    /// list_vertices returns empty for nonexistent solid handle.
+    #[test]
+    fn test_list_vertices_no_solid() {
+        let kernel = TruckKernel::new();
+        let bad = KernelSolidHandle(999);
+        assert!(kernel.list_vertices(&bad).is_empty());
+    }
+
+    /// face_edges returns empty for a face whose solid doesn't exist.
+    #[test]
+    fn test_face_edges_no_solid() {
+        let kernel = TruckKernel::new();
+        // KernelId 9990000 → handle_id=999 which doesn't exist
+        let bad_face = KernelId(999 * 10000);
+        assert!(kernel.face_edges(bad_face).is_empty());
+    }
+
+    /// face_edges returns empty for a face index beyond the shell's face count.
+    #[test]
+    fn test_face_edges_face_out_of_range() {
+        let mut kernel = TruckKernel::new();
+        let solid = primitives::make_box(1.0, 1.0, 1.0);
+        let handle = kernel.store_solid(solid);
+        // Box has 6 faces (indices 0-5), try index 99
+        let bad_face = KernelId(handle.id() * 10000 + 99);
+        assert!(kernel.face_edges(bad_face).is_empty());
+    }
+
+    /// edge_faces returns empty for a nonexistent solid.
+    #[test]
+    fn test_edge_faces_no_solid() {
+        let kernel = TruckKernel::new();
+        let bad_edge = KernelId(999 * 10000 + 1000);
+        assert!(kernel.edge_faces(bad_edge).is_empty());
+    }
+
+    /// edge_faces returns empty for an edge offset beyond the shell's edge count.
+    #[test]
+    fn test_edge_faces_edge_out_of_range() {
+        let mut kernel = TruckKernel::new();
+        let solid = primitives::make_box(1.0, 1.0, 1.0);
+        let handle = kernel.store_solid(solid);
+        // Box has 12 edges (indices 0-11), try index 99
+        let bad_edge = KernelId(handle.id() * 10000 + 1000 + 99);
+        assert!(kernel.edge_faces(bad_edge).is_empty());
+    }
+
+    /// edge_vertices returns (0,0) for a nonexistent solid.
+    #[test]
+    fn test_edge_vertices_no_solid() {
+        let kernel = TruckKernel::new();
+        let bad_edge = KernelId(999 * 10000 + 1000);
+        let (v1, v2) = kernel.edge_vertices(bad_edge);
+        assert_eq!(v1, KernelId(0));
+        assert_eq!(v2, KernelId(0));
+    }
+
+    /// edge_vertices returns (0,0) for edge offset out of range.
+    #[test]
+    fn test_edge_vertices_out_of_range() {
+        let mut kernel = TruckKernel::new();
+        let solid = primitives::make_box(1.0, 1.0, 1.0);
+        let handle = kernel.store_solid(solid);
+        let bad_edge = KernelId(handle.id() * 10000 + 1000 + 99);
+        let (v1, v2) = kernel.edge_vertices(bad_edge);
+        assert_eq!(v1, KernelId(0));
+        assert_eq!(v2, KernelId(0));
+    }
+
+    /// compute_signature returns empty for nonexistent solid.
+    #[test]
+    fn test_compute_signature_no_solid() {
+        let kernel = TruckKernel::new();
+        let bad_entity = KernelId(999 * 10000);
+        let sig = kernel.compute_signature(bad_entity, TopoKind::Face);
+        assert!(sig.surface_type.is_none());
+        assert!(sig.centroid.is_none());
+    }
+
+    /// compute_signature for edge kind returns line type with centroid and length.
+    #[test]
+    fn test_compute_signature_edge() {
+        let mut kernel = TruckKernel::new();
+        let solid = primitives::make_box(2.0, 3.0, 4.0);
+        let handle = kernel.store_solid(solid);
+
+        let edges = kernel.list_edges(&handle);
+        assert!(!edges.is_empty());
+
+        let sig = kernel.compute_signature(edges[0], TopoKind::Edge);
+        assert_eq!(sig.surface_type.as_deref(), Some("line"));
+        assert!(sig.centroid.is_some(), "Edge should have a centroid");
+        assert!(sig.length.is_some(), "Edge should have a length");
+        assert!(sig.length.unwrap() > 0.0, "Edge length should be positive");
+    }
+
+    /// compute_signature for vertex kind returns point type with position.
+    #[test]
+    fn test_compute_signature_vertex() {
+        let mut kernel = TruckKernel::new();
+        let solid = primitives::make_box(2.0, 3.0, 4.0);
+        let handle = kernel.store_solid(solid);
+
+        let vertices = kernel.list_vertices(&handle);
+        assert!(!vertices.is_empty());
+
+        let sig = kernel.compute_signature(vertices[0], TopoKind::Vertex);
+        assert_eq!(sig.surface_type.as_deref(), Some("point"));
+        assert!(
+            sig.centroid.is_some(),
+            "Vertex should have a centroid (position)"
+        );
+    }
+
+    /// compute_signature for face_idx out of range returns empty.
+    #[test]
+    fn test_compute_signature_face_out_of_range() {
+        let mut kernel = TruckKernel::new();
+        let solid = primitives::make_box(1.0, 1.0, 1.0);
+        let handle = kernel.store_solid(solid);
+        let bad_face = KernelId(handle.id() * 10000 + 99);
+        let sig = kernel.compute_signature(bad_face, TopoKind::Face);
+        assert!(sig.surface_type.is_none());
+    }
+
+    /// compute_signature for edge out of range returns empty.
+    #[test]
+    fn test_compute_signature_edge_out_of_range() {
+        let mut kernel = TruckKernel::new();
+        let solid = primitives::make_box(1.0, 1.0, 1.0);
+        let handle = kernel.store_solid(solid);
+        let bad_edge = KernelId(handle.id() * 10000 + 1000 + 99);
+        let sig = kernel.compute_signature(bad_edge, TopoKind::Edge);
+        assert!(sig.surface_type.is_none());
+    }
+
+    /// compute_signature for vertex out of range returns empty.
+    #[test]
+    fn test_compute_signature_vertex_out_of_range() {
+        let mut kernel = TruckKernel::new();
+        let solid = primitives::make_box(1.0, 1.0, 1.0);
+        let handle = kernel.store_solid(solid);
+        let bad_vert = KernelId(handle.id() * 10000 + 2000 + 99);
+        let sig = kernel.compute_signature(bad_vert, TopoKind::Vertex);
+        assert!(sig.surface_type.is_none());
+    }
+
+    /// compute_all_signatures for edges returns 12 entries for a box.
+    #[test]
+    fn test_compute_all_signatures_edges() {
+        let mut kernel = TruckKernel::new();
+        let solid = primitives::make_box(1.0, 1.0, 1.0);
+        let handle = kernel.store_solid(solid);
+
+        let sigs = kernel.compute_all_signatures(&handle, TopoKind::Edge);
+        assert_eq!(sigs.len(), 12, "Box should have 12 edge signatures");
+        for (id, sig) in &sigs {
+            assert_eq!(sig.surface_type.as_deref(), Some("line"));
+            assert!(sig.length.is_some());
+            assert!(id.0 > 0);
+        }
+    }
+
+    /// compute_all_signatures for vertices returns 8 entries for a box.
+    #[test]
+    fn test_compute_all_signatures_vertices() {
+        let mut kernel = TruckKernel::new();
+        let solid = primitives::make_box(1.0, 1.0, 1.0);
+        let handle = kernel.store_solid(solid);
+
+        let sigs = kernel.compute_all_signatures(&handle, TopoKind::Vertex);
+        assert_eq!(sigs.len(), 8, "Box should have 8 vertex signatures");
+        for (_id, sig) in &sigs {
+            assert_eq!(sig.surface_type.as_deref(), Some("point"));
+            assert!(sig.centroid.is_some());
+        }
+    }
+
+    /// Cylinder face surface types include planar caps and nurbs sides.
+    /// truck represents cylinder side surfaces as BSplineSurface ("nurbs").
+    #[test]
+    fn test_cylinder_face_surface_types() {
+        let mut kernel = TruckKernel::new();
+        let solid = primitives::make_cylinder(1.0, 2.0);
+        let handle = kernel.store_solid(solid);
+
+        let faces = kernel.list_faces(&handle);
+        let mut surface_types: Vec<String> = Vec::new();
+        for face in &faces {
+            let sig = kernel.compute_signature(*face, TopoKind::Face);
+            if let Some(st) = sig.surface_type {
+                surface_types.push(st);
+            }
+        }
+
+        // Cylinder should have "nurbs" faces (cylindrical side — truck uses BSplineSurface)
+        // and "planar" faces (top and bottom caps)
+        assert!(
+            surface_types.iter().any(|s| s == "nurbs"),
+            "Cylinder should have nurbs surface for sides, got {:?}",
+            surface_types
+        );
+        assert!(
+            surface_types.iter().any(|s| s == "planar"),
+            "Cylinder should have planar surfaces (caps), got {:?}",
+            surface_types
+        );
+    }
+
+    /// Cylinder edge signatures include non-zero lengths.
+    #[test]
+    fn test_cylinder_edge_signatures() {
+        let mut kernel = TruckKernel::new();
+        let solid = primitives::make_cylinder(1.0, 2.0);
+        let handle = kernel.store_solid(solid);
+
+        let sigs = kernel.compute_all_signatures(&handle, TopoKind::Edge);
+        assert!(!sigs.is_empty());
+        for (_id, sig) in &sigs {
+            assert_eq!(sig.surface_type.as_deref(), Some("line"));
+            // Edge lengths should be positive
+            if let Some(len) = sig.length {
+                assert!(len >= 0.0, "Edge length should be non-negative");
+            }
+        }
+    }
+
+    /// Cylinder vertex signatures have valid positions.
+    #[test]
+    fn test_cylinder_vertex_signatures() {
+        let mut kernel = TruckKernel::new();
+        let solid = primitives::make_cylinder(1.0, 2.0);
+        let handle = kernel.store_solid(solid);
+
+        let sigs = kernel.compute_all_signatures(&handle, TopoKind::Vertex);
+        assert!(!sigs.is_empty());
+        for (_id, sig) in &sigs {
+            assert_eq!(sig.surface_type.as_deref(), Some("point"));
+            let pos = sig.centroid.unwrap();
+            // Cylinder radius=1, height=2: vertices should be within bounds
+            assert!(pos[0].is_finite());
+            assert!(pos[1].is_finite());
+            assert!(pos[2].is_finite());
+        }
+    }
+
+    /// face_neighbors for a nonexistent face returns empty.
+    #[test]
+    fn test_face_neighbors_no_solid() {
+        let kernel = TruckKernel::new();
+        let bad_face = KernelId(999 * 10000);
+        assert!(kernel.face_neighbors(bad_face).is_empty());
+    }
+
+    /// edge_faces: each box edge is shared by exactly 2 faces.
+    #[test]
+    fn test_edge_faces_box_two_faces() {
+        let mut kernel = TruckKernel::new();
+        let solid = primitives::make_box(1.0, 1.0, 1.0);
+        let handle = kernel.store_solid(solid);
+
+        let edges = kernel.list_edges(&handle);
+        for edge in &edges {
+            let faces = kernel.edge_faces(*edge);
+            assert_eq!(
+                faces.len(),
+                2,
+                "Each box edge should be adjacent to exactly 2 faces"
+            );
+        }
+    }
+
+    /// edge_vertices: each box edge has distinct endpoints that are valid vertices.
+    #[test]
+    fn test_edge_vertices_box_valid() {
+        let mut kernel = TruckKernel::new();
+        let solid = primitives::make_box(1.0, 1.0, 1.0);
+        let handle = kernel.store_solid(solid);
+
+        let all_verts: std::collections::HashSet<_> =
+            kernel.list_vertices(&handle).into_iter().collect();
+        let edges = kernel.list_edges(&handle);
+
+        for edge in &edges {
+            let (v1, v2) = kernel.edge_vertices(*edge);
+            assert!(all_verts.contains(&v1), "Edge start vertex should exist");
+            assert!(all_verts.contains(&v2), "Edge end vertex should exist");
+            assert_ne!(v1, v2, "Edge endpoints should be distinct");
+        }
+    }
+
+    /// TruckIntrospect wrapper produces same results as direct TruckKernel introspect.
+    #[test]
+    fn test_truck_introspect_wrapper_matches_direct() {
+        let mut kernel = TruckKernel::new();
+        let solid = primitives::make_box(1.0, 2.0, 3.0);
+        let handle = kernel.store_solid(solid);
+
+        let introspect = TruckIntrospect::new(&kernel);
+
+        // list_faces
+        let direct_faces = kernel.list_faces(&handle);
+        let wrapper_faces = introspect.list_faces(&handle);
+        assert_eq!(direct_faces, wrapper_faces);
+
+        // list_edges
+        let direct_edges = kernel.list_edges(&handle);
+        let wrapper_edges = introspect.list_edges(&handle);
+        assert_eq!(direct_edges, wrapper_edges);
+
+        // list_vertices
+        let direct_verts = kernel.list_vertices(&handle);
+        let wrapper_verts = introspect.list_vertices(&handle);
+        assert_eq!(direct_verts, wrapper_verts);
+
+        // face_edges for first face
+        let f0 = direct_faces[0];
+        assert_eq!(kernel.face_edges(f0), introspect.face_edges(f0));
+
+        // edge_faces for first edge
+        let e0 = direct_edges[0];
+        assert_eq!(kernel.edge_faces(e0), introspect.edge_faces(e0));
+
+        // edge_vertices
+        assert_eq!(kernel.edge_vertices(e0), introspect.edge_vertices(e0));
+
+        // face_neighbors
+        assert_eq!(kernel.face_neighbors(f0), introspect.face_neighbors(f0));
+
+        // compute_signature
+        let sig_d = kernel.compute_signature(f0, TopoKind::Face);
+        let sig_w = introspect.compute_signature(f0, TopoKind::Face);
+        assert_eq!(sig_d.surface_type, sig_w.surface_type);
+
+        // compute_all_signatures
+        let all_d = kernel.compute_all_signatures(&handle, TopoKind::Face);
+        let all_w = introspect.compute_all_signatures(&handle, TopoKind::Face);
+        assert_eq!(all_d.len(), all_w.len());
+    }
+
+    /// Non-planar face (cylinder side) centroid is computed from vertices.
+    /// truck represents cylinder sides as BSplineSurface ("nurbs").
+    #[test]
+    fn test_nonplanar_face_centroid() {
+        let mut kernel = TruckKernel::new();
+        let solid = primitives::make_cylinder(1.0, 2.0);
+        let handle = kernel.store_solid(solid);
+
+        let faces = kernel.list_faces(&handle);
+        let mut found_nurbs = false;
+        for face in &faces {
+            let sig = kernel.compute_signature(*face, TopoKind::Face);
+            if sig.surface_type.as_deref() == Some("nurbs") {
+                found_nurbs = true;
+                let centroid = sig.centroid.unwrap();
+                // Centroid should be finite (computed from vertex positions)
+                assert!(centroid[0].is_finite());
+                assert!(centroid[1].is_finite());
+                assert!(centroid[2].is_finite());
+            }
+        }
+        assert!(
+            found_nurbs,
+            "Should find at least one nurbs face on cylinder"
+        );
+    }
 }

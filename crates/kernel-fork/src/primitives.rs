@@ -103,6 +103,36 @@ mod tests {
     }
 
     #[test]
+    fn test_euler_formula_cylinder() {
+        let solid = make_cylinder(1.0, 2.0);
+        let boundaries = solid.boundaries();
+        let shell = &boundaries[0];
+
+        let faces: Vec<_> = shell.face_iter().collect();
+        let mut edge_ids = std::collections::HashSet::new();
+        for edge in shell.edge_iter() {
+            edge_ids.insert(edge.id());
+        }
+        let mut vert_ids = std::collections::HashSet::new();
+        for v in shell.vertex_iter() {
+            vert_ids.insert(v.id());
+        }
+
+        let v = vert_ids.len() as i64;
+        let e = edge_ids.len() as i64;
+        let f = faces.len() as i64;
+
+        assert_eq!(
+            v - e + f,
+            2,
+            "Euler formula V-E+F=2 must hold for cylinder (V={}, E={}, F={})",
+            v,
+            e,
+            f
+        );
+    }
+
+    #[test]
     fn test_make_box_dimensions() {
         let solid = make_box(2.0, 3.0, 4.0);
         let boundaries = solid.boundaries();
@@ -122,5 +152,179 @@ mod tests {
         assert!((max[0] - min[0] - 2.0).abs() < eps, "Width should be 2");
         assert!((max[1] - min[1] - 3.0).abs() < eps, "Height should be 3");
         assert!((max[2] - min[2] - 4.0).abs() < eps, "Depth should be 4");
+    }
+
+    // ── Coverage: make_sphere ────────────────────────────────────────
+
+    /// Sphere has valid topology: single shell.
+    /// Currently ignored: make_sphere produces NotClosedWire from truck.
+    #[test]
+    #[ignore]
+    fn test_make_sphere_topology() {
+        let solid = make_sphere(1.0);
+        let boundaries = solid.boundaries();
+        assert_eq!(boundaries.len(), 1, "Sphere should have 1 shell");
+
+        let shell = &boundaries[0];
+        let faces: Vec<_> = shell.face_iter().collect();
+        // Sphere from revolving a semicircle should have multiple faces
+        assert!(
+            faces.len() >= 2,
+            "Sphere should have at least 2 faces, got {}",
+            faces.len()
+        );
+    }
+
+    /// Euler's formula V-E+F=2 holds for a sphere.
+    /// Currently ignored: make_sphere produces NotClosedWire from truck.
+    #[test]
+    #[ignore]
+    fn test_euler_formula_sphere() {
+        let solid = make_sphere(1.0);
+        let boundaries = solid.boundaries();
+        let shell = &boundaries[0];
+
+        let faces: Vec<_> = shell.face_iter().collect();
+        let mut edge_ids = std::collections::HashSet::new();
+        for edge in shell.edge_iter() {
+            edge_ids.insert(edge.id());
+        }
+        let mut vert_ids = std::collections::HashSet::new();
+        for v in shell.vertex_iter() {
+            vert_ids.insert(v.id());
+        }
+
+        let v = vert_ids.len() as i64;
+        let e = edge_ids.len() as i64;
+        let f = faces.len() as i64;
+
+        assert_eq!(
+            v - e + f,
+            2,
+            "Euler formula V-E+F=2 must hold for sphere (V={}, E={}, F={})",
+            v,
+            e,
+            f
+        );
+    }
+
+    /// Sphere bounding box is approximately [-r, r] in all axes.
+    /// Currently ignored: make_sphere produces NotClosedWire from truck.
+    #[test]
+    #[ignore]
+    fn test_make_sphere_dimensions() {
+        let radius = 2.5;
+        let solid = make_sphere(radius);
+        let boundaries = solid.boundaries();
+        let shell = &boundaries[0];
+
+        let mut min = [f64::MAX; 3];
+        let mut max = [f64::MIN; 3];
+        for v in shell.vertex_iter() {
+            let p = v.point();
+            for i in 0..3 {
+                min[i] = min[i].min(p[i]);
+                max[i] = max[i].max(p[i]);
+            }
+        }
+
+        let eps = 0.1; // Tolerance for curved geometry vertex approximation
+        for i in 0..3 {
+            assert!(
+                (min[i] + radius).abs() < eps,
+                "Sphere min[{}] should be ~{}, got {}",
+                i,
+                -radius,
+                min[i]
+            );
+            assert!(
+                (max[i] - radius).abs() < eps,
+                "Sphere max[{}] should be ~{}, got {}",
+                i,
+                radius,
+                max[i]
+            );
+        }
+    }
+
+    /// Sphere can be tessellated successfully.
+    /// Currently ignored: make_sphere produces NotClosedWire from truck.
+    #[test]
+    #[ignore]
+    fn test_make_sphere_tessellation() {
+        use crate::truck_kernel::TruckKernel;
+
+        let mut kernel = TruckKernel::new();
+        let solid = make_sphere(1.0);
+        let handle = kernel.store_solid(solid);
+
+        let mesh = crate::traits::Kernel::tessellate(&mut kernel, &handle, 0.1).unwrap();
+        assert!(
+            !mesh.vertices.is_empty(),
+            "Sphere mesh should have vertices"
+        );
+        assert!(!mesh.indices.is_empty(), "Sphere mesh should have indices");
+        assert!(!mesh.normals.is_empty(), "Sphere mesh should have normals");
+        assert!(
+            !mesh.face_ranges.is_empty(),
+            "Sphere should have face ranges"
+        );
+
+        // All vertices should be finite
+        for (i, v) in mesh.vertices.iter().enumerate() {
+            assert!(v.is_finite(), "Sphere vertex[{}] = {} is not finite", i, v);
+        }
+    }
+
+    /// Sphere edges can be extracted.
+    /// Currently ignored: make_sphere produces NotClosedWire from truck.
+    #[test]
+    #[ignore]
+    fn test_make_sphere_edges() {
+        use crate::truck_kernel::TruckKernel;
+
+        let mut kernel = TruckKernel::new();
+        let solid = make_sphere(1.0);
+        let handle = kernel.store_solid(solid);
+
+        let edges = crate::traits::Kernel::extract_edges(&mut kernel, &handle, 0.1).unwrap();
+        assert!(
+            !edges.edge_ranges.is_empty(),
+            "Sphere should have edge ranges"
+        );
+    }
+
+    /// make_cylinder with different radius/height values.
+    /// Note: truck only stores wire vertices (one point on the circle),
+    /// so we verify height via z-coordinates and verify the solid is valid.
+    #[test]
+    fn test_make_cylinder_dimensions() {
+        let solid = make_cylinder(2.0, 5.0);
+        let boundaries = solid.boundaries();
+        let shell = &boundaries[0];
+
+        let mut min_z = f64::MAX;
+        let mut max_z = f64::MIN;
+        for v in shell.vertex_iter() {
+            let p = v.point();
+            min_z = min_z.min(p[2]);
+            max_z = max_z.max(p[2]);
+        }
+
+        let eps = 0.01;
+        assert!(
+            min_z.abs() < eps,
+            "Cylinder bottom z should be ~0, got {}",
+            min_z
+        );
+        assert!(
+            (max_z - 5.0).abs() < eps,
+            "Cylinder top z should be ~5, got {}",
+            max_z
+        );
+
+        // Verify it's a valid single-shell solid with expected face count
+        let faces: Vec<_> = shell.face_iter().collect();
+        assert!(faces.len() >= 3, "Cylinder should have at least 3 faces");
     }
 }

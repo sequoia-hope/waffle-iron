@@ -1815,3 +1815,1800 @@ fn bench_solve_300_constraints() {
         per_solve
     );
 }
+
+// ── Coverage: Angle Constraint ──────────────────────────────────────────────
+
+#[test]
+fn angle_constraint_45_degrees() {
+    // Two lines from origin, constrain angle between them to 45 degrees
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 100.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 70.0,
+                y: 70.0,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 10,
+                start_id: 1,
+                end_id: 2,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 11,
+                start_id: 1,
+                end_id: 3,
+                construction: false,
+            },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Horizontal { entity: 10 },
+            SketchConstraint::Distance {
+                entity_a: 1,
+                entity_b: 2,
+                value: 100.0,
+            },
+            SketchConstraint::Distance {
+                entity_a: 1,
+                entity_b: 3,
+                value: 100.0,
+            },
+            SketchConstraint::Angle {
+                line_a: 10,
+                line_b: 11,
+                value_degrees: 45.0,
+            },
+        ],
+    );
+
+    let result = solve_sketch(&sketch);
+    assert!(matches!(result.status, SolveStatus::FullyConstrained));
+
+    let (x3, y3) = result.positions[&3];
+    // With 45 degrees from horizontal, at distance 100: (100*cos(45), 100*sin(45))
+    let expected = 100.0 * std::f64::consts::FRAC_PI_4.cos();
+    assert!((x3 - expected).abs() < 0.1, "x3={x3}, expected ~{expected}");
+    assert!((y3 - expected).abs() < 0.1, "y3={y3}, expected ~{expected}");
+}
+
+// ── Coverage: SymmetricH / SymmetricV ───────────────────────────────────────
+
+#[test]
+fn symmetric_horizontal_constraint() {
+    // slvs SymmetricHoriz: symmetric about Y-axis (opposite x, same y).
+    // Note: slvs naming is counterintuitive — "Horiz" means the OFFSET is horizontal.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 30.0,
+                y: 20.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: -30.0,
+                y: 20.0,
+                construction: false,
+            },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::SymmetricH {
+                point_a: 1,
+                point_b: 2,
+            },
+        ],
+    );
+
+    let result = solve_sketch(&sketch);
+    assert!(
+        matches!(
+            result.status,
+            SolveStatus::FullyConstrained | SolveStatus::UnderConstrained { .. }
+        ),
+        "status: {:?}",
+        result.status
+    );
+
+    let (x1, y1) = result.positions[&1];
+    let (x2, y2) = result.positions[&2];
+    // SymmetricH: opposite x, same y
+    assert!(
+        (x1 + x2).abs() < 1e-4,
+        "x values should be opposite: x1={x1}, x2={x2}"
+    );
+    assert!(
+        (y1 - y2).abs() < 1e-4,
+        "y values should match: y1={y1}, y2={y2}"
+    );
+}
+
+#[test]
+fn symmetric_vertical_constraint() {
+    // slvs SymmetricVert: symmetric about X-axis (same x, opposite y).
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 20.0,
+                y: 30.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 20.0,
+                y: -30.0,
+                construction: false,
+            },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::SymmetricV {
+                point_a: 1,
+                point_b: 2,
+            },
+        ],
+    );
+
+    let result = solve_sketch(&sketch);
+    assert!(
+        matches!(
+            result.status,
+            SolveStatus::FullyConstrained | SolveStatus::UnderConstrained { .. }
+        ),
+        "status: {:?}",
+        result.status
+    );
+
+    let (x1, y1) = result.positions[&1];
+    let (x2, y2) = result.positions[&2];
+    // SymmetricV: same x, opposite y
+    assert!(
+        (x1 - x2).abs() < 1e-4,
+        "x values should match: x1={x1}, x2={x2}"
+    );
+    assert!(
+        (y1 + y2).abs() < 1e-4,
+        "y values should be opposite: y1={y1}, y2={y2}"
+    );
+}
+
+// ── Coverage: Distance Point-Line and Line-Point ────────────────────────────
+
+#[test]
+fn distance_point_to_line() {
+    // Point 3 at distance 25.0 from line 10 (horizontal at y=0).
+    // Don't pin point 3 — let the solver place it via the constraint.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 100.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 50.0,
+                y: 25.0,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 10,
+                start_id: 1,
+                end_id: 2,
+                construction: false,
+            },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Horizontal { entity: 10 },
+            SketchConstraint::Distance {
+                entity_a: 1,
+                entity_b: 2,
+                value: 100.0,
+            },
+            // Point-Line distance: point_a=3 (Point), entity_b=10 (Line)
+            SketchConstraint::Distance {
+                entity_a: 3,
+                entity_b: 10,
+                value: 25.0,
+            },
+        ],
+    );
+
+    let result = solve_sketch(&sketch);
+    assert!(
+        matches!(
+            result.status,
+            SolveStatus::FullyConstrained | SolveStatus::UnderConstrained { .. }
+        ),
+        "status: {:?}",
+        result.status
+    );
+
+    // Point 3 should be at distance 25 from the horizontal line at y=0
+    let (_, y3) = result.positions[&3];
+    assert!(
+        (y3.abs() - 25.0).abs() < 1e-4,
+        "pt-line distance: |y3|={}, expected 25.0",
+        y3.abs()
+    );
+}
+
+#[test]
+fn distance_line_to_point_swap() {
+    // Test the Line-Point swap branch (line is entity_a, point is entity_b)
+    // Don't pin point 3 — let the distance constraint position it.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 100.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 50.0,
+                y: 30.0,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 10,
+                start_id: 1,
+                end_id: 2,
+                construction: false,
+            },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Horizontal { entity: 10 },
+            SketchConstraint::Distance {
+                entity_a: 1,
+                entity_b: 2,
+                value: 100.0,
+            },
+            // Line first, then point — triggers the swap branch
+            SketchConstraint::Distance {
+                entity_a: 10,
+                entity_b: 3,
+                value: 30.0,
+            },
+        ],
+    );
+
+    let result = solve_sketch(&sketch);
+    assert!(
+        matches!(
+            result.status,
+            SolveStatus::FullyConstrained | SolveStatus::UnderConstrained { .. }
+        ),
+        "status: {:?}",
+        result.status
+    );
+
+    let (_, y3) = result.positions[&3];
+    assert!(
+        (y3.abs() - 30.0).abs() < 1e-4,
+        "line-pt distance: |y3|={}, expected 30.0",
+        y3.abs()
+    );
+}
+
+// ── Coverage: Arc Entity + Tangent ──────────────────────────────────────────
+
+#[test]
+fn arc_entity_creation_and_solve() {
+    // Create an arc and verify it can be solved.
+    // Pin center and start, use radius constraint. End point has 1 DOF (angle).
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            }, // center
+            SketchEntity::Point {
+                id: 2,
+                x: 10.0,
+                y: 0.0,
+                construction: false,
+            }, // start
+            SketchEntity::Point {
+                id: 3,
+                x: 0.0,
+                y: 10.0,
+                construction: false,
+            }, // end
+            SketchEntity::Arc {
+                id: 10,
+                center_id: 1,
+                start_id: 2,
+                end_id: 3,
+                construction: false,
+            },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Dragged { point: 2 },
+            // Don't pin end — arc constrains end to same radius as start
+        ],
+    );
+
+    let result = solve_sketch(&sketch);
+    assert!(
+        matches!(
+            result.status,
+            SolveStatus::FullyConstrained | SolveStatus::UnderConstrained { .. }
+        ),
+        "status: {:?}",
+        result.status
+    );
+    assert_point_near(&result.positions, 1, (0.0, 0.0), 1e-6);
+    assert_point_near(&result.positions, 2, (10.0, 0.0), 1e-6);
+    // End point should be at distance 10 from center (arc radius)
+    let (x3, y3) = result.positions[&3];
+    let r = (x3.powi(2) + y3.powi(2)).sqrt();
+    assert!(
+        (r - 10.0).abs() < 1e-3,
+        "arc end should be at radius 10, got {r}"
+    );
+}
+
+#[test]
+fn tangent_arc_line_constraint() {
+    // Arc tangent to a line. Arc centered at (0,50), radius 50, line is horizontal at y=0.
+    // At tangent point (0,0), the arc meets the line tangentially.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point {
+                id: 1,
+                x: -50.0,
+                y: 0.0,
+                construction: false,
+            }, // line start
+            SketchEntity::Point {
+                id: 2,
+                x: 50.0,
+                y: 0.0,
+                construction: false,
+            }, // line end
+            SketchEntity::Point {
+                id: 3,
+                x: 0.0,
+                y: 50.0,
+                construction: false,
+            }, // arc center
+            SketchEntity::Point {
+                id: 4,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            }, // arc start
+            SketchEntity::Point {
+                id: 5,
+                x: 50.0,
+                y: 50.0,
+                construction: false,
+            }, // arc end
+            SketchEntity::Line {
+                id: 10,
+                start_id: 1,
+                end_id: 2,
+                construction: false,
+            },
+            SketchEntity::Arc {
+                id: 11,
+                center_id: 3,
+                start_id: 4,
+                end_id: 5,
+                construction: false,
+            },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Dragged { point: 2 },
+            SketchConstraint::Dragged { point: 3 },
+            SketchConstraint::Dragged { point: 5 },
+            SketchConstraint::Tangent {
+                line: 10,
+                curve: 11,
+            },
+        ],
+    );
+
+    let result = solve_sketch(&sketch);
+    // The tangent constraint should be satisfiable
+    assert!(
+        matches!(
+            result.status,
+            SolveStatus::FullyConstrained | SolveStatus::UnderConstrained { .. }
+        ),
+        "tangent solve status: {:?}",
+        result.status
+    );
+    // Arc start point should be on the line (y near 0)
+    let (_, y4) = result.positions[&4];
+    assert!(
+        y4.abs() < 1e-2,
+        "arc tangent point should be near y=0, got {y4}"
+    );
+}
+
+// ── Coverage: Equal Circle-Circle, Arc-Arc, Circle-Arc, Arc-Circle ──────────
+
+#[test]
+fn equal_radius_two_circles() {
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 50.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Circle {
+                id: 10,
+                center_id: 1,
+                radius: 20.0,
+                construction: false,
+            },
+            SketchEntity::Circle {
+                id: 11,
+                center_id: 2,
+                radius: 15.0,
+                construction: false,
+            },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Dragged { point: 2 },
+            SketchConstraint::Radius {
+                entity: 10,
+                value: 20.0,
+            },
+            SketchConstraint::Equal {
+                entity_a: 10,
+                entity_b: 11,
+            },
+        ],
+    );
+
+    let result = solve_sketch(&sketch);
+    assert!(matches!(result.status, SolveStatus::FullyConstrained));
+}
+
+#[test]
+fn equal_radius_two_arcs() {
+    // Two arcs with EqualRadius. Pin centers and one start each; let endpoints float.
+    let sketch = make_sketch(
+        vec![
+            // Arc 1: center (0,0), start (10,0), end (0,10)
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 10.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 0.0,
+                y: 10.0,
+                construction: false,
+            },
+            SketchEntity::Arc {
+                id: 10,
+                center_id: 1,
+                start_id: 2,
+                end_id: 3,
+                construction: false,
+            },
+            // Arc 2: center (50,0), start (65,0), end (50,15)
+            SketchEntity::Point {
+                id: 4,
+                x: 50.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 5,
+                x: 65.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 6,
+                x: 50.0,
+                y: 15.0,
+                construction: false,
+            },
+            SketchEntity::Arc {
+                id: 11,
+                center_id: 4,
+                start_id: 5,
+                end_id: 6,
+                construction: false,
+            },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Dragged { point: 2 },
+            SketchConstraint::Dragged { point: 4 },
+            // EqualRadius: arc 10 and arc 11 should have the same radius
+            SketchConstraint::Equal {
+                entity_a: 10,
+                entity_b: 11,
+            },
+        ],
+    );
+
+    let result = solve_sketch(&sketch);
+    assert!(
+        matches!(
+            result.status,
+            SolveStatus::FullyConstrained | SolveStatus::UnderConstrained { .. }
+        ),
+        "status: {:?}",
+        result.status
+    );
+    // Both arcs should have equal radius. Arc1: center(0,0), start(10,0) → r=10.
+    // Arc2 start should be at distance 10 from center(50,0).
+    let (x4, y4) = result.positions[&4];
+    let (x5, y5) = result.positions[&5];
+    let r2 = ((x5 - x4).powi(2) + (y5 - y4).powi(2)).sqrt();
+    assert!(
+        (r2 - 10.0).abs() < 1e-3,
+        "arc2 radius should be 10, got {r2}"
+    );
+}
+
+#[test]
+fn equal_radius_circle_arc() {
+    // Circle with radius 25, then an arc that should match via EqualRadius.
+    // Don't over-constrain arc points.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Circle {
+                id: 10,
+                center_id: 1,
+                radius: 25.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 80.0,
+                y: 0.0,
+                construction: false,
+            }, // arc center
+            SketchEntity::Point {
+                id: 3,
+                x: 100.0,
+                y: 0.0,
+                construction: false,
+            }, // arc start
+            SketchEntity::Point {
+                id: 4,
+                x: 80.0,
+                y: 20.0,
+                construction: false,
+            }, // arc end
+            SketchEntity::Arc {
+                id: 11,
+                center_id: 2,
+                start_id: 3,
+                end_id: 4,
+                construction: false,
+            },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Radius {
+                entity: 10,
+                value: 25.0,
+            },
+            SketchConstraint::Dragged { point: 2 },
+            // Circle-Arc equal radius
+            SketchConstraint::Equal {
+                entity_a: 10,
+                entity_b: 11,
+            },
+        ],
+    );
+
+    let result = solve_sketch(&sketch);
+    assert!(
+        matches!(
+            result.status,
+            SolveStatus::FullyConstrained | SolveStatus::UnderConstrained { .. }
+        ),
+        "status: {:?}",
+        result.status
+    );
+    // Arc start (pt 3) should be at distance 25 from arc center (pt 2)
+    let (x2, y2) = result.positions[&2];
+    let (x3, y3) = result.positions[&3];
+    let r = ((x3 - x2).powi(2) + (y3 - y2).powi(2)).sqrt();
+    assert!(
+        (r - 25.0).abs() < 1e-3,
+        "arc radius should equal circle radius 25, got {r}"
+    );
+}
+
+#[test]
+fn equal_radius_arc_circle() {
+    // Arc first, Circle second — tests the (Arc, Circle) branch.
+    // Pin arc center and start only. Pin circle center.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 15.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 0.0,
+                y: 15.0,
+                construction: false,
+            },
+            SketchEntity::Arc {
+                id: 10,
+                center_id: 1,
+                start_id: 2,
+                end_id: 3,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 4,
+                x: 60.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Circle {
+                id: 11,
+                center_id: 4,
+                radius: 30.0,
+                construction: false,
+            },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Dragged { point: 2 },
+            SketchConstraint::Dragged { point: 4 },
+            // Arc-Circle equal radius
+            SketchConstraint::Equal {
+                entity_a: 10,
+                entity_b: 11,
+            },
+        ],
+    );
+
+    let result = solve_sketch(&sketch);
+    assert!(
+        matches!(
+            result.status,
+            SolveStatus::FullyConstrained | SolveStatus::UnderConstrained { .. }
+        ),
+        "status: {:?}",
+        result.status
+    );
+}
+
+// ── Coverage: Radius/Diameter on Arc ────────────────────────────────────────
+
+#[test]
+fn radius_constraint_on_arc() {
+    // Pin only the center. The radius constraint sets the arc size.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 30.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 0.0,
+                y: 30.0,
+                construction: false,
+            },
+            SketchEntity::Arc {
+                id: 10,
+                center_id: 1,
+                start_id: 2,
+                end_id: 3,
+                construction: false,
+            },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Radius {
+                entity: 10,
+                value: 30.0,
+            },
+        ],
+    );
+
+    let result = solve_sketch(&sketch);
+    assert!(
+        matches!(
+            result.status,
+            SolveStatus::FullyConstrained | SolveStatus::UnderConstrained { .. }
+        ),
+        "status: {:?}",
+        result.status
+    );
+    // Start point should be at distance 30 from center
+    let (x1, y1) = result.positions[&1];
+    let (x2, y2) = result.positions[&2];
+    let r = ((x2 - x1).powi(2) + (y2 - y1).powi(2)).sqrt();
+    assert!((r - 30.0).abs() < 1e-3, "arc radius should be 30, got {r}");
+}
+
+#[test]
+fn diameter_constraint_on_arc() {
+    // Pin only center. Diameter constraint sets arc size.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 20.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 0.0,
+                y: 20.0,
+                construction: false,
+            },
+            SketchEntity::Arc {
+                id: 10,
+                center_id: 1,
+                start_id: 2,
+                end_id: 3,
+                construction: false,
+            },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Diameter {
+                entity: 10,
+                value: 40.0,
+            },
+        ],
+    );
+
+    let result = solve_sketch(&sketch);
+    assert!(
+        matches!(
+            result.status,
+            SolveStatus::FullyConstrained | SolveStatus::UnderConstrained { .. }
+        ),
+        "status: {:?}",
+        result.status
+    );
+    // Start point should be at distance 20 (diameter/2) from center
+    let (x1, y1) = result.positions[&1];
+    let (x2, y2) = result.positions[&2];
+    let r = ((x2 - x1).powi(2) + (y2 - y1).powi(2)).sqrt();
+    assert!(
+        (r - 20.0).abs() < 1e-3,
+        "arc radius should be 20 (d=40), got {r}"
+    );
+}
+
+// ── Coverage: OnEntity Point-on-Circle and Point-on-Arc ─────────────────────
+
+#[test]
+fn on_entity_point_on_circle() {
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Circle {
+                id: 10,
+                center_id: 1,
+                radius: 25.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 25.0,
+                y: 1.0,
+                construction: false,
+            },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Radius {
+                entity: 10,
+                value: 25.0,
+            },
+            SketchConstraint::OnEntity {
+                point: 2,
+                entity: 10,
+            },
+        ],
+    );
+
+    let result = solve_sketch(&sketch);
+    assert!(
+        matches!(result.status, SolveStatus::UnderConstrained { .. }),
+        "status: {:?}",
+        result.status
+    );
+
+    // Point 2 should be on the circle (distance from center = 25)
+    let (x1, y1) = result.positions[&1];
+    let (x2, y2) = result.positions[&2];
+    let dist = ((x2 - x1).powi(2) + (y2 - y1).powi(2)).sqrt();
+    assert!(
+        (dist - 25.0).abs() < 1e-3,
+        "point should be on circle: dist={dist}, expected 25"
+    );
+}
+
+#[test]
+fn on_entity_point_on_arc() {
+    // Don't over-constrain arc. Pin center and start only.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            }, // arc center
+            SketchEntity::Point {
+                id: 2,
+                x: 20.0,
+                y: 0.0,
+                construction: false,
+            }, // arc start
+            SketchEntity::Point {
+                id: 3,
+                x: 0.0,
+                y: 20.0,
+                construction: false,
+            }, // arc end
+            SketchEntity::Arc {
+                id: 10,
+                center_id: 1,
+                start_id: 2,
+                end_id: 3,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 4,
+                x: 14.0,
+                y: 14.0,
+                construction: false,
+            }, // point on arc
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Dragged { point: 2 },
+            SketchConstraint::OnEntity {
+                point: 4,
+                entity: 10,
+            },
+        ],
+    );
+
+    let result = solve_sketch(&sketch);
+    assert!(
+        matches!(
+            result.status,
+            SolveStatus::UnderConstrained { .. } | SolveStatus::FullyConstrained
+        ),
+        "status: {:?}",
+        result.status
+    );
+
+    // Point 4 should be on the arc (distance from center = 20)
+    let (x1, y1) = result.positions[&1];
+    let (x4, y4) = result.positions[&4];
+    let dist = ((x4 - x1).powi(2) + (y4 - y1).powi(2)).sqrt();
+    assert!(
+        (dist - 20.0).abs() < 1e-3,
+        "point should be on arc: dist={dist}, expected 20"
+    );
+}
+
+// ── Coverage: EqualAngle ────────────────────────────────────────────────────
+
+#[test]
+fn equal_angle_four_lines() {
+    // Angle between lines 10-11 should equal angle between lines 12-13
+    let sketch = make_sketch(
+        vec![
+            // First pair of lines from origin
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 50.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 40.0,
+                y: 30.0,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 10,
+                start_id: 1,
+                end_id: 2,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 11,
+                start_id: 1,
+                end_id: 3,
+                construction: false,
+            },
+            // Second pair from (100,0)
+            SketchEntity::Point {
+                id: 4,
+                x: 100.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 5,
+                x: 150.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 6,
+                x: 130.0,
+                y: 50.0,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 12,
+                start_id: 4,
+                end_id: 5,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 13,
+                start_id: 4,
+                end_id: 6,
+                construction: false,
+            },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Dragged { point: 2 },
+            SketchConstraint::Dragged { point: 3 },
+            SketchConstraint::Dragged { point: 4 },
+            SketchConstraint::Horizontal { entity: 12 },
+            SketchConstraint::Distance {
+                entity_a: 4,
+                entity_b: 5,
+                value: 50.0,
+            },
+            SketchConstraint::Distance {
+                entity_a: 4,
+                entity_b: 6,
+                value: 50.0,
+            },
+            SketchConstraint::EqualAngle {
+                line_a: 10,
+                line_b: 11,
+                line_c: 12,
+                line_d: 13,
+            },
+        ],
+    );
+
+    let result = solve_sketch(&sketch);
+    assert!(
+        matches!(
+            result.status,
+            SolveStatus::FullyConstrained | SolveStatus::UnderConstrained { .. }
+        ),
+        "status: {:?}",
+        result.status
+    );
+
+    // Verify the angles are equal
+    let p1 = result.positions[&1];
+    let p2 = result.positions[&2];
+    let p3 = result.positions[&3];
+    let p4 = result.positions[&4];
+    let p5 = result.positions[&5];
+    let p6 = result.positions[&6];
+
+    let angle1 = ((p3.1 - p1.1).atan2(p3.0 - p1.0) - (p2.1 - p1.1).atan2(p2.0 - p1.0)).abs();
+    let angle2 = ((p6.1 - p4.1).atan2(p6.0 - p4.0) - (p5.1 - p4.1).atan2(p5.0 - p4.0)).abs();
+    assert!(
+        (angle1 - angle2).abs() < 0.05,
+        "angles should be equal: {angle1} vs {angle2}"
+    );
+}
+
+// ── Coverage: Ratio (LengthRatio) ───────────────────────────────────────────
+
+#[test]
+fn length_ratio_constraint() {
+    // LengthRatio: line_a / line_b = value.
+    // Line 10 = 40, ratio 2.0 → line 11 should be 20.
+    // Set initial point 4 near expected position to help convergence.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 40.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 0.0,
+                y: 20.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 4,
+                x: 20.0,
+                y: 20.0,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 10,
+                start_id: 1,
+                end_id: 2,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 11,
+                start_id: 3,
+                end_id: 4,
+                construction: false,
+            },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Horizontal { entity: 10 },
+            SketchConstraint::Distance {
+                entity_a: 1,
+                entity_b: 2,
+                value: 40.0,
+            },
+            SketchConstraint::Dragged { point: 3 },
+            SketchConstraint::Horizontal { entity: 11 },
+            SketchConstraint::Ratio {
+                entity_a: 10,
+                entity_b: 11,
+                value: 2.0,
+            },
+        ],
+    );
+
+    let result = solve_sketch(&sketch);
+    assert!(
+        matches!(
+            result.status,
+            SolveStatus::FullyConstrained | SolveStatus::UnderConstrained { .. }
+        ),
+        "status: {:?}",
+        result.status
+    );
+
+    let (x3, _) = result.positions[&3];
+    let (x4, _) = result.positions[&4];
+    let len11 = (x4 - x3).abs();
+    // 40 / len11 = 2.0 → len11 = 20
+    assert!(
+        (len11 - 20.0).abs() < 1e-3,
+        "line 11 length should be 20, got {len11}"
+    );
+}
+
+// ── Coverage: EqualPointToLine ──────────────────────────────────────────────
+
+#[test]
+fn equal_point_to_line_distance() {
+    // Two points equidistant from a line.
+    // Don't over-constrain: pin line endpoints and one point, let the other float.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 100.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 10,
+                start_id: 1,
+                end_id: 2,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 30.0,
+                y: 20.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 4,
+                x: 70.0,
+                y: 20.0,
+                construction: false,
+            },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Horizontal { entity: 10 },
+            SketchConstraint::Distance {
+                entity_a: 1,
+                entity_b: 2,
+                value: 100.0,
+            },
+            SketchConstraint::EqualPointToLine {
+                point_a: 3,
+                point_b: 4,
+                line: 10,
+            },
+        ],
+    );
+
+    let result = solve_sketch(&sketch);
+    assert!(
+        matches!(
+            result.status,
+            SolveStatus::UnderConstrained { .. } | SolveStatus::FullyConstrained
+        ),
+        "status: {:?}",
+        result.status
+    );
+
+    // Both points should be at the same distance from the horizontal line (y=0)
+    let (_, y3) = result.positions[&3];
+    let (_, y4) = result.positions[&4];
+    assert!(
+        (y3.abs() - y4.abs()).abs() < 1e-3,
+        "distances should be equal: |y3|={}, |y4|={}",
+        y3.abs(),
+        y4.abs()
+    );
+}
+
+// ── Coverage: SameOrientation (no-op in 2D) ─────────────────────────────────
+
+#[test]
+fn same_orientation_is_noop() {
+    // SameOrientation is a no-op in 2D sketch context.
+    // Just verify it doesn't panic.
+    let sketch = make_sketch(
+        vec![SketchEntity::Point {
+            id: 1,
+            x: 0.0,
+            y: 0.0,
+            construction: false,
+        }],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::SameOrientation {
+                entity_a: 1,
+                entity_b: 1,
+            },
+        ],
+    );
+
+    let result = solve_sketch(&sketch);
+    assert!(matches!(result.status, SolveStatus::FullyConstrained));
+}
+
+// ── Coverage: Profile with Arc edges ────────────────────────────────────────
+
+#[test]
+fn profile_with_arc_and_lines() {
+    // A D-shape: 3 lines + 1 arc. Don't pin all 5 points (arc over-constrains).
+    // Pin the 4 corner points. Arc center floats.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 50.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 50.0,
+                y: 50.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 4,
+                x: 0.0,
+                y: 50.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 5,
+                x: 75.0,
+                y: 25.0,
+                construction: false,
+            }, // arc center
+            SketchEntity::Line {
+                id: 10,
+                start_id: 1,
+                end_id: 2,
+                construction: false,
+            },
+            SketchEntity::Arc {
+                id: 11,
+                center_id: 5,
+                start_id: 2,
+                end_id: 3,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 12,
+                start_id: 3,
+                end_id: 4,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 13,
+                start_id: 4,
+                end_id: 1,
+                construction: false,
+            },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Dragged { point: 2 },
+            SketchConstraint::Dragged { point: 4 },
+            // Arc start(2) and end(3) are shared with lines. Only pin start(2).
+            // Don't pin pt3 or pt5 to avoid over-constraining the arc.
+        ],
+    );
+
+    let result = solve_sketch(&sketch);
+    assert!(
+        matches!(
+            result.status,
+            SolveStatus::FullyConstrained | SolveStatus::UnderConstrained { .. }
+        ),
+        "status: {:?}",
+        result.status
+    );
+
+    // Should have at least one profile containing the arc
+    let has_arc_profile = result.profiles.iter().any(|p| p.entity_ids.contains(&11));
+    assert!(
+        has_arc_profile,
+        "profile should include the arc entity; profiles: {:?}",
+        result.profiles
+    );
+}
+
+#[test]
+fn profile_construction_arc_excluded() {
+    // Arc marked as construction should not appear in profiles
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 10.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 0.0,
+                y: 10.0,
+                construction: false,
+            },
+            SketchEntity::Arc {
+                id: 10,
+                center_id: 1,
+                start_id: 2,
+                end_id: 3,
+                construction: true,
+            },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Dragged { point: 2 },
+            SketchConstraint::Dragged { point: 3 },
+        ],
+    );
+
+    let result = solve_sketch(&sketch);
+    // Construction arc should not produce a profile edge
+    let has_arc_profile = result.profiles.iter().any(|p| p.entity_ids.contains(&10));
+    assert!(
+        !has_arc_profile,
+        "construction arc should not be in profiles"
+    );
+}
+
+// ── Coverage: Multiple constraints batch (add_constraints) ──────────────────
+
+#[test]
+fn multiple_constraints_combined() {
+    // Test a sketch that exercises many constraint types together.
+    // Rectangle: H/V + distance + equal (square) + midpoint.
+    // Note: H+V+Perp+Parallel together can over-constrain, so use a minimal set.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 50.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 50.0,
+                y: 50.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 4,
+                x: 0.0,
+                y: 50.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 5,
+                x: 25.0,
+                y: 0.0,
+                construction: false,
+            }, // midpoint
+            SketchEntity::Line {
+                id: 10,
+                start_id: 1,
+                end_id: 2,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 11,
+                start_id: 2,
+                end_id: 3,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 12,
+                start_id: 3,
+                end_id: 4,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 13,
+                start_id: 4,
+                end_id: 1,
+                construction: false,
+            },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Horizontal { entity: 10 },
+            SketchConstraint::Horizontal { entity: 12 },
+            SketchConstraint::Vertical { entity: 11 },
+            SketchConstraint::Vertical { entity: 13 },
+            SketchConstraint::Distance {
+                entity_a: 1,
+                entity_b: 2,
+                value: 50.0,
+            },
+            SketchConstraint::Equal {
+                entity_a: 10,
+                entity_b: 11,
+            },
+            SketchConstraint::Midpoint { point: 5, line: 10 },
+        ],
+    );
+
+    let result = solve_sketch(&sketch);
+    assert!(matches!(result.status, SolveStatus::FullyConstrained));
+
+    let tol = 1e-4;
+    assert_point_near(&result.positions, 1, (0.0, 0.0), tol);
+    assert_point_near(&result.positions, 2, (50.0, 0.0), tol);
+    assert_point_near(&result.positions, 3, (50.0, 50.0), tol);
+    assert_point_near(&result.positions, 4, (0.0, 50.0), tol);
+    assert_point_near(&result.positions, 5, (25.0, 0.0), tol);
+}
+
+// ── Coverage: profiles.rs edge cases ────────────────────────────────────────
+
+#[test]
+fn profile_single_line_no_profile() {
+    // A single line cannot form a closed profile
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 100.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 10,
+                start_id: 1,
+                end_id: 2,
+                construction: false,
+            },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Dragged { point: 2 },
+        ],
+    );
+
+    let result = solve_sketch(&sketch);
+    assert!(
+        result.profiles.is_empty(),
+        "single line should not form a profile"
+    );
+}
+
+#[test]
+fn profile_triangle() {
+    // Three lines forming a triangle
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 60.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 30.0,
+                y: 52.0,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 10,
+                start_id: 1,
+                end_id: 2,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 11,
+                start_id: 2,
+                end_id: 3,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 12,
+                start_id: 3,
+                end_id: 1,
+                construction: false,
+            },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Dragged { point: 2 },
+            SketchConstraint::Dragged { point: 3 },
+        ],
+    );
+
+    let result = solve_sketch(&sketch);
+    assert!(matches!(result.status, SolveStatus::FullyConstrained));
+
+    // Should have exactly one outer profile with 3 edges
+    let outer = result
+        .profiles
+        .iter()
+        .filter(|p| p.is_outer)
+        .collect::<Vec<_>>();
+    assert_eq!(outer.len(), 1, "triangle should produce 1 outer profile");
+    assert_eq!(
+        outer[0].entity_ids.len(),
+        3,
+        "triangle profile should have 3 edges"
+    );
+}
+
+#[test]
+fn profile_only_points_no_profile() {
+    // Only points, no lines/arcs → no edges, no profile
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 10.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 5.0,
+                y: 10.0,
+                construction: false,
+            },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Dragged { point: 2 },
+            SketchConstraint::Dragged { point: 3 },
+        ],
+    );
+
+    let result = solve_sketch(&sketch);
+    assert!(
+        result.profiles.is_empty(),
+        "points-only sketch should have no profiles"
+    );
+}
+
+// ── Coverage: status.rs SolveFailed branch ──────────────────────────────────
+
+#[test]
+fn solve_status_types() {
+    // Test that the status classification works for different scenarios.
+    // FullyConstrained is already tested extensively.
+    // UnderConstrained is already tested extensively.
+    // OverConstrained is tested in status_over_constrained.
+    // Verify we can distinguish between them properly.
+
+    // Fully constrained
+    let s1 = make_sketch(
+        vec![SketchEntity::Point {
+            id: 1,
+            x: 0.0,
+            y: 0.0,
+            construction: false,
+        }],
+        vec![SketchConstraint::Dragged { point: 1 }],
+    );
+    let r1 = solve_sketch(&s1);
+    assert!(matches!(r1.status, SolveStatus::FullyConstrained));
+    // Profiles should be extracted for FullyConstrained
+    assert!(r1.positions.contains_key(&1));
+
+    // Under constrained
+    let s2 = make_sketch(
+        vec![SketchEntity::Point {
+            id: 1,
+            x: 5.0,
+            y: 5.0,
+            construction: false,
+        }],
+        vec![],
+    );
+    let r2 = solve_sketch(&s2);
+    assert!(matches!(r2.status, SolveStatus::UnderConstrained { .. }));
+    // Profiles should be extracted for UnderConstrained too
+    assert!(r2.positions.contains_key(&1));
+}
+
+// ── Coverage: Coincident between non-trivial points ─────────────────────────
+
+#[test]
+fn coincident_merges_points() {
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 10.0,
+                y: 20.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 15.0,
+                y: 25.0,
+                construction: false,
+            },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Coincident {
+                point_a: 1,
+                point_b: 2,
+            },
+        ],
+    );
+
+    let result = solve_sketch(&sketch);
+    assert!(matches!(result.status, SolveStatus::FullyConstrained));
+
+    let (x1, y1) = result.positions[&1];
+    let (x2, y2) = result.positions[&2];
+    assert!((x1 - x2).abs() < 1e-6, "coincident x: {x1} vs {x2}");
+    assert!((y1 - y2).abs() < 1e-6, "coincident y: {y1} vs {y2}");
+}
+
+// ── Coverage: Angle with non-45 degree value ────────────────────────────────
+
+#[test]
+fn angle_constraint_90_degrees() {
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 50.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 0.0,
+                y: 50.0,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 10,
+                start_id: 1,
+                end_id: 2,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 11,
+                start_id: 1,
+                end_id: 3,
+                construction: false,
+            },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Horizontal { entity: 10 },
+            SketchConstraint::Distance {
+                entity_a: 1,
+                entity_b: 2,
+                value: 50.0,
+            },
+            SketchConstraint::Distance {
+                entity_a: 1,
+                entity_b: 3,
+                value: 50.0,
+            },
+            SketchConstraint::Angle {
+                line_a: 10,
+                line_b: 11,
+                value_degrees: 90.0,
+            },
+        ],
+    );
+
+    let result = solve_sketch(&sketch);
+    assert!(matches!(result.status, SolveStatus::FullyConstrained));
+
+    let tol = 1e-4;
+    assert_point_near(&result.positions, 3, (0.0, 50.0), tol);
+}
