@@ -27,6 +27,21 @@ pub struct HealingResult {
     pub failed: usize,
 }
 
+/// Project BSpline control points onto a plane to eliminate off-plane drift.
+///
+/// When `heal_intersection_curves` converts a plane-cylinder IC edge to a
+/// BSpline approximation, control points can float slightly off the plane
+/// (1e-7 to 1e-5 error). A second boolean on this solid then diverges because
+/// the BSpline edge isn't exactly on the surface. Projecting control points
+/// onto the plane eliminates this error source.
+fn project_bspline_onto_plane(bsp: &mut BSplineCurve<Point3>, origin: Point3, normal: Vector3) {
+    for i in 0..bsp.control_points().len() {
+        let pt = bsp.control_points()[i];
+        let dist = (pt - origin).dot(normal);
+        *bsp.control_point_mut(i) = pt - normal * dist;
+    }
+}
+
 /// Replace `IntersectionCurve` edges in a solid with simpler curve types.
 ///
 /// For plane-plane intersections: exact `Line` replacement.
@@ -70,12 +85,29 @@ pub fn heal_intersection_curves(solid: &Solid, tol: f64) -> HealingResult {
             let heal_d_tol = heal_tol * 1000.0;
             let heal_trials = if pc { 100 } else { 50 };
 
+            // Extract plane data for post-projection when one surface is a plane.
+            // This fixes BSpline control points that drift off the plane surface.
+            let plane_data: Option<(Point3, Vector3)> = if pc {
+                match (ic.surface0(), ic.surface1()) {
+                    (Surface::Plane(p), _) | (_, Surface::Plane(p)) => {
+                        Some((p.origin(), p.normal()))
+                    }
+                    _ => None,
+                }
+            } else {
+                None
+            };
+
             // Curved intersection: use BSpline approximation.
             // Try truck's built-in to_bspline_leader() first.
             if curve.to_bspline_leader(heal_tol, heal_d_tol, heal_trials) {
                 if let Curve::IntersectionCurve(ref ic) = curve {
                     if let Leader::BSpline(ref bsp) = ic.leader() {
                         let mut bsp_curve = bsp.clone();
+                        // Project onto plane before endpoint snapping
+                        if let Some((origin, normal)) = plane_data {
+                            project_bspline_onto_plane(&mut bsp_curve, origin, normal);
+                        }
                         let n_cp = bsp_curve.control_points().len();
                         *bsp_curve.control_point_mut(0) = front_pt;
                         *bsp_curve.control_point_mut(n_cp - 1) = back_pt;
@@ -109,6 +141,10 @@ pub fn heal_intersection_curves(solid: &Solid, tol: f64) -> HealingResult {
                 };
 
                 if let Some(mut bsp) = approx {
+                    // Project onto plane before endpoint snapping
+                    if let Some((origin, normal)) = plane_data {
+                        project_bspline_onto_plane(&mut bsp, origin, normal);
+                    }
                     let n_cp = bsp.control_points().len();
                     *bsp.control_point_mut(0) = front_pt;
                     *bsp.control_point_mut(n_cp - 1) = back_pt;
@@ -198,11 +234,55 @@ pub fn translate_solid(solid: &Solid, offset: Vector3) -> Solid {
     )
 }
 
-/// Try a boolean operation with coplanar perturbation retry.
+/// Detect ALL coplanar face directions between two solids.
 ///
-/// Attempts the operation directly first. If it returns None, detects coplanar
-/// faces and retries with the tool solid translated at increasing epsilon values.
-/// Returns the result solid, or None if all attempts fail.
+/// Returns a deduplicated list of perturbation directions (into `solid_a`'s
+/// interior, i.e. opposite the outward normal of each coplanar face pair).
+/// This is more thorough than `detect_coplanar_direction` which only returns
+/// the first match — multi-face coplanarity needs all directions for composite
+/// perturbation.
+pub fn detect_all_coplanar_directions(solid_a: &Solid, solid_b: &Solid, tol: f64) -> Vec<Vector3> {
+    let mut dirs: Vec<Vector3> = Vec::new();
+    for shell_a in solid_a.boundaries() {
+        for face_a in shell_a.iter() {
+            let (sample_a, normal_a) = match face_outward_sample(face_a) {
+                Some(v) => v,
+                None => continue,
+            };
+            for shell_b in solid_b.boundaries() {
+                for face_b in shell_b.iter() {
+                    let (sample_b, normal_b) = match face_outward_sample(face_b) {
+                        Some(v) => v,
+                        None => continue,
+                    };
+                    if normal_a.dot(normal_b).abs() < 1.0 - tol {
+                        continue;
+                    }
+                    if (sample_a - sample_b).dot(normal_a).abs() > tol {
+                        continue;
+                    }
+                    let dir = -normal_a;
+                    // Deduplicate similar directions
+                    if !dirs.iter().any(|d| {
+                        (d.x - dir.x).abs() < tol
+                            && (d.y - dir.y).abs() < tol
+                            && (d.z - dir.z).abs() < tol
+                    }) {
+                        dirs.push(dir);
+                    }
+                }
+            }
+        }
+    }
+    dirs
+}
+
+/// Try a boolean operation with multi-axis perturbation retry.
+///
+/// Attempts the operation directly first. If it returns None, detects all
+/// coplanar face directions and retries with composite and individual
+/// perturbations. Falls back to cardinal-direction perturbation for
+/// edge-coincident cases where coplanarity detection doesn't trigger.
 pub fn try_boolean_with_perturbation(
     solid_a: &Solid,
     solid_b: &Solid,
@@ -213,13 +293,62 @@ pub fn try_boolean_with_perturbation(
         return Some(result);
     }
 
-    // Try perturbation at increasing magnitudes
-    if let Some(dir) = detect_coplanar_direction(solid_a, solid_b, 0.05) {
-        for &eps in &[1e-5, 1e-4, 1e-3, 0.01] {
-            let perturbed_b = translate_solid(solid_b, dir * eps);
-            if let Some(result) = op(solid_a, &perturbed_b) {
-                return Some(result);
+    // Detect ALL coplanar directions
+    let dirs = detect_all_coplanar_directions(solid_a, solid_b, 0.05);
+
+    if !dirs.is_empty() {
+        // Try composite perturbation (sum of all coplanar directions)
+        if dirs.len() > 1 {
+            let composite: Vector3 = dirs
+                .iter()
+                .copied()
+                .fold(Vector3::new(0.0, 0.0, 0.0), |a, b| a + b);
+            let len = composite.magnitude();
+            if len > 1e-10 {
+                let composite_dir = composite / len;
+                for &eps in &[1e-5, 1e-4, 1e-3, 0.01] {
+                    let perturbed_b = translate_solid(solid_b, composite_dir * eps);
+                    if let Some(result) = op(solid_a, &perturbed_b) {
+                        return Some(result);
+                    }
+                }
             }
+        }
+
+        // Try each individual coplanar direction
+        for dir in &dirs {
+            for &eps in &[1e-5, 1e-4, 1e-3, 0.01] {
+                let perturbed_b = translate_solid(solid_b, *dir * eps);
+                if let Some(result) = op(solid_a, &perturbed_b) {
+                    return Some(result);
+                }
+            }
+        }
+    }
+
+    // Cardinal fallback — for edge-coincident cases where coplanarity
+    // detection doesn't trigger
+    let cardinal = [
+        Vector3::new(1e-5, 0.0, 0.0),
+        Vector3::new(0.0, 1e-5, 0.0),
+        Vector3::new(0.0, 0.0, 1e-5),
+        Vector3::new(1e-5, 1e-5, 0.0),
+        Vector3::new(1e-5, 0.0, 1e-5),
+        Vector3::new(0.0, 1e-5, 1e-5),
+        Vector3::new(1e-5, 1e-5, 1e-5),
+    ];
+    for offset in &cardinal {
+        let perturbed_b = translate_solid(solid_b, *offset);
+        if let Some(result) = op(solid_a, &perturbed_b) {
+            return Some(result);
+        }
+    }
+
+    // Final fallback: perturb solid_a instead
+    for offset in &cardinal {
+        let perturbed_a = translate_solid(solid_a, *offset);
+        if let Some(result) = op(&perturbed_a, solid_b) {
+            return Some(result);
         }
     }
 
@@ -523,7 +652,6 @@ mod tests {
     /// This test is intermittent due to numerical sensitivity in healed edge geometry.
     /// It verifies the perturbation mechanism works but may not pass every run.
     #[test]
-    #[ignore = "intermittent: healed edge numerical sensitivity in chained booleans"]
     fn test_perturbation_retry_chained_boss() {
         let v = builder::vertex(Point3::new(0.0, 0.0, 0.0));
         let e = builder::tsweep(&v, Vector3::new(10.0, 0.0, 0.0));

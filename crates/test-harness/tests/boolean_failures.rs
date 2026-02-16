@@ -101,7 +101,6 @@ fn rect_cut_coplanar_edges() {
 /// Rect cut profile exactly matches the box top face.
 /// Creates fully coplanar faces on all four sides of the tool.
 #[test]
-#[ignore = "truck 0.4: fully covering cut profile — all four tool sides have coincident edges with target"]
 fn rect_cut_at_box_boundary() {
     let mut m = base_cube();
 
@@ -133,7 +132,7 @@ fn circle_cut_tangent_to_box_edge() {
 /// The tool body protrudes past a box edge, requiring truck to
 /// compute a partial intersection curve on the face.
 #[test]
-#[ignore = "truck 0.4: circle extending beyond face boundary — intersection curve crosses face edge"]
+#[ignore = "truck 0.4: circle extending beyond face boundary — NoSolid despite cardinal perturbation"]
 fn circle_cut_crossing_box_edge() {
     let mut m = base_cube();
 

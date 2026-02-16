@@ -877,56 +877,40 @@ mod tests {
         );
     }
 
-    /// STEP export investigation: boolean result
-    /// truck-stepio docs say "Shapes created by set operations cannot be output yet."
-    /// This test verifies that claim and documents the failure mode.
+    /// STEP export of a boolean union result via the TruckKernel API.
+    /// The kernel auto-heals IntersectionCurve edges, making STEP export safe.
     #[test]
-    #[ignore]
-    fn investigate_step_export_boolean_result() {
-        use truck_stepio::out::*;
-        use truck_topology::compress::CompressedSolid;
+    fn test_step_export_boolean_result() {
+        let mut kernel = TruckKernel::new();
 
-        // Create two offset boxes and union them
+        // Create two offset boxes and store them in the kernel
         let box_a = primitives::make_box(2.0, 2.0, 2.0);
-        let v = truck_modeling::builder::vertex(Point3::new(0.5, 0.5, 0.5));
-        let e = truck_modeling::builder::tsweep(&v, Vector3::new(1.0, 0.0, 0.0));
-        let f = truck_modeling::builder::tsweep(&e, Vector3::new(0.0, 1.0, 0.0));
-        let box_b: Solid = truck_modeling::builder::tsweep(&f, Vector3::new(0.0, 0.0, 1.0));
+        let handle_a = kernel.store_solid(box_a);
 
-        let result = truck_shapeops::or(&box_a, &box_b, 0.05);
+        let v = builder::vertex(Point3::new(0.5, 0.5, 0.5));
+        let e = builder::tsweep(&v, Vector3::new(1.0, 0.0, 0.0));
+        let f = builder::tsweep(&e, Vector3::new(0.0, 1.0, 0.0));
+        let box_b: Solid = builder::tsweep(&f, Vector3::new(0.0, 0.0, 1.0));
+        let handle_b = kernel.store_solid(box_b);
 
-        match result {
-            Some(union_solid) => {
-                println!("\nBoolean union succeeded. Attempting STEP export...");
-                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    let compressed: CompressedSolid<_, _, _> = union_solid.compress();
-                    let step_model = StepModel::from(&compressed);
-                    let header = StepHeaderDescriptor {
-                        file_name: "test_boolean.step".to_string(),
-                        ..Default::default()
-                    };
-                    let complete = CompleteStepDisplay::new(step_model, header);
-                    complete.to_string()
-                }));
+        // Boolean union via kernel (auto-heals intersection curves)
+        let union_handle = kernel
+            .boolean_union(&handle_a, &handle_b)
+            .expect("boolean union should succeed for offset boxes");
 
-                match result {
-                    Ok(step_string) => {
-                        println!(
-                            "STEP export of boolean result SUCCEEDED ({} chars)",
-                            step_string.len()
-                        );
-                        assert!(step_string.contains("ISO-10303-21"));
-                    }
-                    Err(e) => {
-                        println!("STEP export of boolean result PANICKED: {:?}", e);
-                        println!("This confirms truck-stepio limitation.");
-                    }
-                }
-            }
-            None => {
-                println!("\nBoolean union returned None. Cannot test STEP export.");
-            }
-        }
+        // Export to STEP via kernel
+        let step_string = kernel
+            .export_step(&union_handle, "test_boolean.step")
+            .expect("STEP export of healed boolean result should succeed");
+
+        assert!(
+            step_string.contains("ISO-10303-21"),
+            "Should have STEP header"
+        );
+        assert!(
+            step_string.contains("MANIFOLD_SOLID_BREP"),
+            "Should have solid BREP entity"
+        );
     }
 
     /// Face IDs from introspection match tessellation for make_faces_from_profiles → extrude_face.
