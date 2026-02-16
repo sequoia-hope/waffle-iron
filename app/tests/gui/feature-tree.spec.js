@@ -20,6 +20,9 @@ import {
 	waitForFeatureCount,
 } from './helpers/state.js';
 
+// Selector for feature items only (excludes origin plane items)
+const FEATURE_ITEM = '.tree-item:not(.origin-item)';
+
 /**
  * Helper: create a sketch and finish it.
  */
@@ -66,8 +69,8 @@ test.describe('feature tree display', () => {
 	test('feature tree shows sketch after finishing sketch', async ({ waffle }) => {
 		await createSketchFeature(waffle);
 
-		// Should show one tree item
-		const treeItems = waffle.page.locator('.tree-item');
+		// Should show one feature item (excluding origin planes)
+		const treeItems = waffle.page.locator(FEATURE_ITEM);
 		await expect(treeItems).toHaveCount(1);
 
 		// Item should contain a label with the feature name
@@ -80,7 +83,7 @@ test.describe('feature tree display', () => {
 	test('feature tree shows sketch and extrude after full workflow', async ({ waffle }) => {
 		await createSketchAndExtrude(waffle);
 
-		const treeItems = waffle.page.locator('.tree-item');
+		const treeItems = waffle.page.locator(FEATURE_ITEM);
 		await expect(treeItems).toHaveCount(2);
 
 		// First should be sketch, second should be extrude
@@ -93,7 +96,7 @@ test.describe('feature tree selection', () => {
 	test('clicking a feature in the tree selects it', async ({ waffle }) => {
 		await createSketchFeature(waffle);
 
-		const treeItem = waffle.page.locator('.tree-item').first();
+		const treeItem = waffle.page.locator(FEATURE_ITEM).first();
 
 		// Click the feature
 		await treeItem.click();
@@ -106,7 +109,7 @@ test.describe('feature tree selection', () => {
 	test('clicking a different feature changes selection', async ({ waffle }) => {
 		await createSketchAndExtrude(waffle);
 
-		const items = waffle.page.locator('.tree-item');
+		const items = waffle.page.locator(FEATURE_ITEM);
 		const firstItem = items.nth(0);
 		const secondItem = items.nth(1);
 
@@ -129,7 +132,7 @@ test.describe('feature tree context menu', () => {
 	test('right-click on feature opens context menu', async ({ waffle }) => {
 		await createSketchFeature(waffle);
 
-		const treeItem = waffle.page.locator('.tree-item').first();
+		const treeItem = waffle.page.locator(FEATURE_ITEM).first();
 		await treeItem.click({ button: 'right' });
 		await waffle.page.waitForTimeout(200);
 
@@ -147,7 +150,7 @@ test.describe('feature tree context menu', () => {
 	test('clicking away closes context menu', async ({ waffle }) => {
 		await createSketchFeature(waffle);
 
-		const treeItem = waffle.page.locator('.tree-item').first();
+		const treeItem = waffle.page.locator(FEATURE_ITEM).first();
 		await treeItem.click({ button: 'right' });
 		await waffle.page.waitForTimeout(200);
 
@@ -164,7 +167,7 @@ test.describe('feature tree context menu', () => {
 	test('suppress via context menu dims the feature', async ({ waffle }) => {
 		await createSketchAndExtrude(waffle);
 
-		const firstItem = waffle.page.locator('.tree-item').first();
+		const firstItem = waffle.page.locator(FEATURE_ITEM).first();
 		await firstItem.click({ button: 'right' });
 		await waffle.page.waitForTimeout(200);
 
@@ -179,11 +182,11 @@ test.describe('feature tree context menu', () => {
 	test('delete via context menu removes the feature', async ({ waffle }) => {
 		await createSketchAndExtrude(waffle);
 
-		const itemsBefore = await waffle.page.locator('.tree-item').count();
+		const itemsBefore = await waffle.page.locator(FEATURE_ITEM).count();
 		expect(itemsBefore).toBe(2);
 
 		// Right-click the second feature (extrude) and delete
-		const secondItem = waffle.page.locator('.tree-item').nth(1);
+		const secondItem = waffle.page.locator(FEATURE_ITEM).nth(1);
 		await secondItem.click({ button: 'right' });
 		await waffle.page.waitForTimeout(200);
 
@@ -191,17 +194,18 @@ test.describe('feature tree context menu', () => {
 		await waffle.page.waitForTimeout(500);
 
 		// Should have one fewer feature
-		const itemsAfter = await waffle.page.locator('.tree-item').count();
+		const itemsAfter = await waffle.page.locator(FEATURE_ITEM).count();
 		expect(itemsAfter).toBe(1);
 	});
 });
 
 test.describe('feature tree rename', () => {
-	test('double-clicking feature shows rename input', async ({ waffle }) => {
-		await createSketchFeature(waffle);
+	test('double-clicking non-sketch feature shows rename input', async ({ waffle }) => {
+		// Double-click on sketch enters edit mode, so test rename on extrude
+		await createSketchAndExtrude(waffle);
 
-		const treeItem = waffle.page.locator('.tree-item').first();
-		await treeItem.dblclick();
+		const extrudeItem = waffle.page.locator(FEATURE_ITEM).nth(1);
+		await extrudeItem.dblclick();
 		await waffle.page.waitForTimeout(200);
 
 		// Rename input should appear
@@ -210,29 +214,29 @@ test.describe('feature tree rename', () => {
 	});
 
 	test('typing new name and pressing Enter renames feature', async ({ waffle }) => {
-		await createSketchFeature(waffle);
+		await createSketchAndExtrude(waffle);
 
-		const treeItem = waffle.page.locator('.tree-item').first();
-		await treeItem.dblclick();
+		const extrudeItem = waffle.page.locator(FEATURE_ITEM).nth(1);
+		await extrudeItem.dblclick();
 		await waffle.page.waitForTimeout(200);
 
 		const renameInput = waffle.page.locator('.rename-input');
-		await renameInput.fill('My Cool Sketch');
+		await renameInput.fill('My Cool Extrude');
 		await waffle.page.keyboard.press('Enter');
 		await waffle.page.waitForTimeout(200);
 
 		// Label should show new name
-		const label = treeItem.locator('.tree-label');
-		await expect(label).toHaveText('My Cool Sketch');
+		const label = extrudeItem.locator('.tree-label');
+		await expect(label).toHaveText('My Cool Extrude');
 	});
 
 	test('pressing Escape cancels rename', async ({ waffle }) => {
-		await createSketchFeature(waffle);
+		await createSketchAndExtrude(waffle);
 
-		const treeItem = waffle.page.locator('.tree-item').first();
-		const labelBefore = await treeItem.locator('.tree-label').textContent();
+		const extrudeItem = waffle.page.locator(FEATURE_ITEM).nth(1);
+		const labelBefore = await extrudeItem.locator('.tree-label').textContent();
 
-		await treeItem.dblclick();
+		await extrudeItem.dblclick();
 		await waffle.page.waitForTimeout(200);
 
 		const renameInput = waffle.page.locator('.rename-input');
@@ -241,7 +245,7 @@ test.describe('feature tree rename', () => {
 		await waffle.page.waitForTimeout(200);
 
 		// Label should revert to original name
-		const labelAfter = await treeItem.locator('.tree-label').textContent();
+		const labelAfter = await extrudeItem.locator('.tree-label').textContent();
 		expect(labelAfter).toBe(labelBefore);
 	});
 });

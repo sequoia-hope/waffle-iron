@@ -12,14 +12,17 @@
 		isEngineReady,
 		selectRef,
 		getSelectedRefs,
-		geomRefEquals
+		geomRefEquals,
+		isSketchVisible,
+		toggleSketchVisibility,
+		enterSketchEditMode
 	} from '$lib/engine/store.svelte.js';
 	import { BUILTIN_PLANES, makePlaneRef } from '$lib/engine/planes.js';
 
 	let tree = $derived(getFeatureTree());
 	let selectedId = $derived(getSelectedFeatureId());
 
-	/** @type {{ x: number, y: number, featureId: string, featureName: string, suppressed: boolean } | null} */
+	/** @type {{ x: number, y: number, featureId: string, featureName: string, suppressed: boolean, isSketch: boolean } | null} */
 	let contextMenu = $state(null);
 
 	/** @type {{ featureId: string, value: string } | null} */
@@ -50,7 +53,11 @@
 	}
 
 	function handleDblClick(feature) {
-		renaming = { featureId: feature.id, value: feature.name };
+		if (feature.operation?.type === 'Sketch') {
+			enterSketchEditMode(feature.id);
+		} else {
+			renaming = { featureId: feature.id, value: feature.name };
+		}
 	}
 
 	function handleContextMenu(e, feature) {
@@ -60,7 +67,8 @@
 			y: e.clientY,
 			featureId: feature.id,
 			featureName: feature.name,
-			suppressed: feature.suppressed
+			suppressed: feature.suppressed,
+			isSketch: feature.operation?.type === 'Sketch'
 		};
 	}
 
@@ -103,6 +111,25 @@
 			suppressFeature(contextMenu.featureId, !contextMenu.suppressed);
 			closeContextMenu();
 		}
+	}
+
+	function handleEditSketch() {
+		if (contextMenu && contextMenu.isSketch) {
+			enterSketchEditMode(contextMenu.featureId);
+			closeContextMenu();
+		}
+	}
+
+	function handleRenameFromMenu() {
+		if (contextMenu) {
+			renaming = { featureId: contextMenu.featureId, value: contextMenu.featureName };
+			closeContextMenu();
+		}
+	}
+
+	function handleVisibilityToggle(e, featureId) {
+		e.stopPropagation();
+		toggleSketchVisibility(featureId);
 	}
 
 	function featureIcon(opType) {
@@ -199,9 +226,11 @@
 			{#each tree.features as feature, i (feature.id)}
 				{@const isAfterRollback = tree.active_index !== null && i > tree.active_index}
 				{@const isDragging = dragFeatureId === feature.id}
+				{@const isSketch = feature.operation?.type === 'Sketch'}
 				<div
 					class="tree-item"
 					class:selected={selectedId === feature.id}
+					class:sketch-selected={selectedId === feature.id && isSketch}
 					class:suppressed={feature.suppressed}
 					class:after-rollback={isAfterRollback}
 					class:dragging={isDragging}
@@ -232,6 +261,15 @@
 					{#if feature.suppressed}
 						<span class="suppress-indicator" title="Suppressed">S</span>
 					{/if}
+					{#if isSketch}
+						<button
+							class="visibility-toggle"
+							title={isSketchVisible(feature.id) ? 'Hide sketch' : 'Show sketch'}
+							onclick={(e) => handleVisibilityToggle(e, feature.id)}
+						>
+							{isSketchVisible(feature.id) ? '\u25C9' : '\u25CE'}
+						</button>
+					{/if}
 				</div>
 			{/each}
 		{/if}
@@ -261,6 +299,10 @@
 		style="left: {contextMenu.x}px; top: {contextMenu.y}px"
 		onclick={(e) => e.stopPropagation()}
 	>
+		{#if contextMenu.isSketch}
+			<button class="ctx-item" onclick={handleEditSketch}>Edit Sketch</button>
+		{/if}
+		<button class="ctx-item" onclick={handleRenameFromMenu}>Rename</button>
 		<button class="ctx-item" onclick={handleSuppress}>
 			{contextMenu.suppressed ? 'Unsuppress' : 'Suppress'}
 		</button>
@@ -365,6 +407,11 @@
 		padding-left: 10px;
 	}
 
+	.tree-item.selected.sketch-selected {
+		background: rgba(255, 136, 0, 0.15);
+		border-left-color: #ff8800;
+	}
+
 	.tree-item.origin-item.selected {
 		padding-left: 20px;
 	}
@@ -408,6 +455,23 @@
 		background: var(--bg-tertiary);
 		padding: 0 3px;
 		border-radius: 2px;
+	}
+
+	.visibility-toggle {
+		margin-left: auto;
+		background: none;
+		border: none;
+		color: var(--text-muted);
+		font-size: 11px;
+		cursor: pointer;
+		padding: 0 2px;
+		line-height: 1;
+		opacity: 0.6;
+	}
+
+	.visibility-toggle:hover {
+		opacity: 1;
+		color: var(--text-primary);
 	}
 
 	.rename-input {

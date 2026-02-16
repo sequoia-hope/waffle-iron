@@ -98,6 +98,14 @@ let revolveDialogState = $state(null);
 /** @type {{ entityA: number, entityB: number | null, sketchX: number, sketchY: number, dimType: 'distance'|'radius'|'angle', defaultValue: number } | null} */
 let dimensionPopup = $state(null);
 
+// -- Sketch visibility and edit state --
+
+/** @type {Map<string, boolean>} featureId -> visible (default true) */
+let sketchVisibility = $state(new Map());
+
+/** @type {string | null} Feature ID of the sketch being edited (null = creating new) */
+let editingSketchFeatureId = $state(null);
+
 // -- Sketch plane dialog state --
 
 let sketchPlaneDialogVisible = $state(false);
@@ -300,6 +308,10 @@ export async function initEngine() {
 				return results.filter(r => !r.behindCamera);
 			},
 			getDatumPlanes: () => BUILTIN_PLANES,
+			enterSketchEditMode: (featureId) => enterSketchEditMode(featureId),
+			getEditingSketchFeatureId: () => editingSketchFeatureId,
+			isSketchVisible: (featureId) => isSketchVisible(featureId),
+			toggleSketchVisibility: (featureId) => toggleSketchVisibility(featureId),
 			getSketchSelection: () => [...sketchSelection],
 			setSketchSelection: (ids) => { sketchSelection = new Set(ids); },
 			addSketchEntity: (entity) => addLocalEntity(entity),
@@ -529,6 +541,7 @@ export async function enterSketchMode(origin = [0, 0, 0], normal = [0, 0, 1]) {
  */
 export function exitSketchMode() {
 	log('action', 'Exit sketch mode');
+	editingSketchFeatureId = null;
 	resetSketchState();
 	sketchMode = { active: false, origin: [0, 0, 0], normal: [0, 0, 1] };
 }
@@ -1203,7 +1216,43 @@ export async function finishSketch() {
 	const planeOrigin = [...sketchMode.origin];
 	const planeNormal = [...sketchMode.normal];
 
-	log('action', 'Finish sketch', { entityCount: sketchEntities.length, profileCount });
+	log('action', 'Finish sketch', { entityCount: sketchEntities.length, profileCount, editing: !!editingSketchFeatureId });
+
+	// Edit path: update existing sketch feature via EditFeature
+	if (editingSketchFeatureId) {
+		const editId = editingSketchFeatureId;
+		const feature = featureTree.features.find(f => f.id === editId);
+		editingSketchFeatureId = null;
+
+		try {
+			// Deep-clone everything to strip Svelte 5 proxies before postMessage.
+			// Re-use the original sketch's id, plane, and solve_status (Rust format)
+			// since the JS sketchSolveStatus has a different shape than the Rust SolveStatus enum.
+			const origSketch = feature?.operation?.sketch;
+			const operation = JSON.parse(JSON.stringify({
+				type: 'Sketch',
+				sketch: {
+					id: origSketch?.id || editId,
+					plane: origSketch?.plane || null,
+					plane_origin: planeOrigin,
+					plane_normal: planeNormal,
+					entities: sketchEntities,
+					constraints: sketchConstraints,
+					solve_status: origSketch?.solve_status || { type: 'UnderConstrained', dof: 0 },
+					solved_positions: posObj,
+					solved_profiles: profiles,
+				}
+			}));
+			await editFeature(editId, operation);
+			exitSketchMode();
+			setActiveTool('select');
+		} catch (err) {
+			log('error', `Edit sketch failed: ${err.message}`);
+			statusMessage = `Sketch edit failed: ${err.message}`;
+			lastError = err.message;
+		}
+		return { profileCount };
+	}
 
 	// Send to engine FIRST, exit sketch mode only on success
 	try {
@@ -1368,6 +1417,109 @@ export async function confirmSketchPlaneDialog() {
 	sketchPlaneDialogSelection = null;
 	await enterSketchMode(sel.origin, sel.normal);
 	setActiveTool('line');
+}
+
+// -- Sketch visibility --
+
+/**
+ * Check if a sketch feature's wireframe is visible.
+ * @param {string} featureId
+ * @returns {boolean}
+ */
+export function isSketchVisible(featureId) {
+	return sketchVisibility.get(featureId) ?? true;
+}
+
+/**
+ * Toggle visibility of a sketch feature's wireframe.
+ * @param {string} featureId
+ */
+export function toggleSketchVisibility(featureId) {
+	const next = new Map(sketchVisibility);
+	next.set(featureId, !(sketchVisibility.get(featureId) ?? true));
+	sketchVisibility = next;
+}
+
+/**
+ * Get the feature ID of the sketch currently being edited (null if creating new).
+ * @returns {string | null}
+ */
+export function getEditingSketchFeatureId() {
+	return editingSketchFeatureId;
+}
+
+/**
+ * Enter sketch edit mode for an existing sketch feature.
+ * Loads the sketch's saved entities/constraints/positions and re-enters sketch mode.
+ * @param {string} featureId
+ */
+export async function enterSketchEditMode(featureId) {
+	const tree = featureTree;
+	const feature = tree.features.find(f => f.id === featureId);
+	if (!feature || feature.operation?.type !== 'Sketch') return;
+
+	const sketch = feature.operation.sketch;
+	if (!sketch) return;
+
+	log('action', 'Enter sketch edit mode', { featureId, entityCount: sketch.entities?.length });
+
+	editingSketchFeatureId = featureId;
+	resetSketchState();
+
+	// Repopulate sketch state from saved data
+	sketchEntities = JSON.parse(JSON.stringify(sketch.entities || []));
+	sketchConstraints = JSON.parse(JSON.stringify(sketch.constraints || []));
+
+	// Parse solved_positions: { "id": [x, y] } -> Map<Number, {x, y}>
+	const savedPos = sketch.solved_positions || {};
+	const posMap = new Map();
+	for (const [id, coords] of Object.entries(savedPos)) {
+		if (Array.isArray(coords) && coords.length >= 2) {
+			posMap.set(Number(id), { x: coords[0], y: coords[1] });
+		}
+	}
+	sketchPositions = posMap;
+
+	// Set nextEntityId to avoid collisions
+	let maxId = 0;
+	for (const e of sketchEntities) {
+		if (e.id > maxId) maxId = e.id;
+	}
+	nextEntityId = maxId + 1;
+
+	reExtractProfiles();
+
+	// Send BeginSketch to engine with the sketch's plane
+	if (bridge && engineReady && sketch.plane) {
+		try {
+			await bridge.send({ type: 'BeginSketch', plane: JSON.parse(JSON.stringify(sketch.plane)) });
+		} catch (err) {
+			log('error', `BeginSketch (edit) failed: ${err}`);
+		}
+	}
+
+	const origin = sketch.plane_origin || [0, 0, 0];
+	const normal = sketch.plane_normal || [0, 0, 1];
+	sketchMode = { active: true, origin, normal };
+
+	// Re-send all entities/constraints to engine
+	if (bridge && engineReady) {
+		for (const entity of sketchEntities) {
+			const cloned = JSON.parse(JSON.stringify(entity));
+			bridge.send({ type: 'AddSketchEntity', entity: cloned }).catch(() => {});
+		}
+		for (const constraint of sketchConstraints) {
+			const cloned = JSON.parse(JSON.stringify(constraint));
+			bridge.send({ type: 'AddConstraint', constraint: cloned }).catch(() => {});
+		}
+	}
+
+	triggerSolve();
+
+	// Dispatch camera alignment event
+	if (typeof window !== 'undefined') {
+		window.dispatchEvent(new CustomEvent('waffle-align-to-plane', { detail: { origin, normal } }));
+	}
 }
 
 // -- Mobile layout --

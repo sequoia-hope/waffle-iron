@@ -9,6 +9,7 @@
 	import DatumVis from './DatumVis.svelte';
 	import BoxSelect from './BoxSelect.svelte';
 	import SketchRenderer from '$lib/sketch/SketchRenderer.svelte';
+	import InactiveSketchRenderer from '$lib/sketch/InactiveSketchRenderer.svelte';
 	import SketchInteraction from '$lib/sketch/SketchInteraction.svelte';
 	import DimensionLabels from '$lib/sketch/DimensionLabels.svelte';
 
@@ -25,5 +26,6 @@
 <DatumVis />
 <BoxSelect />
 <SketchRenderer />
+<InactiveSketchRenderer />
 <SketchInteraction />
 <DimensionLabels />
