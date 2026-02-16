@@ -945,7 +945,7 @@ export function hideExtrudeDialog() {
 export async function applyExtrude(depth, profileIndex, cut = false, opts = {}) {
 	if (!extrudeDialogState || !bridge || !engineReady) return;
 
-	const { depthMode = 'Blind', secondDir = 'None', secondDepth = 10, direction = null } = opts;
+	const { depthMode = 'Blind', secondDir = 'None', secondDepth = 10, flipDirection = false } = opts;
 
 	const depth_mode = { type: depthMode };
 
@@ -954,7 +954,24 @@ export async function applyExtrude(depth, profileIndex, cut = false, opts = {}) 
 	else if (secondDir === 'Blind') second_direction = { type: 'Blind', depth: secondDepth };
 	else if (secondDir === 'ThroughAll') second_direction = { type: 'ThroughAll' };
 
-	log('action', 'Apply extrude', { depth, profileIndex, cut: !!cut, depthMode, secondDir, direction });
+	// When flipDirection is true, we pass a negated sketch normal as the direction.
+	// The engine defaults to sketch plane normal when direction is null,
+	// so flipping negates that default.
+	let direction = null;
+	if (flipDirection) {
+		// Look up the sketch's plane normal from the feature tree
+		const tree = featureTree;
+		const sketch = tree?.features?.find(f => f.id === extrudeDialogState.sketchId);
+		const normal = sketch?.operation?.sketch?.plane_normal;
+		if (normal) {
+			direction = [-normal[0], -normal[1], -normal[2]];
+		} else {
+			// Fallback: negate default Z-up normal
+			direction = [0, 0, -1];
+		}
+	}
+
+	log('action', 'Apply extrude', { depth, profileIndex, cut: !!cut, depthMode, secondDir, flipDirection });
 	try {
 		await bridge.send({
 			type: 'AddFeature',
@@ -964,7 +981,7 @@ export async function applyExtrude(depth, profileIndex, cut = false, opts = {}) 
 					sketch_id: extrudeDialogState.sketchId,
 					profile_index: profileIndex,
 					depth,
-					direction: direction,
+					direction,
 					symmetric: secondDir === 'Symmetric',
 					cut: !!cut,
 					target_body: null,

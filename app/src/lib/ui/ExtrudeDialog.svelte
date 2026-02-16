@@ -13,10 +13,7 @@
 	let depthMode = $state('Blind');
 	let secondDir = $state('None');
 	let secondDepth = $state(10);
-	let showDirection = $state(false);
-	let dirX = $state(0);
-	let dirY = $state(0);
-	let dirZ = $state(1);
+	let flipDirection = $state(false);
 
 	let showDepthInput = $derived(depthMode === 'Blind');
 	let depthLabel = $derived(secondDir === 'Symmetric' ? 'Depth (each side)' : 'Depth');
@@ -30,10 +27,7 @@
 			depthMode = 'Blind';
 			secondDir = 'None';
 			secondDepth = 10;
-			showDirection = false;
-			dirX = 0;
-			dirY = 0;
-			dirZ = 1;
+			flipDirection = false;
 		}
 	});
 
@@ -60,7 +54,7 @@
 			depthMode,
 			secondDir,
 			secondDepth,
-			direction: showDirection ? [dirX, dirY, dirZ] : null
+			flipDirection
 		};
 		applyExtrude(depth, profileIndex, cut, opts)
 			.catch(err => log('error', `Extrude dialog apply failed: ${err}`));
@@ -164,24 +158,17 @@
 					</div>
 				{/if}
 				<div class="field">
-					<label for="extrude-dir-override">Direction</label>
-					<input
-						id="extrude-dir-override"
-						data-testid="extrude-dir-override"
-						type="checkbox"
-						bind:checked={showDirection}
-					/>
+					<label for="extrude-flip-dir">Direction</label>
+					<button
+						id="extrude-flip-dir"
+						class="btn btn-flip"
+						class:flipped={flipDirection}
+						data-testid="extrude-flip-direction"
+						onclick={() => { flipDirection = !flipDirection; }}
+					>
+						{flipDirection ? 'Flipped' : 'Normal'}
+					</button>
 				</div>
-				{#if showDirection}
-					<div class="field-group">
-						<span class="group-label">Direction Vector</span>
-						<div class="vec3">
-							<label>X <input type="number" data-testid="extrude-dir-x" bind:value={dirX} step="0.1" /></label>
-							<label>Y <input type="number" data-testid="extrude-dir-y" bind:value={dirY} step="0.1" /></label>
-							<label>Z <input type="number" data-testid="extrude-dir-z" bind:value={dirZ} step="0.1" /></label>
-						</div>
-					</div>
-				{/if}
 			</div>
 			<div class="dialog-footer">
 				<button class="btn btn-cancel" data-testid="extrude-cancel" onclick={handleCancel}>Cancel</button>
@@ -289,43 +276,25 @@
 		border-color: var(--accent, #0078d4);
 	}
 
-	.field-group {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-	}
-
-	.group-label {
-		font-size: 12px;
-		color: var(--text-secondary, #aaa);
-	}
-
-	.vec3 {
-		display: flex;
-		gap: 6px;
-	}
-
-	.vec3 label {
-		display: flex;
-		align-items: center;
-		gap: 2px;
-		font-size: 11px;
-		color: var(--text-muted, #888);
-	}
-
-	.vec3 input {
+	.btn-flip {
 		background: var(--bg-primary, #1e1e1e);
 		border: 1px solid var(--border-color, #444);
 		color: var(--text-primary, #eee);
-		padding: 3px 5px;
+		padding: 4px 12px;
 		border-radius: 3px;
-		font-size: 11px;
-		width: 55px;
+		font-size: 12px;
+		cursor: pointer;
+		min-width: 80px;
 	}
 
-	.vec3 input:focus {
-		outline: none;
+	.btn-flip:hover {
 		border-color: var(--accent, #0078d4);
+	}
+
+	.btn-flip.flipped {
+		background: var(--accent, #0078d4);
+		border-color: var(--accent, #0078d4);
+		color: #fff;
 	}
 
 	.dialog-footer {
