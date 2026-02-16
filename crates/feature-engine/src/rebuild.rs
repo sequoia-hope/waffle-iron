@@ -175,31 +175,60 @@ fn execute_feature(
             // in +direction with total_depth = primary + second. This avoids boolean union.
             // For cut: reverse direction and offset origin by eps to avoid coplanar faces.
             let eps = 0.1;
+            // For cuts with explicit direction: if the direction already points
+            // into the solid (opposite to sketch normal, i.e. dot < 0), use it
+            // as-is — the user specified the cut direction directly. Otherwise
+            // (default direction or same-hemisphere), reverse as usual.
+            let dir_dot_normal = direction[0] * sketch.plane_normal[0]
+                + direction[1] * sketch.plane_normal[1]
+                + direction[2] * sketch.plane_normal[2];
+            let should_reverse_for_cut = !params.direction.is_some() || dir_dot_normal >= 0.0;
             let (extrude_direction, extrude_depth, face_origin) = match (params.cut, second_depth) {
                 (true, Some(sd)) => {
-                    // Cut + bidirectional: tool starts offset behind sketch plane
-                    let offset_origin = [
-                        sketch.plane_origin[0] + direction[0] * (eps + sd),
-                        sketch.plane_origin[1] + direction[1] * (eps + sd),
-                        sketch.plane_origin[2] + direction[2] * (eps + sd),
-                    ];
-                    (
-                        [-direction[0], -direction[1], -direction[2]],
-                        primary_depth + sd + 2.0 * eps,
-                        offset_origin,
-                    )
+                    if should_reverse_for_cut {
+                        // Default direction or same-hemisphere: reverse for cut.
+                        let offset_origin = [
+                            sketch.plane_origin[0] + direction[0] * (eps + sd),
+                            sketch.plane_origin[1] + direction[1] * (eps + sd),
+                            sketch.plane_origin[2] + direction[2] * (eps + sd),
+                        ];
+                        (
+                            [-direction[0], -direction[1], -direction[2]],
+                            primary_depth + sd + 2.0 * eps,
+                            offset_origin,
+                        )
+                    } else {
+                        // Explicit direction pointing into solid: use as-is.
+                        let offset_origin = [
+                            sketch.plane_origin[0] - direction[0] * (eps + sd),
+                            sketch.plane_origin[1] - direction[1] * (eps + sd),
+                            sketch.plane_origin[2] - direction[2] * (eps + sd),
+                        ];
+                        (direction, primary_depth + sd + 2.0 * eps, offset_origin)
+                    }
                 }
                 (true, None) => {
-                    let offset_origin = [
-                        sketch.plane_origin[0] + direction[0] * eps,
-                        sketch.plane_origin[1] + direction[1] * eps,
-                        sketch.plane_origin[2] + direction[2] * eps,
-                    ];
-                    (
-                        [-direction[0], -direction[1], -direction[2]],
-                        primary_depth + 2.0 * eps,
-                        offset_origin,
-                    )
+                    if should_reverse_for_cut {
+                        // Default direction or same-hemisphere: reverse for cut.
+                        let offset_origin = [
+                            sketch.plane_origin[0] + direction[0] * eps,
+                            sketch.plane_origin[1] + direction[1] * eps,
+                            sketch.plane_origin[2] + direction[2] * eps,
+                        ];
+                        (
+                            [-direction[0], -direction[1], -direction[2]],
+                            primary_depth + 2.0 * eps,
+                            offset_origin,
+                        )
+                    } else {
+                        // Explicit direction pointing into solid: use as-is.
+                        let offset_origin = [
+                            sketch.plane_origin[0] - direction[0] * eps,
+                            sketch.plane_origin[1] - direction[1] * eps,
+                            sketch.plane_origin[2] - direction[2] * eps,
+                        ];
+                        (direction, primary_depth + 2.0 * eps, offset_origin)
+                    }
                 }
                 (false, Some(sd)) => {
                     // Non-cut bidirectional: offset origin backward by second_depth

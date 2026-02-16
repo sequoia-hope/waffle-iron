@@ -86,9 +86,8 @@ fn rect_cut_via_extrude_cut() {
 }
 
 /// Rect cut where profile edges coincide with box edges.
-/// truck cannot compute intersection curves along existing edges.
+/// Fixed via coplanar perturbation retry in boolean ops.
 #[test]
-#[ignore = "truck 0.4: coincident edges — extract_interference returns empty for edge-on-edge intersection"]
 fn rect_cut_coplanar_edges() {
     let mut m = base_cube();
 
@@ -118,10 +117,8 @@ fn rect_cut_at_box_boundary() {
 // ══════════════════════════════════════════════════════════════════════════
 
 /// Circle positioned tangent to a box edge. The circle touches the
-/// face boundary at exactly one point, creating a degenerate
-/// intersection curve that truck cannot handle.
+/// face boundary at exactly one point. Fixed via coplanar perturbation retry.
 #[test]
-#[ignore = "truck 0.4: single-point tangency at face edge — degenerate intersection curve"]
 fn circle_cut_tangent_to_box_edge() {
     let mut m = base_cube();
 

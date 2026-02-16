@@ -63,9 +63,16 @@ pub fn heal_intersection_curves(solid: &Solid, tol: f64) -> HealingResult {
                 continue;
             }
 
+            // For plane-cylinder ICs (elliptical arcs), use tighter tolerance
+            // to avoid BSpline approximation error that breaks chained booleans.
+            let pc = is_plane_cylinder(ic.surface0(), ic.surface1());
+            let heal_tol = if pc { tol.min(1e-6) } else { tol };
+            let heal_d_tol = heal_tol * 1000.0;
+            let heal_trials = if pc { 100 } else { 50 };
+
             // Curved intersection: use BSpline approximation.
             // Try truck's built-in to_bspline_leader() first.
-            if curve.to_bspline_leader(tol, tol * 1000.0, 50) {
+            if curve.to_bspline_leader(heal_tol, heal_d_tol, heal_trials) {
                 if let Curve::IntersectionCurve(ref ic) = curve {
                     if let Leader::BSpline(ref bsp) = ic.leader() {
                         let mut bsp_curve = bsp.clone();
@@ -85,12 +92,20 @@ pub fn heal_intersection_curves(solid: &Solid, tol: f64) -> HealingResult {
                 let range = leader_range(leader);
 
                 let approx = match leader {
-                    Leader::Polyline(ref pl) => {
-                        BSplineCurve::cubic_approximation(pl, range, tol, tol * 1000.0, 50)
-                    }
-                    Leader::BSpline(ref bs) => {
-                        BSplineCurve::cubic_approximation(bs, range, tol, tol * 1000.0, 50)
-                    }
+                    Leader::Polyline(ref pl) => BSplineCurve::cubic_approximation(
+                        pl,
+                        range,
+                        heal_tol,
+                        heal_d_tol,
+                        heal_trials,
+                    ),
+                    Leader::BSpline(ref bs) => BSplineCurve::cubic_approximation(
+                        bs,
+                        range,
+                        heal_tol,
+                        heal_d_tol,
+                        heal_trials,
+                    ),
                 };
 
                 if let Some(mut bsp) = approx {
@@ -120,6 +135,14 @@ fn is_plane(s: &Surface) -> bool {
 /// Check if both surfaces are planes (intersection is a straight line).
 fn is_plane_plane(s0: &Surface, s1: &Surface) -> bool {
     is_plane(s0) && is_plane(s1)
+}
+
+/// Check if this is a plane-cylinder (RevolutedCurve) intersection.
+/// These intersections are elliptical arcs and need tighter approximation
+/// tolerance to avoid BSpline error accumulation in chained booleans.
+fn is_plane_cylinder(s0: &Surface, s1: &Surface) -> bool {
+    (matches!(s0, Surface::Plane(_)) && matches!(s1, Surface::RevolutedCurve(_)))
+        || (matches!(s0, Surface::RevolutedCurve(_)) && matches!(s1, Surface::Plane(_)))
 }
 
 /// Get the parameter range of a leader curve.

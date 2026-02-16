@@ -4,7 +4,7 @@
 
 use std::f64::consts::PI;
 use truck_modeling::builder;
-use truck_modeling::topology::{Edge, Solid, Wire};
+use truck_modeling::topology::Solid;
 use truck_modeling::{EuclideanSpace, Point3, Rad, Vector3};
 
 /// Create a box solid via successive translational sweeps.
@@ -25,31 +25,22 @@ pub fn make_cylinder(radius: f64, height: f64) -> Solid {
     builder::tsweep(&face, Vector3::new(0.0, 0.0, height))
 }
 
-/// Create a sphere solid: semicircle face → rotational sweep 2π.
+/// Create a sphere solid: semicircle arc → cone sweep 2π.
 /// Centered at origin.
 pub fn make_sphere(radius: f64) -> Solid {
-    // Create semicircle arc in XZ plane: rotate (r,0,0) around Y axis by PI
-    // This produces a wire from (r,0,0) through (0,0,r) to (-r,0,0) in XZ plane
-    let v_right = builder::vertex(Point3::new(radius, 0.0, 0.0));
-    let arc_wire = builder::rsweep(&v_right, Point3::origin(), Vector3::unit_y(), Rad(PI));
+    use truck_modeling::topology::{Shell, Solid as TruckSolid};
 
-    // Close with line from (-r,0,0) to (r,0,0)
-    let v_left = builder::vertex(Point3::new(-radius, 0.0, 0.0));
-    let line_edge: Edge = builder::tsweep(&v_left, Vector3::new(2.0 * radius, 0.0, 0.0));
+    // Create a semicircle arc from north pole (0,0,r) through equator (r,0,0)
+    // to south pole (0,0,-r) by rotating (0,0,r) around Y axis by PI.
+    // Both endpoints lie on the Z axis (the revolution axis).
+    let v_top = builder::vertex(Point3::new(0.0, 0.0, radius));
+    let arc_wire = builder::rsweep(&v_top, Point3::origin(), Vector3::unit_y(), Rad(PI));
 
-    // Combine arc edges + line edge into closed wire
-    let mut edges: Vec<Edge> = Vec::new();
-    for edge in arc_wire.edge_iter() {
-        edges.push(edge.clone());
-    }
-    edges.push(line_edge);
-    let closed_wire = Wire::from_iter(edges);
+    // Use builder::cone which handles degenerate edges at vertices on the
+    // revolution axis (the poles). This produces correct topology (V-E+F=2).
+    let shell: Shell = builder::cone(&arc_wire, Vector3::unit_z(), Rad(2.0 * PI));
 
-    // Attach plane to make a half-disc face
-    let face = builder::try_attach_plane(&[closed_wire]).expect("Failed to create semicircle face");
-
-    // Revolve around Z axis by 2π to create sphere
-    builder::rsweep(&face, Point3::origin(), Vector3::unit_z(), Rad(2.0 * PI))
+    TruckSolid::new(vec![shell])
 }
 
 #[cfg(test)]
@@ -157,9 +148,7 @@ mod tests {
     // ── Coverage: make_sphere ────────────────────────────────────────
 
     /// Sphere has valid topology: single shell.
-    /// Currently ignored: make_sphere produces NotClosedWire from truck.
     #[test]
-    #[ignore]
     fn test_make_sphere_topology() {
         let solid = make_sphere(1.0);
         let boundaries = solid.boundaries();
@@ -176,9 +165,7 @@ mod tests {
     }
 
     /// Euler's formula V-E+F=2 holds for a sphere.
-    /// Currently ignored: make_sphere produces NotClosedWire from truck.
     #[test]
-    #[ignore]
     fn test_euler_formula_sphere() {
         let solid = make_sphere(1.0);
         let boundaries = solid.boundaries();
@@ -209,26 +196,29 @@ mod tests {
     }
 
     /// Sphere bounding box is approximately [-r, r] in all axes.
-    /// Currently ignored: make_sphere produces NotClosedWire from truck.
+    /// Uses tessellated mesh since sphere vertices (control points) don't
+    /// span the full extent of the curved surface.
     #[test]
-    #[ignore]
     fn test_make_sphere_dimensions() {
+        use crate::truck_kernel::TruckKernel;
+
         let radius = 2.5;
+        let mut kernel = TruckKernel::new();
         let solid = make_sphere(radius);
-        let boundaries = solid.boundaries();
-        let shell = &boundaries[0];
+        let handle = kernel.store_solid(solid);
+
+        let mesh = crate::traits::Kernel::tessellate(&mut kernel, &handle, 0.05).unwrap();
 
         let mut min = [f64::MAX; 3];
         let mut max = [f64::MIN; 3];
-        for v in shell.vertex_iter() {
-            let p = v.point();
+        for chunk in mesh.vertices.chunks(3) {
             for i in 0..3 {
-                min[i] = min[i].min(p[i]);
-                max[i] = max[i].max(p[i]);
+                min[i] = min[i].min(chunk[i] as f64);
+                max[i] = max[i].max(chunk[i] as f64);
             }
         }
 
-        let eps = 0.1; // Tolerance for curved geometry vertex approximation
+        let eps = 0.15; // Tolerance for tessellation approximation
         for i in 0..3 {
             assert!(
                 (min[i] + radius).abs() < eps,
@@ -248,9 +238,7 @@ mod tests {
     }
 
     /// Sphere can be tessellated successfully.
-    /// Currently ignored: make_sphere produces NotClosedWire from truck.
     #[test]
-    #[ignore]
     fn test_make_sphere_tessellation() {
         use crate::truck_kernel::TruckKernel;
 
@@ -277,9 +265,7 @@ mod tests {
     }
 
     /// Sphere edges can be extracted.
-    /// Currently ignored: make_sphere produces NotClosedWire from truck.
     #[test]
-    #[ignore]
     fn test_make_sphere_edges() {
         use crate::truck_kernel::TruckKernel;
 

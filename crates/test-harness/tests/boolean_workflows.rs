@@ -457,9 +457,8 @@ fn d2_symmetric_boss_on_boss_stack() {
     );
 }
 
-/// D3: Partially overlapping coplanar rects. Needs face splitting.
+/// D3: Partially overlapping coplanar rects. Fixed via coplanar perturbation retry.
 #[test]
-#[ignore = "truck 0.4: coincident edges — extract_interference returns empty for edge-on-edge intersection"]
 fn d3_partially_overlapping_coplanar_rects() {
     let mut m = ModelBuilder::truck();
 
