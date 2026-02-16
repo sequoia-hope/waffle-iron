@@ -9,7 +9,7 @@
 //!   B — Cut Through Boss (4 tests: all active)
 //!   C — Cut Wrong Direction / Free Space (3 tests: all active)
 //!   D — Partial Overlap / Symmetric (5 tests: 3 active, 2 ignored)
-//!   E — Adversarial Cases (7 tests: 5 active, 2 ignored)
+//!   E — Adversarial Cases (7 tests: 6 active, 1 ignored)
 
 use test_harness::helpers::{mesh_bounding_box, mesh_volume};
 use test_harness::ModelBuilder;
@@ -77,7 +77,6 @@ fn a1_boss_on_top_face_circle_union() {
 /// A2: Circle boss on z=0 bottom face, extruded downward. Tests non-default direction.
 /// Coplanar face at z=0 with non-standard extrude direction causes truck boolean failure.
 #[test]
-#[ignore = "truck 0.4: coplanar face at z=0 with degenerate boundary intersection — create_loops_stores returns None"]
 fn a2_boss_on_bottom_face_circle_union() {
     let mut m = base_cube();
 
@@ -631,7 +630,6 @@ fn e3_boss_at_cube_edge() {
 /// the tool exits through the opposite face, returning ~cylinder volume instead
 /// of cube-minus-cylinder.
 #[test]
-#[ignore = "truck 0.4: full-penetration through-cut returns tool volume instead of cube-minus-cylinder"]
 fn e4_cut_depth_exactly_solid_height() {
     let mut m = base_cube();
 
@@ -693,7 +691,6 @@ fn e5_multiple_non_overlapping_cuts() {
 
 /// E6: Two explicit boolean_subtracts. Chained boolean.
 #[test]
-#[ignore = "truck 0.4: chained boolean — IntersectionCurve edges degrade on second subtract"]
 fn e6_explicit_two_subtracts() {
     let mut m = ModelBuilder::truck();
 

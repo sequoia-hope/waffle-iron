@@ -7,6 +7,7 @@ use std::collections::HashMap;
 
 // Import truck types selectively to avoid shadowing std::result::Result
 use truck_modeling::builder;
+use truck_modeling::geometry::Surface;
 use truck_modeling::topology::{Edge, Face, Solid, Wire};
 use truck_modeling::{InnerSpace, Point3, Rad, Vector3};
 
@@ -105,6 +106,25 @@ impl Kernel for TruckKernel {
         }
         let sweep_vec = dir.normalize() * depth;
 
+        // When the sweep direction opposes the face normal, tsweep creates a
+        // solid with inside-out face orientations (all normals point inward).
+        // This causes boolean_subtract to compute intersection instead of
+        // subtraction, and breaks chained booleans entirely.
+        // Fix: invert the face so its normal aligns with the sweep direction.
+        let face_normal: Option<Vector3> = match truck_face.surface() {
+            Surface::Plane(ref p) => Some(p.normal()),
+            _ => None,
+        };
+        let truck_face = if let Some(n) = face_normal {
+            if InnerSpace::dot(n, sweep_vec) < 0.0 {
+                truck_face.inverse()
+            } else {
+                truck_face
+            }
+        } else {
+            truck_face
+        };
+
         let solid = builder::tsweep(&truck_face, sweep_vec);
         Ok(self.store_solid(solid))
     }
@@ -153,11 +173,15 @@ impl Kernel for TruckKernel {
             })?
             .clone();
 
+        // Heal inputs if they have IntersectionCurve edges from previous booleans
+        crate::healing::heal_intersection_curves(&solid_a, 0.001);
+        crate::healing::heal_intersection_curves(&solid_b, 0.001);
         let result = truck_shapeops::or(&solid_a, &solid_b, 0.05).ok_or_else(|| {
             KernelError::BooleanFailed {
                 reason: "truck or() returned None".to_string(),
             }
         })?;
+        crate::healing::heal_intersection_curves(&result, 0.001);
         Ok(self.store_solid(result))
     }
 
@@ -182,12 +206,16 @@ impl Kernel for TruckKernel {
             .clone();
 
         // Subtraction = A ∩ ¬B. not() mutates in place.
+        // Heal inputs if they have IntersectionCurve edges from previous booleans.
+        crate::healing::heal_intersection_curves(&solid_a, 0.001);
+        crate::healing::heal_intersection_curves(&solid_b, 0.001);
         solid_b.not();
         let result = truck_shapeops::and(&solid_a, &solid_b, 0.05).ok_or_else(|| {
             KernelError::BooleanFailed {
                 reason: "truck and() returned None for subtraction".to_string(),
             }
         })?;
+        crate::healing::heal_intersection_curves(&result, 0.001);
         Ok(self.store_solid(result))
     }
 
@@ -211,11 +239,15 @@ impl Kernel for TruckKernel {
             })?
             .clone();
 
+        // Heal inputs if they have IntersectionCurve edges from previous booleans
+        crate::healing::heal_intersection_curves(&solid_a, 0.001);
+        crate::healing::heal_intersection_curves(&solid_b, 0.001);
         let result = truck_shapeops::and(&solid_a, &solid_b, 0.05).ok_or_else(|| {
             KernelError::BooleanFailed {
                 reason: "truck and() returned None".to_string(),
             }
         })?;
+        crate::healing::heal_intersection_curves(&result, 0.001);
         Ok(self.store_solid(result))
     }
 

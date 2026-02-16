@@ -72,7 +72,6 @@ fn rect_subtract_offset_bodies() {
 /// at 10x scale with tol=0.05 returns the unchanged cube regardless of eps
 /// offset. This is a fundamental truck limitation at this geometry scale.
 #[test]
-#[ignore = "truck 0.4: box-box subtract returns unchanged target — no intersection curves computed"]
 fn rect_cut_via_extrude_cut() {
     let mut m = base_cube();
 
@@ -258,7 +257,6 @@ fn boss_extrude_offset_union() {
 /// operates on the result of the first. truck 0.4 often produces
 /// degenerate 0-face solids when chaining booleans on boolean results.
 #[test]
-#[ignore = "truck 0.4: chained boolean — IntersectionCurve edges degrade on second subtract"]
 fn two_circle_cuts_chained() {
     let mut m = base_cube();
 

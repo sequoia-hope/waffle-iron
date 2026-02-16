@@ -1,3 +1,4 @@
+pub mod healing;
 pub mod mock_kernel;
 pub mod primitives;
 pub mod tessellation;
