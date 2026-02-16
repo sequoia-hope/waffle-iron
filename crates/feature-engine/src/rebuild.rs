@@ -174,7 +174,7 @@ fn execute_feature(
             // For bidirectional: create a single extrude from (origin - second_depth * direction)
             // in +direction with total_depth = primary + second. This avoids boolean union.
             // For cut: reverse direction and offset origin by eps to avoid coplanar faces.
-            let eps = 0.01;
+            let eps = 0.1;
             let (extrude_direction, extrude_depth, face_origin) = match (params.cut, second_depth) {
                 (true, Some(sd)) => {
                     // Cut + bidirectional: tool starts offset behind sketch plane

@@ -6,10 +6,10 @@
 //!
 //! Categories:
 //!   A — Boss-on-Boss Union (5 tests: 4 active, 1 ignored)
-//!   B — Cut Through Boss (4 tests: all ignored — chained boolean)
+//!   B — Cut Through Boss (4 tests: all active)
 //!   C — Cut Wrong Direction / Free Space (3 tests: all active)
 //!   D — Partial Overlap / Symmetric (5 tests: 3 active, 2 ignored)
-//!   E — Adversarial Cases (7 tests: 4 active, 3 ignored)
+//!   E — Adversarial Cases (7 tests: 5 active, 2 ignored)
 
 use test_harness::helpers::{mesh_bounding_box, mesh_volume};
 use test_harness::ModelBuilder;
@@ -77,7 +77,7 @@ fn a1_boss_on_top_face_circle_union() {
 /// A2: Circle boss on z=0 bottom face, extruded downward. Tests non-default direction.
 /// Coplanar face at z=0 with non-standard extrude direction causes truck boolean failure.
 #[test]
-#[ignore = "truck 0.4: boolean union fails on coplanar bottom face with directed extrude"]
+#[ignore = "truck 0.4: coplanar face at z=0 with degenerate boundary intersection — create_loops_stores returns None"]
 fn a2_boss_on_bottom_face_circle_union() {
     let mut m = base_cube();
 
@@ -104,7 +104,7 @@ fn a2_boss_on_bottom_face_circle_union() {
 /// A3: Circle boss on y=10 side face, extruded in +Y. Tests non-XY sketch plane.
 /// Coplanar face on side with non-XY sketch orientation causes truck boolean failure.
 #[test]
-#[ignore = "truck 0.4: boolean union fails on coplanar side face with non-XY sketch plane"]
+#[ignore = "truck 0.4: coplanar face at y=10 with degenerate boundary intersection — create_loops_stores returns None"]
 fn a3_boss_on_side_face_circle_union() {
     let mut m = base_cube();
 
@@ -129,7 +129,7 @@ fn a3_boss_on_side_face_circle_union() {
 
 /// A4: Two circle bosses on same face, sequential unions. Chained boolean risk.
 #[test]
-#[ignore = "truck 0.4: chained boolean on boolean result produces degenerate geometry"]
+#[ignore = "truck 0.4: chained boolean — IntersectionCurve edges degrade second boolean pass"]
 fn a4_two_bosses_same_face_sequential() {
     let mut m = base_cube();
 
@@ -181,12 +181,11 @@ fn a5_boss_on_top_face_rect_union_volume() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Category B — Cut Through Boss (all ignored — chained boolean)
+// Category B — Cut Through Boss (all active — chained booleans work for these)
 // ══════════════════════════════════════════════════════════════════════════════
 
 /// B1: Union boss then extrude_cut through it. Chained boolean.
 #[test]
-#[ignore = "truck 0.4: chained boolean — union then extrude_cut often produces degenerate solid"]
 fn b1_circle_cut_through_boss_extrude_cut() {
     let mut m = base_cube();
 
@@ -217,7 +216,6 @@ fn b1_circle_cut_through_boss_extrude_cut() {
 
 /// B2: Union boss then explicit boolean_subtract. Chained boolean.
 #[test]
-#[ignore = "truck 0.4: chained boolean — union then subtract often produces degenerate solid"]
 fn b2_circle_cut_through_boss_explicit() {
     let mut m = base_cube();
 
@@ -240,7 +238,6 @@ fn b2_circle_cut_through_boss_explicit() {
 
 /// B3: Shallow cut into tall boss only. Chained boolean.
 #[test]
-#[ignore = "truck 0.4: chained boolean — union then shallow cut on boolean result"]
 fn b3_shallow_cut_into_boss_only() {
     let mut m = base_cube();
 
@@ -267,7 +264,6 @@ fn b3_shallow_cut_into_boss_only() {
 
 /// B4: Wide cut removes entire boss footprint. Chained boolean.
 #[test]
-#[ignore = "truck 0.4: chained boolean — wide cut on boolean result"]
 fn b4_wide_cut_removes_boss() {
     let mut m = base_cube();
 
@@ -462,7 +458,7 @@ fn d2_symmetric_boss_on_boss_stack() {
 
 /// D3: Partially overlapping coplanar rects. Needs face splitting.
 #[test]
-#[ignore = "truck 0.4: partially overlapping coplanar faces require face splitting"]
+#[ignore = "truck 0.4: coincident edges — extract_interference returns empty for edge-on-edge intersection"]
 fn d3_partially_overlapping_coplanar_rects() {
     let mut m = ModelBuilder::truck();
 
@@ -591,7 +587,6 @@ fn e1_very_thin_boss() {
 
 /// E2: Boss with radius exceeding face boundary.
 #[test]
-#[ignore = "truck 0.4: boolean fails when boss extends beyond target face boundary"]
 fn e2_very_large_boss_exceeds_face() {
     let mut m = base_cube();
 
@@ -616,7 +611,7 @@ fn e2_very_large_boss_exceeds_face() {
 
 /// E3: Boss circle centered on a cube edge.
 #[test]
-#[ignore = "truck 0.4: boolean fails when boss circle touches face edge at degenerate point"]
+#[ignore = "truck 0.4: boss circle at face edge — degenerate intersection curve at boundary vertex"]
 fn e3_boss_at_cube_edge() {
     let mut m = base_cube();
 
@@ -636,7 +631,7 @@ fn e3_boss_at_cube_edge() {
 /// the tool exits through the opposite face, returning ~cylinder volume instead
 /// of cube-minus-cylinder.
 #[test]
-#[ignore = "truck 0.4: full-penetration cut returns degenerate geometry (tool vol instead of difference)"]
+#[ignore = "truck 0.4: full-penetration through-cut returns tool volume instead of cube-minus-cylinder"]
 fn e4_cut_depth_exactly_solid_height() {
     let mut m = base_cube();
 
@@ -677,7 +672,7 @@ fn e4_cut_depth_exactly_solid_height() {
 
 /// E5: Multiple non-overlapping cuts. Chained boolean.
 #[test]
-#[ignore = "truck 0.4: chained boolean — multiple sequential extrude_cuts"]
+#[ignore = "truck 0.4: chained boolean — IntersectionCurve edges degrade on second extrude_cut"]
 fn e5_multiple_non_overlapping_cuts() {
     let mut m = base_cube();
 
@@ -698,7 +693,7 @@ fn e5_multiple_non_overlapping_cuts() {
 
 /// E6: Two explicit boolean_subtracts. Chained boolean.
 #[test]
-#[ignore = "truck 0.4: chained boolean — two explicit subtracts on same target"]
+#[ignore = "truck 0.4: chained boolean — IntersectionCurve edges degrade on second subtract"]
 fn e6_explicit_two_subtracts() {
     let mut m = ModelBuilder::truck();
 
