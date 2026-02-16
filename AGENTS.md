@@ -1,21 +1,46 @@
 # Waffle Iron — Agent Team Structure
 
+## Document Precedence
+
+When rules conflict, the following precedence applies (highest first):
+
+1. `/governance/*` — Engineering law (Constitution, FIP, DoD, Architectural Invariants)
+2. `/agents/*` — Roles, skills, orchestration
+3. This file — Repo-level team structure and directory scoping
+4. `CLAUDE.md` — Session workflow and coding conventions
+5. Sub-project `CLAUDE.md` files — Project-specific instructions
+
 ## Overview
 
-Waffle Iron is developed by autonomous Claude Code agent teams. Each agent has a defined scope, reads specific documentation, and follows strict boundaries. This document defines the team structure and rules.
+Waffle Iron is developed by autonomous Claude Code agent teams. This document defines the **project-level** team structure: which agents own which directories, how they coordinate across crates, and what boundaries they must respect.
 
-## Agent Roles
+For **feature-cycle** roles (how work is executed within a feature), see `/agents/roles/` and `/governance/FEATURE_IMPLEMENTATION_PROTOCOL.md`.
 
-### Lead Agent
+## How the Two Role Systems Compose
 
-- **Scope:** Orchestration and dispatch. Never writes code directly.
-- **Reads:** Top-level ARCHITECTURE.md, INTERFACES.md, all sub-project PLAN.md files.
+There are two complementary role systems:
+
+### Project-Level Roles (this file)
+Define **who owns what** across the repo: which agent touches which crate, who can modify INTERFACES.md, who runs integration tests.
+
+### Feature-Cycle Roles (`/agents/roles/`)
+Define **how a feature is built**: Manager orchestrates, Spec Writer produces specs, Test Author writes failing tests, Implementer codes, Adversary hardens. These roles enforce separation of concerns within a single feature's lifecycle per the Feature Implementation Protocol.
+
+In practice, a Sub-Project Agent may assume different feature-cycle roles across sequential cycles (e.g., act as Implementer in one cycle, then Test Author in the next), but must **never** act as both Test Author and Implementer within the same feature cycle.
+
+## Project-Level Roles
+
+### Manager
+
+- **Scope:** Orchestration and dispatch. Never writes modeling code directly.
+- **Reads:** `/governance/*`, `/agents/*`, top-level ARCHITECTURE.md, INTERFACES.md, all sub-project PLAN.md files.
 - **Responsibilities:**
-  - Dispatch work to sub-project agents.
+  - Interpret user requests and classify change type.
+  - Route to correct feature-cycle workflow (see `/agents/ORCHESTRATION.md`).
+  - Enforce Feature Implementation Protocol and Definition of Done.
   - Review cross-project interface compliance.
   - Prioritize work based on dependency graph.
   - Resolve inter-project conflicts.
-  - Manage QUEUE.md for the task scheduler.
 
 ### Sub-Project Agents (one per sub-project)
 
@@ -26,6 +51,7 @@ Waffle Iron is developed by autonomous Claude Code agent teams. Each agent has a
   - Run their tests before every commit.
   - Update their PLAN.md to mark completed tasks and add discovered tasks.
   - Document interface change requests (never modify top-level INTERFACES.md directly).
+  - Assume feature-cycle roles as directed by Manager (respecting role separation).
 
 ### Integration Agent
 
@@ -53,22 +79,22 @@ Waffle Iron is developed by autonomous Claude Code agent teams. Each agent has a
 
 ### Boundary Rules
 
-1. **Sub-project agents NEVER modify files outside their sub-project directory.** Exception: integration agent.
+1. **Sub-project agents NEVER modify files outside their sub-project directory.** Exception: Integration Agent.
 2. **Sub-project agents NEVER modify top-level INTERFACES.md.** They document requested changes in their PLAN.md under "Interface Change Requests."
 3. **No agent modifies another agent's branch** without explicit coordination.
 
 ### Workflow Rules
 
 4. **Every agent reads INTERFACES.md before starting work.** Interface types are the contracts.
-5. **Every agent runs tests before committing.** `cargo test -p <crate>` for sub-project agents. Full `cargo test` for integration agent.
+5. **Every agent runs tests before committing.** `cargo test -p <crate>` for sub-project agents. Full `cargo test` for Integration Agent.
 6. **Every agent updates PLAN.md** to mark completed tasks and add discovered tasks.
 7. **If stuck for more than 15 minutes without a commit,** the task scope is too broad. Break it down, document in PLAN.md, move on.
 
 ### Interface Change Process
 
 8. Sub-project agent discovers interface gap → documents in their PLAN.md under "Interface Change Requests" with rationale and proposed change.
-9. Lead agent reviews interface change requests across all sub-projects.
-10. Integration agent implements approved changes to top-level INTERFACES.md.
+9. Manager reviews interface change requests across all sub-projects.
+10. Integration Agent implements approved changes to top-level INTERFACES.md.
 11. All consuming sub-project agents are notified and must update their code.
 
 ### Quality Rules

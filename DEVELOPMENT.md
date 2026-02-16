@@ -1,6 +1,18 @@
 # Waffle Iron — Development Environment
 
-Docker-based autonomous development environment for agent-driven and human development.
+Docker-based development environment for autonomous agent and human development.
+
+## Governance and Workflow
+
+Agent workflow, role separation, and quality gates are defined in:
+
+- `/governance/ENGINEERING_CONSTITUTION.md` — Non-negotiable engineering rules
+- `/governance/FEATURE_IMPLEMENTATION_PROTOCOL.md` — Required lifecycle for modeling features
+- `/governance/DEFINITION_OF_DONE.md` — Acceptance criteria
+- `/governance/ARCHITECTURAL_INVARIANTS.md` — Protected architectural constraints
+- `/agents/ORCHESTRATION.md` — How agent teams execute work
+
+See `CLAUDE.md` for session start checklist and `AGENTS.md` for team structure.
 
 ## Container Setup
 
@@ -54,58 +66,15 @@ volumes:
 ## Lifecycle
 
 1. **Human starts container** manually (`docker compose up -d`).
-2. **Scheduler runs inside** container, processing tasks from QUEUE.md.
-3. **Human monitors** progress via git log, PLAN.md updates, and scheduler logs.
+2. **Agent sessions** run inside the container, following `/agents/ORCHESTRATION.md`.
+3. **Human monitors** progress via git log, PLAN.md updates.
 4. **Human stops container** when done (`docker compose down`).
 5. **Claude never starts or stops containers.** Agents work within their session only.
 
-## Task Scheduler
-
-### QUEUE.md Format
-
-```markdown
-# Task Queue
-
-## Pending
-- [ ] 01-kernel-fork: Fork truck, set up workspace dependency
-- [ ] 01-kernel-fork: Implement higher-level primitive API
-- [ ] 02-sketch-solver: Add slvs crate dependency, verify build
-
-## In Progress
-- [~] 01-kernel-fork: Kernel trait adapter (agent session active)
-
-## Completed
-- [x] Documentation: Top-level ARCHITECTURE.md
-```
-
-### Scheduler Operation
-
-Shell script or Rust binary that:
-
-1. Reads QUEUE.md, finds the first `[ ]` (pending) task.
-2. Marks it `[~]` (in progress).
-3. Identifies the sub-project from the task prefix.
-4. Invokes Claude Code:
-   ```bash
-   claude --dangerously-skip-permissions \
-     --system-prompt "$(cat projects/<sub-project>/CLAUDE.md)" \
-     --prompt "Complete this task: <task description>"
-   ```
-5. Monitors for completion (commit detected) or failure (timeout/error).
-6. Marks task `[x]` (completed) or `[!]` (failed) with notes.
-7. Advances to next task.
-
-### Stuck Detection
-
-- **No git commit in 15 minutes** → kill the agent session.
-- Log the session context (last prompt, last output).
-- Narrow the task scope (break into sub-tasks in QUEUE.md).
-- Restart with the narrower task.
-
-### Session Recovery
+## Session Recovery
 
 Each session starts from:
-- Documentation (ARCHITECTURE.md, INTERFACES.md, sub-project docs)
+- Documentation (ARCHITECTURE.md, INTERFACES.md, governance docs, sub-project docs)
 - Code (current state of the crate)
 - Tests (the ratchet — what passes must keep passing)
 - PLAN.md (what's done, what's next, what's blocked)
@@ -115,10 +84,7 @@ No implicit knowledge is required. No state is carried between sessions except w
 ## Usage Windows
 
 Development happens in bursts:
-- Start the container, let the scheduler run for a few hours.
+- Start the container, run agent sessions for a few hours.
 - Stop the container.
 - Review progress: `git log --oneline`, read PLAN.md updates.
-- Adjust QUEUE.md priorities if needed.
 - Restart.
-
-The scheduler picks up exactly where it left off via QUEUE.md + git status.

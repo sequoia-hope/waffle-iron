@@ -2,13 +2,25 @@
 
 Global instructions for any Claude Code session working on Waffle Iron.
 
+## Document Precedence
+
+When rules conflict, the following precedence applies (highest first):
+
+1. `/governance/*` — Engineering Constitution, FIP, DoD, Architectural Invariants
+2. `/agents/*` — Roles, skills, orchestration
+3. `AGENTS.md` — Repo-level team structure
+4. This file — Session workflow and coding conventions
+5. Sub-project `CLAUDE.md` files — Project-specific instructions
+
 ## Session Start Checklist
 
 1. Run `git status` — understand what branch you're on and what's changed.
 2. Read `ARCHITECTURE.md` — understand the system.
 3. Read `INTERFACES.md` — understand the type contracts.
-4. Identify your sub-project. Read that sub-project's `CLAUDE.md`.
-5. Read that sub-project's `PLAN.md` — pick the highest-priority uncompleted task.
+4. Read `/governance/ENGINEERING_CONSTITUTION.md` — understand the engineering law.
+5. Read `/agents/ORCHESTRATION.md` — understand the agent workflow.
+6. Identify your sub-project. Read that sub-project's `CLAUDE.md`.
+7. Read that sub-project's `PLAN.md` — pick the highest-priority uncompleted task.
 
 ## While Coding
 
