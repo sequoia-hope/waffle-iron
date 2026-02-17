@@ -224,3 +224,15 @@ export async function waitForToolEvent(page, eventType, timeout = 3000) {
 export async function getExtrudeDialogState(page) {
 	return page.evaluate(() => window.__waffle?.getExtrudeDialogState?.() ?? null);
 }
+
+/**
+ * Wait until at least one mesh has geometry (triangles > 0).
+ * @param {import('@playwright/test').Page} page
+ * @param {number} timeout
+ */
+export async function waitForMeshWithGeometry(page, timeout = 10000) {
+	await page.waitForFunction(
+		() => (window.__waffle?.getMeshes() ?? []).some(m => m.triangleCount > 0),
+		{ timeout }
+	);
+}

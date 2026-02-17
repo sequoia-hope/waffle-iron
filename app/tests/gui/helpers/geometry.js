@@ -170,3 +170,17 @@ export async function dragBox(page, startX, startY, endX, endY) {
 	await page.mouse.up();
 	await page.waitForTimeout(300);
 }
+
+/**
+ * Get a face GeomRef from the first mesh that has face ranges.
+ * @param {import('@playwright/test').Page} page
+ * @returns {Promise<any>}
+ */
+export async function getFirstFaceRef(page) {
+	return page.evaluate(() => {
+		const meshes = window.__waffle.getMeshes();
+		const mesh = meshes.find(m => m.faceRangeCount > 0);
+		if (!mesh || mesh.faceRanges.length === 0) return null;
+		return mesh.faceRanges[0].geom_ref;
+	});
+}
