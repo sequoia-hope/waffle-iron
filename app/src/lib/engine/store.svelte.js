@@ -270,6 +270,8 @@ export async function initEngine() {
 			applyDimensionFromPopup: (value) => applyDimensionFromPopup(value),
 			getSnapIndicator: () => getSnapIndicator(),
 			getSnapCandidates: () => _getSnapCandidates(),
+			getSnapSettings: () => getSnapSettings(),
+			updateSnapSettings: (updates) => updateSnapSettings(updates),
 			getPreview: () => getPreview(),
 			getToolState: () => _getToolState(),
 			getIsDragging: () => _getIsDragging(),
