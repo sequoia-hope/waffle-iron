@@ -285,7 +285,28 @@ fn execute_feature(
                 let boolean_result =
                     execute_boolean(kb, &target_handle, &tool_handle, BooleanKind::Subtract)?;
                 Ok(boolean_result)
+            } else if params.merge {
+                // Auto-union boss extrude with existing body
+                if let Some(target_handle) = find_most_recent_solid(feature, feature_results, tree)
+                {
+                    if let Some(tool_handle) = extrude_result
+                        .outputs
+                        .first()
+                        .map(|(_, b)| b.handle.clone())
+                    {
+                        match execute_boolean(kb, &target_handle, &tool_handle, BooleanKind::Union)
+                        {
+                            Ok(union_result) => Ok(union_result),
+                            Err(_) => Ok(extrude_result),
+                        }
+                    } else {
+                        Ok(extrude_result)
+                    }
+                } else {
+                    Ok(extrude_result)
+                }
             } else {
+                // merge=false: standalone body for explicit boolean operations
                 Ok(extrude_result)
             }
         }

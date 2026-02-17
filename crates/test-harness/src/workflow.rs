@@ -282,6 +282,41 @@ impl ModelBuilder {
                         direction: None,
                         symmetric: false,
                         cut: false,
+                        merge: true,
+                        target_body: None,
+                        depth_mode: DepthMode::Blind,
+                        second_direction: None,
+                    },
+                },
+            },
+            self.kernel.as_mut(),
+        );
+
+        self.extract_last_feature_id(name, "AddFeature(Extrude)", response)
+    }
+
+    /// Add a standalone (non-merging) extrude feature for explicit boolean operations.
+    pub fn extrude_no_merge(
+        &mut self,
+        name: &str,
+        sketch_name: &str,
+        depth: f64,
+    ) -> Result<Uuid, HarnessError> {
+        self.check_name_available(name)?;
+        let sketch_id = self.feature_id(sketch_name)?;
+
+        let response = wasm_bridge::dispatch(
+            &mut self.state,
+            UiToEngine::AddFeature {
+                operation: Operation::Extrude {
+                    params: ExtrudeParams {
+                        sketch_id,
+                        profile_index: 0,
+                        depth,
+                        direction: None,
+                        symmetric: false,
+                        cut: false,
+                        merge: false,
                         target_body: None,
                         depth_mode: DepthMode::Blind,
                         second_direction: None,
@@ -315,6 +350,7 @@ impl ModelBuilder {
                         direction: None,
                         symmetric: false,
                         cut: true,
+                        merge: true,
                         target_body: None,
                         depth_mode: DepthMode::Blind,
                         second_direction: None,
@@ -349,6 +385,7 @@ impl ModelBuilder {
                         direction: Some(direction),
                         symmetric: false,
                         cut: false,
+                        merge: true,
                         target_body: None,
                         depth_mode: DepthMode::Blind,
                         second_direction: None,
@@ -406,6 +443,7 @@ impl ModelBuilder {
                         direction: None,
                         symmetric: false,
                         cut,
+                        merge: true,
                         target_body: None,
                         depth_mode: DepthMode::ThroughAll,
                         second_direction: None,
@@ -439,6 +477,7 @@ impl ModelBuilder {
                         direction: None,
                         symmetric: false,
                         cut: false,
+                        merge: true,
                         target_body: None,
                         depth_mode: DepthMode::UpTo { reference },
                         second_direction: None,
@@ -474,6 +513,7 @@ impl ModelBuilder {
                         direction: Some(direction),
                         symmetric: false,
                         cut,
+                        merge: true,
                         target_body: None,
                         depth_mode: DepthMode::Blind,
                         second_direction: None,
@@ -484,6 +524,41 @@ impl ModelBuilder {
         );
 
         self.extract_last_feature_id(name, "AddFeature(ExtrudeDirected)", response)
+    }
+
+    /// Add a standalone directed extrude (no auto-merge) for explicit boolean operations.
+    pub fn extrude_directed_no_merge(
+        &mut self,
+        name: &str,
+        sketch_name: &str,
+        depth: f64,
+        direction: [f64; 3],
+    ) -> Result<Uuid, HarnessError> {
+        self.check_name_available(name)?;
+        let sketch_id = self.feature_id(sketch_name)?;
+
+        let response = wasm_bridge::dispatch(
+            &mut self.state,
+            UiToEngine::AddFeature {
+                operation: Operation::Extrude {
+                    params: ExtrudeParams {
+                        sketch_id,
+                        profile_index: 0,
+                        depth,
+                        direction: Some(direction),
+                        symmetric: false,
+                        cut: false,
+                        merge: false,
+                        target_body: None,
+                        depth_mode: DepthMode::Blind,
+                        second_direction: None,
+                    },
+                },
+            },
+            self.kernel.as_mut(),
+        );
+
+        self.extract_last_feature_id(name, "AddFeature(ExtrudeDirectedNoMerge)", response)
     }
 
     /// Add a bidirectional extrude with independent depths in each direction.
@@ -508,6 +583,7 @@ impl ModelBuilder {
                         direction: None,
                         symmetric: false,
                         cut: false,
+                        merge: true,
                         target_body: None,
                         depth_mode: DepthMode::Blind,
                         second_direction: Some(SecondDirection::Blind {
@@ -543,6 +619,7 @@ impl ModelBuilder {
                         direction: None,
                         symmetric: false,
                         cut: false,
+                        merge: true,
                         target_body: None,
                         depth_mode: DepthMode::Blind,
                         second_direction: Some(SecondDirection::Symmetric),

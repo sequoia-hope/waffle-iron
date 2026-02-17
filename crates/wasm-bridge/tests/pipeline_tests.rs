@@ -119,6 +119,44 @@ fn add_extrude(
                     direction,
                     symmetric: false,
                     cut: false,
+                    merge: true,
+                    target_body: None,
+                    depth_mode: feature_engine::types::DepthMode::Blind,
+                    second_direction: None,
+                },
+            },
+        },
+        kernel,
+    );
+
+    match response {
+        EngineToUi::ModelUpdated { feature_tree, .. } => feature_tree.features.last().unwrap().id,
+        other => panic!(
+            "Expected ModelUpdated from AddFeature(Extrude), got {:?}",
+            other
+        ),
+    }
+}
+
+/// Add a non-merging extrude (standalone body for explicit boolean tests).
+fn add_extrude_no_merge(
+    state: &mut EngineState,
+    kernel: &mut MockKernel,
+    sketch_id: Uuid,
+    depth: f64,
+) -> Uuid {
+    let response = wasm_bridge::dispatch(
+        state,
+        UiToEngine::AddFeature {
+            operation: Operation::Extrude {
+                params: ExtrudeParams {
+                    sketch_id,
+                    profile_index: 0,
+                    depth,
+                    direction: None,
+                    symmetric: false,
+                    cut: false,
+                    merge: false,
                     target_body: None,
                     depth_mode: feature_engine::types::DepthMode::Blind,
                     second_direction: None,
@@ -632,6 +670,7 @@ fn extrude_nonexistent_sketch_has_rebuild_error() {
                     direction: None,
                     symmetric: false,
                     cut: false,
+                    merge: true,
                     target_body: None,
                     depth_mode: feature_engine::types::DepthMode::Blind,
                     second_direction: None,
@@ -684,6 +723,7 @@ fn extrude_profile_index_out_of_range_has_rebuild_error() {
                     direction: None,
                     symmetric: false,
                     cut: false,
+                    merge: true,
                     target_body: None,
                     depth_mode: feature_engine::types::DepthMode::Blind,
                     second_direction: None,
@@ -808,9 +848,9 @@ fn two_independent_sketch_extrude_pairs() {
     let sketch1 = create_rect_sketch(&mut state, &mut kernel, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
     let extrude1 = add_extrude(&mut state, &mut kernel, sketch1, 5.0, None);
 
-    // Second sketch + extrude
+    // Second sketch + extrude (no merge — keep as independent body)
     let sketch2 = create_rect_sketch(&mut state, &mut kernel, [20.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
-    let extrude2 = add_extrude(&mut state, &mut kernel, sketch2, 10.0, None);
+    let extrude2 = add_extrude_no_merge(&mut state, &mut kernel, sketch2, 10.0);
 
     assert_eq!(state.engine.tree.features.len(), 4);
 
@@ -949,6 +989,7 @@ fn extrude_sketch_with_no_profiles_returns_error() {
                     direction: None,
                     symmetric: false,
                     cut: false,
+                    merge: true,
                     target_body: None,
                     depth_mode: feature_engine::types::DepthMode::Blind,
                     second_direction: None,

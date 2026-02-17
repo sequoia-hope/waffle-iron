@@ -387,8 +387,8 @@ fn test_full_workflow() {
     )
     .unwrap();
 
-    // 4. Extrude from face
-    m.extrude("boss", "face_sketch", 10.0).unwrap();
+    // 4. Extrude from face (no merge — test validates explicit boolean path)
+    m.extrude_no_merge("boss", "face_sketch", 10.0).unwrap();
     m.assert_has_solid("boss").unwrap();
 
     // 5. New part in same workspace
@@ -402,7 +402,7 @@ fn test_full_workflow() {
         50.,
     )
     .unwrap();
-    m.extrude("part2", "part2_sketch", 30.0).unwrap();
+    m.extrude_no_merge("part2", "part2_sketch", 30.0).unwrap();
     m.assert_has_solid("part2").unwrap();
 
     // 6. Boolean subtract

@@ -98,6 +98,15 @@
 		renaming = null;
 	}
 
+	function handleKeyDown(e) {
+		if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+		if (renaming) return;
+		if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
+			deleteFeature(selectedId);
+			selectFeature(null);
+		}
+	}
+
 	function handleDelete() {
 		if (contextMenu) {
 			deleteFeature(contextMenu.featureId);
@@ -187,7 +196,7 @@
 	}
 </script>
 
-<svelte:window onclick={closeContextMenu} />
+<svelte:window onclick={closeContextMenu} onkeydown={handleKeyDown} />
 
 <div class="feature-tree">
 	<div class="panel-header">Features</div>
@@ -235,6 +244,7 @@
 					class:after-rollback={isAfterRollback}
 					class:dragging={isDragging}
 					class:drop-above={dropTargetIndex === i && dragFeatureId !== feature.id}
+					data-testid="feature-item-{i}"
 					draggable="true"
 					onclick={() => handleClick(feature.id)}
 					ondblclick={() => handleDblClick(feature)}
@@ -282,6 +292,7 @@
 				<input
 					type="range"
 					class="rollback-slider"
+					data-testid="rollback-slider"
 					min="0"
 					max={tree.features.length}
 					value={rollbackValue}
@@ -300,13 +311,13 @@
 		onclick={(e) => e.stopPropagation()}
 	>
 		{#if contextMenu.isSketch}
-			<button class="ctx-item" onclick={handleEditSketch}>Edit Sketch</button>
+			<button class="ctx-item" data-testid="ft-ctx-edit-sketch" onclick={handleEditSketch}>Edit Sketch</button>
 		{/if}
-		<button class="ctx-item" onclick={handleRenameFromMenu}>Rename</button>
-		<button class="ctx-item" onclick={handleSuppress}>
+		<button class="ctx-item" data-testid="ft-ctx-rename" onclick={handleRenameFromMenu}>Rename</button>
+		<button class="ctx-item" data-testid="ft-ctx-suppress" onclick={handleSuppress}>
 			{contextMenu.suppressed ? 'Unsuppress' : 'Suppress'}
 		</button>
-		<button class="ctx-item danger" onclick={handleDelete}>Delete</button>
+		<button class="ctx-item danger" data-testid="ft-ctx-delete" onclick={handleDelete}>Delete</button>
 	</div>
 {/if}
 

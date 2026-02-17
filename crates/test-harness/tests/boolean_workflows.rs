@@ -48,7 +48,7 @@ fn a1_boss_on_top_face_circle_union() {
     // Circle boss on top face (z=10), extruded 5 in +Z
     m.circle_sketch("boss_sk", [0., 0., 10.], [0., 0., 1.], 5., 5., 3.)
         .unwrap();
-    m.extrude("boss", "boss_sk", 5.0).unwrap();
+    m.extrude_no_merge("boss", "boss_sk", 5.0).unwrap();
     m.assert_has_solid("boss").unwrap();
 
     m.boolean_union("merged", "cube", "boss").unwrap();
@@ -83,7 +83,7 @@ fn a2_boss_on_bottom_face_circle_union() {
     // Circle boss on bottom face (z=0), extruded in -Z
     m.circle_sketch("boss_sk", [0., 0., 0.], [0., 0., 1.], 5., 5., 3.)
         .unwrap();
-    m.extrude_directed("boss", "boss_sk", 5.0, [0., 0., -1.], false)
+    m.extrude_directed_no_merge("boss", "boss_sk", 5.0, [0., 0., -1.])
         .unwrap();
     m.assert_has_solid("boss").unwrap();
 
@@ -112,7 +112,7 @@ fn a3_boss_on_side_face_circle_union() {
     // Coords (-5, 5) → 3D (-5, 10, 5), inside cube's y=10 face.
     m.circle_sketch("boss_sk", [0., 10., 0.], [0., 1., 0.], -5., 5., 3.)
         .unwrap();
-    m.extrude("boss", "boss_sk", 5.0).unwrap();
+    m.extrude_no_merge("boss", "boss_sk", 5.0).unwrap();
     m.assert_has_solid("boss").unwrap();
 
     m.boolean_union("merged", "cube", "boss").unwrap();
@@ -135,11 +135,11 @@ fn a4_two_bosses_same_face_sequential() {
 
     m.circle_sketch("boss1_sk", [0., 0., 10.], [0., 0., 1.], 3., 5., 2.)
         .unwrap();
-    m.extrude("boss1", "boss1_sk", 5.0).unwrap();
+    m.extrude_no_merge("boss1", "boss1_sk", 5.0).unwrap();
 
     m.circle_sketch("boss2_sk", [0., 0., 10.], [0., 0., 1.], 7., 5., 2.)
         .unwrap();
-    m.extrude("boss2", "boss2_sk", 5.0).unwrap();
+    m.extrude_no_merge("boss2", "boss2_sk", 5.0).unwrap();
 
     m.boolean_union("merged1", "cube", "boss1").unwrap();
     m.assert_has_solid("merged1").unwrap();
@@ -160,7 +160,7 @@ fn a5_boss_on_top_face_rect_union_volume() {
 
     m.rect_sketch("boss_sk", [0., 0., 10.], [0., 0., 1.], 3., 3., 4., 4.)
         .unwrap();
-    m.extrude("boss", "boss_sk", 5.0).unwrap();
+    m.extrude_no_merge("boss", "boss_sk", 5.0).unwrap();
     m.assert_has_solid("boss").unwrap();
 
     m.boolean_union("merged", "cube", "boss").unwrap();
@@ -191,7 +191,7 @@ fn b1_circle_cut_through_boss_extrude_cut() {
 
     m.circle_sketch("boss_sk", [0., 0., 10.], [0., 0., 1.], 5., 5., 3.)
         .unwrap();
-    m.extrude("boss", "boss_sk", 5.0).unwrap();
+    m.extrude_no_merge("boss", "boss_sk", 5.0).unwrap();
     m.boolean_union("merged", "cube", "boss").unwrap();
     m.assert_has_solid("merged").unwrap();
 
@@ -221,14 +221,14 @@ fn b2_circle_cut_through_boss_explicit() {
 
     m.circle_sketch("boss_sk", [0., 0., 10.], [0., 0., 1.], 5., 5., 3.)
         .unwrap();
-    m.extrude("boss", "boss_sk", 5.0).unwrap();
+    m.extrude_no_merge("boss", "boss_sk", 5.0).unwrap();
     m.boolean_union("merged", "cube", "boss").unwrap();
     m.assert_has_solid("merged").unwrap();
 
     // Create tool body for explicit subtract
     m.circle_sketch("tool_sk", [0., 0., 16.], [0., 0., 1.], 5., 5., 1.5)
         .unwrap();
-    m.extrude_directed("tool", "tool_sk", 21.0, [0., 0., -1.], false)
+    m.extrude_directed_no_merge("tool", "tool_sk", 21.0, [0., 0., -1.])
         .unwrap();
 
     m.boolean_subtract("result", "merged", "tool").unwrap();
@@ -243,7 +243,7 @@ fn b3_shallow_cut_into_boss_only() {
 
     m.circle_sketch("boss_sk", [0., 0., 10.], [0., 0., 1.], 5., 5., 3.)
         .unwrap();
-    m.extrude("boss", "boss_sk", 10.0).unwrap();
+    m.extrude_no_merge("boss", "boss_sk", 10.0).unwrap();
     m.boolean_union("merged", "cube", "boss").unwrap();
     m.assert_has_solid("merged").unwrap();
 
@@ -269,7 +269,7 @@ fn b4_wide_cut_removes_boss() {
 
     m.circle_sketch("boss_sk", [0., 0., 10.], [0., 0., 1.], 5., 5., 2.)
         .unwrap();
-    m.extrude("boss", "boss_sk", 5.0).unwrap();
+    m.extrude_no_merge("boss", "boss_sk", 5.0).unwrap();
     m.boolean_union("merged", "cube", "boss").unwrap();
     m.assert_has_solid("merged").unwrap();
 
@@ -393,7 +393,7 @@ fn d1_offset_boss_partial_overlap() {
     // Offset box: starts at (3,3,5), no coplanar faces
     m.rect_sketch("sk2", [3., 3., 5.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
-    m.extrude("box2", "sk2", 10.0).unwrap();
+    m.extrude_no_merge("box2", "sk2", 10.0).unwrap();
 
     let box1_mesh = m.tessellate("box1").unwrap();
     let box2_mesh = m.tessellate("box2").unwrap();
@@ -435,14 +435,14 @@ fn d2_symmetric_boss_on_boss_stack() {
 
     m.circle_sketch("boss1_sk", [0., 0., 10.], [0., 0., 1.], 5., 5., 3.)
         .unwrap();
-    m.extrude("boss1", "boss1_sk", 5.0).unwrap();
+    m.extrude_no_merge("boss1", "boss1_sk", 5.0).unwrap();
     m.boolean_union("step1", "cube", "boss1").unwrap();
     m.assert_has_solid("step1").unwrap();
 
     // Second boss on top of first boss (z=15)
     m.circle_sketch("boss2_sk", [0., 0., 15.], [0., 0., 1.], 5., 5., 2.)
         .unwrap();
-    m.extrude("boss2", "boss2_sk", 5.0).unwrap();
+    m.extrude_no_merge("boss2", "boss2_sk", 5.0).unwrap();
     m.boolean_union("step2", "step1", "boss2").unwrap();
     m.assert_has_solid("step2").unwrap();
     m.assert_no_errors().unwrap();
@@ -468,7 +468,7 @@ fn d3_partially_overlapping_coplanar_rects() {
     // Second box shares the z=10 face partially (offset in X)
     m.rect_sketch("sk2", [5., 0., 10.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
-    m.extrude("box2", "sk2", 10.0).unwrap();
+    m.extrude_no_merge("box2", "sk2", 10.0).unwrap();
 
     m.boolean_union("merged", "box1", "box2").unwrap();
     m.assert_has_solid("merged").unwrap();
@@ -487,7 +487,7 @@ fn d4_partially_overlapping_offset_bosses() {
     // Offset box overlapping corner region
     m.rect_sketch("sk2", [4., 4., 3.], [0., 0., 1.], 0., 0., 8., 8.)
         .unwrap();
-    m.extrude("box2", "sk2", 8.0).unwrap();
+    m.extrude_no_merge("box2", "sk2", 8.0).unwrap();
 
     let box1_mesh = m.tessellate("box1").unwrap();
     let box2_mesh = m.tessellate("box2").unwrap();
@@ -524,7 +524,7 @@ fn d5_boss_taller_than_base() {
 
     m.circle_sketch("boss_sk", [0., 0., 10.], [0., 0., 1.], 5., 5., 3.)
         .unwrap();
-    m.extrude("boss", "boss_sk", 50.0).unwrap();
+    m.extrude_no_merge("boss", "boss_sk", 50.0).unwrap();
     m.assert_has_solid("boss").unwrap();
 
     m.boolean_union("merged", "cube", "boss").unwrap();
@@ -561,7 +561,7 @@ fn e1_very_thin_boss() {
 
     m.circle_sketch("boss_sk", [0., 0., 10.], [0., 0., 1.], 5., 5., 3.)
         .unwrap();
-    m.extrude("boss", "boss_sk", 0.1).unwrap();
+    m.extrude_no_merge("boss", "boss_sk", 0.1).unwrap();
     m.assert_has_solid("boss").unwrap();
 
     m.boolean_union("merged", "cube", "boss").unwrap();
@@ -592,7 +592,7 @@ fn e2_very_large_boss_exceeds_face() {
     // r=8 on a face that's ~10 wide — boss extends past edges
     m.circle_sketch("boss_sk", [0., 0., 10.], [0., 0., 1.], 5., 5., 8.)
         .unwrap();
-    m.extrude("boss", "boss_sk", 5.0).unwrap();
+    m.extrude_no_merge("boss", "boss_sk", 5.0).unwrap();
     m.assert_has_solid("boss").unwrap();
 
     m.boolean_union("merged", "cube", "boss").unwrap();
@@ -616,7 +616,7 @@ fn e3_boss_at_cube_edge() {
     // Place circle center at the edge of the top face
     m.circle_sketch("boss_sk", [0., 0., 10.], [0., 0., 1.], 0., 5., 3.)
         .unwrap();
-    m.extrude("boss", "boss_sk", 5.0).unwrap();
+    m.extrude_no_merge("boss", "boss_sk", 5.0).unwrap();
     m.assert_has_solid("boss").unwrap();
 
     m.boolean_union("merged", "cube", "boss").unwrap();
@@ -699,7 +699,7 @@ fn e6_explicit_two_subtracts() {
 
     m.circle_sketch("tool1_sk", [0., 0., 11.], [0., 0., 1.], 3., 5., 1.5)
         .unwrap();
-    m.extrude_directed("tool1", "tool1_sk", 16.0, [0., 0., -1.], false)
+    m.extrude_directed_no_merge("tool1", "tool1_sk", 16.0, [0., 0., -1.])
         .unwrap();
 
     m.boolean_subtract("step1", "cube", "tool1").unwrap();
@@ -707,7 +707,7 @@ fn e6_explicit_two_subtracts() {
 
     m.circle_sketch("tool2_sk", [0., 0., 11.], [0., 0., 1.], 7., 5., 1.5)
         .unwrap();
-    m.extrude_directed("tool2", "tool2_sk", 16.0, [0., 0., -1.], false)
+    m.extrude_directed_no_merge("tool2", "tool2_sk", 16.0, [0., 0., -1.])
         .unwrap();
 
     m.boolean_subtract("step2", "step1", "tool2").unwrap();
@@ -728,7 +728,7 @@ fn e7_boss_union_volume_conservation() {
 
     m.circle_sketch("boss_sk", [0., 0., 10.], [0., 0., 1.], 5., 5., 3.)
         .unwrap();
-    m.extrude("boss", "boss_sk", 5.0).unwrap();
+    m.extrude_no_merge("boss", "boss_sk", 5.0).unwrap();
 
     let boss_mesh = m.tessellate("boss").unwrap();
     let boss_vol = mesh_volume(&boss_mesh);

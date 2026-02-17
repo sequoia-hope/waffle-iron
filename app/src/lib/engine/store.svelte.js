@@ -1546,6 +1546,7 @@ export function getEditingSketchFeatureId() {
  * @param {string} featureId
  */
 export async function enterSketchEditMode(featureId) {
+	if (extrudeDialogState) return; // Don't edit sketch while extrude dialog is open
 	const tree = featureTree;
 	const feature = tree.features.find(f => f.id === featureId);
 	if (!feature || feature.operation?.type !== 'Sketch') return;

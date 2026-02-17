@@ -178,7 +178,7 @@ fn test_extrude_fillet_boolean_chain() {
     // Body B: box + shell (independent)
     m.rect_sketch("sk2", [20., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
-    m.extrude("box2", "sk2", 10.0).unwrap();
+    m.extrude_no_merge("box2", "sk2", 10.0).unwrap();
     m.shell("shell2", "box2", 1.0).unwrap();
     m.assert_has_solid("shell2").unwrap();
 
@@ -362,7 +362,7 @@ fn test_sketch_on_xz_and_yz_planes() {
     // Sketch on YZ plane (normal = [1, 0, 0])
     m.rect_sketch("sk_yz", [0., 0., 0.], [1., 0., 0.], 0., 0., 10., 10.)
         .unwrap();
-    m.extrude("box_yz", "sk_yz", 10.0).unwrap();
+    m.extrude_no_merge("box_yz", "sk_yz", 10.0).unwrap();
 
     let (v2, e2, f2) = m.topology_counts("box_yz").unwrap();
     assert_eq!((v2, e2, f2), (8, 12, 6), "YZ plane box: V=8 E=12 F=6");
@@ -762,6 +762,7 @@ fn test_backward_compat_symmetric_flag() {
             direction: None,
             symmetric: true,
             cut: false,
+            merge: true,
             target_body: None,
             depth_mode: DepthMode::Blind,
             second_direction: None, // old-style: symmetric flag only
@@ -790,6 +791,7 @@ fn test_extrude_advanced_full_params() {
             direction: Some([0., 0., 1.]),
             symmetric: false,
             cut: false,
+            merge: true,
             target_body: None,
             depth_mode: DepthMode::Blind,
             second_direction: Some(SecondDirection::Blind { depth: 5.0 }),

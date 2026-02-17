@@ -90,6 +90,10 @@ pub enum SecondDirection {
     UpTo { reference: GeomRef },
 }
 
+fn default_true() -> bool {
+    true
+}
+
 fn default_depth_mode() -> DepthMode {
     DepthMode::Blind
 }
@@ -103,6 +107,9 @@ pub struct ExtrudeParams {
     pub direction: Option<[f64; 3]>,
     pub symmetric: bool,
     pub cut: bool,
+    /// Auto-union with existing body. Defaults to true for boss extrudes.
+    #[serde(default = "default_true")]
+    pub merge: bool,
     pub target_body: Option<GeomRef>,
     #[serde(default = "default_depth_mode")]
     pub depth_mode: DepthMode,
