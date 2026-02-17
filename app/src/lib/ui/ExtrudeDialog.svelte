@@ -2,13 +2,13 @@
 	import {
 		getExtrudeDialogState,
 		hideExtrudeDialog,
-		applyExtrude
+		applyExtrude,
+		removeExtrudeRegion
 	} from '$lib/engine/store.svelte.js';
 	import { log } from '$lib/engine/logger.js';
 
 	let dialogState = $derived(getExtrudeDialogState());
 	let depth = $state(10);
-	let profileIndex = $state(0);
 	let cut = $state(false);
 	let depthMode = $state('Blind');
 	let secondDir = $state('None');
@@ -19,10 +19,11 @@
 	let depthLabel = $derived(secondDir === 'Symmetric' ? 'Depth (each side)' : 'Depth');
 	let showSecondDepthInput = $derived(secondDir === 'Blind');
 
+	let regions = $derived(dialogState?.regions ?? []);
+
 	$effect(() => {
 		if (dialogState) {
 			depth = 10;
-			profileIndex = 0;
 			cut = false;
 			depthMode = 'Blind';
 			secondDir = 'None';
@@ -56,7 +57,8 @@
 			secondDepth,
 			flipDirection
 		};
-		applyExtrude(depth, profileIndex, cut, opts)
+		// regions[0] is read inside applyExtrude; profileIndex param is legacy fallback
+		applyExtrude(depth, regions[0]?.profileIndex ?? 0, cut, opts)
 			.catch(err => log('error', `Extrude dialog apply failed: ${err}`));
 	}
 
@@ -73,132 +75,125 @@
 			handleCancel();
 		}
 	}
+
+	function handleRemoveRegion(index) {
+		removeExtrudeRegion(index);
+	}
 </script>
 
 {#if dialogState}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="overlay" onkeydown={handleKeydown} data-testid="extrude-dialog">
-		<div class="dialog">
-			<div class="dialog-header">
-				<span class="dialog-title">Extrude</span>
-				<button class="close-btn" onclick={handleCancel}>&times;</button>
-			</div>
-			<div class="dialog-body">
-				<div class="field">
-					<label for="extrude-sketch">Sketch</label>
-					<span id="extrude-sketch" class="field-value">{dialogState.sketchName}</span>
+	<div class="extrude-panel" onkeydown={handleKeydown} data-testid="extrude-dialog">
+		<div class="dialog-header">
+			<span class="dialog-title">Extrude</span>
+			<button class="close-btn" onclick={handleCancel}>&times;</button>
+		</div>
+		<div class="dialog-body">
+			<div class="region-list" data-testid="extrude-regions">
+				<div class="region-header">
+					<span>Regions ({regions.length})</span>
 				</div>
-				<div class="field">
-					<label for="extrude-depth-mode">Mode</label>
-					<select
-						id="extrude-depth-mode"
-						data-testid="extrude-depth-mode"
-						bind:value={depthMode}
-					>
-						<option value="Blind">Blind</option>
-						<option value="ThroughAll">Through All</option>
-					</select>
-				</div>
-				{#if showDepthInput}
-					<div class="field">
-						<label for="extrude-depth">{depthLabel}</label>
-						<input
-							id="extrude-depth"
-							data-testid="extrude-depth"
-							type="number"
-							bind:value={depth}
-							step="1"
-							min="0.1"
-						/>
+				{#each regions as region, i}
+					<div class="region-item" data-testid="extrude-region-{i}">
+						<span class="region-label">{region.sketchName} / Profile {region.profileIndex + 1}</span>
+						<button class="region-remove" onclick={() => handleRemoveRegion(i)}>&times;</button>
 					</div>
+				{/each}
+				{#if regions.length === 0}
+					<div class="region-empty">No regions selected</div>
 				{/if}
+			</div>
+			<div class="field">
+				<label for="extrude-depth-mode">Mode</label>
+				<select
+					id="extrude-depth-mode"
+					data-testid="extrude-depth-mode"
+					bind:value={depthMode}
+				>
+					<option value="Blind">Blind</option>
+					<option value="ThroughAll">Through All</option>
+				</select>
+			</div>
+			{#if showDepthInput}
 				<div class="field">
-					<label for="extrude-cut">Cut</label>
+					<label for="extrude-depth">{depthLabel}</label>
 					<input
-						id="extrude-cut"
-						data-testid="extrude-cut"
-						type="checkbox"
-						bind:checked={cut}
+						id="extrude-depth"
+						data-testid="extrude-depth"
+						type="number"
+						bind:value={depth}
+						step="1"
+						min="0.1"
 					/>
 				</div>
-				<div class="field">
-					<label for="extrude-second-dir">2nd Direction</label>
-					<select
-						id="extrude-second-dir"
-						data-testid="extrude-second-dir"
-						bind:value={secondDir}
-					>
-						<option value="None">None</option>
-						<option value="Symmetric">Symmetric</option>
-						<option value="Blind">Two Depths</option>
-						<option value="ThroughAll">Through All</option>
-					</select>
-				</div>
-				{#if showSecondDepthInput}
-					<div class="field">
-						<label for="extrude-second-depth">2nd Depth</label>
-						<input
-							id="extrude-second-depth"
-							data-testid="extrude-second-depth"
-							type="number"
-							bind:value={secondDepth}
-							step="1"
-							min="0.1"
-						/>
-					</div>
-				{/if}
-				{#if dialogState.profileCount > 1}
-					<div class="field">
-						<label for="extrude-profile">Profile</label>
-						<select id="extrude-profile" bind:value={profileIndex}>
-							{#each Array(dialogState.profileCount) as _, i}
-								<option value={i}>Profile {i + 1}</option>
-							{/each}
-						</select>
-					</div>
-				{/if}
-				<div class="field">
-					<label for="extrude-flip-dir">Direction</label>
-					<button
-						id="extrude-flip-dir"
-						class="btn btn-flip"
-						class:flipped={flipDirection}
-						data-testid="extrude-flip-direction"
-						onclick={() => { flipDirection = !flipDirection; }}
-					>
-						{flipDirection ? 'Flipped' : 'Normal'}
-					</button>
-				</div>
+			{/if}
+			<div class="field">
+				<label for="extrude-cut">Cut</label>
+				<input
+					id="extrude-cut"
+					data-testid="extrude-cut"
+					type="checkbox"
+					bind:checked={cut}
+				/>
 			</div>
-			<div class="dialog-footer">
-				<button class="btn btn-cancel" data-testid="extrude-cancel" onclick={handleCancel}>Cancel</button>
-				<button class="btn btn-apply" data-testid="extrude-apply" onclick={handleApply}>Apply</button>
+			<div class="field">
+				<label for="extrude-second-dir">2nd Direction</label>
+				<select
+					id="extrude-second-dir"
+					data-testid="extrude-second-dir"
+					bind:value={secondDir}
+				>
+					<option value="None">None</option>
+					<option value="Symmetric">Symmetric</option>
+					<option value="Blind">Two Depths</option>
+					<option value="ThroughAll">Through All</option>
+				</select>
 			</div>
+			{#if showSecondDepthInput}
+				<div class="field">
+					<label for="extrude-second-depth">2nd Depth</label>
+					<input
+						id="extrude-second-depth"
+						data-testid="extrude-second-depth"
+						type="number"
+						bind:value={secondDepth}
+						step="1"
+						min="0.1"
+					/>
+				</div>
+			{/if}
+			<div class="field">
+				<label for="extrude-flip-dir">Direction</label>
+				<button
+					id="extrude-flip-dir"
+					class="btn btn-flip"
+					class:flipped={flipDirection}
+					data-testid="extrude-flip-direction"
+					onclick={() => { flipDirection = !flipDirection; }}
+				>
+					{flipDirection ? 'Flipped' : 'Normal'}
+				</button>
+			</div>
+		</div>
+		<div class="dialog-footer">
+			<button class="btn btn-cancel" data-testid="extrude-cancel" onclick={handleCancel}>Cancel</button>
+			<button class="btn btn-apply" data-testid="extrude-apply" onclick={handleApply}>Apply</button>
 		</div>
 	</div>
 {/if}
 
 <style>
-	.overlay {
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		z-index: 1000;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		background: rgba(0, 0, 0, 0.3);
-	}
-
-	.dialog {
+	.extrude-panel {
+		position: absolute;
+		top: 12px;
+		right: 12px;
+		width: 240px;
+		z-index: 50;
 		background: var(--bg-tertiary, #2d2d2d);
 		border: 1px solid var(--border-color, #444);
 		border-radius: 6px;
-		min-width: 280px;
-		max-width: calc(100vw - 32px);
 		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+		pointer-events: auto;
 	}
 
 	.dialog-header {
@@ -236,6 +231,60 @@
 		gap: 10px;
 	}
 
+	.region-list {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.region-header {
+		font-size: 11px;
+		color: var(--text-secondary, #aaa);
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.region-item {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 4px 8px;
+		background: var(--bg-primary, #1e1e1e);
+		border: 1px solid var(--border-color, #444);
+		border-radius: 3px;
+		font-size: 12px;
+		color: var(--text-primary, #eee);
+	}
+
+	.region-label {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.region-remove {
+		background: none;
+		border: none;
+		color: var(--text-muted, #888);
+		font-size: 14px;
+		cursor: pointer;
+		padding: 0 2px;
+		line-height: 1;
+		flex-shrink: 0;
+	}
+
+	.region-remove:hover {
+		color: var(--error, #f44);
+	}
+
+	.region-empty {
+		font-size: 11px;
+		color: var(--text-muted, #888);
+		font-style: italic;
+		padding: 4px 0;
+	}
+
 	.field {
 		display: flex;
 		align-items: center;
@@ -247,11 +296,6 @@
 		font-size: 12px;
 		color: var(--text-secondary, #aaa);
 		min-width: 50px;
-	}
-
-	.field-value {
-		font-size: 12px;
-		color: var(--text-primary, #eee);
 	}
 
 	.field input[type="number"],
@@ -329,7 +373,12 @@
 		border-color: var(--accent, #0078d4);
 	}
 
-	.btn-apply:hover {
+	.btn-apply:hover:not(:disabled) {
 		filter: brightness(1.1);
+	}
+
+	.btn-apply:disabled {
+		opacity: 0.5;
+		cursor: default;
 	}
 </style>

@@ -6,6 +6,7 @@
 	import ConstraintMenu from '$lib/sketch/ConstraintMenu.svelte';
 	import DimensionInput from '$lib/sketch/DimensionInput.svelte';
 	import ViewportContextMenu from './ViewportContextMenu.svelte';
+	import ExtrudeDialog from '$lib/ui/ExtrudeDialog.svelte';
 
 	let constraintMenuPos = $state({ x: 0, y: 0 });
 	let constraintMenuVisible = $state(false);
@@ -28,6 +29,7 @@
 	<ConstraintMenu bind:menuPos={constraintMenuPos} bind:visible={constraintMenuVisible} />
 	<DimensionInput />
 	<ViewportContextMenu bind:pos={ctxMenuPos} bind:visible={ctxMenuVisible} />
+	<ExtrudeDialog />
 </div>
 
 <style>

@@ -89,7 +89,8 @@ let sketchRedoStack = $state([]);
 /** @type {{ entities: object[], constraints: object[] } | null} */
 let pendingSketchAction = null;
 
-/** @type {{ sketchId: string, sketchName: string, profileCount: number } | null} */
+/** @type {{ sketchId: string, sketchName: string, profileCount: number,
+ *           regions: Array<{ sketchId: string, sketchName: string, profileIndex: number }> } | null} */
 let extrudeDialogState = $state(null);
 
 /** @type {{ sketchId: string, sketchName: string, profileCount: number } | null} */
@@ -255,6 +256,9 @@ export async function initEngine() {
 			getConstraints: () => [...sketchConstraints],
 			getProfiles: () => [...extractedProfilesState],
 			getExtrudeDialogState: () => extrudeDialogState,
+			getExtrudeRegions: () => getExtrudeRegions(),
+			addExtrudeRegion: (sketchId, sketchName, profileIndex) => addExtrudeRegion(sketchId, sketchName, profileIndex),
+			removeExtrudeRegion: (index) => removeExtrudeRegion(index),
 			getRevolveDialogState: () => revolveDialogState,
 			getSelectedRefs: () => [...selectedRefs],
 			getHoveredRef: () => hoveredRef,
@@ -923,6 +927,7 @@ export function getExtrudeDialogState() { return extrudeDialogState; }
 
 /**
  * Show the extrude dialog. Auto-selects the last sketch in the feature tree.
+ * Pre-populates regions from selectedProfileIndex or auto-selects single-profile sketches.
  */
 export function showExtrudeDialog() {
 	const tree = featureTree;
@@ -941,12 +946,64 @@ export function showExtrudeDialog() {
 	if (!lastSketch) return;
 
 	const profileCount = lastSketch.operation?.sketch?.solved_profiles?.length ?? 0;
-	log('ui', 'Show extrude dialog', { sketchId: lastSketch.id, profileCount });
+
+	// Pre-populate regions
+	/** @type {Array<{ sketchId: string, sketchName: string, profileIndex: number }>} */
+	let regions = [];
+
+	if (selectedProfileIndex != null && sketchMode.active) {
+		// If a profile is already selected in sketch mode, use it
+		regions = [{ sketchId: lastSketch.id, sketchName: lastSketch.name, profileIndex: selectedProfileIndex }];
+	} else {
+		// Default: auto-add profile 0
+		regions = [{ sketchId: lastSketch.id, sketchName: lastSketch.name, profileIndex: 0 }];
+	}
+
+	log('ui', 'Show extrude dialog', { sketchId: lastSketch.id, profileCount, regionCount: regions.length });
 	extrudeDialogState = {
 		sketchId: lastSketch.id,
 		sketchName: lastSketch.name,
-		profileCount
+		profileCount,
+		regions
 	};
+}
+
+/**
+ * Add a region to the extrude dialog's region list.
+ * @param {string} sketchId
+ * @param {string} sketchName
+ * @param {number} profileIndex
+ */
+export function addExtrudeRegion(sketchId, sketchName, profileIndex) {
+	if (!extrudeDialogState) return;
+	// Avoid duplicates
+	const exists = extrudeDialogState.regions.some(
+		r => r.sketchId === sketchId && r.profileIndex === profileIndex
+	);
+	if (exists) return;
+	extrudeDialogState = {
+		...extrudeDialogState,
+		regions: [...extrudeDialogState.regions, { sketchId, sketchName, profileIndex }]
+	};
+}
+
+/**
+ * Remove a region from the extrude dialog's region list by index.
+ * @param {number} index
+ */
+export function removeExtrudeRegion(index) {
+	if (!extrudeDialogState) return;
+	const regions = [...extrudeDialogState.regions];
+	regions.splice(index, 1);
+	extrudeDialogState = { ...extrudeDialogState, regions };
+}
+
+/**
+ * Get the current extrude regions list.
+ * @returns {Array<{ sketchId: string, sketchName: string, profileIndex: number }>}
+ */
+export function getExtrudeRegions() {
+	return extrudeDialogState?.regions ?? [];
 }
 
 export function hideExtrudeDialog() {
@@ -956,11 +1013,17 @@ export function hideExtrudeDialog() {
 /**
  * Apply an extrude operation from the dialog.
  * @param {number} depth
- * @param {number} profileIndex
+ * @param {number} profileIndex - Legacy param, overridden by regions[0] if available
  * @param {boolean} [cut=false] - If true, perform a cut (subtract) operation
  */
 export async function applyExtrude(depth, profileIndex, cut = false, opts = {}) {
 	if (!extrudeDialogState || !bridge || !engineReady) return;
+
+	// Use regions[0] if available, fall back to legacy profileIndex param
+	const regions = extrudeDialogState.regions ?? [];
+	const region = regions[0];
+	const effectiveSketchId = region?.sketchId ?? extrudeDialogState.sketchId;
+	const effectiveProfileIndex = region?.profileIndex ?? profileIndex;
 
 	const { depthMode = 'Blind', secondDir = 'None', secondDepth = 10, flipDirection = false } = opts;
 
@@ -978,7 +1041,7 @@ export async function applyExtrude(depth, profileIndex, cut = false, opts = {}) 
 	if (flipDirection) {
 		// Look up the sketch's plane normal from the feature tree
 		const tree = featureTree;
-		const sketch = tree?.features?.find(f => f.id === extrudeDialogState.sketchId);
+		const sketch = tree?.features?.find(f => f.id === effectiveSketchId);
 		const normal = sketch?.operation?.sketch?.plane_normal;
 		if (normal) {
 			direction = [-normal[0], -normal[1], -normal[2]];
@@ -988,15 +1051,15 @@ export async function applyExtrude(depth, profileIndex, cut = false, opts = {}) 
 		}
 	}
 
-	log('action', 'Apply extrude', { depth, profileIndex, cut: !!cut, depthMode, secondDir, flipDirection });
+	log('action', 'Apply extrude', { depth, profileIndex: effectiveProfileIndex, cut: !!cut, depthMode, secondDir, flipDirection });
 	try {
 		await bridge.send({
 			type: 'AddFeature',
 			operation: {
 				type: 'Extrude',
 				params: {
-					sketch_id: extrudeDialogState.sketchId,
-					profile_index: profileIndex,
+					sketch_id: effectiveSketchId,
+					profile_index: effectiveProfileIndex,
 					depth,
 					direction,
 					symmetric: secondDir === 'Symmetric',

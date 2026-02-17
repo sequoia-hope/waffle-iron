@@ -5,7 +5,6 @@
 	import PropertyEditor from '$lib/ui/PropertyEditor.svelte';
 	import StatusBar from '$lib/ui/StatusBar.svelte';
 	import Viewport from '$lib/viewport/Viewport.svelte';
-	import ExtrudeDialog from '$lib/ui/ExtrudeDialog.svelte';
 	import RevolveDialog from '$lib/ui/RevolveDialog.svelte';
 	import SketchPlaneDialog from '$lib/ui/SketchPlaneDialog.svelte';
 	import ToastContainer from '$lib/ui/ToastContainer.svelte';
@@ -125,7 +124,6 @@
 </div>
 {/if}
 
-<ExtrudeDialog />
 <RevolveDialog />
 <SketchPlaneDialog />
 <ToastContainer />
