@@ -698,17 +698,21 @@ fn find_solid_handle(
 }
 
 /// Compute a tangent X axis from a plane normal.
-/// Picks an arbitrary perpendicular vector, avoiding near-parallel with the normal.
+/// Must match the JS formula in `sketchCoords.js:buildSketchPlane()`:
+///   ref = |n·Z| < 0.99 ? Z : X   (Z=[0,0,1], X=[1,0,0])
+///   xAxis = ref × n
 fn tangent_x_from_normal(n: [f64; 3]) -> [f64; 3] {
-    let up = if n[0].abs() < 0.9 {
-        [1.0, 0.0, 0.0]
+    // Dot product with Z axis: n[0]*0 + n[1]*0 + n[2]*1 = n[2]
+    let ref_vec = if n[2].abs() < 0.99 {
+        [0.0, 0.0, 1.0] // Z
     } else {
-        [0.0, 1.0, 0.0]
+        [1.0, 0.0, 0.0] // X
     };
+    // Cross product: ref × n
     let cx = [
-        n[1] * up[2] - n[2] * up[1],
-        n[2] * up[0] - n[0] * up[2],
-        n[0] * up[1] - n[1] * up[0],
+        ref_vec[1] * n[2] - ref_vec[2] * n[1],
+        ref_vec[2] * n[0] - ref_vec[0] * n[2],
+        ref_vec[0] * n[1] - ref_vec[1] * n[0],
     ];
     let len = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
     if len < 1e-12 {

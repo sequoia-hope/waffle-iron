@@ -30,11 +30,9 @@ import {
 import { log } from '$lib/engine/logger.js';
 import { detectSnaps, collectSnapCandidates } from './snap.js';
 import { profileToPolygon, pointInPolygon } from './profiles.js';
+import { setPreview, setSnapIndicator, setSnapCandidates, getPreview as _getPreview, getSnapIndicator as _getSnapIndicator, getSnapCandidates as _getSnapCandidates } from './sketchToolState.svelte.js';
 
-// -- Module state (reactive via $state in .svelte.js, but we use plain JS here) --
-
-/** @type {{ type: string, data: any } | null} */
-let currentPreview = null;
+// -- Module state --
 
 /** @type {string} */
 let toolState = 'idle';
@@ -63,12 +61,6 @@ let arcStartPointId = null;
 /** @type {{ id: number, type: string } | null} */
 let dimFirstEntity = null;
 
-/** @type {import('./snap.js').SnapIndicator | null} */
-let currentSnapIndicator = null;
-
-/** @type {Array<{ type: string, x: number, y: number, entityId?: number }>} */
-let currentSnapCandidates = [];
-
 // -- Event instrumentation (ring buffer for test diagnostics) --
 /** @type {Array<{tool: string, event: string, x: number, y: number, toolState: string, isDragging: boolean, timestamp: number}>} */
 const toolEventLog = [];
@@ -79,7 +71,7 @@ const MAX_EVENT_LOG = 50;
  * @returns {{ type: string, data: any } | null}
  */
 export function getPreview() {
-	return currentPreview;
+	return _getPreview();
 }
 
 /**
@@ -87,7 +79,7 @@ export function getPreview() {
  * @returns {import('./snap.js').SnapIndicator | null}
  */
 export function getSnapIndicator() {
-	return currentSnapIndicator;
+	return _getSnapIndicator();
 }
 
 /**
@@ -95,7 +87,7 @@ export function getSnapIndicator() {
  * @returns {Array<{ type: string, x: number, y: number, entityId?: number }>}
  */
 export function getSnapCandidates() {
-	return currentSnapCandidates;
+	return _getSnapCandidates();
 }
 
 // -- Tool state getters (for test instrumentation via __waffle) --
@@ -134,9 +126,9 @@ export function resetTool() {
 	arcStartPos = null;
 	arcStartPointId = null;
 	dimFirstEntity = null;
-	currentPreview = null;
-	currentSnapIndicator = null;
-	currentSnapCandidates = [];
+	setPreview(null);
+	setSnapIndicator(null);
+	setSnapCandidates([]);
 	isDragging = false;
 	pointerDownPos = null;
 	hideDimensionPopup();
@@ -227,12 +219,12 @@ function updateSnapCandidates(snap, screenPixelSize) {
 	if (snap.indicator) {
 		const sx = snap.x;
 		const sy = snap.y;
-		currentSnapCandidates = raw.filter(c => {
+		setSnapCandidates(raw.filter(c => {
 			const dist = Math.sqrt((c.x - sx) ** 2 + (c.y - sy) ** 2);
 			return dist > 0.001;
-		});
+		}));
 	} else {
-		currentSnapCandidates = raw;
+		setSnapCandidates(raw);
 	}
 }
 
@@ -240,7 +232,7 @@ function updateSnapCandidates(snap, screenPixelSize) {
 
 function handleLineTool(eventType, x, y, screenPixelSize) {
 	const snap = detectSnaps(x, y, startPointId, screenPixelSize);
-	currentSnapIndicator = snap.indicator;
+	setSnapIndicator(snap.indicator);
 
 	if (eventType === 'pointermove') {
 		updateSnapCandidates(snap, screenPixelSize);
@@ -254,10 +246,10 @@ function handleLineTool(eventType, x, y, screenPixelSize) {
 			}
 		}
 		if (toolState === 'firstPointPlaced' && startPos) {
-			currentPreview = {
+			setPreview({
 				type: 'line',
 				data: { x1: startPos.x, y1: startPos.y, x2: snap.x, y2: snap.y }
-			};
+			});
 		}
 		return;
 	}
@@ -271,7 +263,7 @@ function handleLineTool(eventType, x, y, screenPixelSize) {
 			startPos = { x: pt.x, y: pt.y };
 			pointerDownPos = { x: snap.x, y: snap.y };
 			toolState = 'firstPointPlaced';
-			currentPreview = null;
+			setPreview(null);
 		} else if (toolState === 'firstPointPlaced') {
 			// Click-click mode: second click places end point
 			finalizeLine(snap, screenPixelSize);
@@ -325,14 +317,14 @@ function finalizeLine(snap, screenPixelSize) {
 		beginSketchAction();
 		startPointId = endPt.id;
 		startPos = { x: endPt.x, y: endPt.y };
-		currentPreview = null;
+		setPreview(null);
 	} else {
 		// After drag, reset to idle
 		toolState = 'idle';
 		startPointId = null;
 		startPos = null;
-		currentPreview = null;
-		currentSnapIndicator = null;
+		setPreview(null);
+		setSnapIndicator(null);
 	}
 }
 
@@ -340,7 +332,7 @@ function finalizeLine(snap, screenPixelSize) {
 
 function handleRectangleTool(eventType, x, y, screenPixelSize) {
 	const snap = detectSnaps(x, y, null, screenPixelSize);
-	currentSnapIndicator = snap.indicator;
+	setSnapIndicator(snap.indicator);
 
 	if (eventType === 'pointermove') {
 		updateSnapCandidates(snap, screenPixelSize);
@@ -354,10 +346,10 @@ function handleRectangleTool(eventType, x, y, screenPixelSize) {
 			}
 		}
 		if (toolState === 'firstCornerPlaced' && startPos) {
-			currentPreview = {
+			setPreview({
 				type: 'rectangle',
 				data: { x1: startPos.x, y1: startPos.y, x2: snap.x, y2: snap.y }
-			};
+			});
 		}
 		return;
 	}
@@ -421,15 +413,15 @@ function finalizeRectangle(snap, screenPixelSize) {
 	toolState = 'idle';
 	startPointId = null;
 	startPos = null;
-	currentPreview = null;
-	currentSnapIndicator = null;
+	setPreview(null);
+	setSnapIndicator(null);
 }
 
 // ---- Circle Tool ----
 
 function handleCircleTool(eventType, x, y, screenPixelSize) {
 	const snap = detectSnaps(x, y, centerPointId, screenPixelSize);
-	currentSnapIndicator = snap.indicator;
+	setSnapIndicator(snap.indicator);
 
 	if (eventType === 'pointermove') {
 		updateSnapCandidates(snap, screenPixelSize);
@@ -446,10 +438,10 @@ function handleCircleTool(eventType, x, y, screenPixelSize) {
 			const dx = snap.x - centerPos.x;
 			const dy = snap.y - centerPos.y;
 			const radius = Math.sqrt(dx * dx + dy * dy);
-			currentPreview = {
+			setPreview({
 				type: 'circle',
 				data: { cx: centerPos.x, cy: centerPos.y, radius }
-			};
+			});
 		}
 		return;
 	}
@@ -500,15 +492,15 @@ function finalizeCircle(snap) {
 	toolState = 'idle';
 	centerPointId = null;
 	centerPos = null;
-	currentPreview = null;
-	currentSnapIndicator = null;
+	setPreview(null);
+	setSnapIndicator(null);
 }
 
 // ---- Arc Tool ----
 
 function handleArcTool(eventType, x, y, screenPixelSize) {
 	const snap = detectSnaps(x, y, arcStartPointId ?? centerPointId, screenPixelSize);
-	currentSnapIndicator = snap.indicator;
+	setSnapIndicator(snap.indicator);
 
 	if (eventType === 'pointermove') {
 		updateSnapCandidates(snap, screenPixelSize);
@@ -522,20 +514,20 @@ function handleArcTool(eventType, x, y, screenPixelSize) {
 			}
 		}
 		if (toolState === 'centerPlaced' && centerPos) {
-			currentPreview = {
+			setPreview({
 				type: 'arc-preview-radius',
 				data: { cx: centerPos.x, cy: centerPos.y, ex: snap.x, ey: snap.y }
-			};
+			});
 		} else if (toolState === 'arcStartPlaced' && centerPos && arcStartPos) {
 			const startAngle = Math.atan2(arcStartPos.y - centerPos.y, arcStartPos.x - centerPos.x);
 			const endAngle = Math.atan2(snap.y - centerPos.y, snap.x - centerPos.x);
 			const dx = arcStartPos.x - centerPos.x;
 			const dy = arcStartPos.y - centerPos.y;
 			const radius = Math.sqrt(dx * dx + dy * dy);
-			currentPreview = {
+			setPreview({
 				type: 'arc',
 				data: { cx: centerPos.x, cy: centerPos.y, radius, startAngle, endAngle }
-			};
+			});
 		}
 		return;
 	}
@@ -572,8 +564,8 @@ function handleArcTool(eventType, x, y, screenPixelSize) {
 			centerPos = null;
 			arcStartPointId = null;
 			arcStartPos = null;
-			currentPreview = null;
-			currentSnapIndicator = null;
+			setPreview(null);
+			setSnapIndicator(null);
 		}
 	}
 
@@ -595,12 +587,12 @@ function handleArcTool(eventType, x, y, screenPixelSize) {
 // ---- Select Tool ----
 
 function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
-	currentPreview = null;
+	setPreview(null);
 
 	if (eventType === 'pointermove') {
 		// Show snap indicators on hover even in select mode
 		const snap = detectSnaps(x, y, null, screenPixelSize);
-		currentSnapIndicator = snap.indicator;
+		setSnapIndicator(snap.indicator);
 		updateSnapCandidates(snap, screenPixelSize);
 
 		// Hit-test for hover
@@ -714,8 +706,8 @@ function hitTest(x, y, screenPixelSize) {
  * idle → click point → firstEntityPicked → click line → distance popup
  */
 function handleDimensionTool(eventType, x, y, screenPixelSize) {
-	currentSnapIndicator = null;
-	currentPreview = null;
+	setSnapIndicator(null);
+	setPreview(null);
 
 	if (eventType === 'pointermove') {
 		const hitId = hitTest(x, y, screenPixelSize);

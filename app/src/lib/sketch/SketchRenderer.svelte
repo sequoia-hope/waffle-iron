@@ -15,7 +15,7 @@
 		getHoveredProfileIndex,
 		getOverConstrainedEntities
 	} from '$lib/engine/store.svelte.js';
-	import { getPreview, getSnapIndicator, getSnapCandidates } from './tools.js';
+	import { getPreview, getSnapIndicator, getSnapCandidates } from './sketchToolState.svelte.js';
 	import { buildSketchPlane, sketchToWorld } from './sketchCoords.js';
 	import { profileToPolygon } from './profiles.js';
 

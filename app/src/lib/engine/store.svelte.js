@@ -7,9 +7,10 @@
 
 import { EngineBridge } from './bridge.js';
 import { log, getLogs, exportLogs, clearLogs } from './logger.js';
-import { showToast, initLoggerToasts } from '$lib/ui/toast.svelte.js';
+import { showToast, getToasts, dismissToast, initLoggerToasts } from '$lib/ui/toast.svelte.js';
 import { extractProfiles } from '$lib/sketch/profiles.js';
-import { getPreview, getSnapIndicator, getSnapCandidates as _getSnapCandidates, resetTool, getToolState as _getToolState, getIsDragging as _getIsDragging, getPointerDownPos as _getPointerDownPos, getStartPos as _getStartPos, getStartPointId as _getStartPointId, getToolEventLog as _getToolEventLog, clearToolEventLog as _clearToolEventLog } from '$lib/sketch/tools.js';
+import { getPreview, getSnapIndicator, getSnapCandidates as _getSnapCandidates } from '$lib/sketch/sketchToolState.svelte.js';
+import { resetTool, getToolState as _getToolState, getIsDragging as _getIsDragging, getPointerDownPos as _getPointerDownPos, getStartPos as _getStartPos, getStartPointId as _getStartPointId, getToolEventLog as _getToolEventLog, clearToolEventLog as _clearToolEventLog } from '$lib/sketch/tools.js';
 import { isDatumPlaneRef, getPlaneIdFromRef, getPlaneById, resolvePlane, BUILTIN_PLANES } from './planes.js';
 
 /** @type {{ features: Array<any>, active_index: number | null }} */
@@ -329,6 +330,9 @@ export async function initEngine() {
 			getLogs: (filter) => getLogs(filter),
 			exportLogs: (filter) => exportLogs(filter),
 			clearLogs: () => clearLogs(),
+			showToast: (level, message, durationMs) => showToast(level, message, durationMs),
+			getToasts: () => getToasts(),
+			dismissAllToasts: () => { for (const t of getToasts()) dismissToast(t.id); },
 			diagnose: () => {
 				const d = {
 					engineReady,
