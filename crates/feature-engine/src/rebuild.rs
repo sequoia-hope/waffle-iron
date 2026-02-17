@@ -721,6 +721,314 @@ fn tangent_x_from_normal(n: [f64; 3]) -> [f64; 3] {
     [cx[0] / len, cx[1] / len, cx[2] / len]
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper: compute cross product ref x n manually for verification.
+    fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+        [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        ]
+    }
+
+    fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
+        a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+    }
+
+    fn length(v: [f64; 3]) -> f64 {
+        (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt()
+    }
+
+    // -- Branch table tests: one per row --
+    // These directly test the JS formula: ref = |n.z| < 0.99 ? Z : X; xAxis = ref x n
+    // Old buggy code produced different results for n=[0,0,1].
+
+    #[test]
+    fn xy_plane_normal_matches_js() {
+        // n=[0,0,1]: |n.z|=1.0 >= 0.99, so ref=[1,0,0]
+        // xAxis = [1,0,0] x [0,0,1] = [0*1-0*0, 0*0-1*1, 1*0-0*0] = [0,-1,0]
+        let result = tangent_x_from_normal([0.0, 0.0, 1.0]);
+        assert!(
+            (result[0]).abs() < 1e-10
+                && (result[1] - (-1.0)).abs() < 1e-10
+                && (result[2]).abs() < 1e-10,
+            "XY plane: expected [0,-1,0], got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn xy_plane_flipped_normal_matches_js() {
+        // n=[0,0,-1]: |n.z|=1.0 >= 0.99, so ref=[1,0,0]
+        // xAxis = [1,0,0] x [0,0,-1] = [0*(-1)-0*0, 0*0-1*(-1), 1*0-0*0] = [0,1,0]
+        let result = tangent_x_from_normal([0.0, 0.0, -1.0]);
+        assert!(
+            (result[0]).abs() < 1e-10
+                && (result[1] - 1.0).abs() < 1e-10
+                && (result[2]).abs() < 1e-10,
+            "XY flipped: expected [0,1,0], got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn xz_plane_normal_matches_js() {
+        // n=[0,1,0]: |n.z|=0.0 < 0.99, so ref=[0,0,1]
+        // xAxis = [0,0,1] x [0,1,0] = [0*0-1*1, 1*0-0*0, 0*1-0*0] = [-1,0,0]
+        let result = tangent_x_from_normal([0.0, 1.0, 0.0]);
+        assert!(
+            (result[0] - (-1.0)).abs() < 1e-10
+                && (result[1]).abs() < 1e-10
+                && (result[2]).abs() < 1e-10,
+            "XZ plane: expected [-1,0,0], got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn yz_plane_normal_matches_js() {
+        // n=[1,0,0]: |n.z|=0.0 < 0.99, so ref=[0,0,1]
+        // xAxis = [0,0,1] x [1,0,0] = [0*0-1*0, 1*1-0*0, 0*0-0*1] = [0,1,0]
+        let result = tangent_x_from_normal([1.0, 0.0, 0.0]);
+        assert!(
+            (result[0]).abs() < 1e-10
+                && (result[1] - 1.0).abs() < 1e-10
+                && (result[2]).abs() < 1e-10,
+            "YZ plane: expected [0,1,0], got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn xz_plane_flipped_normal() {
+        // n=[0,-1,0]: |n.z|=0.0 < 0.99, so ref=[0,0,1]
+        // xAxis = [0,0,1] x [0,-1,0] = [0*0-1*(-1), 1*0-0*0, 0*(-1)-0*0] = [1,0,0]
+        let result = tangent_x_from_normal([0.0, -1.0, 0.0]);
+        assert!(
+            (result[0] - 1.0).abs() < 1e-10
+                && (result[1]).abs() < 1e-10
+                && (result[2]).abs() < 1e-10,
+            "XZ flipped: expected [1,0,0], got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn yz_plane_flipped_normal() {
+        // n=[-1,0,0]: |n.z|=0.0 < 0.99, so ref=[0,0,1]
+        // xAxis = [0,0,1] x [-1,0,0] = [0*0-1*0, 1*(-1)-0*0, 0*0-0*(-1)] = [0,-1,0]
+        let result = tangent_x_from_normal([-1.0, 0.0, 0.0]);
+        assert!(
+            (result[0]).abs() < 1e-10
+                && (result[1] - (-1.0)).abs() < 1e-10
+                && (result[2]).abs() < 1e-10,
+            "YZ flipped: expected [0,-1,0], got {:?}",
+            result
+        );
+    }
+
+    // -- Invariant tests --
+
+    #[test]
+    fn perpendicularity_invariant_all_axis_normals() {
+        let normals = [
+            [1.0, 0.0, 0.0],
+            [-1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, -1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.0, 0.0, -1.0],
+        ];
+        for n in &normals {
+            let x = tangent_x_from_normal(*n);
+            let d = dot(x, *n);
+            assert!(
+                d.abs() < 1e-10,
+                "Perpendicularity violated for n={:?}: dot={}, x={:?}",
+                n,
+                d,
+                x
+            );
+            let l = length(x);
+            assert!(
+                (l - 1.0).abs() < 1e-10,
+                "Unit length violated for n={:?}: |x|={}, x={:?}",
+                n,
+                l,
+                x
+            );
+        }
+    }
+
+    #[test]
+    fn degenerate_zero_normal_returns_fallback() {
+        // Zero-length normal should produce fallback [1,0,0]
+        let result = tangent_x_from_normal([0.0, 0.0, 0.0]);
+        assert_eq!(
+            result,
+            [1.0, 0.0, 0.0],
+            "Zero normal should fallback to [1,0,0]"
+        );
+    }
+
+    // -- Cross-validation: verify against manual cross product --
+
+    #[test]
+    fn result_matches_manual_cross_product() {
+        let normals: [[f64; 3]; 4] = [
+            [0.0, 0.0, 1.0],
+            [0.0, 0.0, -1.0],
+            [0.0, 1.0, 0.0],
+            [1.0, 0.0, 0.0],
+        ];
+        for n in &normals {
+            let ref_vec = if n[2].abs() < 0.99 {
+                [0.0, 0.0, 1.0]
+            } else {
+                [1.0, 0.0, 0.0]
+            };
+            let cx = cross(ref_vec, *n);
+            let l = length(cx);
+            let expected = if l < 1e-12 {
+                [1.0, 0.0, 0.0]
+            } else {
+                [cx[0] / l, cx[1] / l, cx[2] / l]
+            };
+            let result = tangent_x_from_normal(*n);
+            for i in 0..3 {
+                assert!(
+                    (result[i] - expected[i]).abs() < 1e-10,
+                    "Mismatch for n={:?}: result={:?}, expected={:?}",
+                    n,
+                    result,
+                    expected
+                );
+            }
+        }
+    }
+
+    // -- Adversarial: mutation-detecting tests --
+
+    #[test]
+    fn flipping_cross_product_order_changes_sign() {
+        // If someone changes ref x n to n x ref, the sign flips.
+        // For n=[0,0,1], ref=[1,0,0]:
+        //   ref x n = [0,-1,0]
+        //   n x ref = [0,+1,0]
+        // Our function must return [0,-1,0], not [0,+1,0].
+        let result = tangent_x_from_normal([0.0, 0.0, 1.0]);
+        assert!(
+            result[1] < 0.0,
+            "xAxis.y must be negative for n=[0,0,1]; got {:?} (would be positive if cross order reversed)",
+            result
+        );
+    }
+
+    #[test]
+    fn near_threshold_normal() {
+        // n=[0, 0.14, 0.99]: |n.z| = 0.99, exactly at threshold boundary
+        // With < 0.99, this picks ref=X (since 0.99 is NOT < 0.99)
+        let n = [0.0, 0.14, 0.99];
+        let result = tangent_x_from_normal(n);
+        // Must be perpendicular regardless of branch
+        let d = dot(result, n);
+        assert!(
+            d.abs() < 1e-6,
+            "Near-threshold: perpendicularity failed, dot={}",
+            d
+        );
+        let l = length(result);
+        assert!(
+            (l - 1.0).abs() < 1e-6,
+            "Near-threshold: unit length failed, |x|={}",
+            l
+        );
+
+        // At exactly 0.99, |n.z| < 0.99 is FALSE, so ref=[1,0,0]
+        let ref_vec = [1.0, 0.0, 0.0]; // because 0.99 is NOT < 0.99
+        let expected_cross = cross(ref_vec, n);
+        let el = length(expected_cross);
+        let expected = [
+            expected_cross[0] / el,
+            expected_cross[1] / el,
+            expected_cross[2] / el,
+        ];
+        for i in 0..3 {
+            assert!(
+                (result[i] - expected[i]).abs() < 1e-6,
+                "Near-threshold: component {} mismatch: got {}, expected {}",
+                i,
+                result[i],
+                expected[i]
+            );
+        }
+    }
+
+    #[test]
+    fn oblique_45_degree_normal() {
+        // 45-degree oblique: n = normalize([1,1,1])
+        let s = 1.0 / (3.0f64).sqrt();
+        let n = [s, s, s];
+        let result = tangent_x_from_normal(n);
+
+        // |n.z| = 1/sqrt(3) ~ 0.577 < 0.99, so ref=[0,0,1]
+        let d = dot(result, n);
+        assert!(d.abs() < 1e-10, "45deg: perpendicularity failed, dot={}", d);
+        let l = length(result);
+        assert!(
+            (l - 1.0).abs() < 1e-10,
+            "45deg: unit length failed, |x|={}",
+            l
+        );
+
+        // Verify against manual cross: [0,0,1] x [s,s,s] = [-s, s, 0] normalized
+        let cx = cross([0.0, 0.0, 1.0], n);
+        let cl = length(cx);
+        let expected = [cx[0] / cl, cx[1] / cl, cx[2] / cl];
+        for i in 0..3 {
+            assert!(
+                (result[i] - expected[i]).abs() < 1e-10,
+                "45deg: component {} mismatch",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn changing_threshold_to_half_breaks_near_threshold() {
+        // If threshold were changed to 0.5 instead of 0.99,
+        // then n=[0, 0.14, 0.99] would use ref=Z instead of ref=X.
+        // This test verifies the actual function uses the 0.99 threshold
+        // by checking that n=[0,0,0.98] (just under threshold) uses ref=Z.
+        let n_under = [0.0, 0.0, 0.98];
+        let result_under = tangent_x_from_normal(n_under);
+        // |n.z|=0.98 < 0.99, so ref=[0,0,1]
+        // cross([0,0,1], [0,0,0.98]) = [0*0.98-1*0, 1*0-0*0.98, 0*0-0*0] = [0,0,0]
+        // This is degenerate (nearly parallel), should fallback to [1,0,0]
+        // Actually: cross is near-zero, so fallback applies
+        assert_eq!(
+            result_under,
+            [1.0, 0.0, 0.0],
+            "n=[0,0,0.98] should hit Z branch and produce degenerate cross -> fallback"
+        );
+
+        // n=[0,0,0.995] is above threshold, uses ref=X
+        let n_over = [0.0, 0.0, 0.995];
+        let result_over = tangent_x_from_normal(n_over);
+        // |n.z|=0.995 >= 0.99, so ref=[1,0,0]
+        // cross([1,0,0], [0,0,0.995]) = [0*0.995-0*0, 0*0-1*0.995, 1*0-0*0] = [0,-0.995,0]
+        // Normalized: [0,-1,0]
+        assert!(
+            result_over[1] < -0.99,
+            "n=[0,0,0.995] should use X branch; got {:?}",
+            result_over
+        );
+    }
+}
+
 /// Resolve all GeomRef references for a feature, collecting warnings.
 ///
 /// Currently `feature.references` is always empty, so this is

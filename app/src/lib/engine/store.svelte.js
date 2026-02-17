@@ -246,6 +246,27 @@ export async function initEngine() {
 					end_index: r.end_index,
 				})),
 			})),
+			getMeshBoundingBox: () => {
+				const min = [Infinity, Infinity, Infinity];
+				const max = [-Infinity, -Infinity, -Infinity];
+				let hasVerts = false;
+				for (const m of meshes) {
+					if (!m.vertices || m.vertices.length < 3) continue;
+					for (let i = 0; i < m.vertices.length; i += 3) {
+						hasVerts = true;
+						for (let a = 0; a < 3; a++) {
+							if (m.vertices[i + a] < min[a]) min[a] = m.vertices[i + a];
+							if (m.vertices[i + a] > max[a]) max[a] = m.vertices[i + a];
+						}
+					}
+				}
+				if (!hasVerts) return null;
+				return {
+					min, max,
+					center: [(min[0]+max[0])/2, (min[1]+max[1])/2, (min[2]+max[2])/2],
+					size: [max[0]-min[0], max[1]-min[1], max[2]-min[2]],
+				};
+			},
 			computeFacePlane: (geomRef) => computeFacePlane(geomRef),
 			applyExtrude: (depth, profileIndex, cut, opts) => applyExtrude(depth, profileIndex, cut, opts),
 			showExtrudeDialog: () => showExtrudeDialog(),
