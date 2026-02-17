@@ -38,18 +38,9 @@ async function createFinishedSketch(waffle) {
 	await clickSketch(waffle.page);
 	await clickRectangle(waffle.page);
 	await drawRectangle(waffle.page, -80, -60, 80, 60);
-	try {
-		await waitForEntityCount(waffle.page, 8, 3000);
-	} catch {
-		await waffle.dumpState('undo-adv-draw-failed');
-	}
-
+	await waitForEntityCount(waffle.page, 8, 3000);
 	await clickFinishSketch(waffle.page);
-	try {
-		await waitForFeatureCount(waffle.page, 1, 10000);
-	} catch {
-		await waffle.dumpState('undo-adv-finish-failed');
-	}
+	await waitForFeatureCount(waffle.page, 1, 10000);
 }
 
 test.describe('undo/redo edge cases', () => {
@@ -89,23 +80,19 @@ test.describe('undo/redo edge cases', () => {
 		await createFinishedSketch(waffle);
 
 		// Should have 1 tree item
-		const treeItemsAfterCreate = waffle.page.locator('.tree-item');
+		const treeItemsAfterCreate = waffle.page.locator('.tree-item:not(.origin-item)');
 		await expect(treeItemsAfterCreate).toHaveCount(1);
 
 		// Undo — tree items should drop to 0
 		await clickUndo(waffle.page);
-		const treeItemsAfterUndo = waffle.page.locator('.tree-item');
+		const treeItemsAfterUndo = waffle.page.locator('.tree-item:not(.origin-item)');
 		await expect(treeItemsAfterUndo).toHaveCount(0);
 
 		// Redo — tree items should return to 1
 		await clickRedo(waffle.page);
-		try {
-			await waitForFeatureCount(waffle.page, 1, 5000);
-		} catch {
-			await waffle.dumpState('undo-adv-redo-failed');
-		}
+		await waitForFeatureCount(waffle.page, 1, 5000);
 
-		const treeItemsAfterRedo = waffle.page.locator('.tree-item');
+		const treeItemsAfterRedo = waffle.page.locator('.tree-item:not(.origin-item)');
 		await expect(treeItemsAfterRedo).toHaveCount(1);
 	});
 
@@ -122,18 +109,9 @@ test.describe('undo/redo edge cases', () => {
 		await clickSketch(waffle.page);
 		await clickRectangle(waffle.page);
 		await drawRectangle(waffle.page, -60, -40, 60, 40);
-		try {
-			await waitForEntityCount(waffle.page, 8, 3000);
-		} catch {
-			await waffle.dumpState('undo-adv-new-draw-failed');
-		}
-
+		await waitForEntityCount(waffle.page, 8, 3000);
 		await clickFinishSketch(waffle.page);
-		try {
-			await waitForFeatureCount(waffle.page, 1, 10000);
-		} catch {
-			await waffle.dumpState('undo-adv-new-finish-failed');
-		}
+		await waitForFeatureCount(waffle.page, 1, 10000);
 
 		expect(await getFeatureCount(waffle.page)).toBe(1);
 
