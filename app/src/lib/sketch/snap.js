@@ -14,7 +14,10 @@ import { findPointNear, findLineNear, findCircleNear, getSketchPositions, getSke
  * @typedef {{ type: 'on-entity', x: number, y: number, entityId: number }} OnEntitySnap
  * @typedef {{ type: 'tangent', x: number, y: number, entityId: number }} TangentSnap
  * @typedef {{ type: 'perpendicular', x: number, y: number, entityId: number }} PerpendicularSnap
- * @typedef {CoincidentSnap | HorizontalSnap | VerticalSnap | OnEntitySnap | TangentSnap | PerpendicularSnap} SnapIndicator
+ * @typedef {{ type: 'midpoint', x: number, y: number, entityId: number }} MidpointSnap
+ * @typedef {{ type: 'quadrant', x: number, y: number, entityId: number }} QuadrantSnap
+ * @typedef {{ type: 'origin', x: number, y: number }} OriginSnap
+ * @typedef {CoincidentSnap | HorizontalSnap | VerticalSnap | OnEntitySnap | TangentSnap | PerpendicularSnap | MidpointSnap | QuadrantSnap | OriginSnap} SnapIndicator
  */
 
 /**
@@ -51,6 +54,85 @@ export function detectSnaps(x, y, fromPointId, screenPixelSize) {
 			constraints: [],
 			indicator: { type: 'coincident', x: nearPoint.x, y: nearPoint.y, pointId: nearPoint.id }
 		};
+	}
+
+	// 1b. Origin snap
+	const originDist = Math.sqrt(x * x + y * y);
+	if (originDist < coincidentThreshold) {
+		return {
+			x: 0, y: 0,
+			constraints: [],
+			indicator: { type: 'origin', x: 0, y: 0 }
+		};
+	}
+
+	// 1c. Midpoint snap — snap to midpoint of line entities
+	{
+		const entities = getSketchEntities();
+		const positions = getSketchPositions();
+		for (const entity of entities) {
+			if (entity.type !== 'Line') continue;
+			const p1 = positions.get(entity.start_id);
+			const p2 = positions.get(entity.end_id);
+			if (!p1 || !p2) continue;
+			const midX = (p1.x + p2.x) / 2;
+			const midY = (p1.y + p2.y) / 2;
+			const dist = Math.sqrt((x - midX) ** 2 + (y - midY) ** 2);
+			if (dist < coincidentThreshold) {
+				return {
+					x: midX, y: midY,
+					constraints: [],
+					indicator: { type: 'midpoint', x: midX, y: midY, entityId: entity.id }
+				};
+			}
+		}
+	}
+
+	// 1d. Quadrant snap — snap to 0/90/180/270 points on circles and arcs
+	{
+		const entities = getSketchEntities();
+		const positions = getSketchPositions();
+		const quadrantAngles = [0, Math.PI / 2, Math.PI, 3 * Math.PI / 2];
+		for (const entity of entities) {
+			if (entity.type !== 'Circle' && entity.type !== 'Arc') continue;
+			const center = positions.get(entity.center_id);
+			if (!center) continue;
+
+			let radius;
+			if (entity.type === 'Circle') {
+				radius = entity.radius;
+			} else {
+				const startPt = positions.get(entity.start_id);
+				if (!startPt) continue;
+				radius = Math.sqrt((startPt.x - center.x) ** 2 + (startPt.y - center.y) ** 2);
+			}
+
+			for (const angle of quadrantAngles) {
+				// For arcs, check if this quadrant angle is within the arc's range
+				if (entity.type === 'Arc') {
+					const startPt = positions.get(entity.start_id);
+					const endPt = positions.get(entity.end_id);
+					if (!startPt || !endPt) continue;
+					let startAngle = Math.atan2(startPt.y - center.y, startPt.x - center.x);
+					let endAngle = Math.atan2(endPt.y - center.y, endPt.x - center.x);
+					if (endAngle <= startAngle) endAngle += Math.PI * 2;
+					let testAngle = angle;
+					while (testAngle < startAngle) testAngle += Math.PI * 2;
+					if (testAngle > endAngle) continue;
+				}
+
+				const qx = center.x + radius * Math.cos(angle);
+				const qy = center.y + radius * Math.sin(angle);
+				const dist = Math.sqrt((x - qx) ** 2 + (y - qy) ** 2);
+				if (dist < coincidentThreshold) {
+					return {
+						x: qx, y: qy,
+						constraints: [],
+						indicator: { type: 'quadrant', x: qx, y: qy, entityId: entity.id }
+					};
+				}
+			}
+		}
 	}
 
 	// 2. Horizontal / Vertical snap — when drawing from a known point
@@ -290,4 +372,90 @@ function detectPerpendicularSnap(x, y, fromPointId, threshold) {
 	}
 
 	return null;
+}
+
+/**
+ * Collect all snap candidate points within a radius of the cursor.
+ * These are shown as faint preview markers to help users discover snap targets.
+ *
+ * @param {number} x - Cursor sketch X
+ * @param {number} y - Cursor sketch Y
+ * @param {number} previewRadius - Radius in sketch units to search
+ * @returns {Array<{ type: 'origin'|'point'|'midpoint'|'quadrant', x: number, y: number, entityId?: number }>}
+ */
+export function collectSnapCandidates(x, y, previewRadius) {
+	/** @type {Array<{ type: 'origin'|'point'|'midpoint'|'quadrant', x: number, y: number, entityId?: number }>} */
+	const candidates = [];
+
+	// Origin
+	const originDist = Math.sqrt(x * x + y * y);
+	if (originDist < previewRadius) {
+		candidates.push({ type: 'origin', x: 0, y: 0 });
+	}
+
+	// Points
+	const positions = getSketchPositions();
+	for (const [id, pos] of positions) {
+		const dist = Math.sqrt((x - pos.x) ** 2 + (y - pos.y) ** 2);
+		if (dist < previewRadius) {
+			candidates.push({ type: 'point', x: pos.x, y: pos.y, entityId: id });
+		}
+	}
+
+	// Midpoints (of lines)
+	const entities = getSketchEntities();
+	for (const entity of entities) {
+		if (entity.type === 'Line') {
+			const p1 = positions.get(entity.start_id);
+			const p2 = positions.get(entity.end_id);
+			if (!p1 || !p2) continue;
+			const midX = (p1.x + p2.x) / 2;
+			const midY = (p1.y + p2.y) / 2;
+			const dist = Math.sqrt((x - midX) ** 2 + (y - midY) ** 2);
+			if (dist < previewRadius) {
+				candidates.push({ type: 'midpoint', x: midX, y: midY, entityId: entity.id });
+			}
+		}
+	}
+
+	// Quadrants (of circles and arcs)
+	const quadrantAngles = [0, Math.PI / 2, Math.PI, 3 * Math.PI / 2];
+	for (const entity of entities) {
+		if (entity.type !== 'Circle' && entity.type !== 'Arc') continue;
+		const center = positions.get(entity.center_id);
+		if (!center) continue;
+
+		let radius;
+		if (entity.type === 'Circle') {
+			radius = entity.radius;
+		} else {
+			const startPt = positions.get(entity.start_id);
+			if (!startPt) continue;
+			radius = Math.sqrt((startPt.x - center.x) ** 2 + (startPt.y - center.y) ** 2);
+		}
+
+		for (const angle of quadrantAngles) {
+			// For arcs, only include quadrant points within the arc's angular range
+			if (entity.type === 'Arc') {
+				const startPt = positions.get(entity.start_id);
+				const endPt = positions.get(entity.end_id);
+				if (!startPt || !endPt) continue;
+				let startAngle = Math.atan2(startPt.y - center.y, startPt.x - center.x);
+				let endAngle = Math.atan2(endPt.y - center.y, endPt.x - center.x);
+				if (endAngle <= startAngle) endAngle += Math.PI * 2;
+				let testAngle = angle;
+				while (testAngle < startAngle) testAngle += Math.PI * 2;
+				if (testAngle > endAngle) continue;
+			}
+
+			const qx = center.x + radius * Math.cos(angle);
+			const qy = center.y + radius * Math.sin(angle);
+			const dist = Math.sqrt((x - qx) ** 2 + (y - qy) ** 2);
+			if (dist < previewRadius) {
+				candidates.push({ type: 'quadrant', x: qx, y: qy, entityId: entity.id });
+			}
+		}
+	}
+
+	return candidates;
 }

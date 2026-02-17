@@ -24,10 +24,11 @@ import {
 	setSelectedProfileIndex,
 	setHoveredProfileIndex,
 	showDimensionPopup,
-	hideDimensionPopup
+	hideDimensionPopup,
+	getSnapSettings
 } from '$lib/engine/store.svelte.js';
 import { log } from '$lib/engine/logger.js';
-import { detectSnaps } from './snap.js';
+import { detectSnaps, collectSnapCandidates } from './snap.js';
 import { profileToPolygon, pointInPolygon } from './profiles.js';
 
 // -- Module state (reactive via $state in .svelte.js, but we use plain JS here) --
@@ -65,6 +66,9 @@ let dimFirstEntity = null;
 /** @type {import('./snap.js').SnapIndicator | null} */
 let currentSnapIndicator = null;
 
+/** @type {Array<{ type: string, x: number, y: number, entityId?: number }>} */
+let currentSnapCandidates = [];
+
 // -- Event instrumentation (ring buffer for test diagnostics) --
 /** @type {Array<{tool: string, event: string, x: number, y: number, toolState: string, isDragging: boolean, timestamp: number}>} */
 const toolEventLog = [];
@@ -84,6 +88,14 @@ export function getPreview() {
  */
 export function getSnapIndicator() {
 	return currentSnapIndicator;
+}
+
+/**
+ * Get the current snap candidate preview markers.
+ * @returns {Array<{ type: string, x: number, y: number, entityId?: number }>}
+ */
+export function getSnapCandidates() {
+	return currentSnapCandidates;
 }
 
 // -- Tool state getters (for test instrumentation via __waffle) --
@@ -124,6 +136,7 @@ export function resetTool() {
 	dimFirstEntity = null;
 	currentPreview = null;
 	currentSnapIndicator = null;
+	currentSnapCandidates = [];
 	isDragging = false;
 	pointerDownPos = null;
 	hideDimensionPopup();
@@ -200,6 +213,29 @@ export function handleToolEvent(activeTool, eventType, sketchX, sketchY, screenP
 	}
 }
 
+/**
+ * Update snap candidate preview markers, filtering out the active snap point.
+ * @param {import('./snap.js').SnapResult} snap
+ * @param {number} screenPixelSize
+ */
+function updateSnapCandidates(snap, screenPixelSize) {
+	const settings = getSnapSettings();
+	const previewRadius = (settings.previewPx ?? 30) * screenPixelSize;
+	const raw = collectSnapCandidates(snap.x, snap.y, previewRadius);
+
+	// Filter out the active snap point to avoid double-rendering
+	if (snap.indicator) {
+		const sx = snap.x;
+		const sy = snap.y;
+		currentSnapCandidates = raw.filter(c => {
+			const dist = Math.sqrt((c.x - sx) ** 2 + (c.y - sy) ** 2);
+			return dist > 0.001;
+		});
+	} else {
+		currentSnapCandidates = raw;
+	}
+}
+
 // ---- Line Tool ----
 
 function handleLineTool(eventType, x, y, screenPixelSize) {
@@ -207,6 +243,7 @@ function handleLineTool(eventType, x, y, screenPixelSize) {
 	currentSnapIndicator = snap.indicator;
 
 	if (eventType === 'pointermove') {
+		updateSnapCandidates(snap, screenPixelSize);
 		// Detect drag threshold
 		if (pointerDownPos && toolState === 'firstPointPlaced') {
 			const dragThreshold = DRAG_THRESHOLD_PX * screenPixelSize;
@@ -306,6 +343,7 @@ function handleRectangleTool(eventType, x, y, screenPixelSize) {
 	currentSnapIndicator = snap.indicator;
 
 	if (eventType === 'pointermove') {
+		updateSnapCandidates(snap, screenPixelSize);
 		// Detect drag threshold
 		if (pointerDownPos && toolState === 'firstCornerPlaced') {
 			const dragThreshold = DRAG_THRESHOLD_PX * screenPixelSize;
@@ -394,6 +432,7 @@ function handleCircleTool(eventType, x, y, screenPixelSize) {
 	currentSnapIndicator = snap.indicator;
 
 	if (eventType === 'pointermove') {
+		updateSnapCandidates(snap, screenPixelSize);
 		// Detect drag threshold
 		if (pointerDownPos && toolState === 'centerPlaced') {
 			const dragThreshold = DRAG_THRESHOLD_PX * screenPixelSize;
@@ -472,6 +511,7 @@ function handleArcTool(eventType, x, y, screenPixelSize) {
 	currentSnapIndicator = snap.indicator;
 
 	if (eventType === 'pointermove') {
+		updateSnapCandidates(snap, screenPixelSize);
 		// Detect drag threshold (center → start drag)
 		if (pointerDownPos && toolState === 'centerPlaced') {
 			const dragThreshold = DRAG_THRESHOLD_PX * screenPixelSize;
@@ -561,6 +601,7 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 		// Show snap indicators on hover even in select mode
 		const snap = detectSnaps(x, y, null, screenPixelSize);
 		currentSnapIndicator = snap.indicator;
+		updateSnapCandidates(snap, screenPixelSize);
 
 		// Hit-test for hover
 		const hitId = hitTest(x, y, screenPixelSize);

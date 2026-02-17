@@ -125,6 +125,18 @@
 						onchange={(e) => updateSnapSettings({ hvAngleDeg: parseFloat(e.target.value) || 3 })}
 					/>
 				</div>
+				<div class="field-row">
+					<label class="field-label">Preview radius (px)</label>
+					<input
+						class="field-input"
+						type="number"
+						min="0"
+						max="100"
+						step="5"
+						value={snap.previewPx}
+						onchange={(e) => updateSnapSettings({ previewPx: parseInt(e.target.value) || 30 })}
+					/>
+				</div>
 			</div>
 		{/if}
 

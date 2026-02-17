@@ -9,7 +9,7 @@ import { EngineBridge } from './bridge.js';
 import { log, getLogs, exportLogs, clearLogs } from './logger.js';
 import { showToast, initLoggerToasts } from '$lib/ui/toast.svelte.js';
 import { extractProfiles } from '$lib/sketch/profiles.js';
-import { getPreview, getSnapIndicator, resetTool, getToolState as _getToolState, getIsDragging as _getIsDragging, getPointerDownPos as _getPointerDownPos, getStartPos as _getStartPos, getStartPointId as _getStartPointId, getToolEventLog as _getToolEventLog, clearToolEventLog as _clearToolEventLog } from '$lib/sketch/tools.js';
+import { getPreview, getSnapIndicator, getSnapCandidates as _getSnapCandidates, resetTool, getToolState as _getToolState, getIsDragging as _getIsDragging, getPointerDownPos as _getPointerDownPos, getStartPos as _getStartPos, getStartPointId as _getStartPointId, getToolEventLog as _getToolEventLog, clearToolEventLog as _clearToolEventLog } from '$lib/sketch/tools.js';
 import { isDatumPlaneRef, getPlaneIdFromRef, getPlaneById, resolvePlane, BUILTIN_PLANES } from './planes.js';
 
 /** @type {{ features: Array<any>, active_index: number | null }} */
@@ -116,7 +116,8 @@ let sketchPlaneDialogSelection = $state(null);
 let snapSettings = $state({
 	coincidentPx: 8,
 	onEntityPx: 5,
-	hvAngleDeg: 3
+	hvAngleDeg: 3,
+	previewPx: 30
 });
 
 // -- Camera state refs (set by CameraControls) --
@@ -268,6 +269,7 @@ export async function initEngine() {
 			hideDimensionPopup: () => hideDimensionPopup(),
 			applyDimensionFromPopup: (value) => applyDimensionFromPopup(value),
 			getSnapIndicator: () => getSnapIndicator(),
+			getSnapCandidates: () => _getSnapCandidates(),
 			getPreview: () => getPreview(),
 			getToolState: () => _getToolState(),
 			getIsDragging: () => _getIsDragging(),
@@ -1385,7 +1387,7 @@ export function applyDimensionFromPopup(value) {
 export function getSnapSettings() { return snapSettings; }
 /**
  * Update snap threshold settings.
- * @param {Partial<{ coincidentPx: number, onEntityPx: number, hvAngleDeg: number }>} updates
+ * @param {Partial<{ coincidentPx: number, onEntityPx: number, hvAngleDeg: number, previewPx: number }>} updates
  */
 export function updateSnapSettings(updates) {
 	snapSettings = { ...snapSettings, ...updates };

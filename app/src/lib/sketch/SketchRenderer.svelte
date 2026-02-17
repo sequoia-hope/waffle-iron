@@ -15,7 +15,7 @@
 		getHoveredProfileIndex,
 		getOverConstrainedEntities
 	} from '$lib/engine/store.svelte.js';
-	import { getPreview, getSnapIndicator } from './tools.js';
+	import { getPreview, getSnapIndicator, getSnapCandidates } from './tools.js';
 	import { buildSketchPlane, sketchToWorld } from './sketchCoords.js';
 	import { profileToPolygon } from './profiles.js';
 
@@ -294,7 +294,10 @@
 		'vertical': 'Vertical',
 		'on-entity': 'On Entity',
 		'tangent': 'Tangent',
-		'perpendicular': 'Perpendicular'
+		'perpendicular': 'Perpendicular',
+		'midpoint': 'Midpoint',
+		'quadrant': 'Quadrant',
+		'origin': 'Origin'
 	};
 
 	let snapGeo = $derived.by(() => {
@@ -312,6 +315,10 @@
 		}
 
 		if (snap.type === 'on-entity' || snap.type === 'tangent' || snap.type === 'perpendicular') {
+			return { type: 'point', world: sketchToWorld(snap.x, snap.y, plane) };
+		}
+
+		if (snap.type === 'midpoint' || snap.type === 'quadrant' || snap.type === 'origin') {
 			return { type: 'point', world: sketchToWorld(snap.x, snap.y, plane) };
 		}
 
@@ -351,6 +358,17 @@
 		return labels;
 	});
 
+	// Snap candidate preview data
+	let snapCandidateData = $derived.by(() => {
+		const candidates = getSnapCandidates();
+		if (!candidates.length || !plane) return [];
+		return candidates.map((c) => ({
+			...c,
+			key: `${c.type}-${c.x.toFixed(2)}-${c.y.toFixed(2)}`,
+			world: sketchToWorld(c.x, c.y, plane)
+		}));
+	});
+
 	// Shared materials
 	const previewMaterial = new THREE.LineBasicMaterial({ color: COLOR_PREVIEW, depthTest: false, transparent: true, opacity: 0.6 });
 	const previewDashedMaterial = new THREE.LineDashedMaterial({ color: COLOR_PREVIEW, depthTest: false, transparent: true, opacity: 0.6, dashSize: 0.1, gapSize: 0.05 });
@@ -362,6 +380,28 @@
 	const originMaterial = new THREE.MeshBasicMaterial({ color: COLOR_ORIGIN, depthTest: false, transparent: true, opacity: 0.6 });
 	const axisXMaterial = new THREE.LineBasicMaterial({ color: COLOR_AXIS_X, depthTest: false, transparent: true, opacity: 0.4 });
 	const axisYMaterial = new THREE.LineBasicMaterial({ color: COLOR_AXIS_Y, depthTest: false, transparent: true, opacity: 0.4 });
+
+	// Snap candidate preview materials (faint markers)
+	const COLOR_SNAP_PREVIEW = 0x44cc44;   // green, matches snap
+	const COLOR_MIDPOINT = 0xdd8833;       // orange
+	const COLOR_QUADRANT = 0x33bbdd;       // cyan
+	const COLOR_ORIGIN_SNAP = 0xffffff;    // white
+
+	const snapCandidatePointMaterial = new THREE.MeshBasicMaterial({
+		color: COLOR_SNAP_PREVIEW, depthTest: false, transparent: true, opacity: 0.3
+	});
+	const midpointGeometry = new THREE.CircleGeometry(0.06, 3); // triangle (3 segments)
+	const midpointMaterial = new THREE.MeshBasicMaterial({
+		color: COLOR_MIDPOINT, depthTest: false, transparent: true, opacity: 0.5
+	});
+	const quadrantGeometry = new THREE.CircleGeometry(0.06, 4); // diamond (4 segments)
+	const quadrantMaterial = new THREE.MeshBasicMaterial({
+		color: COLOR_QUADRANT, depthTest: false, transparent: true, opacity: 0.5
+	});
+	const originSnapGeometry = new THREE.CircleGeometry(0.08, 4);
+	const originSnapMaterial = new THREE.MeshBasicMaterial({
+		color: COLOR_ORIGIN_SNAP, depthTest: false, transparent: true, opacity: 0.4
+	});
 
 	// -- Sketch axes geometry --
 	const AXIS_LENGTH = 50;
@@ -478,6 +518,23 @@
 			<T.Line geometry={arc.geometry} renderOrder={10}>
 				<T.LineBasicMaterial color={entityColor(arc.id)} depthTest={false} linewidth={1} />
 			</T.Line>
+		{/if}
+	{/each}
+
+	<!-- Snap candidate preview markers (faint) -->
+	{#each snapCandidateData as cand (cand.key)}
+		{#if cand.type === 'point'}
+			<T.Mesh geometry={pointGeometry} position={[cand.world.x, cand.world.y, cand.world.z]}
+				renderOrder={9} material={snapCandidatePointMaterial} />
+		{:else if cand.type === 'midpoint'}
+			<T.Mesh geometry={midpointGeometry} position={[cand.world.x, cand.world.y, cand.world.z]}
+				renderOrder={9} material={midpointMaterial} />
+		{:else if cand.type === 'quadrant'}
+			<T.Mesh geometry={quadrantGeometry} position={[cand.world.x, cand.world.y, cand.world.z]}
+				renderOrder={9} material={quadrantMaterial} />
+		{:else if cand.type === 'origin'}
+			<T.Mesh geometry={originSnapGeometry} position={[cand.world.x, cand.world.y, cand.world.z]}
+				renderOrder={9} material={originSnapMaterial} />
 		{/if}
 	{/each}
 
