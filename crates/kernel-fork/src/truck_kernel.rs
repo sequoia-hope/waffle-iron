@@ -655,7 +655,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires M3.1 coplanar face splitting - truck can't handle shared-plane partial overlap"]
     fn test_coplanar_partial_overlap_union() {
         use truck_topology::shell::ShellCondition;
 
@@ -679,7 +678,10 @@ mod tests {
         let result = crate::healing::try_boolean_with_perturbation(&box1, &box2, tol, |a, b| {
             truck_shapeops::or(a, b, tol)
         });
-        assert!(result.is_some(), "Coplanar partial overlap union should succeed");
+        assert!(
+            result.is_some(),
+            "Coplanar partial overlap union should succeed"
+        );
         let solid = result.unwrap();
         assert_eq!(
             solid.boundaries()[0].shell_condition(),
