@@ -654,6 +654,40 @@ mod tests {
         }
     }
 
+    #[test]
+    #[ignore = "requires M3.1 coplanar face splitting - truck can't handle shared-plane partial overlap"]
+    fn test_coplanar_partial_overlap_union() {
+        use truck_topology::shell::ShellCondition;
+
+        // Box1: [0,1]^3
+        let box1 = {
+            let v = builder::vertex(Point3::new(0.0, 0.0, 0.0));
+            let e = builder::tsweep(&v, Vector3::new(1.0, 0.0, 0.0));
+            let f = builder::tsweep(&e, Vector3::new(0.0, 1.0, 0.0));
+            builder::tsweep(&f, Vector3::new(0.0, 0.0, 1.0))
+        };
+        // Box2: [0.5, 1.5] x [0, 1] x [0, 1] — shares the x=1 face partially
+        let box2 = {
+            let v = builder::vertex(Point3::new(0.5, 0.0, 0.0));
+            let e = builder::tsweep(&v, Vector3::new(1.0, 0.0, 0.0));
+            let f = builder::tsweep(&e, Vector3::new(0.0, 1.0, 0.0));
+            builder::tsweep(&f, Vector3::new(0.0, 0.0, 1.0))
+        };
+
+        let tol = compute_adaptive_tol(&box1, &box2);
+        // Use perturbation system since direct truck call fails on coplanar faces
+        let result = crate::healing::try_boolean_with_perturbation(&box1, &box2, tol, |a, b| {
+            truck_shapeops::or(a, b, tol)
+        });
+        assert!(result.is_some(), "Coplanar partial overlap union should succeed");
+        let solid = result.unwrap();
+        assert_eq!(
+            solid.boundaries()[0].shell_condition(),
+            ShellCondition::Closed,
+            "Coplanar union should produce closed shell"
+        );
+    }
+
     /// Benchmark boolean operations at various tolerances.
     /// Uses catch_unwind since truck panics at certain tolerances.
     /// Run with: cargo test -p kernel-fork bench_boolean -- --ignored --nocapture
