@@ -11,6 +11,42 @@ use truck_modeling::geometry::Surface;
 use truck_modeling::topology::{Edge, Face, Solid, Wire};
 use truck_modeling::{InnerSpace, Point3, Rad, Vector3};
 
+/// Compute the maximum extent of a solid's bounding box from its boundary vertices.
+fn solid_max_extent(solid: &Solid) -> f64 {
+    let mut min = [f64::MAX; 3];
+    let mut max = [f64::MIN; 3];
+    let mut has_pts = false;
+    for shell in solid.boundaries() {
+        for v in shell.vertex_iter() {
+            let p = v.point();
+            min[0] = min[0].min(p.x);
+            min[1] = min[1].min(p.y);
+            min[2] = min[2].min(p.z);
+            max[0] = max[0].max(p.x);
+            max[1] = max[1].max(p.y);
+            max[2] = max[2].max(p.z);
+            has_pts = true;
+        }
+    }
+    if !has_pts {
+        return 1.0;
+    }
+    let dx = max[0] - min[0];
+    let dy = max[1] - min[1];
+    let dz = max[2] - min[2];
+    dx.max(dy).max(dz).max(1e-10)
+}
+
+/// Compute scale-aware boolean tolerance from two solids' bounding boxes.
+///
+/// Uses `(extent * 0.005).clamp(0.005, 0.05)` — only scales DOWN from the default
+/// 0.05 for small geometry (extent < 10). Never exceeds 0.05 because truck's boolean
+/// pipeline (especially cylinder triangulation) is calibrated around that value.
+fn compute_adaptive_tol(solid_a: &Solid, solid_b: &Solid) -> f64 {
+    let extent = solid_max_extent(solid_a).max(solid_max_extent(solid_b));
+    (extent * 0.005).clamp(0.005, 0.05)
+}
+
 /// Real geometry kernel backed by the truck BREP library.
 pub struct TruckKernel {
     next_handle: u64,
@@ -177,12 +213,14 @@ impl Kernel for TruckKernel {
         crate::healing::heal_intersection_curves(&solid_a, 0.001);
         crate::healing::heal_intersection_curves(&solid_b, 0.001);
 
-        let result = crate::healing::try_boolean_with_perturbation(&solid_a, &solid_b, |a, b| {
-            truck_shapeops::or(a, b, 0.05)
-        })
-        .ok_or_else(|| KernelError::BooleanFailed {
-            reason: "truck or() returned None".to_string(),
-        })?;
+        let tol = compute_adaptive_tol(&solid_a, &solid_b);
+        let result =
+            crate::healing::try_boolean_with_perturbation(&solid_a, &solid_b, tol, |a, b| {
+                truck_shapeops::or(a, b, tol)
+            })
+            .ok_or_else(|| KernelError::BooleanFailed {
+                reason: "truck or() returned None".to_string(),
+            })?;
         crate::healing::heal_intersection_curves(&result, 0.001);
         Ok(self.store_solid(result))
     }
@@ -212,14 +250,16 @@ impl Kernel for TruckKernel {
         crate::healing::heal_intersection_curves(&solid_a, 0.001);
         crate::healing::heal_intersection_curves(&solid_b, 0.001);
 
-        let result = crate::healing::try_boolean_with_perturbation(&solid_a, &solid_b, |a, b| {
-            let mut b_neg = b.clone();
-            b_neg.not();
-            truck_shapeops::and(a, &b_neg, 0.05)
-        })
-        .ok_or_else(|| KernelError::BooleanFailed {
-            reason: "truck and() returned None for subtraction".to_string(),
-        })?;
+        let tol = compute_adaptive_tol(&solid_a, &solid_b);
+        let result =
+            crate::healing::try_boolean_with_perturbation(&solid_a, &solid_b, tol, |a, b| {
+                let mut b_neg = b.clone();
+                b_neg.not();
+                truck_shapeops::and(a, &b_neg, tol)
+            })
+            .ok_or_else(|| KernelError::BooleanFailed {
+                reason: "truck and() returned None for subtraction".to_string(),
+            })?;
         crate::healing::heal_intersection_curves(&result, 0.001);
         Ok(self.store_solid(result))
     }
@@ -248,12 +288,14 @@ impl Kernel for TruckKernel {
         crate::healing::heal_intersection_curves(&solid_a, 0.001);
         crate::healing::heal_intersection_curves(&solid_b, 0.001);
 
-        let result = crate::healing::try_boolean_with_perturbation(&solid_a, &solid_b, |a, b| {
-            truck_shapeops::and(a, b, 0.05)
-        })
-        .ok_or_else(|| KernelError::BooleanFailed {
-            reason: "truck and() returned None".to_string(),
-        })?;
+        let tol = compute_adaptive_tol(&solid_a, &solid_b);
+        let result =
+            crate::healing::try_boolean_with_perturbation(&solid_a, &solid_b, tol, |a, b| {
+                truck_shapeops::and(a, b, tol)
+            })
+            .ok_or_else(|| KernelError::BooleanFailed {
+                reason: "truck and() returned None".to_string(),
+            })?;
         crate::healing::heal_intersection_curves(&result, 0.001);
         Ok(self.store_solid(result))
     }
@@ -520,6 +562,96 @@ mod tests {
             solid.boundaries()[0].shell_condition(),
             ShellCondition::Closed
         );
+    }
+
+    #[test]
+    fn test_adaptive_tolerance_scaling() {
+        // Test that compute_adaptive_tol produces scale-appropriate values
+        let make_box = |s: f64| -> Solid {
+            let v = builder::vertex(Point3::new(0.0, 0.0, 0.0));
+            let e = builder::tsweep(&v, Vector3::new(s, 0.0, 0.0));
+            let f = builder::tsweep(&e, Vector3::new(0.0, s, 0.0));
+            builder::tsweep(&f, Vector3::new(0.0, 0.0, s))
+        };
+
+        // Unit scale: extent=1.0, tol = 1.0*0.005 = 0.005
+        let small = make_box(1.0);
+        let tol_small = compute_adaptive_tol(&small, &small);
+        assert!(
+            (tol_small - 0.005).abs() < 1e-10,
+            "Unit scale tol={} should be 0.005",
+            tol_small
+        );
+
+        // 10x scale: extent=10.0, tol = 10*0.005 = 0.05 (at upper clamp)
+        let medium = make_box(10.0);
+        let tol_medium = compute_adaptive_tol(&medium, &medium);
+        assert!(
+            (tol_medium - 0.05).abs() < 1e-10,
+            "10x scale tol={} should be 0.05 (upper clamp)",
+            tol_medium
+        );
+
+        // 100x scale: extent=100.0, tol = 0.05 (clamped at upper bound)
+        let large = make_box(100.0);
+        let tol_large = compute_adaptive_tol(&large, &large);
+        assert!(
+            (tol_large - 0.05).abs() < 1e-10,
+            "100x scale tol={} should be 0.05 (clamped)",
+            tol_large
+        );
+
+        // Verify monotonicity up to clamp
+        assert!(
+            tol_medium >= tol_small,
+            "Medium geometry should get >= tol than small"
+        );
+        assert!(
+            tol_large >= tol_medium,
+            "Large should be >= medium (both at clamp)"
+        );
+    }
+
+    #[test]
+    fn test_parametric_scale_boolean() {
+        use truck_topology::shell::ShellCondition;
+
+        // Test that boolean union works at various scales with adaptive tolerance.
+        // Uses overlapping boxes (not fully contained) to ensure proper intersection
+        // curves are generated.
+        for scale in &[1.0, 2.0, 5.0, 10.0] {
+            let s = *scale;
+            // Box A: [0, 2s]^3
+            let box_a = {
+                let v = builder::vertex(Point3::new(0.0, 0.0, 0.0));
+                let e = builder::tsweep(&v, Vector3::new(2.0 * s, 0.0, 0.0));
+                let f = builder::tsweep(&e, Vector3::new(0.0, 2.0 * s, 0.0));
+                builder::tsweep(&f, Vector3::new(0.0, 0.0, 2.0 * s))
+            };
+            // Box B: [s, 3s]^3 — overlapping (no coplanar, partial overlap)
+            let box_b = {
+                let v = builder::vertex(Point3::new(1.0 * s, 1.0 * s, 1.0 * s));
+                let e = builder::tsweep(&v, Vector3::new(2.0 * s, 0.0, 0.0));
+                let f = builder::tsweep(&e, Vector3::new(0.0, 2.0 * s, 0.0));
+                builder::tsweep(&f, Vector3::new(0.0, 0.0, 2.0 * s))
+            };
+
+            let tol = compute_adaptive_tol(&box_a, &box_b);
+            let result = truck_shapeops::or(&box_a, &box_b, tol);
+            assert!(
+                result.is_some(),
+                "Box-box union at scale {}x should succeed (tol={})",
+                s,
+                tol
+            );
+            let solid = result.unwrap();
+            assert_eq!(
+                solid.boundaries()[0].shell_condition(),
+                ShellCondition::Closed,
+                "Union at scale {}x should produce closed shell",
+                s
+            );
+        }
     }
 
     /// Benchmark boolean operations at various tolerances.

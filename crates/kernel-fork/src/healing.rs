@@ -277,15 +277,45 @@ pub fn detect_all_coplanar_directions(solid_a: &Solid, solid_b: &Solid, tol: f64
     dirs
 }
 
+/// Compute the maximum extent of a solid's bounding box from its boundary vertices.
+fn solid_max_extent(solid: &Solid) -> f64 {
+    let mut min = [f64::MAX; 3];
+    let mut max = [f64::MIN; 3];
+    let mut has_pts = false;
+    for shell in solid.boundaries() {
+        for v in shell.vertex_iter() {
+            let p = v.point();
+            min[0] = min[0].min(p.x);
+            min[1] = min[1].min(p.y);
+            min[2] = min[2].min(p.z);
+            max[0] = max[0].max(p.x);
+            max[1] = max[1].max(p.y);
+            max[2] = max[2].max(p.z);
+            has_pts = true;
+        }
+    }
+    if !has_pts {
+        return 1.0;
+    }
+    let dx = max[0] - min[0];
+    let dy = max[1] - min[1];
+    let dz = max[2] - min[2];
+    dx.max(dy).max(dz).max(1e-10)
+}
+
 /// Try a boolean operation with multi-axis perturbation retry.
 ///
 /// Attempts the operation directly first. If it returns None, detects all
 /// coplanar face directions and retries with composite and individual
 /// perturbations. Falls back to cardinal-direction perturbation for
 /// edge-coincident cases where coplanarity detection doesn't trigger.
+///
+/// Perturbation epsilons are scaled relative to bounding box extent so that
+/// small and large geometry both get meaningful perturbations.
 pub fn try_boolean_with_perturbation(
     solid_a: &Solid,
     solid_b: &Solid,
+    tol: f64,
     op: impl Fn(&Solid, &Solid) -> Option<Solid>,
 ) -> Option<Solid> {
     // Try direct
@@ -293,8 +323,12 @@ pub fn try_boolean_with_perturbation(
         return Some(result);
     }
 
+    // Scale-aware perturbation epsilons based on bounding box extent
+    let extent = solid_max_extent(solid_a).max(solid_max_extent(solid_b));
+    let epsilons = [extent * 1e-6, extent * 1e-5, extent * 1e-4, extent * 1e-3];
+
     // Detect ALL coplanar directions
-    let dirs = detect_all_coplanar_directions(solid_a, solid_b, 0.05);
+    let dirs = detect_all_coplanar_directions(solid_a, solid_b, tol);
 
     if !dirs.is_empty() {
         // Try composite perturbation (sum of all coplanar directions)
@@ -306,7 +340,7 @@ pub fn try_boolean_with_perturbation(
             let len = composite.magnitude();
             if len > 1e-10 {
                 let composite_dir = composite / len;
-                for &eps in &[1e-5, 1e-4, 1e-3, 0.01] {
+                for &eps in &epsilons {
                     let perturbed_b = translate_solid(solid_b, composite_dir * eps);
                     if let Some(result) = op(solid_a, &perturbed_b) {
                         return Some(result);
@@ -317,7 +351,7 @@ pub fn try_boolean_with_perturbation(
 
         // Try each individual coplanar direction
         for dir in &dirs {
-            for &eps in &[1e-5, 1e-4, 1e-3, 0.01] {
+            for &eps in &epsilons {
                 let perturbed_b = translate_solid(solid_b, *dir * eps);
                 if let Some(result) = op(solid_a, &perturbed_b) {
                     return Some(result);
@@ -327,7 +361,8 @@ pub fn try_boolean_with_perturbation(
     }
 
     // Cardinal fallback — for edge-coincident cases where coplanarity
-    // detection doesn't trigger
+    // detection doesn't trigger. Use fixed small epsilon (not scaled) because
+    // cardinal perturbation is a last resort and must stay within tolerance.
     let cardinal = [
         Vector3::new(1e-5, 0.0, 0.0),
         Vector3::new(0.0, 1e-5, 0.0),
@@ -661,16 +696,18 @@ mod tests {
         // First boss (polygon) on z=10
         let boss1 = make_polygon_boss(3.0, 5.0, 10.0, 2.0, 5.0);
 
-        let merged1 =
-            try_boolean_with_perturbation(&cube, &boss1, |a, b| truck_shapeops::or(a, b, 0.05))
-                .expect("First union should work");
+        let merged1 = try_boolean_with_perturbation(&cube, &boss1, 0.05, |a, b| {
+            truck_shapeops::or(a, b, 0.05)
+        })
+        .expect("First union should work");
         heal_intersection_curves(&merged1, 0.001);
 
         // Second boss (polygon) on z=15 (top of first)
         let boss2 = make_polygon_boss(7.0, 5.0, 15.0, 2.0, 5.0);
 
-        let _merged2 =
-            try_boolean_with_perturbation(&merged1, &boss2, |a, b| truck_shapeops::or(a, b, 0.05))
-                .expect("Second union should work with perturbation");
+        let _merged2 = try_boolean_with_perturbation(&merged1, &boss2, 0.05, |a, b| {
+            truck_shapeops::or(a, b, 0.05)
+        })
+        .expect("Second union should work with perturbation");
     }
 }
