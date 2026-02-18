@@ -226,6 +226,15 @@ export async function getExtrudeDialogState(page) {
 }
 
 /**
+ * Get the combined bounding box of all meshes.
+ * @param {import('@playwright/test').Page} page
+ * @returns {Promise<{min: number[], max: number[], center: number[], size: number[]} | null>}
+ */
+export async function getMeshBoundingBox(page) {
+	return page.evaluate(() => window.__waffle?.getMeshBoundingBox?.() ?? null);
+}
+
+/**
  * Wait until at least one mesh has geometry (triangles > 0).
  * @param {import('@playwright/test').Page} page
  * @param {number} timeout

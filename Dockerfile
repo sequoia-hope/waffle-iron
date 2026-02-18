@@ -20,6 +20,7 @@ RUN apt-get update && apt-get install -y \
     clang \
     libclang-dev \
     pkg-config \
+    libssl-dev \
     && install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
        -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
@@ -68,7 +69,7 @@ ENV EMSDK="/home/$USERNAME/emsdk"
 # Install Rust toolchain + wasm-pack
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
     && . /home/$USERNAME/.cargo/env \
-    && rustup component add clippy rustfmt \
+    && rustup component add clippy rustfmt llvm-tools-preview \
     && rustup target add wasm32-unknown-unknown \
     && curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 

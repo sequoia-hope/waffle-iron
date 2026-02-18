@@ -211,3 +211,52 @@ export async function zoom(page, deltaY) {
 	await page.mouse.wheel(0, deltaY);
 	await page.waitForTimeout(200);
 }
+
+/**
+ * Draw an arc with the arc tool — three clicks (center, start, end).
+ * @param {import('@playwright/test').Page} page
+ * @param {number} cx - center x offset from canvas center
+ * @param {number} cy - center y offset from canvas center
+ * @param {number} sx - arc start x offset from canvas center
+ * @param {number} sy - arc start y offset from canvas center
+ * @param {number} ex - arc end x offset from canvas center
+ * @param {number} ey - arc end y offset from canvas center
+ */
+export async function drawArc(page, cx, cy, sx, sy, ex, ey) {
+	await clickAt(page, cx, cy);
+	await clickAt(page, sx, sy);
+	await clickAt(page, ex, ey);
+}
+
+/**
+ * Draw an arc by dragging — mousedown at center, move to start point, click, move to end, release.
+ * Note: Arc drag drawing may vary based on implementation. This is a simplified version.
+ * @param {import('@playwright/test').Page} page
+ * @param {number} cx - center x offset from canvas center
+ * @param {number} cy - center y offset from canvas center
+ * @param {number} sx - arc start x offset from canvas center
+ * @param {number} sy - arc start y offset from canvas center
+ * @param {number} ex - arc end x offset from canvas center
+ * @param {number} ey - arc end y offset from canvas center
+ * @param {number} steps - number of intermediate move steps
+ */
+export async function dragArc(page, cx, cy, sx, sy, ex, ey, steps = 10) {
+	const bounds = await getCanvasBounds(page);
+	if (!bounds) throw new Error('Canvas not visible');
+	// Arc is 3-click: center, start, end — drag version moves between points
+	const cxAbs = bounds.centerX + cx, cyAbs = bounds.centerY + cy;
+	const sxAbs = bounds.centerX + sx, syAbs = bounds.centerY + sy;
+	const exAbs = bounds.centerX + ex, eyAbs = bounds.centerY + ey;
+	// Click center
+	await page.mouse.click(cxAbs, cyAbs);
+	await page.waitForTimeout(150);
+	// Drag from start to end
+	await page.mouse.move(sxAbs, syAbs);
+	await page.mouse.down();
+	for (let i = 1; i <= steps; i++) {
+		const t = i / steps;
+		await page.mouse.move(sxAbs + (exAbs - sxAbs) * t, syAbs + (eyAbs - syAbs) * t);
+	}
+	await page.mouse.up();
+	await page.waitForTimeout(150);
+}

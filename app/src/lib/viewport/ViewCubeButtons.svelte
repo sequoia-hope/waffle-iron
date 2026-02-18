@@ -13,12 +13,13 @@
 	const views = ['front', 'back', 'top', 'bottom', 'left', 'right', 'iso'];
 </script>
 
-<div class="viewcube-overlay">
+<div class="viewcube-overlay" data-testid="viewcube-overlay">
 	<div class="viewcube-buttons">
 		{#each views as name}
 			<button
 				class="view-btn"
 				class:active={currentView === name}
+				data-testid="viewcube-btn-{name}"
 				onclick={() => snapToView(name)}
 			>
 				{name.charAt(0).toUpperCase() + name.slice(1)}

@@ -86,6 +86,12 @@ test.describe('full workflows', () => {
 	test('Tutorial 1 (keyboard): S -> R -> draw -> Esc -> Esc -> E -> depth -> Enter', async ({ waffle }) => {
 		// Step 1: Press S to enter sketch
 		await pressKey(waffle.page, 's');
+
+		// Handle the sketch plane dialog
+		await waffle.page.locator('[data-testid="sketch-plane-dialog"]').waitFor({ state: 'visible', timeout: 2000 });
+		await waffle.page.locator('[data-testid="plane-btn-front"]').click();
+		await waffle.page.locator('[data-testid="sketch-plane-ok"]').click();
+
 		await waffle.page.waitForFunction(
 			() => window.__waffle?.getState()?.sketchMode?.active === true,
 			{ timeout: 5000 }

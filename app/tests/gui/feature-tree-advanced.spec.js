@@ -23,18 +23,10 @@ async function createSketchFeature(waffle) {
 	await clickSketch(waffle.page);
 	await clickRectangle(waffle.page);
 	await drawRectangle(waffle.page, -80, -60, 80, 60);
-	try {
-		await waitForEntityCount(waffle.page, 8, 3000);
-	} catch {
-		await waffle.dumpState('ft-adv-draw-failed');
-	}
+	await waitForEntityCount(waffle.page, 8, 3000);
 
 	await clickFinishSketch(waffle.page);
-	try {
-		await waitForFeatureCount(waffle.page, 1, 10000);
-	} catch {
-		await waffle.dumpState('ft-adv-finish-failed');
-	}
+	await waitForFeatureCount(waffle.page, 1, 10000);
 }
 
 /**
@@ -46,18 +38,15 @@ async function createSketchAndExtrude(waffle) {
 	await clickExtrude(waffle.page);
 	await waffle.page.locator('[data-testid="extrude-depth"]').fill('10');
 	await waffle.page.locator('[data-testid="extrude-apply"]').click();
-	try {
-		await waitForFeatureCount(waffle.page, 2, 10000);
-	} catch {
-		await waffle.dumpState('ft-adv-extrude-failed');
-	}
+	await waitForFeatureCount(waffle.page, 2, 10000);
 }
 
 test.describe('feature tree rename edge cases', () => {
 	test('rename with empty string reverts to old name', async ({ waffle }) => {
-		await createSketchFeature(waffle);
+		await createSketchAndExtrude(waffle);
 
-		const treeItem = waffle.page.locator('.tree-item').first();
+		// Target the Extrude feature — Sketch features enter edit mode on dblclick
+		const treeItem = waffle.page.locator('[data-testid="feature-item-1"]');
 		const originalLabel = await treeItem.locator('.tree-label').textContent();
 		expect(originalLabel.length).toBeGreaterThan(0);
 
@@ -80,9 +69,10 @@ test.describe('feature tree rename edge cases', () => {
 	});
 
 	test('rename via blur saves the name', async ({ waffle }) => {
-		await createSketchFeature(waffle);
+		await createSketchAndExtrude(waffle);
 
-		const treeItem = waffle.page.locator('.tree-item').first();
+		// Target the Extrude feature — Sketch features enter edit mode on dblclick
+		const treeItem = waffle.page.locator('[data-testid="feature-item-1"]');
 		const originalLabel = await treeItem.locator('.tree-label').textContent();
 
 		// Double-click to start rename
@@ -109,13 +99,13 @@ test.describe('feature tree rename edge cases', () => {
 	test('right-click suppressed feature shows Unsuppress', async ({ waffle }) => {
 		await createSketchAndExtrude(waffle);
 
-		const firstItem = waffle.page.locator('.tree-item').first();
+		const firstItem = waffle.page.locator('[data-testid="feature-item-0"]');
 
 		// Right-click and suppress
 		await firstItem.click({ button: 'right' });
 		await waffle.page.waitForTimeout(200);
 
-		const suppressBtn = waffle.page.locator('.context-menu .ctx-item >> text=Suppress');
+		const suppressBtn = waffle.page.locator('.context-menu [data-testid="ft-ctx-suppress"]');
 		await expect(suppressBtn).toBeVisible();
 		await suppressBtn.click();
 		await waffle.page.waitForTimeout(500);
@@ -127,7 +117,7 @@ test.describe('feature tree rename edge cases', () => {
 		await firstItem.click({ button: 'right' });
 		await waffle.page.waitForTimeout(200);
 
-		const unsuppressBtn = waffle.page.locator('.context-menu .ctx-item >> text=Unsuppress');
+		const unsuppressBtn = waffle.page.locator('.context-menu [data-testid="ft-ctx-suppress"]');
 		await expect(unsuppressBtn).toBeVisible();
 	});
 });
@@ -136,12 +126,12 @@ test.describe('feature tree drag-drop attributes', () => {
 	test('feature items have draggable attribute', async ({ waffle }) => {
 		await createSketchAndExtrude(waffle);
 
-		const treeItems = waffle.page.locator('.tree-item');
+		const treeItems = waffle.page.locator('.tree-item:not(.origin-item)');
 		const count = await treeItems.count();
 		expect(count).toBe(2);
 
 		// Check if tree items have draggable attribute or a drag handle
-		const firstItem = treeItems.first();
+		const firstItem = waffle.page.locator('[data-testid="feature-item-0"]');
 		const draggable = await firstItem.getAttribute('draggable');
 		const dragHandle = firstItem.locator('.drag-handle');
 		const hasDragHandle = await dragHandle.count() > 0;
@@ -159,12 +149,12 @@ test.describe('feature tree drag-drop attributes', () => {
 	test('drag start on tree item does not crash', async ({ waffle }) => {
 		await createSketchAndExtrude(waffle);
 
-		const firstItem = waffle.page.locator('.tree-item').first();
+		const firstItem = waffle.page.locator('[data-testid="feature-item-0"]');
 		await expect(firstItem).toBeVisible();
 
 		// Dispatch a dragstart event via page.evaluate (Playwright can't serialize functions)
 		await waffle.page.evaluate(() => {
-			const item = document.querySelector('.tree-item');
+			const item = document.querySelector('[data-testid="feature-item-0"]');
 			if (item) {
 				const event = new DragEvent('dragstart', { bubbles: true });
 				item.dispatchEvent(event);
@@ -177,22 +167,22 @@ test.describe('feature tree drag-drop attributes', () => {
 		await expect(canvas).toBeVisible();
 
 		// Tree items should still exist
-		const treeItems = waffle.page.locator('.tree-item');
+		const treeItems = waffle.page.locator('.tree-item:not(.origin-item)');
 		expect(await treeItems.count()).toBe(2);
 	});
 
 	test('drop target shows visual indicator', async ({ waffle }) => {
 		await createSketchAndExtrude(waffle);
 
-		const secondItem = waffle.page.locator('.tree-item').nth(1);
+		const secondItem = waffle.page.locator('[data-testid="feature-item-1"]');
 		await expect(secondItem).toBeVisible();
 
 		// Dispatch a dragover event via page.evaluate
 		await waffle.page.evaluate(() => {
-			const items = document.querySelectorAll('.tree-item');
-			if (items.length >= 2) {
+			const item = document.querySelector('[data-testid="feature-item-1"]');
+			if (item) {
 				const event = new DragEvent('dragover', { bubbles: true });
-				items[1].dispatchEvent(event);
+				item.dispatchEvent(event);
 			}
 		});
 		await waffle.page.waitForTimeout(200);
@@ -206,7 +196,7 @@ test.describe('feature tree drag-drop attributes', () => {
 
 		if (!hasIndicator) {
 			// Drag-drop visual feedback not yet implemented — verify tree items still render
-			const treeItems = waffle.page.locator('.tree-item');
+			const treeItems = waffle.page.locator('.tree-item:not(.origin-item)');
 			expect(await treeItems.count()).toBe(2);
 		} else {
 			expect(hasIndicator).toBe(true);

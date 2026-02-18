@@ -83,7 +83,7 @@
 	let snap = $derived(getSnapSettings());
 </script>
 
-<div class="property-editor">
+<div class="property-editor" data-testid="property-editor">
 	<div class="panel-header">Properties</div>
 	<div class="editor-content">
 		{#if inSketch}
@@ -97,6 +97,7 @@
 						min="1"
 						max="30"
 						step="1"
+						data-testid="snap-coincidentPx"
 						value={snap.coincidentPx}
 						onchange={(e) => updateSnapSettings({ coincidentPx: parseInt(e.target.value) || 8 })}
 					/>
@@ -109,6 +110,7 @@
 						min="1"
 						max="20"
 						step="1"
+						data-testid="snap-onEntityPx"
 						value={snap.onEntityPx}
 						onchange={(e) => updateSnapSettings({ onEntityPx: parseInt(e.target.value) || 5 })}
 					/>
@@ -121,6 +123,7 @@
 						min="1"
 						max="15"
 						step="0.5"
+						data-testid="snap-hvAngleDeg"
 						value={snap.hvAngleDeg}
 						onchange={(e) => updateSnapSettings({ hvAngleDeg: parseFloat(e.target.value) || 3 })}
 					/>
@@ -133,6 +136,7 @@
 						min="0"
 						max="100"
 						step="5"
+						data-testid="snap-previewPx"
 						value={snap.previewPx}
 						onchange={(e) => updateSnapSettings({ previewPx: parseInt(e.target.value) || 30 })}
 					/>
@@ -144,8 +148,8 @@
 			<div class="empty-state">{inSketch ? '' : 'Select a feature to edit its properties'}</div>
 		{:else}
 			<div class="feature-header">
-				<span class="feature-type">{feature.operation?.type ?? 'Unknown'}</span>
-				<span class="feature-name">{feature.name}</span>
+				<span class="feature-type" data-testid="prop-feature-type">{feature.operation?.type ?? 'Unknown'}</span>
+				<span class="feature-name" data-testid="prop-feature-name">{feature.name}</span>
 			</div>
 
 			{#if fields.length === 0}
@@ -160,6 +164,7 @@
 									class="field-input"
 									type="number"
 									step="any"
+									data-testid="prop-input-{field.key}"
 									value={field.value}
 									disabled={!ready}
 									onchange={(e) => handleChange(field.key, parseFloat(e.target.value))}
@@ -168,6 +173,7 @@
 								<input
 									class="field-checkbox"
 									type="checkbox"
+									data-testid="prop-input-{field.key}"
 									checked={field.value}
 									disabled={!ready}
 									onchange={(e) => handleChange(field.key, e.target.checked)}

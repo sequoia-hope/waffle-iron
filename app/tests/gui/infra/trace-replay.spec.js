@@ -22,6 +22,26 @@ test.describe('trace replay infrastructure', () => {
 			{
 				action: 'click',
 				params: [btnX, btnY],
+			},
+			{
+				action: 'wait',
+				params: [500],
+			},
+			{
+				action: 'evaluate',
+				params: ['document.querySelector(\'[data-testid="plane-btn-front"]\')?.click()'],
+			},
+			{
+				action: 'wait',
+				params: [200],
+			},
+			{
+				action: 'evaluate',
+				params: ['document.querySelector(\'[data-testid="sketch-plane-ok"]\')?.click()'],
+			},
+			{
+				action: 'wait',
+				params: [1000],
 				assert: {
 					fn: 'getState',
 					path: 'sketchMode.active',

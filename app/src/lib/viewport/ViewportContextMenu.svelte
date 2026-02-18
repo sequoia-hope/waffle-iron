@@ -47,20 +47,21 @@
 {#if visible && !inSketch}
 	<div
 		class="ctx-menu"
+		data-testid="ctx-menu"
 		style="left: {pos.x}px; top: {pos.y}px"
 		onclick={(e) => e.stopPropagation()}
 	>
 		{#if hasSelection}
-			<button class="ctx-item" onclick={handleNewSketch}>Sketch on Face</button>
+			<button class="ctx-item" data-testid="ctx-sketch-on-face" onclick={handleNewSketch}>Sketch on Face</button>
 			<div class="ctx-separator"></div>
 		{/if}
-		<button class="ctx-item" onclick={handleNewSketch} disabled={!ready}>New Sketch (XY)</button>
+		<button class="ctx-item" data-testid="ctx-new-sketch" onclick={handleNewSketch} disabled={!ready}>New Sketch (XY)</button>
 		<div class="ctx-separator"></div>
-		<button class="ctx-item" onclick={handleFitAll}>Fit All (F)</button>
-		<button class="ctx-item" onclick={() => handleSnapView('front')}>Front View</button>
-		<button class="ctx-item" onclick={() => handleSnapView('top')}>Top View</button>
-		<button class="ctx-item" onclick={() => handleSnapView('right')}>Right View</button>
-		<button class="ctx-item" onclick={() => handleSnapView('iso')}>Isometric</button>
+		<button class="ctx-item" data-testid="ctx-fit-all" onclick={handleFitAll}>Fit All (F)</button>
+		<button class="ctx-item" data-testid="ctx-view-front" onclick={() => handleSnapView('front')}>Front View</button>
+		<button class="ctx-item" data-testid="ctx-view-top" onclick={() => handleSnapView('top')}>Top View</button>
+		<button class="ctx-item" data-testid="ctx-view-right" onclick={() => handleSnapView('right')}>Right View</button>
+		<button class="ctx-item" data-testid="ctx-view-iso" onclick={() => handleSnapView('iso')}>Isometric</button>
 	</div>
 {/if}
 

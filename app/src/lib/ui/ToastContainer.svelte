@@ -6,9 +6,9 @@
 
 <div class="toast-container" data-testid="toast-container">
 	{#each toasts as toast (toast.id)}
-		<div class="toast toast-{toast.level}">
+		<div class="toast toast-{toast.level}" data-testid="toast-item-{toast.id}">
 			<span class="toast-message">{toast.message}</span>
-			<button class="toast-close" onclick={() => dismissToast(toast.id)}>&times;</button>
+			<button class="toast-close" data-testid="toast-close-{toast.id}" onclick={() => dismissToast(toast.id)}>&times;</button>
 		</div>
 	{/each}
 </div>

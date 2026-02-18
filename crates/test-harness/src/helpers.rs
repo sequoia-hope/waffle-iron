@@ -258,6 +258,14 @@ pub fn mesh_bounding_box(mesh: &RenderMesh) -> ([f32; 3], [f32; 3]) {
 /// For a closed (watertight) mesh, this returns the enclosed volume.
 /// For open meshes, the result may be meaningless.
 pub fn mesh_volume(mesh: &RenderMesh) -> f64 {
+    mesh_signed_volume(mesh).abs()
+}
+
+/// Compute the raw signed volume of a triangle mesh using the divergence theorem.
+///
+/// A correctly-oriented mesh with outward normals produces positive signed volume;
+/// inverted normals produce negative signed volume.
+pub fn mesh_signed_volume(mesh: &RenderMesh) -> f64 {
     let verts = &mesh.vertices;
     let indices = &mesh.indices;
     let mut volume = 0.0f64;
@@ -283,7 +291,7 @@ pub fn mesh_volume(mesh: &RenderMesh) -> f64 {
         volume += x0 * (y1 * z2 - y2 * z1) + x1 * (y2 * z0 - y0 * z2) + x2 * (y0 * z1 - y1 * z0);
     }
 
-    (volume / 6.0).abs()
+    volume / 6.0
 }
 
 /// Compute the total surface area of a triangle mesh.

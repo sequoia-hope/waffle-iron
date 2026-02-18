@@ -195,10 +195,36 @@ fn face_range_coverage_fails_with_gap() {
 }
 
 #[test]
+fn outward_normals_passes_for_mock_box() {
+    let mesh = mock_box_mesh();
+    let result = check_outward_normals(&mesh, 0.95);
+    assert!(
+        result.passed,
+        "MockKernel box normals should point outward: {}",
+        result.detail
+    );
+}
+
+#[test]
+fn outward_normals_fails_for_inverted_mesh() {
+    let mut mesh = mock_box_mesh();
+    // Flip all normals
+    for n in mesh.normals.iter_mut() {
+        *n = -*n;
+    }
+    let result = check_outward_normals(&mesh, 0.95);
+    assert!(
+        !result.passed,
+        "Inverted normals should fail outward check: {}",
+        result.detail
+    );
+}
+
+#[test]
 fn run_all_mesh_checks_returns_multiple_verdicts() {
     let mesh = mock_box_mesh();
     let results = run_all_mesh_checks(&mesh);
-    assert!(results.len() >= 6, "Should have at least 6 mesh checks");
+    assert!(results.len() >= 7, "Should have at least 7 mesh checks");
     // All should pass for a valid mock box
     for v in &results {
         assert!(

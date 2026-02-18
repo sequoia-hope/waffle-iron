@@ -1696,6 +1696,7 @@ fn make_rectangle_chain(n: usize) -> (Vec<SketchEntity>, Vec<SketchConstraint>) 
 }
 
 #[test]
+#[ignore = "wall-clock benchmark — run manually with --ignored"]
 fn bench_solve_10_constraints() {
     // ~2 rectangles: 16 entities, ~14 constraints
     let (entities, constraints) = make_rectangle_chain(2);
@@ -1727,6 +1728,7 @@ fn bench_solve_10_constraints() {
 }
 
 #[test]
+#[ignore = "wall-clock benchmark — run manually with --ignored"]
 fn bench_solve_50_constraints() {
     // ~7 rectangles: 56 entities, ~49 constraints
     let (entities, constraints) = make_rectangle_chain(7);
@@ -1757,6 +1759,7 @@ fn bench_solve_50_constraints() {
 }
 
 #[test]
+#[ignore = "wall-clock benchmark — run manually with --ignored"]
 fn bench_solve_100_constraints() {
     // ~15 rectangles: 120 entities, ~105 constraints
     let (entities, constraints) = make_rectangle_chain(15);

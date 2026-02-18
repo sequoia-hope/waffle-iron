@@ -420,6 +420,109 @@ pub fn check_face_range_coverage(mesh: &RenderMesh) -> OracleVerdict {
     )
 }
 
+/// Check that stored normals point outward from the solid.
+///
+/// Computes the mesh centroid, then for each triangle checks that the stored
+/// normal has a positive dot product with the vector from centroid to triangle
+/// center. The `convexity_threshold` (0.0–1.0) controls the required fraction
+/// of triangles that must pass — set below 1.0 to tolerate minor non-convexity.
+pub fn check_outward_normals(mesh: &RenderMesh, convexity_threshold: f64) -> OracleVerdict {
+    let verts = &mesh.vertices;
+    let norms = &mesh.normals;
+    let vertex_count = verts.len() / 3;
+
+    if vertex_count == 0 {
+        return OracleVerdict::fail("outward_normals", "empty mesh".to_string());
+    }
+
+    // Compute mesh centroid
+    let mut cx = 0.0f64;
+    let mut cy = 0.0f64;
+    let mut cz = 0.0f64;
+    for chunk in verts.chunks(3) {
+        if chunk.len() < 3 {
+            continue;
+        }
+        cx += chunk[0] as f64;
+        cy += chunk[1] as f64;
+        cz += chunk[2] as f64;
+    }
+    let n = vertex_count as f64;
+    cx /= n;
+    cy /= n;
+    cz /= n;
+
+    let mut outward = 0usize;
+    let mut total = 0usize;
+
+    for tri in mesh.indices.chunks(3) {
+        if tri.len() < 3 {
+            continue;
+        }
+        let i0 = tri[0] as usize * 3;
+        let i1 = tri[1] as usize * 3;
+        let i2 = tri[2] as usize * 3;
+
+        if i0 + 2 >= verts.len() || i1 + 2 >= verts.len() || i2 + 2 >= verts.len() {
+            continue;
+        }
+        if i0 + 2 >= norms.len() || i1 + 2 >= norms.len() || i2 + 2 >= norms.len() {
+            continue;
+        }
+
+        // Triangle center
+        let tcx = (verts[i0] as f64 + verts[i1] as f64 + verts[i2] as f64) / 3.0;
+        let tcy = (verts[i0 + 1] as f64 + verts[i1 + 1] as f64 + verts[i2 + 1] as f64) / 3.0;
+        let tcz = (verts[i0 + 2] as f64 + verts[i1 + 2] as f64 + verts[i2 + 2] as f64) / 3.0;
+
+        // Vector from centroid to triangle center
+        let dx = tcx - cx;
+        let dy = tcy - cy;
+        let dz = tcz - cz;
+
+        // Average stored normal for the triangle
+        let snx = (norms[i0] as f64 + norms[i1] as f64 + norms[i2] as f64) / 3.0;
+        let sny = (norms[i0 + 1] as f64 + norms[i1 + 1] as f64 + norms[i2 + 1] as f64) / 3.0;
+        let snz = (norms[i0 + 2] as f64 + norms[i1 + 2] as f64 + norms[i2 + 2] as f64) / 3.0;
+
+        let dot = dx * snx + dy * sny + dz * snz;
+        total += 1;
+        if dot > 0.0 {
+            outward += 1;
+        }
+    }
+
+    if total == 0 {
+        return OracleVerdict::fail("outward_normals", "no valid triangles".to_string());
+    }
+
+    let ratio = outward as f64 / total as f64;
+    if ratio >= convexity_threshold {
+        OracleVerdict::pass_val(
+            "outward_normals",
+            format!(
+                "{} of {} triangles ({:.1}%) have outward normals",
+                outward,
+                total,
+                ratio * 100.0
+            ),
+            ratio,
+        )
+    } else {
+        OracleVerdict::fail_val(
+            "outward_normals",
+            format!(
+                "only {} of {} triangles ({:.1}%) have outward normals (need {:.0}%)",
+                outward,
+                total,
+                ratio * 100.0,
+                convexity_threshold * 100.0,
+            ),
+            ratio,
+        )
+    }
+}
+
 /// Check that all index values are within bounds.
 pub fn check_valid_indices(mesh: &RenderMesh) -> OracleVerdict {
     let vertex_count = mesh.vertices.len() / 3;
@@ -540,6 +643,7 @@ pub fn run_all_mesh_checks(mesh: &RenderMesh) -> Vec<OracleVerdict> {
         check_unit_normals(mesh),
         check_face_range_coverage(mesh),
         check_valid_indices(mesh),
+        check_outward_normals(mesh, 0.95),
     ]
 }
 
