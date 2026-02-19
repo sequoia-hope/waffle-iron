@@ -628,8 +628,11 @@ fn e3_boss_at_cube_edge() {
 /// truck 0.4 produces incorrect geometry on full-penetration through-cuts where
 /// the tool exits through the opposite face, returning ~cylinder volume instead
 /// of cube-minus-cylinder.
+/// Note: Through-hole boolean works at the truck level (see truck-shapeops
+/// through_hole_cylinder/through_hole_cylinder_10x tests), but the engine
+/// pipeline geometry differs enough to still trigger this failure.
 #[test]
-#[ignore = "truck 0.4: cut through entire solid height — boolean returns None"]
+#[ignore]
 fn e4_cut_depth_exactly_solid_height() {
     let mut m = base_cube();
 
