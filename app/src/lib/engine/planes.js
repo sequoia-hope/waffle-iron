@@ -77,18 +77,44 @@ const LEGACY_NAME_TO_ID = {
 };
 
 /**
+ * Get all planes (built-in + user-created DatumPlane features).
+ * @param {Array<any>} features - Feature tree features array
+ * @returns {Plane[]}
+ */
+export function getAllPlanes(features = []) {
+	const userPlanes = [];
+	for (const f of features) {
+		if (f.operation?.type === 'DatumPlane') {
+			const params = f.operation.params;
+			userPlanes.push({
+				id: f.id,
+				name: params?.name || f.name,
+				definition: params?.definition || { method: 'point-normal', origin: [0,0,0], normal: [0,0,1] },
+				color: 0xaa8844,
+				hoverColor: 0xddaa66,
+				selectedColor: 0xffcc88,
+				borderColor: 0xccaa66,
+				builtin: false,
+			});
+		}
+	}
+	return [...BUILTIN_PLANES, ...userPlanes];
+}
+
+/**
  * Resolve a PlaneDefinition to origin + normal.
  * @param {PlaneDefinition} definition
+ * @param {Array<any>} features - Feature tree features array (for resolving user planes)
  * @returns {{ origin: [number,number,number], normal: [number,number,number] }}
  */
-export function resolvePlane(definition) {
+export function resolvePlane(definition, features = []) {
 	if (definition.method === 'point-normal') {
 		return { origin: definition.origin, normal: definition.normal };
 	}
 	if (definition.method === 'offset') {
-		const base = getPlaneById(definition.basePlaneId);
+		const base = getPlaneById(definition.basePlaneId, features);
 		if (!base) throw new Error(`Base plane ${definition.basePlaneId} not found`);
-		const resolved = resolvePlane(base.definition);
+		const resolved = resolvePlane(base.definition, features);
 		const d = definition.distance;
 		return {
 			origin: [
@@ -119,10 +145,29 @@ export function resolvePlane(definition) {
 /**
  * Look up a plane by ID.
  * @param {string} id
+ * @param {Array<any>} features - Feature tree features array (for resolving user planes)
  * @returns {Plane | undefined}
  */
-export function getPlaneById(id) {
-	return BUILTIN_PLANES.find((p) => p.id === id);
+export function getPlaneById(id, features = []) {
+	const builtin = BUILTIN_PLANES.find((p) => p.id === id);
+	if (builtin) return builtin;
+	// Search user-created DatumPlane features
+	for (const f of features) {
+		if (f.id === id && f.operation?.type === 'DatumPlane') {
+			const params = f.operation.params;
+			return {
+				id: f.id,
+				name: params?.name || f.name,
+				definition: params?.definition || { method: 'point-normal', origin: [0,0,0], normal: [0,0,1] },
+				color: 0xaa8844,
+				hoverColor: 0xddaa66,
+				selectedColor: 0xffcc88,
+				borderColor: 0xccaa66,
+				builtin: false,
+			};
+		}
+	}
+	return undefined;
 }
 
 /**

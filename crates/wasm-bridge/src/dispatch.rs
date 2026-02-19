@@ -263,5 +263,6 @@ fn operation_name(op: &Operation) -> String {
         Operation::Chamfer { .. } => "Chamfer".to_string(),
         Operation::Shell { .. } => "Shell".to_string(),
         Operation::BooleanCombine { .. } => "Boolean Combine".to_string(),
+        Operation::DatumPlane { params } => params.name.clone(),
     }
 }

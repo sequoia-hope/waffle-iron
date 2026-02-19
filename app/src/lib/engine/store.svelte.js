@@ -338,6 +338,7 @@ export async function initEngine() {
 				return results.filter(r => !r.behindCamera);
 			},
 			getDatumPlanes: () => BUILTIN_PLANES,
+			createDatumPlane: (definition, name) => createDatumPlane(definition, name),
 			enterSketchEditMode: (featureId) => enterSketchEditMode(featureId),
 			getEditingSketchFeatureId: () => editingSketchFeatureId,
 			isSketchVisible: (featureId) => isSketchVisible(featureId),
@@ -1662,6 +1663,28 @@ export function triggerSolve() {
 			positions: posObj
 		})
 		.catch(err => log('error', `SolveSketchLocal failed: ${err}`));
+}
+
+/**
+ * Create a user-defined datum (construction) plane.
+ * @param {{ method: string, [key: string]: any }} definition - PlaneDefinition
+ * @param {string} name - Display name for the plane
+ */
+export async function createDatumPlane(definition, name) {
+	if (!bridge || !engineReady) return;
+	log('action', 'Create datum plane', { name, method: definition.method });
+	try {
+		await bridge.send({
+			type: 'AddFeature',
+			operation: {
+				type: 'DatumPlane',
+				params: { name, definition }
+			}
+		});
+	} catch (err) {
+		log('error', `Create datum plane failed: ${err.message}`);
+		showToast('error', `Datum plane failed: ${err.message}`);
+	}
 }
 
 // -- Engine commands --

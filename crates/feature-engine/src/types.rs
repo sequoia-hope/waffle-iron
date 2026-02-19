@@ -62,6 +62,7 @@ pub enum Operation {
     Chamfer { params: ChamferParams },
     Shell { params: ShellParams },
     BooleanCombine { params: BooleanParams },
+    DatumPlane { params: DatumPlaneParams },
 }
 
 /// Depth mode for extrude operations.
@@ -163,6 +164,29 @@ pub enum BooleanOp {
     Union,
     Subtract,
     Intersect,
+}
+
+/// How a construction plane is defined.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "method")]
+pub enum PlaneDefinition {
+    /// Explicit origin + normal.
+    #[serde(rename = "point-normal")]
+    PointNormal { origin: [f64; 3], normal: [f64; 3] },
+    /// Parallel offset from another plane.
+    #[serde(rename = "offset")]
+    Offset {
+        #[serde(rename = "basePlaneId")]
+        base_plane_id: Uuid,
+        distance: f64,
+    },
+}
+
+/// Parameters for a datum (construction) plane.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatumPlaneParams {
+    pub name: String,
+    pub definition: PlaneDefinition,
 }
 
 /// Errors from the feature engine.

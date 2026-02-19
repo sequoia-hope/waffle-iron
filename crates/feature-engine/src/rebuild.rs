@@ -8,7 +8,8 @@ use uuid::Uuid;
 
 use crate::resolve::resolve_with_fallback;
 use crate::types::{
-    BooleanOp, DepthMode, EngineError, Feature, FeatureTree, Operation, SecondDirection,
+    BooleanOp, DepthMode, EngineError, Feature, FeatureTree, Operation, PlaneDefinition,
+    SecondDirection,
 };
 use modeling_ops::KernelBundle;
 use waffle_types::{OutputKey, Sketch, TopoKind};
@@ -82,6 +83,21 @@ fn execute_feature(
         Operation::Sketch { .. } => {
             // Sketches don't produce OpResults directly — they store solved geometry.
             // Return a minimal OpResult with no outputs.
+            Ok(OpResult {
+                outputs: Vec::new(),
+                provenance: modeling_ops::Provenance {
+                    created: Vec::new(),
+                    deleted: Vec::new(),
+                    modified: Vec::new(),
+                    role_assignments: Vec::new(),
+                },
+                diagnostics: modeling_ops::Diagnostics::default(),
+            })
+        }
+
+        Operation::DatumPlane { params } => {
+            // Validate the plane definition resolves correctly
+            resolve_plane_definition(&params.definition, tree, feature_results)?;
             Ok(OpResult {
                 outputs: Vec::new(),
                 provenance: modeling_ops::Provenance {
@@ -566,7 +582,7 @@ fn resolve_reference_position(
                     })?;
 
             // Get solid handle from the result
-            let handle = result
+            let _handle = result
                 .outputs
                 .first()
                 .map(|(_, body)| &body.handle)
@@ -581,24 +597,9 @@ fn resolve_reference_position(
             })
         }
         waffle_types::Anchor::Datum { datum_id } => {
-            // Datum planes: look up in tree for plane origin
-            // Convention: datum planes at origin with standard orientations
-            // Check if any feature is a datum plane with this ID
-            for f in &tree.features {
-                if let Operation::Sketch { sketch } = &f.operation {
-                    if let waffle_types::Anchor::Datum { datum_id: did } = &sketch.plane.anchor {
-                        if did == datum_id {
-                            return Ok(sketch.plane_origin);
-                        }
-                    }
-                }
-            }
-            // Default datum planes are at origin
-            Ok([0.0, 0.0, 0.0])
+            let (origin, _normal) = find_datum_plane_data(*datum_id, tree, feature_results)?;
+            Ok(origin)
         }
-        _ => Err(EngineError::ResolutionFailed {
-            reason: "UpTo reference anchor type not supported".into(),
-        }),
     }
 }
 
@@ -643,8 +644,11 @@ fn find_most_recent_solid(
         if feature.suppressed {
             continue;
         }
-        // Skip sketch features (they produce no solid)
-        if matches!(&feature.operation, Operation::Sketch { .. }) {
+        // Skip sketch and datum plane features (they produce no solid)
+        if matches!(
+            &feature.operation,
+            Operation::Sketch { .. } | Operation::DatumPlane { .. }
+        ) {
             continue;
         }
         if let Some(result) = feature_results.get(&feature.id) {
@@ -715,6 +719,80 @@ fn find_solid_handle(
             "Output key {:?} not found in feature {}",
             output_key, feature_id
         ),
+    })
+}
+
+/// Well-known UUIDs for the three built-in datum planes (must match planes.js).
+const FRONT_PLANE_ID: &str = "00000000-0000-0000-0000-000000000001";
+const TOP_PLANE_ID: &str = "00000000-0000-0000-0000-000000000002";
+const RIGHT_PLANE_ID: &str = "00000000-0000-0000-0000-000000000003";
+
+/// Resolve a PlaneDefinition to (origin, normal).
+fn resolve_plane_definition(
+    def: &PlaneDefinition,
+    tree: &FeatureTree,
+    feature_results: &HashMap<Uuid, OpResult>,
+) -> Result<([f64; 3], [f64; 3]), EngineError> {
+    match def {
+        PlaneDefinition::PointNormal { origin, normal } => {
+            let len =
+                (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
+            if len < 1e-12 {
+                return Err(EngineError::ResolutionFailed {
+                    reason: "Datum plane normal is zero-length".into(),
+                });
+            }
+            let n = [normal[0] / len, normal[1] / len, normal[2] / len];
+            Ok((*origin, n))
+        }
+        PlaneDefinition::Offset {
+            base_plane_id,
+            distance,
+        } => {
+            let (base_origin, base_normal) =
+                find_datum_plane_data(*base_plane_id, tree, feature_results)?;
+            let origin = [
+                base_origin[0] + base_normal[0] * distance,
+                base_origin[1] + base_normal[1] * distance,
+                base_origin[2] + base_normal[2] * distance,
+            ];
+            Ok((origin, base_normal))
+        }
+    }
+}
+
+/// Look up origin and normal for a datum plane by its UUID.
+///
+/// Checks the three built-in planes first, then searches the feature tree
+/// for user-created DatumPlane features.
+fn find_datum_plane_data(
+    datum_id: Uuid,
+    tree: &FeatureTree,
+    feature_results: &HashMap<Uuid, OpResult>,
+) -> Result<([f64; 3], [f64; 3]), EngineError> {
+    let id_str = datum_id.to_string();
+    // Built-in planes
+    if id_str == FRONT_PLANE_ID {
+        return Ok(([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]));
+    }
+    if id_str == TOP_PLANE_ID {
+        return Ok(([0.0, 0.0, 0.0], [0.0, 1.0, 0.0]));
+    }
+    if id_str == RIGHT_PLANE_ID {
+        return Ok(([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]));
+    }
+
+    // Search user-created DatumPlane features
+    for feature in &tree.features {
+        if feature.id == datum_id {
+            if let Operation::DatumPlane { params } = &feature.operation {
+                return resolve_plane_definition(&params.definition, tree, feature_results);
+            }
+        }
+    }
+
+    Err(EngineError::ResolutionFailed {
+        reason: format!("Datum plane {} not found", datum_id),
     })
 }
 
@@ -1046,6 +1124,200 @@ mod tests {
             result_over[1] < -0.99,
             "n=[0,0,0.995] should use X branch; got {:?}",
             result_over
+        );
+    }
+
+    // -- DatumPlane tests --
+
+    use crate::types::{DatumPlaneParams, PlaneDefinition};
+
+    fn make_datum_plane_feature(name: &str, definition: PlaneDefinition) -> Feature {
+        Feature {
+            id: Uuid::new_v4(),
+            name: name.to_string(),
+            operation: Operation::DatumPlane {
+                params: DatumPlaneParams {
+                    name: name.to_string(),
+                    definition,
+                },
+            },
+            suppressed: false,
+            references: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn test_datum_plane_point_normal() {
+        let feature = make_datum_plane_feature(
+            "Custom Plane",
+            PlaneDefinition::PointNormal {
+                origin: [1.0, 2.0, 3.0],
+                normal: [0.0, 1.0, 0.0],
+            },
+        );
+        let tree = FeatureTree {
+            features: vec![feature.clone()],
+            active_index: None,
+        };
+        let results = HashMap::new();
+        let result = execute_feature(
+            &feature,
+            &mut kernel_fork::MockKernel::new(),
+            &results,
+            &tree,
+        );
+        assert!(result.is_ok(), "PointNormal datum plane should succeed");
+        assert!(
+            result.unwrap().outputs.is_empty(),
+            "DatumPlane produces no outputs"
+        );
+    }
+
+    #[test]
+    fn test_datum_plane_offset_from_builtin() {
+        let front_id: Uuid = FRONT_PLANE_ID.parse().unwrap();
+        let def = PlaneDefinition::Offset {
+            base_plane_id: front_id,
+            distance: 10.0,
+        };
+        let feature = make_datum_plane_feature("Offset from Front", def.clone());
+        let tree = FeatureTree {
+            features: vec![feature.clone()],
+            active_index: None,
+        };
+        let results = HashMap::new();
+
+        // Verify execution succeeds
+        let result = execute_feature(
+            &feature,
+            &mut kernel_fork::MockKernel::new(),
+            &results,
+            &tree,
+        );
+        assert!(result.is_ok(), "Offset from built-in should succeed");
+
+        // Verify resolution
+        let (origin, normal) = resolve_plane_definition(&def, &tree, &results).unwrap();
+        assert!(
+            (origin[2] - 10.0).abs() < 1e-10,
+            "Origin Z should be offset by 10"
+        );
+        assert!((normal[2] - 1.0).abs() < 1e-10, "Normal should be [0,0,1]");
+    }
+
+    #[test]
+    fn test_datum_plane_zero_normal_error() {
+        let feature = make_datum_plane_feature(
+            "Bad Plane",
+            PlaneDefinition::PointNormal {
+                origin: [0.0, 0.0, 0.0],
+                normal: [0.0, 0.0, 0.0],
+            },
+        );
+        let tree = FeatureTree {
+            features: vec![feature.clone()],
+            active_index: None,
+        };
+        let results = HashMap::new();
+        let result = execute_feature(
+            &feature,
+            &mut kernel_fork::MockKernel::new(),
+            &results,
+            &tree,
+        );
+        assert!(result.is_err(), "Zero normal should fail");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("zero-length"),
+            "Error should mention zero-length: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_datum_plane_missing_base_error() {
+        let missing_id = Uuid::new_v4();
+        let feature = make_datum_plane_feature(
+            "Offset from Missing",
+            PlaneDefinition::Offset {
+                base_plane_id: missing_id,
+                distance: 5.0,
+            },
+        );
+        let tree = FeatureTree {
+            features: vec![feature.clone()],
+            active_index: None,
+        };
+        let results = HashMap::new();
+        let result = execute_feature(
+            &feature,
+            &mut kernel_fork::MockKernel::new(),
+            &results,
+            &tree,
+        );
+        assert!(result.is_err(), "Missing base plane should fail");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("not found"),
+            "Error should mention not found: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_datum_plane_offset_chain() {
+        // Create a user DatumPlane, then offset from it
+        let first_plane = make_datum_plane_feature(
+            "Plane A",
+            PlaneDefinition::PointNormal {
+                origin: [0.0, 0.0, 5.0],
+                normal: [0.0, 0.0, 1.0],
+            },
+        );
+        let second_plane_def = PlaneDefinition::Offset {
+            base_plane_id: first_plane.id,
+            distance: 7.0,
+        };
+        let second_plane = Feature {
+            id: Uuid::new_v4(),
+            name: "Plane B".to_string(),
+            operation: Operation::DatumPlane {
+                params: DatumPlaneParams {
+                    name: "Plane B".to_string(),
+                    definition: second_plane_def.clone(),
+                },
+            },
+            suppressed: false,
+            references: Vec::new(),
+        };
+
+        let tree = FeatureTree {
+            features: vec![first_plane.clone(), second_plane.clone()],
+            active_index: None,
+        };
+
+        // Build results for first plane
+        let mut results = HashMap::new();
+        let r1 = execute_feature(
+            &first_plane,
+            &mut kernel_fork::MockKernel::new(),
+            &results,
+            &tree,
+        )
+        .unwrap();
+        results.insert(first_plane.id, r1);
+
+        // Resolve the second plane's definition
+        let (origin, normal) =
+            resolve_plane_definition(&second_plane_def, &tree, &results).unwrap();
+        assert!(
+            (origin[2] - 12.0).abs() < 1e-10,
+            "Z should be 5+7=12, got {}",
+            origin[2]
+        );
+        assert!(
+            (normal[2] - 1.0).abs() < 1e-10,
+            "Normal should still be [0,0,1]"
         );
     }
 }

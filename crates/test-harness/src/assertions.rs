@@ -116,6 +116,7 @@ pub fn assert_tree_structure(
                 feature_engine::types::Operation::Chamfer { .. } => "Chamfer",
                 feature_engine::types::Operation::Shell { .. } => "Shell",
                 feature_engine::types::Operation::BooleanCombine { .. } => "Boolean",
+                feature_engine::types::Operation::DatumPlane { .. } => "DatumPlane",
             };
             (f.name.clone(), op_type.to_string())
         })

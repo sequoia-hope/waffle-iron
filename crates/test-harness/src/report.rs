@@ -153,6 +153,7 @@ impl ModelBuilder {
                 Operation::Chamfer { .. } => "Chamfer",
                 Operation::Shell { .. } => "Shell",
                 Operation::BooleanCombine { .. } => "Boolean",
+                Operation::DatumPlane { .. } => "DatumPlane",
             };
 
             let detail = describe_operation(&feature.operation);
@@ -326,6 +327,9 @@ fn describe_operation(op: &Operation) -> String {
                 BooleanOp::Intersect => "intersect",
             };
             format!("Params: {}", op_name)
+        }
+        Operation::DatumPlane { params } => {
+            format!("Params: name={}", params.name)
         }
     }
 }

@@ -6,9 +6,10 @@
 		setHoveredRef,
 		getHoveredRef,
 		getSelectedRefs,
-		geomRefEquals
+		geomRefEquals,
+		getFeatureTree
 	} from '$lib/engine/store.svelte.js';
-	import { BUILTIN_PLANES, makePlaneRef, PLANE_HALF_SIZE } from '$lib/engine/planes.js';
+	import { getAllPlanes, makePlaneRef, resolvePlane, PLANE_HALF_SIZE } from '$lib/engine/planes.js';
 
 	// --- Data-driven plane rendering ---
 
@@ -24,12 +25,20 @@
 		return [euler.x, euler.y, euler.z];
 	}
 
-	// Build plane data (materials, refs, rotations)
-	const planeData = BUILTIN_PLANES.map((plane) => {
-		const resolved = { origin: plane.definition.origin, normal: plane.definition.normal };
+	let features = $derived(getFeatureTree()?.features ?? []);
+
+	// Reactive plane data: built-in + user planes
+	let planeData = $derived(getAllPlanes(features).map((plane) => {
+		let resolved;
+		try {
+			resolved = resolvePlane(plane.definition, features);
+		} catch {
+			resolved = { origin: [0, 0, 0], normal: [0, 0, 1] };
+		}
 		return {
 			plane,
 			ref: makePlaneRef(plane.id),
+			position: resolved.origin,
 			rotation: computeRotation(resolved.normal),
 			fillMaterial: new THREE.MeshBasicMaterial({
 				color: plane.color,
@@ -44,7 +53,7 @@
 				opacity: 0.08
 			}),
 		};
-	});
+	}));
 
 	/**
 	 * Get opacity and color for a datum plane based on hover/selection state.
@@ -139,9 +148,9 @@
 	const originMaterial = new THREE.MeshBasicMaterial({ color: 0xcccccc });
 </script>
 
-<!-- Datum Planes (data-driven) -->
+<!-- Datum Planes (data-driven, reactive) -->
 {#each planeData as pd, i (pd.plane.id)}
-	<T.Group rotation={pd.rotation}>
+	<T.Group position={pd.position} rotation={pd.rotation}>
 		<T.Mesh
 			geometry={planeGeometry}
 			material={pd.fillMaterial}
