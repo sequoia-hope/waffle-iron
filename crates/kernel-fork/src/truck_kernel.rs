@@ -254,7 +254,7 @@ impl Kernel for TruckKernel {
             })?
             .clone();
 
-        // Subtraction = A ∩ ¬B. not() mutates in place.
+        // Subtraction = A \ B via proper difference().
         // Heal inputs if they have IntersectionCurve edges from previous booleans.
         let heal_tol = compute_healing_tol(&solid_a, &solid_b);
         crate::healing::heal_intersection_curves(&solid_a, heal_tol);
@@ -263,12 +263,10 @@ impl Kernel for TruckKernel {
         let tol = compute_adaptive_tol(&solid_a, &solid_b);
         let result =
             crate::healing::try_boolean_with_perturbation(&solid_a, &solid_b, tol, |a, b| {
-                let mut b_neg = b.clone();
-                b_neg.not();
-                truck_shapeops::and(a, &b_neg, tol)
+                truck_shapeops::difference(a, b, tol)
             })
             .ok_or_else(|| KernelError::BooleanFailed {
-                reason: "truck and() returned None for subtraction".to_string(),
+                reason: "truck difference() returned None".to_string(),
             })?;
         crate::healing::heal_intersection_curves(&result, heal_tol);
         Ok(self.store_solid(result))
