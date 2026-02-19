@@ -458,9 +458,8 @@ fn d2_symmetric_boss_on_boss_stack() {
     );
 }
 
-/// D3: Partially overlapping coplanar rects. Fixed via coplanar perturbation retry.
+/// D3: Partially overlapping coplanar rects. Fixed via coplanar bounding-box overlap + parity.
 #[test]
-#[ignore]
 fn d3_partially_overlapping_coplanar_rects() {
     let mut m = ModelBuilder::truck();
 

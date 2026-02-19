@@ -114,7 +114,6 @@ fn rect_cut_coplanar_edges() {
 /// Rect cut profile exactly matches the box top face.
 /// Creates fully coplanar faces on all four sides of the tool.
 #[test]
-#[ignore = "truck 0.4: fully coplanar rect cut — all tool faces share cube face planes"]
 fn rect_cut_at_box_boundary() {
     let mut m = base_cube();
 
