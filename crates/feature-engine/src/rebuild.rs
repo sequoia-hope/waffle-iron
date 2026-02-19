@@ -213,14 +213,9 @@ fn execute_feature(
             // in +direction with total_depth = primary + second. This avoids boolean union.
             // For cut: reverse direction and offset origin by eps to avoid coplanar faces.
             let eps = 0.1;
-            // For cuts with explicit direction: if the direction already points
-            // into the solid (opposite to sketch normal, i.e. dot < 0), use it
-            // as-is — the user specified the cut direction directly. Otherwise
-            // (default direction or same-hemisphere), reverse as usual.
-            let dir_dot_normal = direction[0] * sketch.plane_normal[0]
-                + direction[1] * sketch.plane_normal[1]
-                + direction[2] * sketch.plane_normal[2];
-            let should_reverse_for_cut = !params.direction.is_some() || dir_dot_normal >= 0.0;
+            // For cuts: only reverse when no explicit direction was provided.
+            // When the user sends an explicit direction, trust it as-is.
+            let should_reverse_for_cut = params.direction.is_none();
             let (extrude_direction, extrude_depth, face_origin) = match (params.cut, second_depth) {
                 (true, Some(sd)) => {
                     if should_reverse_for_cut {

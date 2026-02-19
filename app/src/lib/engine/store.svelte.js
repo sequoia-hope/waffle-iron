@@ -1077,20 +1077,23 @@ export async function applyExtrude(depth, profileIndex, cut = false, opts = {}) 
 	else if (secondDir === 'Blind') second_direction = { type: 'Blind', depth: secondDepth };
 	else if (secondDir === 'ThroughAll') second_direction = { type: 'ThroughAll' };
 
-	// When flipDirection is true, we pass a negated sketch normal as the direction.
-	// The engine defaults to sketch plane normal when direction is null,
-	// so flipping negates that default.
+	// When flipDirection is true, send an explicit direction to override the engine default.
+	// For a boss, flipping means opposite of normal: send -normal.
+	// For a cut, the engine's default already reverses (cuts -normal into body),
+	// so flipping a cut means the opposite of that: send +normal.
 	let direction = null;
 	if (flipDirection) {
-		// Look up the sketch's plane normal from the feature tree
 		const tree = featureTree;
 		const sketch = tree?.features?.find(f => f.id === effectiveSketchId);
 		const normal = sketch?.operation?.sketch?.plane_normal;
 		if (normal) {
-			direction = [-normal[0], -normal[1], -normal[2]];
+			if (cut) {
+				direction = [normal[0], normal[1], normal[2]];
+			} else {
+				direction = [-normal[0], -normal[1], -normal[2]];
+			}
 		} else {
-			// Fallback: negate default Z-up normal
-			direction = [0, 0, -1];
+			direction = cut ? [0, 0, 1] : [0, 0, -1];
 		}
 	}
 
