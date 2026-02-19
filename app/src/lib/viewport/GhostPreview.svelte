@@ -77,24 +77,19 @@
 		const planeNormal = sketchData.plane_normal || [0, 0, 1];
 		const sp = buildSketchPlane(planeOrigin, planeNormal);
 
-		// XOR: show the effective visual direction of the extrude tool.
-		// Boss: extends in extrude direction. Cut: extends in reversed direction (into body).
-		// Flip inverts either one. XOR combines flip + cut correctly:
-		//   Default boss: +normal | Flipped boss: -normal
-		//   Default cut: -normal  | Flipped cut: +normal
 		const flipVisual = params.flipDirection !== params.cut;
-		let extrudeNormal = sp.normal.clone();
-		if (flipVisual) extrudeNormal.negate();
 
-		// Negate xAxis when normal is negated to keep basis right-handed (det=+1).
-		// Left-handed basis makes setFromRotationMatrix produce wrong quaternion.
-		const basisX = flipVisual ? sp.xAxis.clone().negate() : sp.xAxis;
-		const basis = new THREE.Matrix4().makeBasis(basisX, sp.yAxis, extrudeNormal);
+		// Always use the un-flipped right-handed basis for profile orientation.
+		// The engine never mirrors xAxis on flip — only the extrude direction changes.
+		// Use position offset to show the flipped direction visually.
+		const basis = new THREE.Matrix4().makeBasis(sp.xAxis, sp.yAxis, sp.normal);
 		const quaternion = new THREE.Quaternion().setFromRotationMatrix(basis);
 
 		const position = sp.origin.clone();
 		if (params.symmetric) {
-			position.addScaledVector(extrudeNormal, -effectiveDepth);
+			position.addScaledVector(sp.normal, -effectiveDepth);
+		} else if (flipVisual) {
+			position.addScaledVector(sp.normal, -extrudeDepth);
 		}
 
 		return {

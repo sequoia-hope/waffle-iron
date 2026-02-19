@@ -73,6 +73,16 @@ When rules conflict, the following precedence applies (highest first):
 - **Run `sketch-drawing-regression.spec.js` before every commit that touches
   sketch code.** It's the canary — if it fails, drawing is broken.
 
+## WASM Rebuild Workflow
+
+After any Rust crate changes that affect the WASM bridge:
+
+1. Build: `wasm-pack build crates/wasm-bridge --target web --no-typescript -- --no-default-features`
+2. Copy to app: `cp crates/wasm-bridge/pkg/wasm_bridge{_bg.wasm,.js} app/static/pkg/`
+3. Verify dev server still works: `npm run dev` (port 8083)
+
+Include the updated WASM bundle in the same commit as the Rust changes so the app stays in sync.
+
 ## Sub-Project Directory Layout
 
 Each sub-project under `projects/` contains:
