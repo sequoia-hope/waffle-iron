@@ -227,7 +227,7 @@ fn revolve_produces_valid_op_result() {
         face_id,
         [0.0, 0.0, 0.0],
         [0.0, 1.0, 0.0],
-        std::f64::consts::PI,
+        180.0,
         None,
     )
     .unwrap();
@@ -247,7 +247,7 @@ fn revolve_partial_assigns_roles() {
         face_id,
         [0.0, 0.0, 0.0],
         [0.0, 1.0, 0.0],
-        std::f64::consts::FRAC_PI_2,
+        90.0,
         None,
     )
     .unwrap();
@@ -266,7 +266,7 @@ fn revolve_full_assigns_side_faces() {
         face_id,
         [0.0, 0.0, 0.0],
         [0.0, 1.0, 0.0],
-        std::f64::consts::TAU,
+        360.0,
         None,
     )
     .unwrap();
@@ -289,7 +289,7 @@ fn revolve_invalid_face_returns_error() {
         KernelId(999),
         [0.0, 0.0, 0.0],
         [0.0, 1.0, 0.0],
-        std::f64::consts::PI,
+        180.0,
         None,
     );
     assert!(matches!(result, Err(OpError::Kernel(_))));
@@ -846,7 +846,7 @@ fn all_ops_produce_main_output_key() {
         face_id2,
         [0.0, 0.0, 0.0],
         [0.0, 1.0, 0.0],
-        std::f64::consts::PI,
+        180.0,
         None,
     )
     .unwrap();
@@ -1035,7 +1035,7 @@ fn truck_revolve_produces_valid_op_result() {
         face_id,
         [0.0, 0.0, 0.0],
         [0.0, 1.0, 0.0],
-        std::f64::consts::FRAC_PI_2,
+        90.0,
         None,
     )
     .unwrap();
@@ -1059,7 +1059,7 @@ fn truck_revolve_assigns_roles() {
         face_id,
         [0.0, 0.0, 0.0],
         [0.0, 1.0, 0.0],
-        std::f64::consts::FRAC_PI_2,
+        90.0,
         None,
     )
     .unwrap();
@@ -1141,8 +1141,7 @@ fn extrude_bbox_oracle_z_extent_equals_depth() {
     let face_id = make_face(&mut kernel);
 
     let depth = 5.0;
-    let result =
-        execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], depth, None).unwrap();
+    let result = execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], depth, None).unwrap();
 
     let handle = &result.outputs[0].1.handle;
     let mesh = kernel.tessellate(handle, 0.01).unwrap();
@@ -1180,8 +1179,7 @@ fn extrude_bbox_oracle_depth_10() {
     let face_id = make_face(&mut kernel);
 
     let depth = 10.0;
-    let result =
-        execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], depth, None).unwrap();
+    let result = execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], depth, None).unwrap();
 
     let handle = &result.outputs[0].1.handle;
     let mesh = kernel.tessellate(handle, 0.01).unwrap();
@@ -1219,7 +1217,7 @@ fn revolve_partial_specific_role_assertions() {
         face_id,
         [0.0, 0.0, 0.0],
         [0.0, 1.0, 0.0],
-        std::f64::consts::FRAC_PI_2,
+        90.0,
         None,
     )
     .unwrap();
@@ -1232,10 +1230,7 @@ fn revolve_partial_specific_role_assertions() {
         .iter()
         .filter(|(_, r)| *r == Role::RevStartFace)
         .count();
-    let end_count = roles
-        .iter()
-        .filter(|(_, r)| *r == Role::RevEndFace)
-        .count();
+    let end_count = roles.iter().filter(|(_, r)| *r == Role::RevEndFace).count();
 
     assert_eq!(
         start_count, 1,
@@ -1267,7 +1262,7 @@ fn revolve_full_side_face_indices_sequential() {
         face_id,
         [0.0, 0.0, 0.0],
         [0.0, 1.0, 0.0],
-        std::f64::consts::TAU,
+        360.0,
         None,
     )
     .unwrap();
@@ -1289,7 +1284,8 @@ fn revolve_full_side_face_indices_sequential() {
     side_indices.sort();
     let expected: Vec<usize> = (0..side_indices.len()).collect();
     assert_eq!(
-        side_indices, expected,
+        side_indices,
+        expected,
         "SideFace indices should be sequential 0..{}, got {:?}",
         side_indices.len() - 1,
         side_indices
@@ -1303,29 +1299,19 @@ fn boolean_modes_produce_distinct_results() {
 
     // Create two boxes
     let face_a = make_face(&mut kernel);
-    let handle_a = kernel
-        .extrude_face(face_a, [0.0, 0.0, 1.0], 2.0)
-        .unwrap();
+    let handle_a = kernel.extrude_face(face_a, [0.0, 0.0, 1.0], 2.0).unwrap();
     let face_b = make_face(&mut kernel);
-    let handle_b = kernel
-        .extrude_face(face_b, [0.0, 0.0, 1.0], 2.0)
-        .unwrap();
+    let handle_b = kernel.extrude_face(face_b, [0.0, 0.0, 1.0], 2.0).unwrap();
 
     let union_result =
         execute_boolean(&mut kernel, &handle_a, &handle_b, BooleanKind::Union).unwrap();
-    let union_faces = kernel
-        .list_faces(&union_result.outputs[0].1.handle)
-        .len();
+    let union_faces = kernel.list_faces(&union_result.outputs[0].1.handle).len();
 
     // Need fresh solids for subtract (MockKernel consumes handles)
     let face_c = make_face(&mut kernel);
-    let handle_c = kernel
-        .extrude_face(face_c, [0.0, 0.0, 1.0], 2.0)
-        .unwrap();
+    let handle_c = kernel.extrude_face(face_c, [0.0, 0.0, 1.0], 2.0).unwrap();
     let face_d = make_face(&mut kernel);
-    let handle_d = kernel
-        .extrude_face(face_d, [0.0, 0.0, 1.0], 2.0)
-        .unwrap();
+    let handle_d = kernel.extrude_face(face_d, [0.0, 0.0, 1.0], 2.0).unwrap();
 
     let subtract_result =
         execute_boolean(&mut kernel, &handle_c, &handle_d, BooleanKind::Subtract).unwrap();
@@ -1335,13 +1321,9 @@ fn boolean_modes_produce_distinct_results() {
 
     // Need fresh solids for intersect
     let face_e = make_face(&mut kernel);
-    let handle_e = kernel
-        .extrude_face(face_e, [0.0, 0.0, 1.0], 2.0)
-        .unwrap();
+    let handle_e = kernel.extrude_face(face_e, [0.0, 0.0, 1.0], 2.0).unwrap();
     let face_f = make_face(&mut kernel);
-    let handle_f = kernel
-        .extrude_face(face_f, [0.0, 0.0, 1.0], 2.0)
-        .unwrap();
+    let handle_f = kernel.extrude_face(face_f, [0.0, 0.0, 1.0], 2.0).unwrap();
 
     let intersect_result =
         execute_boolean(&mut kernel, &handle_e, &handle_f, BooleanKind::Intersect).unwrap();
@@ -1360,7 +1342,8 @@ fn boolean_modes_produce_distinct_results() {
     assert!(
         union_faces > subtract_faces,
         "Union ({}) should have more faces than Subtract ({})",
-        union_faces, subtract_faces
+        union_faces,
+        subtract_faces
     );
 }
 
@@ -1414,8 +1397,7 @@ fn extrude_roles_cover_all_faces() {
     let mut kernel = MockKernel::new();
     let face_id = make_face(&mut kernel);
 
-    let result =
-        execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], 5.0, None).unwrap();
+    let result = execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], 5.0, None).unwrap();
 
     let handle = &result.outputs[0].1.handle;
     let face_count = kernel.list_faces(handle).len();
@@ -1462,9 +1444,7 @@ fn extrude_zero_direction_uses_fallback() {
 fn fillet_empty_edges_preserves_topology() {
     let mut kernel = MockKernel::new();
     let face_id = make_face(&mut kernel);
-    let handle = kernel
-        .extrude_face(face_id, [0.0, 0.0, 1.0], 5.0)
-        .unwrap();
+    let handle = kernel.extrude_face(face_id, [0.0, 0.0, 1.0], 5.0).unwrap();
 
     let faces_before = kernel.list_faces(&handle).len();
 

@@ -14,9 +14,9 @@ Lays the infrastructure all subsequent boolean work depends on.
 
 | ID | Item | Pri | Size | Deps | Crates | Status |
 |----|------|-----|------|------|--------|--------|
-| A1 | Structured `BooleanError` enum replacing `Option<Solid>` | P0 | M | — | kernel-fork/types.rs, truck-shapeops/integrate, kernel-fork/truck_kernel.rs | Sprint 1 |
-| A2 | `BooleanOptions` tolerance context (tau_model/mesh/weld/work/coplanar) | P0 | M | — | kernel-fork/types.rs, kernel-fork/truck_kernel.rs, kernel-fork/healing.rs | Sprint 1 |
-| A3 | Robust geometric predicates (`robust` crate) in ray-cast classification | P1 | L | A1 | truck-shapeops/Cargo.toml, truck-shapeops/integrate, truck-shapeops/coplanar.rs | Sprint 1 |
+| A1 | Structured `BooleanError` enum replacing `Option<Solid>` | P0 | M | — | kernel-fork/types.rs, truck-shapeops/integrate, kernel-fork/truck_kernel.rs | **Complete** (Sprint 1) |
+| A2 | `BooleanOptions` tolerance context (tau_model/mesh/weld/work/coplanar) | P0 | M | — | kernel-fork/types.rs, kernel-fork/truck_kernel.rs, kernel-fork/healing.rs | **Complete** (Sprint 1) |
+| A3 | Robust geometric predicates (`robust` crate) in ray-cast classification | P1 | L | A1 | truck-shapeops/Cargo.toml, truck-shapeops/integrate, truck-shapeops/coplanar.rs | **Complete** (Sprint 1) |
 | A4 | Replace AND/OR tagging with `RelationToOther` classification | P2 | L | A1,A3 | truck-shapeops/loops_store, truck-shapeops/integrate, truck-shapeops/divide_face | — |
 
 **Parallelization**: A1 and A2 in parallel. A3 after A1. A4 after A1+A3.
@@ -27,10 +27,10 @@ Lays the infrastructure all subsequent boolean work depends on.
 
 | ID | Item | Pri | Size | Deps | Crates | Status |
 |----|------|-----|------|------|--------|--------|
-| B1 | Complete coplanar face splitting (HANDOFF doc) | P0 | XL | A1 | truck-shapeops/loops_store, coplanar_splitting.rs, integrate | — |
-| B2 | Add `difference()` and XOR boolean operations | P1 | M | A4 or standalone | truck-shapeops/integrate, kernel-fork/traits.rs, modeling-ops/boolean.rs | Sprint 1 (difference only) |
+| B1 | Complete coplanar face splitting (HANDOFF doc) | P0 | XL | A1 | truck-shapeops/loops_store, coplanar_splitting.rs, integrate | **Complete** (verified Sprint 2 — already implemented) |
+| B2 | Add `difference()` and XOR boolean operations | P1 | M | A4 or standalone | truck-shapeops/integrate, kernel-fork/traits.rs, modeling-ops/boolean.rs | **Complete** (Sprint 1, difference only; XOR deferred) |
 | B3 | Box-cylinder boolean reliability | P1 | XL | A2,B1 | truck-shapeops/intersection_curve, kernel-fork/healing.rs | — |
-| B4 | `Solid::try_new` enforcement (no panics) | P1 | S | A1 | truck-shapeops/integrate | — |
+| B4 | `Solid::try_new` enforcement (no panics) | P1 | S | A1 | truck-shapeops/integrate | **Complete** (verified: no `Solid::new(` in non-test code) |
 | B5 | `TouchingPolicy` for degenerate cases | P2 | M | A2,A4 | kernel-fork/types.rs, truck-shapeops/integrate | — |
 
 **Parallelization**: B1, B2, B4 in parallel. B3 after B1. B5 after A4.
@@ -54,7 +54,7 @@ All of Phase C is independent of Phases A-B.
 
 | ID | Item | Pri | Size | Deps | Crates | Status |
 |----|------|-----|------|------|--------|--------|
-| D1 | Edge selection mode in 3D viewport | P0 | M | — | app/viewport/, app/engine/store.svelte.js | — |
+| D1 | Edge selection mode in 3D viewport | P0 | M | — | app/viewport/, app/engine/store.svelte.js, wasm-bridge/ | **Complete** (Sprint 2) |
 | D2 | Fillet dialog | P1 | M | D1,C3 | app/ui/FilletDialog.svelte, Toolbar.svelte | — |
 | D3 | Chamfer dialog | P1 | S | D1,C1 | app/ui/ChamferDialog.svelte, Toolbar.svelte | — |
 | D4 | Shell dialog | P1 | S | C2 | app/ui/ShellDialog.svelte, Toolbar.svelte | — |
@@ -68,12 +68,12 @@ All of Phase C is independent of Phases A-B.
 
 | ID | Item | Pri | Size | Deps | Crates | Status |
 |----|------|-----|------|------|--------|--------|
-| E1 | GeomRef testing against real TruckKernel | P1 | M | A | test-harness, feature-engine/resolve.rs | — |
+| E1 | GeomRef testing against real TruckKernel | P1 | M | A | test-harness, feature-engine/resolve.rs | **Complete** (Sprint 2, 17 tests) |
 | E2 | Query-based `Selector::Query` resolution | P2 | M | E1 | feature-engine/resolve.rs, waffle-types/geom_ref.rs | — |
 | E3 | Local per-edge tolerances (`tau_local`) | P3 | L | A2,A4 | truck-shapeops/intersection_curve | — |
 | E4 | Input validation/healing modes (strict + heal) | P3 | M | A1 | truck-shapeops/healing, kernel-fork/truck_kernel.rs | — |
-| E5 | Property tests + degenerate regression corpus | P2 | L | A1,B1,B2 | test-harness, kernel-fork/tests/ | — |
-| E6 | Revolve role detection fix (real truck normals) | P2 | S | E1 | modeling-ops/revolve.rs | — |
+| E5 | Property tests + degenerate regression corpus | P2 | L | A1,B1,B2 | test-harness, kernel-fork/tests/ | **Complete** (Sprint 2, partial — 15 property tests) |
+| E6 | Revolve role detection fix (real truck normals) | P2 | S | E1 | modeling-ops/revolve.rs | **Complete** (Sprint 2 — 3 bugs fixed: normals, angle units, threshold) |
 
 ---
 
@@ -113,9 +113,25 @@ Phase E (Advanced) — depends on A, B
 
 | Agent | Task | Burndown IDs | Status |
 |-------|------|-------------|--------|
-| tolerance-architect | `BooleanOptions` struct + layered tolerances | A2 | In Progress |
-| error-engineer | `BooleanError` enum + `Result<>` propagation | A1 | In Progress |
-| robust-predicates | Shewchuk predicates in ray-cast classification | A3 | In Progress |
-| difference-impl | Proper `difference()` in truck-shapeops | B2 (partial) | In Progress |
+| tolerance-architect | `BooleanOptions` struct + layered tolerances | A2 | **Complete** |
+| error-engineer | `BooleanError` enum + `Result<>` propagation | A1 | **Complete** |
+| robust-predicates | Shewchuk predicates in ray-cast classification | A3 | **Complete** |
+| difference-impl | Proper `difference()` in truck-shapeops | B2 (partial) | **Complete** |
 
 **Merge order**: Agent 1 (additive) -> Agent 2 (new errors) -> Agent 3 (behavioral) -> Agent 4 (behavioral)
+**Commit**: `69b1fc2` — all 4 agents merged successfully.
+
+---
+
+### Sprint 2: Pipeline Hardening + Edge Selection (4 agents)
+
+**Goal**: Wire edge data pipeline (D1), coplanar face splitting (B1), GeomRef real kernel tests (E1/E6), boolean property tests (E5-partial), verify B4.
+
+| Agent | Task | Burndown IDs | Status |
+|-------|------|-------------|--------|
+| edge-pipeline | Wire edge data from kernel → WASM → viewport | D1 | **Complete** |
+| coplanar-architect | Coplanar face splitting (interior-crossing only) | B1 | **Complete** (already implemented) |
+| geomref-tester | GeomRef real TruckKernel tests + revolve fix | E1, E6 | **Complete** (3 bugs fixed, 17 tests) |
+| property-tester | Boolean algebraic property tests + B4 verify | E5 (partial), B4 | **Complete** |
+
+**Merge order**: Agent 4 (pure additive) -> Agent 1 (new exports) -> Agent 3 (new tests) -> Agent 2 (behavioral)

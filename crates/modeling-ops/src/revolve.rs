@@ -37,7 +37,14 @@ pub fn execute_revolve(
     };
 
     Ok(OpResult {
-        outputs: vec![(OutputKey::Main, BodyOutput { handle, mesh: None })],
+        outputs: vec![(
+            OutputKey::Main,
+            BodyOutput {
+                handle,
+                mesh: None,
+                edges: None,
+            },
+        )],
         provenance,
         diagnostics: Diagnostics::default(),
     })
@@ -55,7 +62,8 @@ fn assign_revolve_roles(
         return Vec::new();
     }
 
-    let is_full_revolution = angle.abs() >= std::f64::consts::TAU - 1e-6;
+    // angle is in degrees (API convention)
+    let is_full_revolution = angle.abs() >= 360.0 - 1e-2;
 
     // Normalize axis direction
     let dir_len =

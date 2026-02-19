@@ -86,7 +86,7 @@ impl TruckKernel {
         id
     }
 
-    pub(crate) fn store_solid(&mut self, solid: Solid) -> KernelSolidHandle {
+    pub fn store_solid(&mut self, solid: Solid) -> KernelSolidHandle {
         let handle = self.alloc_handle();
         self.solids.insert(handle.id(), solid);
         handle
@@ -193,7 +193,8 @@ impl Kernel for TruckKernel {
             });
         }
 
-        let solid = builder::rsweep(&truck_face, origin, axis.normalize(), Rad(angle));
+        let angle_rad = angle.to_radians();
+        let solid = builder::rsweep(&truck_face, origin, axis.normalize(), Rad(angle_rad));
         Ok(self.store_solid(solid))
     }
 

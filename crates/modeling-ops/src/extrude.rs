@@ -43,7 +43,14 @@ pub fn execute_extrude(
     };
 
     Ok(OpResult {
-        outputs: vec![(OutputKey::Main, BodyOutput { handle, mesh: None })],
+        outputs: vec![(
+            OutputKey::Main,
+            BodyOutput {
+                handle,
+                mesh: None,
+                edges: None,
+            },
+        )],
         provenance,
         diagnostics: Diagnostics::default(),
     })
@@ -99,7 +106,14 @@ pub fn execute_symmetric_extrude(
     ));
 
     Ok(OpResult {
-        outputs: vec![(OutputKey::Main, BodyOutput { handle, mesh: None })],
+        outputs: vec![(
+            OutputKey::Main,
+            BodyOutput {
+                handle,
+                mesh: None,
+                edges: None,
+            },
+        )],
         provenance,
         diagnostics,
     })

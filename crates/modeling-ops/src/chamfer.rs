@@ -39,7 +39,14 @@ pub fn execute_chamfer(
     };
 
     Ok(OpResult {
-        outputs: vec![(OutputKey::Main, BodyOutput { handle, mesh: None })],
+        outputs: vec![(
+            OutputKey::Main,
+            BodyOutput {
+                handle,
+                mesh: None,
+                edges: None,
+            },
+        )],
         provenance,
         diagnostics: Diagnostics::default(),
     })

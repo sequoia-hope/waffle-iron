@@ -1,4 +1,41 @@
 /**
+ * Get edge range data for a specific feature by index.
+ *
+ * Returns a JSON array of edge ranges enriched with GeomRef data.
+ * Each entry contains a `geom_ref` (persistent geometry reference) plus
+ * `start_index` and `end_index` into the edge vertices array (in vertex count,
+ * not float count).
+ * @param {number} feature_index
+ * @returns {string}
+ */
+export function get_edge_data(feature_index) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.get_edge_data(feature_index);
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
+ * Get edge vertex positions as a Float32Array view into WASM memory.
+ *
+ * Returns the edge polyline vertices for a feature as a zero-copy typed array.
+ * The array contains [x0, y0, z0, x1, y1, z1, ...] where consecutive pairs
+ * of vertices form line segments for rendering with THREE.LineSegments.
+ * @param {number} feature_index
+ * @returns {Float32Array}
+ */
+export function get_edge_vertices(feature_index) {
+    const ret = wasm.get_edge_vertices(feature_index);
+    return ret;
+}
+
+/**
  * Get face data for a specific feature by index.
  *
  * Returns a JSON array of face ranges enriched with GeomRef data.

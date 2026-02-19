@@ -8,7 +8,7 @@ use wasm_bindgen::prelude::*;
 use crate::dispatch;
 use crate::engine_state::EngineState;
 use crate::messages::{EngineToUi, UiToEngine};
-use kernel_fork::RenderMesh;
+use kernel_fork::{EdgeRenderData, RenderMesh};
 use modeling_ops::KernelBundle;
 use waffle_types::{Anchor, GeomRef, ResolvePolicy, Selector, TopoKind, TopoSignature};
 
@@ -319,6 +319,99 @@ pub fn get_face_data(feature_index: usize) -> String {
     })
 }
 
+/// Get edge vertex positions as a Float32Array view into WASM memory.
+///
+/// Returns the edge polyline vertices for a feature as a zero-copy typed array.
+/// The array contains [x0, y0, z0, x1, y1, z1, ...] where consecutive pairs
+/// of vertices form line segments for rendering with THREE.LineSegments.
+#[wasm_bindgen]
+pub fn get_edge_vertices(feature_index: usize) -> js_sys::Float32Array {
+    with_edges(feature_index, |edges| unsafe {
+        js_sys::Float32Array::view(&edges.vertices)
+    })
+    .unwrap_or_else(|| js_sys::Float32Array::new_with_length(0))
+}
+
+/// Get edge range data for a specific feature by index.
+///
+/// Returns a JSON array of edge ranges enriched with GeomRef data.
+/// Each entry contains a `geom_ref` (persistent geometry reference) plus
+/// `start_index` and `end_index` into the edge vertices array (in vertex count,
+/// not float count).
+#[wasm_bindgen]
+pub fn get_edge_data(feature_index: usize) -> String {
+    ENGINE_STATE.with(|cell| {
+        let engine = cell.borrow();
+        let engine = match engine.as_ref() {
+            Some(e) => e,
+            None => return "[]".to_string(),
+        };
+
+        let features = &engine.state.engine.tree.features;
+        let feature = match features.get(feature_index) {
+            Some(f) => f,
+            None => return "[]".to_string(),
+        };
+
+        let feature_id = feature.id;
+        let result = match engine.state.engine.feature_results.get(&feature_id) {
+            Some(r) => r,
+            None => return "[]".to_string(),
+        };
+
+        // Find the first output with edge data
+        let mut found_edges = None;
+        let mut found_key = None;
+        for (key, body) in &result.outputs {
+            if let Some(ref edges) = body.edges {
+                found_edges = Some(edges);
+                found_key = Some(key.clone());
+                break;
+            }
+        }
+
+        let edges = match found_edges {
+            Some(e) => e,
+            None => return "[]".to_string(),
+        };
+        let output_key = found_key.unwrap();
+
+        // Build edge data entries with GeomRef
+        let mut entries = Vec::new();
+        for (edge_idx, range) in edges.edge_ranges.iter().enumerate() {
+            // Use Signature-based selector with edge index as adjacency_hash
+            let geom_ref = GeomRef {
+                kind: TopoKind::Edge,
+                anchor: Anchor::FeatureOutput {
+                    feature_id,
+                    output_key: output_key.clone(),
+                },
+                selector: Selector::Signature {
+                    signature: TopoSignature {
+                        surface_type: None,
+                        area: None,
+                        centroid: None,
+                        normal: None,
+                        bbox: None,
+                        adjacency_hash: Some(edge_idx as u64),
+                        length: None,
+                    },
+                },
+                policy: ResolvePolicy::BestEffort,
+            };
+
+            // EdgeOverlay.svelte expects start_index/end_index (vertex counts)
+            entries.push(serde_json::json!({
+                "geom_ref": geom_ref,
+                "start_index": range.start_vertex,
+                "end_index": range.end_vertex,
+            }));
+        }
+
+        serde_json::to_string(&entries).unwrap_or_else(|_| "[]".to_string())
+    })
+}
+
 /// Helper: access the mesh for a feature and apply a function to it.
 fn with_mesh<T>(feature_index: usize, f: impl FnOnce(&RenderMesh) -> T) -> Option<T> {
     ENGINE_STATE.with(|cell| {
@@ -338,19 +431,43 @@ fn with_mesh<T>(feature_index: usize, f: impl FnOnce(&RenderMesh) -> T) -> Optio
     })
 }
 
+/// Helper: access the edge data for a feature and apply a function to it.
+fn with_edges<T>(feature_index: usize, f: impl FnOnce(&EdgeRenderData) -> T) -> Option<T> {
+    ENGINE_STATE.with(|cell| {
+        let engine = cell.borrow();
+        let engine = engine.as_ref()?;
+
+        let features = &engine.state.engine.tree.features;
+        let feature = features.get(feature_index)?;
+        let result = engine.state.engine.feature_results.get(&feature.id)?;
+
+        for (_key, body) in &result.outputs {
+            if let Some(ref edges) = body.edges {
+                return Some(f(edges));
+            }
+        }
+        None
+    })
+}
+
 /// Tessellate all feature results that have a solid handle but no mesh data.
+/// Also extracts edge polylines for edge overlay rendering.
 fn tessellate_missing_meshes(state: &mut EngineState, kernel: &mut impl KernelBundle) {
     let feature_ids: Vec<uuid::Uuid> = state.engine.tree.features.iter().map(|f| f.id).collect();
 
     for fid in feature_ids {
-        let needs_tessellation = state
+        let needs_work = state
             .engine
             .feature_results
             .get(&fid)
-            .map(|r| r.outputs.iter().any(|(_, body)| body.mesh.is_none()))
+            .map(|r| {
+                r.outputs
+                    .iter()
+                    .any(|(_, body)| body.mesh.is_none() || body.edges.is_none())
+            })
             .unwrap_or(false);
 
-        if !needs_tessellation {
+        if !needs_work {
             continue;
         }
 
@@ -360,6 +477,14 @@ fn tessellate_missing_meshes(state: &mut EngineState, kernel: &mut impl KernelBu
                     match kernel.tessellate(&body.handle, 0.1) {
                         Ok(mesh) => {
                             body.mesh = Some(mesh);
+                        }
+                        Err(_) => {}
+                    }
+                }
+                if body.edges.is_none() {
+                    match kernel.extract_edges(&body.handle, 0.1) {
+                        Ok(edges) => {
+                            body.edges = Some(edges);
                         }
                         Err(_) => {}
                     }

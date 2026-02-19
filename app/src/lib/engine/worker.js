@@ -179,6 +179,23 @@ function collectMeshes() {
 			console.warn('Face data unavailable for feature', i, e);
 		}
 
+		// Get edge data for edge overlay rendering
+		let edges = null;
+		try {
+			if (wasmModule.get_edge_vertices && wasmModule.get_edge_data) {
+				const edgeVertView = wasmModule.get_edge_vertices(i);
+				if (edgeVertView.length > 0) {
+					const edgeVertices = new Float32Array(edgeVertView);
+					const edgeDataJson = wasmModule.get_edge_data(i);
+					const edgeRanges = JSON.parse(edgeDataJson);
+					edges = { vertices: edgeVertices, ranges: edgeRanges };
+					transferables.push(edgeVertices.buffer);
+				}
+			}
+		} catch (e) {
+			console.warn('Edge data unavailable for feature', i, e);
+		}
+
 		meshes.push({
 			featureIndex: i,
 			featureId: features[i].id,
@@ -186,7 +203,8 @@ function collectMeshes() {
 			normals,
 			indices,
 			triangleCount: indices.length / 3,
-			faceRanges
+			faceRanges,
+			edges
 		});
 
 		transferables.push(vertices.buffer, normals.buffer, indices.buffer);

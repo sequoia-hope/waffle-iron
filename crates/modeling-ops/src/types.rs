@@ -1,4 +1,4 @@
-use kernel_fork::{KernelId, KernelSolidHandle, RenderMesh};
+use kernel_fork::{EdgeRenderData, KernelId, KernelSolidHandle, RenderMesh};
 use waffle_types::{OutputKey, Role, TopoKind, TopoSignature};
 
 /// Complete result of a modeling operation.
@@ -21,6 +21,8 @@ pub struct BodyOutput {
     pub handle: KernelSolidHandle,
     /// Pre-tessellated mesh, if available.
     pub mesh: Option<RenderMesh>,
+    /// Pre-extracted edge polylines for edge overlay rendering.
+    pub edges: Option<EdgeRenderData>,
 }
 
 /// Provenance tracking: what happened to topology during an operation.

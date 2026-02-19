@@ -488,25 +488,50 @@ fn sample_face_center(face: &Face, surface: &Surface) -> ([f64; 3], [f64; 3]) {
             ([p[0], p[1], p[2]], [n[0], n[1], n[2]])
         }
         _ => {
-            // For non-planar surfaces, compute centroid from vertex positions
-            let mut cx = 0.0;
-            let mut cy = 0.0;
-            let mut cz = 0.0;
-            let mut count = 0.0;
+            // For non-planar surfaces, compute centroid and estimate normal from vertices.
+            let mut vertices = Vec::new();
             for wire in face.boundaries() {
                 for v in wire.vertex_iter() {
                     let p = v.point();
-                    cx += p[0];
-                    cy += p[1];
-                    cz += p[2];
-                    count += 1.0;
+                    vertices.push([p[0], p[1], p[2]]);
                 }
             }
-            if count > 0.0 {
-                ([cx / count, cy / count, cz / count], [0.0, 0.0, 1.0])
-            } else {
-                ([0.0, 0.0, 0.0], [0.0, 0.0, 1.0])
+
+            if vertices.is_empty() {
+                return ([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
             }
+
+            // Centroid: average of all vertex positions
+            let count = vertices.len() as f64;
+            let cx = vertices.iter().map(|v| v[0]).sum::<f64>() / count;
+            let cy = vertices.iter().map(|v| v[1]).sum::<f64>() / count;
+            let cz = vertices.iter().map(|v| v[2]).sum::<f64>() / count;
+            let centroid = [cx, cy, cz];
+
+            // Normal: use Newell's method (sum of cross products of consecutive edge vectors)
+            // This gives a robust average normal for planar and near-planar polygons,
+            // and a reasonable outward normal estimate for curved faces.
+            let mut nx = 0.0;
+            let mut ny = 0.0;
+            let mut nz = 0.0;
+            let n = vertices.len();
+            for i in 0..n {
+                let curr = &vertices[i];
+                let next = &vertices[(i + 1) % n];
+                // Newell's method accumulation
+                nx += (curr[1] - next[1]) * (curr[2] + next[2]);
+                ny += (curr[2] - next[2]) * (curr[0] + next[0]);
+                nz += (curr[0] - next[0]) * (curr[1] + next[1]);
+            }
+
+            let len = (nx * nx + ny * ny + nz * nz).sqrt();
+            let normal = if len > 1e-12 {
+                [nx / len, ny / len, nz / len]
+            } else {
+                [0.0, 0.0, 1.0]
+            };
+
+            (centroid, normal)
         }
     }
 }
