@@ -12,6 +12,7 @@
 	import InactiveSketchRenderer from '$lib/sketch/InactiveSketchRenderer.svelte';
 	import SketchInteraction from '$lib/sketch/SketchInteraction.svelte';
 	import DimensionLabels from '$lib/sketch/DimensionLabels.svelte';
+	import GhostPreview from './GhostPreview.svelte';
 
 	// Enable raycaster-based interactivity for all child meshes
 	interactivity();
@@ -21,6 +22,7 @@
 <CameraControls />
 <CadModel />
 <EdgeOverlay />
+<GhostPreview />
 <GridFloor />
 <SketchPlane />
 <DatumVis />

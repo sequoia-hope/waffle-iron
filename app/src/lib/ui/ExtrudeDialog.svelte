@@ -3,7 +3,8 @@
 		getExtrudeDialogState,
 		hideExtrudeDialog,
 		applyExtrude,
-		removeExtrudeRegion
+		removeExtrudeRegion,
+		setExtrudePreviewParams
 	} from '$lib/engine/store.svelte.js';
 	import { log } from '$lib/engine/logger.js';
 
@@ -30,6 +31,27 @@
 			secondDepth = 10;
 			flipDirection = false;
 		}
+	});
+
+	// Drive ghost preview params whenever dialog state changes
+	$effect(() => {
+		if (!dialogState || depthMode !== 'Blind') {
+			setExtrudePreviewParams(null);
+			return;
+		}
+		const region = regions[0];
+		if (!region) {
+			setExtrudePreviewParams(null);
+			return;
+		}
+		setExtrudePreviewParams({
+			sketchId: region.sketchId,
+			profileIndex: region.profileIndex,
+			depth,
+			flipDirection,
+			symmetric: secondDir === 'Symmetric',
+			cut
+		});
 	});
 
 	// Listen for keydown at window level so Escape works even without focus

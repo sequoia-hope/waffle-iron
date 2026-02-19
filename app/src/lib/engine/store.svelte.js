@@ -94,6 +94,9 @@ let pendingSketchAction = null;
  *           regions: Array<{ sketchId: string, sketchName: string, profileIndex: number }> } | null} */
 let extrudeDialogState = $state(null);
 
+/** @type {{ sketchId: string, profileIndex: number, depth: number, flipDirection: boolean, symmetric: boolean, cut: boolean } | null} */
+let extrudePreviewParams = $state(null);
+
 /** @type {{ sketchId: string, sketchName: string, profileCount: number } | null} */
 let revolveDialogState = $state(null);
 
@@ -286,6 +289,8 @@ export async function initEngine() {
 			getConstraints: () => [...sketchConstraints],
 			getProfiles: () => [...extractedProfilesState],
 			getExtrudeDialogState: () => extrudeDialogState,
+			getExtrudePreviewParams: () => extrudePreviewParams,
+			setExtrudePreviewParams: (params) => setExtrudePreviewParams(params),
 			getExtrudeRegions: () => getExtrudeRegions(),
 			addExtrudeRegion: (sketchId, sketchName, profileIndex) => addExtrudeRegion(sketchId, sketchName, profileIndex),
 			removeExtrudeRegion: (index) => removeExtrudeRegion(index),
@@ -959,6 +964,9 @@ export function setSketchCursorPos(pos) { sketchCursorPos = pos; }
 
 export function getExtrudeDialogState() { return extrudeDialogState; }
 
+export function getExtrudePreviewParams() { return extrudePreviewParams; }
+export function setExtrudePreviewParams(params) { extrudePreviewParams = params; }
+
 /**
  * Show the extrude dialog. Auto-selects the last sketch in the feature tree.
  * Pre-populates regions from selectedProfileIndex or auto-selects single-profile sketches.
@@ -1042,6 +1050,7 @@ export function getExtrudeRegions() {
 
 export function hideExtrudeDialog() {
 	extrudeDialogState = null;
+	extrudePreviewParams = null;
 }
 
 /**
@@ -1106,6 +1115,7 @@ export async function applyExtrude(depth, profileIndex, cut = false, opts = {}) 
 		});
 
 		extrudeDialogState = null;
+		extrudePreviewParams = null;
 	} catch (err) {
 		log('error', `Extrude failed: ${err.message}`);
 		showToast('error', `Extrude failed: ${err.message}`);
