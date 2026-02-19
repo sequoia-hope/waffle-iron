@@ -47,6 +47,14 @@ fn compute_adaptive_tol(solid_a: &Solid, solid_b: &Solid) -> f64 {
     (extent * 0.005).clamp(0.005, 0.05)
 }
 
+/// Compute scale-aware healing tolerance from two solids' bounding boxes.
+///
+/// Healing tolerance is 10% of the boolean tolerance — tight enough to
+/// preserve curve accuracy while still being proportional to geometry size.
+fn compute_healing_tol(solid_a: &Solid, solid_b: &Solid) -> f64 {
+    compute_adaptive_tol(solid_a, solid_b) * 0.1
+}
+
 /// Real geometry kernel backed by the truck BREP library.
 pub struct TruckKernel {
     next_handle: u64,
@@ -210,8 +218,9 @@ impl Kernel for TruckKernel {
             .clone();
 
         // Heal inputs if they have IntersectionCurve edges from previous booleans
-        crate::healing::heal_intersection_curves(&solid_a, 0.001);
-        crate::healing::heal_intersection_curves(&solid_b, 0.001);
+        let heal_tol = compute_healing_tol(&solid_a, &solid_b);
+        crate::healing::heal_intersection_curves(&solid_a, heal_tol);
+        crate::healing::heal_intersection_curves(&solid_b, heal_tol);
 
         let tol = compute_adaptive_tol(&solid_a, &solid_b);
         let result =
@@ -221,7 +230,7 @@ impl Kernel for TruckKernel {
             .ok_or_else(|| KernelError::BooleanFailed {
                 reason: "truck or() returned None".to_string(),
             })?;
-        crate::healing::heal_intersection_curves(&result, 0.001);
+        crate::healing::heal_intersection_curves(&result, heal_tol);
         Ok(self.store_solid(result))
     }
 
@@ -247,8 +256,9 @@ impl Kernel for TruckKernel {
 
         // Subtraction = A ∩ ¬B. not() mutates in place.
         // Heal inputs if they have IntersectionCurve edges from previous booleans.
-        crate::healing::heal_intersection_curves(&solid_a, 0.001);
-        crate::healing::heal_intersection_curves(&solid_b, 0.001);
+        let heal_tol = compute_healing_tol(&solid_a, &solid_b);
+        crate::healing::heal_intersection_curves(&solid_a, heal_tol);
+        crate::healing::heal_intersection_curves(&solid_b, heal_tol);
 
         let tol = compute_adaptive_tol(&solid_a, &solid_b);
         let result =
@@ -260,7 +270,7 @@ impl Kernel for TruckKernel {
             .ok_or_else(|| KernelError::BooleanFailed {
                 reason: "truck and() returned None for subtraction".to_string(),
             })?;
-        crate::healing::heal_intersection_curves(&result, 0.001);
+        crate::healing::heal_intersection_curves(&result, heal_tol);
         Ok(self.store_solid(result))
     }
 
@@ -285,8 +295,9 @@ impl Kernel for TruckKernel {
             .clone();
 
         // Heal inputs if they have IntersectionCurve edges from previous booleans
-        crate::healing::heal_intersection_curves(&solid_a, 0.001);
-        crate::healing::heal_intersection_curves(&solid_b, 0.001);
+        let heal_tol = compute_healing_tol(&solid_a, &solid_b);
+        crate::healing::heal_intersection_curves(&solid_a, heal_tol);
+        crate::healing::heal_intersection_curves(&solid_b, heal_tol);
 
         let tol = compute_adaptive_tol(&solid_a, &solid_b);
         let result =
@@ -296,7 +307,7 @@ impl Kernel for TruckKernel {
             .ok_or_else(|| KernelError::BooleanFailed {
                 reason: "truck and() returned None".to_string(),
             })?;
-        crate::healing::heal_intersection_curves(&result, 0.001);
+        crate::healing::heal_intersection_curves(&result, heal_tol);
         Ok(self.store_solid(result))
     }
 
@@ -654,9 +665,8 @@ mod tests {
         }
     }
 
-    // Pre-existing: coplanar partial overlap needs 2D polygon clipping
+    // Coplanar partial overlap: pair-specific skip allows non-coplanar pairs to intersect normally
     #[test]
-    #[ignore]
     fn test_coplanar_partial_overlap_union() {
         use truck_topology::shell::ShellCondition;
 
@@ -1968,6 +1978,22 @@ mod tests {
         // All vertices should be finite
         for (i, v) in edges.vertices.iter().enumerate() {
             assert!(v.is_finite(), "Edge vertex[{}] = {} is not finite", i, v);
+        }
+    }
+
+    #[test]
+    fn test_healing_tolerance_scales_with_geometry() {
+        for &scale in &[0.1, 1.0, 10.0, 50.0] {
+            let solid = primitives::make_box(scale, scale, scale);
+            let heal = compute_healing_tol(&solid, &solid);
+            let bool_tol = compute_adaptive_tol(&solid, &solid);
+            assert!(
+                heal < bool_tol,
+                "scale={}: heal_tol={} must be < bool_tol={}",
+                scale,
+                heal,
+                bool_tol
+            );
         }
     }
 }

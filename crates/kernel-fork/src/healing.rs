@@ -81,7 +81,7 @@ pub fn heal_intersection_curves(solid: &Solid, tol: f64) -> HealingResult {
             // For plane-cylinder ICs (elliptical arcs), use tighter tolerance
             // to avoid BSpline approximation error that breaks chained booleans.
             let pc = is_plane_cylinder(ic.surface0(), ic.surface1());
-            let heal_tol = if pc { tol.min(1e-6) } else { tol };
+            let heal_tol = if pc { tol * 0.001 } else { tol };
             let heal_d_tol = heal_tol * 1000.0;
             let heal_trials = if pc { 100 } else { 50 };
 
