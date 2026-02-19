@@ -1101,7 +1101,7 @@ fn truck_fillet_returns_not_supported() {
 }
 
 #[test]
-fn truck_chamfer_returns_not_supported() {
+fn truck_chamfer_works_on_planar_edge() {
     let mut kernel = TruckKernel::new();
     let face_id = make_truck_face(&mut kernel);
     let result = execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], 5.0, None).unwrap();
@@ -1110,13 +1110,14 @@ fn truck_chamfer_returns_not_supported() {
     let edges = kernel.list_edges(handle);
     let chamfer_result = execute_chamfer(&mut kernel, handle, &[edges[0]], 0.5);
     assert!(
-        chamfer_result.is_err(),
-        "TruckKernel chamfer should return error"
+        chamfer_result.is_ok(),
+        "TruckKernel chamfer should succeed on planar edges: {:?}",
+        chamfer_result.err()
     );
 }
 
 #[test]
-fn truck_shell_returns_not_supported() {
+fn truck_shell_works_on_planar_box() {
     let mut kernel = TruckKernel::new();
     let face_id = make_truck_face(&mut kernel);
     let result = execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], 5.0, None).unwrap();
@@ -1125,8 +1126,9 @@ fn truck_shell_returns_not_supported() {
     let faces = kernel.list_faces(handle);
     let shell_result = execute_shell(&mut kernel, handle, &[faces[0]], 0.5);
     assert!(
-        shell_result.is_err(),
-        "TruckKernel shell should return error"
+        shell_result.is_ok(),
+        "TruckKernel shell should succeed on planar boxes: {:?}",
+        shell_result.err()
     );
 }
 

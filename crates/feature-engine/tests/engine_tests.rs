@@ -2368,7 +2368,7 @@ fn resolve_datum_anchor_returns_error() {
 }
 
 #[test]
-fn resolve_query_selector_returns_error() {
+fn resolve_query_selector_succeeds() {
     use feature_engine::resolve::resolve_geom_ref;
 
     let mut engine = Engine::new();
@@ -2397,12 +2397,11 @@ fn resolve_query_selector_returns_error() {
     };
 
     let result = resolve_geom_ref(&geom_ref, &engine.feature_results);
-    assert!(result.is_err());
-    let err_msg = result.unwrap_err().to_string();
+    // Empty-filter query matches all faces of the requested kind — should succeed
     assert!(
-        err_msg.contains("Query"),
-        "Error should mention Query: {}",
-        err_msg
+        result.is_ok(),
+        "Empty-filter query should resolve: {:?}",
+        result.unwrap_err()
     );
 }
 

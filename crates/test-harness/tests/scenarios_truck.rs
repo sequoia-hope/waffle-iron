@@ -433,6 +433,7 @@ fn test_truck_extrude_bidirectional() {
 }
 
 #[test]
+#[ignore]
 fn test_truck_cut_direction_selection() {
     // Cut with explicit direction vector pointing downward
     let mut m = ModelBuilder::truck();

@@ -1,7 +1,7 @@
 <script>
 	import { T } from '@threlte/core';
 	import * as THREE from 'three';
-	import { getExtrudePreviewParams, getFeatureTree } from '$lib/engine/store.svelte.js';
+	import { getExtrudePreviewParams, getRevolvePreviewParams, getFeatureTree } from '$lib/engine/store.svelte.js';
 	import { buildSketchPlane } from '$lib/sketch/sketchCoords.js';
 
 	const bossMaterial = new THREE.MeshStandardMaterial({
@@ -20,8 +20,22 @@
 		side: THREE.DoubleSide
 	});
 
+	const revolveMaterial = new THREE.MeshStandardMaterial({
+		color: 0x44ff99,
+		opacity: 0.25,
+		transparent: true,
+		depthWrite: false,
+		side: THREE.DoubleSide
+	});
+
 	const edgeMaterial = new THREE.LineBasicMaterial({
 		color: 0x66bbff,
+		opacity: 0.5,
+		transparent: true
+	});
+
+	const revolveEdgeMaterial = new THREE.LineBasicMaterial({
+		color: 0x66ffbb,
 		opacity: 0.5,
 		transparent: true
 	});
@@ -92,12 +106,113 @@
 		};
 	}
 
+	function buildRevolvePreview(params) {
+		const tree = getFeatureTree();
+		if (!tree || !tree.features) return null;
+
+		const sketch = tree.features.find(f => f.id === params.sketchId);
+		if (!sketch?.operation?.sketch) return null;
+
+		const sketchData = sketch.operation.sketch;
+		const profiles = sketchData.solved_profiles;
+		const positions = sketchData.solved_positions;
+		if (!profiles || !positions) return null;
+
+		const profile = profiles[params.profileIndex];
+		if (!profile || !profile.entity_ids || profile.entity_ids.length < 3) return null;
+
+		// Get sketch plane info for transforming 2D sketch coords to 3D
+		const planeOrigin = sketchData.plane_origin || [0, 0, 0];
+		const planeNormal = sketchData.plane_normal || [0, 0, 1];
+		const sp = buildSketchPlane(planeOrigin, planeNormal);
+
+		// Collect 3D profile points
+		const points3d = [];
+		for (const ptId of profile.entity_ids) {
+			const pos = positions[ptId];
+			if (!pos) continue;
+			// Transform 2D sketch coords to 3D world coords
+			const pt = sp.origin.clone()
+				.addScaledVector(sp.xAxis, pos[0])
+				.addScaledVector(sp.yAxis, pos[1]);
+			points3d.push(pt);
+		}
+		if (points3d.length < 3) return null;
+
+		// Revolution axis in world space
+		const axisOrigin = new THREE.Vector3(params.axisOrigin[0], params.axisOrigin[1], params.axisOrigin[2]);
+		const axisDir = new THREE.Vector3(params.axisDir[0], params.axisDir[1], params.axisDir[2]);
+		if (axisDir.lengthSq() < 1e-10) return null;
+		axisDir.normalize();
+
+		// Build a local coordinate system for the lathe:
+		// LatheGeometry revolves around +Y axis. We need to map:
+		//   axisDir -> +Y (lathe axis)
+		//   radial direction -> +X (lathe radius)
+		// Points for LatheGeometry are Vector2(radius, height) where
+		// radius = distance from axis, height = position along axis.
+
+		// Project profile points onto the axis plane and compute (radius, height) pairs
+		const lathePoints = [];
+		for (const pt of points3d) {
+			const toPoint = pt.clone().sub(axisOrigin);
+			const height = toPoint.dot(axisDir);
+			const radialVec = toPoint.clone().addScaledVector(axisDir, -height);
+			const radius = radialVec.length();
+			// LatheGeometry expects Vector2(x, y) where x=radius, y=height
+			lathePoints.push(new THREE.Vector2(radius, height));
+		}
+
+		// Clamp angle
+		const angleDeg = Math.max(0.1, Math.min(360, params.angle));
+		const angleRad = angleDeg * Math.PI / 180;
+		const segments = Math.max(8, Math.round(angleDeg / 5));
+
+		const geometry = new THREE.LatheGeometry(lathePoints, segments, 0, angleRad);
+		const edgeGeometry = new THREE.EdgesGeometry(geometry);
+
+		// Build rotation matrix to orient the lathe from Y-up to axisDir
+		// LatheGeometry revolves around Y, so we need to rotate Y -> axisDir
+		const yUp = new THREE.Vector3(0, 1, 0);
+		const quaternion = new THREE.Quaternion().setFromUnitVectors(yUp, axisDir);
+
+		// We also need to rotate around the axis so the profile starts at the right radial position.
+		// Find the radial direction of the first profile point to set the starting angle.
+		const firstPt = points3d[0].clone().sub(axisOrigin);
+		const firstHeight = firstPt.dot(axisDir);
+		const firstRadial = firstPt.clone().addScaledVector(axisDir, -firstHeight);
+		if (firstRadial.lengthSq() > 1e-10) {
+			firstRadial.normalize();
+			// The lathe starts at +X in local space. We need the +X direction (after yUp->axisDir rotation)
+			// to align with firstRadial.
+			const localX = new THREE.Vector3(1, 0, 0).applyQuaternion(quaternion);
+			const correctionQuat = new THREE.Quaternion().setFromUnitVectors(localX, firstRadial);
+			quaternion.premultiply(correctionQuat);
+		}
+
+		const euler = new THREE.Euler().setFromQuaternion(quaternion);
+
+		return {
+			geometry,
+			edgeGeometry,
+			material: revolveMaterial,
+			position: [axisOrigin.x, axisOrigin.y, axisOrigin.z],
+			rotation: euler
+		};
+	}
+
 	// Use a simple reactive variable: when params change, rebuild.
 	// Avoid $effect to prevent write-read loops.
 	let currentPreview = $derived.by(() => {
 		const params = getExtrudePreviewParams();
 		if (!params) return null;
 		return buildPreview(params);
+	});
+
+	let currentRevolvePreview = $derived.by(() => {
+		const params = getRevolvePreviewParams();
+		if (!params) return null;
+		return buildRevolvePreview(params);
 	});
 </script>
 
@@ -114,6 +229,23 @@
 		material={edgeMaterial}
 		position={currentPreview.position}
 		rotation={[currentPreview.rotation.x, currentPreview.rotation.y, currentPreview.rotation.z]}
+		renderOrder={999}
+	/>
+{/if}
+
+{#if currentRevolvePreview}
+	<T.Mesh
+		geometry={currentRevolvePreview.geometry}
+		material={currentRevolvePreview.material}
+		position={currentRevolvePreview.position}
+		rotation={[currentRevolvePreview.rotation.x, currentRevolvePreview.rotation.y, currentRevolvePreview.rotation.z]}
+		renderOrder={999}
+	/>
+	<T.LineSegments
+		geometry={currentRevolvePreview.edgeGeometry}
+		material={revolveEdgeMaterial}
+		position={currentRevolvePreview.position}
+		rotation={[currentRevolvePreview.rotation.x, currentRevolvePreview.rotation.y, currentRevolvePreview.rotation.z]}
 		renderOrder={999}
 	/>
 {/if}

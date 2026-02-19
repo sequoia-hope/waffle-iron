@@ -100,6 +100,9 @@ let extrudePreviewParams = $state(null);
 /** @type {{ sketchId: string, sketchName: string, profileCount: number } | null} */
 let revolveDialogState = $state(null);
 
+/** @type {{ sketchId: string, profileIndex: number, angle: number, axisOrigin: [number,number,number], axisDir: [number,number,number] } | null} */
+let revolvePreviewParams = $state(null);
+
 /** @type {{ entityA: number, entityB: number | null, sketchX: number, sketchY: number, dimType: 'distance'|'radius'|'angle', defaultValue: number } | null} */
 let dimensionPopup = $state(null);
 
@@ -295,6 +298,8 @@ export async function initEngine() {
 			addExtrudeRegion: (sketchId, sketchName, profileIndex) => addExtrudeRegion(sketchId, sketchName, profileIndex),
 			removeExtrudeRegion: (index) => removeExtrudeRegion(index),
 			getRevolveDialogState: () => revolveDialogState,
+			getRevolvePreviewParams: () => revolvePreviewParams,
+			setRevolvePreviewParams: (params) => setRevolvePreviewParams(params),
 			getSelectedRefs: () => [...selectedRefs],
 			getHoveredRef: () => hoveredRef,
 			selectRef: (ref, additive) => selectRef(ref, additive),
@@ -967,6 +972,9 @@ export function getExtrudeDialogState() { return extrudeDialogState; }
 export function getExtrudePreviewParams() { return extrudePreviewParams; }
 export function setExtrudePreviewParams(params) { extrudePreviewParams = params; }
 
+export function getRevolvePreviewParams() { return revolvePreviewParams; }
+export function setRevolvePreviewParams(params) { revolvePreviewParams = params; }
+
 /**
  * Show the extrude dialog. Auto-selects the last sketch in the feature tree.
  * Pre-populates regions from selectedProfileIndex or auto-selects single-profile sketches.
@@ -1158,6 +1166,7 @@ export function showRevolveDialog() {
 
 export function hideRevolveDialog() {
 	revolveDialogState = null;
+	revolvePreviewParams = null;
 }
 
 /**
@@ -1189,6 +1198,7 @@ export async function applyRevolve(angleDeg, axisOrigin, axisDir, profileIndex) 
 		});
 
 		revolveDialogState = null;
+		revolvePreviewParams = null;
 	} catch (err) {
 		log('error', `Revolve failed: ${err.message}`);
 		showToast('error', `Revolve failed: ${err.message}`);

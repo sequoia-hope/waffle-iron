@@ -2,7 +2,8 @@
 	import {
 		getRevolveDialogState,
 		hideRevolveDialog,
-		applyRevolve
+		applyRevolve,
+		setRevolvePreviewParams
 	} from '$lib/engine/store.svelte.js';
 	import { log } from '$lib/engine/logger.js';
 
@@ -26,6 +27,20 @@
 			axisDirY = 1;
 			axisDirZ = 0;
 			profileIndex = 0;
+		}
+	});
+
+	$effect(() => {
+		if (dialogState) {
+			setRevolvePreviewParams({
+				sketchId: dialogState.sketchId,
+				profileIndex,
+				angle,
+				axisOrigin: [axisOriginX, axisOriginY, axisOriginZ],
+				axisDir: [axisDirX, axisDirY, axisDirZ]
+			});
+		} else {
+			setRevolvePreviewParams(null);
 		}
 	});
 
@@ -57,6 +72,7 @@
 	}
 
 	function handleCancel() {
+		setRevolvePreviewParams(null);
 		hideRevolveDialog();
 	}
 
