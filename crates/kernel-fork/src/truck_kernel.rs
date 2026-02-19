@@ -55,6 +55,17 @@ fn compute_healing_tol(solid_a: &Solid, solid_b: &Solid) -> f64 {
     compute_adaptive_tol(solid_a, solid_b) * 0.1
 }
 
+/// Compute layered `BooleanOptions` from two solids' bounding boxes.
+///
+/// Wraps `compute_adaptive_tol` to produce the full tolerance struct.
+/// Currently `tau_model` is the only value threaded through the pipeline;
+/// future work should thread `tau_weld` through `weld_coincident_edges`
+/// and `tau_coplanar` through `check_coplanar_faces`.
+fn compute_boolean_options(solid_a: &Solid, solid_b: &Solid) -> BooleanOptions {
+    let tol = compute_adaptive_tol(solid_a, solid_b);
+    BooleanOptions::for_boolean_tol(tol)
+}
+
 /// Real geometry kernel backed by the truck BREP library.
 pub struct TruckKernel {
     next_handle: u64,
@@ -223,8 +234,9 @@ impl Kernel for TruckKernel {
         crate::healing::heal_intersection_curves(&solid_a, heal_tol);
         crate::healing::heal_intersection_curves(&solid_b, heal_tol);
 
-        // Pre-split closed edges (cylinder seams) for boolean reliability
-        let tol = compute_adaptive_tol(&solid_a, &solid_b);
+        // Compute layered tolerance options; use tau_model for the boolean pipeline.
+        let opts = compute_boolean_options(&solid_a, &solid_b);
+        let tol = opts.tau_model;
         let solid_a = crate::healing::pre_split_closed_edges(&solid_a, tol);
         let solid_b = crate::healing::pre_split_closed_edges(&solid_b, tol);
 
@@ -265,8 +277,9 @@ impl Kernel for TruckKernel {
         crate::healing::heal_intersection_curves(&solid_a, heal_tol);
         crate::healing::heal_intersection_curves(&solid_b, heal_tol);
 
-        // Pre-split closed edges (cylinder seams) for boolean reliability
-        let tol = compute_adaptive_tol(&solid_a, &solid_b);
+        // Compute layered tolerance options; use tau_model for the boolean pipeline.
+        let opts = compute_boolean_options(&solid_a, &solid_b);
+        let tol = opts.tau_model;
         let solid_a = crate::healing::pre_split_closed_edges(&solid_a, tol);
         let solid_b = crate::healing::pre_split_closed_edges(&solid_b, tol);
 
@@ -306,8 +319,9 @@ impl Kernel for TruckKernel {
         crate::healing::heal_intersection_curves(&solid_a, heal_tol);
         crate::healing::heal_intersection_curves(&solid_b, heal_tol);
 
-        // Pre-split closed edges (cylinder seams) for boolean reliability
-        let tol = compute_adaptive_tol(&solid_a, &solid_b);
+        // Compute layered tolerance options; use tau_model for the boolean pipeline.
+        let opts = compute_boolean_options(&solid_a, &solid_b);
+        let tol = opts.tau_model;
         let solid_a = crate::healing::pre_split_closed_edges(&solid_a, tol);
         let solid_b = crate::healing::pre_split_closed_edges(&solid_b, tol);
 

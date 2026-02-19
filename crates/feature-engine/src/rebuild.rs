@@ -212,10 +212,12 @@ fn execute_feature(
             // For bidirectional: create a single extrude from (origin - second_depth * direction)
             // in +direction with total_depth = primary + second. This avoids boolean union.
             //
-            // For cuts: extend the tool slightly past entry/exit faces to avoid exact
+            // For cuts: extend the tool 0.1 past entry/exit faces to avoid exact
             // coplanarity with the target. The truck coplanar pipeline handles box-box
-            // coplanar faces, but cylinder-box coplanar still fails. A small eps (0.01)
-            // avoids the issue without visibly distorting geometry.
+            // coplanar faces, but cylinder-box coplanar still fails. Required for
+            // cylinder-box booleans where the truck coplanar pipeline cannot handle
+            // curved-face coplanarity.
+            // Tested: 0.01 and 0.05 break b1/b3 circle-cut-through-boss tests.
             //
             // For boss merges: no eps needed. The truck coplanar pipeline handles
             // coplanar face union directly.

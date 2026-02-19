@@ -9,9 +9,10 @@
 //!   B — Cut Through Boss (4 tests: all active)
 //!   C — Cut Wrong Direction / Free Space (3 tests: all active)
 //!   D — Partial Overlap / Symmetric (5 tests: all active)
-//!   E — Adversarial Cases (7 tests: 6 active, 1 ignored)
+//!   E — Adversarial Cases (7 tests: 4 active, 3 ignored)
 //!   F — Chained Operations (2 tests: all active)
 //!   G — Coplanar Pipeline Verification (3 tests: all active)
+//!   H — Algebraic Property Tests (4 tests: all active)
 
 use test_harness::helpers::{mesh_bounding_box, mesh_volume};
 use test_harness::ModelBuilder;
@@ -77,9 +78,9 @@ fn a1_boss_on_top_face_circle_union() {
 }
 
 /// A2: Circle boss on z=0 bottom face, extruded downward. Tests non-default direction.
-/// Coplanar face at z=0 with non-standard extrude direction causes truck boolean failure.
+/// Coplanar face at z=0 with non-standard extrude direction.
+/// Previously ignored — fixed by Sprint 5 parity ray-cast consistency.
 #[test]
-#[ignore]
 fn a2_boss_on_bottom_face_circle_union() {
     let mut m = base_cube();
 
@@ -589,8 +590,8 @@ fn e1_very_thin_boss() {
 }
 
 /// E2: Boss with radius exceeding face boundary.
+/// Previously ignored — fixed by Sprint 5 parity ray-cast consistency.
 #[test]
-#[ignore]
 fn e2_very_large_boss_exceeds_face() {
     let mut m = base_cube();
 
@@ -970,8 +971,8 @@ fn f5_chained_extrude_cut_diagnostic() {
 // ══════════════════════════════════════════════════════════════════════════════
 // Tests that verify the truck coplanar boolean pipeline works correctly.
 // Boss merges no longer need the eps offset hack (coplanar faces handled
-// directly by the truck pipeline). Cuts still use a small eps=0.01 for
-// cylinder-box coplanar robustness.
+// directly by the truck pipeline). Cuts still use eps=0.1 for cylinder-box
+// coplanar robustness (0.01 and 0.05 break b1/b3 circle-cut tests).
 
 /// Rect boss auto-union on cube top — coplanar entry face, no eps offset.
 /// Exercises the coplanar detection + classification + weld pipeline
@@ -1003,6 +1004,11 @@ fn g1_rect_boss_coplanar_auto_union() {
         cube_vol,
         merged_vol
     );
+    assert!(
+        merged_vol > 1050.0 && merged_vol < 1110.0,
+        "Merged vol should be ~1080 (cube+boss), got {:.0}",
+        merged_vol
+    );
 }
 
 /// Stacked boxes with coplanar face at z=10 — no volumetric overlap.
@@ -1028,8 +1034,8 @@ fn g2_stacked_boxes_coplanar_face() {
     let vol = mesh_volume(&mesh);
     // box1=1000, box2=1000, no volumetric overlap (stacked) → total≈2000
     assert!(
-        vol > 1800.0 && vol < 2200.0,
-        "Stacked vol should be ~2000, got {:.0}",
+        vol > 1940.0 && vol < 2060.0,
+        "Stacked vol should be ~2000 (within 3%), got {:.0}",
         vol
     );
 }
@@ -1051,5 +1057,176 @@ fn g3_full_face_rect_cut() {
         vol > 450.0 && vol < 560.0,
         "Cut vol should be ~500, got {:.0}",
         vol
+    );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Category H — Algebraic Property Tests (Sprint 5)
+// ══════════════════════════════════════════════════════════════════════════════
+// Property-based tests verifying boolean algebra invariants.
+// Uses two 10×10×10 boxes offset by (3,3,3) — overlapping but not axis-aligned,
+// avoiding coplanar special cases.
+
+/// H1: Union commutativity — A|B face count == B|A face count, volumes within 2%.
+#[test]
+fn h1_union_commutativity() {
+    // A | B
+    let mut m_ab = ModelBuilder::truck();
+    m_ab.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m_ab.extrude_no_merge("a", "sk_a", 10.0).unwrap();
+    m_ab.rect_sketch("sk_b", [3., 3., 3.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m_ab.extrude_no_merge("b", "sk_b", 10.0).unwrap();
+    m_ab.boolean_union("ab", "a", "b").unwrap();
+
+    // B | A
+    let mut m_ba = ModelBuilder::truck();
+    m_ba.rect_sketch("sk_b", [3., 3., 3.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m_ba.extrude_no_merge("b", "sk_b", 10.0).unwrap();
+    m_ba.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m_ba.extrude_no_merge("a", "sk_a", 10.0).unwrap();
+    m_ba.boolean_union("ba", "b", "a").unwrap();
+
+    let mesh_ab = m_ab.tessellate("ab").unwrap();
+    let mesh_ba = m_ba.tessellate("ba").unwrap();
+    let vol_ab = mesh_volume(&mesh_ab);
+    let vol_ba = mesh_volume(&mesh_ba);
+
+    let (_, _, f_ab) = m_ab.topology_counts("ab").unwrap();
+    let (_, _, f_ba) = m_ba.topology_counts("ba").unwrap();
+
+    assert_eq!(
+        f_ab, f_ba,
+        "Union commutativity: A|B faces ({}) != B|A faces ({})",
+        f_ab, f_ba
+    );
+    let pct = ((vol_ab - vol_ba) / vol_ab).abs();
+    assert!(
+        pct < 0.02,
+        "Union commutativity: volumes differ by {:.1}% (A|B={:.0}, B|A={:.0})",
+        pct * 100.0,
+        vol_ab,
+        vol_ba
+    );
+}
+
+/// H2: Intersection commutativity — A&B volume == B&A volume within 2%.
+#[test]
+fn h2_intersection_commutativity() {
+    // A & B
+    let mut m_ab = ModelBuilder::truck();
+    m_ab.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m_ab.extrude_no_merge("a", "sk_a", 10.0).unwrap();
+    m_ab.rect_sketch("sk_b", [3., 3., 3.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m_ab.extrude_no_merge("b", "sk_b", 10.0).unwrap();
+    m_ab.boolean_intersect("ab", "a", "b").unwrap();
+
+    // B & A
+    let mut m_ba = ModelBuilder::truck();
+    m_ba.rect_sketch("sk_b", [3., 3., 3.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m_ba.extrude_no_merge("b", "sk_b", 10.0).unwrap();
+    m_ba.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m_ba.extrude_no_merge("a", "sk_a", 10.0).unwrap();
+    m_ba.boolean_intersect("ba", "b", "a").unwrap();
+
+    let mesh_ab = m_ab.tessellate("ab").unwrap();
+    let mesh_ba = m_ba.tessellate("ba").unwrap();
+    let vol_ab = mesh_volume(&mesh_ab);
+    let vol_ba = mesh_volume(&mesh_ba);
+
+    let pct = ((vol_ab - vol_ba) / vol_ab).abs();
+    assert!(
+        pct < 0.02,
+        "Intersection commutativity: volumes differ by {:.1}% (A&B={:.0}, B&A={:.0})",
+        pct * 100.0,
+        vol_ab,
+        vol_ba
+    );
+    // Intersection of overlapping 7×7×7 region → ~343
+    assert!(
+        vol_ab > 320.0 && vol_ab < 370.0,
+        "Intersection volume should be ~343, got {:.0}",
+        vol_ab
+    );
+}
+
+/// H3: Union idempotence — A|A volume ≈ A volume (within 5%).
+#[test]
+fn h3_union_idempotence() {
+    let mut m = ModelBuilder::truck();
+    m.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m.extrude_no_merge("a", "sk_a", 10.0).unwrap();
+
+    let mesh_a = m.tessellate("a").unwrap();
+    let vol_a = mesh_volume(&mesh_a);
+
+    // Create a second copy for A|A
+    m.rect_sketch("sk_a2", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m.extrude_no_merge("a2", "sk_a2", 10.0).unwrap();
+    m.boolean_union("aa", "a", "a2").unwrap();
+
+    let mesh_aa = m.tessellate("aa").unwrap();
+    let vol_aa = mesh_volume(&mesh_aa);
+
+    let pct = ((vol_aa - vol_a) / vol_a).abs();
+    assert!(
+        pct < 0.05,
+        "Union idempotence: A|A volume differs by {:.1}% (A={:.0}, A|A={:.0})",
+        pct * 100.0,
+        vol_a,
+        vol_aa
+    );
+}
+
+/// H4: Difference non-commutativity — A\B bounding box ≠ B\A bounding box.
+#[test]
+fn h4_difference_non_commutative() {
+    // A \ B
+    let mut m_ab = ModelBuilder::truck();
+    m_ab.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m_ab.extrude_no_merge("a", "sk_a", 10.0).unwrap();
+    m_ab.rect_sketch("sk_b", [3., 3., 3.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m_ab.extrude_no_merge("b", "sk_b", 10.0).unwrap();
+    m_ab.boolean_subtract("ab", "a", "b").unwrap();
+
+    // B \ A
+    let mut m_ba = ModelBuilder::truck();
+    m_ba.rect_sketch("sk_b", [3., 3., 3.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m_ba.extrude_no_merge("b", "sk_b", 10.0).unwrap();
+    m_ba.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m_ba.extrude_no_merge("a", "sk_a", 10.0).unwrap();
+    m_ba.boolean_subtract("ba", "b", "a").unwrap();
+
+    let mesh_ab = m_ab.tessellate("ab").unwrap();
+    let mesh_ba = m_ba.tessellate("ba").unwrap();
+    let bb_ab = mesh_bounding_box(&mesh_ab);
+    let bb_ba = mesh_bounding_box(&mesh_ba);
+
+    // Bounding boxes should differ (non-commutative)
+    let min_differs = (bb_ab.0[0] - bb_ba.0[0]).abs() > 0.5
+        || (bb_ab.0[1] - bb_ba.0[1]).abs() > 0.5
+        || (bb_ab.0[2] - bb_ba.0[2]).abs() > 0.5;
+    let max_differs = (bb_ab.1[0] - bb_ba.1[0]).abs() > 0.5
+        || (bb_ab.1[1] - bb_ba.1[1]).abs() > 0.5
+        || (bb_ab.1[2] - bb_ba.1[2]).abs() > 0.5;
+
+    assert!(
+        min_differs || max_differs,
+        "Difference should be non-commutative: A\\B bbox={:?}, B\\A bbox={:?}",
+        bb_ab,
+        bb_ba
     );
 }
