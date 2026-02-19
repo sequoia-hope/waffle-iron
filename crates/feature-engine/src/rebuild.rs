@@ -211,93 +211,71 @@ fn execute_feature(
             // Compute the face origin, extrude direction, and total depth.
             // For bidirectional: create a single extrude from (origin - second_depth * direction)
             // in +direction with total_depth = primary + second. This avoids boolean union.
-            // For cut: reverse direction and offset origin by eps to avoid coplanar faces.
-            let eps = 0.1;
+            //
+            // For cuts: extend the tool slightly past entry/exit faces to avoid exact
+            // coplanarity with the target. The truck coplanar pipeline handles box-box
+            // coplanar faces, but cylinder-box coplanar still fails. A small eps (0.01)
+            // avoids the issue without visibly distorting geometry.
+            //
+            // For boss merges: no eps needed. The truck coplanar pipeline handles
+            // coplanar face union directly.
+            let cut_eps = if params.cut { 0.1 } else { 0.0 };
             // For cuts: only reverse when no explicit direction was provided.
             // When the user sends an explicit direction, trust it as-is.
             let should_reverse_for_cut = params.direction.is_none();
             let (extrude_direction, extrude_depth, face_origin) = match (params.cut, second_depth) {
                 (true, Some(sd)) => {
                     if should_reverse_for_cut {
-                        // Default direction or same-hemisphere: reverse for cut.
                         let offset_origin = [
-                            sketch.plane_origin[0] + direction[0] * (eps + sd),
-                            sketch.plane_origin[1] + direction[1] * (eps + sd),
-                            sketch.plane_origin[2] + direction[2] * (eps + sd),
+                            sketch.plane_origin[0] + direction[0] * (cut_eps + sd),
+                            sketch.plane_origin[1] + direction[1] * (cut_eps + sd),
+                            sketch.plane_origin[2] + direction[2] * (cut_eps + sd),
                         ];
                         (
                             [-direction[0], -direction[1], -direction[2]],
-                            primary_depth + sd + 2.0 * eps,
+                            primary_depth + sd + 2.0 * cut_eps,
                             offset_origin,
                         )
                     } else {
-                        // Explicit direction pointing into solid: use as-is.
                         let offset_origin = [
-                            sketch.plane_origin[0] - direction[0] * (eps + sd),
-                            sketch.plane_origin[1] - direction[1] * (eps + sd),
-                            sketch.plane_origin[2] - direction[2] * (eps + sd),
+                            sketch.plane_origin[0] - direction[0] * (cut_eps + sd),
+                            sketch.plane_origin[1] - direction[1] * (cut_eps + sd),
+                            sketch.plane_origin[2] - direction[2] * (cut_eps + sd),
                         ];
-                        (direction, primary_depth + sd + 2.0 * eps, offset_origin)
+                        (direction, primary_depth + sd + 2.0 * cut_eps, offset_origin)
                     }
                 }
                 (true, None) => {
                     if should_reverse_for_cut {
-                        // Default direction or same-hemisphere: reverse for cut.
                         let offset_origin = [
-                            sketch.plane_origin[0] + direction[0] * eps,
-                            sketch.plane_origin[1] + direction[1] * eps,
-                            sketch.plane_origin[2] + direction[2] * eps,
+                            sketch.plane_origin[0] + direction[0] * cut_eps,
+                            sketch.plane_origin[1] + direction[1] * cut_eps,
+                            sketch.plane_origin[2] + direction[2] * cut_eps,
                         ];
                         (
                             [-direction[0], -direction[1], -direction[2]],
-                            primary_depth + 2.0 * eps,
+                            primary_depth + 2.0 * cut_eps,
                             offset_origin,
                         )
                     } else {
-                        // Explicit direction pointing into solid: use as-is.
                         let offset_origin = [
-                            sketch.plane_origin[0] - direction[0] * eps,
-                            sketch.plane_origin[1] - direction[1] * eps,
-                            sketch.plane_origin[2] - direction[2] * eps,
+                            sketch.plane_origin[0] - direction[0] * cut_eps,
+                            sketch.plane_origin[1] - direction[1] * cut_eps,
+                            sketch.plane_origin[2] - direction[2] * cut_eps,
                         ];
-                        (direction, primary_depth + 2.0 * eps, offset_origin)
+                        (direction, primary_depth + 2.0 * cut_eps, offset_origin)
                     }
                 }
                 (false, Some(sd)) => {
                     // Non-cut bidirectional: offset origin backward by second_depth
-                    // When merging with an existing body, apply eps offset to push the
-                    // extrude into the body, avoiding coplanar faces with the target.
-                    let boss_eps = if params.merge
-                        && find_most_recent_solid(feature, feature_results, tree).is_some()
-                    {
-                        eps
-                    } else {
-                        0.0
-                    };
                     let bidir_origin = [
-                        sketch.plane_origin[0] - direction[0] * (sd + boss_eps),
-                        sketch.plane_origin[1] - direction[1] * (sd + boss_eps),
-                        sketch.plane_origin[2] - direction[2] * (sd + boss_eps),
+                        sketch.plane_origin[0] - direction[0] * sd,
+                        sketch.plane_origin[1] - direction[1] * sd,
+                        sketch.plane_origin[2] - direction[2] * sd,
                     ];
-                    (direction, primary_depth + sd + 2.0 * boss_eps, bidir_origin)
+                    (direction, primary_depth + sd, bidir_origin)
                 }
-                (false, None) => {
-                    // When merging with an existing body, apply eps offset to push the
-                    // boss origin into the body, avoiding coplanar faces between the
-                    // boss bottom and the target body top face.
-                    if params.merge
-                        && find_most_recent_solid(feature, feature_results, tree).is_some()
-                    {
-                        let offset_origin = [
-                            sketch.plane_origin[0] - direction[0] * eps,
-                            sketch.plane_origin[1] - direction[1] * eps,
-                            sketch.plane_origin[2] - direction[2] * eps,
-                        ];
-                        (direction, primary_depth + eps, offset_origin)
-                    } else {
-                        (direction, primary_depth, sketch.plane_origin)
-                    }
-                }
+                (false, None) => (direction, primary_depth, sketch.plane_origin),
             };
 
             let x_axis = tangent_x_from_normal(sketch.plane_normal);

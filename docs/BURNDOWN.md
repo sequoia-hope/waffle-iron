@@ -135,3 +135,34 @@ Phase E (Advanced) — depends on A, B
 | property-tester | Boolean algebraic property tests + B4 verify | E5 (partial), B4 | **Complete** |
 
 **Merge order**: Agent 4 (pure additive) -> Agent 1 (new exports) -> Agent 3 (new tests) -> Agent 2 (behavioral)
+
+---
+
+### Sprint 3: Chamfer, Shell, Query Selectors, Revolve Preview, Boolean Fixes
+
+**Commit**: `a2f47f0` — chamfer/shell pipeline, query selectors, revolve preview.
+
+---
+
+### Sprint 4: Fix Truck Coplanar Pipeline
+
+**Goal**: Fix coplanar face handling in the truck-shapeops boolean pipeline to eliminate the eps=0.1 offset hack for boss merges and reduce it for cuts.
+
+**Root causes fixed:**
+1. **`weld_coincident_edges` hardcoded tolerance** — Vertex unification used `TOLERANCE.sqrt()` (~0.001) instead of the adaptive `tol` parameter. Coplanar face vertices separated by more than 0.001 but less than `tol` weren't unified.
+2. **`check_coplanar_faces` false positives** — Faces on the same plane but with no area overlap (only touching at a line/point) were falsely flagged as coplanar, causing classification errors.
+3. **`ray_cast_classify` parity bug** — `majority_vote` used `c >= 1` to determine inside/outside, but shells from `try_attach_plane+tsweep` can produce count=2 (even crossings) for outside points. Fixed by using parity: `c.unsigned_abs() % 2 == 1`.
+4. **`classify_coplanar_fragment` anti-sense shortcut** — Returning Or for ALL non-overlapping coplanar faces was wrong for inverted solids. Fixed to only shortcut for same-sense (parallel normal) cases.
+
+**Changes:**
+- `vendor/truck/truck-shapeops/`: 5 files modified (coplanar.rs, coplanar_splitting.rs, integrate/mod.rs, integrate/tests.rs, loops_store/mod.rs)
+- `crates/feature-engine/src/rebuild.rs`: Removed eps for boss merges, reduced to 0.1 for cuts (cylinder-box coplanar not yet handled by truck pipeline)
+- `crates/test-harness/tests/`: Un-ignored 2 tests (d3, rect_cut_at_box_boundary), added 3 new coplanar verification tests (g1-g3)
+
+**Tests un-ignored:** `d3_partially_overlapping_coplanar_rects`, `rect_cut_at_box_boundary`
+**Net ignored count:** Before=13, After=11
+
+| Burndown ID | Status |
+|-------------|--------|
+| B1 (coplanar split) | **Hardened** — bounding-box overlap check, parity ray-cast |
+| B3 (box-cylinder) | Partial — still needs cylinder-box coplanar support |

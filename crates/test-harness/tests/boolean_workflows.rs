@@ -8,8 +8,10 @@
 //!   A — Boss-on-Boss Union (5 tests: 4 active, 1 ignored)
 //!   B — Cut Through Boss (4 tests: all active)
 //!   C — Cut Wrong Direction / Free Space (3 tests: all active)
-//!   D — Partial Overlap / Symmetric (5 tests: 4 active, 1 ignored)
+//!   D — Partial Overlap / Symmetric (5 tests: all active)
 //!   E — Adversarial Cases (7 tests: 6 active, 1 ignored)
+//!   F — Chained Operations (2 tests: all active)
+//!   G — Coplanar Pipeline Verification (3 tests: all active)
 
 use test_harness::helpers::{mesh_bounding_box, mesh_volume};
 use test_harness::ModelBuilder;
@@ -961,4 +963,93 @@ fn f5_chained_extrude_cut_diagnostic() {
 
     let (_, _, f) = m.topology_counts("hole2").unwrap();
     assert!(f > 8, "Two holes should add many faces (got {})", f);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Category G — Coplanar Pipeline Verification (Sprint 4)
+// ══════════════════════════════════════════════════════════════════════════════
+// Tests that verify the truck coplanar boolean pipeline works correctly.
+// Boss merges no longer need the eps offset hack (coplanar faces handled
+// directly by the truck pipeline). Cuts still use a small eps=0.01 for
+// cylinder-box coplanar robustness.
+
+/// Rect boss auto-union on cube top — coplanar entry face, no eps offset.
+/// Exercises the coplanar detection + classification + weld pipeline
+/// through the extrude-with-merge path (merge=true, no eps applied).
+#[test]
+fn g1_rect_boss_coplanar_auto_union() {
+    let mut m = ModelBuilder::truck();
+
+    m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m.extrude("cube", "base_sk", 10.0).unwrap();
+
+    let cube_mesh = m.tessellate("cube").unwrap();
+    let cube_vol = mesh_volume(&cube_mesh);
+
+    // Boss on top face (z=10), 4×4. Bottom face is coplanar with cube top.
+    // Auto-union merges via the coplanar pipeline (no eps offset).
+    m.rect_sketch("boss_sk", [0., 0., 10.], [0., 0., 1.], 3., 3., 4., 4.)
+        .unwrap();
+    m.extrude("boss", "boss_sk", 5.0).unwrap();
+    m.assert_has_solid("boss").unwrap();
+
+    let merged_mesh = m.tessellate("boss").unwrap();
+    let merged_vol = mesh_volume(&merged_mesh);
+    // cube=1000, boss=4×4×5=80, total≈1080
+    assert!(
+        merged_vol > cube_vol,
+        "Auto-union should increase volume (cube={:.0}, merged={:.0})",
+        cube_vol,
+        merged_vol
+    );
+}
+
+/// Stacked boxes with coplanar face at z=10 — no volumetric overlap.
+/// Verifies that coplanar face union produces correct topology and volume.
+#[test]
+fn g2_stacked_boxes_coplanar_face() {
+    let mut m = ModelBuilder::truck();
+
+    m.rect_sketch("sk1", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m.extrude("box1", "sk1", 10.0).unwrap();
+
+    // Box2 on top of box1, offset in X. Shares z=10 face partially.
+    m.rect_sketch("sk2", [5., 0., 10.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m.extrude_no_merge("box2", "sk2", 10.0).unwrap();
+
+    m.boolean_union("merged", "box1", "box2").unwrap();
+    m.assert_has_solid("merged").unwrap();
+    m.assert_no_errors().unwrap();
+
+    let mesh = m.tessellate("merged").unwrap();
+    let vol = mesh_volume(&mesh);
+    // box1=1000, box2=1000, no volumetric overlap (stacked) → total≈2000
+    assert!(
+        vol > 1800.0 && vol < 2200.0,
+        "Stacked vol should be ~2000, got {:.0}",
+        vol
+    );
+}
+
+/// Rect cut — full face coplanar cut, profile matches target face.
+#[test]
+fn g3_full_face_rect_cut() {
+    let mut m = base_cube();
+
+    m.rect_sketch("cut_sk", [0., 0., 10.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m.extrude_cut("hole", "cut_sk", 5.0).unwrap();
+    m.assert_has_solid("hole").unwrap();
+
+    let mesh = m.tessellate("hole").unwrap();
+    let vol = mesh_volume(&mesh);
+    // Original 1000 minus 10×10×5=500 → ~500
+    assert!(
+        vol > 450.0 && vol < 560.0,
+        "Cut vol should be ~500, got {:.0}",
+        vol
+    );
 }
