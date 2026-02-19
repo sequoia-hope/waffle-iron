@@ -25,6 +25,8 @@ pub struct Engine {
     pub warnings: Vec<String>,
     /// Errors from the last rebuild.
     pub errors: Vec<(Uuid, String)>,
+    /// Feature IDs consumed by a later boolean (should not be rendered).
+    pub consumed_features: std::collections::HashSet<Uuid>,
     /// Undo/redo history.
     undo_stack: UndoStack,
 }
@@ -37,6 +39,7 @@ impl Engine {
             feature_results: HashMap::new(),
             warnings: Vec::new(),
             errors: Vec::new(),
+            consumed_features: std::collections::HashSet::new(),
             undo_stack: UndoStack::new(),
         }
     }
@@ -327,6 +330,7 @@ impl Engine {
         self.feature_results.extend(state.feature_results);
         self.warnings = state.warnings;
         self.errors = state.errors;
+        self.consumed_features = state.consumed_features;
     }
 
     /// Full rebuild from scratch (clears all results first).

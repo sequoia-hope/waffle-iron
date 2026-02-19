@@ -1016,6 +1016,11 @@ impl ModelBuilder {
         &self.state.engine.errors
     }
 
+    /// Get feature IDs consumed by successful boolean operations.
+    pub fn consumed_features(&self) -> &std::collections::HashSet<Uuid> {
+        &self.state.engine.consumed_features
+    }
+
     /// Get the OpResult for a named feature (if it has one).
     pub fn op_result(&self, name: &str) -> Result<&OpResult, HarnessError> {
         let id = self.feature_id(name)?;

@@ -23,6 +23,9 @@ pub struct RebuildState {
     pub warnings: Vec<String>,
     /// Features that failed to rebuild, with error messages.
     pub errors: Vec<(Uuid, String)>,
+    /// Feature IDs whose solid was consumed by a later boolean union.
+    /// These features should not be rendered (their geometry is merged into the consuming feature).
+    pub consumed_features: std::collections::HashSet<Uuid>,
 }
 
 /// Rebuild the feature tree from scratch (or from a change point).
@@ -38,6 +41,7 @@ pub fn rebuild(
         feature_results: HashMap::new(),
         warnings: Vec::new(),
         errors: Vec::new(),
+        consumed_features: std::collections::HashSet::new(),
     };
 
     // Carry forward results from features before the rebuild point
@@ -58,8 +62,26 @@ pub fn rebuild(
         // Resolve any GeomRef references before executing the feature
         resolve_feature_refs(feature, &state.feature_results, &mut state.warnings);
 
+        // Track which feature's solid would be consumed by a successful merge
+        let merge_target_id = find_merge_target_id(feature, &state.feature_results, tree);
+
         match execute_feature(feature, kb, &state.feature_results, tree) {
             Ok(result) => {
+                for w in &result.diagnostics.warnings {
+                    state.warnings.push(format!("{}: {}", feature.name, w));
+                }
+                // If this was a merge/boolean that succeeded (no auto-union fallback warning),
+                // mark the target feature as consumed so it doesn't render.
+                if let Some(target_id) = merge_target_id {
+                    let union_failed = result
+                        .diagnostics
+                        .warnings
+                        .iter()
+                        .any(|w| w.contains("Auto-union failed"));
+                    if !union_failed {
+                        state.consumed_features.insert(target_id);
+                    }
+                }
                 state.feature_results.insert(feature.id, result);
             }
             Err(e) => {
@@ -248,14 +270,39 @@ fn execute_feature(
                 }
                 (false, Some(sd)) => {
                     // Non-cut bidirectional: offset origin backward by second_depth
+                    // When merging with an existing body, apply eps offset to push the
+                    // extrude into the body, avoiding coplanar faces with the target.
+                    let boss_eps = if params.merge
+                        && find_most_recent_solid(feature, feature_results, tree).is_some()
+                    {
+                        eps
+                    } else {
+                        0.0
+                    };
                     let bidir_origin = [
-                        sketch.plane_origin[0] - direction[0] * sd,
-                        sketch.plane_origin[1] - direction[1] * sd,
-                        sketch.plane_origin[2] - direction[2] * sd,
+                        sketch.plane_origin[0] - direction[0] * (sd + boss_eps),
+                        sketch.plane_origin[1] - direction[1] * (sd + boss_eps),
+                        sketch.plane_origin[2] - direction[2] * (sd + boss_eps),
                     ];
-                    (direction, primary_depth + sd, bidir_origin)
+                    (direction, primary_depth + sd + 2.0 * boss_eps, bidir_origin)
                 }
-                (false, None) => (direction, primary_depth, sketch.plane_origin),
+                (false, None) => {
+                    // When merging with an existing body, apply eps offset to push the
+                    // boss origin into the body, avoiding coplanar faces between the
+                    // boss bottom and the target body top face.
+                    if params.merge
+                        && find_most_recent_solid(feature, feature_results, tree).is_some()
+                    {
+                        let offset_origin = [
+                            sketch.plane_origin[0] - direction[0] * eps,
+                            sketch.plane_origin[1] - direction[1] * eps,
+                            sketch.plane_origin[2] - direction[2] * eps,
+                        ];
+                        (direction, primary_depth + eps, offset_origin)
+                    } else {
+                        (direction, primary_depth, sketch.plane_origin)
+                    }
+                }
             };
 
             let x_axis = tangent_x_from_normal(sketch.plane_normal);
@@ -313,7 +360,14 @@ fn execute_feature(
                         match execute_boolean(kb, &target_handle, &tool_handle, BooleanKind::Union)
                         {
                             Ok(union_result) => Ok(union_result),
-                            Err(_) => Ok(extrude_result),
+                            Err(e) => {
+                                let mut result = extrude_result;
+                                result.diagnostics.warnings.push(format!(
+                                    "Auto-union failed: {}. Body created as standalone.",
+                                    e
+                                ));
+                                Ok(result)
+                            }
                         }
                     } else {
                         Ok(extrude_result)
@@ -625,6 +679,54 @@ fn find_latest_solid_handle(
     })?;
 
     find_solid_handle(geom_ref, feature_results)
+}
+
+/// Find the feature ID of the most recent solid that would be consumed by a merge/boolean.
+///
+/// Returns `Some(id)` if this feature will perform an auto-union (extrude with merge=true
+/// and an existing body exists), or a cut (which also consumes the target). Returns `None`
+/// for features that don't consume another body.
+fn find_merge_target_id(
+    feature: &Feature,
+    feature_results: &HashMap<Uuid, OpResult>,
+    tree: &FeatureTree,
+) -> Option<Uuid> {
+    match &feature.operation {
+        Operation::Extrude { params } if params.merge || params.cut => {
+            // Find the most recent feature with a Main solid output
+            let active = tree.active_features();
+            for f in active.iter().rev() {
+                if f.id == feature.id || f.suppressed {
+                    continue;
+                }
+                if matches!(
+                    &f.operation,
+                    Operation::Sketch { .. } | Operation::DatumPlane { .. }
+                ) {
+                    continue;
+                }
+                if let Some(result) = feature_results.get(&f.id) {
+                    if result
+                        .outputs
+                        .iter()
+                        .any(|(key, _)| *key == OutputKey::Main)
+                    {
+                        return Some(f.id);
+                    }
+                }
+            }
+            None
+        }
+        Operation::BooleanCombine { params } => {
+            // The body_a feature is consumed by the boolean
+            if let waffle_types::Anchor::FeatureOutput { feature_id, .. } = &params.body_a.anchor {
+                Some(*feature_id)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
 }
 
 /// Find the most recent solid handle from features built before the given feature.

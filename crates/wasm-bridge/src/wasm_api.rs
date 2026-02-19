@@ -10,7 +10,7 @@ use crate::engine_state::EngineState;
 use crate::messages::{EngineToUi, UiToEngine};
 use kernel_fork::RenderMesh;
 use modeling_ops::KernelBundle;
-use waffle_types::{Anchor, GeomRef, OutputKey, ResolvePolicy, Selector, TopoKind, TopoSignature};
+use waffle_types::{Anchor, GeomRef, ResolvePolicy, Selector, TopoKind, TopoSignature};
 
 // Global engine state — single-threaded in the web worker.
 thread_local! {
@@ -180,6 +180,41 @@ pub fn get_mesh_count() -> usize {
             }
         }
         count
+    })
+}
+
+/// Get which feature indices should be rendered.
+///
+/// Returns indices of features that have mesh data and are NOT consumed
+/// by a later boolean operation. When a boolean union succeeds, the target
+/// feature is consumed (its geometry is merged into the result feature).
+/// When union fails, both features are renderable (multi-body mode).
+#[wasm_bindgen]
+pub fn get_renderable_feature_indices() -> js_sys::Uint32Array {
+    ENGINE_STATE.with(|cell| {
+        let engine = cell.borrow();
+        let engine = match engine.as_ref() {
+            Some(e) => e,
+            None => return js_sys::Uint32Array::new_with_length(0),
+        };
+
+        let consumed = &engine.state.engine.consumed_features;
+        let mut indices = Vec::new();
+
+        for (i, feature) in engine.state.engine.tree.features.iter().enumerate() {
+            if consumed.contains(&feature.id) {
+                continue;
+            }
+            if let Some(result) = engine.state.engine.feature_results.get(&feature.id) {
+                if result.outputs.iter().any(|(_, body)| body.mesh.is_some()) {
+                    indices.push(i as u32);
+                }
+            }
+        }
+
+        let arr = js_sys::Uint32Array::new_with_length(indices.len() as u32);
+        arr.copy_from(&indices);
+        arr
     })
 }
 

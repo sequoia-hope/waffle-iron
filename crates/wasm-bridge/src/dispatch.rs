@@ -210,6 +210,7 @@ fn model_updated_response(state: &EngineState) -> EngineToUi {
         meshes: Vec::new(),
         edges: Vec::new(),
         errors: state.engine.errors.clone(),
+        warnings: state.engine.warnings.clone(),
     }
 }
 

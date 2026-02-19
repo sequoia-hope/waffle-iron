@@ -146,6 +146,9 @@ pub enum EngineToUi {
         /// Errors from features that failed during rebuild (feature_id, message).
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         errors: Vec<(Uuid, String)>,
+        /// Non-fatal warnings from rebuild (e.g., auto-union fallback).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        warnings: Vec<String>,
     },
 
     /// Sketch constraint solver completed.

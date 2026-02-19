@@ -115,6 +115,20 @@ export function get_mesh_vertices(feature_index) {
 }
 
 /**
+ * Get which feature indices should be rendered.
+ *
+ * Returns indices of features that have mesh data and are NOT consumed
+ * by a later boolean operation. When a boolean union succeeds, the target
+ * feature is consumed (its geometry is merged into the result feature).
+ * When union fails, both features are renderable (multi-body mode).
+ * @returns {Uint32Array}
+ */
+export function get_renderable_feature_indices() {
+    const ret = wasm.get_renderable_feature_indices();
+    return ret;
+}
+
+/**
  * Initialize the WASM engine. Must be called once before any other function.
  *
  * Sets up panic hooks for better error messages and creates the engine state.
@@ -171,6 +185,10 @@ function __wbg_get_imports() {
             const ret = arg0.getTime();
             return ret;
         },
+        __wbg_length_1e8b0a6e52c08b9a: function(arg0) {
+            const ret = arg0.length;
+            return ret;
+        },
         __wbg_new_0_73afc35eb544e539: function() {
             const ret = new Date();
             return ret;
@@ -186,6 +204,9 @@ function __wbg_get_imports() {
         __wbg_new_with_length_63f2683cc2521026: function(arg0) {
             const ret = new Float32Array(arg0 >>> 0);
             return ret;
+        },
+        __wbg_set_b2171b8c53f17490: function(arg0, arg1, arg2) {
+            arg0.set(getArrayU32FromWasm0(arg1, arg2));
         },
         __wbg_stack_0ed75d68575b0f3c: function(arg0, arg1) {
             const ret = arg1.stack;

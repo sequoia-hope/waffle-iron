@@ -175,6 +175,14 @@ export async function initEngine() {
 				showToast('error', `Feature failed: ${errorMsg}`);
 			}
 		}
+
+		// Surface non-fatal warnings (e.g. auto-union fallback)
+		if (msg.warnings && msg.warnings.length > 0) {
+			for (const warning of msg.warnings) {
+				log('warning', warning);
+				showToast('warning', warning);
+			}
+		}
 	});
 
 	bridge.on('sketchSolved', (msg) => {
