@@ -8,6 +8,9 @@ members = [
     "crates/wasm-bridge",
     "crates/file-format",
     "crates/test-harness",
+    # Vendored truck crates — included as workspace members so we can
+    # run `cargo test -p truck-shapeops` from the workspace root.
+    "vendor/truck/truck-shapeops",
 ]
 resolver = "2"
 

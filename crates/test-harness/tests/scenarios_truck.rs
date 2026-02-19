@@ -969,3 +969,47 @@ fn test_truck_flipped_extrude_strict_outward() {
         );
     }
 }
+
+/// Rect-on-rect cut: smaller rectangle cut from a larger box.
+/// This is the most common CAD cut scenario (pocket).
+#[test]
+fn test_truck_rect_cut_inside_box() {
+    let mut m = ModelBuilder::truck();
+
+    // Base 10x10x10 cube
+    m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m.extrude("cube", "base_sk", 10.0).unwrap();
+    m.assert_has_solid("cube").unwrap();
+
+    let cube_mesh = m.tessellate("cube").unwrap();
+    let cube_vol = mesh_signed_volume(&cube_mesh);
+
+    // Smaller 4x4 rect on top face (centered at 5,5), cut depth 5
+    m.rect_sketch("cut_sk", [0., 0., 10.], [0., 0., 1.], 3., 3., 4., 4.)
+        .unwrap();
+    m.extrude_cut("pocket", "cut_sk", 5.0).unwrap();
+    m.assert_has_solid("pocket").unwrap();
+    m.assert_no_errors().unwrap();
+
+    let cut_mesh = m.tessellate("pocket").unwrap();
+    assert!(
+        !cut_mesh.indices.is_empty(),
+        "Cut mesh should have triangles"
+    );
+
+    let cut_vol = mesh_signed_volume(&cut_mesh);
+    assert!(
+        cut_vol.abs() < cube_vol.abs(),
+        "Pocket cut should reduce volume (cube={:.0}, cut={:.0})",
+        cube_vol,
+        cut_vol
+    );
+
+    let (_, _, f) = m.topology_counts("pocket").unwrap();
+    assert!(
+        f > 6,
+        "Pocket cut should add faces beyond original 6 (got {})",
+        f
+    );
+}
