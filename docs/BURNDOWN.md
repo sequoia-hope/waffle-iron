@@ -14,12 +14,13 @@ Lays the infrastructure all subsequent boolean work depends on.
 
 | ID | Item | Pri | Size | Deps | Crates | Status |
 |----|------|-----|------|------|--------|--------|
-| A1 | Structured `BooleanError` enum replacing `Option<Solid>` | P0 | M | — | kernel-fork/types.rs, truck-shapeops/integrate, kernel-fork/truck_kernel.rs | **Complete** (Sprint 1) |
-| A2 | `BooleanOptions` tolerance context (tau_model/mesh/weld/work/coplanar) | P0 | M | — | kernel-fork/types.rs, kernel-fork/truck_kernel.rs, kernel-fork/healing.rs | **Partial** — `tau_model` threaded; others use defaults |
-| A3 | Robust geometric predicates (`robust` crate) in ray-cast classification | P1 | L | A1 | truck-shapeops/Cargo.toml, truck-shapeops/integrate, truck-shapeops/coplanar.rs | **Complete** (Sprint 1) |
+| A1 | Structured `BooleanError` enum replacing `Option<Solid>` | P0 | M | — | kernel-fork/types.rs, truck-shapeops/integrate, kernel-fork/truck_kernel.rs | **Complete** (Sprint 1). Note: `BooleanStageError` in truck-shapeops and `BooleanError` in kernel-fork are separate types with no `From` bridge. |
+| A2 | `BooleanOptions` tolerance context (tau_model/mesh/weld/work/coplanar) | P0 | M | — | kernel-fork/types.rs, kernel-fork/truck_kernel.rs, kernel-fork/healing.rs | **Implemented** — all 5 tolerance fields + `min_feature_size` + `validate()` in types.rs:141-265. Gap: NOT wired into truck-shapeops functions (they still take raw `tol: f64`). |
+| A3 | Robust geometric predicates (`robust` crate) in ray-cast classification | P1 | L | A1 | truck-shapeops/Cargo.toml, truck-shapeops/integrate, truck-shapeops/coplanar.rs | **Partial** (Sprint 1). `robust_orient2d` active in coplanar point-in-polygon. `robust_orient3d` and `robust_ray_triangle_cross` are dead code (`#[allow(dead_code)]`). Main ray-cast pipeline uses non-robust floating point path. |
 | A4 | Replace AND/OR tagging with `RelationToOther` classification | P2 | L | A1,A3 | truck-shapeops/loops_store, truck-shapeops/integrate, truck-shapeops/divide_face | **Deprioritized** — current AND/OR/Unknown works for all 4 ops |
+| A5 | Wire `BooleanOptions` through truck-shapeops functions | P1 | M | A2 | truck-shapeops/integrate, truck-shapeops/loops_store | **Not started** — `and_result`/`or_result`/`difference_result` take raw `tol: f64`; layered tolerances (tau_mesh, tau_weld, tau_coplanar) unused at shapeops call sites |
 
-**Parallelization**: A1 and A2 in parallel. A3 after A1. A4 after A1+A3.
+**Parallelization**: A1 and A2 in parallel. A3 after A1. A4 after A1+A3. A5 after A2.
 
 ---
 
@@ -28,12 +29,13 @@ Lays the infrastructure all subsequent boolean work depends on.
 | ID | Item | Pri | Size | Deps | Crates | Status |
 |----|------|-----|------|------|--------|--------|
 | B1 | Complete coplanar face splitting | P0 | XL | A1 | truck-shapeops/loops_store, coplanar_splitting.rs, integrate | **Hardened** (Sprint 4 — parity ray-cast, overlap check, same-sense shortcut) |
-| B2 | Add `difference()` and XOR boolean operations | P1 | M | A4 or standalone | truck-shapeops/integrate, kernel-fork/traits.rs, modeling-ops/boolean.rs | **Complete** (Sprint 1, difference only; XOR deferred) |
-| B3 | Box-cylinder boolean reliability | P1 | XL | A2,B1 | truck-shapeops/intersection_curve, kernel-fork/healing.rs | **Substantial** — punched-cube + chained booleans work via NURBS arc healing; boundary/corner edge cases remain |
-| B4 | `Solid::try_new` enforcement (no panics) | P1 | S | A1 | truck-shapeops/integrate | **Complete** (verified: no `Solid::new(` in non-test code) |
+| B2 | Add `difference()` and XOR boolean operations | P1 | M | A4 or standalone | truck-shapeops/integrate, kernel-fork/traits.rs, modeling-ops/boolean.rs | **Complete** (Sprint 1, difference only; XOR deferred — no `xor`/`sym_diff` function exists) |
+| B3 | Box-cylinder boolean reliability | P1 | XL | A2,B1 | truck-shapeops/intersection_curve, kernel-fork/healing.rs | **Substantial** — punched-cube + chained booleans work via NURBS arc healing (Sprint 6); e5 rewritten to pass using `extrude_directed_no_merge` + explicit `boolean_subtract`; `auto_union_stress` now passing (7/7); boundary/corner edge cases + g3 full-face cut remain |
+| B4 | `Solid::try_new` enforcement (no panics) | P1 | S | A1 | truck-shapeops/integrate | **Nearly complete** — all `Solid::` constructions use `try_new`. One remaining `Face::new` (panicking) at integrate/mod.rs:566 in Phase 2 of `weld_coincident_edges` edge substitution. |
 | B5 | `TouchingPolicy` for degenerate cases | P2 | M | A2,A4 | kernel-fork/types.rs, truck-shapeops/integrate | **Deprioritized** — no current test failures |
+| B6 | Fix `Face::new` in `weld_coincident_edges` Phase 2 | P1 | S | B4 | truck-shapeops/integrate/mod.rs:566 | **Not started** — Phase 0 uses `Face::try_new` correctly but Phase 2 (canonical edge substitution) still uses panicking `Face::new` |
 
-**Parallelization**: B1, B2, B4 in parallel. B3 after B1. B5 after A4.
+**Parallelization**: B1, B2, B4 in parallel. B3 after B1. B5 after A4. B6 after B4.
 
 ---
 
@@ -41,9 +43,9 @@ Lays the infrastructure all subsequent boolean work depends on.
 
 | ID | Item | Pri | Size | Deps | Crates | Status |
 |----|------|-----|------|------|--------|--------|
-| C1 | TruckKernel `chamfer_edges` (planar geometry only) | P1 | L | — | kernel-fork/truck_kernel.rs | **Complete** (Sprint 5.5 — chamfer works via boolean subtraction pipeline) |
-| C2 | TruckKernel `shell` (face offset + boundary rebuild) | P1 | XL | — | kernel-fork/truck_kernel.rs | Not started |
-| C3 | TruckKernel `fillet_edges` (rolling-ball surfaces) | P2 | XL | C1 | kernel-fork/truck_kernel.rs | Not started |
+| C1 | TruckKernel `chamfer_edges` (planar geometry only) | P1 | L | — | kernel-fork/truck_kernel.rs | **Complete** (Sprint 5.5 — chamfer works via boolean subtraction pipeline). Note: `test_truck_chamfer` ignore annotation ("NotSupported") is stale — chamfer is implemented. |
+| C2 | TruckKernel `shell` (face removal + boolean subtraction) | P1 | XL | — | kernel-fork/truck_kernel.rs | **Implemented** (Sprint 3 — planar faces only, boolean subtraction approach at truck_kernel.rs:585-850). Note: `test_truck_shell` ignore annotation ("NotSupported") is stale — shell is implemented for planar face removal. |
+| C3 | TruckKernel `fillet_edges` (rolling-ball surfaces) | P2 | XL | C1 | kernel-fork/truck_kernel.rs | **Not started** — truck-shapeops has a fillet module but it is NOT wired into TruckKernel. `test_truck_fillet` correctly returns NotSupported. |
 
 **Parallelization**: C1 and C2 in parallel. C3 after C1 (shares trimming infra).
 All of Phase C is independent of Phases A-B.
@@ -55,9 +57,9 @@ All of Phase C is independent of Phases A-B.
 | ID | Item | Pri | Size | Deps | Crates | Status |
 |----|------|-----|------|------|--------|--------|
 | D1 | Edge selection mode in 3D viewport | P0 | M | — | app/viewport/, app/engine/store.svelte.js, wasm-bridge/ | **Complete** (Sprint 2) |
-| D2 | Fillet dialog | P1 | M | D1,C3 | app/ui/FilletDialog.svelte, Toolbar.svelte | Not started |
-| D3 | Chamfer dialog | P1 | S | D1,C1 | app/ui/ChamferDialog.svelte, Toolbar.svelte | Not started |
-| D4 | Shell dialog | P1 | S | C2 | app/ui/ShellDialog.svelte, Toolbar.svelte | Not started |
+| D2 | Fillet dialog | P1 | M | D1,C3 | app/ui/FilletDialog.svelte, Toolbar.svelte | **UI shell exists** (Sprint 8) — FilletDialog.svelte created with "not yet supported" warning. Kernel wiring (C3) still missing. |
+| D3 | Chamfer dialog | P1 | S | D1,C1 | app/ui/ChamferDialog.svelte, Toolbar.svelte | **UI shell exists** (Sprint 8) — ChamferDialog.svelte created with "not yet supported" warning. Kernel is ready (C1 complete). Needs wiring. |
+| D4 | Shell dialog | P1 | S | C2 | app/ui/ShellDialog.svelte, Toolbar.svelte | **UI shell exists** (Sprint 8) — ShellDialog.svelte created. Kernel is ready (C2 implemented). Needs wiring. |
 | D5 | Revolve live preview (ghost mesh) | P2 | M | — | app/viewport/GhostPreview.svelte, RevolveDialog.svelte | Not started |
 
 **Parallelization**: D1 and D5 in parallel. D2/D3/D4 after their kernel + D1 deps.
@@ -84,18 +86,19 @@ Phase A (Foundation)
   A1 (BooleanError) ─────┬──────────────────────> Phase B1, B4
   A2 (BooleanOptions) ───┤                        Phase B3, B5, E3
   A3 (Robust Preds) ─────┤──> A4 (RelationToOther) ──> B5, E3
+  A5 (Wire Options) ─────┘──> uses A2
                           │
 Phase B (Hardening)       │
   B1 (Coplanar split) ───┤──> B3 (Box-cyl)
   B2 (difference/XOR) ───┤
-  B4 (try_new enforce) ──┘
-
+  B4 (try_new enforce) ──┤──> B6 (Face::new fix)
+                          │
 Phase C (Kernel Ops) — independent of A/B
   C1 (Chamfer) ──> C3 (Fillet)
   C2 (Shell)
 
 Phase D (UI) — depends on C
-  D1 (Edge select) ──> D2, D3
+  D1 (Edge select) ──> D2, D3, D4
   D5 (Revolve preview) — independent
 
 Phase E (Advanced) — depends on A, B
@@ -107,35 +110,33 @@ Phase E (Advanced) — depends on A, B
 
 ## Ignored Test Inventory
 
-**19 total ignored tests** across the workspace (down from 23 — Sprint 6 un-ignored 4).
+**17 total ignored tests** across the workspace (down from 19 — e5 rewritten as non-ignored F5, auto_union_stress un-ignored and passing).
 
-### Boolean-related (7 tests)
+### Boolean-related (5 tests)
 
 | Test | File | Reason |
 |------|------|--------|
-| `e5_multiple_non_overlapping_cuts` | test-harness/boolean_workflows.rs | Chained extrude_cut — first cut NoSolid |
-| `g3_full_face_rect_cut` | test-harness/boolean_workflows.rs | Full-face pocket cut shares all 4 boundary edges |
-| `rect_cut_coplanar_edges` | test-harness/boolean_failures.rs | Coplanar edge coincidence — boolean returns None |
-| `circle_cut_tangent_to_box_edge` | test-harness/boolean_failures.rs | Circle tangent to box edge — NoSolid |
-| `circle_cut_crossing_box_edge` | test-harness/boolean_failures.rs | Circle extending beyond face boundary |
-| `cut_from_angled_direction` | test-harness/boolean_failures.rs | Angled extrude direction not yet supported |
-| `auto_union_stress_various_positions` | test-harness/auto_union_detection.rs | Origin-corner coplanar boolean failure |
+| `g3_full_face_rect_cut` | test-harness/boolean_workflows.rs | Full-face pocket cut — all 4 boundary edges coincident produce NotSimpleWire. WIP fix in unstaged vendor/truck changes. |
+| `rect_cut_coplanar_edges` | test-harness/boolean_failures.rs | Coplanar edge coincidence — NotSimpleWire from divide_one_face |
+| `circle_cut_tangent_to_box_edge` | test-harness/boolean_failures.rs | Circle tangent to box edge — NoSolid from boolean |
+| `circle_cut_crossing_box_edge` | test-harness/boolean_failures.rs | Circle extending beyond face boundary — NoSolid despite cardinal perturbation |
+| `cut_from_angled_direction` | test-harness/boolean_failures.rs | Angled extrude direction — truck cannot handle angled cylinder boolean |
 
 ### Kernel ops (4 tests)
 
-| Test | File | Reason |
-|------|------|--------|
-| `test_truck_fillet` | test-harness/scenarios_truck.rs | TruckKernel fillet returns NotSupported |
-| `test_truck_chamfer` | test-harness/scenarios_truck.rs | TruckKernel chamfer returns NotSupported |
-| `test_truck_shell` | test-harness/scenarios_truck.rs | TruckKernel shell returns NotSupported |
-| `test_truck_cut_direction_selection` | test-harness/scenarios_truck.rs | Angled cut direction not yet wired |
+| Test | File | Reason | Notes |
+|------|------|--------|-------|
+| `test_truck_fillet` | test-harness/scenarios_truck.rs | TruckKernel fillet returns NotSupported | Correctly ignored — C3 not started |
+| `test_truck_chamfer` | test-harness/scenarios_truck.rs | TruckKernel chamfer returns NotSupported | **Stale ignore** — chamfer IS implemented (C1 complete). Likely passes now. |
+| `test_truck_shell` | test-harness/scenarios_truck.rs | TruckKernel shell returns NotSupported | **Stale ignore** — shell IS implemented for planar faces (C2). May pass now. |
+| `test_truck_cut_direction_selection` | test-harness/scenarios_truck.rs | Angled cut direction not yet wired | |
 
 ### Benchmarks & diagnostics (5 tests)
 
 | Test | File | Reason |
 |------|------|--------|
-| `bench_boolean_tolerances` | kernel-fork/truck_kernel.rs | Manual benchmark |
-| `diag_boolean_configs` | kernel-fork/truck_kernel.rs | Manual diagnostic |
+| `bench_boolean_tolerances` | kernel-fork/truck_kernel.rs | Manual benchmark — run with `--ignored --nocapture` |
+| `diag_boolean_configs` | kernel-fork/truck_kernel.rs | Manual diagnostic — run with `--ignored --nocapture` |
 | `bench_*` (x3) | sketch-solver/solve_tests.rs | Wall-clock benchmarks |
 
 ### Third-party library bugs (3 tests)
@@ -172,7 +173,7 @@ Phase E (Advanced) — depends on A, B
 
 | Agent | Task | Burndown IDs | Status |
 |-------|------|-------------|--------|
-| edge-pipeline | Wire edge data from kernel → WASM → viewport | D1 | **Complete** |
+| edge-pipeline | Wire edge data from kernel -> WASM -> viewport | D1 | **Complete** |
 | coplanar-architect | Coplanar face splitting (interior-crossing only) | B1 | **Complete** (already implemented) |
 | geomref-tester | GeomRef real TruckKernel tests + revolve fix | E1, E6 | **Complete** (3 bugs fixed, 17 tests) |
 | property-tester | Boolean algebraic property tests + B4 verify | E5 (partial), B4 | **Complete** |
@@ -183,7 +184,7 @@ Phase E (Advanced) — depends on A, B
 
 ### Sprint 3: Chamfer, Shell, Query Selectors, Revolve Preview, Boolean Fixes
 
-**Commit**: `a2f47f0` — chamfer/shell pipeline, query selectors, revolve preview.
+**Commit**: `a2f47f0` — chamfer/shell pipeline (C1, C2), query selectors, revolve preview.
 
 ---
 
@@ -249,20 +250,20 @@ Phase E (Advanced) — depends on A, B
 
 ---
 
-## Forward Roadmap: Sprints 6-8
-
 ### Sprint 6: Chained Boolean Reliability
 
 **Theme:** Fix booleans on IC-healed solids — blocks boss+hole on same part.
+
+**Commit**: `ded1f81`
 
 | Item | Effort | Status |
 |------|--------|--------|
 | Analytical NURBS arc healing for plane-curved IC edges | M | **Complete** — 3-point circle fit + TrimmedCurve<UnitCircle> NURBS arc, machine-precision residual |
 | Multi-strategy BSpline healing with surface residual validation | S | **Complete** — 3-strategy pipeline with best-candidate fallback |
 | Thread `tau_weld` into `weld_coincident_edges` | S | Deferred — not blocking |
-| Multiple non-overlapping cuts (e5) | M | Still failing — `NoSolid` from first cut, not an IC healing issue |
+| Multiple non-overlapping cuts (e5) | M | **Workaround** — e5 rewritten to use `extrude_directed_no_merge` + explicit `boolean_subtract` instead of `extrude_cut`. Root cause (extrude_cut auto-merge path) not fixed. |
 
-**Approach:** The root cause was that BSpline approximations of plane-cylinder IntersectionCurve edges accumulated ~5e-6 error, exceeding truck's TOLERANCE=1e-6 for `curve_surface_projection` convergence. The fix: fit an exact rational NURBS circular arc through sampled leader BSpline points using truck's `TrimmedCurve<UnitCircle> → NurbsCurve<Vector4>` path + `Matrix4` transform. The arc has zero approximation error on both IC surfaces.
+**Approach:** The root cause was that BSpline approximations of plane-cylinder IntersectionCurve edges accumulated ~5e-6 error, exceeding truck's TOLERANCE=1e-6 for `curve_surface_projection` convergence. The fix: fit an exact rational NURBS circular arc through sampled leader BSpline points using truck's `TrimmedCurve<UnitCircle> -> NurbsCurve<Vector4>` path + `Matrix4` transform. The arc has zero approximation error on both IC surfaces.
 
 **Tests un-ignored (4):** `test_healed_solid_supports_chained_boolean`, `a4_two_bosses_same_face_sequential`, `e3_boss_at_cube_edge`, `e4_cut_depth_exactly_solid_height`
 
@@ -270,22 +271,73 @@ Phase E (Advanced) — depends on A, B
 
 ---
 
-### Sprint 7: Edge-Coincidence & Boundary Fixes
+### Sprint 7 (actual): Partial Edge-Coincidence Fixes
+
+**Theme:** Planned as full edge-coincidence + boundary fix sprint, but only some items completed.
+
+| Planned Item | Status |
+|-------------|--------|
+| Edge-coincidence detection + micro-perturbation in loops_store | **WIP** — unstaged changes in vendor/truck (mutual containment fix: `&& !i_in_j` / `&& !j_in_i` guards in loops_store/mod.rs) |
+| Full-face coplanar cut fast path (g3) | **WIP** — 3 new test cases in integrate/tests.rs (full_face_rect_difference, mutual_containment_coplanar); g3 still failing |
+| Thread `tau_coplanar` into coplanar detection | Not done |
+| Multiple non-overlapping cuts (e5) | **Workaround** — e5 rewritten as F5 (non-ignored), uses explicit boolean_subtract |
+| `auto_union_stress_various_positions` | **Fixed** — un-ignored and passing (7/7 auto_union tests) |
+
+**Tests un-ignored:** `auto_union_stress_various_positions` (now passing), `e5` (rewritten as F5, no longer ignored)
+**Uncommitted WIP:** vendor/truck changes for g3 mutual containment fix
+
+---
+
+### Sprint 8 (actual): Auto-save, Error UX, and UI Dialogs
+
+**Commit**: `69385ba`
+
+**Theme:** UI/UX sprint — NOT the boolean Sprint 8 originally planned in the forward roadmap.
+
+**Key changes:**
+- Auto-save functionality
+- Error UX improvements
+- FilletDialog.svelte, ChamferDialog.svelte, ShellDialog.svelte UI shells (with "not yet supported" warnings where kernel wiring is missing)
+- WASM rebuild
+
+**Burndown impact:**
+- D2/D3/D4: UI shell components now exist (were "Not started")
+- No boolean pipeline changes
+
+---
+
+## Forward Roadmap
+
+### Next Sprint: Wire Existing Kernel Ops to UI + Fix Stale Ignores
+
+**Theme:** Low-hanging fruit — connect already-implemented kernel ops to their dialogs and un-ignore stale tests.
+
+| Item | Effort | Burndown IDs |
+|------|--------|-------------|
+| Un-ignore `test_truck_chamfer` + `test_truck_shell` (stale annotations) | S | C1, C2 |
+| Wire ChamferDialog to TruckKernel chamfer | S | D3 |
+| Wire ShellDialog to TruckKernel shell | S | D4 |
+| Wire `BooleanOptions` through truck-shapeops functions | M | A5 |
+| Fix `Face::new` at integrate/mod.rs:566 | S | B6 |
+
+---
+
+### Future Sprint: Edge-Coincidence & Boundary Fixes
 
 **Theme:** Fix booleans where tool touches target edges/boundaries.
 
 | Item | Effort | Files |
 |------|--------|-------|
-| Edge-coincidence detection + micro-perturbation in loops_store | L | `vendor/truck/.../loops_store/mod.rs` |
+| Commit WIP mutual containment fix + g3 tests | S | `vendor/truck/.../loops_store/mod.rs`, `integrate/tests.rs` |
 | Full-face coplanar cut fast path (g3) | M | `vendor/truck/.../integrate/mod.rs`, `coplanar_splitting.rs` |
 | Thread `tau_coplanar` into coplanar detection | S | `vendor/truck/.../coplanar_splitting.rs` |
-| Multiple non-overlapping cuts (e5) — NoSolid from first cut | M | feature-engine extrude path |
+| Bridge `BooleanStageError` -> `BooleanError` | M | kernel-fork/types.rs, truck-shapeops/integrate |
 
-**Tests to un-ignore:** `e5_multiple_non_overlapping_cuts`, `g3_full_face_rect_cut`, `rect_cut_coplanar_edges`, `auto_union_stress_various_positions`
+**Tests to un-ignore:** `g3_full_face_rect_cut`, `rect_cut_coplanar_edges`
 
 ---
 
-### Sprint 8: Circle-at-Boundary + Fillet
+### Future Sprint: Circle-at-Boundary + Fillet
 
 **Theme:** Fix remaining edge cases and implement TruckKernel fillet.
 
@@ -293,13 +345,13 @@ Phase E (Advanced) — depends on A, B
 |------|--------|-------|
 | Circle tangent/crossing box edge fixes | L | `vendor/truck/.../polyline_construction/`, intersection_curve |
 | Angled extrude direction support | M | feature-engine extrude path |
-| Boolean-based fillet implementation | L | `crates/kernel-fork/src/truck_kernel.rs` |
+| Boolean-based fillet implementation (wire truck-shapeops fillet into TruckKernel) | L | `crates/kernel-fork/src/truck_kernel.rs` |
 
 **Tests to un-ignore:** `circle_cut_tangent_to_box_edge`, `circle_cut_crossing_box_edge`, `cut_from_angled_direction`, `test_truck_fillet`
 
 ---
 
-### Deprioritized (Sprint 9+, do when needed)
+### Deprioritized (do when needed)
 
 - XOR operation (trivial to add, no user demand yet)
 - `RelationToOther` refactor (A4) — current AND/OR/Unknown works for all 4 ops
@@ -308,5 +360,5 @@ Phase E (Advanced) — depends on A, B
 - 2D polygon overlay library — current approach works
 - Non-manifold escape hatch — truck type system makes this hard
 - Fuzz tests, stage benchmarks — nice-to-have
-- TruckKernel shell (C2) — needs face offset + boundary rebuild
 - TruckKernel chamfer via real chamfer surfaces (C1 currently uses boolean subtraction)
+- Activate dead robust predicates (`robust_orient3d`, `robust_ray_triangle_cross`) in main ray-cast pipeline
