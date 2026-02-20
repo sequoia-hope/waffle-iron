@@ -115,6 +115,9 @@ let filletDialogState = $state(null);
 /** @type {{ faces: Array<any>, faceCount: number } | null} */
 let shellDialogState = $state(null);
 
+/** @type {{ bodies: Array<{ featureId: string, name: string }>, operation: string } | null} */
+let booleanDialogState = $state(null);
+
 /** @type {{ entityA: number, entityB: number | null, sketchX: number, sketchY: number, dimType: 'distance'|'radius'|'angle', defaultValue: number } | null} */
 let dimensionPopup = $state(null);
 
@@ -346,6 +349,10 @@ export async function initEngine() {
 			showShellDialog: () => showShellDialog(),
 			hideShellDialog: () => hideShellDialog(),
 			applyShell: (thickness) => applyShell(thickness),
+			getBooleanDialogState: () => booleanDialogState,
+			showBooleanDialog: () => showBooleanDialog(),
+			hideBooleanDialog: () => hideBooleanDialog(),
+			applyBoolean: (op, target, tool) => applyBoolean(op, target, tool),
 			getSelectedRefs: () => [...selectedRefs],
 			getHoveredRef: () => hoveredRef,
 			selectRef: (ref, additive) => selectRef(ref, additive),
@@ -1416,6 +1423,73 @@ export async function applyShell(thickness) {
 		} else {
 			showToast('error', `Shell failed: ${msg}`);
 		}
+	}
+}
+
+// -- Boolean dialog --
+
+export function getBooleanDialogState() { return booleanDialogState; }
+
+export function showBooleanDialog() {
+	const tree = featureTree;
+	if (!tree || !tree.features) return;
+
+	// Find features that produce solid bodies
+	const bodies = tree.features
+		.filter(f => ['Extrude', 'Revolve', 'BooleanCombine', 'Chamfer', 'Fillet', 'Shell'].includes(f.operation?.type))
+		.map(f => ({ featureId: f.id, name: f.name }));
+
+	log('ui', 'Show boolean dialog', { bodyCount: bodies.length });
+	booleanDialogState = { bodies };
+}
+
+export function hideBooleanDialog() {
+	booleanDialogState = null;
+}
+
+/**
+ * Apply a boolean combine operation from the dialog.
+ * @param {string} operation - 'Union', 'Subtract', or 'Intersect'
+ * @param {string} targetFeatureId
+ * @param {string} toolFeatureId
+ */
+export async function applyBoolean(operation, targetFeatureId, toolFeatureId) {
+	if (!booleanDialogState || !bridge || !engineReady) return;
+
+	log('action', 'Apply boolean', { operation, targetFeatureId, toolFeatureId });
+
+	const bodyA = {
+		kind: { type: 'Face' },
+		anchor: { type: 'Feature', feature_id: targetFeatureId },
+		selector: { type: 'Role', role: { type: 'EndCapPositive' }, index: 0 },
+		policy: { type: 'BestEffort' }
+	};
+
+	const bodyB = {
+		kind: { type: 'Face' },
+		anchor: { type: 'Feature', feature_id: toolFeatureId },
+		selector: { type: 'Role', role: { type: 'EndCapPositive' }, index: 0 },
+		policy: { type: 'BestEffort' }
+	};
+
+	try {
+		await bridge.send({
+			type: 'AddFeature',
+			operation: {
+				type: 'BooleanCombine',
+				params: {
+					body_a: bodyA,
+					body_b: bodyB,
+					operation: { type: operation }
+				}
+			}
+		});
+
+		booleanDialogState = null;
+	} catch (err) {
+		const msg = err.message || String(err);
+		log('error', `Boolean failed: ${msg}`);
+		showToast('error', `Boolean operation failed: ${msg}`);
 	}
 }
 

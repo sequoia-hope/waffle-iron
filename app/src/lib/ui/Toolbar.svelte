@@ -18,6 +18,7 @@
 		showChamferDialog,
 		showFilletDialog,
 		showShellDialog,
+		showBooleanDialog,
 		saveProject,
 		loadProject,
 		exportStl,
@@ -72,6 +73,7 @@
 		{ id: 'fillet', label: 'Fillet', shortcut: '' },
 		{ id: 'chamfer', label: 'Chamfer', shortcut: '' },
 		{ id: 'shell', label: 'Shell', shortcut: '' },
+		{ id: 'boolean', label: 'Boolean', shortcut: '' },
 	];
 
 	const sketchTools = [
@@ -122,6 +124,10 @@
 		}
 		if (toolId === 'shell' && !inSketch) {
 			showShellDialog();
+			return;
+		}
+		if (toolId === 'boolean' && !inSketch) {
+			showBooleanDialog();
 			return;
 		}
 		if (toolId === 'construction') {

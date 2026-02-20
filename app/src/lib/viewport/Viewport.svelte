@@ -10,6 +10,7 @@
 	import ChamferDialog from '$lib/ui/ChamferDialog.svelte';
 	import FilletDialog from '$lib/ui/FilletDialog.svelte';
 	import ShellDialog from '$lib/ui/ShellDialog.svelte';
+	import BooleanDialog from '$lib/ui/BooleanDialog.svelte';
 	import AutoRestoreDialog from '$lib/ui/AutoRestoreDialog.svelte';
 
 	let constraintMenuPos = $state({ x: 0, y: 0 });
@@ -37,6 +38,7 @@
 	<ChamferDialog />
 	<FilletDialog />
 	<ShellDialog />
+	<BooleanDialog />
 	<AutoRestoreDialog />
 </div>
 
