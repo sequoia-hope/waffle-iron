@@ -49,6 +49,10 @@
 	let editingName = $state(false);
 	let nameInputValue = $state('');
 
+	let saving = $state(false);
+	let exportingStl = $state(false);
+	let exportingStep = $state(false);
+
 	const constraintButtons = [
 		{ id: 'horizontal', label: 'H', title: 'Horizontal' },
 		{ id: 'vertical', label: 'V', title: 'Vertical' },
@@ -278,10 +282,24 @@
 	</div>
 	<div class="toolbar-sep"></div>
 	<div class="toolbar-group">
-		<button class="toolbar-btn" disabled={!ready} title="Save (Ctrl+S)" onclick={() => saveProject()}>Save</button>
-		<button class="toolbar-btn" disabled={!ready} title="Open (Ctrl+O)" onclick={() => loadProject()}>Open</button>
-		<button class="toolbar-btn" disabled={!ready} title="Export STL" onclick={() => exportStl()}>Export STL</button>
-		<button class="toolbar-btn" disabled={!ready} title="Export STEP" onclick={() => exportStep()}>Export STEP</button>
+		<button class="toolbar-btn" disabled={!ready || saving} title="Save (Ctrl+S)"
+			data-testid="toolbar-btn-save"
+			onclick={async () => { saving = true; try { await saveProject(); } finally { saving = false; } }}>
+			{saving ? 'Saving...' : 'Save'}
+		</button>
+		<button class="toolbar-btn" disabled={!ready} title="Open (Ctrl+O)"
+			data-testid="toolbar-btn-open"
+			onclick={() => loadProject()}>Open</button>
+		<button class="toolbar-btn" disabled={!ready || exportingStl} title="Export STL"
+			data-testid="toolbar-btn-export-stl"
+			onclick={async () => { exportingStl = true; try { await exportStl(); } finally { exportingStl = false; } }}>
+			{exportingStl ? 'Exporting...' : 'Export STL'}
+		</button>
+		<button class="toolbar-btn" disabled={!ready || exportingStep} title="Export STEP"
+			data-testid="toolbar-btn-export-step"
+			onclick={async () => { exportingStep = true; try { await exportStep(); } finally { exportingStep = false; } }}>
+			{exportingStep ? 'Exporting...' : 'Export STEP'}
+		</button>
 	</div>
 
 	<div class="toolbar-spacer"></div>

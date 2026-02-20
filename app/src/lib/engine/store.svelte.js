@@ -2310,7 +2310,7 @@ export async function exportStl() {
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement('a');
 		a.href = url;
-		a.download = 'model.stl';
+		a.download = `${projectName}.stl`;
 		document.body.appendChild(a);
 		a.click();
 		document.body.removeChild(a);
@@ -2338,7 +2338,7 @@ export async function exportStep() {
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement('a');
 		a.href = url;
-		a.download = 'model.step';
+		a.download = `${projectName}.step`;
 		document.body.appendChild(a);
 		a.click();
 		document.body.removeChild(a);
@@ -2373,9 +2373,19 @@ export async function loadProject(jsonData) {
 		input.onchange = async () => {
 			const file = input.files?.[0];
 			if (!file) { resolve(false); return; }
+			// Set project name from filename (remove extension)
+			const nameWithoutExt = file.name.replace(/\.(waffle|json)$/i, '');
+			if (nameWithoutExt) setProjectName(nameWithoutExt);
 			const text = await file.text();
-			await bridge.send({ type: 'LoadProject', data: text });
-			resolve(true);
+			try {
+				await bridge.send({ type: 'LoadProject', data: text });
+				showToast('info', 'Project loaded');
+				resolve(true);
+			} catch (err) {
+				log('error', `Load project failed: ${err.message || err}`);
+				showToast('error', 'Failed to load project: invalid file format');
+				resolve(false);
+			}
 		};
 		input.click();
 	});
