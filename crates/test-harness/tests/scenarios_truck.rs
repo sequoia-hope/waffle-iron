@@ -969,6 +969,100 @@ fn test_truck_flipped_extrude_strict_outward() {
     }
 }
 
+// ── Chamfer & Shell Topology Verification ────────────────────────────────────
+
+#[test]
+fn test_truck_chamfer_topology() {
+    let mut m = ModelBuilder::truck();
+    m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m.extrude("box", "sk", 10.0).unwrap();
+    m.assert_has_solid("box").unwrap();
+
+    // Verify box baseline topology
+    let (v_box, e_box, f_box) = m.topology_counts("box").unwrap();
+    assert_eq!(
+        (v_box, e_box, f_box),
+        (8, 12, 6),
+        "Box should be V=8 E=12 F=6"
+    );
+
+    // Chamfer one edge
+    m.chamfer("cham", "box", 1.0).unwrap();
+    m.assert_has_solid("cham").unwrap();
+
+    let (v, e, f) = m.topology_counts("cham").unwrap();
+    assert!(
+        f > 6,
+        "Chamfer should add at least 1 face beyond the box's 6 (got F={})",
+        f
+    );
+    assert!(
+        e > 12,
+        "Chamfer should add edges beyond the box's 12 (got E={})",
+        e
+    );
+
+    // Euler's formula: V - E + F = 2 for genus-0 closed solid
+    let euler = v as i64 - e as i64 + f as i64;
+    assert_eq!(
+        euler, 2,
+        "Chamfer should satisfy V-E+F=2 (got V={} E={} F={}, χ={})",
+        v, e, f, euler
+    );
+
+    // Topology oracles (manifold edges, face validity)
+    let topo_verdicts = m.check_topology("cham").unwrap();
+    for v in &topo_verdicts {
+        assert!(
+            v.passed,
+            "Topology oracle '{}' failed for chamfer: {}",
+            v.oracle_name, v.detail
+        );
+    }
+}
+
+#[test]
+fn test_truck_shell_topology() {
+    let mut m = ModelBuilder::truck();
+    m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m.extrude("box", "sk", 10.0).unwrap();
+    m.assert_has_solid("box").unwrap();
+
+    // Shell removes one face and creates inner offset faces
+    m.shell("shell", "box", 1.0).unwrap();
+    m.assert_has_solid("shell").unwrap();
+
+    let (v, e, f) = m.topology_counts("shell").unwrap();
+    assert!(
+        f > 6,
+        "Shell should create inner faces beyond the box's 6 (got F={})",
+        f
+    );
+    assert!(
+        e > 12,
+        "Shell should add edges beyond the box's 12 (got E={})",
+        e
+    );
+    assert!(
+        v > 8,
+        "Shell should add vertices beyond the box's 8 (got V={})",
+        v
+    );
+
+    // Mesh consistency check: consistent normals across the shell
+    let mesh = m.tessellate("shell").unwrap();
+    assert!(!mesh.indices.is_empty(), "Shell mesh should have triangles");
+
+    let consistent = check_consistent_normals(&mesh);
+    assert!(
+        consistent.passed,
+        "Shell should have consistent face normals: {}",
+        consistent.detail
+    );
+}
+
 /// Rect-on-rect cut: smaller rectangle cut from a larger box.
 /// This is the most common CAD cut scenario (pocket).
 #[test]

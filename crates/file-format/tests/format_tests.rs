@@ -878,3 +878,414 @@ fn round_trip_rebuild_topology_matches() {
     roles2.sort_by_key(|r| format!("{:?}", r));
     assert_eq!(roles1, roles2, "Role sets should match");
 }
+
+// ── Sprint 17B: Multi-Feature & Constraint Roundtrip Tests ──────────────
+
+/// Build a tree with sketch + extrude + chamfer, save → load → rebuild → verify.
+#[test]
+fn round_trip_multi_feature_with_chamfer() {
+    use kernel_fork::TruckKernel;
+
+    let sketch_feature_id = Uuid::new_v4();
+
+    let plane_ref = GeomRef {
+        kind: TopoKind::Face,
+        anchor: Anchor::Datum {
+            datum_id: Uuid::nil(),
+        },
+        selector: Selector::Role {
+            role: Role::EndCapPositive,
+            index: 0,
+        },
+        policy: ResolvePolicy::BestEffort,
+    };
+
+    let sketch = Sketch {
+        id: sketch_feature_id,
+        plane: plane_ref,
+        plane_origin: [0.0, 0.0, 0.0],
+        plane_normal: [0.0, 0.0, 1.0],
+        entities: vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 10.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 10.0,
+                y: 10.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 4,
+                x: 0.0,
+                y: 10.0,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 5,
+                start_id: 1,
+                end_id: 2,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 6,
+                start_id: 2,
+                end_id: 3,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 7,
+                start_id: 3,
+                end_id: 4,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 8,
+                start_id: 4,
+                end_id: 1,
+                construction: false,
+            },
+        ],
+        constraints: vec![
+            SketchConstraint::Horizontal { entity: 5 },
+            SketchConstraint::Horizontal { entity: 7 },
+            SketchConstraint::Vertical { entity: 6 },
+            SketchConstraint::Vertical { entity: 8 },
+        ],
+        solve_status: SolveStatus::FullyConstrained,
+        solved_positions: {
+            let mut m = std::collections::HashMap::new();
+            m.insert(1, (0.0, 0.0));
+            m.insert(2, (10.0, 0.0));
+            m.insert(3, (10.0, 10.0));
+            m.insert(4, (0.0, 10.0));
+            m
+        },
+        solved_profiles: vec![ClosedProfile {
+            entity_ids: vec![1, 2, 3, 4],
+            is_outer: true,
+        }],
+    };
+
+    let sketch_feature = Feature {
+        id: sketch_feature_id,
+        name: "Sketch 1".to_string(),
+        operation: Operation::Sketch { sketch },
+        suppressed: false,
+        references: Vec::new(),
+    };
+
+    let extrude_id = Uuid::new_v4();
+    let extrude_feature = Feature {
+        id: extrude_id,
+        name: "Extrude 1".to_string(),
+        operation: Operation::Extrude {
+            params: ExtrudeParams {
+                sketch_id: sketch_feature_id,
+                profile_index: 0,
+                depth: 10.0,
+                direction: None,
+                symmetric: false,
+                cut: false,
+                merge: true,
+                target_body: None,
+                depth_mode: feature_engine::types::DepthMode::Blind,
+                second_direction: None,
+            },
+        },
+        suppressed: false,
+        references: Vec::new(),
+    };
+
+    let chamfer_feature = Feature {
+        id: Uuid::new_v4(),
+        name: "Chamfer 1".to_string(),
+        operation: Operation::Chamfer {
+            params: ChamferParams {
+                edges: vec![GeomRef {
+                    kind: TopoKind::Edge,
+                    anchor: Anchor::FeatureOutput {
+                        feature_id: extrude_id,
+                        output_key: OutputKey::Main,
+                    },
+                    selector: Selector::Role {
+                        role: Role::SideFace { index: 0 },
+                        index: 0,
+                    },
+                    policy: ResolvePolicy::BestEffort,
+                }],
+                distance: 1.0,
+            },
+        },
+        suppressed: false,
+        references: Vec::new(),
+    };
+
+    let mut tree = FeatureTree::new();
+    tree.features.push(sketch_feature);
+    tree.features.push(extrude_feature);
+    tree.features.push(chamfer_feature);
+
+    // Save
+    let meta = ProjectMetadata::new("Multi-Feature Roundtrip");
+    let json = save_project(&tree, &meta);
+
+    // Load
+    let (loaded_tree, loaded_meta) = load_project(&json).unwrap();
+    assert_eq!(loaded_meta.name, "Multi-Feature Roundtrip");
+    assert_eq!(
+        loaded_tree.features.len(),
+        3,
+        "Should preserve all 3 features"
+    );
+
+    // Verify feature types roundtripped
+    assert!(matches!(
+        loaded_tree.features[0].operation,
+        Operation::Sketch { .. }
+    ));
+    assert!(matches!(
+        loaded_tree.features[1].operation,
+        Operation::Extrude { .. }
+    ));
+    assert!(matches!(
+        loaded_tree.features[2].operation,
+        Operation::Chamfer { .. }
+    ));
+
+    // Verify chamfer params
+    match &loaded_tree.features[2].operation {
+        Operation::Chamfer { params } => {
+            assert!(
+                (params.distance - 1.0).abs() < 1e-10,
+                "Chamfer distance should be 1.0"
+            );
+            assert_eq!(params.edges.len(), 1, "Should have 1 edge reference");
+        }
+        other => panic!("Expected Chamfer, got {:?}", other),
+    }
+
+    // Rebuild with TruckKernel and verify solid exists
+    let mut kb = TruckKernel::new();
+    let mut engine = feature_engine::Engine::new();
+    engine.tree = loaded_tree.clone();
+    engine.rebuild_from_scratch(&mut kb);
+
+    // Extrude should have produced a result (chamfer may or may not succeed
+    // depending on edge resolution, but the tree structure is preserved)
+    let extrude_result = engine.get_result(loaded_tree.features[1].id);
+    assert!(
+        extrude_result.is_some(),
+        "Extrude should produce a result after roundtrip rebuild"
+    );
+}
+
+/// Verify constraints survive serialization roundtrip with diverse constraint types.
+#[test]
+fn round_trip_preserves_all_constraint_types() {
+    let sketch_id = Uuid::new_v4();
+
+    let plane_ref = GeomRef {
+        kind: TopoKind::Face,
+        anchor: Anchor::Datum {
+            datum_id: Uuid::nil(),
+        },
+        selector: Selector::Role {
+            role: Role::EndCapPositive,
+            index: 0,
+        },
+        policy: ResolvePolicy::BestEffort,
+    };
+
+    let constraints = vec![
+        SketchConstraint::Horizontal { entity: 5 },
+        SketchConstraint::Vertical { entity: 6 },
+        SketchConstraint::Distance {
+            entity_a: 1,
+            entity_b: 2,
+            value: 42.5,
+        },
+        SketchConstraint::Parallel {
+            line_a: 5,
+            line_b: 7,
+        },
+        SketchConstraint::Perpendicular {
+            line_a: 5,
+            line_b: 6,
+        },
+        SketchConstraint::Equal {
+            entity_a: 5,
+            entity_b: 7,
+        },
+    ];
+
+    let sketch = Sketch {
+        id: sketch_id,
+        plane: plane_ref,
+        plane_origin: [0.0, 0.0, 0.0],
+        plane_normal: [0.0, 0.0, 1.0],
+        entities: vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 10.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 10.0,
+                y: 10.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 4,
+                x: 0.0,
+                y: 10.0,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 5,
+                start_id: 1,
+                end_id: 2,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 6,
+                start_id: 2,
+                end_id: 3,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 7,
+                start_id: 3,
+                end_id: 4,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 8,
+                start_id: 4,
+                end_id: 1,
+                construction: false,
+            },
+        ],
+        constraints: constraints.clone(),
+        solve_status: SolveStatus::FullyConstrained,
+        solved_positions: {
+            let mut m = std::collections::HashMap::new();
+            m.insert(1, (0.0, 0.0));
+            m.insert(2, (10.0, 0.0));
+            m.insert(3, (10.0, 10.0));
+            m.insert(4, (0.0, 10.0));
+            m
+        },
+        solved_profiles: vec![ClosedProfile {
+            entity_ids: vec![1, 2, 3, 4],
+            is_outer: true,
+        }],
+    };
+
+    let feature = Feature {
+        id: sketch_id,
+        name: "Constrained Sketch".to_string(),
+        operation: Operation::Sketch { sketch },
+        suppressed: false,
+        references: Vec::new(),
+    };
+
+    let mut tree = FeatureTree::new();
+    tree.features.push(feature);
+
+    // Save → load roundtrip
+    let meta = ProjectMetadata::new("Constraint Roundtrip");
+    let json = save_project(&tree, &meta);
+    let (loaded_tree, _) = load_project(&json).unwrap();
+
+    // Extract constraints from loaded sketch
+    let loaded_constraints = match &loaded_tree.features[0].operation {
+        Operation::Sketch { sketch } => &sketch.constraints,
+        other => panic!("Expected Sketch, got {:?}", other),
+    };
+
+    assert_eq!(
+        loaded_constraints.len(),
+        constraints.len(),
+        "Should preserve all {} constraints",
+        constraints.len()
+    );
+
+    // Verify each constraint type survived
+    assert!(
+        matches!(
+            loaded_constraints[0],
+            SketchConstraint::Horizontal { entity: 5 }
+        ),
+        "Horizontal constraint should roundtrip"
+    );
+    assert!(
+        matches!(
+            loaded_constraints[1],
+            SketchConstraint::Vertical { entity: 6 }
+        ),
+        "Vertical constraint should roundtrip"
+    );
+    match &loaded_constraints[2] {
+        SketchConstraint::Distance {
+            entity_a,
+            entity_b,
+            value,
+        } => {
+            assert_eq!(*entity_a, 1);
+            assert_eq!(*entity_b, 2);
+            assert!(
+                (value - 42.5).abs() < 1e-10,
+                "Distance value should be 42.5"
+            );
+        }
+        other => panic!("Expected Distance constraint, got {:?}", other),
+    }
+    assert!(
+        matches!(
+            loaded_constraints[3],
+            SketchConstraint::Parallel {
+                line_a: 5,
+                line_b: 7
+            }
+        ),
+        "Parallel constraint should roundtrip"
+    );
+    assert!(
+        matches!(
+            loaded_constraints[4],
+            SketchConstraint::Perpendicular {
+                line_a: 5,
+                line_b: 6
+            }
+        ),
+        "Perpendicular constraint should roundtrip"
+    );
+    assert!(
+        matches!(
+            loaded_constraints[5],
+            SketchConstraint::Equal {
+                entity_a: 5,
+                entity_b: 7
+            }
+        ),
+        "Equal constraint should roundtrip"
+    );
+}
