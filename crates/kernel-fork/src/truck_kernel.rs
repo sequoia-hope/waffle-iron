@@ -2969,4 +2969,63 @@ mod tests {
             tol_huge
         );
     }
+
+    /// Profile-based box-box subtract (mimics make_faces_from_profiles + tsweep path).
+    /// Validates that the engine's cut extrude path works at 10-unit scale.
+    #[test]
+    fn test_profile_based_subtract_10_scale() {
+        use truck_modeling::geometry::Curve;
+
+        let target = primitives::make_box(10.0, 10.0, 10.0);
+
+        // Tool: rect (2,2)-(8,8) on plane at z=10.1, extruded down by 15.2
+        let pts = vec![
+            Point3::new(2.0, 2.0, 10.1),
+            Point3::new(8.0, 2.0, 10.1),
+            Point3::new(8.0, 8.0, 10.1),
+            Point3::new(2.0, 8.0, 10.1),
+        ];
+        let verts: Vec<_> = pts.iter().map(|&p| builder::vertex(p)).collect();
+        let mut edges = Vec::new();
+        for i in 0..4 {
+            let j = (i + 1) % 4;
+            edges.push(Edge::new(
+                &verts[i],
+                &verts[j],
+                Curve::Line(truck_modeling::geometry::Line(pts[i], pts[j])),
+            ));
+        }
+        let wire = Wire::from_iter(edges);
+        let face = builder::try_attach_plane(&[wire]).unwrap();
+        let sweep_vec = Vector3::new(0.0, 0.0, -15.2);
+        let face = if let Some(n) = match face.surface() {
+            Surface::Plane(ref p) => Some(p.normal()),
+            _ => None,
+        } {
+            if InnerSpace::dot(n, sweep_vec) < 0.0 {
+                face.inverse()
+            } else {
+                face
+            }
+        } else {
+            face
+        };
+        let tool: Solid = builder::tsweep(&face, sweep_vec);
+
+        // Use the engine's tolerance path
+        let opts = BooleanOptions::for_boolean_tol(compute_adaptive_tol(&target, &tool));
+        let tols = opts.to_boolean_tolerance();
+        let result = truck_shapeops::difference_with_tol(&target, &tool, &tols);
+        assert!(
+            result.is_some(),
+            "Profile-based subtract must succeed with layered tolerances"
+        );
+
+        let solid = result.unwrap();
+        use truck_topology::shell::ShellCondition;
+        assert_eq!(
+            solid.boundaries()[0].shell_condition(),
+            ShellCondition::Closed
+        );
+    }
 }

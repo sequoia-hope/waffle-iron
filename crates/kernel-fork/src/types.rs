@@ -165,7 +165,7 @@ impl Default for BooleanOptions {
             tau_mesh: 0.5 * tau_model,
             tau_weld: 2.0 * tau_model,
             tau_work: 1e-12,
-            tau_coplanar: 5.0 * tau_model,
+            tau_coplanar: tau_model,
             min_feature_size: 1e-6,
         }
     }
@@ -184,7 +184,7 @@ impl BooleanOptions {
             tau_mesh: 0.5 * tau_model,
             tau_weld: 2.0 * tau_model,
             tau_work: 1e-12,
-            tau_coplanar: 5.0 * tau_model,
+            tau_coplanar: tau_model,
             min_feature_size: 10.0 * tau_model,
         }
     }
@@ -258,7 +258,11 @@ impl BooleanOptions {
             tau_mesh: tol * 0.5,
             tau_weld: tol * 2.0,
             tau_work: 1e-12,
-            tau_coplanar: tol * 5.0,
+            // tau_coplanar must equal tau_model — the coplanar distance check
+            // uses `tol` directly (line 75 of coplanar_splitting.rs), so a 5x
+            // multiplier causes faces that are merely *close* (e.g., cut_eps=0.1
+            // apart) to be falsely flagged as coplanar, breaking boolean subtract.
+            tau_coplanar: tol,
             min_feature_size: tol * 10.0,
         }
     }
@@ -537,8 +541,8 @@ mod tests {
             opts.tau_work
         );
         assert!(
-            (opts.tau_coplanar - 5e-7).abs() < 1e-15,
-            "tau_coplanar should be 5e-7, got {}",
+            (opts.tau_coplanar - 1e-7).abs() < 1e-15,
+            "tau_coplanar should be 1e-7 (= tau_model), got {}",
             opts.tau_coplanar
         );
         assert!(
