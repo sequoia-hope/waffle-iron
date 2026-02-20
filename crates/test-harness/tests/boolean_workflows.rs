@@ -134,7 +134,6 @@ fn a3_boss_on_side_face_circle_union() {
 
 /// A4: Two circle bosses on same face, sequential unions. Chained boolean risk.
 #[test]
-#[ignore]
 fn a4_two_bosses_same_face_sequential() {
     let mut m = base_cube();
 
@@ -616,7 +615,6 @@ fn e2_very_large_boss_exceeds_face() {
 
 /// E3: Boss circle centered on a cube edge.
 #[test]
-#[ignore]
 fn e3_boss_at_cube_edge() {
     let mut m = base_cube();
 
@@ -639,7 +637,6 @@ fn e3_boss_at_cube_edge() {
 /// through_hole_cylinder/through_hole_cylinder_10x tests), but the engine
 /// pipeline geometry differs enough to still trigger this failure.
 #[test]
-#[ignore]
 fn e4_cut_depth_exactly_solid_height() {
     let mut m = base_cube();
 
