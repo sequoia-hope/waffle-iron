@@ -448,8 +448,15 @@ pub fn heal_intersection_curves(solid: &Solid, tol: f64) -> HealingResult {
                 }
 
                 // Strategy 3: Re-approximate from the full IC using exact
-                // double-projection subs(t). Wrapped in catch_unwind because
-                // the IC's Newton iteration can panic on some parameter values.
+                // double-projection subs(t).
+                // INTENTIONAL catch_unwind: This is a best-effort healing strategy.
+                // The IC's Newton iteration in cubic_approximation can diverge for
+                // some parameter values. Unlike the boolean hot path, healing is a
+                // pre-processing step where silent fallback to the next strategy is
+                // correct behavior — the original curve is preserved if re-approximation
+                // fails. See Sprint 13 (boolean reliability) for the reasoning behind
+                // removing catch_unwind from loops_store and divide_face but keeping
+                // it here.
                 if !done {
                     let curve_clone = curve.clone();
                     let ic_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

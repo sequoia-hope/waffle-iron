@@ -262,6 +262,22 @@ impl BooleanOptions {
             min_feature_size: tol * 10.0,
         }
     }
+
+    /// Convert to the truck-shapeops `BooleanTolerance` struct for the boolean pipeline.
+    ///
+    /// Maps the kernel-level layered tolerances to the per-stage truck tolerances:
+    /// - `tau_model` → `tau_model` (intersection/coincidence precision)
+    /// - `tau_mesh` → `tau_mesh` (triangulation accuracy)
+    /// - `tau_weld` → `tau_weld` (vertex unification in weld_coincident_edges)
+    /// - `tau_coplanar` → `tau_coplanar` (normal parallelism + plane distance)
+    pub fn to_boolean_tolerance(&self) -> truck_shapeops::BooleanTolerance {
+        truck_shapeops::BooleanTolerance {
+            tau_model: self.tau_model,
+            tau_mesh: self.tau_mesh,
+            tau_weld: self.tau_weld,
+            tau_coplanar: self.tau_coplanar,
+        }
+    }
 }
 
 // Custom Serialize/Deserialize for KernelId (needed for FaceRange/EdgeRange serialization)

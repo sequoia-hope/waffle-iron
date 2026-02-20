@@ -274,7 +274,7 @@ impl Kernel for TruckKernel {
         // Compute layered tolerance options from feature-aware adaptive tolerance.
         let opts = compute_boolean_options(&solid_a, &solid_b);
         let tol = opts.tau_model;
-        let tols = truck_shapeops::BooleanTolerance::from_model_tol(tol);
+        let tols = opts.to_boolean_tolerance();
         let solid_a = crate::healing::pre_split_closed_edges(&solid_a, tol);
         let solid_b = crate::healing::pre_split_closed_edges(&solid_b, tol);
 
@@ -318,7 +318,7 @@ impl Kernel for TruckKernel {
         // Compute layered tolerance options from feature-aware adaptive tolerance.
         let opts = compute_boolean_options(&solid_a, &solid_b);
         let tol = opts.tau_model;
-        let tols = truck_shapeops::BooleanTolerance::from_model_tol(tol);
+        let tols = opts.to_boolean_tolerance();
         let solid_a = crate::healing::pre_split_closed_edges(&solid_a, tol);
         let solid_b = crate::healing::pre_split_closed_edges(&solid_b, tol);
 
@@ -361,7 +361,7 @@ impl Kernel for TruckKernel {
         // Compute layered tolerance options from feature-aware adaptive tolerance.
         let opts = compute_boolean_options(&solid_a, &solid_b);
         let tol = opts.tau_model;
-        let tols = truck_shapeops::BooleanTolerance::from_model_tol(tol);
+        let tols = opts.to_boolean_tolerance();
         let solid_a = crate::healing::pre_split_closed_edges(&solid_a, tol);
         let solid_b = crate::healing::pre_split_closed_edges(&solid_b, tol);
 
@@ -493,7 +493,7 @@ impl Kernel for TruckKernel {
                         message: "Degenerate chamfer geometry (parallel faces?)".into(),
                     });
                 }
-                da = da / dal;
+                da /= dal;
 
                 // Same for face B
                 let mut db = nb.cross(edir);
@@ -506,7 +506,7 @@ impl Kernel for TruckKernel {
                         message: "Degenerate chamfer geometry (parallel faces?)".into(),
                     });
                 }
-                db = db / dbl;
+                db /= dbl;
 
                 geoms.push(WedgeGeom {
                     front,
