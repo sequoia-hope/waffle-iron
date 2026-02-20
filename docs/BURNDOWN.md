@@ -18,7 +18,7 @@ Lays the infrastructure all subsequent boolean work depends on.
 | A2 | `BooleanOptions` tolerance context (tau_model/mesh/weld/work/coplanar) | P0 | M | — | kernel-fork/types.rs, kernel-fork/truck_kernel.rs, kernel-fork/healing.rs | **Implemented** — all 5 tolerance fields + `min_feature_size` + `validate()` in types.rs:141-265. Gap: NOT wired into truck-shapeops functions (they still take raw `tol: f64`). |
 | A3 | Robust geometric predicates (`robust` crate) in ray-cast classification | P1 | L | A1 | truck-shapeops/Cargo.toml, truck-shapeops/integrate, truck-shapeops/coplanar.rs | **Partial** (Sprint 1). `robust_orient2d` active in coplanar point-in-polygon. `robust_orient3d` and `robust_ray_triangle_cross` are dead code (`#[allow(dead_code)]`). Main ray-cast pipeline uses non-robust floating point path. |
 | A4 | Replace AND/OR tagging with `RelationToOther` classification | P2 | L | A1,A3 | truck-shapeops/loops_store, truck-shapeops/integrate, truck-shapeops/divide_face | **Deprioritized** — current AND/OR/Unknown works for all 4 ops |
-| A5 | Wire `BooleanOptions` through truck-shapeops functions | P1 | M | A2 | truck-shapeops/integrate, truck-shapeops/loops_store | **Not started** — `and_result`/`or_result`/`difference_result` take raw `tol: f64`; layered tolerances (tau_mesh, tau_weld, tau_coplanar) unused at shapeops call sites |
+| A5 | Wire `BooleanOptions` through truck-shapeops functions | P1 | M | A2 | truck-shapeops/integrate, truck-shapeops/loops_store | **Complete** (Sprint 7) — `BooleanTolerance` struct + `_with_tol` variants for all 6 public functions. Feature-aware `compute_adaptive_tol` considers minimum edge length. |
 
 **Parallelization**: A1 and A2 in parallel. A3 after A1. A4 after A1+A3. A5 after A2.
 
@@ -33,7 +33,7 @@ Lays the infrastructure all subsequent boolean work depends on.
 | B3 | Box-cylinder boolean reliability | P1 | XL | A2,B1 | truck-shapeops/intersection_curve, kernel-fork/healing.rs | **Substantial** — punched-cube + chained booleans work via NURBS arc healing (Sprint 6); e5 rewritten to pass using `extrude_directed_no_merge` + explicit `boolean_subtract`; `auto_union_stress` now passing (7/7); boundary/corner edge cases + g3 full-face cut remain |
 | B4 | `Solid::try_new` enforcement (no panics) | P1 | S | A1 | truck-shapeops/integrate | **Nearly complete** — all `Solid::` constructions use `try_new`. One remaining `Face::new` (panicking) at integrate/mod.rs:566 in Phase 2 of `weld_coincident_edges` edge substitution. |
 | B5 | `TouchingPolicy` for degenerate cases | P2 | M | A2,A4 | kernel-fork/types.rs, truck-shapeops/integrate | **Deprioritized** — no current test failures |
-| B6 | Fix `Face::new` in `weld_coincident_edges` Phase 2 | P1 | S | B4 | truck-shapeops/integrate/mod.rs:566 | **Not started** — Phase 0 uses `Face::try_new` correctly but Phase 2 (canonical edge substitution) still uses panicking `Face::new` |
+| B6 | Fix `Face::new` in `weld_coincident_edges` Phase 2 | P1 | S | B4 | truck-shapeops/integrate/mod.rs:654 | **Complete** (Sprint 9) — Changed to `Face::try_new` with fallback to original face on non-simple wire |
 
 **Parallelization**: B1, B2, B4 in parallel. B3 after B1. B5 after A4. B6 after B4.
 
@@ -43,8 +43,8 @@ Lays the infrastructure all subsequent boolean work depends on.
 
 | ID | Item | Pri | Size | Deps | Crates | Status |
 |----|------|-----|------|------|--------|--------|
-| C1 | TruckKernel `chamfer_edges` (planar geometry only) | P1 | L | — | kernel-fork/truck_kernel.rs | **Complete** (Sprint 5.5 — chamfer works via boolean subtraction pipeline). Note: `test_truck_chamfer` ignore annotation ("NotSupported") is stale — chamfer is implemented. |
-| C2 | TruckKernel `shell` (face removal + boolean subtraction) | P1 | XL | — | kernel-fork/truck_kernel.rs | **Implemented** (Sprint 3 — planar faces only, boolean subtraction approach at truck_kernel.rs:585-850). Note: `test_truck_shell` ignore annotation ("NotSupported") is stale — shell is implemented for planar face removal. |
+| C1 | TruckKernel `chamfer_edges` (planar geometry only) | P1 | L | — | kernel-fork/truck_kernel.rs | **Complete** (Sprint 5.5). Test un-ignored Sprint 9. |
+| C2 | TruckKernel `shell` (face removal + boolean subtraction) | P1 | XL | — | kernel-fork/truck_kernel.rs | **Complete** (Sprint 3 — planar faces). Test un-ignored Sprint 9. |
 | C3 | TruckKernel `fillet_edges` (rolling-ball surfaces) | P2 | XL | C1 | kernel-fork/truck_kernel.rs | **Not started** — truck-shapeops has a fillet module but it is NOT wired into TruckKernel. `test_truck_fillet` correctly returns NotSupported. |
 
 **Parallelization**: C1 and C2 in parallel. C3 after C1 (shares trimming infra).
@@ -58,8 +58,8 @@ All of Phase C is independent of Phases A-B.
 |----|------|-----|------|------|--------|--------|
 | D1 | Edge selection mode in 3D viewport | P0 | M | — | app/viewport/, app/engine/store.svelte.js, wasm-bridge/ | **Complete** (Sprint 2) |
 | D2 | Fillet dialog | P1 | M | D1,C3 | app/ui/FilletDialog.svelte, Toolbar.svelte | **UI shell exists** (Sprint 8) — FilletDialog.svelte created with "not yet supported" warning. Kernel wiring (C3) still missing. |
-| D3 | Chamfer dialog | P1 | S | D1,C1 | app/ui/ChamferDialog.svelte, Toolbar.svelte | **UI shell exists** (Sprint 8) — ChamferDialog.svelte created with "not yet supported" warning. Kernel is ready (C1 complete). Needs wiring. |
-| D4 | Shell dialog | P1 | S | C2 | app/ui/ShellDialog.svelte, Toolbar.svelte | **UI shell exists** (Sprint 8) — ShellDialog.svelte created. Kernel is ready (C2 implemented). Needs wiring. |
+| D3 | Chamfer dialog | P1 | S | D1,C1 | app/ui/ChamferDialog.svelte, Toolbar.svelte | **Complete** (Sprint 9) — Warning banner removed, kernel wired (C1). |
+| D4 | Shell dialog | P1 | S | C2 | app/ui/ShellDialog.svelte, Toolbar.svelte | **Complete** (Sprint 9) — Warning banner removed, kernel wired (C2). |
 | D5 | Revolve live preview (ghost mesh) | P2 | M | — | app/viewport/GhostPreview.svelte, RevolveDialog.svelte | Not started |
 
 **Parallelization**: D1 and D5 in parallel. D2/D3/D4 after their kernel + D1 deps.
@@ -110,7 +110,7 @@ Phase E (Advanced) — depends on A, B
 
 ## Ignored Test Inventory
 
-**17 total ignored tests** across the workspace (down from 19 — e5 rewritten as non-ignored F5, auto_union_stress un-ignored and passing).
+**15 total ignored tests** across the workspace (down from 17 — `test_truck_chamfer` and `test_truck_shell` un-ignored Sprint 9).
 
 ### Boolean-related (5 tests)
 
@@ -122,13 +122,11 @@ Phase E (Advanced) — depends on A, B
 | `circle_cut_crossing_box_edge` | test-harness/boolean_failures.rs | Circle extending beyond face boundary — NoSolid despite cardinal perturbation |
 | `cut_from_angled_direction` | test-harness/boolean_failures.rs | Angled extrude direction — truck cannot handle angled cylinder boolean |
 
-### Kernel ops (4 tests)
+### Kernel ops (2 tests)
 
 | Test | File | Reason | Notes |
 |------|------|--------|-------|
 | `test_truck_fillet` | test-harness/scenarios_truck.rs | TruckKernel fillet returns NotSupported | Correctly ignored — C3 not started |
-| `test_truck_chamfer` | test-harness/scenarios_truck.rs | TruckKernel chamfer returns NotSupported | **Stale ignore** — chamfer IS implemented (C1 complete). Likely passes now. |
-| `test_truck_shell` | test-harness/scenarios_truck.rs | TruckKernel shell returns NotSupported | **Stale ignore** — shell IS implemented for planar faces (C2). May pass now. |
 | `test_truck_cut_direction_selection` | test-harness/scenarios_truck.rs | Angled cut direction not yet wired | |
 
 ### Benchmarks & diagnostics (5 tests)
@@ -271,7 +269,7 @@ Phase E (Advanced) — depends on A, B
 
 ---
 
-### Sprint 7 (actual): Partial Edge-Coincidence Fixes
+### Sprint 7 (actual, pre-tolerance): Partial Edge-Coincidence Fixes
 
 **Theme:** Planned as full edge-coincidence + boundary fix sprint, but only some items completed.
 
@@ -285,6 +283,30 @@ Phase E (Advanced) — depends on A, B
 
 **Tests un-ignored:** `auto_union_stress_various_positions` (now passing), `e5` (rewritten as F5, no longer ignored)
 **Uncommitted WIP:** vendor/truck changes for g3 mutual containment fix
+
+---
+
+### Sprint 7 (tolerance): Feature-Aware Layered Tolerance
+
+**Commit**: `b33fdbd`
+
+**Theme:** Fix e5 `extrude_cut` failure by making boolean tolerance feature-aware. Root cause: `compute_adaptive_tol` only considered bounding box extent, not minimum edge length. For a 10x10x10 box with 16-gon prism (r=1.0, min_edge≈0.39), tol=0.05 gave tol/edge=0.128, exceeding the ~0.10 `weld_coincident_edges` failure threshold.
+
+**Key changes:**
+- `solid_min_edge_length()` — iterates all edges, returns minimum vertex-to-vertex distance
+- `compute_adaptive_tol(solid_a, solid_b)` — considers both `extent * 0.005` and `min_edge * 0.05`, takes minimum
+- `BooleanTolerance` struct in truck-shapeops — per-stage tolerance (`tau_model`, `tau_mesh`, `tau_weld`, `tau_coplanar`)
+- `_with_tol` variants of all 6 public boolean functions (`and`/`or`/`difference` × `Result`/`Option`)
+- `create_loops_stores` accepts optional `coplanar_tol`
+
+**Critical lesson:** `from_model_tol` must use uniform values (all = `tau_model`). Attempts to set `tau_coplanar = 5 * tau_model` broke coplanar normal check (accepted 41° angles). `tau_weld` override broke `weld_coincident_edges` internal calibration.
+
+| Burndown ID | Status |
+|-------------|--------|
+| A5 | **Complete** — BooleanTolerance + _with_tol variants |
+
+**Tests added:** `i1_polygon_cut_feature_aware_tolerance`, `i2_parametric_radius_sweep`, 5 unit tests
+**Net result:** 192 kernel-fork + 77 truck-shapeops + 96+ test-harness pass
 
 ---
 
@@ -306,23 +328,25 @@ Phase E (Advanced) — depends on A, B
 
 ---
 
-## Forward Roadmap
+### Sprint 9: Wire Kernel Ops to UI + Fix Stale Ignores
 
-### Next Sprint: Wire Existing Kernel Ops to UI + Fix Stale Ignores
+**Theme:** Low-hanging fruit — connect already-implemented kernel ops to their dialogs, un-ignore stale tests, fix panic.
 
-**Theme:** Low-hanging fruit — connect already-implemented kernel ops to their dialogs and un-ignore stale tests.
+| Item | Effort | Burndown IDs | Status |
+|------|--------|-------------|--------|
+| Un-ignore `test_truck_chamfer` + `test_truck_shell` | S | C1, C2 | **Complete** — both pass |
+| Remove "not yet supported" warning from ChamferDialog | S | D3 | **Complete** |
+| Remove "not yet supported" warning from ShellDialog | S | D4 | **Complete** |
+| Fix `Face::new` panic at integrate/mod.rs:654 | S | B6 | **Complete** — changed to `Face::try_new` with fallback |
 
-| Item | Effort | Burndown IDs |
-|------|--------|-------------|
-| Un-ignore `test_truck_chamfer` + `test_truck_shell` (stale annotations) | S | C1, C2 |
-| Wire ChamferDialog to TruckKernel chamfer | S | D3 |
-| Wire ShellDialog to TruckKernel shell | S | D4 |
-| Wire `BooleanOptions` through truck-shapeops functions | M | A5 |
-| Fix `Face::new` at integrate/mod.rs:566 | S | B6 |
+**Tests un-ignored:** `test_truck_chamfer`, `test_truck_shell`
+**Net result:** 34 scenarios_truck (2 ignored), 37 boolean_workflows (1 ignored), 77 truck-shapeops pass
 
 ---
 
-### Future Sprint: Edge-Coincidence & Boundary Fixes
+## Forward Roadmap
+
+### Next Sprint: Edge-Coincidence & Boundary Fixes
 
 **Theme:** Fix booleans where tool touches target edges/boundaries.
 

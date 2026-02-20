@@ -61,9 +61,6 @@
 			<button class="close-btn" onclick={handleCancel}>&times;</button>
 		</div>
 		<div class="dialog-body">
-			<div class="warning-banner" data-testid="shell-warning">
-				⚠ Shell is not yet supported by the geometry kernel. This operation may fail.
-			</div>
 			<div class="info-row">
 				<span class="info-label">Faces to remove</span>
 				<span class="info-value" data-testid="shell-face-count">{dialogState.faceCount}</span>
@@ -134,16 +131,6 @@
 		display: flex;
 		flex-direction: column;
 		gap: 10px;
-	}
-
-	.warning-banner {
-		background: rgba(255, 183, 77, 0.15);
-		border: 1px solid rgba(255, 183, 77, 0.4);
-		border-radius: 4px;
-		padding: 8px 10px;
-		font-size: 11px;
-		color: #ffb74d;
-		line-height: 1.4;
 	}
 
 	.info-row {

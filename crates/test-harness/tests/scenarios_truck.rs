@@ -89,7 +89,6 @@ fn test_truck_fillet() {
 }
 
 #[test]
-#[ignore = "TruckKernel chamfer returns NotSupported"]
 fn test_truck_chamfer() {
     let mut m = ModelBuilder::truck();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
@@ -102,7 +101,6 @@ fn test_truck_chamfer() {
 // ── Additional TruckKernel tests ────────────────────────────────────────────
 
 #[test]
-#[ignore = "TruckKernel shell returns NotSupported"]
 fn test_truck_shell() {
     let mut m = ModelBuilder::truck();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
