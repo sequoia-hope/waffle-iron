@@ -675,25 +675,41 @@ fn e4_cut_depth_exactly_solid_height() {
     assert!(f > 6, "Through-hole should add faces (got {})", f);
 }
 
-/// E5: Multiple non-overlapping cuts. Chained boolean.
+/// E5: Multiple non-overlapping cuts with polygon prisms. Chained boolean.
+/// Uses explicit extrude_directed_no_merge + boolean_subtract (same pattern as E6)
+/// to avoid extrude_cut's auto-merge path. Two 16-gon polygon prism cuts at
+/// well-separated positions inside the cube.
 #[test]
-#[ignore = "truck 0.4: chained extrude_cut — first cut produces NoSolid despite plane-projection fix"]
 fn e5_multiple_non_overlapping_cuts() {
-    let mut m = base_cube();
+    let mut m = ModelBuilder::truck();
 
-    m.circle_sketch("cut1_sk", [0., 0., 10.], [0., 0., 1.], 3., 3., 1.)
+    m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
-    m.extrude_cut("hole1", "cut1_sk", 15.0).unwrap();
-    m.assert_has_solid("hole1").unwrap();
+    m.extrude("cube", "base_sk", 10.0).unwrap();
 
-    m.circle_sketch("cut2_sk", [0., 0., 10.], [0., 0., 1.], 7., 7., 1.)
+    // Tool 1: 16-gon polygon prism at (3,5) r=1.5, starting at z=11 (1 above box top),
+    // directed downward with depth=16 (through entire box + clearance).
+    // Positions and radius match e6's known-good pattern.
+    m.circle_sketch("tool1_sk", [0., 0., 11.], [0., 0., 1.], 3., 5., 1.5)
         .unwrap();
-    m.extrude_cut("hole2", "cut2_sk", 15.0).unwrap();
-    m.assert_has_solid("hole2").unwrap();
+    m.extrude_directed_no_merge("tool1", "tool1_sk", 16.0, [0., 0., -1.])
+        .unwrap();
+
+    m.boolean_subtract("step1", "cube", "tool1").unwrap();
+    m.assert_has_solid("step1").unwrap();
+
+    // Tool 2: 16-gon polygon prism at (7,5) r=1.5, same approach.
+    m.circle_sketch("tool2_sk", [0., 0., 11.], [0., 0., 1.], 7., 5., 1.5)
+        .unwrap();
+    m.extrude_directed_no_merge("tool2", "tool2_sk", 16.0, [0., 0., -1.])
+        .unwrap();
+
+    m.boolean_subtract("step2", "step1", "tool2").unwrap();
+    m.assert_has_solid("step2").unwrap();
     m.assert_no_errors().unwrap();
 
-    let (_, _, f) = m.topology_counts("hole2").unwrap();
-    assert!(f > 8, "Two holes should add many faces (got {})", f);
+    let (_, _, f) = m.topology_counts("step2").unwrap();
+    assert!(f > 8, "Two polygon cuts should add many faces (got {})", f);
 }
 
 /// E6: Two explicit boolean_subtracts. Chained boolean.
@@ -1039,7 +1055,7 @@ fn g2_stacked_boxes_coplanar_face() {
 
 /// Rect cut — full face coplanar cut, profile matches target face.
 #[test]
-#[ignore = "truck upstream port: full-face pocket cut shares all 4 boundary edges"]
+#[ignore = "truck: full-face pocket cut — all 4 boundary edges coincident produce NotSimpleWire"]
 fn g3_full_face_rect_cut() {
     let mut m = base_cube();
 

@@ -746,6 +746,28 @@ pub fn try_boolean_with_perturbation(
         }
     }
 
+    // Diagonal perturbation — when coplanar and cylinder directions alone
+    // don't resolve the degeneracy, try diagonal combinations. These cover
+    // cases where the failure occurs at edges shared between multiple faces
+    // (e.g., corner geometries) and neither axis-aligned nor face-normal
+    // perturbation breaks the symmetry.
+    if dirs.len() >= 2 || !cyl_dirs.is_empty() {
+        let diag_dirs = [
+            Vector3::new(1.0, 1.0, 0.0).normalize(),
+            Vector3::new(1.0, 0.0, 1.0).normalize(),
+            Vector3::new(0.0, 1.0, 1.0).normalize(),
+            Vector3::new(1.0, 1.0, 1.0).normalize(),
+        ];
+        for dir in &diag_dirs {
+            for &eps in &epsilons {
+                let perturbed_b = translate_solid(solid_b, *dir * eps);
+                if let Some(result) = op(solid_a, &perturbed_b) {
+                    return Some(result);
+                }
+            }
+        }
+    }
+
     // Cardinal fallback — for edge-coincident cases where coplanarity
     // detection doesn't trigger. Use fixed small epsilon (not scaled) because
     // cardinal perturbation is a last resort and must stay within tolerance.

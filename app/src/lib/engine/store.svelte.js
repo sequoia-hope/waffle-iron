@@ -24,6 +24,9 @@ let engineReady = $state(false);
 /** @type {string | null} */
 let lastError = $state(null);
 
+/** @type {Map<string, string>} featureId -> error message */
+let featureErrors = $state(new Map());
+
 let rebuildTime = $state(0);
 
 let statusMessage = $state('Initializing...');
@@ -103,6 +106,15 @@ let revolveDialogState = $state(null);
 /** @type {{ sketchId: string, profileIndex: number, angle: number, axisOrigin: [number,number,number], axisDir: [number,number,number] } | null} */
 let revolvePreviewParams = $state(null);
 
+/** @type {{ edges: Array<any>, edgeCount: number } | null} */
+let chamferDialogState = $state(null);
+
+/** @type {{ edges: Array<any>, edgeCount: number } | null} */
+let filletDialogState = $state(null);
+
+/** @type {{ faces: Array<any>, faceCount: number } | null} */
+let shellDialogState = $state(null);
+
 /** @type {{ entityA: number, entityB: number | null, sketchX: number, sketchY: number, dimType: 'distance'|'radius'|'angle', defaultValue: number } | null} */
 let dimensionPopup = $state(null);
 
@@ -152,6 +164,15 @@ let isMobileLayout = $state(false);
 /** @type {'left' | 'right' | null} */
 let mobileActivePanel = $state(null);
 
+/** @type {string} */
+let projectName = $state('Untitled');
+
+/** @type {number | null} */
+let autoSaveTimer = null;
+
+/** @type {{ available: boolean, timestamp: number } | null} */
+let autoRestoreState = $state(null);
+
 /** @type {EngineBridge | null} */
 let bridge = null;
 
@@ -172,15 +193,19 @@ export async function initEngine() {
 		}
 		lastError = null;
 		statusMessage = `Model updated (${meshes.length} ${meshes.length === 1 ? 'body' : 'bodies'})`;
+		scheduleAutoSave();
 		log('engine', 'Model updated', { meshCount: meshes.length, featureCount: featureTree?.features?.length ?? 0 });
 
-		// Surface rebuild errors (e.g. boolean failures) to the user
+		// Track feature errors for tree display
+		const newErrors = new Map();
 		if (msg.errors && msg.errors.length > 0) {
 			for (const [featureId, errorMsg] of msg.errors) {
+				newErrors.set(featureId, errorMsg);
 				log('error', `Feature ${featureId} failed: ${errorMsg}`);
 				showToast('error', `Feature failed: ${errorMsg}`);
 			}
 		}
+		featureErrors = newErrors;
 
 		// Surface non-fatal warnings (e.g. auto-union fallback)
 		if (msg.warnings && msg.warnings.length > 0) {
@@ -223,6 +248,15 @@ export async function initEngine() {
 		statusMessage = 'Engine ready';
 		log('system', 'Engine ready (WASM loaded)');
 		initLoggerToasts();
+
+		// Check for auto-save data
+		if (typeof localStorage !== 'undefined') {
+			const saved = localStorage.getItem(AUTOSAVE_KEY);
+			const savedTime = localStorage.getItem(AUTOSAVE_TIME_KEY);
+			if (saved && savedTime) {
+				autoRestoreState = { available: true, timestamp: parseInt(savedTime, 10) };
+			}
+		}
 	} catch (err) {
 		lastError = /** @type {Error} */ (err).message;
 		statusMessage = `Failed to load engine: ${lastError}`;
@@ -300,6 +334,18 @@ export async function initEngine() {
 			getRevolveDialogState: () => revolveDialogState,
 			getRevolvePreviewParams: () => revolvePreviewParams,
 			setRevolvePreviewParams: (params) => setRevolvePreviewParams(params),
+			getChamferDialogState: () => chamferDialogState,
+			showChamferDialog: () => showChamferDialog(),
+			hideChamferDialog: () => hideChamferDialog(),
+			applyChamfer: (distance) => applyChamfer(distance),
+			getFilletDialogState: () => filletDialogState,
+			showFilletDialog: () => showFilletDialog(),
+			hideFilletDialog: () => hideFilletDialog(),
+			applyFillet: (radius) => applyFillet(radius),
+			getShellDialogState: () => shellDialogState,
+			showShellDialog: () => showShellDialog(),
+			hideShellDialog: () => hideShellDialog(),
+			applyShell: (thickness) => applyShell(thickness),
 			getSelectedRefs: () => [...selectedRefs],
 			getHoveredRef: () => hoveredRef,
 			selectRef: (ref, additive) => selectRef(ref, additive),
@@ -331,6 +377,7 @@ export async function initEngine() {
 			clearToolEventLog: () => _clearToolEventLog(),
 			getSolveStatus: () => sketchSolveStatus ? { ...sketchSolveStatus } : null,
 			getOverConstrained: () => [...overConstrainedEntities],
+			getFeatureErrors: () => new Map(featureErrors),
 			projectFaceCentroids: () => {
 				const cam = cameraObject;
 				const canvas = document.querySelector('canvas');
@@ -355,6 +402,11 @@ export async function initEngine() {
 				}
 				return results.filter(r => !r.behindCamera);
 			},
+			getProjectName: () => getProjectName(),
+			setProjectName: (name) => setProjectName(name),
+			getAutoRestoreState: () => getAutoRestoreState(),
+			restoreAutoSave: () => restoreAutoSave(),
+			discardAutoSave: () => discardAutoSave(),
 			getDatumPlanes: () => BUILTIN_PLANES,
 			createDatumPlane: (definition, name) => createDatumPlane(definition, name),
 			enterSketchEditMode: (featureId) => enterSketchEditMode(featureId),
@@ -423,6 +475,10 @@ export function isEngineReady() {
 
 export function getLastError() {
 	return lastError;
+}
+
+export function getFeatureErrors() {
+	return featureErrors;
 }
 
 export function getRebuildTime() {
@@ -1205,6 +1261,164 @@ export async function applyRevolve(angleDeg, axisOrigin, axisDir, profileIndex) 
 	}
 }
 
+// -- Chamfer dialog --
+
+export function getChamferDialogState() { return chamferDialogState; }
+
+/**
+ * Show the chamfer dialog. Gathers selected Edge refs from the current selection.
+ */
+export function showChamferDialog() {
+	const edges = selectedRefs.filter(r => r.kind?.type === 'Edge');
+	log('ui', 'Show chamfer dialog', { edgeCount: edges.length });
+	chamferDialogState = {
+		edges: JSON.parse(JSON.stringify(edges)),
+		edgeCount: edges.length
+	};
+}
+
+export function hideChamferDialog() {
+	chamferDialogState = null;
+}
+
+/**
+ * Apply a chamfer operation from the dialog.
+ * @param {number} distance
+ */
+export async function applyChamfer(distance) {
+	if (!chamferDialogState || !bridge || !engineReady) return;
+
+	log('action', 'Apply chamfer', { distance, edgeCount: chamferDialogState.edgeCount });
+	try {
+		await bridge.send({
+			type: 'AddFeature',
+			operation: {
+				type: 'Chamfer',
+				params: {
+					edges: chamferDialogState.edges,
+					distance
+				}
+			}
+		});
+
+		chamferDialogState = null;
+	} catch (err) {
+		const msg = err.message || String(err);
+		log('error', `Chamfer failed: ${msg}`);
+		if (msg.includes('NotSupported') || msg.includes('not supported')) {
+			showToast('error', 'Chamfer is not yet supported by the geometry kernel');
+		} else {
+			showToast('error', `Chamfer failed: ${msg}`);
+		}
+	}
+}
+
+// -- Fillet dialog --
+
+export function getFilletDialogState() { return filletDialogState; }
+
+/**
+ * Show the fillet dialog. Gathers selected Edge refs from the current selection.
+ */
+export function showFilletDialog() {
+	const edges = selectedRefs.filter(r => r.kind?.type === 'Edge');
+	log('ui', 'Show fillet dialog', { edgeCount: edges.length });
+	filletDialogState = {
+		edges: JSON.parse(JSON.stringify(edges)),
+		edgeCount: edges.length
+	};
+}
+
+export function hideFilletDialog() {
+	filletDialogState = null;
+}
+
+/**
+ * Apply a fillet operation from the dialog.
+ * @param {number} radius
+ */
+export async function applyFillet(radius) {
+	if (!filletDialogState || !bridge || !engineReady) return;
+
+	log('action', 'Apply fillet', { radius, edgeCount: filletDialogState.edgeCount });
+	try {
+		await bridge.send({
+			type: 'AddFeature',
+			operation: {
+				type: 'Fillet',
+				params: {
+					edges: filletDialogState.edges,
+					radius
+				}
+			}
+		});
+
+		filletDialogState = null;
+	} catch (err) {
+		const msg = err.message || String(err);
+		log('error', `Fillet failed: ${msg}`);
+		if (msg.includes('NotSupported') || msg.includes('not supported')) {
+			showToast('error', 'Fillet is not yet supported by the geometry kernel');
+		} else {
+			showToast('error', `Fillet failed: ${msg}`);
+		}
+	}
+}
+
+// -- Shell dialog --
+
+export function getShellDialogState() { return shellDialogState; }
+
+/**
+ * Show the shell dialog. Gathers selected Face refs from the current selection.
+ */
+export function showShellDialog() {
+	const faces = selectedRefs.filter(r => r.kind?.type === 'Face');
+	log('ui', 'Show shell dialog', { faceCount: faces.length });
+	shellDialogState = {
+		faces: JSON.parse(JSON.stringify(faces)),
+		faceCount: faces.length
+	};
+}
+
+export function hideShellDialog() {
+	shellDialogState = null;
+}
+
+/**
+ * Apply a shell operation from the dialog.
+ * @param {number} thickness
+ */
+export async function applyShell(thickness) {
+	if (!shellDialogState || !bridge || !engineReady) return;
+
+	log('action', 'Apply shell', { thickness, faceCount: shellDialogState.faceCount });
+	try {
+		await bridge.send({
+			type: 'AddFeature',
+			operation: {
+				type: 'Shell',
+				params: {
+					faces_to_remove: shellDialogState.faces,
+					thickness
+				}
+			}
+		});
+
+		shellDialogState = null;
+	} catch (err) {
+		const msg = err.message || String(err);
+		log('error', `Shell failed: ${msg}`);
+		if (msg.includes('NotSupported') || msg.includes('not supported')) {
+			showToast('error', 'Shell is not yet supported by the geometry kernel');
+		} else if (msg.includes('planar') || msg.includes('non-planar')) {
+			showToast('error', 'Shell only works on solids with planar faces');
+		} else {
+			showToast('error', `Shell failed: ${msg}`);
+		}
+	}
+}
+
 // -- Sketch-on-face: compute face plane from mesh data --
 
 /**
@@ -1667,6 +1881,36 @@ export function toggleMobilePanel(panel) {
 	mobileActivePanel = mobileActivePanel === panel ? null : panel;
 }
 
+// -- Project name --
+
+export function getProjectName() { return projectName; }
+/** @param {string} name */
+export function setProjectName(name) { projectName = name; }
+
+// -- Auto-restore --
+
+export function getAutoRestoreState() { return autoRestoreState; }
+
+export async function restoreAutoSave() {
+	if (typeof localStorage === 'undefined') return false;
+	const saved = localStorage.getItem(AUTOSAVE_KEY);
+	if (!saved) return false;
+	const savedName = localStorage.getItem(AUTOSAVE_NAME_KEY);
+	if (savedName) projectName = savedName;
+	await loadProject(saved);
+	autoRestoreState = null;
+	return true;
+}
+
+export function discardAutoSave() {
+	if (typeof localStorage !== 'undefined') {
+		localStorage.removeItem(AUTOSAVE_KEY);
+		localStorage.removeItem(AUTOSAVE_TIME_KEY);
+		localStorage.removeItem(AUTOSAVE_NAME_KEY);
+	}
+	autoRestoreState = null;
+}
+
 /**
  * Trigger a constraint solve via the libslvs solver in the worker.
  * Sends current sketch state to the worker for solving.
@@ -1694,6 +1938,40 @@ export function triggerSolve() {
 			positions: posObj
 		})
 		.catch(err => log('error', `SolveSketchLocal failed: ${err}`));
+}
+
+const AUTOSAVE_KEY = 'waffle-autosave';
+const AUTOSAVE_TIME_KEY = 'waffle-autosave-time';
+const AUTOSAVE_NAME_KEY = 'waffle-autosave-name';
+const AUTOSAVE_DELAY_MS = 3000;
+
+function scheduleAutoSave() {
+	if (typeof localStorage === 'undefined') return;
+	if (autoSaveTimer) clearTimeout(autoSaveTimer);
+	autoSaveTimer = setTimeout(async () => {
+		autoSaveTimer = null;
+		try {
+			const jsonData = await saveProjectToString();
+			if (!jsonData) return;
+			localStorage.setItem(AUTOSAVE_KEY, jsonData);
+			localStorage.setItem(AUTOSAVE_TIME_KEY, String(Date.now()));
+			localStorage.setItem(AUTOSAVE_NAME_KEY, projectName);
+		} catch (err) {
+			// Silently fail (e.g. localStorage quota exceeded)
+			console.warn('Auto-save failed:', err);
+		}
+	}, AUTOSAVE_DELAY_MS);
+}
+
+/**
+ * Save project to JSON string without triggering browser download.
+ * @returns {Promise<string | null>}
+ */
+async function saveProjectToString() {
+	if (!bridge || !engineReady) return null;
+	const response = await bridge.send({ type: 'SaveProject' });
+	if (response.type !== 'SaveReady' || !response.json_data) return null;
+	return response.json_data;
 }
 
 /**
@@ -1924,7 +2202,7 @@ export async function saveProject() {
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement('a');
 		a.href = url;
-		a.download = 'project.waffle';
+		a.download = `${projectName}.waffle`;
 		document.body.appendChild(a);
 		a.click();
 		document.body.removeChild(a);

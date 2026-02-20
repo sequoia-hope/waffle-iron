@@ -15,12 +15,14 @@
 		geomRefEquals,
 		isSketchVisible,
 		toggleSketchVisibility,
-		enterSketchEditMode
+		enterSketchEditMode,
+		getFeatureErrors
 	} from '$lib/engine/store.svelte.js';
 	import { BUILTIN_PLANES, makePlaneRef } from '$lib/engine/planes.js';
 
 	let tree = $derived(getFeatureTree());
 	let selectedId = $derived(getSelectedFeatureId());
+	let featureErrors = $derived(getFeatureErrors());
 
 	/** @type {{ x: number, y: number, featureId: string, featureName: string, suppressed: boolean, isSketch: boolean } | null} */
 	let contextMenu = $state(null);
@@ -280,6 +282,9 @@
 							{isSketchVisible(feature.id) ? '\u25C9' : '\u25CE'}
 						</button>
 					{/if}
+					{#if featureErrors.get(feature.id)}
+						<span class="error-indicator" title={featureErrors.get(feature.id)} data-testid="feature-error-{i}">⚠</span>
+					{/if}
 				</div>
 			{/each}
 		{/if}
@@ -483,6 +488,14 @@
 	.visibility-toggle:hover {
 		opacity: 1;
 		color: var(--text-primary);
+	}
+
+	.error-indicator {
+		margin-left: auto;
+		font-size: 12px;
+		color: #ff6b6b;
+		cursor: help;
+		flex-shrink: 0;
 	}
 
 	.rename-input {

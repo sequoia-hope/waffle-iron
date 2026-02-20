@@ -15,6 +15,9 @@
 		finishSketch,
 		showExtrudeDialog,
 		showRevolveDialog,
+		showChamferDialog,
+		showFilletDialog,
+		showShellDialog,
 		saveProject,
 		loadProject,
 		exportStl,
@@ -23,7 +26,9 @@
 		computeFacePlane,
 		showSketchPlaneDialog,
 		getMobileLayout,
-		toggleMobilePanel
+		toggleMobilePanel,
+		getProjectName,
+		setProjectName
 	} from '$lib/engine/store.svelte.js';
 	import { getApplicableConstraints } from '$lib/sketch/constraintLogic.js';
 	import { resetTool } from '$lib/sketch/tools.js';
@@ -38,6 +43,10 @@
 
 	let isMobile = $derived(getMobileLayout());
 	let applicable = $derived(inSketch ? getApplicableConstraints(selection, entities, positions) : {});
+
+	let name = $derived(getProjectName());
+	let editingName = $state(false);
+	let nameInputValue = $state('');
 
 	const constraintButtons = [
 		{ id: 'horizontal', label: 'H', title: 'Horizontal' },
@@ -101,6 +110,18 @@
 		}
 		if (toolId === 'revolve' && !inSketch) {
 			showRevolveDialog();
+			return;
+		}
+		if (toolId === 'chamfer' && !inSketch) {
+			showChamferDialog();
+			return;
+		}
+		if (toolId === 'fillet' && !inSketch) {
+			showFilletDialog();
+			return;
+		}
+		if (toolId === 'shell' && !inSketch) {
+			showShellDialog();
 			return;
 		}
 		if (toolId === 'construction') {
@@ -174,6 +195,21 @@
 
 <div class="toolbar" data-testid="toolbar">
 	<div class="toolbar-brand">Waffle Iron</div>
+
+	<div class="project-name" data-testid="project-name">
+		{#if editingName}
+			<input
+				class="name-input"
+				bind:value={nameInputValue}
+				onblur={() => { if (nameInputValue.trim()) setProjectName(nameInputValue.trim()); editingName = false; }}
+				onkeydown={(e) => { if (e.key === 'Enter') { if (nameInputValue.trim()) setProjectName(nameInputValue.trim()); editingName = false; } else if (e.key === 'Escape') { editingName = false; } }}
+			/>
+		{:else}
+			<button class="name-btn" ondblclick={() => { nameInputValue = name; editingName = true; }} title="Double-click to rename">
+				{name}
+			</button>
+		{/if}
+	</div>
 
 	{#if inSketch}
 		<!-- Sketch mode tools -->
@@ -274,6 +310,37 @@
 		padding-right: 12px;
 		border-right: 1px solid var(--border-color);
 		margin-right: 4px;
+	}
+
+	.project-name {
+		display: flex;
+		align-items: center;
+		margin-right: 4px;
+	}
+
+	.name-btn {
+		background: none;
+		border: none;
+		color: var(--text-secondary);
+		font-size: 12px;
+		cursor: default;
+		padding: 2px 6px;
+		border-radius: 3px;
+	}
+
+	.name-btn:hover {
+		background: var(--bg-hover);
+	}
+
+	.name-input {
+		background: var(--bg-primary);
+		border: 1px solid var(--accent);
+		color: var(--text-primary);
+		font-size: 12px;
+		padding: 2px 6px;
+		border-radius: 3px;
+		width: 120px;
+		outline: none;
 	}
 
 	.toolbar-group {

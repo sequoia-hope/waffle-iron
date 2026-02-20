@@ -7,6 +7,10 @@
 	import DimensionInput from '$lib/sketch/DimensionInput.svelte';
 	import ViewportContextMenu from './ViewportContextMenu.svelte';
 	import ExtrudeDialog from '$lib/ui/ExtrudeDialog.svelte';
+	import ChamferDialog from '$lib/ui/ChamferDialog.svelte';
+	import FilletDialog from '$lib/ui/FilletDialog.svelte';
+	import ShellDialog from '$lib/ui/ShellDialog.svelte';
+	import AutoRestoreDialog from '$lib/ui/AutoRestoreDialog.svelte';
 
 	let constraintMenuPos = $state({ x: 0, y: 0 });
 	let constraintMenuVisible = $state(false);
@@ -30,6 +34,10 @@
 	<DimensionInput />
 	<ViewportContextMenu bind:pos={ctxMenuPos} bind:visible={ctxMenuVisible} />
 	<ExtrudeDialog />
+	<ChamferDialog />
+	<FilletDialog />
+	<ShellDialog />
+	<AutoRestoreDialog />
 </div>
 
 <style>
