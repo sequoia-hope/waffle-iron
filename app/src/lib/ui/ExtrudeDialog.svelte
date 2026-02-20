@@ -4,7 +4,9 @@
 		hideExtrudeDialog,
 		applyExtrude,
 		removeExtrudeRegion,
-		setExtrudePreviewParams
+		setExtrudePreviewParams,
+		changeExtrudeSketch,
+		addExtrudeRegion
 	} from '$lib/engine/store.svelte.js';
 	import { log } from '$lib/engine/logger.js';
 
@@ -21,6 +23,8 @@
 	let showSecondDepthInput = $derived(secondDir === 'Blind');
 
 	let regions = $derived(dialogState?.regions ?? []);
+	let availableSketches = $derived(dialogState?.availableSketches ?? []);
+	let addProfileIndex = $state(0);
 
 	$effect(() => {
 		if (dialogState) {
@@ -101,6 +105,10 @@
 	function handleRemoveRegion(index) {
 		removeExtrudeRegion(index);
 	}
+
+	function handleAddProfile() {
+		addExtrudeRegion(dialogState.sketchId, dialogState.sketchName, addProfileIndex);
+	}
 </script>
 
 {#if dialogState}
@@ -111,6 +119,21 @@
 			<button class="close-btn" onclick={handleCancel}>&times;</button>
 		</div>
 		<div class="dialog-body">
+			{#if availableSketches.length > 1}
+				<div class="field">
+					<label for="extrude-sketch">Sketch</label>
+					<select
+						id="extrude-sketch"
+						data-testid="extrude-sketch-select"
+						value={dialogState.sketchId}
+						onchange={(e) => changeExtrudeSketch(e.target.value)}
+					>
+						{#each availableSketches as sketch}
+							<option value={sketch.id}>{sketch.name}</option>
+						{/each}
+					</select>
+				</div>
+			{/if}
 			<div class="region-list" data-testid="extrude-regions">
 				<div class="region-header">
 					<span>Regions ({regions.length})</span>
@@ -125,6 +148,19 @@
 					<div class="region-empty">No regions selected</div>
 				{/if}
 			</div>
+			{#if dialogState.profileCount > 1}
+				<div class="add-profile-section">
+					<span class="region-header">Add Profile</span>
+					<div class="add-profile-row">
+						<select bind:value={addProfileIndex} data-testid="extrude-add-profile-select">
+							{#each Array(dialogState.profileCount) as _, i}
+								<option value={i}>Profile {i + 1}</option>
+							{/each}
+						</select>
+						<button class="btn btn-add" onclick={handleAddProfile} data-testid="extrude-add-profile">Add</button>
+					</div>
+				</div>
+			{/if}
 			<div class="field">
 				<label for="extrude-depth-mode">Mode</label>
 				<select
@@ -305,6 +341,42 @@
 		color: var(--text-muted, #888);
 		font-style: italic;
 		padding: 4px 0;
+	}
+
+	.add-profile-section {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.add-profile-row {
+		display: flex;
+		gap: 6px;
+		align-items: center;
+	}
+
+	.add-profile-row select {
+		flex: 1;
+		background: var(--bg-primary, #1e1e1e);
+		border: 1px solid var(--border-color, #444);
+		color: var(--text-primary, #eee);
+		padding: 3px 6px;
+		border-radius: 3px;
+		font-size: 12px;
+	}
+
+	.btn-add {
+		background: var(--bg-primary, #1e1e1e);
+		border: 1px solid var(--border-color, #444);
+		color: var(--text-primary, #eee);
+		padding: 3px 10px;
+		border-radius: 3px;
+		font-size: 11px;
+		cursor: pointer;
+	}
+
+	.btn-add:hover {
+		border-color: var(--accent, #0078d4);
 	}
 
 	.field {

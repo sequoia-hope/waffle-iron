@@ -334,6 +334,7 @@ export async function initEngine() {
 			getExtrudeRegions: () => getExtrudeRegions(),
 			addExtrudeRegion: (sketchId, sketchName, profileIndex) => addExtrudeRegion(sketchId, sketchName, profileIndex),
 			removeExtrudeRegion: (index) => removeExtrudeRegion(index),
+			changeExtrudeSketch: (sketchId) => changeExtrudeSketch(sketchId),
 			getRevolveDialogState: () => revolveDialogState,
 			getRevolvePreviewParams: () => revolvePreviewParams,
 			setRevolvePreviewParams: (params) => setRevolvePreviewParams(params),
@@ -1046,6 +1047,15 @@ export function showExtrudeDialog() {
 	const tree = featureTree;
 	if (!tree || !tree.features) return;
 
+	// Collect ALL sketch features for the sketch selector
+	const allSketches = tree.features
+		.filter(f => f.operation?.type === 'Sketch')
+		.map(f => ({
+			id: f.id,
+			name: f.name,
+			profileCount: f.operation?.sketch?.solved_profiles?.length ?? 0
+		}));
+
 	// Find the last sketch feature
 	let lastSketch = null;
 	for (let i = tree.features.length - 1; i >= 0; i--) {
@@ -1077,7 +1087,26 @@ export function showExtrudeDialog() {
 		sketchId: lastSketch.id,
 		sketchName: lastSketch.name,
 		profileCount,
+		availableSketches: allSketches,
 		regions
+	};
+}
+
+/**
+ * Change the selected sketch in the extrude dialog.
+ * @param {string} sketchId
+ */
+export function changeExtrudeSketch(sketchId) {
+	if (!extrudeDialogState) return;
+	const sketch = extrudeDialogState.availableSketches?.find(s => s.id === sketchId);
+	if (!sketch) return;
+
+	extrudeDialogState = {
+		...extrudeDialogState,
+		sketchId: sketch.id,
+		sketchName: sketch.name,
+		profileCount: sketch.profileCount,
+		regions: [{ sketchId: sketch.id, sketchName: sketch.name, profileIndex: 0 }]
 	};
 }
 
@@ -1219,11 +1248,36 @@ export function showRevolveDialog() {
 	if (!lastSketch) return;
 
 	const profileCount = lastSketch.operation?.sketch?.solved_profiles?.length ?? 0;
-	log('ui', 'Show revolve dialog', { sketchId: lastSketch.id, profileCount });
+
+	// Extract sketch line entities for axis selection
+	const sketchLines = [];
+	const sketchData = lastSketch.operation?.sketch;
+	if (sketchData) {
+		const entities = sketchData.entities ?? [];
+		const positions = sketchData.solved_positions ?? {};
+		for (const entity of entities) {
+			if (entity.type === 'Line' && !entity.construction) {
+				const startPos = positions[entity.start_id];
+				const endPos = positions[entity.end_id];
+				if (startPos && endPos) {
+					sketchLines.push({
+						id: entity.id,
+						start: [startPos[0], startPos[1]],
+						end: [endPos[0], endPos[1]]
+					});
+				}
+			}
+		}
+	}
+
+	log('ui', 'Show revolve dialog', { sketchId: lastSketch.id, profileCount, sketchLineCount: sketchLines.length });
 	revolveDialogState = {
 		sketchId: lastSketch.id,
 		sketchName: lastSketch.name,
-		profileCount
+		profileCount,
+		sketchLines,
+		planeOrigin: sketchData?.plane_origin ?? [0, 0, 0],
+		planeNormal: sketchData?.plane_normal ?? [0, 0, 1]
 	};
 }
 
