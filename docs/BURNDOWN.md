@@ -39,16 +39,15 @@ Lays the infrastructure all subsequent boolean work depends on.
 
 ---
 
-## Phase C: Missing Kernel Operations
+## Phase C: Kernel Operations
 
 | ID | Item | Pri | Size | Deps | Crates | Status |
 |----|------|-----|------|------|--------|--------|
 | C1 | TruckKernel `chamfer_edges` (planar geometry only) | P1 | L | — | kernel-fork/truck_kernel.rs | **Complete** (Sprint 5.5). Test un-ignored Sprint 9. |
 | C2 | TruckKernel `shell` (face removal + boolean subtraction) | P1 | XL | — | kernel-fork/truck_kernel.rs | **Complete** (Sprint 3 — planar faces). Test un-ignored Sprint 9. |
-| C3 | TruckKernel `fillet_edges` (rolling-ball surfaces) | P2 | XL | C1 | kernel-fork/truck_kernel.rs | **Not started** — truck-shapeops has a fillet module but it is NOT wired into TruckKernel. `test_truck_fillet` correctly returns NotSupported. |
+| C3 | TruckKernel `fillet_edges` (rolling-ball surfaces) | P3 | XL | C1 | kernel-fork/truck_kernel.rs | **Deferred indefinitely**. Prototype exists in truck-shapeops fillet module but type system incompatible with modeling types. Boolean-based approach (NURBS arc crescent tool) works but is slow (~150s per edge due to perturbation retries). Not needed for current workflows. |
 
-**Parallelization**: C1 and C2 in parallel. C3 after C1 (shares trimming infra).
-All of Phase C is independent of Phases A-B.
+**Note**: C1 (chamfer) and C2 (shell) are complete and working. C3 (fillet) is deferred indefinitely — focus is on robust booleans and GUI functionality.
 
 ---
 
@@ -57,12 +56,12 @@ All of Phase C is independent of Phases A-B.
 | ID | Item | Pri | Size | Deps | Crates | Status |
 |----|------|-----|------|------|--------|--------|
 | D1 | Edge selection mode in 3D viewport | P0 | M | — | app/viewport/, app/engine/store.svelte.js, wasm-bridge/ | **Complete** (Sprint 2) |
-| D2 | Fillet dialog | P1 | M | D1,C3 | app/ui/FilletDialog.svelte, Toolbar.svelte | **UI shell exists** (Sprint 8) — FilletDialog.svelte created with "not yet supported" warning. Kernel wiring (C3) still missing. |
+| D2 | Fillet dialog | P3 | M | D1,C3 | app/ui/FilletDialog.svelte, Toolbar.svelte | **Deferred indefinitely** — UI shell exists (Sprint 8) with "not yet supported" warning. Blocked on C3. |
 | D3 | Chamfer dialog | P1 | S | D1,C1 | app/ui/ChamferDialog.svelte, Toolbar.svelte | **Complete** (Sprint 9) — Warning banner removed, kernel wired (C1). |
 | D4 | Shell dialog | P1 | S | C2 | app/ui/ShellDialog.svelte, Toolbar.svelte | **Complete** (Sprint 9) — Warning banner removed, kernel wired (C2). |
 | D5 | Revolve live preview (ghost mesh) | P2 | M | — | app/viewport/GhostPreview.svelte, RevolveDialog.svelte | Not started |
 
-**Parallelization**: D1 and D5 in parallel. D2/D3/D4 after their kernel + D1 deps.
+**Note**: D3 (chamfer) and D4 (shell) are complete. D2 (fillet dialog) deferred with C3.
 
 ---
 
@@ -110,21 +109,20 @@ Phase E (Advanced) — depends on A, B
 
 ## Ignored Test Inventory
 
-**13 total ignored tests** across the workspace (down from 15 — `g3_full_face_rect_cut` and `rect_cut_coplanar_edges` un-ignored Sprint 10).
+**12 total ignored tests** across the workspace (down from 13 — `circle_cut_tangent_to_box_edge` un-ignored Sprint 11).
 
-### Boolean-related (3 tests)
+### Boolean-related (2 tests)
 
 | Test | File | Reason |
 |------|------|--------|
-| `circle_cut_tangent_to_box_edge` | test-harness/boolean_failures.rs | Circle tangent to box edge — NoSolid from boolean |
-| `circle_cut_crossing_box_edge` | test-harness/boolean_failures.rs | Circle extending beyond face boundary — NoSolid despite cardinal perturbation |
+| `circle_cut_crossing_box_edge` | test-harness/boolean_failures.rs | 16-gon polygon edge straddles box face boundary — truck can't compute intersection curves when polygon vertices land near target face edges. Root cause: circle profiles use 16-gon polygon approximation; a polygon edge crosses the y=0 face boundary, creating a degenerate intersection topology. |
 | `cut_from_angled_direction` | test-harness/boolean_failures.rs | Angled extrude direction — truck cannot handle angled cylinder boolean |
 
 ### Kernel ops (2 tests)
 
 | Test | File | Reason | Notes |
 |------|------|--------|-------|
-| `test_truck_fillet` | test-harness/scenarios_truck.rs | TruckKernel fillet returns NotSupported | Correctly ignored — C3 not started |
+| `test_truck_fillet` | test-harness/scenarios_truck.rs | TruckKernel fillet returns NotSupported | Deferred indefinitely — C3 |
 | `test_truck_cut_direction_selection` | test-harness/scenarios_truck.rs | Angled cut direction not yet wired | |
 
 ### Benchmarks & diagnostics (5 tests)
@@ -365,30 +363,76 @@ Phase E (Advanced) — depends on A, B
 
 ---
 
-## Forward Roadmap
+### Sprint 11: Un-ignore Tangent Test + Doc Update
 
-### Next Sprint: Circle-at-Boundary + Fillet
+**Theme:** Harvest Sprint 10's scale-expand perturbation fixing an additional test; update project documentation to reflect current priorities.
 
-**Theme:** Fix remaining edge cases and implement TruckKernel fillet.
+| Item | Effort | Status |
+|------|--------|--------|
+| Un-ignore `circle_cut_tangent_to_box_edge` | S | **Complete** — scale-expand perturbation from Sprint 10 fixed this case too |
+| Investigate `circle_cut_crossing_box_edge` | M | **Investigated** — root cause is 16-gon polygon edge straddling y=0 box face boundary; perturbation can't resolve since the tool genuinely protrudes past the face. Needs true cylinder support or smarter polygon discretization. |
+| Update BURNDOWN.md priorities | S | **Complete** — fillet/chamfer/shell deferred indefinitely; focus on robust booleans + GUI |
 
-| Item | Effort | Files |
-|------|--------|-------|
-| Circle tangent/crossing box edge fixes | L | `vendor/truck/.../polyline_construction/`, intersection_curve |
-| Angled extrude direction support | M | feature-engine extrude path |
-| Boolean-based fillet implementation (wire truck-shapeops fillet into TruckKernel) | L | `crates/kernel-fork/src/truck_kernel.rs` |
-
-**Tests to un-ignore:** `circle_cut_tangent_to_box_edge`, `circle_cut_crossing_box_edge`, `cut_from_angled_direction`, `test_truck_fillet`
+**Tests un-ignored:** `circle_cut_tangent_to_box_edge`
+**Net result:** 12 ignored tests (down from 13)
 
 ---
 
-### Deprioritized (do when needed)
+## Forward Roadmap
 
-- XOR operation (trivial to add, no user demand yet)
-- `RelationToOther` refactor (A4) — current AND/OR/Unknown works for all 4 ops
+### Focus Areas
+
+**Robust boolean operations** and **GUI functionality** are the priorities for the foreseeable future. Fillet, chamfer improvements, and shell improvements are deferred indefinitely.
+
+### Boolean Reliability (ongoing)
+
+| Item | Pri | Effort | Status |
+|------|-----|--------|--------|
+| Remaining 2 boolean test failures | P1 | L | `circle_cut_crossing_box_edge` needs true cylinder support or smarter polygon discretization; `cut_from_angled_direction` needs angled sweep support |
+| Activate robust predicates in main ray-cast | P2 | M | `robust_orient3d` and `robust_ray_triangle_cross` exist as dead code in truck-shapeops |
+| Eliminate remaining `cut_eps=0.1` offset | P2 | M | Feature-engine still extends cut tools by 0.1 in extrude direction |
+
+### GUI Functionality (next priority)
+
+| Item | Pri | Effort | Notes |
+|------|-----|--------|-------|
+| Sketch constraint UI | P1 | L | Dimension inputs, constraint visualization |
+| Feature tree interaction | P1 | M | Edit/reorder/suppress features |
+| Revolve live preview | P2 | M | Ghost mesh in viewport |
+| Undo/redo | P1 | M | Feature-level undo |
+| Import/export | P2 | L | STEP/STL import/export |
+
+### Deferred Indefinitely
+
+- **C3 (fillet)** — prototype exists but slow (~150s/edge), type system incompatible with truck-modeling
+- **D2 (fillet dialog)** — blocked on C3
+- XOR operation — no user demand
+- `RelationToOther` refactor (A4) — current AND/OR/Unknown works
 - `TouchingPolicy` (B5) — no current test failures
 - Per-edge `tau_local` (E3) — invasive, no current test failures
-- 2D polygon overlay library — current approach works
 - Non-manifold escape hatch — truck type system makes this hard
 - Fuzz tests, stage benchmarks — nice-to-have
 - TruckKernel chamfer via real chamfer surfaces (C1 currently uses boolean subtraction)
-- Activate dead robust predicates (`robust_orient3d`, `robust_ray_triangle_cross`) in main ray-cast pipeline
+
+---
+
+## Project Summary
+
+### What Works
+
+- **Sketch**: Line, rectangle, circle, arc drawing (click-click + click-drag), constraints via libslvs, snap indicators, plane selection (XY/XZ/YZ + datum planes)
+- **Extrude**: Boss (with auto-union) and cut, directed extrude, through-all
+- **Boolean**: Union, subtract, intersect — robust for box-box (coplanar, offset, overlapping), box-polygon (16-gon prism), chained operations (boss+hole on same part)
+- **Chamfer**: Planar edges via boolean subtraction
+- **Shell**: Face removal + offset
+- **UI**: Feature tree, error display, auto-save/restore, edge selection, property panel
+- **File format**: JSON save/load with schema versioning
+- **Testing**: ~500+ tests across 9 crates, 12 ignored (benchmarks, upstream bugs, 2 genuine boolean limitations)
+
+### What Doesn't Work
+
+- **Fillet**: Returns NotSupported (deferred)
+- **Circle cut crossing box edge**: 16-gon polygon edge straddling target face boundary
+- **Angled extrude cut**: Non-axis-aligned sweep direction
+- **Assemblies**: Not started (deferred to Phase 7)
+- **STEP/STL import/export**: Not started

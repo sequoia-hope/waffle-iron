@@ -2139,7 +2139,7 @@ mod tests {
         assert!(matches!(result, Err(KernelError::EntityNotFound { .. })));
     }
 
-    /// fillet_edges returns NotSupported on TruckKernel.
+    /// fillet_edges returns NotSupported on TruckKernel (deferred indefinitely).
     #[test]
     fn test_fillet_returns_not_supported() {
         let mut kernel = TruckKernel::new();

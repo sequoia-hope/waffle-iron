@@ -128,9 +128,8 @@ fn rect_cut_at_box_boundary() {
 // ══════════════════════════════════════════════════════════════════════════
 
 /// Circle positioned tangent to a box edge. The circle touches the
-/// face boundary at exactly one point. Fixed via coplanar perturbation retry.
+/// face boundary at exactly one point. Fixed via scale-expand perturbation (Sprint 10).
 #[test]
-#[ignore = "truck 0.4: circle tangent to box edge — NoSolid from boolean"]
 fn circle_cut_tangent_to_box_edge() {
     let mut m = base_cube();
 
