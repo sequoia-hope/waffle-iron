@@ -78,7 +78,6 @@ fn test_truck_boolean_coplanar() {
 }
 
 #[test]
-#[ignore = "TruckKernel fillet returns NotSupported"]
 fn test_truck_fillet() {
     let mut m = ModelBuilder::truck();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)

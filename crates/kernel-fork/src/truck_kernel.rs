@@ -378,13 +378,259 @@ impl Kernel for TruckKernel {
 
     fn fillet_edges(
         &mut self,
-        _solid: &KernelSolidHandle,
-        _edges: &[KernelId],
-        _radius: f64,
+        solid: &KernelSolidHandle,
+        edges: &[KernelId],
+        radius: f64,
     ) -> Result<KernelSolidHandle, KernelError> {
-        Err(KernelError::NotSupported {
-            operation: "fillet_edges".to_string(),
-        })
+        if radius <= 0.0 {
+            return Err(KernelError::Other {
+                message: "Fillet radius must be positive".into(),
+            });
+        }
+
+        let truck_solid = self
+            .solids
+            .get(&solid.id())
+            .ok_or(KernelError::EntityNotFound {
+                id: KernelId(solid.id()),
+            })?
+            .clone();
+
+        if truck_solid.boundaries().is_empty() {
+            return Err(KernelError::Other {
+                message: "Solid has no shell".into(),
+            });
+        }
+
+        // Phase 1: Compute fillet wedge geometry from the original solid
+        // (identical to chamfer Phase 1)
+        struct WedgeGeom {
+            front: Point3,
+            back: Point3,
+            offset_a: Vector3,
+            offset_b: Vector3,
+            na: Vector3,
+            nb: Vector3,
+        }
+
+        let wedge_geoms = {
+            let shell = &truck_solid.boundaries()[0];
+
+            let mut unique_edges = Vec::new();
+            let mut seen = std::collections::HashSet::new();
+            for e in shell.edge_iter() {
+                if seen.insert(e.id()) {
+                    unique_edges.push(e);
+                }
+            }
+
+            let mut geoms = Vec::new();
+            for edge_kid in edges {
+                let edge_offset = (edge_kid.0 % 10000).saturating_sub(1000) as usize;
+                if edge_offset >= unique_edges.len() {
+                    return Err(KernelError::EntityNotFound { id: *edge_kid });
+                }
+                let target = &unique_edges[edge_offset];
+                let tid = target.id();
+
+                let front = target.front().point();
+                let back = target.back().point();
+                let ev = back - front;
+                let elen = ev.magnitude();
+                if elen < 1e-12 {
+                    return Err(KernelError::Other {
+                        message: "Fillet target edge has zero length".into(),
+                    });
+                }
+                let edir = ev / elen;
+
+                // Find the 2 adjacent planar faces and their outward normals
+                let mut normals = Vec::new();
+                for face in shell.face_iter() {
+                    let has = face
+                        .boundaries()
+                        .iter()
+                        .flat_map(|w| w.edge_iter())
+                        .any(|e| e.id() == tid);
+                    if has {
+                        match face.oriented_surface() {
+                            Surface::Plane(p) => normals.push(p.normal()),
+                            _ => {
+                                return Err(KernelError::NotSupported {
+                                    operation: "fillet on non-planar face".into(),
+                                });
+                            }
+                        }
+                    }
+                }
+                if normals.len() != 2 {
+                    return Err(KernelError::Other {
+                        message: format!("Edge has {} adjacent faces, expected 2", normals.len()),
+                    });
+                }
+
+                let (na, nb) = (normals[0], normals[1]);
+
+                let mut da = na.cross(edir);
+                if da.dot(nb) > 0.0 {
+                    da = -da;
+                }
+                let dal = da.magnitude();
+                if dal < 1e-12 {
+                    return Err(KernelError::Other {
+                        message: "Degenerate fillet geometry (parallel faces?)".into(),
+                    });
+                }
+                da /= dal;
+
+                let mut db = nb.cross(edir);
+                if db.dot(na) > 0.0 {
+                    db = -db;
+                }
+                let dbl = db.magnitude();
+                if dbl < 1e-12 {
+                    return Err(KernelError::Other {
+                        message: "Degenerate fillet geometry (parallel faces?)".into(),
+                    });
+                }
+                db /= dbl;
+
+                geoms.push(WedgeGeom {
+                    front,
+                    back,
+                    offset_a: da,
+                    offset_b: db,
+                    na,
+                    nb,
+                });
+            }
+            geoms
+        };
+
+        // Phase 2: Build wedge prisms with arc cross-section and boolean-subtract
+        let mut current = truck_solid;
+        const ARC_SEGMENTS: usize = 16;
+
+        for wg in &wedge_geoms {
+            let ev = wg.back - wg.front;
+            let elen = ev.magnitude();
+            let edir = ev / elen;
+
+            let ext = (radius * 0.1).min(elen * 0.05);
+            let start = wg.front - edir * ext;
+            let sweep = ev + edir * (2.0 * ext);
+
+            // Nudge V0 outward along the bisector of the two face normals
+            let outward = wg.na + wg.nb;
+            let outward_len = outward.magnitude();
+            let nudge_vec = if outward_len > 1e-12 {
+                (outward / outward_len) * (radius * 0.05)
+            } else {
+                Vector3::new(0.0, 0.0, 0.0)
+            };
+            let v0 = start + nudge_vec;
+
+            // Tangent points on faces A and B, nudged slightly outside
+            let face_eps = radius * 0.02;
+            let v1 = start + wg.offset_a * radius + wg.na * face_eps;
+            let v2 = start + wg.offset_b * radius + wg.nb * face_eps;
+
+            // Fillet arc: center is at start + offset_a*R + offset_b*R
+            let center = start + wg.offset_a * radius + wg.offset_b * radius;
+            let d1 = v1 - center;
+            let d2 = v2 - center;
+            let d1_len = d1.magnitude();
+            let d2_len = d2.magnitude();
+            if d1_len < 1e-12 || d2_len < 1e-12 {
+                return Err(KernelError::Other {
+                    message: "Degenerate fillet arc geometry".into(),
+                });
+            }
+            let d1n = d1 / d1_len;
+            let d2n = d2 / d2_len;
+            let arc_radius = (d1_len + d2_len) * 0.5;
+
+            // Compute the sweep angle between d1 and d2
+            let cos_angle = d1n.dot(d2n).clamp(-1.0, 1.0);
+            let angle = cos_angle.acos();
+
+            // Build arc points using slerp in the plane of d1,d2
+            let sin_angle = angle.sin();
+            let mut arc_points = Vec::with_capacity(ARC_SEGMENTS - 1);
+            if sin_angle.abs() > 1e-12 {
+                for i in 1..ARC_SEGMENTS {
+                    let t = i as f64 / ARC_SEGMENTS as f64;
+                    let theta = angle * t;
+                    let w1 = (angle - theta).sin() / sin_angle;
+                    let w2 = theta.sin() / sin_angle;
+                    let pt = center + (d1n * w1 + d2n * w2) * arc_radius;
+                    arc_points.push(pt);
+                }
+            }
+
+            // Build polygon: v0 -> v1 -> arc_points -> v2 -> back to v0
+            let mut vertices = Vec::new();
+            vertices.push(v0);
+            vertices.push(v1);
+            vertices.extend_from_slice(&arc_points);
+            vertices.push(v2);
+
+            // Create truck vertices and edges for the polygon
+            let n = vertices.len();
+            let tverts: Vec<_> = vertices.iter().map(|&p| builder::vertex(p)).collect();
+            let mut wire_edges = Vec::with_capacity(n);
+            for i in 0..n {
+                let j = (i + 1) % n;
+                let pi = vertices[i];
+                let pj = vertices[j];
+                wire_edges.push(Edge::new(
+                    &tverts[i],
+                    &tverts[j],
+                    truck_modeling::geometry::Curve::Line(truck_modeling::geometry::Line(pi, pj)),
+                ));
+            }
+
+            let wire = Wire::from_iter(wire_edges);
+            let poly_face = builder::try_attach_plane(&[wire]).map_err(|e| KernelError::Other {
+                message: format!("Failed to create fillet wedge: {}", e),
+            })?;
+
+            // Ensure face normal aligns with sweep for proper solid orientation
+            let face_n = match poly_face.surface() {
+                Surface::Plane(ref p) => p.normal(),
+                _ => unreachable!(),
+            };
+            let poly_face = if InnerSpace::dot(face_n, sweep) < 0.0 {
+                poly_face.inverse()
+            } else {
+                poly_face
+            };
+
+            let wedge = builder::tsweep(&poly_face, sweep);
+
+            let tol = compute_adaptive_tol(&current, &current);
+            let htol = tol * 0.1;
+            crate::healing::heal_intersection_curves(&current, htol);
+
+            let tols = [tol, tol * 0.5, tol * 0.25];
+            let mut ok = None;
+            for &t in &tols {
+                ok = crate::healing::try_boolean_with_perturbation(&current, &wedge, t, |a, b| {
+                    truck_shapeops::difference(a, b, t)
+                });
+                if ok.is_some() {
+                    break;
+                }
+            }
+
+            current = ok.ok_or_else(|| KernelError::Other {
+                message: "Fillet boolean subtraction failed".into(),
+            })?;
+
+            crate::healing::heal_intersection_curves(&current, htol);
+        }
+
+        Ok(self.store_solid(current))
     }
 
     fn chamfer_edges(
@@ -2139,21 +2385,49 @@ mod tests {
         assert!(matches!(result, Err(KernelError::EntityNotFound { .. })));
     }
 
-    /// fillet_edges returns NotSupported on TruckKernel (deferred indefinitely).
+    /// Fillet a single box edge, verify result has more faces and closed shell.
     #[test]
-    fn test_fillet_returns_not_supported() {
+    fn test_fillet_single_box_edge() {
+        use crate::traits::KernelIntrospect;
+        use truck_topology::shell::ShellCondition;
+
         let mut kernel = TruckKernel::new();
-        let solid = primitives::make_box(1.0, 1.0, 1.0);
+        let solid = primitives::make_box(10.0, 10.0, 10.0);
         let handle = kernel.store_solid(solid);
-        let result = kernel.fillet_edges(&handle, &[KernelId(1)], 0.1);
+
+        let edge_ids = kernel.list_edges(&handle);
+        assert_eq!(edge_ids.len(), 12);
+
+        let result = kernel.fillet_edges(&handle, &[edge_ids[0]], 1.0);
+        assert!(result.is_ok(), "fillet_edges failed: {:?}", result.err());
+
+        let filleted = result.unwrap();
+        let s = kernel.get_solid(&filleted).unwrap();
+        let shell = &s.boundaries()[0];
+
+        let face_count = shell.face_iter().count();
+        // Original box has 6 faces; fillet adds faces from the arc wedge boolean
         assert!(
-            matches!(result, Err(KernelError::NotSupported { .. })),
-            "fillet_edges should return NotSupported, got {:?}",
-            result
+            face_count >= 7,
+            "Filleted box should have at least 7 faces, got {}",
+            face_count
         );
-        if let Err(KernelError::NotSupported { operation }) = result {
-            assert_eq!(operation, "fillet_edges");
-        }
+
+        assert_eq!(
+            shell.shell_condition(),
+            ShellCondition::Closed,
+            "Filleted solid must have a closed shell"
+        );
+    }
+
+    /// Fillet with invalid radius returns error.
+    #[test]
+    fn test_fillet_zero_radius_error() {
+        let mut kernel = TruckKernel::new();
+        let solid = primitives::make_box(10.0, 10.0, 10.0);
+        let handle = kernel.store_solid(solid);
+        let result = kernel.fillet_edges(&handle, &[KernelId(1000)], 0.0);
+        assert!(result.is_err());
     }
 
     /// Chamfer a single box edge, verify result has more faces and closed shell.
