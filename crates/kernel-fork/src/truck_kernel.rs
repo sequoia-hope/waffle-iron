@@ -205,7 +205,7 @@ impl Kernel for TruckKernel {
         }
 
         let angle_rad = angle.to_radians();
-        let solid = builder::rsweep(&truck_face, origin, axis.normalize(), Rad(angle_rad));
+        let solid = builder::rsweep(&truck_face, origin, axis.normalize(), Rad(angle_rad), 3);
         Ok(self.store_solid(solid))
     }
 
@@ -1026,7 +1026,13 @@ mod tests {
         // Cylinder centered at (0.5, 0.5), r=0.25, extends z=-0.5 to z=1.5
         // (fully pierces top and bottom faces, well inside edges)
         let v = builder::vertex(Point3::new(0.5, 0.25, -0.5));
-        let w = builder::rsweep(&v, Point3::new(0.5, 0.5, 0.0), Vector3::unit_z(), Rad(7.0));
+        let w = builder::rsweep(
+            &v,
+            Point3::new(0.5, 0.5, 0.0),
+            Vector3::unit_z(),
+            Rad(7.0),
+            3,
+        );
         let f = builder::try_attach_plane(&[w]).unwrap();
         let mut cylinder = builder::tsweep(&f, Vector3::unit_z() * 2.0);
         cylinder.not();
@@ -1340,7 +1346,13 @@ mod tests {
             let cube: Solid = builder::tsweep(&f, Vector3::unit_z());
 
             let v = builder::vertex(Point3::new(0.5, 0.25, -0.5));
-            let w = builder::rsweep(&v, Point3::new(0.5, 0.5, 0.0), Vector3::unit_z(), Rad(7.0));
+            let w = builder::rsweep(
+                &v,
+                Point3::new(0.5, 0.5, 0.0),
+                Vector3::unit_z(),
+                Rad(7.0),
+                3,
+            );
             let f = builder::try_attach_plane(&[w]).unwrap();
             let mut cylinder = builder::tsweep(&f, Vector3::unit_z() * 2.0);
             cylinder.not();
@@ -1369,7 +1381,13 @@ mod tests {
             let cube = primitives::make_box(2.0, 2.0, 2.0);
             // Cylinder at center of box, radius 0.5, extends through
             let v = builder::vertex(Point3::new(1.5, 1.0, -0.5));
-            let w = builder::rsweep(&v, Point3::new(1.0, 1.0, 0.0), Vector3::unit_z(), Rad(7.0));
+            let w = builder::rsweep(
+                &v,
+                Point3::new(1.0, 1.0, 0.0),
+                Vector3::unit_z(),
+                Rad(7.0),
+                3,
+            );
             let f = builder::try_attach_plane(&[w]).unwrap();
             let cylinder: Solid = builder::tsweep(&f, Vector3::unit_z() * 3.0);
 
@@ -1423,6 +1441,7 @@ mod tests {
                 Point3::new(1.0, 1.0, 0.0),
                 Vector3::unit_z(),
                 Rad(2.0 * std::f64::consts::PI),
+                3,
             );
             let f = builder::try_attach_plane(&[w]).unwrap();
             let cylinder: Solid = builder::tsweep(&f, Vector3::unit_z() * 3.0);
@@ -1451,7 +1470,13 @@ mod tests {
             let cube = primitives::make_box(2.0, 2.0, 2.0);
             // Cylinder at (1,2,0) — half inside, half outside the y=2 face
             let v = builder::vertex(Point3::new(1.5, 2.0, -0.5));
-            let w = builder::rsweep(&v, Point3::new(1.0, 2.0, 0.0), Vector3::unit_z(), Rad(7.0));
+            let w = builder::rsweep(
+                &v,
+                Point3::new(1.0, 2.0, 0.0),
+                Vector3::unit_z(),
+                Rad(7.0),
+                3,
+            );
             let f = builder::try_attach_plane(&[w]).unwrap();
             let cylinder: Solid = builder::tsweep(&f, Vector3::unit_z() * 3.0);
 
@@ -2638,6 +2663,7 @@ mod tests {
             Point3::new(0.5, 0.5, 0.0),
             Vector3::unit_z(),
             Rad(7.0),
+            3,
         );
         let f = truck_modeling::builder::try_attach_plane(&[w]).unwrap();
         let cyl: Solid = truck_modeling::builder::tsweep(&f, Vector3::unit_z() * 2.0);

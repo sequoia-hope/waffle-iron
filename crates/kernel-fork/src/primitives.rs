@@ -20,7 +20,7 @@ pub fn make_box(w: f64, h: f64, d: f64) -> Solid {
 /// Base centered at origin in XY plane, extending along +Z.
 pub fn make_cylinder(radius: f64, height: f64) -> Solid {
     let v = builder::vertex(Point3::new(radius, 0.0, 0.0));
-    let wire = builder::rsweep(&v, Point3::origin(), Vector3::unit_z(), Rad(2.0 * PI));
+    let wire = builder::rsweep(&v, Point3::origin(), Vector3::unit_z(), Rad(2.0 * PI), 3);
     let face = builder::try_attach_plane(&[wire]).expect("Failed to create circular face");
     builder::tsweep(&face, Vector3::new(0.0, 0.0, height))
 }
@@ -34,11 +34,11 @@ pub fn make_sphere(radius: f64) -> Solid {
     // to south pole (0,0,-r) by rotating (0,0,r) around Y axis by PI.
     // Both endpoints lie on the Z axis (the revolution axis).
     let v_top = builder::vertex(Point3::new(0.0, 0.0, radius));
-    let arc_wire = builder::rsweep(&v_top, Point3::origin(), Vector3::unit_y(), Rad(PI));
+    let arc_wire = builder::rsweep(&v_top, Point3::origin(), Vector3::unit_y(), Rad(PI), 3);
 
     // Use builder::cone which handles degenerate edges at vertices on the
     // revolution axis (the poles). This produces correct topology (V-E+F=2).
-    let shell: Shell = builder::cone(&arc_wire, Vector3::unit_z(), Rad(2.0 * PI));
+    let shell: Shell = builder::cone(&arc_wire, Vector3::unit_z(), Rad(2.0 * PI), 3);
 
     TruckSolid::new(vec![shell])
 }

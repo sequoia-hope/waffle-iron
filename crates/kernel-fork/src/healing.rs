@@ -12,7 +12,7 @@
 //! so shared edges are updated in place.
 
 use std::collections::HashSet;
-use truck_modeling::geometry::{Curve, Leader, Line, Surface};
+use truck_modeling::geometry::{Curve, Line, Surface};
 use truck_modeling::topology::{EdgeID, Face, Solid};
 use truck_modeling::{BSplineCurve, InnerSpace, Matrix4, Point3, Transformed, Vector3};
 
@@ -62,7 +62,7 @@ pub fn heal_intersection_curves(solid: &Solid, tol: f64) -> HealingResult {
             continue; // skip shared edges already processed
         }
 
-        let mut curve = edge.curve();
+        let curve = edge.curve();
         if let Curve::IntersectionCurve(ref ic) = &curve {
             result.total_intersection_edges += 1;
 
@@ -72,7 +72,7 @@ pub fn heal_intersection_curves(solid: &Solid, tol: f64) -> HealingResult {
             // Fast path: if both surfaces are planes, the intersection is
             // mathematically a straight line. Replace with exact Line curve.
             // This avoids BSpline approximation artifacts that break subsequent booleans.
-            if is_plane_plane(ic.surface0(), ic.surface1()) {
+            if is_plane_plane(ic.surface0().as_ref(), ic.surface1().as_ref()) {
                 edge.set_curve(Curve::Line(Line(front_pt, back_pt)));
                 result.healed += 1;
                 continue;
@@ -80,7 +80,7 @@ pub fn heal_intersection_curves(solid: &Solid, tol: f64) -> HealingResult {
 
             // For plane-cylinder ICs (elliptical arcs), use tighter tolerance
             // to avoid BSpline approximation error that breaks chained booleans.
-            let pc = is_plane_cylinder(ic.surface0(), ic.surface1());
+            let pc = is_plane_cylinder(ic.surface0().as_ref(), ic.surface1().as_ref());
             let heal_tol = if pc { tol * 0.001 } else { tol };
             let heal_d_tol = heal_tol * 1000.0;
             let heal_trials = if pc { 100 } else { 50 };
@@ -88,7 +88,7 @@ pub fn heal_intersection_curves(solid: &Solid, tol: f64) -> HealingResult {
             // Extract plane data for post-projection when one surface is a plane.
             // This fixes BSpline control points that drift off the plane surface.
             let plane_data: Option<(Point3, Vector3)> = if pc {
-                match (ic.surface0(), ic.surface1()) {
+                match (ic.surface0().as_ref(), ic.surface1().as_ref()) {
                     (Surface::Plane(p), _) | (_, Surface::Plane(p)) => {
                         Some((p.origin(), p.normal()))
                     }
@@ -98,47 +98,39 @@ pub fn heal_intersection_curves(solid: &Solid, tol: f64) -> HealingResult {
                 None
             };
 
-            // Curved intersection: use BSpline approximation.
-            // Try truck's built-in to_bspline_leader() first.
-            if curve.to_bspline_leader(heal_tol, heal_d_tol, heal_trials) {
-                if let Curve::IntersectionCurve(ref ic) = curve {
-                    if let Leader::BSpline(ref bsp) = ic.leader() {
-                        let mut bsp_curve = bsp.clone();
-                        // Project onto plane before endpoint snapping
-                        if let Some((origin, normal)) = plane_data {
-                            project_bspline_onto_plane(&mut bsp_curve, origin, normal);
-                        }
-                        let n_cp = bsp_curve.control_points().len();
-                        *bsp_curve.control_point_mut(0) = front_pt;
-                        *bsp_curve.control_point_mut(n_cp - 1) = back_pt;
-                        edge.set_curve(Curve::BSplineCurve(bsp_curve));
-                        result.healed += 1;
-                        continue;
-                    }
-                }
-            }
-
-            // Fallback: approximate directly from the leader
+            // Curved intersection: use BSpline approximation from the leader curve.
+            // The leader is a Box<Curve> — if it's already a BSplineCurve, clone
+            // and snap endpoints. Otherwise, approximate via cubic_approximation.
             if let Curve::IntersectionCurve(ref ic) = curve {
                 let leader = ic.leader();
-                let range = leader_range(leader);
+                let leader_curve: &Curve = leader.as_ref();
 
-                let approx = match leader {
-                    Leader::Polyline(ref pl) => BSplineCurve::cubic_approximation(
-                        pl,
-                        range,
-                        heal_tol,
-                        heal_d_tol,
-                        heal_trials,
-                    ),
-                    Leader::BSpline(ref bs) => BSplineCurve::cubic_approximation(
-                        bs,
-                        range,
-                        heal_tol,
-                        heal_d_tol,
-                        heal_trials,
-                    ),
-                };
+                // If the leader is already a BSpline, clone and snap endpoints
+                if let Curve::BSplineCurve(ref bsp) = leader_curve {
+                    let mut bsp_curve = bsp.clone();
+                    // Project onto plane before endpoint snapping
+                    if let Some((origin, normal)) = plane_data {
+                        project_bspline_onto_plane(&mut bsp_curve, origin, normal);
+                    }
+                    let n_cp = bsp_curve.control_points().len();
+                    *bsp_curve.control_point_mut(0) = front_pt;
+                    *bsp_curve.control_point_mut(n_cp - 1) = back_pt;
+                    edge.set_curve(Curve::BSplineCurve(bsp_curve));
+                    result.healed += 1;
+                    continue;
+                }
+
+                // Approximate the leader curve as a cubic BSpline
+                use truck_modeling::BoundedCurve;
+                let range = leader_curve.range_tuple();
+
+                let approx = BSplineCurve::cubic_approximation(
+                    leader_curve,
+                    range,
+                    heal_tol,
+                    heal_d_tol,
+                    heal_trials,
+                );
 
                 if let Some(mut bsp) = approx {
                     // Project onto plane before endpoint snapping
@@ -179,15 +171,6 @@ fn is_plane_plane(s0: &Surface, s1: &Surface) -> bool {
 fn is_plane_cylinder(s0: &Surface, s1: &Surface) -> bool {
     (matches!(s0, Surface::Plane(_)) && matches!(s1, Surface::RevolutedCurve(_)))
         || (matches!(s0, Surface::RevolutedCurve(_)) && matches!(s1, Surface::Plane(_)))
-}
-
-/// Get the parameter range of a leader curve.
-fn leader_range(leader: &Leader) -> (f64, f64) {
-    use truck_modeling::BoundedCurve;
-    match leader {
-        Leader::Polyline(ref pl) => pl.range_tuple(),
-        Leader::BSpline(ref bs) => bs.range_tuple(),
-    }
 }
 
 /// Detect if any planar face of `solid_a` is coplanar with any planar face of
@@ -495,7 +478,13 @@ mod tests {
         };
 
         let v = builder::vertex(Point3::new(0.5, 0.25, -0.5));
-        let w = builder::rsweep(&v, Point3::new(0.5, 0.5, 0.0), Vector3::unit_z(), Rad(7.0));
+        let w = builder::rsweep(
+            &v,
+            Point3::new(0.5, 0.5, 0.0),
+            Vector3::unit_z(),
+            Rad(7.0),
+            3,
+        );
         let f = builder::try_attach_plane(&[w]).unwrap();
         let mut cyl = builder::tsweep(&f, Vector3::unit_z() * 2.0);
         cyl.not();
@@ -533,7 +522,13 @@ mod tests {
         let cube: Solid = builder::tsweep(&f, Vector3::new(0.0, 0.0, 10.0));
 
         let v = builder::vertex(Point3::new(4.5, 5.0, -1.0));
-        let w = builder::rsweep(&v, Point3::new(3.0, 5.0, 0.0), Vector3::unit_z(), Rad(7.0));
+        let w = builder::rsweep(
+            &v,
+            Point3::new(3.0, 5.0, 0.0),
+            Vector3::unit_z(),
+            Rad(7.0),
+            3,
+        );
         let f = builder::try_attach_plane(&[w]).unwrap();
         let mut cyl1 = builder::tsweep(&f, Vector3::unit_z() * 12.0);
         cyl1.not();
@@ -546,7 +541,13 @@ mod tests {
         assert!(hr.healed > 0, "Should heal some edges");
 
         let v = builder::vertex(Point3::new(8.5, 5.0, -1.0));
-        let w = builder::rsweep(&v, Point3::new(7.0, 5.0, 0.0), Vector3::unit_z(), Rad(7.0));
+        let w = builder::rsweep(
+            &v,
+            Point3::new(7.0, 5.0, 0.0),
+            Vector3::unit_z(),
+            Rad(7.0),
+            3,
+        );
         let f = builder::try_attach_plane(&[w]).unwrap();
         let mut cyl2 = builder::tsweep(&f, Vector3::unit_z() * 12.0);
         cyl2.not();
@@ -586,7 +587,13 @@ mod tests {
         let cube: Solid = builder::tsweep(&f, Vector3::new(0.0, 0.0, 10.0));
 
         let v = builder::vertex(Point3::new(8.0, 5.0, 10.0));
-        let w = builder::rsweep(&v, Point3::new(5.0, 5.0, 10.0), Vector3::unit_z(), Rad(7.0));
+        let w = builder::rsweep(
+            &v,
+            Point3::new(5.0, 5.0, 10.0),
+            Vector3::unit_z(),
+            Rad(7.0),
+            3,
+        );
         let f = builder::try_attach_plane(&[w]).unwrap();
         let boss: Solid = builder::tsweep(&f, Vector3::new(0.0, 0.0, 5.0));
 
@@ -672,7 +679,13 @@ mod tests {
 
         // Boss on z=10 top face
         let v = builder::vertex(Point3::new(8.0, 5.0, 10.0));
-        let w = builder::rsweep(&v, Point3::new(5.0, 5.0, 10.0), Vector3::unit_z(), Rad(7.0));
+        let w = builder::rsweep(
+            &v,
+            Point3::new(5.0, 5.0, 10.0),
+            Vector3::unit_z(),
+            Rad(7.0),
+            3,
+        );
         let f = builder::try_attach_plane(&[w]).unwrap();
         let boss: Solid = builder::tsweep(&f, Vector3::new(0.0, 0.0, 5.0));
 
@@ -807,7 +820,13 @@ mod tests {
     #[test]
     fn test_pre_split_rad7_cylinder() {
         let v = builder::vertex(Point3::new(1.0, 0.0, 0.0));
-        let w = builder::rsweep(&v, Point3::new(0.0, 0.0, 0.0), Vector3::unit_z(), Rad(7.0));
+        let w = builder::rsweep(
+            &v,
+            Point3::new(0.0, 0.0, 0.0),
+            Vector3::unit_z(),
+            Rad(7.0),
+            3,
+        );
         let f = builder::try_attach_plane(&[w]).unwrap();
         let cyl: Solid = builder::tsweep(&f, Vector3::unit_z() * 2.0);
 
@@ -883,7 +902,13 @@ mod tests {
 
         // Cylinder at (1, 0, -0.5), r=0.3, h=3 — on the y=0 face boundary
         let v = builder::vertex(Point3::new(1.3, 0.0, -0.5));
-        let w = builder::rsweep(&v, Point3::new(1.0, 0.0, 0.0), Vector3::unit_z(), Rad(7.0));
+        let w = builder::rsweep(
+            &v,
+            Point3::new(1.0, 0.0, 0.0),
+            Vector3::unit_z(),
+            Rad(7.0),
+            3,
+        );
         let f = builder::try_attach_plane(&[w]).unwrap();
         let cyl: Solid = builder::tsweep(&f, Vector3::unit_z() * 3.0);
         let h_cyl = kernel.store_solid(cyl);
@@ -910,7 +935,13 @@ mod tests {
 
         // Cylinder near corner at (0.5, 0.5, -0.5), r=0.3, h=3
         let v = builder::vertex(Point3::new(0.8, 0.5, -0.5));
-        let w = builder::rsweep(&v, Point3::new(0.5, 0.5, 0.0), Vector3::unit_z(), Rad(7.0));
+        let w = builder::rsweep(
+            &v,
+            Point3::new(0.5, 0.5, 0.0),
+            Vector3::unit_z(),
+            Rad(7.0),
+            3,
+        );
         let f = builder::try_attach_plane(&[w]).unwrap();
         let cyl: Solid = builder::tsweep(&f, Vector3::unit_z() * 3.0);
         let h_cyl = kernel.store_solid(cyl);
@@ -942,7 +973,13 @@ mod tests {
 
         // Cylinder 1: punched cube pattern (centered at (0.5, 0.5), r=0.25)
         let v1 = builder::vertex(Point3::new(0.5, 0.25, -0.5));
-        let w1 = builder::rsweep(&v1, Point3::new(0.5, 0.5, 0.0), Vector3::unit_z(), Rad(7.0));
+        let w1 = builder::rsweep(
+            &v1,
+            Point3::new(0.5, 0.5, 0.0),
+            Vector3::unit_z(),
+            Rad(7.0),
+            3,
+        );
         let f1 = builder::try_attach_plane(&[w1]).unwrap();
         let cyl1: Solid = builder::tsweep(&f1, Vector3::unit_z() * 2.0);
         let h_cyl1 = kernel.store_solid(cyl1);

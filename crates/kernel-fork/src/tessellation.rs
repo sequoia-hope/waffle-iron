@@ -481,6 +481,7 @@ mod tests {
             Point3::origin(),
             Vector3::unit_z(),
             Rad(2.0 * std::f64::consts::PI),
+            3,
         );
         let face = builder::try_attach_plane(&[wire]).expect("Failed to create circular face");
         let cylinder_down = builder::tsweep(&face, Vector3::new(0.0, 0.0, -10.0));
