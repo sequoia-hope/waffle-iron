@@ -506,8 +506,13 @@ impl Kernel for TruckKernel {
                 Vector3::new(0.0, 0.0, 0.0)
             };
             let v0 = start + nudge_vec;
-            let v1 = start + wg.offset_a * distance;
-            let v2 = start + wg.offset_b * distance;
+            // Nudge v1/v2 slightly outside the box along their respective
+            // face normals.  Without this, the wedge shares exact geometric
+            // edges with the box faces, which produces degenerate intersection
+            // curves and causes the boolean to fail with NotClosedShell.
+            let face_eps = distance * 0.02;
+            let v1 = start + wg.offset_a * distance + wg.na * face_eps;
+            let v2 = start + wg.offset_b * distance + wg.nb * face_eps;
 
             let tv0 = builder::vertex(v0);
             let tv1 = builder::vertex(v1);
