@@ -30,8 +30,8 @@ Lays the infrastructure all subsequent boolean work depends on.
 |----|------|-----|------|------|--------|--------|
 | B1 | Complete coplanar face splitting | P0 | XL | A1 | truck-shapeops/loops_store, coplanar_splitting.rs, integrate | **Hardened** (Sprint 4 — parity ray-cast, overlap check, same-sense shortcut) |
 | B2 | Add `difference()` and XOR boolean operations | P1 | M | A4 or standalone | truck-shapeops/integrate, kernel-fork/traits.rs, modeling-ops/boolean.rs | **Complete** (Sprint 1, difference only; XOR deferred — no `xor`/`sym_diff` function exists) |
-| B3 | Box-cylinder boolean reliability | P1 | XL | A2,B1 | truck-shapeops/intersection_curve, kernel-fork/healing.rs | **Substantial** — punched-cube + chained booleans work via NURBS arc healing (Sprint 6); e5 rewritten to pass using `extrude_directed_no_merge` + explicit `boolean_subtract`; `auto_union_stress` now passing (7/7); boundary/corner edge cases + g3 full-face cut remain |
-| B4 | `Solid::try_new` enforcement (no panics) | P1 | S | A1 | truck-shapeops/integrate | **Nearly complete** — all `Solid::` constructions use `try_new`. One remaining `Face::new` (panicking) at integrate/mod.rs:566 in Phase 2 of `weld_coincident_edges` edge substitution. |
+| B3 | Box-cylinder boolean reliability | P1 | XL | A2,B1 | truck-shapeops/intersection_curve, kernel-fork/healing.rs | **Substantial** — punched-cube + chained booleans work via NURBS arc healing (Sprint 6); g3 full-face cut + rect_cut_coplanar_edges fixed via scale-expand perturbation (Sprint 10); boundary/corner edge cases remain |
+| B4 | `Solid::try_new` enforcement (no panics) | P1 | S | A1 | truck-shapeops/integrate | **Complete** — all `Solid::` and `Face::` constructions use `try_new`. B6 completed Sprint 9. |
 | B5 | `TouchingPolicy` for degenerate cases | P2 | M | A2,A4 | kernel-fork/types.rs, truck-shapeops/integrate | **Deprioritized** — no current test failures |
 | B6 | Fix `Face::new` in `weld_coincident_edges` Phase 2 | P1 | S | B4 | truck-shapeops/integrate/mod.rs:654 | **Complete** (Sprint 9) — Changed to `Face::try_new` with fallback to original face on non-simple wire |
 
@@ -110,14 +110,12 @@ Phase E (Advanced) — depends on A, B
 
 ## Ignored Test Inventory
 
-**15 total ignored tests** across the workspace (down from 17 — `test_truck_chamfer` and `test_truck_shell` un-ignored Sprint 9).
+**13 total ignored tests** across the workspace (down from 15 — `g3_full_face_rect_cut` and `rect_cut_coplanar_edges` un-ignored Sprint 10).
 
-### Boolean-related (5 tests)
+### Boolean-related (3 tests)
 
 | Test | File | Reason |
 |------|------|--------|
-| `g3_full_face_rect_cut` | test-harness/boolean_workflows.rs | Full-face pocket cut — all 4 boundary edges coincident produce NotSimpleWire. WIP fix in unstaged vendor/truck changes. |
-| `rect_cut_coplanar_edges` | test-harness/boolean_failures.rs | Coplanar edge coincidence — NotSimpleWire from divide_one_face |
 | `circle_cut_tangent_to_box_edge` | test-harness/boolean_failures.rs | Circle tangent to box edge — NoSolid from boolean |
 | `circle_cut_crossing_box_edge` | test-harness/boolean_failures.rs | Circle extending beyond face boundary — NoSolid despite cardinal perturbation |
 | `cut_from_angled_direction` | test-harness/boolean_failures.rs | Angled extrude direction — truck cannot handle angled cylinder boolean |
@@ -344,24 +342,32 @@ Phase E (Advanced) — depends on A, B
 
 ---
 
-## Forward Roadmap
+### Sprint 10: Edge-Coincidence & Boundary Fixes
 
-### Next Sprint: Edge-Coincidence & Boundary Fixes
+**Theme:** Fix booleans where cut tool edges coincide with target face boundaries.
 
-**Theme:** Fix booleans where tool touches target edges/boundaries.
+**Root cause:** When a cut profile exactly matches a target face (g3) or shares boundary edges (rect_cut_coplanar_edges), the tool's side walls are coplanar with the target's side walls. The truck boolean pipeline suppresses IC generation for coplanar face pairs, and translation perturbation fails because: (a) the boundary-midpoint filter uses `tol * 2.0` which swallows small translations, and (b) coplanar detection catches faces within `tol` of each other.
 
-| Item | Effort | Files |
-|------|--------|-------|
-| Commit WIP mutual containment fix + g3 tests | S | `vendor/truck/.../loops_store/mod.rs`, `integrate/tests.rs` |
-| Full-face coplanar cut fast path (g3) | M | `vendor/truck/.../integrate/mod.rs`, `coplanar_splitting.rs` |
-| Thread `tau_coplanar` into coplanar detection | S | `vendor/truck/.../coplanar_splitting.rs` |
-| Bridge `BooleanStageError` -> `BooleanError` | M | kernel-fork/types.rs, truck-shapeops/integrate |
+**Fix:** Scale-expand perturbation — grow the tool outward from its centroid by 2-5%. For subtract operations, the extra tool volume outside the target has no effect on the result. The expansion breaks all edge coincidences simultaneously because tool side walls move to different planes than target side walls.
 
-**Tests to un-ignore:** `g3_full_face_rect_cut`, `rect_cut_coplanar_edges`
+| Item | Effort | Status |
+|------|--------|--------|
+| `solid_centroid` + `scale_solid` helpers in healing.rs | S | **Complete** |
+| Scale-expand perturbation in `try_boolean_with_perturbation` | S | **Complete** — scale factors [1.02, 1.03, 1.05] |
+| Un-ignore `g3_full_face_rect_cut` | S | **Complete** — 38 boolean_workflows pass, 0 ignored |
+| Un-ignore `rect_cut_coplanar_edges` | S | **Complete** — 16 boolean_failures pass, 3 ignored |
+| WASM rebuild | S | **Complete** |
+
+**Tests un-ignored:** `g3_full_face_rect_cut`, `rect_cut_coplanar_edges`
+**Net result:** 38 boolean_workflows (0 ignored!), 16 boolean_failures (3 ignored), 34 scenarios_truck (2 ignored)
+
+**Key files:** `crates/kernel-fork/src/healing.rs` — `solid_centroid()`, `scale_solid()`, scale-expand block in `try_boolean_with_perturbation`
 
 ---
 
-### Future Sprint: Circle-at-Boundary + Fillet
+## Forward Roadmap
+
+### Next Sprint: Circle-at-Boundary + Fillet
 
 **Theme:** Fix remaining edge cases and implement TruckKernel fillet.
 

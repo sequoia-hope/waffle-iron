@@ -1055,7 +1055,6 @@ fn g2_stacked_boxes_coplanar_face() {
 
 /// Rect cut — full face coplanar cut, profile matches target face.
 #[test]
-#[ignore = "truck: full-face pocket cut — all 4 boundary edges coincident produce NotSimpleWire"]
 fn g3_full_face_rect_cut() {
     let mut m = base_cube();
 

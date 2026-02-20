@@ -533,6 +533,44 @@ pub fn detect_coplanar_direction(solid_a: &Solid, solid_b: &Solid, tol: f64) -> 
     None
 }
 
+/// Compute the centroid of a solid from its boundary vertices.
+fn solid_centroid(solid: &Solid) -> Point3 {
+    let mut sum = Vector3::new(0.0, 0.0, 0.0);
+    let mut count = 0usize;
+    for shell in solid.boundaries() {
+        for v in shell.vertex_iter() {
+            let p = v.point();
+            sum += Vector3::new(p.x, p.y, p.z);
+            count += 1;
+        }
+    }
+    if count == 0 {
+        return Point3::new(0.0, 0.0, 0.0);
+    }
+    let inv = 1.0 / count as f64;
+    Point3::new(sum.x * inv, sum.y * inv, sum.z * inv)
+}
+
+/// Create a scaled copy of a solid. All vertices are scaled toward/away
+/// from `center` by `factor`. The copy is fully independent.
+fn scale_solid(solid: &Solid, center: Point3, factor: f64) -> Solid {
+    let cv = Vector3::new(center.x, center.y, center.z);
+    // Transform: translate to origin, scale, translate back
+    // Matrix order: T(center) * S(factor) * T(-center)
+    let trans = Matrix4::from_translation(cv)
+        * Matrix4::from_scale(factor)
+        * Matrix4::from_translation(-cv);
+    solid.mapped(
+        |p| {
+            let v = Vector3::new(p.x, p.y, p.z);
+            let scaled = cv + (v - cv) * factor;
+            Point3::new(scaled.x, scaled.y, scaled.z)
+        },
+        |c| c.transformed(trans),
+        |s| s.transformed(trans),
+    )
+}
+
 /// Create a translated copy of a solid. The copy is fully independent
 /// (new Arc references via `Solid::mapped`).
 pub fn translate_solid(solid: &Solid, offset: Vector3) -> Solid {
@@ -764,6 +802,26 @@ pub fn try_boolean_with_perturbation(
                 if let Some(result) = op(solid_a, &perturbed_b) {
                     return Some(result);
                 }
+            }
+        }
+    }
+
+    // Scale-expand perturbation — grow tool outward from its centroid to
+    // break edge coincidence. When a cut tool's profile exactly matches a
+    // target face, the tool side walls are coplanar with the target sides.
+    // Translation doesn't help: (a) the boundary-midpoint filter in
+    // loops_store uses boundary_tol = tol * 2.0, swallowing small shifts,
+    // and (b) coplanar detection catches faces within tol of each other.
+    // Expanding the tool breaks ALL edge coincidences: the tool's lateral
+    // faces move beyond the target faces, and for subtract operations the
+    // extra tool volume outside the target has no effect on the result.
+    if dirs.len() >= 2 {
+        let centroid = solid_centroid(solid_b);
+        let scale_factors = [1.02, 1.03, 1.05];
+        for &sf in &scale_factors {
+            let scaled_b = scale_solid(solid_b, centroid, sf);
+            if let Some(result) = op(solid_a, &scaled_b) {
+                return Some(result);
             }
         }
     }

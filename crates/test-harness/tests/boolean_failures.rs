@@ -100,7 +100,6 @@ fn rect_cut_via_extrude_cut() {
 /// Rect cut where profile edges coincide with box edges.
 /// Fixed via coplanar perturbation retry in boolean ops.
 #[test]
-#[ignore = "truck: coplanar edge coincidence — NotSimpleWire from divide_one_face"]
 fn rect_cut_coplanar_edges() {
     let mut m = base_cube();
 
