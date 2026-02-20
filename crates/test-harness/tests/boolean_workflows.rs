@@ -1244,3 +1244,66 @@ fn h4_difference_non_commutative() {
         bb_ba
     );
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Category I — Feature-Aware Tolerance Tests (Sprint 7)
+// ══════════════════════════════════════════════════════════════════════════════
+
+/// I1: Extrude-cut with a 16-gon polygon prism (r=1.0) on a 10×10×10 box.
+/// This was the e5 root cause: tol=0.05 (extent-based) was too large relative
+/// to the 16-gon's min edge (~0.39), causing weld_coincident_edges to merge
+/// vertices across small polygon edges → NotClosedShell.
+/// With feature-aware tolerance, tol ≈ 0.02 and the operation succeeds.
+#[test]
+fn i1_polygon_cut_feature_aware_tolerance() {
+    let mut m = ModelBuilder::truck();
+
+    m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m.extrude("cube", "base_sk", 10.0).unwrap();
+
+    // 16-gon polygon prism at center of box, r=1.0
+    m.circle_sketch("tool_sk", [0., 0., 11.], [0., 0., 1.], 5., 5., 1.0)
+        .unwrap();
+    m.extrude_directed_no_merge("tool", "tool_sk", 16.0, [0., 0., -1.])
+        .unwrap();
+
+    m.boolean_subtract("result", "cube", "tool").unwrap();
+    m.assert_has_solid("result").unwrap();
+    m.assert_no_errors().unwrap();
+
+    let (_, _, f) = m.topology_counts("result").unwrap();
+    assert!(f > 6, "Polygon cut should add faces (got {})", f);
+}
+
+/// I2: Parametric radius sweep — boolean subtract with 16-gon prisms at various
+/// radii from 1.0 to 3.0 in 0.5 steps. All must succeed with feature-aware
+/// tolerance. Radii below 1.0 push truck's boolean to its limits regardless
+/// of tolerance tuning, so we start at the critical fix target (r=1.0).
+#[test]
+fn i2_parametric_radius_sweep() {
+    for r_int in 2..=6 {
+        let r = r_int as f64 * 0.5;
+        let mut m = ModelBuilder::truck();
+
+        m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+            .unwrap();
+        m.extrude("cube", "base_sk", 10.0).unwrap();
+
+        // 16-gon polygon prism centered in the box
+        m.circle_sketch("tool_sk", [0., 0., 11.], [0., 0., 1.], 5., 5., r)
+            .unwrap();
+        m.extrude_directed_no_merge("tool", "tool_sk", 16.0, [0., 0., -1.])
+            .unwrap();
+
+        let result = m.boolean_subtract("result", "cube", "tool");
+        assert!(
+            result.is_ok(),
+            "r={}: boolean_subtract should succeed, got {:?}",
+            r,
+            result.err()
+        );
+        m.assert_has_solid("result")
+            .unwrap_or_else(|e| panic!("r={}: solid should exist: {:?}", r, e));
+    }
+}

@@ -37,14 +37,51 @@ fn solid_max_extent(solid: &Solid) -> f64 {
     dx.max(dy).max(dz).max(1e-10)
 }
 
-/// Compute scale-aware boolean tolerance from two solids' bounding boxes.
+/// Compute the minimum edge length of a solid from its boundary vertices.
 ///
-/// Uses `(extent * 0.005).clamp(0.005, 0.05)` — only scales DOWN from the default
-/// 0.05 for small geometry (extent < 10). Never exceeds 0.05 because truck's boolean
-/// pipeline (especially cylinder triangulation) is calibrated around that value.
+/// Iterates all edges across all shells and returns the minimum Euclidean
+/// distance between edge endpoints. Returns `f64::INFINITY` if no edges exist.
+/// This is used to prevent boolean tolerance from being too large relative to
+/// the smallest geometric feature, which would cause `weld_coincident_edges`
+/// to merge vertices across small edges (→ NotClosedShell).
+fn solid_min_edge_length(solid: &Solid) -> f64 {
+    let mut min_len = f64::INFINITY;
+    for shell in solid.boundaries() {
+        for edge in shell.edge_iter() {
+            let front = edge.front().point();
+            let back = edge.back().point();
+            let dx = front.x - back.x;
+            let dy = front.y - back.y;
+            let dz = front.z - back.z;
+            let len = (dx * dx + dy * dy + dz * dz).sqrt();
+            if len > 1e-15 {
+                min_len = min_len.min(len);
+            }
+        }
+    }
+    min_len
+}
+
+/// Compute scale-aware boolean tolerance from two solids' geometry.
+///
+/// Considers both bounding box extent (for overall scale) and minimum edge
+/// length (for feature size). The tolerance must be small enough that
+/// `weld_coincident_edges` doesn't merge vertices across small features
+/// (the failure threshold is roughly tol/min_edge > 0.10).
+///
+/// For a 10×10×10 box with a 16-gon prism (r=1, min_edge≈0.39):
+/// - extent_based = 10 * 0.005 = 0.05 (too large: 0.05/0.39 = 0.128 > 0.10)
+/// - edge_based = 0.39 * 0.05 = 0.0195 (safe: 0.0195/0.39 = 0.05 < 0.10)
 fn compute_adaptive_tol(solid_a: &Solid, solid_b: &Solid) -> f64 {
     let extent = solid_max_extent(solid_a).max(solid_max_extent(solid_b));
-    (extent * 0.005).clamp(0.005, 0.05)
+    let min_edge = solid_min_edge_length(solid_a).min(solid_min_edge_length(solid_b));
+    let extent_based = extent * 0.005;
+    let edge_based = if min_edge.is_finite() {
+        min_edge * 0.05 // Keep ratio well below the ~0.10 failure threshold
+    } else {
+        f64::INFINITY
+    };
+    extent_based.min(edge_based).clamp(1e-6, 0.05)
 }
 
 /// Compute scale-aware healing tolerance from two solids' bounding boxes.
@@ -234,15 +271,16 @@ impl Kernel for TruckKernel {
         crate::healing::heal_intersection_curves(&solid_a, heal_tol);
         crate::healing::heal_intersection_curves(&solid_b, heal_tol);
 
-        // Compute layered tolerance options; use tau_model for the boolean pipeline.
+        // Compute layered tolerance options from feature-aware adaptive tolerance.
         let opts = compute_boolean_options(&solid_a, &solid_b);
         let tol = opts.tau_model;
+        let tols = truck_shapeops::BooleanTolerance::from_model_tol(tol);
         let solid_a = crate::healing::pre_split_closed_edges(&solid_a, tol);
         let solid_b = crate::healing::pre_split_closed_edges(&solid_b, tol);
 
         let result =
             crate::healing::try_boolean_with_perturbation(&solid_a, &solid_b, tol, |a, b| {
-                truck_shapeops::or(a, b, tol)
+                truck_shapeops::or_with_tol(a, b, &tols)
             })
             .ok_or_else(|| KernelError::BooleanFailed {
                 reason: "truck or() returned None".to_string(),
@@ -277,15 +315,16 @@ impl Kernel for TruckKernel {
         crate::healing::heal_intersection_curves(&solid_a, heal_tol);
         crate::healing::heal_intersection_curves(&solid_b, heal_tol);
 
-        // Compute layered tolerance options; use tau_model for the boolean pipeline.
+        // Compute layered tolerance options from feature-aware adaptive tolerance.
         let opts = compute_boolean_options(&solid_a, &solid_b);
         let tol = opts.tau_model;
+        let tols = truck_shapeops::BooleanTolerance::from_model_tol(tol);
         let solid_a = crate::healing::pre_split_closed_edges(&solid_a, tol);
         let solid_b = crate::healing::pre_split_closed_edges(&solid_b, tol);
 
         let result =
             crate::healing::try_boolean_with_perturbation(&solid_a, &solid_b, tol, |a, b| {
-                truck_shapeops::difference(a, b, tol)
+                truck_shapeops::difference_with_tol(a, b, &tols)
             })
             .ok_or_else(|| KernelError::BooleanFailed {
                 reason: "truck difference() returned None".to_string(),
@@ -319,15 +358,16 @@ impl Kernel for TruckKernel {
         crate::healing::heal_intersection_curves(&solid_a, heal_tol);
         crate::healing::heal_intersection_curves(&solid_b, heal_tol);
 
-        // Compute layered tolerance options; use tau_model for the boolean pipeline.
+        // Compute layered tolerance options from feature-aware adaptive tolerance.
         let opts = compute_boolean_options(&solid_a, &solid_b);
         let tol = opts.tau_model;
+        let tols = truck_shapeops::BooleanTolerance::from_model_tol(tol);
         let solid_a = crate::healing::pre_split_closed_edges(&solid_a, tol);
         let solid_b = crate::healing::pre_split_closed_edges(&solid_b, tol);
 
         let result =
             crate::healing::try_boolean_with_perturbation(&solid_a, &solid_b, tol, |a, b| {
-                truck_shapeops::and(a, b, tol)
+                truck_shapeops::and_with_tol(a, b, &tols)
             })
             .ok_or_else(|| KernelError::BooleanFailed {
                 reason: "truck and() returned None".to_string(),
@@ -2814,5 +2854,119 @@ mod tests {
                 bool_tol
             );
         }
+    }
+
+    #[test]
+    fn test_solid_min_edge_length_cube() {
+        let cube = primitives::make_box(1.0, 1.0, 1.0);
+        let min_edge = solid_min_edge_length(&cube);
+        // A 1×1×1 cube has all edges of length 1.0
+        assert!(
+            (min_edge - 1.0).abs() < 1e-10,
+            "Cube min edge should be 1.0, got {}",
+            min_edge
+        );
+    }
+
+    #[test]
+    fn test_solid_min_edge_length_rectangular_box() {
+        let rect = primitives::make_box(10.0, 5.0, 2.0);
+        let min_edge = solid_min_edge_length(&rect);
+        // The shortest edge of a 10×5×2 box is 2.0
+        assert!(
+            (min_edge - 2.0).abs() < 1e-10,
+            "Rect box min edge should be 2.0, got {}",
+            min_edge
+        );
+    }
+
+    /// Build a regular n-gon face centered at `center` on the XY plane with given radius.
+    fn make_ngon_face(center: Point3, radius: f64, n: usize) -> Face {
+        use truck_modeling::builder;
+        let mut vertices = Vec::new();
+        for i in 0..n {
+            let angle = 2.0 * std::f64::consts::PI * (i as f64) / (n as f64);
+            let x = center.x + radius * angle.cos();
+            let y = center.y + radius * angle.sin();
+            vertices.push(builder::vertex(Point3::new(x, y, center.z)));
+        }
+        let mut edges: Vec<Edge> = Vec::new();
+        for i in 0..n {
+            let j = (i + 1) % n;
+            edges.push(builder::line(&vertices[i], &vertices[j]));
+        }
+        let wire: Wire = edges.into();
+        builder::try_attach_plane(&[wire]).unwrap()
+    }
+
+    #[test]
+    fn test_solid_min_edge_length_polygon_prism() {
+        // 16-gon polygon prism with r=1.0
+        // Min edge = 2 * r * sin(π/16) ≈ 0.3902
+        let profile = make_ngon_face(Point3::new(0.0, 0.0, 0.0), 1.0, 16);
+        let prism: Solid = builder::tsweep(&profile, Vector3::new(0.0, 0.0, 5.0));
+        let min_edge = solid_min_edge_length(&prism);
+        let expected = 2.0 * (std::f64::consts::PI / 16.0).sin();
+        assert!(
+            (min_edge - expected).abs() < 1e-6,
+            "16-gon prism min edge should be ~{:.4}, got {:.4}",
+            expected,
+            min_edge
+        );
+    }
+
+    #[test]
+    fn test_adaptive_tol_feature_aware() {
+        // 10×10×10 box: extent=10, min_edge=10
+        // extent_based = 10 * 0.005 = 0.05
+        // edge_based = 10 * 0.05 = 0.5
+        // result = min(0.05, 0.5) = 0.05
+        let big_box = primitives::make_box(10.0, 10.0, 10.0);
+        let tol_box = compute_adaptive_tol(&big_box, &big_box);
+        assert!(
+            (tol_box - 0.05).abs() < 1e-10,
+            "Box-only: expected 0.05, got {}",
+            tol_box
+        );
+
+        // 16-gon prism with r=1.0: min_edge ≈ 0.3902
+        // When combined with a 10×10×10 box:
+        // extent = 10, min_edge = 0.3902
+        // extent_based = 0.05, edge_based = 0.3902 * 0.05 ≈ 0.01951
+        // result = min(0.05, 0.01951) = 0.01951
+        let profile = make_ngon_face(Point3::new(0.0, 0.0, 0.0), 1.0, 16);
+        let prism: Solid = builder::tsweep(&profile, Vector3::new(0.0, 0.0, 5.0));
+        let tol_mixed = compute_adaptive_tol(&big_box, &prism);
+        assert!(
+            tol_mixed < 0.03,
+            "Feature-aware tol should be < 0.03 (debug proved this passes), got {}",
+            tol_mixed
+        );
+        assert!(
+            tol_mixed > 0.01,
+            "Feature-aware tol should be > 0.01 (not too small), got {}",
+            tol_mixed
+        );
+    }
+
+    #[test]
+    fn test_adaptive_tol_floor_and_ceiling() {
+        // Very small geometry: 0.001 × 0.001 × 0.001
+        let tiny = primitives::make_box(0.001, 0.001, 0.001);
+        let tol_tiny = compute_adaptive_tol(&tiny, &tiny);
+        assert!(
+            tol_tiny >= 1e-6,
+            "Tiny geometry tol should be >= 1e-6 (floor), got {}",
+            tol_tiny
+        );
+
+        // Very large geometry: 1000 × 1000 × 1000
+        let huge = primitives::make_box(1000.0, 1000.0, 1000.0);
+        let tol_huge = compute_adaptive_tol(&huge, &huge);
+        assert!(
+            tol_huge <= 0.05,
+            "Huge geometry tol should be <= 0.05 (ceiling), got {}",
+            tol_huge
+        );
     }
 }
