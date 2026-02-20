@@ -62,6 +62,69 @@
 		return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
 	});
 
+	function setAxisQuickPick(x, y, z) {
+		axisDirX = x;
+		axisDirY = y;
+		axisDirZ = z;
+		// Set origin to 0,0,0 for standard axes
+		axisOriginX = 0;
+		axisOriginY = 0;
+		axisOriginZ = 0;
+	}
+
+	function handleLineAxisSelect(lineIdStr) {
+		if (!lineIdStr || !dialogState) return;
+		const lineId = parseInt(lineIdStr, 10);
+		const line = dialogState.sketchLines?.find(l => l.id === lineId);
+		if (!line) return;
+
+		// Convert 2D line direction to 3D using sketch plane
+		const dx2d = line.end[0] - line.start[0];
+		const dy2d = line.end[1] - line.start[1];
+		const len = Math.sqrt(dx2d * dx2d + dy2d * dy2d);
+		if (len < 1e-10) return;
+
+		const nx = dx2d / len;
+		const ny = dy2d / len;
+
+		// Compute right/up vectors from plane normal
+		const pn = dialogState.planeNormal ?? [0, 0, 1];
+		const po = dialogState.planeOrigin ?? [0, 0, 0];
+
+		const absX = Math.abs(pn[0]), absY = Math.abs(pn[1]), absZ = Math.abs(pn[2]);
+		let upHint;
+		if (absZ >= absX && absZ >= absY) {
+			upHint = [0, 1, 0];
+		} else if (absY >= absX) {
+			upHint = [0, 0, 1];
+		} else {
+			upHint = [0, 1, 0];
+		}
+
+		// right = normalize(cross(upHint, normal))
+		const rx = upHint[1] * pn[2] - upHint[2] * pn[1];
+		const ry = upHint[2] * pn[0] - upHint[0] * pn[2];
+		const rz = upHint[0] * pn[1] - upHint[1] * pn[0];
+		const rlen = Math.sqrt(rx*rx + ry*ry + rz*rz);
+		const right = rlen > 1e-10 ? [rx/rlen, ry/rlen, rz/rlen] : [1, 0, 0];
+
+		// up = cross(normal, right)
+		const ux = pn[1] * right[2] - pn[2] * right[1];
+		const uy = pn[2] * right[0] - pn[0] * right[2];
+		const uz = pn[0] * right[1] - pn[1] * right[0];
+		const up = [ux, uy, uz];
+
+		// 3D direction = right * nx + up * ny
+		axisDirX = right[0] * nx + up[0] * ny;
+		axisDirY = right[1] * nx + up[1] * ny;
+		axisDirZ = right[2] * nx + up[2] * ny;
+
+		// 3D origin from 2D line start
+		axisOriginX = po[0] + right[0] * line.start[0] + up[0] * line.start[1];
+		axisOriginY = po[1] + right[1] * line.start[0] + up[1] * line.start[1];
+		axisOriginZ = po[2] + right[2] * line.start[0] + up[2] * line.start[1];
+	}
+
 	function handleApply() {
 		applyRevolve(
 			angle,
@@ -112,21 +175,64 @@
 					/>
 				</div>
 				<div class="field-group">
-					<span class="group-label">Axis Origin</span>
-					<div class="vec3">
-						<label>X <input type="number" bind:value={axisOriginX} step="1" /></label>
-						<label>Y <input type="number" bind:value={axisOriginY} step="1" /></label>
-						<label>Z <input type="number" bind:value={axisOriginZ} step="1" /></label>
+					<span class="group-label">Axis</span>
+					<div class="axis-quickpick">
+						<button
+							class="btn-axis"
+							class:active={axisDirX === 1 && axisDirY === 0 && axisDirZ === 0}
+							data-testid="revolve-axis-x"
+							onclick={() => setAxisQuickPick(1, 0, 0)}
+						>X</button>
+						<button
+							class="btn-axis"
+							class:active={axisDirX === 0 && axisDirY === 1 && axisDirZ === 0}
+							data-testid="revolve-axis-y"
+							onclick={() => setAxisQuickPick(0, 1, 0)}
+						>Y</button>
+						<button
+							class="btn-axis"
+							class:active={axisDirX === 0 && axisDirY === 0 && axisDirZ === 1}
+							data-testid="revolve-axis-z"
+							onclick={() => setAxisQuickPick(0, 0, 1)}
+						>Z</button>
 					</div>
 				</div>
-				<div class="field-group">
-					<span class="group-label">Axis Direction</span>
-					<div class="vec3">
-						<label>X <input type="number" bind:value={axisDirX} step="0.1" /></label>
-						<label>Y <input type="number" bind:value={axisDirY} step="0.1" /></label>
-						<label>Z <input type="number" bind:value={axisDirZ} step="0.1" /></label>
+				{#if dialogState.sketchLines?.length > 0}
+					<div class="field">
+						<label for="revolve-line-axis">Line Axis</label>
+						<select
+							id="revolve-line-axis"
+							data-testid="revolve-line-axis"
+							onchange={(e) => handleLineAxisSelect(e.target.value)}
+						>
+							<option value="">-- Select line --</option>
+							{#each dialogState.sketchLines as line}
+								<option value={line.id}>Line {line.id}</option>
+							{/each}
+						</select>
 					</div>
-				</div>
+				{/if}
+				<details class="advanced-section">
+					<summary>Manual Axis Entry</summary>
+					<div class="advanced-fields">
+						<div class="field-group">
+							<span class="group-label">Axis Origin</span>
+							<div class="vec3">
+								<label>X <input type="number" bind:value={axisOriginX} step="1" /></label>
+								<label>Y <input type="number" bind:value={axisOriginY} step="1" /></label>
+								<label>Z <input type="number" bind:value={axisOriginZ} step="1" /></label>
+							</div>
+						</div>
+						<div class="field-group">
+							<span class="group-label">Axis Direction</span>
+							<div class="vec3">
+								<label>X <input type="number" bind:value={axisDirX} step="0.1" /></label>
+								<label>Y <input type="number" bind:value={axisDirY} step="0.1" /></label>
+								<label>Z <input type="number" bind:value={axisDirZ} step="0.1" /></label>
+							</div>
+						</div>
+					</div>
+				</details>
 				{#if dialogState.profileCount > 1}
 					<div class="field">
 						<label for="revolve-profile">Profile</label>
@@ -248,6 +354,56 @@
 	.group-label {
 		font-size: 12px;
 		color: var(--text-secondary, #aaa);
+	}
+
+	.axis-quickpick {
+		display: flex;
+		gap: 4px;
+	}
+
+	.btn-axis {
+		flex: 1;
+		padding: 4px 8px;
+		background: var(--bg-primary, #1e1e1e);
+		border: 1px solid var(--border-color, #444);
+		color: var(--text-primary, #eee);
+		border-radius: 3px;
+		font-size: 12px;
+		font-weight: 600;
+		cursor: pointer;
+		text-align: center;
+	}
+
+	.btn-axis:hover {
+		border-color: var(--accent, #0078d4);
+	}
+
+	.btn-axis.active {
+		background: var(--accent, #0078d4);
+		border-color: var(--accent, #0078d4);
+		color: #fff;
+	}
+
+	.advanced-section {
+		margin-top: 4px;
+	}
+
+	.advanced-section summary {
+		font-size: 11px;
+		color: var(--text-muted, #888);
+		cursor: pointer;
+		padding: 4px 0;
+	}
+
+	.advanced-section summary:hover {
+		color: var(--text-secondary, #aaa);
+	}
+
+	.advanced-fields {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+		padding-top: 8px;
 	}
 
 	.vec3 {
