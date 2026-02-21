@@ -3,6 +3,7 @@
  */
 import { test, expect } from './helpers/waffle-test.js';
 import { zoom, getCanvasBounds, orbitDrag } from './helpers/canvas.js';
+import { createExtrudedBox } from './helpers/geometry.js';
 
 /**
  * Compute the distance from camera position to camera target.
@@ -215,5 +216,95 @@ test.describe('viewport advanced', () => {
 
 		const cleared = await page.evaluate(() => window.__waffle.getHoveredRef());
 		expect(cleared).toBeNull();
+	});
+
+	test('orbit on empty space tracks full drag distance', async ({ waffle }) => {
+		const page = waffle.page;
+
+		await page.waitForFunction(() => window.__waffle?.getCameraState() !== null);
+		const before = await page.evaluate(() => window.__waffle.getCameraState());
+		expect(before).not.toBeNull();
+
+		// Orbit drag 200px on empty canvas — should not be interrupted by BoxSelect
+		await orbitDrag(page, -100, 0, 100, 0);
+		await page.waitForTimeout(500);
+
+		const after = await page.evaluate(() => window.__waffle.getCameraState());
+		expect(after).not.toBeNull();
+
+		// Camera position should have moved significantly (> 5 units)
+		const dx = after.position[0] - before.position[0];
+		const dy = after.position[1] - before.position[1];
+		const dz = after.position[2] - before.position[2];
+		const dist = Math.sqrt(dx ** 2 + dy ** 2 + dz ** 2);
+		expect(dist).toBeGreaterThan(5);
+	});
+
+	test('orbit with geometry present changes camera position', async ({ waffle }) => {
+		const page = waffle.page;
+		await createExtrudedBox(page);
+
+		await page.waitForFunction(() => window.__waffle?.getCameraState() !== null);
+		const before = await page.evaluate(() => window.__waffle.getCameraState());
+		expect(before).not.toBeNull();
+
+		// Orbit drag on canvas with geometry present
+		await orbitDrag(page, -80, 0, 80, 0);
+		await page.waitForTimeout(500);
+
+		const after = await page.evaluate(() => window.__waffle.getCameraState());
+		expect(after).not.toBeNull();
+
+		const dx = after.position[0] - before.position[0];
+		const dy = after.position[1] - before.position[1];
+		const dz = after.position[2] - before.position[2];
+		const dist = Math.sqrt(dx ** 2 + dy ** 2 + dz ** 2);
+		expect(dist).toBeGreaterThan(1);
+	});
+
+	test('shift+drag on empty space activates box select', async ({ waffle }) => {
+		const page = waffle.page;
+
+		const bounds = await getCanvasBounds(page);
+		expect(bounds).not.toBeNull();
+
+		// Verify box select starts inactive
+		const stateBefore = await page.evaluate(() => window.__waffle.getBoxSelectState());
+		expect(stateBefore.active).toBe(false);
+
+		// Start position near top-left corner (empty space, away from gizmos)
+		const startX = bounds.x + 20;
+		const startY = bounds.y + 20;
+		const endX = startX + 150;
+		const endY = startY + 150;
+
+		// Hold Shift and drag — should activate box select
+		await page.keyboard.down('Shift');
+		await page.mouse.move(startX, startY);
+		await page.mouse.down();
+
+		// Move far enough to trigger box select (> 5px threshold)
+		const steps = 5;
+		for (let i = 1; i <= steps; i++) {
+			const t = i / steps;
+			await page.mouse.move(
+				startX + (endX - startX) * t,
+				startY + (endY - startY) * t
+			);
+		}
+		await page.waitForTimeout(100);
+
+		// Box select state should be active mid-drag
+		const stateDuring = await page.evaluate(() => window.__waffle.getBoxSelectState());
+		expect(stateDuring.active).toBe(true);
+
+		// Release mouse and Shift
+		await page.mouse.up();
+		await page.keyboard.up('Shift');
+		await page.waitForTimeout(300);
+
+		// Box select state should be inactive after mouseup
+		const stateAfter = await page.evaluate(() => window.__waffle.getBoxSelectState());
+		expect(stateAfter.active).toBe(false);
 	});
 });

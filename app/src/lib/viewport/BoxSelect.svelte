@@ -167,6 +167,7 @@
 		// Only left button, not in sketch mode
 		if (e.button !== 0) return;
 		if (getSketchMode()?.active) return;
+		if (!e.shiftKey) return;
 
 		// Check if starting on empty space
 		if (!isEmptySpace(e.clientX, e.clientY)) return;

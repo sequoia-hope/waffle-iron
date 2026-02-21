@@ -81,7 +81,9 @@ test.describe('box selection', () => {
 		const endX = bounds.x + bounds.width - 10;
 		const endY = bounds.y + bounds.height - 10;
 
+		await page.keyboard.down('Shift');
 		await dragBox(page, startX, startY, endX, endY);
+		await page.keyboard.up('Shift');
 
 		const selected = await page.evaluate(() => window.__waffle.getSelectedRefs());
 		expect(selected.length).toBeGreaterThan(0);
