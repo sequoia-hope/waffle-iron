@@ -286,6 +286,7 @@ impl Kernel for TruckKernel {
                 reason: "truck or() returned None".to_string(),
             })?;
         crate::healing::heal_intersection_curves(&result, heal_tol);
+        crate::healing::deduplicate_vertices(&result, heal_tol * 0.1);
         Ok(self.store_solid(result))
     }
 
@@ -330,6 +331,7 @@ impl Kernel for TruckKernel {
                 reason: "truck difference() returned None".to_string(),
             })?;
         crate::healing::heal_intersection_curves(&result, heal_tol);
+        crate::healing::deduplicate_vertices(&result, heal_tol * 0.1);
         Ok(self.store_solid(result))
     }
 
@@ -373,6 +375,7 @@ impl Kernel for TruckKernel {
                 reason: "truck and() returned None".to_string(),
             })?;
         crate::healing::heal_intersection_curves(&result, heal_tol);
+        crate::healing::deduplicate_vertices(&result, heal_tol * 0.1);
         Ok(self.store_solid(result))
     }
 

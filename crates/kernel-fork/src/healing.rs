@@ -497,6 +497,107 @@ pub fn heal_intersection_curves(solid: &Solid, tol: f64) -> HealingResult {
     result
 }
 
+/// Deduplicate nearly-coincident vertices in a solid after boolean + healing.
+///
+/// After `heal_intersection_curves`, the solid may have vertices that are very
+/// close together (within `tol`) from different booleans. If left as-is, the
+/// next boolean's `weld_coincident_edges` will unify them and may produce
+/// non-simple wires. By merging them preemptively with a tight tolerance,
+/// we reduce the chance of weld-induced topology corruption.
+///
+/// Uses interior mutation via `Vertex::set_point()` (Arc<Mutex>) to merge
+/// nearby vertices to their average position.
+pub fn deduplicate_vertices(solid: &Solid, tol: f64) {
+    use std::collections::HashMap;
+    use truck_modeling::topology::{Vertex, VertexID};
+
+    let dedup_tol = tol;
+
+    // Collect all unique vertices
+    let mut all_verts: Vec<Vertex> = Vec::new();
+    let mut seen_ids: HashSet<VertexID> = HashSet::new();
+    for shell in solid.boundaries() {
+        for face in shell.iter() {
+            for wire in face.absolute_boundaries().iter() {
+                for v in wire.vertex_iter() {
+                    if seen_ids.insert(v.id()) {
+                        all_verts.push(v.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    if all_verts.len() < 2 {
+        return;
+    }
+
+    // Spatial grid for efficient nearest-neighbor lookup
+    let cell = dedup_tol;
+    let mut grid: HashMap<(i64, i64, i64), Vec<usize>> = HashMap::new();
+
+    for (idx, v) in all_verts.iter().enumerate() {
+        let pt = v.point();
+        let key = (
+            (pt.x / cell).round() as i64,
+            (pt.y / cell).round() as i64,
+            (pt.z / cell).round() as i64,
+        );
+        grid.entry(key).or_default().push(idx);
+    }
+
+    // Find groups of vertices that should be merged
+    let mut merged: HashSet<usize> = HashSet::new();
+
+    for idx in 0..all_verts.len() {
+        if merged.contains(&idx) {
+            continue;
+        }
+        let pt = all_verts[idx].point();
+        let key = (
+            (pt.x / cell).round() as i64,
+            (pt.y / cell).round() as i64,
+            (pt.z / cell).round() as i64,
+        );
+
+        let mut group: Vec<usize> = vec![idx];
+        for dx in -1i64..=1 {
+            for dy in -1i64..=1 {
+                for dz in -1i64..=1 {
+                    let nkey = (key.0 + dx, key.1 + dy, key.2 + dz);
+                    if let Some(neighbors) = grid.get(&nkey) {
+                        for &nidx in neighbors {
+                            if nidx != idx
+                                && !merged.contains(&nidx)
+                                && (all_verts[nidx].point() - pt).magnitude() < dedup_tol
+                            {
+                                group.push(nidx);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if group.len() > 1 {
+            // Compute average position
+            let mut sum = Vector3::new(0.0, 0.0, 0.0);
+            for &gidx in &group {
+                let p = all_verts[gidx].point();
+                sum += Vector3::new(p.x, p.y, p.z);
+            }
+            let avg = sum / group.len() as f64;
+            let avg_pt = Point3::new(avg.x, avg.y, avg.z);
+
+            // Set all vertices in group to the average position
+            for &gidx in &group {
+                all_verts[gidx].set_point(avg_pt);
+                merged.insert(gidx);
+            }
+        }
+    }
+}
+
 /// Check if a surface is a plane.
 fn is_plane(s: &Surface) -> bool {
     matches!(s, Surface::Plane(_))
