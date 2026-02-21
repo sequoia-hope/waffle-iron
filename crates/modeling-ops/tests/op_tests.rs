@@ -1086,17 +1086,29 @@ fn truck_revolve_assigns_roles() {
 }
 
 #[test]
-fn truck_fillet_returns_not_supported() {
+fn truck_fillet_works_on_planar_edge() {
     let mut kernel = TruckKernel::new();
     let face_id = make_truck_face(&mut kernel);
     let result = execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], 5.0, None).unwrap();
     let handle = &result.outputs[0].1.handle;
 
+    let faces_before = kernel.list_faces(handle).len();
     let edges = kernel.list_edges(handle);
     let fillet_result = execute_fillet(&mut kernel, handle, &[edges[0]], 0.5);
     assert!(
-        fillet_result.is_err(),
-        "TruckKernel fillet should return error"
+        fillet_result.is_ok(),
+        "TruckKernel fillet should succeed on planar edges: {:?}",
+        fillet_result.err()
+    );
+
+    let result = fillet_result.unwrap();
+    let result_handle = &result.outputs[0].1.handle;
+    let faces_after = kernel.list_faces(result_handle).len();
+    assert!(
+        faces_after > faces_before,
+        "Fillet should add faces: before={}, after={}",
+        faces_before,
+        faces_after
     );
 }
 

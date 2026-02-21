@@ -61,6 +61,9 @@
 			<button class="close-btn" onclick={handleCancel}>&times;</button>
 		</div>
 		<div class="dialog-body">
+			<div class="deferred-warning" data-testid="shell-deferred-warning">
+				Shell is not yet available. Face selection and kernel support are under development.
+			</div>
 			<div class="info-row">
 				<span class="info-label">Faces to remove</span>
 				<span class="info-value" data-testid="shell-face-count">{dialogState.faceCount}</span>
@@ -79,7 +82,7 @@
 		</div>
 		<div class="dialog-footer">
 			<button class="btn btn-cancel" data-testid="shell-cancel" onclick={handleCancel}>Cancel</button>
-			<button class="btn btn-apply" data-testid="shell-apply" disabled={dialogState.faceCount === 0} onclick={handleApply}>Apply</button>
+			<button class="btn btn-apply" data-testid="shell-apply" disabled onclick={handleApply}>Apply</button>
 		</div>
 	</div>
 {/if}
@@ -124,6 +127,16 @@
 
 	.close-btn:hover {
 		color: var(--text-primary, #eee);
+	}
+
+	.deferred-warning {
+		padding: 8px 10px;
+		background: rgba(255, 170, 0, 0.12);
+		border: 1px solid rgba(255, 170, 0, 0.3);
+		border-radius: 4px;
+		font-size: 11px;
+		color: var(--text-secondary, #aaa);
+		line-height: 1.4;
 	}
 
 	.dialog-body {

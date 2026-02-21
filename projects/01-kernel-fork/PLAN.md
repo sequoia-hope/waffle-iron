@@ -61,7 +61,7 @@
 - [ ] Profile hotspots (deferred: truck internals are opaque)
 - [ ] Investigate alternative boolean algorithms (deferred: would require kernel replacement)
 
-### M8: Fillet (MockKernel) ✅ / (TruckKernel) Deferred
+### M8: Fillet — Experimental, DEFERRED INDEFINITELY
 - [x] MockKernel fillet_edges: deterministic topology modification
 - [x] Test: fillet single edge on box → 7F, 13E, 10V
 - [x] Test: fillet multiple edges (3) → 9F, 15E, 14V
@@ -69,13 +69,13 @@
 - [x] Test: invalid edge → FilletFailed error
 - [ ] TruckKernel fillet: deferred (see Architectural Blockers)
 
-### M9: Chamfer (MockKernel) ✅ / (TruckKernel) Deferred
+### M9: Chamfer — Experimental, DEFERRED INDEFINITELY
 - [x] MockKernel chamfer_edges: deterministic topology modification
 - [x] Test: chamfer single edge → 7F, 13E (planar chamfer face)
 - [x] Test: invalid distance → error
 - [ ] TruckKernel chamfer: deferred (see Architectural Blockers)
 
-### M10: Shell (MockKernel) ✅ / (TruckKernel) Deferred
+### M10: Shell — Experimental, DEFERRED INDEFINITELY
 - [x] MockKernel shell: removes faces, adds offset inner faces
 - [x] Test: shell box removing 1 face → 10 faces (5 outer + 5 inner)
 - [x] Test: invalid thickness → ShellFailed error
@@ -91,6 +91,10 @@
 - [x] Test: export cylinder → valid STEP with revolved geometry
 
 ## Blockers
+
+### Priority Note
+
+**Fillet, chamfer, and shell are DEFERRED INDEFINITELY.** MockKernel implementations exist for testing, and experimental TruckKernel implementations were added in Sprint 18, but these are not production-ready. Do not prioritize work on these operations. Focus on boolean reliability, integration tests, and extrude/revolve pipeline polish instead.
 
 ### Architectural Blockers for TruckKernel Fillet/Chamfer/Shell
 

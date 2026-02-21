@@ -13,6 +13,7 @@ Build the parametric modeling engine: feature tree management, the GeomRef resol
 3. **Rebuild must be correct before it's fast.** Get the algorithm right first. Optimize later.
 4. **Role-based resolution first, signature fallback second.** Roles are fast and stable. Signatures are the safety net for when topology changes invalidate roles.
 5. **Document persistent naming failures.** When you find cases that break, add them to PLAN.md under Notes. This helps future work.
+6. **Fillet/chamfer/shell are DEFERRED INDEFINITELY.** The engine pipeline for these operations works, but TruckKernel support is not production-ready. Do not prioritize these operations.
 
 ## Build & Test
 

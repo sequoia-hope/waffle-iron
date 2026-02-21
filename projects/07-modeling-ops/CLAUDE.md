@@ -13,6 +13,7 @@ Implement modeling operations (extrude, revolve, fillet, chamfer, shell, boolean
 3. **The topology diff utility is foundational.** Build it first. All operations use it.
 4. **Test against MockKernel first, then TruckKernel.** MockKernel gives deterministic, predictable results.
 5. **Operations are stateless.** Each operation receives all context as parameters. No hidden state.
+6. **Fillet/chamfer/shell are DEFERRED INDEFINITELY.** MockKernel implementations and tests exist, but TruckKernel support is not production-ready. Do not work on these operations.
 
 ## Build & Test
 

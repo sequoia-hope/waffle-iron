@@ -116,16 +116,16 @@ wasm-bridge → sketch-ui (update display, color by status)
 
 | # | Project | Purpose | Technology | Dependencies | Status |
 |---|---------|---------|------------|-------------|--------|
-| 01 | kernel-fork | BREP geometry via truck fork | Rust | None | Not started |
-| 02 | sketch-solver | 2D constraint solving via slvs | Rust + C (libslvs) | None | Not started |
-| 03 | wasm-bridge | WASM↔JS communication protocol | Rust + JS | 01 | Not started |
-| 04 | 3d-viewport | three.js rendering via Threlte | Svelte + JS | 01 | Not started |
-| 05 | sketch-ui | 2D sketch editing interface | Svelte + JS | 02, 03, 04 | Not started |
-| 06 | feature-engine | Parametric feature tree + persistent naming | Rust | 01 | Not started |
-| 07 | modeling-ops | Operation implementations with provenance | Rust | 01 | Not started |
-| 08 | ui-chrome | Application shell (panels, toolbar, tree) | Svelte | 05, 06, 07 | Not started |
-| 09 | file-format | Save/load/export | Rust | 06 | Not started |
-| 10 | assemblies | Multi-part assembly (deferred) | Rust + Svelte | All | Not started |
+| 01 | kernel-fork | BREP geometry via truck fork | Rust | None | Complete (M1-M11 + boolean sprints) |
+| 02 | sketch-solver | 2D constraint solving via slvs | Rust + C (libslvs) | None | Complete (M1-M10 + Emscripten WASM) |
+| 03 | wasm-bridge | WASM↔JS communication protocol | Rust + JS | 01 | Complete (M1-M8) |
+| 04 | 3d-viewport | three.js rendering via Threlte | Svelte + JS | 01 | Complete |
+| 05 | sketch-ui | 2D sketch editing interface | Svelte + JS | 02, 03, 04 | Complete |
+| 06 | feature-engine | Parametric feature tree + persistent naming | Rust | 01 | Complete (M1-M10 + fillet/chamfer/shell pipeline) |
+| 07 | modeling-ops | Operation implementations with provenance | Rust | 01 | Complete (M1-M10) |
+| 08 | ui-chrome | Application shell (panels, toolbar, tree) | Svelte | 05, 06, 07 | Complete |
+| 09 | file-format | Save/load/export | Rust | 06 | Complete (M1-M6) |
+| 10 | assemblies | Multi-part assembly (deferred) | Rust + Svelte | All | Deferred |
 
 ### Dependency Graph
 

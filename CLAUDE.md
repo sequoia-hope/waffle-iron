@@ -12,6 +12,23 @@ When rules conflict, the following precedence applies (highest first):
 4. This file — Session workflow and coding conventions
 5. Sub-project `CLAUDE.md` files — Project-specific instructions
 
+## DEFERRED INDEFINITELY: Fillet, Chamfer, Shell
+
+**Fillet, chamfer, and shell operations are DEFERRED INDEFINITELY. Do NOT work on them.**
+
+Experimental TruckKernel implementations exist (Sprint 18) and MockKernel tests pass, but these operations depend on boolean reliability which is itself fragile. UI dialogs display warning banners with disabled Apply buttons.
+
+**Never suggest fillet, chamfer, or shell as "next steps" or "what to work on."** If a session plan includes fillet/chamfer/shell work, skip it and choose a different task.
+
+## Current Priorities
+
+When asked "what should I work on?", choose from these areas:
+
+1. **Boolean shapeops reliability** — Improve truck boolean robustness in `vendor/truck/`. Fix box-cylinder, coplanar, and chained operation failures.
+2. **GUI test coverage** — Expand Playwright tests in `app/tests/gui/`. Cover all drawing modes, feature dialogs, and viewport interactions with both click-click and click-drag.
+3. **Cross-crate integration tests** — Expand `crates/test-harness/` with multi-operation scenarios: sketch → extrude → boolean → tessellation → verify.
+4. **Extrude/revolve pipeline polish** — Improve reliability and UX of the working feature creation operations.
+
 ## Session Start Checklist
 
 1. Run `git status` — understand what branch you're on and what's changed.

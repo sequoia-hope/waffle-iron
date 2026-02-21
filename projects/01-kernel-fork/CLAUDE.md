@@ -12,6 +12,7 @@ Wrap truck's API behind the `Kernel` and `KernelIntrospect` traits defined in th
 2. **MockKernel is as important as TruckKernel.** Other teams (feature-engine, modeling-ops) depend on MockKernel for their tests. Build and test it thoroughly.
 3. **Boolean performance is a known crisis.** If you encounter performance data, document it. Don't spend excessive time optimizing — document findings for future work.
 4. **Tessellation must produce face-range metadata.** three.js needs to map picked triangles back to logical faces.
+5. **Do NOT prioritize fillet/chamfer/shell work. DEFERRED INDEFINITELY.** Experimental implementations exist but depend on boolean reliability. Focus on boolean shapeops, integration tests, and extrude/revolve pipeline instead.
 
 ## Build & Test
 
