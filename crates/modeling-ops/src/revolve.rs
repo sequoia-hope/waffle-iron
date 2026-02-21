@@ -105,11 +105,19 @@ fn assign_revolve_roles(
         let mut end_assigned = false;
         let mut side_index = 0;
 
+        // Tiered threshold: prefer faces with high axis alignment (>0.9),
+        // fall back to moderate alignment (>0.3) if no strong match exists.
+        let threshold = if face_dots.iter().filter(|(_, d)| *d > 0.9).count() >= 2 {
+            0.9
+        } else {
+            0.3
+        };
+
         for (face_id, dot) in face_dots {
-            if dot > 0.5 && !start_assigned {
+            if dot > threshold && !start_assigned {
                 assignments.push((face_id, Role::RevStartFace));
                 start_assigned = true;
-            } else if dot > 0.5 && !end_assigned {
+            } else if dot > threshold && !end_assigned {
                 assignments.push((face_id, Role::RevEndFace));
                 end_assigned = true;
             } else {

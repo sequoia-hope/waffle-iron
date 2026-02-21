@@ -103,6 +103,26 @@ fn compute_boolean_options(solid_a: &Solid, solid_b: &Solid) -> BooleanOptions {
     BooleanOptions::for_boolean_tol(tol)
 }
 
+/// Validate that a solid is suitable for boolean operations.
+/// Returns an error if the solid has no boundaries or no faces.
+fn validate_solid_for_boolean(solid: &Solid, label: &str) -> Result<(), KernelError> {
+    if solid.boundaries().is_empty() {
+        return Err(KernelError::BooleanFailed {
+            reason: format!("{} has no boundaries", label),
+        });
+    }
+    let shell = &solid.boundaries()[0];
+    if shell.face_iter().count() == 0 {
+        return Err(KernelError::BooleanFailed {
+            reason: format!("{} has no faces", label),
+        });
+    }
+    // Note: ShellCondition check (warn if not closed) is available via truck_meshalgo
+    // but we skip it here — boundary+face checks are sufficient as a pre-check.
+    // The boolean pipeline itself will fail with a clear error if the shell is not closed.
+    Ok(())
+}
+
 /// Real geometry kernel backed by the truck BREP library.
 pub struct TruckKernel {
     next_handle: u64,
@@ -266,6 +286,9 @@ impl Kernel for TruckKernel {
             })?
             .clone();
 
+        validate_solid_for_boolean(&solid_a, "solid_a")?;
+        validate_solid_for_boolean(&solid_b, "solid_b")?;
+
         // Heal inputs if they have IntersectionCurve edges from previous booleans
         let heal_tol = compute_healing_tol(&solid_a, &solid_b);
         crate::healing::heal_intersection_curves(&solid_a, heal_tol);
@@ -307,6 +330,9 @@ impl Kernel for TruckKernel {
                 id: KernelId(b.id()),
             })?
             .clone();
+
+        validate_solid_for_boolean(&solid_a, "solid_a")?;
+        validate_solid_for_boolean(&solid_b, "solid_b")?;
 
         // Subtraction = A \ B via proper difference().
         // Heal inputs if they have IntersectionCurve edges from previous booleans.
@@ -350,6 +376,9 @@ impl Kernel for TruckKernel {
                 id: KernelId(b.id()),
             })?
             .clone();
+
+        validate_solid_for_boolean(&solid_a, "solid_a")?;
+        validate_solid_for_boolean(&solid_b, "solid_b")?;
 
         // Heal inputs if they have IntersectionCurve edges from previous booleans
         let heal_tol = compute_healing_tol(&solid_a, &solid_b);
@@ -3302,5 +3331,42 @@ mod tests {
             solid.boundaries()[0].shell_condition(),
             ShellCondition::Closed
         );
+    }
+
+    #[test]
+    fn test_validate_solid_empty_boundaries() {
+        let solid: Solid = Solid::new_unchecked(Vec::new());
+        let result = validate_solid_for_boolean(&solid, "test");
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("no boundaries"),
+            "Error should mention 'no boundaries', got: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_validate_solid_empty_faces() {
+        use truck_modeling::topology::Shell;
+        let empty_shell: Shell = vec![].into();
+        let solid: Solid = Solid::new_unchecked(vec![empty_shell]);
+        let result = validate_solid_for_boolean(&solid, "test");
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("no faces"),
+            "Error should mention 'no faces', got: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_validate_solid_valid_box() {
+        let v = builder::vertex(Point3::new(0.0, 0.0, 0.0));
+        let edge = builder::tsweep(&v, Vector3::new(1.0, 0.0, 0.0));
+        let face = builder::tsweep(&edge, Vector3::new(0.0, 1.0, 0.0));
+        let solid: Solid = builder::tsweep(&face, Vector3::new(0.0, 0.0, 1.0));
+        assert!(validate_solid_for_boolean(&solid, "box").is_ok());
     }
 }

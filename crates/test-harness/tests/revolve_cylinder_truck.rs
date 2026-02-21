@@ -68,6 +68,58 @@ fn test_truck_partial_revolve_90() {
     );
 }
 
+// ── Partial Revolve Role Assignment Tests ───────────────────────────────────
+
+#[test]
+fn test_partial_revolve_90_roles() {
+    let mut m = ModelBuilder::truck();
+    m.rect_sketch("sk", [5., 0., 0.], [0., 0., 1.], 5., 0., 5., 5.)
+        .unwrap();
+    m.revolve("rev", "sk", [0., 0., 0.], [0., 1., 0.], 90.0)
+        .unwrap();
+    m.assert_has_solid("rev").unwrap();
+
+    // A 90° revolve should assign start/end cap roles
+    let op = m.op_result("rev").unwrap();
+    test_harness::assertions::assert_role_assigned(
+        op,
+        &waffle_types::Role::RevStartFace,
+        "90° revolve start face",
+    )
+    .unwrap();
+    test_harness::assertions::assert_role_assigned(
+        op,
+        &waffle_types::Role::RevEndFace,
+        "90° revolve end face",
+    )
+    .unwrap();
+}
+
+#[test]
+fn test_partial_revolve_180_roles() {
+    let mut m = ModelBuilder::truck();
+    m.rect_sketch("sk", [5., 0., 0.], [0., 0., 1.], 5., 0., 5., 5.)
+        .unwrap();
+    m.revolve("rev", "sk", [0., 0., 0.], [0., 1., 0.], 180.0)
+        .unwrap();
+    m.assert_has_solid("rev").unwrap();
+
+    // A 180° revolve should assign start/end cap roles
+    let op = m.op_result("rev").unwrap();
+    test_harness::assertions::assert_role_assigned(
+        op,
+        &waffle_types::Role::RevStartFace,
+        "180° revolve start face",
+    )
+    .unwrap();
+    test_harness::assertions::assert_role_assigned(
+        op,
+        &waffle_types::Role::RevEndFace,
+        "180° revolve end face",
+    )
+    .unwrap();
+}
+
 // ── Revolve + Boolean Tests ──────────────────────────────────────────────────
 
 #[test]

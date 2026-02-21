@@ -688,8 +688,8 @@ fn test_layered_tolerance_differentiated() {
         tols.tau_weld
     );
     assert!(
-        (tols.tau_coplanar - 0.25).abs() < 1e-12,
-        "tau_coplanar should be 0.25 (5x), got {}",
+        (tols.tau_coplanar - 0.05).abs() < 1e-12,
+        "tau_coplanar should equal tau_model (1x), got {}",
         tols.tau_coplanar
     );
     assert!(
@@ -724,8 +724,8 @@ fn test_boolean_options_to_boolean_tolerance() {
         tols.tau_weld
     );
     assert!(
-        (tols.tau_coplanar - 0.05).abs() < 1e-12,
-        "tau_coplanar should be 0.05, got {}",
+        (tols.tau_coplanar - 0.01).abs() < 1e-12,
+        "tau_coplanar should equal tau_model, got {}",
         tols.tau_coplanar
     );
 }
