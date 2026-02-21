@@ -835,11 +835,13 @@ pub fn try_boolean_with_perturbation(
     solid_a: &Solid,
     solid_b: &Solid,
     tol: f64,
-    op: impl Fn(&Solid, &Solid) -> Option<Solid>,
-) -> Option<Solid> {
+    op: impl Fn(&Solid, &Solid) -> Result<Solid, truck_shapeops::BooleanStageError>,
+) -> Result<Solid, truck_shapeops::BooleanStageError> {
+    let mut last_err;
     // Try direct
-    if let Some(result) = op(solid_a, solid_b) {
-        return Some(result);
+    match op(solid_a, solid_b) {
+        Ok(result) => return Ok(result),
+        Err(e) => last_err = e,
     }
 
     // Scale-aware perturbation epsilons based on bounding box extent
@@ -861,8 +863,9 @@ pub fn try_boolean_with_perturbation(
                 let composite_dir = composite / len;
                 for &eps in &epsilons {
                     let perturbed_b = translate_solid(solid_b, composite_dir * eps);
-                    if let Some(result) = op(solid_a, &perturbed_b) {
-                        return Some(result);
+                    match op(solid_a, &perturbed_b) {
+                        Ok(result) => return Ok(result),
+                        Err(e) => last_err = e,
                     }
                 }
             }
@@ -872,8 +875,9 @@ pub fn try_boolean_with_perturbation(
         for dir in &dirs {
             for &eps in &epsilons {
                 let perturbed_b = translate_solid(solid_b, *dir * eps);
-                if let Some(result) = op(solid_a, &perturbed_b) {
-                    return Some(result);
+                match op(solid_a, &perturbed_b) {
+                    Ok(result) => return Ok(result),
+                    Err(e) => last_err = e,
                 }
             }
         }
@@ -886,8 +890,9 @@ pub fn try_boolean_with_perturbation(
     for dir in &cyl_dirs {
         for &eps in &epsilons {
             let perturbed_b = translate_solid(solid_b, *dir * eps);
-            if let Some(result) = op(solid_a, &perturbed_b) {
-                return Some(result);
+            match op(solid_a, &perturbed_b) {
+                Ok(result) => return Ok(result),
+                Err(e) => last_err = e,
             }
         }
     }
@@ -907,8 +912,9 @@ pub fn try_boolean_with_perturbation(
         for dir in &diag_dirs {
             for &eps in &epsilons {
                 let perturbed_b = translate_solid(solid_b, *dir * eps);
-                if let Some(result) = op(solid_a, &perturbed_b) {
-                    return Some(result);
+                match op(solid_a, &perturbed_b) {
+                    Ok(result) => return Ok(result),
+                    Err(e) => last_err = e,
                 }
             }
         }
@@ -928,8 +934,9 @@ pub fn try_boolean_with_perturbation(
         let scale_factors = [1.02, 1.03, 1.05];
         for &sf in &scale_factors {
             let scaled_b = scale_solid(solid_b, centroid, sf);
-            if let Some(result) = op(solid_a, &scaled_b) {
-                return Some(result);
+            match op(solid_a, &scaled_b) {
+                Ok(result) => return Ok(result),
+                Err(e) => last_err = e,
             }
         }
     }
@@ -948,20 +955,22 @@ pub fn try_boolean_with_perturbation(
     ];
     for offset in &cardinal {
         let perturbed_b = translate_solid(solid_b, *offset);
-        if let Some(result) = op(solid_a, &perturbed_b) {
-            return Some(result);
+        match op(solid_a, &perturbed_b) {
+            Ok(result) => return Ok(result),
+            Err(e) => last_err = e,
         }
     }
 
     // Final fallback: perturb solid_a instead
     for offset in &cardinal {
         let perturbed_a = translate_solid(solid_a, *offset);
-        if let Some(result) = op(&perturbed_a, solid_b) {
-            return Some(result);
+        match op(&perturbed_a, solid_b) {
+            Ok(result) => return Ok(result),
+            Err(e) => last_err = e,
         }
     }
 
-    None
+    Err(last_err)
 }
 
 /// Extract a sample point and outward normal from a planar face.
@@ -1427,7 +1436,7 @@ mod tests {
         let boss1 = make_polygon_boss(3.0, 5.0, 10.0, 2.0, 5.0);
 
         let merged1 = try_boolean_with_perturbation(&cube, &boss1, 0.05, |a, b| {
-            truck_shapeops::or(a, b, 0.05)
+            truck_shapeops::or_result(a, b, 0.05)
         })
         .expect("First union should work");
         heal_intersection_curves(&merged1, 0.001);
@@ -1436,7 +1445,7 @@ mod tests {
         let boss2 = make_polygon_boss(7.0, 5.0, 15.0, 2.0, 5.0);
 
         let _merged2 = try_boolean_with_perturbation(&merged1, &boss2, 0.05, |a, b| {
-            truck_shapeops::or(a, b, 0.05)
+            truck_shapeops::or_result(a, b, 0.05)
         })
         .expect("Second union should work with perturbation");
     }

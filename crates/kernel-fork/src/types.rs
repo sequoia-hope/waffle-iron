@@ -77,6 +77,29 @@ impl From<BooleanError> for KernelError {
     }
 }
 
+impl From<truck_shapeops::BooleanStageError> for BooleanError {
+    fn from(err: truck_shapeops::BooleanStageError) -> Self {
+        match err {
+            truck_shapeops::BooleanStageError::LoopsStoreCreation => {
+                BooleanError::IntersectionFailed {
+                    detail: "loops store creation failed".into(),
+                }
+            }
+            truck_shapeops::BooleanStageError::FaceDivision => BooleanError::IntersectionFailed {
+                detail: "face division failed".into(),
+            },
+            truck_shapeops::BooleanStageError::Classification => {
+                BooleanError::ClassificationFailed {
+                    detail: "face classification ambiguous".into(),
+                }
+            }
+            truck_shapeops::BooleanStageError::ShellAssembly(s) => {
+                BooleanError::StitchingFailed { detail: s }
+            }
+        }
+    }
+}
+
 /// Tessellated triangle mesh for rendering in three.js.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RenderMesh {
@@ -754,5 +777,65 @@ mod tests {
             opts.validate().is_ok(),
             "for_boolean_tol result should be valid"
         );
+    }
+
+    /// Each BooleanStageError variant maps to the correct BooleanError variant.
+    #[test]
+    fn test_boolean_stage_error_to_boolean_error() {
+        // LoopsStoreCreation -> IntersectionFailed
+        let err: BooleanError = truck_shapeops::BooleanStageError::LoopsStoreCreation.into();
+        match &err {
+            BooleanError::IntersectionFailed { detail } => {
+                assert_eq!(detail, "loops store creation failed");
+            }
+            other => panic!("Expected IntersectionFailed, got {:?}", other),
+        }
+
+        // FaceDivision -> IntersectionFailed
+        let err: BooleanError = truck_shapeops::BooleanStageError::FaceDivision.into();
+        match &err {
+            BooleanError::IntersectionFailed { detail } => {
+                assert_eq!(detail, "face division failed");
+            }
+            other => panic!("Expected IntersectionFailed, got {:?}", other),
+        }
+
+        // Classification -> ClassificationFailed
+        let err: BooleanError = truck_shapeops::BooleanStageError::Classification.into();
+        match &err {
+            BooleanError::ClassificationFailed { detail } => {
+                assert_eq!(detail, "face classification ambiguous");
+            }
+            other => panic!("Expected ClassificationFailed, got {:?}", other),
+        }
+
+        // ShellAssembly -> StitchingFailed
+        let err: BooleanError =
+            truck_shapeops::BooleanStageError::ShellAssembly("not closed".into()).into();
+        match &err {
+            BooleanError::StitchingFailed { detail } => {
+                assert_eq!(detail, "not closed");
+            }
+            other => panic!("Expected StitchingFailed, got {:?}", other),
+        }
+    }
+
+    /// BooleanStageError -> BooleanError -> KernelError chain works end-to-end.
+    #[test]
+    fn test_boolean_stage_error_full_chain() {
+        let stage_err = truck_shapeops::BooleanStageError::Classification;
+        let bool_err = BooleanError::from(stage_err);
+        let kernel_err = KernelError::from(bool_err);
+
+        match &kernel_err {
+            KernelError::BooleanFailed { reason } => {
+                assert!(
+                    reason.contains("classification"),
+                    "KernelError reason should mention classification, got: {}",
+                    reason
+                );
+            }
+            other => panic!("Expected KernelError::BooleanFailed, got {:?}", other),
+        }
     }
 }

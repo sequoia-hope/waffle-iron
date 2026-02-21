@@ -280,11 +280,9 @@ impl Kernel for TruckKernel {
 
         let result =
             crate::healing::try_boolean_with_perturbation(&solid_a, &solid_b, tol, |a, b| {
-                truck_shapeops::or_with_tol(a, b, &tols)
+                truck_shapeops::or_result_with_tol(a, b, &tols)
             })
-            .ok_or_else(|| KernelError::BooleanFailed {
-                reason: "truck or() returned None".to_string(),
-            })?;
+            .map_err(|e| KernelError::from(BooleanError::from(e)))?;
         crate::healing::heal_intersection_curves(&result, heal_tol);
         crate::healing::deduplicate_vertices(&result, heal_tol * 0.1);
         Ok(self.store_solid(result))
@@ -325,11 +323,9 @@ impl Kernel for TruckKernel {
 
         let result =
             crate::healing::try_boolean_with_perturbation(&solid_a, &solid_b, tol, |a, b| {
-                truck_shapeops::difference_with_tol(a, b, &tols)
+                truck_shapeops::difference_result_with_tol(a, b, &tols)
             })
-            .ok_or_else(|| KernelError::BooleanFailed {
-                reason: "truck difference() returned None".to_string(),
-            })?;
+            .map_err(|e| KernelError::from(BooleanError::from(e)))?;
         crate::healing::heal_intersection_curves(&result, heal_tol);
         crate::healing::deduplicate_vertices(&result, heal_tol * 0.1);
         Ok(self.store_solid(result))
@@ -369,11 +365,9 @@ impl Kernel for TruckKernel {
 
         let result =
             crate::healing::try_boolean_with_perturbation(&solid_a, &solid_b, tol, |a, b| {
-                truck_shapeops::and_with_tol(a, b, &tols)
+                truck_shapeops::and_result_with_tol(a, b, &tols)
             })
-            .ok_or_else(|| KernelError::BooleanFailed {
-                reason: "truck and() returned None".to_string(),
-            })?;
+            .map_err(|e| KernelError::from(BooleanError::from(e)))?;
         crate::healing::heal_intersection_curves(&result, heal_tol);
         crate::healing::deduplicate_vertices(&result, heal_tol * 0.1);
         Ok(self.store_solid(result))
@@ -616,17 +610,19 @@ impl Kernel for TruckKernel {
             crate::healing::heal_intersection_curves(&current, htol);
 
             let tols = [tol, tol * 0.5, tol * 0.25];
-            let mut ok = None;
+            let mut last_result = None;
             for &t in &tols {
-                ok = crate::healing::try_boolean_with_perturbation(&current, &wedge, t, |a, b| {
-                    truck_shapeops::difference(a, b, t)
-                });
-                if ok.is_some() {
+                if let Ok(result) =
+                    crate::healing::try_boolean_with_perturbation(&current, &wedge, t, |a, b| {
+                        truck_shapeops::difference_result(a, b, t)
+                    })
+                {
+                    last_result = Some(result);
                     break;
                 }
             }
 
-            current = ok.ok_or_else(|| KernelError::Other {
+            current = last_result.ok_or_else(|| KernelError::Other {
                 message: "Fillet boolean subtraction failed".into(),
             })?;
 
@@ -851,17 +847,19 @@ impl Kernel for TruckKernel {
             // sensitive to the exact tolerance value for near-coplanar
             // configurations.
             let tols = [tol, tol * 0.5, tol * 0.25];
-            let mut ok = None;
+            let mut last_result = None;
             for &t in &tols {
-                ok = crate::healing::try_boolean_with_perturbation(&current, &wedge, t, |a, b| {
-                    truck_shapeops::difference(a, b, t)
-                });
-                if ok.is_some() {
+                if let Ok(result) =
+                    crate::healing::try_boolean_with_perturbation(&current, &wedge, t, |a, b| {
+                        truck_shapeops::difference_result(a, b, t)
+                    })
+                {
+                    last_result = Some(result);
                     break;
                 }
             }
 
-            current = ok.ok_or_else(|| KernelError::Other {
+            current = last_result.ok_or_else(|| KernelError::Other {
                 message: "Chamfer boolean subtraction failed".into(),
             })?;
 
@@ -1506,10 +1504,10 @@ mod tests {
         let tol = compute_adaptive_tol(&box1, &box2);
         // Use perturbation system since direct truck call fails on coplanar faces
         let result = crate::healing::try_boolean_with_perturbation(&box1, &box2, tol, |a, b| {
-            truck_shapeops::or(a, b, tol)
+            truck_shapeops::or_result(a, b, tol)
         });
         assert!(
-            result.is_some(),
+            result.is_ok(),
             "Coplanar partial overlap union should succeed"
         );
         let solid = result.unwrap();
