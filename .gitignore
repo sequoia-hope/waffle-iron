@@ -8,3 +8,7 @@ Cargo.lock
 
 # Docker
 .env
+
+# Test profiling output
+test-timings-rust.log
+test-timings-gui.json

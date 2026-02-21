@@ -53,6 +53,19 @@ When asked "what should I work on?", choose from these areas:
 3. Run `cargo fmt --check -p <your-crate>` — properly formatted.
 4. Update PLAN.md — mark completed tasks, add discovered tasks.
 
+## Test Tiers
+
+Run the appropriate test tier for your workflow:
+
+- `./scripts/test.sh fast` — During development, runs MockKernel + pure logic tests (~30s)
+- `./scripts/test.sh full` — Before committing, runs all ~910 Rust tests (~5min)
+- `./scripts/test.sh gui-fast` — Quick GUI smoke tests (~2min)
+- `./scripts/test.sh gui-full` — All ~55 GUI spec files (~5min)
+- `./scripts/test.sh all-fast` — Rust fast + GUI fast combined
+- `./scripts/test.sh all` — Full Rust + full GUI (pre-merge)
+
+See `docs/TESTING.md` for tier definitions and how to add tests.
+
 ## If Stuck
 
 - **Don't loop.** If something isn't working after a few attempts, stop.
