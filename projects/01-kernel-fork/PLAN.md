@@ -90,6 +90,20 @@
 - [x] Test: export box → valid STEP with MANIFOLD_SOLID_BREP
 - [x] Test: export cylinder → valid STEP with revolved geometry
 
+## High Priority Backlog
+
+### HP-1: Auto-union fails for 3+ chained abutting extrudes
+- **Test case**: `app/tests/cases/several-extrudes.waffle`
+- **Symptom**: First two abutting box extrudes (x=0..10, x=10..20) merge into 1 body correctly. Third extrude (x=20..30) produces 2 bodies. Fourth (circle, x=30..40) produces 3 bodies. Each subsequent merge=true boss becomes a separate body instead of unioning.
+- **Impact**: Cuts then only affect one body fragment, not the whole model. A cut from x=0 with depth=100 should slice through the entire unified solid but instead only hits one piece, leaving 4+ bodies.
+- **Reproduced**: `crates/test-harness/tests/saved_test_cases.rs` — `several_extrudes_replay` and `several_extrudes_simplified_abutting`
+
+### HP-2: Cut operation splits previously-unioned body into fragments
+- **Test case**: `app/tests/cases/multi-cut.waffle`
+- **Symptom**: Two merge=true bosses (rect box x=0..10 + large circle x=10..20) successfully auto-union into 1 body. But a subsequent cut (circle, depth=20) produces 2 bodies instead of 1. The cut appears to "un-merge" the unified body — it only subtracts from the second boss's geometry, leaving the first boss as a separate body.
+- **Impact**: Through-cuts that should affect the entire model only affect part of it. The boolean subtract is fragmenting the shell rather than cleanly subtracting.
+- **Reproduced**: `crates/test-harness/tests/saved_test_cases.rs` — `multi_cut_replay` and `multi_cut_simplified`
+
 ## Blockers
 
 ### Priority Note
