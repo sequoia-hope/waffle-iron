@@ -9,6 +9,8 @@ Last reviewed: 2026-02-21
 
 # --- P1: Boolean shapeops reliability (vendor/truck/) ---
 
+- [ ] **HP-1**: Auto-union fails for 3+ chained abutting extrudes (test case: `several-extrudes.waffle`, repro: `saved_test_cases.rs`)
+- [ ] **HP-2**: Cut operation splits previously-unioned body into fragments (test case: `multi-cut.waffle`, repro: `saved_test_cases.rs`)
 - [ ] Add BooleanError enum + Result-returning API wrappers in truck-shapeops
 - [ ] Wire BooleanError into KernelError in kernel-fork/src/truck_kernel.rs so failures carry stage info
 - [ ] Add BooleanOptions struct with layered tolerances (tau_model/mesh/weld/coplanar) to kernel-fork/src/types.rs
