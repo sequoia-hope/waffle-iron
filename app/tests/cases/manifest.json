@@ -1,0 +1,22 @@
+{
+  "cases": [
+    {
+      "id": "several-extrudes",
+      "name": "Several extrudes",
+      "filename": "several-extrudes.waffle",
+      "description": "Last cut fails but even without that extrude, it is multiple bodies when it should be one.",
+      "expectedOutcome": "should_pass",
+      "tags": [],
+      "created": "2026-02-22T21:41:48.356Z"
+    },
+    {
+      "id": "multi-cut",
+      "name": "Multi cut",
+      "filename": "multi-cut.waffle",
+      "description": "Two extruded bosses are fine, but when executing a cut they become two bodies, and what should be a through cut only affects the body from the second extruded boss operation, not what should be a single body made of both extruded boss operations.",
+      "expectedOutcome": "should_pass",
+      "tags": [],
+      "created": "2026-02-22T21:45:38.488Z"
+    }
+  ]
+}

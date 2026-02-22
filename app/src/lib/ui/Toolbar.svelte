@@ -29,7 +29,8 @@
 		getMobileLayout,
 		toggleMobilePanel,
 		getProjectName,
-		setProjectName
+		setProjectName,
+		toggleTestCaseBrowser
 	} from '$lib/engine/store.svelte.js';
 	import { getApplicableConstraints } from '$lib/sketch/constraintLogic.js';
 	import { resetTool } from '$lib/sketch/tools.js';
@@ -168,6 +169,7 @@
 				if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
 				if (e.key === 'z' && e.shiftKey) { e.preventDefault(); redo(); }
 				if (e.key === 'Z') { e.preventDefault(); redo(); }
+				if (e.key === 'T' && e.shiftKey) { e.preventDefault(); toggleTestCaseBrowser(); return; }
 				return;
 			}
 
@@ -300,6 +302,9 @@
 			onclick={async () => { exportingStep = true; try { await exportStep(); } finally { exportingStep = false; } }}>
 			{exportingStep ? 'Exporting...' : 'Export STEP'}
 		</button>
+		<button class="toolbar-btn" disabled={!ready} title="Test Cases (Ctrl+Shift+T)"
+			data-testid="toolbar-btn-tests"
+			onclick={() => toggleTestCaseBrowser()}>Tests</button>
 	</div>
 
 	<div class="toolbar-spacer"></div>

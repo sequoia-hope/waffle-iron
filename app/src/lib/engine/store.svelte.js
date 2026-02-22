@@ -12,6 +12,7 @@ import { extractProfiles } from '$lib/sketch/profiles.js';
 import { getPreview, getSnapIndicator, getSnapCandidates as _getSnapCandidates } from '$lib/sketch/sketchToolState.svelte.js';
 import { resetTool, getToolState as _getToolState, getIsDragging as _getIsDragging, getPointerDownPos as _getPointerDownPos, getStartPos as _getStartPos, getStartPointId as _getStartPointId, getToolEventLog as _getToolEventLog, clearToolEventLog as _clearToolEventLog } from '$lib/sketch/tools.js';
 import { isDatumPlaneRef, getPlaneIdFromRef, getPlaneById, resolvePlane, BUILTIN_PLANES } from './planes.js';
+import { fetchTestCases, fetchTestCase, createTestCase as apiCreateTestCase, deleteTestCase as apiDeleteTestCase } from './testCaseApi.js';
 
 /** @type {{ features: Array<any>, active_index: number | null }} */
 let featureTree = $state({ features: [], active_index: null });
@@ -117,6 +118,14 @@ let shellDialogState = $state(null);
 
 /** @type {{ bodies: Array<{ featureId: string, name: string }>, operation: string } | null} */
 let booleanDialogState = $state(null);
+
+// -- Test case browser state --
+
+/** @type {{ visible: boolean, cases: Array<object>, loading: boolean, error: string | null }} */
+let testCaseBrowserState = $state({ visible: false, cases: [], loading: false, error: null });
+
+/** @type {{ name: string, description: string, expectedOutcome: string, tags: string } | null} */
+let saveTestCaseDialogState = $state(null);
 
 /** @type {{ entityA: number, entityB: number | null, sketchX: number, sketchY: number, dimType: 'distance'|'radius'|'angle', defaultValue: number } | null} */
 let dimensionPopup = $state(null);
@@ -2100,6 +2109,98 @@ async function saveProjectToString() {
 	const response = await bridge.send({ type: 'SaveProject' });
 	if (response.type !== 'SaveReady' || !response.json_data) return null;
 	return response.json_data;
+}
+
+// -- Test case browser --
+
+export function getTestCaseBrowserState() { return testCaseBrowserState; }
+
+export function showTestCaseBrowser() {
+	testCaseBrowserState.visible = true;
+	refreshTestCases();
+}
+
+export function hideTestCaseBrowser() {
+	testCaseBrowserState.visible = false;
+}
+
+export function toggleTestCaseBrowser() {
+	if (testCaseBrowserState.visible) {
+		hideTestCaseBrowser();
+	} else {
+		showTestCaseBrowser();
+	}
+}
+
+export async function refreshTestCases() {
+	testCaseBrowserState.loading = true;
+	testCaseBrowserState.error = null;
+	try {
+		const manifest = await fetchTestCases();
+		testCaseBrowserState.cases = manifest.cases;
+	} catch (err) {
+		testCaseBrowserState.error = err.message;
+	} finally {
+		testCaseBrowserState.loading = false;
+	}
+}
+
+export function getSaveTestCaseDialogState() { return saveTestCaseDialogState; }
+
+export function showSaveTestCaseDialog() {
+	saveTestCaseDialogState = {
+		name: projectName || 'Untitled',
+		description: '',
+		expectedOutcome: 'should_pass',
+		tags: ''
+	};
+}
+
+export function hideSaveTestCaseDialog() {
+	saveTestCaseDialogState = null;
+}
+
+export async function saveAsTestCase(name, description, expectedOutcome, tags) {
+	const waffleData = await saveProjectToString();
+	if (!waffleData) {
+		showToast('error', 'Failed to save test case: no project data');
+		return;
+	}
+	const tagArray = tags ? tags.split(',').map(t => t.trim()).filter(Boolean) : [];
+	try {
+		await apiCreateTestCase({
+			name,
+			description,
+			expectedOutcome,
+			tags: tagArray,
+			waffleData
+		});
+		showToast('info', `Test case "${name}" saved`);
+		hideSaveTestCaseDialog();
+		await refreshTestCases();
+	} catch (err) {
+		showToast('error', `Failed to save test case: ${err.message}`);
+	}
+}
+
+export async function loadTestCase(id) {
+	try {
+		const waffleData = await fetchTestCase(id);
+		await loadProject(waffleData);
+		showToast('info', 'Test case loaded');
+	} catch (err) {
+		showToast('error', `Failed to load test case: ${err.message}`);
+	}
+}
+
+export async function removeTestCase(id) {
+	try {
+		await apiDeleteTestCase(id);
+		showToast('info', 'Test case deleted');
+		await refreshTestCases();
+	} catch (err) {
+		showToast('error', `Failed to delete test case: ${err.message}`);
+	}
 }
 
 /**
