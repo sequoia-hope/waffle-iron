@@ -509,8 +509,8 @@ fn j12_varying_depth_cuts() {
 
 /// K1: boss → cut → boss.
 /// Boss auto-union → subsequent cut often fails due to complex post-union topology.
+/// Fixed in Sprint 27: BTreeMap determinism + targeted open-edge re-weld.
 #[test]
-#[ignore] // truck limitation: cut on auto-unioned body returns NoSolid (complex post-union topology)
 fn k1_boss_cut_boss() {
     let mut m = base_cube();
     let cube_mesh = m.tessellate("cube").unwrap();
@@ -763,8 +763,8 @@ fn k7_ten_alternating() {
 
 /// K8: Three bosses at different positions, then three cuts.
 /// Boss→cut after bosses often fails.
+/// Fixed in Sprint 27: BTreeMap determinism + targeted open-edge re-weld.
 #[test]
-#[ignore] // truck limitation: cuts after 3 sequential auto-unions return NoSolid (complex post-union topology)
 fn k8_three_bosses_then_three_cuts() {
     let mut m = base_cube();
     let v0 = mesh_volume(&m.tessellate("cube").unwrap());
@@ -877,12 +877,8 @@ fn l3_cuts_on_top_face_only() {
 
 /// L4: Boss on top, then cut from top through boss region.
 /// Boss auto-union creates complex topology; subsequent cut may fail.
-/// Ignored: non-deterministic face classification in boolean pipeline
-/// produces wrong geometry ~60% of the time. Root cause: memory-address-based
-/// IDs cause FxHashMap iteration order to vary, affecting intersection curve
-/// computation and face classification. Needs deterministic ID system.
+/// Fixed in Sprint 27: BTreeMap determinism + targeted open-edge re-weld.
 #[test]
-#[ignore] // truck limitation: cut through boss returns NoSolid (complex post-union topology)
 fn l4_boss_on_top_cut_through_boss() {
     let mut m = base_cube();
 
@@ -1109,11 +1105,8 @@ fn m5_pocket_inside_pocket() {
 
 /// M6: Three overlapping cuts forming a triangle pattern.
 /// Uses 3x3 cuts with genuine overlap (not just edge-touching).
-/// Ignored: non-deterministic face classification — coplanar faces between
-/// overlapping cut pockets cause incorrect boolean results ~60% of the time.
-/// Same root cause as l4 (memory-address-based IDs → FxHashMap non-determinism).
+/// Fixed in Sprint 27: BTreeMap determinism + targeted open-edge re-weld.
 #[test]
-#[ignore] // truck limitation: overlapping cuts return NoSolid on second overlap
 fn m6_three_overlapping_cuts() {
     let mut m = base_cube();
     let cube_vol = mesh_volume(&m.tessellate("cube").unwrap());

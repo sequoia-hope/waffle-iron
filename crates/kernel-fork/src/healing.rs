@@ -14,7 +14,7 @@
 
 use std::collections::HashSet;
 use truck_modeling::geometry::{Curve, Line, Surface};
-use truck_modeling::topology::{EdgeID, Face, Solid};
+use truck_modeling::topology::{EdgeID, Face, Shell, Solid};
 use truck_modeling::{
     BSplineCurve, BoundedCurve, InnerSpace, Matrix4, NurbsCurve, ParametricCurve,
     ParametricSurface, Point3, SPHint2D, SearchNearestParameter, ToSameGeometry, Transformed,
@@ -838,18 +838,82 @@ pub fn try_boolean_with_perturbation(
     op: impl Fn(&Solid, &Solid) -> Result<Solid, truck_shapeops::BooleanStageError>,
 ) -> Result<Solid, truck_shapeops::BooleanStageError> {
     let mut last_err;
+
+    // Pre-heal: unify coincident vertices in solid_a. After a previous
+    // boolean, a solid may have vertices at the same position but with
+    // different identities. These cause non-simple wires in divide_one_face
+    // during the next boolean, because intersection curve endpoints connect
+    // to one vertex ID while the face boundary uses another.
+    let healed_a = {
+        let mut shells: Vec<Shell> =
+            solid_a.boundaries().iter().cloned().collect();
+        let mut any_healed = false;
+        for shell in &mut shells {
+            let vcount_before = {
+                let mut ids = std::collections::HashSet::new();
+                for face in shell.iter() {
+                    for wire in face.absolute_boundaries().iter() {
+                        for v in wire.vertex_iter() {
+                            ids.insert(v.id());
+                        }
+                    }
+                }
+                ids.len()
+            };
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "[pre-heal] shell has {} unique vertex IDs, tol={:.6}, heal_tol={:.6}",
+                vcount_before, tol, tol * 0.2,
+            );
+            truck_shapeops::heal_shell_vertices(shell, tol * 0.2);
+            let vcount_after = {
+                let mut ids = std::collections::HashSet::new();
+                for face in shell.iter() {
+                    for wire in face.absolute_boundaries().iter() {
+                        for v in wire.vertex_iter() {
+                            ids.insert(v.id());
+                        }
+                    }
+                }
+                ids.len()
+            };
+            if vcount_after < vcount_before {
+                any_healed = true;
+                #[cfg(debug_assertions)]
+                eprintln!(
+                    "[pre-heal] Unified {} → {} vertices (saved {})",
+                    vcount_before,
+                    vcount_after,
+                    vcount_before - vcount_after,
+                );
+            }
+        }
+        if any_healed {
+            let result = Solid::try_new(shells).ok();
+            #[cfg(debug_assertions)]
+            if result.is_none() {
+                eprintln!("[pre-heal] Solid::try_new failed on healed shells");
+            }
+            result
+        } else {
+            None
+        }
+    };
+
+    let effective_a = healed_a.as_ref().unwrap_or(solid_a);
+
     // Try direct
-    match op(solid_a, solid_b) {
+    match op(effective_a, solid_b) {
         Ok(result) => return Ok(result),
         Err(e) => last_err = e,
     }
 
     // Scale-aware perturbation epsilons based on bounding box extent
-    let extent = solid_max_extent(solid_a).max(solid_max_extent(solid_b));
+    let extent = solid_max_extent(effective_a).max(solid_max_extent(solid_b));
     let epsilons = [extent * 1e-6, extent * 1e-5, extent * 1e-4, extent * 1e-3];
 
     // Detect ALL coplanar directions
-    let dirs = detect_all_coplanar_directions(solid_a, solid_b, tol);
+    let dirs = detect_all_coplanar_directions(effective_a, solid_b, tol);
 
     if !dirs.is_empty() {
         // Try composite perturbation (sum of all coplanar directions)
@@ -863,7 +927,7 @@ pub fn try_boolean_with_perturbation(
                 let composite_dir = composite / len;
                 for &eps in &epsilons {
                     let perturbed_b = translate_solid(solid_b, composite_dir * eps);
-                    match op(solid_a, &perturbed_b) {
+                    match op(effective_a, &perturbed_b) {
                         Ok(result) => return Ok(result),
                         Err(e) => last_err = e,
                     }
@@ -875,7 +939,7 @@ pub fn try_boolean_with_perturbation(
         for dir in &dirs {
             for &eps in &epsilons {
                 let perturbed_b = translate_solid(solid_b, *dir * eps);
-                match op(solid_a, &perturbed_b) {
+                match op(effective_a, &perturbed_b) {
                     Ok(result) => return Ok(result),
                     Err(e) => last_err = e,
                 }
@@ -886,11 +950,11 @@ pub fn try_boolean_with_perturbation(
     // Cylinder-aware perturbation — for box-cylinder cases at face boundaries
     // where neither coplanar detection nor direct boolean succeeds. Perturb
     // perpendicular to detected cylinder axes.
-    let cyl_dirs = detect_cylinder_directions(solid_a, solid_b);
+    let cyl_dirs = detect_cylinder_directions(effective_a, solid_b);
     for dir in &cyl_dirs {
         for &eps in &epsilons {
             let perturbed_b = translate_solid(solid_b, *dir * eps);
-            match op(solid_a, &perturbed_b) {
+            match op(effective_a, &perturbed_b) {
                 Ok(result) => return Ok(result),
                 Err(e) => last_err = e,
             }
@@ -912,10 +976,51 @@ pub fn try_boolean_with_perturbation(
         for dir in &diag_dirs {
             for &eps in &epsilons {
                 let perturbed_b = translate_solid(solid_b, *dir * eps);
-                match op(solid_a, &perturbed_b) {
+                match op(effective_a, &perturbed_b) {
                     Ok(result) => return Ok(result),
                     Err(e) => last_err = e,
                 }
+            }
+        }
+    }
+
+    // Asymmetric scale perturbation — when tool edges overlap target edges,
+    // the mesh collision produces degenerate intersection segments. Scale
+    // tool asymmetrically along individual axes to break edge alignment
+    // without the large geometric distortion of uniform scaling.
+    {
+        let centroid = solid_centroid(solid_b);
+        let cv = Vector3::new(centroid.x, centroid.y, centroid.z);
+        let asymmetric_scales: [(f64, f64, f64); 4] = [
+            (1.01, 1.0, 1.0),
+            (1.0, 1.01, 1.0),
+            (1.0, 1.0, 1.01),
+            (1.01, 1.01, 1.0),
+        ];
+        for (sx, sy, sz) in &asymmetric_scales {
+            let scaled_b = solid_b.mapped(
+                |p| {
+                    let v = Vector3::new(p.x, p.y, p.z);
+                    let rel = v - cv;
+                    let scaled = Vector3::new(rel.x * sx, rel.y * sy, rel.z * sz);
+                    Point3::new(cv.x + scaled.x, cv.y + scaled.y, cv.z + scaled.z)
+                },
+                |c| {
+                    let trans = Matrix4::from_translation(cv)
+                        * Matrix4::from_nonuniform_scale(*sx, *sy, *sz)
+                        * Matrix4::from_translation(-cv);
+                    c.transformed(trans)
+                },
+                |s| {
+                    let trans = Matrix4::from_translation(cv)
+                        * Matrix4::from_nonuniform_scale(*sx, *sy, *sz)
+                        * Matrix4::from_translation(-cv);
+                    s.transformed(trans)
+                },
+            );
+            match op(effective_a, &scaled_b) {
+                Ok(result) => return Ok(result),
+                Err(e) => last_err = e,
             }
         }
     }
@@ -934,7 +1039,7 @@ pub fn try_boolean_with_perturbation(
         let scale_factors = [1.02, 1.03, 1.05];
         for &sf in &scale_factors {
             let scaled_b = scale_solid(solid_b, centroid, sf);
-            match op(solid_a, &scaled_b) {
+            match op(effective_a, &scaled_b) {
                 Ok(result) => return Ok(result),
                 Err(e) => last_err = e,
             }
@@ -955,15 +1060,15 @@ pub fn try_boolean_with_perturbation(
     ];
     for offset in &cardinal {
         let perturbed_b = translate_solid(solid_b, *offset);
-        match op(solid_a, &perturbed_b) {
+        match op(effective_a, &perturbed_b) {
             Ok(result) => return Ok(result),
             Err(e) => last_err = e,
         }
     }
 
-    // Final fallback: perturb solid_a instead
+    // Final fallback: perturb effective_a instead
     for offset in &cardinal {
-        let perturbed_a = translate_solid(solid_a, *offset);
+        let perturbed_a = translate_solid(effective_a, *offset);
         match op(&perturbed_a, solid_b) {
             Ok(result) => return Ok(result),
             Err(e) => last_err = e,
