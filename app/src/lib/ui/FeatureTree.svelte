@@ -15,6 +15,16 @@
 		geomRefEquals,
 		isSketchVisible,
 		toggleSketchVisibility,
+		showAllSketches,
+		hideAllSketches,
+		isPlaneVisible,
+		togglePlaneVisibility,
+		showAllPlanes,
+		hideAllPlanes,
+		isAxisVisible,
+		toggleAxisVisibility,
+		showAllAxes,
+		hideAllAxes,
 		enterSketchEditMode,
 		getFeatureErrors
 	} from '$lib/engine/store.svelte.js';
@@ -26,6 +36,16 @@
 
 	/** @type {{ x: number, y: number, featureId: string, featureName: string, suppressed: boolean, isSketch: boolean } | null} */
 	let contextMenu = $state(null);
+
+	/** @type {{ x: number, y: number, kind: 'plane' | 'axis', id: string, visible: boolean } | null} */
+	let originContextMenu = $state(null);
+
+	// Built-in axis definitions for the Origin section
+	const ORIGIN_AXES = [
+		{ id: 'x', name: 'X Axis', color: '#ff4444' },
+		{ id: 'y', name: 'Y Axis', color: '#44cc44' },
+		{ id: 'z', name: 'Z Axis', color: '#4488ff' },
+	];
 
 	/** @type {{ featureId: string, value: string } | null} */
 	let renaming = $state(null);
@@ -64,6 +84,7 @@
 
 	function handleContextMenu(e, feature) {
 		e.preventDefault();
+		originContextMenu = null;
 		contextMenu = {
 			x: e.clientX,
 			y: e.clientY,
@@ -76,6 +97,7 @@
 
 	function closeContextMenu() {
 		contextMenu = null;
+		originContextMenu = null;
 	}
 
 	function handleRename(e) {
@@ -141,6 +163,53 @@
 	function handleVisibilityToggle(e, featureId) {
 		e.stopPropagation();
 		toggleSketchVisibility(featureId);
+	}
+
+	function handlePlaneVisibilityToggle(e, planeId) {
+		e.stopPropagation();
+		togglePlaneVisibility(planeId);
+	}
+
+	function handleAxisVisibilityToggle(e, axisId) {
+		e.stopPropagation();
+		toggleAxisVisibility(axisId);
+	}
+
+	function handleOriginContextMenu(e, kind, id, visible) {
+		e.preventDefault();
+		e.stopPropagation();
+		contextMenu = null;
+		originContextMenu = { x: e.clientX, y: e.clientY, kind, id, visible };
+	}
+
+	function handleShowAllPlanes() {
+		showAllPlanes(BUILTIN_PLANES);
+		closeContextMenu();
+	}
+
+	function handleHideAllPlanes() {
+		hideAllPlanes(BUILTIN_PLANES);
+		closeContextMenu();
+	}
+
+	function handleShowAllAxes() {
+		showAllAxes();
+		closeContextMenu();
+	}
+
+	function handleHideAllAxes() {
+		hideAllAxes();
+		closeContextMenu();
+	}
+
+	function handleShowAllSketches() {
+		showAllSketches(tree.features);
+		closeContextMenu();
+	}
+
+	function handleHideAllSketches() {
+		hideAllSketches(tree.features);
+		closeContextMenu();
 	}
 
 	function featureIcon(opType) {
@@ -218,13 +287,44 @@
 					<div
 						class="tree-item origin-item"
 						class:selected={isPlaneSelected(i)}
+						class:hidden-item={!isPlaneVisible(plane.id)}
 						onclick={() => handlePlaneClick(i)}
+						oncontextmenu={(e) => handleOriginContextMenu(e, 'plane', plane.id, isPlaneVisible(plane.id))}
 						role="treeitem"
 						tabindex="0"
 						data-testid="origin-plane-{plane.name.toLowerCase()}"
 					>
 						<span class="tree-icon origin-icon">{'\u25C7'}</span>
 						<span class="tree-label">{plane.name}</span>
+						<button
+							class="visibility-toggle"
+							title={isPlaneVisible(plane.id) ? 'Hide plane' : 'Show plane'}
+							onclick={(e) => handlePlaneVisibilityToggle(e, plane.id)}
+							data-testid="plane-visibility-{plane.name.toLowerCase()}"
+						>
+							{isPlaneVisible(plane.id) ? '\u25C9' : '\u25CE'}
+						</button>
+					</div>
+				{/each}
+				{#each ORIGIN_AXES as axis (axis.id)}
+					<div
+						class="tree-item origin-item"
+						class:hidden-item={!isAxisVisible(axis.id)}
+						oncontextmenu={(e) => handleOriginContextMenu(e, 'axis', axis.id, isAxisVisible(axis.id))}
+						role="treeitem"
+						tabindex="0"
+						data-testid="origin-axis-{axis.id}"
+					>
+						<span class="tree-icon origin-icon" style="color: {axis.color}">{'\u2502'}</span>
+						<span class="tree-label">{axis.name}</span>
+						<button
+							class="visibility-toggle"
+							title={isAxisVisible(axis.id) ? 'Hide axis' : 'Show axis'}
+							onclick={(e) => handleAxisVisibilityToggle(e, axis.id)}
+							data-testid="axis-visibility-{axis.id}"
+						>
+							{isAxisVisible(axis.id) ? '\u25C9' : '\u25CE'}
+						</button>
 					</div>
 				{/each}
 			{/if}
@@ -308,7 +408,7 @@
 	{/if}
 </div>
 
-<!-- Context Menu -->
+<!-- Feature Context Menu -->
 {#if contextMenu}
 	<div
 		class="context-menu"
@@ -323,6 +423,37 @@
 			{contextMenu.suppressed ? 'Unsuppress' : 'Suppress'}
 		</button>
 		<button class="ctx-item danger" data-testid="ft-ctx-delete" onclick={handleDelete}>Delete</button>
+		{#if contextMenu.isSketch}
+			<div class="ctx-sep"></div>
+			{#if isSketchVisible(contextMenu.featureId)}
+				<button class="ctx-item" data-testid="ft-ctx-hide-all-sketches" onclick={handleHideAllSketches}>Hide All Sketches</button>
+			{:else}
+				<button class="ctx-item" data-testid="ft-ctx-show-all-sketches" onclick={handleShowAllSketches}>Show All Sketches</button>
+			{/if}
+		{/if}
+	</div>
+{/if}
+
+<!-- Origin Context Menu (planes & axes) -->
+{#if originContextMenu}
+	<div
+		class="context-menu"
+		style="left: {originContextMenu.x}px; top: {originContextMenu.y}px"
+		onclick={(e) => e.stopPropagation()}
+	>
+		{#if originContextMenu.kind === 'plane'}
+			{#if originContextMenu.visible}
+				<button class="ctx-item" data-testid="ft-ctx-hide-all-planes" onclick={handleHideAllPlanes}>Hide All Planes</button>
+			{:else}
+				<button class="ctx-item" data-testid="ft-ctx-show-all-planes" onclick={handleShowAllPlanes}>Show All Planes</button>
+			{/if}
+		{:else}
+			{#if originContextMenu.visible}
+				<button class="ctx-item" data-testid="ft-ctx-hide-all-axes" onclick={handleHideAllAxes}>Hide All Axes</button>
+			{:else}
+				<button class="ctx-item" data-testid="ft-ctx-show-all-axes" onclick={handleShowAllAxes}>Show All Axes</button>
+			{/if}
+		{/if}
 	</div>
 {/if}
 
@@ -435,6 +566,10 @@
 	.tree-item.suppressed {
 		opacity: 0.4;
 		text-decoration: line-through;
+	}
+
+	.tree-item.hidden-item {
+		opacity: 0.4;
 	}
 
 	.tree-item.after-rollback {
@@ -559,5 +694,11 @@
 
 	.ctx-item.danger:hover {
 		background: var(--error);
+	}
+
+	.ctx-sep {
+		height: 1px;
+		background: var(--border-color, #444);
+		margin: 4px 0;
 	}
 </style>

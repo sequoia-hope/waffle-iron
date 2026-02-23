@@ -25,12 +25,18 @@
 		exportStep,
 		getSelectedRefs,
 		computeFacePlane,
-		showSketchPlaneDialog,
+		enterSketchPlaneSelection,
+		exitSketchPlaneSelection,
+		getSketchPlaneSelectionMode,
 		getMobileLayout,
 		toggleMobilePanel,
 		getProjectName,
 		setProjectName,
-		toggleTestCaseBrowser
+		toggleTestCaseBrowser,
+		getShowDatumPlanes,
+		getShowOriginTriad,
+		toggleDatumPlanes,
+		toggleOriginTriad
 	} from '$lib/engine/store.svelte.js';
 	import { getApplicableConstraints } from '$lib/sketch/constraintLogic.js';
 	import { resetTool } from '$lib/sketch/tools.js';
@@ -39,6 +45,7 @@
 	let ready = $derived(isEngineReady());
 	let tool = $derived(getActiveTool());
 	let inSketch = $derived(getSketchMode()?.active ?? false);
+	let planeSelecting = $derived(getSketchPlaneSelectionMode());
 	let selection = $derived(getSketchSelection());
 	let entities = $derived(getSketchEntities());
 	let positions = $derived(getSketchPositions());
@@ -106,7 +113,7 @@
 					}
 				}
 				// No face selected — show plane selection dialog
-				showSketchPlaneDialog();
+				enterSketchPlaneSelection();
 				return;
 			}
 			return;
@@ -183,7 +190,9 @@
 				case 'x': if (inSketch) handleToggleConstruction(); break;
 			case 'd': if (inSketch) setActiveTool('dimension'); break;
 				case 'Escape':
-					if (inSketch) {
+					if (planeSelecting) {
+						exitSketchPlaneSelection();
+					} else if (inSketch) {
 						if (tool !== 'select') {
 							resetTool();
 							setActiveTool('select');
@@ -274,6 +283,23 @@
 					onclick={async () => { await handleToolClick(t.id); }}
 				>{t.label}</button>
 			{/each}
+		</div>
+		<div class="toolbar-sep"></div>
+		<div class="toolbar-group">
+			<button
+				class="toolbar-btn"
+				class:active={getShowDatumPlanes()}
+				title="Toggle Datum Planes"
+				data-testid="toolbar-btn-toggle-planes"
+				onclick={() => toggleDatumPlanes()}
+			>Planes</button>
+			<button
+				class="toolbar-btn"
+				class:active={getShowOriginTriad()}
+				title="Toggle Origin Axes"
+				data-testid="toolbar-btn-toggle-axes"
+				onclick={() => toggleOriginTriad()}
+			>Axes</button>
 		</div>
 	{/if}
 

@@ -87,10 +87,14 @@ test.describe('full workflows', () => {
 		// Step 1: Press S to enter sketch
 		await pressKey(waffle.page, 's');
 
-		// Handle the sketch plane dialog
-		await waffle.page.locator('[data-testid="sketch-plane-dialog"]').waitFor({ state: 'visible', timeout: 2000 });
-		await waffle.page.locator('[data-testid="plane-btn-front"]').click();
-		await waffle.page.locator('[data-testid="sketch-plane-ok"]').click();
+		// Handle the inline plane selection prompt
+		await waffle.page.locator('[data-testid="sketch-plane-prompt"]').waitFor({ state: 'visible', timeout: 2000 });
+		await waffle.page.evaluate(() => {
+			window.__waffle?.selectRef({
+				kind: { type: 'Face' },
+				anchor: { type: 'DatumPlane', id: '00000000-0000-0000-0000-000000000001' }
+			});
+		});
 
 		await waffle.page.waitForFunction(
 			() => window.__waffle?.getState()?.sketchMode?.active === true,

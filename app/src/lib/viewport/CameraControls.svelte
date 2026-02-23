@@ -7,6 +7,128 @@
 
 	const { scene, renderer } = useThrelte();
 
+	// --- Orbit-past-poles fix: quaternion-based rotation ---
+	// Problem: OrbitControls uses spherical coordinates internally. Its update()
+	// calls _spherical.setFromVector3() each frame, which uses Math.acos(y/r).
+	// Since acos returns [0, PI], phi is silently clamped — the camera gets stuck
+	// at the poles and any spherical-based workaround has theta discontinuities.
+	//
+	// Fix: Replace OrbitControls.update() with quaternion-based rotation.
+	// Mouse/touch input still feeds _sphericalDelta (theta, phi), but we interpret
+	// those as rotation angles applied via quaternions instead of spherical coords.
+	// This eliminates the pole singularity entirely — the camera orbits smoothly
+	// in any direction, and camera.up is rotated alongside the position to keep
+	// lookAt() stable.
+
+	// No-op makeSafe — safety measure in case any code path still calls it
+	THREE.Spherical.prototype.makeSafe = function () { return this; };
+
+	/**
+	 * Replace OrbitControls.update() with quaternion rotation.
+	 * Input handlers (_handleMouseMoveRotate, etc.) still set _sphericalDelta.
+	 * We read those deltas and apply them as quaternion rotations to the camera
+	 * offset and up vector, bypassing the spherical coordinate system entirely.
+	 * @param {object} controls - OrbitControls instance
+	 * @param {THREE.PerspectiveCamera} camera
+	 */
+	function applyQuaternionOrbitPatch(controls, camera) {
+		// Reusable objects — allocated once, reused every frame
+		const _offset = new THREE.Vector3();
+		const _quat = new THREE.Quaternion();
+		const _quatTheta = new THREE.Quaternion();
+		const _quatPhi = new THREE.Quaternion();
+		const _right = new THREE.Vector3();
+		const _lastPosition = new THREE.Vector3().copy(camera.position);
+		const _lastQuaternion = new THREE.Quaternion().copy(camera.quaternion);
+		const EPS = 1e-10;
+
+		controls.update = function (_deltaTime) {
+			// --- Auto-rotate ---
+			if (this.autoRotate && this.state === -1 /* STATE.NONE */) {
+				this._rotateLeft(this._getAutoRotationAngle(_deltaTime));
+			}
+
+			// --- Compute damped rotation amounts ---
+			let dTheta, dPhi;
+			if (this.enableDamping) {
+				dTheta = this._sphericalDelta.theta * this.dampingFactor;
+				dPhi = this._sphericalDelta.phi * this.dampingFactor;
+			} else {
+				dTheta = this._sphericalDelta.theta;
+				dPhi = this._sphericalDelta.phi;
+			}
+
+			// --- Camera offset from orbit target ---
+			_offset.copy(camera.position).sub(this.target);
+
+			// --- Apply rotation as quaternion ---
+			if (Math.abs(dTheta) > EPS || Math.abs(dPhi) > EPS) {
+				// Right axis: perpendicular to camera up and look direction
+				_right.crossVectors(camera.up, _offset).normalize();
+				if (_right.lengthSq() < 1e-6) {
+					// Degenerate: offset parallel to up — pick arbitrary perpendicular
+					_right.crossVectors(new THREE.Vector3(0, 0, 1), _offset).normalize();
+					if (_right.lengthSq() < 1e-6) _right.set(1, 0, 0);
+				}
+
+				// Theta (horizontal): rotate around camera's up vector
+				// Phi (vertical): rotate around the right vector
+				_quatTheta.setFromAxisAngle(camera.up, dTheta);
+				_quatPhi.setFromAxisAngle(_right, dPhi);
+				_quat.copy(_quatTheta).multiply(_quatPhi);
+
+				// Rotate both the offset and the up vector together.
+				// This keeps camera.up perpendicular to the look direction,
+				// preventing the lookAt() flip at the poles.
+				_offset.applyQuaternion(_quat);
+				camera.up.applyQuaternion(_quat).normalize();
+			}
+
+			// --- Clamp distance ---
+			const dist = _offset.length();
+			const clampedDist = Math.max(this.minDistance, Math.min(this.maxDistance, dist));
+			if (Math.abs(dist - clampedDist) > EPS) {
+				_offset.normalize().multiplyScalar(clampedDist);
+			}
+
+			// --- Apply pan ---
+			if (this.enableDamping) {
+				this.target.addScaledVector(this._panOffset, this.dampingFactor);
+			} else {
+				this.target.add(this._panOffset);
+			}
+
+			// --- Clamp target radius ---
+			this.target.sub(this.cursor);
+			this.target.clampLength(this.minTargetRadius, this.maxTargetRadius);
+			this.target.add(this.cursor);
+
+			// --- Update camera ---
+			camera.position.copy(this.target).add(_offset);
+			camera.lookAt(this.target);
+
+			// --- Damping decay ---
+			if (this.enableDamping) {
+				this._sphericalDelta.theta *= (1 - this.dampingFactor);
+				this._sphericalDelta.phi *= (1 - this.dampingFactor);
+				this._panOffset.multiplyScalar(1 - this.dampingFactor);
+			} else {
+				this._sphericalDelta.set(0, 0, 0);
+				this._panOffset.set(0, 0, 0);
+			}
+
+			// --- Change detection — notify Threlte to invalidate viewport ---
+			if (_lastPosition.distanceToSquared(camera.position) > EPS ||
+				8 * (1 - _lastQuaternion.dot(camera.quaternion)) > EPS) {
+				this.dispatchEvent({ type: 'change' });
+				_lastPosition.copy(camera.position);
+				_lastQuaternion.copy(camera.quaternion);
+				return true;
+			}
+			return false;
+		};
+	}
+
 	let cameraRef = $state(null);
 	let controlsRef = $state(null);
 	let hasAutoFitForMesh = false;
@@ -160,6 +282,7 @@
 			.subVectors(cameraRef.position, center)
 			.normalize();
 		cameraRef.position.copy(center).addScaledVector(direction, distance);
+		cameraRef.up.set(0, 1, 0);
 		cameraRef.lookAt(center);
 
 		if (controlsRef) {
@@ -265,10 +388,14 @@
 		};
 	});
 
-	// Update store refs whenever they change (e.g. after initial bind)
+	// Update store refs and apply quaternion orbit patch when controls are ready
 	$effect(() => {
 		if (cameraRef && controlsRef) {
 			setCameraRefs(cameraRef, controlsRef);
+			if (!controlsRef._quaternionPatched) {
+				applyQuaternionOrbitPatch(controlsRef, cameraRef);
+				controlsRef._quaternionPatched = true;
+			}
 		}
 	});
 
@@ -371,7 +498,5 @@
 		enableZoom={false}
 		minDistance={0.05}
 		maxDistance={2000}
-		maxPolarAngle={Infinity}
-		minPolarAngle={-Infinity}
 	/>
 </T.PerspectiveCamera>

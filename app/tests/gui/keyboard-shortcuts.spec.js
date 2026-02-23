@@ -21,11 +21,11 @@ import {
 } from './helpers/state.js';
 
 test.describe('app-level shortcuts', () => {
-	test('S opens sketch plane dialog', async ({ waffle }) => {
+	test('S opens sketch plane selection prompt', async ({ waffle }) => {
 		await pressKey(waffle.page, 's');
 
-		const dialog = waffle.page.locator('[data-testid="sketch-plane-dialog"]');
-		await expect(dialog).toBeVisible({ timeout: 3000 });
+		const prompt = waffle.page.locator('[data-testid="sketch-plane-prompt"]');
+		await expect(prompt).toBeVisible({ timeout: 3000 });
 	});
 
 	test('E opens extrude dialog when sketch feature exists', async ({ waffle }) => {

@@ -29,15 +29,7 @@ test.describe('trace replay infrastructure', () => {
 			},
 			{
 				action: 'evaluate',
-				params: ['document.querySelector(\'[data-testid="plane-btn-front"]\')?.click()'],
-			},
-			{
-				action: 'wait',
-				params: [200],
-			},
-			{
-				action: 'evaluate',
-				params: ['document.querySelector(\'[data-testid="sketch-plane-ok"]\')?.click()'],
+				params: ['window.__waffle?.selectRef({ kind: { type: "Face" }, anchor: { type: "DatumPlane", id: "00000000-0000-0000-0000-000000000001" } })'],
 			},
 			{
 				action: 'wait',

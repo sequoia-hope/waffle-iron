@@ -37,10 +37,16 @@ test.describe('sketch entry via GUI', () => {
 	test('S key enters sketch mode', async ({ waffle }) => {
 		await pressKey(waffle.page, 's');
 
-		// Handle the sketch plane dialog that appears after pressing S
-		await waffle.page.locator('[data-testid="sketch-plane-dialog"]').waitFor({ state: 'visible', timeout: 2000 });
-		await waffle.page.locator('[data-testid="plane-btn-front"]').click();
-		await waffle.page.locator('[data-testid="sketch-plane-ok"]').click();
+		// Wait for plane selection prompt to appear
+		await waffle.page.locator('[data-testid="sketch-plane-prompt"]').waitFor({ state: 'visible', timeout: 2000 });
+
+		// Select the front plane via test API
+		await waffle.page.evaluate(() => {
+			window.__waffle?.selectRef({
+				kind: { type: 'Face' },
+				anchor: { type: 'DatumPlane', id: '00000000-0000-0000-0000-000000000001' }
+			});
+		});
 
 		const active = await waffle.page.waitForFunction(
 			() => window.__waffle?.getState()?.sketchMode?.active === true,

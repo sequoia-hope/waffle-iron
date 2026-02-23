@@ -135,6 +135,14 @@ let dimensionPopup = $state(null);
 /** @type {Map<string, boolean>} featureId -> visible (default true) */
 let sketchVisibility = $state(new Map());
 
+// -- Plane and axis visibility --
+
+/** @type {Map<string, boolean>} planeId -> visible (default true) */
+let planeVisibility = $state(new Map());
+
+/** @type {Map<string, boolean>} axisId ('x'|'y'|'z') -> visible (default true) */
+let axisVisibility = $state(new Map());
+
 /** @type {string | null} Feature ID of the sketch being edited (null = creating new) */
 let editingSketchFeatureId = $state(null);
 
@@ -143,6 +151,10 @@ let editingSketchFeatureId = $state(null);
 let sketchPlaneDialogVisible = $state(false);
 /** @type {{ origin: [number,number,number], normal: [number,number,number], label: string } | null} */
 let sketchPlaneDialogSelection = $state(null);
+
+// -- Inline sketch plane selection mode --
+
+let sketchPlaneSelectionMode = $state(false);
 
 /** Configurable snap thresholds */
 let snapSettings = $state({
@@ -430,6 +442,10 @@ export async function initEngine() {
 			getEditingSketchFeatureId: () => editingSketchFeatureId,
 			isSketchVisible: (featureId) => isSketchVisible(featureId),
 			toggleSketchVisibility: (featureId) => toggleSketchVisibility(featureId),
+			isPlaneVisible: (planeId) => isPlaneVisible(planeId),
+			togglePlaneVisibility: (planeId) => togglePlaneVisibility(planeId),
+			isAxisVisible: (axisId) => isAxisVisible(axisId),
+			toggleAxisVisibility: (axisId) => toggleAxisVisibility(axisId),
 			getSketchSelection: () => [...sketchSelection],
 			setSketchSelection: (ids) => { sketchSelection = new Set(ids); },
 			addSketchEntity: (entity) => addLocalEntity(entity),
@@ -534,6 +550,33 @@ export function selectRef(ref, additive = false) {
 	if (!ref) {
 		selectedRefs = [];
 		return;
+	}
+
+	// Intercept plane selection when in plane selection mode
+	if (sketchPlaneSelectionMode && isDatumPlaneRef(ref)) {
+		const plane = computeFacePlane(ref);
+		if (plane) {
+			exitSketchPlaneSelection();
+			enterSketchMode(plane.origin, plane.normal);
+			setActiveTool('line');
+			return;
+		}
+	}
+
+	// Intercept plane selection when already in sketch mode (change plane)
+	if (sketchMode.active && isDatumPlaneRef(ref)) {
+		const plane = computeFacePlane(ref);
+		if (plane) {
+			changeSketchPlane(plane.origin, plane.normal).then(result => {
+				if (result === 'confirm') {
+					const ok = confirm('Change sketch plane? Current sketch geometry will be discarded.');
+					if (ok) {
+						forceChangeSketchPlane(plane.origin, plane.normal);
+					}
+				}
+			});
+			return;
+		}
 	}
 
 	log('ui', 'Select ref', { count: additive ? selectedRefs.length + 1 : 1 });
@@ -1894,6 +1937,49 @@ export async function confirmSketchPlaneDialog() {
 	setActiveTool('line');
 }
 
+// -- Inline sketch plane selection mode --
+
+export function getSketchPlaneSelectionMode() { return sketchPlaneSelectionMode; }
+
+export function enterSketchPlaneSelection() {
+	log('ui', 'Enter sketch plane selection mode');
+	sketchPlaneSelectionMode = true;
+}
+
+export function exitSketchPlaneSelection() {
+	log('ui', 'Exit sketch plane selection mode');
+	sketchPlaneSelectionMode = false;
+}
+
+/**
+ * Change the sketch plane while in sketch mode.
+ * If sketch has entities, returns 'confirm' so the caller can show a confirmation dialog.
+ * If sketch is empty, switches plane immediately.
+ * @param {[number, number, number]} origin
+ * @param {[number, number, number]} normal
+ * @returns {Promise<'confirm' | 'changed'>}
+ */
+export async function changeSketchPlane(origin, normal) {
+	if (sketchEntities.length > 0) {
+		return 'confirm';
+	}
+	exitSketchMode();
+	await enterSketchMode(origin, normal);
+	setActiveTool('line');
+	return 'changed';
+}
+
+/**
+ * Force-change the sketch plane (after user confirmation), discarding existing geometry.
+ * @param {[number, number, number]} origin
+ * @param {[number, number, number]} normal
+ */
+export async function forceChangeSketchPlane(origin, normal) {
+	exitSketchMode();
+	await enterSketchMode(origin, normal);
+	setActiveTool('line');
+}
+
 // -- Sketch visibility --
 
 /**
@@ -1913,6 +1999,106 @@ export function toggleSketchVisibility(featureId) {
 	const next = new Map(sketchVisibility);
 	next.set(featureId, !(sketchVisibility.get(featureId) ?? true));
 	sketchVisibility = next;
+}
+
+/**
+ * Show all sketch features.
+ * @param {Array<{id: string, operation?: {type: string}}>} features
+ */
+export function showAllSketches(features) {
+	const next = new Map(sketchVisibility);
+	for (const f of features) {
+		if (f.operation?.type === 'Sketch') next.set(f.id, true);
+	}
+	sketchVisibility = next;
+}
+
+/**
+ * Hide all sketch features.
+ * @param {Array<{id: string, operation?: {type: string}}>} features
+ */
+export function hideAllSketches(features) {
+	const next = new Map(sketchVisibility);
+	for (const f of features) {
+		if (f.operation?.type === 'Sketch') next.set(f.id, false);
+	}
+	sketchVisibility = next;
+}
+
+// -- Plane visibility --
+
+/**
+ * Check if a datum plane is visible.
+ * @param {string} planeId
+ * @returns {boolean}
+ */
+export function isPlaneVisible(planeId) {
+	return planeVisibility.get(planeId) ?? true;
+}
+
+/**
+ * Toggle visibility of a datum plane.
+ * @param {string} planeId
+ */
+export function togglePlaneVisibility(planeId) {
+	const next = new Map(planeVisibility);
+	next.set(planeId, !(planeVisibility.get(planeId) ?? true));
+	planeVisibility = next;
+}
+
+/**
+ * Show all datum planes.
+ * @param {Array<{id: string}>} planes
+ */
+export function showAllPlanes(planes) {
+	const next = new Map(planeVisibility);
+	for (const p of planes) next.set(p.id, true);
+	planeVisibility = next;
+}
+
+/**
+ * Hide all datum planes.
+ * @param {Array<{id: string}>} planes
+ */
+export function hideAllPlanes(planes) {
+	const next = new Map(planeVisibility);
+	for (const p of planes) next.set(p.id, false);
+	planeVisibility = next;
+}
+
+// -- Axis visibility --
+
+/**
+ * Check if an origin axis is visible.
+ * @param {string} axisId - 'x', 'y', or 'z'
+ * @returns {boolean}
+ */
+export function isAxisVisible(axisId) {
+	return axisVisibility.get(axisId) ?? true;
+}
+
+/**
+ * Toggle visibility of an origin axis.
+ * @param {string} axisId - 'x', 'y', or 'z'
+ */
+export function toggleAxisVisibility(axisId) {
+	const next = new Map(axisVisibility);
+	next.set(axisId, !(axisVisibility.get(axisId) ?? true));
+	axisVisibility = next;
+}
+
+/** Show all origin axes. */
+export function showAllAxes() {
+	const next = new Map(axisVisibility);
+	next.set('x', true); next.set('y', true); next.set('z', true);
+	axisVisibility = next;
+}
+
+/** Hide all origin axes. */
+export function hideAllAxes() {
+	const next = new Map(axisVisibility);
+	next.set('x', false); next.set('y', false); next.set('z', false);
+	axisVisibility = next;
 }
 
 /**
@@ -2023,6 +2209,48 @@ export function toggleMobilePanel(panel) {
 export function getProjectName() { return projectName; }
 /** @param {string} name */
 export function setProjectName(name) { projectName = name; }
+
+// -- Visibility toggles (toolbar compat — delegates to per-item visibility) --
+
+/**
+ * Check if any datum plane is visible (for toolbar active state).
+ * @returns {boolean}
+ */
+export function getShowDatumPlanes() {
+	return BUILTIN_PLANES.some(p => isPlaneVisible(p.id));
+}
+
+/**
+ * Check if any origin axis is visible (for toolbar active state).
+ * @returns {boolean}
+ */
+export function getShowOriginTriad() {
+	return isAxisVisible('x') || isAxisVisible('y') || isAxisVisible('z');
+}
+
+/**
+ * Toggle all datum planes visibility (toolbar button).
+ * If any visible → hide all; if none visible → show all.
+ */
+export function toggleDatumPlanes() {
+	if (getShowDatumPlanes()) {
+		hideAllPlanes(BUILTIN_PLANES);
+	} else {
+		showAllPlanes(BUILTIN_PLANES);
+	}
+}
+
+/**
+ * Toggle all origin axes visibility (toolbar button).
+ * If any visible → hide all; if none visible → show all.
+ */
+export function toggleOriginTriad() {
+	if (getShowOriginTriad()) {
+		hideAllAxes();
+	} else {
+		showAllAxes();
+	}
+}
 
 // -- Auto-restore --
 

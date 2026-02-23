@@ -7,7 +7,9 @@
 		getHoveredRef,
 		getSelectedRefs,
 		geomRefEquals,
-		getFeatureTree
+		getFeatureTree,
+		isPlaneVisible,
+		isAxisVisible
 	} from '$lib/engine/store.svelte.js';
 	import { getAllPlanes, makePlaneRef, resolvePlane, PLANE_HALF_SIZE } from '$lib/engine/planes.js';
 
@@ -148,8 +150,9 @@
 	const originMaterial = new THREE.MeshBasicMaterial({ color: 0xcccccc });
 </script>
 
-<!-- Datum Planes (data-driven, reactive) -->
+<!-- Datum Planes (per-plane visibility) -->
 {#each planeData as pd, i (pd.plane.id)}
+{#if isPlaneVisible(pd.plane.id)}
 	<T.Group position={pd.position} rotation={pd.rotation}>
 		<T.Mesh
 			geometry={planeGeometry}
@@ -160,35 +163,43 @@
 		/>
 		<T.LineSegments geometry={borderGeo} material={pd.borderMaterial} />
 	</T.Group>
+{/if}
 {/each}
 
-<!-- Origin Triad -->
+<!-- Origin Triad (per-axis visibility) -->
+{#if isAxisVisible('x')}
 <T.Group>
-	<!-- Axes -->
 	<T.LineSegments geometry={xAxisGeo} material={xAxisMaterial} />
-	<T.LineSegments geometry={yAxisGeo} material={yAxisMaterial} />
-	<T.LineSegments geometry={zAxisGeo} material={zAxisMaterial} />
-
-	<!-- Arrowheads -->
 	<T.Mesh
 		geometry={coneGeo}
 		material={xConeMaterial}
 		position={[axisLength, 0, 0]}
 		rotation={xConeRotation}
 	/>
+</T.Group>
+{/if}
+{#if isAxisVisible('y')}
+<T.Group>
+	<T.LineSegments geometry={yAxisGeo} material={yAxisMaterial} />
 	<T.Mesh
 		geometry={coneGeo}
 		material={yConeMaterial}
 		position={[0, axisLength, 0]}
 		rotation={yConeRotation}
 	/>
+</T.Group>
+{/if}
+{#if isAxisVisible('z')}
+<T.Group>
+	<T.LineSegments geometry={zAxisGeo} material={zAxisMaterial} />
 	<T.Mesh
 		geometry={coneGeo}
 		material={zConeMaterial}
 		position={[0, 0, axisLength]}
 		rotation={zConeRotation}
 	/>
-
-	<!-- Origin point -->
-	<T.Mesh geometry={originGeo} material={originMaterial} />
 </T.Group>
+{/if}
+{#if isAxisVisible('x') || isAxisVisible('y') || isAxisVisible('z')}
+<T.Mesh geometry={originGeo} material={originMaterial} />
+{/if}
