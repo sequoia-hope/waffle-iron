@@ -462,6 +462,16 @@ fn several_extrudes_simplified_abutting() {
     }
 
     print_diagnostics(&m, "SIMPLIFIED: abutting boxes");
+
+    // === HP-1 regression assertions ===
+    // Each auto-union should consume the previous feature's body, maintaining
+    // exactly 1 visible body throughout the chain. Before the fix, incremental
+    // rebuilds lost consumption tracking for features before the rebuild point.
+    assert_eq!(b1, 1, "Box 1 should be 1 body");
+    assert_eq!(b2, 1, "Box 1+2 union should produce 1 body (e1 consumed)");
+    assert_eq!(b3, 1, "Box 1+2+3 union should produce 1 body (e1,e2 consumed)");
+    assert_eq!(b4, 1, "Box+cyl union should produce 1 body (e1,e2,e3 consumed)");
+    assert_eq!(bc1, 1, "Cut should produce 1 body (e1,e2,e3,e4 consumed)");
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

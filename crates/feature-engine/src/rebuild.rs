@@ -52,10 +52,28 @@ pub fn rebuild(
     let active = tree.active_features();
 
     for (i, feature) in active.iter().enumerate() {
-        if i < from_index {
+        if feature.suppressed {
             continue;
         }
-        if feature.suppressed {
+
+        if i < from_index {
+            // Feature before the rebuild point — not re-executed, but we must
+            // re-compute its consumption tracking from its carried-forward result.
+            // Without this, incremental rebuilds lose consumption relationships
+            // established by earlier features (e.g., e1 consumed by e2's union).
+            let merge_target_id = find_merge_target_id(feature, &state.feature_results, tree);
+            if let Some(target_id) = merge_target_id {
+                if let Some(result) = state.feature_results.get(&feature.id) {
+                    let union_failed = result
+                        .diagnostics
+                        .warnings
+                        .iter()
+                        .any(|w| w.contains("Auto-union failed"));
+                    if !union_failed {
+                        state.consumed_features.insert(target_id);
+                    }
+                }
+            }
             continue;
         }
 
@@ -668,10 +686,16 @@ fn find_merge_target_id(
 ) -> Option<Uuid> {
     match &feature.operation {
         Operation::Extrude { params } if params.merge || params.cut => {
-            // Find the most recent feature with a Main solid output
+            // Find the most recent feature BEFORE this one with a Main solid output.
+            // Only look at features earlier in the tree — features after this one
+            // are not valid merge targets (their results may be stale or absent).
             let active = tree.active_features();
-            for f in active.iter().rev() {
-                if f.id == feature.id || f.suppressed {
+            let current_idx = active
+                .iter()
+                .position(|f| f.id == feature.id)
+                .unwrap_or(active.len());
+            for f in active[..current_idx].iter().rev() {
+                if f.suppressed {
                     continue;
                 }
                 if matches!(
@@ -713,11 +737,12 @@ fn find_most_recent_solid(
     tree: &FeatureTree,
 ) -> Option<kernel_fork::KernelSolidHandle> {
     let active = tree.active_features();
-    // Walk backwards from the current feature
-    for feature in active.iter().rev() {
-        if feature.id == current_feature.id {
-            continue;
-        }
+    // Walk backwards through features BEFORE the current one
+    let current_idx = active
+        .iter()
+        .position(|f| f.id == current_feature.id)
+        .unwrap_or(active.len());
+    for feature in active[..current_idx].iter().rev() {
         if feature.suppressed {
             continue;
         }
