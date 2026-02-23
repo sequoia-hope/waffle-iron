@@ -83,7 +83,6 @@ pub fn rebuild(
         // Track which feature's solid would be consumed by a successful merge
         let merge_target_id = find_merge_target_id(feature, &state.feature_results, tree);
 
-        let _feat_start = std::time::Instant::now();
         match execute_feature(feature, kb, &state.feature_results, tree) {
             Ok(result) => {
                 for w in &result.diagnostics.warnings {
@@ -108,14 +107,6 @@ pub fn rebuild(
                 // Continue rebuilding remaining features
             }
         }
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "[rebuild] feature[{}] '{}' ({}) took {:.1}s",
-            i,
-            feature.name,
-            &feature.id.to_string()[..8],
-            _feat_start.elapsed().as_secs_f64(),
-        );
     }
 
     state

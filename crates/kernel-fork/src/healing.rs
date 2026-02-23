@@ -838,6 +838,7 @@ pub fn try_boolean_with_perturbation(
     op: impl Fn(&Solid, &Solid) -> Result<Solid, truck_shapeops::BooleanStageError>,
 ) -> Result<Solid, truck_shapeops::BooleanStageError> {
     let mut last_err;
+    #[cfg(not(target_arch = "wasm32"))]
     let _perturb_start = std::time::Instant::now();
     let mut _attempt_count: u32 = 0;
 
@@ -909,6 +910,7 @@ pub fn try_boolean_with_perturbation(
     // Without this, a failing boolean on a complex body can burn 50+ retries
     // at 20-60s each, taking 15+ minutes total. 120s allows ~30 attempts
     // at 4s each for legitimate coplanar retries while preventing runaway cascades.
+    #[cfg(not(target_arch = "wasm32"))]
     let cascade_timeout = std::time::Duration::from_secs(120);
 
     // Instrumented op wrapper with panic catching
@@ -918,6 +920,7 @@ pub fn try_boolean_with_perturbation(
                   label: &str|
      -> Result<Solid, truck_shapeops::BooleanStageError> {
         *attempt += 1;
+        #[cfg(not(target_arch = "wasm32"))]
         let _t = std::time::Instant::now();
         // Catch panics from truck internals (e.g., "knot vector consists single value")
         // and convert them to BooleanStageError instead of crashing.
@@ -943,7 +946,7 @@ pub fn try_boolean_with_perturbation(
                 )))
             }
         };
-        #[cfg(debug_assertions)]
+        #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
         eprintln!(
             "[perturbation] attempt #{} ({}) took {:.2}s → {}",
             *attempt,
@@ -963,15 +966,18 @@ pub fn try_boolean_with_perturbation(
     // Macro to check cascade timeout and bail out immediately
     macro_rules! check_timeout {
         () => {
-            if _perturb_start.elapsed() > cascade_timeout {
-                #[cfg(debug_assertions)]
-                eprintln!(
-                    "[perturbation] cascade timeout ({:.0}s) after {} attempts in {:.1}s",
-                    cascade_timeout.as_secs_f64(),
-                    _attempt_count,
-                    _perturb_start.elapsed().as_secs_f64(),
-                );
-                return Err(last_err);
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                if _perturb_start.elapsed() > cascade_timeout {
+                    #[cfg(debug_assertions)]
+                    eprintln!(
+                        "[perturbation] cascade timeout ({:.0}s) after {} attempts in {:.1}s",
+                        cascade_timeout.as_secs_f64(),
+                        _attempt_count,
+                        _perturb_start.elapsed().as_secs_f64(),
+                    );
+                    return Err(last_err);
+                }
             }
         };
     }
@@ -1175,7 +1181,7 @@ pub fn try_boolean_with_perturbation(
         }
     }
 
-    #[cfg(debug_assertions)]
+    #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
     eprintln!(
         "[perturbation] EXHAUSTED all {} attempts in {:.1}s",
         _attempt_count,
