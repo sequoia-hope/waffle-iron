@@ -371,5 +371,7 @@
 		enableZoom={false}
 		minDistance={0.05}
 		maxDistance={2000}
+		maxPolarAngle={Infinity}
+		minPolarAngle={-Infinity}
 	/>
 </T.PerspectiveCamera>
