@@ -9,35 +9,120 @@
 
 	let dialogState = $derived(getRevolveDialogState());
 	let angle = $state(360);
-	let axisOriginX = $state(0);
-	let axisOriginY = $state(0);
-	let axisOriginZ = $state(0);
-	let axisDirX = $state(0);
-	let axisDirY = $state(1);
-	let axisDirZ = $state(0);
+	let selectedAxisId = $state(null);
+	let axisOrigin = $state([0, 0, 0]);
+	let axisDir = $state([0, 1, 0]);
 	let profileIndex = $state(0);
 
+	// Compute plane basis vectors from normal
+	function computePlaneBasis(pn) {
+		const absX = Math.abs(pn[0]), absY = Math.abs(pn[1]), absZ = Math.abs(pn[2]);
+		let upHint;
+		if (absZ >= absX && absZ >= absY) {
+			upHint = [0, 1, 0];
+		} else if (absY >= absX) {
+			upHint = [0, 0, 1];
+		} else {
+			upHint = [0, 1, 0];
+		}
+
+		const rx = upHint[1] * pn[2] - upHint[2] * pn[1];
+		const ry = upHint[2] * pn[0] - upHint[0] * pn[2];
+		const rz = upHint[0] * pn[1] - upHint[1] * pn[0];
+		const rlen = Math.sqrt(rx*rx + ry*ry + rz*rz);
+		const right = rlen > 1e-10 ? [rx/rlen, ry/rlen, rz/rlen] : [1, 0, 0];
+
+		const ux = pn[1] * right[2] - pn[2] * right[1];
+		const uy = pn[2] * right[0] - pn[0] * right[2];
+		const uz = pn[0] * right[1] - pn[1] * right[0];
+		const up = [ux, uy, uz];
+
+		return { right, up };
+	}
+
+	// Compute 3D axis from a selected entity
+	function computeAxisFromEntity(entity, state) {
+		const pn = state.planeNormal ?? [0, 0, 1];
+		const po = state.planeOrigin ?? [0, 0, 0];
+		const { right, up } = computePlaneBasis(pn);
+
+		if (entity.type === 'Line') {
+			const dx2d = entity.end[0] - entity.start[0];
+			const dy2d = entity.end[1] - entity.start[1];
+			const len = Math.sqrt(dx2d * dx2d + dy2d * dy2d);
+			if (len < 1e-10) return null;
+
+			const nx = dx2d / len;
+			const ny = dy2d / len;
+
+			return {
+				dir: [
+					right[0] * nx + up[0] * ny,
+					right[1] * nx + up[1] * ny,
+					right[2] * nx + up[2] * ny
+				],
+				origin: [
+					po[0] + right[0] * entity.start[0] + up[0] * entity.start[1],
+					po[1] + right[1] * entity.start[0] + up[1] * entity.start[1],
+					po[2] + right[2] * entity.start[0] + up[2] * entity.start[1]
+				]
+			};
+		} else if (entity.type === 'Circle') {
+			return {
+				dir: [pn[0], pn[1], pn[2]],
+				origin: [
+					po[0] + right[0] * entity.center[0] + up[0] * entity.center[1],
+					po[1] + right[1] * entity.center[0] + up[1] * entity.center[1],
+					po[2] + right[2] * entity.center[0] + up[2] * entity.center[1]
+				]
+			};
+		}
+		return null;
+	}
+
+	function selectAxis(entityId) {
+		if (!dialogState) return;
+		const entity = dialogState.axisEntities?.find(e => e.id === entityId);
+		if (!entity) return;
+
+		selectedAxisId = entityId;
+		const result = computeAxisFromEntity(entity, dialogState);
+		if (result) {
+			axisDir = result.dir;
+			axisOrigin = result.origin;
+		}
+	}
+
+	// Reset state and auto-select on dialog open
 	$effect(() => {
 		if (dialogState) {
 			angle = 360;
-			axisOriginX = 0;
-			axisOriginY = 0;
-			axisOriginZ = 0;
-			axisDirX = 0;
-			axisDirY = 1;
-			axisDirZ = 0;
 			profileIndex = 0;
+			selectedAxisId = null;
+			axisOrigin = [0, 0, 0];
+			axisDir = [0, 1, 0];
+
+			// Auto-select: first construction line, then first line, then first circle
+			const entities = dialogState.axisEntities ?? [];
+			const pick =
+				entities.find(e => e.type === 'Line' && e.construction) ??
+				entities.find(e => e.type === 'Line') ??
+				entities.find(e => e.type === 'Circle');
+			if (pick) {
+				selectAxis(pick.id);
+			}
 		}
 	});
 
+	// Send preview params whenever axis/angle/profile changes
 	$effect(() => {
 		if (dialogState) {
 			setRevolvePreviewParams({
 				sketchId: dialogState.sketchId,
 				profileIndex,
 				angle,
-				axisOrigin: [axisOriginX, axisOriginY, axisOriginZ],
-				axisDir: [axisDirX, axisDirY, axisDirZ]
+				axisOrigin: [...axisOrigin],
+				axisDir: [...axisDir]
 			});
 		} else {
 			setRevolvePreviewParams(null);
@@ -62,76 +147,12 @@
 		return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
 	});
 
-	function setAxisQuickPick(x, y, z) {
-		axisDirX = x;
-		axisDirY = y;
-		axisDirZ = z;
-		// Set origin to 0,0,0 for standard axes
-		axisOriginX = 0;
-		axisOriginY = 0;
-		axisOriginZ = 0;
-	}
-
-	function handleLineAxisSelect(lineIdStr) {
-		if (!lineIdStr || !dialogState) return;
-		const lineId = parseInt(lineIdStr, 10);
-		const line = dialogState.sketchLines?.find(l => l.id === lineId);
-		if (!line) return;
-
-		// Convert 2D line direction to 3D using sketch plane
-		const dx2d = line.end[0] - line.start[0];
-		const dy2d = line.end[1] - line.start[1];
-		const len = Math.sqrt(dx2d * dx2d + dy2d * dy2d);
-		if (len < 1e-10) return;
-
-		const nx = dx2d / len;
-		const ny = dy2d / len;
-
-		// Compute right/up vectors from plane normal
-		const pn = dialogState.planeNormal ?? [0, 0, 1];
-		const po = dialogState.planeOrigin ?? [0, 0, 0];
-
-		const absX = Math.abs(pn[0]), absY = Math.abs(pn[1]), absZ = Math.abs(pn[2]);
-		let upHint;
-		if (absZ >= absX && absZ >= absY) {
-			upHint = [0, 1, 0];
-		} else if (absY >= absX) {
-			upHint = [0, 0, 1];
-		} else {
-			upHint = [0, 1, 0];
-		}
-
-		// right = normalize(cross(upHint, normal))
-		const rx = upHint[1] * pn[2] - upHint[2] * pn[1];
-		const ry = upHint[2] * pn[0] - upHint[0] * pn[2];
-		const rz = upHint[0] * pn[1] - upHint[1] * pn[0];
-		const rlen = Math.sqrt(rx*rx + ry*ry + rz*rz);
-		const right = rlen > 1e-10 ? [rx/rlen, ry/rlen, rz/rlen] : [1, 0, 0];
-
-		// up = cross(normal, right)
-		const ux = pn[1] * right[2] - pn[2] * right[1];
-		const uy = pn[2] * right[0] - pn[0] * right[2];
-		const uz = pn[0] * right[1] - pn[1] * right[0];
-		const up = [ux, uy, uz];
-
-		// 3D direction = right * nx + up * ny
-		axisDirX = right[0] * nx + up[0] * ny;
-		axisDirY = right[1] * nx + up[1] * ny;
-		axisDirZ = right[2] * nx + up[2] * ny;
-
-		// 3D origin from 2D line start
-		axisOriginX = po[0] + right[0] * line.start[0] + up[0] * line.start[1];
-		axisOriginY = po[1] + right[1] * line.start[0] + up[1] * line.start[1];
-		axisOriginZ = po[2] + right[2] * line.start[0] + up[2] * line.start[1];
-	}
+	let hasAxis = $derived(selectedAxisId != null);
 
 	function handleApply() {
-		applyRevolve(
-			angle,
-			[axisOriginX, axisOriginY, axisOriginZ],
-			[axisDirX, axisDirY, axisDirZ],
-			profileIndex
-		).catch(err => log('error', `Revolve dialog apply failed: ${err}`));
+		if (!hasAxis) return;
+		applyRevolve(angle, [...axisOrigin], [...axisDir], profileIndex)
+			.catch(err => log('error', `Revolve dialog apply failed: ${err}`));
 	}
 
 	function handleCancel() {
@@ -139,140 +160,90 @@
 		hideRevolveDialog();
 	}
 
-	function handleKeydown(e) {
-		if (e.key === 'Enter') {
-			e.preventDefault();
-			handleApply();
-		} else if (e.key === 'Escape') {
-			e.preventDefault();
-			handleCancel();
-		}
+	function entityLabel(entity) {
+		const label = entity.type === 'Circle'
+			? `Circle ${entity.id}`
+			: `Line ${entity.id}`;
+		return entity.construction ? label + ' (constr.)' : label;
 	}
 </script>
 
 {#if dialogState}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="overlay" onkeydown={handleKeydown} data-testid="revolve-dialog">
-		<div class="dialog">
-			<div class="dialog-header">
-				<span class="dialog-title">Revolve</span>
-				<button class="close-btn" onclick={handleCancel}>&times;</button>
+	<div class="revolve-panel" data-testid="revolve-dialog">
+		<div class="dialog-header">
+			<span class="dialog-title">Revolve</span>
+			<button class="close-btn" onclick={handleCancel}>&times;</button>
+		</div>
+		<div class="dialog-body">
+			<div class="field">
+				<label for="revolve-sketch">Sketch</label>
+				<span id="revolve-sketch" class="field-value">{dialogState.sketchName}</span>
 			</div>
-			<div class="dialog-body">
-				<div class="field">
-					<label for="revolve-sketch">Sketch</label>
-					<span id="revolve-sketch" class="field-value">{dialogState.sketchName}</span>
-				</div>
-				<div class="field">
-					<label for="revolve-angle">Angle (&deg;)</label>
-					<input
-						id="revolve-angle"
-						type="number"
-						bind:value={angle}
-						step="15"
-						min="0.1"
-						max="360"
-					/>
-				</div>
-				<div class="field-group">
-					<span class="group-label">Axis</span>
-					<div class="axis-quickpick">
-						<button
-							class="btn-axis"
-							class:active={axisDirX === 1 && axisDirY === 0 && axisDirZ === 0}
-							data-testid="revolve-axis-x"
-							onclick={() => setAxisQuickPick(1, 0, 0)}
-						>X</button>
-						<button
-							class="btn-axis"
-							class:active={axisDirX === 0 && axisDirY === 1 && axisDirZ === 0}
-							data-testid="revolve-axis-y"
-							onclick={() => setAxisQuickPick(0, 1, 0)}
-						>Y</button>
-						<button
-							class="btn-axis"
-							class:active={axisDirX === 0 && axisDirY === 0 && axisDirZ === 1}
-							data-testid="revolve-axis-z"
-							onclick={() => setAxisQuickPick(0, 0, 1)}
-						>Z</button>
+			<div class="field">
+				<label for="revolve-angle">Angle</label>
+				<input
+					id="revolve-angle"
+					type="number"
+					bind:value={angle}
+					step="15"
+					min="0.1"
+					max="360"
+				/>
+			</div>
+			<div class="field-group">
+				<span class="group-label">Axis</span>
+				{#if dialogState.axisEntities?.length > 0}
+					<div class="axis-entity-list" data-testid="revolve-axis-list">
+						{#each dialogState.axisEntities as entity (entity.id)}
+							<button
+								class="btn-axis-entity"
+								class:active={selectedAxisId === entity.id}
+								class:construction={entity.construction}
+								data-testid="revolve-axis-entity-{entity.id}"
+								onclick={() => selectAxis(entity.id)}
+							>{entityLabel(entity)}</button>
+						{/each}
 					</div>
-				</div>
-				{#if dialogState.sketchLines?.length > 0}
-					<div class="field">
-						<label for="revolve-line-axis">Line Axis</label>
-						<select
-							id="revolve-line-axis"
-							data-testid="revolve-line-axis"
-							onchange={(e) => handleLineAxisSelect(e.target.value)}
-						>
-							<option value="">-- Select line --</option>
-							{#each dialogState.sketchLines as line}
-								<option value={line.id}>Line {line.id}</option>
-							{/each}
-						</select>
-					</div>
-				{/if}
-				<details class="advanced-section">
-					<summary>Manual Axis Entry</summary>
-					<div class="advanced-fields">
-						<div class="field-group">
-							<span class="group-label">Axis Origin</span>
-							<div class="vec3">
-								<label>X <input type="number" bind:value={axisOriginX} step="1" /></label>
-								<label>Y <input type="number" bind:value={axisOriginY} step="1" /></label>
-								<label>Z <input type="number" bind:value={axisOriginZ} step="1" /></label>
-							</div>
-						</div>
-						<div class="field-group">
-							<span class="group-label">Axis Direction</span>
-							<div class="vec3">
-								<label>X <input type="number" bind:value={axisDirX} step="0.1" /></label>
-								<label>Y <input type="number" bind:value={axisDirY} step="0.1" /></label>
-								<label>Z <input type="number" bind:value={axisDirZ} step="0.1" /></label>
-							</div>
-						</div>
-					</div>
-				</details>
-				{#if dialogState.profileCount > 1}
-					<div class="field">
-						<label for="revolve-profile">Profile</label>
-						<select id="revolve-profile" bind:value={profileIndex}>
-							{#each Array(dialogState.profileCount) as _, i}
-								<option value={i}>Profile {i + 1}</option>
-							{/each}
-						</select>
-					</div>
+				{:else}
+					<span class="no-entities">No lines or circles in sketch</span>
 				{/if}
 			</div>
-			<div class="dialog-footer">
-				<button class="btn btn-cancel" data-testid="revolve-cancel" onclick={handleCancel}>Cancel</button>
-				<button class="btn btn-apply" data-testid="revolve-apply" onclick={handleApply}>Apply</button>
-			</div>
+			{#if dialogState.profileCount > 1}
+				<div class="field">
+					<label for="revolve-profile">Profile</label>
+					<select id="revolve-profile" bind:value={profileIndex}>
+						{#each Array(dialogState.profileCount) as _, i}
+							<option value={i}>Profile {i + 1}</option>
+						{/each}
+					</select>
+				</div>
+			{/if}
+		</div>
+		<div class="dialog-footer">
+			<button class="btn btn-cancel" data-testid="revolve-cancel" onclick={handleCancel}>Cancel</button>
+			<button
+				class="btn btn-apply"
+				data-testid="revolve-apply"
+				disabled={!hasAxis}
+				onclick={handleApply}
+			>Apply</button>
 		</div>
 	</div>
 {/if}
 
 <style>
-	.overlay {
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		z-index: 1000;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		background: rgba(0, 0, 0, 0.3);
-	}
-
-	.dialog {
+	.revolve-panel {
+		position: absolute;
+		top: 12px;
+		right: 12px;
+		width: 240px;
+		z-index: 50;
 		background: var(--bg-tertiary, #2d2d2d);
 		border: 1px solid var(--border-color, #444);
 		border-radius: 6px;
-		min-width: 300px;
-		max-width: calc(100vw - 32px);
 		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+		pointer-events: auto;
 	}
 
 	.dialog-header {
@@ -320,7 +291,7 @@
 	.field label {
 		font-size: 12px;
 		color: var(--text-secondary, #aaa);
-		min-width: 70px;
+		min-width: 50px;
 	}
 
 	.field-value {
@@ -328,7 +299,7 @@
 		color: var(--text-primary, #eee);
 	}
 
-	.field input,
+	.field input[type="number"],
 	.field select {
 		background: var(--bg-primary, #1e1e1e);
 		border: 1px solid var(--border-color, #444);
@@ -352,86 +323,49 @@
 	}
 
 	.group-label {
-		font-size: 12px;
+		font-size: 11px;
 		color: var(--text-secondary, #aaa);
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
 	}
 
-	.axis-quickpick {
+	.axis-entity-list {
 		display: flex;
-		gap: 4px;
+		flex-direction: column;
+		gap: 3px;
 	}
 
-	.btn-axis {
-		flex: 1;
+	.btn-axis-entity {
 		padding: 4px 8px;
 		background: var(--bg-primary, #1e1e1e);
 		border: 1px solid var(--border-color, #444);
 		color: var(--text-primary, #eee);
 		border-radius: 3px;
 		font-size: 12px;
-		font-weight: 600;
 		cursor: pointer;
-		text-align: center;
+		text-align: left;
 	}
 
-	.btn-axis:hover {
+	.btn-axis-entity:hover {
 		border-color: var(--accent, #0078d4);
 	}
 
-	.btn-axis.active {
+	.btn-axis-entity.active {
 		background: var(--accent, #0078d4);
 		border-color: var(--accent, #0078d4);
 		color: #fff;
 	}
 
-	.advanced-section {
-		margin-top: 4px;
+	.btn-axis-entity.construction {
+		font-style: italic;
 	}
 
-	.advanced-section summary {
+	.no-entities {
 		font-size: 11px;
 		color: var(--text-muted, #888);
-		cursor: pointer;
+		font-style: italic;
 		padding: 4px 0;
-	}
-
-	.advanced-section summary:hover {
-		color: var(--text-secondary, #aaa);
-	}
-
-	.advanced-fields {
-		display: flex;
-		flex-direction: column;
-		gap: 10px;
-		padding-top: 8px;
-	}
-
-	.vec3 {
-		display: flex;
-		gap: 6px;
-	}
-
-	.vec3 label {
-		display: flex;
-		align-items: center;
-		gap: 2px;
-		font-size: 11px;
-		color: var(--text-muted, #888);
-	}
-
-	.vec3 input {
-		background: var(--bg-primary, #1e1e1e);
-		border: 1px solid var(--border-color, #444);
-		color: var(--text-primary, #eee);
-		padding: 3px 5px;
-		border-radius: 3px;
-		font-size: 11px;
-		width: 55px;
-	}
-
-	.vec3 input:focus {
-		outline: none;
-		border-color: var(--accent, #0078d4);
 	}
 
 	.dialog-footer {
@@ -466,7 +400,12 @@
 		border-color: var(--accent, #0078d4);
 	}
 
-	.btn-apply:hover {
+	.btn-apply:hover:not(:disabled) {
 		filter: brightness(1.1);
+	}
+
+	.btn-apply:disabled {
+		opacity: 0.5;
+		cursor: default;
 	}
 </style>

@@ -1285,33 +1285,52 @@ export function showRevolveDialog() {
 
 	const profileCount = lastSketch.operation?.sketch?.solved_profiles?.length ?? 0;
 
-	// Extract sketch line entities for axis selection
-	const sketchLines = [];
+	// Extract sketch entities for axis selection (lines and circles, including construction)
+	const axisEntities = [];
 	const sketchData = lastSketch.operation?.sketch;
 	if (sketchData) {
 		const entities = sketchData.entities ?? [];
 		const positions = sketchData.solved_positions ?? {};
 		for (const entity of entities) {
-			if (entity.type === 'Line' && !entity.construction) {
+			if (entity.type === 'Line') {
 				const startPos = positions[entity.start_id];
 				const endPos = positions[entity.end_id];
 				if (startPos && endPos) {
-					sketchLines.push({
+					axisEntities.push({
+						type: 'Line',
 						id: entity.id,
+						construction: !!entity.construction,
 						start: [startPos[0], startPos[1]],
 						end: [endPos[0], endPos[1]]
+					});
+				}
+			} else if (entity.type === 'Circle') {
+				const centerPos = positions[entity.center_id];
+				if (centerPos) {
+					axisEntities.push({
+						type: 'Circle',
+						id: entity.id,
+						construction: !!entity.construction,
+						center: [centerPos[0], centerPos[1]],
+						radius: entity.radius
 					});
 				}
 			}
 		}
 	}
 
-	log('ui', 'Show revolve dialog', { sketchId: lastSketch.id, profileCount, sketchLineCount: sketchLines.length });
+	// Sort: construction entities first (most likely axis), then by id
+	axisEntities.sort((a, b) => {
+		if (a.construction !== b.construction) return a.construction ? -1 : 1;
+		return a.id - b.id;
+	});
+
+	log('ui', 'Show revolve dialog', { sketchId: lastSketch.id, profileCount, axisEntityCount: axisEntities.length });
 	revolveDialogState = {
 		sketchId: lastSketch.id,
 		sketchName: lastSketch.name,
 		profileCount,
-		sketchLines,
+		axisEntities,
 		planeOrigin: sketchData?.plane_origin ?? [0, 0, 0],
 		planeNormal: sketchData?.plane_normal ?? [0, 0, 1]
 	};

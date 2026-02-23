@@ -146,15 +146,19 @@ test.describe('revolve dialog fields', () => {
 		expect(name.length).toBeGreaterThan(0);
 	});
 
-	test('revolve dialog has axis direction inputs', async ({ waffle }) => {
+	test('revolve dialog has axis entity list with auto-selected axis', async ({ waffle }) => {
 		await createFinishedSketch(waffle);
 		await clickRevolve(waffle.page);
 
-		// Should have axis direction vector inputs
-		const dialog = waffle.page.locator('[data-testid="revolve-dialog"]');
-		const axisInputs = dialog.locator('.vec3 input');
-		const count = await axisInputs.count();
-		// 3 for axis origin (X/Y/Z) + 3 for axis direction (X/Y/Z)
-		expect(count).toBe(6);
+		// Should have axis entity buttons (rectangle has 4 lines)
+		const axisList = waffle.page.locator('[data-testid="revolve-axis-list"]');
+		await expect(axisList).toBeVisible();
+		const buttons = axisList.locator('.btn-axis-entity');
+		const count = await buttons.count();
+		expect(count).toBeGreaterThanOrEqual(1);
+
+		// One should be auto-selected (active)
+		const activeBtn = axisList.locator('.btn-axis-entity.active');
+		expect(await activeBtn.count()).toBe(1);
 	});
 });
