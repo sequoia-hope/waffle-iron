@@ -563,22 +563,6 @@ export function selectRef(ref, additive = false) {
 		}
 	}
 
-	// Intercept plane selection when already in sketch mode (change plane)
-	if (sketchMode.active && isDatumPlaneRef(ref)) {
-		const plane = computeFacePlane(ref);
-		if (plane) {
-			changeSketchPlane(plane.origin, plane.normal).then(result => {
-				if (result === 'confirm') {
-					const ok = confirm('Change sketch plane? Current sketch geometry will be discarded.');
-					if (ok) {
-						forceChangeSketchPlane(plane.origin, plane.normal);
-					}
-				}
-			});
-			return;
-		}
-	}
-
 	log('ui', 'Select ref', { count: additive ? selectedRefs.length + 1 : 1 });
 
 	if (additive) {
@@ -1951,34 +1935,6 @@ export function exitSketchPlaneSelection() {
 	sketchPlaneSelectionMode = false;
 }
 
-/**
- * Change the sketch plane while in sketch mode.
- * If sketch has entities, returns 'confirm' so the caller can show a confirmation dialog.
- * If sketch is empty, switches plane immediately.
- * @param {[number, number, number]} origin
- * @param {[number, number, number]} normal
- * @returns {Promise<'confirm' | 'changed'>}
- */
-export async function changeSketchPlane(origin, normal) {
-	if (sketchEntities.length > 0) {
-		return 'confirm';
-	}
-	exitSketchMode();
-	await enterSketchMode(origin, normal);
-	setActiveTool('line');
-	return 'changed';
-}
-
-/**
- * Force-change the sketch plane (after user confirmation), discarding existing geometry.
- * @param {[number, number, number]} origin
- * @param {[number, number, number]} normal
- */
-export async function forceChangeSketchPlane(origin, normal) {
-	exitSketchMode();
-	await enterSketchMode(origin, normal);
-	setActiveTool('line');
-}
 
 // -- Sketch visibility --
 
