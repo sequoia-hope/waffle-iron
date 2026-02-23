@@ -1333,7 +1333,6 @@ export async function applyRevolve(angleDeg, axisOrigin, axisDir, profileIndex) 
 	if (!revolveDialogState || !bridge || !engineReady) return;
 
 	log('action', 'Apply revolve', { angle: angleDeg, profileIndex });
-	const angleRad = angleDeg * Math.PI / 180;
 
 	try {
 		await bridge.send({
@@ -1345,7 +1344,7 @@ export async function applyRevolve(angleDeg, axisOrigin, axisDir, profileIndex) 
 					profile_index: profileIndex,
 					axis_origin: axisOrigin,
 					axis_direction: axisDir,
-					angle: angleRad
+					angle: angleDeg
 				}
 			}
 		});

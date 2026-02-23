@@ -54,7 +54,7 @@
 				];
 			case 'Revolve':
 				return [
-					{ key: 'params.angle', label: 'Angle (rad)', type: 'number', value: operation.params?.angle },
+					{ key: 'params.angle', label: 'Angle (°)', type: 'number', value: operation.params?.angle },
 				];
 			case 'Fillet':
 				return [
