@@ -12,6 +12,7 @@ import { showToast, getToasts, dismissToast, initLoggerToasts } from '$lib/ui/to
 import { extractProfiles } from '$lib/sketch/profiles.js';
 import { getPreview, getSnapIndicator, getSnapCandidates as _getSnapCandidates } from '$lib/sketch/sketchToolState.svelte.js';
 import { resetTool, getToolState as _getToolState, getIsDragging as _getIsDragging, getPointerDownPos as _getPointerDownPos, getStartPos as _getStartPos, getStartPointId as _getStartPointId, getToolEventLog as _getToolEventLog, clearToolEventLog as _clearToolEventLog } from '$lib/sketch/tools.js';
+import { buildSketchPlane, sketchToScreen } from '$lib/sketch/sketchCoords.js';
 import { isDatumPlaneRef, getPlaneIdFromRef, getPlaneById, resolvePlane, BUILTIN_PLANES } from './planes.js';
 import { fetchTestCases, fetchTestCase, createTestCase as apiCreateTestCase, deleteTestCase as apiDeleteTestCase } from './testCaseApi.js';
 
@@ -409,6 +410,17 @@ export async function initEngine() {
 			getSnapCandidates: () => _getSnapCandidates(),
 			getSnapSettings: () => getSnapSettings(),
 			updateSnapSettings: (updates) => updateSnapSettings(updates),
+			sketchToScreenOffset: (sx, sy) => {
+				const sm = sketchMode;
+				if (!sm?.active) return null;
+				const cam = cameraObject;
+				const canvas = document.querySelector('canvas');
+				if (!cam || !canvas) return null;
+				const plane = buildSketchPlane(sm.origin, sm.normal);
+				const screen = sketchToScreen(sx, sy, plane, cam, canvas);
+				const rect = canvas.getBoundingClientRect();
+				return { x: screen.x - (rect.left + rect.width / 2), y: screen.y - (rect.top + rect.height / 2) };
+			},
 			getPreview: () => getPreview(),
 			getToolState: () => _getToolState(),
 			getIsDragging: () => _getIsDragging(),
