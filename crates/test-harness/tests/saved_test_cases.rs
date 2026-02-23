@@ -131,16 +131,8 @@ fn several_extrudes_replay() {
     // For normal=[1,0,0]: sketch_x → +Y, sketch_y → +Z
     // 3D: y ∈ [-15, 12], z ∈ [-15, 10], x ∈ [0, 10]
     // Using approximate values from the file.
-    m.rect_sketch(
-        "sk1",
-        [0., 0., 0.],
-        [1., 0., 0.],
-        -15.0,
-        -15.0,
-        27.0,
-        25.0,
-    )
-    .unwrap();
+    m.rect_sketch("sk1", [0., 0., 0.], [1., 0., 0.], -15.0, -15.0, 27.0, 25.0)
+        .unwrap();
     m.extrude("ext1", "sk1", 10.0).unwrap();
 
     let has_solid_1 = m.assert_has_solid("ext1").is_ok();
@@ -162,23 +154,18 @@ fn several_extrudes_replay() {
     // --- Step 2: Rect sketch at origin [10,*,*], normal [1,0,0], extrude depth=10 ---
     // From .waffle: rect ~ (-12, -24) to (12, -1) in sketch 2D
     // 3D: y ∈ [-12, 12], z ∈ [-24, -1], x ∈ [10, 20]
-    m.rect_sketch(
-        "sk2",
-        [10., 0., 0.],
-        [1., 0., 0.],
-        -12.0,
-        -24.0,
-        24.0,
-        23.0,
-    )
-    .unwrap();
+    m.rect_sketch("sk2", [10., 0., 0.], [1., 0., 0.], -12.0, -24.0, 24.0, 23.0)
+        .unwrap();
     m.extrude("ext2", "sk2", 10.0).unwrap();
 
     let has_solid_2 = m.assert_has_solid("ext2").is_ok();
     let bodies_2 = count_visible_bodies(&m);
     eprintln!("\nStep 2: Rect extrude at x=10..20 (should auto-union with step 1)");
     eprintln!("  Has solid: {}", has_solid_2);
-    eprintln!("  Visible bodies: {} (expected: 1 if union succeeded)", bodies_2);
+    eprintln!(
+        "  Visible bodies: {} (expected: 1 if union succeeded)",
+        bodies_2
+    );
     if has_solid_2 {
         let mesh = m.tessellate("ext2").unwrap();
         let vol = mesh_volume(&mesh);
@@ -189,31 +176,23 @@ fn several_extrudes_replay() {
             bb_min[0], bb_min[1], bb_min[2], bb_max[0], bb_max[1], bb_max[2]
         );
     }
-    eprintln!(
-        "  Consumed features: {:?}",
-        m.consumed_features().len()
-    );
+    eprintln!("  Consumed features: {:?}", m.consumed_features().len());
 
     // --- Step 3: Rect sketch at origin [20,*,*], normal [1,0,0], extrude depth=10 ---
     // From .waffle: rect ~ (-11, -20) to (10, -1) in sketch 2D
     // 3D: y ∈ [-11, 10], z ∈ [-20, -1], x ∈ [20, 30]
-    m.rect_sketch(
-        "sk3",
-        [20., 0., 0.],
-        [1., 0., 0.],
-        -11.0,
-        -20.0,
-        21.0,
-        19.0,
-    )
-    .unwrap();
+    m.rect_sketch("sk3", [20., 0., 0.], [1., 0., 0.], -11.0, -20.0, 21.0, 19.0)
+        .unwrap();
     m.extrude("ext3", "sk3", 10.0).unwrap();
 
     let has_solid_3 = m.assert_has_solid("ext3").is_ok();
     let bodies_3 = count_visible_bodies(&m);
     eprintln!("\nStep 3: Rect extrude at x=20..30 (should auto-union)");
     eprintln!("  Has solid: {}", has_solid_3);
-    eprintln!("  Visible bodies: {} (expected: 1 if union succeeded)", bodies_3);
+    eprintln!(
+        "  Visible bodies: {} (expected: 1 if union succeeded)",
+        bodies_3
+    );
     if has_solid_3 {
         let mesh = m.tessellate("ext3").unwrap();
         let vol = mesh_volume(&mesh);
@@ -228,22 +207,18 @@ fn several_extrudes_replay() {
     // --- Step 4: Circle sketch at origin [30,*,*], normal [1,0,0], extrude depth=10 ---
     // From .waffle: circle center ~ (4.4, -6.8), radius ~ 4.6
     // 3D: center at (30, 4.4, -6.8), radius 4.6, x ∈ [30, 40]
-    m.circle_sketch(
-        "sk4",
-        [30., 0., 0.],
-        [1., 0., 0.],
-        4.4,
-        -6.8,
-        4.6,
-    )
-    .unwrap();
+    m.circle_sketch("sk4", [30., 0., 0.], [1., 0., 0.], 4.4, -6.8, 4.6)
+        .unwrap();
     m.extrude("ext4", "sk4", 10.0).unwrap();
 
     let has_solid_4 = m.assert_has_solid("ext4").is_ok();
     let bodies_4 = count_visible_bodies(&m);
     eprintln!("\nStep 4: Circle extrude at x=30..40 (should auto-union)");
     eprintln!("  Has solid: {}", has_solid_4);
-    eprintln!("  Visible bodies: {} (expected: 1 if union succeeded)", bodies_4);
+    eprintln!(
+        "  Visible bodies: {} (expected: 1 if union succeeded)",
+        bodies_4
+    );
     if has_solid_4 {
         let mesh = m.tessellate("ext4").unwrap();
         let vol = mesh_volume(&mesh);
@@ -297,23 +272,18 @@ fn several_extrudes_replay() {
     // Let me just replicate what the file says and see what happens.
     // The sketch is at x=0 with normal [-1,0,0].
     // Using approximate rect coords from the .waffle file.
-    m.rect_sketch(
-        "sk5",
-        [0., 0., 0.],
-        [-1., 0., 0.],
-        -11.0,
-        -21.0,
-        20.0,
-        15.0,
-    )
-    .unwrap();
+    m.rect_sketch("sk5", [0., 0., 0.], [-1., 0., 0.], -11.0, -21.0, 20.0, 15.0)
+        .unwrap();
     m.extrude_cut("ext5", "sk5", 100.0).unwrap();
 
     let has_solid_5 = m.assert_has_solid("ext5").is_ok();
     let bodies_5 = count_visible_bodies(&m);
     eprintln!("\nStep 5: Cut extrude from x=0, normal=[-1,0,0], depth=100");
     eprintln!("  Has solid: {}", has_solid_5);
-    eprintln!("  Visible bodies: {} (expected: 1 if cut succeeded on single body)", bodies_5);
+    eprintln!(
+        "  Visible bodies: {} (expected: 1 if cut succeeded on single body)",
+        bodies_5
+    );
     if has_solid_5 {
         let mesh = m.tessellate("ext5").unwrap();
         let vol = mesh_volume(&mesh);
@@ -329,16 +299,8 @@ fn several_extrudes_replay() {
     // The .waffle file reuses the same sketch for a second cut.
     // In the test harness, we can't reuse sketch names, so create a new sketch
     // with the same geometry.
-    m.rect_sketch(
-        "sk6",
-        [0., 0., 0.],
-        [-1., 0., 0.],
-        -11.0,
-        -21.0,
-        20.0,
-        15.0,
-    )
-    .unwrap();
+    m.rect_sketch("sk6", [0., 0., 0.], [-1., 0., 0.], -11.0, -21.0, 20.0, 15.0)
+        .unwrap();
     m.extrude_cut("ext6", "sk6", 100.0).unwrap();
 
     let has_solid_6 = m.assert_has_solid("ext6").is_ok();
@@ -427,7 +389,10 @@ fn several_extrudes_simplified_abutting() {
     eprintln!("Box 2 (x=10..20): bodies={} (1=union ok, 2=no union)", b2);
     if m.assert_has_solid("e2").is_ok() {
         let v2 = mesh_volume(&m.tessellate("e2").unwrap());
-        eprintln!("  Volume of latest solid: {:.0} (expected: 8000 if unioned)", v2);
+        eprintln!(
+            "  Volume of latest solid: {:.0} (expected: 8000 if unioned)",
+            v2
+        );
     }
 
     // Box 3: x ∈ [20, 30] — shares face at x=20
@@ -438,7 +403,10 @@ fn several_extrudes_simplified_abutting() {
     eprintln!("Box 3 (x=20..30): bodies={} (1=union ok)", b3);
     if m.assert_has_solid("e3").is_ok() {
         let v3 = mesh_volume(&m.tessellate("e3").unwrap());
-        eprintln!("  Volume of latest solid: {:.0} (expected: 12000 if unioned)", v3);
+        eprintln!(
+            "  Volume of latest solid: {:.0} (expected: 12000 if unioned)",
+            v3
+        );
     }
 
     // Cylinder 4: circle at x=30, r=5, depth 10
@@ -469,8 +437,14 @@ fn several_extrudes_simplified_abutting() {
     // rebuilds lost consumption tracking for features before the rebuild point.
     assert_eq!(b1, 1, "Box 1 should be 1 body");
     assert_eq!(b2, 1, "Box 1+2 union should produce 1 body (e1 consumed)");
-    assert_eq!(b3, 1, "Box 1+2+3 union should produce 1 body (e1,e2 consumed)");
-    assert_eq!(b4, 1, "Box+cyl union should produce 1 body (e1,e2,e3 consumed)");
+    assert_eq!(
+        b3, 1,
+        "Box 1+2+3 union should produce 1 body (e1,e2 consumed)"
+    );
+    assert_eq!(
+        b4, 1,
+        "Box+cyl union should produce 1 body (e1,e2,e3 consumed)"
+    );
     assert_eq!(bc1, 1, "Cut should produce 1 body (e1,e2,e3,e4 consumed)");
 }
 
@@ -502,7 +476,10 @@ fn several_extrudes_overlapping() {
         .unwrap();
     m.extrude("e2", "s2", 10.0).unwrap();
     let b2 = count_visible_bodies(&m);
-    eprintln!("Box 2 (x=8..18, overlap at x=8..10): bodies={} (1=union ok)", b2);
+    eprintln!(
+        "Box 2 (x=8..18, overlap at x=8..10): bodies={} (1=union ok)",
+        b2
+    );
 
     // Box 3: sketch at x=16, 18x18 rect, extrude 10 → x ∈ [16,26]
     // Overlaps with box 2 in region x ∈ [16,18]
@@ -510,7 +487,10 @@ fn several_extrudes_overlapping() {
         .unwrap();
     m.extrude("e3", "s3", 10.0).unwrap();
     let b3 = count_visible_bodies(&m);
-    eprintln!("Box 3 (x=16..26, overlap at x=16..18): bodies={} (1=union ok)", b3);
+    eprintln!(
+        "Box 3 (x=16..26, overlap at x=16..18): bodies={} (1=union ok)",
+        b3
+    );
 
     // Circle 4: sketch at x=24, r=5, extrude 10 → x ∈ [24,34]
     // Overlaps with box 3 in region x ∈ [24,26]
@@ -518,7 +498,10 @@ fn several_extrudes_overlapping() {
         .unwrap();
     m.extrude("e4", "s4", 10.0).unwrap();
     let b4 = count_visible_bodies(&m);
-    eprintln!("Cyl 4 (x=24..34, overlap at x=24..26): bodies={} (1=union ok)", b4);
+    eprintln!(
+        "Cyl 4 (x=24..34, overlap at x=24..26): bodies={} (1=union ok)",
+        b4
+    );
 
     // Now try a cut through the whole thing
     // Cut from x=0, spanning from x=0 deep into the body
@@ -564,16 +547,8 @@ fn multi_cut_replay() {
     // --- Step 1: Rect at origin [0,0,0], normal [1,0,0] ---
     // From .waffle: corners ~ (-17, -16) to (17, 17) in sketch 2D
     // 3D: y ∈ [-17, 17], z ∈ [-16, 17], x ∈ [0, 10]
-    m.rect_sketch(
-        "sk1",
-        [0., 0., 0.],
-        [1., 0., 0.],
-        -17.0,
-        -16.5,
-        34.0,
-        33.0,
-    )
-    .unwrap();
+    m.rect_sketch("sk1", [0., 0., 0.], [1., 0., 0.], -17.0, -16.5, 34.0, 33.0)
+        .unwrap();
     m.extrude("ext1", "sk1", 10.0).unwrap();
 
     let has_solid_1 = m.assert_has_solid("ext1").is_ok();
@@ -595,22 +570,18 @@ fn multi_cut_replay() {
     // --- Step 2: Circle at origin [10,*,*], normal [1,0,0], r≈24 ---
     // From .waffle: center (14.8, 0.6), radius 24.3
     // 3D center: (10, 14.8, 0.6), extrude x ∈ [10, 20]
-    m.circle_sketch(
-        "sk2",
-        [10., 0., 0.],
-        [1., 0., 0.],
-        14.8,
-        0.6,
-        24.3,
-    )
-    .unwrap();
+    m.circle_sketch("sk2", [10., 0., 0.], [1., 0., 0.], 14.8, 0.6, 24.3)
+        .unwrap();
     m.extrude("ext2", "sk2", 10.0).unwrap();
 
     let has_solid_2 = m.assert_has_solid("ext2").is_ok();
     let bodies_2 = count_visible_bodies(&m);
     eprintln!("\nStep 2: Large circle extrude at x=10..20 (should auto-union)");
     eprintln!("  Has solid: {}", has_solid_2);
-    eprintln!("  Visible bodies: {} (expected: 1 if union succeeded)", bodies_2);
+    eprintln!(
+        "  Visible bodies: {} (expected: 1 if union succeeded)",
+        bodies_2
+    );
     if has_solid_2 {
         let mesh = m.tessellate("ext2").unwrap();
         let vol = mesh_volume(&mesh);
@@ -626,22 +597,18 @@ fn multi_cut_replay() {
     // From .waffle: center (19.8, -4.2), radius 18.1
     // 3D center: (20, 19.8, -4.2), extrude cut x ∈ [20, 40]
     // depth=20 means the cut tool spans 20 units from x=20
-    m.circle_sketch(
-        "sk3",
-        [20., 0., 0.],
-        [1., 0., 0.],
-        19.8,
-        -4.2,
-        18.1,
-    )
-    .unwrap();
+    m.circle_sketch("sk3", [20., 0., 0.], [1., 0., 0.], 19.8, -4.2, 18.1)
+        .unwrap();
     m.extrude_cut("ext3", "sk3", 20.0).unwrap();
 
     let has_solid_3 = m.assert_has_solid("ext3").is_ok();
     let bodies_3 = count_visible_bodies(&m);
     eprintln!("\nStep 3: Large circle CUT at x=20..40 (should cut through unified body)");
     eprintln!("  Has solid: {}", has_solid_3);
-    eprintln!("  Visible bodies: {} (expected: 1 if cut succeeded on single body)", bodies_3);
+    eprintln!(
+        "  Visible bodies: {} (expected: 1 if cut succeeded on single body)",
+        bodies_3
+    );
     if has_solid_3 {
         let mesh = m.tessellate("ext3").unwrap();
         let vol = mesh_volume(&mesh);
@@ -692,7 +659,10 @@ fn multi_cut_simplified() {
     m.extrude("e1", "s1", 10.0).unwrap();
     let b1 = count_visible_bodies(&m);
     let v1 = mesh_volume(&m.tessellate("e1").unwrap());
-    eprintln!("Step 1: Box 10x10x10, x=0..10: bodies={}, vol={:.0}", b1, v1);
+    eprintln!(
+        "Step 1: Box 10x10x10, x=0..10: bodies={}, vol={:.0}",
+        b1, v1
+    );
 
     // Cylinder: r=8 at x=10..20 (overlapping circle, center at sketch (0,0))
     m.circle_sketch("s2", [10., 0., 0.], [1., 0., 0.], 0., 0., 8.)
@@ -720,6 +690,262 @@ fn multi_cut_simplified() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Q-series: Multi-cut disappearing body regression tests
+// See: specs/multi_cut_regression.md
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Q1: Two abutting 10x10x10 boxes auto-union, then a 4x4 rect cut through both.
+///
+/// The cut tool spans the entire merged body (x=-0.1 to 20.1).
+/// Expected: final solid retains geometry from BOTH original boxes.
+///
+/// Bug detector: if the first body vanishes, bb_min.x >> 0.
+#[test]
+fn q1_multi_cut_preserves_first_body() {
+    let mut m = ModelBuilder::truck();
+
+    // e1: 10x10x10 box at x=[0,10]
+    m.rect_sketch("sk1", [0., 0., 0.], [1., 0., 0.], -5., -5., 10., 10.)
+        .unwrap();
+    m.extrude("e1", "sk1", 10.0).unwrap();
+
+    let b1 = count_visible_bodies(&m);
+    assert_eq!(b1, 1, "e1 should produce 1 body");
+    let mesh1 = m.tessellate("e1").unwrap();
+    let vol1 = mesh_volume(&mesh1);
+    eprintln!("q1 after e1: bodies={}, vol={:.0}", b1, vol1);
+    assert!(
+        (vol1 - 1000.0).abs() < 100.0,
+        "e1 volume should be ~1000, got {:.0}",
+        vol1
+    );
+
+    // e2: 10x10x10 box at x=[10,20], auto-union with e1
+    m.rect_sketch("sk2", [10., 0., 0.], [1., 0., 0.], -5., -5., 10., 10.)
+        .unwrap();
+    m.extrude("e2", "sk2", 10.0).unwrap();
+
+    let b2 = count_visible_bodies(&m);
+    assert_eq!(b2, 1, "e1+e2 union should produce 1 body");
+    let mesh2 = m.tessellate("e2").unwrap();
+    let vol2 = mesh_volume(&mesh2);
+    let (bb2_min, bb2_max) = mesh_bounding_box(&mesh2);
+    eprintln!(
+        "q1 after e2: bodies={}, vol={:.0}, bb=({:.1},{:.1},{:.1})→({:.1},{:.1},{:.1})",
+        b2, vol2, bb2_min[0], bb2_min[1], bb2_min[2], bb2_max[0], bb2_max[1], bb2_max[2]
+    );
+    assert!(
+        (vol2 - 2000.0).abs() < 200.0,
+        "e1+e2 union volume should be ~2000, got {:.0}",
+        vol2
+    );
+    assert!(
+        bb2_min[0] < 0.5,
+        "After union, bb_min.x should be ~0, got {:.1}",
+        bb2_min[0]
+    );
+
+    // e3: 4x4 rect cut from x=20, depth=20 (tool spans x=-0.1 to 20.1)
+    // Sketch at [20,0,0], normal [1,0,0], rect centered at (0,0) with size 4x4
+    m.rect_sketch("sk3", [20., 0., 0.], [1., 0., 0.], -2., -2., 4., 4.)
+        .unwrap();
+    m.extrude_cut("e3", "sk3", 20.0).unwrap();
+
+    let b3 = count_visible_bodies(&m);
+    eprintln!("q1 after e3 (cut): bodies={}", b3);
+    assert_eq!(b3, 1, "After cut, should still be 1 body");
+
+    m.assert_has_solid("e3")
+        .expect("Cut should produce a solid");
+    let mesh3 = m.tessellate("e3").unwrap();
+    let vol3 = mesh_volume(&mesh3);
+    let (bb3_min, bb3_max) = mesh_bounding_box(&mesh3);
+    eprintln!(
+        "q1 after e3: vol={:.0}, bb=({:.1},{:.1},{:.1})→({:.1},{:.1},{:.1})",
+        vol3, bb3_min[0], bb3_min[1], bb3_min[2], bb3_max[0], bb3_max[1], bb3_max[2]
+    );
+
+    // THE BUG DETECTOR: first body must still be present
+    assert!(
+        bb3_min[0] < 0.5,
+        "BUG: first body vanished! bb_min.x={:.1}, expected < 0.5",
+        bb3_min[0]
+    );
+
+    // Volume: 2000 - 4*4*20 = 1680, allow 10% tolerance
+    assert!(
+        (vol3 - 1680.0).abs() < 168.0,
+        "Volume should be ~1680, got {:.0}",
+        vol3
+    );
+
+    // BB max.x should still be ~20 (second body still present)
+    assert!(
+        bb3_max[0] > 19.5,
+        "bb_max.x should be ~20, got {:.1}",
+        bb3_max[0]
+    );
+
+    print_diagnostics(&m, "Q1: multi-cut preserves first body");
+}
+
+/// Q2: Box + cylinder variant (matches original bug report geometry).
+///
+/// 10x10x10 box + r=8 cylinder auto-union, then r=6 circle cut through both.
+/// The cut must affect the merged body, not just the cylinder.
+#[test]
+fn q2_multi_cut_box_cylinder_variant() {
+    let mut m = ModelBuilder::truck();
+
+    // e1: 10x10x10 box at x=[0,10]
+    m.rect_sketch("sk1", [0., 0., 0.], [1., 0., 0.], -5., -5., 10., 10.)
+        .unwrap();
+    m.extrude("e1", "sk1", 10.0).unwrap();
+
+    let b1 = count_visible_bodies(&m);
+    assert_eq!(b1, 1, "e1 should produce 1 body");
+
+    // e2: cylinder r=8 at x=[10,20], auto-union with e1
+    m.circle_sketch("sk2", [10., 0., 0.], [1., 0., 0.], 0., 0., 8.)
+        .unwrap();
+    m.extrude("e2", "sk2", 10.0).unwrap();
+
+    let b2 = count_visible_bodies(&m);
+    eprintln!("q2 after e2: bodies={}", b2);
+    assert_eq!(b2, 1, "e1+e2 union should produce 1 body");
+    let mesh2 = m.tessellate("e2").unwrap();
+    let (bb2_min, _bb2_max) = mesh_bounding_box(&mesh2);
+    assert!(
+        bb2_min[0] < 0.5,
+        "After union, bb_min.x should be ~0, got {:.1}",
+        bb2_min[0]
+    );
+
+    // e3: circle cut r=6 from x=20, depth=20 (tool spans entire merged body)
+    m.circle_sketch("sk3", [20., 0., 0.], [1., 0., 0.], 0., 0., 6.)
+        .unwrap();
+    m.extrude_cut("e3", "sk3", 20.0).unwrap();
+
+    let b3 = count_visible_bodies(&m);
+    eprintln!("q2 after e3 (cut): bodies={}", b3);
+    assert_eq!(b3, 1, "After cut, should still be 1 body");
+
+    m.assert_has_solid("e3")
+        .expect("Cut should produce a solid");
+    let mesh3 = m.tessellate("e3").unwrap();
+    let vol3 = mesh_volume(&mesh3);
+    let (bb3_min, bb3_max) = mesh_bounding_box(&mesh3);
+    eprintln!(
+        "q2 after e3: vol={:.0}, bb=({:.1},{:.1},{:.1})→({:.1},{:.1},{:.1})",
+        vol3, bb3_min[0], bb3_min[1], bb3_min[2], bb3_max[0], bb3_max[1], bb3_max[2]
+    );
+
+    // THE BUG DETECTOR: first body must still be present
+    assert!(
+        bb3_min[0] < 0.5,
+        "BUG: first body vanished! bb_min.x={:.1}, expected < 0.5",
+        bb3_min[0]
+    );
+
+    // Volume should be positive and substantial (box + cylinder - cut)
+    assert!(vol3 > 500.0, "Volume should be > 500, got {:.0}", vol3);
+
+    // BB should span from near 0 to near 20
+    assert!(
+        bb3_max[0] > 19.5,
+        "bb_max.x should be ~20, got {:.1}",
+        bb3_max[0]
+    );
+
+    print_diagnostics(&m, "Q2: box+cylinder multi-cut");
+}
+
+/// Q3: Three abutting boxes then a cut through all three.
+///
+/// Broader regression: ensures the bug doesn't manifest with 3+ bodies.
+/// Three 10x10x10 boxes at x=[0,10], [10,20], [20,30], auto-union.
+/// Then a 4x4 rect cut from x=30, depth=30 (tool spans x=-0.1 to 30.1).
+#[test]
+fn q3_multi_cut_three_bodies_then_cut() {
+    let mut m = ModelBuilder::truck();
+
+    // e1: box at x=[0,10]
+    m.rect_sketch("sk1", [0., 0., 0.], [1., 0., 0.], -5., -5., 10., 10.)
+        .unwrap();
+    m.extrude("e1", "sk1", 10.0).unwrap();
+    assert_eq!(count_visible_bodies(&m), 1);
+
+    // e2: box at x=[10,20], auto-union
+    m.rect_sketch("sk2", [10., 0., 0.], [1., 0., 0.], -5., -5., 10., 10.)
+        .unwrap();
+    m.extrude("e2", "sk2", 10.0).unwrap();
+    assert_eq!(
+        count_visible_bodies(&m),
+        1,
+        "e1+e2 union should produce 1 body"
+    );
+
+    // e3: box at x=[20,30], auto-union
+    m.rect_sketch("sk3", [20., 0., 0.], [1., 0., 0.], -5., -5., 10., 10.)
+        .unwrap();
+    m.extrude("e3", "sk3", 10.0).unwrap();
+
+    let b3 = count_visible_bodies(&m);
+    eprintln!("q3 after e3: bodies={}", b3);
+    assert_eq!(b3, 1, "e1+e2+e3 union should produce 1 body");
+    let mesh3 = m.tessellate("e3").unwrap();
+    let vol3 = mesh_volume(&mesh3);
+    eprintln!("q3 union volume: {:.0} (expected: 3000)", vol3);
+    assert!(
+        (vol3 - 3000.0).abs() < 300.0,
+        "Union of 3 boxes should be ~3000, got {:.0}",
+        vol3
+    );
+
+    // e4: 4x4 rect cut from x=30, depth=30 (tool spans x=-0.1 to 30.1)
+    m.rect_sketch("sk4", [30., 0., 0.], [1., 0., 0.], -2., -2., 4., 4.)
+        .unwrap();
+    m.extrude_cut("e4", "sk4", 30.0).unwrap();
+
+    let b4 = count_visible_bodies(&m);
+    eprintln!("q3 after e4 (cut): bodies={}", b4);
+    assert_eq!(b4, 1, "After cut, should still be 1 body");
+
+    m.assert_has_solid("e4")
+        .expect("Cut should produce a solid");
+    let mesh4 = m.tessellate("e4").unwrap();
+    let vol4 = mesh_volume(&mesh4);
+    let (bb4_min, bb4_max) = mesh_bounding_box(&mesh4);
+    eprintln!(
+        "q3 after e4: vol={:.0}, bb=({:.1},{:.1},{:.1})→({:.1},{:.1},{:.1})",
+        vol4, bb4_min[0], bb4_min[1], bb4_min[2], bb4_max[0], bb4_max[1], bb4_max[2]
+    );
+
+    // THE BUG DETECTOR: first body must still be present
+    assert!(
+        bb4_min[0] < 0.5,
+        "BUG: first body vanished! bb_min.x={:.1}, expected < 0.5",
+        bb4_min[0]
+    );
+
+    // Volume: 3000 - 4*4*30 = 2520, allow 10% tolerance
+    assert!(
+        (vol4 - 2520.0).abs() < 252.0,
+        "Volume should be ~2520, got {:.0}",
+        vol4
+    );
+
+    // BB should span from near 0 to near 30
+    assert!(
+        bb4_max[0] > 29.5,
+        "bb_max.x should be ~30, got {:.1}",
+        bb4_max[0]
+    );
+
+    print_diagnostics(&m, "Q3: three bodies then cut");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Test: Load actual .waffle files directly via the load() API
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -729,9 +955,8 @@ fn load_several_extrudes_waffle() {
     eprintln!("║  LOAD: several-extrudes.waffle (actual file)                ║");
     eprintln!("╚══════════════════════════════════════════════════════════════╝");
 
-    let json =
-        std::fs::read_to_string("../../app/tests/cases/several-extrudes.waffle")
-            .expect("Failed to read several-extrudes.waffle");
+    let json = std::fs::read_to_string("../../app/tests/cases/several-extrudes.waffle")
+        .expect("Failed to read several-extrudes.waffle");
 
     let mut m = ModelBuilder::truck();
     match m.load(&json) {
@@ -758,7 +983,12 @@ fn load_several_extrudes_waffle() {
                         })
                         .unwrap_or_default();
                     let n_outputs = result.map(|r| r.outputs.len()).unwrap_or(0);
-                    (f.name.clone(), f.id.to_string()[..8].to_string(), n_outputs, handles)
+                    (
+                        f.name.clone(),
+                        f.id.to_string()[..8].to_string(),
+                        n_outputs,
+                        handles,
+                    )
                 })
                 .collect();
 
@@ -776,8 +1006,7 @@ fn load_several_extrudes_waffle() {
                             eprintln!("      Volume: {:.0}", vol);
                             eprintln!(
                                 "      BB: ({:.1},{:.1},{:.1}) → ({:.1},{:.1},{:.1})",
-                                bb_min[0], bb_min[1], bb_min[2],
-                                bb_max[0], bb_max[1], bb_max[2]
+                                bb_min[0], bb_min[1], bb_min[2], bb_max[0], bb_max[1], bb_max[2]
                             );
                         }
                         Err(e) => {
@@ -799,9 +1028,8 @@ fn load_multi_cut_waffle() {
     eprintln!("║  LOAD: multi-cut.waffle (actual file)                       ║");
     eprintln!("╚══════════════════════════════════════════════════════════════╝");
 
-    let json =
-        std::fs::read_to_string("../../app/tests/cases/multi-cut.waffle")
-            .expect("Failed to read multi-cut.waffle");
+    let json = std::fs::read_to_string("../../app/tests/cases/multi-cut.waffle")
+        .expect("Failed to read multi-cut.waffle");
 
     let mut m = ModelBuilder::truck();
     match m.load(&json) {
@@ -828,7 +1056,12 @@ fn load_multi_cut_waffle() {
                         })
                         .unwrap_or_default();
                     let n_outputs = result.map(|r| r.outputs.len()).unwrap_or(0);
-                    (f.name.clone(), f.id.to_string()[..8].to_string(), n_outputs, handles)
+                    (
+                        f.name.clone(),
+                        f.id.to_string()[..8].to_string(),
+                        n_outputs,
+                        handles,
+                    )
                 })
                 .collect();
 
@@ -846,8 +1079,7 @@ fn load_multi_cut_waffle() {
                             eprintln!("      Volume: {:.0}", vol);
                             eprintln!(
                                 "      BB: ({:.1},{:.1},{:.1}) → ({:.1},{:.1},{:.1})",
-                                bb_min[0], bb_min[1], bb_min[2],
-                                bb_max[0], bb_max[1], bb_max[2]
+                                bb_min[0], bb_min[1], bb_min[2], bb_max[0], bb_max[1], bb_max[2]
                             );
                         }
                         Err(e) => {
