@@ -87,8 +87,8 @@
 
 {#if sketchMode?.active}
 	<T.Group position={planePosition} quaternion={planeQuaternion}>
-		<!-- Semi-transparent plane background -->
-		<T.Mesh geometry={planeGeometry} material={planeMaterial} />
+		<!-- Semi-transparent plane background — raycast disabled so clicks pass through to canvas -->
+		<T.Mesh geometry={planeGeometry} material={planeMaterial} raycast={() => {}} />
 
 		<!-- Grid lines -->
 		<T.LineSegments geometry={gridGeometry} material={gridMaterial} />

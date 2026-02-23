@@ -214,7 +214,7 @@
 		pointer-events: none !important;
 	}
 	:global(.dim-html-wrapper *) {
-		pointer-events: none;
+		pointer-events: none !important;
 	}
 
 	:global(.dim-label) {

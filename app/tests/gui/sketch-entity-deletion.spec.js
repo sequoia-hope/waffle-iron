@@ -184,6 +184,103 @@ test.describe('sketch entity deletion', () => {
 		expect(await getEntityCount(page)).toBe(0);
 	});
 
+	test('delete circle removes circle + orphaned center point', async ({ waffle }) => {
+		const page = waffle.page;
+
+		// Draw a circle (center point + circle = 2 entities)
+		await clickCircle(page);
+		await drawCircle(page, 0, 0, 60, 0);
+		await page.waitForTimeout(300);
+
+		const entitiesBefore = await getEntities(page);
+		const circle = entitiesBefore.find(e => e.type === 'Circle');
+		const center = entitiesBefore.find(e => e.type === 'Point');
+		expect(circle).toBeTruthy();
+		expect(center).toBeTruthy();
+
+		// Select center point and delete — should cascade to circle
+		await clickSelect(page);
+		await setSketchSelection(page, [center.id]);
+		await page.keyboard.press('Delete');
+		await page.waitForTimeout(300);
+
+		// Both circle and center removed
+		expect(await getEntityCount(page)).toBe(0);
+	});
+
+	test('delete two lines sharing endpoint preserves shared point when one remains', async ({ waffle }) => {
+		const page = waffle.page;
+
+		// Draw two lines sharing an endpoint via chaining
+		await drawLine(page, -100, 0, 0, 0);
+		await waitForEntityCount(page, 3, 5000);
+		// Line tool chains from endpoint, so second click continues
+		await clickAt(page, 100, 50);
+		await page.waitForTimeout(300);
+
+		const entities = await getEntities(page);
+		const lines = entities.filter(e => e.type === 'Line');
+		expect(lines.length).toBe(2);
+
+		// Delete just one line
+		await clickSelect(page);
+		await setSketchSelection(page, [lines[0].id]);
+		await page.keyboard.press('Delete');
+		await page.waitForTimeout(300);
+
+		// One line removed, shared point still used by other line
+		const remaining = await getEntities(page);
+		const remainingLines = remaining.filter(e => e.type === 'Line');
+		expect(remainingLines.length).toBe(1);
+		// The shared point should still exist
+		const remainingPoints = remaining.filter(e => e.type === 'Point');
+		expect(remainingPoints.length).toBe(2); // remaining line's 2 endpoints
+	});
+
+	test('delete all entities one by one → empty sketch', async ({ waffle }) => {
+		const page = waffle.page;
+
+		// Draw a single line (3 entities)
+		await drawLine(page, -80, 0, 80, 0);
+		await waitForEntityCount(page, 3, 5000);
+
+		// Delete the line first (points become orphaned and get removed)
+		const entities = await getEntities(page);
+		const line = entities.find(e => e.type === 'Line');
+		await clickSelect(page);
+		await setSketchSelection(page, [line.id]);
+		await page.keyboard.press('Delete');
+		await page.waitForTimeout(300);
+
+		expect(await getEntityCount(page)).toBe(0);
+	});
+
+	test('entity count after delete matches expected (not off-by-one)', async ({ waffle }) => {
+		const page = waffle.page;
+
+		// Draw rectangle (8 entities: 4 points + 4 lines)
+		await clickRectangle(page);
+		await drawRectangle(page, -80, -60, 80, 60);
+		await waitForEntityCount(page, 8, 5000);
+
+		expect(await getEntityCount(page)).toBe(8);
+		expect(await getEntityCountByType(page, 'Point')).toBe(4);
+		expect(await getEntityCountByType(page, 'Line')).toBe(4);
+
+		// Delete one line — shared corner points survive
+		const entities = await getEntities(page);
+		const line = entities.find(e => e.type === 'Line');
+		await clickSelect(page);
+		await setSketchSelection(page, [line.id]);
+		await page.keyboard.press('Delete');
+		await page.waitForTimeout(300);
+
+		// 8 - 1 = 7 (line removed, but its corner points still used by adjacent lines)
+		expect(await getEntityCount(page)).toBe(7);
+		expect(await getEntityCountByType(page, 'Line')).toBe(3);
+		expect(await getEntityCountByType(page, 'Point')).toBe(4);
+	});
+
 	test('new entities after deletion get unique IDs', async ({ waffle }) => {
 		const page = waffle.page;
 

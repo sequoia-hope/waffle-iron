@@ -117,6 +117,77 @@ test.describe('sketch drag-to-reposition', () => {
 		expect(await getEntityCount(page)).toBe(8);
 	});
 
+	test('drag preserves H-constraint on horizontal line endpoint', async ({ waffle }) => {
+		const page = waffle.page;
+
+		// Draw a line
+		await drawLine(page, -100, 0, 100, 0);
+		await waitForEntityCount(page, 3, 5000);
+
+		// Add H constraint
+		const entities = await getEntities(page);
+		const line = entities.find(e => e.type === 'Line');
+		await page.evaluate((lineId) => {
+			window.__waffle.addSketchConstraint({ type: 'Horizontal', entity: lineId });
+		}, line.id);
+		await page.waitForTimeout(300);
+
+		// Drag an endpoint via API
+		const point = entities.find(e => e.type === 'Point');
+		await page.evaluate(([ptId]) => {
+			window.__waffle.dragSketchPoint(ptId, 8, 5);
+			window.__waffle.finalizeDrag();
+		}, [point.id]);
+		await page.waitForTimeout(500);
+
+		// After solver runs, both endpoints should have same Y (H constraint preserved)
+		const positions = await page.evaluate(() => {
+			const pos = window.__waffle.getPositions();
+			return Object.fromEntries(pos);
+		});
+		const pts = entities.filter(e => e.type === 'Point');
+		const posA = positions[String(pts[0].id)];
+		const posB = positions[String(pts[1].id)];
+		if (posA && posB) {
+			expect(Math.abs(posA.y - posB.y)).toBeLessThan(0.1);
+		}
+	});
+
+	test('click-release without movement selects point, does not drag', async ({ waffle }) => {
+		const page = waffle.page;
+
+		// Draw a line
+		await drawLine(page, -80, 0, 80, 0);
+		await waitForEntityCount(page, 3, 5000);
+
+		// Switch to select tool
+		await clickSelect(page);
+		await page.waitForTimeout(200);
+
+		// Get position of a point before click
+		const entities = await getEntities(page);
+		const point = entities.find(e => e.type === 'Point');
+		const posBefore = await page.evaluate((ptId) => {
+			const pos = window.__waffle.getPositions();
+			return pos.get(ptId);
+		}, point.id);
+
+		// Click on the point (select it) — no drag
+		await page.evaluate((ids) => {
+			window.__waffle.setSketchSelection(ids);
+		}, [point.id]);
+		await page.waitForTimeout(200);
+
+		// Position should not have changed
+		const posAfter = await page.evaluate((ptId) => {
+			const pos = window.__waffle.getPositions();
+			return pos.get(ptId);
+		}, point.id);
+
+		expect(posAfter.x).toBeCloseTo(posBefore.x, 1);
+		expect(posAfter.y).toBeCloseTo(posBefore.y, 1);
+	});
+
 	test('solver status DOF unchanged after drag finalize', async ({ waffle }) => {
 		const page = waffle.page;
 

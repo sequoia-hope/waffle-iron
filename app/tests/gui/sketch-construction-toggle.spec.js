@@ -6,7 +6,7 @@
  */
 import { test, expect } from './helpers/waffle-test.js';
 import { clickSketch, clickSelect, clickRectangle } from './helpers/toolbar.js';
-import { drawLine, drawRectangle } from './helpers/canvas.js';
+import { drawLine, drawRectangle, drawCircle } from './helpers/canvas.js';
 import { getEntityCount, waitForEntityCount, getEntities } from './helpers/state.js';
 import { setSketchSelection } from './helpers/constraint.js';
 
@@ -79,6 +79,94 @@ test.describe('sketch construction toggle', () => {
 
 		const updated = await getEntities(page);
 		expect(updated.find(e => e.id === line.id).construction).toBe(true);
+	});
+
+	test('toggle circle to construction', async ({ waffle }) => {
+		const page = waffle.page;
+
+		// Draw a circle
+		await page.evaluate(() => window.__waffle.setTool('circle'));
+		await page.waitForTimeout(100);
+		await drawCircle(page, 0, 0, 60, 0);
+		await page.waitForTimeout(300);
+
+		const entities = await getEntities(page);
+		const circle = entities.find(e => e.type === 'Circle');
+		expect(circle).toBeTruthy();
+		expect(circle.construction).toBe(false);
+
+		// Select circle and toggle construction
+		await clickSelect(page);
+		await setSketchSelection(page, [circle.id]);
+		await page.keyboard.press('g');
+		await page.waitForTimeout(200);
+
+		const updated = await getEntities(page);
+		expect(updated.find(e => e.id === circle.id).construction).toBe(true);
+	});
+
+	test('multi-select lines + toggle → all become construction', async ({ waffle }) => {
+		const page = waffle.page;
+
+		// Draw two lines
+		await drawLine(page, -100, -30, 100, -30);
+		await waitForEntityCount(page, 3, 5000);
+		await page.keyboard.press('Escape');
+		await page.waitForTimeout(100);
+
+		await page.evaluate(() => window.__waffle.setTool('line'));
+		await page.waitForTimeout(100);
+		await drawLine(page, -100, 30, 100, 30);
+		await page.waitForTimeout(300);
+
+		const entities = await getEntities(page);
+		const lines = entities.filter(e => e.type === 'Line');
+		expect(lines.length).toBe(2);
+
+		// Multi-select both lines
+		await clickSelect(page);
+		await setSketchSelection(page, lines.map(l => l.id));
+		await page.keyboard.press('g');
+		await page.waitForTimeout(200);
+
+		// Both should be construction
+		const updated = await getEntities(page);
+		for (const line of lines) {
+			expect(updated.find(e => e.id === line.id).construction).toBe(true);
+		}
+	});
+
+	test('construction entities excluded from profile extraction', async ({ waffle }) => {
+		const page = waffle.page;
+
+		// Draw a rectangle (closed profile)
+		await clickRectangle(page);
+		await drawRectangle(page, -80, -60, 80, 60);
+		await waitForEntityCount(page, 8, 5000);
+		await page.waitForTimeout(500);
+
+		// Verify profile exists
+		const profilesBefore = await page.evaluate(() => window.__waffle.getProfiles());
+
+		// Add a construction line across the rectangle using fixed IDs
+		await page.evaluate(() => {
+			const w = window.__waffle;
+			w.addSketchEntity({ type: 'Point', id: 9001, x: -80, y: 0 });
+			w.addSketchEntity({ type: 'Point', id: 9002, x: 80, y: 0 });
+			w.addSketchEntity({ type: 'Line', id: 9003, start_id: 9001, end_id: 9002, construction: true });
+		});
+		await page.waitForTimeout(500);
+
+		// Construction line should NOT appear in any profile
+		const profilesAfter = await page.evaluate(() => window.__waffle.getProfiles());
+		const constructionIds = await page.evaluate(() =>
+			window.__waffle.getEntities().filter(e => e.construction).map(e => e.id)
+		);
+		for (const p of profilesAfter) {
+			for (const cId of constructionIds) {
+				expect(p.entityIds).not.toContain(cId);
+			}
+		}
 	});
 
 	test('construction line breaks rectangle profile', async ({ waffle }) => {

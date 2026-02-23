@@ -46,6 +46,16 @@
 			// Skip right/middle mouse button on pointerdown
 			if (e.pointerType === 'mouse' && e.button !== 0 && e.type === 'pointerdown') return;
 
+			// For pointerdown on window, verify click is within canvas bounds
+			// (pointermove/pointerup intentionally work outside canvas for drag continuity)
+			if (e.type === 'pointerdown') {
+				const rect = canvas.getBoundingClientRect();
+				if (e.clientX < rect.left || e.clientX > rect.right ||
+					e.clientY < rect.top || e.clientY > rect.bottom) {
+					return;
+				}
+			}
+
 			const sm = getSketchMode();
 			if (!sm?.active) return;
 
@@ -69,15 +79,16 @@
 			handleToolEvent(tool, e.type, coords.x, coords.y, screenPixelSize, shiftKey);
 		}
 
-		// pointerdown on canvas; pointermove/pointerup on window because
-		// OrbitControls calls setPointerCapture() which redirects pointer
-		// events away from the canvas during drags.
-		canvas.addEventListener('pointerdown', handler);
+		// All pointer events on window — pointerdown includes a canvas bounds
+		// check to ignore clicks outside the canvas. pointermove/pointerup on
+		// window because OrbitControls calls setPointerCapture() which redirects
+		// pointer events away from the canvas during drags.
+		window.addEventListener('pointerdown', handler);
 		window.addEventListener('pointermove', handler);
 		window.addEventListener('pointerup', handler);
 
 		return () => {
-			canvas.removeEventListener('pointerdown', handler);
+			window.removeEventListener('pointerdown', handler);
 			window.removeEventListener('pointermove', handler);
 			window.removeEventListener('pointerup', handler);
 		};

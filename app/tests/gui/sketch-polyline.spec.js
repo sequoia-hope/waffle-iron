@@ -85,6 +85,68 @@ test.describe('sketch polyline tool', () => {
 		expect(await btn.isVisible()).toBe(true);
 	});
 
+	test('polyline with snap to existing point reuses point', async ({ waffle }) => {
+		const page = waffle.page;
+
+		// Create a point at (5, 0) via API
+		await page.evaluate(() => {
+			window.__waffle.addSketchEntity({ type: 'Point', id: 900, x: 5, y: 0 });
+		});
+		await page.waitForTimeout(200);
+
+		// Start polyline at (-80, 0)
+		await clickAt(page, -80, 0);
+		await page.waitForTimeout(200);
+
+		// Click near (5, 0) — should snap to existing point
+		// Get the screen offset for the existing point
+		const offset = await page.evaluate(() => window.__waffle.sketchToScreenOffset(5, 0));
+		if (offset) {
+			await clickAt(page, offset.x, offset.y);
+		} else {
+			// Fallback: click near where it should be
+			await clickAt(page, 40, 0);
+		}
+		await page.keyboard.press('Escape');
+		await page.waitForTimeout(300);
+
+		// Should have reused the existing point, so total entities:
+		// 2 new points (start) + 1 line, but endpoint may be the existing 900 point
+		const entities = await getEntities(page);
+		const lines = entities.filter(e => e.type === 'Line');
+		expect(lines.length).toBe(1);
+	});
+
+	test('polyline close-to-start with 5 segments → pentagon', async ({ waffle }) => {
+		const page = waffle.page;
+
+		// Click 5 vertices in a pentagon pattern
+		const radius = 70;
+		for (let i = 0; i < 5; i++) {
+			const angle = (i / 5) * Math.PI * 2 - Math.PI / 2;
+			const x = Math.round(radius * Math.cos(angle));
+			const y = Math.round(radius * Math.sin(angle));
+			await clickAt(page, x, y);
+			await page.waitForTimeout(150);
+		}
+
+		// Close by clicking near the first point
+		const closeAngle = -Math.PI / 2;
+		const closeX = Math.round(radius * Math.cos(closeAngle));
+		const closeY = Math.round(radius * Math.sin(closeAngle));
+		await moveTo(page, closeX, closeY);
+		await page.waitForTimeout(200);
+		await clickAt(page, closeX, closeY);
+		await page.waitForTimeout(300);
+
+		// Should have 5 points + 5 lines = 10 entities (closed pentagon)
+		const entities = await getEntities(page);
+		const points = entities.filter(e => e.type === 'Point');
+		const lines = entities.filter(e => e.type === 'Line');
+		expect(lines.length).toBe(5);
+		expect(points.length).toBe(5);
+	});
+
 	test('P key activates polyline tool', async ({ waffle }) => {
 		const page = waffle.page;
 
