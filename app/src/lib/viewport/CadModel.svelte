@@ -207,6 +207,7 @@
 	});
 
 	let showTestBox = $derived(engineMeshes.length === 0);
+	let inSketchMode = $derived(getSketchMode()?.active ?? false);
 
 	/**
 	 * Handle pointer move on mesh for hover highlighting.
@@ -390,13 +391,21 @@
 	<T.Mesh geometry={testGeometry} material={testMaterial} />
 {:else}
 	{#each engineMeshes as mesh, i (mesh.featureId)}
-		<T.Mesh
-			geometry={mesh.geometry}
-			material={meshMaterials[i]?.length > 1 ? meshMaterials[i] : meshMaterials[i]?.[0]}
-			onpointermove={(e) => handlePointerMove(e, i)}
-			onpointerout={handlePointerOut}
-			onclick={(e) => handleClick(e, i)}
-			onpointermissed={handleMiss}
-		/>
+		{#if inSketchMode}
+			<T.Mesh
+				geometry={mesh.geometry}
+				material={meshMaterials[i]?.length > 1 ? meshMaterials[i] : meshMaterials[i]?.[0]}
+				raycast={() => {}}
+			/>
+		{:else}
+			<T.Mesh
+				geometry={mesh.geometry}
+				material={meshMaterials[i]?.length > 1 ? meshMaterials[i] : meshMaterials[i]?.[0]}
+				onpointermove={(e) => handlePointerMove(e, i)}
+				onpointerout={handlePointerOut}
+				onclick={(e) => handleClick(e, i)}
+				onpointermissed={handleMiss}
+			/>
+		{/if}
 	{/each}
 {/if}

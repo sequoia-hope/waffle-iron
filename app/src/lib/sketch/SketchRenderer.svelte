@@ -557,7 +557,7 @@
 
 	<!-- Snap text label -->
 	{#if snapLabelData}
-		<HTML position={[snapLabelData.world.x, snapLabelData.world.y, snapLabelData.world.z]} center={false} pointerEvents="none">
+		<HTML position={[snapLabelData.world.x, snapLabelData.world.y, snapLabelData.world.z]} center={false} pointerEvents="none" wrapperClass="snap-html-wrapper">
 			<span class="snap-label">{snapLabelData.text}</span>
 		</HTML>
 	{/if}
@@ -572,6 +572,15 @@
 {/if}
 
 <style>
+	/* Threlte <HTML> ignores pointerEvents prop in non-transform mode;
+	   force pointer-events: none on the wrapper so clicks pass through to canvas */
+	:global(.snap-html-wrapper) {
+		pointer-events: none !important;
+	}
+	:global(.snap-html-wrapper *) {
+		pointer-events: none !important;
+	}
+
 	:global(.snap-label) {
 		background: rgba(30, 50, 30, 0.85);
 		color: #44cc44;

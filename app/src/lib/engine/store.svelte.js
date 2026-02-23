@@ -1891,8 +1891,11 @@ export function applyDimensionFromPopup(value) {
 				addLocalConstraint({ type: 'Distance', entity_a: entity.start_id, entity_b: entity.end_id, value });
 			}
 		}
+	} else if (p.dimType === 'pointLineDistance') {
+		addLocalConstraint({ type: 'PointLineDistance', point: p.entityA, entity: p.entityB, value });
 	} else if (p.dimType === 'radius') {
-		addLocalConstraint({ type: 'Radius', entity: p.entityA, value });
+		// libslvs uses Diameter constraint; convert radius to diameter
+		addLocalConstraint({ type: 'Diameter', entity: p.entityA, value: value * 2 });
 	} else if (p.dimType === 'angle') {
 		if (p.entityB != null) {
 			addLocalConstraint({ type: 'Angle', line_a: p.entityA, line_b: p.entityB, value_degrees: value });

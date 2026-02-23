@@ -80,13 +80,13 @@ export function getApplicableConstraints(selectionIds, entities, positions) {
 	// 1 point + 1 line
 	if (points.length === 1 && lines.length === 1 && circles.length === 0 && arcs.length === 0) {
 		result.midpoint = () => ({ type: 'Midpoint', point: points[0].id, line: lines[0].id });
-		result.distance = () => ({ type: 'Distance', entity_a: points[0].id, entity_b: lines[0].id, value: 1.0 });
+		result.distance = () => ({ type: 'PointLineDistance', point: points[0].id, entity: lines[0].id, value: 1.0 });
 	}
 
 	// 1 circle or arc
 	if ((circles.length === 1 || arcs.length === 1) && points.length === 0 && lines.length === 0) {
 		const entity = circles[0] || arcs[0];
-		result.radius = () => ({ type: 'Radius', entity: entity.id, value: entity.radius || 1.0 });
+		result.radius = () => ({ type: 'Diameter', entity: entity.id, value: (entity.radius || 1.0) * 2 });
 	}
 
 	// 1 line + 1 arc

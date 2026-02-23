@@ -220,7 +220,7 @@ test.describe('dimension popup via __waffle API', () => {
 
 		const constraintsBefore = await getConstraintCount(waffle.page);
 
-		// Apply radius value
+		// Apply radius value of 3.0 — stored as Diameter constraint (value * 2 = 6.0)
 		await waffle.page.evaluate(() => {
 			window.__waffle.applyDimensionFromPopup(3.0);
 		});
@@ -230,9 +230,10 @@ test.describe('dimension popup via __waffle API', () => {
 		expect(constraintsAfter).toBe(constraintsBefore + 1);
 
 		const constraints = await getConstraints(waffle.page);
-		const radiusConstraint = constraints.find(c => c.type === 'Radius');
-		expect(radiusConstraint).toBeTruthy();
-		expect(radiusConstraint.value).toBe(3.0);
+		const diameterConstraint = constraints.find(c => c.type === 'Diameter');
+		expect(diameterConstraint).toBeTruthy();
+		// User entered radius 3.0, stored as diameter 6.0
+		expect(diameterConstraint.value).toBe(6.0);
 	});
 });
 

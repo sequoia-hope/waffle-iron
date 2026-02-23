@@ -136,18 +136,25 @@
 		return { x: mx + 0.3, y: my + 0.3, fromX: mx, fromY: my };
 	}
 
-	function startEditing(index, currentValue) {
+	function startEditing(index, currentValue, labelType) {
 		editingIndex = index;
-		editValue = String(currentValue);
+		editingType = labelType;
+		// Show radius value to user for Diameter constraints
+		editValue = labelType === 'Diameter' ? String(currentValue / 2) : String(currentValue);
 	}
+
+	let editingType = null;
 
 	function finishEditing() {
 		if (editingIndex != null) {
 			const val = parseFloat(editValue);
 			if (!isNaN(val) && val > 0) {
-				updateConstraintValue(editingIndex, val);
+				// Convert radius back to diameter for storage
+				const storeVal = editingType === 'Diameter' ? val * 2 : val;
+				updateConstraintValue(editingIndex, storeVal);
 			}
 			editingIndex = null;
+			editingType = null;
 			editValue = '';
 		}
 	}
@@ -164,6 +171,8 @@
 	/** Format display value */
 	function formatValue(label) {
 		if (label.type === 'Angle') return `${label.value.toFixed(1)}\u00B0`;
+		if (label.type === 'Diameter') return `R ${(label.value / 2).toFixed(2)}`;
+		if (label.type === 'Radius') return `R ${label.value.toFixed(2)}`;
 		return label.value.toFixed(2);
 	}
 </script>
@@ -177,7 +186,7 @@
 		</T.Line>
 
 		<!-- HTML label -->
-		<HTML position={[label.world.x, label.world.y, label.world.z]} center pointerEvents="auto">
+		<HTML position={[label.world.x, label.world.y, label.world.z]} center pointerEvents="auto" wrapperClass="dim-html-wrapper">
 			{#if editingIndex === label.index}
 				<input
 					type="number"
@@ -189,7 +198,7 @@
 					autofocus
 				/>
 			{:else}
-				<button class="dim-label" onclick={() => startEditing(label.index, label.value)}>
+				<button class="dim-label" onclick={() => startEditing(label.index, label.value, label.type)}>
 					{formatValue(label)}
 				</button>
 			{/if}
@@ -198,6 +207,16 @@
 {/if}
 
 <style>
+	/* Threlte <HTML> ignores pointerEvents prop in non-transform mode;
+	   force pointer-events: none on the wrapper so clicks pass through to canvas,
+	   but keep the interactive children (buttons/inputs) clickable */
+	:global(.dim-html-wrapper) {
+		pointer-events: none !important;
+	}
+	:global(.dim-html-wrapper *) {
+		pointer-events: none;
+	}
+
 	:global(.dim-label) {
 		background: rgba(30, 30, 50, 0.85);
 		color: #aaccff;
@@ -208,6 +227,7 @@
 		font-family: monospace;
 		cursor: pointer;
 		white-space: nowrap;
+		pointer-events: auto !important;
 	}
 
 	:global(.dim-label:hover) {
@@ -225,5 +245,6 @@
 		font-family: monospace;
 		width: 60px;
 		outline: none;
+		pointer-events: auto !important;
 	}
 </style>

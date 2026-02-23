@@ -8,10 +8,13 @@
 		getSelectedRefs,
 		geomRefEquals,
 		getFeatureTree,
+		getSketchMode,
 		isPlaneVisible,
 		isAxisVisible
 	} from '$lib/engine/store.svelte.js';
 	import { getAllPlanes, makePlaneRef, resolvePlane, PLANE_HALF_SIZE } from '$lib/engine/planes.js';
+
+	let inSketchMode = $derived(!!getSketchMode()?.active);
 
 	// --- Data-driven plane rendering ---
 
@@ -151,16 +154,25 @@
 </script>
 
 <!-- Datum Planes (per-plane visibility) -->
+<!-- During sketch mode, disable raycaster interactivity so clicks pass through to canvas -->
 {#each planeData as pd, i (pd.plane.id)}
 {#if isPlaneVisible(pd.plane.id)}
 	<T.Group position={pd.position} rotation={pd.rotation}>
-		<T.Mesh
-			geometry={planeGeometry}
-			material={pd.fillMaterial}
-			onclick={(e) => handleClick(pd.ref, e)}
-			onpointerenter={(e) => handlePointerEnter(pd.ref, e)}
-			onpointerleave={() => handlePointerLeave(pd.ref)}
-		/>
+		{#if inSketchMode}
+			<T.Mesh
+				geometry={planeGeometry}
+				material={pd.fillMaterial}
+				raycast={() => {}}
+			/>
+		{:else}
+			<T.Mesh
+				geometry={planeGeometry}
+				material={pd.fillMaterial}
+				onclick={(e) => handleClick(pd.ref, e)}
+				onpointerenter={(e) => handlePointerEnter(pd.ref, e)}
+				onpointerleave={() => handlePointerLeave(pd.ref)}
+			/>
+		{/if}
 		<T.LineSegments geometry={borderGeo} material={pd.borderMaterial} />
 	</T.Group>
 {/if}

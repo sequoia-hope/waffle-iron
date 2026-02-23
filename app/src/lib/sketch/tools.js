@@ -804,6 +804,12 @@ function handleDimensionTool(eventType, x, y, screenPixelSize) {
 			const p1 = positions.get(entity.start_id);
 			const p2 = positions.get(entity.end_id);
 			if (pos && p1 && p2) {
+				// Compute perpendicular distance from point to line
+				const lx = p2.x - p1.x, ly = p2.y - p1.y;
+				const lLen = Math.sqrt(lx * lx + ly * ly);
+				const dist = lLen > 1e-10
+					? Math.abs((pos.x - p1.x) * ly - (pos.y - p1.y) * lx) / lLen
+					: 1.0;
 				const mx = (pos.x + (p1.x + p2.x) / 2) / 2;
 				const my = (pos.y + (p1.y + p2.y) / 2) / 2;
 				showDimensionPopup({
@@ -811,8 +817,8 @@ function handleDimensionTool(eventType, x, y, screenPixelSize) {
 					entityB: entity.id,
 					sketchX: mx,
 					sketchY: my,
-					dimType: 'distance',
-					defaultValue: 1.0
+					dimType: 'pointLineDistance',
+					defaultValue: parseFloat(dist.toFixed(4))
 				});
 			}
 			toolState = 'idle';

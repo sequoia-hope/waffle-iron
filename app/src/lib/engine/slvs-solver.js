@@ -237,8 +237,8 @@ function mapConstraint(c, ch, wp, eMap) {
 		case 'Distance':
 			type = C.PtPtDistance;
 			valA = c.value || 0;
-			ptA = pt(c.point_a);
-			ptB = pt(c.point_b);
+			ptA = pt(c.entity_a);
+			ptB = pt(c.entity_b);
 			if (!ptA || !ptB) return null;
 			break;
 		case 'Horizontal':
@@ -320,6 +320,12 @@ function mapConstraint(c, ch, wp, eMap) {
 			entityB = en(c.entity_b);
 			other = c.supplementary ? 1 : 0;
 			if (!entityA || !entityB) return null;
+			break;
+		case 'Radius':
+			type = C.Diameter;
+			valA = (c.value || 0) * 2;
+			entityA = en(c.entity);
+			if (!entityA) return null;
 			break;
 		case 'Diameter':
 			type = C.Diameter;
