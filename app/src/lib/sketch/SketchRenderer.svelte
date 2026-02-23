@@ -439,12 +439,13 @@
 	{/if}
 	{#if originWorld}
 		<T.Mesh geometry={originGeometry} material={originMaterial}
-			position={[originWorld.x, originWorld.y, originWorld.z]} renderOrder={7} />
+			position={[originWorld.x, originWorld.y, originWorld.z]} renderOrder={7}
+			raycast={() => {}} />
 	{/if}
 
 	<!-- Profile fills (behind entities) -->
 	{#each profileFills as fill (fill.index)}
-		<T.Mesh geometry={fill.geometry} renderOrder={8}>
+		<T.Mesh geometry={fill.geometry} renderOrder={8} raycast={() => {}}>
 			<T.MeshBasicMaterial
 				color={fill.color}
 				depthTest={false}
@@ -457,7 +458,8 @@
 
 	<!-- Entity points -->
 	{#each pointData as pt (pt.id)}
-		<T.Mesh geometry={pointGeometry} position={[pt.world.x, pt.world.y, pt.world.z]} renderOrder={10}>
+		<T.Mesh geometry={pointGeometry} position={[pt.world.x, pt.world.y, pt.world.z]} renderOrder={10}
+			raycast={() => {}}>
 			<T.MeshBasicMaterial
 				color={entityColor(pt.id)}
 				depthTest={false}
@@ -521,20 +523,20 @@
 		{/if}
 	{/each}
 
-	<!-- Snap candidate preview markers (faint) -->
+	<!-- Snap candidate preview markers (faint) — raycast disabled so clicks pass through to canvas -->
 	{#each snapCandidateData as cand (cand.key)}
 		{#if cand.type === 'point'}
 			<T.Mesh geometry={pointGeometry} position={[cand.world.x, cand.world.y, cand.world.z]}
-				renderOrder={9} material={snapCandidatePointMaterial} />
+				renderOrder={9} material={snapCandidatePointMaterial} raycast={() => {}} />
 		{:else if cand.type === 'midpoint'}
 			<T.Mesh geometry={midpointGeometry} position={[cand.world.x, cand.world.y, cand.world.z]}
-				renderOrder={9} material={midpointMaterial} />
+				renderOrder={9} material={midpointMaterial} raycast={() => {}} />
 		{:else if cand.type === 'quadrant'}
 			<T.Mesh geometry={quadrantGeometry} position={[cand.world.x, cand.world.y, cand.world.z]}
-				renderOrder={9} material={quadrantMaterial} />
+				renderOrder={9} material={quadrantMaterial} raycast={() => {}} />
 		{:else if cand.type === 'origin'}
 			<T.Mesh geometry={originSnapGeometry} position={[cand.world.x, cand.world.y, cand.world.z]}
-				renderOrder={9} material={originSnapMaterial} />
+				renderOrder={9} material={originSnapMaterial} raycast={() => {}} />
 		{/if}
 	{/each}
 
@@ -545,11 +547,12 @@
 		{/if}
 	{/if}
 
-	<!-- Snap indicators -->
+	<!-- Snap indicators — raycast disabled so clicks pass through to canvas -->
 	{#if snapGeo}
 		{#if snapGeo.type === 'point'}
 			<T.Mesh geometry={snapPointGeometry} material={snapPointMaterial}
-				position={[snapGeo.world.x, snapGeo.world.y, snapGeo.world.z]} renderOrder={11} />
+				position={[snapGeo.world.x, snapGeo.world.y, snapGeo.world.z]} renderOrder={11}
+				raycast={() => {}} />
 		{:else if snapGeo.type === 'dashed-line'}
 			<T.Line geometry={snapGeo.geometry} material={snapDashedMaterial} renderOrder={11} />
 		{/if}
@@ -564,7 +567,8 @@
 
 	<!-- Constraint labels -->
 	{#each constraintLabels as label, i}
-		<T.Mesh position={[label.world.x, label.world.y, label.world.z]} renderOrder={12}>
+		<T.Mesh position={[label.world.x, label.world.y, label.world.z]} renderOrder={12}
+			raycast={() => {}}>
 			<T.PlaneGeometry args={[0.12, 0.12]} />
 			<T.MeshBasicMaterial color={COLOR_DEFAULT} depthTest={false} transparent opacity={0.7} />
 		</T.Mesh>

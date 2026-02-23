@@ -172,6 +172,7 @@ pub fn rect_profile(x: f64, y: f64, w: f64, h: f64) -> ProfileData {
     let profiles = vec![ClosedProfile {
         entity_ids: vec![1, 2, 3, 4],
         is_outer: true,
+        circle: None,
     }];
 
     (entities, positions, profiles)
@@ -229,6 +230,7 @@ pub fn circle_profile(cx: f64, cy: f64, r: f64, segments: u32) -> ProfileData {
     let profiles = vec![ClosedProfile {
         entity_ids,
         is_outer: true,
+        circle: None,
     }];
 
     (entities, positions, profiles)

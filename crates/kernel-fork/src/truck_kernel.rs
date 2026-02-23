@@ -1247,43 +1247,54 @@ impl Kernel for TruckKernel {
         let mut face_ids = Vec::new();
 
         for profile in profiles {
-            let pts_3d: Vec<Point3> = profile
-                .entity_ids
-                .iter()
-                .filter_map(|id| {
-                    positions
-                        .get(id)
-                        .map(|&(u, v)| origin + x_axis * u + y_axis * v)
-                })
-                .collect();
+            let face = if let Some(ref circ) = profile.circle {
+                // True NURBS circular face: construct circular wire via rsweep
+                let center_3d = origin + x_axis * circ.center_u + y_axis * circ.center_v;
+                let edge_point = center_3d + x_axis * circ.radius;
+                let v = builder::vertex(edge_point);
+                let wire =
+                    builder::rsweep(&v, center_3d, normal, Rad(2.0 * std::f64::consts::PI), 3);
+                builder::try_attach_plane(&[wire]).map_err(|e| KernelError::Other {
+                    message: format!("Failed to create circular face: {}", e),
+                })?
+            } else {
+                // Polygon path: build wire from consecutive point pairs
+                let pts_3d: Vec<Point3> = profile
+                    .entity_ids
+                    .iter()
+                    .filter_map(|id| {
+                        positions
+                            .get(id)
+                            .map(|&(u, v)| origin + x_axis * u + y_axis * v)
+                    })
+                    .collect();
 
-            if pts_3d.len() < 3 {
-                return Err(KernelError::Other {
-                    message: "Profile has fewer than 3 points".to_string(),
-                });
-            }
+                if pts_3d.len() < 3 {
+                    return Err(KernelError::Other {
+                        message: "Profile has fewer than 3 points".to_string(),
+                    });
+                }
 
-            // Build wire from consecutive point pairs with shared vertices.
-            // Create all vertices first so edges share endpoints.
-            let n = pts_3d.len();
-            let vertices: Vec<_> = pts_3d.iter().map(|&p| builder::vertex(p)).collect();
-            let mut wire_edges: Vec<Edge> = Vec::new();
-            for i in 0..n {
-                let j = (i + 1) % n;
-                let edge = Edge::new(
-                    &vertices[i],
-                    &vertices[j],
-                    truck_modeling::geometry::Curve::Line(truck_modeling::geometry::Line(
-                        pts_3d[i], pts_3d[j],
-                    )),
-                );
-                wire_edges.push(edge);
-            }
-            let wire = Wire::from_iter(wire_edges);
+                let n = pts_3d.len();
+                let vertices: Vec<_> = pts_3d.iter().map(|&p| builder::vertex(p)).collect();
+                let mut wire_edges: Vec<Edge> = Vec::new();
+                for i in 0..n {
+                    let j = (i + 1) % n;
+                    let edge = Edge::new(
+                        &vertices[i],
+                        &vertices[j],
+                        truck_modeling::geometry::Curve::Line(truck_modeling::geometry::Line(
+                            pts_3d[i], pts_3d[j],
+                        )),
+                    );
+                    wire_edges.push(edge);
+                }
+                let wire = Wire::from_iter(wire_edges);
 
-            let face = builder::try_attach_plane(&[wire]).map_err(|e| KernelError::Other {
-                message: format!("Failed to create planar face: {}", e),
-            })?;
+                builder::try_attach_plane(&[wire]).map_err(|e| KernelError::Other {
+                    message: format!("Failed to create planar face: {}", e),
+                })?
+            };
 
             let face_id = self.alloc_id();
             self.standalone_faces.insert(face_id.0, face);
@@ -1314,6 +1325,7 @@ mod tests {
         let profile = ClosedProfile {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
+            circle: None,
         };
         let mut positions = HashMap::new();
         positions.insert(1, (0.0, 0.0));
@@ -1982,6 +1994,7 @@ mod tests {
         let profile = ClosedProfile {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
+            circle: None,
         };
         let mut positions = HashMap::new();
         positions.insert(1, (0.0, 0.0));
@@ -2039,6 +2052,7 @@ mod tests {
         let profile = ClosedProfile {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
+            circle: None,
         };
         let mut positions = HashMap::new();
         positions.insert(1, (0.0, 0.0));
@@ -2265,6 +2279,7 @@ mod tests {
         let profile = ClosedProfile {
             entity_ids: vec![1, 2, 3],
             is_outer: true,
+            circle: None,
         };
         let mut positions = HashMap::new();
         positions.insert(1, (0.0, 0.0));
@@ -2294,6 +2309,7 @@ mod tests {
         let profile = ClosedProfile {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
+            circle: None,
         };
         let mut positions = HashMap::new();
         // Small rectangle offset from Y axis for revolve
@@ -2352,6 +2368,7 @@ mod tests {
         let profile = ClosedProfile {
             entity_ids: vec![1, 2, 3],
             is_outer: true,
+            circle: None,
         };
         let mut positions = HashMap::new();
         positions.insert(1, (1.0, 0.0));
@@ -2803,6 +2820,7 @@ mod tests {
         let profile = ClosedProfile {
             entity_ids: vec![1, 2],
             is_outer: true,
+            circle: None,
         };
         let mut positions = HashMap::new();
         positions.insert(1, (0.0, 0.0));
@@ -2828,10 +2846,12 @@ mod tests {
         let p1 = ClosedProfile {
             entity_ids: vec![1, 2, 3],
             is_outer: true,
+            circle: None,
         };
         let p2 = ClosedProfile {
             entity_ids: vec![4, 5, 6],
             is_outer: true,
+            circle: None,
         };
         let mut positions = HashMap::new();
         positions.insert(1, (0.0, 0.0));
@@ -2860,6 +2880,7 @@ mod tests {
         let profile = ClosedProfile {
             entity_ids: vec![1, 2, 3],
             is_outer: true,
+            circle: None,
         };
         let mut positions = HashMap::new();
         positions.insert(1, (0.0, 0.0));
@@ -2892,6 +2913,7 @@ mod tests {
         let profile = ClosedProfile {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
+            circle: None,
         };
         let mut positions = HashMap::new();
         positions.insert(1, (0.0, 0.0));
@@ -3068,6 +3090,7 @@ mod tests {
         let profile = ClosedProfile {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
+            circle: None,
         };
         let mut positions = HashMap::new();
         // Only provide 2 positions out of 4
@@ -3382,5 +3405,66 @@ mod tests {
         let face = builder::tsweep(&edge, Vector3::new(0.0, 1.0, 0.0));
         let solid: Solid = builder::tsweep(&face, Vector3::new(0.0, 0.0, 1.0));
         assert!(validate_solid_for_boolean(&solid, "box").is_ok());
+    }
+
+    /// Circle profile extrusion should produce a true NURBS cylinder (3 faces)
+    /// rather than the 34-face polygonal prism from a 32-sided polygon.
+    #[test]
+    fn test_circle_profile_extrude_produces_cylinder() {
+        let mut kernel = TruckKernel::new();
+
+        let profile = ClosedProfile {
+            entity_ids: vec![1],
+            is_outer: true,
+            circle: Some(CircleProfile {
+                center_u: 0.0,
+                center_v: 0.0,
+                radius: 1.0,
+            }),
+        };
+        let positions = HashMap::new(); // Not needed for circle profiles
+
+        let face_ids = kernel
+            .make_faces_from_profiles(
+                &[profile],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0],
+                &positions,
+            )
+            .unwrap();
+
+        assert_eq!(face_ids.len(), 1);
+
+        let handle = kernel
+            .extrude_face(face_ids[0], [0.0, 0.0, 1.0], 5.0)
+            .unwrap();
+
+        let solid = kernel.get_solid(&handle).unwrap();
+        let boundaries = solid.boundaries();
+        assert_eq!(boundaries.len(), 1);
+
+        let shell = &boundaries[0];
+        let faces: Vec<_> = shell.face_iter().collect();
+        // rsweep with division=3 creates 3 NURBS arcs for the full circle.
+        // Extruding produces 3 lateral NURBS surfaces + 2 caps = 5 faces.
+        // A 32-sided polygonal prism would have 34 faces (32 lateral + 2 caps).
+        assert_eq!(
+            faces.len(),
+            5,
+            "Circle profile extrusion should produce 5 faces (NURBS cylinder), got {}",
+            faces.len()
+        );
+
+        // Verify the solid tessellates successfully
+        let mesh = kernel.tessellate(&handle, 0.05).unwrap();
+        assert!(
+            mesh.vertices.len() > 10,
+            "Cylinder mesh should have many vertices"
+        );
+        assert!(
+            mesh.indices.len() > 10,
+            "Cylinder mesh should have many triangle indices"
+        );
     }
 }

@@ -59,10 +59,12 @@ fn test_box_with_hole() {
         ClosedProfile {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
+            circle: None,
         },
         ClosedProfile {
             entity_ids: vec![5],
             is_outer: false,
+            circle: None,
         },
     ];
 
@@ -350,10 +352,12 @@ fn test_full_workflow() {
         ClosedProfile {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
+            circle: None,
         },
         ClosedProfile {
             entity_ids: vec![5],
             is_outer: false,
+            circle: None,
         },
     ];
 

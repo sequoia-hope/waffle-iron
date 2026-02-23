@@ -60,6 +60,7 @@ fn make_sketch_op() -> Operation {
         solved_profiles: vec![ClosedProfile {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
+            circle: None,
         }],
     };
     Operation::Sketch { sketch }

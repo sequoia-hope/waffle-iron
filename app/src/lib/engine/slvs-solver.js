@@ -188,18 +188,24 @@ export function solveSketch(entities, constraints, positions) {
 	// === Solve ===
 	const result = callSolver(params, ents, cons);
 
-	// === Read solved positions ===
+	// === Read solved positions and radii ===
 	const solved = { ...positions };
+	const solvedRadii = {};
 	for (const sp of result.params) {
 		const m = pMap.get(sp.h);
 		if (!m) continue;
-		const cur = solved[m.id] || { x: 0, y: 0 };
-		if (m.axis === 'x') solved[m.id] = { ...cur, x: sp.v };
-		else if (m.axis === 'y') solved[m.id] = { ...cur, y: sp.v };
+		if (m.axis === 'radius') {
+			solvedRadii[m.id] = sp.v;
+		} else {
+			const cur = solved[m.id] || { x: 0, y: 0 };
+			if (m.axis === 'x') solved[m.id] = { ...cur, x: sp.v };
+			else if (m.axis === 'y') solved[m.id] = { ...cur, y: sp.v };
+		}
 	}
 
 	return {
 		positions: solved,
+		solvedRadii,
 		status: STATUS[result.code] || 'unknown',
 		dof: result.dof,
 		failed: result.failed

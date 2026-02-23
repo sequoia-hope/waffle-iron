@@ -111,6 +111,7 @@ function handleSolveSketch(msg) {
 		self.postMessage({
 			type: 'SketchSolved',
 			positions: result.positions,
+			solvedRadii: result.solvedRadii,
 			status: result.status,
 			dof: result.dof,
 			failed: result.failed,

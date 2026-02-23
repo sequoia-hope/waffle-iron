@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 // Re-export shared types from waffle-types
-pub use waffle_types::{ClosedProfile, TopoKind, TopoSignature};
+pub use waffle_types::{CircleProfile, ClosedProfile, TopoKind, TopoSignature};
 
 /// Opaque handle to a solid in the geometry kernel.
 /// NEVER persisted. Valid only for the current kernel session.

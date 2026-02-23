@@ -847,7 +847,7 @@ pub fn try_boolean_with_perturbation(
     // during the next boolean, because intersection curve endpoints connect
     // to one vertex ID while the face boundary uses another.
     let healed_a = {
-        let mut shells: Vec<Shell> = solid_a.boundaries().iter().cloned().collect();
+        let mut shells: Vec<Shell> = solid_a.boundaries().to_vec();
         let mut any_healed = false;
         for shell in &mut shells {
             let vcount_before = {

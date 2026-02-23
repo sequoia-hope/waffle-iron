@@ -248,6 +248,18 @@ pub struct ClosedProfile {
     pub entity_ids: Vec<u32>,
     /// Whether the profile winds counter-clockwise (outward) or clockwise (hole).
     pub is_outer: bool,
+    /// If this profile is a standalone circle, its center and radius in sketch UV coordinates.
+    /// When present, the kernel constructs a true NURBS circular wire instead of a polygon.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub circle: Option<CircleProfile>,
+}
+
+/// Circle profile data in sketch-local UV coordinates.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CircleProfile {
+    pub center_u: f64,
+    pub center_v: f64,
+    pub radius: f64,
 }
 
 #[cfg(test)]
@@ -694,6 +706,7 @@ mod tests {
         let p = ClosedProfile {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
+            circle: None,
         };
         let json = serde_json::to_string(&p).unwrap();
         let d: ClosedProfile = serde_json::from_str(&json).unwrap();
@@ -714,6 +727,7 @@ mod tests {
             profiles: vec![ClosedProfile {
                 entity_ids: vec![1, 2],
                 is_outer: false,
+                circle: None,
             }],
             status: SolveStatus::UnderConstrained { dof: 1 },
         };

@@ -334,6 +334,7 @@ fn test_l_shaped_manual_sketch() {
     let profiles = vec![ClosedProfile {
         entity_ids: vec![1, 2, 3, 4, 5, 6],
         is_outer: true,
+        circle: None,
     }];
 
     m.finish_sketch_manual("l_sketch", positions, profiles, [0., 0., 0.], [0., 0., 1.])

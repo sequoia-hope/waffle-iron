@@ -1091,15 +1091,19 @@ impl Kernel for MockKernel {
 
         for profile in profiles {
             // Compute a rough area from the 2D positions
-            let pts: Vec<(f64, f64)> = profile
-                .entity_ids
-                .iter()
-                .filter_map(|id| positions.get(id).copied())
-                .collect();
-            let area = if pts.len() >= 3 {
-                shoelace_area(&pts).abs()
+            let area = if let Some(ref circ) = profile.circle {
+                std::f64::consts::PI * circ.radius * circ.radius
             } else {
-                1.0
+                let pts: Vec<(f64, f64)> = profile
+                    .entity_ids
+                    .iter()
+                    .filter_map(|id| positions.get(id).copied())
+                    .collect();
+                if pts.len() >= 3 {
+                    shoelace_area(&pts).abs()
+                } else {
+                    1.0
+                }
             };
 
             let face_id = self.alloc_id();
@@ -1297,6 +1301,7 @@ mod tests {
         let profile = ClosedProfile {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
+            circle: None,
         };
         let mut positions = HashMap::new();
         positions.insert(1, (0.0, 0.0));

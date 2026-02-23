@@ -99,6 +99,7 @@ fn make_sketch_feature(name: &str) -> Feature {
         solved_profiles: vec![ClosedProfile {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
+            circle: None,
         }],
     };
 
@@ -582,6 +583,7 @@ fn make_rebuild_compatible_tree() -> FeatureTree {
         solved_profiles: vec![ClosedProfile {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
+            circle: None,
         }],
     };
 
@@ -973,6 +975,7 @@ fn round_trip_multi_feature_with_chamfer() {
         solved_profiles: vec![ClosedProfile {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
+            circle: None,
         }],
     };
 
@@ -1196,6 +1199,7 @@ fn round_trip_preserves_all_constraint_types() {
         solved_profiles: vec![ClosedProfile {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
+            circle: None,
         }],
     };
 

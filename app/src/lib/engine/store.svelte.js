@@ -248,6 +248,23 @@ export async function initEngine() {
 				newPositions.set(Number(id), pos);
 			}
 			sketchPositions = newPositions;
+
+			// Apply solved radii to circle entities
+			if (msg.solvedRadii) {
+				let changed = false;
+				for (const [id, radius] of Object.entries(msg.solvedRadii)) {
+					const numId = Number(id);
+					const idx = sketchEntities.findIndex(e => e.id === numId);
+					if (idx >= 0 && sketchEntities[idx].type === 'Circle') {
+						sketchEntities[idx] = { ...sketchEntities[idx], radius };
+						changed = true;
+					}
+				}
+				if (changed) {
+					sketchEntities = [...sketchEntities];
+				}
+			}
+
 			reExtractProfiles();
 		}
 		sketchSolveStatus = {
@@ -1685,22 +1702,16 @@ export async function finishSketch() {
 		const pointIds = [];
 		const lineEntities = [...p.entityIds].map(id => sketchEntities.find(e => e.id === id)).filter(Boolean);
 
-		// Standalone circles: approximate as polygon with N points on circumference
+		// Standalone circles: pass as tagged circle profile for true NURBS cylinder extrusion
 		if (lineEntities.length === 1 && lineEntities[0].type === 'Circle') {
 			const circle = lineEntities[0];
 			const center = sketchPositions.get(circle.center_id);
 			if (center) {
-				const N = 32; // polygon approximation segments
-				const circlePointIds = [];
-				for (let ci = 0; ci < N; ci++) {
-					const angle = (2 * Math.PI * ci) / N;
-					const px = center.x + circle.radius * Math.cos(angle);
-					const py = center.y + circle.radius * Math.sin(angle);
-					const ptId = 90000 + circle.id * 100 + ci; // synthetic point IDs
-					posObj[ptId] = [px, py];
-					circlePointIds.push(ptId);
-				}
-				return { entity_ids: circlePointIds, is_outer: p.isOuter };
+				return {
+					entity_ids: [circle.id],
+					is_outer: p.isOuter,
+					circle: { center_u: center.x, center_v: center.y, radius: circle.radius }
+				};
 			}
 			return { entity_ids: [...p.entityIds], is_outer: p.isOuter };
 		}

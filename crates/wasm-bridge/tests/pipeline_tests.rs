@@ -81,6 +81,7 @@ fn create_rect_sketch(
     let solved_profiles = vec![ClosedProfile {
         entity_ids: vec![1, 2, 3, 4],
         is_outer: true,
+        circle: None,
     }];
 
     let response = wasm_bridge::dispatch(
