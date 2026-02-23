@@ -7,7 +7,8 @@
 		getSketchConstraints,
 		getSketchEntities,
 		getSketchPositions,
-		updateConstraintValue
+		updateConstraintValue,
+		toggleConstraintReference
 	} from '$lib/engine/store.svelte.js';
 	import { buildSketchPlane, sketchToWorld } from './sketchCoords.js';
 
@@ -36,6 +37,7 @@
 						index,
 						type: 'Distance',
 						value: c.value,
+						reference: !!c.reference,
 						world: sketchToWorld(labelPos.x, labelPos.y, plane),
 						leaderStart: sketchToWorld(labelPos.fromX, labelPos.fromY, plane)
 					});
@@ -47,6 +49,7 @@
 						index,
 						type: 'Radius',
 						value: c.value,
+						reference: !!c.reference,
 						world: sketchToWorld(labelPos.x, labelPos.y, plane),
 						leaderStart: sketchToWorld(labelPos.fromX, labelPos.fromY, plane)
 					});
@@ -58,6 +61,7 @@
 						index,
 						type: 'Diameter',
 						value: c.value,
+						reference: !!c.reference,
 						world: sketchToWorld(labelPos.x, labelPos.y, plane),
 						leaderStart: sketchToWorld(labelPos.fromX, labelPos.fromY, plane)
 					});
@@ -69,6 +73,43 @@
 						index,
 						type: 'Angle',
 						value: c.value_degrees,
+						reference: !!c.reference,
+						world: sketchToWorld(labelPos.x, labelPos.y, plane),
+						leaderStart: sketchToWorld(labelPos.fromX, labelPos.fromY, plane)
+					});
+				}
+			} else if (c.type === 'HDistance') {
+				const labelPos = computeHVDistanceLabelPos(c, 'H');
+				if (labelPos) {
+					labels.push({
+						index,
+						type: 'HDistance',
+						value: c.value,
+						reference: !!c.reference,
+						world: sketchToWorld(labelPos.x, labelPos.y, plane),
+						leaderStart: sketchToWorld(labelPos.fromX, labelPos.fromY, plane)
+					});
+				}
+			} else if (c.type === 'VDistance') {
+				const labelPos = computeHVDistanceLabelPos(c, 'V');
+				if (labelPos) {
+					labels.push({
+						index,
+						type: 'VDistance',
+						value: c.value,
+						reference: !!c.reference,
+						world: sketchToWorld(labelPos.x, labelPos.y, plane),
+						leaderStart: sketchToWorld(labelPos.fromX, labelPos.fromY, plane)
+					});
+				}
+			} else if (c.type === 'PointLineDistance') {
+				const labelPos = computePointLineDistanceLabelPos(c);
+				if (labelPos) {
+					labels.push({
+						index,
+						type: 'PointLineDistance',
+						value: c.value,
+						reference: !!c.reference,
 						world: sketchToWorld(labelPos.x, labelPos.y, plane),
 						leaderStart: sketchToWorld(labelPos.fromX, labelPos.fromY, plane)
 					});
@@ -125,6 +166,45 @@
 		};
 	}
 
+	function computeHVDistanceLabelPos(c, direction) {
+		const pA = positions.get(c.point_a);
+		const pB = positions.get(c.point_b);
+		if (!pA || !pB) return null;
+
+		if (direction === 'H') {
+			// Horizontal: label at midpoint X, offset below
+			const mx = (pA.x + pB.x) / 2;
+			const my = Math.min(pA.y, pB.y) - 0.4;
+			return { x: mx, y: my, fromX: mx, fromY: (pA.y + pB.y) / 2 };
+		} else {
+			// Vertical: label at midpoint Y, offset right
+			const mx = Math.max(pA.x, pB.x) + 0.4;
+			const my = (pA.y + pB.y) / 2;
+			return { x: mx, y: my, fromX: (pA.x + pB.x) / 2, fromY: my };
+		}
+	}
+
+	function computePointLineDistanceLabelPos(c) {
+		const pos = positions.get(c.point);
+		const line = entities.find(e => e.id === c.entity);
+		if (!pos || !line) return null;
+		const p1 = positions.get(line.start_id);
+		const p2 = positions.get(line.end_id);
+		if (!p1 || !p2) return null;
+		// Label at midpoint between point and nearest point on line
+		const lx = p2.x - p1.x, ly = p2.y - p1.y;
+		const lLen2 = lx * lx + ly * ly;
+		let t = 0.5;
+		if (lLen2 > 1e-10) {
+			t = Math.max(0, Math.min(1, ((pos.x - p1.x) * lx + (pos.y - p1.y) * ly) / lLen2));
+		}
+		const nearX = p1.x + t * lx;
+		const nearY = p1.y + t * ly;
+		const mx = (pos.x + nearX) / 2;
+		const my = (pos.y + nearY) / 2;
+		return { x: mx + 0.15, y: my + 0.15, fromX: mx, fromY: my };
+	}
+
 	function computeAngleLabelPos(c) {
 		const lineA = entities.find(e => e.id === c.line_a);
 		if (!lineA || lineA.type !== 'Line') return null;
@@ -170,10 +250,13 @@
 
 	/** Format display value */
 	function formatValue(label) {
-		if (label.type === 'Angle') return `${label.value.toFixed(1)}\u00B0`;
-		if (label.type === 'Diameter') return `R ${(label.value / 2).toFixed(2)}`;
-		if (label.type === 'Radius') return `R ${label.value.toFixed(2)}`;
-		return label.value.toFixed(2);
+		const suffix = label.reference ? ' (REF)' : '';
+		if (label.type === 'Angle') return `${label.value.toFixed(1)}\u00B0${suffix}`;
+		if (label.type === 'Diameter') return `R ${(label.value / 2).toFixed(2)}${suffix}`;
+		if (label.type === 'Radius') return `R ${label.value.toFixed(2)}${suffix}`;
+		if (label.type === 'HDistance') return `H: ${label.value.toFixed(2)}${suffix}`;
+		if (label.type === 'VDistance') return `V: ${label.value.toFixed(2)}${suffix}`;
+		return `${label.value.toFixed(2)}${suffix}`;
 	}
 </script>
 
@@ -198,7 +281,13 @@
 					autofocus
 				/>
 			{:else}
-				<button class="dim-label" onclick={() => startEditing(label.index, label.value, label.type)}>
+				<button
+					class="dim-label"
+					class:dim-reference={label.reference}
+					onclick={() => { if (!label.reference) startEditing(label.index, label.value, label.type); }}
+					oncontextmenu={(e) => { e.preventDefault(); toggleConstraintReference(label.index); }}
+					title={label.reference ? 'Reference dimension (right-click to make driving)' : 'Right-click to toggle reference'}
+				>
 					{formatValue(label)}
 				</button>
 			{/if}
@@ -233,6 +322,13 @@
 	:global(.dim-label:hover) {
 		background: rgba(40, 40, 80, 0.95);
 		color: #ccddff;
+	}
+
+	:global(.dim-label.dim-reference) {
+		color: #8899bb;
+		border-color: #667799;
+		font-style: italic;
+		cursor: default;
 	}
 
 	:global(.dim-input) {

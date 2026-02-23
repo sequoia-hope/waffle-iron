@@ -115,6 +115,7 @@ function handleSolveSketch(msg) {
 			status: result.status,
 			dof: result.dof,
 			failed: result.failed,
+			refUpdates: result.refUpdates,
 			solveTime: elapsed
 		});
 	} catch (err) {

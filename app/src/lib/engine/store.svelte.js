@@ -270,6 +270,24 @@ export async function initEngine() {
 
 			reExtractProfiles();
 		}
+
+		// Apply reference dimension value updates
+		if (msg.refUpdates && msg.refUpdates.length > 0) {
+			let constraintsChanged = false;
+			for (const upd of msg.refUpdates) {
+				if (upd.index >= 0 && upd.index < sketchConstraints.length) {
+					const c = sketchConstraints[upd.index];
+					if (c.reference && 'value' in c) {
+						sketchConstraints[upd.index] = { ...c, value: upd.value };
+						constraintsChanged = true;
+					}
+				}
+			}
+			if (constraintsChanged) {
+				sketchConstraints = [...sketchConstraints];
+			}
+		}
+
 		sketchSolveStatus = {
 			status: msg.status,
 			dof: msg.dof ?? -1,
@@ -441,6 +459,7 @@ export async function initEngine() {
 			clearToolEventLog: () => _clearToolEventLog(),
 			getSolveStatus: () => sketchSolveStatus ? { ...sketchSolveStatus } : null,
 			getOverConstrained: () => [...overConstrainedEntities],
+			getUnderConstrained: () => [...getUnderConstrainedEntities()],
 			getFailedConstraintIndices: () => [...failedConstraintIndices],
 			getFeatureErrors: () => new Map(featureErrors),
 			projectFaceCentroids: () => {
@@ -489,6 +508,7 @@ export async function initEngine() {
 			addSketchConstraint: (constraint) => addLocalConstraint(constraint),
 			removeSketchEntities: (ids) => removeSketchEntities(new Set(ids)),
 			removeSketchConstraint: (index) => removeSketchConstraint(index),
+			toggleConstraintReference: (index) => toggleConstraintReference(index),
 			dragSketchPoint: (pointId, x, y) => dragSketchPoint(pointId, x, y),
 			finalizeDrag: () => finalizeDrag(),
 			undo: () => undo(),
@@ -887,6 +907,24 @@ export function updateConstraintValue(index, newValue) {
 	const c = { ...sketchConstraints[index] };
 	if ('value' in c) c.value = newValue;
 	else if ('value_degrees' in c) c.value_degrees = newValue;
+	sketchConstraints = [
+		...sketchConstraints.slice(0, index),
+		c,
+		...sketchConstraints.slice(index + 1)
+	];
+
+	triggerSolve();
+}
+
+/**
+ * Toggle a constraint between driving and reference mode.
+ * Reference constraints are not sent to the solver — they display measured values.
+ * @param {number} index - Index into sketchConstraints array
+ */
+export function toggleConstraintReference(index) {
+	if (index < 0 || index >= sketchConstraints.length) return;
+	const c = { ...sketchConstraints[index] };
+	c.reference = !c.reference;
 	sketchConstraints = [
 		...sketchConstraints.slice(0, index),
 		c,
@@ -1328,6 +1366,43 @@ export function getHoveredProfileIndex() { return hoveredProfileIndex; }
 export function setHoveredProfileIndex(idx) { hoveredProfileIndex = idx; }
 
 export function getOverConstrainedEntities() { return overConstrainedEntities; }
+
+/**
+ * Get entity IDs of under-constrained points (points not referenced by any constraint).
+ * @returns {Set<number>}
+ */
+export function getUnderConstrainedEntities() {
+	const solveStatus = sketchSolveStatus;
+	if (!solveStatus || solveStatus.dof === 0) return new Set();
+
+	const constrainedIds = new Set();
+	for (const c of sketchConstraints) {
+		if (c._isDrag) continue;
+		for (const key of ['point', 'point_a', 'point_b', 'entity_a', 'entity_b', 'entity']) {
+			if (c[key] != null) {
+				const ent = sketchEntities.find(e => e.id === c[key]);
+				if (ent && ent.type === 'Point') constrainedIds.add(c[key]);
+				if (ent && ent.type === 'Line') {
+					constrainedIds.add(ent.start_id);
+					constrainedIds.add(ent.end_id);
+				}
+				if (ent && (ent.type === 'Circle' || ent.type === 'Arc')) {
+					constrainedIds.add(ent.center_id);
+					if (ent.start_id) constrainedIds.add(ent.start_id);
+					if (ent.end_id) constrainedIds.add(ent.end_id);
+				}
+			}
+		}
+	}
+
+	const unconstrained = new Set();
+	for (const e of sketchEntities) {
+		if (e.type === 'Point' && !constrainedIds.has(e.id)) {
+			unconstrained.add(e.id);
+		}
+	}
+	return unconstrained;
+}
 
 export function getSketchCursorPos() { return sketchCursorPos; }
 /** @param {{ x: number, y: number } | null} pos */
@@ -2182,6 +2257,13 @@ export function hideDimensionPopup() { dimensionPopup = null; }
 export function applyDimensionFromPopup(value) {
 	if (!dimensionPopup) return;
 	const p = dimensionPopup;
+
+	// Custom callback takes priority over built-in dimType handling
+	if (p.customApply) {
+		dimensionPopup = null;
+		p.customApply(value);
+		return;
+	}
 
 	if (p.dimType === 'distance') {
 		if (p.entityB != null) {

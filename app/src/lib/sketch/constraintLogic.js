@@ -46,6 +46,8 @@ export function getApplicableConstraints(selectionIds, entities, positions) {
 		lengthRatio: null,
 		pointLineDistance: null,
 		diameter: null,
+		hDistance: null,
+		vDistance: null,
 	};
 
 	// 1 line only
@@ -80,6 +82,20 @@ export function getApplicableConstraints(selectionIds, entities, positions) {
 		};
 		result.symmetricH = () => ({ type: 'SymmetricH', point_a: points[0].id, point_b: points[1].id });
 		result.symmetricV = () => ({ type: 'SymmetricV', point_a: points[0].id, point_b: points[1].id });
+		result.hDistance = () => {
+			const pA = positions.get(points[0].id);
+			const pB = positions.get(points[1].id);
+			let hDist = 1.0;
+			if (pA && pB) hDist = Math.abs(pB.x - pA.x);
+			return { type: 'HDistance', point_a: points[0].id, point_b: points[1].id, value: hDist || 1.0 };
+		};
+		result.vDistance = () => {
+			const pA = positions.get(points[0].id);
+			const pB = positions.get(points[1].id);
+			let vDist = 1.0;
+			if (pA && pB) vDist = Math.abs(pB.y - pA.y);
+			return { type: 'VDistance', point_a: points[0].id, point_b: points[1].id, value: vDist || 1.0 };
+		};
 	}
 
 	// 2 lines
@@ -114,7 +130,7 @@ export function getApplicableConstraints(selectionIds, entities, positions) {
 	// 1 point + 1 line
 	if (points.length === 1 && lines.length === 1 && circles.length === 0 && arcs.length === 0) {
 		result.midpoint = () => ({ type: 'Midpoint', point: points[0].id, line: lines[0].id });
-		result.pointOnLine = () => ({ type: 'OnEntity', point: points[0].id, entity: lines[0].id });
+		result.pointOnLine = () => ({ type: 'OnEntity', point: points[0].id, entity: lines[0].id, entityType: 'Line' });
 		result.pointLineDistance = () => {
 			// Compute actual perpendicular distance
 			const pos = positions.get(points[0].id);
@@ -135,12 +151,12 @@ export function getApplicableConstraints(selectionIds, entities, positions) {
 
 	// 1 point + 1 circle
 	if (points.length === 1 && circles.length === 1 && lines.length === 0 && arcs.length === 0) {
-		result.pointOnCircle = () => ({ type: 'OnEntity', point: points[0].id, entity: circles[0].id });
+		result.pointOnCircle = () => ({ type: 'OnEntity', point: points[0].id, entity: circles[0].id, entityType: 'Circle' });
 	}
 
 	// 1 point + 1 arc
 	if (points.length === 1 && arcs.length === 1 && lines.length === 0 && circles.length === 0) {
-		result.pointOnCircle = () => ({ type: 'OnEntity', point: points[0].id, entity: arcs[0].id });
+		result.pointOnCircle = () => ({ type: 'OnEntity', point: points[0].id, entity: arcs[0].id, entityType: 'Arc' });
 	}
 
 	// 1 circle or arc

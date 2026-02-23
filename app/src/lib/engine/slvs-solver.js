@@ -57,6 +57,7 @@ const C = {
 	Perpendicular: 100026,
 	ArcLineTangent: 100027,
 	EqualRadius: 100029,
+	ProjPtDistance: 100030,
 	WhereDragged: 100031,
 	CurveCurveTangent: 100032
 };
@@ -174,9 +175,39 @@ export function solveSketch(entities, constraints, positions) {
 		}
 	}
 
-	// === Map constraints ===
+	// === Create virtual axis lines for HDistance/VDistance constraints ===
+	let hAxisHandle = null;
+	let vAxisHandle = null;
 	for (const c of constraints) {
-		const mapped = mapConstraint(c, nc++, WP, eMap);
+		if (c.type === 'HDistance' && !hAxisHandle) {
+			const p1h = np++, p2h = np++;
+			params.push(mkP(p1h, G_SK, 0), mkP(p2h, G_SK, 0));
+			const p3h = np++, p4h = np++;
+			params.push(mkP(p3h, G_SK, 1), mkP(p4h, G_SK, 0));
+			const pt1h = ne++, pt2h = ne++;
+			ents.push(mkE(pt1h, G_SK, E_POINT_IN_2D, WP, [0, 0, 0, 0], 0, 0, [p1h, p2h, 0, 0]));
+			ents.push(mkE(pt2h, G_SK, E_POINT_IN_2D, WP, [0, 0, 0, 0], 0, 0, [p3h, p4h, 0, 0]));
+			hAxisHandle = ne++;
+			ents.push(mkE(hAxisHandle, G_SK, E_LINE_SEGMENT, WP, [pt1h, pt2h, 0, 0], 0, 0, [0, 0, 0, 0]));
+		}
+		if (c.type === 'VDistance' && !vAxisHandle) {
+			const p1v = np++, p2v = np++;
+			params.push(mkP(p1v, G_SK, 0), mkP(p2v, G_SK, 0));
+			const p3v = np++, p4v = np++;
+			params.push(mkP(p3v, G_SK, 0), mkP(p4v, G_SK, 1));
+			const pt1v = ne++, pt2v = ne++;
+			ents.push(mkE(pt1v, G_SK, E_POINT_IN_2D, WP, [0, 0, 0, 0], 0, 0, [p1v, p2v, 0, 0]));
+			ents.push(mkE(pt2v, G_SK, E_POINT_IN_2D, WP, [0, 0, 0, 0], 0, 0, [p3v, p4v, 0, 0]));
+			vAxisHandle = ne++;
+			ents.push(mkE(vAxisHandle, G_SK, E_LINE_SEGMENT, WP, [pt1v, pt2v, 0, 0], 0, 0, [0, 0, 0, 0]));
+		}
+	}
+
+	// === Map constraints (skip reference dimensions) ===
+	const ctx = { hAxisHandle, vAxisHandle };
+	for (const c of constraints) {
+		if (c.reference) continue;
+		const mapped = mapConstraint(c, nc++, WP, eMap, ctx);
 		if (mapped) cons.push(mapped);
 	}
 
@@ -203,12 +234,47 @@ export function solveSketch(entities, constraints, positions) {
 		}
 	}
 
+	// === Recompute reference dimension values from solved positions ===
+	const refUpdates = [];
+	constraints.forEach((c, i) => {
+		if (!c.reference) return;
+		const posOf = (id) => solved[id];
+		if (c.type === 'Distance') {
+			const pA = posOf(c.entity_a), pB = posOf(c.entity_b);
+			if (pA && pB) {
+				const dx = pB.x - pA.x, dy = pB.y - pA.y;
+				refUpdates.push({ index: i, value: Math.sqrt(dx * dx + dy * dy) });
+			}
+		} else if (c.type === 'HDistance') {
+			const pA = posOf(c.point_a), pB = posOf(c.point_b);
+			if (pA && pB) refUpdates.push({ index: i, value: Math.abs(pB.x - pA.x) });
+		} else if (c.type === 'VDistance') {
+			const pA = posOf(c.point_a), pB = posOf(c.point_b);
+			if (pA && pB) refUpdates.push({ index: i, value: Math.abs(pB.y - pA.y) });
+		} else if (c.type === 'PointLineDistance') {
+			const pos = posOf(c.point);
+			// Find line endpoints
+			const line = entities.find(e => e.id === c.entity);
+			if (pos && line) {
+				const p1 = posOf(line.start_id), p2 = posOf(line.end_id);
+				if (p1 && p2) {
+					const lx = p2.x - p1.x, ly = p2.y - p1.y;
+					const lLen = Math.sqrt(lx * lx + ly * ly);
+					if (lLen > 1e-10) {
+						refUpdates.push({ index: i, value: Math.abs((pos.x - p1.x) * ly - (pos.y - p1.y) * lx) / lLen });
+					}
+				}
+			}
+		}
+	});
+
 	return {
 		positions: solved,
 		solvedRadii,
 		status: STATUS[result.code] || 'unknown',
 		dof: result.dof,
-		failed: result.failed
+		failed: result.failed,
+		refUpdates
 	};
 }
 
@@ -221,7 +287,7 @@ function mkE(h, g, t, w, pt, n, d, p) {
 	return { h, g, t, w, pt, n, d, p };
 }
 
-function mapConstraint(c, ch, wp, eMap) {
+function mapConstraint(c, ch, wp, eMap, ctx) {
 	const pt = (id) => eMap.get(id) || 0;
 	const en = (id) => eMap.get(id) || 0;
 	let type,
@@ -363,6 +429,28 @@ function mapConstraint(c, ch, wp, eMap) {
 			entityA = en(c.entity_a);
 			entityB = en(c.entity_b);
 			if (!entityA || !entityB) return null;
+			break;
+		case 'OnEntity':
+			ptA = pt(c.point);
+			entityA = en(c.entity);
+			if (!ptA || !entityA) return null;
+			type = (c.entityType === 'Circle' || c.entityType === 'Arc') ? C.PtOnCircle : C.PtOnLine;
+			break;
+		case 'HDistance':
+			type = C.ProjPtDistance;
+			valA = c.value || 0;
+			ptA = pt(c.point_a);
+			ptB = pt(c.point_b);
+			entityA = ctx?.hAxisHandle || 0;
+			if (!ptA || !ptB || !entityA) return null;
+			break;
+		case 'VDistance':
+			type = C.ProjPtDistance;
+			valA = c.value || 0;
+			ptA = pt(c.point_a);
+			ptB = pt(c.point_b);
+			entityA = ctx?.vAxisHandle || 0;
+			if (!ptA || !ptB || !entityA) return null;
 			break;
 		default:
 			return null;

@@ -78,6 +78,8 @@
 		{ id: 'symmetricH', label: 'SH', title: 'Symmetric Horizontal' },
 		{ id: 'symmetricV', label: 'SV', title: 'Symmetric Vertical' },
 		{ id: 'pointOnLine', label: 'OnL', title: 'Point on Line' },
+		{ id: 'hDistance', label: 'HD', title: 'Horizontal Distance' },
+		{ id: 'vDistance', label: 'VD', title: 'Vertical Distance' },
 	];
 
 	function applyConstraint(id) {
@@ -103,6 +105,9 @@
 		{ id: 'circle', label: 'Circle', shortcut: 'C' },
 		{ id: 'arc', label: 'Arc', shortcut: 'A' },
 		{ id: 'project', label: 'Proj', shortcut: 'J' },
+		{ id: 'slot', label: 'Slot', shortcut: 'T' },
+		{ id: 'trim', label: 'Trim', shortcut: '' },
+		{ id: 'sketch-fillet', label: 'Fillet', shortcut: 'F' },
 		{ id: 'construction', label: 'Constr', shortcut: 'X' },
 	];
 
@@ -199,6 +204,8 @@
 				case 'a': if (inSketch) setActiveTool('arc'); break;
 				case 'x': if (inSketch) handleToggleConstruction(); break;
 				case 'j': if (inSketch) setActiveTool('project'); break;
+				case 't': if (inSketch) setActiveTool('slot'); break;
+				case 'f': if (inSketch) setActiveTool('sketch-fillet'); break;
 				case 'd': if (inSketch) setActiveTool('dimension'); break;
 				case 'g': if (inSketch) handleToggleConstruction(); break;
 				case 'Escape':
@@ -290,13 +297,19 @@
 			<span
 				class="dof-badge"
 				class:dof-ok={solveStatus.dof === 0 && solveStatus.status === 'okay'}
-				class:dof-under={solveStatus.dof > 0}
-				class:dof-over={solveStatus.status === 'inconsistent' || solveStatus.status === 'didnt_converge'}
+				class:dof-under={solveStatus.dof > 0 && solveStatus.status === 'okay'}
+				class:dof-over={solveStatus.status === 'inconsistent'}
+				class:dof-redundant={solveStatus.status === 'didnt_converge'}
 				data-testid="dof-badge"
-				title={solveStatus.dof === 0 ? 'Fully constrained' : `${solveStatus.dof} degrees of freedom remaining`}
+				title={solveStatus.status === 'inconsistent' ? 'Over-constrained: conflicting constraints detected'
+					: solveStatus.status === 'didnt_converge' ? 'Solver did not converge (possible redundant constraints)'
+					: solveStatus.dof === 0 ? 'Fully constrained'
+					: `${solveStatus.dof} degrees of freedom remaining`}
 			>
 				{#if solveStatus.status === 'inconsistent'}
 					Over-constrained
+				{:else if solveStatus.status === 'didnt_converge'}
+					Redundant?
 				{:else if solveStatus.dof === 0}
 					Fully constrained
 				{:else}
@@ -518,6 +531,11 @@
 	.dof-over {
 		color: var(--error, #f44);
 		background: rgba(255, 68, 68, 0.15);
+	}
+
+	.dof-redundant {
+		color: #e89038;
+		background: rgba(232, 144, 56, 0.15);
 	}
 
 	.finish-btn {

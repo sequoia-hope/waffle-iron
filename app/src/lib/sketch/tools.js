@@ -32,8 +32,18 @@ import {
 	getHoveredRef,
 	getMeshes,
 	geomRefEquals,
-	getSketchMode
+	getSketchMode,
+	removeSketchEntities
 } from '$lib/engine/store.svelte.js';
+import {
+	findLineLineIntersection,
+	findLineCircleIntersections,
+	findArcLineIntersections,
+	distanceToLineSegment,
+	angleBisector,
+	perpendicularFoot,
+	parameterOnSegment
+} from './geometry-utils.js';
 import { log } from '$lib/engine/logger.js';
 import { detectSnaps, collectSnapCandidates } from './snap.js';
 import { profileToPolygon, pointInPolygon } from './profiles.js';
@@ -69,6 +79,24 @@ let arcStartPointId = null;
 
 /** @type {{ id: number, type: string } | null} */
 let dimFirstEntity = null;
+
+// -- Slot tool state --
+/** @type {number | null} */
+let slotFirstCenterId = null;
+/** @type {{ x: number, y: number } | null} */
+let slotFirstCenterPos = null;
+/** @type {number | null} */
+let slotSecondCenterId = null;
+/** @type {{ x: number, y: number } | null} */
+let slotSecondCenterPos = null;
+
+// -- Trim tool state --
+/** @type {{ entityId: number, segStart: {x:number,y:number}, segEnd: {x:number,y:number}, splitPoints: Array<{x:number,y:number}> } | null} */
+let trimHighlight = null;
+
+// -- Sketch Fillet tool state --
+/** @type {{ pointId: number, lines: Array<any> } | null} */
+let filletCorner = null;
 
 // -- Drag-to-reposition state --
 /** @type {number | null} Point ID being dragged */
@@ -142,6 +170,12 @@ export function resetTool() {
 	arcStartPointId = null;
 	dimFirstEntity = null;
 	polyFirstPointId = null;
+	slotFirstCenterId = null;
+	slotFirstCenterPos = null;
+	slotSecondCenterId = null;
+	slotSecondCenterPos = null;
+	trimHighlight = null;
+	filletCorner = null;
 	setPreview(null);
 	setSnapIndicator(null);
 	setSnapCandidates([]);
@@ -226,6 +260,15 @@ export function handleToolEvent(activeTool, eventType, sketchX, sketchY, screenP
 			break;
 		case 'project':
 			handleProjectTool(eventType, sketchX, sketchY, screenPixelSize);
+			break;
+		case 'slot':
+			handleSlotTool(eventType, sketchX, sketchY, screenPixelSize);
+			break;
+		case 'trim':
+			handleTrimTool(eventType, sketchX, sketchY, screenPixelSize);
+			break;
+		case 'sketch-fillet':
+			handleSketchFilletTool(eventType, sketchX, sketchY, screenPixelSize);
 			break;
 	}
 }
@@ -1072,4 +1115,602 @@ function createConstructionLinesFromPoints(points, closed) {
 			construction: true,
 		});
 	}
+}
+
+// ---- Slot Tool ----
+
+function handleSlotTool(eventType, x, y, screenPixelSize) {
+	const snap = detectSnaps(x, y, slotFirstCenterId, screenPixelSize);
+	setSnapIndicator(snap.indicator);
+
+	if (eventType === 'pointermove') {
+		updateSnapCandidates(snap, screenPixelSize);
+		if (toolState === 'slotFirstCenter' && slotFirstCenterPos) {
+			setPreview({
+				type: 'slot',
+				data: {
+					cx1: slotFirstCenterPos.x, cy1: slotFirstCenterPos.y,
+					cx2: snap.x, cy2: snap.y,
+					width: 2 * screenPixelSize * 20 // default preview width
+				}
+			});
+		}
+		return;
+	}
+
+	if (eventType === 'pointerdown') {
+		isDragging = false;
+		if (toolState === 'idle') {
+			beginSketchAction();
+			const pt = findOrCreatePoint(snap.x, snap.y, screenPixelSize, snap.snapPointId);
+			slotFirstCenterId = pt.id;
+			slotFirstCenterPos = { x: pt.x, y: pt.y };
+			toolState = 'slotFirstCenter';
+			setPreview(null);
+		} else if (toolState === 'slotFirstCenter') {
+			const pt = findOrCreatePoint(snap.x, snap.y, screenPixelSize, snap.snapPointId);
+			if (pt.id === slotFirstCenterId) return; // same point
+
+			slotSecondCenterId = pt.id;
+			slotSecondCenterPos = { x: pt.x, y: pt.y };
+
+			// Compute default width from distance between centers / 3
+			const dx = slotSecondCenterPos.x - slotFirstCenterPos.x;
+			const dy = slotSecondCenterPos.y - slotFirstCenterPos.y;
+			const dist = Math.sqrt(dx * dx + dy * dy);
+			const defaultWidth = Math.max(dist / 3, 0.5);
+
+			// Show dimension popup for width
+			const mx = (slotFirstCenterPos.x + slotSecondCenterPos.x) / 2;
+			const my = (slotFirstCenterPos.y + slotSecondCenterPos.y) / 2;
+			showDimensionPopup({
+				entityA: slotFirstCenterId,
+				entityB: slotSecondCenterId,
+				sketchX: mx,
+				sketchY: my,
+				dimType: 'distance',
+				defaultValue: parseFloat(defaultWidth.toFixed(4)),
+				customApply: (width) => finalizeSlot(width)
+			});
+			toolState = 'slotWidthPending';
+		}
+	}
+}
+
+/** Finalize a slot with two center points and a width. */
+function finalizeSlot(width) {
+	if (!slotFirstCenterPos || !slotSecondCenterPos) return;
+
+	const cx1 = slotFirstCenterPos.x, cy1 = slotFirstCenterPos.y;
+	const cx2 = slotSecondCenterPos.x, cy2 = slotSecondCenterPos.y;
+	const dx = cx2 - cx1, dy = cy2 - cy1;
+	const len = Math.sqrt(dx * dx + dy * dy);
+	if (len < 0.001) { resetSlotState(); return; }
+
+	const radius = width / 2;
+	// Perpendicular direction (normalized)
+	const nx = -dy / len, ny = dx / len;
+
+	// 4 connection points where lines meet arcs
+	const cp1 = { x: cx1 + nx * radius, y: cy1 + ny * radius }; // top-left
+	const cp2 = { x: cx2 + nx * radius, y: cy2 + ny * radius }; // top-right
+	const cp3 = { x: cx2 - nx * radius, y: cy2 - ny * radius }; // bottom-right
+	const cp4 = { x: cx1 - nx * radius, y: cy1 - ny * radius }; // bottom-left
+
+	// Create 4 connection point entities
+	const p1 = { id: allocEntityId(), ...cp1 };
+	addLocalEntity({ type: 'Point', id: p1.id, x: p1.x, y: p1.y, construction: false });
+	const p2 = { id: allocEntityId(), ...cp2 };
+	addLocalEntity({ type: 'Point', id: p2.id, x: p2.x, y: p2.y, construction: false });
+	const p3 = { id: allocEntityId(), ...cp3 };
+	addLocalEntity({ type: 'Point', id: p3.id, x: p3.x, y: p3.y, construction: false });
+	const p4 = { id: allocEntityId(), ...cp4 };
+	addLocalEntity({ type: 'Point', id: p4.id, x: p4.x, y: p4.y, construction: false });
+
+	// Create 2 lines (parallel sides)
+	const line1Id = allocEntityId();
+	addLocalEntity({ type: 'Line', id: line1Id, start_id: p1.id, end_id: p2.id, construction: false });
+	const line2Id = allocEntityId();
+	addLocalEntity({ type: 'Line', id: line2Id, start_id: p3.id, end_id: p4.id, construction: false });
+
+	// Create 2 arcs (semicircles at each end)
+	// Arc at center2: from p2 (top-right) to p3 (bottom-right), center = center2
+	const arc1Id = allocEntityId();
+	addLocalEntity({
+		type: 'Arc', id: arc1Id,
+		center_id: slotSecondCenterId,
+		start_id: p2.id, end_id: p3.id,
+		construction: false
+	});
+
+	// Arc at center1: from p4 (bottom-left) to p1 (top-left), center = center1
+	const arc2Id = allocEntityId();
+	addLocalEntity({
+		type: 'Arc', id: arc2Id,
+		center_id: slotFirstCenterId,
+		start_id: p4.id, end_id: p1.id,
+		construction: false
+	});
+
+	// Constraints: tangent (line to arc)
+	addLocalConstraint({ type: 'Tangent', line: line1Id, curve: arc1Id });
+	addLocalConstraint({ type: 'Tangent', line: line1Id, curve: arc2Id });
+	addLocalConstraint({ type: 'Tangent', line: line2Id, curve: arc1Id });
+	addLocalConstraint({ type: 'Tangent', line: line2Id, curve: arc2Id });
+
+	// Equal radius
+	addLocalConstraint({ type: 'EqualRadius', entity_a: arc1Id, entity_b: arc2Id });
+
+	log('sketch', 'Slot created', { width, line1Id, line2Id, arc1Id, arc2Id });
+
+	endSketchAction();
+	resetSlotState();
+}
+
+function resetSlotState() {
+	toolState = 'idle';
+	slotFirstCenterId = null;
+	slotFirstCenterPos = null;
+	slotSecondCenterId = null;
+	slotSecondCenterPos = null;
+	setPreview(null);
+	setSnapIndicator(null);
+}
+
+// ---- Trim Tool ----
+
+function handleTrimTool(eventType, x, y, screenPixelSize) {
+	setSnapIndicator(null);
+
+	if (eventType === 'pointermove') {
+		const hitId = hitTest(x, y, screenPixelSize);
+		setSketchHover(hitId);
+
+		if (hitId == null) {
+			trimHighlight = null;
+			setPreview(null);
+			return;
+		}
+
+		const entities = getSketchEntities();
+		const positions = getSketchPositions();
+		const entity = entities.find(e => e.id === hitId);
+		if (!entity || entity.type === 'Point') {
+			trimHighlight = null;
+			setPreview(null);
+			return;
+		}
+
+		// Compute intersections between this entity and all others
+		const intersections = findEntityIntersections(entity, entities, positions);
+
+		if (entity.type === 'Line') {
+			const p1 = positions.get(entity.start_id);
+			const p2 = positions.get(entity.end_id);
+			if (!p1 || !p2) return;
+
+			// Project intersection points onto the line parameter [0, 1]
+			const params = intersections.map(pt => parameterOnSegment(pt, p1, p2));
+			// Add endpoints at t=0 and t=1
+			params.push(0, 1);
+			params.sort((a, b) => a - b);
+
+			// Find the cursor's parameter
+			const cursorT = parameterOnSegment({ x, y }, p1, p2);
+
+			// Find bracketing parameters
+			let segStartT = 0, segEndT = 1;
+			for (let i = 0; i < params.length - 1; i++) {
+				if (params[i] <= cursorT + 1e-8 && params[i + 1] >= cursorT - 1e-8) {
+					segStartT = params[i];
+					segEndT = params[i + 1];
+					break;
+				}
+			}
+
+			const segStart = { x: p1.x + segStartT * (p2.x - p1.x), y: p1.y + segStartT * (p2.y - p1.y) };
+			const segEnd = { x: p1.x + segEndT * (p2.x - p1.x), y: p1.y + segEndT * (p2.y - p1.y) };
+
+			// Only highlight if there are actual intersection points to split at
+			if (intersections.length > 0) {
+				trimHighlight = {
+					entityId: hitId,
+					segStart, segEnd,
+					segStartT, segEndT,
+					splitPoints: intersections
+				};
+				setPreview({
+					type: 'trim-highlight',
+					data: { points: [segStart, segEnd] }
+				});
+			} else {
+				// No intersections — highlight entire entity for deletion
+				trimHighlight = {
+					entityId: hitId,
+					segStart: p1, segEnd: p2,
+					segStartT: 0, segEndT: 1,
+					splitPoints: []
+				};
+				setPreview({
+					type: 'trim-highlight',
+					data: { points: [{ x: p1.x, y: p1.y }, { x: p2.x, y: p2.y }] }
+				});
+			}
+		} else {
+			// For circles/arcs, just highlight for deletion when no intersections
+			trimHighlight = { entityId: hitId, segStart: null, segEnd: null, splitPoints: intersections };
+			setPreview(null);
+		}
+		return;
+	}
+
+	if (eventType === 'pointerdown') {
+		if (!trimHighlight) return;
+
+		const entities = getSketchEntities();
+		const positions = getSketchPositions();
+		const entity = entities.find(e => e.id === trimHighlight.entityId);
+		if (!entity) { trimHighlight = null; return; }
+
+		beginSketchAction();
+
+		if (entity.type === 'Line' && trimHighlight.splitPoints.length > 0) {
+			executeTrimLine(entity, trimHighlight, screenPixelSize);
+		} else {
+			// No intersections or non-line: delete the whole entity
+			removeSketchEntities(new Set([trimHighlight.entityId]));
+		}
+
+		endSketchAction();
+		trimHighlight = null;
+		setPreview(null);
+	}
+}
+
+/**
+ * Execute trim on a line entity: split at intersection points, remove middle segment.
+ */
+function executeTrimLine(entity, highlight, screenPixelSize) {
+	const positions = getSketchPositions();
+	const p1 = positions.get(entity.start_id);
+	const p2 = positions.get(entity.end_id);
+	if (!p1 || !p2) return;
+
+	const { segStartT, segEndT } = highlight;
+
+	// Determine which segments survive (those outside the trimmed range)
+	// If trimming from start to an interior point, we keep [segEndT, 1]
+	// If trimming from interior to end, we keep [0, segStartT]
+	// If trimming interior segment, we keep [0, segStartT] and [segEndT, 1]
+
+	const survivors = [];
+	if (segStartT > 0.001) {
+		survivors.push({ t0: 0, t1: segStartT });
+	}
+	if (segEndT < 0.999) {
+		survivors.push({ t0: segEndT, t1: 1 });
+	}
+
+	if (survivors.length === 0) {
+		// Remove entire entity
+		removeSketchEntities(new Set([entity.id]));
+		return;
+	}
+
+	// Remove the original entity (and its orphaned points will be handled)
+	removeSketchEntities(new Set([entity.id]));
+
+	// Create replacement segments
+	for (const seg of survivors) {
+		const sx = p1.x + seg.t0 * (p2.x - p1.x);
+		const sy = p1.y + seg.t0 * (p2.y - p1.y);
+		const ex = p1.x + seg.t1 * (p2.x - p1.x);
+		const ey = p1.y + seg.t1 * (p2.y - p1.y);
+
+		const startPt = findOrCreatePoint(sx, sy, screenPixelSize);
+		const endPt = findOrCreatePoint(ex, ey, screenPixelSize);
+		if (startPt.id === endPt.id) continue;
+
+		const lineId = allocEntityId();
+		addLocalEntity({
+			type: 'Line', id: lineId,
+			start_id: startPt.id, end_id: endPt.id,
+			construction: false
+		});
+	}
+}
+
+/**
+ * Find all intersection points between one entity and all other entities.
+ * @param {object} entity - The entity to find intersections for
+ * @param {Array} allEntities - All sketch entities
+ * @param {Map} positions - Position map
+ * @returns {Array<{x:number,y:number}>}
+ */
+function findEntityIntersections(entity, allEntities, positions) {
+	const results = [];
+
+	if (entity.type === 'Line') {
+		const p1 = positions.get(entity.start_id);
+		const p2 = positions.get(entity.end_id);
+		if (!p1 || !p2) return results;
+
+		for (const other of allEntities) {
+			if (other.id === entity.id) continue;
+
+			if (other.type === 'Line') {
+				const p3 = positions.get(other.start_id);
+				const p4 = positions.get(other.end_id);
+				if (!p3 || !p4) continue;
+
+				const pt = findLineLineIntersection(p1, p2, p3, p4);
+				if (pt) {
+					// Check if intersection is on BOTH segments
+					const t1 = parameterOnSegment(pt, p1, p2);
+					const t2 = parameterOnSegment(pt, p3, p4);
+					if (t1 > 0.001 && t1 < 0.999 && t2 > -0.001 && t2 < 1.001) {
+						results.push(pt);
+					}
+				}
+			} else if (other.type === 'Circle') {
+				const center = positions.get(other.center_id);
+				if (!center) continue;
+				const pts = findLineCircleIntersections(p1, p2, center, other.radius);
+				for (const pt of pts) {
+					const t = parameterOnSegment(pt, p1, p2);
+					if (t > 0.001 && t < 0.999) results.push(pt);
+				}
+			} else if (other.type === 'Arc') {
+				const center = positions.get(other.center_id);
+				const startPt = positions.get(other.start_id);
+				const endPt = positions.get(other.end_id);
+				if (!center || !startPt || !endPt) continue;
+				const radius = Math.sqrt((startPt.x - center.x) ** 2 + (startPt.y - center.y) ** 2);
+				const startAngle = Math.atan2(startPt.y - center.y, startPt.x - center.x);
+				let endAngle = Math.atan2(endPt.y - center.y, endPt.x - center.x);
+				if (endAngle <= startAngle) endAngle += Math.PI * 2;
+
+				const pts = findArcLineIntersections(center, radius, startAngle, endAngle, p1, p2);
+				for (const pt of pts) {
+					const t = parameterOnSegment(pt, p1, p2);
+					if (t > 0.001 && t < 0.999) results.push(pt);
+				}
+			}
+		}
+	}
+
+	return results;
+}
+
+// ---- Sketch Fillet Tool ----
+
+function handleSketchFilletTool(eventType, x, y, screenPixelSize) {
+	setSnapIndicator(null);
+
+	if (eventType === 'pointermove') {
+		const hitId = hitTest(x, y, screenPixelSize);
+		setSketchHover(hitId);
+
+		if (hitId == null) {
+			filletCorner = null;
+			setPreview(null);
+			return;
+		}
+
+		// Check if the hovered entity is a point at a corner (shared by exactly 2 lines)
+		const entities = getSketchEntities();
+		const entity = entities.find(e => e.id === hitId);
+		if (!entity || entity.type !== 'Point') {
+			filletCorner = null;
+			setPreview(null);
+			return;
+		}
+
+		const corner = findCornerAtPoint(hitId);
+		if (!corner) {
+			filletCorner = null;
+			setPreview(null);
+			return;
+		}
+
+		filletCorner = corner;
+
+		// Compute preview arc
+		const positions = getSketchPositions();
+		const pos = positions.get(hitId);
+		if (!pos) return;
+
+		const previewData = computeFilletPreview(corner, positions, null);
+		if (previewData) {
+			setPreview({
+				type: 'fillet-preview',
+				data: previewData
+			});
+		}
+		return;
+	}
+
+	if (eventType === 'pointerdown') {
+		if (!filletCorner) return;
+
+		const positions = getSketchPositions();
+		const pos = positions.get(filletCorner.pointId);
+		if (!pos) return;
+
+		// Compute default radius from shorter line / 3
+		const line1 = filletCorner.lines[0];
+		const line2 = filletCorner.lines[1];
+		const len1 = lineLength(line1, positions);
+		const len2 = lineLength(line2, positions);
+		const defaultRadius = Math.min(len1, len2) / 3;
+
+		showDimensionPopup({
+			entityA: filletCorner.pointId,
+			entityB: null,
+			sketchX: pos.x,
+			sketchY: pos.y,
+			dimType: 'radius',
+			defaultValue: parseFloat(defaultRadius.toFixed(4)),
+			customApply: (radius) => executeSketchFillet(filletCorner, radius)
+		});
+	}
+}
+
+/**
+ * Find a corner at a point: the point must be shared by exactly 2 lines.
+ * @param {number} pointId
+ * @returns {{ pointId: number, lines: Array<any> } | null}
+ */
+function findCornerAtPoint(pointId) {
+	const entities = getSketchEntities();
+	const lines = entities.filter(e =>
+		e.type === 'Line' && (e.start_id === pointId || e.end_id === pointId)
+	);
+	if (lines.length !== 2) return null;
+	return { pointId, lines };
+}
+
+/**
+ * Compute the length of a line entity.
+ */
+function lineLength(lineEntity, positions) {
+	const p1 = positions.get(lineEntity.start_id);
+	const p2 = positions.get(lineEntity.end_id);
+	if (!p1 || !p2) return 0;
+	return Math.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2);
+}
+
+/**
+ * Compute fillet preview data (arc center, tangent points, radius).
+ */
+function computeFilletPreview(corner, positions, overrideRadius) {
+	const pos = positions.get(corner.pointId);
+	if (!pos) return null;
+
+	const line1 = corner.lines[0];
+	const line2 = corner.lines[1];
+
+	// Get the "other" endpoint of each line (the one NOT at the corner)
+	const other1Id = line1.start_id === corner.pointId ? line1.end_id : line1.start_id;
+	const other2Id = line2.start_id === corner.pointId ? line2.end_id : line2.start_id;
+	const other1 = positions.get(other1Id);
+	const other2 = positions.get(other2Id);
+	if (!other1 || !other2) return null;
+
+	// Direction vectors from corner toward each line's other end
+	const dir1 = { x: other1.x - pos.x, y: other1.y - pos.y };
+	const dir2 = { x: other2.x - pos.x, y: other2.y - pos.y };
+	const len1 = Math.sqrt(dir1.x ** 2 + dir1.y ** 2);
+	const len2 = Math.sqrt(dir2.x ** 2 + dir2.y ** 2);
+	if (len1 < 1e-10 || len2 < 1e-10) return null;
+
+	// Normalize
+	dir1.x /= len1; dir1.y /= len1;
+	dir2.x /= len2; dir2.y /= len2;
+
+	// Angle between lines
+	const dot = dir1.x * dir2.x + dir1.y * dir2.y;
+	if (Math.abs(dot) > 0.9999) return null; // lines are parallel
+
+	const halfAngle = Math.acos(Math.min(1, Math.abs(dot))) / 2;
+	// For the fillet, the half-angle between the bisector and a line direction
+	// is (PI - angle_between) / 2
+	const angleB = Math.acos(Math.min(1, Math.abs(dot)));
+	const sinHalf = Math.sin(angleB / 2);
+	if (sinHalf < 1e-10) return null;
+
+	const radius = overrideRadius ?? Math.min(len1, len2) / 3;
+	const distToCenter = radius / sinHalf;
+
+	// Tangent points: project fillet center onto each line
+	const tangentDist = radius / Math.tan(angleB / 2);
+	if (tangentDist > Math.min(len1, len2) - 0.001) return null; // radius too large
+
+	const bisector = angleBisector(dir1, dir2);
+	const center = {
+		x: pos.x + bisector.x * distToCenter,
+		y: pos.y + bisector.y * distToCenter
+	};
+
+	// Tangent points on each line
+	const tp1 = perpendicularFoot(center, pos, other1);
+	const tp2 = perpendicularFoot(center, pos, other2);
+
+	// Arc angles
+	const startAngle = Math.atan2(tp1.y - center.y, tp1.x - center.x);
+	const endAngle = Math.atan2(tp2.y - center.y, tp2.x - center.x);
+
+	return { cx: center.x, cy: center.y, radius, startAngle, endAngle, tp1, tp2 };
+}
+
+/**
+ * Execute sketch fillet: modify existing lines and create arc.
+ */
+function executeSketchFillet(corner, radius) {
+	if (!corner) return;
+
+	const positions = getSketchPositions();
+	const preview = computeFilletPreview(corner, positions, radius);
+	if (!preview) {
+		log('sketch', 'Cannot apply fillet — radius too large or lines are parallel');
+		return;
+	}
+
+	beginSketchAction();
+
+	const { tp1, tp2 } = preview;
+
+	// Create tangent point entities
+	const tp1Pt = findOrCreatePoint(tp1.x, tp1.y, 0.001);
+	const tp2Pt = findOrCreatePoint(tp2.x, tp2.y, 0.001);
+
+	// Create arc center (reuse the corner point as it gets freed)
+	// Actually, the arc center must be at preview.cx, preview.cy
+	const arcCenterId = allocEntityId();
+	addLocalEntity({ type: 'Point', id: arcCenterId, x: preview.cx, y: preview.cy, construction: false });
+
+	// Create fillet arc
+	const arcId = allocEntityId();
+	addLocalEntity({
+		type: 'Arc', id: arcId,
+		center_id: arcCenterId,
+		start_id: tp1Pt.id, end_id: tp2Pt.id,
+		construction: false
+	});
+
+	// Modify existing line endpoints: move them to tangent points
+	// Line 1: the endpoint at the corner should become tp1
+	const line1 = corner.lines[0];
+	const line2 = corner.lines[1];
+
+	// Remove old lines and recreate with new endpoints
+	const l1OtherId = line1.start_id === corner.pointId ? line1.end_id : line1.start_id;
+	const l2OtherId = line2.start_id === corner.pointId ? line2.end_id : line2.start_id;
+
+	removeSketchEntities(new Set([line1.id, line2.id]));
+
+	// Recreate lines with tangent point endpoints
+	const newLine1Id = allocEntityId();
+	addLocalEntity({
+		type: 'Line', id: newLine1Id,
+		start_id: l1OtherId, end_id: tp1Pt.id,
+		construction: false
+	});
+
+	const newLine2Id = allocEntityId();
+	addLocalEntity({
+		type: 'Line', id: newLine2Id,
+		start_id: l2OtherId, end_id: tp2Pt.id,
+		construction: false
+	});
+
+	// Add tangent constraints
+	addLocalConstraint({ type: 'Tangent', line: newLine1Id, curve: arcId });
+	addLocalConstraint({ type: 'Tangent', line: newLine2Id, curve: arcId });
+
+	log('sketch', 'Sketch fillet applied', { radius, arcId });
+
+	endSketchAction();
+	filletCorner = null;
+	setPreview(null);
 }
