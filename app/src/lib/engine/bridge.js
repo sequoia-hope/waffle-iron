@@ -30,7 +30,7 @@ export class EngineBridge {
 	 * @param {string} wasmUrl - URL to the wasm_bridge.js module (passed to worker)
 	 * @returns {Promise<void>} Resolves when the engine is ready.
 	 */
-	init(wasmUrl = '/pkg/wasm_bridge.js') {
+	init(wasmUrl) {
 		return new Promise((resolve, reject) => {
 			log('system', 'Creating engine worker');
 			this._worker = new Worker(
@@ -58,7 +58,8 @@ export class EngineBridge {
 				reject(new Error(`Worker failed to load: ${e.message}`));
 			});
 
-			this._worker.postMessage({ type: 'init', wasmUrl });
+			const basePath = wasmUrl.substring(0, wasmUrl.indexOf('/pkg/'));
+			this._worker.postMessage({ type: 'init', wasmUrl, basePath });
 		});
 	}
 

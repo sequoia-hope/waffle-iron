@@ -74,9 +74,9 @@ let M = null;
  * Initialize the libslvs WASM module.
  * @param {Function} createSlvsModule - Emscripten factory function
  */
-export async function initSlvs(createSlvsModule) {
+export async function initSlvs(createSlvsModule, pathPrefix = '') {
 	M = await createSlvsModule({
-		locateFile: (path) => `/pkg/slvs/${path}`
+		locateFile: (path) => `${pathPrefix}/pkg/slvs/${path}`
 	});
 }
 

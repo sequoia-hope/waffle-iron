@@ -9,13 +9,14 @@
 import { initSlvs, isSlvsReady, solveSketch } from './slvs-solver.js';
 
 let wasmModule = null;
+let basePath = '';
 
 /**
  * Load the libslvs Emscripten module via fetch+blob to avoid Vite/Rollup
  * trying to resolve the non-bundled Emscripten output.
  */
 async function loadSlvsFactory() {
-	const resp = await fetch('/pkg/slvs/slvs.js');
+	const resp = await fetch(`${basePath}/pkg/slvs/slvs.js`);
 	const text = await resp.text();
 	// Add ES module exports only if the Emscripten output doesn't already have them
 	let moduleText = text;
@@ -35,7 +36,7 @@ async function loadSlvsFactory() {
  */
 async function initEngine(wasmUrl) {
 	try {
-		const wasm = await import(/* @vite-ignore */ wasmUrl || '/pkg/wasm_bridge.js');
+		const wasm = await import(/* @vite-ignore */ wasmUrl);
 		await wasm.default();
 		wasm.init();
 		wasmModule = wasm;
@@ -43,7 +44,7 @@ async function initEngine(wasmUrl) {
 		// Load libslvs constraint solver (non-blocking, graceful failure)
 		try {
 			const createSlvsModule = await loadSlvsFactory();
-			await initSlvs(createSlvsModule);
+			await initSlvs(createSlvsModule, basePath);
 			console.log('libslvs constraint solver ready');
 		} catch (err) {
 			console.warn('libslvs solver not available:', err.message);
@@ -217,6 +218,7 @@ self.onmessage = async function (event) {
 	const msg = event.data;
 
 	if (msg.type === 'init') {
+		basePath = msg.basePath || '';
 		await initEngine(msg.wasmUrl);
 		return;
 	}

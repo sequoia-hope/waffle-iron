@@ -5,6 +5,7 @@
  * feature tree, mesh data, and engine status.
  */
 
+import { base } from '$app/paths';
 import { EngineBridge } from './bridge.js';
 import { log, getLogs, exportLogs, clearLogs } from './logger.js';
 import { showToast, getToasts, dismissToast, initLoggerToasts } from '$lib/ui/toast.svelte.js';
@@ -266,7 +267,7 @@ export async function initEngine() {
 	log('system', 'Engine init started');
 	try {
 		statusMessage = 'Loading WASM engine...';
-		await bridge.init('/pkg/wasm_bridge.js');
+		await bridge.init(`${base}/pkg/wasm_bridge.js`);
 		engineReady = true;
 		lastError = null;
 		statusMessage = 'Engine ready';
