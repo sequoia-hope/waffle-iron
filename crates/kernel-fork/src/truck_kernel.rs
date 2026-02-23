@@ -306,6 +306,13 @@ impl Kernel for TruckKernel {
                 truck_shapeops::or_result_with_tol(a, b, &tols)
             })
             .map_err(|e| KernelError::from(BooleanError::from(e)))?;
+        #[cfg(debug_assertions)]
+        if result.boundaries().len() > 1 {
+            eprintln!(
+                "[boolean_union] WARNING: result has {} shells",
+                result.boundaries().len()
+            );
+        }
         crate::healing::heal_intersection_curves(&result, heal_tol);
         crate::healing::deduplicate_vertices(&result, heal_tol * 0.1);
         Ok(self.store_solid(result))
@@ -352,6 +359,13 @@ impl Kernel for TruckKernel {
                 truck_shapeops::difference_result_with_tol(a, b, &tols)
             })
             .map_err(|e| KernelError::from(BooleanError::from(e)))?;
+        #[cfg(debug_assertions)]
+        if result.boundaries().len() > 1 {
+            eprintln!(
+                "[boolean_subtract] WARNING: result has {} shells",
+                result.boundaries().len()
+            );
+        }
         crate::healing::heal_intersection_curves(&result, heal_tol);
         crate::healing::deduplicate_vertices(&result, heal_tol * 0.1);
         Ok(self.store_solid(result))

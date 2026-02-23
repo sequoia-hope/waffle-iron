@@ -838,6 +838,8 @@ pub fn try_boolean_with_perturbation(
     op: impl Fn(&Solid, &Solid) -> Result<Solid, truck_shapeops::BooleanStageError>,
 ) -> Result<Solid, truck_shapeops::BooleanStageError> {
     let mut last_err;
+    let _perturb_start = std::time::Instant::now();
+    let mut _attempt_count: u32 = 0;
 
     // Pre-heal: unify coincident vertices in solid_a. After a previous
     // boolean, a solid may have vertices at the same position but with
@@ -845,8 +847,7 @@ pub fn try_boolean_with_perturbation(
     // during the next boolean, because intersection curve endpoints connect
     // to one vertex ID while the face boundary uses another.
     let healed_a = {
-        let mut shells: Vec<Shell> =
-            solid_a.boundaries().iter().cloned().collect();
+        let mut shells: Vec<Shell> = solid_a.boundaries().iter().cloned().collect();
         let mut any_healed = false;
         for shell in &mut shells {
             let vcount_before = {
@@ -863,7 +864,9 @@ pub fn try_boolean_with_perturbation(
             #[cfg(debug_assertions)]
             eprintln!(
                 "[pre-heal] shell has {} unique vertex IDs, tol={:.6}, heal_tol={:.6}",
-                vcount_before, tol, tol * 0.2,
+                vcount_before,
+                tol,
+                tol * 0.2,
             );
             truck_shapeops::heal_shell_vertices(shell, tol * 0.2);
             let vcount_after = {
@@ -902,15 +905,82 @@ pub fn try_boolean_with_perturbation(
 
     let effective_a = healed_a.as_ref().unwrap_or(solid_a);
 
+    // Cumulative timeout for the entire perturbation cascade (120 seconds).
+    // Without this, a failing boolean on a complex body can burn 50+ retries
+    // at 20-60s each, taking 15+ minutes total. 120s allows ~30 attempts
+    // at 4s each for legitimate coplanar retries while preventing runaway cascades.
+    let cascade_timeout = std::time::Duration::from_secs(120);
+
+    // Instrumented op wrapper with panic catching
+    let try_op = |a: &Solid,
+                  b: &Solid,
+                  attempt: &mut u32,
+                  label: &str|
+     -> Result<Solid, truck_shapeops::BooleanStageError> {
+        *attempt += 1;
+        let _t = std::time::Instant::now();
+        // Catch panics from truck internals (e.g., "knot vector consists single value")
+        // and convert them to BooleanStageError instead of crashing.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| op(a, b)));
+        let result = match result {
+            Ok(r) => r,
+            Err(panic_info) => {
+                let msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                    s.to_string()
+                } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    "unknown panic".to_string()
+                };
+                #[cfg(debug_assertions)]
+                eprintln!(
+                    "[perturbation] attempt #{} ({}) PANICKED: {}",
+                    *attempt, label, msg
+                );
+                Err(truck_shapeops::BooleanStageError::ShellAssembly(format!(
+                    "panic: {}",
+                    msg
+                )))
+            }
+        };
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "[perturbation] attempt #{} ({}) took {:.2}s → {}",
+            *attempt,
+            label,
+            _t.elapsed().as_secs_f64(),
+            if result.is_ok() { "OK" } else { "FAIL" },
+        );
+        result
+    };
+
     // Try direct
-    match op(effective_a, solid_b) {
+    match try_op(effective_a, solid_b, &mut _attempt_count, "direct") {
         Ok(result) => return Ok(result),
         Err(e) => last_err = e,
+    }
+
+    // Macro to check cascade timeout and bail out immediately
+    macro_rules! check_timeout {
+        () => {
+            if _perturb_start.elapsed() > cascade_timeout {
+                #[cfg(debug_assertions)]
+                eprintln!(
+                    "[perturbation] cascade timeout ({:.0}s) after {} attempts in {:.1}s",
+                    cascade_timeout.as_secs_f64(),
+                    _attempt_count,
+                    _perturb_start.elapsed().as_secs_f64(),
+                );
+                return Err(last_err);
+            }
+        };
     }
 
     // Scale-aware perturbation epsilons based on bounding box extent
     let extent = solid_max_extent(effective_a).max(solid_max_extent(solid_b));
     let epsilons = [extent * 1e-6, extent * 1e-5, extent * 1e-4, extent * 1e-3];
+
+    check_timeout!();
 
     // Detect ALL coplanar directions
     let dirs = detect_all_coplanar_directions(effective_a, solid_b, tol);
@@ -926,8 +996,9 @@ pub fn try_boolean_with_perturbation(
             if len > 1e-10 {
                 let composite_dir = composite / len;
                 for &eps in &epsilons {
+                    check_timeout!();
                     let perturbed_b = translate_solid(solid_b, composite_dir * eps);
-                    match op(effective_a, &perturbed_b) {
+                    match try_op(effective_a, &perturbed_b, &mut _attempt_count, "composite") {
                         Ok(result) => return Ok(result),
                         Err(e) => last_err = e,
                     }
@@ -938,8 +1009,14 @@ pub fn try_boolean_with_perturbation(
         // Try each individual coplanar direction
         for dir in &dirs {
             for &eps in &epsilons {
+                check_timeout!();
                 let perturbed_b = translate_solid(solid_b, *dir * eps);
-                match op(effective_a, &perturbed_b) {
+                match try_op(
+                    effective_a,
+                    &perturbed_b,
+                    &mut _attempt_count,
+                    "coplanar-dir",
+                ) {
                     Ok(result) => return Ok(result),
                     Err(e) => last_err = e,
                 }
@@ -947,19 +1024,29 @@ pub fn try_boolean_with_perturbation(
         }
     }
 
+    check_timeout!();
+
     // Cylinder-aware perturbation — for box-cylinder cases at face boundaries
     // where neither coplanar detection nor direct boolean succeeds. Perturb
     // perpendicular to detected cylinder axes.
     let cyl_dirs = detect_cylinder_directions(effective_a, solid_b);
     for dir in &cyl_dirs {
         for &eps in &epsilons {
+            check_timeout!();
             let perturbed_b = translate_solid(solid_b, *dir * eps);
-            match op(effective_a, &perturbed_b) {
+            match try_op(
+                effective_a,
+                &perturbed_b,
+                &mut _attempt_count,
+                "cylinder-dir",
+            ) {
                 Ok(result) => return Ok(result),
                 Err(e) => last_err = e,
             }
         }
     }
+
+    check_timeout!();
 
     // Diagonal perturbation — when coplanar and cylinder directions alone
     // don't resolve the degeneracy, try diagonal combinations. These cover
@@ -975,14 +1062,17 @@ pub fn try_boolean_with_perturbation(
         ];
         for dir in &diag_dirs {
             for &eps in &epsilons {
+                check_timeout!();
                 let perturbed_b = translate_solid(solid_b, *dir * eps);
-                match op(effective_a, &perturbed_b) {
+                match try_op(effective_a, &perturbed_b, &mut _attempt_count, "diagonal") {
                     Ok(result) => return Ok(result),
                     Err(e) => last_err = e,
                 }
             }
         }
     }
+
+    check_timeout!();
 
     // Asymmetric scale perturbation — when tool edges overlap target edges,
     // the mesh collision produces degenerate intersection segments. Scale
@@ -998,6 +1088,7 @@ pub fn try_boolean_with_perturbation(
             (1.01, 1.01, 1.0),
         ];
         for (sx, sy, sz) in &asymmetric_scales {
+            check_timeout!();
             let scaled_b = solid_b.mapped(
                 |p| {
                     let v = Vector3::new(p.x, p.y, p.z);
@@ -1018,12 +1109,14 @@ pub fn try_boolean_with_perturbation(
                     s.transformed(trans)
                 },
             );
-            match op(effective_a, &scaled_b) {
+            match try_op(effective_a, &scaled_b, &mut _attempt_count, "asymm-scale") {
                 Ok(result) => return Ok(result),
                 Err(e) => last_err = e,
             }
         }
     }
+
+    check_timeout!();
 
     // Scale-expand perturbation — grow tool outward from its centroid to
     // break edge coincidence. When a cut tool's profile exactly matches a
@@ -1038,13 +1131,16 @@ pub fn try_boolean_with_perturbation(
         let centroid = solid_centroid(solid_b);
         let scale_factors = [1.02, 1.03, 1.05];
         for &sf in &scale_factors {
+            check_timeout!();
             let scaled_b = scale_solid(solid_b, centroid, sf);
-            match op(effective_a, &scaled_b) {
+            match try_op(effective_a, &scaled_b, &mut _attempt_count, "scale-expand") {
                 Ok(result) => return Ok(result),
                 Err(e) => last_err = e,
             }
         }
     }
+
+    check_timeout!();
 
     // Cardinal fallback — for edge-coincident cases where coplanarity
     // detection doesn't trigger. Use fixed small epsilon (not scaled) because
@@ -1059,22 +1155,32 @@ pub fn try_boolean_with_perturbation(
         Vector3::new(1e-5, 1e-5, 1e-5),
     ];
     for offset in &cardinal {
+        check_timeout!();
         let perturbed_b = translate_solid(solid_b, *offset);
-        match op(effective_a, &perturbed_b) {
+        match try_op(effective_a, &perturbed_b, &mut _attempt_count, "cardinal") {
             Ok(result) => return Ok(result),
             Err(e) => last_err = e,
         }
     }
+
+    check_timeout!();
 
     // Final fallback: perturb effective_a instead
     for offset in &cardinal {
+        check_timeout!();
         let perturbed_a = translate_solid(effective_a, *offset);
-        match op(&perturbed_a, solid_b) {
+        match try_op(&perturbed_a, solid_b, &mut _attempt_count, "cardinal-A") {
             Ok(result) => return Ok(result),
             Err(e) => last_err = e,
         }
     }
 
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "[perturbation] EXHAUSTED all {} attempts in {:.1}s",
+        _attempt_count,
+        _perturb_start.elapsed().as_secs_f64(),
+    );
     Err(last_err)
 }
 

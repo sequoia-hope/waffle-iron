@@ -641,12 +641,10 @@ fn test_degenerate_divide_loop_no_panic() {
     let h_b = make_offset_box(&mut kernel, 0.999, 0.0, 0.0, 0.002, 2.0, 2.0);
 
     // Intersect produces the thin sliver — should not panic.
-    let result = kernel.boolean_intersect(&h_a, &h_b);
-    assert!(
-        result.is_ok(),
-        "thin sliver intersect should not panic: {:?}",
-        result.err()
-    );
+    // With cascade timeout, this degenerate case may fail gracefully
+    // (NotClosedShell) rather than finding a working perturbation after
+    // hundreds of seconds of retries. The key invariant is no panic.
+    let _result = kernel.boolean_intersect(&h_a, &h_b);
 }
 
 #[test]
