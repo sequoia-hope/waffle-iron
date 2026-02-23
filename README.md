@@ -1,10 +1,12 @@
 # Waffle Iron
 
-**The KiCad of mechanical CAD.** Waffle Iron is an open-source parametric CAD system designed to replace Onshape for daily mechanical design work. GPL-3.0 licensed, community-driven, built for the workflow engineers actually use: sketch on plane, constrain, extrude, fillet, pattern, assemble.
+**An experimental open-source parametric CAD system** created by Sequoia Alexander and [Claude](https://claude.ai) to push the limits of coding agent capabilities, and see if we can use them to build solid, dependable tools for everyday use. GPL-3.0 licensed.
+
+**[Try it in your browser](https://sequoia-hope.github.io/waffle-iron/)**
 
 ## Status
 
-**Documentation / Planning Phase.** Architecture, interfaces, and agent workflow are being defined. No production code yet.
+**Early experimental.** Core sketch-constrain-extrude-revolve workflow is functional but rough. Boolean operations are fragile. Fillet, chamfer, and shell are deferred. There is no file save/load, no assemblies, and no desktop app yet. Expect bugs.
 
 ## Stack
 
@@ -19,9 +21,7 @@
 
 ## Vision
 
-Replace proprietary parametric CAD with an open-source alternative that is good enough for daily professional use. The same way KiCad replaced Eagle for PCB design, Waffle Iron aims to replace Onshape for mechanical CAD.
-
-Target workflow: sketch on plane → constrain sketch → extrude/revolve → fillet/chamfer → pattern → assembly.
+A dream of a world where open-source parametric CAD is good enough for daily professional use. We're not there yet, but every sketch, extrude, and boolean gets us a little closer.
 
 ## Contributing
 
