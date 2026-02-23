@@ -274,6 +274,7 @@ export async function initEngine() {
 			failed: msg.failed || [],
 			solveTime: msg.solveTime
 		};
+		recomputeOverConstrained();
 		log('engine', 'Sketch solved', { status: msg.status, dof: msg.dof });
 	});
 
@@ -436,6 +437,7 @@ export async function initEngine() {
 			clearToolEventLog: () => _clearToolEventLog(),
 			getSolveStatus: () => sketchSolveStatus ? { ...sketchSolveStatus } : null,
 			getOverConstrained: () => [...overConstrainedEntities],
+			getFailedConstraintIndices: () => [...failedConstraintIndices],
 			getFeatureErrors: () => new Map(featureErrors),
 			projectFaceCentroids: () => {
 				const cam = cameraObject;
@@ -480,6 +482,10 @@ export async function initEngine() {
 			setSketchSelection: (ids) => { sketchSelection = new Set(ids); },
 			addSketchEntity: (entity) => addLocalEntity(entity),
 			addSketchConstraint: (constraint) => addLocalConstraint(constraint),
+			removeSketchEntities: (ids) => removeSketchEntities(new Set(ids)),
+			removeSketchConstraint: (index) => removeSketchConstraint(index),
+			dragSketchPoint: (pointId, x, y) => dragSketchPoint(pointId, x, y),
+			finalizeDrag: () => finalizeDrag(),
 			undo: () => undo(),
 			redo: () => redo(),
 			getLogs: (filter) => getLogs(filter),
@@ -991,9 +997,206 @@ export function toggleConstruction(entityId) {
 }
 
 /**
- * Detect over-constrained entities by checking constraint count vs DOF.
- * Simple heuristic: count constraints per entity; if an entity has more
- * same-type constraints than allowed, flag it.
+ * Remove sketch entities by ID, cascade-delete referencing constraints,
+ * and remove orphaned points. Pushes to undo stack for reversibility.
+ * @param {Set<number>} entityIds - IDs of entities to remove
+ */
+export function removeSketchEntities(entityIds) {
+	if (entityIds.size === 0) return;
+
+	// Collect all entities to remove (including orphaned points from line/circle/arc deletion)
+	const toRemove = new Set(entityIds);
+
+	// Find entities being deleted and their referenced point IDs
+	const deletedEntities = sketchEntities.filter(e => toRemove.has(e.id));
+	const referencedPointIds = new Set();
+	for (const e of deletedEntities) {
+		if (e.type === 'Line') {
+			referencedPointIds.add(e.start_id);
+			referencedPointIds.add(e.end_id);
+		} else if (e.type === 'Circle') {
+			referencedPointIds.add(e.center_id);
+		} else if (e.type === 'Arc') {
+			referencedPointIds.add(e.center_id);
+			referencedPointIds.add(e.start_id);
+			referencedPointIds.add(e.end_id);
+		}
+	}
+
+	// If deleting a point, find all entities that reference it and delete them too
+	for (const e of sketchEntities) {
+		if (toRemove.has(e.id)) continue;
+		if (e.type === 'Line' && (toRemove.has(e.start_id) || toRemove.has(e.end_id))) {
+			toRemove.add(e.id);
+			// Also track points from cascaded lines
+			referencedPointIds.add(e.start_id);
+			referencedPointIds.add(e.end_id);
+		}
+		if (e.type === 'Circle' && toRemove.has(e.center_id)) {
+			toRemove.add(e.id);
+		}
+		if (e.type === 'Arc' && (toRemove.has(e.center_id) || toRemove.has(e.start_id) || toRemove.has(e.end_id))) {
+			toRemove.add(e.id);
+			referencedPointIds.add(e.center_id);
+			referencedPointIds.add(e.start_id);
+			referencedPointIds.add(e.end_id);
+		}
+	}
+
+	// Check which referenced points are orphaned (not used by any surviving entity)
+	const survivingEntities = sketchEntities.filter(e => !toRemove.has(e.id));
+	const usedPointIds = new Set();
+	for (const e of survivingEntities) {
+		if (e.type === 'Line') { usedPointIds.add(e.start_id); usedPointIds.add(e.end_id); }
+		if (e.type === 'Circle') { usedPointIds.add(e.center_id); }
+		if (e.type === 'Arc') { usedPointIds.add(e.center_id); usedPointIds.add(e.start_id); usedPointIds.add(e.end_id); }
+	}
+	for (const ptId of referencedPointIds) {
+		if (!usedPointIds.has(ptId) && !toRemove.has(ptId)) {
+			toRemove.add(ptId);
+		}
+	}
+
+	// Find constraints that reference any removed entity
+	const removedConstraints = [];
+	const survivingConstraints = [];
+	for (const c of sketchConstraints) {
+		const refs = [c.entity, c.entity_a, c.entity_b, c.entity_c,
+			c.line, c.curve, c.line_a, c.line_b,
+			c.point, c.point_a, c.point_b].filter(v => v != null);
+		if (refs.some(id => toRemove.has(id))) {
+			removedConstraints.push(JSON.parse(JSON.stringify(c)));
+		} else {
+			survivingConstraints.push(c);
+		}
+	}
+
+	// Collect removed entities for undo
+	const removedEntities = sketchEntities.filter(e => toRemove.has(e.id))
+		.map(e => JSON.parse(JSON.stringify(e)));
+
+	// Push to undo stack
+	if (removedEntities.length > 0 || removedConstraints.length > 0) {
+		sketchUndoStack = [...sketchUndoStack, {
+			entities: removedEntities,
+			constraints: removedConstraints,
+			_isDeletion: true
+		}];
+		sketchRedoStack = [];
+	}
+
+	// Apply removals
+	sketchEntities = survivingEntities.filter(e => !toRemove.has(e.id));
+	sketchConstraints = survivingConstraints;
+
+	// Update positions map
+	const nextPos = new Map(sketchPositions);
+	for (const id of toRemove) {
+		nextPos.delete(id);
+	}
+	sketchPositions = nextPos;
+
+	// Clear selection
+	sketchSelection = new Set();
+
+	recomputeOverConstrained();
+	reExtractProfiles();
+	triggerSolve();
+
+	log('sketch', `Deleted ${removedEntities.length} entities, ${removedConstraints.length} constraints`);
+}
+
+/**
+ * Remove a sketch constraint by index. Re-solves and re-extracts profiles.
+ * @param {number} index - Index into sketchConstraints array
+ */
+export function removeSketchConstraint(index) {
+	if (index < 0 || index >= sketchConstraints.length) return;
+
+	const removed = JSON.parse(JSON.stringify(sketchConstraints[index]));
+	sketchConstraints = [
+		...sketchConstraints.slice(0, index),
+		...sketchConstraints.slice(index + 1)
+	];
+
+	// Push to undo stack as a constraint-only action
+	sketchUndoStack = [...sketchUndoStack, {
+		entities: [],
+		constraints: [removed],
+		_isDeletion: true
+	}];
+	sketchRedoStack = [];
+
+	recomputeOverConstrained();
+	reExtractProfiles();
+	triggerSolve();
+
+	log('sketch', `Deleted constraint: ${removed.type}`);
+}
+
+// -- Drag state --
+/** @type {{ pointId: number, originalX: number, originalY: number } | null} */
+let dragState = null;
+
+/**
+ * Begin dragging a sketch point. Adds a temporary WhereDragged constraint
+ * and updates the point position, triggering a solve.
+ * @param {number} pointId
+ * @param {number} newX
+ * @param {number} newY
+ */
+export function dragSketchPoint(pointId, newX, newY) {
+	if (!dragState) {
+		// First drag move — record original position
+		const pos = sketchPositions.get(pointId);
+		if (!pos) return;
+		dragState = { pointId, originalX: pos.x, originalY: pos.y };
+	}
+
+	// Update position locally
+	const nextPos = new Map(sketchPositions);
+	nextPos.set(pointId, { x: newX, y: newY });
+	sketchPositions = nextPos;
+
+	// Remove any existing drag constraint for this point
+	sketchConstraints = sketchConstraints.filter(c => !(c.type === 'WhereDragged' && c.point === pointId && c._isDrag));
+
+	// Add temporary WhereDragged constraint
+	sketchConstraints = [...sketchConstraints, {
+		type: 'WhereDragged', point: pointId, x: newX, y: newY, _isDrag: true
+	}];
+
+	triggerSolve();
+}
+
+/**
+ * Finalize a drag operation. Removes the temporary WhereDragged constraint
+ * and pushes an undo action for the position change.
+ */
+export function finalizeDrag() {
+	if (!dragState) return;
+
+	const { pointId } = dragState;
+
+	// Remove temporary drag constraint
+	sketchConstraints = sketchConstraints.filter(c => !(c.type === 'WhereDragged' && c.point === pointId && c._isDrag));
+
+	// Trigger final solve without the drag constraint
+	triggerSolve();
+	reExtractProfiles();
+
+	dragState = null;
+}
+
+/** @returns {{ pointId: number, originalX: number, originalY: number } | null} */
+export function getDragState() { return dragState; }
+
+/** @type {Set<number>} Indices of failed/conflicting constraints from solver */
+let failedConstraintIndices = $state(new Set());
+
+/**
+ * Detect over-constrained entities by checking constraint count vs DOF
+ * and incorporating solver feedback (failed constraint indices).
  */
 function recomputeOverConstrained() {
 	// Count constraints applied to each entity
@@ -1014,22 +1217,38 @@ function recomputeOverConstrained() {
 
 	const overconstrained = new Set();
 
-	// A line with >1 of the same H/V constraints is over-constrained
-	// Also, H+V on same line = fully constrained direction (OK)
-	// Simple: flag lines with >2 geometric constraints
+	// Heuristic: flag entities with too many constraints
 	for (const entity of sketchEntities) {
 		const count = constraintCount.get(entity.id) || 0;
 		if (entity.type === 'Line' && count > 2) {
 			overconstrained.add(entity.id);
 		}
-		// Points with >2 constraints (each constraint removes 1 DOF, point has 2 DOF)
 		if (entity.type === 'Point' && count > 2) {
 			overconstrained.add(entity.id);
 		}
 	}
 
+	// Incorporate solver failed constraints — flag entities they reference
+	if (sketchSolveStatus?.failed?.length > 0) {
+		for (const failedIdx of sketchSolveStatus.failed) {
+			if (failedIdx >= 0 && failedIdx < sketchConstraints.length) {
+				const c = sketchConstraints[failedIdx];
+				const refs = [c.entity, c.entity_a, c.entity_b, c.line, c.curve,
+					c.line_a, c.line_b, c.point, c.point_a, c.point_b].filter(v => v != null);
+				for (const id of refs) {
+					overconstrained.add(id);
+				}
+			}
+		}
+		failedConstraintIndices = new Set(sketchSolveStatus.failed);
+	} else {
+		failedConstraintIndices = new Set();
+	}
+
 	overConstrainedEntities = overconstrained;
 }
+
+export function getFailedConstraintIndices() { return failedConstraintIndices; }
 
 /**
  * Re-extract profiles from current sketch entities.

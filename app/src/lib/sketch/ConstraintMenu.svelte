@@ -35,6 +35,16 @@
 		if (applicable.fix) result.push({ label: 'Fix', build: applicable.fix });
 		if (applicable.distance) result.push({ label: 'Distance', build: applicable.distance });
 		if (applicable.radius) result.push({ label: 'Radius', build: applicable.radius });
+		if (applicable.angle) result.push({ label: 'Angle', build: applicable.angle });
+		if (applicable.symmetric) result.push({ label: 'Symmetric', build: applicable.symmetric });
+		if (applicable.symmetricH) result.push({ label: 'Symmetric H', build: applicable.symmetricH });
+		if (applicable.symmetricV) result.push({ label: 'Symmetric V', build: applicable.symmetricV });
+		if (applicable.pointOnLine) result.push({ label: 'Point on Line', build: applicable.pointOnLine });
+		if (applicable.pointOnCircle) result.push({ label: 'Point on Circle', build: applicable.pointOnCircle });
+		if (applicable.equalRadius) result.push({ label: 'Equal Radius', build: applicable.equalRadius });
+		if (applicable.lengthRatio) result.push({ label: 'Length Ratio', build: applicable.lengthRatio });
+		if (applicable.pointLineDistance) result.push({ label: 'Point-Line Distance', build: applicable.pointLineDistance });
+		if (applicable.diameter) result.push({ label: 'Diameter', build: applicable.diameter });
 
 		return result;
 	});

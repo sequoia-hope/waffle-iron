@@ -36,7 +36,9 @@
 		getShowDatumPlanes,
 		getShowOriginTriad,
 		toggleDatumPlanes,
-		toggleOriginTriad
+		toggleOriginTriad,
+		removeSketchEntities,
+		getSketchSolveStatus
 	} from '$lib/engine/store.svelte.js';
 	import { getApplicableConstraints } from '$lib/sketch/constraintLogic.js';
 	import { resetTool } from '$lib/sketch/tools.js';
@@ -52,6 +54,7 @@
 
 	let isMobile = $derived(getMobileLayout());
 	let applicable = $derived(inSketch ? getApplicableConstraints(selection, entities, positions) : {});
+	let solveStatus = $derived(inSketch ? getSketchSolveStatus() : null);
 
 	let name = $derived(getProjectName());
 	let editingName = $state(false);
@@ -71,6 +74,10 @@
 		{ id: 'tangent', label: 'Tan', title: 'Tangent' },
 		{ id: 'midpoint', label: 'Mid', title: 'Midpoint' },
 		{ id: 'fix', label: 'Fix', title: 'Fix Point' },
+		{ id: 'angle', label: 'Ang', title: 'Angle' },
+		{ id: 'symmetricH', label: 'SH', title: 'Symmetric Horizontal' },
+		{ id: 'symmetricV', label: 'SV', title: 'Symmetric Vertical' },
+		{ id: 'pointOnLine', label: 'OnL', title: 'Point on Line' },
 	];
 
 	function applyConstraint(id) {
@@ -91,6 +98,7 @@
 	const sketchTools = [
 		{ id: 'select', label: 'Select', shortcut: '' },
 		{ id: 'line', label: 'Line', shortcut: 'L' },
+		{ id: 'polyline', label: 'Poly', shortcut: 'P' },
 		{ id: 'rectangle', label: 'Rect', shortcut: 'R' },
 		{ id: 'circle', label: 'Circle', shortcut: 'C' },
 		{ id: 'arc', label: 'Arc', shortcut: 'A' },
@@ -185,10 +193,12 @@
 				case 'e': handleToolClick('extrude'); break;
 				case 'l': if (inSketch) setActiveTool('line'); break;
 				case 'r': if (inSketch) setActiveTool('rectangle'); break;
+				case 'p': if (inSketch) setActiveTool('polyline'); break;
 				case 'c': if (inSketch) setActiveTool('circle'); break;
 				case 'a': if (inSketch) setActiveTool('arc'); break;
 				case 'x': if (inSketch) handleToggleConstruction(); break;
 			case 'd': if (inSketch) setActiveTool('dimension'); break;
+				case 'g': if (inSketch) handleToggleConstruction(); break;
 				case 'Escape':
 					if (planeSelecting) {
 						exitSketchPlaneSelection();
@@ -205,7 +215,14 @@
 					break;
 				case 'Delete':
 				case 'Backspace':
-					// Handled by feature tree
+					if (inSketch) {
+						const sel = getSketchSelection();
+						if (sel.size > 0) {
+							e.preventDefault();
+							removeSketchEntities(sel);
+						}
+					}
+					// Outside sketch: handled by feature tree
 					break;
 			}
 		}
@@ -266,6 +283,25 @@
 			data-testid="toolbar-btn-dimension"
 			onclick={() => setActiveTool('dimension')}
 		>Dim</button>
+		<div class="toolbar-sep"></div>
+		{#if solveStatus}
+			<span
+				class="dof-badge"
+				class:dof-ok={solveStatus.dof === 0 && solveStatus.status === 'okay'}
+				class:dof-under={solveStatus.dof > 0}
+				class:dof-over={solveStatus.status === 'inconsistent' || solveStatus.status === 'didnt_converge'}
+				data-testid="dof-badge"
+				title={solveStatus.dof === 0 ? 'Fully constrained' : `${solveStatus.dof} degrees of freedom remaining`}
+			>
+				{#if solveStatus.status === 'inconsistent'}
+					Over-constrained
+				{:else if solveStatus.dof === 0}
+					Fully constrained
+				{:else}
+					{solveStatus.dof} DOF
+				{/if}
+			</span>
+		{/if}
 		<div class="toolbar-sep"></div>
 		<button class="toolbar-btn finish-btn" data-testid="toolbar-btn-finish-sketch" onclick={handleFinishSketch}>
 			Finish Sketch
@@ -457,6 +493,29 @@
 		color: var(--text-muted);
 		cursor: default;
 		opacity: 0.4;
+	}
+
+	.dof-badge {
+		font-size: 11px;
+		padding: 2px 8px;
+		border-radius: 3px;
+		white-space: nowrap;
+		font-weight: 500;
+	}
+
+	.dof-ok {
+		color: var(--success);
+		background: rgba(78, 201, 176, 0.15);
+	}
+
+	.dof-under {
+		color: var(--warning, #e8a838);
+		background: rgba(232, 168, 56, 0.15);
+	}
+
+	.dof-over {
+		color: var(--error, #f44);
+		background: rgba(255, 68, 68, 0.15);
 	}
 
 	.finish-btn {

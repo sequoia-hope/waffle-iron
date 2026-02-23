@@ -334,11 +334,14 @@
 		return { text, world };
 	});
 
-	// Constraint label data
+	// Constraint label data (icons near constrained entities)
 	let constraintLabels = $derived.by(() => {
 		if (!plane) return [];
 		const labels = [];
 		for (const c of constraints) {
+			// Skip temporary drag constraints
+			if (c._isDrag) continue;
+
 			if (c.type === 'Horizontal' || c.type === 'Vertical') {
 				const entity = entities.find(e => e.id === c.entity);
 				if (entity && entity.type === 'Line') {
@@ -347,16 +350,119 @@
 					if (p1 && p2) {
 						const mx = (p1.x + p2.x) / 2;
 						const my = (p1.y + p2.y) / 2;
+						const offsetX = c.type === 'Vertical' ? 0.2 : 0;
 						labels.push({
 							text: c.type === 'Horizontal' ? 'H' : 'V',
-							world: sketchToWorld(mx, my + 0.15, plane)
+							world: sketchToWorld(mx + offsetX, my + 0.15, plane)
 						});
 					}
+				}
+			} else if (c.type === 'Parallel') {
+				// Show || between the two lines
+				const l0 = entities.find(e => e.id === c.line_a);
+				const l1 = entities.find(e => e.id === c.line_b);
+				if (l0 && l1) {
+					const p0s = positions.get(l0.start_id);
+					const p0e = positions.get(l0.end_id);
+					const p1s = positions.get(l1.start_id);
+					const p1e = positions.get(l1.end_id);
+					if (p0s && p0e && p1s && p1e) {
+						const mx = (p0s.x + p0e.x + p1s.x + p1e.x) / 4;
+						const my = (p0s.y + p0e.y + p1s.y + p1e.y) / 4;
+						labels.push({ text: '||', world: sketchToWorld(mx, my + 0.15, plane) });
+					}
+				}
+			} else if (c.type === 'Perpendicular') {
+				const l0 = entities.find(e => e.id === c.line_a);
+				const l1 = entities.find(e => e.id === c.line_b);
+				if (l0 && l1) {
+					const p0s = positions.get(l0.start_id);
+					const p0e = positions.get(l0.end_id);
+					const p1s = positions.get(l1.start_id);
+					const p1e = positions.get(l1.end_id);
+					if (p0s && p0e && p1s && p1e) {
+						const mx = (p0s.x + p0e.x + p1s.x + p1e.x) / 4;
+						const my = (p0s.y + p0e.y + p1s.y + p1e.y) / 4;
+						labels.push({ text: '\u27c2', world: sketchToWorld(mx, my + 0.15, plane) });
+					}
+				}
+			} else if (c.type === 'Equal' || c.type === 'EqualRadius') {
+				const e0 = entities.find(e => e.id === c.entity_a);
+				const e1 = entities.find(e => e.id === c.entity_b);
+				if (e0 && e1) {
+					// Place = sign at each entity's midpoint
+					for (const ent of [e0, e1]) {
+						const pos = getEntityMidpoint(ent, positions);
+						if (pos) {
+							labels.push({ text: '=', world: sketchToWorld(pos.x, pos.y + 0.15, plane) });
+						}
+					}
+				}
+			} else if (c.type === 'Tangent') {
+				// Show T at tangency point
+				const line = entities.find(e => e.id === c.line);
+				const curve = entities.find(e => e.id === c.curve);
+				if (line && curve) {
+					const center = positions.get(curve.center_id);
+					const ls = positions.get(line.start_id);
+					const le = positions.get(line.end_id);
+					if (center && ls && le) {
+						// Approximate: nearest point on line to circle center
+						const mx = (ls.x + le.x) / 2;
+						const my = (ls.y + le.y) / 2;
+						labels.push({ text: 'T', world: sketchToWorld(mx, my + 0.15, plane) });
+					}
+				}
+			} else if (c.type === 'Coincident') {
+				const posA = positions.get(c.point_a);
+				if (posA) {
+					labels.push({ text: '\u2022', world: sketchToWorld(posA.x + 0.1, posA.y + 0.1, plane) });
+				}
+			} else if (c.type === 'Midpoint') {
+				const pos = positions.get(c.point);
+				if (pos) {
+					labels.push({ text: 'M', world: sketchToWorld(pos.x, pos.y + 0.15, plane) });
+				}
+			} else if (c.type === 'WhereDragged') {
+				const pos = positions.get(c.point);
+				if (pos) {
+					labels.push({ text: '\ud83d\udccc', world: sketchToWorld(pos.x + 0.1, pos.y + 0.1, plane) });
+				}
+			} else if (c.type === 'Symmetric' || c.type === 'SymmetricH' || c.type === 'SymmetricV') {
+				const posA = positions.get(c.point_a ?? c.entity_a);
+				const posB = positions.get(c.point_b ?? c.entity_b);
+				if (posA && posB) {
+					const mx = (posA.x + posB.x) / 2;
+					const my = (posA.y + posB.y) / 2;
+					labels.push({ text: '\u2194', world: sketchToWorld(mx, my + 0.15, plane) });
+				}
+			} else if (c.type === 'OnEntity') {
+				const pos = positions.get(c.point);
+				if (pos) {
+					labels.push({ text: '\u00d7', world: sketchToWorld(pos.x + 0.1, pos.y + 0.1, plane) });
 				}
 			}
 		}
 		return labels;
 	});
+
+	/**
+	 * Get the visual midpoint of an entity for constraint icon placement.
+	 */
+	function getEntityMidpoint(entity, positions) {
+		if (entity.type === 'Line') {
+			const p1 = positions.get(entity.start_id);
+			const p2 = positions.get(entity.end_id);
+			if (p1 && p2) return { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+		} else if (entity.type === 'Circle') {
+			const center = positions.get(entity.center_id);
+			if (center) return { x: center.x + (entity.radius || 1), y: center.y };
+		} else if (entity.type === 'Arc') {
+			const center = positions.get(entity.center_id);
+			if (center) return center;
+		}
+		return null;
+	}
 
 	// Snap candidate preview data
 	let snapCandidateData = $derived.by(() => {

@@ -25,7 +25,10 @@ import {
 	setHoveredProfileIndex,
 	showDimensionPopup,
 	hideDimensionPopup,
-	getSnapSettings
+	getSnapSettings,
+	dragSketchPoint,
+	finalizeDrag,
+	getDragState
 } from '$lib/engine/store.svelte.js';
 import { log } from '$lib/engine/logger.js';
 import { detectSnaps, collectSnapCandidates } from './snap.js';
@@ -60,6 +63,12 @@ let arcStartPointId = null;
 
 /** @type {{ id: number, type: string } | null} */
 let dimFirstEntity = null;
+
+// -- Drag-to-reposition state --
+/** @type {number | null} Point ID being dragged */
+let dragPointId = null;
+/** @type {{ x: number, y: number } | null} Screen position at drag start */
+let selectPointerDownPos = null;
 
 // -- Event instrumentation (ring buffer for test diagnostics) --
 /** @type {Array<{tool: string, event: string, x: number, y: number, toolState: string, isDragging: boolean, timestamp: number}>} */
@@ -126,11 +135,15 @@ export function resetTool() {
 	arcStartPos = null;
 	arcStartPointId = null;
 	dimFirstEntity = null;
+	polyFirstPointId = null;
 	setPreview(null);
 	setSnapIndicator(null);
 	setSnapCandidates([]);
 	isDragging = false;
 	pointerDownPos = null;
+	dragPointId = null;
+	selectPointerDownPos = null;
+	if (getDragState()) finalizeDrag();
 	hideDimensionPopup();
 }
 
@@ -201,6 +214,9 @@ export function handleToolEvent(activeTool, eventType, sketchX, sketchY, screenP
 			break;
 		case 'dimension':
 			handleDimensionTool(eventType, sketchX, sketchY, screenPixelSize);
+			break;
+		case 'polyline':
+			handlePolylineTool(eventType, sketchX, sketchY, screenPixelSize);
 			break;
 	}
 }
@@ -584,12 +600,147 @@ function handleArcTool(eventType, x, y, screenPixelSize) {
 	}
 }
 
+// ---- Polyline Tool ----
+
+/** @type {number | null} First point ID of the polyline (for close-to-start detection) */
+let polyFirstPointId = null;
+
+function handlePolylineTool(eventType, x, y, screenPixelSize) {
+	const snap = detectSnaps(x, y, startPointId, screenPixelSize);
+	setSnapIndicator(snap.indicator);
+
+	if (eventType === 'pointermove') {
+		updateSnapCandidates(snap, screenPixelSize);
+		if (toolState === 'polyDrawing' && startPos) {
+			setPreview({
+				type: 'line',
+				data: { x1: startPos.x, y1: startPos.y, x2: snap.x, y2: snap.y }
+			});
+		}
+		return;
+	}
+
+	if (eventType === 'pointerdown') {
+		isDragging = false;
+
+		if (toolState === 'idle') {
+			// First point
+			beginSketchAction();
+			const pt = findOrCreatePoint(snap.x, snap.y, screenPixelSize, snap.snapPointId);
+			startPointId = pt.id;
+			polyFirstPointId = pt.id;
+			startPos = { x: pt.x, y: pt.y };
+			toolState = 'polyDrawing';
+			setPreview(null);
+			return;
+		}
+
+		if (toolState === 'polyDrawing') {
+			// Check if closing to first point
+			if (snap.snapPointId === polyFirstPointId && polyFirstPointId != null) {
+				// Close the polyline
+				const lineId = allocEntityId();
+				addLocalEntity({
+					type: 'Line', id: lineId,
+					start_id: startPointId, end_id: polyFirstPointId,
+					construction: false
+				});
+				// Auto-apply constraints from snap
+				for (const c of snap.constraints) {
+					if (c.type === 'Horizontal') addLocalConstraint({ type: 'Horizontal', entity: lineId });
+					else if (c.type === 'Vertical') addLocalConstraint({ type: 'Vertical', entity: lineId });
+				}
+				endSketchAction();
+				toolState = 'idle';
+				startPointId = null;
+				startPos = null;
+				polyFirstPointId = null;
+				setPreview(null);
+				setSnapIndicator(null);
+				log('sketch', 'Polyline closed');
+				return;
+			}
+
+			// Add a segment
+			const endPt = findOrCreatePoint(snap.x, snap.y, screenPixelSize, snap.snapPointId);
+			if (endPt.id === startPointId) return;
+
+			const lineId = allocEntityId();
+			addLocalEntity({
+				type: 'Line', id: lineId,
+				start_id: startPointId, end_id: endPt.id,
+				construction: false
+			});
+			// Auto-apply constraints from snap
+			for (const c of snap.constraints) {
+				if (c.type === 'Horizontal') addLocalConstraint({ type: 'Horizontal', entity: lineId });
+				else if (c.type === 'Vertical') addLocalConstraint({ type: 'Vertical', entity: lineId });
+			}
+			log('sketch', 'Polyline segment added', { lineId });
+
+			// Chain: end becomes next start
+			startPointId = endPt.id;
+			startPos = { x: endPt.x, y: endPt.y };
+		}
+	}
+}
+
+/**
+ * Handle keyboard events for the polyline tool.
+ * @param {string} key
+ */
+export function handlePolylineKey(key) {
+	if (key === 'Escape' && toolState === 'polyDrawing') {
+		// Finish open polyline
+		endSketchAction();
+		toolState = 'idle';
+		startPointId = null;
+		startPos = null;
+		polyFirstPointId = null;
+		setPreview(null);
+		setSnapIndicator(null);
+		log('sketch', 'Polyline finished (open)');
+	}
+}
+
 // ---- Select Tool ----
 
 function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 	setPreview(null);
 
 	if (eventType === 'pointermove') {
+		// Handle active drag-to-reposition
+		if (dragPointId != null) {
+			const snap = detectSnaps(x, y, dragPointId, screenPixelSize);
+			setSnapIndicator(snap.indicator);
+			dragSketchPoint(dragPointId, snap.x, snap.y);
+			return;
+		}
+
+		// Detect drag threshold for select drag
+		if (selectPointerDownPos) {
+			const dx = x - selectPointerDownPos.x;
+			const dy = y - selectPointerDownPos.y;
+			const dragThreshold = DRAG_THRESHOLD_PX * screenPixelSize;
+			if (Math.sqrt(dx * dx + dy * dy) > dragThreshold) {
+				// Check if we clicked on a point — start dragging it
+				const hitId = hitTest(selectPointerDownPos.x, selectPointerDownPos.y, screenPixelSize);
+				if (hitId != null) {
+					const entities = getSketchEntities();
+					const entity = entities.find(e => e.id === hitId);
+					if (entity && entity.type === 'Point') {
+						dragPointId = hitId;
+						const snap = detectSnaps(x, y, dragPointId, screenPixelSize);
+						setSnapIndicator(snap.indicator);
+						dragSketchPoint(dragPointId, snap.x, snap.y);
+						return;
+					}
+				}
+				// Not dragging a point — clear down pos to stop checking
+				selectPointerDownPos = null;
+			}
+		}
+
 		// Show snap indicators on hover even in select mode
 		const snap = detectSnaps(x, y, null, screenPixelSize);
 		setSnapIndicator(snap.indicator);
@@ -610,6 +761,9 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 	}
 
 	if (eventType === 'pointerdown') {
+		selectPointerDownPos = { x, y };
+		dragPointId = null;
+
 		const hitId = hitTest(x, y, screenPixelSize);
 		const selection = getSketchSelection();
 
@@ -643,6 +797,14 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 		} else {
 			setSketchSelection(new Set([hitId]));
 		}
+	}
+
+	if (eventType === 'pointerup') {
+		if (dragPointId != null) {
+			finalizeDrag();
+			dragPointId = null;
+		}
+		selectPointerDownPos = null;
 	}
 }
 
