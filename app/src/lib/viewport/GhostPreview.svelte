@@ -53,17 +53,24 @@
 		if (!profiles || !positions) return null;
 
 		const profile = profiles[params.profileIndex];
-		if (!profile || !profile.entity_ids || profile.entity_ids.length < 3) return null;
+		if (!profile) return null;
 
-		const points2d = [];
-		for (const ptId of profile.entity_ids) {
-			const pos = positions[ptId];
-			if (!pos) continue;
-			points2d.push(new THREE.Vector2(pos[0], pos[1]));
+		let shape;
+		if (profile.circle) {
+			const c = profile.circle;
+			shape = new THREE.Shape();
+			shape.absarc(c.center_u, c.center_v, c.radius, 0, Math.PI * 2, false);
+		} else {
+			if (!profile.entity_ids || profile.entity_ids.length < 3) return null;
+			const points2d = [];
+			for (const ptId of profile.entity_ids) {
+				const pos = positions[ptId];
+				if (!pos) continue;
+				points2d.push(new THREE.Vector2(pos[0], pos[1]));
+			}
+			if (points2d.length < 3) return null;
+			shape = new THREE.Shape(points2d);
 		}
-		if (points2d.length < 3) return null;
-
-		const shape = new THREE.Shape(points2d);
 		const effectiveDepth = Math.max(params.depth, 0.01);
 		const extrudeDepth = params.symmetric ? effectiveDepth * 2 : effectiveDepth;
 
@@ -114,7 +121,7 @@
 		if (!profiles || !positions) return null;
 
 		const profile = profiles[params.profileIndex];
-		if (!profile || !profile.entity_ids || profile.entity_ids.length < 3) return null;
+		if (!profile) return null;
 
 		// Get sketch plane info for transforming 2D sketch coords to 3D
 		const planeOrigin = sketchData.plane_origin || [0, 0, 0];
@@ -123,14 +130,29 @@
 
 		// Collect 3D profile points
 		const points3d = [];
-		for (const ptId of profile.entity_ids) {
-			const pos = positions[ptId];
-			if (!pos) continue;
-			// Transform 2D sketch coords to 3D world coords
-			const pt = sp.origin.clone()
-				.addScaledVector(sp.xAxis, pos[0])
-				.addScaledVector(sp.yAxis, pos[1]);
-			points3d.push(pt);
+		if (profile.circle) {
+			// Sample circle at N points for revolve preview
+			const c = profile.circle;
+			const N = 32;
+			for (let i = 0; i < N; i++) {
+				const angle = (2 * Math.PI * i) / N;
+				const u = c.center_u + c.radius * Math.cos(angle);
+				const v = c.center_v + c.radius * Math.sin(angle);
+				const pt = sp.origin.clone()
+					.addScaledVector(sp.xAxis, u)
+					.addScaledVector(sp.yAxis, v);
+				points3d.push(pt);
+			}
+		} else {
+			if (!profile.entity_ids || profile.entity_ids.length < 3) return null;
+			for (const ptId of profile.entity_ids) {
+				const pos = positions[ptId];
+				if (!pos) continue;
+				const pt = sp.origin.clone()
+					.addScaledVector(sp.xAxis, pos[0])
+					.addScaledVector(sp.yAxis, pos[1]);
+				points3d.push(pt);
+			}
 		}
 		if (points3d.length < 3) return null;
 
