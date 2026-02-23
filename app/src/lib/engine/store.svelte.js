@@ -96,12 +96,14 @@ let sketchRedoStack = $state([]);
 /** @type {{ entities: object[], constraints: object[] } | null} */
 let pendingSketchAction = null;
 
-/** @type {{ sketchId: string, sketchName: string, profileCount: number,
- *           regions: Array<{ sketchId: string, sketchName: string, profileIndex: number }> } | null} */
+/** @type {{ sketchId: string, sketchName: string, profileCount: number, availableSketches?: Array<any>,
+ *           regions: Array<{ type?: string, sketchId?: string, sketchName?: string, profileIndex?: number, geomRef?: any, label?: string }> } | null} */
 let extrudeDialogState = $state(null);
 
 /** @type {{ sketchId: string, profileIndex: number, depth: number, flipDirection: boolean, symmetric: boolean, cut: boolean } | null} */
 let extrudePreviewParams = $state(null);
+
+let extrudeRegionPickMode = $state(false);
 
 /** @type {{ sketchId: string, sketchName: string, profileCount: number } | null} */
 let revolveDialogState = $state(null);
@@ -372,6 +374,8 @@ export async function initEngine() {
 			getExtrudeDialogState: () => extrudeDialogState,
 			getExtrudePreviewParams: () => extrudePreviewParams,
 			setExtrudePreviewParams: (params) => setExtrudePreviewParams(params),
+			getExtrudeRegionPickMode: () => getExtrudeRegionPickMode(),
+			setExtrudeRegionPickMode: (active) => setExtrudeRegionPickMode(active),
 			getExtrudeRegions: () => getExtrudeRegions(),
 			addExtrudeRegion: (sketchId, sketchName, profileIndex) => addExtrudeRegion(sketchId, sketchName, profileIndex),
 			removeExtrudeRegion: (index) => removeExtrudeRegion(index),
@@ -463,6 +467,7 @@ export async function initEngine() {
 				}
 				return results.filter(r => !r.behindCamera);
 			},
+			isProjectToolActive: () => isProjectToolActive(),
 			getProjectName: () => getProjectName(),
 			setProjectName: (name) => setProjectName(name),
 			getAutoRestoreState: () => getAutoRestoreState(),
@@ -583,6 +588,12 @@ export function setHoveredRef(ref) {
  * @param {boolean} additive - If true, toggle selection; if false, replace selection
  */
 export function selectRef(ref, additive = false) {
+	// Intercept face clicks when in region pick mode
+	if (extrudeRegionPickMode && ref?.kind?.type === 'Face') {
+		addExtrudeRegionFromRef(ref);
+		return;
+	}
+
 	if (!ref) {
 		selectedRefs = [];
 		return;
@@ -767,6 +778,14 @@ export function getActiveTool() {
 export function setActiveTool(tool) {
 	log('ui', 'Set active tool', { tool });
 	activeTool = tool;
+}
+
+/**
+ * Check if the project tool is active in sketch mode.
+ * @returns {boolean}
+ */
+export function isProjectToolActive() {
+	return sketchMode?.active && activeTool === 'project';
 }
 
 // -- Sketch entity/constraint management --
@@ -1321,6 +1340,9 @@ export function getExtrudeDialogState() { return extrudeDialogState; }
 export function getExtrudePreviewParams() { return extrudePreviewParams; }
 export function setExtrudePreviewParams(params) { extrudePreviewParams = params; }
 
+export function getExtrudeRegionPickMode() { return extrudeRegionPickMode; }
+export function setExtrudeRegionPickMode(active) { extrudeRegionPickMode = active; }
+
 export function getRevolvePreviewParams() { return revolvePreviewParams; }
 export function setRevolvePreviewParams(params) { revolvePreviewParams = params; }
 
@@ -1361,10 +1383,10 @@ export function showExtrudeDialog() {
 
 	if (selectedProfileIndex != null && sketchMode.active) {
 		// If a profile is already selected in sketch mode, use it
-		regions = [{ sketchId: lastSketch.id, sketchName: lastSketch.name, profileIndex: selectedProfileIndex }];
+		regions = [{ type: 'sketchProfile', sketchId: lastSketch.id, sketchName: lastSketch.name, profileIndex: selectedProfileIndex }];
 	} else {
 		// Default: auto-add profile 0
-		regions = [{ sketchId: lastSketch.id, sketchName: lastSketch.name, profileIndex: 0 }];
+		regions = [{ type: 'sketchProfile', sketchId: lastSketch.id, sketchName: lastSketch.name, profileIndex: 0 }];
 	}
 
 	log('ui', 'Show extrude dialog', { sketchId: lastSketch.id, profileCount, regionCount: regions.length });
@@ -1391,7 +1413,7 @@ export function changeExtrudeSketch(sketchId) {
 		sketchId: sketch.id,
 		sketchName: sketch.name,
 		profileCount: sketch.profileCount,
-		regions: [{ sketchId: sketch.id, sketchName: sketch.name, profileIndex: 0 }]
+		regions: [{ type: 'sketchProfile', sketchId: sketch.id, sketchName: sketch.name, profileIndex: 0 }]
 	};
 }
 
@@ -1410,7 +1432,7 @@ export function addExtrudeRegion(sketchId, sketchName, profileIndex) {
 	if (exists) return;
 	extrudeDialogState = {
 		...extrudeDialogState,
-		regions: [...extrudeDialogState.regions, { sketchId, sketchName, profileIndex }]
+		regions: [...extrudeDialogState.regions, { type: 'sketchProfile', sketchId, sketchName, profileIndex }]
 	};
 }
 
@@ -1433,9 +1455,46 @@ export function getExtrudeRegions() {
 	return extrudeDialogState?.regions ?? [];
 }
 
+/**
+ * Add a face-based region to the extrude dialog from a viewport click.
+ * @param {any} ref - GeomRef clicked in viewport
+ */
+export function addExtrudeRegionFromRef(ref) {
+	if (!extrudeDialogState) return;
+
+	const region = {
+		type: 'face',
+		geomRef: JSON.parse(JSON.stringify(ref)),
+		label: describeFaceRef(ref),
+	};
+
+	// Deduplicate
+	const isDupe = extrudeDialogState.regions.some(r =>
+		r.type === 'face' && geomRefEquals(r.geomRef, ref)
+	);
+	if (isDupe) return;
+
+	extrudeDialogState = {
+		...extrudeDialogState,
+		regions: [...extrudeDialogState.regions, region],
+	};
+}
+
+function describeFaceRef(ref) {
+	const role = ref?.selector?.role?.type;
+	const featureId = ref?.anchor?.feature_id;
+	const feature = featureId
+		? featureTree?.features?.find(f => f.id === featureId)
+		: null;
+	const name = feature?.name || 'Body';
+	if (role) return `${name} / ${role}`;
+	return name;
+}
+
 export function hideExtrudeDialog() {
 	extrudeDialogState = null;
 	extrudePreviewParams = null;
+	extrudeRegionPickMode = false;
 }
 
 /**

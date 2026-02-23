@@ -28,12 +28,18 @@ import {
 	getSnapSettings,
 	dragSketchPoint,
 	finalizeDrag,
-	getDragState
+	getDragState,
+	getHoveredRef,
+	getMeshes,
+	geomRefEquals,
+	getSketchMode
 } from '$lib/engine/store.svelte.js';
 import { log } from '$lib/engine/logger.js';
 import { detectSnaps, collectSnapCandidates } from './snap.js';
 import { profileToPolygon, pointInPolygon } from './profiles.js';
 import { setPreview, setSnapIndicator, setSnapCandidates, getPreview as _getPreview, getSnapIndicator as _getSnapIndicator, getSnapCandidates as _getSnapCandidates } from './sketchToolState.svelte.js';
+import { buildSketchPlane } from './sketchCoords.js';
+import { projectEdgeToSketch, simplifyPolyline } from './projectGeometry.js';
 
 // -- Module state --
 
@@ -217,6 +223,9 @@ export function handleToolEvent(activeTool, eventType, sketchX, sketchY, screenP
 			break;
 		case 'polyline':
 			handlePolylineTool(eventType, sketchX, sketchY, screenPixelSize);
+			break;
+		case 'project':
+			handleProjectTool(eventType, sketchX, sketchY, screenPixelSize);
 			break;
 	}
 }
@@ -991,5 +1000,76 @@ function handleDimensionTool(eventType, x, y, screenPixelSize) {
 		// Clicked something invalid — reset
 		toolState = 'idle';
 		dimFirstEntity = null;
+	}
+}
+
+// ---- Project Tool ----
+
+function handleProjectTool(eventType, x, y, screenPixelSize) {
+	setPreview(null);
+	setSnapIndicator(null);
+
+	if (eventType !== 'pointerdown') return;
+
+	const hovered = getHoveredRef();
+	if (!hovered) return;
+
+	const meshData = getMeshes();
+	if (!meshData) return;
+
+	// Build sketch plane from current sketch mode
+	const sm = getSketchMode();
+	if (!sm?.active) return;
+	const sketchPlane = buildSketchPlane(sm.origin, sm.normal);
+
+	if (hovered.kind?.type === 'Edge') {
+		for (const mesh of meshData) {
+			if (!mesh.edges || !mesh.edges.ranges) continue;
+			for (const range of mesh.edges.ranges) {
+				if (!geomRefEquals(range.geom_ref, hovered)) continue;
+
+				const projected = projectEdgeToSketch(
+					mesh.edges.vertices, range, sketchPlane
+				);
+				const simplified = simplifyPolyline(projected);
+				if (simplified.length >= 2) {
+					beginSketchAction();
+					createConstructionLinesFromPoints(simplified, false);
+					endSketchAction();
+					log('sketch', 'Projected edge as construction lines', { pointCount: simplified.length });
+				}
+				return;
+			}
+		}
+	}
+
+	if (hovered.kind?.type === 'Face') {
+		log('sketch', 'Face projection not yet implemented');
+	}
+}
+
+/**
+ * Create construction points and lines from projected 2D points.
+ * @param {Array<{ x: number, y: number }>} points
+ * @param {boolean} closed - If true, connect last point to first
+ */
+function createConstructionLinesFromPoints(points, closed) {
+	if (points.length < 2) return;
+	const pointIds = [];
+	for (const pt of points) {
+		const id = allocEntityId();
+		addLocalEntity({ type: 'Point', id, x: pt.x, y: pt.y, construction: true });
+		pointIds.push(id);
+	}
+	const n = closed ? points.length : points.length - 1;
+	for (let i = 0; i < n; i++) {
+		const j = (i + 1) % points.length;
+		addLocalEntity({
+			type: 'Line',
+			id: allocEntityId(),
+			start_id: pointIds[i],
+			end_id: pointIds[j],
+			construction: true,
+		});
 	}
 }

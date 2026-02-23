@@ -102,6 +102,7 @@
 		{ id: 'rectangle', label: 'Rect', shortcut: 'R' },
 		{ id: 'circle', label: 'Circle', shortcut: 'C' },
 		{ id: 'arc', label: 'Arc', shortcut: 'A' },
+		{ id: 'project', label: 'Proj', shortcut: 'J' },
 		{ id: 'construction', label: 'Constr', shortcut: 'X' },
 	];
 
@@ -197,7 +198,8 @@
 				case 'c': if (inSketch) setActiveTool('circle'); break;
 				case 'a': if (inSketch) setActiveTool('arc'); break;
 				case 'x': if (inSketch) handleToggleConstruction(); break;
-			case 'd': if (inSketch) setActiveTool('dimension'); break;
+				case 'j': if (inSketch) setActiveTool('project'); break;
+				case 'd': if (inSketch) setActiveTool('dimension'); break;
 				case 'g': if (inSketch) handleToggleConstruction(); break;
 				case 'Escape':
 					if (planeSelecting) {

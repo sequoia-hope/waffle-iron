@@ -6,8 +6,10 @@
 		removeExtrudeRegion,
 		setExtrudePreviewParams,
 		changeExtrudeSketch,
-		addExtrudeRegion
+		addExtrudeRegion,
+		setExtrudeRegionPickMode
 	} from '$lib/engine/store.svelte.js';
+	import { showToast } from '$lib/ui/toast.svelte.js';
 	import { log } from '$lib/engine/logger.js';
 
 	let dialogState = $derived(getExtrudeDialogState());
@@ -24,7 +26,6 @@
 
 	let regions = $derived(dialogState?.regions ?? []);
 	let availableSketches = $derived(dialogState?.availableSketches ?? []);
-	let addProfileIndex = $state(0);
 
 	$effect(() => {
 		if (dialogState) {
@@ -43,19 +44,16 @@
 			setExtrudePreviewParams(null);
 			return;
 		}
-		const region = regions[0];
-		if (!region) {
-			setExtrudePreviewParams(null);
-			return;
-		}
-		setExtrudePreviewParams({
-			sketchId: region.sketchId,
-			profileIndex: region.profileIndex,
-			depth,
-			flipDirection,
-			symmetric: secondDir === 'Symmetric',
-			cut
-		});
+		const params = regions.map(r => {
+			if (r.type === 'sketchProfile' || (!r.type && r.sketchId)) {
+				return { type: 'sketchProfile', sketchId: r.sketchId, profileIndex: r.profileIndex ?? 0, depth, flipDirection, symmetric: secondDir === 'Symmetric', cut };
+			}
+			if (r.type === 'face') {
+				return { type: 'face', geomRef: r.geomRef, depth, flipDirection, symmetric: secondDir === 'Symmetric', cut };
+			}
+			return null;
+		}).filter(Boolean);
+		setExtrudePreviewParams(params.length > 0 ? params : null);
 	});
 
 	// Listen for keydown at window level so Escape works even without focus
@@ -77,14 +75,25 @@
 	});
 
 	function handleApply() {
+		const firstRegion = regions[0];
+		if (!firstRegion) return;
+
+		if (regions.length > 1) {
+			log('ui', `Multi-region extrude: using first region (${regions.length} selected)`);
+		}
+
+		if (firstRegion.type === 'face') {
+			showToast('warning', 'Face-based extrude not yet supported by engine');
+			return;
+		}
+
 		const opts = {
 			depthMode,
 			secondDir,
 			secondDepth,
 			flipDirection
 		};
-		// regions[0] is read inside applyExtrude; profileIndex param is legacy fallback
-		applyExtrude(depth, regions[0]?.profileIndex ?? 0, cut, opts)
+		applyExtrude(depth, firstRegion.profileIndex ?? 0, cut, opts)
 			.catch(err => log('error', `Extrude dialog apply failed: ${err}`));
 	}
 
@@ -106,9 +115,29 @@
 		removeExtrudeRegion(index);
 	}
 
-	function handleAddProfile() {
-		addExtrudeRegion(dialogState.sketchId, dialogState.sketchName, addProfileIndex);
+	let regionPickActive = $state(false);
+
+	function toggleRegionPick() {
+		regionPickActive = !regionPickActive;
+		setExtrudeRegionPickMode(regionPickActive);
 	}
+
+	function regionLabel(region) {
+		if (region.type === 'sketchProfile') {
+			return `${region.sketchName} / Profile ${region.profileIndex + 1}`;
+		}
+		if (region.type === 'face') return region.label || 'Face';
+		// Legacy fallback
+		return `${region.sketchName || '?'} / Profile ${(region.profileIndex ?? 0) + 1}`;
+	}
+
+	// Deactivate pick mode when dialog closes
+	$effect(() => {
+		if (!dialogState) {
+			regionPickActive = false;
+			setExtrudeRegionPickMode(false);
+		}
+	});
 </script>
 
 {#if dialogState}
@@ -134,33 +163,33 @@
 					</select>
 				</div>
 			{/if}
-			<div class="region-list" data-testid="extrude-regions">
-				<div class="region-header">
-					<span>Regions ({regions.length})</span>
+			<div
+				class="region-box"
+				class:active={regionPickActive}
+				role="button"
+				tabindex="0"
+				onclick={toggleRegionPick}
+				data-testid="extrude-region-box"
+			>
+				<div class="region-box-header">
+					<span class="region-header">Regions ({regions.length})</span>
+					<span class="pick-hint">
+						{regionPickActive ? 'Click faces to add...' : 'Click to pick'}
+					</span>
 				</div>
 				{#each regions as region, i}
 					<div class="region-item" data-testid="extrude-region-{i}">
-						<span class="region-label">{region.sketchName} / Profile {region.profileIndex + 1}</span>
-						<button class="region-remove" onclick={() => handleRemoveRegion(i)}>&times;</button>
+						<span class="region-label">{regionLabel(region)}</span>
+						<button
+							class="region-remove"
+							onclick={(e) => { e.stopPropagation(); handleRemoveRegion(i); }}
+						>&times;</button>
 					</div>
 				{/each}
 				{#if regions.length === 0}
-					<div class="region-empty">No regions selected</div>
+					<div class="region-empty">No regions — click to pick faces</div>
 				{/if}
 			</div>
-			{#if dialogState.profileCount > 1}
-				<div class="add-profile-section">
-					<span class="region-header">Add Profile</span>
-					<div class="add-profile-row">
-						<select bind:value={addProfileIndex} data-testid="extrude-add-profile-select">
-							{#each Array(dialogState.profileCount) as _, i}
-								<option value={i}>Profile {i + 1}</option>
-							{/each}
-						</select>
-						<button class="btn btn-add" onclick={handleAddProfile} data-testid="extrude-add-profile">Add</button>
-					</div>
-				</div>
-			{/if}
 			<div class="field">
 				<label for="extrude-depth-mode">Mode</label>
 				<select
@@ -289,10 +318,30 @@
 		gap: 10px;
 	}
 
-	.region-list {
+	.region-box {
+		border: 2px solid var(--border-color, #444);
+		border-radius: 4px;
+		padding: 8px;
+		cursor: pointer;
+		transition: border-color 0.15s, background 0.15s;
 		display: flex;
 		flex-direction: column;
 		gap: 4px;
+	}
+	.region-box:hover { border-color: var(--accent, #0078d4); }
+	.region-box.active {
+		border-color: var(--accent, #0078d4);
+		background: rgba(0, 120, 212, 0.1);
+	}
+	.region-box-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+	}
+	.pick-hint {
+		font-size: 10px;
+		color: var(--text-muted, #888);
+		font-style: italic;
 	}
 
 	.region-header {
@@ -341,42 +390,6 @@
 		color: var(--text-muted, #888);
 		font-style: italic;
 		padding: 4px 0;
-	}
-
-	.add-profile-section {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-	}
-
-	.add-profile-row {
-		display: flex;
-		gap: 6px;
-		align-items: center;
-	}
-
-	.add-profile-row select {
-		flex: 1;
-		background: var(--bg-primary, #1e1e1e);
-		border: 1px solid var(--border-color, #444);
-		color: var(--text-primary, #eee);
-		padding: 3px 6px;
-		border-radius: 3px;
-		font-size: 12px;
-	}
-
-	.btn-add {
-		background: var(--bg-primary, #1e1e1e);
-		border: 1px solid var(--border-color, #444);
-		color: var(--text-primary, #eee);
-		padding: 3px 10px;
-		border-radius: 3px;
-		font-size: 11px;
-		cursor: pointer;
-	}
-
-	.btn-add:hover {
-		border-color: var(--accent, #0078d4);
 	}
 
 	.field {

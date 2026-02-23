@@ -79,8 +79,8 @@ test.describe('extrude region list', () => {
 		await sketchRectangle(waffle);
 		await clickExtrude(waffle.page);
 
-		const regionList = waffle.page.locator('[data-testid="extrude-regions"]');
-		await expect(regionList).toBeVisible();
+		const regionBox = waffle.page.locator('[data-testid="extrude-region-box"]');
+		await expect(regionBox).toBeVisible();
 	});
 
 	test('region auto-populated after sketch', async ({ waffle }) => {
@@ -180,7 +180,7 @@ test.describe('extrude region list', () => {
 		// Empty state should be visible with the correct text
 		const emptyState = waffle.page.locator('.region-empty');
 		await expect(emptyState).toBeVisible();
-		await expect(emptyState).toHaveText('No regions selected');
+		await expect(emptyState).toHaveText('No regions — click to pick faces');
 	});
 
 	test('region list persists across field changes', async ({ waffle }) => {

@@ -1,8 +1,9 @@
 <script>
 	import { T } from '@threlte/core';
 	import * as THREE from 'three';
-	import { getExtrudePreviewParams, getRevolvePreviewParams, getFeatureTree } from '$lib/engine/store.svelte.js';
+	import { getExtrudePreviewParams, getRevolvePreviewParams, getFeatureTree, getMeshes } from '$lib/engine/store.svelte.js';
 	import { buildSketchPlane } from '$lib/sketch/sketchCoords.js';
+	import { extractFaceBoundary, findFaceRangeByRef } from '$lib/viewport/faceGeometry.js';
 
 	const bossMaterial = new THREE.MeshStandardMaterial({
 		color: 0x4499ff,
@@ -218,12 +219,73 @@
 		};
 	}
 
+	function buildFacePreview(params) {
+		const meshData = getMeshes();
+		const faceData = findFaceRangeByRef(meshData, params.geomRef);
+		if (!faceData) return null;
+
+		const boundary = extractFaceBoundary(faceData.mesh, faceData.range);
+		if (boundary.length < 3) return null;
+
+		// Compute face plane from boundary (centroid + cross product normal)
+		let cx = 0, cy = 0, cz = 0;
+		for (const [x, y, z] of boundary) { cx += x; cy += y; cz += z; }
+		cx /= boundary.length; cy /= boundary.length; cz /= boundary.length;
+
+		const v0 = new THREE.Vector3(boundary[1][0] - boundary[0][0], boundary[1][1] - boundary[0][1], boundary[1][2] - boundary[0][2]);
+		const v1 = new THREE.Vector3(boundary[2][0] - boundary[0][0], boundary[2][1] - boundary[0][1], boundary[2][2] - boundary[0][2]);
+		const normal = new THREE.Vector3().crossVectors(v0, v1).normalize();
+		if (normal.lengthSq() < 1e-10) return null;
+
+		const sp = buildSketchPlane([cx, cy, cz], [normal.x, normal.y, normal.z]);
+
+		// Project boundary to 2D on the face plane
+		const origin = sp.origin;
+		const points2d = boundary.map(([x, y, z]) => {
+			const rel = new THREE.Vector3(x - origin.x, y - origin.y, z - origin.z);
+			return new THREE.Vector2(rel.dot(sp.xAxis), rel.dot(sp.yAxis));
+		});
+
+		const shape = new THREE.Shape(points2d);
+		const effectiveDepth = Math.max(params.depth, 0.01);
+		const extrudeDepth = params.symmetric ? effectiveDepth * 2 : effectiveDepth;
+
+		const geometry = new THREE.ExtrudeGeometry(shape, {
+			depth: extrudeDepth,
+			bevelEnabled: false
+		});
+		const edgeGeometry = new THREE.EdgesGeometry(geometry);
+
+		const flipVisual = params.flipDirection !== params.cut;
+		const basis = new THREE.Matrix4().makeBasis(sp.xAxis, sp.yAxis, sp.normal);
+		const quaternion = new THREE.Quaternion().setFromRotationMatrix(basis);
+
+		const position = sp.origin.clone();
+		if (params.symmetric) {
+			position.addScaledVector(sp.normal, -effectiveDepth);
+		} else if (flipVisual) {
+			position.addScaledVector(sp.normal, -extrudeDepth);
+		}
+
+		return {
+			geometry,
+			edgeGeometry,
+			material: params.cut ? cutMaterial : bossMaterial,
+			position: [position.x, position.y, position.z],
+			rotation: new THREE.Euler().setFromQuaternion(quaternion)
+		};
+	}
+
 	// Use a simple reactive variable: when params change, rebuild.
 	// Avoid $effect to prevent write-read loops.
-	let currentPreview = $derived.by(() => {
-		const params = getExtrudePreviewParams();
-		if (!params) return null;
-		return buildPreview(params);
+	let currentPreviews = $derived.by(() => {
+		const raw = getExtrudePreviewParams();
+		if (!raw) return [];
+		const arr = Array.isArray(raw) ? raw : [raw];
+		return arr.map(p => {
+			if (p.type === 'face') return buildFacePreview(p);
+			return buildPreview(p);
+		}).filter(Boolean);
 	});
 
 	let currentRevolvePreview = $derived.by(() => {
@@ -233,22 +295,22 @@
 	});
 </script>
 
-{#if currentPreview}
+{#each currentPreviews as preview}
 	<T.Mesh
-		geometry={currentPreview.geometry}
-		material={currentPreview.material}
-		position={currentPreview.position}
-		rotation={[currentPreview.rotation.x, currentPreview.rotation.y, currentPreview.rotation.z]}
+		geometry={preview.geometry}
+		material={preview.material}
+		position={preview.position}
+		rotation={[preview.rotation.x, preview.rotation.y, preview.rotation.z]}
 		renderOrder={999}
 	/>
 	<T.LineSegments
-		geometry={currentPreview.edgeGeometry}
+		geometry={preview.edgeGeometry}
 		material={edgeMaterial}
-		position={currentPreview.position}
-		rotation={[currentPreview.rotation.x, currentPreview.rotation.y, currentPreview.rotation.z]}
+		position={preview.position}
+		rotation={[preview.rotation.x, preview.rotation.y, preview.rotation.z]}
 		renderOrder={999}
 	/>
-{/if}
+{/each}
 
 {#if currentRevolvePreview}
 	<T.Mesh

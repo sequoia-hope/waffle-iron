@@ -13,12 +13,15 @@
 		geomRefSameRoleType,
 		isSelected,
 		getSelectOtherState,
-		setSelectOtherState
+		setSelectOtherState,
+		getExtrudeRegionPickMode,
+		isProjectToolActive
 	} from '$lib/engine/store.svelte.js';
 
 	const DEFAULT_COLOR = new THREE.Color(0x8899aa);
 	const HOVER_COLOR = new THREE.Color(0xaabbdd);
 	const SELECTED_COLOR = new THREE.Color(0x44aaff);
+	const PICK_HOVER_COLOR = new THREE.Color(0x55cc88);
 
 	/** Threshold: if a mesh has more SideFace ranges than this, group them visually */
 	const SIDE_FACE_GROUP_THRESHOLD = 8;
@@ -125,8 +128,9 @@
 	 * Build materials array for face ranges based on hover/selection/sketch-mode state.
 	 */
 	function buildMaterials(faceRanges, hoveredRef, selectedRefs, inSketchMode) {
-		const transparent = inSketchMode;
-		const opacity = transparent ? 0.2 : 1.0;
+		const projectActive = isProjectToolActive();
+		const transparent = inSketchMode && !projectActive;
+		const opacity = transparent ? 0.2 : (projectActive ? 0.5 : 1.0);
 
 		if (!faceRanges || faceRanges.length === 0) {
 			return [
@@ -152,8 +156,13 @@
 		return faceRanges.map((range) => {
 			const ref = range.geom_ref;
 			let color = DEFAULT_COLOR;
+			const pickMode = getExtrudeRegionPickMode();
 
-			if (!inSketchMode) {
+			if (pickMode) {
+				if (hoveredRef && compareFn(hoveredRef, ref)) {
+					color = PICK_HOVER_COLOR;
+				}
+			} else if (!inSketchMode) {
 				if (selectedRefs.some((r) => compareFn(r, ref))) {
 					color = SELECTED_COLOR;
 				} else if (hoveredRef && compareFn(hoveredRef, ref)) {
@@ -391,7 +400,7 @@
 	<T.Mesh geometry={testGeometry} material={testMaterial} />
 {:else}
 	{#each engineMeshes as mesh, i (mesh.featureId)}
-		{#if inSketchMode}
+		{#if inSketchMode && !isProjectToolActive()}
 			<T.Mesh
 				geometry={mesh.geometry}
 				material={meshMaterials[i]?.length > 1 ? meshMaterials[i] : meshMaterials[i]?.[0]}

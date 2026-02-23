@@ -10,7 +10,8 @@
 		selectRef,
 		geomRefEquals,
 		getCameraObject,
-		getSketchMode
+		getSketchMode,
+		isProjectToolActive
 	} from '$lib/engine/store.svelte.js';
 
 	const { renderer } = useThrelte();
@@ -183,7 +184,7 @@
 	 * @param {MouseEvent} e
 	 */
 	function handleEdgePointerMove(e) {
-		if (getSketchMode()?.active) return;
+		if (getSketchMode()?.active && !isProjectToolActive()) return;
 
 		// Only highlight edges if no face is currently hovered by CadModel
 		// We check if a face is intersected — if so, CadModel handles hover
@@ -201,7 +202,7 @@
 	 * @param {MouseEvent} e
 	 */
 	function handleEdgeClick(e) {
-		if (getSketchMode()?.active) return;
+		if (getSketchMode()?.active && !isProjectToolActive()) return;
 
 		// Face clicks take priority — only select edge if no face hit
 		if (isFaceHitAtPosition(e.clientX, e.clientY)) return;
