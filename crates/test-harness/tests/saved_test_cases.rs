@@ -945,6 +945,175 @@ fn q3_multi_cut_three_bodies_then_cut() {
     print_diagnostics(&m, "Q3: three bodies then cut");
 }
 
+/// Q4: Reproduction of multi-cut.waffle geometry.
+///
+/// Uses the exact geometry from the user-reported bug:
+/// - ~34x33 rect at x=0..10 (large box)
+/// - r≈24 circle at x=10..20, off-center (auto-union)
+/// - r≈18 circle cut at x=20, depth=20 (tool spans entire body)
+///
+/// The plane_origin for the circle sketches has Y/Z offsets, matching the GUI.
+/// This is the critical difference from Q1-Q3 which used origin-centered geometry.
+#[test]
+fn q4_multi_cut_waffle_geometry() {
+    let mut m = ModelBuilder::truck();
+
+    // Step 1: ~34x33 rect at origin [0,0,0], normal [1,0,0], extrude depth=10
+    // From .waffle: rect from (-17.25, -16.45) to (16.99, 16.50) in sketch 2D
+    m.rect_sketch(
+        "sk1",
+        [0., 0., 0.],
+        [1., 0., 0.],
+        -17.25,
+        -16.45,
+        34.24,
+        32.95,
+    )
+    .unwrap();
+    m.extrude("e1", "sk1", 10.0).unwrap();
+
+    let b1 = count_visible_bodies(&m);
+    assert_eq!(b1, 1, "e1 should produce 1 body");
+    let mesh1 = m.tessellate("e1").unwrap();
+    let vol1 = mesh_volume(&mesh1);
+    let (bb1_min, _) = mesh_bounding_box(&mesh1);
+    eprintln!("q4 after e1: bodies={}, vol={:.0}", b1, vol1);
+    assert!(bb1_min[0] < 0.5, "e1 bb_min.x should be ~0");
+
+    // Step 2: Circle r≈24.27 at plane_origin [10, -16.65, 0.32], normal [1,0,0]
+    // circle center in sketch 2D: (14.83, 0.61)
+    // In 3D: y = -16.65 + 14.83 = -1.82, z = 0.32 + 0.61 = 0.93
+    m.circle_sketch("sk2", [10., -16.65, 0.32], [1., 0., 0.], 14.83, 0.61, 24.27)
+        .unwrap();
+    m.extrude("e2", "sk2", 10.0).unwrap();
+
+    let b2 = count_visible_bodies(&m);
+    eprintln!("q4 after e2: bodies={}", b2);
+    assert_eq!(b2, 1, "e1+e2 union should produce 1 body");
+    let mesh2 = m.tessellate("e2").unwrap();
+    let (bb2_min, bb2_max) = mesh_bounding_box(&mesh2);
+    eprintln!(
+        "q4 union bb: ({:.1},{:.1},{:.1})→({:.1},{:.1},{:.1})",
+        bb2_min[0], bb2_min[1], bb2_min[2], bb2_max[0], bb2_max[1], bb2_max[2]
+    );
+    assert!(
+        bb2_min[0] < 0.5,
+        "Union bb_min.x should be ~0, got {:.1}",
+        bb2_min[0]
+    );
+
+    // Step 3: Circle cut r≈18.09 at plane_origin [20, -14.84, -14.19], normal [1,0,0]
+    // circle center in sketch 2D: (19.77, -4.17), depth=20
+    // Reversed cut: tool from x=20.1 to x=-0.1
+    m.circle_sketch(
+        "sk3",
+        [20., -14.84, -14.19],
+        [1., 0., 0.],
+        19.77,
+        -4.17,
+        18.09,
+    )
+    .unwrap();
+    m.extrude_cut("e3", "sk3", 20.0).unwrap();
+
+    let b3 = count_visible_bodies(&m);
+    eprintln!("q4 after e3 (cut): bodies={}", b3);
+    assert_eq!(b3, 1, "After cut, should still be 1 body");
+
+    m.assert_has_solid("e3")
+        .expect("Cut should produce a solid");
+    let mesh3 = m.tessellate("e3").unwrap();
+    let vol3 = mesh_volume(&mesh3);
+    let (bb3_min, bb3_max) = mesh_bounding_box(&mesh3);
+    eprintln!(
+        "q4 after cut: vol={:.0}, bb=({:.1},{:.1},{:.1})→({:.1},{:.1},{:.1})",
+        vol3, bb3_min[0], bb3_min[1], bb3_min[2], bb3_max[0], bb3_max[1], bb3_max[2]
+    );
+
+    // THE BUG DETECTOR: first body must still be present after cut
+    assert!(
+        bb3_min[0] < 0.5,
+        "BUG: first body vanished! bb_min.x={:.1}, expected < 0.5 (first box starts at x=0)",
+        bb3_min[0]
+    );
+    assert!(
+        bb3_max[0] > 19.5,
+        "bb_max.x should be ~20, got {:.1}",
+        bb3_max[0]
+    );
+
+    print_diagnostics(&m, "Q4: waffle-geometry multi-cut");
+}
+
+/// Q5: Load the actual multi-cut.waffle file and assert the cut preserves all geometry.
+///
+/// This is the definitive regression test — it uses the exact file from the bug report.
+#[test]
+fn q5_load_multi_cut_waffle_regression() {
+    let json = std::fs::read_to_string("../../app/tests/cases/multi-cut.waffle")
+        .expect("Failed to read multi-cut.waffle");
+
+    let mut m = ModelBuilder::truck();
+    m.load(&json).expect("Failed to load multi-cut.waffle");
+
+    let consumed = m.consumed_features();
+    let bodies = count_visible_bodies(&m);
+    eprintln!("q5: consumed={}, visible_bodies={}", consumed.len(), bodies);
+    assert_eq!(bodies, 1, "Should have exactly 1 visible body");
+
+    // Find the last (non-consumed) extrude feature and tessellate it
+    let last_feature = m
+        .state
+        .engine
+        .tree
+        .features
+        .iter()
+        .rev()
+        .find(|f| !consumed.contains(&f.id) && !f.suppressed)
+        .expect("Should have a visible feature");
+
+    let result = m
+        .state
+        .engine
+        .get_result(last_feature.id)
+        .expect("Last feature should have a result");
+    assert!(
+        !result.outputs.is_empty(),
+        "Last feature should have solid output"
+    );
+
+    let handle = result.outputs[0].1.handle.clone();
+    let mesh = m
+        .kernel_mut()
+        .tessellate(&handle, 0.1)
+        .expect("Tessellation should succeed");
+    let vol = mesh_volume(&mesh);
+    let (bb_min, bb_max) = mesh_bounding_box(&mesh);
+    eprintln!(
+        "q5 final solid: vol={:.0}, bb=({:.1},{:.1},{:.1})→({:.1},{:.1},{:.1})",
+        vol, bb_min[0], bb_min[1], bb_min[2], bb_max[0], bb_max[1], bb_max[2]
+    );
+
+    // THE BUG DETECTOR: the first extrude (rect at x=0..10) must be present
+    assert!(
+        bb_min[0] < 0.5,
+        "BUG: first body vanished! bb_min.x={:.1}, expected < 0.5",
+        bb_min[0]
+    );
+
+    // The merged body spans x=0..20, so after cut bb_max.x should still be ~20
+    assert!(
+        bb_max[0] > 9.5,
+        "bb_max.x should be > 10, got {:.1}",
+        bb_max[0]
+    );
+
+    // Volume must be positive and reasonable (not just a sliver)
+    assert!(vol > 1000.0, "Volume should be > 1000, got {:.0}", vol);
+
+    print_diagnostics(&m, "Q5: loaded multi-cut.waffle regression");
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Test: Load actual .waffle files directly via the load() API
 // ═══════════════════════════════════════════════════════════════════════════
