@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use truck_modeling::builder;
 use truck_modeling::geometry::Surface;
 use truck_modeling::topology::{Edge, Face, Solid, Wire};
-use truck_modeling::{InnerSpace, Point3, Rad, Vector3};
+use truck_modeling::{InnerSpace, ParametricSurface, ParametricSurface3D, Point3, Rad, Vector3};
 
 /// Compute the maximum extent of a solid's bounding box from its boundary vertices.
 fn solid_max_extent(solid: &Solid) -> f64 {
@@ -62,6 +62,95 @@ fn solid_min_edge_length(solid: &Solid) -> f64 {
     min_len
 }
 
+/// Estimate the minimum radius of curvature across all faces of a solid.
+///
+/// Walks all faces and estimates curvature from the surface normal variation:
+/// κ ≈ |∂n/∂u| / |∂S/∂u| (maximum over both parameter directions).
+/// Returns `f64::INFINITY` for all-planar solids (no curvature constraint).
+///
+/// For cylindrical NurbsSurfaces (the most common curved surface after boolean),
+/// this gives an accurate estimate of the cylinder radius. For free-form surfaces,
+/// it conservatively uses the minimum curvature radius found at the face center.
+fn min_curvature_radius(solid: &Solid) -> f64 {
+    let mut min_r = f64::INFINITY;
+    for shell in solid.boundaries() {
+        for face in shell.face_iter() {
+            let surface = face.surface();
+            let r = estimate_surface_curvature_radius(&surface);
+            if r < min_r {
+                min_r = r;
+            }
+        }
+    }
+    min_r
+}
+
+/// Estimate the radius of curvature of a surface at its parameter midpoint.
+///
+/// Uses finite differences of the surface normal to compute curvature:
+///   κ_u ≈ |n(u+ε, v) - n(u, v)| / (ε * |∂S/∂u|)
+///   κ_v ≈ |n(u, v+ε) - n(u, v)| / (ε * |∂S/∂v|)
+///   R = 1 / max(κ_u, κ_v)
+///
+/// Returns `f64::INFINITY` for planar surfaces (zero curvature).
+fn estimate_surface_curvature_radius(surface: &Surface) -> f64 {
+    // Fast path: planes have zero curvature → infinite radius.
+    if matches!(surface, Surface::Plane(_)) {
+        return f64::INFINITY;
+    }
+
+    // Get parameter ranges. For unbounded surfaces, use a default window.
+    let (u_range, v_range) = surface.try_range_tuple();
+    let (u_min, u_max) = u_range.unwrap_or((0.0, 1.0));
+    let (v_min, v_max) = v_range.unwrap_or((0.0, 1.0));
+
+    let u_span = u_max - u_min;
+    let v_span = v_max - v_min;
+    if u_span < 1e-15 || v_span < 1e-15 {
+        return f64::INFINITY;
+    }
+
+    let u_mid = (u_min + u_max) * 0.5;
+    let v_mid = (v_min + v_max) * 0.5;
+
+    // Finite difference step sizes — 1% of parameter span.
+    let eps_u = u_span * 0.01;
+    let eps_v = v_span * 0.01;
+
+    // Sample the normal at the center and two offset points.
+    let n0 = surface.normal(u_mid, v_mid);
+    let n_u = surface.normal(u_mid + eps_u, v_mid);
+    let n_v = surface.normal(u_mid, v_mid + eps_v);
+
+    // We also need the spatial derivatives to convert parameter-space
+    // curvature to world-space curvature.
+    let du = surface.uder(u_mid, v_mid);
+    let dv = surface.vder(u_mid, v_mid);
+    let speed_u = du.magnitude();
+    let speed_v = dv.magnitude();
+
+    let mut kappa_max: f64 = 0.0;
+
+    if speed_u > 1e-15 {
+        // dn/ds ≈ (n_u - n0) / (eps_u * speed_u)  where ds = eps * |dS/du|
+        let dn_u = n_u - n0;
+        let kappa_u = dn_u.magnitude() / (eps_u * speed_u);
+        kappa_max = kappa_max.max(kappa_u);
+    }
+
+    if speed_v > 1e-15 {
+        let dn_v = n_v - n0;
+        let kappa_v = dn_v.magnitude() / (eps_v * speed_v);
+        kappa_max = kappa_max.max(kappa_v);
+    }
+
+    if kappa_max > 1e-10 {
+        1.0 / kappa_max
+    } else {
+        f64::INFINITY
+    }
+}
+
 /// Compute scale-aware boolean tolerance from two solids' geometry.
 ///
 /// Considers both bounding box extent (for overall scale) and minimum edge
@@ -84,22 +173,45 @@ fn compute_adaptive_tol(solid_a: &Solid, solid_b: &Solid) -> f64 {
     extent_based.min(edge_based).clamp(1e-6, 0.05)
 }
 
-/// Compute scale-aware healing tolerance from two solids' bounding boxes.
+/// Compute curvature-aware boolean tolerance from two solids' geometry.
+///
+/// Extends `compute_adaptive_tol` with a curvature factor: for small-radius
+/// curved surfaces (e.g., a 1mm cylinder in a 100mm box), the tolerance must
+/// be proportional to the curvature radius to keep IC approximation error
+/// within bounds. The curvature-based term is `min_curvature_radius * 0.01`.
+///
+/// For all-planar geometry, this is identical to `compute_adaptive_tol`
+/// (curvature radius is infinite → curvature term doesn't constrain).
+fn compute_curvature_adaptive_tol(solid_a: &Solid, solid_b: &Solid) -> f64 {
+    let base_tol = compute_adaptive_tol(solid_a, solid_b);
+    let min_r = min_curvature_radius(solid_a).min(min_curvature_radius(solid_b));
+    let curvature_based = if min_r.is_finite() {
+        min_r * 0.01
+    } else {
+        f64::INFINITY
+    };
+    // Curvature can only tighten, never loosen the tolerance.
+    // Lower clamp reduced to 1e-7 for curved precision.
+    base_tol.min(curvature_based).clamp(1e-7, 0.05)
+}
+
+/// Compute scale-aware healing tolerance from two solids' geometry.
 ///
 /// Healing tolerance is 10% of the boolean tolerance — tight enough to
 /// preserve curve accuracy while still being proportional to geometry size.
 fn compute_healing_tol(solid_a: &Solid, solid_b: &Solid) -> f64 {
-    compute_adaptive_tol(solid_a, solid_b) * 0.1
+    compute_curvature_adaptive_tol(solid_a, solid_b) * 0.1
 }
 
-/// Compute layered `BooleanOptions` from two solids' bounding boxes.
+/// Compute layered `BooleanOptions` from two solids' geometry.
 ///
-/// Wraps `compute_adaptive_tol` to produce the full tolerance struct.
-/// Currently `tau_model` is the only value threaded through the pipeline;
-/// future work should thread `tau_weld` through `weld_coincident_edges`
-/// and `tau_coplanar` through `check_coplanar_faces`.
+/// Wraps `compute_curvature_adaptive_tol` to produce the full tolerance struct.
+/// When curved surfaces are present, `tau_model` is tightened by curvature,
+/// and `tau_area` is automatically smaller (it's derived as `tau_model^2`).
+/// This ensures `divide_one_face` doesn't discard small IC-derived face
+/// fragments on curved surfaces where parametric compression is significant.
 fn compute_boolean_options(solid_a: &Solid, solid_b: &Solid) -> BooleanOptions {
-    let tol = compute_adaptive_tol(solid_a, solid_b);
+    let tol = compute_curvature_adaptive_tol(solid_a, solid_b);
     BooleanOptions::for_boolean_tol(tol)
 }
 
@@ -3465,6 +3577,135 @@ mod tests {
         assert!(
             mesh.indices.len() > 10,
             "Cylinder mesh should have many triangle indices"
+        );
+    }
+
+    // ===== Curvature-adaptive tolerance tests =====
+
+    #[test]
+    fn test_curvature_radius_plane() {
+        // All faces of a box are planar → curvature radius should be infinity.
+        let box_solid = primitives::make_box(10.0, 10.0, 10.0);
+        let r = min_curvature_radius(&box_solid);
+        assert!(
+            r.is_infinite(),
+            "Box (all planar) should have infinite curvature radius, got {}",
+            r
+        );
+    }
+
+    #[test]
+    fn test_curvature_radius_cylinder() {
+        // Cylinder with radius=1.0: curved faces should give R ≈ 1.0.
+        let cyl = primitives::make_cylinder(1.0, 10.0);
+        let r = min_curvature_radius(&cyl);
+        // The cylinder has both planar (top/bottom) and curved (barrel) faces.
+        // The barrel face has curvature radius = 1.0.
+        // Allow generous margin since finite-difference estimation is approximate.
+        assert!(
+            r < 2.0,
+            "Cylinder r=1 should have curvature radius near 1.0, got {}",
+            r
+        );
+        assert!(
+            r > 0.3,
+            "Cylinder r=1 curvature radius should be > 0.3, got {}",
+            r
+        );
+    }
+
+    #[test]
+    fn test_curvature_radius_large_cylinder() {
+        // Cylinder with radius=50.0: curvature radius should be ~50.
+        let cyl = primitives::make_cylinder(50.0, 10.0);
+        let r = min_curvature_radius(&cyl);
+        assert!(
+            r < 100.0,
+            "Cylinder r=50 should have curvature radius near 50, got {}",
+            r
+        );
+        assert!(
+            r > 15.0,
+            "Cylinder r=50 curvature radius should be > 15, got {}",
+            r
+        );
+    }
+
+    #[test]
+    fn test_curvature_adaptive_tol_constrains_small_cylinder() {
+        // 10mm box + 1mm cylinder.
+        // Without curvature: tol = min(10*0.005, edge_based) ~ 0.005..0.05
+        // With curvature: curvature_based = 1.0 * 0.01 = 0.01
+        // Result should be <= 0.01 (curvature constrains)
+        let box_solid = primitives::make_box(10.0, 10.0, 10.0);
+        let cyl_solid = primitives::make_cylinder(1.0, 10.0);
+        let tol = compute_curvature_adaptive_tol(&box_solid, &cyl_solid);
+        assert!(
+            tol <= 0.015,
+            "Curvature should constrain tolerance for small cylinder: {}",
+            tol
+        );
+        assert!(tol >= 1e-7, "Tolerance should be above the floor: {}", tol);
+    }
+
+    #[test]
+    fn test_curvature_adaptive_tol_flat_matches_base() {
+        // Two 10mm boxes — all flat faces, curvature = infinity.
+        // Curvature-adaptive tol should be same as base adaptive tol.
+        let box_a = primitives::make_box(10.0, 10.0, 10.0);
+        let box_b = primitives::make_box(10.0, 10.0, 10.0);
+        let base_tol = compute_adaptive_tol(&box_a, &box_b);
+        let curv_tol = compute_curvature_adaptive_tol(&box_a, &box_b);
+        assert!(
+            (curv_tol - base_tol).abs() < 1e-10,
+            "Flat geometry: curvature tol {} should match base tol {}",
+            curv_tol,
+            base_tol
+        );
+    }
+
+    #[test]
+    fn test_curvature_adaptive_tol_never_loosens() {
+        // The curvature-adaptive tol must never exceed the base adaptive tol.
+        // Test with a variety of geometries.
+        let box_s = primitives::make_box(5.0, 5.0, 5.0);
+        let cyl_s = primitives::make_cylinder(2.0, 5.0);
+        let base = compute_adaptive_tol(&box_s, &cyl_s);
+        let curv = compute_curvature_adaptive_tol(&box_s, &cyl_s);
+        assert!(
+            curv <= base,
+            "Curvature tol {} must be <= base tol {}",
+            curv,
+            base
+        );
+    }
+
+    #[test]
+    fn test_curvature_adaptive_tol_floor() {
+        // Very small cylinder (r=0.001): curvature_based = 0.001 * 0.01 = 1e-5.
+        // But min clamp is 1e-7, so we should get >= 1e-7.
+        let tiny_box = primitives::make_box(0.01, 0.01, 0.01);
+        let tiny_cyl = primitives::make_cylinder(0.001, 0.01);
+        let tol = compute_curvature_adaptive_tol(&tiny_box, &tiny_cyl);
+        assert!(
+            tol >= 1e-7,
+            "Tolerance must respect floor 1e-7, got {}",
+            tol
+        );
+    }
+
+    #[test]
+    fn test_estimate_surface_curvature_plane() {
+        let plane = Surface::Plane(truck_modeling::geometry::Plane::new(
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(0.0, 1.0, 0.0),
+        ));
+        let r = estimate_surface_curvature_radius(&plane);
+        assert!(
+            r.is_infinite(),
+            "Plane should have infinite curvature radius, got {}",
+            r
         );
     }
 }

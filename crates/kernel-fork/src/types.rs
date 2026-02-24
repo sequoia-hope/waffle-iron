@@ -100,6 +100,26 @@ impl From<truck_shapeops::BooleanStageError> for BooleanError {
     }
 }
 
+/// Simplified diagnostic report from a boolean operation.
+///
+/// The full `BooleanDiagnostics` stays in truck-shapeops; this summary is
+/// what kernel-fork exposes to callers for logging/debugging.
+#[derive(Debug, Clone, Default)]
+pub struct BooleanDiagnosticsSummary {
+    /// Model-level tolerance used.
+    pub tau_model: f64,
+    /// Total faces classified during the boolean.
+    pub faces_classified: usize,
+    /// Vertices unified during weld.
+    pub vertices_welded: usize,
+    /// Edges canonicalized in Phase 1.
+    pub edges_canonicalized: usize,
+    /// Total duration in milliseconds.
+    pub total_duration_ms: u64,
+    /// Warnings about near-tolerance decisions.
+    pub warnings: Vec<String>,
+}
+
 /// Tessellated triangle mesh for rendering in three.js.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RenderMesh {
@@ -303,6 +323,9 @@ impl BooleanOptions {
             tau_mesh: self.tau_mesh,
             tau_weld: self.tau_weld,
             tau_coplanar: self.tau_coplanar,
+            tau_boundary: self.tau_model * 0.5,
+            tau_edge_cluster: self.tau_model * 5.0,
+            tau_area: self.tau_model * self.tau_model,
         }
     }
 }

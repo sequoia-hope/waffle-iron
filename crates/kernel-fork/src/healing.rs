@@ -17,8 +17,8 @@ use truck_modeling::geometry::{Curve, Line, Surface};
 use truck_modeling::topology::{EdgeID, Face, Shell, Solid};
 use truck_modeling::{
     BSplineCurve, BoundedCurve, InnerSpace, Matrix4, NurbsCurve, ParametricCurve,
-    ParametricSurface, Point3, SPHint2D, SearchNearestParameter, ToSameGeometry, Transformed,
-    TrimmedCurve, UnitCircle, Vector3, Vector4,
+    ParametricSurface, ParametricSurface3D, Point3, SPHint2D, SearchNearestParameter,
+    ToSameGeometry, Transformed, TrimmedCurve, UnitCircle, Vector3, Vector4,
 };
 
 /// truck's convergence threshold for `curve_surface_projection`.
@@ -33,6 +33,14 @@ pub struct HealingResult {
     pub healed: usize,
     /// Number that failed approximation (left as IntersectionCurve).
     pub failed: usize,
+    /// Count of plane-plane ICs healed (exact line replacement).
+    pub plane_plane_count: usize,
+    /// Count of plane-cylinder ICs healed (NURBS arc or BSpline).
+    pub plane_cylinder_count: usize,
+    /// Count of plane-cone ICs detected.
+    pub plane_cone_count: usize,
+    /// Count of cylinder-cylinder ICs detected.
+    pub cylinder_cylinder_count: usize,
 }
 
 /// Validate that a BSpline curve lies within `max_err` of both surfaces.
@@ -341,19 +349,48 @@ pub fn heal_intersection_curves(solid: &Solid, tol: f64) -> HealingResult {
             let front_pt = edge.absolute_front().point();
             let back_pt = edge.absolute_back().point();
 
+            // Classify the surface pair for diagnostics and strategy selection.
+            let s0 = ic.surface0();
+            let s1 = ic.surface1();
+            let pair_type = classify_surface_pair(s0.as_ref(), s1.as_ref());
+
             // Fast path: if both surfaces are planes, the intersection is
             // mathematically a straight line. Replace with exact Line curve.
-            if is_plane_plane(ic.surface0().as_ref(), ic.surface1().as_ref()) {
+            if pair_type == SurfacePairType::PlanePlane {
                 edge.set_curve(Curve::Line(Line(front_pt, back_pt)));
                 result.healed += 1;
+                result.plane_plane_count += 1;
                 continue;
+            }
+
+            // Track surface pair type counts for diagnostics.
+            match pair_type {
+                SurfacePairType::PlaneCylinder => result.plane_cylinder_count += 1,
+                SurfacePairType::PlaneCone => {
+                    result.plane_cone_count += 1;
+                    #[cfg(debug_assertions)]
+                    eprintln!(
+                        "[healing] plane-cone IC detected — BSpline fallback \
+                         (analytical conic fitting not yet implemented)"
+                    );
+                }
+                SurfacePairType::CylinderCylinder => {
+                    result.cylinder_cylinder_count += 1;
+                    #[cfg(debug_assertions)]
+                    eprintln!(
+                        "[healing] cylinder-cylinder IC detected — BSpline fallback \
+                         (analytical ellipse fitting not yet implemented)"
+                    );
+                }
+                _ => {}
             }
 
             // Get IC internals for all strategies.
             let leader = ic.leader();
             let leader_curve: &Curve = leader.as_ref();
-            let surface0 = ic.surface0();
-            let surface1 = ic.surface1();
+            // s0, s1 already extracted above for classification.
+            let surface0 = &s0;
+            let surface1 = &s1;
 
             // Strategy 0: Analytical NURBS arc for plane-curved intersections.
             // If one surface is a plane and the IC leader samples fit a circle,
@@ -603,9 +640,233 @@ fn is_plane(s: &Surface) -> bool {
     matches!(s, Surface::Plane(_))
 }
 
+/// Check if a surface is a curved type (NurbsSurface, BSplineSurface, or RevolutedCurve).
+#[allow(dead_code)]
+fn is_curved(s: &Surface) -> bool {
+    matches!(
+        s,
+        Surface::NurbsSurface(_) | Surface::BSplineSurface(_) | Surface::RevolutedCurve(_)
+    )
+}
+
 /// Check if both surfaces are planes (intersection is a straight line).
+#[allow(dead_code)]
 fn is_plane_plane(s0: &Surface, s1: &Surface) -> bool {
     is_plane(s0) && is_plane(s1)
+}
+
+/// Classification of surface pair types for IC quality diagnostics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SurfacePairType {
+    /// Both surfaces are planar (IC is a line).
+    PlanePlane,
+    /// Plane + cylindrical surface (IC is a circle or ellipse).
+    PlaneCylinder,
+    /// Plane + conical surface (IC is a conic section).
+    PlaneCone,
+    /// One surface is planar, other is a general curved surface.
+    PlaneCurvedOther,
+    /// Both surfaces are cylindrical (IC is typically an ellipse).
+    CylinderCylinder,
+    /// Both surfaces are curved (general IC).
+    CurvedCurved,
+}
+
+impl std::fmt::Display for SurfacePairType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SurfacePairType::PlanePlane => write!(f, "plane-plane"),
+            SurfacePairType::PlaneCylinder => write!(f, "plane-cylinder"),
+            SurfacePairType::PlaneCone => write!(f, "plane-cone"),
+            SurfacePairType::PlaneCurvedOther => write!(f, "plane-curved"),
+            SurfacePairType::CylinderCylinder => write!(f, "cylinder-cylinder"),
+            SurfacePairType::CurvedCurved => write!(f, "curved-curved"),
+        }
+    }
+}
+
+/// Detect if a surface is cylindrical (RevolutedCurve with line entity parallel to axis,
+/// or NurbsSurface that was converted from a cylinder by the boolean pipeline).
+///
+/// For RevolutedCurve: the entity curve is a Line whose direction is parallel to the axis.
+/// For NurbsSurface: we estimate by sampling — if the normal variation in one parameter
+/// direction is zero (flat along one axis), it's likely cylindrical.
+fn is_cylindrical_surface(s: &Surface) -> bool {
+    match s {
+        Surface::RevolutedCurve(proc) => {
+            let rc = proc.entity();
+            if let Curve::Line(line) = rc.entity_curve() {
+                let line_dir = (line.1 - line.0).normalize();
+                let axis_dir = rc.axis().normalize();
+                // Parallel if cross product is near zero
+                line_dir.cross(axis_dir).magnitude() < 0.01
+            } else {
+                false
+            }
+        }
+        Surface::NurbsSurface(_) => {
+            // NurbsSurface from cylinder: check if curvature is constant in one
+            // direction and zero in the other. Use finite-difference normal sampling.
+            let (u_range, v_range) = s.try_range_tuple();
+            let (u_min, u_max) = match u_range {
+                Some(r) => r,
+                None => return false,
+            };
+            let (v_min, v_max) = match v_range {
+                Some(r) => r,
+                None => return false,
+            };
+            let u_mid = (u_min + u_max) * 0.5;
+            let v_mid = (v_min + v_max) * 0.5;
+            let eps_u = (u_max - u_min) * 0.01;
+            let eps_v = (v_max - v_min) * 0.01;
+            if eps_u < 1e-15 || eps_v < 1e-15 {
+                return false;
+            }
+
+            let n0 = s.normal(u_mid, v_mid);
+            let n_u = s.normal(u_mid + eps_u, v_mid);
+            let n_v = s.normal(u_mid, v_mid + eps_v);
+            let dn_u = (n_u - n0).magnitude();
+            let dn_v = (n_v - n0).magnitude();
+
+            // Cylindrical: one direction has curvature, the other is straight.
+            // Check if one normal derivative is >> the other.
+            let ratio = if dn_u > dn_v && dn_v < 1e-6 {
+                dn_u / (dn_v + 1e-15)
+            } else if dn_v > dn_u && dn_u < 1e-6 {
+                dn_v / (dn_u + 1e-15)
+            } else {
+                1.0
+            };
+            ratio > 100.0 // one direction >> other → likely cylindrical
+        }
+        _ => false,
+    }
+}
+
+/// Detect if a surface is conical (RevolutedCurve with line entity NOT parallel to axis).
+fn is_conical_surface(s: &Surface) -> bool {
+    match s {
+        Surface::RevolutedCurve(proc) => {
+            let rc = proc.entity();
+            if let Curve::Line(line) = rc.entity_curve() {
+                let line_dir = (line.1 - line.0).normalize();
+                let axis_dir = rc.axis().normalize();
+                let cross = line_dir.cross(axis_dir).magnitude();
+                // Not parallel (cone) but not perpendicular (disc)
+                cross > 0.01 && cross < 0.999
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
+}
+
+/// Classify the surface pair type from two surfaces.
+pub fn classify_surface_pair(s0: &Surface, s1: &Surface) -> SurfacePairType {
+    if is_plane(s0) && is_plane(s1) {
+        SurfacePairType::PlanePlane
+    } else if is_plane(s0) || is_plane(s1) {
+        // One is a plane — classify the curved one.
+        let curved = if is_plane(s0) { s1 } else { s0 };
+        if is_cylindrical_surface(curved) {
+            SurfacePairType::PlaneCylinder
+        } else if is_conical_surface(curved) {
+            SurfacePairType::PlaneCone
+        } else {
+            SurfacePairType::PlaneCurvedOther
+        }
+    } else if is_cylindrical_surface(s0) && is_cylindrical_surface(s1) {
+        SurfacePairType::CylinderCylinder
+    } else {
+        SurfacePairType::CurvedCurved
+    }
+}
+
+/// Report from IC quality validation.
+#[derive(Debug, Clone)]
+pub struct IcQualityReport {
+    /// Maximum distance from IC sample points to either parent surface.
+    pub max_residual: f64,
+    /// Whether the IC meets the tolerance threshold.
+    pub is_good: bool,
+    /// Type of surface pair (plane-plane, plane-curved, curved-curved).
+    pub surface_pair_type: SurfacePairType,
+}
+
+/// Validate the quality of an IC edge by sampling it and measuring
+/// residual distance to both parent surfaces.
+///
+/// Samples the leader curve at `n_samples` points and computes the
+/// maximum distance to each surface via `search_nearest_parameter`.
+/// An IC is "good" if the max residual is below `tau_model`.
+pub fn validate_ic_edge_quality(
+    leader_curve: &Curve,
+    surface0: &Surface,
+    surface1: &Surface,
+    tau_model: f64,
+) -> IcQualityReport {
+    let n_samples = 20;
+    let (t0, t1) = leader_curve.range_tuple();
+    let mut max_residual: f64 = 0.0;
+
+    for i in 0..n_samples {
+        let t = t0 + (t1 - t0) * (i as f64) / ((n_samples - 1).max(1) as f64);
+        let pt = leader_curve.subs(t);
+
+        for surface in [surface0, surface1] {
+            if let Some((u, v)) = surface.search_nearest_parameter(pt, SPHint2D::None, 10) {
+                let sp = surface.subs(u, v);
+                let dist =
+                    ((pt.x - sp.x).powi(2) + (pt.y - sp.y).powi(2) + (pt.z - sp.z).powi(2)).sqrt();
+                max_residual = max_residual.max(dist);
+            } else {
+                // search_nearest_parameter failed — treat as worst-case
+                max_residual = f64::MAX;
+            }
+        }
+    }
+
+    let pair_type = classify_surface_pair(surface0, surface1);
+    IcQualityReport {
+        max_residual,
+        is_good: max_residual < tau_model,
+        surface_pair_type: pair_type,
+    }
+}
+
+/// Validate quality of all IC edges in a solid and return per-edge reports.
+///
+/// This is a diagnostic function — it does NOT modify edges.
+/// Use it to assess whether healing is needed and which surface pair
+/// types are causing the most trouble.
+pub fn validate_all_ic_quality(solid: &Solid, tau_model: f64) -> Vec<IcQualityReport> {
+    let mut reports = Vec::new();
+    let mut seen: HashSet<EdgeID> = HashSet::new();
+
+    for edge in solid.edge_iter() {
+        if !seen.insert(edge.id()) {
+            continue;
+        }
+        let curve = edge.curve();
+        if let Curve::IntersectionCurve(ref ic) = &curve {
+            let leader = ic.leader();
+            let leader_curve: &Curve = leader.as_ref();
+            let surface0 = ic.surface0();
+            let surface1 = ic.surface1();
+            let report = validate_ic_edge_quality(
+                leader_curve,
+                surface0.as_ref(),
+                surface1.as_ref(),
+                tau_model,
+            );
+            reports.push(report);
+        }
+    }
+
+    reports
 }
 
 /// Detect if any planar face of `solid_a` is coplanar with any planar face of
@@ -1861,5 +2122,109 @@ mod tests {
             !mesh1.vertices.is_empty(),
             "First subtract result should be tessellatable"
         );
+    }
+
+    // ===== IC quality validation and surface pair classification tests =====
+
+    #[test]
+    fn test_classify_surface_pair_plane_plane() {
+        let p0 = Surface::Plane(truck_modeling::geometry::Plane::new(
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(0.0, 1.0, 0.0),
+        ));
+        let p1 = Surface::Plane(truck_modeling::geometry::Plane::new(
+            Point3::new(0.0, 0.0, 1.0),
+            Point3::new(1.0, 0.0, 1.0),
+            Point3::new(0.0, 0.0, 1.0),
+        ));
+        assert_eq!(classify_surface_pair(&p0, &p1), SurfacePairType::PlanePlane);
+    }
+
+    #[test]
+    fn test_classify_surface_pair_display() {
+        assert_eq!(SurfacePairType::PlanePlane.to_string(), "plane-plane");
+        assert_eq!(SurfacePairType::PlaneCylinder.to_string(), "plane-cylinder");
+        assert_eq!(SurfacePairType::PlaneCone.to_string(), "plane-cone");
+        assert_eq!(
+            SurfacePairType::PlaneCurvedOther.to_string(),
+            "plane-curved"
+        );
+        assert_eq!(
+            SurfacePairType::CylinderCylinder.to_string(),
+            "cylinder-cylinder"
+        );
+        assert_eq!(SurfacePairType::CurvedCurved.to_string(), "curved-curved");
+    }
+
+    #[test]
+    fn test_validate_all_ic_quality_on_box() {
+        // A plain box has no IC edges — validate should return empty.
+        let box_solid = crate::primitives::make_box(10.0, 10.0, 10.0);
+        let reports = validate_all_ic_quality(&box_solid, 0.001);
+        assert!(
+            reports.is_empty(),
+            "Box should have no IC edges, got {} reports",
+            reports.len()
+        );
+    }
+
+    #[test]
+    fn test_classify_plane_cylinder() {
+        // Cylinder surface is a RevolutedCurve with line entity parallel to axis.
+        let line = Line(Point3::new(1.0, 0.0, 0.0), Point3::new(1.0, 0.0, 1.0));
+        let origin = Point3::new(0.0, 0.0, 0.0);
+        let axis = Vector3::unit_z();
+        let revolved =
+            truck_modeling::RevolutedCurve::by_revolution(Curve::Line(line), origin, axis);
+        let cyl_surface = Surface::RevolutedCurve(truck_modeling::Processor::new(revolved));
+
+        let plane = Surface::Plane(truck_modeling::geometry::Plane::new(
+            Point3::new(0.0, 0.0, 0.5),
+            Point3::new(1.0, 0.0, 0.5),
+            Point3::new(0.0, 1.0, 0.5),
+        ));
+
+        assert_eq!(
+            classify_surface_pair(&plane, &cyl_surface),
+            SurfacePairType::PlaneCylinder
+        );
+    }
+
+    #[test]
+    fn test_classify_plane_cone() {
+        // Cone: RevolutedCurve with line entity NOT parallel to axis (angled).
+        let line = Line(
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 0.0, 2.0), // angled: not parallel to Z
+        );
+        let origin = Point3::new(0.0, 0.0, 0.0);
+        let axis = Vector3::unit_z();
+        let revolved =
+            truck_modeling::RevolutedCurve::by_revolution(Curve::Line(line), origin, axis);
+        let cone_surface = Surface::RevolutedCurve(truck_modeling::Processor::new(revolved));
+
+        let plane = Surface::Plane(truck_modeling::geometry::Plane::new(
+            Point3::new(0.0, 0.0, 1.0),
+            Point3::new(1.0, 0.0, 1.0),
+            Point3::new(0.0, 1.0, 1.0),
+        ));
+
+        assert_eq!(
+            classify_surface_pair(&plane, &cone_surface),
+            SurfacePairType::PlaneCone
+        );
+    }
+
+    #[test]
+    fn test_healing_result_tracks_pair_types() {
+        // A plain box has no IC edges — all counts should be zero.
+        let box_solid = crate::primitives::make_box(5.0, 5.0, 5.0);
+        let result = heal_intersection_curves(&box_solid, 0.001);
+        assert_eq!(result.total_intersection_edges, 0);
+        assert_eq!(result.plane_plane_count, 0);
+        assert_eq!(result.plane_cylinder_count, 0);
+        assert_eq!(result.plane_cone_count, 0);
+        assert_eq!(result.cylinder_cylinder_count, 0);
     }
 }
