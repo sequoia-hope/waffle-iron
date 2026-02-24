@@ -764,11 +764,15 @@ fn k7_ten_alternating() {
 /// K8: Three bosses at different positions, then three cuts.
 /// Boss→cut after bosses often fails.
 /// Fixed in Sprint 27: BTreeMap determinism + targeted open-edge re-weld.
-/// Regressed in Sprint 29-32: exact predicates + DetId + tolerance centralization
-/// changes affect face classification on this 31-face shell. Needs Sprint 33
-/// investigation (edge canonicalization rework + shell closure hardening).
+/// Regressed in Sprint 29-32: exact predicates + DetId + tolerance centralization.
+/// Sprint 33 root cause: face classification bug (and=0 for both shells) when
+/// cut tool base at z=10 is coplanar with complex boss topology on z=10 face.
+/// Perturbation produces shell closure (via scale-expand + fill_open_edge_loops)
+/// but face classification fails to identify any "And" (intersection) faces,
+/// so the subtraction removes no material. Fixing requires improved coplanar
+/// face classification for multi-boss geometries.
 #[test]
-#[ignore = "k8 regressed in Sprint 29-32, needs Sprint 33 investigation"]
+#[ignore = "k8: face classification bug — and=0 on complex coplanar z=10 topology"]
 fn k8_three_bosses_then_three_cuts() {
     let mut m = base_cube();
     let v0 = mesh_volume(&m.tessellate("cube").unwrap());

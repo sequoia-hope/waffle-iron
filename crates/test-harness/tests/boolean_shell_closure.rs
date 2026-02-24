@@ -108,11 +108,11 @@ fn shell_closure_boss_cut_boss_repeatable() {
 }
 
 /// Overlapping cuts (M6 pattern) — verifies coplanar pocket handling.
-/// Regressed in Sprint 29-32: exact predicates + DetId changes affect
-/// face classification on overlapping cut topology. Needs Sprint 33
-/// investigation (shell closure hardening).
+/// Sprint 33: topology-driven edge canonicalization (multi-point curve
+/// matching) improved truck-level tests, but harness-level test still fails
+/// due to perturbation exhaustion on 3rd overlapping cut (14-face shell).
 #[test]
-#[ignore = "regressed in Sprint 29-32, needs Sprint 33 shell closure hardening"]
+#[ignore = "M6: perturbation exhausted on 3rd overlapping cut (14-face coplanar topology)"]
 fn shell_closure_overlapping_cuts() {
     let mut m = ModelBuilder::truck();
     m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)

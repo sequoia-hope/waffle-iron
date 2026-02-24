@@ -1215,6 +1215,18 @@ pub fn try_boolean_with_perturbation(
             _t.elapsed().as_secs_f64(),
             if result.is_ok() { "OK" } else { "FAIL" },
         );
+        // Post-boolean Euler validation diagnostic
+        #[cfg(debug_assertions)]
+        if let Ok(ref solid) = result {
+            for (si, shell) in solid.boundaries().iter().enumerate() {
+                if let Err((v, e, f, chi)) = truck_shapeops::validate_euler_characteristic(shell) {
+                    eprintln!(
+                        "[euler] shell[{}]: V={} E={} F={} chi={} (expected 2)",
+                        si, v, e, f, chi,
+                    );
+                }
+            }
+        }
         result
     };
 
