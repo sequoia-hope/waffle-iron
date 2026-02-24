@@ -4,6 +4,7 @@
 		hideExtrudeDialog,
 		applyExtrude,
 		removeExtrudeRegion,
+		clearExtrudeRegions,
 		setExtrudePreviewParams,
 		changeExtrudeSketch,
 		addExtrudeRegion,
@@ -119,6 +120,10 @@
 
 	function toggleRegionPick() {
 		regionPickActive = !regionPickActive;
+		if (regionPickActive) {
+			// Clear existing regions when entering pick mode (replace, not append)
+			clearExtrudeRegions();
+		}
 		setExtrudeRegionPickMode(regionPickActive);
 	}
 

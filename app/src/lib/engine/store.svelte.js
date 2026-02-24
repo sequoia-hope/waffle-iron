@@ -623,7 +623,7 @@ export function selectRef(ref, additive = false) {
 	}
 
 	// Intercept plane selection when in plane selection mode
-	if (sketchPlaneSelectionMode && isDatumPlaneRef(ref)) {
+	if (sketchPlaneSelectionMode && (isDatumPlaneRef(ref) || ref?.kind?.type === 'Face')) {
 		const plane = computeFacePlane(ref);
 		if (plane) {
 			exitSketchPlaneSelection();
@@ -875,6 +875,19 @@ export function addLocalEntity(entity) {
 }
 
 /**
+ * Map a JS sketch constraint to the Rust bridge format.
+ * Some constraint type names differ between JS (libslvs) and Rust (waffle-types).
+ * @param {object} c - Constraint in JS format
+ * @returns {object | null} Constraint in Rust bridge format, or null to skip
+ */
+function mapConstraintForBridge(c) {
+	if (c.type === 'WhereDragged') {
+		return { type: 'Dragged', point: c.point };
+	}
+	return c;
+}
+
+/**
  * Add a constraint locally and send to engine.
  * @param {object} constraint - SketchConstraint object
  */
@@ -893,8 +906,12 @@ export function addLocalConstraint(constraint) {
 	}
 
 	if (bridge && engineReady) {
-		bridge.send({ type: 'AddConstraint', constraint: cloned })
-			.catch(err => log('error', `AddConstraint failed: ${err}`));
+		// Map JS constraint names to Rust bridge names
+		const bridgeConstraint = mapConstraintForBridge(cloned);
+		if (bridgeConstraint) {
+			bridge.send({ type: 'AddConstraint', constraint: bridgeConstraint })
+				.catch(err => log('error', `AddConstraint failed: ${err}`));
+		}
 	}
 
 	triggerSolve();
@@ -1526,6 +1543,11 @@ export function removeExtrudeRegion(index) {
 	const regions = [...extrudeDialogState.regions];
 	regions.splice(index, 1);
 	extrudeDialogState = { ...extrudeDialogState, regions };
+}
+
+export function clearExtrudeRegions() {
+	if (!extrudeDialogState) return;
+	extrudeDialogState = { ...extrudeDialogState, regions: [] };
 }
 
 /**
@@ -2542,7 +2564,10 @@ export async function enterSketchEditMode(featureId) {
 		}
 		for (const constraint of sketchConstraints) {
 			const cloned = JSON.parse(JSON.stringify(constraint));
-			bridge.send({ type: 'AddConstraint', constraint: cloned }).catch(() => {});
+			const bridgeConstraint = mapConstraintForBridge(cloned);
+			if (bridgeConstraint) {
+				bridge.send({ type: 'AddConstraint', constraint: bridgeConstraint }).catch(() => {});
+			}
 		}
 	}
 
