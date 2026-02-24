@@ -772,7 +772,7 @@ fn k7_ten_alternating() {
 /// so the subtraction removes no material. Fixing requires improved coplanar
 /// face classification for multi-boss geometries.
 #[test]
-#[ignore = "k8: face classification bug — and=0 on complex coplanar z=10 topology"]
+#[ignore = "k8: 3rd cut (c2) hits perturbation exhaustion on 31-face shell (overlay fixed and=0 for c0/c1)"]
 fn k8_three_bosses_then_three_cuts() {
     let mut m = base_cube();
     let v0 = mesh_volume(&m.tessellate("cube").unwrap());
