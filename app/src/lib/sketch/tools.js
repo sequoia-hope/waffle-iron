@@ -197,6 +197,20 @@ export function resetTool() {
  * @param {number | null} [snapPointId] - Pre-detected snap point ID
  * @returns {{ id: number, x: number, y: number }}
  */
+/**
+ * Apply point-level snap constraints (e.g. WhereDragged for origin snap).
+ * Call after creating/finding a point via snap.
+ * @param {number} pointId - The point entity ID
+ * @param {import('./snap.js').SnapResult} snap - Snap result with constraints
+ */
+function applyPointSnapConstraints(pointId, snap) {
+	for (const c of snap.constraints) {
+		if (c.type === 'WhereDragged') {
+			addLocalConstraint({ type: 'WhereDragged', point: pointId, x: c.x, y: c.y });
+		}
+	}
+}
+
 function findOrCreatePoint(x, y, screenPixelSize, snapPointId) {
 	if (snapPointId != null) {
 		const positions = getSketchPositions();
@@ -327,6 +341,7 @@ function handleLineTool(eventType, x, y, screenPixelSize) {
 		if (toolState === 'idle') {
 			beginSketchAction();
 			const pt = findOrCreatePoint(snap.x, snap.y, screenPixelSize, snap.snapPointId);
+			applyPointSnapConstraints(pt.id, snap);
 			startPointId = pt.id;
 			startPos = { x: pt.x, y: pt.y };
 			pointerDownPos = { x: snap.x, y: snap.y };
@@ -365,7 +380,7 @@ function finalizeLine(snap, screenPixelSize) {
 	});
 	log('sketch', 'Line created', { lineId, startId: startPointId, endId: endPt.id });
 
-	// Auto-apply constraints from snap (H/V/Tangent/Perpendicular)
+	// Auto-apply constraints from snap (H/V/Tangent/Perpendicular/WhereDragged)
 	for (const c of snap.constraints) {
 		if (c.type === 'Horizontal') {
 			addLocalConstraint({ type: 'Horizontal', entity: lineId });
@@ -375,6 +390,8 @@ function finalizeLine(snap, screenPixelSize) {
 			addLocalConstraint({ type: 'Tangent', line: lineId, curve: c.entity_b });
 		} else if (c.type === 'Perpendicular' && c.entity_b != null) {
 			addLocalConstraint({ type: 'Perpendicular', line_a: lineId, line_b: c.entity_b });
+		} else if (c.type === 'WhereDragged') {
+			addLocalConstraint({ type: 'WhereDragged', point: endPt.id, x: c.x, y: c.y });
 		}
 	}
 
@@ -427,6 +444,7 @@ function handleRectangleTool(eventType, x, y, screenPixelSize) {
 		if (toolState === 'idle') {
 			beginSketchAction();
 			const pt = findOrCreatePoint(snap.x, snap.y, screenPixelSize, snap.snapPointId);
+			applyPointSnapConstraints(pt.id, snap);
 			startPointId = pt.id;
 			startPos = { x: pt.x, y: pt.y };
 			pointerDownPos = { x: snap.x, y: snap.y };
@@ -519,6 +537,7 @@ function handleCircleTool(eventType, x, y, screenPixelSize) {
 		if (toolState === 'idle') {
 			beginSketchAction();
 			const pt = findOrCreatePoint(snap.x, snap.y, screenPixelSize, snap.snapPointId);
+			applyPointSnapConstraints(pt.id, snap);
 			centerPointId = pt.id;
 			centerPos = { x: pt.x, y: pt.y };
 			pointerDownPos = { x: snap.x, y: snap.y };
@@ -679,6 +698,7 @@ function handlePolylineTool(eventType, x, y, screenPixelSize) {
 			// First point
 			beginSketchAction();
 			const pt = findOrCreatePoint(snap.x, snap.y, screenPixelSize, snap.snapPointId);
+			applyPointSnapConstraints(pt.id, snap);
 			startPointId = pt.id;
 			polyFirstPointId = pt.id;
 			startPos = { x: pt.x, y: pt.y };
@@ -716,6 +736,7 @@ function handlePolylineTool(eventType, x, y, screenPixelSize) {
 			// Add a segment
 			const endPt = findOrCreatePoint(snap.x, snap.y, screenPixelSize, snap.snapPointId);
 			if (endPt.id === startPointId) return;
+			applyPointSnapConstraints(endPt.id, snap);
 
 			const lineId = allocEntityId();
 			addLocalEntity({

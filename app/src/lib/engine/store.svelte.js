@@ -81,6 +81,9 @@ let selectedProfileIndex = $state(null);
 /** @type {number | null} */
 let hoveredProfileIndex = $state(null);
 
+/** @type {{ featureId: string, profileIndex: number } | null} */
+let inactiveHoveredProfile = $state(null);
+
 /** @type {{ x: number, y: number } | null} */
 let sketchCursorPos = $state(null);
 
@@ -1364,6 +1367,9 @@ export function setSelectedProfileIndex(idx) { selectedProfileIndex = idx; }
 export function getHoveredProfileIndex() { return hoveredProfileIndex; }
 /** @param {number | null} idx */
 export function setHoveredProfileIndex(idx) { hoveredProfileIndex = idx; }
+export function getInactiveHoveredProfile() { return inactiveHoveredProfile; }
+/** @param {{ featureId: string, profileIndex: number } | null} val */
+export function setInactiveHoveredProfile(val) { inactiveHoveredProfile = val; }
 
 export function getOverConstrainedEntities() { return overConstrainedEntities; }
 
@@ -2141,13 +2147,16 @@ export async function finishSketch() {
 				}
 			}));
 			await editFeature(editId, operation);
-			exitSketchMode();
-			setActiveTool('select');
 		} catch (err) {
-			log('error', `Edit sketch failed: ${err.message}`);
-			statusMessage = `Sketch edit failed: ${err.message}`;
+			// Downstream feature rebuild errors (e.g. ProfileOutOfRange) should not
+			// block saving the sketch itself. The sketch data is valid — dependent
+			// features will show as failed in the feature tree.
+			log('warn', `Sketch saved but downstream rebuild had errors: ${err.message}`);
+			statusMessage = `Sketch saved. Downstream feature error: ${err.message}`;
 			lastError = err.message;
 		}
+		exitSketchMode();
+		setActiveTool('select');
 		return { profileCount };
 	}
 

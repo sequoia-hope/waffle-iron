@@ -180,11 +180,15 @@
 
 	/**
 	 * Handle pointer move for edge hover highlighting.
-	 * Only fires if no face is under the cursor (face picks take priority).
+	 * Only fires if no face or vertex is under the cursor (they take priority).
 	 * @param {MouseEvent} e
 	 */
 	function handleEdgePointerMove(e) {
 		if (getSketchMode()?.active && !isProjectToolActive()) return;
+
+		// Vertex picks take priority — if a vertex is already hovered, skip edge
+		const currentRef = getHoveredRef();
+		if (currentRef?.kind?.type === 'Vertex') return;
 
 		// Only highlight edges if no face is currently hovered by CadModel
 		// We check if a face is intersected — if so, CadModel handles hover
@@ -198,11 +202,15 @@
 
 	/**
 	 * Handle click for edge selection.
-	 * Only fires if no face is under the cursor.
+	 * Only fires if no face or vertex is under the cursor.
 	 * @param {MouseEvent} e
 	 */
 	function handleEdgeClick(e) {
 		if (getSketchMode()?.active && !isProjectToolActive()) return;
+
+		// Vertex clicks take priority
+		const currentRef = getHoveredRef();
+		if (currentRef?.kind?.type === 'Vertex') return;
 
 		// Face clicks take priority — only select edge if no face hit
 		if (isFaceHitAtPosition(e.clientX, e.clientY)) return;

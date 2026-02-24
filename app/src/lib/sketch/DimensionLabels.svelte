@@ -301,6 +301,7 @@
 	   but keep the interactive children (buttons/inputs) clickable */
 	:global(.dim-html-wrapper) {
 		pointer-events: none !important;
+		overflow: visible !important;
 	}
 	:global(.dim-html-wrapper *) {
 		pointer-events: none !important;
@@ -316,6 +317,7 @@
 		font-family: monospace;
 		cursor: pointer;
 		white-space: nowrap;
+		min-width: fit-content;
 		pointer-events: auto !important;
 	}
 
@@ -339,7 +341,7 @@
 		padding: 2px 6px;
 		font-size: 11px;
 		font-family: monospace;
-		width: 60px;
+		width: 80px;
 		outline: none;
 		pointer-events: auto !important;
 	}

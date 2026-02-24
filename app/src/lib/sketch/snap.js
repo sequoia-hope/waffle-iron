@@ -56,12 +56,14 @@ export function detectSnaps(x, y, fromPointId, screenPixelSize) {
 		};
 	}
 
-	// 1b. Origin snap
+	// 1b. Origin snap — pin point to (0,0) via WhereDragged
 	const originDist = Math.sqrt(x * x + y * y);
 	if (originDist < coincidentThreshold) {
 		return {
 			x: 0, y: 0,
-			constraints: [],
+			constraints: [
+				{ type: 'WhereDragged', x: 0, y: 0 }
+			],
 			indicator: { type: 'origin', x: 0, y: 0 }
 		};
 	}

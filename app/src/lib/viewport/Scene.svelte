@@ -4,6 +4,7 @@
 	import CameraControls from './CameraControls.svelte';
 	import Lighting from './Lighting.svelte';
 	import EdgeOverlay from './EdgeOverlay.svelte';
+	import VertexOverlay from './VertexOverlay.svelte';
 	import SketchPlane from './SketchPlane.svelte';
 	import DatumVis from './DatumVis.svelte';
 	import BoxSelect from './BoxSelect.svelte';
@@ -21,6 +22,7 @@
 <CameraControls />
 <CadModel />
 <EdgeOverlay />
+<VertexOverlay />
 <GhostPreview />
 
 <SketchPlane />

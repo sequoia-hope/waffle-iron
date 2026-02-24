@@ -399,31 +399,22 @@
 		}
 	});
 
-	// Remap mouse buttons and touch gestures in sketch mode.
-	// Left-click goes to sketch tools during sketch; middle-click orbits.
-	// After exiting sketch, left-click orbit is restored.
+	// Onshape-style mouse navigation:
+	// Right-click = orbit, Middle-click = pan, Scroll = zoom, Left-click = select/sketch tools.
+	// Mapping is identical in both default and sketch modes — left-click behavior
+	// is handled by CadModel (selection) vs tools.js (sketch drawing), not OrbitControls.
 	$effect(() => {
 		if (!controlsRef) return;
-		if (sketchActive) {
-			controlsRef.mouseButtons = {
-				LEFT: -1,       // Sketch tools handle left click
-				MIDDLE: THREE.MOUSE.ROTATE,
-				RIGHT: THREE.MOUSE.PAN
-			};
-			controlsRef.touches = {
-				ONE: -1,                        // Single finger = sketch only
-				TWO: THREE.TOUCH.DOLLY_ROTATE   // Two fingers = pinch zoom + rotate
-			};
-		} else {
-			controlsRef.mouseButtons = {
-				LEFT: THREE.MOUSE.ROTATE,
-				MIDDLE: THREE.MOUSE.DOLLY,
-				RIGHT: THREE.MOUSE.PAN
-			};
-			controlsRef.touches = {
-				ONE: THREE.TOUCH.ROTATE,        // Single finger = orbit
-				TWO: THREE.TOUCH.DOLLY_PAN      // Two fingers = pinch zoom + pan
-			};
+		controlsRef.mouseButtons = {
+			LEFT: -1,                    // Reserved for select/sketch tools
+			MIDDLE: THREE.MOUSE.PAN,     // Middle = pan
+			RIGHT: THREE.MOUSE.ROTATE    // Right = orbit
+		};
+		controlsRef.touches = {
+			ONE: -1,                        // Single finger = select/sketch
+			TWO: THREE.TOUCH.DOLLY_ROTATE   // Two fingers = pinch zoom + rotate
+		};
+		if (!sketchActive) {
 			// Ensure controls are re-enabled when leaving sketch mode.
 			// BoxSelect or other code may have set enabled=false during sketch.
 			controlsRef.enabled = true;
