@@ -61,8 +61,8 @@ pub fn rebuild(
             // re-compute its consumption tracking from its carried-forward result.
             // Without this, incremental rebuilds lose consumption relationships
             // established by earlier features (e.g., e1 consumed by e2's union).
-            let merge_target_id = find_merge_target_id(feature, &state.feature_results, tree);
-            if let Some(target_id) = merge_target_id {
+            let consumed_ids = find_consumed_feature_ids(feature, &state.feature_results, tree);
+            if !consumed_ids.is_empty() {
                 if let Some(result) = state.feature_results.get(&feature.id) {
                     let union_failed = result
                         .diagnostics
@@ -70,7 +70,9 @@ pub fn rebuild(
                         .iter()
                         .any(|w| w.contains("Auto-union failed"));
                     if !union_failed {
-                        state.consumed_features.insert(target_id);
+                        for target_id in consumed_ids {
+                            state.consumed_features.insert(target_id);
+                        }
                     }
                 }
             }
@@ -80,8 +82,8 @@ pub fn rebuild(
         // Resolve any GeomRef references before executing the feature
         resolve_feature_refs(feature, &state.feature_results, &mut state.warnings);
 
-        // Track which feature's solid would be consumed by a successful merge
-        let merge_target_id = find_merge_target_id(feature, &state.feature_results, tree);
+        // Track which features' solids would be consumed by a successful merge/boolean
+        let consumed_ids = find_consumed_feature_ids(feature, &state.feature_results, tree);
 
         match execute_feature(feature, kb, &state.feature_results, tree) {
             Ok(result) => {
@@ -89,15 +91,17 @@ pub fn rebuild(
                     state.warnings.push(format!("{}: {}", feature.name, w));
                 }
                 // If this was a merge/boolean that succeeded (no auto-union fallback warning),
-                // mark the target feature as consumed so it doesn't render.
-                if let Some(target_id) = merge_target_id {
+                // mark the target features as consumed so they don't render.
+                if !consumed_ids.is_empty() {
                     let union_failed = result
                         .diagnostics
                         .warnings
                         .iter()
                         .any(|w| w.contains("Auto-union failed"));
                     if !union_failed {
-                        state.consumed_features.insert(target_id);
+                        for target_id in &consumed_ids {
+                            state.consumed_features.insert(*target_id);
+                        }
                     }
                 }
                 state.feature_results.insert(feature.id, result);
@@ -674,16 +678,16 @@ fn find_latest_solid_handle(
     find_solid_handle(geom_ref, feature_results)
 }
 
-/// Find the feature ID of the most recent solid that would be consumed by a merge/boolean.
+/// Find the feature IDs of solids that would be consumed by a merge/boolean.
 ///
-/// Returns `Some(id)` if this feature will perform an auto-union (extrude with merge=true
-/// and an existing body exists), or a cut (which also consumes the target). Returns `None`
-/// for features that don't consume another body.
-fn find_merge_target_id(
+/// Returns IDs of features whose bodies are consumed by this operation.
+/// For extrude with merge/cut, this is the single merge target.
+/// For BooleanCombine, both body_a and body_b are consumed.
+fn find_consumed_feature_ids(
     feature: &Feature,
     feature_results: &HashMap<Uuid, OpResult>,
     tree: &FeatureTree,
-) -> Option<Uuid> {
+) -> Vec<Uuid> {
     match &feature.operation {
         Operation::Extrude { params } if params.merge || params.cut => {
             // Find the most recent feature BEFORE this one with a Main solid output.
@@ -710,21 +714,24 @@ fn find_merge_target_id(
                         .iter()
                         .any(|(key, _)| *key == OutputKey::Main)
                     {
-                        return Some(f.id);
+                        return vec![f.id];
                     }
                 }
             }
-            None
+            vec![]
         }
         Operation::BooleanCombine { params } => {
-            // The body_a feature is consumed by the boolean
+            // Both body_a and body_b are consumed by the boolean result
+            let mut consumed = Vec::new();
             if let waffle_types::Anchor::FeatureOutput { feature_id, .. } = &params.body_a.anchor {
-                Some(*feature_id)
-            } else {
-                None
+                consumed.push(*feature_id);
             }
+            if let waffle_types::Anchor::FeatureOutput { feature_id, .. } = &params.body_b.anchor {
+                consumed.push(*feature_id);
+            }
+            consumed
         }
-        _ => None,
+        _ => vec![],
     }
 }
 
