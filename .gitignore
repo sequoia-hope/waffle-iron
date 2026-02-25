@@ -12,3 +12,6 @@ Cargo.lock
 # Test profiling output
 test-timings-rust.log
 test-timings-gui.json
+
+# Reference documentation (fetched from external sources)
+docs/references/
