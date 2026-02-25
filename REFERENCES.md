@@ -199,6 +199,29 @@ http://www.gilbertbernstein.org/resources/booleans2009.pdf
 
 **Relevance**: BSP-tree based exact booleans using plane-based representations. Only 4 geometric predicates needed. 16-28x faster than CGAL Nef polyhedra. Relevant if we consider a BSP-based approach for the planar-face portions of our boolean pipeline.
 
+### 19. Devillers & Preparata — "A Probabilistic Analysis of the Power of Arithmetic Filters" (1998)
+
+**Access**: Free PDF (via Springer):
+https://link.springer.com/content/pdf/10.1007/PL00009400.pdf
+
+**Citation**: Devillers, O. and Preparata, F.P. Discrete & Computational Geometry 20:523–547, 1998.
+
+**Core concept**: An **arithmetic filter** is a pair (evaluator, certifier). The evaluator computes an approximate value μ(E) of an expression μ using floating-point. The certifier compares |μ(E)| against a threshold ε(E). If |μ(E)| ≥ ε(E), the computed sign is reliable. Otherwise, the filter *fails* and a more expensive evaluator (eventually exact arithmetic) is needed. This paper computes both the threshold ε and the probability of filter failure for the two core geometric predicates.
+
+**Key results for our work**:
+
+- **Which-side predicate** (orient2d/orient3d — δ×δ determinant with independent entries): Filter failure probability is *linear* in the threshold: `Prob(|det| ≤ V) ≤ ψ_δ · V`, where ψ₁=1, ψ₂=π, ψ₃=27π⁴/128≈21, ψ₄=32π⁶/81≈380, ψ₅≈23,000, ψ₆≈4.5×10⁶. General formula: `ψ_δ = δ · v_δ(1) · v_{δ-1}(1)^δ · δ^{δ(δ-1)/2} / 2^{δ²}`.
+
+- **Insphere predicate** (determinant with dependent x² entries): Failure probability is *worse* due to dependencies. For 1-insphere: `≤ 5.355·A^{2/3}`. For 2-insphere: `≤ π√(2V) ≈ 4.44√V`. For δ≥3: `≤ ϕ_δ·√W·ln(1/W) + χ_δ·√W`. Constants: ϕ₃≈70 (χ₃=-100), ϕ₄≈408 (χ₄=350), ϕ₅≈3970 (χ₅=18,000), ϕ₆≈68,500 (χ₆=640,000).
+
+- **Error thresholds for recursive determinant evaluation** (b-bit mantissa floating-point): ε₂=2·2⁻ᵇ, ε₃=13·2⁻ᵇ, ε₄=76·2⁻ᵇ, ε₅=576·2⁻ᵇ, ε₆=3672·2⁻ᵇ, ε₇=27,304·2⁻ᵇ, ε₈=226,624·2⁻ᵇ. These derive from error propagation rules: `E[M₁,m₁]+E[M₂,m₂] = E[M₁+M₂, 2⁻ᵇ⁻¹·M̄₁₊M₂+m₁+m₂]` and `E[M₁,m₁]·E[M₂,m₂] = E[M₁·M₂, 2⁻ᵇ⁻¹·M̄₁·M̄₂+m₁·M̄₂+m₂·M̄₁]`, where E[M,m] means absolute value ≤ M, error ≤ m, and M̄ = 2^⌈log₂M⌉ (ceiling to next power of 2). Hadamard bounds used: D₃≤4, D₄≤16, D₅≤48, D₆≤160, D₇≤576, D₈≤4096.
+
+- **Practical IEEE 754 double (b=53) failure probabilities**: orient2d (2×2, δ=2): ρ₂≈1.2×10⁻¹⁵. orient3d (3×3, δ=3): ρ₃≈4.8×10⁻¹⁴. δ=4: ρ₄≈5.9×10⁻¹². δ=5: ρ₅≈3.0×10⁻⁹. δ=6: ρ₆≈8.7×10⁻⁶. **Conclusion: for δ≤4, floating-point filters fail less than 1 in a billion times; for δ=5, ~3 per billion. Exact arithmetic is almost never needed.**
+
+- **Operation counts** for dynamic-programming recursive evaluation: r_δ = (δ-1)(2^δ-1). r₃=14, r₄=45, r₅=124, r₆=315, r₇=762, r₈=1785.
+
+**Relevance**: Directly validates the `robust` crate's adaptive-precision strategy (try float first, escalate to exact when needed). For orient3d (our most-used predicate, 3×3 determinant, δ=3), the filter fails ~10⁻¹⁴ of the time — essentially never. The E[M,m] error propagation rules give us a recipe for computing static filter thresholds for *any* custom determinantal predicate we might add (e.g., coplanar distance, point-on-ray). The insphere analysis shows that predicates with dependent entries (like our lifted-coordinate winding number computations, if we implement Phase 2A) need wider thresholds — the √W·ln(1/W) bound means the filter fails more often, but still rarely enough for practical use.
+
 ## How to Reference During Development
 
 When working on boolean reliability or kernel improvements:
@@ -212,3 +235,4 @@ When working on boolean reliability or kernel improvements:
 7. **Use Sugihara & Iri (#6)** for architectural guidance — topology-first algorithm design eliminates the need for perturbation
 8. **Use Edelsbrunner & Mucke (#5)** for degenerate handling — Simulation of Simplicity eliminates all degenerate-case special handling
 9. **Use ESOLID (#13) or Barton (#14)** for curved surface intersection — lazy exact evaluation for NURBS booleans
+10. **Use Devillers & Preparata (#19)** for filter threshold computation — when adding new predicates or assessing whether floating-point is sufficient for a geometric decision
