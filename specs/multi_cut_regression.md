@@ -63,6 +63,8 @@ All boxes use axis-aligned rectangles for analytical predictability.
 | q1_multi_cut_preserves_first_body | Two abutting 10x10x10 boxes + 4x4 rect cut | bb_min.x < 0.5, volume ≈ 1680 |
 | q2_multi_cut_box_cylinder_variant | 10x10x10 box + r=8 cylinder + r=6 circle cut | bb_min.x < 0.5, volume > 500 |
 | q3_multi_cut_three_bodies_then_cut | Three abutting 10x10x10 boxes + 4x4 rect cut | bb_min.x < 0.5, volume ≈ 2520 |
+| q4_multi_cut_waffle_geometry | Exact multi-cut.waffle geometry: ~34x33 rect + r≈24 circle union + r≈18 circle cut (off-center, depth=20) | bb_min.x < 0.5, bb_max.x > 19.5, body count = 1 |
+| q5_load_multi_cut_waffle_regression | Loads `app/tests/cases/multi-cut.waffle` directly via ModelBuilder::load() | bb_min.x < 0.5, bb_max.x > 10, volume > 1000 |
 
 ## Files
 

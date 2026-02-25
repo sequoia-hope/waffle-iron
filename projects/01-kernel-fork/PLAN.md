@@ -90,6 +90,19 @@
 - [x] Test: export box → valid STEP with MANIFOLD_SOLID_BREP
 - [x] Test: export cylinder → valid STEP with revolved geometry
 
+### M12: Boolean Pipeline Hardening (Sprints 35-37) ✅
+- [x] AABB culling in `create_loops_stores` (O(f^2) face-pair loop with broadphase skip)
+- [x] `BooleanTolerance` struct — 7 per-stage tolerances: `tau_model`, `tau_mesh`, `tau_weld`, `tau_coplanar`, `tau_boundary`, `tau_edge_cluster`, `tau_area`
+- [x] Coplanar exact detection (`exact_points_coplanar`, `find_non_collinear_triple` in `coplanar_splitting.rs`)
+- [x] SoS integration (`sos_orient2d_tiebreak`, `sos_orient3d_tiebreak` in `robust_classify.rs`)
+- [x] Deterministic cascade (`MAX_CASCADE_ATTEMPTS=50`, replaces 120s wall-clock timeout; see `specs/deterministic_cascade.md`)
+- [x] K8 resolution — 3 bosses + 3 cuts on 10x10x10 cube now passes
+- [x] 8-ray robust classification + edge-neighbor propagation fallback in `integrate/mod.rs`
+- [x] Scale-expand-first cascade ordering for complex shells (>30 faces)
+- [x] `DetId`/`DetContext` for deterministic edge ordering (thread-local monotonic IDs, BTreeMap in weld)
+- [x] Wire splitting: `split_wire_recursive` with greedy repeated-vertex splitting, depth guard 10
+- [x] Biangle wire detection and filtering in loops_store and divide_one_face
+
 ## High Priority Backlog
 
 ### HP-1: Auto-union fails for 3+ chained abutting extrudes
@@ -110,6 +123,14 @@
 
 **Fillet, chamfer, and shell are DEFERRED INDEFINITELY.** MockKernel implementations exist for testing, and experimental TruckKernel implementations were added in Sprint 18, but these are not production-ready. Do not prioritize work on these operations. Focus on boolean reliability, integration tests, and extrude/revolve pipeline polish instead.
 
+### Boolean Pipeline References
+
+- `specs/deterministic_cascade.md` — MAX_CASCADE_ATTEMPTS=50, replaces wall-clock timeout (COMPLETE)
+- `specs/boolean_tolerance_layering.md` — BooleanTolerance 7-field struct (Implemented)
+- `specs/robust_predicates_integration.md` — Shewchuk predicates in robust_classify.rs (Implemented)
+- `specs/SHAPEOPS-BOOLEAN-SPEC.md` — Production boolean solver spec
+- HP-1 (`several_extrudes_replay`) and HP-2 (`multi_cut_replay`) remain open failures
+
 ### Architectural Blockers for TruckKernel Fillet/Chamfer/Shell
 
 1. **No entity ID mapping**: TruckKernel doesn't maintain a mapping from KernelId to truck topology entities. KernelIds are allocated during tessellation and introspection (positional scheme: `handle_id * 10000 + offset`), but there's no reverse mapping. Fillet/chamfer/shell need to identify specific truck edges/faces from KernelIds.
@@ -128,7 +149,14 @@
 
 ## Performance Findings (M7)
 
-### Boolean Benchmark Results
+> **Note:** The benchmark data below reflects the **truck 0.4 baseline** (pre-Sprint 35).
+> Sprints 35-37 (M12) significantly improved boolean reliability:
+> - **Box-box coplanar**: now handled via coplanar exact detection + SoS predicates.
+> - **Chained operations**: K8 (3 bosses + 3 cuts) now passes with deterministic cascade.
+> - **Box-cylinder**: improved but not fully resolved; perturbation cascade provides workarounds.
+> - **HP-1 and HP-2 remain open** — see High Priority Backlog above.
+
+### Boolean Benchmark Results (truck 0.4 baseline)
 
 **Box-Cylinder (Box 2x2x2, Cylinder r=0.5 h=3):**
 | Tolerance | Union | Subtract | Intersect |

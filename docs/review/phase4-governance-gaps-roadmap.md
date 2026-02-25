@@ -9,7 +9,7 @@ This document synthesizes findings from all four review phases into governance c
 - Phase 2: `docs/review/phase2-classification-assembly.md` — 25 gaps (P2-G1 through P2-G25)
 - Phase 3: `docs/review/phase3-healing-perturbation.md` — 17 gaps (P3-G1 through P3-G17)
 - Governance: `governance/ENGINEERING_CONSTITUTION.md`, `governance/ARCHITECTURAL_INVARIANTS.md`, `governance/DEFINITION_OF_DONE.md`
-- Production spec: `docs/SHAPEOPS-BOOLEAN-SPEC.md` (342 lines)
+- Production spec: `specs/SHAPEOPS-BOOLEAN-SPEC.md` (342 lines)
 - Existing specs: 8 files in `specs/boolean_*.md`
 
 ---

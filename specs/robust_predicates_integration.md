@@ -2,7 +2,15 @@
 
 **Burndown ID**: A3
 **Author**: robust-predicates
-**Status**: Draft
+**Status**: Implemented (R1-R4 complete)
+
+> **Implementation note:** `robust_classify.rs` is integrated into the boolean pipeline.
+> It provides `robust_orient3d`, `robust_orient2d`, `robust_ray_triangle_cross`,
+> `signed_plane_distance`, `sos_orient2d_tiebreak`, and `sos_orient3d_tiebreak`.
+> Consumers: `bvh.rs` (ray-triangle BVH traversal), `integrate/mod.rs` (ray-cast
+> classification), `coplanar_splitting.rs` (exact coplanar detection via
+> `exact_points_coplanar` / `find_non_collinear_triple`), `coplanar.rs`
+> (signed plane distance + orient2d for parameter-space winding).
 
 ## Problem
 

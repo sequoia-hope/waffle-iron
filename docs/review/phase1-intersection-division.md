@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document compares the current intersection, face division, and coplanar handling stages of the Waffle Iron boolean pipeline (in `vendor/truck/truck-shapeops/`) against the literature and the production spec (`docs/SHAPEOPS-BOOLEAN-SPEC.md`). No code changes are made — this is a pure analysis deliverable.
+This document compares the current intersection, face division, and coplanar handling stages of the Waffle Iron boolean pipeline (in `vendor/truck/truck-shapeops/`) against the literature and the production spec (`specs/SHAPEOPS-BOOLEAN-SPEC.md`). No code changes are made — this is a pure analysis deliverable.
 
 **Files under review:**
 - `vendor/truck/truck-shapeops/src/transversal/loops_store/mod.rs` (~1315 lines)

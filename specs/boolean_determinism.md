@@ -1,5 +1,7 @@
 # Spec: Boolean Determinism
 
+**Status**: Implemented
+
 ## Goal
 
 Boolean operations (And, Or, Difference) must produce identical results for identical inputs, regardless of memory allocation patterns or hash map iteration order.

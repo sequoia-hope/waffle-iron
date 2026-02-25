@@ -2,7 +2,16 @@
 
 **Burndown ID**: A2
 **Author**: tolerance-architect
-**Status**: Draft
+**Status**: Implemented (P0 -- struct name differs from original spec)
+
+> **Implementation note:** The actual struct is `BooleanTolerance` (not `BooleanOptions` as
+> originally specified). It lives in `vendor/truck/truck-shapeops/src/transversal/integrate/mod.rs`
+> and has 7 fields: `tau_model`, `tau_mesh`, `tau_weld`, `tau_coplanar`, `tau_boundary`,
+> `tau_edge_cluster`, `tau_area`. The spec's `tau_work` and `min_feature_size` fields were not
+> carried forward; instead `tau_boundary` (IC-on-boundary filter, 0.5x tau_model) and
+> `tau_edge_cluster` (midpoint clustering, 5.0x tau_model) replaced them. `tau_area` is derived
+> as `tau_model^2`. Constructor: `BooleanTolerance::from_model_tol(tau_model)`.
+> Also see `BooleanTolerance::uniform()` (deprecated legacy path).
 
 ## Problem
 
