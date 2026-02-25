@@ -767,12 +767,13 @@ fn k7_ten_alternating() {
 /// Regressed in Sprint 29-32: exact predicates + DetId + tolerance centralization.
 /// Sprint 33 root cause: face classification bug (and=0 for both shells) when
 /// cut tool base at z=10 is coplanar with complex boss topology on z=10 face.
-/// Perturbation produces shell closure (via scale-expand + fill_open_edge_loops)
-/// but face classification fails to identify any "And" (intersection) faces,
-/// so the subtraction removes no material. Fixing requires improved coplanar
-/// face classification for multi-boss geometries.
+/// 3 bosses + 3 cuts on a 10x10x10 cube.
+/// Fixed in Sprint 36: non-manifold pre-repair + robust ray-cast classification
+/// + smarter perturbation cascade.
+/// K8: 3 boss extrusions + 3 cut extrusions on a 10x10x10 cube.
+/// Tests chained boolean reliability with corner-coplanar geometry.
+/// Sprint 36: scale-expand-first cascade for complex shells (>30 faces).
 #[test]
-#[ignore = "k8: 3rd cut (c2) hits perturbation exhaustion on 31-face shell (overlay fixed and=0 for c0/c1)"]
 fn k8_three_bosses_then_three_cuts() {
     let mut m = base_cube();
     let v0 = mesh_volume(&m.tessellate("cube").unwrap());
@@ -794,6 +795,42 @@ fn k8_three_bosses_then_three_cuts() {
 
     // Three cuts on the complex body
     let cut_positions = [(0.5, 7.0), (4.0, 0.5), (7.0, 7.0)];
+    for (i, (x, y)) in cut_positions.iter().enumerate() {
+        let sk_name = format!("c{}_sk", i);
+        let feat_name = format!("c{}", i);
+        m.rect_sketch(&sk_name, [0., 0., 10.], [0., 0., 1.], *x, *y, 3., 3.)
+            .unwrap();
+        m.extrude_cut(&feat_name, &sk_name, 4.0).unwrap();
+        m.assert_has_solid(&feat_name).unwrap();
+        let vol = mesh_volume(&m.tessellate(&feat_name).unwrap());
+        assert!(vol < prev_vol, "Cut {} should decrease volume", i);
+        prev_vol = vol;
+    }
+}
+
+/// K8-lite: 2 bosses + 2 cuts — smaller/faster variant of K8 for debugging.
+#[test]
+fn k8_lite_two_bosses_two_cuts() {
+    let mut m = base_cube();
+    let v0 = mesh_volume(&m.tessellate("cube").unwrap());
+
+    // Two bosses
+    let boss_positions = [(0.5, 0.5), (4.0, 4.0)];
+    let mut prev_vol = v0;
+    for (i, (x, y)) in boss_positions.iter().enumerate() {
+        let sk_name = format!("b{}_sk", i);
+        let feat_name = format!("b{}", i);
+        m.rect_sketch(&sk_name, [0., 0., 10.], [0., 0., 1.], *x, *y, 3., 3.)
+            .unwrap();
+        m.extrude(&feat_name, &sk_name, 3.0).unwrap();
+        m.assert_has_solid(&feat_name).unwrap();
+        let vol = mesh_volume(&m.tessellate(&feat_name).unwrap());
+        assert!(vol > prev_vol, "Boss {} should increase volume", i);
+        prev_vol = vol;
+    }
+
+    // Two cuts
+    let cut_positions = [(0.5, 7.0), (4.0, 0.5)];
     for (i, (x, y)) in cut_positions.iter().enumerate() {
         let sk_name = format!("c{}_sk", i);
         let feat_name = format!("c{}", i);

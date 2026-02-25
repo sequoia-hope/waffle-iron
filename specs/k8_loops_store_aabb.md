@@ -1,6 +1,9 @@
 # Spec: K8 Fix — Degenerate Wire Filtering + AABB Culling in loops_store
 
-**Status**: Phase 1 — Spec written, awaiting test authoring.
+**Status**: RESOLVED (Sprint 36). K8 passes with 3 bosses + 3 cuts.
+Sprint 35 fixed face division (biangle, wire split, AABB culling, merge+splice).
+Sprint 36 fixed classification (8-ray robust ray-cast, edge-neighbor propagation)
+and perturbation cascade (scale-expand-first for complex shells >30 faces).
 
 ## Goal
 
