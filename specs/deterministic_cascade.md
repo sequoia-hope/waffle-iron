@@ -1,12 +1,12 @@
 # Deterministic Perturbation Cascade
 
-**Status:** IMPLEMENTING
+**Status:** COMPLETE
 **Sprint:** 37
 
 ## Goal
 
 Replace the 120-second wall-clock timeout in `try_boolean_with_perturbation()` with a
-fixed attempt-count limit (`MAX_CASCADE_ATTEMPTS = 25`), making the perturbation cascade
+fixed attempt-count limit (`MAX_CASCADE_ATTEMPTS = 50`), making the perturbation cascade
 deterministic across native and WASM platforms.
 
 ## Motivation
@@ -33,15 +33,15 @@ behavior:
 | Fast machine, simple op | Succeeds in 1-3 attempts | Identical |
 | Slow machine, simple op | Succeeds in 1-3 attempts | Identical |
 | K8 complex op (native) | 3-5 attempts, ~15-60s | 3-5 attempts, same result |
-| K8 complex op (WASM) | No limit (could run forever) | Limited to 25 attempts |
-| Impossible geometry | Times out after ~120s (~10 attempts) | Fails after 25 attempts |
+| K8 complex op (WASM) | No limit (could run forever) | Limited to 50 attempts |
+| Impossible geometry | Times out after ~120s (~10 attempts) | Fails after 50 attempts |
 | Parallel test contention | May timeout early due to CPU sharing | Unaffected by CPU load |
 
 ## Implementation
 
 **File:** `crates/kernel-fork/src/healing.rs`
 
-1. Add `const MAX_CASCADE_ATTEMPTS: u32 = 25;`
+1. Add `const MAX_CASCADE_ATTEMPTS: u32 = 50;`
 2. Replace `check_timeout!()` macro with `check_cascade_limit!()` that checks
    `_attempt_count >= MAX_CASCADE_ATTEMPTS`
 3. Remove `cascade_timeout` variable and wall-clock timeout logic
@@ -53,5 +53,5 @@ behavior:
 
 - **Determinism:** Same geometry + same tolerance → same number of attempts on all platforms
 - **Platform parity:** WASM and native use identical cascade logic
-- **No regression:** K8 and all existing tests pass with the 25-attempt limit
+- **No regression:** K8 and all existing tests pass with the 50-attempt limit
 - **Diagnostic preservation:** Per-attempt timing logs remain in debug builds on native

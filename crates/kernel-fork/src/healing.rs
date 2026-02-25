@@ -1427,7 +1427,7 @@ pub fn try_boolean_with_perturbation(
     // un-closeable shells, while scale-expand changes the tool geometry
     // fundamentally (grows it) which breaks edge coincidence more effectively.
     // Each attempt on a 31-face shell takes ~12s, so ordering matters for the
-    // 120s timeout budget.
+    // MAX_CASCADE_ATTEMPTS budget.
     if use_aggressive && dirs.len() >= 2 {
         let centroid = solid_centroid(solid_b);
         let scale_factors = [1.02, 1.03, 1.05];
