@@ -375,7 +375,6 @@ pub fn heal_intersection_curves(solid: &Solid, tol: f64) -> HealingResult {
                 SurfacePairType::PlaneCylinder => result.plane_cylinder_count += 1,
                 SurfacePairType::PlaneCone => {
                     result.plane_cone_count += 1;
-                    #[cfg(debug_assertions)]
                     eprintln!(
                         "[healing] plane-cone IC detected — BSpline fallback \
                          (analytical conic fitting not yet implemented)"
@@ -383,7 +382,6 @@ pub fn heal_intersection_curves(solid: &Solid, tol: f64) -> HealingResult {
                 }
                 SurfacePairType::CylinderCylinder => {
                     result.cylinder_cylinder_count += 1;
-                    #[cfg(debug_assertions)]
                     eprintln!(
                         "[healing] cylinder-cylinder IC detected — BSpline fallback \
                          (analytical ellipse fitting not yet implemented)"
@@ -673,7 +671,6 @@ pub fn repair_non_manifold_shell(shell: &mut Shell) -> bool {
         .collect();
 
     if !over_counted.is_empty() {
-        #[cfg(debug_assertions)]
         eprintln!(
             "[non-manifold] Found {} edges shared by 3+ faces",
             over_counted.len(),
@@ -698,7 +695,6 @@ pub fn repair_non_manifold_shell(shell: &mut Shell) -> bool {
     }
 
     if pinch_count > 0 {
-        #[cfg(debug_assertions)]
         eprintln!(
             "[non-manifold] Found {} pinch vertices (repeated in same wire)",
             pinch_count,
@@ -1252,7 +1248,6 @@ pub fn try_boolean_with_perturbation(
                 }
                 ids.len()
             };
-            #[cfg(debug_assertions)]
             eprintln!(
                 "[pre-heal] shell has {} unique vertex IDs, tol={:.6}, heal_tol={:.6}",
                 vcount_before,
@@ -1273,7 +1268,6 @@ pub fn try_boolean_with_perturbation(
             };
             if vcount_after < vcount_before {
                 any_healed = true;
-                #[cfg(debug_assertions)]
                 eprintln!(
                     "[pre-heal] Unified {} → {} vertices (saved {})",
                     vcount_before,
@@ -1285,16 +1279,15 @@ pub fn try_boolean_with_perturbation(
             // The repair function only detects issues (doesn't modify topology),
             // and flagging as healed triggers Solid::try_new which can change
             // shell behavior in edge cases.
-            #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+            #[cfg(not(target_arch = "wasm32"))]
             if repair_non_manifold_shell(shell) {
                 eprintln!("[pre-heal] Non-manifold issues detected");
             }
-            #[cfg(not(debug_assertions))]
+            #[cfg(target_arch = "wasm32")]
             let _ = repair_non_manifold_shell(shell);
         }
         if any_healed {
             let result = Solid::try_new(shells).ok();
-            #[cfg(debug_assertions)]
             if result.is_none() {
                 eprintln!("[pre-heal] Solid::try_new failed on healed shells");
             }
@@ -1328,7 +1321,6 @@ pub fn try_boolean_with_perturbation(
                 } else {
                     "unknown panic".to_string()
                 };
-                #[cfg(debug_assertions)]
                 eprintln!(
                     "[perturbation] attempt #{} ({}) PANICKED: {}",
                     *attempt, label, msg
@@ -1339,7 +1331,7 @@ pub fn try_boolean_with_perturbation(
                 )))
             }
         };
-        #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+        #[cfg(not(target_arch = "wasm32"))]
         eprintln!(
             "[perturbation] attempt #{} ({}) took {:.2}s → {}",
             *attempt,
@@ -1348,7 +1340,6 @@ pub fn try_boolean_with_perturbation(
             if result.is_ok() { "OK" } else { "FAIL" },
         );
         // Post-boolean Euler validation diagnostic
-        #[cfg(debug_assertions)]
         if let Ok(ref solid) = result {
             for (si, shell) in solid.boundaries().iter().enumerate() {
                 if let Err((v, e, f, chi)) = truck_shapeops::validate_euler_characteristic(shell) {
@@ -1372,7 +1363,6 @@ pub fn try_boolean_with_perturbation(
     macro_rules! check_cascade_limit {
         () => {
             if _attempt_count >= MAX_CASCADE_ATTEMPTS {
-                #[cfg(debug_assertions)]
                 eprintln!(
                     "[perturbation] cascade limit ({}) reached after {} attempts",
                     MAX_CASCADE_ATTEMPTS, _attempt_count,
@@ -1690,7 +1680,6 @@ pub fn try_boolean_with_perturbation(
         }
     }
 
-    #[cfg(debug_assertions)]
     eprintln!(
         "[perturbation] EXHAUSTED all {} attempts (limit: {})",
         _attempt_count, MAX_CASCADE_ATTEMPTS,
