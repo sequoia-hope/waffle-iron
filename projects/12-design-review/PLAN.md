@@ -1,5 +1,7 @@
 # 12 — Design Review: Plan
 
+> **Note**: This is a point-in-time snapshot taken before Sprint 35. See individual project PLAN.md files for up-to-date status.
+
 ## Milestones
 
 ### M1: Codebase Exploration ✅

@@ -75,7 +75,7 @@
 - Raycaster picking via Threlte interactivity plugin (built-in raycaster with event system).
 - Edge rendering uses polygonOffset to prevent z-fighting.
 - Per-face highlighting uses BufferGeometry groups with material arrays.
-- Grid floor added via @threlte/extras Grid component for visual reference.
+- GridFloor.svelte was intentionally removed — grid rendering is handled differently.
 - Scene.svelte wraps all 3D content and initializes interactivity plugin.
 - ViewCube split into ViewCubeGizmo (three.js overlay in Canvas) and ViewCubeButtons (HTML overlay outside Canvas). Communication via CustomEvent 'waffle-snap-view'.
 - Sketch plane grid/border rendered as LineSegments in a Group oriented by plane normal.
@@ -91,8 +91,11 @@
 | `app/src/lib/viewport/CameraControls.svelte` | OrbitControls + fit-all + snap-to-view |
 | `app/src/lib/viewport/Lighting.svelte` | Ambient + directional + hemisphere |
 | `app/src/lib/viewport/EdgeOverlay.svelte` | Edge line segments overlay |
-| `app/src/lib/viewport/GridFloor.svelte` | Infinite grid floor |
 | `app/src/lib/viewport/SketchPlane.svelte` | Sketch-mode plane with grid and border |
+| `app/src/lib/viewport/BoxSelect.svelte` | Box selection overlay for multi-entity selection |
+| `app/src/lib/viewport/GhostPreview.svelte` | Ghost preview for pending operations |
+| `app/src/lib/viewport/VertexOverlay.svelte` | Vertex point overlay rendering |
+| `app/src/lib/viewport/ViewportContextMenu.svelte` | Right-click context menu in viewport |
 | `app/src/lib/viewport/DatumVis.svelte` | XY/XZ/YZ datum planes + origin triad |
 | `app/src/lib/viewport/ViewCubeGizmo.svelte` | Orientation gizmo (three.js overlay) |
 | `app/src/lib/viewport/ViewCubeButtons.svelte` | Standard view buttons (HTML overlay) |

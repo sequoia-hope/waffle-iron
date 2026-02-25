@@ -83,9 +83,10 @@
 
 ## Blockers
 
-- Depends on kernel-fork (Kernel + KernelIntrospect traits, especially MockKernel)
-- Depends on modeling-ops (OpResult production with provenance)
-- Can start M1-M4 with mock OpResults before modeling-ops is ready
+- ~~Depends on kernel-fork (Kernel + KernelIntrospect traits, especially MockKernel)~~ Resolved
+- ~~Depends on modeling-ops (OpResult production with provenance)~~ Resolved
+- ~~Can start M1-M4 with mock OpResults before modeling-ops is ready~~ Resolved (all milestones complete)
+- Fillet, chamfer, and shell operations: MockKernel tests pass but TruckKernel implementation is deferred indefinitely (see root CLAUDE.md)
 
 ## Interface Change Requests
 

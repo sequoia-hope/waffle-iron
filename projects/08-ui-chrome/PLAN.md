@@ -30,6 +30,7 @@
 - [x] Tool state management (one active at a time)
 - [x] Keyboard shortcuts for tools (S, E, L, R, C, A)
 - [x] Finish Sketch button in sketch mode
+- Note: Fillet, chamfer, and shell toolbar buttons present but disabled — operations deferred indefinitely
 
 ### M5: Property Editor Display ✅
 - [x] Show parameters for selected feature
@@ -65,6 +66,13 @@
 - [x] Drag to set active_index
 - [x] Visual feedback (features after slider grayed out)
 - [x] Produce SetRollbackIndex message
+
+### M11: Additional UI Components ✅
+- [x] `app/src/lib/ui/AutoRestoreDialog.svelte` — Auto-restore session dialog
+- [x] `app/src/lib/ui/BooleanDialog.svelte` — Boolean operation dialog
+- [x] `app/src/lib/ui/RevolveDialog.svelte` — Revolve operation dialog
+- [x] `app/src/lib/ui/SketchPlaneDialog.svelte` — Sketch plane selection dialog
+- [x] `app/src/lib/ui/ToastContainer.svelte` — Toast notification container
 
 ## Blockers
 

@@ -55,7 +55,7 @@
 ### M8: Extrude Variants ✅
 - [x] Symmetric extrude (both directions, centered on sketch plane)
 - [x] Tests: symmetric_extrude_produces_valid_result, symmetric_extrude_assigns_end_cap_roles, symmetric_extrude_has_diagnostic_warning, symmetric_extrude_invalid_depth_returns_error
-- [ ] Cut extrude (boolean subtract from target) — deferred, requires multi-body workflow
+- [x] Cut extrude (boolean subtract from target) — implemented in TruckKernel and tested
 
 ### M9: All Ops Against MockKernel ✅
 - [x] Euler formula verification (V-E+F=2)
@@ -100,8 +100,9 @@
 
 ## Blockers
 
-- Cut extrude deferred: needs multi-body pipeline (extrude + boolean subtract in one operation)
-- TruckKernel boolean operations unreliable in truck 0.4
+- ~~Cut extrude deferred~~ Resolved: cut extrude is implemented and tested
+- HP-1: Auto-union chain fails for 3+ abutting extrudes (boolean cascade unreliable)
+- HP-2: Cut fragments previously-unified body (q1-q5 regressions in test-harness)
 - Revolve role heuristic needs improvement for real geometry (normal-axis dot product too simplistic)
 
 ## Interface Change Requests
