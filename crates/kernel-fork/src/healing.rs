@@ -1704,6 +1704,41 @@ pub fn try_boolean_with_perturbation(
     Err(last_err)
 }
 
+/// Diagnostic variant of `try_boolean_with_perturbation` that captures and returns
+/// the `BooleanDiagnostics` from the successful attempt.
+///
+/// The `op` closure returns `(Solid, BooleanDiagnostics)` instead of just `Solid`.
+/// Uses a `RefCell` to capture the diagnostics from the last successful attempt
+/// through the catch_unwind boundary.
+pub fn try_boolean_with_perturbation_diag(
+    solid_a: &Solid,
+    solid_b: &Solid,
+    tol: f64,
+    op: impl Fn(
+        &Solid,
+        &Solid,
+    ) -> Result<
+        (Solid, truck_shapeops::BooleanDiagnostics),
+        truck_shapeops::BooleanStageError,
+    >,
+) -> Result<(Solid, truck_shapeops::BooleanDiagnostics), truck_shapeops::BooleanStageError> {
+    use std::cell::RefCell;
+
+    let last_diag: RefCell<Option<truck_shapeops::BooleanDiagnostics>> = RefCell::new(None);
+    let result = try_boolean_with_perturbation(solid_a, solid_b, tol, |a, b| {
+        let (solid, diag) = op(a, b)?;
+        *last_diag.borrow_mut() = Some(diag);
+        Ok(solid)
+    });
+    match result {
+        Ok(solid) => {
+            let diag = last_diag.into_inner().unwrap_or_default();
+            Ok((solid, diag))
+        }
+        Err(e) => Err(e),
+    }
+}
+
 /// Extract a sample point and outward normal from a planar face.
 fn face_outward_sample(face: &Face) -> Option<(Point3, Vector3)> {
     let surface = face.surface();

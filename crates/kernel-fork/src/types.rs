@@ -118,6 +118,16 @@ pub struct BooleanDiagnosticsSummary {
     pub total_duration_ms: u64,
     /// Warnings about near-tolerance decisions.
     pub warnings: Vec<String>,
+    /// Which perturbation strategy succeeded (e.g., "direct", "scale-expand").
+    pub successful_strategy: String,
+    /// Number of perturbation attempts before success.
+    pub perturbation_attempts: u32,
+    /// Total elapsed time for the perturbation cascade in milliseconds.
+    pub perturbation_elapsed_ms: u64,
+    /// Number of vertices unified during pre-heal vertex deduplication.
+    pub preheal_vertices_unified: usize,
+    /// Recovery level reached in finalize_boolean_shell (0=first try, 1-6=recovery stages).
+    pub recovery_level: u8,
 }
 
 /// Tessellated triangle mesh for rendering in three.js.
@@ -189,7 +199,7 @@ pub struct BooleanOptions {
     /// Must satisfy: tau_mesh <= tau_model.
     pub tau_mesh: f64,
     /// Vertex/edge welding tolerance — snapping during stitching.
-    /// Derived as 2 * tau_model.
+    /// Derived as 0.4 * tau_model.
     pub tau_weld: f64,
     /// Numeric floor / working precision — iterative solver convergence.
     /// Must satisfy: tau_work << tau_model.
@@ -206,7 +216,7 @@ impl Default for BooleanOptions {
         Self {
             tau_model,
             tau_mesh: 0.5 * tau_model,
-            tau_weld: 2.0 * tau_model,
+            tau_weld: 0.4 * tau_model,
             tau_work: 1e-12,
             tau_coplanar: tau_model,
             min_feature_size: 1e-6,
@@ -225,7 +235,7 @@ impl BooleanOptions {
         Self {
             tau_model,
             tau_mesh: 0.5 * tau_model,
-            tau_weld: 2.0 * tau_model,
+            tau_weld: 0.4 * tau_model,
             tau_work: 1e-12,
             tau_coplanar: tau_model,
             min_feature_size: 10.0 * tau_model,
@@ -275,10 +285,11 @@ impl BooleanOptions {
                 self.tau_work, self.tau_model
             ));
         }
-        if self.tau_weld < self.tau_model {
+        if self.tau_weld < 0.1 * self.tau_model {
             return Err(format!(
-                "tau_weld ({}) must be >= tau_model ({})",
-                self.tau_weld, self.tau_model
+                "tau_weld ({}) must be >= 0.1 * tau_model ({})",
+                self.tau_weld,
+                0.1 * self.tau_model
             ));
         }
         if self.min_feature_size < self.tau_model {
@@ -299,7 +310,7 @@ impl BooleanOptions {
         Self {
             tau_model: tol,
             tau_mesh: tol * 0.5,
-            tau_weld: tol * 2.0,
+            tau_weld: tol * 0.4,
             tau_work: 1e-12,
             // tau_coplanar must equal tau_model — the coplanar distance check
             // uses `tol` directly (line 75 of coplanar_splitting.rs), so a 5x
@@ -577,8 +588,8 @@ mod tests {
             opts.tau_mesh
         );
         assert!(
-            (opts.tau_weld - 2e-7).abs() < 1e-15,
-            "tau_weld should be 2e-7, got {}",
+            (opts.tau_weld - 4e-8).abs() < 1e-15,
+            "tau_weld should be 4e-8, got {}",
             opts.tau_weld
         );
         assert!(
@@ -615,10 +626,10 @@ mod tests {
             opts.tau_model
         );
         assert!(
-            opts.tau_weld >= opts.tau_model,
-            "tau_weld ({}) must be >= tau_model ({})",
+            opts.tau_weld >= 0.1 * opts.tau_model,
+            "tau_weld ({}) must be >= 0.1 * tau_model ({})",
             opts.tau_weld,
-            opts.tau_model
+            0.1 * opts.tau_model
         );
         assert!(
             opts.min_feature_size >= opts.tau_model,
@@ -659,8 +670,8 @@ mod tests {
             large.tau_model
         );
         assert!(
-            (large.tau_weld - expected_tau * 2.0).abs() < 1e-15,
-            "tau_weld should be 2x tau_model"
+            (large.tau_weld - expected_tau * 0.4).abs() < 1e-15,
+            "tau_weld should be 0.4x tau_model"
         );
         assert!(
             large.validate().is_ok(),
@@ -691,14 +702,14 @@ mod tests {
             "Should reject tau_work >= tau_model"
         );
 
-        // tau_weld < tau_model
+        // tau_weld < 0.1 * tau_model
         let bad_weld = BooleanOptions {
-            tau_weld: 1e-8,
+            tau_weld: 1e-9,
             ..BooleanOptions::default()
         };
         assert!(
             bad_weld.validate().is_err(),
-            "Should reject tau_weld < tau_model"
+            "Should reject tau_weld < 0.1 * tau_model"
         );
 
         // min_feature_size < tau_model
@@ -793,8 +804,8 @@ mod tests {
             "tau_mesh should be tol/2"
         );
         assert!(
-            (opts.tau_weld - tol * 2.0).abs() < 1e-15,
-            "tau_weld should be 2*tol"
+            (opts.tau_weld - tol * 0.4).abs() < 1e-15,
+            "tau_weld should be 0.4*tol"
         );
         assert!(
             opts.validate().is_ok(),

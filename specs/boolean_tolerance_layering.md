@@ -30,7 +30,7 @@ pub struct BooleanOptions {
     /// Must satisfy: tau_mesh <= tau_model.
     pub tau_mesh: f64,
     /// Vertex/edge welding tolerance — snapping during stitching.
-    /// Derived as 2 * tau_model.
+    /// Derived as 0.4 * tau_model.
     pub tau_weld: f64,
     /// Numeric floor / working precision — iterative solver convergence.
     /// Must satisfy: tau_work << tau_model.
@@ -47,7 +47,7 @@ pub struct BooleanOptions {
 `BooleanOptions::default()` must produce spec-compliant values:
 - `tau_model = 1e-7`
 - `tau_mesh = 0.5 * tau_model = 5e-8`
-- `tau_weld = 2.0 * tau_model = 2e-7`
+- `tau_weld = 0.4 * tau_model = 4e-8`
 - `tau_work = 1e-12`
 - `tau_coplanar = 5.0 * tau_model = 5e-7`
 - `min_feature_size = 1e-6`
@@ -63,7 +63,7 @@ pub struct BooleanOptions {
 `BooleanOptions::validate() -> Result<(), String>` must reject:
 - `tau_mesh > tau_model`
 - `tau_work >= tau_model`
-- `tau_weld < tau_model`
+- `tau_weld < 0.1 * tau_model`
 - `min_feature_size < tau_model`
 - Any negative or zero tolerance
 
@@ -72,7 +72,7 @@ pub struct BooleanOptions {
 These must hold for all valid `BooleanOptions`:
 - `tau_work < tau_model`
 - `tau_mesh <= tau_model`
-- `tau_weld >= tau_model` (typically `2 * tau_model`)
+- `tau_weld >= 0.1 * tau_model` (typically `0.4 * tau_model`)
 - `min_feature_size >= tau_model`
 
 ### R6: Backward compatibility

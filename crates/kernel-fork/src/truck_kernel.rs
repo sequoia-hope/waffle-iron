@@ -212,7 +212,12 @@ fn compute_healing_tol(solid_a: &Solid, solid_b: &Solid) -> f64 {
 /// fragments on curved surfaces where parametric compression is significant.
 fn compute_boolean_options(solid_a: &Solid, solid_b: &Solid) -> BooleanOptions {
     let tol = compute_curvature_adaptive_tol(solid_a, solid_b);
-    BooleanOptions::for_boolean_tol(tol)
+    let opts = BooleanOptions::for_boolean_tol(tol);
+    debug_assert!(
+        opts.validate().is_ok(),
+        "BooleanOptions invariants violated"
+    );
+    opts
 }
 
 /// Validate that a solid is suitable for boolean operations.
@@ -242,6 +247,8 @@ pub struct TruckKernel {
     solids: HashMap<u64, Solid>,
     /// Standalone faces created by make_faces_from_profiles, awaiting extrude.
     standalone_faces: HashMap<u64, Face>,
+    /// Diagnostics from the last boolean operation.
+    last_boolean_diagnostics: Option<BooleanDiagnosticsSummary>,
 }
 
 impl TruckKernel {
@@ -251,6 +258,7 @@ impl TruckKernel {
             next_id: 1,
             solids: HashMap::new(),
             standalone_faces: HashMap::new(),
+            last_boolean_diagnostics: None,
         }
     }
 
@@ -274,6 +282,11 @@ impl TruckKernel {
 
     pub(crate) fn get_solid(&self, handle: &KernelSolidHandle) -> Option<&Solid> {
         self.solids.get(&handle.id())
+    }
+
+    /// Returns diagnostics from the last boolean operation, if any.
+    pub fn last_boolean_diagnostics(&self) -> Option<&BooleanDiagnosticsSummary> {
+        self.last_boolean_diagnostics.as_ref()
     }
 
     /// Export a solid to STEP AP203 format string.
@@ -300,6 +313,29 @@ impl TruckKernel {
         };
         let complete = CompleteStepDisplay::new(step_model, header);
         Ok(complete.to_string())
+    }
+}
+
+/// Build a summary from truck-shapeops BooleanDiagnostics.
+fn build_diagnostics_summary(
+    diag: &truck_shapeops::BooleanDiagnostics,
+    tau_model: f64,
+) -> BooleanDiagnosticsSummary {
+    BooleanDiagnosticsSummary {
+        tau_model,
+        faces_classified: diag.classification.shell0_and
+            + diag.classification.shell0_or
+            + diag.classification.shell1_and
+            + diag.classification.shell1_or,
+        vertices_welded: 0,
+        edges_canonicalized: 0,
+        total_duration_ms: 0,
+        warnings: Vec::new(),
+        successful_strategy: String::new(),
+        perturbation_attempts: 0,
+        perturbation_elapsed_ms: 0,
+        preheal_vertices_unified: 0,
+        recovery_level: diag.recovery.recovery_level,
     }
 }
 
@@ -413,11 +449,12 @@ impl Kernel for TruckKernel {
         let solid_a = crate::healing::pre_split_closed_edges(&solid_a, tol);
         let solid_b = crate::healing::pre_split_closed_edges(&solid_b, tol);
 
-        let result =
-            crate::healing::try_boolean_with_perturbation(&solid_a, &solid_b, tol, |a, b| {
-                truck_shapeops::or_result_with_tol(a, b, &tols)
+        let (result, diag) =
+            crate::healing::try_boolean_with_perturbation_diag(&solid_a, &solid_b, tol, |a, b| {
+                truck_shapeops::or_result_with_tol_diag(a, b, &tols)
             })
             .map_err(|e| KernelError::from(BooleanError::from(e)))?;
+        self.last_boolean_diagnostics = Some(build_diagnostics_summary(&diag, tol));
         #[cfg(debug_assertions)]
         if result.boundaries().len() > 1 {
             eprintln!(
@@ -466,11 +503,12 @@ impl Kernel for TruckKernel {
         let solid_a = crate::healing::pre_split_closed_edges(&solid_a, tol);
         let solid_b = crate::healing::pre_split_closed_edges(&solid_b, tol);
 
-        let result =
-            crate::healing::try_boolean_with_perturbation(&solid_a, &solid_b, tol, |a, b| {
-                truck_shapeops::difference_result_with_tol(a, b, &tols)
+        let (result, diag) =
+            crate::healing::try_boolean_with_perturbation_diag(&solid_a, &solid_b, tol, |a, b| {
+                truck_shapeops::difference_result_with_tol_diag(a, b, &tols)
             })
             .map_err(|e| KernelError::from(BooleanError::from(e)))?;
+        self.last_boolean_diagnostics = Some(build_diagnostics_summary(&diag, tol));
         #[cfg(debug_assertions)]
         if result.boundaries().len() > 1 {
             eprintln!(
@@ -518,11 +556,12 @@ impl Kernel for TruckKernel {
         let solid_a = crate::healing::pre_split_closed_edges(&solid_a, tol);
         let solid_b = crate::healing::pre_split_closed_edges(&solid_b, tol);
 
-        let result =
-            crate::healing::try_boolean_with_perturbation(&solid_a, &solid_b, tol, |a, b| {
-                truck_shapeops::and_result_with_tol(a, b, &tols)
+        let (result, diag) =
+            crate::healing::try_boolean_with_perturbation_diag(&solid_a, &solid_b, tol, |a, b| {
+                truck_shapeops::and_result_with_tol_diag(a, b, &tols)
             })
             .map_err(|e| KernelError::from(BooleanError::from(e)))?;
+        self.last_boolean_diagnostics = Some(build_diagnostics_summary(&diag, tol));
         crate::healing::heal_intersection_curves(&result, heal_tol);
         crate::healing::deduplicate_vertices(&result, heal_tol * 0.1);
         Ok(self.store_solid(result))

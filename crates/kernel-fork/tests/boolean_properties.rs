@@ -717,8 +717,8 @@ fn test_boolean_options_to_boolean_tolerance() {
         tols.tau_mesh
     );
     assert!(
-        (tols.tau_weld - 0.02).abs() < 1e-12,
-        "tau_weld should be 0.02, got {}",
+        (tols.tau_weld - 0.004).abs() < 1e-12,
+        "tau_weld should be 0.004 (0.4x tau_model), got {}",
         tols.tau_weld
     );
     assert!(
