@@ -58,7 +58,7 @@
 - [x] Perpendicular snap (point projection onto line foot)
 - [x] Configurable threshold settings (snap settings in Property Editor)
 
-### M9: Visual Feedback
+### M9: Visual Feedback ✅
 - [x] Color coding: blue (default), yellow (selected), light blue (hovered)
 - [x] Entity/constraint counts in status bar
 - [x] Full DOF counter (libslvs WASM solver integrated — DOF shown in status bar)
@@ -80,6 +80,17 @@
 - [x] Toolbar button ("Constr") + keyboard shortcut (X)
 - [x] Works on all entity types (lines, circles, arcs, points)
 
+### M12: Additional Drawing Tools (partially implemented)
+
+The following tools have handler scaffolding in `tools.js` but are not yet covered by milestones:
+
+- **Polyline tool** — multi-segment connected line drawing (handler: `handlePolylineTool`)
+- **Dimension tool** — interactive dimension placement on entities (handler: `handleDimensionTool`)
+- **Project tool** — project 3D edge geometry onto sketch plane (handler: `handleProjectTool`, logic in `projectGeometry.js`)
+- **Slot tool** — two-center slot shape (handler: `handleSlotTool`, state vars: `slotFirstCenter*`, `slotSecondCenter*`)
+- **Trim tool** — trim/extend entities at intersections (handler: `handleTrimTool`, state: `trimHighlight`)
+- **Sketch fillet tool** — fillet corners between sketch entities (handler: `handleSketchFilletTool`, state: `filletCorner`). Note: this is a 2D sketch-level fillet, distinct from the deferred 3D fillet feature operation.
+
 ## Implementation Summary
 
 ### New files created
@@ -93,6 +104,12 @@
 | `app/src/lib/sketch/SketchInteraction.svelte` | Invisible plane capturing pointer events |
 | `app/src/lib/sketch/ConstraintMenu.svelte` | Right-click popup for manual constraints |
 | `app/src/lib/sketch/DimensionLabels.svelte` | Editable dimension labels via HTML overlay |
+| `app/src/lib/sketch/constraintLogic.js` | Constraint applicability logic for selection compositions |
+| `app/src/lib/sketch/DimensionInput.svelte` | Inline dimension value editing input |
+| `app/src/lib/sketch/geometry-utils.js` | Geometric helper functions (intersection, projection, distance) |
+| `app/src/lib/sketch/InactiveSketchRenderer.svelte` | Renders sketch entities when not in active sketch mode |
+| `app/src/lib/sketch/projectGeometry.js` | Project 3D edges onto sketch plane + polyline simplification |
+| `app/src/lib/sketch/sketchToolState.svelte.js` | Svelte 5 reactive tool state management |
 
 ### Modified files
 | File | Changes |

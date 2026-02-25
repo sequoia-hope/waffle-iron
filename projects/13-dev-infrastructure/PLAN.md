@@ -56,13 +56,27 @@
 
 ## Test Summary
 
-| File | Tests | Status |
+| File | Tests | Kernel |
 |------|-------|--------|
-| helpers (unit) | 5 | ✅ |
-| oracle_tests.rs | 15 | ✅ |
-| workflow_tests.rs | 10 | ✅ |
-| report_tests.rs | 8 | ✅ |
-| scenarios_mock.rs | 15 | ✅ |
-| scenarios_truck.rs | 4+3i | ✅ |
-| stl_tests.rs | 6 | ✅ |
-| **Total** | **63+3i** | ✅ |
+| auto_union_detection.rs | 7 | Truck |
+| boolean_determinism.rs | 3 | Truck |
+| boolean_failures.rs | 19 (1 ignored) | Truck |
+| boolean_shell_closure.rs | 4 | Truck |
+| boolean_workflows.rs | 38 (1 ignored) | Truck |
+| extrude_chains.rs | 46 | Truck |
+| extrude_on_extrude.rs | 7 | Truck |
+| geomref_truck.rs | 17 | Truck |
+| multi_body_workflows.rs | 6 | Both |
+| oracle_tests.rs | 17 | Mock |
+| report_tests.rs | 8 | Mock |
+| revolve_cylinder_truck.rs | 8 (2 ignored) | Truck |
+| saved_test_cases.rs | 12 | Truck |
+| scenarios_advanced.rs | 38 | Mock |
+| scenarios_mock.rs | 15 | Mock |
+| scenarios_truck.rs | 38 (2 ignored) | Truck |
+| size_probe.rs | 4 | Truck |
+| stl_tests.rs | 6 | None (utility) |
+| suppress_undo_interactions.rs | 5 | Mock |
+| workflow_tests.rs | 10 | Mock |
+| helpers.rs (src) | 5 | None (unit) |
+| **Total** | **313 (6 ignored)** | |

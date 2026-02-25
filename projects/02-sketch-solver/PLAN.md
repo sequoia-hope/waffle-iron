@@ -43,7 +43,7 @@
 - [x] Test: rectangle → 1 outer profile
 - [x] Test: circle → 1 outer profile
 - [x] Test: rectangle with circle hole → outer + circle profiles found
-- [ ] Test: slot shape (rectangle + semicircles) → 1 outer profile (deferred: requires arc tangent setup)
+- [ ] Test: slot shape (rectangle + semicircles) → 1 outer profile (ArcLineTangent constraint is implemented; test not yet written)
 
 ### M7: Reference Sketch Tests ✅
 - [x] Rectangle with dimensions: 4 lines + h/v constraints + 2 distance + dragged origin → verify positions analytically
@@ -53,7 +53,7 @@
 - [x] Parallel lines → verify
 - [x] Midpoint constraint → verify
 - [x] Symmetric about line → verify
-- [ ] Slot (lines + tangent arcs) → verify (deferred: requires arc tangent setup)
+- [ ] Slot (lines + tangent arcs) → verify (ArcLineTangent constraint is implemented; test not yet written)
 
 ### M8: Dragged Constraint for Interactive Use ✅
 - [x] Implement dragged constraint workflow: set point position → add Dragged → solve → read result
@@ -92,4 +92,4 @@
 - clang + libclang + cmake must be installed for the build to work.
 - The `Dragged` constraint is critical for interactive UX — Onshape uses this pattern extensively.
 - The slvs 0.6.0 build.rs needed patching: removed `-x c++ -std=c++11` clang args that broke bindgen with newer libclang. Fix is in `crates/slvs-patch/slvs-0.6.0/build.rs`.
-- 31 tests covering: solve + position extraction, status detection, profile extraction, reference sketches, dragged constraint, edge cases, and performance benchmarks.
+- 59 tests covering: solve + position extraction, status detection, profile extraction, reference sketches, dragged constraint, edge cases, and performance benchmarks.
