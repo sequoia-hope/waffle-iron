@@ -195,11 +195,7 @@ fn v4_subtract_volume_positive() {
         "vol(A-B)={:.1} should be > 0 (expected ~875)",
         vol
     );
-    assert!(
-        vol < 1000.0,
-        "vol(A-B)={:.1} should be < vol(A)=1000",
-        vol
-    );
+    assert!(vol < 1000.0, "vol(A-B)={:.1} should be < vol(A)=1000", vol);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -300,12 +296,7 @@ fn t3_no_nan_in_vertices() {
 
     let mesh2 = m2.tessellate("cut").unwrap();
     for (i, v) in mesh2.vertices.iter().enumerate() {
-        assert!(
-            v.is_finite(),
-            "Cut mesh vertex[{}] is not finite: {}",
-            i,
-            v
-        );
+        assert!(v.is_finite(), "Cut mesh vertex[{}] is not finite: {}", i, v);
     }
 }
 
