@@ -1306,6 +1306,11 @@ pub fn try_boolean_with_perturbation(
         .map(|s| s.face_iter().count())
         .sum();
 
+    // Euler fallback: stores the first chi≠2 result as a fallback.
+    // The cascade prefers chi=2 results but will return a chi≠2 result
+    // if no chi=2 result is found after exhausting all strategies.
+    let euler_fallback: std::cell::RefCell<Option<Solid>> = std::cell::RefCell::new(None);
+
     // Instrumented op wrapper with panic catching
     let try_op = |a: &Solid,
                   b: &Solid,
@@ -1346,17 +1351,42 @@ pub fn try_boolean_with_perturbation(
             _t.elapsed().as_secs_f64(),
             if result.is_ok() { "OK" } else { "FAIL" },
         );
-        // Post-boolean Euler validation diagnostic
-        if let Ok(ref solid) = result {
-            for (si, shell) in solid.boundaries().iter().enumerate() {
-                if let Err((v, e, f, chi)) = truck_shapeops::validate_euler_characteristic(shell) {
+        // Post-boolean Euler validation — prefer chi=2, store chi≠2 as fallback.
+        // If the boolean produces a closed solid but with wrong Euler chi
+        // (e.g., extra internal face from misclassification), store the result
+        // as a fallback and continue the cascade looking for a chi=2 result.
+        let result = match result {
+            Ok(solid) => {
+                let mut euler_ok = true;
+                for (si, shell) in solid.boundaries().iter().enumerate() {
+                    if let Err((v, e, f, chi)) =
+                        truck_shapeops::validate_euler_characteristic(shell)
+                    {
+                        eprintln!(
+                            "[euler] shell[{}]: V={} E={} F={} chi={} (expected 2)",
+                            si, v, e, f, chi,
+                        );
+                        euler_ok = false;
+                    }
+                }
+                if !euler_ok {
                     eprintln!(
-                        "[euler] shell[{}]: V={} E={} F={} chi={} (expected 2)",
-                        si, v, e, f, chi,
+                        "[cascade] attempt #{} ({}) has chi!=2, storing as fallback",
+                        *attempt, label,
                     );
+                    if euler_fallback.borrow().is_none() {
+                        *euler_fallback.borrow_mut() = Some(solid);
+                    }
+                    Err(truck_shapeops::BooleanStageError::ShellAssembly(format!(
+                        "euler invariant violated (attempt #{}, {})",
+                        *attempt, label
+                    )))
+                } else {
+                    Ok(solid)
                 }
             }
-        }
+            Err(e) => Err(e),
+        };
         // Structured cascade summary on success
         if result.is_ok() {
             eprintln!(
@@ -1381,6 +1411,14 @@ pub fn try_boolean_with_perturbation(
                     "[perturbation] cascade limit ({}) reached after {} attempts",
                     MAX_CASCADE_ATTEMPTS, _attempt_count,
                 );
+                // Return chi≠2 fallback if available
+                if let Some(fb) = euler_fallback.borrow_mut().take() {
+                    eprintln!(
+                        "[cascade] RESULT: OK (chi!=2 fallback) after {} attempts, face_count={}",
+                        _attempt_count, face_count,
+                    );
+                    return Ok(fb);
+                }
                 eprintln!(
                     "[cascade] RESULT: FAIL after {} attempts, face_count={}",
                     _attempt_count, face_count,
@@ -1769,6 +1807,17 @@ pub fn try_boolean_with_perturbation(
         "[perturbation] EXHAUSTED all {} attempts (limit: {})",
         _attempt_count, MAX_CASCADE_ATTEMPTS,
     );
+
+    // If no chi=2 result was found, return the chi≠2 fallback if available.
+    // A topologically imperfect result is better than no result at all.
+    if let Some(fb) = euler_fallback.borrow_mut().take() {
+        eprintln!(
+            "[cascade] RESULT: OK (chi!=2 fallback) after {} attempts, face_count={}",
+            _attempt_count, face_count,
+        );
+        return Ok(fb);
+    }
+
     eprintln!(
         "[cascade] RESULT: FAIL after {} attempts, face_count={}",
         _attempt_count, face_count,
