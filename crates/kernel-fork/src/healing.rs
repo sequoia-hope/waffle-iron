@@ -1429,7 +1429,11 @@ pub fn try_boolean_with_perturbation(
     // fundamentally (grows it) which breaks edge coincidence more effectively.
     // Each attempt on a 31-face shell takes ~12s, so ordering matters for the
     // MAX_CASCADE_ATTEMPTS budget.
-    if use_aggressive && dirs.len() >= 2 {
+    // Gate relaxed (Sprint 43): trigger on face_count > 30 with ANY coplanar
+    // directions, not just corner-coplanar (2+ independent normals). Cylinder
+    // bosses on one face produce only 1 coplanar normal direction, which
+    // previously prevented scale-expand from being tried early.
+    if face_count > 30 && (use_aggressive || !dirs.is_empty()) {
         let centroid = solid_centroid(solid_b);
         let scale_factors = [1.02, 1.03, 1.05];
         for &sf in &scale_factors {
@@ -1534,6 +1538,71 @@ pub fn try_boolean_with_perturbation(
 
     check_cascade_limit!();
 
+    // Scale-expand for complex shells without coplanar detection (Sprint 43).
+    // When dirs is empty (coplanar detection finds no coincident face normals),
+    // complex shells from chained booleans may still have IC-based edge
+    // coincidence. Scale-expand fundamentally changes tool geometry and is
+    // often the only strategy that succeeds. Try it before the expensive
+    // diagonal/asymm-scale/cardinal fallbacks to save cascade budget.
+    // Uses a wider range of scale factors (including small 1.005, 1.01) to
+    // cover cases where larger scales distort cylinder geometry too much.
+    // Also tries asymmetric scaling (per-axis) which can break edge
+    // coincidence patterns that uniform scaling cannot.
+    if face_count > 30 && dirs.is_empty() {
+        let centroid = solid_centroid(solid_b);
+        // Uniform scale-expand
+        let scale_factors = [1.005, 1.01, 1.02, 1.03, 1.05];
+        for &sf in &scale_factors {
+            check_cascade_limit!();
+            let scaled_b = scale_solid(solid_b, centroid, sf);
+            match try_op(
+                effective_a,
+                &scaled_b,
+                &mut _attempt_count,
+                "scale-expand-complex",
+            ) {
+                Ok(result) => return Ok(result),
+                Err(e) => last_err = e,
+            }
+        }
+        // Asymmetric scale-expand per axis to break axis-aligned edge patterns
+        let cv = Vector3::new(centroid.x, centroid.y, centroid.z);
+        let asymm_scales: [(f64, f64, f64); 3] =
+            [(1.02, 1.0, 1.0), (1.0, 1.02, 1.0), (1.0, 1.0, 1.02)];
+        for (sx, sy, sz) in &asymm_scales {
+            check_cascade_limit!();
+            let scaled_b = solid_b.mapped(
+                |p| {
+                    let v = Vector3::new(p.x, p.y, p.z);
+                    let rel = v - cv;
+                    let scaled = Vector3::new(rel.x * sx, rel.y * sy, rel.z * sz);
+                    Point3::new(cv.x + scaled.x, cv.y + scaled.y, cv.z + scaled.z)
+                },
+                |c| {
+                    let trans = Matrix4::from_translation(cv)
+                        * Matrix4::from_nonuniform_scale(*sx, *sy, *sz)
+                        * Matrix4::from_translation(-cv);
+                    c.transformed(trans)
+                },
+                |s| {
+                    let trans = Matrix4::from_translation(cv)
+                        * Matrix4::from_nonuniform_scale(*sx, *sy, *sz)
+                        * Matrix4::from_translation(-cv);
+                    s.transformed(trans)
+                },
+            );
+            match try_op(
+                effective_a,
+                &scaled_b,
+                &mut _attempt_count,
+                "scale-expand-asymm-complex",
+            ) {
+                Ok(result) => return Ok(result),
+                Err(e) => last_err = e,
+            }
+        }
+    }
+
     check_cascade_limit!();
 
     // Diagonal perturbation — when coplanar and cylinder directions alone
@@ -1541,7 +1610,9 @@ pub fn try_boolean_with_perturbation(
     // cases where the failure occurs at edges shared between multiple faces
     // (e.g., corner geometries) and neither axis-aligned nor face-normal
     // perturbation breaks the symmetry.
-    if dirs.len() >= 2 || !cyl_dirs.is_empty() {
+    // Gate relaxed (Sprint 43): also fire for complex shells (>30 faces)
+    // to break axis-aligned edge coincidence from chained booleans.
+    if dirs.len() >= 2 || !cyl_dirs.is_empty() || face_count > 30 {
         let diag_dirs = [
             Vector3::new(1.0, 1.0, 0.0).normalize(),
             Vector3::new(1.0, 0.0, 1.0).normalize(),
@@ -1616,7 +1687,10 @@ pub fn try_boolean_with_perturbation(
     // Expanding the tool breaks ALL edge coincidences: the tool's lateral
     // faces move beyond the target faces, and for subtract operations the
     // extra tool volume outside the target has no effect on the result.
-    if dirs.len() >= 2 {
+    // Gate relaxed (Sprint 43): also try for complex shells (>30 faces)
+    // even with fewer than 2 coplanar directions. Cylinder-on-flat geometry
+    // may only produce 1 coplanar direction but still benefits from scaling.
+    if dirs.len() >= 2 || (face_count > 30 && !dirs.is_empty()) {
         let centroid = solid_centroid(solid_b);
         let scale_factors = [1.02, 1.03, 1.05];
         for &sf in &scale_factors {

@@ -896,7 +896,7 @@ fn mv2_subtract_equals_minus_intersection() {
 ///
 /// A partial box subtraction should still yield a genus-0 solid with V-E+F=2.
 #[test]
-#[ignore] // Fails: chi=1 (V=15,E=23,F=9). Box-minus-corner subtract succeeds geometrically but Euler invariant is 1 instead of 2. Missing face or extra edge in topology. Needs topology repair in finalize_boolean_shell.
+#[ignore] // Fails: chi=1 (V=15,E=23,F=9). Face division produces non-simple (figure-8) wire at corner vertex (0,0,0) where IC meets face boundary. divide_one_face creates a pinch point instead of clean L-shape polygon. Deep face division bug, not fixable with edge welding.
 fn mv3_euler_invariant_subtract() {
     let mut m = ModelBuilder::truck();
     m.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)

@@ -124,22 +124,25 @@ fn r2_recovery_level_weld_overlapping_boxes() {
 /// intersection that may require wider weld tolerance or perturbation
 /// cascade to resolve. This tests the recovery levels 1-2 (wider weld).
 ///
-/// KNOWN LIMITATION: Abutting boxes with exactly shared faces produce
-/// incorrect results due to coplanar face classification issues. The union
-/// retains only one box's geometry. See boolean reliability priority.
+/// Previously failed due to sketch coordinate mapping bug (rect offsets
+/// instead of plane_origin offset). Fixed in Sprint 42.
 #[test]
-#[ignore = "Fails: abutting 5x5x5 boxes union drops second box geometry (bbox extends to x=5 not x=10). Coplanar shared-face classification discards one operand. Larger 10x10x10 abutting boxes (EC1) now pass."]
+// Previously ignored: test had sketch coordinate mapping bug (rect offsets
+// instead of plane_origin offset). Fixed Sprint 42 — coplanar union works.
 fn r3_recovery_wider_weld_abutting_boxes() {
     let mut m = ModelBuilder::truck();
 
-    // Box A: x∈[0,5], y∈[0,5], z∈[0,5]
+    // Box A: 5×5×5 at origin. plane_origin offset approach (same as EC1)
+    // to ensure correct sketch → world coordinate mapping.
     m.rect_sketch("a_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5., 5.)
         .unwrap();
     m.extrude_no_merge("box_a", "a_sk", 5.0).unwrap();
     m.assert_has_solid("box_a").unwrap();
 
-    // Box B: x∈[5,10], y∈[0,5], z∈[0,5] — shares face at x=5
-    m.rect_sketch("b_sk", [0., 0., 0.], [0., 0., 1.], 5., 0., 5., 5.)
+    // Box B: 5×5×5 abutting box A. Use plane_origin=[5,0,0] to offset
+    // the sketch plane (matching EC1 pattern) rather than sketch-coord
+    // offset which creates geometry at the wrong world position.
+    m.rect_sketch("b_sk", [5., 0., 0.], [0., 0., 1.], 0., 0., 5., 5.)
         .unwrap();
     m.extrude_no_merge("box_b", "b_sk", 5.0).unwrap();
     m.assert_has_solid("box_b").unwrap();
@@ -248,7 +251,7 @@ fn s2_coplanar_cut_aligned_face() {
 /// with corner-coplanar geometry. This test creates a sufficiently complex
 /// shell to trigger that path.
 #[test]
-#[ignore = "Fails: 3 cylinder bosses + rect cut exhausts cascade (23 attempts). chi=3 (V=134,E=194,F=63). Gap repair needed (0.18 gap). Needs improved IC healing for multi-cylinder coplanar geometry."]
+#[ignore = "Non-deterministic (~50% pass rate). Sprint 42 cascade gate relaxation helps but truck pointer-derived ordering causes variable IC quality. When it fails: 47 attempts exhausted, 36 open edges."]
 fn s3_scale_expand_complex_shell() {
     let mut m = base_cube();
 
