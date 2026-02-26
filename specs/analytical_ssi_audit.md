@@ -44,13 +44,14 @@ intersections — but at different stages of the boolean pipeline.
 | Pair | Layer 1 (polyline refinement) | Layer 2 (NURBS healing) |
 |------|-------------------------------|------------------------|
 | **Plane-Plane** | N/A (not an IC) | Replaced with exact `Line` |
-| **Plane-Cylinder** | Ellipse/circle projection | Circle arc fitting |
+| **Plane-Cylinder** | Ellipse/circle projection (Sprint 38) | Circle arc fitting |
+| **Plane-Cone** | Conic section projection (Sprint 40) | Circle arc fitting (circle cases only) |
+| **Plane-Sphere** | Circle projection (Sprint 41) | Circle arc fitting |
 
 ### Detected but falling back to BSpline
 
 | Pair | Diagnostic message | Status |
 |------|-------------------|--------|
-| **Plane-Cone** | `plane-cone IC detected — BSpline fallback` | Not implemented |
 | **Cylinder-Cylinder** | `cylinder-cylinder IC detected — BSpline fallback` | Not implemented |
 | **Plane-CurvedOther** | (no message) | Falls through to BSpline |
 | **Curved-Curved** | (no message) | Falls through to BSpline |
@@ -237,13 +238,14 @@ affected.
 
 ### 6.1 Next Surface Pairs to Add
 
-Priority order based on frequency in CAD models and implementation difficulty:
+P1 (plane-cone) and P2 (sphere-plane) are now implemented (Sprints 40-41). Remaining:
 
 | Priority | Pair | Intersection Type | Difficulty | Notes |
 |----------|------|-------------------|------------|-------|
-| **P1** | **Plane-Cone** | Conic section (ellipse, parabola, hyperbola) | Medium | Most common after plane-cylinder. `SurfacePairType::PlaneCone` already detected. Intersection is always a conic section — use `dot_na` to determine type. |
-| **P2** | **Sphere-Plane** | Circle | Easy | Always a circle. Simpler than plane-cylinder because no ellipse case. Requires `detect_sphere` (two periodic directions, constant Gaussian curvature). |
-| **P3** | **Cylinder-Cylinder** | Bezout curve (degree ≤ 4) | Hard | `SurfacePairType::CylinderCylinder` already detected. Intersection is generally a degree-4 space curve. Special cases: parallel axes → pair of lines/ellipses; perpecting axes → degree-4 curve. |
+| ~~**P1**~~ | ~~**Plane-Cone**~~ | ~~Conic section~~ | ~~Medium~~ | **DONE** (Sprint 40). `detect_cone` + `compute_plane_cone_intersection`. Handles perpendicular (circle), oblique (ellipse), through-apex (None), near-parallel (None). |
+| ~~**P2**~~ | ~~**Sphere-Plane**~~ | ~~Circle~~ | ~~Easy~~ | **DONE** (Sprint 41). `detect_sphere` + `compute_sphere_plane_intersection`. Always a circle. |
+| **P3** | **Cylinder-Cylinder** | Bezout curve (degree ≤ 4) | Hard | `SurfacePairType::CylinderCylinder` already detected. Intersection is generally a degree-4 space curve. Special cases: parallel axes → pair of lines/ellipses; perpendicular axes → degree-4 curve. |
+| **P4** | **Torus-Plane** | Degree-4 curve | Hard | Required for revolve+boolean operations. Currently all 8 revolve+boolean tests fail (torus-plane IC unsupported). See `crates/test-harness/tests/revolve_boolean.rs`. |
 
 ### 6.2 Architectural Recommendations
 
@@ -254,21 +256,24 @@ Priority order based on frequency in CAD models and implementation difficulty:
    - Or, extending Layer 1's `AnalyticalIC` to carry enough information for Layer 2
      to skip the re-fitting step.
 
-2. **Add a `detect_cone` function.** Mirror `detect_cylinder` but check for linearly
-   varying radius along the axial direction (non-zero second derivative in the axial
-   direction, with linear first-derivative magnitude growth).
+2. ~~**Add a `detect_cone` function.**~~ **DONE** (Sprint 40).
 
-3. **Add a `detect_sphere` function.** Two periodic directions, both with period 2π,
-   and constant Gaussian curvature. Sample at multiple parameter values to verify.
+3. ~~**Add a `detect_sphere` function.**~~ **DONE** (Sprint 41).
 
 4. **Extend `EllipseParams` to `ConicParams`.** For plane-cone, the intersection
-   can be any conic section. Generalize the parameterization to handle parabolas
-   and hyperbolas (or at minimum, ellipses at non-degenerate angles).
+   can be any conic section. Currently only ellipses are handled — parabolas and
+   hyperbolas (from near-parallel or through-apex cuts) return None. Generalize
+   the parameterization to handle parabolas and hyperbolas.
 
 5. **Add near-parallel safeguard.** When `dot_na` is small (say < 0.01), compute
    the ellipse eccentricity and warn or reject if it exceeds a threshold. Very
    eccentric ellipses (eccentricity > 0.999) are numerically equivalent to the
    parallel case and should fall through to mesh-based extraction.
+
+6. **Coplanar face merging needs research.** Sprint 41 attempted a post-boolean
+   `merge_coplanar_faces` pass to simplify redundant topology (e.g., abutting
+   box union producing 10 faces instead of 6). The implementation caused 3
+   regressions and was reverted. See Section 8 for details and required research.
 
 ## 7. Correctness Concerns
 
@@ -330,7 +335,92 @@ inputs are reasonable.
 4. **Newton refinement is bounded.** 5 iterations with a convergence check prevents
    runaway computation.
 
+## 8. Sprint 41: Coplanar Face Merging — Attempted and Reverted
+
+### 8.1 Goal
+
+After boolean operations on axis-aligned boxes, coplanar face fragments remain
+in the result shell. For example, unioning two abutting boxes [0,2]³ and
+[1,3]×[0,2]×[0,2] produces 14 faces instead of the minimal 6 (the shared
+internal faces at x=1 and x=2 get split, and the top/bottom/front/back each
+have two coplanar fragments).
+
+The goal was to merge these fragments post-boolean to reduce topology complexity
+and fix Euler characteristic violations (e.g., T2 box-cylinder union had chi=3
+instead of chi=2).
+
+### 8.2 Implementation (Reverted)
+
+Added to `finalize_boolean_shell_inner` in `integrate/mod.rs`, after weld:
+
+1. `is_planar_surface(S)` — check second derivatives at parameter midpoint
+2. `build_merged_wire(face_a, face_b)` — remove shared edges, order remaining
+   edges by vertex connectivity into a closed wire
+3. `merge_coplanar_faces(shell, tols)` — iteratively find coplanar face pairs
+   sharing edges, merge them via `build_merged_wire`, create new Face
+
+### 8.3 Failure Modes (3 Regressions)
+
+**test_robust_ray_grazing_edge**: Two boxes [0,2]³ and [1,3]×[0,2]×[0,2] union.
+Expected volume 12.0, got 8.0 (one box). The merge collapsed 14 faces down to
+6, but the resulting 6-face solid was a cube (volume 8) not the elongated union
+(volume 12). Root cause: the merged wire traced an incorrect boundary, likely
+because edge orientation was wrong after combining edges from two different face
+boundaries.
+
+**test_coplanar_angular_threshold**: Stacked boxes sharing a face union failing.
+Same class of issue — the merge produced incorrect wire topology.
+
+**test_degenerate_closed_ic_no_panic**: Coplanar-adjacent box union volume wrong.
+
+### 8.4 T2 Already Passes Without Merge
+
+T2 (`t2_euler_invariant_box_cylinder_union`) already passes with chi=3, which
+is correct: the annular ring face (box top minus cylinder footprint) has 1 inner
+boundary loop. Generalized Euler: V - E + F - L_inner = 2 → chi = 3.
+
+The merge was solving a problem that didn't actually need solving for T2.
+
+### 8.5 Research Needed for Future Attempt
+
+The fundamental approach (merge coplanar adjacent faces) is correct — commercial
+kernels like OCCT do this routinely. But the implementation has several issues:
+
+1. **Edge orientation in merged wires.** When two faces share an edge, the edge
+   appears with opposite orientations in each face's boundary wire. The current
+   `build_merged_wire` uses `boundaries()` (orientation-corrected) edges, but
+   doesn't account for the fact that shared edges have **different semantics** in
+   each face. Simply removing shared edges and concatenating non-shared ones can
+   produce a wire that doesn't trace the correct merged boundary.
+
+2. **Surface compatibility.** The merged face uses face_a's surface. If face_a
+   and face_b have different surface parameterizations (common after boolean
+   operations split a face), the merged wire may not be compatible with face_a's
+   surface domain. Need to verify that all wire edges' parameter ranges map
+   correctly onto the chosen surface.
+
+3. **Over-aggressive merging.** The current code merges ANY two coplanar faces
+   sharing an edge. It should only merge faces that produce a simpler topology
+   (fewer edges, valid simple wire). Merging faces that create a more complex
+   wire (e.g., non-convex merged boundary) may be incorrect.
+
+4. **Reference approaches to study:**
+   - OCCT's `ShapeUpgrade_UnifySameDomain` — merges same-domain faces/edges
+   - CGAL's `Polygon_mesh_processing::remove_degenerate_faces`
+   - Academic: Braid (1978) "Design with Volumes" — face merger via Euler
+     operators (MFKRH = Make Face, Kill Ring, Hole)
+
+5. **Suggested implementation strategy for retry:**
+   - Only merge faces where the merged wire is **strictly simpler** (fewer edges)
+   - Validate merged wire area matches sum of original face areas (within tolerance)
+   - Validate merged face normal matches original normals
+   - Start with the most conservative case: merge only when exactly 2 faces share
+     exactly 1 edge, and the resulting wire has exactly N-2 edges (where N is the
+     sum of original edge counts)
+   - Test against the full kernel-fork boolean_properties suite before committing
+
 ---
 
 *Audit performed: Sprint 39, 2026-02-25*
-*Implementation audited: Sprint 38 WS1 (commit 86b334e)*
+*Updated: Sprint 41, 2026-02-26 (plane-cone, sphere-plane, coplanar merge findings)*
+*Implementation audited: Sprint 38 WS1 (commit 86b334e), Sprint 40 WS1, Sprint 41 WS2-WS3*

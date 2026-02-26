@@ -129,7 +129,30 @@
 - `specs/boolean_tolerance_layering.md` — BooleanTolerance 7-field struct (Implemented)
 - `specs/robust_predicates_integration.md` — Shewchuk predicates in robust_classify.rs (Implemented)
 - `specs/SHAPEOPS-BOOLEAN-SPEC.md` — Production boolean solver spec
+- `specs/analytical_ssi_audit.md` — SSI audit with coplanar merge findings (Updated Sprint 41)
 - HP-1 (`several_extrudes_replay`) and HP-2 (`multi_cut_replay`) remain open failures
+
+### Analytical SSI Status (Sprint 41)
+
+Three surface pairs now have analytical IC support:
+1. **Plane-Cylinder** (Sprint 38) — Ellipse/circle projection
+2. **Plane-Cone** (Sprint 40) — Conic section (ellipse/circle)
+3. **Plane-Sphere** (Sprint 41) — Circle projection
+
+Dispatch chain in `intersection_curve/mod.rs`:
+```
+plane_cylinder → plane_cone → plane_sphere
+```
+
+Next: **Torus-Plane** (P4) — needed for revolve+boolean operations (8 tests waiting).
+Also: **Cylinder-Cylinder** (P3) — needed for intersecting cylindrical features.
+
+### Coplanar Face Merging — REVERTED (Sprint 41)
+
+Attempted `merge_coplanar_faces` post-boolean pass in `finalize_boolean_shell_inner`.
+Caused 3 regressions (edge-grazing union volume, coplanar threshold, degenerate IC).
+Reverted. See `specs/analytical_ssi_audit.md` Section 8 for detailed failure analysis
+and research pointers for a future attempt.
 
 ### Architectural Blockers for TruckKernel Fillet/Chamfer/Shell
 
