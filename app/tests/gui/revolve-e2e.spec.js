@@ -95,3 +95,42 @@ test.describe('revolve end-to-end', () => {
 		expect(featureCount).toBe(2);
 	});
 });
+
+test.describe('revolve mesh verification', () => {
+	test('full revolution (360) mesh has vertices and normals', async ({ waffle }) => {
+		await createFinishedSketch(waffle);
+		await applyRevolve(waffle, '360');
+
+		const meshes = await getMeshes(waffle.page);
+		const meshWithGeo = meshes.find(m => m.triangleCount > 0);
+		expect(meshWithGeo).toBeDefined();
+		expect(meshWithGeo.vertexCount).toBeGreaterThan(0);
+		expect(meshWithGeo.hasNormals).toBe(true);
+		expect(meshWithGeo.hasIndices).toBe(true);
+	});
+
+	test('partial revolution (45) produces mesh with geometry', async ({ waffle }) => {
+		await createFinishedSketch(waffle);
+		await applyRevolve(waffle, '45');
+
+		const hasMesh = await hasMeshWithGeometry(waffle.page);
+		expect(hasMesh).toBe(true);
+
+		const meshes = await getMeshes(waffle.page);
+		const meshWithGeo = meshes.find(m => m.triangleCount > 0);
+		expect(meshWithGeo).toBeDefined();
+		expect(meshWithGeo.triangleCount).toBeGreaterThan(0);
+	});
+
+	test('revolve mesh has bounding box', async ({ waffle }) => {
+		await createFinishedSketch(waffle);
+		await applyRevolve(waffle, '180');
+
+		const bbox = await waffle.page.evaluate(() => window.__waffle.getMeshBoundingBox());
+		expect(bbox).not.toBeNull();
+		// Bounding box should have non-zero size in all dimensions for a 3D solid
+		expect(bbox.size[0]).toBeGreaterThan(0);
+		expect(bbox.size[1]).toBeGreaterThan(0);
+		expect(bbox.size[2]).toBeGreaterThan(0);
+	});
+});
