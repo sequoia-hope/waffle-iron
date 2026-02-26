@@ -184,6 +184,15 @@
 		}
 	}
 
+	@media (max-width: 960px) and (orientation: landscape) {
+		.status-rebuild,
+		.status-engine,
+		.status-dev-link,
+		.status-cursor {
+			display: none;
+		}
+	}
+
 	@media (max-width: 480px) {
 		.statusbar {
 			font-size: 10px;

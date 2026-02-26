@@ -85,4 +85,14 @@
 			opacity: 1;
 		}
 	}
+
+	@media (max-width: 768px) {
+		.toast-container {
+			right: auto;
+			left: 50%;
+			transform: translateX(-50%);
+			width: calc(100vw - 48px);
+			max-width: 320px;
+		}
+	}
 </style>

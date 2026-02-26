@@ -434,10 +434,6 @@
 	{/if}
 
 	<div class="toolbar-spacer"></div>
-	{#if isMobile}
-		<button class="toolbar-btn mobile-toggle" title="Feature Tree" onclick={() => toggleMobilePanel('left')}>Tree</button>
-		<button class="toolbar-btn mobile-toggle" title="Properties" onclick={() => toggleMobilePanel('right')}>Props</button>
-	{/if}
 	<div class="toolbar-status">
 		{#if ready}
 			<span class="status-dot ready" data-testid="status-dot"></span>
@@ -624,10 +620,6 @@
 		50% { opacity: 0.3; }
 	}
 
-	.mobile-toggle {
-		display: none;
-	}
-
 	/* Overflow menu for mobile */
 	.overflow-container {
 		position: relative;
@@ -700,10 +692,6 @@
 			padding: 6px 8px;
 			min-height: 36px;
 		}
-
-		.mobile-toggle {
-			display: inline-flex;
-		}
 	}
 
 	@media (max-width: 480px) {
@@ -729,6 +717,28 @@
 
 		.toolbar-sep {
 			margin: 0 2px;
+		}
+	}
+
+	@media (max-width: 960px) and (orientation: landscape) {
+		.toolbar-brand {
+			display: none;
+		}
+
+		.project-name {
+			display: none;
+		}
+
+		.toolbar-btn {
+			padding: 4px 6px;
+			font-size: 11px;
+			min-height: 28px;
+		}
+
+		.constraint-btn {
+			padding: 3px 5px;
+			font-size: 10px;
+			min-height: 28px;
 		}
 	}
 </style>

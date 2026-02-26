@@ -31,6 +31,29 @@ export default defineConfig({
 		{
 			name: 'chromium',
 			use: { browserName: 'chromium' },
+			testIgnore: '**/mobile/**',
+		},
+		{
+			name: 'mobile-portrait',
+			use: {
+				browserName: 'chromium',
+				viewport: { width: 440, height: 956 },
+				isMobile: true,
+				hasTouch: true,
+				deviceScaleFactor: 3,
+			},
+			testDir: './tests/gui/mobile',
+		},
+		{
+			name: 'mobile-landscape',
+			use: {
+				browserName: 'chromium',
+				viewport: { width: 956, height: 440 },
+				isMobile: true,
+				hasTouch: true,
+				deviceScaleFactor: 3,
+			},
+			testDir: './tests/gui/mobile',
 		},
 	],
 	webServer: {

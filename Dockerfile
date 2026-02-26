@@ -82,6 +82,11 @@ RUN git clone https://github.com/emscripten-core/emsdk.git /home/$USERNAME/emsdk
 # Install Claude Code
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
+# Install Playwright browsers + system dependencies (for GUI tests including mobile)
+# install-deps needs root for apt-get; install downloads to user cache
+RUN sudo npx playwright install-deps chromium \
+    && npx playwright install chromium
+
 # Create workspace directory
 RUN mkdir -p /home/$USERNAME/workspace
 

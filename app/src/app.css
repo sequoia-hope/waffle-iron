@@ -25,6 +25,13 @@
 	}
 }
 
+@media (max-width: 960px) and (orientation: landscape) {
+	:root {
+		--toolbar-height: 32px;
+		--statusbar-height: 18px;
+	}
+}
+
 * {
 	margin: 0;
 	padding: 0;

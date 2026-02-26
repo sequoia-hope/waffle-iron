@@ -72,6 +72,8 @@
 	</div>
 	<div class="viewport-area">
 		<Viewport />
+		<button class="fab fab-left" data-testid="mobile-toggle-tree" onclick={() => toggleMobilePanel('left')} title="Feature Tree">&#x2630;</button>
+		<button class="fab fab-right" data-testid="mobile-toggle-props" onclick={() => toggleMobilePanel('right')} title="Properties">&#x2699;</button>
 	</div>
 	{#if activePanel}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -191,14 +193,18 @@
 
 	.app-shell.mobile .toolbar-area {
 		grid-column: 1;
+		overflow: hidden;
 	}
 
 	.app-shell.mobile .viewport-area {
 		grid-column: 1;
+		min-height: 0;
+		overflow: hidden;
 	}
 
 	.app-shell.mobile .statusbar-area {
 		grid-column: 1;
+		overflow: hidden;
 	}
 
 	.mobile-backdrop {
@@ -238,5 +244,44 @@
 
 	.mobile-panel-right.open {
 		transform: translateX(0);
+	}
+
+	@media (max-width: 960px) and (orientation: landscape) {
+		.mobile-panel {
+			width: min(220px, 50vw);
+		}
+	}
+
+	.fab {
+		position: absolute;
+		top: 50%;
+		transform: translateY(-50%);
+		width: 32px;
+		height: 32px;
+		border-radius: 50%;
+		border: 1px solid var(--border-color);
+		background: var(--bg-tertiary);
+		color: var(--text-primary);
+		font-size: 16px;
+		line-height: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		z-index: 20;
+		opacity: 0.6;
+		transition: opacity 0.15s;
+	}
+
+	.fab:hover, .fab:active {
+		opacity: 1;
+	}
+
+	.fab-left {
+		left: 4px;
+	}
+
+	.fab-right {
+		right: 4px;
 	}
 </style>

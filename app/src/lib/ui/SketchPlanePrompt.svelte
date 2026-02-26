@@ -48,4 +48,19 @@
 		background: var(--bg-hover, #333);
 		color: var(--text-primary, #eee);
 	}
+
+	@media (max-width: 768px) {
+		.sketch-plane-prompt {
+			left: 8px;
+			right: 8px;
+			transform: none;
+			flex-wrap: wrap;
+			text-align: center;
+			justify-content: center;
+		}
+
+		.prompt-text {
+			white-space: normal;
+		}
+	}
 </style>
