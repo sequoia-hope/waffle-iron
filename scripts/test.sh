@@ -295,6 +295,90 @@ run_gui_full() {
 }
 
 # ---------------------------------------------------------------------------
+# Tier: Assay Quick (proptest with small case count, <30s)
+# ---------------------------------------------------------------------------
+run_assay_quick() {
+  header "Assay Quick Tier (proptest, small cases)"
+  local tier_start
+  tier_start=$(timer_start)
+
+  # Regression corpus replay (fast — just loads JSON)
+  run_cargo_test_binary test-harness assay_regression
+
+  # Box-box property tests with reduced case count
+  local start rc=0
+  start=$(timer_start)
+  PROPTEST_CASES=5 cargo test -p test-harness --test assay_box_box || rc=$?
+  local elapsed
+  elapsed=$(timer_elapsed "$start")
+  if [[ $rc -eq 0 ]]; then
+    pass "assay_box_box (5 cases, ${elapsed}s)"
+  else
+    fail "assay_box_box (5 cases, ${elapsed}s)"
+  fi
+
+  elapsed=$(timer_elapsed "$tier_start")
+  echo ""
+  echo -e "${CYAN}  Assay Quick tier completed in ${elapsed}s${NC}"
+}
+
+# ---------------------------------------------------------------------------
+# Tier: Assay (~3min, default proptest case count)
+# ---------------------------------------------------------------------------
+run_assay() {
+  header "Assay Tier (proptest, default cases)"
+  local tier_start
+  tier_start=$(timer_start)
+
+  run_cargo_test_binary test-harness assay_regression
+  run_cargo_test_binary test-harness assay_box_box
+  run_cargo_test_binary test-harness assay_determinism
+
+  local elapsed
+  elapsed=$(timer_elapsed "$tier_start")
+  echo ""
+  echo -e "${CYAN}  Assay tier completed in ${elapsed}s${NC}"
+}
+
+# ---------------------------------------------------------------------------
+# Tier: Assay Deep (nightly, large proptest case count)
+# ---------------------------------------------------------------------------
+run_assay_deep() {
+  header "Assay Deep Tier (proptest, 100 cases — nightly)"
+  local tier_start
+  tier_start=$(timer_start)
+
+  run_cargo_test_binary test-harness assay_regression
+
+  local start rc
+
+  start=$(timer_start)
+  rc=0
+  PROPTEST_CASES=100 cargo test -p test-harness --test assay_box_box || rc=$?
+  local elapsed
+  elapsed=$(timer_elapsed "$start")
+  if [[ $rc -eq 0 ]]; then
+    pass "assay_box_box (100 cases, ${elapsed}s)"
+  else
+    fail "assay_box_box (100 cases, ${elapsed}s)"
+  fi
+
+  start=$(timer_start)
+  rc=0
+  PROPTEST_CASES=50 cargo test -p test-harness --test assay_determinism || rc=$?
+  elapsed=$(timer_elapsed "$start")
+  if [[ $rc -eq 0 ]]; then
+    pass "assay_determinism (50 cases, ${elapsed}s)"
+  else
+    fail "assay_determinism (50 cases, ${elapsed}s)"
+  fi
+
+  elapsed=$(timer_elapsed "$tier_start")
+  echo ""
+  echo -e "${CYAN}  Assay Deep tier completed in ${elapsed}s${NC}"
+}
+
+# ---------------------------------------------------------------------------
 # Help / Usage
 # ---------------------------------------------------------------------------
 print_help() {
@@ -303,14 +387,17 @@ print_help() {
   echo -e "Usage: ${CYAN}scripts/test.sh <subcommand>${NC}"
   echo ""
   echo -e "${BOLD}Subcommands:${NC}"
-  echo -e "  ${GREEN}fast${NC}       Rust fast tier       (~420 tests, <30s target)"
-  echo -e "  ${GREEN}full${NC}       Rust full tier        (~910 tests)"
-  echo -e "  ${GREEN}gui-fast${NC}   GUI fast tier         (~260 tests, 35 spec files)"
-  echo -e "  ${GREEN}gui-full${NC}   GUI full tier         (~425 tests, all spec files)"
-  echo -e "  ${GREEN}all-fast${NC}   fast + gui-fast"
-  echo -e "  ${GREEN}all${NC}        full + gui-full"
-  echo -e "  ${GREEN}profile${NC}    Run Rust test profiler (delegates to scripts/profile-rust.sh)"
-  echo -e "  ${GREEN}help${NC}       Print this help"
+  echo -e "  ${GREEN}fast${NC}         Rust fast tier       (~420 tests, <30s target)"
+  echo -e "  ${GREEN}full${NC}         Rust full tier        (~910 tests)"
+  echo -e "  ${GREEN}gui-fast${NC}     GUI fast tier         (~260 tests, 35 spec files)"
+  echo -e "  ${GREEN}gui-full${NC}     GUI full tier         (~425 tests, all spec files)"
+  echo -e "  ${GREEN}all-fast${NC}     fast + gui-fast"
+  echo -e "  ${GREEN}all${NC}          full + gui-full"
+  echo -e "  ${GREEN}assay-quick${NC}  Assay proptest        (5 cases, <30s)"
+  echo -e "  ${GREEN}assay${NC}        Assay proptest        (default cases, ~3min)"
+  echo -e "  ${GREEN}assay-deep${NC}   Assay proptest        (100 cases, nightly)"
+  echo -e "  ${GREEN}profile${NC}      Run Rust test profiler (delegates to scripts/profile-rust.sh)"
+  echo -e "  ${GREEN}help${NC}         Print this help"
   echo ""
   echo -e "${BOLD}Rust Fast Tier:${NC}"
   echo "  Full crates: ${RUST_FAST_FULL_CRATES[*]} $WASM_BRIDGE_CRATE"
@@ -325,6 +412,11 @@ print_help() {
   echo ""
   echo -e "${BOLD}GUI Full Tier:${NC}"
   echo "  All spec files in app/tests/gui/"
+  echo ""
+  echo -e "${BOLD}Assay Tiers:${NC}"
+  echo "  assay-quick: corpus replay + box-box proptest (5 cases)"
+  echo "  assay:       corpus replay + box-box + determinism (default cases)"
+  echo "  assay-deep:  corpus replay + box-box (100 cases) + determinism (50 cases)"
 }
 
 # ---------------------------------------------------------------------------
@@ -353,6 +445,15 @@ main() {
     all)
       run_rust_full
       run_gui_full
+      ;;
+    assay-quick)
+      run_assay_quick
+      ;;
+    assay)
+      run_assay
+      ;;
+    assay-deep)
+      run_assay_deep
       ;;
     profile)
       exec "$SCRIPT_DIR/profile-rust.sh" "${@:2}"

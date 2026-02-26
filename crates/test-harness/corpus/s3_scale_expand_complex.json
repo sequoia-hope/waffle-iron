@@ -1,0 +1,18 @@
+{
+  "id": "S3",
+  "description": "Non-deterministic (~50% pass rate). Complex shell with 3 cylinder bosses + box cut. Sprint 42 cascade gate relaxation helps but truck pointer-derived ordering causes variable IC quality. When it fails: 47 attempts exhausted, 36 open edges.",
+  "status": "Fail",
+  "scenario": {
+    "type": "chain",
+    "description": "10x10x10 base cube + 3 cylinder bosses on top face + box cut through complex shell",
+    "steps": [
+      { "op": "extrude", "profile": "rect", "rect": { "x": 0, "y": 0, "w": 10, "h": 10 }, "origin": [0,0,0], "depth": 10 },
+      { "op": "union_circle", "cx": 2, "cy": 2, "r": 1.5, "origin": [0,0,10], "depth": 3 },
+      { "op": "union_circle", "cx": 5, "cy": 5, "r": 1.5, "origin": [0,0,10], "depth": 3 },
+      { "op": "union_circle", "cx": 8, "cy": 8, "r": 1.5, "origin": [0,0,10], "depth": 3 },
+      { "op": "subtract_rect", "rect": { "x": 1, "y": 1, "w": 8, "h": 8 }, "origin": [0,0,10], "depth": 5 }
+    ]
+  },
+  "expected_topology": null,
+  "expected_volume": null
+}

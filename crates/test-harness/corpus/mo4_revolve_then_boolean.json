@@ -1,0 +1,16 @@
+{
+  "id": "MO4",
+  "description": "Box-revolve boolean exhausts cascade (39 attempts). Revolved torus/ring surface intersections not handled by analytical SSI. Needs toroidal/revolution surface IC support.",
+  "status": "Fail",
+  "scenario": {
+    "type": "chain",
+    "description": "10x10x10 box + 360° revolve of (5,0)-(7,3) rect around Y axis → union",
+    "steps": [
+      { "op": "extrude", "profile": "rect", "rect": { "x": 0, "y": 0, "w": 10, "h": 10 }, "origin": [0,0,0], "depth": 10 },
+      { "op": "revolve", "profile": "rect", "rect": { "x": 5, "y": 0, "w": 2, "h": 3 }, "axis_origin": [0,0,0], "axis_dir": [0,1,0], "angle": 360 },
+      { "op": "union", "body_a": "box", "body_b": "ring" }
+    ]
+  },
+  "expected_topology": null,
+  "expected_volume": null
+}

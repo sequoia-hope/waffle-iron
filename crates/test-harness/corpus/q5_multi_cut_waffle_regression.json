@@ -1,0 +1,12 @@
+{
+  "id": "Q5",
+  "description": "Load multi-cut.waffle regression file. Root cause is truck boolean producing 2 shells (not consumption tracking). Uses Extrude+cut, not BooleanCombine. Body consumption fix (Sprint 39) doesn't help since the underlying boolean result has 2 shells.",
+  "status": "Fail",
+  "scenario": {
+    "type": "file_load",
+    "file": "app/tests/cases/multi-cut.waffle",
+    "description": "Loads saved .waffle file and verifies 1 visible body with positive volume"
+  },
+  "expected_topology": null,
+  "expected_volume": null
+}

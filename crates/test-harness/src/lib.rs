@@ -13,6 +13,7 @@
 //! - [`assertions`] — Rich assertion helpers with diagnostics
 
 pub mod assertions;
+pub mod assay;
 pub mod helpers;
 pub mod oracle;
 pub mod report;

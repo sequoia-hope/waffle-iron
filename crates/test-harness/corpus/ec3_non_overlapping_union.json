@@ -1,0 +1,25 @@
+{
+  "id": "EC3",
+  "description": "Disjoint union produces 1 multi-shell solid instead of expected 2 separate bodies. Truck boolean merges disjoint operands into one output. Needs multi-body output support or disjoint detection.",
+  "status": "Fail",
+  "scenario": {
+    "type": "boolean",
+    "body_a": {
+      "profile": "rect",
+      "sketch_origin": [0, 0, 0],
+      "sketch_normal": [0, 0, 1],
+      "rect": { "x": 0, "y": 0, "w": 5, "h": 5 },
+      "depth": 5
+    },
+    "body_b": {
+      "profile": "rect",
+      "sketch_origin": [20, 20, 0],
+      "sketch_normal": [0, 0, 1],
+      "rect": { "x": 0, "y": 0, "w": 5, "h": 5 },
+      "depth": 5
+    },
+    "op": "Union"
+  },
+  "expected_topology": null,
+  "expected_volume": 250.0
+}

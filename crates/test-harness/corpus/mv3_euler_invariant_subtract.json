@@ -1,0 +1,25 @@
+{
+  "id": "MV3",
+  "description": "Euler invariant violation on box-minus-corner-box subtract. Face division produces non-simple (figure-8) wire at corner vertex (0,0,0) where IC meets face boundary. divide_one_face creates a pinch point instead of clean L-shape polygon.",
+  "status": "Fail",
+  "scenario": {
+    "type": "boolean",
+    "body_a": {
+      "profile": "rect",
+      "sketch_origin": [0, 0, 0],
+      "sketch_normal": [0, 0, 1],
+      "rect": { "x": 0, "y": 0, "w": 10, "h": 10 },
+      "depth": 10
+    },
+    "body_b": {
+      "profile": "rect",
+      "sketch_origin": [0, 0, 0],
+      "sketch_normal": [0, 0, 1],
+      "rect": { "x": 0, "y": 0, "w": 5, "h": 5 },
+      "depth": 5
+    },
+    "op": "Subtract"
+  },
+  "expected_topology": null,
+  "expected_volume": 875.0
+}

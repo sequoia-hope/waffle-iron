@@ -1,0 +1,17 @@
+{
+  "id": "Q4",
+  "description": "Multi-cut waffle geometry. Cascade exhausts (23 attempts), 23 open edges, Euler chi=-1. Degenerate ICs skipped. Large rect + cylinder union + small circle cuts with non-axis-aligned planes.",
+  "status": "Fail",
+  "scenario": {
+    "type": "chain",
+    "description": "~34x33 rect on XZ plane, extrude depth=10, then circle union (r≈24.27) on offset XZ plane, then two circle cuts",
+    "steps": [
+      { "op": "extrude", "profile": "rect", "rect": { "x": -17.25, "y": -16.45, "w": 34.24, "h": 32.95 }, "origin": [0,0,0], "normal": [1,0,0], "depth": 10 },
+      { "op": "union_circle", "cx": -0.93, "cy": 0.4, "r": 24.27, "origin": [10,-16.65,0.32], "normal": [1,0,0], "depth": 10 },
+      { "op": "cut_circle_1", "cx": -1.65, "cy": 3.47, "r": 3.16, "origin": [10,-16.65,0.32], "normal": [1,0,0], "depth": 100 },
+      { "op": "cut_circle_2", "cx": 11.84, "cy": -5.77, "r": 5.66, "origin": [10,-16.65,0.32], "normal": [1,0,0], "depth": 100 }
+    ]
+  },
+  "expected_topology": null,
+  "expected_volume": null
+}
