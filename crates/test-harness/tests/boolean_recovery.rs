@@ -128,7 +128,7 @@ fn r2_recovery_level_weld_overlapping_boxes() {
 /// incorrect results due to coplanar face classification issues. The union
 /// retains only one box's geometry. See boolean reliability priority.
 #[test]
-#[ignore = "Known: coplanar shared-face union drops one box's geometry"]
+#[ignore = "Fails: abutting 5x5x5 boxes union drops second box geometry (bbox extends to x=5 not x=10). Coplanar shared-face classification discards one operand. Larger 10x10x10 abutting boxes (EC1) now pass."]
 fn r3_recovery_wider_weld_abutting_boxes() {
     let mut m = ModelBuilder::truck();
 
@@ -248,7 +248,7 @@ fn s2_coplanar_cut_aligned_face() {
 /// with corner-coplanar geometry. This test creates a sufficiently complex
 /// shell to trigger that path.
 #[test]
-#[ignore = "Complex geometry may exceed cascade budget; tests scale-expand trigger path"]
+#[ignore = "Fails: 3 cylinder bosses + rect cut exhausts cascade (23 attempts). chi=3 (V=134,E=194,F=63). Gap repair needed (0.18 gap). Needs improved IC healing for multi-cylinder coplanar geometry."]
 fn s3_scale_expand_complex_shell() {
     let mut m = base_cube();
 
@@ -479,7 +479,6 @@ fn t4_cut_then_boss_healing_cascade() {
 /// but the feature engine exposes both input and result bodies. Related
 /// to the q5 multi-body diagnosis (Sprint 38 Phase 0).
 #[test]
-#[ignore = "Known: explicit boolean_subtract produces 2 visible bodies instead of 1"]
 fn t5_subtract_single_body() {
     let mut m = base_cube();
 

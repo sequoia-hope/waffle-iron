@@ -305,7 +305,7 @@ fn mo3_extrude_cuts_from_different_directions() {
 /// Tests the revolve-then-boolean pipeline. Revolves a small rectangle around
 /// an axis to create a cylindrical-like solid, then unions it with a box.
 #[test]
-#[ignore] // Known: box-revolve boolean exhausts perturbation cascade (39 attempts) — curved solid SSI limitation
+#[ignore] // Fails: box-revolve boolean exhausts cascade (39 attempts). Revolved torus/ring surface intersections not handled by analytical SSI. Needs toroidal/revolution surface IC support.
 fn mo4_revolve_then_boolean() {
     let mut m = ModelBuilder::truck();
 

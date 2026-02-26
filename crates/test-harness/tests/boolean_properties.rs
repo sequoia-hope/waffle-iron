@@ -103,7 +103,6 @@ fn v1_union_volume_monotonicity() {
 ///
 /// Subtracting material can only reduce volume.
 #[test]
-#[ignore] // Known: cylinder cut on box can exhaust cascade — fix expected from WS1 (analytical SSI) or WS2 (classification hardening)
 fn v2_subtract_volume_monotonicity() {
     let mut m = base_cube();
 
@@ -233,7 +232,7 @@ fn t1_euler_invariant_simple_union() {
 ///
 /// A cylinder boss on a cube creates a more complex topology but still genus-0.
 #[test]
-#[ignore] // Fails: chi=3 (V=40,E=60,F=23) — coplanar face split produces extra topology fragment
+#[ignore] // Fails: chi=3 (V=40,E=60,F=23). Boolean succeeds (0 open edges) but coplanar face split on box+cylinder union produces extra topology fragment. Needs topology-aware face merging for coplanar regions.
 fn t2_euler_invariant_box_cylinder_union() {
     let mut m = base_cube();
 
@@ -258,7 +257,6 @@ fn t2_euler_invariant_box_cylinder_union() {
 /// Corrupted geometry can produce NaN vertices, which silently poison
 /// downstream computations.
 #[test]
-#[ignore] // Known: cylinder cut on box can exhaust cascade — fix expected from WS1 (analytical SSI) or WS2 (classification hardening)
 fn t3_no_nan_in_vertices() {
     // Union
     let mut m = ModelBuilder::truck();
@@ -465,7 +463,6 @@ fn ch2_chain_3_box_unions_body_count() {
 ///
 /// Stress test for chained boolean stability.
 #[test]
-#[ignore] // Known: 5-chain union exhausts cascade — fix expected from WS1 (analytical SSI) reducing BSpline error accumulation
 fn ch3_chain_5_box_unions_body_count() {
     let mut m = ModelBuilder::truck();
 
@@ -658,7 +655,6 @@ fn fc1_union_face_count_reasonable() {
 /// Coplanar face handling: two boxes that share an exact face must still union
 /// into a single solid.
 #[test]
-#[ignore] // Fails: coplanar shared face produces 2 bodies — expected fix from WS2 (classification hardening)
 fn ec1_abutting_boxes_union() {
     let mut m = ModelBuilder::truck();
 
@@ -697,7 +693,6 @@ fn ec1_abutting_boxes_union() {
 /// A small box fully inside a large box: subtraction creates an internal void,
 /// but body count should remain 1 (the outer shell).
 #[test]
-#[ignore] // Fails: produces 2 shells (outer + void) — boolean doesn't merge into single multi-shell solid
 fn ec2_contained_box_subtract() {
     let mut m = ModelBuilder::truck();
 
@@ -735,7 +730,7 @@ fn ec2_contained_box_subtract() {
 ///
 /// Two boxes that don't touch at all should remain as separate bodies.
 #[test]
-#[ignore] // Fails: truck boolean currently errors on fully disjoint operands
+#[ignore] // Fails: disjoint union now succeeds but produces 1 body (single multi-shell solid) instead of expected 2 separate bodies. Truck boolean merges disjoint operands into one output. Needs multi-body output support or disjoint detection.
 fn ec3_non_overlapping_boxes_union() {
     let mut m = ModelBuilder::truck();
 
@@ -894,7 +889,7 @@ fn mv2_subtract_equals_minus_intersection() {
 ///
 /// A partial box subtraction should still yield a genus-0 solid with V-E+F=2.
 #[test]
-#[ignore] // Fails: chi=1 (V=15,E=23,F=9) — subtract topology has missing face/extra edge
+#[ignore] // Fails: chi=1 (V=15,E=23,F=9). Box-minus-corner subtract succeeds geometrically but Euler invariant is 1 instead of 2. Missing face or extra edge in topology. Needs topology repair in finalize_boolean_shell.
 fn mv3_euler_invariant_subtract() {
     let mut m = ModelBuilder::truck();
     m.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
