@@ -1299,6 +1299,13 @@ pub fn try_boolean_with_perturbation(
 
     let effective_a = healed_a.as_ref().unwrap_or(solid_a);
 
+    // Count faces early for cascade diagnostics (also used later for adaptive epsilon)
+    let face_count: usize = effective_a
+        .boundaries()
+        .iter()
+        .map(|s| s.face_iter().count())
+        .sum();
+
     // Instrumented op wrapper with panic catching
     let try_op = |a: &Solid,
                   b: &Solid,
@@ -1350,6 +1357,13 @@ pub fn try_boolean_with_perturbation(
                 }
             }
         }
+        // Structured cascade summary on success
+        if result.is_ok() {
+            eprintln!(
+                "[cascade] RESULT: OK after {} attempts, strategy={}, face_count={}",
+                *attempt, label, face_count,
+            );
+        }
         result
     };
 
@@ -1367,6 +1381,10 @@ pub fn try_boolean_with_perturbation(
                     "[perturbation] cascade limit ({}) reached after {} attempts",
                     MAX_CASCADE_ATTEMPTS, _attempt_count,
                 );
+                eprintln!(
+                    "[cascade] RESULT: FAIL after {} attempts, face_count={}",
+                    _attempt_count, face_count,
+                );
                 return Err(last_err);
             }
         };
@@ -1374,13 +1392,6 @@ pub fn try_boolean_with_perturbation(
 
     // Scale-aware perturbation epsilons based on bounding box extent
     let extent = solid_max_extent(effective_a).max(solid_max_extent(solid_b));
-
-    // Count faces for adaptive epsilon selection
-    let face_count: usize = effective_a
-        .boundaries()
-        .iter()
-        .map(|s| s.face_iter().count())
-        .sum();
 
     check_cascade_limit!();
 
@@ -1683,6 +1694,10 @@ pub fn try_boolean_with_perturbation(
     eprintln!(
         "[perturbation] EXHAUSTED all {} attempts (limit: {})",
         _attempt_count, MAX_CASCADE_ATTEMPTS,
+    );
+    eprintln!(
+        "[cascade] RESULT: FAIL after {} attempts, face_count={}",
+        _attempt_count, face_count,
     );
     Err(last_err)
 }
