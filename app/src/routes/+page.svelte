@@ -212,11 +212,12 @@
 		position: fixed;
 		top: var(--toolbar-height);
 		bottom: var(--statusbar-height);
-		width: 260px;
+		width: min(260px, 75vw);
 		background: var(--bg-secondary);
 		z-index: 100;
 		overflow-y: auto;
 		transition: transform 0.2s ease;
+		-webkit-overflow-scrolling: touch;
 	}
 
 	.mobile-panel-left {

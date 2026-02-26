@@ -288,6 +288,22 @@
 		pointer-events: auto;
 	}
 
+	@media (max-width: 768px) {
+		.extrude-panel {
+			position: fixed;
+			top: auto;
+			right: 0;
+			bottom: 0;
+			left: 0;
+			width: 100%;
+			max-height: 60vh;
+			border-radius: 12px 12px 0 0;
+			overflow-y: auto;
+			z-index: 150;
+			padding-bottom: env(safe-area-inset-bottom, 0px);
+		}
+	}
+
 	.dialog-header {
 		display: flex;
 		align-items: center;

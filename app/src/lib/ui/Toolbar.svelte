@@ -56,6 +56,17 @@
 	let applicable = $derived(inSketch ? getApplicableConstraints(selection, entities, positions) : {});
 	let solveStatus = $derived(inSketch ? getSketchSolveStatus() : null);
 
+	// Portrait mode: collapse file/view actions into overflow menu
+	let showOverflow = $state(false);
+
+	function toggleOverflow() {
+		showOverflow = !showOverflow;
+	}
+
+	function closeOverflow() {
+		showOverflow = false;
+	}
+
 	let name = $derived(getProjectName());
 	let editingName = $state(false);
 	let nameInputValue = $state('');
@@ -359,30 +370,68 @@
 		<button class="toolbar-btn" data-testid="toolbar-btn-undo" disabled={!ready} title="Undo (Ctrl+Z)" onclick={undo}>Undo</button>
 		<button class="toolbar-btn" data-testid="toolbar-btn-redo" disabled={!ready} title="Redo (Ctrl+Shift+Z)" onclick={redo}>Redo</button>
 	</div>
-	<div class="toolbar-sep"></div>
-	<div class="toolbar-group">
-		<button class="toolbar-btn" disabled={!ready || saving} title="Save (Ctrl+S)"
-			data-testid="toolbar-btn-save"
-			onclick={async () => { saving = true; try { await saveProject(); } finally { saving = false; } }}>
-			{saving ? 'Saving...' : 'Save'}
-		</button>
-		<button class="toolbar-btn" disabled={!ready} title="Open (Ctrl+O)"
-			data-testid="toolbar-btn-open"
-			onclick={() => loadProject()}>Open</button>
-		<button class="toolbar-btn" disabled={!ready || exportingStl} title="Export STL"
-			data-testid="toolbar-btn-export-stl"
-			onclick={async () => { exportingStl = true; try { await exportStl(); } finally { exportingStl = false; } }}>
-			{exportingStl ? 'Exporting...' : 'Export STL'}
-		</button>
-		<button class="toolbar-btn" disabled={!ready || exportingStep} title="Export STEP"
-			data-testid="toolbar-btn-export-step"
-			onclick={async () => { exportingStep = true; try { await exportStep(); } finally { exportingStep = false; } }}>
-			{exportingStep ? 'Exporting...' : 'Export STEP'}
-		</button>
-		<button class="toolbar-btn" disabled={!ready} title="Test Cases (Ctrl+Shift+T)"
-			data-testid="toolbar-btn-tests"
-			onclick={() => toggleTestCaseBrowser()}>Tests</button>
-	</div>
+	{#if isMobile}
+		<!-- Mobile: collapse file/export/test actions into overflow menu -->
+		<div class="toolbar-sep"></div>
+		<div class="overflow-container">
+			<button class="toolbar-btn overflow-trigger" title="More actions" onclick={toggleOverflow}
+				data-testid="toolbar-btn-overflow">
+				&#x22EE;
+			</button>
+			{#if showOverflow}
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div class="overflow-backdrop" onclick={closeOverflow}></div>
+				<div class="overflow-menu" data-testid="toolbar-overflow-menu">
+					<button class="overflow-item" disabled={!ready || saving}
+						data-testid="toolbar-btn-save"
+						onclick={async () => { closeOverflow(); saving = true; try { await saveProject(); } finally { saving = false; } }}>
+						{saving ? 'Saving...' : 'Save'}
+					</button>
+					<button class="overflow-item" disabled={!ready}
+						data-testid="toolbar-btn-open"
+						onclick={() => { closeOverflow(); loadProject(); }}>Open</button>
+					<button class="overflow-item" disabled={!ready || exportingStl}
+						data-testid="toolbar-btn-export-stl"
+						onclick={async () => { closeOverflow(); exportingStl = true; try { await exportStl(); } finally { exportingStl = false; } }}>
+						{exportingStl ? 'Exporting...' : 'Export STL'}
+					</button>
+					<button class="overflow-item" disabled={!ready || exportingStep}
+						data-testid="toolbar-btn-export-step"
+						onclick={async () => { closeOverflow(); exportingStep = true; try { await exportStep(); } finally { exportingStep = false; } }}>
+						{exportingStep ? 'Exporting...' : 'Export STEP'}
+					</button>
+					<button class="overflow-item" disabled={!ready}
+						data-testid="toolbar-btn-tests"
+						onclick={() => { closeOverflow(); toggleTestCaseBrowser(); }}>Tests</button>
+				</div>
+			{/if}
+		</div>
+	{:else}
+		<div class="toolbar-sep"></div>
+		<div class="toolbar-group">
+			<button class="toolbar-btn" disabled={!ready || saving} title="Save (Ctrl+S)"
+				data-testid="toolbar-btn-save"
+				onclick={async () => { saving = true; try { await saveProject(); } finally { saving = false; } }}>
+				{saving ? 'Saving...' : 'Save'}
+			</button>
+			<button class="toolbar-btn" disabled={!ready} title="Open (Ctrl+O)"
+				data-testid="toolbar-btn-open"
+				onclick={() => loadProject()}>Open</button>
+			<button class="toolbar-btn" disabled={!ready || exportingStl} title="Export STL"
+				data-testid="toolbar-btn-export-stl"
+				onclick={async () => { exportingStl = true; try { await exportStl(); } finally { exportingStl = false; } }}>
+				{exportingStl ? 'Exporting...' : 'Export STL'}
+			</button>
+			<button class="toolbar-btn" disabled={!ready || exportingStep} title="Export STEP"
+				data-testid="toolbar-btn-export-step"
+				onclick={async () => { exportingStep = true; try { await exportStep(); } finally { exportingStep = false; } }}>
+				{exportingStep ? 'Exporting...' : 'Export STEP'}
+			</button>
+			<button class="toolbar-btn" disabled={!ready} title="Test Cases (Ctrl+Shift+T)"
+				data-testid="toolbar-btn-tests"
+				onclick={() => toggleTestCaseBrowser()}>Tests</button>
+		</div>
+	{/if}
 
 	<div class="toolbar-spacer"></div>
 	{#if isMobile}
@@ -579,6 +628,59 @@
 		display: none;
 	}
 
+	/* Overflow menu for mobile */
+	.overflow-container {
+		position: relative;
+	}
+
+	.overflow-trigger {
+		font-size: 18px;
+		font-weight: bold;
+		letter-spacing: 1px;
+		padding: 4px 8px;
+	}
+
+	.overflow-backdrop {
+		position: fixed;
+		inset: 0;
+		z-index: 199;
+	}
+
+	.overflow-menu {
+		position: absolute;
+		top: calc(100% + 4px);
+		right: 0;
+		background: var(--bg-tertiary);
+		border: 1px solid var(--border-color);
+		border-radius: 6px;
+		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+		z-index: 200;
+		min-width: 160px;
+		padding: 4px 0;
+	}
+
+	.overflow-item {
+		display: block;
+		width: 100%;
+		background: none;
+		border: none;
+		color: var(--text-primary);
+		padding: 10px 16px;
+		font-size: 13px;
+		text-align: left;
+		cursor: pointer;
+		white-space: nowrap;
+	}
+
+	.overflow-item:hover:not(:disabled) {
+		background: var(--bg-hover);
+	}
+
+	.overflow-item:disabled {
+		color: var(--text-muted);
+		cursor: default;
+	}
+
 	@media (max-width: 768px) {
 		.toolbar {
 			overflow-x: auto;
@@ -607,6 +709,26 @@
 	@media (max-width: 480px) {
 		.toolbar-brand {
 			display: none;
+		}
+
+		.project-name {
+			display: none;
+		}
+
+		.toolbar-btn {
+			padding: 6px 8px;
+			font-size: 11px;
+			min-height: 40px;
+		}
+
+		.constraint-btn {
+			padding: 4px 6px;
+			font-size: 10px;
+			min-height: 40px;
+		}
+
+		.toolbar-sep {
+			margin: 0 2px;
 		}
 	}
 </style>

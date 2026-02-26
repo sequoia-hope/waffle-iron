@@ -163,4 +163,37 @@
 	.status-engine {
 		opacity: 0.7;
 	}
+
+	.status-dev-link {
+		color: inherit;
+		text-decoration: none;
+		opacity: 0.6;
+	}
+
+	.status-dev-link:hover {
+		opacity: 1;
+		text-decoration: underline;
+	}
+
+	@media (max-width: 768px) {
+		.status-rebuild,
+		.status-engine,
+		.status-dev-link,
+		.status-cursor {
+			display: none;
+		}
+	}
+
+	@media (max-width: 480px) {
+		.statusbar {
+			font-size: 10px;
+			padding: 0 4px;
+			padding-bottom: env(safe-area-inset-bottom, 0px);
+		}
+
+		.status-sketch,
+		.status-selection {
+			display: none;
+		}
+	}
 </style>

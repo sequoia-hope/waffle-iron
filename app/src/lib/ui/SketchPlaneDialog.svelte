@@ -336,4 +336,20 @@
 		opacity: 0.4;
 		cursor: default;
 	}
+
+	@media (max-width: 768px) {
+		.overlay {
+			align-items: flex-end;
+		}
+
+		.dialog {
+			width: 100%;
+			min-width: auto;
+			max-width: 100%;
+			border-radius: 12px 12px 0 0;
+			max-height: 70vh;
+			overflow-y: auto;
+			padding-bottom: env(safe-area-inset-bottom, 0px);
+		}
+	}
 </style>
