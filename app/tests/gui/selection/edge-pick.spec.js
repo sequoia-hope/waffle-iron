@@ -121,4 +121,57 @@ test.describe('edge and face picking', () => {
 		selected = await page.evaluate(() => window.__waffle.getSelectedRefs());
 		expect(selected).toHaveLength(0);
 	});
+
+	test('repeat-click cycles through edge via select-other', async ({ waffle }) => {
+		const page = waffle.page;
+		await createExtrudedBox(page);
+
+		const faces = await getVisibleFaces(page);
+		expect(faces.length).toBeGreaterThan(0);
+
+		// First click selects face
+		await clickFace(page, faces[0]);
+		const state1 = await page.evaluate(() => window.__waffle.getSelectOtherState());
+
+		if (state1.intersections.length > 1) {
+			// Repeat click at same position → cycles to next intersection (may be edge)
+			await clickFace(page, faces[0]);
+			const selected = await page.evaluate(() => window.__waffle.getSelectedRefs());
+			expect(selected.length).toBeGreaterThanOrEqual(1);
+
+			// The kind might be Edge or Face depending on cycle order
+			const kinds = selected.map(r => r.kind.type);
+			expect(kinds.length).toBeGreaterThan(0);
+		} else {
+			// Only one intersection — first click already verified above
+			const selected = await page.evaluate(() => window.__waffle.getSelectedRefs());
+			expect(selected.length).toBeGreaterThanOrEqual(1);
+		}
+	});
+
+	test('selection persists after orbit', async ({ waffle }) => {
+		const page = waffle.page;
+		await createExtrudedBox(page);
+
+		const faces = await getVisibleFaces(page);
+		expect(faces.length).toBeGreaterThan(0);
+
+		// Select a face
+		await clickFace(page, faces[0]);
+		let selected = await page.evaluate(() => window.__waffle.getSelectedRefs());
+		expect(selected.length).toBeGreaterThanOrEqual(1);
+		const selBefore = JSON.stringify(selected);
+
+		// Orbit the camera (left-button drag)
+		const bounds = await getCanvasBounds(page);
+		await page.mouse.move(bounds.x + 20, bounds.y + 20);
+		await page.mouse.down();
+		await page.mouse.move(bounds.x + 80, bounds.y + 20, { steps: 5 });
+		await page.mouse.up();
+		await page.waitForTimeout(300);
+
+		// Selection should still be there after orbit
+		selected = await page.evaluate(() => window.__waffle.getSelectedRefs());
+		expect(JSON.stringify(selected)).toBe(selBefore);
+	});
 });

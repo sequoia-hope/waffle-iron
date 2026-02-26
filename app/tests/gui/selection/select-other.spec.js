@@ -109,4 +109,57 @@ test.describe('select other cycling', () => {
 		const state = await page.evaluate(() => window.__waffle.getSelectOtherState());
 		expect(state.intersections).toEqual([]);
 	});
+
+	test('exiting sketch mode resets select-other intersections', async ({ waffle }) => {
+		const page = waffle.page;
+
+		// Enter sketch mode via API
+		await page.evaluate(() => window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
+		await page.waitForFunction(
+			() => window.__waffle?.getState()?.sketchMode?.active === true,
+			{ timeout: 5000 }
+		);
+		await page.waitForTimeout(200);
+
+		// Exit sketch mode
+		await page.evaluate(() => window.__waffle.exitSketch());
+		await page.waitForFunction(
+			() => window.__waffle?.getState()?.sketchMode?.active === false,
+			{ timeout: 5000 }
+		);
+		await page.waitForTimeout(300);
+
+		// After exiting sketch mode, select-other state should be clean
+		const state = await page.evaluate(() => window.__waffle.getSelectOtherState());
+		expect(state.intersections).toEqual([]);
+	});
+
+	test('select-other cycle wraps around', async ({ waffle }) => {
+		const page = waffle.page;
+		await createExtrudedBox(page);
+
+		const faces = await getVisibleFaces(page);
+		expect(faces.length).toBeGreaterThan(0);
+
+		// Click face to establish intersection list
+		await clickFace(page, faces[0]);
+		const state1 = await page.evaluate(() => window.__waffle.getSelectOtherState());
+		const numIntersections = state1.intersections.length;
+
+		if (numIntersections > 1) {
+			// Click through all intersections to wrap around
+			for (let i = 0; i < numIntersections; i++) {
+				await clickFace(page, faces[0]);
+			}
+
+			// After cycling through all, should wrap back to 0
+			const stateAfterWrap = await page.evaluate(() => window.__waffle.getSelectOtherState());
+			expect(stateAfterWrap.cycleIndex).toBe(0);
+		} else {
+			// Single intersection — cycle stays at 0
+			await clickFace(page, faces[0]);
+			const state2 = await page.evaluate(() => window.__waffle.getSelectOtherState());
+			expect(state2.cycleIndex).toBe(0);
+		}
+	});
 });
