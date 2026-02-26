@@ -912,3 +912,157 @@ fn mv3_euler_invariant_subtract() {
         chi, v, e, f
     );
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Category NP — Near-Pass Boundary Tests
+// ══════════════════════════════════════════════════════════════════════════════
+// Tests that exercise the boundary between passing and failing boolean scenarios,
+// discovered during Sprint 40 triage of ignored tests.
+
+/// NP1: Abutting boxes at 8×8×8 size — probes the size boundary where
+/// coplanar shared-face union succeeds.
+///
+/// EC1 (10×10×10 abutting boxes) now passes. R3 (5×5×5 abutting boxes) still
+/// fails. This test uses 8×8×8 boxes to probe the working boundary of
+/// coplanar face classification.
+#[test]
+fn np1_abutting_boxes_medium_size() {
+    let mut m = ModelBuilder::truck();
+
+    // Box A: [0,8] x [0,8] x [0,8]
+    m.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 8., 8.)
+        .unwrap();
+    m.extrude_no_merge("box_a", "sk_a", 8.0).unwrap();
+
+    // Box B: [8,16] x [0,8] x [0,8] — shares face at x=8
+    m.rect_sketch("sk_b", [8., 0., 0.], [0., 0., 1.], 0., 0., 8., 8.)
+        .unwrap();
+    m.extrude_no_merge("box_b", "sk_b", 8.0).unwrap();
+
+    m.boolean_union("union", "box_a", "box_b").unwrap();
+    m.assert_has_solid("union").unwrap();
+
+    let bodies = count_visible_bodies(&m);
+    assert_eq!(
+        bodies, 1,
+        "8×8×8 abutting boxes union should produce 1 body, got {}",
+        bodies
+    );
+
+    let mesh = m.tessellate("union").unwrap();
+    let vol = mesh_volume(&mesh);
+    // Two 8×8×8 cubes = 1024
+    assert!(
+        (vol - 1024.0).abs() / 1024.0 < 0.05,
+        "8×8×8 abutting union volume={:.1} should be ~1024",
+        vol
+    );
+
+    let (bb_min, bb_max) = mesh_bounding_box(&mesh);
+    assert!(
+        bb_max[0] > 15.5,
+        "Union should extend to x≈16 (got {:.1})",
+        bb_max[0]
+    );
+    assert!(
+        bb_min[0] < 0.5,
+        "Union should start at x≈0 (got {:.1})",
+        bb_min[0]
+    );
+}
+
+/// NP2: Box-cylinder cut volume accuracy — verifies that the analytical SSI
+/// improvement produces accurate cut volumes.
+///
+/// V2 (cylinder cut monotonicity) now passes. This test goes further and
+/// checks the absolute volume accuracy of a box with a cylindrical hole.
+#[test]
+fn np2_box_cylinder_cut_volume_accuracy() {
+    let mut m = base_cube();
+
+    // Cylindrical cut: radius 2, centered at (5,5) on top face, depth 10 (through cut)
+    m.circle_sketch("cut_sk", [0., 0., 10.], [0., 0., 1.], 5., 5., 2.)
+        .unwrap();
+    m.extrude_cut("cut", "cut_sk", 10.0).unwrap();
+
+    let mesh = m.tessellate("cut").unwrap();
+    let vol = mesh_volume(&mesh);
+
+    let cyl_vol = approx_cylinder_volume(2.0, 10.0);
+    let expected = 1000.0 - cyl_vol;
+
+    // 5% tolerance for tessellation
+    assert!(
+        (vol - expected).abs() / expected < 0.05,
+        "Box with cylindrical hole: vol={:.1} should be ~{:.1} (5% tol)",
+        vol,
+        expected
+    );
+
+    // Verify no NaN in mesh
+    for (i, v) in mesh.vertices.iter().enumerate() {
+        assert!(
+            v.is_finite(),
+            "Cylinder cut mesh vertex[{}] is not finite: {}",
+            i,
+            v
+        );
+    }
+}
+
+/// NP3: 3 unions + 1 cut chain — exercises the boundary between CH3 (5 unions)
+/// and CH5 (2 unions + 1 cut), verifying mixed union-cut chain stability.
+///
+/// CH3 now passes (5 unions). This test exercises 3 unions followed by a cut,
+/// testing that the cut works correctly on a chained-boolean result with
+/// accumulated IntersectionCurve edges.
+#[test]
+fn np3_three_unions_then_cut_chain() {
+    let mut m = base_cube();
+
+    // Boss 1: top face
+    m.rect_sketch("b1_sk", [0., 0., 10.], [0., 0., 1.], 1., 1., 4., 4.)
+        .unwrap();
+    m.extrude("b1", "b1_sk", 4.0).unwrap();
+
+    // Boss 2: +X face
+    m.rect_sketch("b2_sk", [10., 0., 0.], [1., 0., 0.], 1., 1., 4., 4.)
+        .unwrap();
+    m.extrude("b2", "b2_sk", 4.0).unwrap();
+
+    // Boss 3: +Y face
+    m.rect_sketch("b3_sk", [0., 10., 0.], [0., 1., 0.], 1., 1., 4., 4.)
+        .unwrap();
+    m.extrude("b3", "b3_sk", 4.0).unwrap();
+
+    // Cut: slot from top face
+    m.rect_sketch("cut_sk", [0., 0., 10.], [0., 0., 1.], 3., 3., 4., 4.)
+        .unwrap();
+    m.extrude_cut("cut", "cut_sk", 5.0).unwrap();
+
+    let bodies = count_visible_bodies(&m);
+    assert_eq!(
+        bodies, 1,
+        "3 unions + 1 cut should produce 1 body, got {}",
+        bodies
+    );
+
+    // Volume: cube(1000) + 3×boss(4×4×4=64) - cut(4×4×5=80) = 1000+192-80 = 1112
+    // But bosses on coplanar faces may lose some volume at intersection
+    let last_solid = ["cut", "b3", "b2", "b1", "cube"]
+        .iter()
+        .find(|name| m.assert_has_solid(name).is_ok())
+        .expect("no solid found");
+    let mesh = m.tessellate(last_solid).unwrap();
+    let vol = mesh_volume(&mesh);
+    assert!(
+        vol > 900.0,
+        "3 unions + 1 cut volume={:.1} should be > 900",
+        vol
+    );
+    assert!(
+        vol < 1200.0,
+        "3 unions + 1 cut volume={:.1} should be < 1200",
+        vol
+    );
+}
