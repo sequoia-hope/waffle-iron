@@ -251,7 +251,7 @@ fn s2_coplanar_cut_aligned_face() {
 /// with corner-coplanar geometry. This test creates a sufficiently complex
 /// shell to trigger that path.
 #[test]
-#[ignore = "Non-deterministic (~50% pass rate). Sprint 42 cascade gate relaxation helps but truck pointer-derived ordering causes variable IC quality. When it fails: 47 attempts exhausted, 36 open edges."]
+#[ignore = "Passes 100% isolated, ~80% in parallel. Global AtomicU64 ID counter varies with concurrent test execution, changing vertex/edge ordering in weld_coincident_edges. Needs test-scoped ID counter or serial_test."]
 fn s3_scale_expand_complex_shell() {
     let mut m = base_cube();
 
