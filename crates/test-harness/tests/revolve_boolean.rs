@@ -63,8 +63,10 @@ fn assert_mesh_finite(mesh: &kernel_fork::types::RenderMesh, label: &str) {
 fn rb1_revolve_union_with_box() {
     let mut m = ModelBuilder::truck();
 
-    // Rectangular sketch on XZ plane, offset from Y axis to create torus-like solid
-    m.rect_sketch("sk_ring", [0., 0., 0.], [0., 0., 1.], 2., 0., 1., 5.)
+    // Rectangular sketch on XZ plane, offset from Y axis to create torus-like solid.
+    // Note: with normal=[0,0,1], sketch (u,v) maps to world (v, -u, 0),
+    // so y>0 is needed to keep the rect off the Y revolve axis (world x=0).
+    m.rect_sketch("sk_ring", [0., 0., 0.], [0., 0., 1.], 2., 2., 1., 5.)
         .unwrap();
     // Revolve 360° around Y axis → torus-like solid
     m.revolve("torus", "sk_ring", [0., 0., 0.], [0., 1., 0.], 360.0)
@@ -145,12 +147,13 @@ fn rb2_revolve_subtract_from_box() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "Partial revolve 90° union — start/end cap planar IC with box"]
 fn rb3_partial_revolve_90_union() {
     let mut m = ModelBuilder::truck();
 
-    // Rect sketch on XZ plane, offset from Y axis
-    m.rect_sketch("sk_wedge", [0., 0., 0.], [0., 0., 1.], 3., 0., 2., 4.)
+    // Rect sketch on XZ plane, offset from Y axis.
+    // Note: with normal=[0,0,1], sketch (u,v) maps to world (v, -u, 0),
+    // so y>0 is needed to keep the rect off the Y revolve axis (world x=0).
+    m.rect_sketch("sk_wedge", [0., 0., 0.], [0., 0., 1.], 3., 2., 2., 4.)
         .unwrap();
     // Revolve 90° around Y axis → quarter-turn solid with start/end caps
     m.revolve("wedge", "sk_wedge", [0., 0., 0.], [0., 1., 0.], 90.0)
@@ -175,7 +178,6 @@ fn rb3_partial_revolve_90_union() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "180° revolve subtract — half-torus IC with box planes"]
 fn rb4_partial_revolve_180_subtract() {
     let mut m = ModelBuilder::truck();
 
@@ -185,8 +187,10 @@ fn rb4_partial_revolve_180_subtract() {
     m.extrude_no_merge("box", "sk_box", 15.0).unwrap();
     m.assert_has_solid("box").unwrap();
 
-    // Rect sketch on XZ plane, offset from Y axis
-    m.rect_sketch("sk_half", [0., 0., 0.], [0., 0., 1.], 2., 0., 3., 10.)
+    // Rect sketch on XZ plane, offset from Y axis.
+    // Note: with normal=[0,0,1], sketch (u,v) maps to world (v, -u, 0),
+    // so y>0 is needed to keep the rect off the Y revolve axis (world x=0).
+    m.rect_sketch("sk_half", [0., 0., 0.], [0., 0., 1.], 2., 2., 3., 10.)
         .unwrap();
     // Revolve 180° around Y axis → half-torus solid
     m.revolve("half_torus", "sk_half", [0., 0., 0.], [0., 1., 0.], 180.0)
