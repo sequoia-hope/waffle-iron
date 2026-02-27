@@ -896,7 +896,6 @@ fn mv2_subtract_equals_minus_intersection() {
 ///
 /// A partial box subtraction should still yield a genus-0 solid with V-E+F=2.
 #[test]
-#[ignore] // Fails: chi=1 (V=15,E=23,F=9). Face division produces non-simple (figure-8) wire at corner vertex (0,0,0) where IC meets face boundary. divide_one_face creates a pinch point instead of clean L-shape polygon. Deep face division bug, not fixable with edge welding.
 fn mv3_euler_invariant_subtract() {
     let mut m = ModelBuilder::truck();
     m.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
@@ -916,6 +915,74 @@ fn mv3_euler_invariant_subtract() {
     assert_eq!(
         chi, 2,
         "Euler invariant V-E+F should be 2 for box-minus-corner, got {} (V={}, E={}, F={})",
+        chi, v, e, f
+    );
+}
+
+/// Corner-touch canonical test: Box [0,10]³ minus Box [0,5]³.
+///
+/// Same geometry as MV3. Asserts both chi=2 (topology) and volume≈875 (geometry).
+/// The IC endpoints land exactly at shared boundary vertices; corner-touch
+/// snapping must prevent figure-8 wires.
+#[test]
+fn corner_touch_reuses_boundary_vertex() {
+    let mut m = ModelBuilder::truck();
+    m.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m.extrude_no_merge("box_a", "sk_a", 10.0).unwrap();
+
+    m.rect_sketch("sk_b", [0., 0., 0.], [0., 0., 1.], 0., 0., 5., 5.)
+        .unwrap();
+    m.extrude_no_merge("box_b", "sk_b", 5.0).unwrap();
+
+    m.boolean_subtract("diff", "box_a", "box_b").unwrap();
+    m.assert_has_solid("diff").unwrap();
+
+    let (v, e, f) = m.topology_counts("diff").unwrap();
+    let chi = v as i64 - e as i64 + f as i64;
+    assert_eq!(
+        chi, 2,
+        "Corner-touch subtract: Euler V-E+F should be 2, got {} (V={}, E={}, F={})",
+        chi, v, e, f
+    );
+
+    // Volume check: 10³ - 5³ = 1000 - 125 = 875
+    // Mesh-based volume has tessellation error; use generous tolerance.
+    let mesh = m.tessellate("diff").unwrap();
+    let vol = mesh_volume(&mesh);
+    assert!(
+        (vol - 875.0).abs() < 15.0,
+        "Corner-touch subtract: volume should be ≈875, got {}",
+        vol
+    );
+}
+
+/// Guard test: interior IC endpoints (not near any boundary vertex) must
+/// still produce correct edge splits and chi=2.
+///
+/// Box [0,10]³ union Box [5,15]×[5,15]×[0,10] — IC endpoints are at
+/// positions like (5,y,z) and (x,5,z), interior to A's boundary edges.
+/// Corner-touch snap should NOT fire here.
+#[test]
+fn non_corner_ic_still_splits_edge() {
+    let mut m = ModelBuilder::truck();
+    m.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m.extrude_no_merge("box_a", "sk_a", 10.0).unwrap();
+
+    // Offset box — IC endpoints at (5,y,z), (x,5,z), interior to A's edges
+    m.rect_sketch("sk_b", [5., 5., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m.extrude_no_merge("box_b", "sk_b", 10.0).unwrap();
+
+    m.boolean_union("union_ab", "box_a", "box_b").unwrap();
+    m.assert_has_solid("union_ab").unwrap();
+
+    let (v, e, f) = m.topology_counts("union_ab").unwrap();
+    let chi = v as i64 - e as i64 + f as i64;
+    assert_eq!(
+        chi, 2,
+        "Interior IC union: Euler V-E+F should be 2, got {} (V={}, E={}, F={})",
         chi, v, e, f
     );
 }
