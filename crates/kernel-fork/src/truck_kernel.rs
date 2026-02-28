@@ -321,20 +321,33 @@ fn build_diagnostics_summary(
     diag: &truck_shapeops::BooleanDiagnostics,
     tau_model: f64,
 ) -> BooleanDiagnosticsSummary {
+    let (strategy, attempts, elapsed_ms) = if let Some(ref c) = diag.cascade {
+        (
+            c.final_strategy.clone().unwrap_or_default(),
+            c.attempts as u32,
+            0u64, // timing is in CascadeMetadata, not in CascadeReport
+        )
+    } else {
+        (String::new(), 0, 0)
+    };
     BooleanDiagnosticsSummary {
         tau_model,
         faces_classified: diag.classification.shell0_and
             + diag.classification.shell0_or
             + diag.classification.shell1_and
             + diag.classification.shell1_or,
-        vertices_welded: 0,
-        edges_canonicalized: 0,
-        total_duration_ms: 0,
-        warnings: Vec::new(),
-        successful_strategy: String::new(),
-        perturbation_attempts: 0,
-        perturbation_elapsed_ms: 0,
-        preheal_vertices_unified: 0,
+        vertices_welded: diag.topology.vertices_welded,
+        edges_canonicalized: diag.topology.edges_canonicalized,
+        total_duration_ms: diag.timing.total.as_millis() as u64,
+        warnings: diag.warnings.clone(),
+        successful_strategy: strategy,
+        perturbation_attempts: attempts,
+        perturbation_elapsed_ms: elapsed_ms,
+        preheal_vertices_unified: diag
+            .pre_heal
+            .as_ref()
+            .map(|ph| ph.healed_count)
+            .unwrap_or(0),
         recovery_level: diag.recovery.recovery_level,
     }
 }

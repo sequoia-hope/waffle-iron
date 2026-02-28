@@ -13,6 +13,7 @@
 //! so shared edges are updated in place.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use truck_modeling::geometry::{Curve, Line, Surface};
 use truck_modeling::topology::{EdgeID, Face, Shell, Solid, VertexID};
 use truck_modeling::{
@@ -30,6 +31,76 @@ const TOLERANCE: f64 = 1.0e-6;
 /// asymm-scale, scale-expand, cardinal, cardinal-A, large-final ≈ 46 for a
 /// 2-coplanar-dir case with standard epsilons). 50 provides headroom.
 const MAX_CASCADE_ATTEMPTS: u32 = 50;
+
+// ── Cascade instrumentation counters (Phase E) ──────────────────────────
+static CASCADE_DIRECT_SUCCESS: AtomicUsize = AtomicUsize::new(0);
+static CASCADE_PERTURBATION_SUCCESS: AtomicUsize = AtomicUsize::new(0);
+static CASCADE_EULER_FALLBACK: AtomicUsize = AtomicUsize::new(0);
+static CASCADE_EXHAUSTED: AtomicUsize = AtomicUsize::new(0);
+static CASCADE_TOTAL: AtomicUsize = AtomicUsize::new(0);
+
+/// Aggregate cascade outcome statistics.
+///
+/// Counters are process-global (atomic). Use `reset_cascade_stats()` before
+/// a test run to get per-run numbers.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CascadeStats {
+    /// Boolean operations that succeeded on the first (direct) attempt.
+    pub direct_success: usize,
+    /// Boolean operations that required perturbation (attempt > 1).
+    pub perturbation_success: usize,
+    /// Boolean operations that returned a chi!=2 Euler fallback.
+    pub euler_fallback: usize,
+    /// Boolean operations where the cascade exhausted all attempts.
+    pub exhausted: usize,
+    /// Total cascade invocations.
+    pub total: usize,
+}
+
+/// Read the current cascade outcome counters.
+pub fn cascade_stats() -> CascadeStats {
+    CascadeStats {
+        direct_success: CASCADE_DIRECT_SUCCESS.load(Ordering::Relaxed),
+        perturbation_success: CASCADE_PERTURBATION_SUCCESS.load(Ordering::Relaxed),
+        euler_fallback: CASCADE_EULER_FALLBACK.load(Ordering::Relaxed),
+        exhausted: CASCADE_EXHAUSTED.load(Ordering::Relaxed),
+        total: CASCADE_TOTAL.load(Ordering::Relaxed),
+    }
+}
+
+/// Reset all cascade outcome counters to zero.
+pub fn reset_cascade_stats() {
+    CASCADE_DIRECT_SUCCESS.store(0, Ordering::Relaxed);
+    CASCADE_PERTURBATION_SUCCESS.store(0, Ordering::Relaxed);
+    CASCADE_EULER_FALLBACK.store(0, Ordering::Relaxed);
+    CASCADE_EXHAUSTED.store(0, Ordering::Relaxed);
+    CASCADE_TOTAL.store(0, Ordering::Relaxed);
+}
+
+/// Record a cascade outcome into the global atomic counters.
+fn record_cascade_outcome(attempt_count: u32, is_euler_fallback: bool, is_exhausted: bool) {
+    CASCADE_TOTAL.fetch_add(1, Ordering::Relaxed);
+    if is_exhausted {
+        CASCADE_EXHAUSTED.fetch_add(1, Ordering::Relaxed);
+    } else if is_euler_fallback {
+        CASCADE_EULER_FALLBACK.fetch_add(1, Ordering::Relaxed);
+    } else if attempt_count == 1 {
+        CASCADE_DIRECT_SUCCESS.fetch_add(1, Ordering::Relaxed);
+    } else {
+        CASCADE_PERTURBATION_SUCCESS.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+/// Metadata captured from a single cascade invocation.
+#[allow(dead_code)]
+pub(crate) struct CascadeMetadata {
+    pub attempt_count: u32,
+    pub successful_strategy: String,
+    pub strategies_tried: Vec<String>,
+    pub is_euler_fallback: bool,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub elapsed_ms: u64,
+}
 
 /// Result of a healing pass.
 #[derive(Debug, Default)]
@@ -1223,10 +1294,24 @@ pub fn try_boolean_with_perturbation(
     tol: f64,
     op: impl Fn(&Solid, &Solid) -> Result<Solid, truck_shapeops::BooleanStageError>,
 ) -> Result<Solid, truck_shapeops::BooleanStageError> {
+    try_boolean_with_perturbation_inner(solid_a, solid_b, tol, op).map(|(solid, _meta)| solid)
+}
+
+/// Inner cascade implementation that captures metadata for instrumentation.
+fn try_boolean_with_perturbation_inner(
+    solid_a: &Solid,
+    solid_b: &Solid,
+    tol: f64,
+    op: impl Fn(&Solid, &Solid) -> Result<Solid, truck_shapeops::BooleanStageError>,
+) -> Result<(Solid, CascadeMetadata), truck_shapeops::BooleanStageError> {
     let mut last_err;
+    #[cfg(not(target_arch = "wasm32"))]
+    let cascade_start = std::time::Instant::now();
     #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
     let _perturb_start = std::time::Instant::now();
     let mut _attempt_count: u32 = 0;
+    let strategies_tried = std::cell::RefCell::new(Vec::<String>::new());
+    let successful_label = std::cell::RefCell::new(String::new());
 
     // Pre-heal: unify coincident vertices in solid_a. After a previous
     // boolean, a solid may have vertices at the same position but with
@@ -1318,6 +1403,7 @@ pub fn try_boolean_with_perturbation(
                   label: &str|
      -> Result<Solid, truck_shapeops::BooleanStageError> {
         *attempt += 1;
+        strategies_tried.borrow_mut().push(label.to_string());
         #[cfg(not(target_arch = "wasm32"))]
         let _t = std::time::Instant::now();
         // Catch panics from truck internals (e.g., "knot vector consists single value")
@@ -1389,6 +1475,7 @@ pub fn try_boolean_with_perturbation(
         };
         // Structured cascade summary on success
         if result.is_ok() {
+            *successful_label.borrow_mut() = label.to_string();
             eprintln!(
                 "[cascade] RESULT: OK after {} attempts, strategy={}, face_count={}",
                 *attempt, label, face_count,
@@ -1398,8 +1485,26 @@ pub fn try_boolean_with_perturbation(
     };
 
     // Try direct
+    // Helper to build CascadeMetadata from current state.
+    macro_rules! build_meta {
+        ($is_euler:expr) => {{
+            let _meta = CascadeMetadata {
+                attempt_count: _attempt_count,
+                successful_strategy: successful_label.borrow().clone(),
+                strategies_tried: strategies_tried.borrow().clone(),
+                is_euler_fallback: $is_euler,
+                #[cfg(not(target_arch = "wasm32"))]
+                elapsed_ms: cascade_start.elapsed().as_millis() as u64,
+            };
+            _meta
+        }};
+    }
+
     match try_op(effective_a, solid_b, &mut _attempt_count, "direct") {
-        Ok(result) => return Ok(result),
+        Ok(result) => {
+            record_cascade_outcome(_attempt_count, false, false);
+            return Ok((result, build_meta!(false)));
+        }
         Err(e) => last_err = e,
     }
 
@@ -1417,12 +1522,14 @@ pub fn try_boolean_with_perturbation(
                         "[cascade] RESULT: OK (chi!=2 fallback) after {} attempts, face_count={}",
                         _attempt_count, face_count,
                     );
-                    return Ok(fb);
+                    record_cascade_outcome(_attempt_count, true, false);
+                    return Ok((fb, build_meta!(true)));
                 }
                 eprintln!(
                     "[cascade] RESULT: FAIL after {} attempts, face_count={}",
                     _attempt_count, face_count,
                 );
+                record_cascade_outcome(_attempt_count, false, true);
                 return Err(last_err);
             }
         };
@@ -1478,7 +1585,10 @@ pub fn try_boolean_with_perturbation(
             check_cascade_limit!();
             let scaled_b = scale_solid(solid_b, centroid, sf);
             match try_op(effective_a, &scaled_b, &mut _attempt_count, "scale-expand") {
-                Ok(result) => return Ok(result),
+                Ok(result) => {
+                    record_cascade_outcome(_attempt_count, false, false);
+                    return Ok((result, build_meta!(false)));
+                }
                 Err(e) => last_err = e,
             }
         }
@@ -1498,7 +1608,10 @@ pub fn try_boolean_with_perturbation(
                 &mut _attempt_count,
                 "corner-coplanar",
             ) {
-                Ok(result) => return Ok(result),
+                Ok(result) => {
+                    record_cascade_outcome(_attempt_count, false, false);
+                    return Ok((result, build_meta!(false)));
+                }
                 Err(e) => last_err = e,
             }
             check_cascade_limit!();
@@ -1509,7 +1622,10 @@ pub fn try_boolean_with_perturbation(
                 &mut _attempt_count,
                 "corner-coplanar-neg",
             ) {
-                Ok(result) => return Ok(result),
+                Ok(result) => {
+                    record_cascade_outcome(_attempt_count, false, false);
+                    return Ok((result, build_meta!(false)));
+                }
                 Err(e) => last_err = e,
             }
         }
@@ -1527,7 +1643,10 @@ pub fn try_boolean_with_perturbation(
                     check_cascade_limit!();
                     let perturbed_b = translate_solid(solid_b, composite_dir * eps);
                     match try_op(effective_a, &perturbed_b, &mut _attempt_count, "composite") {
-                        Ok(result) => return Ok(result),
+                        Ok(result) => {
+                            record_cascade_outcome(_attempt_count, false, false);
+                            return Ok((result, build_meta!(false)));
+                        }
                         Err(e) => last_err = e,
                     }
                 }
@@ -1545,7 +1664,10 @@ pub fn try_boolean_with_perturbation(
                     &mut _attempt_count,
                     "coplanar-dir",
                 ) {
-                    Ok(result) => return Ok(result),
+                    Ok(result) => {
+                        record_cascade_outcome(_attempt_count, false, false);
+                        return Ok((result, build_meta!(false)));
+                    }
                     Err(e) => last_err = e,
                 }
             }
@@ -1568,7 +1690,10 @@ pub fn try_boolean_with_perturbation(
                 &mut _attempt_count,
                 "cylinder-dir",
             ) {
-                Ok(result) => return Ok(result),
+                Ok(result) => {
+                    record_cascade_outcome(_attempt_count, false, false);
+                    return Ok((result, build_meta!(false)));
+                }
                 Err(e) => last_err = e,
             }
         }
@@ -1599,7 +1724,10 @@ pub fn try_boolean_with_perturbation(
                 &mut _attempt_count,
                 "scale-expand-complex",
             ) {
-                Ok(result) => return Ok(result),
+                Ok(result) => {
+                    record_cascade_outcome(_attempt_count, false, false);
+                    return Ok((result, build_meta!(false)));
+                }
                 Err(e) => last_err = e,
             }
         }
@@ -1635,7 +1763,10 @@ pub fn try_boolean_with_perturbation(
                 &mut _attempt_count,
                 "scale-expand-asymm-complex",
             ) {
-                Ok(result) => return Ok(result),
+                Ok(result) => {
+                    record_cascade_outcome(_attempt_count, false, false);
+                    return Ok((result, build_meta!(false)));
+                }
                 Err(e) => last_err = e,
             }
         }
@@ -1662,7 +1793,10 @@ pub fn try_boolean_with_perturbation(
                 check_cascade_limit!();
                 let perturbed_b = translate_solid(solid_b, *dir * eps);
                 match try_op(effective_a, &perturbed_b, &mut _attempt_count, "diagonal") {
-                    Ok(result) => return Ok(result),
+                    Ok(result) => {
+                        record_cascade_outcome(_attempt_count, false, false);
+                        return Ok((result, build_meta!(false)));
+                    }
                     Err(e) => last_err = e,
                 }
             }
@@ -1708,7 +1842,10 @@ pub fn try_boolean_with_perturbation(
                 },
             );
             match try_op(effective_a, &scaled_b, &mut _attempt_count, "asymm-scale") {
-                Ok(result) => return Ok(result),
+                Ok(result) => {
+                    record_cascade_outcome(_attempt_count, false, false);
+                    return Ok((result, build_meta!(false)));
+                }
                 Err(e) => last_err = e,
             }
         }
@@ -1735,7 +1872,10 @@ pub fn try_boolean_with_perturbation(
             check_cascade_limit!();
             let scaled_b = scale_solid(solid_b, centroid, sf);
             match try_op(effective_a, &scaled_b, &mut _attempt_count, "scale-expand") {
-                Ok(result) => return Ok(result),
+                Ok(result) => {
+                    record_cascade_outcome(_attempt_count, false, false);
+                    return Ok((result, build_meta!(false)));
+                }
                 Err(e) => last_err = e,
             }
         }
@@ -1759,7 +1899,10 @@ pub fn try_boolean_with_perturbation(
         check_cascade_limit!();
         let perturbed_b = translate_solid(solid_b, *offset);
         match try_op(effective_a, &perturbed_b, &mut _attempt_count, "cardinal") {
-            Ok(result) => return Ok(result),
+            Ok(result) => {
+                record_cascade_outcome(_attempt_count, false, false);
+                return Ok((result, build_meta!(false)));
+            }
             Err(e) => last_err = e,
         }
     }
@@ -1771,7 +1914,10 @@ pub fn try_boolean_with_perturbation(
         check_cascade_limit!();
         let perturbed_a = translate_solid(effective_a, *offset);
         match try_op(&perturbed_a, solid_b, &mut _attempt_count, "cardinal-A") {
-            Ok(result) => return Ok(result),
+            Ok(result) => {
+                record_cascade_outcome(_attempt_count, false, false);
+                return Ok((result, build_meta!(false)));
+            }
             Err(e) => last_err = e,
         }
     }
@@ -1797,7 +1943,10 @@ pub fn try_boolean_with_perturbation(
                 &mut _attempt_count,
                 "large-final",
             ) {
-                Ok(result) => return Ok(result),
+                Ok(result) => {
+                    record_cascade_outcome(_attempt_count, false, false);
+                    return Ok((result, build_meta!(false)));
+                }
                 Err(e) => last_err = e,
             }
         }
@@ -1815,18 +1964,21 @@ pub fn try_boolean_with_perturbation(
             "[cascade] RESULT: OK (chi!=2 fallback) after {} attempts, face_count={}",
             _attempt_count, face_count,
         );
-        return Ok(fb);
+        record_cascade_outcome(_attempt_count, true, false);
+        return Ok((fb, build_meta!(true)));
     }
 
     eprintln!(
         "[cascade] RESULT: FAIL after {} attempts, face_count={}",
         _attempt_count, face_count,
     );
+    record_cascade_outcome(_attempt_count, false, true);
     Err(last_err)
 }
 
 /// Diagnostic variant of `try_boolean_with_perturbation` that captures and returns
-/// the `BooleanDiagnostics` from the successful attempt.
+/// the `BooleanDiagnostics` from the successful attempt, with the `CascadeReport`
+/// populated from cascade metadata.
 ///
 /// The `op` closure returns `(Solid, BooleanDiagnostics)` instead of just `Solid`.
 /// Uses a `RefCell` to capture the diagnostics from the last successful attempt
@@ -1844,20 +1996,22 @@ pub fn try_boolean_with_perturbation_diag(
     >,
 ) -> Result<(Solid, truck_shapeops::BooleanDiagnostics), truck_shapeops::BooleanStageError> {
     use std::cell::RefCell;
+    use truck_shapeops::diagnostics::CascadeReport;
 
     let last_diag: RefCell<Option<truck_shapeops::BooleanDiagnostics>> = RefCell::new(None);
-    let result = try_boolean_with_perturbation(solid_a, solid_b, tol, |a, b| {
+    let (solid, meta) = try_boolean_with_perturbation_inner(solid_a, solid_b, tol, |a, b| {
         let (solid, diag) = op(a, b)?;
         *last_diag.borrow_mut() = Some(diag);
         Ok(solid)
+    })?;
+    let mut diag = last_diag.into_inner().unwrap_or_default();
+    diag.cascade = Some(CascadeReport {
+        attempts: meta.attempt_count as usize,
+        strategies_tried: meta.strategies_tried,
+        final_strategy: Some(meta.successful_strategy),
+        exhausted: meta.is_euler_fallback,
     });
-    match result {
-        Ok(solid) => {
-            let diag = last_diag.into_inner().unwrap_or_default();
-            Ok((solid, diag))
-        }
-        Err(e) => Err(e),
-    }
+    Ok((solid, diag))
 }
 
 /// Extract a sample point and outward normal from a planar face.
@@ -1877,6 +2031,56 @@ mod tests {
     use super::*;
     use crate::primitives;
     use truck_modeling::{builder, Point3, Rad, Vector3};
+
+    // ── Cascade counter unit tests ──────────────────────────────────────
+    // Combined into a single test to avoid global state races with parallel test execution.
+
+    #[test]
+    fn test_cascade_counters_and_reset() {
+        // Reset to known state
+        reset_cascade_stats();
+        let s0 = cascade_stats();
+        assert_eq!(
+            s0,
+            CascadeStats::default(),
+            "reset should zero all counters"
+        );
+
+        // Record one of each outcome type
+        record_cascade_outcome(1, false, false); // direct success (attempt_count == 1)
+        record_cascade_outcome(5, false, false); // perturbation success (attempt_count > 1)
+        record_cascade_outcome(10, true, false); // euler fallback
+        record_cascade_outcome(50, false, true); // exhausted
+
+        let stats = cascade_stats();
+        assert_eq!(stats.direct_success, 1, "direct_success should be 1");
+        assert_eq!(
+            stats.perturbation_success, 1,
+            "perturbation_success should be 1"
+        );
+        assert_eq!(stats.euler_fallback, 1, "euler_fallback should be 1");
+        assert_eq!(stats.exhausted, 1, "exhausted should be 1");
+        assert_eq!(stats.total, 4, "total should be 4");
+
+        // Consistency invariant
+        assert_eq!(
+            stats.direct_success
+                + stats.perturbation_success
+                + stats.euler_fallback
+                + stats.exhausted,
+            stats.total,
+            "Counter consistency invariant: d+p+e+x == total"
+        );
+
+        // Reset and verify again
+        reset_cascade_stats();
+        let s_after = cascade_stats();
+        assert_eq!(s_after.total, 0, "reset should zero total");
+        assert_eq!(
+            s_after.direct_success, 0,
+            "reset should zero direct_success"
+        );
+    }
 
     /// Verify that healing converts IntersectionCurve edges to BSplineCurve.
     #[test]
