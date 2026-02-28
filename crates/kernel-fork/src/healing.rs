@@ -13,7 +13,6 @@
 //! so shared edges are updated in place.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use truck_modeling::geometry::{Curve, Line, Surface};
 use truck_modeling::topology::{EdgeID, Face, Shell, Solid, VertexID};
 use truck_modeling::{
@@ -24,83 +23,6 @@ use truck_modeling::{
 
 /// truck's convergence threshold for `curve_surface_projection`.
 const TOLERANCE: f64 = 1.0e-6;
-
-/// Maximum number of perturbation cascade attempts before giving up.
-/// Replaces the previous 120s wall-clock timeout for platform-independent behavior.
-/// Must be large enough to cover all strategy branches (coplanar-dir, diagonal,
-/// asymm-scale, scale-expand, cardinal, cardinal-A, large-final ≈ 46 for a
-/// 2-coplanar-dir case with standard epsilons). 50 provides headroom.
-const MAX_CASCADE_ATTEMPTS: u32 = 50;
-
-// ── Cascade instrumentation counters (Phase E) ──────────────────────────
-static CASCADE_DIRECT_SUCCESS: AtomicUsize = AtomicUsize::new(0);
-static CASCADE_PERTURBATION_SUCCESS: AtomicUsize = AtomicUsize::new(0);
-static CASCADE_EULER_FALLBACK: AtomicUsize = AtomicUsize::new(0);
-static CASCADE_EXHAUSTED: AtomicUsize = AtomicUsize::new(0);
-static CASCADE_TOTAL: AtomicUsize = AtomicUsize::new(0);
-
-/// Aggregate cascade outcome statistics.
-///
-/// Counters are process-global (atomic). Use `reset_cascade_stats()` before
-/// a test run to get per-run numbers.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct CascadeStats {
-    /// Boolean operations that succeeded on the first (direct) attempt.
-    pub direct_success: usize,
-    /// Boolean operations that required perturbation (attempt > 1).
-    pub perturbation_success: usize,
-    /// Boolean operations that returned a chi!=2 Euler fallback.
-    pub euler_fallback: usize,
-    /// Boolean operations where the cascade exhausted all attempts.
-    pub exhausted: usize,
-    /// Total cascade invocations.
-    pub total: usize,
-}
-
-/// Read the current cascade outcome counters.
-pub fn cascade_stats() -> CascadeStats {
-    CascadeStats {
-        direct_success: CASCADE_DIRECT_SUCCESS.load(Ordering::Relaxed),
-        perturbation_success: CASCADE_PERTURBATION_SUCCESS.load(Ordering::Relaxed),
-        euler_fallback: CASCADE_EULER_FALLBACK.load(Ordering::Relaxed),
-        exhausted: CASCADE_EXHAUSTED.load(Ordering::Relaxed),
-        total: CASCADE_TOTAL.load(Ordering::Relaxed),
-    }
-}
-
-/// Reset all cascade outcome counters to zero.
-pub fn reset_cascade_stats() {
-    CASCADE_DIRECT_SUCCESS.store(0, Ordering::Relaxed);
-    CASCADE_PERTURBATION_SUCCESS.store(0, Ordering::Relaxed);
-    CASCADE_EULER_FALLBACK.store(0, Ordering::Relaxed);
-    CASCADE_EXHAUSTED.store(0, Ordering::Relaxed);
-    CASCADE_TOTAL.store(0, Ordering::Relaxed);
-}
-
-/// Record a cascade outcome into the global atomic counters.
-fn record_cascade_outcome(attempt_count: u32, is_euler_fallback: bool, is_exhausted: bool) {
-    CASCADE_TOTAL.fetch_add(1, Ordering::Relaxed);
-    if is_exhausted {
-        CASCADE_EXHAUSTED.fetch_add(1, Ordering::Relaxed);
-    } else if is_euler_fallback {
-        CASCADE_EULER_FALLBACK.fetch_add(1, Ordering::Relaxed);
-    } else if attempt_count == 1 {
-        CASCADE_DIRECT_SUCCESS.fetch_add(1, Ordering::Relaxed);
-    } else {
-        CASCADE_PERTURBATION_SUCCESS.fetch_add(1, Ordering::Relaxed);
-    }
-}
-
-/// Metadata captured from a single cascade invocation.
-#[allow(dead_code)]
-pub(crate) struct CascadeMetadata {
-    pub attempt_count: u32,
-    pub successful_strategy: String,
-    pub strategies_tried: Vec<String>,
-    pub is_euler_fallback: bool,
-    #[cfg(not(target_arch = "wasm32"))]
-    pub elapsed_ms: u64,
-}
 
 /// Result of a healing pass.
 #[derive(Debug, Default)]
@@ -446,6 +368,7 @@ pub fn heal_intersection_curves(solid: &Solid, tol: f64) -> HealingResult {
                 SurfacePairType::PlaneCylinder => result.plane_cylinder_count += 1,
                 SurfacePairType::PlaneCone => {
                     result.plane_cone_count += 1;
+                    #[cfg(debug_assertions)]
                     eprintln!(
                         "[healing] plane-cone IC detected — BSpline fallback \
                          (analytical conic fitting not yet implemented)"
@@ -453,6 +376,7 @@ pub fn heal_intersection_curves(solid: &Solid, tol: f64) -> HealingResult {
                 }
                 SurfacePairType::CylinderCylinder => {
                     result.cylinder_cylinder_count += 1;
+                    #[cfg(debug_assertions)]
                     eprintln!(
                         "[healing] cylinder-cylinder IC detected — BSpline fallback \
                          (analytical ellipse fitting not yet implemented)"
@@ -742,6 +666,7 @@ pub fn repair_non_manifold_shell(shell: &mut Shell) -> bool {
         .collect();
 
     if !over_counted.is_empty() {
+        #[cfg(debug_assertions)]
         eprintln!(
             "[non-manifold] Found {} edges shared by 3+ faces",
             over_counted.len(),
@@ -766,6 +691,7 @@ pub fn repair_non_manifold_shell(shell: &mut Shell) -> bool {
     }
 
     if pinch_count > 0 {
+        #[cfg(debug_assertions)]
         eprintln!(
             "[non-manifold] Found {} pinch vertices (repeated in same wire)",
             pinch_count,
@@ -1294,24 +1220,10 @@ pub fn try_boolean_with_perturbation(
     tol: f64,
     op: impl Fn(&Solid, &Solid) -> Result<Solid, truck_shapeops::BooleanStageError>,
 ) -> Result<Solid, truck_shapeops::BooleanStageError> {
-    try_boolean_with_perturbation_inner(solid_a, solid_b, tol, op).map(|(solid, _meta)| solid)
-}
-
-/// Inner cascade implementation that captures metadata for instrumentation.
-fn try_boolean_with_perturbation_inner(
-    solid_a: &Solid,
-    solid_b: &Solid,
-    tol: f64,
-    op: impl Fn(&Solid, &Solid) -> Result<Solid, truck_shapeops::BooleanStageError>,
-) -> Result<(Solid, CascadeMetadata), truck_shapeops::BooleanStageError> {
     let mut last_err;
     #[cfg(not(target_arch = "wasm32"))]
-    let cascade_start = std::time::Instant::now();
-    #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
     let _perturb_start = std::time::Instant::now();
     let mut _attempt_count: u32 = 0;
-    let strategies_tried = std::cell::RefCell::new(Vec::<String>::new());
-    let successful_label = std::cell::RefCell::new(String::new());
 
     // Pre-heal: unify coincident vertices in solid_a. After a previous
     // boolean, a solid may have vertices at the same position but with
@@ -1333,6 +1245,7 @@ fn try_boolean_with_perturbation_inner(
                 }
                 ids.len()
             };
+            #[cfg(debug_assertions)]
             eprintln!(
                 "[pre-heal] shell has {} unique vertex IDs, tol={:.6}, heal_tol={:.6}",
                 vcount_before,
@@ -1353,6 +1266,7 @@ fn try_boolean_with_perturbation_inner(
             };
             if vcount_after < vcount_before {
                 any_healed = true;
+                #[cfg(debug_assertions)]
                 eprintln!(
                     "[pre-heal] Unified {} → {} vertices (saved {})",
                     vcount_before,
@@ -1364,15 +1278,16 @@ fn try_boolean_with_perturbation_inner(
             // The repair function only detects issues (doesn't modify topology),
             // and flagging as healed triggers Solid::try_new which can change
             // shell behavior in edge cases.
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
             if repair_non_manifold_shell(shell) {
                 eprintln!("[pre-heal] Non-manifold issues detected");
             }
-            #[cfg(target_arch = "wasm32")]
+            #[cfg(not(debug_assertions))]
             let _ = repair_non_manifold_shell(shell);
         }
         if any_healed {
             let result = Solid::try_new(shells).ok();
+            #[cfg(debug_assertions)]
             if result.is_none() {
                 eprintln!("[pre-heal] Solid::try_new failed on healed shells");
             }
@@ -1384,17 +1299,12 @@ fn try_boolean_with_perturbation_inner(
 
     let effective_a = healed_a.as_ref().unwrap_or(solid_a);
 
-    // Count faces early for cascade diagnostics (also used later for adaptive epsilon)
-    let face_count: usize = effective_a
-        .boundaries()
-        .iter()
-        .map(|s| s.face_iter().count())
-        .sum();
-
-    // Euler fallback: stores the first chi≠2 result as a fallback.
-    // The cascade prefers chi=2 results but will return a chi≠2 result
-    // if no chi=2 result is found after exhausting all strategies.
-    let euler_fallback: std::cell::RefCell<Option<Solid>> = std::cell::RefCell::new(None);
+    // Cumulative timeout for the entire perturbation cascade (120 seconds).
+    // Without this, a failing boolean on a complex body can burn 50+ retries
+    // at 20-60s each, taking 15+ minutes total. 120s allows ~30 attempts
+    // at 4s each for legitimate coplanar retries while preventing runaway cascades.
+    #[cfg(not(target_arch = "wasm32"))]
+    let cascade_timeout = std::time::Duration::from_secs(120);
 
     // Instrumented op wrapper with panic catching
     let try_op = |a: &Solid,
@@ -1403,7 +1313,6 @@ fn try_boolean_with_perturbation_inner(
                   label: &str|
      -> Result<Solid, truck_shapeops::BooleanStageError> {
         *attempt += 1;
-        strategies_tried.borrow_mut().push(label.to_string());
         #[cfg(not(target_arch = "wasm32"))]
         let _t = std::time::Instant::now();
         // Catch panics from truck internals (e.g., "knot vector consists single value")
@@ -1419,6 +1328,7 @@ fn try_boolean_with_perturbation_inner(
                 } else {
                     "unknown panic".to_string()
                 };
+                #[cfg(debug_assertions)]
                 eprintln!(
                     "[perturbation] attempt #{} ({}) PANICKED: {}",
                     *attempt, label, msg
@@ -1429,7 +1339,7 @@ fn try_boolean_with_perturbation_inner(
                 )))
             }
         };
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
         eprintln!(
             "[perturbation] attempt #{} ({}) took {:.2}s → {}",
             *attempt,
@@ -1437,100 +1347,42 @@ fn try_boolean_with_perturbation_inner(
             _t.elapsed().as_secs_f64(),
             if result.is_ok() { "OK" } else { "FAIL" },
         );
-        // Post-boolean Euler validation — prefer chi=2, store chi≠2 as fallback.
-        // If the boolean produces a closed solid but with wrong Euler chi
-        // (e.g., extra internal face from misclassification), store the result
-        // as a fallback and continue the cascade looking for a chi=2 result.
-        let result = match result {
-            Ok(solid) => {
-                let mut euler_ok = true;
-                for (si, shell) in solid.boundaries().iter().enumerate() {
-                    if let Err((v, e, f, chi)) =
-                        truck_shapeops::validate_euler_characteristic(shell)
-                    {
-                        eprintln!(
-                            "[euler] shell[{}]: V={} E={} F={} chi={} (expected 2)",
-                            si, v, e, f, chi,
-                        );
-                        euler_ok = false;
-                    }
-                }
-                if !euler_ok {
+        // Post-boolean Euler validation diagnostic
+        #[cfg(debug_assertions)]
+        if let Ok(ref solid) = result {
+            for (si, shell) in solid.boundaries().iter().enumerate() {
+                if let Err((v, e, f, chi)) = truck_shapeops::validate_euler_characteristic(shell) {
                     eprintln!(
-                        "[cascade] attempt #{} ({}) has chi!=2, storing as fallback",
-                        *attempt, label,
+                        "[euler] shell[{}]: V={} E={} F={} chi={} (expected 2)",
+                        si, v, e, f, chi,
                     );
-                    if euler_fallback.borrow().is_none() {
-                        *euler_fallback.borrow_mut() = Some(solid);
-                    }
-                    Err(truck_shapeops::BooleanStageError::ShellAssembly(format!(
-                        "euler invariant violated (attempt #{}, {})",
-                        *attempt, label
-                    )))
-                } else {
-                    Ok(solid)
                 }
             }
-            Err(e) => Err(e),
-        };
-        // Structured cascade summary on success
-        if result.is_ok() {
-            *successful_label.borrow_mut() = label.to_string();
-            eprintln!(
-                "[cascade] RESULT: OK after {} attempts, strategy={}, face_count={}",
-                *attempt, label, face_count,
-            );
         }
         result
     };
 
     // Try direct
-    // Helper to build CascadeMetadata from current state.
-    macro_rules! build_meta {
-        ($is_euler:expr) => {{
-            let _meta = CascadeMetadata {
-                attempt_count: _attempt_count,
-                successful_strategy: successful_label.borrow().clone(),
-                strategies_tried: strategies_tried.borrow().clone(),
-                is_euler_fallback: $is_euler,
-                #[cfg(not(target_arch = "wasm32"))]
-                elapsed_ms: cascade_start.elapsed().as_millis() as u64,
-            };
-            _meta
-        }};
-    }
-
     match try_op(effective_a, solid_b, &mut _attempt_count, "direct") {
-        Ok(result) => {
-            record_cascade_outcome(_attempt_count, false, false);
-            return Ok((result, build_meta!(false)));
-        }
+        Ok(result) => return Ok(result),
         Err(e) => last_err = e,
     }
 
-    // Macro to check cascade attempt limit and bail out immediately
-    macro_rules! check_cascade_limit {
+    // Macro to check cascade timeout and bail out immediately
+    macro_rules! check_timeout {
         () => {
-            if _attempt_count >= MAX_CASCADE_ATTEMPTS {
-                eprintln!(
-                    "[perturbation] cascade limit ({}) reached after {} attempts",
-                    MAX_CASCADE_ATTEMPTS, _attempt_count,
-                );
-                // Return chi≠2 fallback if available
-                if let Some(fb) = euler_fallback.borrow_mut().take() {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                if _perturb_start.elapsed() > cascade_timeout {
+                    #[cfg(debug_assertions)]
                     eprintln!(
-                        "[cascade] RESULT: OK (chi!=2 fallback) after {} attempts, face_count={}",
-                        _attempt_count, face_count,
+                        "[perturbation] cascade timeout ({:.0}s) after {} attempts in {:.1}s",
+                        cascade_timeout.as_secs_f64(),
+                        _attempt_count,
+                        _perturb_start.elapsed().as_secs_f64(),
                     );
-                    record_cascade_outcome(_attempt_count, true, false);
-                    return Ok((fb, build_meta!(true)));
+                    return Err(last_err);
                 }
-                eprintln!(
-                    "[cascade] RESULT: FAIL after {} attempts, face_count={}",
-                    _attempt_count, face_count,
-                );
-                record_cascade_outcome(_attempt_count, false, true);
-                return Err(last_err);
             }
         };
     }
@@ -1538,7 +1390,14 @@ fn try_boolean_with_perturbation_inner(
     // Scale-aware perturbation epsilons based on bounding box extent
     let extent = solid_max_extent(effective_a).max(solid_max_extent(solid_b));
 
-    check_cascade_limit!();
+    // Count faces for adaptive epsilon selection
+    let face_count: usize = effective_a
+        .boundaries()
+        .iter()
+        .map(|s| s.face_iter().count())
+        .sum();
+
+    check_timeout!();
 
     // Detect ALL coplanar directions
     let dirs = detect_all_coplanar_directions(effective_a, solid_b, tol);
@@ -1573,22 +1432,15 @@ fn try_boolean_with_perturbation_inner(
     // un-closeable shells, while scale-expand changes the tool geometry
     // fundamentally (grows it) which breaks edge coincidence more effectively.
     // Each attempt on a 31-face shell takes ~12s, so ordering matters for the
-    // MAX_CASCADE_ATTEMPTS budget.
-    // Gate relaxed (Sprint 43): trigger on face_count > 30 with ANY coplanar
-    // directions, not just corner-coplanar (2+ independent normals). Cylinder
-    // bosses on one face produce only 1 coplanar normal direction, which
-    // previously prevented scale-expand from being tried early.
-    if face_count > 30 && (use_aggressive || !dirs.is_empty()) {
+    // 120s timeout budget.
+    if use_aggressive && dirs.len() >= 2 {
         let centroid = solid_centroid(solid_b);
         let scale_factors = [1.02, 1.03, 1.05];
         for &sf in &scale_factors {
-            check_cascade_limit!();
+            check_timeout!();
             let scaled_b = scale_solid(solid_b, centroid, sf);
             match try_op(effective_a, &scaled_b, &mut _attempt_count, "scale-expand") {
-                Ok(result) => {
-                    record_cascade_outcome(_attempt_count, false, false);
-                    return Ok((result, build_meta!(false)));
-                }
+                Ok(result) => return Ok(result),
                 Err(e) => last_err = e,
             }
         }
@@ -1600,7 +1452,7 @@ fn try_boolean_with_perturbation_inner(
         // Only try the largest epsilon (5e-3) in both directions (2 attempts).
         if let Some(corner_dir) = detect_corner_coplanar(&dirs) {
             let eps = extent * 5e-3;
-            check_cascade_limit!();
+            check_timeout!();
             let perturbed_b = translate_solid(solid_b, corner_dir * eps);
             match try_op(
                 effective_a,
@@ -1608,13 +1460,10 @@ fn try_boolean_with_perturbation_inner(
                 &mut _attempt_count,
                 "corner-coplanar",
             ) {
-                Ok(result) => {
-                    record_cascade_outcome(_attempt_count, false, false);
-                    return Ok((result, build_meta!(false)));
-                }
+                Ok(result) => return Ok(result),
                 Err(e) => last_err = e,
             }
-            check_cascade_limit!();
+            check_timeout!();
             let perturbed_b = translate_solid(solid_b, -corner_dir * eps);
             match try_op(
                 effective_a,
@@ -1622,10 +1471,7 @@ fn try_boolean_with_perturbation_inner(
                 &mut _attempt_count,
                 "corner-coplanar-neg",
             ) {
-                Ok(result) => {
-                    record_cascade_outcome(_attempt_count, false, false);
-                    return Ok((result, build_meta!(false)));
-                }
+                Ok(result) => return Ok(result),
                 Err(e) => last_err = e,
             }
         }
@@ -1640,13 +1486,10 @@ fn try_boolean_with_perturbation_inner(
             if len > 1e-10 {
                 let composite_dir = composite / len;
                 for &eps in epsilons {
-                    check_cascade_limit!();
+                    check_timeout!();
                     let perturbed_b = translate_solid(solid_b, composite_dir * eps);
                     match try_op(effective_a, &perturbed_b, &mut _attempt_count, "composite") {
-                        Ok(result) => {
-                            record_cascade_outcome(_attempt_count, false, false);
-                            return Ok((result, build_meta!(false)));
-                        }
+                        Ok(result) => return Ok(result),
                         Err(e) => last_err = e,
                     }
                 }
@@ -1656,7 +1499,7 @@ fn try_boolean_with_perturbation_inner(
         // Try each individual coplanar direction
         for dir in &dirs {
             for &eps in epsilons {
-                check_cascade_limit!();
+                check_timeout!();
                 let perturbed_b = translate_solid(solid_b, *dir * eps);
                 match try_op(
                     effective_a,
@@ -1664,17 +1507,14 @@ fn try_boolean_with_perturbation_inner(
                     &mut _attempt_count,
                     "coplanar-dir",
                 ) {
-                    Ok(result) => {
-                        record_cascade_outcome(_attempt_count, false, false);
-                        return Ok((result, build_meta!(false)));
-                    }
+                    Ok(result) => return Ok(result),
                     Err(e) => last_err = e,
                 }
             }
         }
     }
 
-    check_cascade_limit!();
+    check_timeout!();
 
     // Cylinder-aware perturbation — for box-cylinder cases at face boundaries
     // where neither coplanar detection nor direct boolean succeeds. Perturb
@@ -1682,7 +1522,7 @@ fn try_boolean_with_perturbation_inner(
     let cyl_dirs = detect_cylinder_directions(effective_a, solid_b);
     for dir in &cyl_dirs {
         for &eps in epsilons {
-            check_cascade_limit!();
+            check_timeout!();
             let perturbed_b = translate_solid(solid_b, *dir * eps);
             match try_op(
                 effective_a,
@@ -1690,98 +1530,22 @@ fn try_boolean_with_perturbation_inner(
                 &mut _attempt_count,
                 "cylinder-dir",
             ) {
-                Ok(result) => {
-                    record_cascade_outcome(_attempt_count, false, false);
-                    return Ok((result, build_meta!(false)));
-                }
+                Ok(result) => return Ok(result),
                 Err(e) => last_err = e,
             }
         }
     }
 
-    check_cascade_limit!();
+    check_timeout!();
 
-    // Scale-expand for complex shells without coplanar detection (Sprint 43).
-    // When dirs is empty (coplanar detection finds no coincident face normals),
-    // complex shells from chained booleans may still have IC-based edge
-    // coincidence. Scale-expand fundamentally changes tool geometry and is
-    // often the only strategy that succeeds. Try it before the expensive
-    // diagonal/asymm-scale/cardinal fallbacks to save cascade budget.
-    // Uses a wider range of scale factors (including small 1.005, 1.01) to
-    // cover cases where larger scales distort cylinder geometry too much.
-    // Also tries asymmetric scaling (per-axis) which can break edge
-    // coincidence patterns that uniform scaling cannot.
-    if face_count > 30 && dirs.is_empty() {
-        let centroid = solid_centroid(solid_b);
-        // Uniform scale-expand
-        let scale_factors = [1.005, 1.01, 1.02, 1.03, 1.05];
-        for &sf in &scale_factors {
-            check_cascade_limit!();
-            let scaled_b = scale_solid(solid_b, centroid, sf);
-            match try_op(
-                effective_a,
-                &scaled_b,
-                &mut _attempt_count,
-                "scale-expand-complex",
-            ) {
-                Ok(result) => {
-                    record_cascade_outcome(_attempt_count, false, false);
-                    return Ok((result, build_meta!(false)));
-                }
-                Err(e) => last_err = e,
-            }
-        }
-        // Asymmetric scale-expand per axis to break axis-aligned edge patterns
-        let cv = Vector3::new(centroid.x, centroid.y, centroid.z);
-        let asymm_scales: [(f64, f64, f64); 3] =
-            [(1.02, 1.0, 1.0), (1.0, 1.02, 1.0), (1.0, 1.0, 1.02)];
-        for (sx, sy, sz) in &asymm_scales {
-            check_cascade_limit!();
-            let scaled_b = solid_b.mapped(
-                |p| {
-                    let v = Vector3::new(p.x, p.y, p.z);
-                    let rel = v - cv;
-                    let scaled = Vector3::new(rel.x * sx, rel.y * sy, rel.z * sz);
-                    Point3::new(cv.x + scaled.x, cv.y + scaled.y, cv.z + scaled.z)
-                },
-                |c| {
-                    let trans = Matrix4::from_translation(cv)
-                        * Matrix4::from_nonuniform_scale(*sx, *sy, *sz)
-                        * Matrix4::from_translation(-cv);
-                    c.transformed(trans)
-                },
-                |s| {
-                    let trans = Matrix4::from_translation(cv)
-                        * Matrix4::from_nonuniform_scale(*sx, *sy, *sz)
-                        * Matrix4::from_translation(-cv);
-                    s.transformed(trans)
-                },
-            );
-            match try_op(
-                effective_a,
-                &scaled_b,
-                &mut _attempt_count,
-                "scale-expand-asymm-complex",
-            ) {
-                Ok(result) => {
-                    record_cascade_outcome(_attempt_count, false, false);
-                    return Ok((result, build_meta!(false)));
-                }
-                Err(e) => last_err = e,
-            }
-        }
-    }
-
-    check_cascade_limit!();
+    check_timeout!();
 
     // Diagonal perturbation — when coplanar and cylinder directions alone
     // don't resolve the degeneracy, try diagonal combinations. These cover
     // cases where the failure occurs at edges shared between multiple faces
     // (e.g., corner geometries) and neither axis-aligned nor face-normal
     // perturbation breaks the symmetry.
-    // Gate relaxed (Sprint 43): also fire for complex shells (>30 faces)
-    // to break axis-aligned edge coincidence from chained booleans.
-    if dirs.len() >= 2 || !cyl_dirs.is_empty() || face_count > 30 {
+    if dirs.len() >= 2 || !cyl_dirs.is_empty() {
         let diag_dirs = [
             Vector3::new(1.0, 1.0, 0.0).normalize(),
             Vector3::new(1.0, 0.0, 1.0).normalize(),
@@ -1790,20 +1554,17 @@ fn try_boolean_with_perturbation_inner(
         ];
         for dir in &diag_dirs {
             for &eps in epsilons {
-                check_cascade_limit!();
+                check_timeout!();
                 let perturbed_b = translate_solid(solid_b, *dir * eps);
                 match try_op(effective_a, &perturbed_b, &mut _attempt_count, "diagonal") {
-                    Ok(result) => {
-                        record_cascade_outcome(_attempt_count, false, false);
-                        return Ok((result, build_meta!(false)));
-                    }
+                    Ok(result) => return Ok(result),
                     Err(e) => last_err = e,
                 }
             }
         }
     }
 
-    check_cascade_limit!();
+    check_timeout!();
 
     // Asymmetric scale perturbation — when tool edges overlap target edges,
     // the mesh collision produces degenerate intersection segments. Scale
@@ -1820,7 +1581,7 @@ fn try_boolean_with_perturbation_inner(
             (1.01, 1.01, 1.0),
         ];
         for (sx, sy, sz) in &asymmetric_scales {
-            check_cascade_limit!();
+            check_timeout!();
             let scaled_b = solid_b.mapped(
                 |p| {
                     let v = Vector3::new(p.x, p.y, p.z);
@@ -1842,16 +1603,13 @@ fn try_boolean_with_perturbation_inner(
                 },
             );
             match try_op(effective_a, &scaled_b, &mut _attempt_count, "asymm-scale") {
-                Ok(result) => {
-                    record_cascade_outcome(_attempt_count, false, false);
-                    return Ok((result, build_meta!(false)));
-                }
+                Ok(result) => return Ok(result),
                 Err(e) => last_err = e,
             }
         }
     }
 
-    check_cascade_limit!();
+    check_timeout!();
 
     // Scale-expand perturbation — grow tool outward from its centroid to
     // break edge coincidence. When a cut tool's profile exactly matches a
@@ -1862,26 +1620,20 @@ fn try_boolean_with_perturbation_inner(
     // Expanding the tool breaks ALL edge coincidences: the tool's lateral
     // faces move beyond the target faces, and for subtract operations the
     // extra tool volume outside the target has no effect on the result.
-    // Gate relaxed (Sprint 43): also try for complex shells (>30 faces)
-    // even with fewer than 2 coplanar directions. Cylinder-on-flat geometry
-    // may only produce 1 coplanar direction but still benefits from scaling.
-    if dirs.len() >= 2 || (face_count > 30 && !dirs.is_empty()) {
+    if dirs.len() >= 2 {
         let centroid = solid_centroid(solid_b);
         let scale_factors = [1.02, 1.03, 1.05];
         for &sf in &scale_factors {
-            check_cascade_limit!();
+            check_timeout!();
             let scaled_b = scale_solid(solid_b, centroid, sf);
             match try_op(effective_a, &scaled_b, &mut _attempt_count, "scale-expand") {
-                Ok(result) => {
-                    record_cascade_outcome(_attempt_count, false, false);
-                    return Ok((result, build_meta!(false)));
-                }
+                Ok(result) => return Ok(result),
                 Err(e) => last_err = e,
             }
         }
     }
 
-    check_cascade_limit!();
+    check_timeout!();
 
     // Cardinal fallback — for edge-coincident cases where coplanarity
     // detection doesn't trigger. Use fixed small epsilon (not scaled) because
@@ -1896,28 +1648,22 @@ fn try_boolean_with_perturbation_inner(
         Vector3::new(1e-5, 1e-5, 1e-5),
     ];
     for offset in &cardinal {
-        check_cascade_limit!();
+        check_timeout!();
         let perturbed_b = translate_solid(solid_b, *offset);
         match try_op(effective_a, &perturbed_b, &mut _attempt_count, "cardinal") {
-            Ok(result) => {
-                record_cascade_outcome(_attempt_count, false, false);
-                return Ok((result, build_meta!(false)));
-            }
+            Ok(result) => return Ok(result),
             Err(e) => last_err = e,
         }
     }
 
-    check_cascade_limit!();
+    check_timeout!();
 
     // Final fallback: perturb effective_a instead
     for offset in &cardinal {
-        check_cascade_limit!();
+        check_timeout!();
         let perturbed_a = translate_solid(effective_a, *offset);
         match try_op(&perturbed_a, solid_b, &mut _attempt_count, "cardinal-A") {
-            Ok(result) => {
-                record_cascade_outcome(_attempt_count, false, false);
-                return Ok((result, build_meta!(false)));
-            }
+            Ok(result) => return Ok(result),
             Err(e) => last_err = e,
         }
     }
@@ -1935,7 +1681,7 @@ fn try_boolean_with_perturbation_inner(
             Vector3::new(1.0, 1.0, 1.0).normalize(),
         ];
         for dir in &large_dirs {
-            check_cascade_limit!();
+            check_timeout!();
             let perturbed_b = translate_solid(solid_b, *dir * large_eps);
             match try_op(
                 effective_a,
@@ -1943,46 +1689,26 @@ fn try_boolean_with_perturbation_inner(
                 &mut _attempt_count,
                 "large-final",
             ) {
-                Ok(result) => {
-                    record_cascade_outcome(_attempt_count, false, false);
-                    return Ok((result, build_meta!(false)));
-                }
+                Ok(result) => return Ok(result),
                 Err(e) => last_err = e,
             }
         }
     }
 
+    #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
     eprintln!(
-        "[perturbation] EXHAUSTED all {} attempts (limit: {})",
-        _attempt_count, MAX_CASCADE_ATTEMPTS,
+        "[perturbation] EXHAUSTED all {} attempts in {:.1}s",
+        _attempt_count,
+        _perturb_start.elapsed().as_secs_f64(),
     );
-
-    // If no chi=2 result was found, return the chi≠2 fallback if available.
-    // A topologically imperfect result is better than no result at all.
-    if let Some(fb) = euler_fallback.borrow_mut().take() {
-        eprintln!(
-            "[cascade] RESULT: OK (chi!=2 fallback) after {} attempts, face_count={}",
-            _attempt_count, face_count,
-        );
-        record_cascade_outcome(_attempt_count, true, false);
-        return Ok((fb, build_meta!(true)));
-    }
-
-    eprintln!(
-        "[cascade] RESULT: FAIL after {} attempts, face_count={}",
-        _attempt_count, face_count,
-    );
-    record_cascade_outcome(_attempt_count, false, true);
     Err(last_err)
 }
 
-/// Diagnostic variant of `try_boolean_with_perturbation` that captures and returns
-/// the `BooleanDiagnostics` from the successful attempt, with the `CascadeReport`
-/// populated from cascade metadata.
+/// Like `try_boolean_with_perturbation`, but the op closure returns
+/// `(Solid, BooleanDiagnostics)` and the last successful diagnostics are returned.
 ///
-/// The `op` closure returns `(Solid, BooleanDiagnostics)` instead of just `Solid`.
-/// Uses a `RefCell` to capture the diagnostics from the last successful attempt
-/// through the catch_unwind boundary.
+/// This delegates to `try_boolean_with_perturbation` internally, using a `RefCell`
+/// to capture the diagnostics from the last successful op invocation.
 pub fn try_boolean_with_perturbation_diag(
     solid_a: &Solid,
     solid_b: &Solid,
@@ -1996,22 +1722,19 @@ pub fn try_boolean_with_perturbation_diag(
     >,
 ) -> Result<(Solid, truck_shapeops::BooleanDiagnostics), truck_shapeops::BooleanStageError> {
     use std::cell::RefCell;
-    use truck_shapeops::diagnostics::CascadeReport;
-
     let last_diag: RefCell<Option<truck_shapeops::BooleanDiagnostics>> = RefCell::new(None);
-    let (solid, meta) = try_boolean_with_perturbation_inner(solid_a, solid_b, tol, |a, b| {
+    let result = try_boolean_with_perturbation(solid_a, solid_b, tol, |a, b| {
         let (solid, diag) = op(a, b)?;
         *last_diag.borrow_mut() = Some(diag);
         Ok(solid)
-    })?;
-    let mut diag = last_diag.into_inner().unwrap_or_default();
-    diag.cascade = Some(CascadeReport {
-        attempts: meta.attempt_count as usize,
-        strategies_tried: meta.strategies_tried,
-        final_strategy: Some(meta.successful_strategy),
-        exhausted: meta.is_euler_fallback,
     });
-    Ok((solid, diag))
+    match result {
+        Ok(solid) => {
+            let diag = last_diag.into_inner().unwrap_or_default();
+            Ok((solid, diag))
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// Extract a sample point and outward normal from a planar face.
@@ -2031,56 +1754,6 @@ mod tests {
     use super::*;
     use crate::primitives;
     use truck_modeling::{builder, Point3, Rad, Vector3};
-
-    // ── Cascade counter unit tests ──────────────────────────────────────
-    // Combined into a single test to avoid global state races with parallel test execution.
-
-    #[test]
-    fn test_cascade_counters_and_reset() {
-        // Reset to known state
-        reset_cascade_stats();
-        let s0 = cascade_stats();
-        assert_eq!(
-            s0,
-            CascadeStats::default(),
-            "reset should zero all counters"
-        );
-
-        // Record one of each outcome type
-        record_cascade_outcome(1, false, false); // direct success (attempt_count == 1)
-        record_cascade_outcome(5, false, false); // perturbation success (attempt_count > 1)
-        record_cascade_outcome(10, true, false); // euler fallback
-        record_cascade_outcome(50, false, true); // exhausted
-
-        let stats = cascade_stats();
-        assert_eq!(stats.direct_success, 1, "direct_success should be 1");
-        assert_eq!(
-            stats.perturbation_success, 1,
-            "perturbation_success should be 1"
-        );
-        assert_eq!(stats.euler_fallback, 1, "euler_fallback should be 1");
-        assert_eq!(stats.exhausted, 1, "exhausted should be 1");
-        assert_eq!(stats.total, 4, "total should be 4");
-
-        // Consistency invariant
-        assert_eq!(
-            stats.direct_success
-                + stats.perturbation_success
-                + stats.euler_fallback
-                + stats.exhausted,
-            stats.total,
-            "Counter consistency invariant: d+p+e+x == total"
-        );
-
-        // Reset and verify again
-        reset_cascade_stats();
-        let s_after = cascade_stats();
-        assert_eq!(s_after.total, 0, "reset should zero total");
-        assert_eq!(
-            s_after.direct_success, 0,
-            "reset should zero direct_success"
-        );
-    }
 
     /// Verify that healing converts IntersectionCurve edges to BSplineCurve.
     #[test]

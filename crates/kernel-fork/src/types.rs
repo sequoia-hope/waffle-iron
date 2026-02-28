@@ -118,15 +118,15 @@ pub struct BooleanDiagnosticsSummary {
     pub total_duration_ms: u64,
     /// Warnings about near-tolerance decisions.
     pub warnings: Vec<String>,
-    /// Which perturbation strategy succeeded (e.g., "direct", "scale-expand").
+    /// Name of the perturbation strategy that succeeded (e.g., "direct", "scale-expand").
     pub successful_strategy: String,
     /// Number of perturbation attempts before success.
     pub perturbation_attempts: u32,
-    /// Total elapsed time for the perturbation cascade in milliseconds.
+    /// Total time spent in perturbation cascade (milliseconds).
     pub perturbation_elapsed_ms: u64,
-    /// Number of vertices unified during pre-heal vertex deduplication.
+    /// Vertices unified during pre-heal vertex snapping.
     pub preheal_vertices_unified: usize,
-    /// Recovery level reached in finalize_boolean_shell (0=first try, 1-6=recovery stages).
+    /// Shell closure recovery level reached (0 = none, 1-6 = recovery stages).
     pub recovery_level: u8,
 }
 
@@ -187,7 +187,7 @@ pub struct EdgeRange {
 /// Invariants (enforced by `validate()`):
 /// - `tau_work < tau_model`
 /// - `tau_mesh <= tau_model`
-/// - `tau_weld >= tau_model`
+/// - `tau_weld >= 0.1 * tau_model`
 /// - `min_feature_size >= tau_model`
 /// - All values must be positive (> 0)
 #[derive(Debug, Clone)]
@@ -199,7 +199,7 @@ pub struct BooleanOptions {
     /// Must satisfy: tau_mesh <= tau_model.
     pub tau_mesh: f64,
     /// Vertex/edge welding tolerance — snapping during stitching.
-    /// Derived as 0.4 * tau_model.
+    /// Derived as 0.4 * tau_model (conservative: well below feature-size failure threshold).
     pub tau_weld: f64,
     /// Numeric floor / working precision — iterative solver convergence.
     /// Must satisfy: tau_work << tau_model.
@@ -288,8 +288,7 @@ impl BooleanOptions {
         if self.tau_weld < 0.1 * self.tau_model {
             return Err(format!(
                 "tau_weld ({}) must be >= 0.1 * tau_model ({})",
-                self.tau_weld,
-                0.1 * self.tau_model
+                self.tau_weld, self.tau_model
             ));
         }
         if self.min_feature_size < self.tau_model {
@@ -629,7 +628,7 @@ mod tests {
             opts.tau_weld >= 0.1 * opts.tau_model,
             "tau_weld ({}) must be >= 0.1 * tau_model ({})",
             opts.tau_weld,
-            0.1 * opts.tau_model
+            opts.tau_model
         );
         assert!(
             opts.min_feature_size >= opts.tau_model,
@@ -704,7 +703,7 @@ mod tests {
 
         // tau_weld < 0.1 * tau_model
         let bad_weld = BooleanOptions {
-            tau_weld: 1e-9,
+            tau_weld: 1e-10,
             ..BooleanOptions::default()
         };
         assert!(

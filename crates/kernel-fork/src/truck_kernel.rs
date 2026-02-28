@@ -212,12 +212,7 @@ fn compute_healing_tol(solid_a: &Solid, solid_b: &Solid) -> f64 {
 /// fragments on curved surfaces where parametric compression is significant.
 fn compute_boolean_options(solid_a: &Solid, solid_b: &Solid) -> BooleanOptions {
     let tol = compute_curvature_adaptive_tol(solid_a, solid_b);
-    let opts = BooleanOptions::for_boolean_tol(tol);
-    debug_assert!(
-        opts.validate().is_ok(),
-        "BooleanOptions invariants violated"
-    );
-    opts
+    BooleanOptions::for_boolean_tol(tol)
 }
 
 /// Validate that a solid is suitable for boolean operations.
@@ -240,6 +235,29 @@ fn validate_solid_for_boolean(solid: &Solid, label: &str) -> Result<(), KernelEr
     Ok(())
 }
 
+/// Build a `BooleanDiagnosticsSummary` from full `BooleanDiagnostics`.
+fn build_diagnostics_summary(
+    diag: &truck_shapeops::BooleanDiagnostics,
+) -> BooleanDiagnosticsSummary {
+    let faces_classified = diag.classification.shell0_and
+        + diag.classification.shell0_or
+        + diag.classification.shell1_and
+        + diag.classification.shell1_or;
+    BooleanDiagnosticsSummary {
+        tau_model: diag.tolerance.tau_model,
+        faces_classified,
+        vertices_welded: diag.topology.vertices_welded,
+        edges_canonicalized: diag.topology.edges_canonicalized,
+        total_duration_ms: diag.timing.total.as_millis() as u64,
+        warnings: diag.warnings.clone(),
+        successful_strategy: String::new(), // filled by caller if needed
+        perturbation_attempts: 0,           // filled by caller if needed
+        perturbation_elapsed_ms: 0,         // filled by caller if needed
+        preheal_vertices_unified: 0,        // filled by caller if needed
+        recovery_level: diag.recovery.recovery_level,
+    }
+}
+
 /// Real geometry kernel backed by the truck BREP library.
 pub struct TruckKernel {
     next_handle: u64,
@@ -252,6 +270,7 @@ pub struct TruckKernel {
 }
 
 impl TruckKernel {
+    /// Create a new TruckKernel instance.
     pub fn new() -> Self {
         Self {
             next_handle: 1,
@@ -284,7 +303,7 @@ impl TruckKernel {
         self.solids.get(&handle.id())
     }
 
-    /// Returns diagnostics from the last boolean operation, if any.
+    /// Returns the diagnostics from the last boolean operation, if any.
     pub fn last_boolean_diagnostics(&self) -> Option<&BooleanDiagnosticsSummary> {
         self.last_boolean_diagnostics.as_ref()
     }
@@ -313,42 +332,6 @@ impl TruckKernel {
         };
         let complete = CompleteStepDisplay::new(step_model, header);
         Ok(complete.to_string())
-    }
-}
-
-/// Build a summary from truck-shapeops BooleanDiagnostics.
-fn build_diagnostics_summary(
-    diag: &truck_shapeops::BooleanDiagnostics,
-    tau_model: f64,
-) -> BooleanDiagnosticsSummary {
-    let (strategy, attempts, elapsed_ms) = if let Some(ref c) = diag.cascade {
-        (
-            c.final_strategy.clone().unwrap_or_default(),
-            c.attempts as u32,
-            0u64, // timing is in CascadeMetadata, not in CascadeReport
-        )
-    } else {
-        (String::new(), 0, 0)
-    };
-    BooleanDiagnosticsSummary {
-        tau_model,
-        faces_classified: diag.classification.shell0_and
-            + diag.classification.shell0_or
-            + diag.classification.shell1_and
-            + diag.classification.shell1_or,
-        vertices_welded: diag.topology.vertices_welded,
-        edges_canonicalized: diag.topology.edges_canonicalized,
-        total_duration_ms: diag.timing.total.as_millis() as u64,
-        warnings: diag.warnings.clone(),
-        successful_strategy: strategy,
-        perturbation_attempts: attempts,
-        perturbation_elapsed_ms: elapsed_ms,
-        preheal_vertices_unified: diag
-            .pre_heal
-            .as_ref()
-            .map(|ph| ph.healed_count)
-            .unwrap_or(0),
-        recovery_level: diag.recovery.recovery_level,
     }
 }
 
@@ -456,7 +439,13 @@ impl Kernel for TruckKernel {
         crate::healing::heal_intersection_curves(&solid_b, heal_tol);
 
         // Compute layered tolerance options from feature-aware adaptive tolerance.
+        // Flow: compute_boolean_options → BooleanOptions (kernel) → to_boolean_tolerance → BooleanTolerance (truck)
         let opts = compute_boolean_options(&solid_a, &solid_b);
+        debug_assert!(
+            opts.validate().is_ok(),
+            "BooleanOptions validation failed: {:?}",
+            opts.validate()
+        );
         let tol = opts.tau_model;
         let tols = opts.to_boolean_tolerance();
         let solid_a = crate::healing::pre_split_closed_edges(&solid_a, tol);
@@ -467,7 +456,7 @@ impl Kernel for TruckKernel {
                 truck_shapeops::or_result_with_tol_diag(a, b, &tols)
             })
             .map_err(|e| KernelError::from(BooleanError::from(e)))?;
-        self.last_boolean_diagnostics = Some(build_diagnostics_summary(&diag, tol));
+        self.last_boolean_diagnostics = Some(build_diagnostics_summary(&diag));
         #[cfg(debug_assertions)]
         if result.boundaries().len() > 1 {
             eprintln!(
@@ -510,7 +499,13 @@ impl Kernel for TruckKernel {
         crate::healing::heal_intersection_curves(&solid_b, heal_tol);
 
         // Compute layered tolerance options from feature-aware adaptive tolerance.
+        // Flow: compute_boolean_options → BooleanOptions (kernel) → to_boolean_tolerance → BooleanTolerance (truck)
         let opts = compute_boolean_options(&solid_a, &solid_b);
+        debug_assert!(
+            opts.validate().is_ok(),
+            "BooleanOptions validation failed: {:?}",
+            opts.validate()
+        );
         let tol = opts.tau_model;
         let tols = opts.to_boolean_tolerance();
         let solid_a = crate::healing::pre_split_closed_edges(&solid_a, tol);
@@ -521,7 +516,7 @@ impl Kernel for TruckKernel {
                 truck_shapeops::difference_result_with_tol_diag(a, b, &tols)
             })
             .map_err(|e| KernelError::from(BooleanError::from(e)))?;
-        self.last_boolean_diagnostics = Some(build_diagnostics_summary(&diag, tol));
+        self.last_boolean_diagnostics = Some(build_diagnostics_summary(&diag));
         #[cfg(debug_assertions)]
         if result.boundaries().len() > 1 {
             eprintln!(
@@ -563,7 +558,13 @@ impl Kernel for TruckKernel {
         crate::healing::heal_intersection_curves(&solid_b, heal_tol);
 
         // Compute layered tolerance options from feature-aware adaptive tolerance.
+        // Flow: compute_boolean_options → BooleanOptions (kernel) → to_boolean_tolerance → BooleanTolerance (truck)
         let opts = compute_boolean_options(&solid_a, &solid_b);
+        debug_assert!(
+            opts.validate().is_ok(),
+            "BooleanOptions validation failed: {:?}",
+            opts.validate()
+        );
         let tol = opts.tau_model;
         let tols = opts.to_boolean_tolerance();
         let solid_a = crate::healing::pre_split_closed_edges(&solid_a, tol);
@@ -574,7 +575,7 @@ impl Kernel for TruckKernel {
                 truck_shapeops::and_result_with_tol_diag(a, b, &tols)
             })
             .map_err(|e| KernelError::from(BooleanError::from(e)))?;
-        self.last_boolean_diagnostics = Some(build_diagnostics_summary(&diag, tol));
+        self.last_boolean_diagnostics = Some(build_diagnostics_summary(&diag));
         crate::healing::heal_intersection_curves(&result, heal_tol);
         crate::healing::deduplicate_vertices(&result, heal_tol * 0.1);
         Ok(self.store_solid(result))
