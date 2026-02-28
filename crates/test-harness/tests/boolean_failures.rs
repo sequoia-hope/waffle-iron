@@ -144,7 +144,6 @@ fn circle_cut_tangent_to_box_edge() {
 /// The tool body protrudes past a box edge, requiring truck to
 /// compute a partial intersection curve on the face.
 #[test]
-#[ignore = "truck 0.4: circle extending beyond face boundary — NoSolid despite cardinal perturbation"]
 fn circle_cut_crossing_box_edge() {
     let mut m = base_cube();
 
@@ -417,7 +416,6 @@ fn cut_from_yz_plane() {
 /// NOTE: Fails because angled extrude_directed produces a cylinder boolean
 /// that truck cannot handle (known limitation).
 #[test]
-#[ignore]
 fn cut_from_angled_direction() {
     let mut m = base_cube();
 
