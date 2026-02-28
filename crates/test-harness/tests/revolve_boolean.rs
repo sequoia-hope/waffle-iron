@@ -59,7 +59,7 @@ fn assert_mesh_finite(mesh: &kernel_fork::types::RenderMesh, label: &str) {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "Torus-plane IC not yet supported in analytical SSI — boolean cascade exhausts"]
+#[ignore = "Torus-plane IC generation works (Phase F), but shell assembly fails with 8+ open edges from torus face fragments"]
 fn rb1_revolve_union_with_box() {
     let mut m = ModelBuilder::truck();
 
@@ -98,7 +98,7 @@ fn rb1_revolve_union_with_box() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "Toroidal groove subtract — complex torus-plane IC"]
+#[ignore = "Torus-plane IC generation works (Phase F), but shell assembly fails with open edges from torus face fragments"]
 fn rb2_revolve_subtract_from_box() {
     let mut m = ModelBuilder::truck();
 
@@ -248,7 +248,7 @@ fn rb5_revolve_then_extrude_cut() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "Box-then-revolve order sensitivity — torus-plane IC"]
+#[ignore = "Torus-plane IC generation works (Phase F), but shell assembly fails with open edges from torus face fragments"]
 fn rb6_extrude_then_revolve_union() {
     let mut m = ModelBuilder::truck();
 
@@ -285,7 +285,6 @@ fn rb6_extrude_then_revolve_union() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "Torus-torus IC — most complex surface pair"]
 fn rb7_two_revolves_union() {
     let mut m = ModelBuilder::truck();
 
@@ -322,7 +321,7 @@ fn rb7_two_revolves_union() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "Full torus intersect with box — torus-plane IC"]
+#[ignore = "Torus-plane IC generation works (Phase F), but shell assembly fails with open edges from torus face fragments"]
 fn rb8_revolve_intersect_with_box() {
     let mut m = ModelBuilder::truck();
 
