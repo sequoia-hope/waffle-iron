@@ -13,6 +13,7 @@
 //! so shared edges are updated in place.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 use truck_modeling::geometry::{Curve, Line, Surface};
 use truck_modeling::topology::{EdgeID, Face, Shell, Solid, VertexID};
 use truck_modeling::{
@@ -23,6 +24,53 @@ use truck_modeling::{
 
 /// truck's convergence threshold for `curve_surface_projection`.
 const TOLERANCE: f64 = 1.0e-6;
+
+// ── Cascade instrumentation counters ──────────────────────────────────
+
+struct CascadeCounters {
+    total: AtomicU64,
+    direct_success: AtomicU64,
+    perturbation_success: AtomicU64,
+    euler_fallback: AtomicU64,
+    exhausted: AtomicU64,
+}
+
+static CASCADE: CascadeCounters = CascadeCounters {
+    total: AtomicU64::new(0),
+    direct_success: AtomicU64::new(0),
+    perturbation_success: AtomicU64::new(0),
+    euler_fallback: AtomicU64::new(0),
+    exhausted: AtomicU64::new(0),
+};
+
+/// Snapshot of cascade outcome counters.
+pub struct CascadeStats {
+    pub total: u64,
+    pub direct_success: u64,
+    pub perturbation_success: u64,
+    pub euler_fallback: u64,
+    pub exhausted: u64,
+}
+
+/// Read a snapshot of the global cascade counters.
+pub fn cascade_stats() -> CascadeStats {
+    CascadeStats {
+        total: CASCADE.total.load(Ordering::Relaxed),
+        direct_success: CASCADE.direct_success.load(Ordering::Relaxed),
+        perturbation_success: CASCADE.perturbation_success.load(Ordering::Relaxed),
+        euler_fallback: CASCADE.euler_fallback.load(Ordering::Relaxed),
+        exhausted: CASCADE.exhausted.load(Ordering::Relaxed),
+    }
+}
+
+/// Reset all cascade counters to zero.
+pub fn reset_cascade_stats() {
+    CASCADE.total.store(0, Ordering::Relaxed);
+    CASCADE.direct_success.store(0, Ordering::Relaxed);
+    CASCADE.perturbation_success.store(0, Ordering::Relaxed);
+    CASCADE.euler_fallback.store(0, Ordering::Relaxed);
+    CASCADE.exhausted.store(0, Ordering::Relaxed);
+}
 
 /// Result of a healing pass.
 #[derive(Debug, Default)]
@@ -1227,7 +1275,11 @@ pub fn try_boolean_with_perturbation(
     tol: f64,
     op: impl Fn(&Solid, &Solid) -> Result<Solid, truck_shapeops::BooleanStageError>,
 ) -> Result<Solid, truck_shapeops::BooleanStageError> {
-    let mut last_err;
+    CASCADE.total.fetch_add(1, Ordering::Relaxed);
+    let euler_fb: std::cell::RefCell<Option<Solid>> = std::cell::RefCell::new(None);
+    let mut last_err = truck_shapeops::BooleanStageError::ShellAssembly(
+        "cascade not started".into(),
+    );
     #[cfg(not(target_arch = "wasm32"))]
     let _perturb_start = std::time::Instant::now();
     let mut _attempt_count: u32 = 0;
@@ -1369,10 +1421,31 @@ pub fn try_boolean_with_perturbation(
         result
     };
 
-    // Try direct
-    match try_op(effective_a, solid_b, &mut _attempt_count, "direct") {
-        Ok(result) => return Ok(result),
-        Err(e) => last_err = e,
+    // Macro to check Euler characteristic on a successful result and either
+    // return immediately (chi=2) or store as fallback and continue cascade.
+    macro_rules! check_result {
+        ($result:expr, direct) => {{
+            let chi_ok = $result.boundaries().iter().all(|shell| {
+                truck_shapeops::validate_euler_characteristic(shell).is_ok()
+            });
+            if chi_ok {
+                CASCADE.direct_success.fetch_add(1, Ordering::Relaxed);
+                return Ok($result);
+            } else {
+                *euler_fb.borrow_mut() = Some($result);
+            }
+        }};
+        ($result:expr, perturbation) => {{
+            let chi_ok = $result.boundaries().iter().all(|shell| {
+                truck_shapeops::validate_euler_characteristic(shell).is_ok()
+            });
+            if chi_ok {
+                CASCADE.perturbation_success.fetch_add(1, Ordering::Relaxed);
+                return Ok($result);
+            } else {
+                *euler_fb.borrow_mut() = Some($result);
+            }
+        }};
     }
 
     // Macro to check cascade timeout and bail out immediately
@@ -1388,16 +1461,32 @@ pub fn try_boolean_with_perturbation(
                         _attempt_count,
                         _perturb_start.elapsed().as_secs_f64(),
                     );
+                    if let Some(fallback) = euler_fb.borrow_mut().take() {
+                        CASCADE.euler_fallback.fetch_add(1, Ordering::Relaxed);
+                        return Ok(fallback);
+                    }
+                    CASCADE.exhausted.fetch_add(1, Ordering::Relaxed);
                     return Err(last_err);
                 }
             }
             #[cfg(target_arch = "wasm32")]
             {
                 if _attempt_count > MAX_WASM_CASCADE_ATTEMPTS {
+                    if let Some(fallback) = euler_fb.borrow_mut().take() {
+                        CASCADE.euler_fallback.fetch_add(1, Ordering::Relaxed);
+                        return Ok(fallback);
+                    }
+                    CASCADE.exhausted.fetch_add(1, Ordering::Relaxed);
                     return Err(last_err);
                 }
             }
         };
+    }
+
+    // Try direct
+    match try_op(effective_a, solid_b, &mut _attempt_count, "direct") {
+        Ok(result) => check_result!(result, direct),
+        Err(e) => last_err = e,
     }
 
     // Scale-aware perturbation epsilons based on bounding box extent
@@ -1453,7 +1542,7 @@ pub fn try_boolean_with_perturbation(
             check_timeout!();
             let scaled_b = scale_solid(solid_b, centroid, sf);
             match try_op(effective_a, &scaled_b, &mut _attempt_count, "scale-expand") {
-                Ok(result) => return Ok(result),
+                Ok(result) => check_result!(result, perturbation),
                 Err(e) => last_err = e,
             }
         }
@@ -1473,7 +1562,7 @@ pub fn try_boolean_with_perturbation(
                 &mut _attempt_count,
                 "corner-coplanar",
             ) {
-                Ok(result) => return Ok(result),
+                Ok(result) => check_result!(result, perturbation),
                 Err(e) => last_err = e,
             }
             check_timeout!();
@@ -1484,7 +1573,7 @@ pub fn try_boolean_with_perturbation(
                 &mut _attempt_count,
                 "corner-coplanar-neg",
             ) {
-                Ok(result) => return Ok(result),
+                Ok(result) => check_result!(result, perturbation),
                 Err(e) => last_err = e,
             }
         }
@@ -1502,7 +1591,7 @@ pub fn try_boolean_with_perturbation(
                     check_timeout!();
                     let perturbed_b = translate_solid(solid_b, composite_dir * eps);
                     match try_op(effective_a, &perturbed_b, &mut _attempt_count, "composite") {
-                        Ok(result) => return Ok(result),
+                        Ok(result) => check_result!(result, perturbation),
                         Err(e) => last_err = e,
                     }
                 }
@@ -1520,7 +1609,7 @@ pub fn try_boolean_with_perturbation(
                     &mut _attempt_count,
                     "coplanar-dir",
                 ) {
-                    Ok(result) => return Ok(result),
+                    Ok(result) => check_result!(result, perturbation),
                     Err(e) => last_err = e,
                 }
             }
@@ -1543,7 +1632,7 @@ pub fn try_boolean_with_perturbation(
                 &mut _attempt_count,
                 "cylinder-dir",
             ) {
-                Ok(result) => return Ok(result),
+                Ok(result) => check_result!(result, perturbation),
                 Err(e) => last_err = e,
             }
         }
@@ -1570,7 +1659,7 @@ pub fn try_boolean_with_perturbation(
                 check_timeout!();
                 let perturbed_b = translate_solid(solid_b, *dir * eps);
                 match try_op(effective_a, &perturbed_b, &mut _attempt_count, "diagonal") {
-                    Ok(result) => return Ok(result),
+                    Ok(result) => check_result!(result, perturbation),
                     Err(e) => last_err = e,
                 }
             }
@@ -1616,7 +1705,7 @@ pub fn try_boolean_with_perturbation(
                 },
             );
             match try_op(effective_a, &scaled_b, &mut _attempt_count, "asymm-scale") {
-                Ok(result) => return Ok(result),
+                Ok(result) => check_result!(result, perturbation),
                 Err(e) => last_err = e,
             }
         }
@@ -1640,7 +1729,7 @@ pub fn try_boolean_with_perturbation(
             check_timeout!();
             let scaled_b = scale_solid(solid_b, centroid, sf);
             match try_op(effective_a, &scaled_b, &mut _attempt_count, "scale-expand") {
-                Ok(result) => return Ok(result),
+                Ok(result) => check_result!(result, perturbation),
                 Err(e) => last_err = e,
             }
         }
@@ -1664,7 +1753,7 @@ pub fn try_boolean_with_perturbation(
         check_timeout!();
         let perturbed_b = translate_solid(solid_b, *offset);
         match try_op(effective_a, &perturbed_b, &mut _attempt_count, "cardinal") {
-            Ok(result) => return Ok(result),
+            Ok(result) => check_result!(result, perturbation),
             Err(e) => last_err = e,
         }
     }
@@ -1676,7 +1765,7 @@ pub fn try_boolean_with_perturbation(
         check_timeout!();
         let perturbed_a = translate_solid(effective_a, *offset);
         match try_op(&perturbed_a, solid_b, &mut _attempt_count, "cardinal-A") {
-            Ok(result) => return Ok(result),
+            Ok(result) => check_result!(result, perturbation),
             Err(e) => last_err = e,
         }
     }
@@ -1702,7 +1791,7 @@ pub fn try_boolean_with_perturbation(
                 &mut _attempt_count,
                 "large-final",
             ) {
-                Ok(result) => return Ok(result),
+                Ok(result) => check_result!(result, perturbation),
                 Err(e) => last_err = e,
             }
         }
@@ -1720,6 +1809,13 @@ pub fn try_boolean_with_perturbation(
         _attempt_count,
         MAX_WASM_CASCADE_ATTEMPTS,
     );
+
+    // Return the best non-chi-2 result if available, otherwise error.
+    if let Some(fallback) = euler_fb.into_inner() {
+        CASCADE.euler_fallback.fetch_add(1, Ordering::Relaxed);
+        return Ok(fallback);
+    }
+    CASCADE.exhausted.fetch_add(1, Ordering::Relaxed);
     Err(last_err)
 }
 
