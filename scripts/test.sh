@@ -116,6 +116,8 @@ GUI_FAST_SPECS=(
 # Concurrency — limit parallel tests to avoid OOM from boolean cascades.
 # Each boolean cascade test can consume 200-500MB; with 24 cores the default
 # parallelism (24 threads) can spike to 10GB+. Cap at 4 threads.
+# This also controls Playwright workers (via PW_WORKERS env var) — each
+# Chromium+WASM instance uses 200-500MB, so 12 default workers = 6GB+.
 # Override with: TEST_THREADS=8 scripts/test.sh full
 # ---------------------------------------------------------------------------
 TEST_THREADS="${TEST_THREADS:-4}"
@@ -268,7 +270,7 @@ run_gui_fast() {
     spec_args+=("tests/gui/$spec")
   done
 
-  (cd "$APP_DIR" && npx playwright test "${spec_args[@]}") || rc=$?
+  (cd "$APP_DIR" && PW_WORKERS="$TEST_THREADS" npx playwright test "${spec_args[@]}") || rc=$?
 
   local elapsed
   elapsed=$(timer_elapsed "$tier_start")
@@ -289,7 +291,7 @@ run_gui_full() {
   local tier_start rc=0
   tier_start=$(timer_start)
 
-  (cd "$APP_DIR" && npx playwright test tests/gui/) || rc=$?
+  (cd "$APP_DIR" && PW_WORKERS="$TEST_THREADS" npx playwright test tests/gui/) || rc=$?
 
   local elapsed
   elapsed=$(timer_elapsed "$tier_start")

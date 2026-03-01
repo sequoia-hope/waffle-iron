@@ -4,6 +4,7 @@ export default defineConfig({
 	testDir: './tests',
 	timeout: 60000,
 	retries: 0,
+	workers: parseInt(process.env.PW_WORKERS || '4', 10),
 	outputDir: './test-results',
 	use: {
 		baseURL: 'http://localhost:5173',
