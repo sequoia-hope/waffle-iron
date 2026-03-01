@@ -275,3 +275,72 @@ fn two_bosses_on_same_face_sequential() {
         boss1_vol
     );
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+// Test 8 — Same sketch extruded opposite directions (mutual containment)
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Extrude the same sketch both +Z and -Z. The two bodies share an exact
+/// coplanar face at z=0 with opposite normals (anti-sense mutual containment).
+/// Auto-union should produce a single merged body spanning [-10, +10] in Z.
+///
+/// This is the core "mutual containment" bug case: without the fix, injecting
+/// each face's boundary into the other creates degenerate face division topology.
+#[test]
+fn rect_extrude_opposite_directions_union() {
+    let mut m = ModelBuilder::truck();
+
+    // Shared sketch at z=0
+    m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+
+    // Extrude +Z (creates body from z=0 to z=10)
+    m.extrude("up", "sk", 10.0).unwrap();
+    m.assert_has_solid("up").unwrap();
+
+    let up_mesh = m.tessellate("up").unwrap();
+    let up_vol = mesh_volume(&up_mesh);
+    assert!(
+        up_vol > 900.0,
+        "Upward extrude volume should be ~1000, got {:.0}",
+        up_vol
+    );
+
+    // Extrude -Z using the same sketch (creates body from z=0 to z=-10, auto-unions)
+    m.extrude_directed("down", "sk", 10.0, [0., 0., -1.], false)
+        .unwrap();
+    m.assert_has_solid("down").unwrap();
+
+    let down_mesh = m.tessellate("down").unwrap();
+    let down_vol = mesh_volume(&down_mesh);
+
+    // Merged volume should be ~2000 (two 10×10×10 boxes)
+    assert!(
+        down_vol > up_vol * 1.5,
+        "Merged volume ({:.0}) should be significantly greater than single extrude ({:.0})",
+        down_vol,
+        up_vol
+    );
+
+    // Bounding box should span z=-10 to z=+10
+    let (down_min, down_max) = mesh_bounding_box(&down_mesh);
+    assert!(
+        down_min[2] < -8.0,
+        "Merged body z_min ({:.1}) should be near -10",
+        down_min[2]
+    );
+    assert!(
+        down_max[2] > 8.0,
+        "Merged body z_max ({:.1}) should be near +10",
+        down_max[2]
+    );
+
+    // Euler characteristic: merged box should have chi=2
+    let (v, e, f) = m.topology_counts("down").unwrap();
+    let chi = v as i64 - e as i64 + f as i64;
+    assert_eq!(
+        chi, 2,
+        "Merged body Euler chi should be 2, got {} (V={}, E={}, F={})",
+        chi, v, e, f
+    );
+}
