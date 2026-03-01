@@ -113,14 +113,28 @@ GUI_FAST_SPECS=(
 )
 
 # ---------------------------------------------------------------------------
-# Concurrency — limit parallel tests to avoid OOM from boolean cascades.
-# Each boolean cascade test can consume 200-500MB; with 24 cores the default
-# parallelism (24 threads) can spike to 10GB+. Cap at 4 threads.
-# This also controls Playwright workers (via PW_WORKERS env var) — each
-# Chromium+WASM instance uses 200-500MB, so 12 default workers = 6GB+.
-# Override with: TEST_THREADS=8 scripts/test.sh full
+# Concurrency — maximize parallelism within memory safety bounds.
+# Each boolean cascade test: 200-500MB. Each Chromium+WASM worker: 200-500MB.
+# Default 8 threads/workers ≈ 8GB peak. Override: TEST_THREADS=12 scripts/test.sh full
 # ---------------------------------------------------------------------------
-TEST_THREADS="${TEST_THREADS:-4}"
+TEST_THREADS="${TEST_THREADS:-8}"
+
+# ---------------------------------------------------------------------------
+# Memory guard — prevent test processes from triggering system-wide OOM.
+# Uses prlimit to cap virtual address space for child processes.
+# Reserve ~10GB for Claude + OS, allow tests to use the rest.
+# Set MEM_LIMIT_GB=0 to disable.
+# ---------------------------------------------------------------------------
+MEM_LIMIT_GB="${MEM_LIMIT_GB:-80}"
+
+mem_guard() {
+  if [[ "$MEM_LIMIT_GB" -gt 0 ]] && command -v prlimit &>/dev/null; then
+    local bytes=$(( MEM_LIMIT_GB * 1073741824 ))
+    prlimit --as="$bytes" -- "$@"
+  else
+    "$@"
+  fi
+}
 
 # ---------------------------------------------------------------------------
 # State
@@ -155,7 +169,7 @@ run_cargo_test() {
   local start rc=0
   start=$(timer_start)
 
-  cargo test -p "$crate" "$@" -- --test-threads="$TEST_THREADS" || rc=$?
+  mem_guard cargo test -p "$crate" "$@" -- --test-threads="$TEST_THREADS" || rc=$?
 
   local elapsed
   elapsed=$(timer_elapsed "$start")
@@ -173,7 +187,7 @@ run_cargo_test_filter() {
   local start rc=0
   start=$(timer_start)
 
-  cargo test -p "$crate" -- "$filter" --test-threads="$TEST_THREADS" || rc=$?
+  mem_guard cargo test -p "$crate" -- "$filter" --test-threads="$TEST_THREADS" || rc=$?
 
   local elapsed
   elapsed=$(timer_elapsed "$start")
@@ -191,7 +205,7 @@ run_cargo_test_binary() {
   local start rc=0
   start=$(timer_start)
 
-  cargo test -p "$crate" --test "$binary" -- --test-threads="$TEST_THREADS" || rc=$?
+  mem_guard cargo test -p "$crate" --test "$binary" -- --test-threads="$TEST_THREADS" || rc=$?
 
   local elapsed
   elapsed=$(timer_elapsed "$start")
@@ -270,7 +284,7 @@ run_gui_fast() {
     spec_args+=("tests/gui/$spec")
   done
 
-  (cd "$APP_DIR" && PW_WORKERS="$TEST_THREADS" npx playwright test "${spec_args[@]}") || rc=$?
+  (cd "$APP_DIR" && PW_WORKERS="$TEST_THREADS" mem_guard npx playwright test "${spec_args[@]}") || rc=$?
 
   local elapsed
   elapsed=$(timer_elapsed "$tier_start")
@@ -291,7 +305,7 @@ run_gui_full() {
   local tier_start rc=0
   tier_start=$(timer_start)
 
-  (cd "$APP_DIR" && PW_WORKERS="$TEST_THREADS" npx playwright test tests/gui/) || rc=$?
+  (cd "$APP_DIR" && PW_WORKERS="$TEST_THREADS" mem_guard npx playwright test tests/gui/) || rc=$?
 
   local elapsed
   elapsed=$(timer_elapsed "$tier_start")
@@ -318,7 +332,7 @@ run_assay_quick() {
   # Box-box property tests with reduced case count
   local start rc=0
   start=$(timer_start)
-  PROPTEST_CASES=5 cargo test -p test-harness --test assay_box_box -- --test-threads="$TEST_THREADS" || rc=$?
+  PROPTEST_CASES=5 mem_guard cargo test -p test-harness --test assay_box_box -- --test-threads="$TEST_THREADS" || rc=$?
   local elapsed
   elapsed=$(timer_elapsed "$start")
   if [[ $rc -eq 0 ]]; then
@@ -364,7 +378,7 @@ run_assay_deep() {
 
   start=$(timer_start)
   rc=0
-  PROPTEST_CASES=100 cargo test -p test-harness --test assay_box_box -- --test-threads="$TEST_THREADS" || rc=$?
+  PROPTEST_CASES=100 mem_guard cargo test -p test-harness --test assay_box_box -- --test-threads="$TEST_THREADS" || rc=$?
   local elapsed
   elapsed=$(timer_elapsed "$start")
   if [[ $rc -eq 0 ]]; then
@@ -375,7 +389,7 @@ run_assay_deep() {
 
   start=$(timer_start)
   rc=0
-  PROPTEST_CASES=50 cargo test -p test-harness --test assay_determinism -- --test-threads="$TEST_THREADS" || rc=$?
+  PROPTEST_CASES=50 mem_guard cargo test -p test-harness --test assay_determinism -- --test-threads="$TEST_THREADS" || rc=$?
   elapsed=$(timer_elapsed "$start")
   if [[ $rc -eq 0 ]]; then
     pass "assay_determinism (50 cases, ${elapsed}s)"
