@@ -134,7 +134,15 @@ export class EngineBridge {
 		if (msg.type === 'ModelUpdated') summary.meshCount = msg.meshes?.length ?? 0;
 		if (msg.type === 'SketchSolved') { summary.dof = msg.dof; summary.status = msg.status; }
 		if (msg.type === 'Error') summary.message = msg.message;
+		if (msg.needsRestart) summary.needsRestart = true;
 		log('engine', `Recv: ${msg.type}`, summary);
+
+		// If the worker signals a crash recovery, log it prominently.
+		// The worker auto-restarts the WASM module, so we just need to
+		// inform the user that the operation failed but the engine recovered.
+		if (msg.needsRestart) {
+			log('error', 'Engine crashed and could not auto-restart. Subsequent operations may fail.');
+		}
 
 		switch (msg.type) {
 			case 'ModelUpdated':

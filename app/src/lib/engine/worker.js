@@ -36,6 +36,7 @@ async function loadSlvsFactory() {
  */
 async function initEngine(wasmUrl) {
 	try {
+		lastWasmUrl = wasmUrl;
 		const wasm = await import(/* @vite-ignore */ wasmUrl);
 		await wasm.default();
 		wasm.init();
@@ -60,8 +61,16 @@ async function initEngine(wasmUrl) {
 	}
 }
 
+/** URL used for WASM module init — stored for crash recovery re-init. */
+let lastWasmUrl = '';
+
 /**
  * Process a UiToEngine message and return the EngineToUi response.
+ *
+ * If the WASM module traps (e.g., `unreachable` from an uncaught panic),
+ * the module is marked dead and a `needsRestart` flag is set so the bridge
+ * can auto-reinitialize the worker.
+ *
  * @param {object} msg
  * @returns {object}
  */
@@ -70,7 +79,8 @@ function processMessage(msg) {
 		return {
 			type: 'Error',
 			message: 'Engine not initialized',
-			feature_id: null
+			feature_id: null,
+			needsRestart: true
 		};
 	}
 
@@ -79,6 +89,19 @@ function processMessage(msg) {
 		const jsonOutput = wasmModule.process_message(jsonInput);
 		return JSON.parse(jsonOutput);
 	} catch (err) {
+		// Detect WASM module death — RuntimeError or "unreachable" means the
+		// module's memory is corrupted and cannot accept further calls.
+		if (err instanceof WebAssembly.RuntimeError ||
+			err.message?.includes('unreachable')) {
+			console.error('WASM module crashed, marking for restart:', err.message);
+			wasmModule = null;
+			return {
+				type: 'Error',
+				message: `Engine crashed: ${err.message}. Restarting...`,
+				feature_id: null,
+				needsRestart: true
+			};
+		}
 		return {
 			type: 'Error',
 			message: `Engine error: ${err.message}`,
@@ -232,6 +255,22 @@ self.onmessage = async function (event) {
 	}
 
 	const response = processMessage(msg);
+
+	// If the WASM module crashed, try to auto-restart before responding
+	if (response.needsRestart && lastWasmUrl) {
+		console.log('Auto-restarting WASM module after crash...');
+		try {
+			const wasm = await import(/* @vite-ignore */ lastWasmUrl);
+			await wasm.default();
+			wasm.init();
+			wasmModule = wasm;
+			console.log('WASM module restarted successfully');
+			response.message = `Engine recovered: ${response.message}`;
+			response.needsRestart = false;
+		} catch (restartErr) {
+			console.error('WASM module restart failed:', restartErr.message);
+		}
+	}
 
 	if (response.type === 'ModelUpdated') {
 		const { meshes, transferables } = collectMeshes();
