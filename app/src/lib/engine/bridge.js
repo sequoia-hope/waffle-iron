@@ -137,11 +137,11 @@ export class EngineBridge {
 		if (msg.needsRestart) summary.needsRestart = true;
 		log('engine', `Recv: ${msg.type}`, summary);
 
-		// If the worker signals a crash recovery, log it prominently.
-		// The worker auto-restarts the WASM module, so we just need to
-		// inform the user that the operation failed but the engine recovered.
+		// If the worker signals a crash recovery, log it prominently and
+		// notify the error handler so the store can reset engineReady.
 		if (msg.needsRestart) {
 			log('error', 'Engine crashed and could not auto-restart. Subsequent operations may fail.');
+			if (this._onError) this._onError({ message: 'Engine crashed', needsRestart: true });
 		}
 
 		switch (msg.type) {

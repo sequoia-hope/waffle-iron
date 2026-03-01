@@ -1205,6 +1205,13 @@ fn solid_max_extent(solid: &Solid) -> f64 {
     dx.max(dy).max(dz).max(1e-10)
 }
 
+/// Maximum number of cascade attempts on WASM before bailing out.
+/// WASM stack is smaller than native (8MB+), so deep recursive cascades
+/// risk stack overflow that emits `unreachable` which `catch_unwind`
+/// cannot catch. 3 attempts covers the direct attempt plus 2 perturbations.
+#[cfg(target_arch = "wasm32")]
+const MAX_WASM_CASCADE_ATTEMPTS: u32 = 3;
+
 /// Try a boolean operation with multi-axis perturbation retry.
 ///
 /// Attempts the operation directly first. If it returns None, detects all
@@ -1381,6 +1388,12 @@ pub fn try_boolean_with_perturbation(
                         _attempt_count,
                         _perturb_start.elapsed().as_secs_f64(),
                     );
+                    return Err(last_err);
+                }
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                if _attempt_count > MAX_WASM_CASCADE_ATTEMPTS {
                     return Err(last_err);
                 }
             }
@@ -1700,6 +1713,12 @@ pub fn try_boolean_with_perturbation(
         "[perturbation] EXHAUSTED all {} attempts in {:.1}s",
         _attempt_count,
         _perturb_start.elapsed().as_secs_f64(),
+    );
+    #[cfg(all(debug_assertions, target_arch = "wasm32"))]
+    eprintln!(
+        "[perturbation] EXHAUSTED all {} attempts (WASM limit={})",
+        _attempt_count,
+        MAX_WASM_CASCADE_ATTEMPTS,
     );
     Err(last_err)
 }

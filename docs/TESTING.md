@@ -111,6 +111,59 @@ Results are saved to:
 
 These files are gitignored and not committed.
 
+## WASM Crash Detection in GUI Tests
+
+### `catch_unwind` works with panic=unwind
+
+The WASM binary is built with `cargo +nightly` and `-Zbuild-std`, which enables
+`panic=unwind` on `wasm32-unknown-unknown` (see `.cargo/config.toml`). This makes
+`std::panic::catch_unwind` actually catch truck boolean panics instead of killing the
+module. The boolean cascade in `healing.rs` wraps each attempt in `catch_unwind`, and
+a WASM-specific attempt limit (`MAX_WASM_CASCADE_ATTEMPTS`) prevents stack exhaustion.
+
+**Without nightly + -Zbuild-std**, `panic="abort"` is forced and `catch_unwind` is a
+no-op — panics emit WASM `unreachable` traps that kill the module. The worker has
+auto-restart logic as a safety net, but the primary defense is `catch_unwind`.
+
+### DO NOT use `engineReady` as a crash oracle
+
+`getState().engineReady` is set `true` once at engine init and is only reset when the
+bridge receives a `needsRestart: true` flag from the worker **and** the restart fails.
+After a successful auto-restart, it stays `true` even though all features were lost.
+This makes it unreliable for crash detection.
+
+### Use `collectCrashErrors` + `expectNoAnyCrash`
+
+Import from `helpers/state.js`:
+
+```js
+import { collectCrashErrors, expectNoAnyCrash } from './helpers/state.js';
+
+test('my test', async ({ waffle }) => {
+    const page = waffle.page;
+    const crashTracker = collectCrashErrors(page);  // Set up BEFORE operations
+
+    // ... do operations ...
+
+    expectNoAnyCrash(crashTracker);  // Fails on ANY crash (strict)
+});
+```
+
+`collectCrashErrors` returns a tracker with `all` (every crash) and `unrecovered`
+(crashes where restart failed) arrays. Use `expectNoAnyCrash` (strict, zero crashes)
+for new tests. `expectNoCrash` (tolerant of recovered crashes) exists for legacy tests.
+
+### Worker crash recovery flow (safety net)
+
+If `catch_unwind` ever fails (e.g., stack overflow beyond the 4MB limit):
+
+1. Boolean operation panics → WASM `unreachable` trap
+2. Worker catches `WebAssembly.RuntimeError` in `processMessage()`
+3. Worker fetches fresh JS module via blob URL (bypasses `import()` cache)
+4. Worker calls `default(wasmBinaryUrl)` to instantiate new WASM module
+5. Worker calls `init()` to create fresh engine state
+6. Response includes `needsRestart: false` (recovery succeeded) or `true` (failed)
+
 ## Measured Timings (2026-02-21)
 
 Baseline timing data from `profile-rust.sh` run:

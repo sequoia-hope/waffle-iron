@@ -1,0 +1,11 @@
+# WASM target configuration:
+# 1. panic=unwind: Makes catch_unwind actually work on WASM. Without this,
+#    wasm32-unknown-unknown forces panic="abort" and catch_unwind is a no-op,
+#    meaning any truck boolean panic kills the entire WASM module.
+#    Requires nightly + -Zbuild-std (precompiled std uses panic=abort).
+# 2. stack-size=4194304: Increase from default 1MB to 4MB for boolean cascade.
+[target.wasm32-unknown-unknown]
+rustflags = [
+    "-C", "panic=unwind",
+    "-C", "link-args=-z stack-size=4194304",
+]

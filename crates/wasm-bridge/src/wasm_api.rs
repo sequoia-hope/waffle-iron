@@ -105,13 +105,21 @@ pub fn process_message(json_input: &str) -> String {
 /// Get the current feature tree as JSON.
 ///
 /// Useful for the UI to query state without sending a full command.
+/// Wrapped in catch_unwind to prevent panics from crashing the WASM module
+/// if engine state is corrupted after a failed boolean cascade.
 #[wasm_bindgen]
 pub fn get_feature_tree() -> String {
-    ENGINE_STATE.with(|cell| {
-        let engine = cell.borrow();
-        let engine = engine.as_ref().expect("Engine not initialized.");
-        serde_json::to_string(&engine.state.engine.tree).unwrap_or_default()
-    })
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        ENGINE_STATE.with(|cell| {
+            let engine = cell.borrow();
+            let engine = match engine.as_ref() {
+                Some(e) => e,
+                None => return r#"{"features":[],"active_index":null}"#.to_string(),
+            };
+            serde_json::to_string(&engine.state.engine.tree).unwrap_or_default()
+        })
+    }))
+    .unwrap_or_else(|_| r#"{"features":[],"active_index":null}"#.to_string())
 }
 
 /// Get mesh data for a specific feature by index.
@@ -120,31 +128,38 @@ pub fn get_feature_tree() -> String {
 /// For high-performance rendering, the web worker should use the
 /// `get_mesh_vertices`, `get_mesh_normals`, and `get_mesh_indices`
 /// functions instead, which return typed arrays directly.
+/// Wrapped in catch_unwind to prevent panics from crashing the WASM module.
 #[wasm_bindgen]
 pub fn get_mesh_json(feature_index: usize) -> String {
-    ENGINE_STATE.with(|cell| {
-        let engine = cell.borrow();
-        let engine = engine.as_ref().expect("Engine not initialized.");
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        ENGINE_STATE.with(|cell| {
+            let engine = cell.borrow();
+            let engine = match engine.as_ref() {
+                Some(e) => e,
+                None => return r#"{"error":"Engine not initialized"}"#.to_string(),
+            };
 
-        let results = &engine.state.engine.feature_results;
-        let features = &engine.state.engine.tree.features;
+            let results = &engine.state.engine.feature_results;
+            let features = &engine.state.engine.tree.features;
 
-        if feature_index >= features.len() {
-            return r#"{"error":"Feature index out of range"}"#.to_string();
-        }
+            if feature_index >= features.len() {
+                return r#"{"error":"Feature index out of range"}"#.to_string();
+            }
 
-        let feature_id = features[feature_index].id;
-        if let Some(result) = results.get(&feature_id) {
-            // Return the first output's mesh
-            for (_key, body) in &result.outputs {
-                if let Some(ref mesh) = body.mesh {
-                    return serde_json::to_string(mesh).unwrap_or_default();
+            let feature_id = features[feature_index].id;
+            if let Some(result) = results.get(&feature_id) {
+                // Return the first output's mesh
+                for (_key, body) in &result.outputs {
+                    if let Some(ref mesh) = body.mesh {
+                        return serde_json::to_string(mesh).unwrap_or_default();
+                    }
                 }
             }
-        }
 
-        r#"{"error":"No mesh for this feature"}"#.to_string()
-    })
+            r#"{"error":"No mesh for this feature"}"#.to_string()
+        })
+    }))
+    .unwrap_or_else(|_| r#"{"error":"Internal error"}"#.to_string())
 }
 
 /// Get mesh vertex positions as a Float32Array view into WASM memory.

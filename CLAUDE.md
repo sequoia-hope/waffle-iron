@@ -102,14 +102,29 @@ See `docs/TESTING.md` for tier definitions and how to add tests.
   (e.g., creating fixtures for constraint tests).
 - **Run `sketch-drawing-regression.spec.js` before every commit that touches
   sketch code.** It's the canary — if it fails, drawing is broken.
+- **WASM crash detection**: Use `collectCrashErrors(page)` + `expectNoAnyCrash()` from helpers/state.js.
+  NEVER use `getState().engineReady` as a crash oracle — it is not reliably reset on crash.
+  With panic=unwind enabled (nightly + -Zbuild-std), catch_unwind catches truck panics gracefully.
+  Use `expectNoAnyCrash` (strict, zero crashes) for new tests.
 
 ## WASM Rebuild Workflow
 
 After any Rust crate changes that affect the WASM bridge:
 
-1. Build: `wasm-pack build crates/wasm-bridge --target web --no-typescript -- --no-default-features`
-2. Copy to app: `cp crates/wasm-bridge/pkg/wasm_bridge{_bg.wasm,.js} app/static/pkg/`
-3. Verify dev server still works: `npm run dev` (port 8083)
+1. Build with nightly + build-std (required for panic=unwind on WASM):
+   ```
+   cargo +nightly build -p wasm-bridge --target wasm32-unknown-unknown --release --no-default-features -Zbuild-std
+   ```
+2. Generate JS bindings:
+   ```
+   wasm-bindgen target/wasm32-unknown-unknown/release/wasm_bridge.wasm --out-dir crates/wasm-bridge/pkg --target web --no-typescript
+   ```
+3. Copy to app: `cp crates/wasm-bridge/pkg/wasm_bridge{_bg.wasm,.js} app/static/pkg/`
+4. Verify dev server still works: `npm run dev` (port 8083)
+
+**Note**: `wasm-pack` cannot be used because it doesn't support `-Zbuild-std`. The two-step
+`cargo build` + `wasm-bindgen` process is required to enable `panic=unwind` on wasm32-unknown-unknown.
+See `.cargo/config.toml` for WASM target rustflags.
 
 Include the updated WASM bundle in the same commit as the Rust changes so the app stays in sync.
 

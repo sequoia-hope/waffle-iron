@@ -4,6 +4,68 @@
  */
 
 /**
+ * Set up crash error collection on a page.
+ * Call at the START of a test, before any operations.
+ * Monitors console.error and pageerror for WASM crash indicators.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @returns {{ all: string[], unrecovered: string[] }} Error arrays (mutated in-place)
+ */
+export function collectCrashErrors(page) {
+	const tracker = { all: [], unrecovered: [] };
+	let pendingCrash = false;
+	page.on('console', msg => {
+		if (msg.type() !== 'error') return;
+		const text = msg.text();
+		// Detect initial WASM crash
+		if (/WASM module crashed/i.test(text)) {
+			tracker.all.push(text);
+			pendingCrash = true;
+		}
+		// Detect successful recovery — clears the pending crash
+		if (/WASM module restarted successfully/i.test(text)) {
+			pendingCrash = false;
+		}
+		// Detect failed recovery
+		if (/restart failed/i.test(text)) {
+			tracker.unrecovered.push(text);
+			pendingCrash = false;
+		}
+	});
+	page.on('pageerror', err => {
+		tracker.all.push(err.message);
+		tracker.unrecovered.push(err.message);
+	});
+	return tracker;
+}
+
+/**
+ * Assert that no UNRECOVERED WASM crash errors occurred.
+ * Crashes that the engine auto-recovers from are acceptable (the boolean
+ * operation fails gracefully and the engine restarts).
+ * Only unrecoverable crashes (restart failed, page errors) are test failures.
+ *
+ * @param {{ all: string[], unrecovered: string[] }} tracker
+ */
+export function expectNoCrash(tracker) {
+	if (tracker.unrecovered.length > 0) {
+		throw new Error(`Unrecovered WASM crash:\n${tracker.unrecovered.join('\n')}`);
+	}
+}
+
+/**
+ * Assert that NO crashes occurred at all (not even recovered ones).
+ * Use this for operations that should never trigger a WASM panic.
+ *
+ * @param {{ all: string[], unrecovered: string[] }} tracker
+ */
+export function expectNoAnyCrash(tracker) {
+	if (tracker.all.length > 0) {
+		throw new Error(`WASM crash detected:\n${tracker.all.join('\n')}`);
+	}
+}
+
+/**
  * Check if sketch mode is currently active.
  * @param {import('@playwright/test').Page} page
  * @returns {Promise<boolean>}

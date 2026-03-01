@@ -12,12 +12,23 @@ export function get_edge_data(feature_index) {
     let deferred1_0;
     let deferred1_1;
     try {
-        const ret = wasm.get_edge_data(feature_index);
+        let ret;
+        __wbg_termination_guard();
+        try {
+            ret = wasm.get_edge_data(feature_index);;
+        } catch(e) {
+            __wbg_handle_catch(e);
+        }
         deferred1_0 = ret[0];
         deferred1_1 = ret[1];
         return getStringFromWasm0(ret[0], ret[1]);
     } finally {
-        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        __wbg_termination_guard();
+        try {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        } catch(e) {
+            __wbg_handle_catch(e);
+        }
     }
 }
 
@@ -31,7 +42,13 @@ export function get_edge_data(feature_index) {
  * @returns {Float32Array}
  */
 export function get_edge_vertices(feature_index) {
-    const ret = wasm.get_edge_vertices(feature_index);
+    let ret;
+    __wbg_termination_guard();
+    try {
+        ret = wasm.get_edge_vertices(feature_index);;
+    } catch(e) {
+        __wbg_handle_catch(e);
+    }
     return ret;
 }
 
@@ -51,12 +68,23 @@ export function get_face_data(feature_index) {
     let deferred1_0;
     let deferred1_1;
     try {
-        const ret = wasm.get_face_data(feature_index);
+        let ret;
+        __wbg_termination_guard();
+        try {
+            ret = wasm.get_face_data(feature_index);;
+        } catch(e) {
+            __wbg_handle_catch(e);
+        }
         deferred1_0 = ret[0];
         deferred1_1 = ret[1];
         return getStringFromWasm0(ret[0], ret[1]);
     } finally {
-        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        __wbg_termination_guard();
+        try {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        } catch(e) {
+            __wbg_handle_catch(e);
+        }
     }
 }
 
@@ -64,18 +92,31 @@ export function get_face_data(feature_index) {
  * Get the current feature tree as JSON.
  *
  * Useful for the UI to query state without sending a full command.
+ * Wrapped in catch_unwind to prevent panics from crashing the WASM module
+ * if engine state is corrupted after a failed boolean cascade.
  * @returns {string}
  */
 export function get_feature_tree() {
     let deferred1_0;
     let deferred1_1;
     try {
-        const ret = wasm.get_feature_tree();
+        let ret;
+        __wbg_termination_guard();
+        try {
+            ret = wasm.get_feature_tree();;
+        } catch(e) {
+            __wbg_handle_catch(e);
+        }
         deferred1_0 = ret[0];
         deferred1_1 = ret[1];
         return getStringFromWasm0(ret[0], ret[1]);
     } finally {
-        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        __wbg_termination_guard();
+        try {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        } catch(e) {
+            __wbg_handle_catch(e);
+        }
     }
 }
 
@@ -84,7 +125,13 @@ export function get_feature_tree() {
  * @returns {number}
  */
 export function get_mesh_count() {
-    const ret = wasm.get_mesh_count();
+    let ret;
+    __wbg_termination_guard();
+    try {
+        ret = wasm.get_mesh_count();;
+    } catch(e) {
+        __wbg_handle_catch(e);
+    }
     return ret >>> 0;
 }
 
@@ -96,7 +143,13 @@ export function get_mesh_count() {
  * @returns {Uint32Array}
  */
 export function get_mesh_indices(feature_index) {
-    const ret = wasm.get_mesh_indices(feature_index);
+    let ret;
+    __wbg_termination_guard();
+    try {
+        ret = wasm.get_mesh_indices(feature_index);;
+    } catch(e) {
+        __wbg_handle_catch(e);
+    }
     return ret;
 }
 
@@ -107,6 +160,7 @@ export function get_mesh_indices(feature_index) {
  * For high-performance rendering, the web worker should use the
  * `get_mesh_vertices`, `get_mesh_normals`, and `get_mesh_indices`
  * functions instead, which return typed arrays directly.
+ * Wrapped in catch_unwind to prevent panics from crashing the WASM module.
  * @param {number} feature_index
  * @returns {string}
  */
@@ -114,12 +168,23 @@ export function get_mesh_json(feature_index) {
     let deferred1_0;
     let deferred1_1;
     try {
-        const ret = wasm.get_mesh_json(feature_index);
+        let ret;
+        __wbg_termination_guard();
+        try {
+            ret = wasm.get_mesh_json(feature_index);;
+        } catch(e) {
+            __wbg_handle_catch(e);
+        }
         deferred1_0 = ret[0];
         deferred1_1 = ret[1];
         return getStringFromWasm0(ret[0], ret[1]);
     } finally {
-        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        __wbg_termination_guard();
+        try {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        } catch(e) {
+            __wbg_handle_catch(e);
+        }
     }
 }
 
@@ -131,7 +196,13 @@ export function get_mesh_json(feature_index) {
  * @returns {Float32Array}
  */
 export function get_mesh_normals(feature_index) {
-    const ret = wasm.get_mesh_normals(feature_index);
+    let ret;
+    __wbg_termination_guard();
+    try {
+        ret = wasm.get_mesh_normals(feature_index);;
+    } catch(e) {
+        __wbg_handle_catch(e);
+    }
     return ret;
 }
 
@@ -147,7 +218,13 @@ export function get_mesh_normals(feature_index) {
  * @returns {Float32Array}
  */
 export function get_mesh_vertices(feature_index) {
-    const ret = wasm.get_mesh_vertices(feature_index);
+    let ret;
+    __wbg_termination_guard();
+    try {
+        ret = wasm.get_mesh_vertices(feature_index);;
+    } catch(e) {
+        __wbg_handle_catch(e);
+    }
     return ret;
 }
 
@@ -161,7 +238,13 @@ export function get_mesh_vertices(feature_index) {
  * @returns {Uint32Array}
  */
 export function get_renderable_feature_indices() {
-    const ret = wasm.get_renderable_feature_indices();
+    let ret;
+    __wbg_termination_guard();
+    try {
+        ret = wasm.get_renderable_feature_indices();;
+    } catch(e) {
+        __wbg_handle_catch(e);
+    }
     return ret;
 }
 
@@ -171,7 +254,12 @@ export function get_renderable_feature_indices() {
  * Sets up panic hooks for better error messages and creates the engine state.
  */
 export function init() {
-    wasm.init();
+    __wbg_termination_guard();
+    try {
+        wasm.init();
+    } catch(e) {
+        __wbg_handle_catch(e);
+    }
 }
 
 /**
@@ -189,22 +277,40 @@ export function process_message(json_input) {
     try {
         const ptr0 = passStringToWasm0(json_input, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.process_message(ptr0, len0);
+        let ret;
+        __wbg_termination_guard();
+        try {
+            ret = wasm.process_message(ptr0, len0);;
+        } catch(e) {
+            __wbg_handle_catch(e);
+        }
         deferred2_0 = ret[0];
         deferred2_1 = ret[1];
         return getStringFromWasm0(ret[0], ret[1]);
     } finally {
-        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+        __wbg_termination_guard();
+        try {
+            wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+        } catch(e) {
+            __wbg_handle_catch(e);
+        }
     }
 }
 
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
-        __wbg___wbindgen_throw_be289d5034ed271b: function(arg0, arg1) {
-            throw new Error(getStringFromWasm0(arg0, arg1));
+        __wbg___wbindgen_panic_error_1bf6d8b40c6eefa1: function(arg0) {
+            const ret = new PanicError(arg0);
+            return ret;
         },
-        __wbg_error_7534b8e9a36f1ab4: function(arg0, arg1) {
+        __wbg___wbindgen_rethrow_5d3a9250cec92549: function(arg0) {
+            throw new WebAssembly.Exception(__wbindgen_wrapped_jstag, [arg0]);
+        },
+        __wbg___wbindgen_throw_6ddd609b62940d55: function(arg0, arg1) {
+            throw new WebAssembly.Exception(__wbindgen_wrapped_jstag, [new Error(getStringFromWasm0(arg0, arg1))]);
+        },
+        __wbg_error_a6fa202b58aa1cd3: function(arg0, arg1) {
             let deferred0_0;
             let deferred0_1;
             try {
@@ -212,40 +318,45 @@ function __wbg_get_imports() {
                 deferred0_1 = arg1;
                 console.error(getStringFromWasm0(arg0, arg1));
             } finally {
-                wasm.__wbindgen_free(deferred0_0, deferred0_1, 1);
+                __wbg_termination_guard();
+                try {
+                    wasm.__wbindgen_free(deferred0_0, deferred0_1, 1);
+                } catch(e) {
+                    __wbg_handle_catch(e);
+                }
             }
         },
-        __wbg_getRandomValues_9c5c1b115e142bb8: function() { return handleError(function (arg0, arg1) {
+        __wbg_getRandomValues_ef8a9e8b447216e2: function(arg0, arg1) {
             globalThis.crypto.getRandomValues(getArrayU8FromWasm0(arg0, arg1));
-        }, arguments); },
-        __wbg_getTime_1e3cd1391c5c3995: function(arg0) {
+        },
+        __wbg_getTime_1dad7b5386ddd2d9: function(arg0) {
             const ret = arg0.getTime();
             return ret;
         },
-        __wbg_length_1e8b0a6e52c08b9a: function(arg0) {
+        __wbg_length_27280eca2d70010e: function(arg0) {
             const ret = arg0.length;
             return ret;
         },
-        __wbg_new_0_73afc35eb544e539: function() {
+        __wbg_new_0_1dcafdf5e786e876: function() {
             const ret = new Date();
             return ret;
         },
-        __wbg_new_8a6f238a6ece86ea: function() {
+        __wbg_new_227d7c05414eb861: function() {
             const ret = new Error();
             return ret;
         },
-        __wbg_new_with_length_5c8e05184c8a2d70: function(arg0) {
+        __wbg_new_with_length_3437fa6f550bd3d8: function(arg0) {
             const ret = new Uint32Array(arg0 >>> 0);
             return ret;
         },
-        __wbg_new_with_length_63f2683cc2521026: function(arg0) {
+        __wbg_new_with_length_81c1c31d4432cb9f: function(arg0) {
             const ret = new Float32Array(arg0 >>> 0);
             return ret;
         },
-        __wbg_set_b2171b8c53f17490: function(arg0, arg1, arg2) {
+        __wbg_set_1be21701d704e71d: function(arg0, arg1, arg2) {
             arg0.set(getArrayU32FromWasm0(arg1, arg2));
         },
-        __wbg_stack_0ed75d68575b0f3c: function(arg0, arg1) {
+        __wbg_stack_3b0d974bbf31e44f: function(arg0, arg1) {
             const ret = arg1.stack;
             const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
             const len1 = WASM_VECTOR_LEN;
@@ -262,6 +373,11 @@ function __wbg_get_imports() {
             const ret = getArrayU32FromWasm0(arg0, arg1);
             return ret;
         },
+        __wbindgen_cast_0000000000000003: function(arg0, arg1) {
+            // Cast intrinsic for `Ref(String) -> Externref`.
+            const ret = getStringFromWasm0(arg0, arg1);
+            return ret;
+        },
         __wbindgen_init_externref_table: function() {
             const table = wasm.__wbindgen_externrefs;
             const offset = table.grow(4);
@@ -271,6 +387,8 @@ function __wbg_get_imports() {
             table.set(offset + 2, true);
             table.set(offset + 3, false);
         },
+        __wbindgen_jstag: WebAssembly.JSTag,
+        __wbindgen_wrapped_jstag: __wbindgen_wrapped_jstag,
     };
     return {
         __proto__: null,
@@ -278,10 +396,26 @@ function __wbg_get_imports() {
     };
 }
 
-function addToExternrefTable0(obj) {
-    const idx = wasm.__externref_table_alloc();
-    wasm.__wbindgen_externrefs.set(idx, obj);
-    return idx;
+const __wbindgen_wrapped_jstag = new WebAssembly.Tag({ parameters: ['externref'] });
+
+
+let __wbg_terminated_addr;
+
+
+function __wbg_termination_guard() {
+    __wbg_terminated_addr ??= wasm.__instance_terminated.value / 4;
+    if (getInt32ArrayMemory0()[__wbg_terminated_addr]) {
+        throw new Error('Module terminated');
+    }
+}
+
+
+function __wbg_handle_catch(e) {
+    if (e instanceof WebAssembly.Exception && e.is(__wbindgen_wrapped_jstag)) {
+        throw e.getArg(__wbindgen_wrapped_jstag, 0);
+    }
+    getInt32ArrayMemory0()[__wbg_terminated_addr] = 1;
+    throw e;
 }
 
 function getArrayF32FromWasm0(ptr, len) {
@@ -315,6 +449,14 @@ function getFloat32ArrayMemory0() {
     return cachedFloat32ArrayMemory0;
 }
 
+let cachedInt32ArrayMemory0 = null;
+function getInt32ArrayMemory0() {
+    if (cachedInt32ArrayMemory0 === null || cachedInt32ArrayMemory0.byteLength === 0) {
+        cachedInt32ArrayMemory0 = new Int32Array(wasm.memory.buffer);
+    }
+    return cachedInt32ArrayMemory0;
+}
+
 function getStringFromWasm0(ptr, len) {
     ptr = ptr >>> 0;
     return decodeText(ptr, len);
@@ -336,14 +478,10 @@ function getUint8ArrayMemory0() {
     return cachedUint8ArrayMemory0;
 }
 
-function handleError(f, args) {
-    try {
-        return f.apply(this, args);
-    } catch (e) {
-        const idx = addToExternrefTable0(e);
-        wasm.__wbindgen_exn_store(idx);
-    }
-}
+class PanicError extends Error {}
+Object.defineProperty(PanicError.prototype, 'name', {
+    value: PanicError.name,
+});
 
 function passStringToWasm0(arg, malloc, realloc) {
     if (realloc === undefined) {
@@ -417,6 +555,7 @@ function __wbg_finalize_init(instance, module) {
     wasmModule = module;
     cachedDataViewMemory0 = null;
     cachedFloat32ArrayMemory0 = null;
+    cachedInt32ArrayMemory0 = null;
     cachedUint32ArrayMemory0 = null;
     cachedUint8ArrayMemory0 = null;
     wasm.__wbindgen_start();

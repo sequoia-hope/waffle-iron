@@ -304,6 +304,10 @@ export async function initEngine() {
 	bridge.on('error', (msg) => {
 		lastError = msg.message;
 		statusMessage = `Error: ${msg.message}`;
+		if (msg.needsRestart) {
+			engineReady = false;
+			statusMessage = 'Engine crashed — restart failed. Reload the page.';
+		}
 	});
 
 	log('system', 'Engine init started');

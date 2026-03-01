@@ -256,14 +256,28 @@ self.onmessage = async function (event) {
 
 	const response = processMessage(msg);
 
-	// If the WASM module crashed, try to auto-restart before responding
+	// If the WASM module crashed, try to auto-restart before responding.
+	// The wasm-bindgen init function caches the internal `wasm` variable and
+	// returns early if set, so re-using `import()` + `default()` won't create
+	// a new instance after a crash. We must import a FRESH copy of the JS
+	// module via blob URL to bypass the module cache and get a clean `wasm`
+	// variable, then re-fetch and instantiate the WASM binary.
 	if (response.needsRestart && lastWasmUrl) {
 		console.log('Auto-restarting WASM module after crash...');
 		try {
-			const wasm = await import(/* @vite-ignore */ lastWasmUrl);
-			await wasm.default();
-			wasm.init();
-			wasmModule = wasm;
+			// Fetch the JS module as text and create a blob URL for a fresh import
+			const jsResp = await fetch(lastWasmUrl);
+			const jsText = await jsResp.text();
+			const blob = new Blob([jsText], { type: 'text/javascript' });
+			const blobUrl = URL.createObjectURL(blob);
+			const freshWasm = await import(/* @vite-ignore */ blobUrl);
+			URL.revokeObjectURL(blobUrl);
+			// Initialize with the default URL (will fetch .wasm relative to blob)
+			// Pass explicit wasm URL since blob URL can't resolve relative paths
+			const wasmBinaryUrl = lastWasmUrl.replace(/\.js$/, '_bg.wasm');
+			await freshWasm.default(wasmBinaryUrl);
+			freshWasm.init();
+			wasmModule = freshWasm;
 			console.log('WASM module restarted successfully');
 			response.message = `Engine recovered: ${response.message}`;
 			response.needsRestart = false;
