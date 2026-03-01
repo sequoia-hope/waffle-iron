@@ -1,16 +1,12 @@
 /**
- * WASM Panic Recovery — Extrude-on-Extrude Crash Fix
+ * WASM Panic Recovery — Extrude-on-Extrude Coplanar Boolean
  *
- * Verifies that the engine survives or gracefully recovers from boolean
- * operations that trigger truck panics (coplanar face degeneracies).
+ * Verifies that the engine correctly handles boolean operations with coplanar
+ * face degeneracies, including extrude-on-extrude with opposite directions.
  *
  * Reproduction: sketch a rectangle, extrude +Z, then extrude the same sketch
  * -Z. The two bodies share the exact sketch plane face. The auto-union boolean
- * encounters fully coplanar geometry which historically panicked in truck
- * internals, producing a WASM "unreachable" trap.
- *
- * Expected: either the boolean succeeds (ModelUpdated) or the engine returns
- * a recoverable Error. The engine must NOT crash permanently.
+ * must merge them into a single body spanning both directions.
  */
 import { test, expect } from './helpers/waffle-test.js';
 import {
@@ -79,7 +75,7 @@ test.describe('WASM panic recovery', () => {
 
 		// Step 3: Extrude same sketch in opposite direction (-Z)
 		// This triggers auto-union with fully coplanar shared face.
-		// The boolean may panic in truck internals — the engine must survive.
+		// The boolean may still fail via perturbation cascade — the engine must survive.
 		await applyExtrude(page, 10, { flipDirection: true });
 
 		// Wait for the engine to process — either success or error

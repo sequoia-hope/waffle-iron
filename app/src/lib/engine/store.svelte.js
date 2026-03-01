@@ -1979,14 +1979,14 @@ export async function applyBoolean(operation, targetFeatureId, toolFeatureId) {
 
 	const bodyA = {
 		kind: { type: 'Face' },
-		anchor: { type: 'Feature', feature_id: targetFeatureId },
+		anchor: { type: 'FeatureOutput', feature_id: targetFeatureId, output_key: { type: 'Main' } },
 		selector: { type: 'Role', role: { type: 'EndCapPositive' }, index: 0 },
 		policy: { type: 'BestEffort' }
 	};
 
 	const bodyB = {
 		kind: { type: 'Face' },
-		anchor: { type: 'Feature', feature_id: toolFeatureId },
+		anchor: { type: 'FeatureOutput', feature_id: toolFeatureId, output_key: { type: 'Main' } },
 		selector: { type: 'Role', role: { type: 'EndCapPositive' }, index: 0 },
 		policy: { type: 'BestEffort' }
 	};

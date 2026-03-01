@@ -76,7 +76,7 @@
 		const p = vertex.position;
 		return {
 			kind: { type: 'Vertex' },
-			anchor: { type: 'Feature', feature_id: vertex.featureId },
+			anchor: { type: 'FeatureOutput', feature_id: vertex.featureId, output_key: { type: 'Main' } },
 			selector: {
 				type: 'Position',
 				x: Math.round(p.x * 1e6) / 1e6,
