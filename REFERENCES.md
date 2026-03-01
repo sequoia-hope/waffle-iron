@@ -9,6 +9,10 @@ Technical references for B-rep kernel development, boolean operations, and compu
 **Access**: Free HTML hyperbook at MIT:
 https://web.mit.edu/hyperbook/Patrikalakis-Maekawa-Cho/
 
+**Local copy**: `docs/references/patrikalakis-shape-interrogation.txt` (10,940 lines, full text extraction from 246 HTML pages)
+
+**Fetch script**: `scripts/fetch-patrikalakis.sh` — re-run to update
+
 **Key chapters for our work**:
 - **Chapter 5: Intersection Problems** — Surface-surface intersection algorithms (lattice, marching, subdivision methods). This is our #1 reference for improving truck's intersection curve computation. Covers all cases: parametric/parametric, parametric/implicit, implicit/implicit.
 - **Chapter 6: Differential Geometry of Intersection Curves** — Properties of curves formed by intersecting surfaces. Needed for accurate IC edge representation (our NURBS arc healing work extends from this).
@@ -32,7 +36,9 @@ https://web.mit.edu/hyperbook/Patrikalakis-Maekawa-Cho/
 - **Chapter 4: Robust and Error-Free Geometric Operations** (pp. 111-153) — Floating-point arithmetic pitfalls, geometric failures, conditioning. Directly relevant to our tolerance management.
 - **Chapter 5: Representation of Curved Edges and Faces** (pp. 155+) — Parametric curves/surfaces, NURBS, trimmed patches.
 
-**How to use**: Download the PDF once, extract text with `pdftotext`. For targeted reading, use page ranges: `pdftotext input.pdf output.txt -f 67 -l 110` for Chapter 3.
+**Local copy**: `docs/references/hoffmann-geometric-solid-modeling.txt` (15,554 lines, full text extraction)
+
+**How to use**: For targeted reading, use page ranges: `pdftotext input.pdf output.txt -f 67 -l 110` for Chapter 3.
 
 ### 3. OpenCascade Boolean Operations Documentation
 
@@ -65,6 +71,8 @@ https://dev.opencascade.org/doc/overview/html/specification__boolean_operations.
 
 **Access**: Free PDF:
 https://people.eecs.berkeley.edu/~jrs/papers/robustr.pdf
+
+**Local copy**: `docs/references/shewchuk-adaptive-predicates-1997.txt` (4,727 lines, full text extraction)
 
 **Rust implementation**: `robust` crate (https://github.com/georust/robust) — already used in our `robust_classify.rs`.
 
@@ -154,6 +162,8 @@ These references operate on triangle meshes rather than NURBS B-rep, but their c
 
 **Access**: Free PDF:
 https://igl.ethz.ch/projects/winding-number/robust-inside-outside-segmentation-using-generalized-winding-numbers-siggraph-2013-jacobson-et-al.pdf
+
+**Local copy**: `docs/references/jacobson-winding-numbers-2013.txt` (836 lines, text extraction)
 
 **Citation**: ACM Transactions on Graphics 32(4):33:1–33:12, 2013 (SIGGRAPH).
 
@@ -245,6 +255,8 @@ ACM: https://dl.acm.org/doi/10.1145/3744642
 **Access**: Free PDF:
 https://www.graphics.rwth-aachen.de/media/papers/339/ember_exact_mesh_booleans_via_efficient_and_robust_local_arrangements.pdf
 
+**Local copy**: `docs/references/trettner-ember-2022.txt` (1,110 lines, text extraction)
+
 **Citation**: ACM TOG 41(4):39, 2022 (SIGGRAPH).
 
 **Relevance**: Plane-based representation + homogeneous integer coordinates for exactness. Adaptive recursive subdivision instead of global acceleration structure. Shows exact booleans can avoid building a complete global arrangement (early-out termination).
@@ -279,15 +291,22 @@ http://gamma.cs.unc.edu/ESOLID/keyser02.pdf
 
 **Project page**: http://www.cs.unc.edu/~geom/ESOLID/
 
+**Local copy**: `docs/references/keyser-esolid-2004.txt` (832 lines, text extraction)
+
 **Citation**: Keyser, J., Culver, T., Foskey, M., Krishnan, S., Manocha, D. "ESOLID—A System for Exact Boundary Evaluation." Computer-Aided Design 36(2):175–193, 2004.
 
 **Relevance**: Exact boolean operations on LOW-DEGREE CURVED solids (quadrics, tori, cylinders — the primitives in mechanical CAD). Uses lazy evaluation, floating-point filters, and arbitrary-precision arithmetic. The lazy evaluation strategy (try cheap float first, escalate to exact only when needed) is the correct alternative to our perturbation cascade. This is the only reference that does exact booleans on curved B-rep (not tessellated meshes).
 
-### 14. Barton, Hanniel, Elber & Zayer — "Accelerated Robust Boolean Operations Based on Hybrid Representations" (2018)
+### 14. Sheng, Liu, Li, Fu, Ma & Wu — "Accelerated Robust Boolean Operations Based on Hybrid Representations" (2018)
 
-**Access**: https://www.sciencedirect.com/science/article/abs/pii/S0167839618300359
+**Access**: Free PDF:
+https://hongbofu.people.ust.hk/doc/Accelerated_robust_Boolean_operations_CAGD18.pdf
 
-**Citation**: Computer Aided Geometric Design 64:36–49, 2018.
+Also: https://www.sciencedirect.com/science/article/abs/pii/S0167839618300359
+
+**Local copy**: `docs/references/sheng-accelerated-robust-booleans-2018.txt` (1,148 lines, text extraction)
+
+**Citation**: Sheng, B., Liu, B., Li, P., Fu, H., Ma, L., Wu, E. "Accelerated Robust Boolean Operations Based on Hybrid Representations." Computer Aided Geometric Design 64:36–49, 2018.
 
 **Relevance**: Hybrid approach combining NURBS (for precision) with mesh (for robustness). Uses exact predicates on mesh representation to guide decisions on the NURBS representation. This is the architecture truck should aspire to — maintain exact topological decisions while using NURBS geometry.
 
@@ -323,16 +342,35 @@ https://ewcg2005.win.tue.nl/Proceedings/36.pdf
 
 **Relevance**: Deep dive on Euler operators and half-edge data structures. Proves that Euler operators form a complete set of modeling primitives for manifold solids. Relevant if we restructure truck's topology layer. The Euler operator approach ensures that every topological operation preserves manifoldness — which is what our `finalize_boolean_shell` struggles with.
 
-### 17. Requicha & Voelcker — "Boolean Operations in Solid Modeling" (1985)
+### 17. Requicha & Voelcker — "Boolean Operations in Solid Modelling: Boundary Evaluation and Merging Algorithms" (1985)
 
-**Citation**: Proceedings of the IEEE 73(1):30–44, 1985.
+**Access**: SciSpace (may require manual download in a browser):
+https://scispace.com/pdf/boolean-operations-in-solid-modeling-boundary-evaluation-and-9zz6lpq7h1.pdf
 
-**Relevance**: The theoretical framework for regularized boolean operations on solids. Defines regularized union/intersection/difference as closure-of-interior operations, guaranteeing the result is always a regular closed set (no dangling faces/edges). This is the mathematical reason WHY boolean results should be manifold. When `finalize_boolean_shell` produces shells with singular vertices, it's because the regularization step is failing.
+Fallback (scanned copy, no text layer): University of Rochester institutional repository:
+https://urresearch.rochester.edu/institutionalPublicationPublicView.action?institutionalItemId=990
+
+Also: https://ieeexplore.ieee.org/document/1457376/
+
+**Local copy**: `docs/references/requicha-voelcker-boolean-ops-1985.txt` (1,454 lines, text extraction from SciSpace PDF)
+
+**Citation**: Requicha, A.A.G. and Voelcker, H.B. "Boolean Operations in Solid Modelling: Boundary Evaluation and Merging Algorithms." Technical Memorandum TM-26, Production Automation Project, University of Rochester, January 1984. Published in Proceedings of the IEEE 73(1):30–44, 1985.
+
+**Relevance**: The theoretical framework for regularized boolean operations on solids. Describes boundary evaluation algorithms used by the PADL solid modelling systems. Introduces the concepts of set membership classification and neighborhood manipulation. Defines regularized union/intersection/difference as closure-of-interior operations, guaranteeing the result is always a regular closed set (no dangling faces/edges). This is the mathematical reason WHY boolean results should be manifold. When `finalize_boolean_shell` produces shells with singular vertices, it's because the regularization step is failing.
+
+**Key chapters**:
+- **Ch. 1**: Introduction — solid modelling, boolean operations, computational problems
+- **Ch. 2**: Set Membership Classification — definitions, combining classifications, representing/combining neighborhoods, divide-and-conquer paradigm for CSG, classification algorithms for BReps
+- **Ch. 3**: Boundary Evaluation and Merging — generate-and-test paradigm for faces and edges, efficiency improvements, survey of known approaches
+- **Ch. 4**: Summary and Concluding Remarks
+- **Ch. 5**: Acknowledgements and Historical Notes
 
 ### 18. Bernstein & Fussell — "Fast, Exact, Linear Booleans" (2009)
 
 **Access**: Free PDF:
 http://www.gilbertbernstein.org/resources/booleans2009.pdf
+
+**Local copy**: `docs/references/bernstein-fast-exact-booleans-2009.txt` (748 lines, text extraction)
 
 **Citation**: Computer Graphics Forum 28(5):1269–1278, 2009 (SGP).
 
@@ -342,6 +380,8 @@ http://www.gilbertbernstein.org/resources/booleans2009.pdf
 
 **Access**: Free PDF (via Springer):
 https://link.springer.com/content/pdf/10.1007/PL00009400.pdf
+
+**Local copy**: `docs/references/devillers-preparata-arithmetic-filters-1998.txt` (1,315 lines, text extraction)
 
 **Citation**: Devillers, O. and Preparata, F.P. Discrete & Computational Geometry 20:523–547, 1998.
 
@@ -385,6 +425,35 @@ https://aaltodoc.aalto.fi/server/api/core/bitstreams/03d44db1-43a8-458d-8e13-731
 
 **Relevance**: A **Rust** implementation of mesh boolean operations. Potentially more directly useful for integration with our Rust codebase than C++/CGAL implementations. Discovered via survey of mesh boolean implementations.
 
+### 22. Sullivan — "Curves of Finite Total Curvature" (2006/2008)
+
+**Access**: Free PDF:
+https://arxiv.org/abs/math/0606007
+
+**Local copy**: `docs/references/sullivan-finite-total-curvature-2008.txt` (1,112 lines, text extraction)
+
+**Citation**: Sullivan, J.M. "Curves of Finite Total Curvature." In *Discrete Differential Geometry*, Oberwolfach Seminars 38, Birkhauser, 2008. 25 pages, 4 figures.
+
+**MSC**: 53A04 (Primary); 57M25, 53C65, 26A45 (Secondary).
+
+**Relevance**: Develops Milnor's framework for curves of finite total curvature, a class that encompasses both smooth and polygonal curves and bridges discrete and differential geometry. Covers theorems by Fary/Milnor, Schur, Chakerian, and Wienholtz. Natural for variational problems and geometric knot theory. Relevant to our tessellation and edge representation — understanding how curvature behaves across the smooth/discrete boundary informs NURBS-to-polyline approximation quality and error bounds for edge tessellation.
+
+### 23. Edelsbrunner & Harer — "Computational Topology: An Introduction" (2010)
+
+**Access**: Free PDF:
+https://webhomes.maths.ed.ac.uk/~v1ranick/papers/edelcomp.pdf
+
+**Local copy**: `docs/references/edelsbrunner-harer-computational-topology.txt` (11,647 lines, full text extraction, 294 pages)
+
+**Citation**: Edelsbrunner, H. and Harer, J. *Computational Topology: An Introduction*. American Mathematical Society, 2010. Departments of Computer Science and Mathematics, Duke University.
+
+**Relevance**: Comprehensive textbook covering the mathematical foundations of computational topology — simplicial complexes, homology, Morse theory, persistent homology, and Reeb graphs. Directly relevant to our boolean pipeline's topological validity: simplicial complex theory (Ch. III) underpins mesh arrangement data structures; homology (Ch. IV) provides invariants for verifying shell closure (Euler characteristic, Betti numbers); Morse theory (Ch. VI) relates to critical point analysis on surfaces; persistent homology (Ch. VII) offers tools for robustness analysis of geometric features across scales.
+
+**Key chapters**:
+- **Part A** (Geometry): Graphs, Surfaces, Complexes (simplicial complexes, Delaunay, alpha complexes)
+- **Part B** (Topology): Homology, Duality (Poincaré, Alexander), Morse Theory (smooth/piecewise-linear)
+- **Part C** (Algorithms): Persistence, Reeb Graphs
+
 ## How to Reference During Development
 
 When working on boolean reliability or kernel improvements:
@@ -397,7 +466,7 @@ When working on boolean reliability or kernel improvements:
 6. **Use Jacobson (#7) + Zhou (#8)** for classification — winding numbers are the correct replacement for our ray-cast majority voting
 7. **Use Sugihara & Iri (#6)** for architectural guidance — topology-first algorithm design eliminates the need for perturbation
 8. **Use Edelsbrunner & Mucke (#5)** for degenerate handling — Simulation of Simplicity eliminates all degenerate-case special handling
-9. **Use ESOLID (#13) or Barton (#14)** for curved surface intersection — lazy exact evaluation for NURBS booleans
+9. **Use ESOLID (#13) or Sheng (#14)** for curved surface intersection — hybrid NURBS/mesh approach for robust booleans
 10. **Use Devillers & Preparata (#19)** for filter threshold computation — when adding new predicates or assessing whether floating-point is sufficient for a geometric decision
 11. **Use Levy (#10) or Cherchi (#9)** for exact constructions without CGAL — arithmetic expansions for both predicates and constructed intersection points
 12. **Use Barki (#12)** for co-refinement + radial-sort classification — the two-case reduction (orientable/non-orientable) simplifies classification logic
