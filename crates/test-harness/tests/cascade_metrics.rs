@@ -7,7 +7,7 @@
 //! (--test-threads=1) or as a single consolidated test to avoid races.
 //! We consolidate into a single test to guarantee serial execution.
 
-use kernel_fork::healing::{cascade_stats, reset_cascade_stats};
+use kernel_fork::healing::{cascade_stats, reset_cascade_stats, CascadeStats};
 use test_harness::ModelBuilder;
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -133,4 +133,155 @@ fn cascade_metrics_all() {
         "CM4: After reset + 1 op, total ({}) should be >= 1",
         s_final.total,
     );
+}
+
+// ── Strategy data collection ────────────────────────────────────────────
+
+fn print_stats(label: &str, stats: &CascadeStats) {
+    eprintln!("=== {} ===", label);
+    eprintln!(
+        "  total={} direct={} perturb={} euler_fb={} exhausted={}",
+        stats.total,
+        stats.direct_success,
+        stats.perturbation_success,
+        stats.euler_fallback,
+        stats.exhausted,
+    );
+    for s in &stats.strategies {
+        if s.attempts > 0 || s.successes > 0 {
+            eprintln!(
+                "  {:20} attempts={:3} successes={:3}",
+                s.strategy, s.attempts, s.successes,
+            );
+        }
+    }
+}
+
+/// CM5: Collect per-strategy usage data across representative boolean scenarios.
+/// This test exercises various geometry patterns and reports which strategies
+/// actually produce successful results. Run with --nocapture to see output.
+#[test]
+fn cascade_strategy_collection() {
+    // ── Scenario 1: Simple non-coplanar union ───────────────────────────
+    reset_cascade_stats();
+    {
+        let mut m = ModelBuilder::truck();
+        m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+            .unwrap();
+        m.extrude("cube", "sk", 10.0).unwrap();
+        m.rect_sketch("sk2", [0., 0., 10.], [0., 0., 1.], 3., 3., 7., 7.)
+            .unwrap();
+        m.extrude("boss", "sk2", 5.0).unwrap();
+        m.boolean_union("result", "cube", "boss").unwrap();
+    }
+    let s1 = cascade_stats();
+    print_stats("S1: non-coplanar union", &s1);
+    assert!(s1.direct_success >= 1, "S1: simple union should succeed directly");
+
+    // ── Scenario 2: Coplanar union (boss base exactly on cube top) ──────
+    reset_cascade_stats();
+    {
+        let mut m = ModelBuilder::truck();
+        m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+            .unwrap();
+        m.extrude("cube", "sk", 10.0).unwrap();
+        m.rect_sketch("sk2", [0., 0., 10.], [0., 0., 1.], 2., 2., 8., 8.)
+            .unwrap();
+        m.extrude("boss", "sk2", 5.0).unwrap();
+        m.boolean_union("result", "cube", "boss").unwrap();
+    }
+    let s2 = cascade_stats();
+    print_stats("S2: coplanar union", &s2);
+
+    // ── Scenario 3: Subtract (pocket cut) ───────────────────────────────
+    reset_cascade_stats();
+    {
+        let mut m = ModelBuilder::truck();
+        m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+            .unwrap();
+        m.extrude("cube", "sk", 10.0).unwrap();
+        m.rect_sketch("sk2", [0., 0., 10.], [0., 0., 1.], 2., 2., 8., 8.)
+            .unwrap();
+        m.extrude_cut("result", "sk2", 5.0).unwrap();
+    }
+    let s3 = cascade_stats();
+    print_stats("S3: pocket cut", &s3);
+
+    // ── Scenario 4: Edge-coincident cut ─────────────────────────────────
+    reset_cascade_stats();
+    {
+        let mut m = ModelBuilder::truck();
+        m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+            .unwrap();
+        m.extrude("cube", "sk", 10.0).unwrap();
+        // Cut tool shares one edge with cube top face
+        m.rect_sketch("sk2", [0., 0., 10.], [0., 0., 1.], 0., 0., 5., 5.)
+            .unwrap();
+        m.extrude_cut("result", "sk2", 5.0).unwrap();
+    }
+    let s4 = cascade_stats();
+    print_stats("S4: edge-coincident cut", &s4);
+
+    // ── Scenario 5: Chained booleans (2 sequential unions) ──────────────
+    reset_cascade_stats();
+    {
+        let mut m = ModelBuilder::truck();
+        m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+            .unwrap();
+        m.extrude("cube", "sk", 10.0).unwrap();
+        m.rect_sketch("b1sk", [0., 0., 10.], [0., 0., 1.], 1., 1., 4., 4.)
+            .unwrap();
+        m.extrude("b1", "b1sk", 3.0).unwrap();
+        m.boolean_union("m1", "cube", "b1").unwrap();
+        m.rect_sketch("b2sk", [0., 0., 10.], [0., 0., 1.], 6., 6., 9., 9.)
+            .unwrap();
+        m.extrude("b2", "b2sk", 3.0).unwrap();
+        m.boolean_union("m2", "m1", "b2").unwrap();
+    }
+    let s5 = cascade_stats();
+    print_stats("S5: chained unions", &s5);
+
+    // ── Scenario 6: Opposite-direction extrude (through-cut) ────────────
+    reset_cascade_stats();
+    {
+        let mut m = ModelBuilder::truck();
+        m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+            .unwrap();
+        m.extrude("cube", "sk", 10.0).unwrap();
+        // Cut from above, going through
+        m.rect_sketch("sk2", [0., 0., 15.], [0., 0., -1.], 3., 3., 7., 7.)
+            .unwrap();
+        m.extrude_cut("result", "sk2", 20.0).unwrap();
+    }
+    let s6 = cascade_stats();
+    print_stats("S6: through-cut", &s6);
+
+    // ── Summary ─────────────────────────────────────────────────────────
+    eprintln!("\n=== SUMMARY ===");
+    for (label, stats) in [
+        ("S1-noncoplanar", &s1),
+        ("S2-coplanar", &s2),
+        ("S3-pocket", &s3),
+        ("S4-edge-coin", &s4),
+        ("S5-chained", &s5),
+        ("S6-through", &s6),
+    ] {
+        let winning = if stats.direct_success > 0 {
+            "direct"
+        } else if stats.perturbation_success > 0 {
+            let winner = stats
+                .strategies
+                .iter()
+                .filter(|s| s.successes > 0 && s.strategy != "direct")
+                .map(|s| s.strategy)
+                .next()
+                .unwrap_or("unknown");
+            winner
+        } else if stats.euler_fallback > 0 {
+            "euler-fallback"
+        } else {
+            "EXHAUSTED"
+        };
+        eprintln!("  {:<16} winning={}", label, winning);
+    }
 }

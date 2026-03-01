@@ -7,7 +7,7 @@ pub mod truck_introspect;
 pub mod truck_kernel;
 pub mod types;
 
-pub use healing::{cascade_stats, reset_cascade_stats, CascadeStats};
+pub use healing::{cascade_stats, reset_cascade_stats, CascadeStats, Strategy, StrategyStats};
 pub use mock_kernel::MockKernel;
 pub use traits::*;
 pub use truck_introspect::TruckIntrospect;

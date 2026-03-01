@@ -27,13 +27,89 @@ const TOLERANCE: f64 = 1.0e-6;
 
 // ── Cascade instrumentation counters ──────────────────────────────────
 
+/// Number of distinct perturbation strategies in the cascade.
+const NUM_STRATEGIES: usize = 11;
+
+/// Strategy index for per-strategy counters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(usize)]
+pub enum Strategy {
+    Direct = 0,
+    ScaleExpand = 1,
+    CornerCoplanar = 2,
+    Composite = 3,
+    CoplanarDir = 4,
+    CylinderDir = 5,
+    Diagonal = 6,
+    AsymmScale = 7,
+    Cardinal = 8,
+    CardinalA = 9,
+    LargeFinal = 10,
+}
+
+impl Strategy {
+    /// Match a strategy label string to enum variant.
+    pub fn from_label(label: &str) -> Self {
+        match label {
+            "direct" => Self::Direct,
+            "scale-expand" => Self::ScaleExpand,
+            "corner-coplanar" | "corner-coplanar-neg" => Self::CornerCoplanar,
+            "composite" => Self::Composite,
+            "coplanar-dir" => Self::CoplanarDir,
+            "cylinder-dir" => Self::CylinderDir,
+            "diagonal" => Self::Diagonal,
+            "asymm-scale" => Self::AsymmScale,
+            "cardinal" => Self::Cardinal,
+            "cardinal-A" => Self::CardinalA,
+            "large-final" => Self::LargeFinal,
+            _ => Self::Direct, // fallback
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Direct => "direct",
+            Self::ScaleExpand => "scale-expand",
+            Self::CornerCoplanar => "corner-coplanar",
+            Self::Composite => "composite",
+            Self::CoplanarDir => "coplanar-dir",
+            Self::CylinderDir => "cylinder-dir",
+            Self::Diagonal => "diagonal",
+            Self::AsymmScale => "asymm-scale",
+            Self::Cardinal => "cardinal",
+            Self::CardinalA => "cardinal-A",
+            Self::LargeFinal => "large-final",
+        }
+    }
+
+    pub const ALL: [Strategy; NUM_STRATEGIES] = [
+        Self::Direct,
+        Self::ScaleExpand,
+        Self::CornerCoplanar,
+        Self::Composite,
+        Self::CoplanarDir,
+        Self::CylinderDir,
+        Self::Diagonal,
+        Self::AsymmScale,
+        Self::Cardinal,
+        Self::CardinalA,
+        Self::LargeFinal,
+    ];
+}
+
 struct CascadeCounters {
     total: AtomicU64,
     direct_success: AtomicU64,
     perturbation_success: AtomicU64,
     euler_fallback: AtomicU64,
     exhausted: AtomicU64,
+    /// Per-strategy success counts (chi=2 successes).
+    strategy_success: [AtomicU64; NUM_STRATEGIES],
+    /// Per-strategy attempt counts.
+    strategy_attempts: [AtomicU64; NUM_STRATEGIES],
 }
+
+const ZERO: AtomicU64 = AtomicU64::new(0);
 
 static CASCADE: CascadeCounters = CascadeCounters {
     total: AtomicU64::new(0),
@@ -41,7 +117,17 @@ static CASCADE: CascadeCounters = CascadeCounters {
     perturbation_success: AtomicU64::new(0),
     euler_fallback: AtomicU64::new(0),
     exhausted: AtomicU64::new(0),
+    strategy_success: [ZERO; NUM_STRATEGIES],
+    strategy_attempts: [ZERO; NUM_STRATEGIES],
 };
+
+/// Per-strategy statistics.
+#[derive(Debug, Clone)]
+pub struct StrategyStats {
+    pub strategy: &'static str,
+    pub attempts: u64,
+    pub successes: u64,
+}
 
 /// Snapshot of cascade outcome counters.
 pub struct CascadeStats {
@@ -50,6 +136,8 @@ pub struct CascadeStats {
     pub perturbation_success: u64,
     pub euler_fallback: u64,
     pub exhausted: u64,
+    /// Per-strategy breakdown.
+    pub strategies: Vec<StrategyStats>,
 }
 
 /// Read a snapshot of the global cascade counters.
@@ -60,6 +148,14 @@ pub fn cascade_stats() -> CascadeStats {
         perturbation_success: CASCADE.perturbation_success.load(Ordering::Relaxed),
         euler_fallback: CASCADE.euler_fallback.load(Ordering::Relaxed),
         exhausted: CASCADE.exhausted.load(Ordering::Relaxed),
+        strategies: Strategy::ALL
+            .iter()
+            .map(|s| StrategyStats {
+                strategy: s.label(),
+                attempts: CASCADE.strategy_attempts[*s as usize].load(Ordering::Relaxed),
+                successes: CASCADE.strategy_success[*s as usize].load(Ordering::Relaxed),
+            })
+            .collect(),
     }
 }
 
@@ -70,6 +166,10 @@ pub fn reset_cascade_stats() {
     CASCADE.perturbation_success.store(0, Ordering::Relaxed);
     CASCADE.euler_fallback.store(0, Ordering::Relaxed);
     CASCADE.exhausted.store(0, Ordering::Relaxed);
+    for i in 0..NUM_STRATEGIES {
+        CASCADE.strategy_success[i].store(0, Ordering::Relaxed);
+        CASCADE.strategy_attempts[i].store(0, Ordering::Relaxed);
+    }
 }
 
 /// Result of a healing pass.
@@ -1372,6 +1472,8 @@ pub fn try_boolean_with_perturbation(
                   label: &str|
      -> Result<Solid, truck_shapeops::BooleanStageError> {
         *attempt += 1;
+        let strat = Strategy::from_label(label);
+        CASCADE.strategy_attempts[strat as usize].fetch_add(1, Ordering::Relaxed);
         #[cfg(not(target_arch = "wasm32"))]
         let _t = std::time::Instant::now();
         // Catch panics from truck internals (e.g., "knot vector consists single value")
@@ -1424,23 +1526,18 @@ pub fn try_boolean_with_perturbation(
     // Macro to check Euler characteristic on a successful result and either
     // return immediately (chi=2) or store as fallback and continue cascade.
     macro_rules! check_result {
-        ($result:expr, direct) => {{
+        ($result:expr, $label:expr) => {{
             let chi_ok = $result.boundaries().iter().all(|shell| {
                 truck_shapeops::validate_euler_characteristic(shell).is_ok()
             });
+            let strat = Strategy::from_label($label);
             if chi_ok {
-                CASCADE.direct_success.fetch_add(1, Ordering::Relaxed);
-                return Ok($result);
-            } else {
-                *euler_fb.borrow_mut() = Some($result);
-            }
-        }};
-        ($result:expr, perturbation) => {{
-            let chi_ok = $result.boundaries().iter().all(|shell| {
-                truck_shapeops::validate_euler_characteristic(shell).is_ok()
-            });
-            if chi_ok {
-                CASCADE.perturbation_success.fetch_add(1, Ordering::Relaxed);
+                CASCADE.strategy_success[strat as usize].fetch_add(1, Ordering::Relaxed);
+                if $label == "direct" {
+                    CASCADE.direct_success.fetch_add(1, Ordering::Relaxed);
+                } else {
+                    CASCADE.perturbation_success.fetch_add(1, Ordering::Relaxed);
+                }
                 return Ok($result);
             } else {
                 *euler_fb.borrow_mut() = Some($result);
@@ -1485,7 +1582,7 @@ pub fn try_boolean_with_perturbation(
 
     // Try direct
     match try_op(effective_a, solid_b, &mut _attempt_count, "direct") {
-        Ok(result) => check_result!(result, direct),
+        Ok(result) => check_result!(result, "direct"),
         Err(e) => last_err = e,
     }
 
@@ -1542,7 +1639,7 @@ pub fn try_boolean_with_perturbation(
             check_timeout!();
             let scaled_b = scale_solid(solid_b, centroid, sf);
             match try_op(effective_a, &scaled_b, &mut _attempt_count, "scale-expand") {
-                Ok(result) => check_result!(result, perturbation),
+                Ok(result) => check_result!(result, "scale-expand"),
                 Err(e) => last_err = e,
             }
         }
@@ -1562,7 +1659,7 @@ pub fn try_boolean_with_perturbation(
                 &mut _attempt_count,
                 "corner-coplanar",
             ) {
-                Ok(result) => check_result!(result, perturbation),
+                Ok(result) => check_result!(result, "corner-coplanar"),
                 Err(e) => last_err = e,
             }
             check_timeout!();
@@ -1573,7 +1670,7 @@ pub fn try_boolean_with_perturbation(
                 &mut _attempt_count,
                 "corner-coplanar-neg",
             ) {
-                Ok(result) => check_result!(result, perturbation),
+                Ok(result) => check_result!(result, "corner-coplanar"),
                 Err(e) => last_err = e,
             }
         }
@@ -1591,7 +1688,7 @@ pub fn try_boolean_with_perturbation(
                     check_timeout!();
                     let perturbed_b = translate_solid(solid_b, composite_dir * eps);
                     match try_op(effective_a, &perturbed_b, &mut _attempt_count, "composite") {
-                        Ok(result) => check_result!(result, perturbation),
+                        Ok(result) => check_result!(result, "composite"),
                         Err(e) => last_err = e,
                     }
                 }
@@ -1609,7 +1706,7 @@ pub fn try_boolean_with_perturbation(
                     &mut _attempt_count,
                     "coplanar-dir",
                 ) {
-                    Ok(result) => check_result!(result, perturbation),
+                    Ok(result) => check_result!(result, "coplanar-dir"),
                     Err(e) => last_err = e,
                 }
             }
@@ -1632,7 +1729,7 @@ pub fn try_boolean_with_perturbation(
                 &mut _attempt_count,
                 "cylinder-dir",
             ) {
-                Ok(result) => check_result!(result, perturbation),
+                Ok(result) => check_result!(result, "cylinder-dir"),
                 Err(e) => last_err = e,
             }
         }
@@ -1659,7 +1756,7 @@ pub fn try_boolean_with_perturbation(
                 check_timeout!();
                 let perturbed_b = translate_solid(solid_b, *dir * eps);
                 match try_op(effective_a, &perturbed_b, &mut _attempt_count, "diagonal") {
-                    Ok(result) => check_result!(result, perturbation),
+                    Ok(result) => check_result!(result, "diagonal"),
                     Err(e) => last_err = e,
                 }
             }
@@ -1705,7 +1802,7 @@ pub fn try_boolean_with_perturbation(
                 },
             );
             match try_op(effective_a, &scaled_b, &mut _attempt_count, "asymm-scale") {
-                Ok(result) => check_result!(result, perturbation),
+                Ok(result) => check_result!(result, "asymm-scale"),
                 Err(e) => last_err = e,
             }
         }
@@ -1729,7 +1826,7 @@ pub fn try_boolean_with_perturbation(
             check_timeout!();
             let scaled_b = scale_solid(solid_b, centroid, sf);
             match try_op(effective_a, &scaled_b, &mut _attempt_count, "scale-expand") {
-                Ok(result) => check_result!(result, perturbation),
+                Ok(result) => check_result!(result, "scale-expand"),
                 Err(e) => last_err = e,
             }
         }
@@ -1753,7 +1850,7 @@ pub fn try_boolean_with_perturbation(
         check_timeout!();
         let perturbed_b = translate_solid(solid_b, *offset);
         match try_op(effective_a, &perturbed_b, &mut _attempt_count, "cardinal") {
-            Ok(result) => check_result!(result, perturbation),
+            Ok(result) => check_result!(result, "cardinal"),
             Err(e) => last_err = e,
         }
     }
@@ -1765,7 +1862,7 @@ pub fn try_boolean_with_perturbation(
         check_timeout!();
         let perturbed_a = translate_solid(effective_a, *offset);
         match try_op(&perturbed_a, solid_b, &mut _attempt_count, "cardinal-A") {
-            Ok(result) => check_result!(result, perturbation),
+            Ok(result) => check_result!(result, "cardinal-A"),
             Err(e) => last_err = e,
         }
     }
@@ -1791,7 +1888,7 @@ pub fn try_boolean_with_perturbation(
                 &mut _attempt_count,
                 "large-final",
             ) {
-                Ok(result) => check_result!(result, perturbation),
+                Ok(result) => check_result!(result, "large-final"),
                 Err(e) => last_err = e,
             }
         }
