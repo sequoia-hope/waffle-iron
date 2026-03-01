@@ -45,31 +45,54 @@ pub fn init() {
 /// Returns a JSON-serialized `EngineToUi` response.
 #[wasm_bindgen]
 pub fn process_message(json_input: &str) -> String {
-    let response = ENGINE_STATE.with(|cell| {
-        let mut engine = cell.borrow_mut();
-        let engine = engine
-            .as_mut()
-            .expect("Engine not initialized. Call init() first.");
+    // Wrap the entire dispatch + tessellation in catch_unwind so that
+    // panics deep in truck internals produce an error response instead of
+    // killing the WASM module with an `unreachable` trap.
+    // Requires `panic = "unwind"` in [profile.release] (see workspace Cargo.toml).
+    let response = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        ENGINE_STATE.with(|cell| {
+            let mut engine = cell.borrow_mut();
+            let engine = engine
+                .as_mut()
+                .expect("Engine not initialized. Call init() first.");
 
-        let msg: UiToEngine = match serde_json::from_str(json_input) {
-            Ok(msg) => msg,
-            Err(e) => {
-                return EngineToUi::Error {
-                    message: format!("Failed to parse message: {}", e),
-                    feature_id: None,
-                };
+            let msg: UiToEngine = match serde_json::from_str(json_input) {
+                Ok(msg) => msg,
+                Err(e) => {
+                    return EngineToUi::Error {
+                        message: format!("Failed to parse message: {}", e),
+                        feature_id: None,
+                    };
+                }
+            };
+
+            let response = dispatch::dispatch(&mut engine.state, msg, &mut engine.kernel);
+
+            // After dispatch, tessellate any solids that don't have mesh data yet
+            if matches!(response, EngineToUi::ModelUpdated { .. }) {
+                tessellate_missing_meshes(&mut engine.state, &mut engine.kernel);
             }
-        };
 
-        let response = dispatch::dispatch(&mut engine.state, msg, &mut engine.kernel);
+            response
+        })
+    }));
 
-        // After dispatch, tessellate any solids that don't have mesh data yet
-        if matches!(response, EngineToUi::ModelUpdated { .. }) {
-            tessellate_missing_meshes(&mut engine.state, &mut engine.kernel);
+    let response = match response {
+        Ok(r) => r,
+        Err(panic_info) => {
+            let msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                s.to_string()
+            } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "unknown internal error".to_string()
+            };
+            EngineToUi::Error {
+                message: format!("Internal error: {}", msg),
+                feature_id: None,
+            }
         }
-
-        response
-    });
+    };
 
     serde_json::to_string(&response).unwrap_or_else(|e| {
         format!(

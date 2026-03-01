@@ -31,3 +31,10 @@ truck-shapeops = { path = "vendor/truck/truck-shapeops" }
 truck-meshalgo = { path = "vendor/truck/truck-meshalgo" }
 truck-stepio = { path = "vendor/truck/truck-stepio" }
 truck-polymesh = { path = "vendor/truck/truck-polymesh" }
+
+# Require panic=unwind even in release builds so that catch_unwind works
+# in the WASM target. Without this, truck panics (e.g., "knot vector
+# consists single value") kill the entire WASM module instead of being
+# caught and converted to recoverable errors by the boolean cascade.
+[profile.release]
+panic = "unwind"
