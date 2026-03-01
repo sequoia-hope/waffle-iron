@@ -127,7 +127,9 @@
 	}
 
 	.status-right {
-		flex-shrink: 0;
+		flex-shrink: 1;
+		min-width: 0;
+		overflow: hidden;
 	}
 
 	.status-text {
@@ -147,10 +149,16 @@
 	.status-sketch {
 		opacity: 0.85;
 		color: #88bbff;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.status-selection, .status-rebuild {
 		opacity: 0.8;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.status-cursor {
@@ -162,6 +170,7 @@
 
 	.status-engine {
 		opacity: 0.7;
+		white-space: nowrap;
 	}
 
 	.status-dev-link {

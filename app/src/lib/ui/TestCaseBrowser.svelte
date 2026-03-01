@@ -303,4 +303,20 @@
 		border-color: var(--error, #f44747);
 		color: var(--error, #f44747);
 	}
+
+	@media (max-width: 768px) {
+		.test-case-browser {
+			width: 100%;
+			height: 60vh;
+			top: auto;
+			bottom: 0;
+			left: 0;
+			right: 0;
+			position: fixed;
+			border-radius: 12px 12px 0 0;
+			border-left: none;
+			border-top: 1px solid var(--border-color);
+			z-index: 150;
+		}
+	}
 </style>

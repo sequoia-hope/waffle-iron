@@ -82,12 +82,22 @@
 		}
 	}
 
+	function clampMenuPosition(x, y, menuWidth = 160, menuHeight = 200) {
+		const maxX = window.innerWidth - menuWidth - 8;
+		const maxY = window.innerHeight - menuHeight - 8;
+		return {
+			x: Math.min(x, Math.max(0, maxX)),
+			y: Math.min(y, Math.max(0, maxY))
+		};
+	}
+
 	function handleContextMenu(e, feature) {
 		e.preventDefault();
 		originContextMenu = null;
+		const pos = clampMenuPosition(e.clientX, e.clientY);
 		contextMenu = {
-			x: e.clientX,
-			y: e.clientY,
+			x: pos.x,
+			y: pos.y,
 			featureId: feature.id,
 			featureName: feature.name,
 			suppressed: feature.suppressed,
@@ -179,7 +189,8 @@
 		e.preventDefault();
 		e.stopPropagation();
 		contextMenu = null;
-		originContextMenu = { x: e.clientX, y: e.clientY, kind, id, visible };
+		const pos = clampMenuPosition(e.clientX, e.clientY);
+		originContextMenu = { x: pos.x, y: pos.y, kind, id, visible };
 	}
 
 	function handleShowAllPlanes() {

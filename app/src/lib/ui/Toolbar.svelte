@@ -58,6 +58,8 @@
 
 	// Portrait mode: collapse file/view actions into overflow menu
 	let showOverflow = $state(false);
+	let showConstraints = $state(false);
+	let showSketchTools = $state(false);
 
 	function toggleOverflow() {
 		showOverflow = !showOverflow;
@@ -271,29 +273,73 @@
 
 	{#if inSketch}
 		<!-- Sketch mode tools -->
-		<div class="toolbar-group">
-			{#each sketchTools as t}
+		{#if isMobile}
+			<!-- Mobile: sketch tools in dropdown -->
+			<div class="dropdown-container">
 				<button
-					class="toolbar-btn"
-					class:active={t.id !== 'construction' && tool === t.id}
-					disabled={!ready}
-					title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
-					data-testid="toolbar-btn-{t.id}"
-					onclick={() => t.id === 'construction' ? handleToggleConstruction() : setActiveTool(t.id)}
-				>{t.label}</button>
-			{/each}
-		</div>
+					class="toolbar-btn dropdown-trigger"
+					data-testid="toolbar-btn-sketch-tools-dropdown"
+					onclick={() => { showSketchTools = !showSketchTools; showConstraints = false; }}
+				>Tools ▾</button>
+				{#if showSketchTools}
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div class="dropdown-backdrop" onclick={() => showSketchTools = false}></div>
+					<div class="dropdown-panel" data-testid="sketch-tools-dropdown">
+						<div class="dropdown-grid">
+							{#each sketchTools as t}
+								<button
+									class="toolbar-btn"
+									class:active={t.id !== 'construction' && tool === t.id}
+									disabled={!ready}
+									title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
+									data-testid="toolbar-btn-{t.id}"
+									onclick={() => { t.id === 'construction' ? handleToggleConstruction() : setActiveTool(t.id); showSketchTools = false; }}
+								>{t.label}</button>
+							{/each}
+						</div>
+					</div>
+				{/if}
+			</div>
+		{:else}
+			<!-- Desktop: sketch tools inline -->
+			<div class="toolbar-group">
+				{#each sketchTools as t}
+					<button
+						class="toolbar-btn"
+						class:active={t.id !== 'construction' && tool === t.id}
+						disabled={!ready}
+						title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
+						data-testid="toolbar-btn-{t.id}"
+						onclick={() => t.id === 'construction' ? handleToggleConstruction() : setActiveTool(t.id)}
+					>{t.label}</button>
+				{/each}
+			</div>
+		{/if}
 		<div class="toolbar-sep"></div>
-		<div class="toolbar-group">
-			{#each constraintButtons as cb}
-				<button
-					class="constraint-btn"
-					disabled={!applicable[cb.id]}
-					title={cb.title}
-					data-testid="toolbar-constraint-{cb.id}"
-					onclick={() => applyConstraint(cb.id)}
-				>{cb.label}</button>
-			{/each}
+		<!-- Constraints dropdown (always a dropdown) -->
+		<div class="dropdown-container">
+			<button
+				class="toolbar-btn dropdown-trigger"
+				data-testid="toolbar-btn-constraints-dropdown"
+				onclick={() => { showConstraints = !showConstraints; showSketchTools = false; }}
+			>Constraints ▾</button>
+			{#if showConstraints}
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div class="dropdown-backdrop" onclick={() => showConstraints = false}></div>
+				<div class="dropdown-panel constraints-panel" data-testid="constraints-dropdown">
+					<div class="dropdown-grid constraints-grid">
+						{#each constraintButtons as cb}
+							<button
+								class="constraint-btn"
+								disabled={!applicable[cb.id]}
+								title={cb.title}
+								data-testid="toolbar-constraint-{cb.id}"
+								onclick={() => { applyConstraint(cb.id); showConstraints = false; }}
+							>{cb.label}</button>
+						{/each}
+					</div>
+				</div>
+			{/if}
 		</div>
 		<div class="toolbar-sep"></div>
 		<button
@@ -671,6 +717,56 @@
 	.overflow-item:disabled {
 		color: var(--text-muted);
 		cursor: default;
+	}
+
+	/* Dropdown containers for collapsible toolbar sections */
+	.dropdown-container {
+		position: relative;
+	}
+
+	.dropdown-trigger {
+		display: flex;
+		align-items: center;
+		gap: 2px;
+	}
+
+	.dropdown-backdrop {
+		position: fixed;
+		inset: 0;
+		z-index: 199;
+	}
+
+	.dropdown-panel {
+		position: absolute;
+		top: calc(100% + 4px);
+		left: 0;
+		background: var(--bg-tertiary);
+		border: 1px solid var(--border-color);
+		border-radius: 6px;
+		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+		z-index: 200;
+		padding: 8px;
+	}
+
+	.dropdown-grid {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 4px;
+	}
+
+	.dropdown-grid .toolbar-btn,
+	.dropdown-grid .constraint-btn {
+		min-width: 60px;
+		text-align: center;
+		padding: 6px 8px;
+	}
+
+	.constraints-panel {
+		min-width: 220px;
+	}
+
+	.constraints-grid {
+		grid-template-columns: repeat(3, 1fr);
 	}
 
 	@media (max-width: 768px) {
