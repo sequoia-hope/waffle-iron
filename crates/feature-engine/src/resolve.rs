@@ -50,6 +50,13 @@ pub fn resolve_geom_ref(
         Selector::Query { ref query } => {
             resolve_by_query(op_result, query, geom_ref.kind, geom_ref.policy)
         }
+        Selector::Position { .. } => {
+            // Position selectors are used for viewport picking (vertex overlay).
+            // They don't resolve to kernel entities — return an error.
+            Err(EngineError::ResolutionFailed {
+                reason: "Position selectors are not resolvable to kernel entities".to_string(),
+            })
+        }
     }
 }
 

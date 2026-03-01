@@ -15,6 +15,7 @@ pub struct GeomRef {
     /// How to find the specific entity within the anchor's output.
     pub selector: Selector,
     /// What to do when resolution is ambiguous or fails.
+    #[serde(default)]
     pub policy: ResolvePolicy,
 }
 
@@ -55,14 +56,17 @@ pub enum Selector {
     Signature { signature: TopoSignature },
     /// Select by user-specified geometric query.
     Query { query: TopoQuery },
+    /// Select by 3D position (nearest entity within tolerance).
+    Position { x: f64, y: f64, z: f64 },
 }
 
 /// What to do when GeomRef resolution is ambiguous or fails.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum ResolvePolicy {
     /// Fail the rebuild if the reference cannot be uniquely resolved.
     Strict,
     /// Use the closest match and emit a warning.
+    #[default]
     BestEffort,
 }
