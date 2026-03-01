@@ -1523,6 +1523,14 @@ pub fn try_boolean_with_perturbation(
         result
     };
 
+    // Track consecutive chi≠2 successes. When a geometry structurally produces
+    // chi≠2 (e.g., union with anti-sense coplanar face removal), every perturbation
+    // attempt produces the same chi. Return the fallback early instead of exhausting
+    // the cascade, which wastes time and can cause the *next* boolean (on the chi≠2
+    // shell) to fail because later perturbation strategies distort the geometry more.
+    let consecutive_chi_fail = std::cell::Cell::new(0u32);
+    const MAX_CONSECUTIVE_CHI_FAIL: u32 = 3;
+
     // Macro to check Euler characteristic on a successful result and either
     // return immediately (chi=2) or store as fallback and continue cascade.
     macro_rules! check_result {
@@ -1538,9 +1546,30 @@ pub fn try_boolean_with_perturbation(
                 } else {
                     CASCADE.perturbation_success.fetch_add(1, Ordering::Relaxed);
                 }
+                consecutive_chi_fail.set(0);
                 return Ok($result);
             } else {
-                *euler_fb.borrow_mut() = Some($result);
+                // Keep the first chi≠2 result as fallback — the unperturbed
+                // (or least-perturbed) geometry is closest to the user's intent
+                // and least likely to accumulate distortion for chained booleans.
+                if euler_fb.borrow().is_none() {
+                    *euler_fb.borrow_mut() = Some($result);
+                }
+                let n = consecutive_chi_fail.get() + 1;
+                consecutive_chi_fail.set(n);
+                if n >= MAX_CONSECUTIVE_CHI_FAIL {
+                    // Structurally chi≠2 — return best result instead of
+                    // exhausting cascade with increasingly aggressive perturbation.
+                    #[cfg(debug_assertions)]
+                    eprintln!(
+                        "[perturbation] {} consecutive chi≠2 successes — returning fallback early",
+                        n,
+                    );
+                    if let Some(fallback) = euler_fb.borrow_mut().take() {
+                        CASCADE.euler_fallback.fetch_add(1, Ordering::Relaxed);
+                        return Ok(fallback);
+                    }
+                }
             }
         }};
     }
