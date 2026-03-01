@@ -2,6 +2,56 @@
 
 Technical references for B-rep kernel development, boolean operations, and computational geometry.
 
+## Keyword Index
+
+Find references by topic. Numbers refer to reference entries below.
+
+**Boolean operations (general)** → #2 Ch.3, #3, #17, #20
+**Boolean pipeline architecture** → #2 Ch.3, #3 (GFA), #8 (mesh arrangements), #17 (PADL)
+**BSP trees** → #11 (EMBER), #18 (Bernstein)
+**B-rep foundations** → #2 Ch.2, #16 (Euler ops), #17 (set membership classification)
+**CDT / constrained Delaunay** → #10 (optimized CDT), #12 (per-triangle CDT)
+**Classification (face/in-out)** → #7 (winding number), #8 (winding number vectors), #12 (radial sort), #17 (set membership), #20 (4-way/8-way)
+**Coplanar faces** → #3 (same-domain analysis), #8 (coplanar CDT clustering), #10 (coplanar-heavy perf), #11 (plane-based repr)
+**CSG / constructive solid geometry** → #14 (hybrid CSG), #17 (CSG→BRep), #2 Ch.3
+**Curvature (curves)** → #22 (finite total curvature, discrete/smooth bridge)
+**Curved surface booleans** → #13 (ESOLID, exact on quadrics), #14 (hybrid NURBS/mesh)
+**DCEL / half-edge** → #16 (Mäntylä), #20 (Tekla/DCEL hierarchy)
+**Degeneracy handling** → #5 (SoS), #6 (topology-oriented), #8 (no general position), #12 (two-case reduction)
+**Delaunay complexes** → #23 Ch.III (alpha complexes)
+**Edge splitting / pave blocks** → #3 (OCCT pave blocks, shrunk ranges)
+**Euler operators** → #2 Ch.2, #16 (completeness proof), #20 (MEV/MEF/MEKL)
+**Exact arithmetic** → #4 (adaptive expansions), #9 (indirect predicates), #10 (exact constructions), #13 (lazy exact), #15 (Nef, exact throughout), #19 (filter thresholds)
+**Floating-point robustness** → #1 Ch.4, #2 Ch.4, #4, #19 (filter failure probabilities)
+**Homology / topological invariants** → #23 Ch.IV–V (Euler characteristic, Betti numbers)
+**Intersection curves** → #1 Ch.5–6, #3 (FF interference), #13 (algebraic curves on quadrics)
+**Manifoldness** → #6 (topology-first guarantees), #16 (Euler ops preserve), #17 (regularization)
+**Mesh arrangements** → #8 (Zhou), #9 (Cherchi), #10 (Levy), #12 (Barki)
+**Mesh booleans (exact)** → #8, #9, #10, #11, #12, #18
+**Morse theory** → #23 Ch.VI
+**Nef polyhedra** → #15 (CGAL Nef 3D, sphere maps, non-manifold)
+**NURBS / parametric surfaces** → #1 Ch.5, #2 Ch.5, #13 (ESOLID), #14 (hybrid)
+**Numerical robustness** → #1 Ch.4, #2 Ch.4, #4, #6, #19
+**Offset curves/surfaces** → #1 Ch.11
+**orient2d / orient3d** → #4 (Shewchuk), #5 (SoS perturbation), #9 (indirect variants), #19 (failure prob)
+**Perturbation (SoS)** → #5 (Edelsbrunner-Mucke), #8 (uses SoS for triangle sort)
+**Perturbation cascade (ours, alternatives)** → #5 (SoS replacement), #6 (topology-oriented replacement), #3 (fuzzy booleans)
+**Persistent homology** → #23 Ch.VII
+**Plane-based representation** → #11 (EMBER, integer coords), #18 (BSP + planes)
+**Radial sort** → #10 (Levy, non-manifold edges), #12 (Barki, classification)
+**Regularized booleans** → #12 (explicit regularization), #17 (closure-of-interior definition)
+**Robustness comparison** → #15 (Nef vs ACIS), #20 (Tekla vs CGAL vs EMBER)
+**Rust implementations** → #21 (kigumi mesh booleans)
+**Set membership classification** → #17 (PADL), #20 (in/out/on)
+**Shell assembly / closure** → #3 (building part stages), #15 (Nef), #16 (Euler ops)
+**Simplicial complexes** → #23 Ch.III
+**Spatial indexing / AABB** → #2 Ch.3.7, #12 (AABB-accelerated)
+**Surface-surface intersection** → #1 Ch.5 (lattice/marching/subdivision), #3 (FF interference)
+**Tessellation / mesh conversion** → #22 (curvature across discrete/smooth boundary)
+**Tolerance / fuzzy** → #3 (fuzzy booleans, SetFuzzyValue), #13 (lazy exact vs tolerance)
+**Topological validity** → #6 (topology-oriented), #16 (Euler ops), #23 (homology invariants)
+**Winding numbers** → #7 (generalized), #8 (winding number vectors), #11 (EMBER WNV)
+
 ## Primary References
 
 ### 1. Patrikalakis, Maekawa & Cho — "Shape Interrogation for Computer Aided Design and Manufacturing"
