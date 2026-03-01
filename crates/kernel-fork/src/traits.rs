@@ -42,6 +42,36 @@ pub trait Kernel {
         b: &KernelSolidHandle,
     ) -> Result<KernelSolidHandle, KernelError>;
 
+    /// Boolean union that may produce multiple bodies (e.g., disjoint operands).
+    /// Default delegates to `boolean_union` and wraps in a single-element vec.
+    fn boolean_union_multi(
+        &mut self,
+        a: &KernelSolidHandle,
+        b: &KernelSolidHandle,
+    ) -> Result<Vec<KernelSolidHandle>, KernelError> {
+        Ok(vec![self.boolean_union(a, b)?])
+    }
+
+    /// Boolean subtract that may produce multiple bodies.
+    /// Default delegates to `boolean_subtract` and wraps in a single-element vec.
+    fn boolean_subtract_multi(
+        &mut self,
+        a: &KernelSolidHandle,
+        b: &KernelSolidHandle,
+    ) -> Result<Vec<KernelSolidHandle>, KernelError> {
+        Ok(vec![self.boolean_subtract(a, b)?])
+    }
+
+    /// Boolean intersect that may produce multiple bodies.
+    /// Default delegates to `boolean_intersect` and wraps in a single-element vec.
+    fn boolean_intersect_multi(
+        &mut self,
+        a: &KernelSolidHandle,
+        b: &KernelSolidHandle,
+    ) -> Result<Vec<KernelSolidHandle>, KernelError> {
+        Ok(vec![self.boolean_intersect(a, b)?])
+    }
+
     /// Fillet (round) the specified edges with the given radius.
     fn fillet_edges(
         &mut self,

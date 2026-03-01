@@ -308,6 +308,170 @@ impl TruckKernel {
         self.last_boolean_diagnostics.as_ref()
     }
 
+    /// Split a multi-shell Solid into separate single-shell Solids,
+    /// but only when ALL shells are valid manifolds (chi=2) and spatially disjoint.
+    /// Returns one handle per resulting body.
+    fn split_multi_shell(&mut self, solid: Solid) -> Vec<KernelSolidHandle> {
+        let shells = solid.into_boundaries();
+        if shells.len() <= 1 {
+            let reassembled = Solid::new_unchecked(shells);
+            return vec![self.store_solid(reassembled)];
+        }
+
+        // Only split if every shell has Euler chi=2 (valid manifold).
+        // Multi-shell results with chi≠2 are malformed booleans —
+        // keeping them together preserves existing behavior.
+        let all_valid = shells
+            .iter()
+            .all(|shell| truck_shapeops::validate_euler_characteristic(shell).is_ok());
+
+        if !all_valid {
+            let reassembled = Solid::new_unchecked(shells);
+            return vec![self.store_solid(reassembled)];
+        }
+
+        // Compute bounding boxes for each shell
+        let bboxes: Vec<([f64; 3], [f64; 3])> = shells
+            .iter()
+            .map(|shell| {
+                let mut min = [f64::MAX; 3];
+                let mut max = [f64::MIN; 3];
+                for v in shell.vertex_iter() {
+                    let p = v.point();
+                    min[0] = min[0].min(p.x);
+                    min[1] = min[1].min(p.y);
+                    min[2] = min[2].min(p.z);
+                    max[0] = max[0].max(p.x);
+                    max[1] = max[1].max(p.y);
+                    max[2] = max[2].max(p.z);
+                }
+                (min, max)
+            })
+            .collect();
+
+        // Group shells with overlapping bboxes into the same body.
+        let n = shells.len();
+        let bbox_overlaps = |a: usize, b: usize| -> bool {
+            let (amin, amax) = &bboxes[a];
+            let (bmin, bmax) = &bboxes[b];
+            amin[0] <= bmax[0] + 1e-9
+                && amax[0] >= bmin[0] - 1e-9
+                && amin[1] <= bmax[1] + 1e-9
+                && amax[1] >= bmin[1] - 1e-9
+                && amin[2] <= bmax[2] + 1e-9
+                && amax[2] >= bmin[2] - 1e-9
+        };
+
+        // Union-find grouping
+        let mut group: Vec<usize> = (0..n).collect();
+        for i in 0..n {
+            for j in (i + 1)..n {
+                if bbox_overlaps(i, j) {
+                    let gi = group[i];
+                    let gj = group[j];
+                    if gi != gj {
+                        let (lo, hi) = if gi < gj { (gi, gj) } else { (gj, gi) };
+                        for g in group.iter_mut() {
+                            if *g == hi {
+                                *g = lo;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Assign sequential body indices
+        let mut group_to_body = HashMap::new();
+        for &g in &group {
+            let len = group_to_body.len();
+            group_to_body.entry(g).or_insert(len);
+        }
+        let num_bodies = group_to_body.len();
+
+        if num_bodies <= 1 {
+            let reassembled = Solid::new_unchecked(shells);
+            return vec![self.store_solid(reassembled)];
+        }
+
+        // Build separate solids per body group
+        let mut body_shells: Vec<Vec<_>> = vec![Vec::new(); num_bodies];
+        for (i, shell) in shells.into_iter().enumerate() {
+            let body_idx = group_to_body[&group[i]];
+            body_shells[body_idx].push(shell);
+        }
+
+        body_shells
+            .into_iter()
+            .map(|shells| {
+                let solid = Solid::new_unchecked(shells);
+                self.store_solid(solid)
+            })
+            .collect()
+    }
+
+    /// Shared boolean operation setup: validate, heal, compute tolerances, run cascade.
+    /// The `make_op` callback receives the pre-computed `BooleanTolerance` and returns
+    /// the truck boolean closure to execute.
+    fn run_boolean_op<F, G>(
+        &mut self,
+        a: &KernelSolidHandle,
+        b: &KernelSolidHandle,
+        make_op: F,
+    ) -> Result<Solid, KernelError>
+    where
+        F: FnOnce(truck_shapeops::BooleanTolerance) -> G,
+        G: Fn(
+            &Solid,
+            &Solid,
+        ) -> std::result::Result<
+            (Solid, truck_shapeops::BooleanDiagnostics),
+            truck_shapeops::BooleanStageError,
+        >,
+    {
+        let solid_a = self
+            .solids
+            .get(&a.id())
+            .ok_or(KernelError::EntityNotFound {
+                id: KernelId(a.id()),
+            })?
+            .clone();
+        let solid_b = self
+            .solids
+            .get(&b.id())
+            .ok_or(KernelError::EntityNotFound {
+                id: KernelId(b.id()),
+            })?
+            .clone();
+
+        validate_solid_for_boolean(&solid_a, "solid_a")?;
+        validate_solid_for_boolean(&solid_b, "solid_b")?;
+
+        let heal_tol = compute_healing_tol(&solid_a, &solid_b);
+        crate::healing::heal_intersection_curves(&solid_a, heal_tol);
+        crate::healing::heal_intersection_curves(&solid_b, heal_tol);
+
+        let opts = compute_boolean_options(&solid_a, &solid_b);
+        debug_assert!(
+            opts.validate().is_ok(),
+            "BooleanOptions validation failed: {:?}",
+            opts.validate()
+        );
+        let tol = opts.tau_model;
+        let tols = opts.to_boolean_tolerance();
+        let solid_a = crate::healing::pre_split_closed_edges(&solid_a, tol);
+        let solid_b = crate::healing::pre_split_closed_edges(&solid_b, tol);
+
+        let op = make_op(tols);
+        let (result, diag) =
+            crate::healing::try_boolean_with_perturbation_diag(&solid_a, &solid_b, tol, op)
+                .map_err(|e| KernelError::from(BooleanError::from(e)))?;
+        self.last_boolean_diagnostics = Some(build_diagnostics_summary(&diag));
+        crate::healing::heal_intersection_curves(&result, heal_tol);
+        crate::healing::deduplicate_vertices(&result, heal_tol * 0.1);
+        Ok(result)
+    }
+
     /// Export a solid to STEP AP203 format string.
     pub fn export_step(
         &self,
@@ -415,48 +579,9 @@ impl Kernel for TruckKernel {
         a: &KernelSolidHandle,
         b: &KernelSolidHandle,
     ) -> Result<KernelSolidHandle, KernelError> {
-        let solid_a = self
-            .solids
-            .get(&a.id())
-            .ok_or(KernelError::EntityNotFound {
-                id: KernelId(a.id()),
-            })?
-            .clone();
-        let solid_b = self
-            .solids
-            .get(&b.id())
-            .ok_or(KernelError::EntityNotFound {
-                id: KernelId(b.id()),
-            })?
-            .clone();
-
-        validate_solid_for_boolean(&solid_a, "solid_a")?;
-        validate_solid_for_boolean(&solid_b, "solid_b")?;
-
-        // Heal inputs if they have IntersectionCurve edges from previous booleans
-        let heal_tol = compute_healing_tol(&solid_a, &solid_b);
-        crate::healing::heal_intersection_curves(&solid_a, heal_tol);
-        crate::healing::heal_intersection_curves(&solid_b, heal_tol);
-
-        // Compute layered tolerance options from feature-aware adaptive tolerance.
-        // Flow: compute_boolean_options → BooleanOptions (kernel) → to_boolean_tolerance → BooleanTolerance (truck)
-        let opts = compute_boolean_options(&solid_a, &solid_b);
-        debug_assert!(
-            opts.validate().is_ok(),
-            "BooleanOptions validation failed: {:?}",
-            opts.validate()
-        );
-        let tol = opts.tau_model;
-        let tols = opts.to_boolean_tolerance();
-        let solid_a = crate::healing::pre_split_closed_edges(&solid_a, tol);
-        let solid_b = crate::healing::pre_split_closed_edges(&solid_b, tol);
-
-        let (result, diag) =
-            crate::healing::try_boolean_with_perturbation_diag(&solid_a, &solid_b, tol, |a, b| {
-                truck_shapeops::or_result_with_tol_diag(a, b, &tols)
-            })
-            .map_err(|e| KernelError::from(BooleanError::from(e)))?;
-        self.last_boolean_diagnostics = Some(build_diagnostics_summary(&diag));
+        let result = self.run_boolean_op(a, b, |tols| {
+            move |a, b| truck_shapeops::or_result_with_tol_diag(a, b, &tols)
+        })?;
         #[cfg(debug_assertions)]
         if result.boundaries().len() > 1 {
             eprintln!(
@@ -464,8 +589,6 @@ impl Kernel for TruckKernel {
                 result.boundaries().len()
             );
         }
-        crate::healing::heal_intersection_curves(&result, heal_tol);
-        crate::healing::deduplicate_vertices(&result, heal_tol * 0.1);
         Ok(self.store_solid(result))
     }
 
@@ -474,49 +597,9 @@ impl Kernel for TruckKernel {
         a: &KernelSolidHandle,
         b: &KernelSolidHandle,
     ) -> Result<KernelSolidHandle, KernelError> {
-        let solid_a = self
-            .solids
-            .get(&a.id())
-            .ok_or(KernelError::EntityNotFound {
-                id: KernelId(a.id()),
-            })?
-            .clone();
-        let solid_b = self
-            .solids
-            .get(&b.id())
-            .ok_or(KernelError::EntityNotFound {
-                id: KernelId(b.id()),
-            })?
-            .clone();
-
-        validate_solid_for_boolean(&solid_a, "solid_a")?;
-        validate_solid_for_boolean(&solid_b, "solid_b")?;
-
-        // Subtraction = A \ B via proper difference().
-        // Heal inputs if they have IntersectionCurve edges from previous booleans.
-        let heal_tol = compute_healing_tol(&solid_a, &solid_b);
-        crate::healing::heal_intersection_curves(&solid_a, heal_tol);
-        crate::healing::heal_intersection_curves(&solid_b, heal_tol);
-
-        // Compute layered tolerance options from feature-aware adaptive tolerance.
-        // Flow: compute_boolean_options → BooleanOptions (kernel) → to_boolean_tolerance → BooleanTolerance (truck)
-        let opts = compute_boolean_options(&solid_a, &solid_b);
-        debug_assert!(
-            opts.validate().is_ok(),
-            "BooleanOptions validation failed: {:?}",
-            opts.validate()
-        );
-        let tol = opts.tau_model;
-        let tols = opts.to_boolean_tolerance();
-        let solid_a = crate::healing::pre_split_closed_edges(&solid_a, tol);
-        let solid_b = crate::healing::pre_split_closed_edges(&solid_b, tol);
-
-        let (result, diag) =
-            crate::healing::try_boolean_with_perturbation_diag(&solid_a, &solid_b, tol, |a, b| {
-                truck_shapeops::difference_result_with_tol_diag(a, b, &tols)
-            })
-            .map_err(|e| KernelError::from(BooleanError::from(e)))?;
-        self.last_boolean_diagnostics = Some(build_diagnostics_summary(&diag));
+        let result = self.run_boolean_op(a, b, |tols| {
+            move |a, b| truck_shapeops::difference_result_with_tol_diag(a, b, &tols)
+        })?;
         #[cfg(debug_assertions)]
         if result.boundaries().len() > 1 {
             eprintln!(
@@ -524,8 +607,6 @@ impl Kernel for TruckKernel {
                 result.boundaries().len()
             );
         }
-        crate::healing::heal_intersection_curves(&result, heal_tol);
-        crate::healing::deduplicate_vertices(&result, heal_tol * 0.1);
         Ok(self.store_solid(result))
     }
 
@@ -534,51 +615,43 @@ impl Kernel for TruckKernel {
         a: &KernelSolidHandle,
         b: &KernelSolidHandle,
     ) -> Result<KernelSolidHandle, KernelError> {
-        let solid_a = self
-            .solids
-            .get(&a.id())
-            .ok_or(KernelError::EntityNotFound {
-                id: KernelId(a.id()),
-            })?
-            .clone();
-        let solid_b = self
-            .solids
-            .get(&b.id())
-            .ok_or(KernelError::EntityNotFound {
-                id: KernelId(b.id()),
-            })?
-            .clone();
-
-        validate_solid_for_boolean(&solid_a, "solid_a")?;
-        validate_solid_for_boolean(&solid_b, "solid_b")?;
-
-        // Heal inputs if they have IntersectionCurve edges from previous booleans
-        let heal_tol = compute_healing_tol(&solid_a, &solid_b);
-        crate::healing::heal_intersection_curves(&solid_a, heal_tol);
-        crate::healing::heal_intersection_curves(&solid_b, heal_tol);
-
-        // Compute layered tolerance options from feature-aware adaptive tolerance.
-        // Flow: compute_boolean_options → BooleanOptions (kernel) → to_boolean_tolerance → BooleanTolerance (truck)
-        let opts = compute_boolean_options(&solid_a, &solid_b);
-        debug_assert!(
-            opts.validate().is_ok(),
-            "BooleanOptions validation failed: {:?}",
-            opts.validate()
-        );
-        let tol = opts.tau_model;
-        let tols = opts.to_boolean_tolerance();
-        let solid_a = crate::healing::pre_split_closed_edges(&solid_a, tol);
-        let solid_b = crate::healing::pre_split_closed_edges(&solid_b, tol);
-
-        let (result, diag) =
-            crate::healing::try_boolean_with_perturbation_diag(&solid_a, &solid_b, tol, |a, b| {
-                truck_shapeops::and_result_with_tol_diag(a, b, &tols)
-            })
-            .map_err(|e| KernelError::from(BooleanError::from(e)))?;
-        self.last_boolean_diagnostics = Some(build_diagnostics_summary(&diag));
-        crate::healing::heal_intersection_curves(&result, heal_tol);
-        crate::healing::deduplicate_vertices(&result, heal_tol * 0.1);
+        let result = self.run_boolean_op(a, b, |tols| {
+            move |a, b| truck_shapeops::and_result_with_tol_diag(a, b, &tols)
+        })?;
         Ok(self.store_solid(result))
+    }
+
+    fn boolean_union_multi(
+        &mut self,
+        a: &KernelSolidHandle,
+        b: &KernelSolidHandle,
+    ) -> Result<Vec<KernelSolidHandle>, KernelError> {
+        let result = self.run_boolean_op(a, b, |tols| {
+            move |a, b| truck_shapeops::or_result_with_tol_diag(a, b, &tols)
+        })?;
+        Ok(self.split_multi_shell(result))
+    }
+
+    fn boolean_subtract_multi(
+        &mut self,
+        a: &KernelSolidHandle,
+        b: &KernelSolidHandle,
+    ) -> Result<Vec<KernelSolidHandle>, KernelError> {
+        let result = self.run_boolean_op(a, b, |tols| {
+            move |a, b| truck_shapeops::difference_result_with_tol_diag(a, b, &tols)
+        })?;
+        Ok(self.split_multi_shell(result))
+    }
+
+    fn boolean_intersect_multi(
+        &mut self,
+        a: &KernelSolidHandle,
+        b: &KernelSolidHandle,
+    ) -> Result<Vec<KernelSolidHandle>, KernelError> {
+        let result = self.run_boolean_op(a, b, |tols| {
+            move |a, b| truck_shapeops::and_result_with_tol_diag(a, b, &tols)
+        })?;
+        Ok(self.split_multi_shell(result))
     }
 
     fn fillet_edges(

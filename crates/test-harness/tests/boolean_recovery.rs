@@ -71,8 +71,9 @@ fn r1_recovery_level_0_clean_union() {
     m.boolean_union("merged", "box_a", "box_b").unwrap();
     m.assert_has_solid("merged").unwrap();
 
-    let mesh = m.tessellate("merged").unwrap();
-    let vol = mesh_volume(&mesh);
+    // Disjoint union may produce multiple bodies — sum volumes across all outputs
+    let meshes = m.tessellate_all("merged").unwrap();
+    let vol: f64 = meshes.iter().map(|m| mesh_volume(m)).sum();
     // Two 5×5×5 boxes = 125 + 125 = 250
     assert!(
         vol > 200.0,

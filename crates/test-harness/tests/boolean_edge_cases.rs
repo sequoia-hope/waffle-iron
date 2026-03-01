@@ -72,10 +72,13 @@ fn de1_disjoint_boxes_union() {
     m.boolean_union("merged", "box_a", "box_b").unwrap();
     m.assert_has_solid("merged").unwrap();
 
-    let mesh = m.tessellate("merged").unwrap();
-    assert_mesh_finite(&mesh, "disjoint_union");
-
-    let vol = mesh_volume(&mesh);
+    // Disjoint union may produce multiple bodies — sum volumes across all outputs
+    let meshes = m.tessellate_all("merged").unwrap();
+    let mut vol = 0.0;
+    for mesh in &meshes {
+        assert_mesh_finite(mesh, "disjoint_union");
+        vol += mesh_volume(mesh);
+    }
     // Two 5x5x5 cubes = 125 + 125 = 250
     assert!(vol > 200.0, "Disjoint union vol={:.1}, expected ~250", vol);
 }

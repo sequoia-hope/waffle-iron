@@ -737,7 +737,6 @@ fn ec2_contained_box_subtract() {
 ///
 /// Two boxes that don't touch at all should remain as separate bodies.
 #[test]
-#[ignore = "Truck design limitation: boolean merges disjoint operands into 1 multi-shell Solid instead of 2 separate bodies. Fixing requires multi-body output architecture — deferred."]
 fn ec3_non_overlapping_boxes_union() {
     let mut m = ModelBuilder::truck();
 

@@ -37,36 +37,60 @@ pub fn execute_boolean(
         vertices: before_vertices,
     };
 
-    // Execute boolean
-    let handle = match kind {
-        BooleanKind::Union => kb.boolean_union(body_a, body_b)?,
-        BooleanKind::Subtract => kb.boolean_subtract(body_a, body_b)?,
-        BooleanKind::Intersect => kb.boolean_intersect(body_a, body_b)?,
+    // Execute boolean (multi-body aware)
+    let handles = match kind {
+        BooleanKind::Union => kb.boolean_union_multi(body_a, body_b)?,
+        BooleanKind::Subtract => kb.boolean_subtract_multi(body_a, body_b)?,
+        BooleanKind::Intersect => kb.boolean_intersect_multi(body_a, body_b)?,
     };
 
-    // Snapshot result
-    let after = diff::snapshot(kb.as_introspect(), &handle);
-    let diff_result = diff::diff(&before, &after);
+    // Build outputs: first handle is Main, rest are Body { index }
+    let mut outputs = Vec::with_capacity(handles.len());
+    let mut all_after_faces = Vec::new();
+    let mut all_after_edges = Vec::new();
+    let mut all_after_vertices = Vec::new();
+    let mut all_role_assignments = Vec::new();
 
-    // Assign roles to result faces
-    let role_assignments = assign_boolean_roles(kb.as_introspect(), &handle, &snap_a, &snap_b);
+    for (i, handle) in handles.into_iter().enumerate() {
+        let after = diff::snapshot(kb.as_introspect(), &handle);
+        all_after_faces.extend(after.faces.clone());
+        all_after_edges.extend(after.edges.clone());
+        all_after_vertices.extend(after.vertices.clone());
 
-    let provenance = Provenance {
-        created: diff_result.created,
-        deleted: diff_result.deleted,
-        modified: Vec::new(),
-        role_assignments,
-    };
+        let roles = assign_boolean_roles(kb.as_introspect(), &handle, &snap_a, &snap_b);
+        all_role_assignments.extend(roles);
 
-    Ok(OpResult {
-        outputs: vec![(
-            OutputKey::Main,
+        let key = if i == 0 {
+            OutputKey::Main
+        } else {
+            OutputKey::Body { index: i }
+        };
+        outputs.push((
+            key,
             BodyOutput {
                 handle,
                 mesh: None,
                 edges: None,
             },
-        )],
+        ));
+    }
+
+    let after_merged = TopoSnapshot {
+        faces: all_after_faces,
+        edges: all_after_edges,
+        vertices: all_after_vertices,
+    };
+    let diff_result = diff::diff(&before, &after_merged);
+
+    let provenance = Provenance {
+        created: diff_result.created,
+        deleted: diff_result.deleted,
+        modified: Vec::new(),
+        role_assignments: all_role_assignments,
+    };
+
+    Ok(OpResult {
+        outputs,
         provenance,
         diagnostics: Diagnostics::default(),
     })

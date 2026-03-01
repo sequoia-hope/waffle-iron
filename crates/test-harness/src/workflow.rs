@@ -935,12 +935,38 @@ impl ModelBuilder {
         Ok(result.outputs[0].1.handle.clone())
     }
 
-    /// Tessellate a named feature's solid.
+    /// Tessellate a named feature's solid (first/main output only).
     pub fn tessellate(&mut self, name: &str) -> Result<RenderMesh, HarnessError> {
         let handle = self.solid_handle(name)?;
         self.kernel
             .tessellate(&handle, 0.1)
             .map_err(|e| HarnessError::Engine(e.to_string()))
+    }
+
+    /// Tessellate all outputs of a named feature (for multi-body results).
+    pub fn tessellate_all(&mut self, name: &str) -> Result<Vec<RenderMesh>, HarnessError> {
+        let id = self.feature_id(name)?;
+        let result = self
+            .state
+            .engine
+            .get_result(id)
+            .ok_or_else(|| HarnessError::NoSolid {
+                name: name.to_string(),
+            })?;
+        let handles: Vec<_> = result
+            .outputs
+            .iter()
+            .map(|(_, b)| b.handle.clone())
+            .collect();
+        let mut meshes = Vec::with_capacity(handles.len());
+        for handle in handles {
+            let mesh = self
+                .kernel
+                .tessellate(&handle, 0.1)
+                .map_err(|e| HarnessError::Engine(e.to_string()))?;
+            meshes.push(mesh);
+        }
+        Ok(meshes)
     }
 
     /// Get topology counts (V, E, F) for a named feature's solid.
