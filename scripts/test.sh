@@ -113,6 +113,14 @@ GUI_FAST_SPECS=(
 )
 
 # ---------------------------------------------------------------------------
+# Concurrency — limit parallel tests to avoid OOM from boolean cascades.
+# Each boolean cascade test can consume 200-500MB; with 24 cores the default
+# parallelism (24 threads) can spike to 10GB+. Cap at 4 threads.
+# Override with: TEST_THREADS=8 scripts/test.sh full
+# ---------------------------------------------------------------------------
+TEST_THREADS="${TEST_THREADS:-4}"
+
+# ---------------------------------------------------------------------------
 # State
 # ---------------------------------------------------------------------------
 OVERALL_STATUS=0
@@ -145,7 +153,7 @@ run_cargo_test() {
   local start rc=0
   start=$(timer_start)
 
-  cargo test -p "$crate" "$@" || rc=$?
+  cargo test -p "$crate" "$@" -- --test-threads="$TEST_THREADS" || rc=$?
 
   local elapsed
   elapsed=$(timer_elapsed "$start")
@@ -163,7 +171,7 @@ run_cargo_test_filter() {
   local start rc=0
   start=$(timer_start)
 
-  cargo test -p "$crate" -- "$filter" || rc=$?
+  cargo test -p "$crate" -- "$filter" --test-threads="$TEST_THREADS" || rc=$?
 
   local elapsed
   elapsed=$(timer_elapsed "$start")
@@ -181,7 +189,7 @@ run_cargo_test_binary() {
   local start rc=0
   start=$(timer_start)
 
-  cargo test -p "$crate" --test "$binary" || rc=$?
+  cargo test -p "$crate" --test "$binary" -- --test-threads="$TEST_THREADS" || rc=$?
 
   local elapsed
   elapsed=$(timer_elapsed "$start")
@@ -308,7 +316,7 @@ run_assay_quick() {
   # Box-box property tests with reduced case count
   local start rc=0
   start=$(timer_start)
-  PROPTEST_CASES=5 cargo test -p test-harness --test assay_box_box || rc=$?
+  PROPTEST_CASES=5 cargo test -p test-harness --test assay_box_box -- --test-threads="$TEST_THREADS" || rc=$?
   local elapsed
   elapsed=$(timer_elapsed "$start")
   if [[ $rc -eq 0 ]]; then
@@ -354,7 +362,7 @@ run_assay_deep() {
 
   start=$(timer_start)
   rc=0
-  PROPTEST_CASES=100 cargo test -p test-harness --test assay_box_box || rc=$?
+  PROPTEST_CASES=100 cargo test -p test-harness --test assay_box_box -- --test-threads="$TEST_THREADS" || rc=$?
   local elapsed
   elapsed=$(timer_elapsed "$start")
   if [[ $rc -eq 0 ]]; then
@@ -365,7 +373,7 @@ run_assay_deep() {
 
   start=$(timer_start)
   rc=0
-  PROPTEST_CASES=50 cargo test -p test-harness --test assay_determinism || rc=$?
+  PROPTEST_CASES=50 cargo test -p test-harness --test assay_determinism -- --test-threads="$TEST_THREADS" || rc=$?
   elapsed=$(timer_elapsed "$start")
   if [[ $rc -eq 0 ]]; then
     pass "assay_determinism (50 cases, ${elapsed}s)"
