@@ -475,6 +475,9 @@ fn with_edges<T>(feature_index: usize, f: impl FnOnce(&EdgeRenderData) -> T) -> 
 
 /// Tessellate all feature results that have a solid handle but no mesh data.
 /// Also extracts edge polylines for edge overlay rendering.
+///
+/// Each tessellation/edge-extraction call is wrapped in catch_unwind to prevent
+/// panics in truck's meshing code from crashing the WASM module.
 fn tessellate_missing_meshes(state: &mut EngineState, kernel: &mut impl KernelBundle) {
     let feature_ids: Vec<uuid::Uuid> = state.engine.tree.features.iter().map(|f| f.id).collect();
 
@@ -497,19 +500,25 @@ fn tessellate_missing_meshes(state: &mut EngineState, kernel: &mut impl KernelBu
         if let Some(result) = state.engine.feature_results.get_mut(&fid) {
             for (_key, body) in &mut result.outputs {
                 if body.mesh.is_none() {
-                    match kernel.tessellate(&body.handle, 0.1) {
-                        Ok(mesh) => {
-                            body.mesh = Some(mesh);
-                        }
-                        Err(_) => {}
+                    let handle = body.handle.clone();
+                    let mesh_result = std::panic::catch_unwind(
+                        std::panic::AssertUnwindSafe(|| kernel.tessellate(&handle, 0.1)),
+                    );
+                    match mesh_result {
+                        Ok(Ok(mesh)) => body.mesh = Some(mesh),
+                        Ok(Err(_)) => {} // tessellation error, skip
+                        Err(_) => {} // panic caught, skip
                     }
                 }
                 if body.edges.is_none() {
-                    match kernel.extract_edges(&body.handle, 0.1) {
-                        Ok(edges) => {
-                            body.edges = Some(edges);
-                        }
-                        Err(_) => {}
+                    let handle = body.handle.clone();
+                    let edge_result = std::panic::catch_unwind(
+                        std::panic::AssertUnwindSafe(|| kernel.extract_edges(&handle, 0.1)),
+                    );
+                    match edge_result {
+                        Ok(Ok(edges)) => body.edges = Some(edges),
+                        Ok(Err(_)) => {} // edge extraction error, skip
+                        Err(_) => {} // panic caught, skip
                     }
                 }
             }

@@ -176,4 +176,65 @@ test.describe('WASM panic recovery', () => {
 		const meshes = await getMeshes(page);
 		expect(meshes.length).toBeGreaterThan(0);
 	});
+
+	test('boss extrude on existing body does not crash engine', async ({ waffle }) => {
+		const page = waffle.page;
+
+		// Step 1: Create base sketch (large rectangle)
+		await createSketchWithRectangle(page);
+
+		// Step 2: Extrude the base body
+		await applyExtrude(page, 10);
+		await waitForFeatureCount(page, 2, 10000);
+		await waitForMeshWithGeometry(page);
+
+		const meshesAfterBase = await getMeshes(page);
+		expect(meshesAfterBase.some(m => m.triangleCount > 0)).toBe(true);
+
+		// Step 3: Create a second sketch on the top face (z=10 plane)
+		// This simulates the boss-on-face workflow
+		await page.evaluate(() => window.__waffle.enterSketch([0, 0, 10], [0, 0, 1]));
+		await page.waitForFunction(
+			() => window.__waffle?.getState()?.sketchMode?.active === true,
+			{ timeout: 5000 }
+		);
+		await page.waitForTimeout(200);
+
+		// Small rectangle for boss (inset from base edges)
+		await page.evaluate(() => {
+			const w = window.__waffle;
+			w.addSketchEntity({ type: 'Point', id: 1, x: -10, y: -10 });
+			w.addSketchEntity({ type: 'Point', id: 2, x: 10, y: -10 });
+			w.addSketchEntity({ type: 'Point', id: 3, x: 10, y: 10 });
+			w.addSketchEntity({ type: 'Point', id: 4, x: -10, y: 10 });
+			w.addSketchEntity({ type: 'Line', id: 5, start_id: 1, end_id: 2, construction: false });
+			w.addSketchEntity({ type: 'Line', id: 6, start_id: 2, end_id: 3, construction: false });
+			w.addSketchEntity({ type: 'Line', id: 7, start_id: 3, end_id: 4, construction: false });
+			w.addSketchEntity({ type: 'Line', id: 8, start_id: 4, end_id: 1, construction: false });
+		});
+		await page.waitForTimeout(200);
+
+		await page.evaluate(() => window.__waffle.finishSketch());
+		await waitForFeatureCount(page, 3, 10000);
+		await page.waitForTimeout(200);
+
+		// Step 4: Extrude the boss sketch (triggers auto-union boolean)
+		await applyExtrude(page, 5);
+		await page.waitForTimeout(3000);
+
+		// Step 5: Engine must still be alive regardless of boolean outcome
+		const engineAlive = await page.evaluate(() => {
+			try {
+				const state = window.__waffle?.getState();
+				return state?.engineReady === true;
+			} catch {
+				return false;
+			}
+		});
+		expect(engineAlive).toBe(true);
+
+		// Should still have mesh geometry
+		const meshesAfterBoss = await getMeshes(page);
+		expect(meshesAfterBoss.some(m => m.triangleCount > 0)).toBe(true);
+	});
 });
