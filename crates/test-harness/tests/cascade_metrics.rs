@@ -194,30 +194,31 @@ fn cascade_strategy_collection() {
     print_stats("S2: coplanar union", &s2);
 
     // ── Scenario 3: Subtract (pocket cut) ───────────────────────────────
+    // Sketch placed ABOVE cube, normal pointing DOWN, so tool extends into cube.
     reset_cascade_stats();
     {
         let mut m = ModelBuilder::truck();
         m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
             .unwrap();
         m.extrude("cube", "sk", 10.0).unwrap();
-        m.rect_sketch("sk2", [0., 0., 10.], [0., 0., 1.], 2., 2., 8., 8.)
+        m.rect_sketch("sk2", [0., 0., 11.], [0., 0., -1.], 2., 2., 8., 8.)
             .unwrap();
-        m.extrude_cut("result", "sk2", 5.0).unwrap();
+        m.extrude_cut("result", "sk2", 6.0).unwrap();
     }
     let s3 = cascade_stats();
     print_stats("S3: pocket cut", &s3);
 
     // ── Scenario 4: Edge-coincident cut ─────────────────────────────────
+    // Tool shares edges with cube at the corner — sketch placed above, normal down.
     reset_cascade_stats();
     {
         let mut m = ModelBuilder::truck();
         m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
             .unwrap();
         m.extrude("cube", "sk", 10.0).unwrap();
-        // Cut tool shares one edge with cube top face
-        m.rect_sketch("sk2", [0., 0., 10.], [0., 0., 1.], 0., 0., 5., 5.)
+        m.rect_sketch("sk2", [0., 0., 11.], [0., 0., -1.], 0., 0., 5., 5.)
             .unwrap();
-        m.extrude_cut("result", "sk2", 5.0).unwrap();
+        m.extrude_cut("result", "sk2", 6.0).unwrap();
     }
     let s4 = cascade_stats();
     print_stats("S4: edge-coincident cut", &s4);
