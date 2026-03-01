@@ -179,17 +179,21 @@ fn mo1_sketch_extrude_union_tessellate() {
 fn mo2_two_sketches_different_planes_union() {
     let mut m = ModelBuilder::truck();
 
-    // Box A on XY plane: [0,10] x [0,10] x [0,10]
+    // Box A on XY plane (normal=[0,0,1]):
+    // tangent_x=[0,-1,0], tangent_y=[1,0,0]
+    // sketch (u,v) → world (v, -u, 0)
+    // Rect (0,0)-(10,10) → world x∈[0,10], y∈[-10,0], z∈[0,10]
     m.rect_sketch("sk_xy", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude_no_merge("box_xy", "sk_xy", 10.0).unwrap();
     m.assert_has_solid("box_xy").unwrap();
 
-    // Box B on XZ plane (using +Y normal): extruded in +Y direction
-    // Sketch at y=0, normal=[0,1,0]. In 2D sketch coords on XZ plane,
-    // "x" maps to world X and "y" maps to world Z.
-    // Rect at (2,2) size (6,6) in sketch → world x∈[2,8], z∈[2,8], extruded y∈[0,15]
-    m.rect_sketch("sk_xz", [0., 0., 0.], [0., 1., 0.], 2., 2., 6., 6.)
+    // Box B on XZ plane (normal=[0,-1,0], extrudes in -Y):
+    // tangent_x=[1,0,0], tangent_y=[0,0,1]
+    // sketch (u,v) → world (u, 0, v)  (direct mapping)
+    // Rect (2,2)-(8,8) → world x∈[2,8], z∈[2,8], extruded y∈[-15,0]
+    // Overlap with Box A: x∈[2,8], y∈[-10,0], z∈[2,8]
+    m.rect_sketch("sk_xz", [0., 0., 0.], [0., -1., 0.], 2., 2., 6., 6.)
         .unwrap();
     m.extrude_no_merge("box_xz", "sk_xz", 15.0).unwrap();
     m.assert_has_solid("box_xz").unwrap();
@@ -231,7 +235,8 @@ fn mo3_extrude_cuts_from_different_directions() {
     let mut m = base_cube();
 
     // Cut 1: rectangular slot from top (z=10, cutting downward along -Z)
-    // Rect at (3,3) size (4,4) in sketch → world x∈[3,7], y∈[3,7]
+    // normal=[0,0,1], tangent_x=[0,-1,0], tangent_y=[1,0,0]
+    // sketch (3,3)-(7,7) → world x∈[3,7], y∈[-7,-3] ⊂ cube top face ✓
     m.rect_sketch("cut_top_sk", [0., 0., 10.], [0., 0., 1.], 3., 3., 4., 4.)
         .unwrap();
     m.extrude_cut("cut_top", "cut_top_sk", 5.0).unwrap();
@@ -244,8 +249,10 @@ fn mo3_extrude_cuts_from_different_directions() {
     );
 
     // Cut 2: rectangular slot from +X face (x=10, cutting inward along -X)
-    // On the +X face, sketch 2D coords map to (Y, Z)
-    m.rect_sketch("cut_side_sk", [10., 0., 0.], [1., 0., 0.], 3., 3., 4., 4.)
+    // normal=[1,0,0], tangent_x=[0,1,0], tangent_y=[0,0,1]
+    // sketch (u,v) → world (10, u, v)
+    // sketch (-7,3)-(-3,7) → world y∈[-7,-3], z∈[3,7] ⊂ cube +X face ✓
+    m.rect_sketch("cut_side_sk", [10., 0., 0.], [1., 0., 0.], -7., 3., 4., 4.)
         .unwrap();
     m.extrude_cut("cut_side", "cut_side_sk", 5.0).unwrap();
 
@@ -442,7 +449,9 @@ fn mo5_feature_tree_rebuild_idempotency() {
 fn mo6_body_count_after_n_operations() {
     let mut m = ModelBuilder::truck();
 
-    // Base cube
+    // Base cube: normal=[0,0,1], tangent_x=[0,-1,0], tangent_y=[1,0,0]
+    // sketch (u,v) → world (v, -u, 0)
+    // Rect (0,0)-(10,10) → world x∈[0,10], y∈[-10,0], z∈[0,10]
     m.rect_sketch("sk0", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box0", "sk0", 10.0).unwrap();
@@ -452,28 +461,36 @@ fn mo6_body_count_after_n_operations() {
     assert_eq!(bodies, 1, "step 0: expected 1 body, got {}", bodies);
 
     // Boss operations: each one auto-unions with the existing body
-    // Boss 1: top face (+Z)
+    // Boss 1: top face (+Z), same mapping as cube
+    // sketch (2,2)-(8,8) → world x∈[2,8], y∈[-8,-2], z=10 ⊂ cube top face ✓
     m.rect_sketch("sk1", [0., 0., 10.], [0., 0., 1.], 2., 2., 6., 6.)
         .unwrap();
     m.extrude("boss1", "sk1", 5.0).unwrap();
     let bodies = count_visible_bodies(&m);
     assert_eq!(bodies, 1, "step 1: expected 1 body, got {}", bodies);
 
-    // Boss 2: side face (+X)
-    m.rect_sketch("sk2", [10., 0., 0.], [1., 0., 0.], 2., 2., 6., 6.)
+    // Boss 2: side face (+X at x=10)
+    // normal=[1,0,0], tangent_x=[0,1,0], tangent_y=[0,0,1]
+    // sketch (u,v) → world (10, u, v)
+    // sketch (-8,2)-(-2,8) → world y∈[-8,-2], z∈[2,8] ⊂ cube +X face ✓
+    m.rect_sketch("sk2", [10., 0., 0.], [1., 0., 0.], -8., 2., 6., 6.)
         .unwrap();
     m.extrude("boss2", "sk2", 5.0).unwrap();
     let bodies = count_visible_bodies(&m);
     assert_eq!(bodies, 1, "step 2: expected 1 body, got {}", bodies);
 
-    // Boss 3: side face (+Y)
-    m.rect_sketch("sk3", [0., 10., 0.], [0., 1., 0.], 2., 2., 6., 6.)
+    // Boss 3: side face (+Y at y=0, since cube y∈[-10,0])
+    // normal=[0,1,0], tangent_x=[-1,0,0], tangent_y=[0,0,1]
+    // sketch (u,v) → world (-u, 0, v)
+    // sketch (-8,2)-(-2,8) → world x∈[2,8], z∈[2,8] ⊂ cube y=0 face ✓
+    m.rect_sketch("sk3", [0., 0., 0.], [0., 1., 0.], -8., 2., 6., 6.)
         .unwrap();
     m.extrude("boss3", "sk3", 5.0).unwrap();
     let bodies = count_visible_bodies(&m);
     assert_eq!(bodies, 1, "step 3: expected 1 body, got {}", bodies);
 
-    // Boss 4: small boss on top
+    // Boss 4: small boss on top (z=10)
+    // sketch (0,0)-(3,3) → world x∈[0,3], y∈[-3,0] ⊂ cube top face ✓
     m.rect_sketch("sk4", [0., 0., 10.], [0., 0., 1.], 0., 0., 3., 3.)
         .unwrap();
     m.extrude("boss4", "sk4", 3.0).unwrap();
