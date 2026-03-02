@@ -100,6 +100,8 @@ impl ModelBuilder {
                 solved_profiles: profiles,
                 plane_origin: origin,
                 plane_normal: normal,
+                entities: vec![],
+                constraints: vec![],
             },
             self.kernel.as_mut(),
         );
@@ -142,6 +144,8 @@ impl ModelBuilder {
                 solved_profiles: profiles,
                 plane_origin: origin,
                 plane_normal: normal,
+                entities: vec![],
+                constraints: vec![],
             },
             self.kernel.as_mut(),
         );
@@ -252,6 +256,8 @@ impl ModelBuilder {
                 solved_profiles: profiles,
                 plane_origin: origin,
                 plane_normal: normal,
+                entities: vec![],
+                constraints: vec![],
             },
             self.kernel.as_mut(),
         );
