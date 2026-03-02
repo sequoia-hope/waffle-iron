@@ -601,9 +601,9 @@
 	let snapCandidateData = $derived.by(() => {
 		const candidates = getSnapCandidates();
 		if (!candidates.length || !plane) return [];
-		return candidates.map((c) => ({
+		return candidates.map((c, i) => ({
 			...c,
-			key: `${c.type}-${c.x.toFixed(2)}-${c.y.toFixed(2)}`,
+			key: `${c.type}-${c.entityId ?? c.sourceId ?? i}-${c.x.toFixed(6)}-${c.y.toFixed(6)}`,
 			world: sketchToWorld(c.x, c.y, plane)
 		}));
 	});
