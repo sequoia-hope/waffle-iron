@@ -264,7 +264,7 @@ After implementation, update:
 | `ARCHITECTURE.md` | New boolean pipeline stages; remove cascade description |
 | `CLAUDE.md` | Update priorities: boolean reliability → boolean correctness |
 | `specs/boolean_algorithm.md` | New: full spec for pave block + winding number + topology-first pipeline |
-| `specs/autosolver.md` | Rename/replace with `specs/assay.md` |
+| `specs/autosolver.md` | Deleted — replaced by Assay (`crates/test-harness/`) |
 | `docs/TESTING.md` | Add assay test tiers |
 | Memory files | Update boolean pipeline architecture, add Phase 0-5 status tracking |
 

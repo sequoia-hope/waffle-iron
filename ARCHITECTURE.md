@@ -17,7 +17,7 @@ The system has four layers:
 Three crates that implement the parametric modeling logic:
 
 - **feature-engine** — The parametric modeling brain. Manages the feature tree (ordered list of modeling operations), persistent naming (GeomRef system for stable geometry references across rebuilds), rebuild algorithm (replay features from change point), and undo/redo.
-- **modeling-ops** — Individual operation implementations (extrude, revolve, fillet, chamfer, shell, boolean combine). Each operation calls the Kernel trait, introspects the result, assigns semantic roles to created geometry, and returns a complete OpResult with provenance for persistent naming.
+- **modeling-ops** — Individual operation implementations (extrude, revolve, boolean combine). Each operation calls the Kernel trait, introspects the result, assigns semantic roles to created geometry, and returns a complete OpResult with provenance for persistent naming. (Fillet, chamfer, and shell operations exist experimentally but are deferred indefinitely pending boolean reliability.)
 - **sketch-solver** — Wraps the `slvs` crate (SolveSpace's libslvs) for 2D geometric constraint solving. Maps Waffle Iron sketch types to libslvs calls, runs the solver, extracts solved positions and closed profiles.
 
 ### Bridge Layer (Rust/WASM + JavaScript glue, runs in Web Worker)
@@ -76,7 +76,7 @@ User Input
 │         │                                                   │
 │         ▼                                                   │
 │  modeling-ops                                               │
-│    ├── Extrude, Revolve, Fillet, Chamfer, Shell             │
+│    ├── Extrude, Revolve, Boolean Combine                    │
 │    ├── Topology diff (before/after)                         │
 │    └── Provenance + role assignment → OpResult              │
 │         │                                                   │
@@ -167,47 +167,43 @@ All 3D rendering happens in JavaScript via three.js/Threlte on the main thread. 
 
 ## Known Kernel Gaps
 
-These are limitations of the truck crate ecosystem that every sub-project must account for:
+Limitations of the truck crate ecosystem. Items marked **(mitigated)** have Waffle Iron workarounds in place.
 
-### Boolean Performance Crisis
+### Boolean Performance (mitigated)
 
-GitHub Issue #68 documents a cube-cylinder boolean taking **13–15 seconds on an M1 MacBook**. Tolerance parameter strongly affects speed and stability (tol=0.9 → ~4s, tol=0.2 → ~15s, tol=1.0 → panic). Commercial kernels (Parasolid, ACIS) perform equivalent operations in single-digit milliseconds. This is the single largest technical risk.
+Upstream truck booleans were extremely slow (cube-cylinder: 13-15s). Our fork has per-stage tolerance layering (`BooleanTolerance`), a deterministic perturbation cascade with healing, and analytical SSI for plane-cylinder/cone/sphere pairs. Simple booleans now complete in ~1s. Complex cases (torus intersections, chained booleans) remain slower than commercial kernels. Active improvement area — see `MARCH-ALGO-WORK.md`.
 
-### Boolean Robustness
+### Boolean Robustness (mitigated)
 
-Known boolean failures: cone apex (degenerate normal), coplanar faces, near-tangent surfaces, small slivers. Operations return `Option<Solid>` — `None` on failure with no diagnostic information.
+Our fork adds `BooleanError` result types, robust geometric predicates (orient3d with SoS tiebreak), winding-number classification, pave block corner detection, and an 11-strategy healing cascade. ~80% of edge cases pass. Known remaining failures: torus-plane IC (360-degree revolve bodies), deeply chained multi-cut operations, cylinder-cylinder analytical SSI. See `specs/` for per-issue specs.
 
-### No Subtraction Primitive
+### No Subtraction Primitive (mitigated)
 
-Boolean subtraction requires `solid.not()` (flip normals) + `and` (intersection). No dedicated difference function exists.
-
-### Boolean Results Cannot Be Exported to STEP
-
-The STEP writer does not handle post-boolean solids. This limits export capabilities.
+Upstream truck has no `difference()` — requires `solid.not()` + `and()`. kernel-fork wraps this into `Kernel::boolean_subtract()` so callers see a single API.
 
 ### No Fillets or Chamfers
 
-Docs explicitly state: "Now, one cannot make a fillet... by truck." `RbfSurface` and `ApproxFilletSurface` exist as geometry surface types only — not modeling operations. No `solid.fillet(edge, radius)` API. No chamfer. No variable radius. No vertex blending. Fillets require building: surface generation, face trimming, topology reconstruction.
+truck provides no modeling-level fillet or chamfer operations. Experimental implementations exist in our modeling-ops crate but are **deferred indefinitely** pending boolean reliability.
 
-### No Persistent Naming Infrastructure
+### Persistent Naming (mitigated)
 
-Topology entities (Vertex, Edge, Face) have runtime IDs based on `Arc` reference counting. IDs are stable within a session but NOT persistent through topological modifications. Booleans create new objects with new IDs. No old → new mapping is provided. Solid has no ID at all. No operation journals, no entity mapping, no history tracking. Waffle Iron must build its own persistent naming system (GeomRef).
+Upstream truck has no persistent topology IDs across operations. Waffle Iron's feature-engine implements the GeomRef system: semantic geometry references that survive rebuilds via topology introspection and role-based matching.
 
-### No Dedicated Primitives
+### No Dedicated Primitives (mitigated)
 
-No `box()`, `cylinder()`, `sphere()` functions. Everything is built via successive sweeps. A cube is four `tsweep` calls from a vertex. A sphere is `rsweep` on a semicircle.
+Upstream truck has no `box()` / `cylinder()` / `sphere()` functions — everything is built via successive sweeps. kernel-fork's `primitives.rs` provides construction helpers that wrap the sweep sequences.
 
 ### Tessellation: Single Control Knob
 
-`MeshableShape::triangulation(tol)` provides chordal tolerance as the only parameter. No adaptive refinement, no LOD, no curvature-based density.
+`MeshableShape::triangulation(tol)` provides chordal tolerance as the only parameter. No adaptive refinement, no LOD, no curvature-based density. Waffle Iron scales the tolerance based on model bounding box extent.
 
 ### STEP I/O Limitations
 
-AP203 only. No AP214 (colors/layers) or AP242 (modern standard). README warns: "DO NOT USE FOR PRODUCT." Import is incomplete. Assembly structure reading is in progress.
+AP203 only. No AP214 (colors/layers) or AP242 (modern standard). Import is incomplete. Boolean results cannot be exported to STEP (the writer doesn't handle post-boolean solids).
 
 ### Assembly Support Not Ready
 
-truck-assembly is recently added, not published to crates.io, and provides only positional grouping from STEP files. No constraint solving, no mates.
+truck-assembly provides only positional grouping from STEP files. No constraint solving, no mates. Waffle Iron assemblies are deferred.
 
 ## Architectural Precedent: CADmium
 
