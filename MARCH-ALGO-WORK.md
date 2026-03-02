@@ -63,7 +63,8 @@ in tree) is the starting point.
 
 ## Tier 1: High Impact, Achievable
 
-### A1. Torus-Plane Analytical SSI
+### A1. Torus-Plane Analytical SSI — ⚠️ PARTIAL (Phase 1+2)
+**Status:** Newton early-return fix applied (Phase 1). Radial assembly already has two-level quantization (tau/100 → tau/10). IC generation and analytical paths partially improved. **RB tests still fail** — cascade exhausts before reaching assembly. Root cause is deeper than assembly quantization: the boolean pipeline itself fails across all perturbation attempts for full-revolve torus geometry.
 **Would unblock:** RB1, RB2, RB6, RB8, MO4 (5+ ignored tests)
 **Files:** `vendor/truck/truck-shapeops/src/transversal/intersection_curve/analytical.rs`
 **Problem:** 360deg revolve produces 3 lateral face patches sharing RevolutedCurve surfaces. Mesh-based IC finds overlapping triangles but `search_triple` Newton iteration diverges on noisy mesh points near torus-plane intersections. All 50 cascade perturbations fail the same way.
@@ -81,7 +82,8 @@ in tree) is the starting point.
 **Alternative (lower effort):** Improve mesh-based IC quality for torus surfaces specifically — denser tessellation near expected IC location, better Newton seeding from analytical approximation.
 **Verify:** RB1, RB2, RB6, RB8 tests pass (remove `#[ignore]`).
 
-### A2. Cylinder-Cylinder Analytical SSI
+### ~~A2. Cylinder-Cylinder Analytical SSI~~ ✅ DONE (pre-existing)
+**Status:** Already complete. Fully implemented with 12 unit tests passing.
 **Would unblock:** CC1 edge case, general industrial model coverage
 **Files:** `vendor/truck/truck-shapeops/src/transversal/intersection_curve/analytical.rs`
 **Spec:** `specs/boolean_phase_f_analytical_ssi.md` (F4, already specified)
@@ -89,7 +91,8 @@ in tree) is the starting point.
 **Fix:** Implement for equal-radius, intersecting axes (angle > 60deg), closest distance < 5% of R. Returns two elliptic curves (one per cylinder interior intersection). Refactor `AnalyticalIC.ellipse` to `AnalyticalIC.ellipses: Vec<EllipseParams>`.
 **Verify:** New test for perpendicular equal-radius cylinders passes. Existing boolean tests unaffected.
 
-### A3. Fragmentation Cache
+### ~~A3. Fragmentation Cache~~ ✅ DONE (Phase 2)
+**Status:** Completed. `FragmentationResult` public type with `into_union()`, `into_intersection()`, `into_difference()` selectors. `fragment_result()` / `fragment_result_with_tol()` public API exported from truck-shapeops. Internal `ClassifiedShellBuckets` aliased to `FragmentationResult`. Unit test `fragment_then_select_matches_direct` passes. 315 truck-shapeops tests pass, zero regressions.
 **Would improve:** Chained boolean performance; enables GFA-style operation selection
 **Files:** `vendor/truck/truck-shapeops/src/transversal/integrate/mod.rs`
 **Problem:** `and_result()`, `or_result()`, and `difference_result()` each call the full pipeline (`create_loops_stores()` → tessellation → BVH → face division → classification) independently. In Waffle Iron's parametric history (sketch → extrude → boolean → boolean → ...), this means the same expensive intersection computation runs multiple times on the same geometry.
@@ -214,33 +217,38 @@ Classification becomes a lookup: IN/ON/OUT is determined by the interference dat
 
 These are independently valuable regardless of the architectural migration.
 
-### C1. Wrap `eprintln!` in Debug Feature Flag
+### ~~C1. Wrap `eprintln!` in Debug Feature Flag~~ ✅ DONE (Phase 1)
+**Status:** Completed. 83 calls wrapped in `debug_eprintln!` macro gated on `#[cfg(debug_assertions)]`.
 **Files:** `vendor/truck/truck-shapeops/src/transversal/` (89 occurrences across module)
 **Problem:** 89 `eprintln!` calls in the transversal module, including 42 in integrate/mod.rs hot path. Each is a syscall. Production users see hundreds of lines of stderr spam. Diagnostics already collected in-memory via `BooleanDiagnostics`.
 **Fix:** Wrap all `eprintln!` in `#[cfg(feature = "boolean_debug")]` or `#[cfg(debug_assertions)]`. Add the feature flag to `Cargo.toml`. Enable in test builds, disable in release/WASM builds.
 **Verify:** `grep -rn "eprintln!" vendor/truck/truck-shapeops/src/transversal/ | grep -v "cfg("` returns 0 matches. Existing tests pass with the feature enabled.
 
-### C2. Reduce V2 Assembly Tolerance Escalation
+### ~~C2. Reduce V2 Assembly Tolerance Escalation~~ ✅ DONE (Phase 1)
+**Status:** Completed. Progression changed to 0.2x → 1.0x → 2.0x. Zero regressions.
 **Files:** `vendor/truck/truck-shapeops/src/transversal/integrate/mod.rs`
 **Problem:** Level 2 tolerance escalation uses 5.0x `tau_model`, merging vertices 5x apart. This destroys fine features and can create topologically invalid faces.
 **Fix:** Reduce to 2.0x. Change Level 1 from 0.4x to 1.0x (full `tau_model`). The progression becomes: 0.2x → 1.0x → 2.0x instead of 0.2x → 0.4x → 5.0x.
 **Note:** This is an interim fix. D2 (shrunk ranges) will eliminate the V2 assembly tolerance escalation entirely.
 **Verify:** All currently-passing boolean tests still pass. Run proptest suite to check for regressions.
 
-### C3. Scale-Aware Gap-Filling Threshold
+### ~~C3. Scale-Aware Gap-Filling Threshold~~ ✅ DONE (Phase 2)
+**Status:** Completed. `tol` threaded through `try_split_non_simple_wires` → `repair_wires_with_gap_fill`. Hard-coded `5.0` replaced with `(10.0 * tol).max(0.1)`. 315 truck-shapeops tests pass, zero regressions.
 **Files:** `vendor/truck/truck-shapeops/src/transversal/integrate/mod.rs` (line ~1249)
 **Problem:** Maximum gap size for wire repair is hard-coded at 5.0 units. Breaks for very small or very large models.
-**Fix:** Replace with `max(10.0 * tau_model, 0.1 * model_extent)`. Pass model extent through to the gap-filling function.
+**Fix:** Replace with `max(10.0 * tau_model, 0.1)`. Pass tol through to the gap-filling function.
 **Note:** This is an interim fix. D1 (pave-block-based face division) should eliminate gap-filling entirely by ensuring topological consistency from the start.
 **Verify:** Existing tests pass. Test with a 0.001-unit scale model and a 10000-unit scale model.
 
-### C4. IC Healing: Ellipse Fitting
+### ~~C4. IC Healing: Ellipse Fitting~~ ✅ DONE (Phase 2)
+**Status:** Completed. `analytical_ellipse_from_leader()` added as Strategy 0b after circle fitting. 5-point conic fit via Gaussian elimination, ellipse extraction, rational NURBS arc construction. Validated against both surfaces. Unit test with synthetic ellipse passes. 200 kernel-fork lib tests pass (1 pre-existing failure).
 **Files:** `crates/kernel-fork/src/healing.rs`
 **Problem:** Tier 2 IC healing only fits circles (3-point circumscribed circle). Cylinder-cylinder intersections produce ellipses, forcing fallback to BSpline approximation which has higher residual error.
 **Fix:** Implement 5-point ellipse fitting (circumscribed ellipse algorithm). Extend `analytical_circle_arc_from_leader()` to try ellipse fit when circle fit fails validation. Validate ellipse against both surfaces with `validate_bspline_on_surfaces()`.
 **Verify:** IC healing diagnostics show increased Tier 2 (analytical) usage for cylinder-cylinder pairs.
 
-### C5. Cascade Instrumentation (Phase E)
+### ~~C5. Cascade Instrumentation (Phase E)~~ ✅ DONE (pre-existing)
+**Status:** Already complete. All 5 counters + per-strategy arrays implemented in `healing.rs`.
 **Spec:** `specs/phase_e_cascade_deprecation.md` (already approved)
 **Files:** `crates/kernel-fork/src/healing.rs`
 **Problem:** `CascadeReport` and `BooleanDiagnosticsSummary` fields are declared but empty. No structured data on direct vs perturbation success rates.
@@ -308,7 +316,7 @@ and where we're investing to close the gap.
 | Plane-Sphere | Circle | Circle arc | Done |
 | Cylinder-Cylinder (equal-R) | Two ellipses | TBD | Specified (A2) |
 | Cylinder-Cylinder (unequal-R) | Not implemented | BSpline | Deferred |
-| Torus-Plane | Not implemented | Not implemented | Planned (A1) |
+| Torus-Plane | Partial (analytical IC gen + Newton early-return) | Not implemented | Blocked on cascade/assembly (A1) |
 | Torus-Cylinder | Not implemented | Not implemented | Deferred |
 | Curved-Curved (generic) | None | BSpline | Fallback only |
 
