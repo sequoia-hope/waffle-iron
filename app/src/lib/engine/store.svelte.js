@@ -2695,7 +2695,9 @@ export async function finishSketch() {
 			plane_origin: planeOrigin,
 			plane_normal: planeNormal,
 			entities: JSON.parse(JSON.stringify(sketchEntities)),
-			constraints: JSON.parse(JSON.stringify(sketchConstraints)),
+			constraints: JSON.parse(JSON.stringify(
+				sketchConstraints.filter(c => c.type !== 'WhereDragged')
+			)),
 		});
 		// Only clear sketch state after successful commit
 		exitSketchMode();
