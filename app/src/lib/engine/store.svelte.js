@@ -57,6 +57,7 @@ let activeTool = $state('select');
 
 /** @type {Array<object>} */
 let sketchEntities = $state([]);
+let suppressProfileExtraction = false;
 
 /** @type {Array<object>} */
 let sketchConstraints = $state([]);
@@ -1011,7 +1012,9 @@ export function addLocalEntity(entity) {
 		bridge.send({ type: 'AddSketchEntity', entity: cloned }).catch(err => console.error('AddSketchEntity failed:', err));
 	}
 
-	reExtractProfiles();
+	if (!suppressProfileExtraction) {
+		reExtractProfiles();
+	}
 }
 
 /**
@@ -1439,6 +1442,7 @@ export function createGear(gearParams) {
 	const profile = generateGearProfile(gearParams);
 
 	beginSketchAction();
+	suppressProfileExtraction = true;
 
 	const entityIds = [];
 	const pointIdMap = new Map(); // profile point index -> entity ID
@@ -1505,7 +1509,9 @@ export function createGear(gearParams) {
 	});
 	entityIds.push(pitchCircleId);
 
+	suppressProfileExtraction = false;
 	endSketchAction();
+	reExtractProfiles();
 
 	// Register gear
 	const newRegistry = new Map(gearRegistry);
