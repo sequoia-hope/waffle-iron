@@ -2,7 +2,17 @@
  * Involute gear profile geometry generation.
  *
  * Pure math — no framework dependencies. Generates sketch entities
- * (points, splines, arcs) for a complete involute spur gear profile.
+ * (points, splines, lines, arcs) for a complete involute spur gear profile.
+ *
+ * Per tooth profile:
+ *   root_right → line(rootR→baseR) → right_involute(baseR→addendumR) →
+ *   tip_arc(addendumR) → left_involute(addendumR→baseR) → line(baseR→rootR)
+ *   → root_left
+ * Between teeth:
+ *   root_left → root_arc(rootR) → next_root_right
+ *
+ * Radial lines from rootR to baseR break the root circle's continuity.
+ * The tip arcs are already non-continuous (separated by involutes + lines).
  */
 
 import { fitBSplineToPoints } from './bspline.js';
@@ -42,12 +52,13 @@ export function involutePoint(baseRadius, rollAngle) {
 /**
  * @typedef {Object} GearProfileResult
  * @property {Array<{x: number, y: number}>} points - All point positions
- * @property {Array<{pointIndices: number[]}>} splines - Spline entity definitions (indices into points)
+ * @property {Array<{pointIndices: number[]}>} splines - Spline entity definitions
+ * @property {Array<{startIndex: number, endIndex: number}>} lines - Line entity definitions
  * @property {Array<{centerIndex: number, startIndex: number, endIndex: number}>} arcs - Arc entity definitions
- * @property {number} pitchRadius - Pitch circle radius
- * @property {number} baseRadius - Base circle radius
- * @property {number} addendumRadius - Addendum (tip) circle radius
- * @property {number} dedendumRadius - Dedendum (root) circle radius
+ * @property {number} pitchRadius
+ * @property {number} baseRadius
+ * @property {number} addendumRadius
+ * @property {number} dedendumRadius
  */
 
 /**
@@ -72,164 +83,143 @@ export function generateGearProfile(params) {
 	const baseR = pitchR * Math.cos(alpha);
 	const addendumR = pitchR + m;
 	const dedendumR = pitchR - 1.25 * m;
-	const rootR = Math.max(dedendumR, baseR * 0.95); // clamp so root doesn't go below base
+	const rootR = Math.max(dedendumR, baseR * 0.5);
 
-	// Angular pitch
 	const angularPitch = (2 * Math.PI) / N;
-
-	// Involute at pitch circle: inv(α) = tan(α) - α
 	const invAlpha = involute(alpha);
-
-	// Half tooth thickness at pitch circle (in angular terms)
 	const halfToothAngle = angularPitch / 4 + invAlpha;
-
-	// Backlash angular offset
 	const backlashAngle = backlash / (2 * pitchR);
 
 	const points = [];
 	const splines = [];
+	const lines = [];
 	const arcs = [];
 
-	// Helper: transform point by rotation and translation
-	function transform(x, y, angle) {
-		const ca = Math.cos(angle + rotationOffset);
-		const sa = Math.sin(angle + rotationOffset);
+	function transform(x, y) {
+		const ca = Math.cos(rotationOffset);
+		const sa = Math.sin(rotationOffset);
 		return {
 			x: cx + x * ca - y * sa,
 			y: cy + x * sa + y * ca
 		};
 	}
 
-	// Helper: add a point and return its index
 	function addPoint(x, y) {
 		const idx = points.length;
 		points.push({ x, y });
 		return idx;
 	}
 
-	// Single center point shared by all arcs
+	// Single center point for all arcs
 	const centerIdx = addPoint(cx, cy);
 
-	// Roll angle range: 0 at base circle, increases outward
 	const maxRollAngle = Math.sqrt((addendumR / baseR) ** 2 - 1);
-	const startRollAngle = baseR > rootR ? 0 : Math.sqrt(Math.max(0, (rootR / baseR) ** 2 - 1));
 	const numInvSamples = 12;
 
-	// Compute the right-involute start position for a given tooth
-	function rightInvoluteStartPos(toothAngle) {
-		const rightStartAngle = toothAngle + halfToothAngle - backlashAngle;
-		const pt = involutePoint(baseR, startRollAngle);
-		const invAngle = Math.atan2(pt.y, pt.x);
-		const r = Math.sqrt(pt.x * pt.x + pt.y * pt.y);
-		const adjustedAngle = rightStartAngle - invAngle;
-		return transform(r * Math.cos(adjustedAngle), r * Math.sin(adjustedAngle), 0);
-	}
+	// Pre-create root points (on rootR) for each tooth — right and left sides
+	const toothRightRootIdx = [];
+	const toothLeftRootIdx = [];
 
-	// Pre-create the right-start point for each tooth so cross-tooth arcs
-	// share the same point ID (no duplicate points at the same position).
-	const toothRightStartIdx = [];
-	for (let tooth = 0; tooth < N; tooth++) {
-		const pos = rightInvoluteStartPos(tooth * angularPitch);
-		toothRightStartIdx.push(addPoint(pos.x, pos.y));
-	}
-
-	// Generate profile for each tooth
 	for (let tooth = 0; tooth < N; tooth++) {
 		const toothAngle = tooth * angularPitch;
+		const rightAngle = toothAngle + halfToothAngle - backlashAngle;
+		const leftAngle = toothAngle - halfToothAngle + backlashAngle;
 
-		// Right involute flank (from base to addendum)
-		const rightInvolutePoints = [];
+		const rr = transform(rootR * Math.cos(rightAngle), rootR * Math.sin(rightAngle));
+		toothRightRootIdx.push(addPoint(rr.x, rr.y));
+
+		const lr = transform(rootR * Math.cos(leftAngle), rootR * Math.sin(leftAngle));
+		toothLeftRootIdx.push(addPoint(lr.x, lr.y));
+	}
+
+	for (let tooth = 0; tooth < N; tooth++) {
+		const toothAngle = tooth * angularPitch;
 		const rightStartAngle = toothAngle + halfToothAngle - backlashAngle;
-
-		for (let i = 0; i <= numInvSamples; i++) {
-			const t = i / numInvSamples;
-			const roll = startRollAngle + t * (maxRollAngle - startRollAngle);
-			const pt = involutePoint(baseR, roll);
-			const invAngle = Math.atan2(pt.y, pt.x);
-			const r = Math.sqrt(pt.x * pt.x + pt.y * pt.y);
-			const adjustedAngle = rightStartAngle - invAngle;
-			rightInvolutePoints.push(transform(
-				r * Math.cos(adjustedAngle),
-				r * Math.sin(adjustedAngle),
-				0
-			));
-		}
-
-		// Left involute flank (mirror of right, from addendum to base)
-		const leftInvolutePoints = [];
 		const leftStartAngle = toothAngle - halfToothAngle + backlashAngle;
 
-		for (let i = numInvSamples; i >= 0; i--) {
+		// Trace counterclockwise: left side up → tip → right side down → root gap
+		// This ensures root arcs span the SHORT gap between adjacent teeth.
+
+		// === Radial line: rootR → baseR (left side) ===
+		const leftInvolutePoints = [];
+		for (let i = 0; i <= numInvSamples; i++) {
 			const t = i / numInvSamples;
-			const roll = startRollAngle + t * (maxRollAngle - startRollAngle);
+			const roll = t * maxRollAngle;
 			const pt = involutePoint(baseR, roll);
 			const invAngle = Math.atan2(pt.y, pt.x);
 			const r = Math.sqrt(pt.x * pt.x + pt.y * pt.y);
 			const adjustedAngle = leftStartAngle + invAngle;
 			leftInvolutePoints.push(transform(
 				r * Math.cos(adjustedAngle),
-				r * Math.sin(adjustedAngle),
-				0
+				r * Math.sin(adjustedAngle)
 			));
 		}
 
-		// Right involute: first point is the pre-created shared point
-		const rightStartIdx = toothRightStartIdx[tooth];
-		const rightMidIndices = [];
-		for (let i = 1; i < rightInvolutePoints.length - 1; i++) {
-			rightMidIndices.push(addPoint(rightInvolutePoints[i].x, rightInvolutePoints[i].y));
-		}
-		const rightEndIdx = addPoint(
-			rightInvolutePoints[rightInvolutePoints.length - 1].x,
-			rightInvolutePoints[rightInvolutePoints.length - 1].y
-		);
+		const leftBaseIdx = addPoint(leftInvolutePoints[0].x, leftInvolutePoints[0].y);
+		lines.push({ startIndex: toothLeftRootIdx[tooth], endIndex: leftBaseIdx });
 
-		// Fit B-spline to right involute and create spline entity
-		const rightCtrlPts = fitBSplineToPoints(rightInvolutePoints);
-		splines.push({
-			pointIndices: [rightStartIdx, ...rightMidIndices, rightEndIdx],
-			controlPoints: rightCtrlPts
-		});
-
-		// Tip arc: from right involute end to left involute start
-		const leftStartIdx = addPoint(leftInvolutePoints[0].x, leftInvolutePoints[0].y);
-
-		arcs.push({
-			centerIndex: centerIdx,
-			startIndex: rightEndIdx,
-			endIndex: leftStartIdx
-		});
-
-		// Create points for left involute
+		// === Left involute spline (baseR → addendumR) ===
 		const leftMidIndices = [];
 		for (let i = 1; i < leftInvolutePoints.length - 1; i++) {
 			leftMidIndices.push(addPoint(leftInvolutePoints[i].x, leftInvolutePoints[i].y));
 		}
-		const leftEndIdx = addPoint(
+		const leftTipIdx = addPoint(
 			leftInvolutePoints[leftInvolutePoints.length - 1].x,
 			leftInvolutePoints[leftInvolutePoints.length - 1].y
 		);
-
-		// Fit B-spline to left involute
-		const leftCtrlPts = fitBSplineToPoints(leftInvolutePoints);
 		splines.push({
-			pointIndices: [leftStartIdx, ...leftMidIndices, leftEndIdx],
-			controlPoints: leftCtrlPts
+			pointIndices: [leftBaseIdx, ...leftMidIndices, leftTipIdx],
+			controlPoints: fitBSplineToPoints(leftInvolutePoints)
 		});
 
-		// Root arc: from left involute end to next tooth's shared right-start point
-		const nextTooth = (tooth + 1) % N;
+		// === Tip arc (addendumR): left tip → right tip ===
+		const rightInvolutePoints = [];
+		for (let i = numInvSamples; i >= 0; i--) {
+			const t = i / numInvSamples;
+			const roll = t * maxRollAngle;
+			const pt = involutePoint(baseR, roll);
+			const invAngle = Math.atan2(pt.y, pt.x);
+			const r = Math.sqrt(pt.x * pt.x + pt.y * pt.y);
+			const adjustedAngle = rightStartAngle - invAngle;
+			rightInvolutePoints.push(transform(
+				r * Math.cos(adjustedAngle),
+				r * Math.sin(adjustedAngle)
+			));
+		}
 
+		const rightTipIdx = addPoint(rightInvolutePoints[0].x, rightInvolutePoints[0].y);
+		arcs.push({ centerIndex: centerIdx, startIndex: leftTipIdx, endIndex: rightTipIdx });
+
+		// === Right involute spline (addendumR → baseR) ===
+		const rightMidIndices = [];
+		for (let i = 1; i < rightInvolutePoints.length - 1; i++) {
+			rightMidIndices.push(addPoint(rightInvolutePoints[i].x, rightInvolutePoints[i].y));
+		}
+		const rightBaseIdx = addPoint(
+			rightInvolutePoints[rightInvolutePoints.length - 1].x,
+			rightInvolutePoints[rightInvolutePoints.length - 1].y
+		);
+		splines.push({
+			pointIndices: [rightTipIdx, ...rightMidIndices, rightBaseIdx],
+			controlPoints: fitBSplineToPoints(rightInvolutePoints)
+		});
+
+		// === Radial line: baseR → rootR (right side) ===
+		lines.push({ startIndex: rightBaseIdx, endIndex: toothRightRootIdx[tooth] });
+
+		// === Root arc (rootR) to next tooth: right root → next left root ===
+		const nextTooth = (tooth + 1) % N;
 		arcs.push({
 			centerIndex: centerIdx,
-			startIndex: leftEndIdx,
-			endIndex: toothRightStartIdx[nextTooth]
+			startIndex: toothRightRootIdx[tooth],
+			endIndex: toothLeftRootIdx[nextTooth]
 		});
 	}
 
 	return {
 		points,
 		splines,
+		lines,
 		arcs,
 		pitchRadius: pitchR,
 		baseRadius: baseR,
@@ -260,7 +250,7 @@ export function generateGearPreviewPolyline(params) {
 	const baseR = pitchR * Math.cos(alpha);
 	const addendumR = pitchR + m;
 	const dedendumR = pitchR - 1.25 * m;
-	const rootR = Math.max(dedendumR, baseR * 0.95);
+	const rootR = Math.max(dedendumR, baseR * 0.5);
 
 	const angularPitch = (2 * Math.PI) / N;
 	const invAlpha = involute(alpha);
@@ -278,111 +268,42 @@ export function generateGearPreviewPolyline(params) {
 
 	const polyline = [];
 	const samplesPerInvolute = 8;
-	const samplesPerArc = 4;
+	const maxRollAngle = Math.sqrt((addendumR / baseR) ** 2 - 1);
 
 	for (let tooth = 0; tooth < N; tooth++) {
 		const toothAngle = tooth * angularPitch;
 		const rightStartAngle = toothAngle + halfToothAngle - backlashAngle;
 		const leftStartAngle = toothAngle - halfToothAngle + backlashAngle;
 
-		const maxRollAngle = Math.sqrt((addendumR / baseR) ** 2 - 1);
-		const startRollAngle = baseR > rootR ? 0 : Math.sqrt(Math.max(0, (rootR / baseR) ** 2 - 1));
+		// Left root point
+		polyline.push(transform(rootR * Math.cos(leftStartAngle), rootR * Math.sin(leftStartAngle)));
 
-		// Right involute (base to tip)
+		// Left involute (base to tip)
 		for (let i = 0; i <= samplesPerInvolute; i++) {
 			const t = i / samplesPerInvolute;
-			const roll = startRollAngle + t * (maxRollAngle - startRollAngle);
-			const pt = involutePoint(baseR, roll);
-			const invAngle = Math.atan2(pt.y, pt.x);
-			const r = Math.sqrt(pt.x * pt.x + pt.y * pt.y);
-			const adjustedAngle = rightStartAngle - invAngle;
-			polyline.push(transform(
-				r * Math.cos(adjustedAngle),
-				r * Math.sin(adjustedAngle)
-			));
-		}
-
-		// Tip arc
-		const tipStartAngle = rightStartAngle - Math.sqrt((addendumR / baseR) ** 2 - 1) +
-			Math.atan2(...(() => { const p = involutePoint(baseR, maxRollAngle); return [p.y, p.x]; })());
-		const rightTipAngle = Math.atan2(
-			polyline[polyline.length - 1].y - cy,
-			polyline[polyline.length - 1].x - cx
-		);
-
-		// Left involute tip point
-		const leftTipPt = involutePoint(baseR, maxRollAngle);
-		const leftTipInvAngle = Math.atan2(leftTipPt.y, leftTipPt.x);
-		const leftTipR = Math.sqrt(leftTipPt.x * leftTipPt.x + leftTipPt.y * leftTipPt.y);
-		const leftTipAdjAngle = leftStartAngle + leftTipInvAngle;
-		const leftTipWorld = transform(
-			leftTipR * Math.cos(leftTipAdjAngle),
-			leftTipR * Math.sin(leftTipAdjAngle)
-		);
-		const leftTipAngle = Math.atan2(leftTipWorld.y - cy, leftTipWorld.x - cx);
-
-		// Tip arc from right tip to left tip
-		let tipSweep = leftTipAngle - rightTipAngle;
-		if (tipSweep < 0) tipSweep += 2 * Math.PI;
-		if (tipSweep > Math.PI) tipSweep -= 2 * Math.PI;
-
-		for (let i = 1; i <= samplesPerArc; i++) {
-			const t = i / samplesPerArc;
-			const angle = rightTipAngle + t * tipSweep;
-			polyline.push(transform(
-				addendumR * Math.cos(angle),
-				addendumR * Math.sin(angle)
-			));
-		}
-
-		// Left involute (tip to base)
-		for (let i = samplesPerInvolute; i >= 0; i--) {
-			const t = i / samplesPerInvolute;
-			const roll = startRollAngle + t * (maxRollAngle - startRollAngle);
+			const roll = t * maxRollAngle;
 			const pt = involutePoint(baseR, roll);
 			const invAngle = Math.atan2(pt.y, pt.x);
 			const r = Math.sqrt(pt.x * pt.x + pt.y * pt.y);
 			const adjustedAngle = leftStartAngle + invAngle;
-			polyline.push(transform(
-				r * Math.cos(adjustedAngle),
-				r * Math.sin(adjustedAngle)
-			));
+			polyline.push(transform(r * Math.cos(adjustedAngle), r * Math.sin(adjustedAngle)));
 		}
 
-		// Root arc to next tooth
-		const leftRootAngle = Math.atan2(
-			polyline[polyline.length - 1].y - cy,
-			polyline[polyline.length - 1].x - cx
-		);
-
-		const nextToothAngle = (tooth + 1) * angularPitch;
-		const nextRightStartAngle = nextToothAngle + halfToothAngle - backlashAngle;
-		const nextRightRoll = startRollAngle;
-		const nextPt = involutePoint(baseR, nextRightRoll);
-		const nextInvAngle = Math.atan2(nextPt.y, nextPt.x);
-		const nextR = Math.sqrt(nextPt.x * nextPt.x + nextPt.y * nextPt.y);
-		const nextAdjAngle = nextRightStartAngle - nextInvAngle;
-		const nextRightStart = transform(
-			nextR * Math.cos(nextAdjAngle),
-			nextR * Math.sin(nextAdjAngle)
-		);
-		const nextRightAngle = Math.atan2(nextRightStart.y - cy, nextRightStart.x - cx);
-
-		let rootSweep = nextRightAngle - leftRootAngle;
-		if (rootSweep < 0) rootSweep += 2 * Math.PI;
-		if (rootSweep > Math.PI) rootSweep -= 2 * Math.PI;
-
-		for (let i = 1; i <= samplesPerArc; i++) {
-			const t = i / samplesPerArc;
-			const angle = leftRootAngle + t * rootSweep;
-			polyline.push(transform(
-				rootR * Math.cos(angle),
-				rootR * Math.sin(angle)
-			));
+		// Right involute (tip to base)
+		for (let i = samplesPerInvolute; i >= 0; i--) {
+			const t = i / samplesPerInvolute;
+			const roll = t * maxRollAngle;
+			const pt = involutePoint(baseR, roll);
+			const invAngle = Math.atan2(pt.y, pt.x);
+			const r = Math.sqrt(pt.x * pt.x + pt.y * pt.y);
+			const adjustedAngle = rightStartAngle - invAngle;
+			polyline.push(transform(r * Math.cos(adjustedAngle), r * Math.sin(adjustedAngle)));
 		}
+
+		// Right root point
+		polyline.push(transform(rootR * Math.cos(rightStartAngle), rootR * Math.sin(rightStartAngle)));
 	}
 
-	// Close the loop
 	if (polyline.length > 0) {
 		polyline.push({ ...polyline[0] });
 	}

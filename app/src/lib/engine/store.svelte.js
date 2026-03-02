@@ -1350,8 +1350,21 @@ export function createGear(gearParams) {
 		entityIds.push(id);
 	}
 
-	// Create arc entities
-	for (const arc of profile.arcs) {
+	// Create line entities (tip, root, radial connections)
+	for (const line of (profile.lines || [])) {
+		const id = allocEntityId();
+		addLocalEntity({
+			type: 'Line',
+			id,
+			start_id: pointIdMap.get(line.startIndex),
+			end_id: pointIdMap.get(line.endIndex),
+			construction: false
+		});
+		entityIds.push(id);
+	}
+
+	// Create arc entities (legacy support)
+	for (const arc of (profile.arcs || [])) {
 		const id = allocEntityId();
 		addLocalEntity({
 			type: 'Arc',
@@ -1365,7 +1378,8 @@ export function createGear(gearParams) {
 	}
 
 	// Add pitch circle as construction geometry
-	const pitchCircleCenterId = pointIdMap.get(0) ?? allocEntityId();
+	const centerPointId = pointIdMap.get(0);
+	const pitchCircleCenterId = centerPointId != null ? centerPointId : allocEntityId();
 	const pitchCircleId = allocEntityId();
 	addLocalEntity({
 		type: 'Circle',
@@ -2355,6 +2369,22 @@ export async function finishSketch() {
 		return [undefined, undefined];
 	}
 
+	// Helper: get ALL polygon point IDs for an entity in forward direction.
+	// For Lines/Arcs: [start_id] (end_id is the next entity's start).
+	// For Splines: all interior point_ids (gives the involute shape to the kernel).
+	function entityPolygonPoints(entity, forward) {
+		if (entity.type === 'Line' || entity.type === 'Arc') {
+			return forward ? [entity.start_id] : [entity.end_id];
+		}
+		if (entity.type === 'Spline' && entity.point_ids?.length >= 2) {
+			// Include all points except the last (which is the next entity's connecting point)
+			const ids = [...entity.point_ids];
+			if (!forward) ids.reverse();
+			return ids.slice(0, -1);
+		}
+		return [];
+	}
+
 	const profiles = extractedProfilesState.map((p) => {
 		const pointIds = [];
 		const edgeEntities = [...p.entityIds].map(id => sketchEntities.find(e => e.id === id)).filter(Boolean);
@@ -2375,25 +2405,30 @@ export async function finishSketch() {
 
 		if (edgeEntities.length === 0) return { entity_ids: [...p.entityIds], is_outer: p.isOuter };
 
-		// Chain entities: walk start→end connections across lines, arcs, and splines
+		// Chain entities: walk start→end connections across lines, arcs, and splines.
+		// For splines, include ALL interior points so the kernel gets the full curve shape.
 		const [firstStart, firstEnd] = entityEndpoints(edgeEntities[0]);
 		if (firstStart == null) return { entity_ids: [...p.entityIds], is_outer: p.isOuter };
-		pointIds.push(firstStart);
+
+		// First entity: emit all polygon points in forward direction
+		pointIds.push(...entityPolygonPoints(edgeEntities[0], true));
 		let prevEnd = firstEnd;
 
 		for (let i = 1; i < edgeEntities.length; i++) {
-			const [nextStart, nextEnd] = entityEndpoints(edgeEntities[i]);
+			const entity = edgeEntities[i];
+			const [nextStart, nextEnd] = entityEndpoints(entity);
 			if (nextStart == null) continue;
+
 			// Determine direction: match whichever endpoint connects to prevEnd
-			if (nextStart === prevEnd) {
-				pointIds.push(nextStart);
-				prevEnd = nextEnd;
-			} else if (nextEnd === prevEnd) {
-				pointIds.push(nextEnd);
-				prevEnd = nextStart;
+			const forward = nextStart === prevEnd;
+			const connected = forward || nextEnd === prevEnd;
+
+			if (connected) {
+				pointIds.push(...entityPolygonPoints(entity, forward));
+				prevEnd = forward ? nextEnd : nextStart;
 			} else {
-				// Not connected — just add start
-				pointIds.push(nextStart);
+				// Not connected — just add in forward direction
+				pointIds.push(...entityPolygonPoints(entity, true));
 				prevEnd = nextEnd;
 			}
 		}

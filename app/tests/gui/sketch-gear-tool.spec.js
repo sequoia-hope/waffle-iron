@@ -117,6 +117,7 @@ test.describe('gear tool', () => {
 			const entities = window.__waffle.getEntities();
 			const splines = entities.filter(e => e.type === 'Spline');
 			const arcs = entities.filter(e => e.type === 'Arc' && !e.construction);
+			const lines = entities.filter(e => e.type === 'Line');
 
 			// Collect edge endpoints: each edge entity connects two point IDs
 			const edges = [];
@@ -125,6 +126,9 @@ test.describe('gear tool', () => {
 			}
 			for (const a of arcs) {
 				edges.push([a.start_id, a.end_id]);
+			}
+			for (const l of lines) {
+				edges.push([l.start_id, l.end_id]);
 			}
 
 			// Build adjacency and check each vertex has degree 2
@@ -168,8 +172,8 @@ test.describe('gear tool', () => {
 			};
 		});
 
-		// 6 teeth × 4 entities per tooth (2 splines + tip arc + root arc) = 24 edges
-		expect(result.edgeCount).toBe(24);
+		// 6 teeth × 6 entities per tooth (2 splines + 2 lines + tip arc + root arc) = 36 edges
+		expect(result.edgeCount).toBe(36);
 		// Each edge contributes 2 unique connection vertices, but they're shared
 		expect(result.allDegreeTwo).toBe(true);
 		// Walking the graph should visit all vertices in one loop
@@ -194,16 +198,19 @@ test.describe('gear tool', () => {
 
 		const pointCount = await getEntityCountByType(waffle.page, 'Point');
 		const splineCount = await getEntityCountByType(waffle.page, 'Spline');
+		const lineCount = await getEntityCountByType(waffle.page, 'Line');
 		const arcCount = await getEntityCountByType(waffle.page, 'Arc');
 		const circleCount = await getEntityCountByType(waffle.page, 'Circle');
 
 		// 6 teeth: each tooth produces 2 splines (right + left involute)
 		expect(splineCount).toBe(12);
+		// 6 teeth: each tooth produces 2 lines (rootR→baseR radials)
+		expect(lineCount).toBe(12);
 		// 6 teeth: each tooth produces 2 arcs (tip + root)
 		expect(arcCount).toBe(12);
 		// Pitch circle as construction
 		expect(circleCount).toBe(1);
-		// Points: 1 center + 6 tooth starts + 6×(11 right mid + 1 right end + 1 left start + 11 left mid + 1 left end) = 157
+		// Points: 1 center + 12 root points + 6×(1 rightBase + 11 mid + 1 rightTip + 1 leftTip + 11 mid + 1 leftBase) = 169
 		expect(pointCount).toBeGreaterThan(30);
 
 		// All arcs should share a single center point
