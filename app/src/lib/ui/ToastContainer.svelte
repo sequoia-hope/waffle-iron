@@ -58,6 +58,7 @@
 	.toast-message {
 		flex: 1;
 		line-height: 1.3;
+		overflow-wrap: break-word;
 	}
 
 	.toast-close {
@@ -91,7 +92,7 @@
 			right: auto;
 			left: 50%;
 			transform: translateX(-50%);
-			width: calc(100vw - 48px);
+			width: calc(100vw - 48px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
 			max-width: 320px;
 		}
 	}

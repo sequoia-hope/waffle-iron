@@ -12,6 +12,17 @@
 	let { menuPos = $bindable({ x: 0, y: 0 }), visible = $bindable(false) } = $props();
 
 	let sm = $derived(getSketchMode());
+
+	let clampedPos = $derived.by(() => {
+		const menuWidth = 150;
+		const menuHeight = 300;
+		const maxX = window.innerWidth - menuWidth - 8;
+		const maxY = window.innerHeight - menuHeight - 8;
+		return {
+			x: Math.min(menuPos.x, Math.max(0, maxX)),
+			y: Math.min(menuPos.y, Math.max(0, maxY))
+		};
+	});
 	let selection = $derived(getSketchSelection());
 	let entities = $derived(getSketchEntities());
 	let positions = $derived(getSketchPositions());
@@ -71,7 +82,7 @@
 <svelte:window oncontextmenu={handleContextMenu} onclick={closeMenu} />
 
 {#if visible && applicableConstraints.length > 0}
-	<div class="constraint-menu" style="left: {menuPos.x}px; top: {menuPos.y}px" role="menu">
+	<div class="constraint-menu" style="left: {clampedPos.x}px; top: {clampedPos.y}px" role="menu">
 		{#each applicableConstraints as item}
 			<button class="constraint-item" onclick={() => applyConstraint(item)} role="menuitem">
 				{item.label}

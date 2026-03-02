@@ -10,6 +10,17 @@
 	let { visible = $bindable(false), pos = $bindable({ x: 0, y: 0 }) } = $props();
 
 	let ready = $derived(isEngineReady());
+
+	let clampedPos = $derived.by(() => {
+		const menuWidth = 160;
+		const menuHeight = 200;
+		const maxX = window.innerWidth - menuWidth - 8;
+		const maxY = window.innerHeight - menuHeight - 8;
+		return {
+			x: Math.min(pos.x, Math.max(0, maxX)),
+			y: Math.min(pos.y, Math.max(0, maxY))
+		};
+	});
 	let inSketch = $derived(getSketchMode()?.active ?? false);
 	let hasSelection = $derived(getSelectedRefs().length > 0);
 
@@ -48,7 +59,7 @@
 	<div
 		class="ctx-menu"
 		data-testid="ctx-menu"
-		style="left: {pos.x}px; top: {pos.y}px"
+		style="left: {clampedPos.x}px; top: {clampedPos.y}px"
 		onclick={(e) => e.stopPropagation()}
 	>
 		{#if hasSelection}

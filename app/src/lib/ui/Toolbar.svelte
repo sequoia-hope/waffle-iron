@@ -61,6 +61,22 @@
 	let showConstraints = $state(false);
 	let showSketchTools = $state(false);
 
+	// Fixed-position dropdown tracking for mobile (avoids overflow:hidden clipping)
+	let dropdownPos = $state({ top: 0, left: 0, right: null });
+	let overflowPos = $state({ top: 0, right: 0 });
+
+	function openDropdown(triggerEl, setState) {
+		const rect = triggerEl.getBoundingClientRect();
+		dropdownPos = { top: rect.bottom + 4, left: rect.left, right: null };
+		setState();
+	}
+
+	function openOverflow(triggerEl) {
+		const rect = triggerEl.getBoundingClientRect();
+		overflowPos = { top: rect.bottom + 4, right: window.innerWidth - rect.right };
+		showOverflow = !showOverflow;
+	}
+
 	function toggleOverflow() {
 		showOverflow = !showOverflow;
 	}
@@ -279,27 +295,27 @@
 				<button
 					class="toolbar-btn dropdown-trigger"
 					data-testid="toolbar-btn-sketch-tools-dropdown"
-					onclick={() => { showSketchTools = !showSketchTools; showConstraints = false; }}
+					onclick={(e) => { openDropdown(e.currentTarget, () => { showSketchTools = !showSketchTools; showConstraints = false; }); }}
 				>Tools ▾</button>
-				{#if showSketchTools}
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div class="dropdown-backdrop" onclick={() => showSketchTools = false}></div>
-					<div class="dropdown-panel" data-testid="sketch-tools-dropdown">
-						<div class="dropdown-grid">
-							{#each sketchTools as t}
-								<button
-									class="toolbar-btn"
-									class:active={t.id !== 'construction' && tool === t.id}
-									disabled={!ready}
-									title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
-									data-testid="toolbar-btn-{t.id}"
-									onclick={() => { t.id === 'construction' ? handleToggleConstruction() : setActiveTool(t.id); showSketchTools = false; }}
-								>{t.label}</button>
-							{/each}
-						</div>
-					</div>
-				{/if}
 			</div>
+			{#if showSketchTools}
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div class="dropdown-backdrop" onclick={() => showSketchTools = false}></div>
+				<div class="dropdown-panel dropdown-fixed" style="top: {dropdownPos.top}px; left: {dropdownPos.left}px;" data-testid="sketch-tools-dropdown">
+					<div class="dropdown-grid">
+						{#each sketchTools as t}
+							<button
+								class="toolbar-btn"
+								class:active={t.id !== 'construction' && tool === t.id}
+								disabled={!ready}
+								title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
+								data-testid="toolbar-btn-{t.id}"
+								onclick={() => { t.id === 'construction' ? handleToggleConstruction() : setActiveTool(t.id); showSketchTools = false; }}
+							>{t.label}</button>
+						{/each}
+					</div>
+				</div>
+			{/if}
 		{:else}
 			<!-- Desktop: sketch tools inline -->
 			<div class="toolbar-group">
@@ -317,16 +333,18 @@
 		{/if}
 		<div class="toolbar-sep"></div>
 		<!-- Constraints dropdown (always a dropdown) -->
-		<div class="dropdown-container">
-			<button
-				class="toolbar-btn dropdown-trigger"
-				data-testid="toolbar-btn-constraints-dropdown"
-				onclick={() => { showConstraints = !showConstraints; showSketchTools = false; }}
-			>Constraints ▾</button>
+		{#if isMobile}
+			<div class="dropdown-container">
+				<button
+					class="toolbar-btn dropdown-trigger"
+					data-testid="toolbar-btn-constraints-dropdown"
+					onclick={(e) => { openDropdown(e.currentTarget, () => { showConstraints = !showConstraints; showSketchTools = false; }); }}
+				>Constraints ▾</button>
+			</div>
 			{#if showConstraints}
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div class="dropdown-backdrop" onclick={() => showConstraints = false}></div>
-				<div class="dropdown-panel constraints-panel" data-testid="constraints-dropdown">
+				<div class="dropdown-panel dropdown-fixed constraints-panel" style="top: {dropdownPos.top}px; left: {dropdownPos.left}px;" data-testid="constraints-dropdown">
 					<div class="dropdown-grid constraints-grid">
 						{#each constraintButtons as cb}
 							<button
@@ -340,7 +358,32 @@
 					</div>
 				</div>
 			{/if}
-		</div>
+		{:else}
+			<div class="dropdown-container">
+				<button
+					class="toolbar-btn dropdown-trigger"
+					data-testid="toolbar-btn-constraints-dropdown"
+					onclick={() => { showConstraints = !showConstraints; showSketchTools = false; }}
+				>Constraints ▾</button>
+				{#if showConstraints}
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div class="dropdown-backdrop" onclick={() => showConstraints = false}></div>
+					<div class="dropdown-panel constraints-panel" data-testid="constraints-dropdown">
+						<div class="dropdown-grid constraints-grid">
+							{#each constraintButtons as cb}
+								<button
+									class="constraint-btn"
+									disabled={!applicable[cb.id]}
+									title={cb.title}
+									data-testid="toolbar-constraint-{cb.id}"
+									onclick={() => { applyConstraint(cb.id); showConstraints = false; }}
+								>{cb.label}</button>
+							{/each}
+						</div>
+					</div>
+				{/if}
+			</div>
+		{/if}
 		<div class="toolbar-sep"></div>
 		<button
 			class="toolbar-btn"
@@ -420,14 +463,15 @@
 		<!-- Mobile: collapse file/export/test actions into overflow menu -->
 		<div class="toolbar-sep"></div>
 		<div class="overflow-container">
-			<button class="toolbar-btn overflow-trigger" title="More actions" onclick={toggleOverflow}
+			<button class="toolbar-btn overflow-trigger" title="More actions" onclick={(e) => openOverflow(e.currentTarget)}
 				data-testid="toolbar-btn-overflow">
 				&#x22EE;
 			</button>
-			{#if showOverflow}
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<div class="overflow-backdrop" onclick={closeOverflow}></div>
-				<div class="overflow-menu" data-testid="toolbar-overflow-menu">
+		</div>
+		{#if showOverflow}
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div class="overflow-backdrop" onclick={closeOverflow}></div>
+			<div class="overflow-menu overflow-fixed" style="top: {overflowPos.top}px; right: {overflowPos.right}px;" data-testid="toolbar-overflow-menu">
 					<button class="overflow-item" disabled={!ready || saving}
 						data-testid="toolbar-btn-save"
 						onclick={async () => { closeOverflow(); saving = true; try { await saveProject(); } finally { saving = false; } }}>
@@ -449,9 +493,12 @@
 					<button class="overflow-item" disabled={!ready}
 						data-testid="toolbar-btn-tests"
 						onclick={() => { closeOverflow(); toggleTestCaseBrowser(); }}>Tests</button>
+					<div class="overflow-separator"></div>
+					<button class="overflow-item"
+						data-testid="toolbar-btn-reload"
+						onclick={() => { closeOverflow(); location.reload(); }}>Reload</button>
 				</div>
-			{/if}
-		</div>
+		{/if}
 	{:else}
 		<div class="toolbar-sep"></div>
 		<div class="toolbar-group">
@@ -694,7 +741,18 @@
 		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
 		z-index: 200;
 		min-width: 160px;
+		max-width: calc(100vw - 16px);
 		padding: 4px 0;
+	}
+
+	.overflow-fixed {
+		position: fixed;
+	}
+
+	.overflow-separator {
+		height: 1px;
+		background: var(--border-color);
+		margin: 4px 0;
 	}
 
 	.overflow-item {
@@ -746,6 +804,11 @@
 		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
 		z-index: 200;
 		padding: 8px;
+		max-width: calc(100vw - 16px);
+	}
+
+	.dropdown-fixed {
+		position: fixed;
 	}
 
 	.dropdown-grid {
@@ -762,7 +825,7 @@
 	}
 
 	.constraints-panel {
-		min-width: 220px;
+		min-width: min(220px, calc(100vw - 16px));
 	}
 
 	.constraints-grid {

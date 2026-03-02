@@ -64,7 +64,7 @@
 {#if popup && screenPos}
 	<div
 		class="dimension-input-overlay"
-		style="left: {screenPos.x}px; top: {screenPos.y}px;"
+		style="left: {Math.max(48, Math.min(screenPos.x, window.innerWidth - 48))}px; top: {Math.max(40, Math.min(screenPos.y, window.innerHeight - 16))}px;"
 	>
 		<input
 			type="number"

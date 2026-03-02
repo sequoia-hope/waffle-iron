@@ -189,6 +189,7 @@
 	.app-shell.mobile {
 		grid-template-columns: 1fr;
 		position: relative;
+		overflow: hidden;
 	}
 
 	.app-shell.mobile .toolbar-area {
