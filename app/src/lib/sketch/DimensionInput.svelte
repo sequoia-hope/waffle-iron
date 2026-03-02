@@ -5,12 +5,15 @@
 		hideDimensionPopup,
 		applyDimensionFromPopup,
 		getSketchMode,
-		getCameraObject
+		getCameraObject,
+		getDocumentDisplayUnit
 	} from '$lib/engine/store.svelte.js';
 	import { buildSketchPlane, sketchToScreen } from './sketchCoords.js';
+	import { formatForInput, parseAndConvert } from '$lib/units.js';
 
 	let popup = $derived(getDimensionPopup());
 	let sm = $derived(getSketchMode());
+	let displayUnit = $derived(getDocumentDisplayUnit());
 
 	let inputValue = $state('');
 	/** @type {HTMLInputElement | null} */
@@ -27,10 +30,10 @@
 		return sketchToScreen(popup.sketchX, popup.sketchY, plane, camera, canvas);
 	});
 
-	// When popup appears, set the default value and focus the input
+	// When popup appears, set the default value (converted to display units) and focus
 	$effect(() => {
 		if (popup) {
-			inputValue = String(popup.defaultValue);
+			inputValue = formatForInput(popup.defaultValue, displayUnit);
 			// Focus after DOM update
 			requestAnimationFrame(() => {
 				if (inputEl) {
@@ -44,9 +47,9 @@
 	function handleKeyDown(e) {
 		e.stopPropagation();
 		if (e.key === 'Enter') {
-			const val = parseFloat(inputValue);
-			if (!isNaN(val) && val > 0) {
-				applyDimensionFromPopup(val);
+			const internalVal = parseAndConvert(inputValue, displayUnit);
+			if (!isNaN(internalVal) && internalVal > 0) {
+				applyDimensionFromPopup(internalVal);
 			} else {
 				hideDimensionPopup();
 			}
@@ -67,13 +70,14 @@
 		style="left: {Math.max(48, Math.min(screenPos.x, window.innerWidth - 48))}px; top: {Math.max(40, Math.min(screenPos.y, window.innerHeight - 16))}px;"
 	>
 		<input
-			type="number"
+			type="text"
+			inputmode="decimal"
 			class="dimension-input"
 			bind:this={inputEl}
 			bind:value={inputValue}
 			onkeydown={handleKeyDown}
 			onblur={handleBlur}
-			step="any"
+			placeholder={displayUnit}
 		/>
 	</div>
 {/if}

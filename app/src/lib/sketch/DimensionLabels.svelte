@@ -8,15 +8,18 @@
 		getSketchEntities,
 		getSketchPositions,
 		updateConstraintValue,
-		toggleConstraintReference
+		toggleConstraintReference,
+		getDocumentDisplayUnit
 	} from '$lib/engine/store.svelte.js';
 	import { buildSketchPlane, sketchToWorld } from './sketchCoords.js';
+	import { internalToDisplay, formatWithUnit, parseAndConvert } from '$lib/units.js';
 
 	let sm = $derived(getSketchMode());
 	let constraints = $derived(getSketchConstraints());
 	let entities = $derived(getSketchEntities());
 	let positions = $derived(getSketchPositions());
 	let plane = $derived(sm?.active ? buildSketchPlane(sm.origin, sm.normal) : null);
+	let displayUnit = $derived(getDocumentDisplayUnit());
 
 	/** @type {number | null} */
 	let editingIndex = $state(null);
@@ -219,19 +222,34 @@
 	function startEditing(index, currentValue, labelType) {
 		editingIndex = index;
 		editingType = labelType;
-		// Show radius value to user for Diameter constraints
-		editValue = labelType === 'Diameter' ? String(currentValue / 2) : String(currentValue);
+		if (labelType === 'Angle') {
+			editValue = String(currentValue);
+		} else {
+			// Convert internal (meters) to display units for editing
+			const displayVal = internalToDisplay(
+				labelType === 'Diameter' ? currentValue / 2 : currentValue,
+				displayUnit
+			);
+			editValue = String(parseFloat(displayVal.toFixed(4)));
+		}
 	}
 
 	let editingType = null;
 
 	function finishEditing() {
 		if (editingIndex != null) {
-			const val = parseFloat(editValue);
-			if (!isNaN(val) && val > 0) {
-				// Convert radius back to diameter for storage
-				const storeVal = editingType === 'Diameter' ? val * 2 : val;
-				updateConstraintValue(editingIndex, storeVal);
+			if (editingType === 'Angle') {
+				const val = parseFloat(editValue);
+				if (!isNaN(val) && val > 0) {
+					updateConstraintValue(editingIndex, val);
+				}
+			} else {
+				const internalVal = parseAndConvert(editValue, displayUnit);
+				if (!isNaN(internalVal) && internalVal > 0) {
+					// Convert radius back to diameter for storage
+					const storeVal = editingType === 'Diameter' ? internalVal * 2 : internalVal;
+					updateConstraintValue(editingIndex, storeVal);
+				}
 			}
 			editingIndex = null;
 			editingType = null;
@@ -252,11 +270,11 @@
 	function formatValue(label) {
 		const suffix = label.reference ? ' (REF)' : '';
 		if (label.type === 'Angle') return `${label.value.toFixed(1)}\u00B0${suffix}`;
-		if (label.type === 'Diameter') return `R ${(label.value / 2).toFixed(2)}${suffix}`;
-		if (label.type === 'Radius') return `R ${label.value.toFixed(2)}${suffix}`;
-		if (label.type === 'HDistance') return `H: ${label.value.toFixed(2)}${suffix}`;
-		if (label.type === 'VDistance') return `V: ${label.value.toFixed(2)}${suffix}`;
-		return `${label.value.toFixed(2)}${suffix}`;
+		if (label.type === 'Diameter') return `R ${formatWithUnit(label.value / 2, displayUnit)}${suffix}`;
+		if (label.type === 'Radius') return `R ${formatWithUnit(label.value, displayUnit)}${suffix}`;
+		if (label.type === 'HDistance') return `H: ${formatWithUnit(label.value, displayUnit)}${suffix}`;
+		if (label.type === 'VDistance') return `V: ${formatWithUnit(label.value, displayUnit)}${suffix}`;
+		return `${formatWithUnit(label.value, displayUnit)}${suffix}`;
 	}
 </script>
 
@@ -272,7 +290,8 @@
 		<HTML position={[label.world.x, label.world.y, label.world.z]} center pointerEvents="auto" wrapperClass="dim-html-wrapper">
 			{#if editingIndex === label.index}
 				<input
-					type="number"
+					type="text"
+					inputmode="decimal"
 					class="dim-input"
 					value={editValue}
 					oninput={(e) => { editValue = e.target.value; }}

@@ -10,6 +10,9 @@ pub struct ProjectMetadata {
     pub created: DateTime<Utc>,
     /// When the project was last modified.
     pub modified: DateTime<Utc>,
+    /// Display unit preference (mm, cm, m, in, ft). None for legacy v1 files.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_unit: Option<String>,
 }
 
 impl ProjectMetadata {
@@ -20,6 +23,13 @@ impl ProjectMetadata {
             name: name.into(),
             created: now,
             modified: now,
+            display_unit: None,
         }
+    }
+
+    /// Create metadata with a display unit preference.
+    pub fn with_display_unit(mut self, unit: impl Into<String>) -> Self {
+        self.display_unit = Some(unit.into());
+        self
     }
 }

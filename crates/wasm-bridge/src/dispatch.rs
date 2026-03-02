@@ -157,7 +157,8 @@ fn handle_message(
 
         // -- File operations --
         UiToEngine::SaveProject => {
-            let meta = ProjectMetadata::new(&state.project_name);
+            let meta =
+                ProjectMetadata::new(&state.project_name).with_display_unit(&state.display_unit);
             let json = file_format::save_project(&state.engine.tree, &meta);
             Ok(EngineToUi::SaveReady { json_data: json })
         }
@@ -168,8 +169,17 @@ fn handle_message(
                     reason: e.to_string(),
                 })?;
             state.project_name = meta.name;
+            if let Some(ref unit) = meta.display_unit {
+                state.display_unit = unit.clone();
+            }
             state.engine.tree = tree;
             state.engine.rebuild_from_scratch(kb);
+            Ok(model_updated_response(state))
+        }
+
+        // -- Settings --
+        UiToEngine::SetDisplayUnit { unit } => {
+            state.display_unit = unit;
             Ok(model_updated_response(state))
         }
 

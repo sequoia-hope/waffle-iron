@@ -17,6 +17,8 @@ pub struct EngineState {
     pub hover: Option<GeomRef>,
     /// Project name for save operations.
     pub project_name: String,
+    /// Document display unit preference (mm, cm, m, in, ft).
+    pub display_unit: String,
 }
 
 /// An active sketch editing session.
@@ -40,6 +42,7 @@ impl EngineState {
             selection: Vec::new(),
             hover: None,
             project_name: "Untitled".to_string(),
+            display_unit: "mm".to_string(),
         }
     }
 

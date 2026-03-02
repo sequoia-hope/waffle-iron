@@ -132,6 +132,12 @@ pub enum UiToEngine {
     },
     ExportStep,
     ExportStl,
+
+    // -- Settings --
+    /// Set the document display unit (mm, cm, m, in, ft).
+    SetDisplayUnit {
+        unit: String,
+    },
 }
 
 /// Messages from the engine (WASM Worker) to the UI (JavaScript main thread).

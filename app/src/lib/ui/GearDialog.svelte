@@ -4,22 +4,40 @@
 		hideGearDialog,
 		createGear,
 		updateGear,
-		getMobileLayout
+		getMobileLayout,
+		getDocumentDisplayUnit
 	} from '$lib/engine/store.svelte.js';
 	import { setPreview } from '$lib/sketch/sketchToolState.svelte.js';
 	import { generateGearPreviewPolyline } from '$lib/sketch/gearGeometry.js';
 	import { log } from '$lib/engine/logger.js';
+	import { internalToDisplay, displayToInternal, parseAndConvert, formatForInput, UNITS } from '$lib/units.js';
 
 	let dialogState = $derived(getGearDialogState());
 	let isMobile = $derived(getMobileLayout());
+	let displayUnit = $derived(getDocumentDisplayUnit());
+	let unitLabel = $derived(UNITS[displayUnit]?.label ?? displayUnit);
 
 	let toothCount = $state(20);
-	let module_ = $state(1.0);
+	let moduleInput = $state('2');
 	let pressureAngle = $state(20);
 	let backlash = $state(0);
 
 	// Editing state
 	let editingGearId = $state(null);
+
+	/** Compute internal module from display input */
+	let module_ = $derived(parseAndConvert(moduleInput, displayUnit) || displayToInternal(2, 'mm'));
+
+	/** Default gear module display value based on unit system */
+	function defaultModuleDisplay() {
+		const unit = displayUnit;
+		if (unit === 'in' || unit === 'ft') {
+			return '0.1'; // 0.1 inch
+		}
+		if (unit === 'cm') return '0.2';
+		if (unit === 'm') return '0.002';
+		return '2'; // 2 mm (default)
+	}
 
 	$effect(() => {
 		if (dialogState) {
@@ -27,16 +45,16 @@
 				// Edit mode: restore existing params
 				editingGearId = dialogState.editGearId;
 				toothCount = dialogState.params.toothCount ?? 20;
-				module_ = dialogState.params.module ?? 1.0;
+				moduleInput = formatForInput(dialogState.params.module ?? displayToInternal(2, 'mm'), displayUnit);
 				pressureAngle = dialogState.params.pressureAngle ?? 20;
 				backlash = dialogState.params.backlash ?? 0;
 			} else {
 				// Create mode
 				editingGearId = null;
 				toothCount = 20;
-				module_ = dialogState.pitchDiameter
-					? dialogState.pitchDiameter / 20
-					: 1.0;
+				moduleInput = dialogState.pitchDiameter
+					? formatForInput(dialogState.pitchDiameter / 20, displayUnit)
+					: defaultModuleDisplay();
 				pressureAngle = 20;
 				backlash = 0;
 			}
@@ -50,7 +68,7 @@
 			return;
 		}
 		const N = Math.max(4, Math.round(toothCount));
-		const m = Math.max(0.1, module_);
+		const m = Math.max(0.0001, module_);
 		const params = {
 			toothCount: N,
 			module: m,
@@ -85,7 +103,7 @@
 
 	function handleApply() {
 		const N = Math.max(4, Math.round(toothCount));
-		const m = Math.max(0.1, module_);
+		const m = Math.max(0.0001, module_);
 		const params = {
 			toothCount: N,
 			module: m,
@@ -135,14 +153,14 @@
 			</div>
 
 			<div class="param-row">
-				<label for="gear-module">Module (m)</label>
+				<label for="gear-module">Module ({unitLabel})</label>
 				<input
 					id="gear-module"
-					type="number"
-					min="0.1"
-					step="0.1"
-					bind:value={module_}
+					type="text"
+					inputmode="decimal"
+					bind:value={moduleInput}
 					disabled={dialogState.diameterLocked}
+					placeholder={unitLabel}
 					data-testid="gear-module-input"
 				/>
 			</div>
@@ -150,7 +168,7 @@
 			<div class="param-row">
 				<label>Pitch Diameter</label>
 				<span class="derived-value" data-testid="gear-pitch-diameter">
-					{pitchDiameter.toFixed(2)} mm
+					{internalToDisplay(pitchDiameter, displayUnit).toFixed(2)} {unitLabel}
 				</span>
 			</div>
 

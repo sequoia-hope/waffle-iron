@@ -12,8 +12,11 @@
 		getSketchEntities,
 		getSketchConstraints,
 		getSketchCursorPos,
-		getSketchSolveStatus
+		getSketchSolveStatus,
+		getDocumentDisplayUnit,
+		setDocumentDisplayUnit
 	} from '$lib/engine/store.svelte.js';
+	import { UNIT_ORDER, UNITS } from '$lib/units.js';
 
 	let error = $derived(getLastError());
 	let selectedFeature = $derived(getSelectedFeature());
@@ -52,6 +55,15 @@
 	});
 	let modeText = $derived(inSketch ? `Sketch Mode \u2022 Tool: ${tool}` : '');
 
+	let currentUnit = $derived(getDocumentDisplayUnit());
+	let unitLabel = $derived(UNITS[currentUnit]?.label ?? currentUnit);
+
+	function cycleUnit() {
+		const idx = UNIT_ORDER.indexOf(currentUnit);
+		const next = UNIT_ORDER[(idx + 1) % UNIT_ORDER.length];
+		setDocumentDisplayUnit(next);
+	}
+
 	function getScreenshotUrl() {
 		const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
 		return `http://${host}:8085/`;
@@ -86,6 +98,13 @@
 			<span class="status-rebuild">Rebuild: {rebuildMs.toFixed(0)}ms</span>
 			<span class="status-sep">\u2502</span>
 		{/if}
+		<button
+			class="status-unit-btn"
+			onclick={cycleUnit}
+			title="Click to change display unit"
+			data-testid="unit-selector"
+		>{unitLabel}</button>
+		<span class="status-sep">{'\u2502'}</span>
 		{#if isEngineReady()}
 			<span class="status-engine">WASM Active</span>
 			<span class="status-sep">{'\u2502'}</span>
@@ -185,6 +204,24 @@
 	.status-engine {
 		opacity: 0.7;
 		white-space: nowrap;
+	}
+
+	.status-unit-btn {
+		background: rgba(255, 255, 255, 0.15);
+		border: 1px solid rgba(255, 255, 255, 0.3);
+		border-radius: 3px;
+		color: white;
+		font-size: 10px;
+		font-weight: 600;
+		padding: 1px 6px;
+		cursor: pointer;
+		white-space: nowrap;
+		line-height: 1.4;
+	}
+
+	.status-unit-btn:hover {
+		background: rgba(255, 255, 255, 0.25);
+		border-color: rgba(255, 255, 255, 0.5);
 	}
 
 	.status-dev-link {

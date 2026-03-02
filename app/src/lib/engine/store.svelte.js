@@ -213,6 +213,9 @@ let mobileActivePanel = $state(null);
 /** @type {string} */
 let projectName = $state('Untitled');
 
+/** @type {string} Document display unit (mm, cm, m, in, ft) */
+let documentDisplayUnit = $state('mm');
+
 // -- Gear state --
 
 /** @type {Map<number, object>} gearId -> GearParams */
@@ -3129,6 +3132,18 @@ export function getProjectName() { return projectName; }
 /** @param {string} name */
 export function setProjectName(name) { projectName = name; }
 
+// -- Document display unit --
+
+export function getDocumentDisplayUnit() { return documentDisplayUnit; }
+/** @param {string} unit */
+export function setDocumentDisplayUnit(unit) {
+	documentDisplayUnit = unit;
+	// Notify engine so it persists in save
+	if (bridge && engineReady) {
+		bridge.send({ type: 'SetDisplayUnit', unit }).catch(() => {});
+	}
+}
+
 // -- Visibility toggles (toolbar compat — delegates to per-item visibility) --
 
 /**
@@ -3651,6 +3666,25 @@ export async function exportStep() {
 }
 
 /**
+ * Extract display_unit from .waffle JSON and set it on the store.
+ * Falls back to 'mm' if not present (legacy v1 files).
+ * @param {string} jsonData
+ */
+function extractDisplayUnit(jsonData) {
+	try {
+		const parsed = JSON.parse(jsonData);
+		const unit = parsed?.project?.display_unit;
+		if (unit && typeof unit === 'string') {
+			documentDisplayUnit = unit;
+		} else {
+			documentDisplayUnit = 'mm';
+		}
+	} catch {
+		documentDisplayUnit = 'mm';
+	}
+}
+
+/**
  * Load a project from a .waffle/.json file (browser file picker).
  * Opens a hidden file input, reads the file, sends LoadProject { data } to engine.
  * The engine responds with ModelUpdated, which is handled by the existing callback.
@@ -3662,6 +3696,7 @@ export async function loadProject(jsonData) {
 
 	log('action', 'Load project');
 	if (jsonData) {
+		extractDisplayUnit(jsonData);
 		await sendRebuild({ type: 'LoadProject', data: jsonData });
 		showToast('info', 'Project loaded');
 		return true;
@@ -3679,6 +3714,7 @@ export async function loadProject(jsonData) {
 			const nameWithoutExt = file.name.replace(/\.(waffle|json)$/i, '');
 			if (nameWithoutExt) setProjectName(nameWithoutExt);
 			const text = await file.text();
+			extractDisplayUnit(text);
 			try {
 				await sendRebuild({ type: 'LoadProject', data: text });
 				showToast('info', 'Project loaded');

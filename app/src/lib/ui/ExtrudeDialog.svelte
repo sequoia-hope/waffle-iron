@@ -8,17 +8,21 @@
 		setExtrudePreviewParams,
 		changeExtrudeSketch,
 		addExtrudeRegion,
-		setExtrudeRegionPickMode
+		setExtrudeRegionPickMode,
+		getDocumentDisplayUnit
 	} from '$lib/engine/store.svelte.js';
 	import { showToast } from '$lib/ui/toast.svelte.js';
 	import { log } from '$lib/engine/logger.js';
+	import { displayToInternal, internalToDisplay, parseAndConvert, UNITS } from '$lib/units.js';
 
 	let dialogState = $derived(getExtrudeDialogState());
-	let depth = $state(10);
+	let displayUnit = $derived(getDocumentDisplayUnit());
+	let unitLabel = $derived(UNITS[displayUnit]?.label ?? displayUnit);
+	let depthInput = $state('10');
 	let cut = $state(false);
 	let depthMode = $state('Blind');
 	let secondDir = $state('None');
-	let secondDepth = $state(10);
+	let secondDepthInput = $state('10');
 	let flipDirection = $state(false);
 
 	let showDepthInput = $derived(depthMode === 'Blind');
@@ -30,18 +34,22 @@
 
 	$effect(() => {
 		if (dialogState) {
-			depth = 10;
+			depthInput = '10';
 			cut = false;
 			depthMode = 'Blind';
 			secondDir = 'None';
-			secondDepth = 10;
+			secondDepthInput = '10';
 			flipDirection = false;
 		}
 	});
 
+	// Compute internal depth from display input for preview and apply
+	let depth = $derived(parseAndConvert(depthInput, displayUnit));
+	let secondDepth = $derived(parseAndConvert(secondDepthInput, displayUnit));
+
 	// Drive ghost preview params whenever dialog state changes
 	$effect(() => {
-		if (!dialogState || depthMode !== 'Blind') {
+		if (!dialogState || depthMode !== 'Blind' || isNaN(depth)) {
 			setExtrudePreviewParams(null);
 			return;
 		}
@@ -208,14 +216,14 @@
 			</div>
 			{#if showDepthInput}
 				<div class="field">
-					<label for="extrude-depth">{depthLabel}</label>
+					<label for="extrude-depth">{depthLabel} ({unitLabel})</label>
 					<input
 						id="extrude-depth"
 						data-testid="extrude-depth"
-						type="number"
-						bind:value={depth}
-						step="1"
-						min="0.1"
+						type="text"
+						inputmode="decimal"
+						bind:value={depthInput}
+						placeholder={unitLabel}
 					/>
 				</div>
 			{/if}
@@ -243,14 +251,14 @@
 			</div>
 			{#if showSecondDepthInput}
 				<div class="field">
-					<label for="extrude-second-depth">2nd Depth</label>
+					<label for="extrude-second-depth">2nd Depth ({unitLabel})</label>
 					<input
 						id="extrude-second-depth"
 						data-testid="extrude-second-depth"
-						type="number"
-						bind:value={secondDepth}
-						step="1"
-						min="0.1"
+						type="text"
+						inputmode="decimal"
+						bind:value={secondDepthInput}
+						placeholder={unitLabel}
 					/>
 				</div>
 			{/if}
@@ -427,6 +435,7 @@
 	}
 
 	.field input[type="number"],
+	.field input[type="text"],
 	.field select {
 		background: var(--bg-primary, #1e1e1e);
 		border: 1px solid var(--border-color, #444);
