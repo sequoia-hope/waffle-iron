@@ -342,7 +342,7 @@
 	}
 
 	// Shared materials for inactive points
-	const inactivePointGeometry = new THREE.SphereGeometry(0.04, 6, 6);
+	const inactivePointGeometry = new THREE.SphereGeometry(0.00004, 6, 6);
 	const inactivePointMaterial = new THREE.MeshBasicMaterial({
 		color: COLOR_INACTIVE_POINT,
 		depthTest: false,

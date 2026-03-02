@@ -538,7 +538,7 @@ fn tessellate_missing_meshes(state: &mut EngineState, kernel: &mut impl KernelBu
                 if body.mesh.is_none() {
                     let handle = body.handle.clone();
                     let mesh_result = std::panic::catch_unwind(
-                        std::panic::AssertUnwindSafe(|| kernel.tessellate(&handle, 0.1)),
+                        std::panic::AssertUnwindSafe(|| kernel.tessellate(&handle, 0.0001)),
                     );
                     match mesh_result {
                         Ok(Ok(mesh)) => body.mesh = Some(mesh),
@@ -549,7 +549,7 @@ fn tessellate_missing_meshes(state: &mut EngineState, kernel: &mut impl KernelBu
                 if body.edges.is_none() {
                     let handle = body.handle.clone();
                     let edge_result = std::panic::catch_unwind(
-                        std::panic::AssertUnwindSafe(|| kernel.extract_edges(&handle, 0.1)),
+                        std::panic::AssertUnwindSafe(|| kernel.extract_edges(&handle, 0.0001)),
                     );
                     match edge_result {
                         Ok(Ok(edges)) => body.edges = Some(edges),

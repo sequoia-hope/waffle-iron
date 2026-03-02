@@ -2502,7 +2502,7 @@ export function computeFaceBounds(geomRef) {
 	return {
 		center: /** @type {[number,number,number]} */ ([(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2]),
 		normal: plane.normal,
-		size: Math.max(size, 0.1),
+		size: Math.max(size, 0.0001),
 	};
 }
 

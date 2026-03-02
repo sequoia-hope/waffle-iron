@@ -46,7 +46,7 @@ export function projectBoundaryToSketch(boundary, plane) {
  * @param {number} [tolerance=0.01]
  * @returns {Array<{ x: number, y: number }>}
  */
-export function simplifyPolyline(points, tolerance = 0.01) {
+export function simplifyPolyline(points, tolerance = 0.00001) {
 	if (points.length < 2) return points;
 	const result = [points[0]];
 	for (let i = 1; i < points.length; i++) {
