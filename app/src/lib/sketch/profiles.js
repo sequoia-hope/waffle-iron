@@ -6,6 +6,8 @@
  * builds where the native solver is unavailable.
  */
 
+import { sampleBSpline } from './bspline.js';
+
 /**
  * @typedef {{ entityIds: number[], isOuter: boolean }} ClosedProfile
  */
@@ -27,7 +29,7 @@ export function extractProfiles(entities, positions) {
 		}
 	}
 
-	// Build directed half-edges for non-construction lines and arcs
+	// Build directed half-edges for non-construction lines, arcs, and splines
 	const edges = [];
 	for (const entity of entities) {
 		if (entity.type === 'Line' && !entity.construction) {
@@ -36,6 +38,11 @@ export function extractProfiles(entities, positions) {
 		} else if (entity.type === 'Arc' && !entity.construction) {
 			edges.push({ from: entity.start_id, to: entity.end_id, entityId: entity.id });
 			edges.push({ from: entity.end_id, to: entity.start_id, entityId: entity.id });
+		} else if (entity.type === 'Spline' && !entity.construction && entity.point_ids?.length >= 2) {
+			const first = entity.point_ids[0];
+			const last = entity.point_ids[entity.point_ids.length - 1];
+			edges.push({ from: first, to: last, entityId: entity.id });
+			edges.push({ from: last, to: first, entityId: entity.id });
 		}
 	}
 
@@ -185,6 +192,18 @@ export function profileToPolygon(profile, entities, positions) {
 					});
 				}
 			}
+		} else if (entity.type === 'Spline' && entity.point_ids?.length >= 2) {
+			// Sample spline points for polygon approximation
+			const ctrlPts = entity.point_ids
+				.map(pid => positions.get(pid))
+				.filter(Boolean);
+			if (ctrlPts.length >= 2) {
+				const sampled = sampleBSpline(ctrlPts, 16);
+				// Skip last point to avoid duplication at joints
+				for (let i = 0; i < sampled.length - 1; i++) {
+					points.push({ x: sampled[i].x, y: sampled[i].y });
+				}
+			}
 		}
 	}
 	return points;
@@ -279,6 +298,8 @@ function computeProfileArea(profile, entities, positions) {
 			vertices.push(entity.start_id);
 		} else if (entity.type === 'Arc') {
 			vertices.push(entity.start_id);
+		} else if (entity.type === 'Spline' && entity.point_ids?.length >= 2) {
+			vertices.push(entity.point_ids[0]);
 		}
 	}
 	return computeSignedArea(vertices, positions);

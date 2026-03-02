@@ -19,6 +19,7 @@
 	import { getPreview, getSnapIndicator, getSnapCandidates } from './sketchToolState.svelte.js';
 	import { buildSketchPlane, sketchToWorld } from './sketchCoords.js';
 	import { profileToPolygon } from './profiles.js';
+	import { sampleBSpline } from './bspline.js';
 
 	// Color scheme
 	const COLOR_AXIS_X = 0xcc4444;     // red, sketch X axis
@@ -186,6 +187,28 @@
 			.filter(Boolean);
 	});
 
+	/**
+	 * Build spline geometry (smooth curve through control points).
+	 */
+	let splineData = $derived.by(() => {
+		if (!plane) return [];
+		return entities
+			.filter(e => e.type === 'Spline')
+			.map(e => {
+				if (!e.point_ids || e.point_ids.length < 2) return null;
+				const ctrlPts = e.point_ids
+					.map(pid => positions.get(pid))
+					.filter(Boolean);
+				if (ctrlPts.length < 2) return null;
+
+				const sampled = sampleBSpline(ctrlPts, 48);
+				const worldPts = sampled.map(p => sketchToWorld(p.x, p.y, plane));
+				const geo = new THREE.BufferGeometry().setFromPoints(worldPts);
+				return { id: e.id, geometry: geo, construction: e.construction };
+			})
+			.filter(Boolean);
+	});
+
 	// -- Profile fill geometry --
 
 	let profileFills = $derived.by(() => {
@@ -307,6 +330,13 @@
 				points.push(sketchToWorld(cx1 + Math.cos(angle) * r, cy1 + Math.sin(angle) * r, plane));
 			}
 			return { type: 'line', geometry: new THREE.BufferGeometry().setFromPoints(points) };
+		}
+
+		if (preview.type === 'gear-preview') {
+			const { polyline } = preview.data;
+			if (!polyline || polyline.length < 2) return null;
+			const worldPoints = polyline.map(p => sketchToWorld(p.x, p.y, plane));
+			return { type: 'line', geometry: new THREE.BufferGeometry().setFromPoints(worldPoints) };
 		}
 
 		if (preview.type === 'trim-highlight') {
@@ -508,6 +538,10 @@
 		} else if (entity.type === 'Arc') {
 			const center = positions.get(entity.center_id);
 			if (center) return center;
+		} else if (entity.type === 'Spline' && entity.point_ids?.length > 0) {
+			const midIdx = Math.floor(entity.point_ids.length / 2);
+			const midPt = positions.get(entity.point_ids[midIdx]);
+			if (midPt) return midPt;
 		}
 		return null;
 	}
@@ -720,6 +754,24 @@
 		{:else}
 			<T.Line geometry={arc.geometry} renderOrder={10}>
 				<T.LineBasicMaterial color={entityColor(arc.id)} depthTest={false} linewidth={1} />
+			</T.Line>
+		{/if}
+	{/each}
+
+	<!-- Entity splines -->
+	{#each splineData as spline (spline.id)}
+		{#if spline.construction}
+			<T.Line geometry={spline.geometry} renderOrder={10} oncreate={computeDashes}>
+				<T.LineDashedMaterial
+					color={entityColor(spline.id)}
+					depthTest={false}
+					dashSize={0.15}
+					gapSize={0.08}
+				/>
+			</T.Line>
+		{:else}
+			<T.Line geometry={spline.geometry} renderOrder={10}>
+				<T.LineBasicMaterial color={entityColor(spline.id)} depthTest={false} linewidth={1} />
 			</T.Line>
 		{/if}
 	{/each}

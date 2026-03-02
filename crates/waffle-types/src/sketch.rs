@@ -100,6 +100,11 @@ pub enum SketchEntity {
         end_id: u32,
         construction: bool,
     },
+    Spline {
+        id: u32,
+        point_ids: Vec<u32>,
+        construction: bool,
+    },
 }
 
 impl SketchEntity {
@@ -108,7 +113,8 @@ impl SketchEntity {
             SketchEntity::Point { id, .. }
             | SketchEntity::Line { id, .. }
             | SketchEntity::Circle { id, .. }
-            | SketchEntity::Arc { id, .. } => *id,
+            | SketchEntity::Arc { id, .. }
+            | SketchEntity::Spline { id, .. } => *id,
         }
     }
 
@@ -117,7 +123,8 @@ impl SketchEntity {
             SketchEntity::Point { construction, .. }
             | SketchEntity::Line { construction, .. }
             | SketchEntity::Circle { construction, .. }
-            | SketchEntity::Arc { construction, .. } => *construction,
+            | SketchEntity::Arc { construction, .. }
+            | SketchEntity::Spline { construction, .. } => *construction,
         }
     }
 }
@@ -252,6 +259,9 @@ pub struct ClosedProfile {
     /// When present, the kernel constructs a true NURBS circular wire instead of a polygon.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub circle: Option<CircleProfile>,
+    /// Segments that should be built as B-spline curves instead of lines.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub spline_segments: Vec<SplineSegment>,
 }
 
 /// Circle profile data in sketch-local UV coordinates.
@@ -260,6 +270,17 @@ pub struct CircleProfile {
     pub center_u: f64,
     pub center_v: f64,
     pub radius: f64,
+}
+
+/// A segment of a profile that should be built as a B-spline curve instead of a line.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SplineSegment {
+    /// Index into the profile's entity_ids where the spline starts.
+    pub start_point_index: usize,
+    /// Index into the profile's entity_ids where the spline ends.
+    pub end_point_index: usize,
+    /// Control points in sketch UV coordinates.
+    pub control_points: Vec<(f64, f64)>,
 }
 
 #[cfg(test)]
@@ -461,6 +482,80 @@ mod tests {
         assert!(json.contains("\"type\":\"Circle\""));
         let d: SketchEntity = serde_json::from_str(&json).unwrap();
         assert_eq!(d.id(), 5);
+    }
+
+    #[test]
+    fn sketch_entity_spline_serde() {
+        let e = SketchEntity::Spline {
+            id: 20,
+            point_ids: vec![1, 2, 3, 4],
+            construction: false,
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(json.contains("\"type\":\"Spline\""));
+        let d: SketchEntity = serde_json::from_str(&json).unwrap();
+        assert_eq!(d.id(), 20);
+        assert!(!d.is_construction());
+        if let SketchEntity::Spline { point_ids, .. } = d {
+            assert_eq!(point_ids, vec![1, 2, 3, 4]);
+        } else {
+            panic!("Expected Spline");
+        }
+    }
+
+    #[test]
+    fn sketch_entity_spline_construction_serde() {
+        let e = SketchEntity::Spline {
+            id: 21,
+            point_ids: vec![5, 6],
+            construction: true,
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        let d: SketchEntity = serde_json::from_str(&json).unwrap();
+        assert_eq!(d.id(), 21);
+        assert!(d.is_construction());
+    }
+
+    #[test]
+    fn spline_segment_serde() {
+        let s = SplineSegment {
+            start_point_index: 0,
+            end_point_index: 3,
+            control_points: vec![(0.0, 0.0), (1.0, 2.0), (3.0, 1.0), (4.0, 0.0)],
+        };
+        let json = serde_json::to_string(&s).unwrap();
+        let d: SplineSegment = serde_json::from_str(&json).unwrap();
+        assert_eq!(d.start_point_index, 0);
+        assert_eq!(d.end_point_index, 3);
+        assert_eq!(d.control_points.len(), 4);
+    }
+
+    #[test]
+    fn closed_profile_with_spline_segments_serde() {
+        let p = ClosedProfile {
+            entity_ids: vec![1, 2, 3],
+            is_outer: true,
+            circle: None,
+            spline_segments: vec![SplineSegment {
+                start_point_index: 0,
+                end_point_index: 2,
+                control_points: vec![(0.0, 0.0), (1.0, 1.0), (2.0, 0.0)],
+            }],
+        };
+        let json = serde_json::to_string(&p).unwrap();
+        assert!(json.contains("spline_segments"));
+        let d: ClosedProfile = serde_json::from_str(&json).unwrap();
+        assert_eq!(d.spline_segments.len(), 1);
+        assert_eq!(d.spline_segments[0].control_points.len(), 3);
+    }
+
+    #[test]
+    fn closed_profile_spline_segments_default_on_deserialize() {
+        // Deserializing old format without spline_segments should default to empty vec
+        let json = r#"{"entity_ids":[1,2],"is_outer":true}"#;
+        let d: ClosedProfile = serde_json::from_str(json).unwrap();
+        assert!(d.spline_segments.is_empty());
+        assert!(d.circle.is_none());
     }
 
     // ── SketchConstraint serde roundtrip (all variants) ───────────────
@@ -707,6 +802,7 @@ mod tests {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
             circle: None,
+            spline_segments: vec![],
         };
         let json = serde_json::to_string(&p).unwrap();
         let d: ClosedProfile = serde_json::from_str(&json).unwrap();
@@ -728,6 +824,7 @@ mod tests {
                 entity_ids: vec![1, 2],
                 is_outer: false,
                 circle: None,
+                spline_segments: vec![],
             }],
             status: SolveStatus::UnderConstrained { dof: 1 },
         };

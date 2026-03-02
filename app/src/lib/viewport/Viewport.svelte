@@ -13,6 +13,7 @@
 	import BooleanDialog from '$lib/ui/BooleanDialog.svelte';
 	import AutoRestoreDialog from '$lib/ui/AutoRestoreDialog.svelte';
 	import SketchPlanePrompt from '$lib/ui/SketchPlanePrompt.svelte';
+	import GearDialog from '$lib/ui/GearDialog.svelte';
 
 	let constraintMenuPos = $state({ x: 0, y: 0 });
 	let constraintMenuVisible = $state(false);
@@ -84,6 +85,7 @@
 	<BooleanDialog />
 	<AutoRestoreDialog />
 	<SketchPlanePrompt />
+	<GearDialog />
 </div>
 
 <style>

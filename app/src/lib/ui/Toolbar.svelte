@@ -135,6 +135,7 @@
 		{ id: 'arc', label: 'Arc', shortcut: 'A' },
 		{ id: 'project', label: 'Proj', shortcut: 'J' },
 		{ id: 'slot', label: 'Slot', shortcut: 'T' },
+		{ id: 'gear', label: 'Gear', shortcut: 'G' },
 		{ id: 'trim', label: 'Trim', shortcut: '' },
 		{ id: 'sketch-fillet', label: 'Fillet', shortcut: 'F' },
 		{ id: 'construction', label: 'Constr', shortcut: 'X' },
@@ -236,7 +237,7 @@
 				case 't': if (inSketch) setActiveTool('slot'); break;
 				case 'f': if (inSketch) setActiveTool('sketch-fillet'); break;
 				case 'd': if (inSketch) setActiveTool('dimension'); break;
-				case 'g': if (inSketch) handleToggleConstruction(); break;
+				case 'g': if (inSketch) setActiveTool('gear'); break;
 				case 'Escape':
 					if (planeSelecting) {
 						exitSketchPlaneSelection();

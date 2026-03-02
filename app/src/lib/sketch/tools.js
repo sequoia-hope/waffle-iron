@@ -20,6 +20,10 @@ import {
 	setSketchHover,
 	findLineNear,
 	findCircleNear,
+	findSplineNear,
+	getGearIdForEntity,
+	getGearRegistry,
+	showGearDialog,
 	getExtractedProfiles,
 	setSelectedProfileIndex,
 	setHoveredProfileIndex,
@@ -49,6 +53,7 @@ import { detectSnaps, collectSnapCandidates } from './snap.js';
 import { profileToPolygon, pointInPolygon } from './profiles.js';
 import { setPreview, setSnapIndicator, setSnapCandidates, getPreview as _getPreview, getSnapIndicator as _getSnapIndicator, getSnapCandidates as _getSnapCandidates } from './sketchToolState.svelte.js';
 import { buildSketchPlane } from './sketchCoords.js';
+import { generateGearPreviewPolyline } from './gearGeometry.js';
 import { projectEdgeToSketch, simplifyPolyline } from './projectGeometry.js';
 
 // -- Module state --
@@ -89,6 +94,12 @@ let slotFirstCenterPos = null;
 let slotSecondCenterId = null;
 /** @type {{ x: number, y: number } | null} */
 let slotSecondCenterPos = null;
+
+// -- Gear tool state --
+/** @type {number | null} */
+let lastSelectClickTime = null;
+/** @type {number | null} */
+let lastSelectClickEntity = null;
 
 // -- Trim tool state --
 /** @type {{ entityId: number, segStart: {x:number,y:number}, segEnd: {x:number,y:number}, splitPoints: Array<{x:number,y:number}> } | null} */
@@ -176,6 +187,8 @@ export function resetTool() {
 	slotSecondCenterPos = null;
 	trimHighlight = null;
 	filletCorner = null;
+	lastSelectClickTime = null;
+	lastSelectClickEntity = null;
 	setPreview(null);
 	setSnapIndicator(null);
 	setSnapCandidates([]);
@@ -283,6 +296,9 @@ export function handleToolEvent(activeTool, eventType, sketchX, sketchY, screenP
 			break;
 		case 'sketch-fillet':
 			handleSketchFilletTool(eventType, sketchX, sketchY, screenPixelSize);
+			break;
+		case 'gear':
+			handleGearTool(eventType, sketchX, sketchY, screenPixelSize);
 			break;
 	}
 }
@@ -859,9 +875,50 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 		// Clicking an entity clears profile selection
 		setSelectedProfileIndex(null);
 
+		// Double-click to edit gear
+		const now = Date.now();
+		const gearId = getGearIdForEntity(hitId);
+		if (gearId != null && lastSelectClickEntity === hitId && lastSelectClickTime && (now - lastSelectClickTime) < 400) {
+			// Double-click on gear entity → open edit dialog
+			const gearData = getGearRegistry().get(gearId);
+			if (gearData) {
+				showGearDialog({
+					editGearId: gearId,
+					params: gearData,
+					centerX: gearData.centerX ?? 0,
+					centerY: gearData.centerY ?? 0,
+					rotationOffset: gearData.rotationOffset ?? 0
+				});
+			}
+			lastSelectClickTime = null;
+			lastSelectClickEntity = null;
+			return;
+		}
+		lastSelectClickTime = now;
+		lastSelectClickEntity = hitId;
+
+		// Gear group selection: select all entities in the gear
+		if (gearId != null && !shiftKey) {
+			const gearData = getGearRegistry().get(gearId);
+			if (gearData && gearData.entityIds) {
+				setSketchSelection(new Set(gearData.entityIds));
+				return;
+			}
+		}
+
 		if (shiftKey) {
 			const next = new Set(selection);
-			if (next.has(hitId)) {
+			if (gearId != null) {
+				// Shift-click toggles entire gear group
+				const gearData = getGearRegistry().get(gearId);
+				if (gearData && gearData.entityIds) {
+					const allSelected = gearData.entityIds.every(eid => next.has(eid));
+					for (const eid of gearData.entityIds) {
+						if (allSelected) next.delete(eid);
+						else next.add(eid);
+					}
+				}
+			} else if (next.has(hitId)) {
 				next.delete(hitId);
 			} else {
 				next.add(hitId);
@@ -926,6 +983,10 @@ function hitTest(x, y, screenPixelSize) {
 	// Circles
 	const nearCircle = findCircleNear(x, y, lineThreshold);
 	if (nearCircle) return nearCircle.id;
+
+	// Splines
+	const nearSpline = findSplineNear(x, y, lineThreshold);
+	if (nearSpline) return nearSpline.id;
 
 	return null;
 }
@@ -1276,6 +1337,77 @@ function resetSlotState() {
 	slotSecondCenterPos = null;
 	setPreview(null);
 	setSnapIndicator(null);
+}
+
+// ---- Gear Tool ----
+
+function handleGearTool(eventType, x, y, screenPixelSize) {
+	const snap = detectSnaps(x, y, null, screenPixelSize);
+	setSnapIndicator(snap.indicator);
+
+	if (eventType === 'pointermove') {
+		updateSnapCandidates(snap, screenPixelSize);
+		// Show gear preview at cursor position
+		if (toolState === 'idle') {
+			const polyline = generateGearPreviewPolyline({
+				toothCount: 20,
+				module: 1.0,
+				pressureAngle: 20,
+				centerX: snap.x,
+				centerY: snap.y
+			});
+			setPreview({ type: 'gear-preview', data: { polyline } });
+		}
+		return;
+	}
+
+	if (eventType === 'pointerdown') {
+		if (toolState === 'idle') {
+			// Check for pre-selected circle
+			const selection = getSketchSelection();
+			const entities = getSketchEntities();
+			const positions = getSketchPositions();
+
+			let centerX = snap.x;
+			let centerY = snap.y;
+			let pitchDiameter = null;
+			let diameterLocked = false;
+
+			// Check if clicking on a circle
+			const nearCircle = findCircleNear(snap.x, snap.y, 8 * screenPixelSize);
+			if (nearCircle) {
+				const circleEntity = entities.find(e => e.id === nearCircle.id);
+				if (circleEntity && circleEntity.type === 'Circle') {
+					const center = positions.get(circleEntity.center_id);
+					if (center) {
+						centerX = center.x;
+						centerY = center.y;
+						pitchDiameter = circleEntity.radius * 2;
+						diameterLocked = true;
+					}
+				}
+			} else {
+				// Check if clicking on a point
+				const nearPoint = findPointNear(snap.x, snap.y, 8 * screenPixelSize);
+				if (nearPoint) {
+					centerX = nearPoint.x;
+					centerY = nearPoint.y;
+				}
+			}
+
+			// Open dialog
+			showGearDialog({
+				centerX,
+				centerY,
+				pitchDiameter,
+				diameterLocked,
+				rotationOffset: 0
+			});
+
+			setPreview(null);
+			toolState = 'gearDialogOpen';
+		}
+	}
 }
 
 // ---- Trim Tool ----

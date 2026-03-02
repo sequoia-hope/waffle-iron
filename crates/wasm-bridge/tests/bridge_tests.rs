@@ -62,6 +62,7 @@ fn make_sketch_op() -> Operation {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
             circle: None,
+            spline_segments: vec![],
         }],
     };
     Operation::Sketch { sketch }
@@ -651,6 +652,7 @@ fn dispatch_sketch_then_extrude_produces_solid() {
         entity_ids: vec![1, 2, 3, 4],
         is_outer: true,
         circle: None,
+        spline_segments: vec![],
     }];
 
     let response = wasm_bridge::dispatch(
@@ -890,6 +892,7 @@ fn dispatch_export_step_with_solid_reaches_kernel() {
                 entity_ids: vec![1, 2, 3, 4],
                 is_outer: true,
                 circle: None,
+                spline_segments: vec![],
             }],
             plane_origin: [0.0, 0.0, 0.0],
             plane_normal: [0.0, 0.0, 1.0],
@@ -1067,6 +1070,7 @@ fn serde_roundtrip_finish_sketch() {
             entity_ids: vec![1, 2, 3],
             is_outer: true,
             circle: None,
+            spline_segments: vec![],
         }],
         plane_origin: [1.0, 2.0, 3.0],
         plane_normal: [0.0, 1.0, 0.0],
@@ -1213,6 +1217,7 @@ fn serde_roundtrip_sketch_solved() {
                 entity_ids: vec![1, 2],
                 is_outer: true,
                 circle: None,
+                spline_segments: vec![],
             }],
             status: SolveStatus::UnderConstrained { dof: 2 },
         },

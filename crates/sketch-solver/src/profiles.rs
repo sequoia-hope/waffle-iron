@@ -28,6 +28,7 @@ pub fn extract_profiles(
                     entity_ids: vec![*id],
                     is_outer: true,
                     circle: None,
+                    spline_segments: vec![],
                 });
             }
         }
@@ -163,6 +164,7 @@ pub fn extract_profiles(
                 entity_ids: face_edges,
                 is_outer: winding > 0.0,
                 circle: None,
+                spline_segments: vec![],
             });
         }
     }

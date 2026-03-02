@@ -61,6 +61,7 @@ fn make_sketch_op() -> Operation {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
             circle: None,
+            spline_segments: vec![],
         }],
     };
     Operation::Sketch { sketch }

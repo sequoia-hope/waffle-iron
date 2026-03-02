@@ -100,6 +100,7 @@ fn make_sketch_feature(name: &str) -> Feature {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
             circle: None,
+            spline_segments: vec![],
         }],
     };
 
@@ -584,6 +585,7 @@ fn make_rebuild_compatible_tree() -> FeatureTree {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
             circle: None,
+            spline_segments: vec![],
         }],
     };
 
@@ -976,6 +978,7 @@ fn round_trip_multi_feature_with_chamfer() {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
             circle: None,
+            spline_segments: vec![],
         }],
     };
 
@@ -1200,6 +1203,7 @@ fn round_trip_preserves_all_constraint_types() {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
             circle: None,
+            spline_segments: vec![],
         }],
     };
 

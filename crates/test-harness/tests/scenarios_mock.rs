@@ -60,11 +60,13 @@ fn test_box_with_hole() {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
             circle: None,
+            spline_segments: vec![],
         },
         ClosedProfile {
             entity_ids: vec![5],
             is_outer: false,
             circle: None,
+            spline_segments: vec![],
         },
     ];
 
@@ -353,11 +355,13 @@ fn test_full_workflow() {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
             circle: None,
+            spline_segments: vec![],
         },
         ClosedProfile {
             entity_ids: vec![5],
             is_outer: false,
             circle: None,
+            spline_segments: vec![],
         },
     ];
 

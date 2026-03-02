@@ -1564,6 +1564,7 @@ mod tests {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
             circle: None,
+            spline_segments: vec![],
         };
         let mut positions = HashMap::new();
         positions.insert(1, (0.0, 0.0));
@@ -2233,6 +2234,7 @@ mod tests {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
             circle: None,
+            spline_segments: vec![],
         };
         let mut positions = HashMap::new();
         positions.insert(1, (0.0, 0.0));
@@ -2291,6 +2293,7 @@ mod tests {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
             circle: None,
+            spline_segments: vec![],
         };
         let mut positions = HashMap::new();
         positions.insert(1, (0.0, 0.0));
@@ -2518,6 +2521,7 @@ mod tests {
             entity_ids: vec![1, 2, 3],
             is_outer: true,
             circle: None,
+            spline_segments: vec![],
         };
         let mut positions = HashMap::new();
         positions.insert(1, (0.0, 0.0));
@@ -2548,6 +2552,7 @@ mod tests {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
             circle: None,
+            spline_segments: vec![],
         };
         let mut positions = HashMap::new();
         // Small rectangle offset from Y axis for revolve
@@ -2607,6 +2612,7 @@ mod tests {
             entity_ids: vec![1, 2, 3],
             is_outer: true,
             circle: None,
+            spline_segments: vec![],
         };
         let mut positions = HashMap::new();
         positions.insert(1, (1.0, 0.0));
@@ -3059,6 +3065,7 @@ mod tests {
             entity_ids: vec![1, 2],
             is_outer: true,
             circle: None,
+            spline_segments: vec![],
         };
         let mut positions = HashMap::new();
         positions.insert(1, (0.0, 0.0));
@@ -3085,11 +3092,13 @@ mod tests {
             entity_ids: vec![1, 2, 3],
             is_outer: true,
             circle: None,
+            spline_segments: vec![],
         };
         let p2 = ClosedProfile {
             entity_ids: vec![4, 5, 6],
             is_outer: true,
             circle: None,
+            spline_segments: vec![],
         };
         let mut positions = HashMap::new();
         positions.insert(1, (0.0, 0.0));
@@ -3119,6 +3128,7 @@ mod tests {
             entity_ids: vec![1, 2, 3],
             is_outer: true,
             circle: None,
+            spline_segments: vec![],
         };
         let mut positions = HashMap::new();
         positions.insert(1, (0.0, 0.0));
@@ -3152,6 +3162,7 @@ mod tests {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
             circle: None,
+            spline_segments: vec![],
         };
         let mut positions = HashMap::new();
         positions.insert(1, (0.0, 0.0));
@@ -3329,6 +3340,7 @@ mod tests {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
             circle: None,
+            spline_segments: vec![],
         };
         let mut positions = HashMap::new();
         // Only provide 2 positions out of 4
@@ -3659,6 +3671,7 @@ mod tests {
                 center_v: 0.0,
                 radius: 1.0,
             }),
+            spline_segments: vec![],
         };
         let positions = HashMap::new(); // Not needed for circle profiles
 

@@ -10,6 +10,8 @@ import { EngineBridge } from './bridge.js';
 import { log, getLogs, exportLogs, clearLogs } from './logger.js';
 import { showToast, getToasts, dismissToast, initLoggerToasts } from '$lib/ui/toast.svelte.js';
 import { extractProfiles } from '$lib/sketch/profiles.js';
+import { sampleBSpline } from '$lib/sketch/bspline.js';
+import { generateGearProfile, generateGearPreviewPolyline } from '$lib/sketch/gearGeometry.js';
 import { getPreview, getSnapIndicator, getSnapCandidates as _getSnapCandidates } from '$lib/sketch/sketchToolState.svelte.js';
 import { resetTool, getToolState as _getToolState, getIsDragging as _getIsDragging, getPointerDownPos as _getPointerDownPos, getStartPos as _getStartPos, getStartPointId as _getStartPointId, getToolEventLog as _getToolEventLog, clearToolEventLog as _clearToolEventLog } from '$lib/sketch/tools.js';
 import { buildSketchPlane, sketchToScreen } from '$lib/sketch/sketchCoords.js';
@@ -197,6 +199,20 @@ let mobileActivePanel = $state(null);
 
 /** @type {string} */
 let projectName = $state('Untitled');
+
+// -- Gear state --
+
+/** @type {Map<number, object>} gearId -> GearParams */
+let gearRegistry = $state(new Map());
+
+/** @type {Map<number, number>} entityId -> gearId */
+let entityToGearMap = $state(new Map());
+
+/** @type {object | null} */
+let gearDialogState = $state(null);
+
+/** @type {number} */
+let nextGearId = $state(1);
 
 /** @type {number | null} */
 let autoSaveTimer = null;
@@ -514,6 +530,11 @@ export async function initEngine() {
 			addSketchEntity: (entity) => addLocalEntity(entity),
 			addSketchConstraint: (constraint) => addLocalConstraint(constraint),
 			removeSketchEntities: (ids) => removeSketchEntities(new Set(ids)),
+			createGear: (params) => createGear(params),
+			updateGear: (gearId, params) => updateGear(gearId, params),
+			deleteGear: (gearId) => deleteGear(gearId),
+			getGearRegistry: () => new Map(gearRegistry),
+			getGearIdForEntity: (entityId) => getGearIdForEntity(entityId),
 			removeSketchConstraint: (index) => removeSketchConstraint(index),
 			toggleConstraintReference: (index) => toggleConstraintReference(index),
 			dragSketchPoint: (pointId, x, y) => dragSketchPoint(pointId, x, y),
@@ -1061,6 +1082,41 @@ function pointToSegmentDist(px, py, ax, ay, bx, by) {
 }
 
 /**
+ * Find a spline near the given coordinates.
+ * Samples the spline curve and checks min distance to each segment.
+ * @param {number} x
+ * @param {number} y
+ * @param {number} threshold
+ * @returns {{ id: number, dist: number } | null}
+ */
+export function findSplineNear(x, y, threshold) {
+	let closest = null;
+	let closestDist = threshold;
+	for (const entity of sketchEntities) {
+		if (entity.type !== 'Spline') continue;
+		if (!entity.point_ids || entity.point_ids.length < 2) continue;
+
+		const ctrlPts = entity.point_ids
+			.map(pid => sketchPositions.get(pid))
+			.filter(Boolean);
+		if (ctrlPts.length < 2) continue;
+
+		const samples = sampleBSpline(ctrlPts, 32);
+
+		for (let i = 0; i < samples.length - 1; i++) {
+			const p1 = samples[i];
+			const p2 = samples[i + 1];
+			const dist = pointToSegmentDist(x, y, p1.x, p1.y, p2.x, p2.y);
+			if (dist < closestDist) {
+				closestDist = dist;
+				closest = { id: entity.id, dist };
+			}
+		}
+	}
+	return closest;
+}
+
+/**
  * Toggle an entity's construction flag.
  * @param {number} entityId
  */
@@ -1122,6 +1178,10 @@ export function removeSketchEntities(entityIds) {
 			referencedPointIds.add(e.start_id);
 			referencedPointIds.add(e.end_id);
 		}
+		if (e.type === 'Spline' && e.point_ids?.some(pid => toRemove.has(pid))) {
+			toRemove.add(e.id);
+			for (const pid of e.point_ids) referencedPointIds.add(pid);
+		}
 	}
 
 	// Check which referenced points are orphaned (not used by any surviving entity)
@@ -1131,6 +1191,7 @@ export function removeSketchEntities(entityIds) {
 		if (e.type === 'Line') { usedPointIds.add(e.start_id); usedPointIds.add(e.end_id); }
 		if (e.type === 'Circle') { usedPointIds.add(e.center_id); }
 		if (e.type === 'Arc') { usedPointIds.add(e.center_id); usedPointIds.add(e.start_id); usedPointIds.add(e.end_id); }
+		if (e.type === 'Spline' && e.point_ids) { for (const pid of e.point_ids) usedPointIds.add(pid); }
 	}
 	for (const ptId of referencedPointIds) {
 		if (!usedPointIds.has(ptId) && !toRemove.has(ptId)) {
@@ -1213,6 +1274,193 @@ export function removeSketchConstraint(index) {
 	triggerSolve();
 
 	log('sketch', `Deleted constraint: ${removed.type}`);
+}
+
+// -- Gear CRUD --
+
+/**
+ * Get gear registry.
+ * @returns {Map<number, object>}
+ */
+export function getGearRegistry() { return gearRegistry; }
+
+/**
+ * Get gear dialog state.
+ * @returns {object | null}
+ */
+export function getGearDialogState() { return gearDialogState; }
+
+/**
+ * Get the gear ID that an entity belongs to.
+ * @param {number} entityId
+ * @returns {number | null}
+ */
+export function getGearIdForEntity(entityId) {
+	return entityToGearMap.get(entityId) ?? null;
+}
+
+/**
+ * Show the gear dialog with the given parameters.
+ * @param {object} params
+ */
+export function showGearDialog(params) {
+	gearDialogState = params;
+}
+
+/**
+ * Hide the gear dialog.
+ */
+export function hideGearDialog() {
+	gearDialogState = null;
+}
+
+/**
+ * Create a gear from parameters. Creates all sketch entities inside a single undo action.
+ * @param {object} gearParams - { toothCount, module, pressureAngle, backlash, centerX, centerY, rotationOffset }
+ * @returns {number} The gear ID
+ */
+export function createGear(gearParams) {
+	const gearId = nextGearId++;
+	const profile = generateGearProfile(gearParams);
+
+	beginSketchAction();
+
+	const entityIds = [];
+	const pointIdMap = new Map(); // profile point index -> entity ID
+
+	// Create point entities for all profile points
+	for (let i = 0; i < profile.points.length; i++) {
+		const pt = profile.points[i];
+		const id = allocEntityId();
+		addLocalEntity({ type: 'Point', id, x: pt.x, y: pt.y, construction: false });
+		pointIdMap.set(i, id);
+		entityIds.push(id);
+	}
+
+	// Create spline entities
+	for (const spline of profile.splines) {
+		const id = allocEntityId();
+		const pointIds = spline.pointIndices.map(idx => pointIdMap.get(idx));
+		addLocalEntity({
+			type: 'Spline',
+			id,
+			point_ids: pointIds,
+			construction: false
+		});
+		entityIds.push(id);
+	}
+
+	// Create arc entities
+	for (const arc of profile.arcs) {
+		const id = allocEntityId();
+		addLocalEntity({
+			type: 'Arc',
+			id,
+			center_id: pointIdMap.get(arc.centerIndex),
+			start_id: pointIdMap.get(arc.startIndex),
+			end_id: pointIdMap.get(arc.endIndex),
+			construction: false
+		});
+		entityIds.push(id);
+	}
+
+	// Add pitch circle as construction geometry
+	const pitchCircleCenterId = pointIdMap.get(0) ?? allocEntityId();
+	const pitchCircleId = allocEntityId();
+	addLocalEntity({
+		type: 'Circle',
+		id: pitchCircleId,
+		center_id: pitchCircleCenterId,
+		radius: profile.pitchRadius,
+		construction: true
+	});
+	entityIds.push(pitchCircleId);
+
+	endSketchAction();
+
+	// Register gear
+	const newRegistry = new Map(gearRegistry);
+	newRegistry.set(gearId, { ...gearParams, entityIds: [...entityIds] });
+	gearRegistry = newRegistry;
+
+	const newEntityMap = new Map(entityToGearMap);
+	for (const eid of entityIds) {
+		newEntityMap.set(eid, gearId);
+	}
+	entityToGearMap = newEntityMap;
+
+	log('sketch', `Gear created: ${gearParams.toothCount} teeth, module ${gearParams.module}`, { gearId });
+	return gearId;
+}
+
+/**
+ * Update an existing gear with new parameters.
+ * @param {number} gearId
+ * @param {object} newParams
+ */
+export function updateGear(gearId, newParams) {
+	const existing = gearRegistry.get(gearId);
+	if (!existing) return;
+
+	// Delete old entities
+	const oldIds = new Set(existing.entityIds || []);
+	if (oldIds.size > 0) {
+		removeSketchEntities(oldIds);
+	}
+
+	// Clean up registry entries for old entities
+	const cleanedMap = new Map(entityToGearMap);
+	for (const eid of oldIds) {
+		cleanedMap.delete(eid);
+	}
+	entityToGearMap = cleanedMap;
+
+	// Create new gear with updated params
+	const mergedParams = { ...existing, ...newParams };
+	delete mergedParams.entityIds;
+	const newGearId = createGear(mergedParams);
+
+	// Remap old gearId to new
+	const updatedRegistry = new Map(gearRegistry);
+	const newGearData = updatedRegistry.get(newGearId);
+	updatedRegistry.delete(newGearId);
+	updatedRegistry.set(gearId, newGearData);
+	gearRegistry = updatedRegistry;
+
+	// Update entity-to-gear map
+	const updatedEntityMap = new Map(entityToGearMap);
+	for (const eid of newGearData.entityIds) {
+		updatedEntityMap.set(eid, gearId);
+	}
+	entityToGearMap = updatedEntityMap;
+
+	nextGearId--; // Reuse the ID we allocated
+}
+
+/**
+ * Delete a gear and all its entities.
+ * @param {number} gearId
+ */
+export function deleteGear(gearId) {
+	const existing = gearRegistry.get(gearId);
+	if (!existing) return;
+
+	const oldIds = new Set(existing.entityIds || []);
+	if (oldIds.size > 0) {
+		removeSketchEntities(oldIds);
+	}
+
+	const newRegistry = new Map(gearRegistry);
+	newRegistry.delete(gearId);
+	gearRegistry = newRegistry;
+
+	const newEntityMap = new Map(entityToGearMap);
+	for (const eid of oldIds) {
+		newEntityMap.delete(eid);
+	}
+	entityToGearMap = newEntityMap;
+
+	log('sketch', `Gear deleted`, { gearId });
 }
 
 // -- Drag state --
@@ -2093,15 +2341,27 @@ export async function finishSketch() {
 	}
 
 	// Convert extractedProfiles to the ClosedProfile format.
-	// The profile extraction stores line/arc entity IDs, but the kernel expects
-	// point IDs (looked up in solved_positions). Convert by chaining line endpoints.
+	// The profile extraction stores line/arc/spline entity IDs, but the kernel expects
+	// point IDs (looked up in solved_positions). Convert by chaining entity endpoints.
+
+	// Helper: get the two connection-point IDs (start, end) for any edge entity.
+	function entityEndpoints(entity) {
+		if (entity.type === 'Line' || entity.type === 'Arc') {
+			return [entity.start_id, entity.end_id];
+		}
+		if (entity.type === 'Spline' && entity.point_ids?.length >= 2) {
+			return [entity.point_ids[0], entity.point_ids[entity.point_ids.length - 1]];
+		}
+		return [undefined, undefined];
+	}
+
 	const profiles = extractedProfilesState.map((p) => {
 		const pointIds = [];
-		const lineEntities = [...p.entityIds].map(id => sketchEntities.find(e => e.id === id)).filter(Boolean);
+		const edgeEntities = [...p.entityIds].map(id => sketchEntities.find(e => e.id === id)).filter(Boolean);
 
 		// Standalone circles: pass as tagged circle profile for true NURBS cylinder extrusion
-		if (lineEntities.length === 1 && lineEntities[0].type === 'Circle') {
-			const circle = lineEntities[0];
+		if (edgeEntities.length === 1 && edgeEntities[0].type === 'Circle') {
+			const circle = edgeEntities[0];
 			const center = sketchPositions.get(circle.center_id);
 			if (center) {
 				return {
@@ -2113,26 +2373,28 @@ export async function finishSketch() {
 			return { entity_ids: [...p.entityIds], is_outer: p.isOuter };
 		}
 
-		if (lineEntities.length === 0) return { entity_ids: [...p.entityIds], is_outer: p.isOuter };
+		if (edgeEntities.length === 0) return { entity_ids: [...p.entityIds], is_outer: p.isOuter };
 
-		// Chain lines: find start point of each line following end→start connections
-		let current = lineEntities[0];
-		pointIds.push(current.start_id);
-		let prevEnd = current.end_id;
+		// Chain entities: walk start→end connections across lines, arcs, and splines
+		const [firstStart, firstEnd] = entityEndpoints(edgeEntities[0]);
+		if (firstStart == null) return { entity_ids: [...p.entityIds], is_outer: p.isOuter };
+		pointIds.push(firstStart);
+		let prevEnd = firstEnd;
 
-		for (let i = 1; i < lineEntities.length; i++) {
-			const next = lineEntities[i];
-			// Determine direction: if next.start_id === prevEnd, use start_id; otherwise use end_id
-			if (next.start_id === prevEnd) {
-				pointIds.push(next.start_id);
-				prevEnd = next.end_id;
-			} else if (next.end_id === prevEnd) {
-				pointIds.push(next.end_id);
-				prevEnd = next.start_id;
+		for (let i = 1; i < edgeEntities.length; i++) {
+			const [nextStart, nextEnd] = entityEndpoints(edgeEntities[i]);
+			if (nextStart == null) continue;
+			// Determine direction: match whichever endpoint connects to prevEnd
+			if (nextStart === prevEnd) {
+				pointIds.push(nextStart);
+				prevEnd = nextEnd;
+			} else if (nextEnd === prevEnd) {
+				pointIds.push(nextEnd);
+				prevEnd = nextStart;
 			} else {
-				// Not connected — just add start_id
-				pointIds.push(next.start_id);
-				prevEnd = next.end_id;
+				// Not connected — just add start
+				pointIds.push(nextStart);
+				prevEnd = nextEnd;
 			}
 		}
 

@@ -163,6 +163,7 @@ impl SketchToSlvs {
                     self.entity_types.insert(*id, EntityKind::Arc);
                 }
                 SketchEntity::Point { .. } => {} // already handled
+                SketchEntity::Spline { .. } => {} // splines not mapped to slvs
             }
         }
     }
