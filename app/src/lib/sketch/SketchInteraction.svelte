@@ -21,7 +21,7 @@
 	 * Compute sketch units per screen pixel for dynamic thresholds.
 	 */
 	function getScreenPixelSize(cam, planeOrigin, canvasHeight) {
-		if (!cam) return 0.01;
+		if (!cam) return 0.00001;
 		if (cam instanceof THREE.PerspectiveCamera) {
 			const dist = cam.position.distanceTo(planeOrigin);
 			const vFov = cam.fov * (Math.PI / 180);
@@ -32,7 +32,7 @@
 			const height = cam.top - cam.bottom;
 			return height / (canvasHeight || 800);
 		}
-		return 0.01;
+		return 0.00001;
 	}
 
 	onMount(() => {

@@ -1351,7 +1351,7 @@ function handleGearTool(eventType, x, y, screenPixelSize) {
 		if (toolState === 'idle') {
 			const polyline = generateGearPreviewPolyline({
 				toothCount: 20,
-				module: 1.0,
+				module: 0.001,
 				pressureAngle: 20,
 				centerX: snap.x,
 				centerY: snap.y

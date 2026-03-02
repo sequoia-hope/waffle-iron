@@ -169,7 +169,7 @@ export function detectSnaps(x, y, fromPointId, screenPixelSize) {
 			const dx = x - fromPos.x;
 			const dy = y - fromPos.y;
 			const len = Math.sqrt(dx * dx + dy * dy);
-			if (len > 0.001) {
+			if (len > 0.000001) {
 				const angleDeg = Math.abs(Math.atan2(dy, dx)) * (180 / Math.PI);
 				// Near horizontal (angle near 0 or 180)
 				if (angleDeg < hvAngleDeg || angleDeg > (180 - hvAngleDeg)) {
@@ -224,7 +224,7 @@ export function detectSnaps(x, y, fromPointId, screenPixelSize) {
 				const dx = x - center.x;
 				const dy = y - center.y;
 				const dist = Math.sqrt(dx * dx + dy * dy);
-				if (dist > 0.001) {
+				if (dist > 0.000001) {
 					const sx = center.x + (dx / dist) * circle.radius;
 					const sy = center.y + (dy / dist) * circle.radius;
 					return {

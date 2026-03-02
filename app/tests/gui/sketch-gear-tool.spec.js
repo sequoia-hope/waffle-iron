@@ -29,7 +29,7 @@ test.describe('gear tool', () => {
 		const gearId = await waffle.page.evaluate(() => {
 			return window.__waffle.createGear({
 				toothCount: 8,
-				module: 1.0,
+				module: 0.001,
 				pressureAngle: 20,
 				backlash: 0,
 				centerX: 0,
@@ -103,7 +103,7 @@ test.describe('gear tool', () => {
 		await waffle.page.evaluate(() => {
 			return window.__waffle.createGear({
 				toothCount: 6,
-				module: 1.0,
+				module: 0.001,
 				pressureAngle: 20,
 				backlash: 0,
 				centerX: 0,
@@ -187,7 +187,7 @@ test.describe('gear tool', () => {
 		await waffle.page.evaluate(() => {
 			return window.__waffle.createGear({
 				toothCount: 6,
-				module: 2.0,
+				module: 0.002,
 				pressureAngle: 20,
 				backlash: 0,
 				centerX: 0,
@@ -225,7 +225,7 @@ test.describe('gear tool', () => {
 		const gearId = await waffle.page.evaluate(() => {
 			return window.__waffle.createGear({
 				toothCount: 8,
-				module: 1.0,
+				module: 0.001,
 				pressureAngle: 20,
 				backlash: 0,
 				centerX: 0,
@@ -245,7 +245,7 @@ test.describe('gear tool', () => {
 
 		expect(registry[gearId]).toBeDefined();
 		expect(registry[gearId].toothCount).toBe(8);
-		expect(registry[gearId].module).toBe(1.0);
+		expect(registry[gearId].module).toBe(0.001);
 	});
 
 	test('gear sketch can be extruded', async ({ waffle }) => {
@@ -257,7 +257,7 @@ test.describe('gear tool', () => {
 		await waffle.page.evaluate(() => {
 			return window.__waffle.createGear({
 				toothCount: 8,
-				module: 1.0,
+				module: 0.001,
 				pressureAngle: 20,
 				backlash: 0,
 				centerX: 0,
