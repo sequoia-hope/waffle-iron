@@ -87,7 +87,7 @@ test.describe('context menu view actions', () => {
 		await page.waitForFunction(() => window.__waffle?.getCameraState() !== null);
 
 		// First snap to front to establish non-iso position
-		await page.locator('[data-testid="viewcube-btn-front"]').click();
+		await page.locator('[data-testid="viewcube-btn-front"]').dispatchEvent('click');
 		await page.waitForTimeout(300);
 
 		// Now use context menu iso

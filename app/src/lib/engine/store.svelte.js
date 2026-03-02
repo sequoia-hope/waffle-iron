@@ -177,11 +177,19 @@ let snapSettings = $state({
 
 // -- Camera state refs (set by CameraControls) --
 
-/** @type {import('three').PerspectiveCamera | null} */
+/** @type {import('three').PerspectiveCamera | import('three').OrthographicCamera | null} */
 let cameraObject = null;
 
 /** @type {any | null} OrbitControls ref */
 let controlsObject = null;
+
+// -- Camera projection state --
+
+/** @type {'orthographic' | 'perspective'} */
+let cameraProjection = $state('orthographic');
+
+/** @type {string} CSS matrix3d() transform string synced from CameraControls each frame */
+let viewCubeTransform = $state('');
 
 // -- Box selection state --
 
@@ -412,6 +420,8 @@ export async function initEngine() {
 			exportStl: () => exportStl(),
 			exportStep: () => exportStep(),
 			getCameraState: () => getCameraState(),
+			getCameraProjection: () => getCameraProjection(),
+			setCameraProjection: (proj) => setCameraProjection(proj),
 			getConstraints: () => [...sketchConstraints],
 			getProfiles: () => [...extractedProfilesState],
 			getExtrudeDialogState: () => extrudeDialogState,
@@ -677,7 +687,7 @@ export function selectRef(ref, additive = false) {
 		const plane = computeFacePlane(ref);
 		if (plane) {
 			exitSketchPlaneSelection();
-			enterSketchMode(plane.origin, plane.normal);
+			enterSketchMode(plane.origin, plane.normal, ref);
 			setActiveTool('line');
 			return;
 		}
@@ -770,8 +780,9 @@ export function getSketchMode() {
  * Enter sketch mode on a plane.
  * @param {[number, number, number]} origin - plane origin
  * @param {[number, number, number]} normal - plane normal
+ * @param {any} [faceGeomRef] - optional face reference for zoom-to-face
  */
-export async function enterSketchMode(origin = [0, 0, 0], normal = [0, 0, 1]) {
+export async function enterSketchMode(origin = [0, 0, 0], normal = [0, 0, 1], faceGeomRef = null) {
 	log('action', 'Enter sketch mode', { origin, normal });
 	resetSketchState();
 
@@ -804,6 +815,15 @@ export async function enterSketchMode(origin = [0, 0, 0], normal = [0, 0, 1]) {
 
 	// Dispatch event so CameraControls aligns to the sketch plane
 	if (typeof window !== 'undefined') {
+		if (faceGeomRef) {
+			const bounds = computeFaceBounds(faceGeomRef);
+			if (bounds) {
+				window.dispatchEvent(new CustomEvent('waffle-zoom-to-face', {
+					detail: { center: bounds.center, normal: bounds.normal, size: bounds.size }
+				}));
+				return;
+			}
+		}
 		window.dispatchEvent(new CustomEvent('waffle-align-to-plane', { detail: { origin, normal } }));
 	}
 }
@@ -2367,6 +2387,50 @@ export function computeFacePlane(geomRef) {
 }
 
 /**
+ * Compute the bounding box of a face for zoom-to-face.
+ * @param {any} geomRef
+ * @returns {{ center: [number,number,number], normal: [number,number,number], size: number } | null}
+ */
+export function computeFaceBounds(geomRef) {
+	const plane = computeFacePlane(geomRef);
+	if (!plane) return null;
+
+	let minX = Infinity, minY = Infinity, minZ = Infinity;
+	let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+	let found = false;
+
+	for (const mesh of meshes) {
+		if (!mesh.faceRanges) continue;
+		for (const range of mesh.faceRanges) {
+			if (!range.geom_ref || !geomRefEquals(range.geom_ref, geomRef)) continue;
+			for (let idx = range.start_index; idx < range.end_index; idx++) {
+				const vi = mesh.indices[idx];
+				const x = mesh.vertices[vi * 3];
+				const y = mesh.vertices[vi * 3 + 1];
+				const z = mesh.vertices[vi * 3 + 2];
+				if (x < minX) minX = x;
+				if (y < minY) minY = y;
+				if (z < minZ) minZ = z;
+				if (x > maxX) maxX = x;
+				if (y > maxY) maxY = y;
+				if (z > maxZ) maxZ = z;
+				found = true;
+			}
+		}
+	}
+
+	if (!found) return null;
+
+	const dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ;
+	const size = Math.sqrt(dx * dx + dy * dy + dz * dz);
+	return {
+		center: /** @type {[number,number,number]} */ ([(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2]),
+		normal: plane.normal,
+		size: Math.max(size, 0.1),
+	};
+}
+
+/**
  * Finish the active sketch, sending solved positions and profiles to the engine.
  * Returns the sketch feature info (for optional extrude dialog follow-up).
  */
@@ -2572,7 +2636,7 @@ export async function finishSketch() {
 
 /**
  * Store camera and controls references. Called by CameraControls on mount.
- * @param {import('three').PerspectiveCamera} camera
+ * @param {import('three').PerspectiveCamera | import('three').OrthographicCamera} camera
  * @param {any} controls - OrbitControls instance
  */
 export function setCameraRefs(camera, controls) {
@@ -2582,7 +2646,7 @@ export function setCameraRefs(camera, controls) {
 
 /**
  * Get camera state for tests and external access.
- * @returns {{ position: number[], target: number[], fov: number, up: number[] } | null}
+ * @returns {{ position: number[], target: number[], fov: number, up: number[], zoom: number, projection: string } | null}
  */
 export function getCameraState() {
 	if (!cameraObject) return null;
@@ -2592,8 +2656,10 @@ export function getCameraState() {
 	return {
 		position: [pos.x, pos.y, pos.z],
 		target: target ? [target.x, target.y, target.z] : [0, 0, 0],
-		fov: cameraObject.fov,
+		fov: /** @type {any} */ (cameraObject).fov ?? 0,
 		up: [up.x, up.y, up.z],
+		zoom: cameraObject.zoom ?? 1,
+		projection: cameraProjection,
 	};
 }
 
@@ -2612,6 +2678,27 @@ export function getCameraObject() {
 export function getControlsObject() {
 	return controlsObject;
 }
+
+// -- Camera projection state accessors --
+
+/** @returns {'orthographic' | 'perspective'} */
+export function getCameraProjection() { return cameraProjection; }
+
+/** @param {'orthographic' | 'perspective'} proj */
+export function setCameraProjection(proj) {
+	cameraProjection = proj;
+	window.dispatchEvent(new CustomEvent('waffle-camera-projection-changed', { detail: { projection: proj } }));
+}
+
+export function toggleCameraProjection() {
+	setCameraProjection(cameraProjection === 'orthographic' ? 'perspective' : 'orthographic');
+}
+
+/** @returns {string} */
+export function getViewCubeTransform() { return viewCubeTransform; }
+
+/** @param {string} css */
+export function setViewCubeTransform(css) { viewCubeTransform = css; }
 
 // -- Box selection state --
 

@@ -1,11 +1,14 @@
 <script>
-	import { T, useThrelte } from '@threlte/core';
+	import { T, useThrelte, useTask } from '@threlte/core';
 	import { OrbitControls } from '@threlte/extras';
 	import { onMount } from 'svelte';
 	import * as THREE from 'three';
-	import { getSketchMode, setCameraRefs, getSketchPositions, getMeshes } from '$lib/engine/store.svelte.js';
+	import {
+		getSketchMode, setCameraRefs, getSketchPositions, getMeshes,
+		getCameraProjection, setViewCubeTransform
+	} from '$lib/engine/store.svelte.js';
 
-	const { scene, renderer } = useThrelte();
+	const { scene, renderer, camera } = useThrelte();
 
 	// --- Orbit-past-poles fix: quaternion-based rotation ---
 	// Problem: OrbitControls uses spherical coordinates internally. Its update()
@@ -29,7 +32,7 @@
 	 * We read those deltas and apply them as quaternion rotations to the camera
 	 * offset and up vector, bypassing the spherical coordinate system entirely.
 	 * @param {object} controls - OrbitControls instance
-	 * @param {THREE.PerspectiveCamera} camera
+	 * @param {THREE.Camera} camera
 	 */
 	function applyQuaternionOrbitPatch(controls, camera) {
 		// Reusable objects — allocated once, reused every frame
@@ -133,6 +136,14 @@
 	let controlsRef = $state(null);
 	let hasAutoFitForMesh = false;
 	let sketchActive = $derived(getSketchMode()?.active ?? false);
+	let projection = $derived(getCameraProjection());
+
+	// Ortho frustum state
+	let frustumHalf = $state(30);
+	let aspect = $state(1);
+
+	// Saved camera state for projection switches
+	let savedCameraState = null;
 
 	const standardViews = {
 		front:  { pos: [0, 0, 1],  up: [0, 1, 0] },
@@ -147,19 +158,32 @@
 	// Reusable THREE objects for zoom-to-cursor (avoid per-frame allocations)
 	const _raycaster = new THREE.Raycaster();
 	const _mouse = new THREE.Vector2();
-	const _zoomTarget = new THREE.Vector3();
 	const _plane = new THREE.Plane();
 	const _planeIntersect = new THREE.Vector3();
-
-	/** Interpolation factor: how much of the distance between orbit target and
-	 *  zoom-focus point we close per wheel tick (0 = no shift, 1 = snap) */
-	const TARGET_LERP_FACTOR = 0.2;
 
 	/** Minimum camera distance to prevent zooming through objects */
 	const MIN_DISTANCE = 0.05;
 
 	/** Maximum camera distance */
 	const MAX_DISTANCE = 2000;
+
+	/** @returns {boolean} */
+	function isOrtho() {
+		return cameraRef && /** @type {any} */ (cameraRef).isOrthographicCamera;
+	}
+
+	/**
+	 * Update ortho camera frustum from current frustumHalf and aspect.
+	 */
+	function updateOrthoFrustum() {
+		if (!cameraRef || !isOrtho()) return;
+		const cam = /** @type {THREE.OrthographicCamera} */ (cameraRef);
+		cam.left = -frustumHalf * aspect;
+		cam.right = frustumHalf * aspect;
+		cam.top = frustumHalf;
+		cam.bottom = -frustumHalf;
+		cam.updateProjectionMatrix();
+	}
 
 	/**
 	 * Handle wheel events for zoom-to-cursor behavior.
@@ -184,6 +208,39 @@
 		const delta = -e.deltaY * zoomSpeed;
 		const zoomFactor = Math.max(0.1, Math.min(10, 1 + delta));
 
+		if (isOrtho()) {
+			// Ortho zoom: adjust frustumHalf (inverse of zoom level)
+			frustumHalf = Math.max(0.1, Math.min(5000, frustumHalf / zoomFactor));
+			updateOrthoFrustum();
+
+			// Dolly the camera in/out to keep distance proportional to frustum.
+			// This enables zoom-to-cursor behavior and keeps camera distance
+			// meaningful for raycasting and tests.
+			_raycaster.setFromCamera(_mouse, cameraRef);
+			const cameraDir = new THREE.Vector3();
+			cameraRef.getWorldDirection(cameraDir);
+			_plane.setFromNormalAndCoplanarPoint(cameraDir, controlsRef.target);
+			const ray = _raycaster.ray;
+			if (ray.intersectPlane(_plane, _planeIntersect)) {
+				const fraction = 1 - (1 / zoomFactor);
+				cameraRef.position.lerp(_planeIntersect, fraction);
+				controlsRef.target.lerp(_planeIntersect, fraction);
+			} else {
+				// No hit — dolly along view direction
+				const currentDist = cameraRef.position.distanceTo(controlsRef.target);
+				const newDist = Math.max(MIN_DISTANCE, Math.min(MAX_DISTANCE, currentDist / zoomFactor));
+				const direction = new THREE.Vector3()
+					.subVectors(cameraRef.position, controlsRef.target)
+					.normalize();
+				cameraRef.position.copy(controlsRef.target).addScaledVector(direction, newDist);
+			}
+
+			cameraRef.updateProjectionMatrix();
+			controlsRef.update();
+			return;
+		}
+
+		// Perspective zoom (original logic)
 		// Cast a ray from the camera through the mouse position
 		_raycaster.setFromCamera(_mouse, cameraRef);
 
@@ -218,39 +275,33 @@
 			}
 		}
 
-		// Compute new camera distance
-		const currentDist = cameraRef.position.distanceTo(controlsRef.target);
-		const newDist = Math.max(MIN_DISTANCE, Math.min(MAX_DISTANCE, currentDist / zoomFactor));
-
 		if (hitPoint) {
-			// Copy hit point into our reusable vector
-			_zoomTarget.copy(hitPoint);
-
-			// Shift the orbit target toward the zoom target point
-			controlsRef.target.lerp(_zoomTarget, TARGET_LERP_FACTOR);
-
-			// Clamp orbit target to stay near model — prevents drift into empty space
-			const modelBox = new THREE.Box3();
-			scene.traverse((obj) => {
-				if (/** @type {any} */ (obj).isMesh && obj.visible) modelBox.expandByObject(obj);
-			});
-			if (!modelBox.isEmpty()) {
-				const modelCenter = modelBox.getCenter(new THREE.Vector3());
-				const modelSize = modelBox.getSize(new THREE.Vector3());
-				const maxExtent = Math.max(modelSize.x, modelSize.y, modelSize.z, 1.0);
-				const maxDrift = maxExtent * 2.0;
-				const drift = controlsRef.target.distanceTo(modelCenter);
-				if (drift > maxDrift) {
-					controlsRef.target.lerpVectors(modelCenter, controlsRef.target, maxDrift / drift);
-				}
-			}
+			// Zoom-to-cursor: lerp both camera and target toward the hit point.
+			// The view direction (target - camera) stays parallel but scales by
+			// (1 - fraction), so the point under the cursor remains fixed in
+			// screen space via perspective division cancellation.
+			const fraction = 1 - (1 / zoomFactor);
+			cameraRef.position.lerp(hitPoint, fraction);
+			controlsRef.target.lerp(hitPoint, fraction);
+		} else {
+			// No hit — dolly along view direction
+			const currentDist = cameraRef.position.distanceTo(controlsRef.target);
+			const newDist = Math.max(MIN_DISTANCE, Math.min(MAX_DISTANCE, currentDist / zoomFactor));
+			const direction = new THREE.Vector3()
+				.subVectors(cameraRef.position, controlsRef.target)
+				.normalize();
+			cameraRef.position.copy(controlsRef.target).addScaledVector(direction, newDist);
 		}
 
-		// Move camera to maintain the new distance from the (possibly shifted) target
-		const direction = new THREE.Vector3()
-			.subVectors(cameraRef.position, controlsRef.target)
-			.normalize();
-		cameraRef.position.copy(controlsRef.target).addScaledVector(direction, newDist);
+		// Clamp camera-to-target distance
+		const dist = cameraRef.position.distanceTo(controlsRef.target);
+		if (dist < MIN_DISTANCE || dist > MAX_DISTANCE) {
+			const clampedDist = Math.max(MIN_DISTANCE, Math.min(MAX_DISTANCE, dist));
+			const dir = new THREE.Vector3()
+				.subVectors(cameraRef.position, controlsRef.target)
+				.normalize();
+			cameraRef.position.copy(controlsRef.target).addScaledVector(dir, clampedDist);
+		}
 
 		cameraRef.updateProjectionMatrix();
 		controlsRef.update();
@@ -274,16 +325,31 @@
 		const center = box.getCenter(new THREE.Vector3());
 		const size = box.getSize(new THREE.Vector3());
 		const maxDim = Math.max(size.x, size.y, size.z);
-		const fov = cameraRef.fov * (Math.PI / 180);
-		let distance = maxDim / (2 * Math.tan(fov / 2));
-		distance *= 1.5;
 
-		const direction = new THREE.Vector3()
-			.subVectors(cameraRef.position, center)
-			.normalize();
-		cameraRef.position.copy(center).addScaledVector(direction, distance);
-		cameraRef.up.set(0, 1, 0);
-		cameraRef.lookAt(center);
+		if (isOrtho()) {
+			// Ortho: set frustum to frame the scene
+			frustumHalf = maxDim * 1.5 / 2;
+			updateOrthoFrustum();
+
+			const direction = new THREE.Vector3()
+				.subVectors(cameraRef.position, center)
+				.normalize();
+			// Keep camera at a reasonable distance even in ortho (for raycasting)
+			cameraRef.position.copy(center).addScaledVector(direction, maxDim * 2);
+			cameraRef.up.set(0, 1, 0);
+			cameraRef.lookAt(center);
+		} else {
+			const fov = /** @type {THREE.PerspectiveCamera} */ (cameraRef).fov * (Math.PI / 180);
+			let distance = maxDim / (2 * Math.tan(fov / 2));
+			distance *= 1.5;
+
+			const direction = new THREE.Vector3()
+				.subVectors(cameraRef.position, center)
+				.normalize();
+			cameraRef.position.copy(center).addScaledVector(direction, distance);
+			cameraRef.up.set(0, 1, 0);
+			cameraRef.lookAt(center);
+		}
 
 		if (controlsRef) {
 			controlsRef.target.copy(center);
@@ -312,6 +378,15 @@
 		if (controlsRef) {
 			controlsRef.update();
 		}
+	}
+
+	/**
+	 * Snap to a view and then fit all geometry.
+	 * @param {string} viewName
+	 */
+	function snapToViewAndFit(viewName) {
+		snapToView(viewName);
+		fitAll();
 	}
 
 	/**
@@ -349,6 +424,82 @@
 		}
 	}
 
+	/**
+	 * Zoom camera to center on a face.
+	 * @param {{ center: number[], normal: number[], size: number }} detail
+	 */
+	function zoomToFace(detail) {
+		if (!cameraRef) return;
+
+		const center = new THREE.Vector3(detail.center[0], detail.center[1], detail.center[2]);
+		const normal = new THREE.Vector3(detail.normal[0], detail.normal[1], detail.normal[2]).normalize();
+		const size = detail.size;
+
+		// Choose an appropriate up vector (perpendicular to normal)
+		const worldUp = new THREE.Vector3(0, 1, 0);
+		let up;
+		if (Math.abs(normal.dot(worldUp)) > 0.99) {
+			up = new THREE.Vector3(0, 0, -Math.sign(normal.y));
+		} else {
+			up = worldUp.clone();
+		}
+
+		if (isOrtho()) {
+			frustumHalf = size * 1.5 / 2;
+			updateOrthoFrustum();
+			const dist = size * 2;
+			cameraRef.position.copy(center).addScaledVector(normal, dist);
+		} else {
+			const fov = /** @type {THREE.PerspectiveCamera} */ (cameraRef).fov * (Math.PI / 180);
+			const dist = (size * 1.5) / (2 * Math.tan(fov / 2));
+			cameraRef.position.copy(center).addScaledVector(normal, dist);
+		}
+
+		cameraRef.up.copy(up);
+		cameraRef.lookAt(center);
+		cameraRef.updateProjectionMatrix();
+
+		if (controlsRef) {
+			controlsRef.target.copy(center);
+			controlsRef.update();
+		}
+	}
+
+	/**
+	 * Handle projection switch by saving/restoring camera state.
+	 */
+	function handleProjectionChanged() {
+		if (!cameraRef || !controlsRef) return;
+
+		// Save current state from the old camera (which is about to be replaced)
+		savedCameraState = {
+			position: cameraRef.position.clone(),
+			target: controlsRef.target.clone(),
+			up: cameraRef.up.clone(),
+			distance: cameraRef.position.distanceTo(controlsRef.target),
+		};
+
+		// If switching from perspective to ortho, compute frustumHalf
+		if (getCameraProjection() === 'orthographic' && /** @type {any} */ (cameraRef).isPerspectiveCamera) {
+			const fov = /** @type {THREE.PerspectiveCamera} */ (cameraRef).fov * (Math.PI / 180);
+			frustumHalf = savedCameraState.distance * Math.tan(fov / 2);
+		}
+	}
+
+	// Sync view cube transform each frame
+	useTask(
+		'viewcube-sync',
+		() => {
+			if (!camera.current) return;
+			const q = camera.current.quaternion.clone().invert();
+			const m = new THREE.Matrix4().makeRotationFromQuaternion(q);
+			const e = m.elements;
+			const css = `matrix3d(${e[0]},${e[1]},${e[2]},${e[3]},${e[4]},${e[5]},${e[6]},${e[7]},${e[8]},${e[9]},${e[10]},${e[11]},${e[12]},${e[13]},${e[14]},${e[15]})`;
+			setViewCubeTransform(css);
+		},
+		{ autoInvalidate: true }
+	);
+
 	onMount(() => {
 		// Register camera and controls refs in the store
 		if (cameraRef && controlsRef) {
@@ -358,6 +509,24 @@
 		// Attach zoom-to-cursor wheel handler on the canvas
 		const canvas = renderer.domElement;
 		canvas.addEventListener('wheel', onWheel, { passive: false });
+
+		// Update aspect ratio on resize
+		const ro = new ResizeObserver(() => {
+			const w = canvas.clientWidth;
+			const h = canvas.clientHeight;
+			if (w > 0 && h > 0) {
+				aspect = w / h;
+				if (isOrtho()) {
+					updateOrthoFrustum();
+				}
+			}
+		});
+		ro.observe(canvas);
+
+		// Initialize aspect
+		if (canvas.clientWidth > 0 && canvas.clientHeight > 0) {
+			aspect = canvas.clientWidth / canvas.clientHeight;
+		}
 
 		/** @param {KeyboardEvent} e */
 		function onKeyDown(e) {
@@ -373,18 +542,46 @@
 		}
 
 		/** @param {CustomEvent} e */
+		function onSnapViewAndFit(e) {
+			snapToViewAndFit(e.detail.view);
+		}
+
+		/** @param {CustomEvent} e */
 		function onAlignToPlane(e) {
 			alignToPlane(e.detail.origin, e.detail.normal);
 		}
 
+		/** @param {CustomEvent} e */
+		function onZoomToFace(e) {
+			zoomToFace(e.detail);
+		}
+
+		function onFitAll() {
+			fitAll();
+		}
+
+		/** @param {CustomEvent} e */
+		function onProjectionChanged(e) {
+			handleProjectionChanged();
+		}
+
 		window.addEventListener('keydown', onKeyDown);
 		window.addEventListener('waffle-snap-view', /** @type {EventListener} */ (onSnapView));
+		window.addEventListener('waffle-snap-view-and-fit', /** @type {EventListener} */ (onSnapViewAndFit));
 		window.addEventListener('waffle-align-to-plane', /** @type {EventListener} */ (onAlignToPlane));
+		window.addEventListener('waffle-zoom-to-face', /** @type {EventListener} */ (onZoomToFace));
+		window.addEventListener('waffle-fit-all', onFitAll);
+		window.addEventListener('waffle-camera-projection-changed', /** @type {EventListener} */ (onProjectionChanged));
 		return () => {
 			canvas.removeEventListener('wheel', onWheel);
+			ro.disconnect();
 			window.removeEventListener('keydown', onKeyDown);
 			window.removeEventListener('waffle-snap-view', /** @type {EventListener} */ (onSnapView));
+			window.removeEventListener('waffle-snap-view-and-fit', /** @type {EventListener} */ (onSnapViewAndFit));
 			window.removeEventListener('waffle-align-to-plane', /** @type {EventListener} */ (onAlignToPlane));
+			window.removeEventListener('waffle-zoom-to-face', /** @type {EventListener} */ (onZoomToFace));
+			window.removeEventListener('waffle-fit-all', onFitAll);
+			window.removeEventListener('waffle-camera-projection-changed', /** @type {EventListener} */ (onProjectionChanged));
 		};
 	});
 
@@ -395,6 +592,20 @@
 			if (!controlsRef._quaternionPatched) {
 				applyQuaternionOrbitPatch(controlsRef, cameraRef);
 				controlsRef._quaternionPatched = true;
+			}
+
+			// Restore saved camera state after projection switch remounts the camera
+			if (savedCameraState) {
+				cameraRef.position.copy(savedCameraState.position);
+				cameraRef.up.copy(savedCameraState.up);
+				controlsRef.target.copy(savedCameraState.target);
+				cameraRef.lookAt(savedCameraState.target);
+				if (isOrtho()) {
+					updateOrthoFrustum();
+				}
+				cameraRef.updateProjectionMatrix();
+				controlsRef.update();
+				savedCameraState = null;
 			}
 		}
 	});
@@ -445,18 +656,29 @@
 
 		// Calculate visible range at current camera distance
 		const dist = cameraRef.position.distanceTo(controlsRef.target);
-		const fov = cameraRef.fov * (Math.PI / 180);
-		const visibleHeight = 2 * dist * Math.tan(fov / 2);
 
-		// If sketch fills >80% of view, zoom out to fit with 20% padding
-		if (maxExtent > visibleHeight * 0.8) {
-			const newDist = (maxExtent * 1.2) / (2 * Math.tan(fov / 2));
-			const direction = new THREE.Vector3()
-				.subVectors(cameraRef.position, controlsRef.target)
-				.normalize();
-			cameraRef.position.copy(controlsRef.target).addScaledVector(direction, newDist);
-			cameraRef.updateProjectionMatrix();
-			controlsRef.update();
+		if (isOrtho()) {
+			// In ortho, visible height = 2 * frustumHalf
+			const visibleHeight = 2 * frustumHalf;
+			if (maxExtent > visibleHeight * 0.8) {
+				frustumHalf = maxExtent * 1.2 / 2;
+				updateOrthoFrustum();
+				controlsRef.update();
+			}
+		} else {
+			const fov = /** @type {THREE.PerspectiveCamera} */ (cameraRef).fov * (Math.PI / 180);
+			const visibleHeight = 2 * dist * Math.tan(fov / 2);
+
+			// If sketch fills >80% of view, zoom out to fit with 20% padding
+			if (maxExtent > visibleHeight * 0.8) {
+				const newDist = (maxExtent * 1.2) / (2 * Math.tan(fov / 2));
+				const direction = new THREE.Vector3()
+					.subVectors(cameraRef.position, controlsRef.target)
+					.normalize();
+				cameraRef.position.copy(controlsRef.target).addScaledVector(direction, newDist);
+				cameraRef.updateProjectionMatrix();
+				controlsRef.update();
+			}
 		}
 	});
 
@@ -473,21 +695,45 @@
 	});
 </script>
 
-<T.PerspectiveCamera
-	makeDefault
-	position={[30, 30, 30]}
-	fov={50}
-	near={0.1}
-	far={5000}
-	bind:ref={cameraRef}
->
-	<OrbitControls
-		bind:ref={controlsRef}
-		enableDamping
-		dampingFactor={0.25}
-		rotateSpeed={1.0}
-		enableZoom={false}
-		minDistance={0.05}
-		maxDistance={2000}
-	/>
-</T.PerspectiveCamera>
+{#if projection === 'perspective'}
+	<T.PerspectiveCamera
+		makeDefault
+		position={[30, 30, 30]}
+		fov={50}
+		near={0.1}
+		far={5000}
+		bind:ref={cameraRef}
+	>
+		<OrbitControls
+			bind:ref={controlsRef}
+			enableDamping
+			dampingFactor={0.25}
+			rotateSpeed={1.0}
+			enableZoom={false}
+			minDistance={0.05}
+			maxDistance={2000}
+		/>
+	</T.PerspectiveCamera>
+{:else}
+	<T.OrthographicCamera
+		makeDefault
+		position={[30, 30, 30]}
+		near={0.1}
+		far={5000}
+		left={-frustumHalf * aspect}
+		right={frustumHalf * aspect}
+		top={frustumHalf}
+		bottom={-frustumHalf}
+		bind:ref={cameraRef}
+	>
+		<OrbitControls
+			bind:ref={controlsRef}
+			enableDamping
+			dampingFactor={0.25}
+			rotateSpeed={1.0}
+			enableZoom={false}
+			minDistance={0.05}
+			maxDistance={2000}
+		/>
+	</T.OrthographicCamera>
+{/if}

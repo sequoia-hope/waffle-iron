@@ -1,8 +1,7 @@
 <script>
 	import { Canvas } from '@threlte/core';
 	import Scene from './Scene.svelte';
-	import ViewCubeGizmo from './ViewCubeGizmo.svelte';
-	import ViewCubeButtons from './ViewCubeButtons.svelte';
+	import ViewCube from './ViewCube.svelte';
 	import ConstraintMenu from '$lib/sketch/ConstraintMenu.svelte';
 	import DimensionInput from '$lib/sketch/DimensionInput.svelte';
 	import ViewportContextMenu from './ViewportContextMenu.svelte';
@@ -75,9 +74,8 @@
 <div class="viewport" data-testid="viewport" bind:this={viewportEl} oncontextmenu={handleContextMenu}>
 	<Canvas>
 		<Scene />
-		<ViewCubeGizmo />
 	</Canvas>
-	<ViewCubeButtons />
+	<ViewCube />
 	<ConstraintMenu bind:menuPos={constraintMenuPos} bind:visible={constraintMenuVisible} />
 	<DimensionInput />
 	<ViewportContextMenu bind:pos={ctxMenuPos} bind:visible={ctxMenuVisible} />

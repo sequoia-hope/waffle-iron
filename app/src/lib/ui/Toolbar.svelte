@@ -151,7 +151,7 @@
 				if (refs.length > 0) {
 					const plane = computeFacePlane(refs[0]);
 					if (plane) {
-						await enterSketchMode(plane.origin, plane.normal);
+						await enterSketchMode(plane.origin, plane.normal, refs[0]);
 						setActiveTool('line');
 						return;
 					}
