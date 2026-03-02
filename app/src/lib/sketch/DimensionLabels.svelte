@@ -146,9 +146,9 @@
 		// Perpendicular offset
 		const dx = bx - ax, dy = by - ay;
 		const len = Math.sqrt(dx * dx + dy * dy);
-		if (len < 0.001) return null;
-		const offsetX = -dy / len * 0.3;
-		const offsetY = dx / len * 0.3;
+		if (len < 0.000001) return null;
+		const offsetX = -dy / len * 0.0003;
+		const offsetY = dx / len * 0.0003;
 
 		return { x: mx + offsetX, y: my + offsetY, fromX: mx, fromY: my };
 	}
@@ -164,7 +164,7 @@
 		const edgeX = center.x + Math.cos(angle) * radius;
 		const edgeY = center.y + Math.sin(angle) * radius;
 		return {
-			x: edgeX + 0.2, y: edgeY + 0.2,
+			x: edgeX + 0.0002, y: edgeY + 0.0002,
 			fromX: edgeX, fromY: edgeY
 		};
 	}
@@ -177,11 +177,11 @@
 		if (direction === 'H') {
 			// Horizontal: label at midpoint X, offset below
 			const mx = (pA.x + pB.x) / 2;
-			const my = Math.min(pA.y, pB.y) - 0.4;
+			const my = Math.min(pA.y, pB.y) - 0.0004;
 			return { x: mx, y: my, fromX: mx, fromY: (pA.y + pB.y) / 2 };
 		} else {
 			// Vertical: label at midpoint Y, offset right
-			const mx = Math.max(pA.x, pB.x) + 0.4;
+			const mx = Math.max(pA.x, pB.x) + 0.0004;
 			const my = (pA.y + pB.y) / 2;
 			return { x: mx, y: my, fromX: (pA.x + pB.x) / 2, fromY: my };
 		}
@@ -205,7 +205,7 @@
 		const nearY = p1.y + t * ly;
 		const mx = (pos.x + nearX) / 2;
 		const my = (pos.y + nearY) / 2;
-		return { x: mx + 0.15, y: my + 0.15, fromX: mx, fromY: my };
+		return { x: mx + 0.00015, y: my + 0.00015, fromX: mx, fromY: my };
 	}
 
 	function computeAngleLabelPos(c) {
@@ -216,7 +216,7 @@
 		if (!p1 || !p2) return null;
 		const mx = (p1.x + p2.x) / 2;
 		const my = (p1.y + p2.y) / 2;
-		return { x: mx + 0.3, y: my + 0.3, fromX: mx, fromY: my };
+		return { x: mx + 0.0003, y: my + 0.0003, fromX: mx, fromY: my };
 	}
 
 	function startEditing(index, currentValue, labelType) {

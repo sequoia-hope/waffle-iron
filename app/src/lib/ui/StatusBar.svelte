@@ -16,7 +16,7 @@
 		getDocumentDisplayUnit,
 		setDocumentDisplayUnit
 	} from '$lib/engine/store.svelte.js';
-	import { UNIT_ORDER, UNITS } from '$lib/units.js';
+	import { UNIT_ORDER, UNITS, internalToDisplay } from '$lib/units.js';
 
 	let error = $derived(getLastError());
 	let selectedFeature = $derived(getSelectedFeature());
@@ -51,7 +51,8 @@
 	let cursorPos = $derived(getSketchCursorPos());
 	let cursorText = $derived.by(() => {
 		if (!inSketch || !cursorPos) return '';
-		return `X: ${cursorPos.x.toFixed(2)}  Y: ${cursorPos.y.toFixed(2)}`;
+		const du = currentUnit;
+		return `X: ${internalToDisplay(cursorPos.x, du).toFixed(2)}  Y: ${internalToDisplay(cursorPos.y, du).toFixed(2)}`;
 	});
 	let modeText = $derived(inSketch ? `Sketch Mode \u2022 Tool: ${tool}` : '');
 

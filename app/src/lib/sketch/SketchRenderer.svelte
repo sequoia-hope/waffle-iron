@@ -311,7 +311,7 @@
 			const { cx1, cy1, cx2, cy2, width } = preview.data;
 			const dx = cx2 - cx1, dy = cy2 - cy1;
 			const len = Math.sqrt(dx * dx + dy * dy);
-			if (len < 0.001) return null;
+			if (len < 0.000001) return null;
 			const r = width / 2;
 			const nx = -dy / len * r, ny = dx / len * r;
 			const points = [];
@@ -412,7 +412,7 @@
 		if (!snap || !plane) return null;
 		const text = snapLabelMap[snap.type];
 		if (!text) return null;
-		const world = sketchToWorld(snap.x + 0.15, snap.y + 0.15, plane);
+		const world = sketchToWorld(snap.x + 0.00015, snap.y + 0.00015, plane);
 		return { text, world };
 	});
 
@@ -439,9 +439,9 @@
 					if (p1 && p2) {
 						const mx = (p1.x + p2.x) / 2;
 						const my = (p1.y + p2.y) / 2;
-						const offsetX = c.type === 'Vertical' ? 0.2 : 0;
+						const offsetX = c.type === 'Vertical' ? 0.0002 : 0;
 						addLabel(ci, c.type === 'Horizontal' ? 'H' : 'V',
-							sketchToWorld(mx + offsetX, my + 0.15, plane));
+							sketchToWorld(mx + offsetX, my + 0.00015, plane));
 					}
 				}
 			} else if (c.type === 'Parallel') {
@@ -455,7 +455,7 @@
 					if (p0s && p0e && p1s && p1e) {
 						const mx = (p0s.x + p0e.x + p1s.x + p1e.x) / 4;
 						const my = (p0s.y + p0e.y + p1s.y + p1e.y) / 4;
-						addLabel(ci, '||', sketchToWorld(mx, my + 0.15, plane));
+						addLabel(ci, '||', sketchToWorld(mx, my + 0.00015, plane));
 					}
 				}
 			} else if (c.type === 'Perpendicular') {
@@ -469,7 +469,7 @@
 					if (p0s && p0e && p1s && p1e) {
 						const mx = (p0s.x + p0e.x + p1s.x + p1e.x) / 4;
 						const my = (p0s.y + p0e.y + p1s.y + p1e.y) / 4;
-						addLabel(ci, '\u27c2', sketchToWorld(mx, my + 0.15, plane));
+						addLabel(ci, '\u27c2', sketchToWorld(mx, my + 0.00015, plane));
 					}
 				}
 			} else if (c.type === 'Equal' || c.type === 'EqualRadius') {
@@ -479,7 +479,7 @@
 					for (const ent of [e0, e1]) {
 						const pos = getEntityMidpoint(ent, positions);
 						if (pos) {
-							addLabel(ci, '=', sketchToWorld(pos.x, pos.y + 0.15, plane));
+							addLabel(ci, '=', sketchToWorld(pos.x, pos.y + 0.00015, plane));
 						}
 					}
 				}
@@ -493,23 +493,23 @@
 					if (center && ls && le) {
 						const mx = (ls.x + le.x) / 2;
 						const my = (ls.y + le.y) / 2;
-						addLabel(ci, 'T', sketchToWorld(mx, my + 0.15, plane));
+						addLabel(ci, 'T', sketchToWorld(mx, my + 0.00015, plane));
 					}
 				}
 			} else if (c.type === 'Coincident') {
 				const posA = positions.get(c.point_a);
 				if (posA) {
-					addLabel(ci, '\u2022', sketchToWorld(posA.x + 0.1, posA.y + 0.1, plane));
+					addLabel(ci, '\u2022', sketchToWorld(posA.x + 0.0001, posA.y + 0.0001, plane));
 				}
 			} else if (c.type === 'Midpoint') {
 				const pos = positions.get(c.point);
 				if (pos) {
-					addLabel(ci, 'M', sketchToWorld(pos.x, pos.y + 0.15, plane));
+					addLabel(ci, 'M', sketchToWorld(pos.x, pos.y + 0.00015, plane));
 				}
 			} else if (c.type === 'WhereDragged') {
 				const pos = positions.get(c.point);
 				if (pos) {
-					addLabel(ci, '\ud83d\udccc', sketchToWorld(pos.x + 0.1, pos.y + 0.1, plane));
+					addLabel(ci, '\ud83d\udccc', sketchToWorld(pos.x + 0.0001, pos.y + 0.0001, plane));
 				}
 			} else if (c.type === 'Symmetric' || c.type === 'SymmetricH' || c.type === 'SymmetricV') {
 				const posA = positions.get(c.point_a ?? c.entity_a);
@@ -517,12 +517,12 @@
 				if (posA && posB) {
 					const mx = (posA.x + posB.x) / 2;
 					const my = (posA.y + posB.y) / 2;
-					addLabel(ci, '\u2194', sketchToWorld(mx, my + 0.15, plane));
+					addLabel(ci, '\u2194', sketchToWorld(mx, my + 0.00015, plane));
 				}
 			} else if (c.type === 'OnEntity') {
 				const pos = positions.get(c.point);
 				if (pos) {
-					addLabel(ci, '\u00d7', sketchToWorld(pos.x + 0.1, pos.y + 0.1, plane));
+					addLabel(ci, '\u00d7', sketchToWorld(pos.x + 0.0001, pos.y + 0.0001, plane));
 				}
 			}
 		}
@@ -553,7 +553,7 @@
 
 	// Under-constrained point detection (D7)
 	const COLOR_UNDERCONSTRAINED = 0x33cccc; // cyan
-	const underConstrainedGeo = new THREE.PlaneGeometry(0.1, 0.1);
+	const underConstrainedGeo = new THREE.PlaneGeometry(0.0001, 0.0001);
 	const underConstrainedMaterial = new THREE.MeshBasicMaterial({
 		color: COLOR_UNDERCONSTRAINED, depthTest: false, transparent: true, opacity: 0.7
 	});
@@ -611,12 +611,12 @@
 	// Shared materials
 	const previewMaterial = new THREE.LineBasicMaterial({ color: COLOR_PREVIEW, depthTest: false, transparent: true, opacity: 0.6 });
 	const trimPreviewMaterial = new THREE.LineBasicMaterial({ color: 0xff6633, depthTest: false, transparent: true, opacity: 0.8 });
-	const previewDashedMaterial = new THREE.LineDashedMaterial({ color: COLOR_PREVIEW, depthTest: false, transparent: true, opacity: 0.6, dashSize: 0.1, gapSize: 0.05 });
-	const snapDashedMaterial = new THREE.LineDashedMaterial({ color: COLOR_SNAP, depthTest: false, transparent: true, opacity: 0.8, dashSize: 0.08, gapSize: 0.04 });
-	const pointGeometry = new THREE.SphereGeometry(0.06, 8, 8);
-	const snapPointGeometry = new THREE.SphereGeometry(0.08, 8, 8);
+	const previewDashedMaterial = new THREE.LineDashedMaterial({ color: COLOR_PREVIEW, depthTest: false, transparent: true, opacity: 0.6, dashSize: 0.0001, gapSize: 0.00005 });
+	const snapDashedMaterial = new THREE.LineDashedMaterial({ color: COLOR_SNAP, depthTest: false, transparent: true, opacity: 0.8, dashSize: 0.00008, gapSize: 0.00004 });
+	const pointGeometry = new THREE.SphereGeometry(0.00006, 8, 8);
+	const snapPointGeometry = new THREE.SphereGeometry(0.00008, 8, 8);
 	const snapPointMaterial = new THREE.MeshBasicMaterial({ color: COLOR_SNAP, depthTest: false });
-	const originGeometry = new THREE.SphereGeometry(0.05, 8, 8);
+	const originGeometry = new THREE.SphereGeometry(0.00005, 8, 8);
 	const originMaterial = new THREE.MeshBasicMaterial({ color: COLOR_ORIGIN, depthTest: false, transparent: true, opacity: 0.6 });
 	const axisXMaterial = new THREE.LineBasicMaterial({ color: COLOR_AXIS_X, depthTest: false, transparent: true, opacity: 0.4 });
 	const axisYMaterial = new THREE.LineBasicMaterial({ color: COLOR_AXIS_Y, depthTest: false, transparent: true, opacity: 0.4 });
@@ -630,27 +630,27 @@
 	const snapCandidatePointMaterial = new THREE.MeshBasicMaterial({
 		color: COLOR_SNAP_PREVIEW, depthTest: false, transparent: true, opacity: 0.3
 	});
-	const midpointGeometry = new THREE.CircleGeometry(0.06, 3); // triangle (3 segments)
+	const midpointGeometry = new THREE.CircleGeometry(0.00006, 3); // triangle (3 segments)
 	const midpointMaterial = new THREE.MeshBasicMaterial({
 		color: COLOR_MIDPOINT, depthTest: false, transparent: true, opacity: 0.5
 	});
-	const quadrantGeometry = new THREE.CircleGeometry(0.06, 4); // diamond (4 segments)
+	const quadrantGeometry = new THREE.CircleGeometry(0.00006, 4); // diamond (4 segments)
 	const quadrantMaterial = new THREE.MeshBasicMaterial({
 		color: COLOR_QUADRANT, depthTest: false, transparent: true, opacity: 0.5
 	});
 	const COLOR_REFERENCE = 0x8866cc;      // purple, reference points from inactive sketches
-	const referenceGeometry = new THREE.CircleGeometry(0.06, 4); // diamond shape
+	const referenceGeometry = new THREE.CircleGeometry(0.00006, 4); // diamond shape
 	const referenceMaterial = new THREE.MeshBasicMaterial({
 		color: COLOR_REFERENCE, depthTest: false, transparent: true, opacity: 0.5
 	});
 
-	const originSnapGeometry = new THREE.CircleGeometry(0.08, 4);
+	const originSnapGeometry = new THREE.CircleGeometry(0.00008, 4);
 	const originSnapMaterial = new THREE.MeshBasicMaterial({
 		color: COLOR_ORIGIN_SNAP, depthTest: false, transparent: true, opacity: 0.4
 	});
 
 	// -- Sketch axes geometry --
-	const AXIS_LENGTH = 50;
+	const AXIS_LENGTH = 0.05;
 	let axisXGeo = $derived.by(() => {
 		if (!plane) return null;
 		const p1 = sketchToWorld(-AXIS_LENGTH, 0, plane);
@@ -722,8 +722,8 @@
 				<T.LineDashedMaterial
 					color={entityColor(line.id)}
 					depthTest={false}
-					dashSize={0.15}
-					gapSize={0.08}
+					dashSize={0.00015}
+					gapSize={0.00008}
 				/>
 			</T.Line>
 		{:else}
@@ -740,8 +740,8 @@
 				<T.LineDashedMaterial
 					color={entityColor(circle.id)}
 					depthTest={false}
-					dashSize={0.15}
-					gapSize={0.08}
+					dashSize={0.00015}
+					gapSize={0.00008}
 				/>
 			</T.Line>
 		{:else}
@@ -758,8 +758,8 @@
 				<T.LineDashedMaterial
 					color={entityColor(arc.id)}
 					depthTest={false}
-					dashSize={0.15}
-					gapSize={0.08}
+					dashSize={0.00015}
+					gapSize={0.00008}
 				/>
 			</T.Line>
 		{:else}
@@ -776,8 +776,8 @@
 				<T.LineDashedMaterial
 					color={entityColor(spline.id)}
 					depthTest={false}
-					dashSize={0.15}
-					gapSize={0.08}
+					dashSize={0.00015}
+					gapSize={0.00008}
 				/>
 			</T.Line>
 		{:else}
@@ -838,7 +838,7 @@
 	{#each constraintLabels as label, i}
 		<T.Mesh position={[label.world.x, label.world.y, label.world.z]} renderOrder={12}
 			raycast={() => {}}>
-			<T.PlaneGeometry args={[label.failed ? 0.16 : 0.12, label.failed ? 0.16 : 0.12]} />
+			<T.PlaneGeometry args={[label.failed ? 0.00016 : 0.00012, label.failed ? 0.00016 : 0.00012]} />
 			<T.MeshBasicMaterial color={label.failed ? COLOR_OVERCONSTRAINED : COLOR_DEFAULT} depthTest={false} transparent opacity={0.7} />
 		</T.Mesh>
 	{/each}

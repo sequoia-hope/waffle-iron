@@ -119,7 +119,7 @@
 
 	// --- Origin Triad (scaled to match plane size) ---
 
-	const axisLength = 20;
+	const axisLength = 0.02;
 
 	function buildAxisLine(dir, length) {
 		const pts = new Float32Array([0, 0, 0, dir[0] * length, dir[1] * length, dir[2] * length]);
@@ -137,7 +137,7 @@
 	const zAxisMaterial = new THREE.LineBasicMaterial({ color: 0x4488ff });
 
 	// Arrowhead cones (scaled proportionally)
-	const coneGeo = new THREE.ConeGeometry(0.5, 1.8, 8);
+	const coneGeo = new THREE.ConeGeometry(0.0005, 0.0018, 8);
 
 	const xConeMaterial = new THREE.MeshBasicMaterial({ color: 0xff4444 });
 	const yConeMaterial = new THREE.MeshBasicMaterial({ color: 0x44cc44 });

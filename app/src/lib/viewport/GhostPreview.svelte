@@ -97,7 +97,7 @@
 			if (points2d.length < 3) return null;
 			shape = new THREE.Shape(points2d);
 		}
-		const effectiveDepth = Math.max(params.depth, 0.01);
+		const effectiveDepth = Math.max(params.depth, 0.00001);
 		const extrudeDepth = params.symmetric ? effectiveDepth * 2 : effectiveDepth;
 
 		const geometry = new THREE.ExtrudeGeometry(shape, {
@@ -296,7 +296,7 @@
 		});
 
 		const shape = new THREE.Shape(points2d);
-		const effectiveDepth = Math.max(params.depth, 0.01);
+		const effectiveDepth = Math.max(params.depth, 0.00001);
 		const extrudeDepth = params.symmetric ? effectiveDepth * 2 : effectiveDepth;
 
 		const geometry = new THREE.ExtrudeGeometry(shape, {

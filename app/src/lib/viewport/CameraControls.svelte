@@ -139,7 +139,7 @@
 	let projection = $derived(getCameraProjection());
 
 	// Ortho frustum state
-	let frustumHalf = $state(30);
+	let frustumHalf = $state(0.03);
 	let aspect = $state(1);
 
 	// Saved camera state for projection switches
@@ -162,10 +162,10 @@
 	const _planeIntersect = new THREE.Vector3();
 
 	/** Minimum camera distance to prevent zooming through objects */
-	const MIN_DISTANCE = 0.05;
+	const MIN_DISTANCE = 0.00005;
 
 	/** Maximum camera distance */
-	const MAX_DISTANCE = 2000;
+	const MAX_DISTANCE = 2;
 
 	/** @returns {boolean} */
 	function isOrtho() {
@@ -210,7 +210,7 @@
 
 		if (isOrtho()) {
 			// Ortho zoom: adjust frustumHalf (inverse of zoom level)
-			frustumHalf = Math.max(0.1, Math.min(5000, frustumHalf / zoomFactor));
+			frustumHalf = Math.max(0.0001, Math.min(5, frustumHalf / zoomFactor));
 			updateOrthoFrustum();
 
 			// Dolly the camera in/out to keep distance proportional to frustum.
@@ -366,7 +366,7 @@
 		if (!view || !cameraRef) return;
 
 		const target = controlsRef ? controlsRef.target.clone() : new THREE.Vector3(0, 0, 0);
-		const dist = cameraRef.position.distanceTo(target) || 10;
+		const dist = cameraRef.position.distanceTo(target) || 0.01;
 
 		const newPos = new THREE.Vector3(...view.pos).normalize().multiplyScalar(dist);
 		newPos.add(target);
@@ -401,7 +401,7 @@
 		const o = new THREE.Vector3(origin[0], origin[1], origin[2]);
 		const dist = cameraRef.position.distanceTo(
 			controlsRef ? controlsRef.target.clone() : o
-		) || 10;
+		) || 0.01;
 
 		// Position camera along the normal direction
 		const newPos = o.clone().addScaledVector(n, dist);
@@ -652,7 +652,7 @@
 		const extentX = maxX - minX;
 		const extentY = maxY - minY;
 		const maxExtent = Math.max(extentX, extentY);
-		if (maxExtent < 0.01) return;
+		if (maxExtent < 0.00001) return;
 
 		// Calculate visible range at current camera distance
 		const dist = cameraRef.position.distanceTo(controlsRef.target);
@@ -698,10 +698,10 @@
 {#if projection === 'perspective'}
 	<T.PerspectiveCamera
 		makeDefault
-		position={[30, 30, 30]}
+		position={[0.03, 0.03, 0.03]}
 		fov={50}
-		near={0.1}
-		far={5000}
+		near={0.0001}
+		far={5}
 		bind:ref={cameraRef}
 	>
 		<OrbitControls
@@ -710,16 +710,16 @@
 			dampingFactor={0.25}
 			rotateSpeed={1.0}
 			enableZoom={false}
-			minDistance={0.05}
-			maxDistance={2000}
+			minDistance={0.00005}
+			maxDistance={2}
 		/>
 	</T.PerspectiveCamera>
 {:else}
 	<T.OrthographicCamera
 		makeDefault
-		position={[30, 30, 30]}
-		near={0.1}
-		far={5000}
+		position={[0.03, 0.03, 0.03]}
+		near={0.0001}
+		far={5}
 		left={-frustumHalf * aspect}
 		right={frustumHalf * aspect}
 		top={frustumHalf}
@@ -732,8 +732,8 @@
 			dampingFactor={0.25}
 			rotateSpeed={1.0}
 			enableZoom={false}
-			minDistance={0.05}
-			maxDistance={2000}
+			minDistance={0.00005}
+			maxDistance={2}
 		/>
 	</T.OrthographicCamera>
 {/if}

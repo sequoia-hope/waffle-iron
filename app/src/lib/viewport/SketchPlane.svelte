@@ -47,10 +47,10 @@
 		return geo;
 	}
 
-	const gridGeometry = buildGridGeometry(10, 20);
+	const gridGeometry = buildGridGeometry(0.01, 20);
 
 	// Square plane geometry for the sketch plane background
-	const planeGeometry = new THREE.PlaneGeometry(20, 20);
+	const planeGeometry = new THREE.PlaneGeometry(0.02, 0.02);
 
 	// Border around the sketch plane
 	function buildBorderGeometry(size) {
@@ -66,7 +66,7 @@
 		return geo;
 	}
 
-	const borderGeometry = buildBorderGeometry(10);
+	const borderGeometry = buildBorderGeometry(0.01);
 
 	/**
 	 * Build quaternion to orient the sketch plane from a normal vector.

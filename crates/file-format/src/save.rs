@@ -4,7 +4,9 @@ use serde::Serialize;
 use crate::metadata::ProjectMetadata;
 
 /// Current file format version.
-pub const FORMAT_VERSION: u32 = 1;
+/// v1: original format (coordinates in mm-scale scene units)
+/// v2: true-meters (all length coordinates in meters, angles unchanged)
+pub const FORMAT_VERSION: u32 = 2;
 
 /// The top-level file structure.
 #[derive(Debug, Clone, Serialize)]

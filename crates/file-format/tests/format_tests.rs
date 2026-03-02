@@ -783,15 +783,23 @@ fn migrate_same_version_returns_tree_unchanged() {
 }
 
 #[test]
-fn migrate_different_version_returns_error() {
+fn migrate_v1_to_v2_succeeds() {
     let tree = FeatureTree::new();
     let result = file_format::migrate::migrate(tree, 1, 2);
+    assert!(result.is_ok(), "v1→v2 migration should succeed");
+}
+
+#[test]
+fn migrate_unsupported_version_returns_error() {
+    let tree = FeatureTree::new();
+    // v3→v4 has no migration path
+    let result = file_format::migrate::migrate(tree, 3, 4);
     assert!(result.is_err());
     if let Err(e) = result {
         let msg = e.to_string();
         assert!(msg.contains("migration failed"), "Got: {}", msg);
-        assert!(msg.contains("v1"), "Should mention source version: {}", msg);
-        assert!(msg.contains("v2"), "Should mention target version: {}", msg);
+        assert!(msg.contains("v3"), "Should mention source version: {}", msg);
+        assert!(msg.contains("v4"), "Should mention target version: {}", msg);
     }
 }
 

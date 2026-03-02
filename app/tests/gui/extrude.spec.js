@@ -484,9 +484,9 @@ test.describe('extrude second direction', () => {
 		// Select Symmetric
 		await waffle.page.locator('[data-testid="extrude-second-dir"]').selectOption('Symmetric');
 
-		// Depth label should say "Depth (each side)"
+		// Depth label should say "Depth (each side) (<unit>)"
 		const depthLabel = waffle.page.locator('label[for="extrude-depth"]');
-		await expect(depthLabel).toHaveText('Depth (each side)');
+		await expect(depthLabel).toContainText('Depth (each side)');
 	});
 
 	test('extrude with Symmetric creates feature', async ({ waffle }) => {

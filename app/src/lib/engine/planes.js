@@ -13,8 +13,8 @@ export const FRONT_PLANE_ID = '00000000-0000-0000-0000-000000000001';
 export const TOP_PLANE_ID = '00000000-0000-0000-0000-000000000002';
 export const RIGHT_PLANE_ID = '00000000-0000-0000-0000-000000000003';
 
-/** Half-size for plane geometry (36x36 total). */
-export const PLANE_HALF_SIZE = 18;
+/** Half-size for plane geometry (0.036x0.036 total, in meters). */
+export const PLANE_HALF_SIZE = 0.018;
 
 /**
  * @typedef {{ method: 'point-normal', origin: [number,number,number], normal: [number,number,number] }} PointNormalDef
