@@ -11,7 +11,9 @@
 		getInactiveHoveredProfile,
 		setInactiveHoveredProfile,
 		getCameraObject,
-		getHoveredRef
+		getHoveredRef,
+		getReferenceSnapPoints,
+		setReferenceSnapPoints
 	} from '$lib/engine/store.svelte.js';
 	import { buildSketchPlane, sketchToWorld } from './sketchCoords.js';
 	import { extractProfiles, profileToPolygon, pointInPolygon } from './profiles.js';
@@ -22,6 +24,8 @@
 	const COLOR_INACTIVE = 0x888888;
 	const COLOR_SELECTED = 0xff8800;
 	const COLOR_PROFILE_HOVER = 0x4488ff;
+	const COLOR_INACTIVE_POINT = 0x666688;
+	const PICK_THRESHOLD_PX = 15;
 
 	let tree = $derived(getFeatureTree());
 	let sm = $derived(getSketchMode());
@@ -30,9 +34,10 @@
 
 	/**
 	 * Get all sketch features that should show inactive wireframes.
+	 * During sketch mode: show wireframes from other sketches (not the one being edited).
+	 * Outside sketch mode: show all visible inactive sketches.
 	 */
 	let sketchFeatures = $derived.by(() => {
-		if (sm?.active) return [];
 		if (!tree?.features) return [];
 		return tree.features.filter(f =>
 			f.operation?.type === 'Sketch' &&
@@ -156,9 +161,25 @@
 	});
 
 	/**
+	 * Build point geometry for inactive sketch points (visible during sketch mode).
+	 */
+	let inactivePointData = $derived.by(() => {
+		if (!sm?.active) return [];
+		const pts = [];
+		for (const data of sketchData) {
+			for (const [id, pos] of data.positions) {
+				const world = sketchToWorld(pos.x, pos.y, data.plane);
+				pts.push({ key: `${data.featureId}-${id}`, world, featureId: data.featureId, pointId: id });
+			}
+		}
+		return pts;
+	});
+
+	/**
 	 * Build profile fill geometry for hovered inactive sketch profile.
 	 */
 	let profileFills = $derived.by(() => {
+		if (sm?.active) return []; // No profile hover during sketch mode
 		const hovered = getInactiveHoveredProfile();
 		if (!hovered) return [];
 		const fills = [];
@@ -198,14 +219,77 @@
 	const _mouse = new THREE.Vector2();
 	const _planeObj = new THREE.Plane();
 	const _intersection = new THREE.Vector3();
+	const _projected = new THREE.Vector3();
 
 	/**
-	 * Hit-test cursor against inactive sketch profiles.
+	 * During sketch mode: pick inactive sketch points via screen-space proximity.
+	 * Project picked point onto the current sketch plane and add as reference snap.
+	 * @param {MouseEvent} e
+	 */
+	function handleSketchModePointPick(e) {
+		const camera = getCameraObject();
+		if (!camera || !renderer) return;
+
+		const canvas = renderer.domElement;
+		const rect = canvas.getBoundingClientRect();
+
+		// Current sketch plane for projection
+		const curOrigin = sm.origin;
+		const curNormal = sm.normal;
+		const curPlane = buildSketchPlane(curOrigin, curNormal);
+
+		let closestDist = PICK_THRESHOLD_PX;
+		let closestPt = null;
+
+		for (const data of sketchData) {
+			for (const [id, pos] of data.positions) {
+				const world = sketchToWorld(pos.x, pos.y, data.plane);
+				// Project to screen
+				_projected.copy(world).project(camera);
+				const sx = rect.left + ((_projected.x + 1) / 2) * rect.width;
+				const sy = rect.top + ((1 - _projected.y) / 2) * rect.height;
+
+				const dx = e.clientX - sx;
+				const dy = e.clientY - sy;
+				const dist = Math.sqrt(dx * dx + dy * dy);
+
+				if (dist < closestDist) {
+					closestDist = dist;
+					closestPt = { world, featureId: data.featureId, pointId: id };
+				}
+			}
+		}
+
+		if (closestPt) {
+			// Project the 3D point onto the current sketch plane's 2D space
+			const rx = closestPt.world.x - curOrigin[0];
+			const ry = closestPt.world.y - curOrigin[1];
+			const rz = closestPt.world.z - curOrigin[2];
+			const u = rx * curPlane.xAxis.x + ry * curPlane.xAxis.y + rz * curPlane.xAxis.z;
+			const v = rx * curPlane.yAxis.x + ry * curPlane.yAxis.y + rz * curPlane.yAxis.z;
+
+			const sourceId = `${closestPt.featureId}:${closestPt.pointId}`;
+			const wp = [closestPt.world.x, closestPt.world.y, closestPt.world.z];
+
+			// Add to reference snap points if not already present
+			const existing = getReferenceSnapPoints();
+			const alreadyHas = existing.some(p => p.sourceId === sourceId);
+			if (!alreadyHas) {
+				setReferenceSnapPoints([...existing, { x: u, y: v, sourceId, worldPos: wp }]);
+			}
+		}
+	}
+
+	/**
+	 * Hit-test cursor against inactive sketch profiles (non-sketch mode)
+	 * or pick inactive sketch points (sketch mode).
 	 * @param {MouseEvent} e
 	 */
 	function handlePointerMove(e) {
 		if (sm?.active) {
+			// In sketch mode: pick inactive sketch points for cross-plane snap
 			if (getInactiveHoveredProfile()) setInactiveHoveredProfile(null);
+			handleSketchModePointPick(e);
 			return;
 		}
 
@@ -257,6 +341,15 @@
 		if (getInactiveHoveredProfile()) setInactiveHoveredProfile(null);
 	}
 
+	// Shared materials for inactive points
+	const inactivePointGeometry = new THREE.SphereGeometry(0.04, 6, 6);
+	const inactivePointMaterial = new THREE.MeshBasicMaterial({
+		color: COLOR_INACTIVE_POINT,
+		depthTest: false,
+		transparent: true,
+		opacity: 0.5
+	});
+
 	onMount(() => {
 		const canvas = renderer?.domElement;
 		if (!canvas) return;
@@ -274,10 +367,17 @@
 				color={wireframe.color}
 				depthTest={true}
 				transparent
-				opacity={0.6}
+				opacity={sm?.active ? 0.3 : 0.6}
 			/>
 		</T.Line>
 	{/each}
+{/each}
+
+<!-- Inactive sketch points (shown during sketch mode) -->
+{#each inactivePointData as pt (pt.key)}
+	<T.Mesh geometry={inactivePointGeometry} material={inactivePointMaterial}
+		position={[pt.world.x, pt.world.y, pt.world.z]}
+		renderOrder={6} raycast={() => {}} />
 {/each}
 
 {#each profileFills as fill (fill.key)}

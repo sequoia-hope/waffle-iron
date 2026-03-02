@@ -88,6 +88,9 @@ let hoveredProfileIndex = $state(null);
 /** @type {{ featureId: string, profileIndex: number } | null} */
 let inactiveHoveredProfile = $state(null);
 
+/** @type {Array<{ x: number, y: number, sourceId: string, worldPos?: [number, number, number] }>} */
+let referenceSnapPoints = $state([]);
+
 /** @type {{ x: number, y: number } | null} */
 let sketchCursorPos = $state(null);
 
@@ -777,6 +780,67 @@ export function getSketchMode() {
 }
 
 /**
+ * Collect points from inactive sketches that lie on the same (or parallel) plane.
+ * Projects them into the current sketch's 2D coordinate space.
+ * @param {[number, number, number]} origin - Current sketch plane origin
+ * @param {[number, number, number]} normal - Current sketch plane normal
+ * @param {string | null} excludeFeatureId - Feature ID to exclude (the sketch being edited)
+ * @returns {Array<{ x: number, y: number, sourceId: string, worldPos: [number, number, number] }>}
+ */
+function collectSamePlaneSketchPoints(origin, normal, excludeFeatureId) {
+	const tree = featureTree;
+	if (!tree?.features) return [];
+
+	const pts = [];
+	const nx = normal[0], ny = normal[1], nz = normal[2];
+	const nLen = Math.sqrt(nx * nx + ny * ny + nz * nz);
+	if (nLen < 1e-9) return [];
+	const nnx = nx / nLen, nny = ny / nLen, nnz = nz / nLen;
+
+	// Build current sketch plane basis for projection
+	const plane = buildSketchPlane(origin, normal);
+
+	for (const feature of tree.features) {
+		if (feature.operation?.type !== 'Sketch') continue;
+		if (feature.suppressed) continue;
+		if (feature.id === excludeFeatureId) continue;
+
+		const sketch = feature.operation.sketch;
+		if (!sketch?.solved_positions) continue;
+
+		const sOrigin = sketch.plane_origin || [0, 0, 0];
+		const sNormal = sketch.plane_normal || [0, 0, 1];
+		const snLen = Math.sqrt(sNormal[0] ** 2 + sNormal[1] ** 2 + sNormal[2] ** 2);
+		if (snLen < 1e-9) continue;
+		const snx = sNormal[0] / snLen, sny = sNormal[1] / snLen, snz = sNormal[2] / snLen;
+
+		// Check parallel normals (same or opposite direction)
+		const dot = nnx * snx + nny * sny + nnz * snz;
+		if (Math.abs(Math.abs(dot) - 1) > 0.001) continue;
+
+		// Build the source sketch's plane to get 3D positions
+		const srcPlane = buildSketchPlane(sOrigin, sNormal);
+
+		for (const [id, coords] of Object.entries(sketch.solved_positions)) {
+			if (!Array.isArray(coords) || coords.length < 2) continue;
+
+			// Convert source sketch 2D -> 3D world
+			const wx = sOrigin[0] + srcPlane.xAxis.x * coords[0] + srcPlane.yAxis.x * coords[1];
+			const wy = sOrigin[1] + srcPlane.xAxis.y * coords[0] + srcPlane.yAxis.y * coords[1];
+			const wz = sOrigin[2] + srcPlane.xAxis.z * coords[0] + srcPlane.yAxis.z * coords[1];
+
+			// Project 3D world -> current sketch 2D
+			const rx = wx - origin[0], ry = wy - origin[1], rz = wz - origin[2];
+			const u = rx * plane.xAxis.x + ry * plane.xAxis.y + rz * plane.xAxis.z;
+			const v = rx * plane.yAxis.x + ry * plane.yAxis.y + rz * plane.yAxis.z;
+
+			pts.push({ x: u, y: v, sourceId: `${feature.id}:${id}`, worldPos: [wx, wy, wz] });
+		}
+	}
+	return pts;
+}
+
+/**
  * Enter sketch mode on a plane.
  * @param {[number, number, number]} origin - plane origin
  * @param {[number, number, number]} normal - plane normal
@@ -812,6 +876,9 @@ export async function enterSketchMode(origin = [0, 0, 0], normal = [0, 0, 1], fa
 	}
 
 	sketchMode = { active: true, origin, normal };
+
+	// Collect reference snap points from inactive sketches on the same/parallel plane
+	referenceSnapPoints = collectSamePlaneSketchPoints(origin, normal, editingSketchFeatureId);
 
 	// Dispatch event so CameraControls aligns to the sketch plane
 	if (typeof window !== 'undefined') {
@@ -1671,6 +1738,7 @@ export function resetSketchState() {
 	sketchUndoStack = [];
 	sketchRedoStack = [];
 	pendingSketchAction = null;
+	referenceSnapPoints = [];
 }
 
 // Sketch state getters/setters
@@ -1698,6 +1766,11 @@ export function setHoveredProfileIndex(idx) { hoveredProfileIndex = idx; }
 export function getInactiveHoveredProfile() { return inactiveHoveredProfile; }
 /** @param {{ featureId: string, profileIndex: number } | null} val */
 export function setInactiveHoveredProfile(val) { inactiveHoveredProfile = val; }
+
+export function getReferenceSnapPoints() { return referenceSnapPoints; }
+/** @param {Array<{ x: number, y: number, sourceId: string, worldPos?: [number, number, number] }>} pts */
+export function setReferenceSnapPoints(pts) { referenceSnapPoints = pts; }
+export function clearReferenceSnapPoints() { referenceSnapPoints = []; }
 
 export function getOverConstrainedEntities() { return overConstrainedEntities; }
 

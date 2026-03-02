@@ -374,7 +374,8 @@
 		'perpendicular': 'Perpendicular',
 		'midpoint': 'Midpoint',
 		'quadrant': 'Quadrant',
-		'origin': 'Origin'
+		'origin': 'Origin',
+		'reference': 'Reference'
 	};
 
 	let snapGeo = $derived.by(() => {
@@ -396,6 +397,10 @@
 		}
 
 		if (snap.type === 'midpoint' || snap.type === 'quadrant' || snap.type === 'origin') {
+			return { type: 'point', world: sketchToWorld(snap.x, snap.y, plane) };
+		}
+
+		if (snap.type === 'reference') {
 			return { type: 'point', world: sketchToWorld(snap.x, snap.y, plane) };
 		}
 
@@ -633,6 +638,12 @@
 	const quadrantMaterial = new THREE.MeshBasicMaterial({
 		color: COLOR_QUADRANT, depthTest: false, transparent: true, opacity: 0.5
 	});
+	const COLOR_REFERENCE = 0x8866cc;      // purple, reference points from inactive sketches
+	const referenceGeometry = new THREE.CircleGeometry(0.06, 4); // diamond shape
+	const referenceMaterial = new THREE.MeshBasicMaterial({
+		color: COLOR_REFERENCE, depthTest: false, transparent: true, opacity: 0.5
+	});
+
 	const originSnapGeometry = new THREE.CircleGeometry(0.08, 4);
 	const originSnapMaterial = new THREE.MeshBasicMaterial({
 		color: COLOR_ORIGIN_SNAP, depthTest: false, transparent: true, opacity: 0.4
@@ -790,6 +801,9 @@
 		{:else if cand.type === 'origin'}
 			<T.Mesh geometry={originSnapGeometry} position={[cand.world.x, cand.world.y, cand.world.z]}
 				renderOrder={9} material={originSnapMaterial} raycast={() => {}} />
+		{:else if cand.type === 'reference'}
+			<T.Mesh geometry={referenceGeometry} position={[cand.world.x, cand.world.y, cand.world.z]}
+				renderOrder={9} material={referenceMaterial} raycast={() => {}} />
 		{/if}
 	{/each}
 

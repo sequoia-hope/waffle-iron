@@ -5,7 +5,7 @@
  * and returns snapped coordinates + snap indicators for visual feedback.
  */
 
-import { findPointNear, findLineNear, findCircleNear, getSketchPositions, getSketchEntities, getSnapSettings } from '$lib/engine/store.svelte.js';
+import { findPointNear, findLineNear, findCircleNear, getSketchPositions, getSketchEntities, getSnapSettings, getReferenceSnapPoints } from '$lib/engine/store.svelte.js';
 
 /**
  * @typedef {{ type: 'coincident', x: number, y: number, pointId: number }} CoincidentSnap
@@ -17,7 +17,8 @@ import { findPointNear, findLineNear, findCircleNear, getSketchPositions, getSke
  * @typedef {{ type: 'midpoint', x: number, y: number, entityId: number }} MidpointSnap
  * @typedef {{ type: 'quadrant', x: number, y: number, entityId: number }} QuadrantSnap
  * @typedef {{ type: 'origin', x: number, y: number }} OriginSnap
- * @typedef {CoincidentSnap | HorizontalSnap | VerticalSnap | OnEntitySnap | TangentSnap | PerpendicularSnap | MidpointSnap | QuadrantSnap | OriginSnap} SnapIndicator
+ * @typedef {{ type: 'reference', x: number, y: number, sourceId: string }} ReferenceSnap
+ * @typedef {CoincidentSnap | HorizontalSnap | VerticalSnap | OnEntitySnap | TangentSnap | PerpendicularSnap | MidpointSnap | QuadrantSnap | OriginSnap | ReferenceSnap} SnapIndicator
  */
 
 /**
@@ -66,6 +67,29 @@ export function detectSnaps(x, y, fromPointId, screenPixelSize) {
 			],
 			indicator: { type: 'origin', x: 0, y: 0 }
 		};
+	}
+
+	// 1b2. Reference point snap — snap to points from inactive sketches
+	{
+		const refPoints = getReferenceSnapPoints();
+		let closestRef = null;
+		let closestRefDist = coincidentThreshold;
+		for (const rp of refPoints) {
+			const dx = rp.x - x;
+			const dy = rp.y - y;
+			const dist = Math.sqrt(dx * dx + dy * dy);
+			if (dist < closestRefDist) {
+				closestRefDist = dist;
+				closestRef = rp;
+			}
+		}
+		if (closestRef) {
+			return {
+				x: closestRef.x, y: closestRef.y,
+				constraints: [{ type: 'WhereDragged', x: closestRef.x, y: closestRef.y }],
+				indicator: { type: 'reference', x: closestRef.x, y: closestRef.y, sourceId: closestRef.sourceId }
+			};
+		}
 	}
 
 	// 1c. Midpoint snap — snap to midpoint of line entities
@@ -383,10 +407,10 @@ function detectPerpendicularSnap(x, y, fromPointId, threshold) {
  * @param {number} x - Cursor sketch X
  * @param {number} y - Cursor sketch Y
  * @param {number} previewRadius - Radius in sketch units to search
- * @returns {Array<{ type: 'origin'|'point'|'midpoint'|'quadrant', x: number, y: number, entityId?: number }>}
+ * @returns {Array<{ type: 'origin'|'point'|'midpoint'|'quadrant'|'reference', x: number, y: number, entityId?: number, sourceId?: string }>}
  */
 export function collectSnapCandidates(x, y, previewRadius) {
-	/** @type {Array<{ type: 'origin'|'point'|'midpoint'|'quadrant', x: number, y: number, entityId?: number }>} */
+	/** @type {Array<{ type: 'origin'|'point'|'midpoint'|'quadrant'|'reference', x: number, y: number, entityId?: number, sourceId?: string }>} */
 	const candidates = [];
 
 	// Origin
@@ -456,6 +480,15 @@ export function collectSnapCandidates(x, y, previewRadius) {
 			if (dist < previewRadius) {
 				candidates.push({ type: 'quadrant', x: qx, y: qy, entityId: entity.id });
 			}
+		}
+	}
+
+	// Reference points (from inactive sketches)
+	const refPoints = getReferenceSnapPoints();
+	for (const rp of refPoints) {
+		const dist = Math.sqrt((x - rp.x) ** 2 + (y - rp.y) ** 2);
+		if (dist < previewRadius) {
+			candidates.push({ type: 'reference', x: rp.x, y: rp.y, sourceId: rp.sourceId });
 		}
 	}
 
