@@ -2693,7 +2693,9 @@ export async function finishSketch() {
 			solved_positions: posObj,
 			solved_profiles: profiles,
 			plane_origin: planeOrigin,
-			plane_normal: planeNormal
+			plane_normal: planeNormal,
+			entities: JSON.parse(JSON.stringify(sketchEntities)),
+			constraints: JSON.parse(JSON.stringify(sketchConstraints)),
 		});
 		// Only clear sketch state after successful commit
 		exitSketchMode();

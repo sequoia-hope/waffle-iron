@@ -101,14 +101,25 @@ impl EngineState {
 
     /// Finish the active sketch and commit it as a feature.
     /// Accepts solved positions, profiles, and plane geometry from the JS-side solver.
+    /// When `entities`/`constraints` are non-empty, they override the stale copies
+    /// accumulated via AddSketchEntity/AddConstraint (the JS solver may have updated
+    /// properties like circle radius that the Rust side never received).
     pub fn finish_sketch(
         &mut self,
         solved_positions: HashMap<u32, (f64, f64)>,
         solved_profiles: Vec<ClosedProfile>,
         plane_origin: [f64; 3],
         plane_normal: [f64; 3],
+        entities: Vec<SketchEntity>,
+        constraints: Vec<SketchConstraint>,
     ) -> Result<Sketch, BridgeError> {
         let mut sketch = self.build_sketch()?;
+        if !entities.is_empty() {
+            sketch.entities = entities;
+        }
+        if !constraints.is_empty() {
+            sketch.constraints = constraints;
+        }
         sketch.solved_positions = solved_positions;
         sketch.solved_profiles = solved_profiles;
         sketch.plane_origin = plane_origin;

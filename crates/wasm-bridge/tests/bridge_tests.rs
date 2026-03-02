@@ -329,6 +329,8 @@ fn engine_state_sketch_workflow() {
             Vec::new(),
             [0.0, 0.0, 0.0],
             [0.0, 0.0, 1.0],
+            vec![],
+            vec![],
         )
         .unwrap();
     assert_eq!(sketch.entities.len(), 1);
@@ -353,6 +355,8 @@ fn engine_state_no_sketch_errors() {
         Vec::new(),
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
+        vec![],
+        vec![],
     );
     assert!(result.is_err());
 }
@@ -578,6 +582,8 @@ fn dispatch_full_sketch_workflow() {
             solved_profiles: Vec::new(),
             plane_origin: [0.0, 0.0, 0.0],
             plane_normal: [0.0, 0.0, 1.0],
+            entities: vec![],
+            constraints: vec![],
         },
         &mut kernel,
     );
@@ -662,6 +668,8 @@ fn dispatch_sketch_then_extrude_produces_solid() {
             solved_profiles,
             plane_origin: [0.0, 0.0, 0.0],
             plane_normal: [0.0, 0.0, 1.0],
+            entities: vec![],
+            constraints: vec![],
         },
         &mut kernel,
     );
@@ -896,6 +904,8 @@ fn dispatch_export_step_with_solid_reaches_kernel() {
             }],
             plane_origin: [0.0, 0.0, 0.0],
             plane_normal: [0.0, 0.0, 1.0],
+            entities: vec![],
+            constraints: vec![],
         },
         &mut kernel,
     );
@@ -1074,6 +1084,8 @@ fn serde_roundtrip_finish_sketch() {
         }],
         plane_origin: [1.0, 2.0, 3.0],
         plane_normal: [0.0, 1.0, 0.0],
+        entities: vec![],
+        constraints: vec![],
     };
     let json = serde_json::to_string(&msg).unwrap();
     assert!(json.contains("\"type\":\"FinishSketch\""));
@@ -1083,6 +1095,7 @@ fn serde_roundtrip_finish_sketch() {
         solved_profiles,
         plane_origin,
         plane_normal,
+        ..
     } = d
     {
         assert_eq!(solved_positions.len(), 2);
@@ -1106,12 +1119,16 @@ fn serde_roundtrip_finish_sketch_defaults() {
         solved_profiles,
         plane_origin,
         plane_normal,
+        entities,
+        constraints,
     } = d
     {
         assert!(solved_positions.is_empty());
         assert!(solved_profiles.is_empty());
         assert_eq!(plane_origin, [0.0, 0.0, 0.0]);
         assert_eq!(plane_normal, [0.0, 0.0, 1.0]);
+        assert!(entities.is_empty());
+        assert!(constraints.is_empty());
     } else {
         panic!("Expected FinishSketch");
     }

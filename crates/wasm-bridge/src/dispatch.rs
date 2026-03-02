@@ -70,12 +70,16 @@ fn handle_message(
             solved_profiles,
             plane_origin,
             plane_normal,
+            entities,
+            constraints,
         } => {
             let sketch = state.finish_sketch(
                 solved_positions,
                 solved_profiles,
                 plane_origin,
                 plane_normal,
+                entities,
+                constraints,
             )?;
             let op = Operation::Sketch { sketch };
             state.engine.add_feature("Sketch".to_string(), op, kb)?;

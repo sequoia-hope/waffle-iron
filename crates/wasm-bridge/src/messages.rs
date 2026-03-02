@@ -75,6 +75,12 @@ pub enum UiToEngine {
         plane_origin: [f64; 3],
         #[serde(default = "default_normal")]
         plane_normal: [f64; 3],
+        /// Final entity state from the JS solver (includes solved radii).
+        /// Overrides stale entities from AddSketchEntity calls.
+        #[serde(default)]
+        entities: Vec<SketchEntity>,
+        #[serde(default)]
+        constraints: Vec<SketchConstraint>,
     },
 
     // -- Feature operations --
