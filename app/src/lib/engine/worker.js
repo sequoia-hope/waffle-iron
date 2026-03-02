@@ -86,7 +86,12 @@ function processMessage(msg) {
 
 	try {
 		const jsonInput = JSON.stringify(msg);
+		const t0 = performance.now();
 		const jsonOutput = wasmModule.process_message(jsonInput);
+		const elapsed = performance.now() - t0;
+		if (elapsed > 100) {
+			console.log(`[worker] process_message(${msg.type}) took ${(elapsed / 1000).toFixed(2)}s`);
+		}
 		return JSON.parse(jsonOutput);
 	} catch (err) {
 		// Detect WASM module death — RuntimeError or "unreachable" means the
@@ -287,7 +292,12 @@ self.onmessage = async function (event) {
 	}
 
 	if (response.type === 'ModelUpdated') {
+		const t1 = performance.now();
 		const { meshes, transferables } = collectMeshes();
+		const meshElapsed = performance.now() - t1;
+		if (meshElapsed > 50) {
+			console.log(`[worker] collectMeshes took ${(meshElapsed / 1000).toFixed(2)}s`);
+		}
 		response.meshes = meshes;
 		self.postMessage(response, transferables);
 	} else {

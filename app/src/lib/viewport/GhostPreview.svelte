@@ -4,6 +4,7 @@
 	import { getExtrudePreviewParams, getRevolvePreviewParams, getFeatureTree, getMeshes } from '$lib/engine/store.svelte.js';
 	import { buildSketchPlane } from '$lib/sketch/sketchCoords.js';
 	import { extractFaceBoundary, findFaceRangeByRef } from '$lib/viewport/faceGeometry.js';
+	import { sampleBSpline } from '$lib/sketch/bspline.js';
 
 	const bossMaterial = new THREE.MeshStandardMaterial({
 		color: 0x4499ff,
@@ -63,11 +64,35 @@
 			shape.absarc(c.center_u, c.center_v, c.radius, 0, Math.PI * 2, false);
 		} else {
 			if (!profile.entity_ids || profile.entity_ids.length < 3) return null;
+
+			// Build a lookup of spline segments by start_point_index
+			const splineMap = new Map();
+			if (profile.spline_segments) {
+				for (const seg of profile.spline_segments) {
+					splineMap.set(seg.start_point_index, seg);
+				}
+			}
+
 			const points2d = [];
-			for (const ptId of profile.entity_ids) {
+			const n = profile.entity_ids.length;
+			for (let i = 0; i < n; i++) {
+				const ptId = profile.entity_ids[i];
 				const pos = positions[ptId];
 				if (!pos) continue;
-				points2d.push(new THREE.Vector2(pos[0], pos[1]));
+
+				// Check if this edge (i → i+1) has a spline segment
+				const seg = splineMap.get(i);
+				if (seg && seg.control_points?.length >= 2) {
+					// Sample the B-spline and add intermediate points
+					const ctrlPts = seg.control_points.map(cp => ({ x: cp[0], y: cp[1] }));
+					const sampled = sampleBSpline(ctrlPts, 16);
+					// Add all but the last sample (next entity's start handles it)
+					for (let s = 0; s < sampled.length - 1; s++) {
+						points2d.push(new THREE.Vector2(sampled[s].x, sampled[s].y));
+					}
+				} else {
+					points2d.push(new THREE.Vector2(pos[0], pos[1]));
+				}
 			}
 			if (points2d.length < 3) return null;
 			shape = new THREE.Shape(points2d);
@@ -146,13 +171,37 @@
 			}
 		} else {
 			if (!profile.entity_ids || profile.entity_ids.length < 3) return null;
-			for (const ptId of profile.entity_ids) {
+
+			// Build spline segment lookup
+			const splineMap = new Map();
+			if (profile.spline_segments) {
+				for (const seg of profile.spline_segments) {
+					splineMap.set(seg.start_point_index, seg);
+				}
+			}
+
+			const n = profile.entity_ids.length;
+			for (let i = 0; i < n; i++) {
+				const ptId = profile.entity_ids[i];
 				const pos = positions[ptId];
 				if (!pos) continue;
-				const pt = sp.origin.clone()
-					.addScaledVector(sp.xAxis, pos[0])
-					.addScaledVector(sp.yAxis, pos[1]);
-				points3d.push(pt);
+
+				const seg = splineMap.get(i);
+				if (seg && seg.control_points?.length >= 2) {
+					const ctrlPts = seg.control_points.map(cp => ({ x: cp[0], y: cp[1] }));
+					const sampled = sampleBSpline(ctrlPts, 16);
+					for (let s = 0; s < sampled.length - 1; s++) {
+						const pt = sp.origin.clone()
+							.addScaledVector(sp.xAxis, sampled[s].x)
+							.addScaledVector(sp.yAxis, sampled[s].y);
+						points3d.push(pt);
+					}
+				} else {
+					const pt = sp.origin.clone()
+						.addScaledVector(sp.xAxis, pos[0])
+						.addScaledVector(sp.yAxis, pos[1]);
+					points3d.push(pt);
+				}
 			}
 		}
 		if (points3d.length < 3) return null;

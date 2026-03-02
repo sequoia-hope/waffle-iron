@@ -14,6 +14,9 @@
 	import AutoRestoreDialog from '$lib/ui/AutoRestoreDialog.svelte';
 	import SketchPlanePrompt from '$lib/ui/SketchPlanePrompt.svelte';
 	import GearDialog from '$lib/ui/GearDialog.svelte';
+	import { isRebuilding } from '$lib/engine/store.svelte.js';
+
+	let showSpinner = $derived(isRebuilding());
 
 	let constraintMenuPos = $state({ x: 0, y: 0 });
 	let constraintMenuVisible = $state(false);
@@ -86,6 +89,12 @@
 	<AutoRestoreDialog />
 	<SketchPlanePrompt />
 	<GearDialog />
+	{#if showSpinner}
+		<div class="rebuild-overlay" data-testid="rebuild-spinner">
+			<div class="rebuild-spinner"></div>
+			<span class="rebuild-label">Rebuilding...</span>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -95,5 +104,37 @@
 		background: #1a1a2e;
 		position: relative;
 		touch-action: none;
+	}
+
+	.rebuild-overlay {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		background: rgba(0, 0, 0, 0.35);
+		z-index: 50;
+		pointer-events: none;
+	}
+
+	.rebuild-spinner {
+		width: 32px;
+		height: 32px;
+		border: 3px solid rgba(255, 255, 255, 0.2);
+		border-top-color: rgba(255, 255, 255, 0.8);
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+	}
+
+	.rebuild-label {
+		margin-top: 8px;
+		color: rgba(255, 255, 255, 0.7);
+		font-size: 12px;
+		font-family: inherit;
+	}
+
+	@keyframes spin {
+		to { transform: rotate(360deg); }
 	}
 </style>

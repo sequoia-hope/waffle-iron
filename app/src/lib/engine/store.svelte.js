@@ -34,6 +34,8 @@ let featureErrors = $state(new Map());
 
 let rebuildTime = $state(0);
 
+let rebuilding = $state(false);
+
 let statusMessage = $state('Initializing...');
 
 /** @type {any | null} */
@@ -581,6 +583,25 @@ export async function send(message) {
 }
 
 /**
+ * Send a rebuild-triggering command to the engine with spinner tracking.
+ * Sets rebuilding=true before sending, false after response (or error).
+ * Also records rebuildTime in ms.
+ * @param {object} message - UiToEngine message
+ * @returns {Promise<object>} EngineToUi response
+ */
+async function sendRebuild(message) {
+	rebuilding = true;
+	const t0 = performance.now();
+	try {
+		const result = await bridge.send(message);
+		rebuildTime = performance.now() - t0;
+		return result;
+	} finally {
+		rebuilding = false;
+	}
+}
+
+/**
  * Get reactive engine state.
  */
 export function getFeatureTree() {
@@ -605,6 +626,10 @@ export function getFeatureErrors() {
 
 export function getRebuildTime() {
 	return rebuildTime;
+}
+
+export function isRebuilding() {
+	return rebuilding;
 }
 
 export function getStatusMessage() {
@@ -1912,7 +1937,7 @@ export async function applyExtrude(depth, profileIndex, cut = false, opts = {}) 
 
 	log('action', 'Apply extrude', { depth, profileIndex: effectiveProfileIndex, cut: !!cut, depthMode, secondDir, flipDirection });
 	try {
-		await bridge.send({
+		await sendRebuild({
 			type: 'AddFeature',
 			operation: {
 				type: 'Extrude',
@@ -2031,7 +2056,7 @@ export async function applyRevolve(angleDeg, axisOrigin, axisDir, profileIndex) 
 	log('action', 'Apply revolve', { angle: angleDeg, profileIndex });
 
 	try {
-		await bridge.send({
+		await sendRebuild({
 			type: 'AddFeature',
 			operation: {
 				type: 'Revolve',
@@ -2082,7 +2107,7 @@ export async function applyChamfer(distance) {
 
 	log('action', 'Apply chamfer', { distance, edgeCount: chamferDialogState.edgeCount });
 	try {
-		await bridge.send({
+		await sendRebuild({
 			type: 'AddFeature',
 			operation: {
 				type: 'Chamfer',
@@ -2134,7 +2159,7 @@ export async function applyFillet(radius) {
 
 	log('action', 'Apply fillet', { radius, edgeCount: filletDialogState.edgeCount });
 	try {
-		await bridge.send({
+		await sendRebuild({
 			type: 'AddFeature',
 			operation: {
 				type: 'Fillet',
@@ -2186,7 +2211,7 @@ export async function applyShell(thickness) {
 
 	log('action', 'Apply shell', { thickness, faceCount: shellDialogState.faceCount });
 	try {
-		await bridge.send({
+		await sendRebuild({
 			type: 'AddFeature',
 			operation: {
 				type: 'Shell',
@@ -2258,7 +2283,7 @@ export async function applyBoolean(operation, targetFeatureId, toolFeatureId) {
 	};
 
 	try {
-		await bridge.send({
+		await sendRebuild({
 			type: 'AddFeature',
 			operation: {
 				type: 'BooleanCombine',
@@ -2369,24 +2394,36 @@ export async function finishSketch() {
 		return [undefined, undefined];
 	}
 
-	// Helper: get ALL polygon point IDs for an entity in forward direction.
-	// For Lines/Arcs: [start_id] (end_id is the next entity's start).
-	// For Splines: all interior point_ids (gives the involute shape to the kernel).
-	function entityPolygonPoints(entity, forward) {
+	// Helper: get the start point ID for an entity (1 point per entity).
+	// Each entity contributes exactly 1 point to the polygon; the end point
+	// is the next entity's start. Spline curve geometry is communicated
+	// via spline_segments (not by dumping all interior control points).
+	function entityStartPoint(entity, forward) {
 		if (entity.type === 'Line' || entity.type === 'Arc') {
-			return forward ? [entity.start_id] : [entity.end_id];
+			return forward ? entity.start_id : entity.end_id;
 		}
 		if (entity.type === 'Spline' && entity.point_ids?.length >= 2) {
-			// Include all points except the last (which is the next entity's connecting point)
-			const ids = [...entity.point_ids];
-			if (!forward) ids.reverse();
-			return ids.slice(0, -1);
+			return forward ? entity.point_ids[0] : entity.point_ids[entity.point_ids.length - 1];
 		}
-		return [];
+		return undefined;
+	}
+
+	// Helper: get spline control points in (u,v) for a spline entity.
+	// Returns null if not a spline or positions unavailable.
+	function getSplineControlPoints(entity, forward) {
+		if (entity.type !== 'Spline' || !entity.point_ids || entity.point_ids.length < 2) return null;
+		const pts = entity.point_ids
+			.map(pid => sketchPositions.get(pid))
+			.filter(Boolean);
+		if (pts.length < 2) return null;
+		const coords = pts.map(p => [p.x, p.y]);
+		if (!forward) coords.reverse();
+		return coords;
 	}
 
 	const profiles = extractedProfilesState.map((p) => {
 		const pointIds = [];
+		const splineSegments = [];
 		const edgeEntities = [...p.entityIds].map(id => sketchEntities.find(e => e.id === id)).filter(Boolean);
 
 		// Standalone circles: pass as tagged circle profile for true NURBS cylinder extrusion
@@ -2405,13 +2442,25 @@ export async function finishSketch() {
 
 		if (edgeEntities.length === 0) return { entity_ids: [...p.entityIds], is_outer: p.isOuter };
 
-		// Chain entities: walk start→end connections across lines, arcs, and splines.
-		// For splines, include ALL interior points so the kernel gets the full curve shape.
+		// Chain entities: each entity contributes exactly 1 point (its start).
+		// Spline curve geometry is stored in spline_segments for the kernel to
+		// construct proper BSpline edges instead of straight line segments.
 		const [firstStart, firstEnd] = entityEndpoints(edgeEntities[0]);
 		if (firstStart == null) return { entity_ids: [...p.entityIds], is_outer: p.isOuter };
 
-		// First entity: emit all polygon points in forward direction
-		pointIds.push(...entityPolygonPoints(edgeEntities[0], true));
+		// First entity
+		const firstPt = entityStartPoint(edgeEntities[0], true);
+		if (firstPt != null) {
+			const splineCtrl = getSplineControlPoints(edgeEntities[0], true);
+			if (splineCtrl) {
+				splineSegments.push({
+					start_point_index: pointIds.length,
+					end_point_index: -1, // patched after loop
+					control_points: splineCtrl
+				});
+			}
+			pointIds.push(firstPt);
+		}
 		let prevEnd = firstEnd;
 
 		for (let i = 1; i < edgeEntities.length; i++) {
@@ -2419,21 +2468,35 @@ export async function finishSketch() {
 			const [nextStart, nextEnd] = entityEndpoints(entity);
 			if (nextStart == null) continue;
 
-			// Determine direction: match whichever endpoint connects to prevEnd
 			const forward = nextStart === prevEnd;
 			const connected = forward || nextEnd === prevEnd;
+			const dir = connected ? forward : true;
 
-			if (connected) {
-				pointIds.push(...entityPolygonPoints(entity, forward));
-				prevEnd = forward ? nextEnd : nextStart;
-			} else {
-				// Not connected — just add in forward direction
-				pointIds.push(...entityPolygonPoints(entity, true));
-				prevEnd = nextEnd;
+			const pt = entityStartPoint(entity, dir);
+			if (pt != null) {
+				const splineCtrl = getSplineControlPoints(entity, dir);
+				if (splineCtrl) {
+					splineSegments.push({
+						start_point_index: pointIds.length,
+						end_point_index: -1, // patched below
+						control_points: splineCtrl
+					});
+				}
+				pointIds.push(pt);
 			}
+			prevEnd = connected ? (forward ? nextEnd : nextStart) : nextEnd;
 		}
 
-		return { entity_ids: pointIds, is_outer: p.isOuter };
+		// Patch end_point_index for spline segments (each points to next vertex, wrapping)
+		for (const seg of splineSegments) {
+			seg.end_point_index = (seg.start_point_index + 1) % pointIds.length;
+		}
+
+		const result = { entity_ids: pointIds, is_outer: p.isOuter };
+		if (splineSegments.length > 0) {
+			result.spline_segments = splineSegments;
+		}
+		return result;
 	});
 
 	const profileCount = profiles.length;
@@ -2485,7 +2548,7 @@ export async function finishSketch() {
 
 	// Send to engine FIRST, exit sketch mode only on success
 	try {
-		await bridge.send({
+		await sendRebuild({
 			type: 'FinishSketch',
 			solved_positions: posObj,
 			solved_profiles: profiles,
@@ -3136,7 +3199,7 @@ export async function createDatumPlane(definition, name) {
 	if (!bridge || !engineReady) return;
 	log('action', 'Create datum plane', { name, method: definition.method });
 	try {
-		await bridge.send({
+		await sendRebuild({
 			type: 'AddFeature',
 			operation: {
 				type: 'DatumPlane',
@@ -3158,7 +3221,7 @@ export async function createDatumPlane(definition, name) {
 export async function deleteFeature(featureId) {
 	if (!bridge || !engineReady) return;
 	log('action', 'Delete feature', { featureId });
-	await bridge.send({ type: 'DeleteFeature', feature_id: featureId });
+	await sendRebuild({ type: 'DeleteFeature', feature_id: featureId });
 }
 
 /**
@@ -3169,7 +3232,7 @@ export async function deleteFeature(featureId) {
 export async function suppressFeature(featureId, suppressed) {
 	if (!bridge || !engineReady) return;
 	log('action', 'Suppress feature', { featureId, suppressed });
-	await bridge.send({ type: 'SuppressFeature', feature_id: featureId, suppressed });
+	await sendRebuild({ type: 'SuppressFeature', feature_id: featureId, suppressed });
 }
 
 /**
@@ -3178,7 +3241,7 @@ export async function suppressFeature(featureId, suppressed) {
  */
 export async function setRollbackIndex(index) {
 	if (!bridge || !engineReady) return;
-	await bridge.send({ type: 'SetRollbackIndex', index });
+	await sendRebuild({ type: 'SetRollbackIndex', index });
 }
 
 /**
@@ -3188,7 +3251,7 @@ export async function setRollbackIndex(index) {
  */
 export async function editFeature(featureId, operation) {
 	if (!bridge || !engineReady) return;
-	await bridge.send({ type: 'EditFeature', feature_id: featureId, operation });
+	await sendRebuild({ type: 'EditFeature', feature_id: featureId, operation });
 }
 
 /**
@@ -3199,7 +3262,7 @@ export async function editFeature(featureId, operation) {
 export async function reorderFeature(featureId, newPosition) {
 	if (!bridge || !engineReady) return;
 	log('action', 'Reorder feature', { featureId, newPosition });
-	await bridge.send({ type: 'ReorderFeature', feature_id: featureId, new_position: newPosition });
+	await sendRebuild({ type: 'ReorderFeature', feature_id: featureId, new_position: newPosition });
 }
 
 /**
@@ -3226,7 +3289,7 @@ export async function undo() {
 	log('action', 'Undo feature');
 	if (!bridge || !engineReady) return;
 	try {
-		await bridge.send({ type: 'Undo' });
+		await sendRebuild({ type: 'Undo' });
 	} catch { /* NothingToUndo — no-op */ }
 }
 
@@ -3243,7 +3306,7 @@ export async function redo() {
 	log('action', 'Redo feature');
 	if (!bridge || !engineReady) return;
 	try {
-		await bridge.send({ type: 'Redo' });
+		await sendRebuild({ type: 'Redo' });
 	} catch { /* NothingToRedo — no-op */ }
 }
 
@@ -3439,7 +3502,7 @@ export async function loadProject(jsonData) {
 
 	log('action', 'Load project');
 	if (jsonData) {
-		await bridge.send({ type: 'LoadProject', data: jsonData });
+		await sendRebuild({ type: 'LoadProject', data: jsonData });
 		showToast('info', 'Project loaded');
 		return true;
 	}
@@ -3457,7 +3520,7 @@ export async function loadProject(jsonData) {
 			if (nameWithoutExt) setProjectName(nameWithoutExt);
 			const text = await file.text();
 			try {
-				await bridge.send({ type: 'LoadProject', data: text });
+				await sendRebuild({ type: 'LoadProject', data: text });
 				showToast('info', 'Project loaded');
 				resolve(true);
 			} catch (err) {

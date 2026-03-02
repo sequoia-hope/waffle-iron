@@ -15,6 +15,7 @@
 	} from '$lib/engine/store.svelte.js';
 	import { buildSketchPlane, sketchToWorld } from './sketchCoords.js';
 	import { extractProfiles, profileToPolygon, pointInPolygon } from './profiles.js';
+	import { sampleBSpline } from './bspline.js';
 
 	const { renderer } = useThrelte();
 
@@ -132,6 +133,18 @@
 						type: 'line',
 						geometry: new THREE.BufferGeometry().setFromPoints(points)
 					});
+				} else if (entity.type === 'Spline' && entity.point_ids?.length >= 2) {
+					const ctrlPts = entity.point_ids
+						.map(pid => positions.get(pid))
+						.filter(Boolean);
+					if (ctrlPts.length >= 2) {
+						const sampled = sampleBSpline(ctrlPts, 48);
+						const worldPts = sampled.map(p => sketchToWorld(p.x, p.y, plane));
+						geometries.push({
+							type: 'line',
+							geometry: new THREE.BufferGeometry().setFromPoints(worldPts)
+						});
+					}
 				}
 			}
 

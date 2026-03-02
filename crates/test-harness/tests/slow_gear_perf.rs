@@ -181,3 +181,67 @@ fn slow_gear_correctness() {
         );
     }
 }
+
+/// Load the actual slow-gear.waffle file and time the full rebuild.
+/// This exercises the same code path as the WASM app.
+#[test]
+fn slow_gear_waffle_file_load() {
+    let json = match std::fs::read_to_string("../../app/tests/cases/slow-gear.waffle") {
+        Ok(j) => j,
+        Err(_) => {
+            println!("[gear-perf] slow-gear.waffle not found, skipping");
+            return;
+        }
+    };
+
+    let total_start = Instant::now();
+
+    let mut m = ModelBuilder::truck();
+    m.load(&json).expect("Failed to load slow-gear.waffle");
+
+    let load_elapsed = total_start.elapsed();
+    println!(
+        "[gear-perf] slow-gear.waffle load+rebuild took {:.2}s",
+        load_elapsed.as_secs_f64()
+    );
+
+    // Tessellate to simulate what WASM does after rebuild
+    // Collect handles first to avoid borrow conflicts
+    let consumed = m.consumed_features();
+    let tess_targets: Vec<(String, _)> = m
+        .state
+        .engine
+        .tree
+        .features
+        .iter()
+        .filter(|f| !consumed.contains(&f.id) && !f.suppressed)
+        .filter_map(|f| {
+            m.state
+                .engine
+                .get_result(f.id)
+                .and_then(|r| r.outputs.first().map(|(_, b)| (f.name.clone(), b.handle.clone())))
+        })
+        .collect();
+    for (name, handle) in &tess_targets {
+        let tess_start = Instant::now();
+        if let Ok(_mesh) = m.kernel_mut().tessellate(handle, 0.1) {
+            println!(
+                "[gear-perf]   tessellate {} took {:.2}s",
+                name,
+                tess_start.elapsed().as_secs_f64()
+            );
+        }
+    }
+
+    let total_elapsed = total_start.elapsed();
+    println!(
+        "[gear-perf] total (load + tessellate) took {:.2}s",
+        total_elapsed.as_secs_f64()
+    );
+
+    assert!(
+        total_elapsed.as_secs() < 15,
+        "slow-gear.waffle total should complete under 15s, took {:.2}s",
+        total_elapsed.as_secs_f64()
+    );
+}

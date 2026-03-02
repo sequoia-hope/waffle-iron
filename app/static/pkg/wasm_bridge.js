@@ -337,6 +337,9 @@ function __wbg_get_imports() {
             const ret = arg0.length;
             return ret;
         },
+        __wbg_log_524eedafa26daa59: function(arg0) {
+            console.log(arg0);
+        },
         __wbg_new_0_1dcafdf5e786e876: function() {
             const ret = new Date();
             return ret;
@@ -351,6 +354,10 @@ function __wbg_get_imports() {
         },
         __wbg_new_with_length_81c1c31d4432cb9f: function(arg0) {
             const ret = new Float32Array(arg0 >>> 0);
+            return ret;
+        },
+        __wbg_now_16f0c993d5dd6c27: function() {
+            const ret = Date.now();
             return ret;
         },
         __wbg_set_1be21701d704e71d: function(arg0, arg1, arg2) {

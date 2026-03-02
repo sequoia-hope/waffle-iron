@@ -66,11 +66,25 @@ pub fn process_message(json_input: &str) -> String {
                 }
             };
 
+            let msg_type = format!("{:?}", std::mem::discriminant(&msg));
+            let t0 = js_sys::Date::now();
             let response = dispatch::dispatch(&mut engine.state, msg, &mut engine.kernel);
+            let dispatch_ms = js_sys::Date::now() - t0;
 
             // After dispatch, tessellate any solids that don't have mesh data yet
             if matches!(response, EngineToUi::ModelUpdated { .. }) {
+                let t1 = js_sys::Date::now();
                 tessellate_missing_meshes(&mut engine.state, &mut engine.kernel);
+                let tess_ms = js_sys::Date::now() - t1;
+                if dispatch_ms + tess_ms > 100.0 {
+                    web_sys::console::log_1(&format!(
+                        "[wasm] {} dispatch={:.1}s tess={:.1}s total={:.1}s",
+                        msg_type,
+                        dispatch_ms / 1000.0,
+                        tess_ms / 1000.0,
+                        (dispatch_ms + tess_ms) / 1000.0,
+                    ).into());
+                }
             }
 
             response
@@ -488,15 +502,22 @@ fn with_edges<T>(feature_index: usize, f: impl FnOnce(&EdgeRenderData) -> T) -> 
     })
 }
 
-/// Tessellate all feature results that have a solid handle but no mesh data.
+/// Tessellate feature results that have a solid handle but no mesh data.
+/// Skips features consumed by a later boolean (they won't be rendered).
 /// Also extracts edge polylines for edge overlay rendering.
 ///
 /// Each tessellation/edge-extraction call is wrapped in catch_unwind to prevent
 /// panics in truck's meshing code from crashing the WASM module.
 fn tessellate_missing_meshes(state: &mut EngineState, kernel: &mut impl KernelBundle) {
+    let consumed = state.engine.consumed_features.clone();
     let feature_ids: Vec<uuid::Uuid> = state.engine.tree.features.iter().map(|f| f.id).collect();
 
     for fid in feature_ids {
+        // Skip features consumed by a later boolean — they won't be rendered
+        if consumed.contains(&fid) {
+            continue;
+        }
+
         let needs_work = state
             .engine
             .feature_results

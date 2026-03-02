@@ -11,6 +11,23 @@ use truck_modeling::geometry::Surface;
 use truck_modeling::topology::{Edge, Face, Solid, Wire};
 use truck_modeling::{InnerSpace, ParametricSurface, ParametricSurface3D, Point3, Rad, Vector3};
 
+/// Generate a clamped (open) B-spline knot vector.
+/// For `n` control points and degree `d`, produces `n + d + 1` knots in [0, 1].
+fn clamped_knot_vector(n: usize, degree: usize) -> Vec<f64> {
+    let m = n + degree + 1;
+    (0..m)
+        .map(|i| {
+            if i <= degree {
+                0.0
+            } else if i >= m - degree - 1 {
+                1.0
+            } else {
+                (i - degree) as f64 / (n - degree) as f64
+            }
+        })
+        .collect()
+}
+
 /// Compute the maximum extent of a solid's bounding box from its boundary vertices.
 fn solid_max_extent(solid: &Solid) -> f64 {
     let mut min = [f64::MAX; 3];
@@ -1496,7 +1513,9 @@ impl Kernel for TruckKernel {
                     message: format!("Failed to create circular face: {}", e),
                 })?
             } else {
-                // Polygon path: build wire from consecutive point pairs
+                // Polygon/spline path: build wire from consecutive point pairs.
+                // When spline_segments are present, use BSpline curves for those
+                // edges; otherwise use straight line segments.
                 let pts_3d: Vec<Point3> = profile
                     .entity_ids
                     .iter()
@@ -1513,18 +1532,50 @@ impl Kernel for TruckKernel {
                     });
                 }
 
+                // Build a lookup: start_point_index → SplineSegment
+                let spline_map: HashMap<usize, &SplineSegment> = profile
+                    .spline_segments
+                    .iter()
+                    .map(|s| (s.start_point_index, s))
+                    .collect();
+
                 let n = pts_3d.len();
                 let vertices: Vec<_> = pts_3d.iter().map(|&p| builder::vertex(p)).collect();
                 let mut wire_edges: Vec<Edge> = Vec::new();
                 for i in 0..n {
                     let j = (i + 1) % n;
-                    let edge = Edge::new(
-                        &vertices[i],
-                        &vertices[j],
-                        truck_modeling::geometry::Curve::Line(truck_modeling::geometry::Line(
-                            pts_3d[i], pts_3d[j],
-                        )),
-                    );
+
+                    let curve = if let Some(seg) = spline_map.get(&i) {
+                        // Convert spline control points from UV to 3D
+                        let ctrl_pts_3d: Vec<Point3> = seg
+                            .control_points
+                            .iter()
+                            .map(|&(u, v)| origin + x_axis * u + y_axis * v)
+                            .collect();
+
+                        if ctrl_pts_3d.len() >= 2 {
+                            let degree = 3.min(ctrl_pts_3d.len() - 1);
+                            let knots = clamped_knot_vector(ctrl_pts_3d.len(), degree);
+                            let knot_vec =
+                                truck_geometry::prelude::KnotVec::from(knots);
+                            let bsp = truck_geometry::prelude::BSplineCurve::new(
+                                knot_vec,
+                                ctrl_pts_3d,
+                            );
+                            truck_modeling::geometry::Curve::BSplineCurve(bsp)
+                        } else {
+                            // Fallback to line
+                            truck_modeling::geometry::Curve::Line(
+                                truck_modeling::geometry::Line(pts_3d[i], pts_3d[j]),
+                            )
+                        }
+                    } else {
+                        truck_modeling::geometry::Curve::Line(
+                            truck_modeling::geometry::Line(pts_3d[i], pts_3d[j]),
+                        )
+                    };
+
+                    let edge = Edge::new(&vertices[i], &vertices[j], curve);
                     wire_edges.push(edge);
                 }
                 let wire = Wire::from_iter(wire_edges);

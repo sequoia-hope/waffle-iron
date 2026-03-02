@@ -2,6 +2,7 @@
 	import {
 		getStatusMessage,
 		isEngineReady,
+		isRebuilding,
 		getLastError,
 		getSelectedFeature,
 		getSelectedRefs,
@@ -20,6 +21,7 @@
 	let inSketch = $derived(getSketchMode()?.active ?? false);
 	let tool = $derived(getActiveTool());
 	let rebuildMs = $derived(getRebuildTime());
+	let rebuildActive = $derived(isRebuilding());
 	let sketchEntities = $derived(getSketchEntities());
 	let sketchConstraints = $derived(getSketchConstraints());
 
@@ -77,7 +79,10 @@
 			<span class="status-selection">{selectionText}</span>
 			<span class="status-sep">\u2502</span>
 		{/if}
-		{#if rebuildMs > 0}
+		{#if rebuildActive}
+			<span class="status-rebuild rebuilding">Rebuilding...</span>
+			<span class="status-sep">\u2502</span>
+		{:else if rebuildMs > 0}
 			<span class="status-rebuild">Rebuild: {rebuildMs.toFixed(0)}ms</span>
 			<span class="status-sep">\u2502</span>
 		{/if}
@@ -159,6 +164,15 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.status-rebuild.rebuilding {
+		animation: pulse 1.2s ease-in-out infinite;
+	}
+
+	@keyframes pulse {
+		0%, 100% { opacity: 0.5; }
+		50% { opacity: 1; }
 	}
 
 	.status-cursor {
