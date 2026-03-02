@@ -396,9 +396,7 @@
 	}
 </script>
 
-{#if showTestBox}
-	<T.Mesh geometry={testGeometry} material={testMaterial} />
-{:else}
+{#if !showTestBox}
 	{#each engineMeshes as mesh, i (mesh.featureId)}
 		{#if inSketchMode && !isProjectToolActive()}
 			<T.Mesh
