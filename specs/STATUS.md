@@ -18,8 +18,8 @@ Cross-reference of all spec files against the codebase. Updated 2026-03-02.
 | 1 | `analytical_cylinder_cylinder.md` | Analytical SSI: Cylinder-Cylinder | Implementing | `vendor/truck/.../intersection_curve/analytical.rs` | Sprint 42, P3 |
 | 2 | `analytical_ssi_audit.md` | Analytical SSI Audit Report | Design | `vendor/truck/.../intersection_curve/analytical.rs`, `kernel-fork/src/healing.rs` | Sprint 38 audit |
 | 3 | `boolean_determinism.md` | Boolean Determinism | Implemented | `vendor/truck/.../polyline_construction/`, `.../face_boundary_graph.rs`, `truck-base/src/id.rs` | |
-| 4 | `boolean_difference_operation.md` | Boolean Difference Operation | Draft | — | Burndown B2 |
-| 5 | `boolean_error_types.md` | BooleanError + Result Propagation | Draft | `kernel-fork/src/types.rs`, `kernel-fork/src/truck_kernel.rs` | Burndown A1, partial |
+| 4 | `boolean_difference_operation.md` | Boolean Difference Operation | Implemented | `vendor/truck/.../integrate/mod.rs` (`difference()`, `difference_result()`, `ClassifiedShellBuckets`) | Burndown B2 |
+| 5 | `boolean_error_types.md` | BooleanError + Result Propagation | Implemented | `vendor/truck/.../integrate/mod.rs` (`BooleanStageError`, `and_result()`, `or_result()`), `kernel-fork/src/types.rs` | Burndown A1 |
 | 6 | `boolean_shell_closure.md` | Boolean Shell Closure | Implemented | `vendor/truck/.../`, `test-harness/tests/boolean_workflows.rs` | Sprint 27 |
 | 7 | `boolean_tolerance_layering.md` | BooleanTolerance — Per-Stage Tolerances | Implemented | `vendor/truck/.../integrate/mod.rs` | Updated 2026-03-02 (was stale) |
 | 8 | `boolean-workflows.md` | Boolean Workflow Specification | Design | `test-harness/tests/boolean_workflows.rs` | End-to-end test spec |
@@ -30,8 +30,8 @@ Cross-reference of all spec files against the codebase. Updated 2026-03-02.
 | 13 | `mesh_analytical_fallback.md` | Mesh-to-Analytical IC Fallback | Implemented | `vendor/truck/.../intersection_curve/mod.rs`, `.../analytical.rs` | Phase G2 bug fix |
 | 14 | `multi_cut_regression.md` | Multi-Cut Disappearing Body Regression | Implementing | `test-harness/tests/boolean_workflows.rs`, `test-harness/corpus/` | Tests written, fix pending |
 | 15 | `orient3d_sos.md` | orient3d SoS Tiebreak | Complete | `vendor/truck/.../robust_classify.rs` | Sprint 37 |
-| 16 | `pave_block_corner_touch.md` | Pave Block Corner Touch Detection | Draft | `vendor/truck/.../pave_block.rs`, `.../loops_store/mod.rs` | |
-| 17 | `phase_e_cascade_deprecation.md` | Phase E: Cascade Instrumentation | Draft | `vendor/truck/.../diagnostics.rs`, `kernel-fork/src/healing.rs` | FIP approved |
+| 16 | `pave_block_corner_touch.md` | Pave Block Corner Touch Detection | Implemented | `vendor/truck/.../interference.rs` (`find_corner_touch_snap`), `.../loops_store/mod.rs` | |
+| 17 | `phase_e_cascade_deprecation.md` | Phase E: Cascade Instrumentation | Implemented | `kernel-fork/src/healing.rs` (`CascadeStats`, `cascade_stats()`, `reset_cascade_stats()`) | |
 | 18 | `robust_predicates_integration.md` | Robust Geometric Predicates | Implemented | `vendor/truck/.../robust_classify.rs`, `.../coplanar.rs`, `.../bvh.rs` | R1-R4 complete, Burndown A3 |
 | 19 | `SHAPEOPS-BOOLEAN-SPEC.md` | Production-Robust B-Rep Boolean Solver | Design | `vendor/truck/truck-shapeops/` | Master architecture spec |
 | 20 | `snap_indicator_reactivity_bugfix.md` | Snap Indicator Reactivity Bug Fix | Implemented | `app/.../SketchRenderer.svelte`, `app/.../snap.js`, `app/.../tools.js` | Multiple GUI tests |
@@ -42,15 +42,15 @@ Cross-reference of all spec files against the codebase. Updated 2026-03-02.
 
 | Status | Count |
 |--------|-------|
-| Implemented | 9 |
+| Implemented | 13 |
 | Complete | 3 |
 | Implementing | 3 |
-| Draft | 4 |
+| Draft | 0 |
 | Design | 3 |
 | **Total** | **22** |
 
 ## Flags
 
 - `boolean_tolerance_layering.md` — Updated 2026-03-02 to match `BooleanTolerance` implementation (was stale).
-- `boolean_difference_operation.md`, `boolean_error_types.md` — Drafts with no implementation. Consider whether still relevant or should be archived.
+- `boolean_difference_operation.md`, `boolean_error_types.md`, `pave_block_corner_touch.md`, `phase_e_cascade_deprecation.md` — Were marked Draft but all 4 are fully implemented. Updated 2026-03-02.
 - `multi_cut_regression.md` — Regression tests exist but root cause fix is pending.

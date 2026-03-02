@@ -17,6 +17,15 @@
       "expectedOutcome": "should_pass",
       "tags": [],
       "created": "2026-02-22T21:45:38.488Z"
+    },
+    {
+      "id": "slow-gear",
+      "name": "slow_gear",
+      "filename": "slow-gear.waffle",
+      "description": "Successfully extrudes but the final union with the second extrude takes forever. this  should be improved.",
+      "expectedOutcome": "should_pass",
+      "tags": [],
+      "created": "2026-03-02T03:01:51.647Z"
     }
   ]
 }
