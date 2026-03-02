@@ -148,9 +148,6 @@
 	const yConeRotation = [0, 0, 0];
 	const zConeRotation = [Math.PI / 2, 0, 0];
 
-	// Origin sphere
-	const originGeo = new THREE.SphereGeometry(0.4, 12, 8);
-	const originMaterial = new THREE.MeshBasicMaterial({ color: 0xcccccc });
 </script>
 
 <!-- Datum Planes (per-plane visibility) -->
@@ -211,7 +208,4 @@
 		rotation={zConeRotation}
 	/>
 </T.Group>
-{/if}
-{#if isAxisVisible('x') || isAxisVisible('y') || isAxisVisible('z')}
-<T.Mesh geometry={originGeo} material={originMaterial} />
 {/if}
