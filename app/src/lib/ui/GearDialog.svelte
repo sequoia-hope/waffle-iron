@@ -11,32 +11,27 @@
 	import { generateGearPreviewPolyline } from '$lib/sketch/gearGeometry.js';
 	import { log } from '$lib/engine/logger.js';
 	import { internalToDisplay, displayToInternal, parseAndConvert, formatForInput, UNITS } from '$lib/units.js';
+	import { DEFAULT_GEAR_MODULE_DISPLAY, DEFAULT_GEAR_TOOTH_COUNT, DEFAULT_GEAR_PRESSURE_ANGLE } from '$lib/config.js';
 
 	let dialogState = $derived(getGearDialogState());
 	let isMobile = $derived(getMobileLayout());
 	let displayUnit = $derived(getDocumentDisplayUnit());
 	let unitLabel = $derived(UNITS[displayUnit]?.label ?? displayUnit);
 
-	let toothCount = $state(20);
-	let moduleInput = $state('2');
-	let pressureAngle = $state(20);
+	let toothCount = $state(DEFAULT_GEAR_TOOTH_COUNT);
+	let moduleInput = $state(DEFAULT_GEAR_MODULE_DISPLAY.mm);
+	let pressureAngle = $state(DEFAULT_GEAR_PRESSURE_ANGLE);
 	let backlash = $state(0);
 
 	// Editing state
 	let editingGearId = $state(null);
 
 	/** Compute internal module from display input */
-	let module_ = $derived(parseAndConvert(moduleInput, displayUnit) || displayToInternal(2, 'mm'));
+	let module_ = $derived(parseAndConvert(moduleInput, displayUnit) || displayToInternal(1, 'mm'));
 
 	/** Default gear module display value based on unit system */
 	function defaultModuleDisplay() {
-		const unit = displayUnit;
-		if (unit === 'in' || unit === 'ft') {
-			return '0.1'; // 0.1 inch
-		}
-		if (unit === 'cm') return '0.2';
-		if (unit === 'm') return '0.002';
-		return '2'; // 2 mm (default)
+		return DEFAULT_GEAR_MODULE_DISPLAY[displayUnit] ?? DEFAULT_GEAR_MODULE_DISPLAY.mm;
 	}
 
 	$effect(() => {
@@ -44,18 +39,18 @@
 			if (dialogState.editGearId != null && dialogState.params) {
 				// Edit mode: restore existing params
 				editingGearId = dialogState.editGearId;
-				toothCount = dialogState.params.toothCount ?? 20;
-				moduleInput = formatForInput(dialogState.params.module ?? displayToInternal(2, 'mm'), displayUnit);
-				pressureAngle = dialogState.params.pressureAngle ?? 20;
+				toothCount = dialogState.params.toothCount ?? DEFAULT_GEAR_TOOTH_COUNT;
+				moduleInput = formatForInput(dialogState.params.module ?? displayToInternal(1, 'mm'), displayUnit);
+				pressureAngle = dialogState.params.pressureAngle ?? DEFAULT_GEAR_PRESSURE_ANGLE;
 				backlash = dialogState.params.backlash ?? 0;
 			} else {
 				// Create mode
 				editingGearId = null;
-				toothCount = 20;
+				toothCount = DEFAULT_GEAR_TOOTH_COUNT;
 				moduleInput = dialogState.pitchDiameter
-					? formatForInput(dialogState.pitchDiameter / 20, displayUnit)
+					? formatForInput(dialogState.pitchDiameter / DEFAULT_GEAR_TOOTH_COUNT, displayUnit)
 					: defaultModuleDisplay();
-				pressureAngle = 20;
+				pressureAngle = DEFAULT_GEAR_PRESSURE_ANGLE;
 				backlash = 0;
 			}
 		}

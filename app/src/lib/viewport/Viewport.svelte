@@ -27,8 +27,8 @@
 	 * In Chromium, contextmenu fires BEFORE pointerup on right-click,
 	 * so we always suppress it and show the menu on pointerup instead.
 	 */
+	import { RIGHT_DRAG_THRESHOLD } from '$lib/config.js';
 	let rightDownPos = null;
-	const RIGHT_DRAG_THRESHOLD = 5;
 
 	let viewportEl = $state(null);
 

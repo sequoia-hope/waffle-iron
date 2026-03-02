@@ -55,6 +55,7 @@ import { setPreview, setSnapIndicator, setSnapCandidates, getPreview as _getPrev
 import { buildSketchPlane } from './sketchCoords.js';
 import { generateGearPreviewPolyline } from './gearGeometry.js';
 import { projectEdgeToSketch, simplifyPolyline } from './projectGeometry.js';
+import { DRAG_THRESHOLD_PX, GEAR_PREVIEW_MODULE_M, DEFAULT_GEAR_TOOTH_COUNT, DEFAULT_GEAR_PRESSURE_ANGLE } from '$lib/config.js';
 
 // -- Module state --
 
@@ -65,7 +66,6 @@ let toolState = 'idle';
 let isDragging = false;
 /** @type {{ x: number, y: number } | null} */
 let pointerDownPos = null;
-const DRAG_THRESHOLD_PX = 5;
 
 /** @type {number | null} */
 let startPointId = null;
@@ -1350,9 +1350,9 @@ function handleGearTool(eventType, x, y, screenPixelSize) {
 		// Show gear preview at cursor position
 		if (toolState === 'idle') {
 			const polyline = generateGearPreviewPolyline({
-				toothCount: 20,
-				module: 0.001,
-				pressureAngle: 20,
+				toothCount: DEFAULT_GEAR_TOOTH_COUNT,
+				module: GEAR_PREVIEW_MODULE_M,
+				pressureAngle: DEFAULT_GEAR_PRESSURE_ANGLE,
 				centerX: snap.x,
 				centerY: snap.y
 			});

@@ -6,6 +6,7 @@
  */
 
 import { findPointNear, findLineNear, findCircleNear, getSketchPositions, getSketchEntities, getSnapSettings, getReferenceSnapPoints } from '$lib/engine/store.svelte.js';
+import { COINCIDENT_SNAP_PX, ON_ENTITY_SNAP_PX, HV_ANGLE_DEG } from '$lib/config.js';
 
 /**
  * @typedef {{ type: 'coincident', x: number, y: number, pointId: number }} CoincidentSnap
@@ -25,11 +26,6 @@ import { findPointNear, findLineNear, findCircleNear, getSketchPositions, getSke
  * @typedef {{ x: number, y: number, snapPointId?: number, constraints: Array<object>, indicator: SnapIndicator | null }} SnapResult
  */
 
-/** Default snap thresholds (overridden by configurable settings) */
-const DEFAULT_COINCIDENT_PX = 8;
-const DEFAULT_ON_ENTITY_PX = 5;
-const DEFAULT_HV_ANGLE_DEG = 3;
-
 /**
  * Detect snaps for a cursor position.
  *
@@ -41,9 +37,9 @@ const DEFAULT_HV_ANGLE_DEG = 3;
  */
 export function detectSnaps(x, y, fromPointId, screenPixelSize) {
 	const settings = getSnapSettings();
-	const coincidentThreshold = (settings.coincidentPx ?? DEFAULT_COINCIDENT_PX) * screenPixelSize;
-	const onEntityThreshold = (settings.onEntityPx ?? DEFAULT_ON_ENTITY_PX) * screenPixelSize;
-	const hvAngleDeg = settings.hvAngleDeg ?? DEFAULT_HV_ANGLE_DEG;
+	const coincidentThreshold = (settings.coincidentPx ?? COINCIDENT_SNAP_PX) * screenPixelSize;
+	const onEntityThreshold = (settings.onEntityPx ?? ON_ENTITY_SNAP_PX) * screenPixelSize;
+	const hvAngleDeg = settings.hvAngleDeg ?? HV_ANGLE_DEG;
 
 	// 1. Coincident snap — highest priority
 	const nearPoint = findPointNear(x, y, coincidentThreshold);

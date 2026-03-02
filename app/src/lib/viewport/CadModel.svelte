@@ -17,14 +17,12 @@
 		getExtrudeRegionPickMode,
 		isProjectToolActive
 	} from '$lib/engine/store.svelte.js';
+	import { SIDE_FACE_GROUP_THRESHOLD } from '$lib/config.js';
 
 	const DEFAULT_COLOR = new THREE.Color(0x8899aa);
 	const HOVER_COLOR = new THREE.Color(0xaabbdd);
 	const SELECTED_COLOR = new THREE.Color(0x44aaff);
 	const PICK_HOVER_COLOR = new THREE.Color(0x55cc88);
-
-	/** Threshold: if a mesh has more SideFace ranges than this, group them visually */
-	const SIDE_FACE_GROUP_THRESHOLD = 8;
 
 	/**
 	 * Check if a GeomRef is a SideFace role.

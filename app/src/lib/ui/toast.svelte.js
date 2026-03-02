@@ -6,18 +6,12 @@
  */
 
 import { onLog } from '$lib/engine/logger.js';
+import { TOAST_DISMISS_MS } from '$lib/config.js';
 
 /** @type {Array<{ id: number, level: string, message: string, timer: ReturnType<typeof setTimeout> }>} */
 let toasts = $state([]);
 
 let nextId = 1;
-
-const AUTO_DISMISS_MS = {
-	error: 6000,
-	warning: 4000,
-	info: 3000,
-	success: 2500,
-};
 
 /**
  * Show a toast notification.
@@ -28,7 +22,7 @@ const AUTO_DISMISS_MS = {
  */
 export function showToast(level, message, durationMs) {
 	const id = nextId++;
-	const ms = durationMs ?? AUTO_DISMISS_MS[level] ?? 3000;
+	const ms = durationMs ?? TOAST_DISMISS_MS[level] ?? 3000;
 	const timer = setTimeout(() => dismissToast(id), ms);
 	toasts = [...toasts, { id, level, message, timer }];
 	return id;

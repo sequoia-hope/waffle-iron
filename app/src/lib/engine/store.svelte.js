@@ -2666,7 +2666,7 @@ export async function finishSketch() {
 					plane_origin: planeOrigin,
 					plane_normal: planeNormal,
 					entities: sketchEntities,
-					constraints: sketchConstraints,
+					constraints: sketchConstraints.filter(c => c.type !== 'WhereDragged'),
 					solve_status: origSketch?.solve_status || { type: 'UnderConstrained', dof: 0 },
 					solved_positions: posObj,
 					solved_profiles: profiles,
