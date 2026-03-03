@@ -1,9 +1,9 @@
-# D1 Pave Block Integration — Phase 2+3 (Shadow Promotion)
+# D1 Pave Block Integration — Phase 3 (Two-Pass + Pre-Splitting)
 
 **Type:** Refactor (DoD §3) — no intended behavior change.
 **Sprint:** 48
 **Depends on:** Phase 1 (pave_block.rs types, interference.rs crossing computation, CanonicalVertexMap)
-**Status:** Shadow mode complete. Active wire replacement deferred (see Design Notes).
+**Status:** Phase 3 active — IC loop restructured into two passes with edge pre-splitting.
 
 ## Goal
 
@@ -13,10 +13,10 @@ split edges at those parameters, and reconstruct face wires from the pre-split p
 
 This eliminates the root cause of figure-8 wires (MV3 bug) and vertex misalignment at triple points.
 
-**Current state:** Shadow mode runs the full promotion pipeline (sub-edge creation, vertex rebinding,
-wire reconstruction) but does NOT replace wires. Counts would-promote vs would-fallback for
-observability. Active promotion requires restructuring the IC loop to separate vertex insertion
-from edge weaving (see Design Notes).
+**Current state:** The IC loop in `create_loops_stores` has been restructured into two passes
+(accumulation + processing) with pave block edge pre-splitting between them. Pre-splitting
+replaces boundary edges with sub-edge wires before pass 2's vertex insertion. Shadow mode
+continues to evaluate FaceInterference-based wire reconstruction for observability.
 
 ## Parameters
 
@@ -97,7 +97,30 @@ changes the wire structure seen by subsequent `add_geom_vertex` calls, causing t
 | File | Change |
 |------|--------|
 | `vendor/truck/.../pave_block.rs` | Add `build_sub_edges()`, `reconstruct_boundary_wires()` methods |
-| `vendor/truck/.../interference.rs` | Add `rebind_pave_block_vertices()`, `find_closest_canonical()` |
+| `vendor/truck/.../interference.rs` | Add `rebind_pave_block_vertices()`, `find_closest_canonical()`, `split_geom_edge_at_crossings()`, `split_poly_edge_at_positions()`, `presplit_one_shell()` |
 | `vendor/truck/.../interference/tests.rs` | Add 2 rebinding tests (28 total) |
-| `vendor/truck/.../loops_store/mod.rs` | Shadow promotion pass, promotion counters, canonical vertex collection |
-| `vendor/truck/.../mod.rs` | Export `pave_wire_promotion_stats`, `pave_wire_stats` |
+| `vendor/truck/.../loops_store/mod.rs` | Two-pass IC loop (AccumulatedIC), pre-splitting call between passes, shadow promotion pass, promotion counters, canonical vertex collection |
+| `vendor/truck/.../mod.rs` | Export `pave_wire_promotion_stats`, `pave_wire_stats`, `pave_presplit_stats` |
+
+## Phase 3 — Two-Pass IC Loop + Pre-Splitting
+
+### Branch Table — `split_geom_edge_at_crossings` / `split_poly_edge_at_positions`
+
+| # | Condition | Action |
+|---|-----------|--------|
+| S1 | Crossing projects to interior of original curve | Include in split params |
+| S2 | Crossing projects to boundary of original curve | Skip entire edge (return None) |
+| S3 | Forward edge (orientation=true) | Process lowest-to-highest, keep right sub-edge |
+| S4 | Reversed edge (orientation=false) | Process lowest-to-highest, keep left sub-edge |
+| S5 | `cut_with_parameter` fails | Return None, skip edge |
+
+### Branch Table — `presplit_one_shell`
+
+| # | Condition | Action |
+|---|-----------|--------|
+| P1 | Edge has 0 crossings in table | Skip |
+| P2 | Edge has >3 unique interior crossings | Skip (likely coplanar artifact) |
+| P3 | Duplicate 3D positions from opposite-orientation face pairs | Deduplicate by position proximity |
+| P4 | Geom or poly split fails | Skip edge, continue with next |
+| P5 | Sub-wire edge counts don't match between geom/poly | Skip edge |
+| P6 | Split succeeds | `swap_edge_into_wire` for both geom and poly loops stores |
