@@ -1932,7 +1932,10 @@ pub fn try_boolean_with_perturbation(
             *attempt,
             label,
             _t.elapsed().as_secs_f64(),
-            if result.is_ok() { "OK" } else { "FAIL" },
+            match &result {
+                Ok(_) => "OK".to_string(),
+                Err(e) => format!("FAIL({})", e),
+            },
         );
         // Post-boolean Euler validation diagnostic
         #[cfg(debug_assertions)]

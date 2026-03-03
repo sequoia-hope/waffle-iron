@@ -65,7 +65,6 @@ fn assert_mesh_finite(mesh: &kernel_fork::types::RenderMesh, label: &str) {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "Full-revolve torus-plane boolean: face fragment edges misalign after division → 8+ open edges → assembly fails. Cascade exhausts 30 strategies in 120s. Root cause is face division quality on torus surfaces, not vertex dedup or IC generation."]
 fn rb1_revolve_union_with_box() {
     let mut m = ModelBuilder::truck();
 
@@ -254,7 +253,6 @@ fn rb5_revolve_then_extrude_cut() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "Full-revolve torus-plane boolean: same root cause as RB1 — face fragment edge misalignment after division. Tests operand ordering (box first, revolve second)."]
 fn rb6_extrude_then_revolve_union() {
     let mut m = ModelBuilder::truck();
 
