@@ -7,18 +7,32 @@ Work through in order within each tier. Each task is self-contained. Mark `[x]` 
 
 ---
 
-## Current State
+## Current State (updated 2026-03-03)
 
-**Test pass rate: ~80%.** Determinism fully solved (BTreeMap iteration + fixed cascade limit).
+**Test pass rate: ~95%.** Determinism fully solved (BTreeMap iteration + fixed cascade limit).
 Core box-box, circle-on-box, and chained operations (up to 5) are reliable.
 
-**8 ignored tests remain**, all traceable to:
-1. Torus-plane IC shell assembly (5 tests: RB1, RB2, RB6, RB8, MO4)
-2. Torus-cylinder IC (1 test: RB5)
+**Test counts:**
+- truck-shapeops lib: 333 pass, 2 pre-existing fail (fillet, euler_characteristic)
+- test-harness boolean_workflows: 38 pass
+- test-harness boolean_properties: 25 pass, 3 pre-existing fail (cm1/t3/mv1)
+- test-harness boolean_edge_cases: 8 pass
+- test-harness boolean_recovery: 14 pass, 1 pre-existing fail (t5), 1 ignored (S3)
+- test-harness revolve_boolean: 5 pass, 3 ignored (RB2/RB5/RB8)
+- test-harness multi_op_chains: 4 pass, 1 pre-existing fail (MO6), 1 ignored (MO4)
+
+**6 ignored tests remain**, traceable to:
+1. Torus-plane face division/assembly (3 tests: RB2, RB8, MO4) — IC generation works, face division produces edge misalignment
+2. Torus-cylinder IC (1 test: RB5) — no analytical SSI
 3. Complex multi-boolean cascade exhaustion (1 test: S3)
 4. Revolve+planar boolean (2 tests in revolve_cylinder_truck.rs)
 
-**Roadmap status:** Phases A-D complete, E planned, F partial, G complete, H planned.
+**Roadmap status:** Phases A-G complete, IC loop restructuring done (2026-03-03), H planned.
+
+**Prerequisites completed (2026-03-03):**
+- IC loop restructuring: two-pass direct injection architecture (commit f65b24d)
+- IC loop regression fix: defensive closure, biangle filtering, poly store restoration (commit cdd397f)
+- Analytical IC construction: try_new_nearest fallback for torus-plane ICs (commit 8f06750)
 
 ---
 
@@ -63,9 +77,9 @@ in tree) is the starting point.
 
 ## Tier 1: High Impact, Achievable
 
-### A1. Torus-Plane Analytical SSI — ⚠️ PARTIAL (Phase 1+2)
-**Status:** Newton early-return fix applied (Phase 1). Radial assembly already has two-level quantization (tau/100 → tau/10). IC generation and analytical paths partially improved. **RB tests still fail** — cascade exhausts before reaching assembly. Root cause is deeper than assembly quantization: the boolean pipeline itself fails across all perturbation attempts for full-revolve torus geometry.
-**Would unblock:** RB1, RB2, RB6, RB8, MO4 (5+ ignored tests)
+### A1. Torus-Plane Analytical SSI — ⚠️ PARTIAL (Phase 1+2+G)
+**Status:** Newton early-return fix (Phase 1), revsurf-plane IC sampling (Phase G, RB1/RB6 recovered), `try_new_nearest` fallback for torus-plane ICs (2026-03-03). **RB1/RB6 pass.** RB2/RB8/MO4 remain ignored — root cause is face division and shell assembly, not IC construction. IC polylines are generated correctly, but face fragments have misaligned edges.
+**Would unblock:** RB2, RB8, MO4 (3 ignored tests) — requires face division improvements (D1)
 **Files:** `vendor/truck/truck-shapeops/src/transversal/intersection_curve/analytical.rs`
 **Problem:** 360deg revolve produces 3 lateral face patches sharing RevolutedCurve surfaces. Mesh-based IC finds overlapping triangles but `search_triple` Newton iteration diverges on noisy mesh points near torus-plane intersections. All 50 cascade perturbations fail the same way.
 **Root cause chain:**
@@ -120,15 +134,18 @@ pub struct FragmentationResult<P, C, S> {
 These tasks replace truck's ad-hoc designs with production-grade OCCT-inspired
 equivalents. Each step is independently valuable and preserves test compatibility.
 
-### D1. Pave Block Integration into Face Division
+### D1. Pave Block Integration into Face Division — ⚠️ PARTIAL (Phase 1+3+4)
 **Replaces:** Current tolerance-dependent IC endpoint projection in `loops_store`
 **Files:** `vendor/truck/truck-shapeops/src/transversal/pave_block.rs`, `vendor/truck/truck-shapeops/src/transversal/divide_face/mod.rs`, `vendor/truck/truck-shapeops/src/transversal/loops_store/mod.rs`
 **Problem:** Face division currently projects IC endpoints onto face boundaries using tolerance-based matching. This causes figure-8 wires when IC endpoints land near face boundary vertices (the "corner-touch bug" partially fixed by MV3 snap). The root issue is that edge splitting is tolerance-dependent rather than topology-driven.
-**Existing work:** `pave_block.rs` already contains Phase 1 data model: `PaveBlock<C>`, `IcVertex`, `IcSegment<C>`, `FaceInterference<C>`, `InterferenceTable<C>`. Comments indicate Phase 2 (wire into face division) and Phase 3 (replace `divide_one_face`) are planned.
-**Fix:** Implement Phase 2 and Phase 3 as described in `pave_block.rs`:
-- Phase 2: Wire `InterferenceTable` into `divide_faces_with_coplanar()`. Face edges are split at pave positions before IC curves are inserted. This ensures IC endpoints align exactly with edge split points.
-- Phase 3: Replace `divide_one_face()` with pave-block-based face division. Each face's boundary is pre-split by paves, and IC segments connect pave-to-pave with guaranteed topological consistency.
-**Verify:** All boolean tests pass. Corner-touch snap (MV3) should become unnecessary (remove or keep as belt-and-suspenders).
+**Existing work:**
+- Phase 1 (data model): DONE — `PaveBlock<C>`, `IcVertex`, `IcSegment<C>`, `FaceInterference<C>`, `InterferenceTable<C>` in `pave_block.rs`
+- Phase 3 (pre-splitting): DONE — `presplit_one_shell`, `split_geom_edge_at_crossings` in `interference.rs`. Wired between pass 1 and pass 2 in `create_loops_stores`.
+- Phase 4 (instrumentation): DONE — `PAVE_PRESPLIT_HIT/MISS` counters, `build_sub_edges` curve projection fix
+- IC loop restructuring: DONE (2026-03-03) — Two-pass architecture unlocks Phase 5
+- Phase 5 (active promotion): NOT STARTED — replace legacy vertex insertion with pave-block-driven wiring
+**Fix:** Phase 5: Use `reconstruct_boundary_wires()` to replace face wires with pre-split wires. Skip tolerance-dependent `add_polygon_vertex` → `search_parameter` → `Inner(t)` cuts entirely. IC loop restructuring has removed the global-state interleaving blocker.
+**Verify:** All boolean tests pass. PRESPLIT_HIT increases, PRESPLIT_MISS → 0. Corner-touch snap (MV3) should become unnecessary.
 
 ### D2. Shrunk Ranges
 **Replaces:** The 7-tolerance system (`tau_weld`, `tau_boundary`, `tau_edge_cluster`, `tau_area`)
@@ -324,19 +341,20 @@ and where we're investing to close the gap.
 
 ## Test Suite Summary
 
-| Test File | Tests | Pass | Ignored | Primary Blocker |
-|-----------|-------|------|---------|----------------|
-| boolean_failures.rs | 22 | 21 | 0 | Angled extrude (1 fail) |
-| boolean_edge_cases.rs | 7 | 7 | 0 | - |
-| boolean_recovery.rs | 15 | 14 | 1 | S3: cascade exhaustion |
-| boolean_workflows.rs | 30+ | 30+ | 0 | - |
-| boolean_shell_closure.rs | 4 | 4 | 0 | - |
-| boolean_determinism.rs | 3 | 3 | 0 | - |
-| boolean_properties.rs | 27 | 27 | 0 | - |
-| revolve_boolean.rs | 8 | 3 | 5 | Torus-plane IC |
-| revolve_cylinder_truck.rs | 2 | 0 | 2 | Curved+planar boolean |
-| multi_op_chains.rs | varies | most | 1 | Torus-plane IC |
-| assay_box_box.rs | 4 (proptest) | 4 | 0 | - |
+| Test File | Tests | Pass | Fail | Ignored | Primary Blocker |
+|-----------|-------|------|------|---------|----------------|
+| boolean_failures.rs | 22 | 21 | 1 | 0 | Angled extrude |
+| boolean_edge_cases.rs | 8 | 8 | 0 | 0 | - |
+| boolean_recovery.rs | 15 | 14 | 0 | 1 | S3: cascade exhaustion |
+| boolean_workflows.rs | 38 | 38 | 0 | 0 | - |
+| boolean_shell_closure.rs | 4 | 4 | 0 | 0 | - |
+| boolean_determinism.rs | 3 | 3 | 0 | 0 | - |
+| boolean_properties.rs | 28 | 25 | 3 | 0 | cm1/t3/mv1 pre-existing |
+| revolve_boolean.rs | 8 | 5 | 0 | 3 | RB2/RB5/RB8: face division |
+| revolve_cylinder_truck.rs | 2 | 0 | 0 | 2 | Curved+planar boolean |
+| multi_op_chains.rs | 6 | 4 | 1 | 1 | MO4: face division, MO6: pre-existing |
+| assay_box_box.rs | 4 (proptest) | 4 | 0 | 0 | - |
+| **Total test-harness** | **138** | **126** | **5** | **7** | |
 
 ---
 
