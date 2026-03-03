@@ -1,9 +1,9 @@
-# D1 Pave Block Integration — Phase 3 (Two-Pass + Pre-Splitting)
+# D1 Pave Block Integration — Phase 4 (Active Pave Block Promotion)
 
 **Type:** Refactor (DoD §3) — no intended behavior change.
 **Sprint:** 48
-**Depends on:** Phase 1 (pave_block.rs types, interference.rs crossing computation, CanonicalVertexMap)
-**Status:** Phase 3 active — IC loop restructured into two passes with edge pre-splitting.
+**Depends on:** Phase 3 (two-pass IC loop, edge pre-splitting)
+**Status:** Phase 4 complete — instrumentation + `build_sub_edges` curve projection fix.
 
 ## Goal
 
@@ -13,10 +13,11 @@ split edges at those parameters, and reconstruct face wires from the pre-split p
 
 This eliminates the root cause of figure-8 wires (MV3 bug) and vertex misalignment at triple points.
 
-**Current state:** The IC loop in `create_loops_stores` has been restructured into two passes
-(accumulation + processing) with pave block edge pre-splitting between them. Pre-splitting
-replaces boundary edges with sub-edge wires before pass 2's vertex insertion. Shadow mode
-continues to evaluate FaceInterference-based wire reconstruction for observability.
+**Current state:** Phase 4 adds pre-split effectiveness instrumentation (HIT/MISS counters in
+`add_polygon_vertex`), fixes `build_sub_edges()` to use curve projection matching Phase 3's
+proven approach, and validates sub-edge accuracy via shadow-mode endpoint comparison. The
+`build_sub_edges` fix changes the trait bounds to require `SearchNearestParameter<D1>` and
+`BoundedCurve` (matching `split_geom_edge_at_crossings`).
 
 ## Parameters
 
@@ -27,14 +28,25 @@ continues to evaluate FaceInterference-based wire reconstruction for observabili
 | `canon_tol` | `tol * 0.01` | CanonicalVertexMap grid cell size |
 | `snap_tol` | `tol * 0.1` | Corner-touch snap radius (INV-A1) |
 
-## Branch Table — `build_sub_edges`
+## Branch Table — `build_sub_edges` (Phase 4 — curve projection)
 
 | # | Condition | Action | Test |
 |---|-----------|--------|------|
 | B1 | Edge has 0 crossings | Single full-span pave block, `sub_edge = None` | `zero_crossings_full_span` (existing) |
-| B2 | Edge has N>0 interior crossings | N+1 pave blocks, each with `sub_edge` via `cut_with_parameter` | `sub_edge_created_for_interior_crossing` |
-| B3 | Crossing is corner-touch at existing vertex | Reuse existing vertex, pave block boundary aligns, `sub_edge = None` | `corner_touch_no_sub_edge` |
-| B4 | `cut_with_parameter` returns `None` (degenerate) | Skip sub-edge, mark pave block as fallback | `degenerate_cut_fallback` |
+| B2 | Crossing projects to interior of original curve | Include in cut params | `sub_edge_created_for_interior_crossing` |
+| B3 | Crossing projects to boundary of original curve | Skip (corner-touch) | `corner_touch_no_sub_edge` |
+| B4 | Forward edge (orientation=true) | Process low-to-high, keep right | `sub_edge_preserves_contiguity` |
+| B5 | Reversed edge (orientation=false) | Process low-to-high, keep left | (covered by B4 symmetry) |
+| B6 | `cut_with_parameter` fails | Mark block as fallback, return false | `degenerate_cut_fallback` |
+
+## Branch Table — Pre-Split Hit/Miss Instrumentation (Phase 4)
+
+| # | Condition | Action |
+|---|-----------|--------|
+| H1 | `search_parameter` returns Front | Increment PAVE_PRESPLIT_HIT |
+| H2 | `search_parameter` returns Back | Increment PAVE_PRESPLIT_HIT |
+| H3 | `search_parameter` returns Inner(t) | Increment PAVE_PRESPLIT_MISS |
+| H4 | `search_parameter` returns None | No counter change (edge not found) |
 
 ## Branch Table — `reconstruct_boundary_wires`
 
@@ -52,22 +64,28 @@ continues to evaluate FaceInterference-based wire reconstruction for observabili
 - **INV-D3:** Reconstructed wires are closed (front vertex == back vertex)
 - **INV-D4:** Total edge count across pave blocks for one original edge = num_crossings + 1
 - **INV-D5:** All existing tests pass unchanged (refactor invariant)
+- **INV-H1:** Instrumentation does not change any vertex or edge state
+- **INV-H2:** HIT + MISS = total `add_polygon_vertex` calls (no undercounting)
+- **INV-B1:** Fixed `build_sub_edges` produces same sub-edge topology as Phase 3's `split_geom_edge_at_crossings`
+- **INV-B2:** Shadow mode sub-edge validation shows match > 0 for tests with pre-split edges
 
 ## Oracles
 
-- **O1:** `cargo test -p truck-shapeops` — 329+ pass, 1 pre-existing fillet fail
-- **O2:** `cargo test -p test-harness` — 400+ pass
-- **O3:** Shadow mode match rate > 0 (validates pave block wires match legacy wires)
-- **O4:** Promotion counters: `pave_wire_promotion_stats()` shows would-promote > 0 across test suite
+- **O1:** `cargo test -p truck-shapeops` — 333+ pass, 1 pre-existing fillet fail
+- **O2:** `cargo test -p test-harness` — 400+ pass (excl. pre-existing assay)
+- **O3:** PRESPLIT_HIT > 0 for tests with IC crossings on boundary edges
+- **O4:** Shadow mode sub-edge validation: match > 0, diverge = 0 for `punched_cube`
+- **O5:** `cargo clippy -p truck-shapeops` — no new warnings
 
 ## Failure Modes
 
 | Mode | Detection | Mitigation |
 |------|-----------|------------|
-| `cut_with_parameter` returns None | B4 branch, test coverage | Fall back to legacy path |
+| `cut_with_parameter` returns None | B6 branch, test coverage | Fall back to legacy path |
 | Non-closed reconstructed wire | W3 branch, `front == back` check | Fall back to legacy path |
 | Poly/geom store divergence | Only modify geom store | Poly store unchanged |
 | Regression in existing test | INV-D5, CI | Shadow mode gates promotion |
+| `build_sub_edges` trait bound mismatch | Compile-time error | Same bounds as `split_geom_edge_at_crossings` |
 
 ## Design Notes — Why Active Promotion Is Deferred
 
@@ -96,11 +114,11 @@ changes the wire structure seen by subsequent `add_geom_vertex` calls, causing t
 
 | File | Change |
 |------|--------|
-| `vendor/truck/.../pave_block.rs` | Add `build_sub_edges()`, `reconstruct_boundary_wires()` methods |
-| `vendor/truck/.../interference.rs` | Add `rebind_pave_block_vertices()`, `find_closest_canonical()`, `split_geom_edge_at_crossings()`, `split_poly_edge_at_positions()`, `presplit_one_shell()` |
-| `vendor/truck/.../interference/tests.rs` | Add 2 rebinding tests (28 total) |
-| `vendor/truck/.../loops_store/mod.rs` | Two-pass IC loop (AccumulatedIC), pre-splitting call between passes, shadow promotion pass, promotion counters, canonical vertex collection |
-| `vendor/truck/.../mod.rs` | Export `pave_wire_promotion_stats`, `pave_wire_stats`, `pave_presplit_stats` |
+| `vendor/truck/.../pave_block.rs` | `build_sub_edges()` rewritten to use `search_nearest_parameter` (curve projection) |
+| `vendor/truck/.../interference.rs` | `reconstruct_boundary_wires()` debug logging for non-closed wire |
+| `vendor/truck/.../interference/tests.rs` | Existing tests (28 total) |
+| `vendor/truck/.../loops_store/mod.rs` | PRESPLIT_HIT/MISS counters, `pave_presplit_hit_miss()` stats fn, sub-edge validation in shadow mode |
+| `vendor/truck/.../mod.rs` | Export `pave_presplit_hit_miss` |
 
 ## Phase 3 — Two-Pass IC Loop + Pre-Splitting
 
