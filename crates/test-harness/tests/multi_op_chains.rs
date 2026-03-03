@@ -312,7 +312,7 @@ fn mo3_extrude_cuts_from_different_directions() {
 /// Tests the revolve-then-boolean pipeline. Revolves a small rectangle around
 /// an axis to create a cylindrical-like solid, then unions it with a box.
 #[test]
-#[ignore = "SSI early-return fix applied; cascade timeout — shell assembly still fails with torus face fragments"]
+#[ignore = "Full-revolve torus-plane boolean: same root cause as RB1 — face fragment edge misalignment after division → cascade exhausts 30 strategies in 120s."]
 fn mo4_revolve_then_boolean() {
     let mut m = ModelBuilder::truck();
 

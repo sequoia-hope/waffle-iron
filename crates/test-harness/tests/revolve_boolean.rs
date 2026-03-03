@@ -1,13 +1,19 @@
-//! Revolve+boolean failure regression tests.
+//! Revolve+boolean regression tests.
 //!
 //! These tests capture realistic CAD workflows combining revolve operations
-//! with boolean operations (union, subtract, intersect). All are currently
-//! `#[ignore]` as known failures — revolve produces toroidal surfaces whose
-//! intersection curves (torus-plane, torus-cylinder, torus-torus) are not yet
-//! supported by the analytical SSI module or the mesh-based IC pipeline.
+//! with boolean operations (union, subtract, intersect).
 //!
-//! Categories:
-//!   RB — Revolve+Boolean workflows (8 tests)
+//! Status: RB3, RB4, RB7 PASS. RB1/RB2/RB5/RB6/RB8 remain ignored.
+//!
+//! Root causes for ignored tests:
+//!   - RB1/RB6/RB8/MO4: Full-revolve torus-plane booleans. IC generation and
+//!     face division succeed, but torus face fragments have misaligned edges
+//!     → 8+ open edges → shell assembly fails. Perturbation cascade exhausts
+//!     30 strategies in 120s without finding a viable geometry.
+//!   - RB2: Full-revolve torus subtract. divide_face panics (index OOB) and
+//!     a single attempt takes 18+ min (IC marching convergence issue on torus).
+//!   - RB5: Cylinder-torus IC — separate issue, needs analytical SSI support
+//!     for cylinder-torus surface pairs.
 
 use test_harness::helpers::mesh_bounding_box;
 use test_harness::ModelBuilder;
@@ -59,7 +65,7 @@ fn assert_mesh_finite(mesh: &kernel_fork::types::RenderMesh, label: &str) {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "SSI early-return fix applied; cascade timeout — shell assembly still fails with torus face fragments"]
+#[ignore = "Full-revolve torus-plane boolean: face fragment edges misalign after division → 8+ open edges → assembly fails. Cascade exhausts 30 strategies in 120s. Root cause is face division quality on torus surfaces, not vertex dedup or IC generation."]
 fn rb1_revolve_union_with_box() {
     let mut m = ModelBuilder::truck();
 
@@ -98,7 +104,7 @@ fn rb1_revolve_union_with_box() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "SSI early-return fix applied; cascade timeout — shell assembly still fails with torus face fragments"]
+#[ignore = "Full-revolve torus subtract: divide_face panics (index out of bounds) and single attempt takes 18+ min. Likely IC marching gets stuck on torus surface parameterization."]
 fn rb2_revolve_subtract_from_box() {
     let mut m = ModelBuilder::truck();
 
@@ -213,7 +219,7 @@ fn rb4_partial_revolve_180_subtract() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "Cylinder-torus IC — needs analytical torus support"]
+#[ignore = "Cylinder-torus IC: no analytical SSI for cylinder-torus surface pairs. Separate from torus-plane issues in RB1/RB2/RB6/RB8."]
 fn rb5_revolve_then_extrude_cut() {
     let mut m = ModelBuilder::truck();
 
@@ -248,7 +254,7 @@ fn rb5_revolve_then_extrude_cut() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "SSI early-return fix applied; cascade timeout — shell assembly still fails with torus face fragments"]
+#[ignore = "Full-revolve torus-plane boolean: same root cause as RB1 — face fragment edge misalignment after division. Tests operand ordering (box first, revolve second)."]
 fn rb6_extrude_then_revolve_union() {
     let mut m = ModelBuilder::truck();
 
@@ -321,7 +327,7 @@ fn rb7_two_revolves_union() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "SSI early-return fix applied; cascade timeout — shell assembly still fails with torus face fragments"]
+#[ignore = "Full-revolve torus-plane boolean: same root cause as RB1 — face fragment edge misalignment after division. Tests intersect op variant."]
 fn rb8_revolve_intersect_with_box() {
     let mut m = ModelBuilder::truck();
 
