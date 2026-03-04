@@ -216,10 +216,11 @@ fn slow_gear_waffle_file_load() {
         .iter()
         .filter(|f| !consumed.contains(&f.id) && !f.suppressed)
         .filter_map(|f| {
-            m.state
-                .engine
-                .get_result(f.id)
-                .and_then(|r| r.outputs.first().map(|(_, b)| (f.name.clone(), b.handle.clone())))
+            m.state.engine.get_result(f.id).and_then(|r| {
+                r.outputs
+                    .first()
+                    .map(|(_, b)| (f.name.clone(), b.handle.clone()))
+            })
         })
         .collect();
     for (name, handle) in &tess_targets {

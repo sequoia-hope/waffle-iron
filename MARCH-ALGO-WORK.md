@@ -175,12 +175,10 @@ The shrunk range defines where interference can actually occur. Portions inside 
 - D2.1+D2.2: DONE — `shrunk_range`, `vertex_tol_*`, `edge_tol` on `PaveBlock`, `fill_shrunk_data()` computation
 - D2.3: DONE — Shadow mode comparison: `compute_shrunk_weld_shadow` logs agree/disagree stats at each weld level
 - D2.5a: DONE (2026-03-04) — Shrunk-range-constrained weld at Level 2. Vertex pairs where weld says merge but shrunk says protect (shared edge length > 2*tau_model) are skipped. Level 3 force_merge remains as fallback. `SHRUNK_WELD_ACTIVE_PROTECT` counter tracks skipped merges.
-**Remaining:**
-- D2.4: Replace `tau_boundary` with shrunk-range IC filtering
-- D2.6: Remove unused tolerance fields from `BooleanTolerance`
-- D2.7: Add tolerance sensitivity tests
-- `BooleanTolerance` simplifies to: `tau_model` + `tau_mesh` + `tau_coplanar` (3 values instead of 7)
-**Verify:** All boolean tests pass. Remove `tau_weld`, `tau_boundary`, `tau_edge_cluster`, `tau_area` from `BooleanTolerance`. The tolerance sensitivity issues documented in truck issue #68 should improve.
+- D2.4: DONE (2026-03-04) — Shrunk-range-aware IC boundary filtering
+- D2.6: DONE (2026-03-04) — `BooleanTolerance` reduced from 7 fields to 3 stored (`tau_model`, `tau_mesh`, `tau_coplanar`) + 4 derived methods (`tau_weld()`, `tau_boundary()`, `tau_edge_cluster()`, `tau_area()`). Pure refactor, zero behavioral change.
+- D2.7: DONE (2026-03-04) — 6 tolerance sensitivity tests (4 deterministic + 2 proptests) in `crates/test-harness/tests/tolerance_sensitivity.rs`. Verify volume correctness within 10% across subtract and boss-union configurations.
+**Status:** D2 deliverable COMPLETE. All sub-tasks D2.1-D2.7 done.
 
 ### D3. Bottom-Up Interference Computation
 > ⚠️ **INTEGRATION POINT CHANGE:** Must use legacy path augmentation, not pave-block replacement, until D1 realignment completes.
@@ -391,7 +389,7 @@ If any currently-passing test breaks, fix it before moving to the next task.
 
 ### Tier 1 — Critical Path (~5 sessions)
 - **D1 realignment:** Derive pave block crossings from mesh IC path (during `create_loops_stores`)
-- **D2 completion** (D2.4/D2.6/D2.7): Shrunk ranges for boundary safety, tolerance field removal
+- ~~**D2 completion** (D2.4/D2.6/D2.7): Shrunk ranges for boundary safety, tolerance field removal~~ **DONE**
 - → Fixes CM1/T3/MV1/euler (root cause: face division → open edges)
 
 ### Tier 2 — IC Quality (~3-5 sessions)

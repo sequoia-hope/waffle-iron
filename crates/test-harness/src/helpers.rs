@@ -303,13 +303,43 @@ pub fn gear_profile(teeth: u32, module_val: f64, pressure_angle_deg: f64) -> Pro
 
         // 4 boundary points
         let pts = [
-            (base_id, dedendum_radius * root_start_angle.cos(), dedendum_radius * root_start_angle.sin(), false),
-            (base_id + 1, dedendum_radius * root_end_angle.cos(), dedendum_radius * root_end_angle.sin(), false),
-            (base_id + 2, addendum_radius * tip_start_angle.cos(), addendum_radius * tip_start_angle.sin(), false),
-            (base_id + 3, addendum_radius * tip_end_angle.cos(), addendum_radius * tip_end_angle.sin(), false),
+            (
+                base_id,
+                dedendum_radius * root_start_angle.cos(),
+                dedendum_radius * root_start_angle.sin(),
+                false,
+            ),
+            (
+                base_id + 1,
+                dedendum_radius * root_end_angle.cos(),
+                dedendum_radius * root_end_angle.sin(),
+                false,
+            ),
+            (
+                base_id + 2,
+                addendum_radius * tip_start_angle.cos(),
+                addendum_radius * tip_start_angle.sin(),
+                false,
+            ),
+            (
+                base_id + 3,
+                addendum_radius * tip_end_angle.cos(),
+                addendum_radius * tip_end_angle.sin(),
+                false,
+            ),
             // Arc center points (construction) — midpoint of arc on the circle
-            (base_id + 4, dedendum_radius * root_center_angle.cos(), dedendum_radius * root_center_angle.sin(), true),
-            (base_id + 5, addendum_radius * tooth_center_angle.cos(), addendum_radius * tooth_center_angle.sin(), true),
+            (
+                base_id + 4,
+                dedendum_radius * root_center_angle.cos(),
+                dedendum_radius * root_center_angle.sin(),
+                true,
+            ),
+            (
+                base_id + 5,
+                addendum_radius * tooth_center_angle.cos(),
+                addendum_radius * tooth_center_angle.sin(),
+                true,
+            ),
         ];
 
         for (id, x, y, construction) in pts {
@@ -554,7 +584,11 @@ mod tests {
         assert_eq!(positions.len(), 120, "positions for all points");
         assert_eq!(profiles.len(), 1);
         assert!(profiles[0].is_outer);
-        assert_eq!(profiles[0].entity_ids.len(), 80, "4 boundary points per tooth × 20");
+        assert_eq!(
+            profiles[0].entity_ids.len(),
+            80,
+            "4 boundary points per tooth × 20"
+        );
     }
 
     #[test]
@@ -567,7 +601,10 @@ mod tests {
             .last()
             .unwrap();
         if let SketchEntity::Line { end_id, .. } = last_line {
-            assert_eq!(*end_id, 1, "last right-flank line should close to first point");
+            assert_eq!(
+                *end_id, 1,
+                "last right-flank line should close to first point"
+            );
         }
     }
 

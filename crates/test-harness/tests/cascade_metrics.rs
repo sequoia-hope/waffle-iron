@@ -176,7 +176,10 @@ fn cascade_strategy_collection() {
     }
     let s1 = cascade_stats();
     print_stats("S1: non-coplanar union", &s1);
-    assert!(s1.direct_success >= 1, "S1: simple union should succeed directly");
+    assert!(
+        s1.direct_success >= 1,
+        "S1: simple union should succeed directly"
+    );
 
     // ── Scenario 2: Coplanar union (boss base exactly on cube top) ──────
     reset_cascade_stats();

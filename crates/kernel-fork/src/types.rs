@@ -331,11 +331,7 @@ impl BooleanOptions {
         truck_shapeops::BooleanTolerance {
             tau_model: self.tau_model,
             tau_mesh: self.tau_mesh,
-            tau_weld: self.tau_weld,
             tau_coplanar: self.tau_coplanar,
-            tau_boundary: self.tau_model * 0.5,
-            tau_edge_cluster: self.tau_model * 5.0,
-            tau_area: self.tau_model * self.tau_model,
         }
     }
 }
