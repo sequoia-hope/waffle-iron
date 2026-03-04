@@ -142,3 +142,83 @@ changes the wire structure seen by subsequent `add_geom_vertex` calls, causing t
 | P4 | Geom or poly split fails | Skip edge, continue with next |
 | P5 | Sub-wire edge counts don't match between geom/poly | Skip edge |
 | P6 | Split succeeds | `swap_edge_into_wire` for both geom and poly loops stores |
+
+## Phase 5 — Pave Block Active Promotion (Shadow Mode)
+
+**Status:** In progress — shadow mode infrastructure wired into pass 2a.
+**Depends on:** Phase 4 (instrumentation), IC loop restructuring (f65b24d).
+
+### Goal
+
+Leverage pre-splitting to skip legacy vertex insertion when all IC endpoints
+are at pre-split sub-edge boundaries. In shadow mode, both paths run and
+results are compared; in promotion mode, legacy is skipped for all-hit ICs.
+
+### Strategy
+
+1. **Shadow mode** (D1_SHADOW_MODE=true, initial): Run both paths, log stats, always use legacy result.
+2. **Per-face promotion** (D1_SHADOW_MODE=false): Skip legacy for all-hit ICs.
+3. **Full promotion** (future): Remove legacy path entirely.
+
+### Branch Table — `try_pave_block_vertex_insertion` (shadow/promote adapter)
+
+| # | Condition | Action |
+|---|-----------|--------|
+| P5-1 | Face has 0 IC crossings in face interference table | Skip pave-block path, use legacy |
+| P5-2 | All IC endpoints hit pre-split sub-edge endpoints (all Front/Back) | Pave-block path viable, increment SUCCESS |
+| P5-3 | Some IC endpoints require Inner(t) cuts (any PRESPLIT_MISS) | Fall back to legacy path, increment FALLBACK |
+| P5-4 | `reconstruct_boundary_wires` returns None (non-closed wire) | Fall back to legacy path (future phase) |
+| P5-5 | Shadow mode: pave-block result diverges from legacy | Log, use legacy (future comparison) |
+| P5-6 | Shadow mode: pave-block result matches legacy | Log match, use legacy (shadow) |
+
+### Branch Table — `build_face_interference_from_ics`
+
+| # | Condition | Action |
+|---|-----------|--------|
+| F1 | IC polyline touches face (shell_index selects face_index) | Compute crossings on face boundary |
+| F2 | Face index out of bounds | Skip IC for this face |
+| F3 | Empty ic_accumulator | Return empty FaceInterference per face |
+
+### Branch Table — `is_presplit_hit`
+
+| # | Condition | Action |
+|---|-----------|--------|
+| H5-1 | `search_parameter` returns Front | Return true (pre-split hit) |
+| H5-2 | `search_parameter` returns Back | Return true (pre-split hit) |
+| H5-3 | `search_parameter` returns Inner(t) | Return false (miss, needs cut) |
+| H5-4 | `search_parameter` returns None | Return false (not on boundary) |
+
+### Phase 5 Invariants
+
+- **INV-P1:** Shadow mode never changes pipeline output (always uses legacy when D1_SHADOW_MODE=true)
+- **INV-P2:** Per-face fallback guarantees legacy behavior when pave-block fails
+- **INV-P3:** Counters are append-only (no pipeline state mutation)
+- **INV-P4:** PRESPLIT_HIT count increases vs Phase 4 baseline
+- **INV-P5:** `build_face_interference_from_ics` produces crossing counts consistent with pre-split hit/miss
+
+### Phase 5 Counters
+
+| Counter | Meaning |
+|---------|---------|
+| `PAVE_PROMOTE_SUCCESS` | ICs where all 4 endpoint checks are Front/Back |
+| `PAVE_PROMOTE_FALLBACK` | ICs where any endpoint check is Inner/None |
+| `PAVE_PROMOTE_SHADOW_MATCH` | Reserved: shadow comparison matched |
+| `PAVE_PROMOTE_SHADOW_DIVERGE` | Reserved: shadow comparison diverged |
+
+### Phase 5 Failure Modes
+
+| Mode | Detection | Mitigation |
+|------|-----------|------------|
+| `is_presplit_hit` returns false when pre-split succeeded | FALLBACK counter > expected | Investigate snap tolerance alignment |
+| `build_face_interference_from_ics` misses crossings | Face interference < pre-split table crossings | Compare with global crossing table |
+| Performance regression from face_interf building | Profiling | Skip face_interf when ic_accumulator is empty |
+| Shadow mode adds overhead | Negligible (4 search_parameter calls per IC) | Remove shadow checks after validation |
+
+### Phase 5 Files Modified
+
+| File | Change |
+|------|--------|
+| `vendor/truck/.../interference.rs` | `build_face_interference_from_ics` function |
+| `vendor/truck/.../loops_store/mod.rs` | `is_presplit_hit`, counters, stats fn, shadow mode wiring in pass 2a |
+| `vendor/truck/.../mod.rs` | Export `pave_promote_stats` |
+| `specs/d1_pave_block_integration.md` | This Phase 5 section |
