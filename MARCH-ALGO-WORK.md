@@ -389,6 +389,7 @@ If any currently-passing test breaks, fix it before moving to the next task.
 
 ### Tier 1 — Critical Path (~5 sessions)
 - **D1 realignment:** Derive pave block crossings from mesh IC path (during `create_loops_stores`)
+  - **Sprint 51 (2026-03-04):** Mesh-derived crossing CAPTURE infrastructure complete. `add_polygon_vertex_capturing` records `(edge_id, edge_param)` in `Inner(t)` branch. Shadow comparison shows mesh-derived table captures 1 crossing vs analytical 8, 0% agreement — because most endpoints go through the promoted path (Front/Back), not the legacy `Inner(t)` path. Activation DEFERRED pending architecture rethink: presplitting happens BEFORE add_polygon_vertex, so captured data can't feed back into the same pass.
 - ~~**D2 completion** (D2.4/D2.6/D2.7): Shrunk ranges for boundary safety, tolerance field removal~~ **DONE**
 - → Fixes CM1/T3/MV1/euler (root cause: face division → open edges)
 
