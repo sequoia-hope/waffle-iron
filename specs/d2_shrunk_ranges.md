@@ -1,7 +1,7 @@
 # D2: Shrunk Ranges
 
-**Status:** SPEC ONLY (2026-03-03) — No implementation until D1 Phase 5 is stable.
-**Depends on:** D1 (pave block integration complete and stable)
+**Status:** D2.1+D2.2 complete — shadow mode (2026-03-04). Shrunk ranges computed but not yet used for tolerance replacement.
+**Depends on:** D1 data structures (DONE). D1 active promotion realignment is parallel work — D2 can proceed independently using existing pave block infrastructure.
 **Replaces:** The 7-tolerance system (`tau_weld`, `tau_boundary`, `tau_edge_cluster`, `tau_area`, `tau_coplanar`, `tau_mesh`, `tau_model`)
 
 ---
@@ -104,9 +104,9 @@ For each `PaveBlock`:
 |------|-------------|-----------|
 | D2.1 | Add `shrunk_range`, `vertex_tol_*`, `edge_tol` to `PaveBlock` | D1 stable |
 | D2.2 | Implement `fill_shrunk_data()` | D2.1 |
-| D2.3 | Replace `tau_weld` with shrunk-range vertex merging | D2.2 |
+| D2.3 | Shadow mode: shrunk-range-informed vertex merging comparison (COMPLETE) | D2.2 |
 | D2.4 | Replace `tau_boundary` with shrunk-range IC filtering | D2.2 |
-| D2.5 | Replace `tau_edge_cluster` with shrunk-range edge pairing | D2.2 |
+| D2.5a | Shrunk-range-constrained weld at Level 2 (ACTIVE — 2026-03-04) | D2.3 |
 | D2.6 | Remove unused tolerance fields from `BooleanTolerance` | D2.3-5 |
 | D2.7 | Add tolerance sensitivity tests | D2.6 |
 

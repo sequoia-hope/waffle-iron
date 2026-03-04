@@ -3,7 +3,7 @@
 **Type:** Refactor (DoD §3) — no intended behavior change.
 **Sprint:** 48
 **Depends on:** Phase 3 (two-pass IC loop, edge pre-splitting)
-**Status:** Phase 4 complete — instrumentation + `build_sub_edges` curve projection fix.
+**Status:** INFRASTRUCTURE COMPLETE — Phases 1-5 done, Phase 6 confirmed analytical crossings don't align with mesh path. Realignment needed (Phase 8).
 
 ## Goal
 
@@ -143,21 +143,23 @@ changes the wire structure seen by subsequent `add_geom_vertex` calls, causing t
 | P5 | Sub-wire edge counts don't match between geom/poly | Skip edge |
 | P6 | Split succeeds | `swap_edge_into_wire` for both geom and poly loops stores |
 
-## Phase 5 — Pave Block Active Promotion (Shadow Mode)
+## Phase 5 — Pave Block Active Promotion
 
-**Status:** In progress — shadow mode infrastructure wired into pass 2a.
+**Status:** Active promotion — `D1_SHADOW_MODE=false`, promoted path live.
 **Depends on:** Phase 4 (instrumentation), IC loop restructuring (f65b24d).
 
 ### Goal
 
 Leverage pre-splitting to skip legacy vertex insertion when all IC endpoints
-are at pre-split sub-edge boundaries. In shadow mode, both paths run and
-results are compared; in promotion mode, legacy is skipped for all-hit ICs.
+are at pre-split sub-edge boundaries. The promoted path uses cached
+`(wire_index, edge_index, kind)` from `is_presplit_hit` to call
+`change_vertex`/`set_point` directly, avoiding redundant `search_parameter`
+calls in `add_polygon_vertex`/`add_geom_vertex`.
 
 ### Strategy
 
-1. **Shadow mode** (D1_SHADOW_MODE=true, initial): Run both paths, log stats, always use legacy result.
-2. **Per-face promotion** (D1_SHADOW_MODE=false): Skip legacy for all-hit ICs.
+1. ~~**Shadow mode** (D1_SHADOW_MODE=true, initial): Run both paths, log stats, always use legacy result.~~ DONE
+2. **Per-endpoint mixed promotion** (D1_SHADOW_MODE removed): Each endpoint independently promoted or legacy. **ACTIVE**
 3. **Full promotion** (future): Remove legacy path entirely.
 
 ### Branch Table — `try_pave_block_vertex_insertion` (shadow/promote adapter)
@@ -183,27 +185,41 @@ results are compared; in promotion mode, legacy is skipped for all-hit ICs.
 
 | # | Condition | Action |
 |---|-----------|--------|
-| H5-1 | `search_parameter` returns Front | Return true (pre-split hit) |
-| H5-2 | `search_parameter` returns Back | Return true (pre-split hit) |
-| H5-3 | `search_parameter` returns Inner(t) | Return false (miss, needs cut) |
-| H5-4 | `search_parameter` returns None | Return false (not on boundary) |
+| H5-1 | `search_parameter` returns Front | Return `Some((wi, ei, Front))` |
+| H5-2 | `search_parameter` returns Back | Return `Some((wi, ei, Back))` |
+| H5-3 | `search_parameter` returns Inner(t) | Return `None` (miss, needs cut) |
+| H5-4 | `search_parameter` returns None | Return `None` (not on boundary) |
+
+### Branch Table — Per-Endpoint Mixed Promotion (Phase 6)
+
+| # | Condition | Action |
+|---|-----------|--------|
+| PR-1 | `is_presplit_hit` returns `Some((wi, ei, Front))` | Promoted: `change_vertex(absolute_front, pv)` |
+| PR-2 | `is_presplit_hit` returns `Some((wi, ei, Back))` | Promoted: `change_vertex(absolute_back, pv)` |
+| PR-3 | `is_presplit_hit` returns `None` | Legacy: `add_polygon_vertex` + `add_geom_vertex` |
+| PR-4 | Geom store promoted vertex | `gv.set_point(old_gv.point())` before `change_vertex` |
+| PR-5 | IC leader endpoints | Updated to `gv0.point()`/`gv1.point()` after geom change_vertex |
+| PR-6 | promoted_count == 4 | Increment SUCCESS |
+| PR-7 | promoted_count == 0 | Increment FALLBACK |
+| PR-8 | promoted_count 1-3 | Increment MIXED |
 
 ### Phase 5 Invariants
 
-- **INV-P1:** Shadow mode never changes pipeline output (always uses legacy when D1_SHADOW_MODE=true)
-- **INV-P2:** Per-face fallback guarantees legacy behavior when pave-block fails
+- **INV-P1:** ~~Shadow mode never changes pipeline output~~ Promoted path produces identical `change_vertex`/`set_point` calls as legacy Front/Back path
+- **INV-P2:** Per-face fallback guarantees legacy behavior when pave-block fails (any endpoint is Inner/None)
 - **INV-P3:** Counters are append-only (no pipeline state mutation)
 - **INV-P4:** PRESPLIT_HIT count increases vs Phase 4 baseline
 - **INV-P5:** `build_face_interference_from_ics` produces crossing counts consistent with pre-split hit/miss
+- **INV-P6:** Promoted path never splits edges (no `cut_with_parameter`), only renames vertices
 
 ### Phase 5 Counters
 
 | Counter | Meaning |
 |---------|---------|
-| `PAVE_PROMOTE_SUCCESS` | ICs where all 4 endpoint checks are Front/Back |
-| `PAVE_PROMOTE_FALLBACK` | ICs where any endpoint check is Inner/None |
-| `PAVE_PROMOTE_SHADOW_MATCH` | Reserved: shadow comparison matched |
-| `PAVE_PROMOTE_SHADOW_DIVERGE` | Reserved: shadow comparison diverged |
+| `PAVE_PROMOTE_SUCCESS` | ICs where all 4 endpoints were promoted (pre-split hits) |
+| `PAVE_PROMOTE_FALLBACK` | ICs where 0 endpoints were promoted (all legacy) |
+| `PAVE_PROMOTE_MIXED` | ICs where 1-3 endpoints were promoted (mixed promoted/legacy) |
+| `PAVE_PROMOTE_ENDPOINT` | Total individual endpoints promoted across all ICs |
 
 ### Phase 5 Failure Modes
 
@@ -222,3 +238,103 @@ results are compared; in promotion mode, legacy is skipped for all-hit ICs.
 | `vendor/truck/.../loops_store/mod.rs` | `is_presplit_hit`, counters, stats fn, shadow mode wiring in pass 2a |
 | `vendor/truck/.../mod.rs` | Export `pave_promote_stats` |
 | `specs/d1_pave_block_integration.md` | This Phase 5 section |
+
+## Phase 6 — All-or-Nothing Promotion (Sprint 49b)
+
+**Status:** COMPLETE (2026-03-04)
+**Commit:** 729553d
+
+### Problem
+
+Phase 5's per-endpoint mixed promotion allowed 1-3 of 4 IC endpoints to be promoted while others used legacy `add_polygon_vertex`. This produced inconsistent wire topology — promoted endpoints used `change_vertex` (rename existing vertex) while legacy endpoints used `search_parameter` → `Inner(t)` → edge split. Mixed paths created wires where some edges were split and others weren't, leading to topology mismatches.
+
+### Solution
+
+Restructured promotion to check-first, execute-second:
+
+1. **Read-only check phase:** For each IC, check all 4 endpoints via `is_presplit_hit`. Count promoted vs legacy.
+2. **Decision:** If all 4 endpoints are pre-split hits → execute all-promoted path. If any endpoint is a miss → execute all-legacy path. No mixed execution.
+3. **Counters updated:** SUCCESS (all 4 promoted), FALLBACK (all 4 legacy), removed MIXED counter.
+
+### Result
+
+0% full promotion across entire test suite (30/30 ICs are FALLBACK). This confirmed that analytical crossings fundamentally don't align with mesh-derived IC endpoints — the all-or-nothing gate simply made the 0% promotion rate visible rather than hiding it behind mixed promotion noise.
+
+### Branch Table
+
+| # | Condition | Action |
+|---|-----------|--------|
+| AO-1 | All 4 endpoints are pre-split hits | Execute promoted path for all 4 |
+| AO-2 | Any endpoint is a pre-split miss | Execute legacy path for all 4 |
+| AO-3 | 0 ICs in face interference table | Skip pave-block check entirely |
+
+## Phase 7 — Post-Mortem: Why Analytical Crossings Failed
+
+**Date:** 2026-03-04
+
+### Root Cause
+
+`compute_ic_edge_crossings()` in `interference.rs` uses analytical segment-segment closest-approach to find where IC polylines cross face boundary edges. This produces crossing positions on a **fundamentally different geometric path** than the mesh-derived IC endpoints used by `add_polygon_vertex`.
+
+**Mesh IC path** (legacy, what actually works):
+```
+extract_interference (mesh triangles) → polyline points
+  → search_triple (Newton refinement on both surfaces)
+  → 3D IC curve points
+  → search_parameter on face boundary edge
+  → Inner(t) / Front / Back classification
+```
+
+**Analytical crossing path** (D1, what failed):
+```
+IC polyline segments × boundary edge segments
+  → 2D/3D closest-approach computation
+  → crossing position (typically 0.01-0.1 units off from mesh path)
+  → search_parameter on face boundary edge
+  → Different t-value than mesh path → different vertex position
+```
+
+### Why They Diverge
+
+1. **Newton refinement vs closest-approach:** The mesh path refines each IC point onto both surfaces via Newton iteration. The analytical path uses raw polyline geometry without surface refinement.
+
+2. **Different questions:** The mesh path asks "where does this IC point land on the boundary edge's parameter space?" The analytical path asks "where do these two line segments come closest in 3D?"
+
+3. **Tolerance interaction:** Even when both paths find a crossing at approximately the same position, the resulting `search_parameter` t-values differ enough that `is_presplit_hit` (which checks for exact Front/Back match) never triggers.
+
+### Conclusion
+
+D1's analytical crossings approach is **architecturally wrong** — it tries to re-derive information that already exists in the mesh IC pipeline. The fix is not to improve the analytical computation but to **capture the crossing information from the mesh path** during `create_loops_stores`.
+
+## Phase 8 — Proposed Realignment
+
+**Status:** PLANNED (not yet implemented)
+
+### Strategy
+
+Instead of computing crossings analytically in `interference.rs`, capture them from the mesh IC pipeline during `create_loops_stores`:
+
+1. When `add_polygon_vertex` calls `search_parameter` and gets `Inner(t)`, this IS the crossing information D1 needs.
+2. Record `(face_index, wire_index, edge_index, parameter_t, vertex_position)` into the `InterferenceTable` during the IC loop.
+3. Use this mesh-derived crossing data for pave block construction and pre-splitting.
+
+### Benefits
+
+- Crossings are on the **same geometric path** as the IC curve — guaranteed to match.
+- No additional computation — just capturing data that's already computed.
+- Pave blocks become a bookkeeping structure for mesh-derived crossings, not an independent geometric computation.
+- D2 shrunk ranges can use these mesh-derived pave blocks directly.
+
+### Required Changes
+
+| File | Change |
+|------|--------|
+| `interference.rs` | Replace `compute_ic_edge_crossings()` with `capture_mesh_crossings()` |
+| `loops_store/mod.rs` | Record crossing data during `add_polygon_vertex` |
+| `pave_block.rs` | Update `PaveBlock` construction to use mesh-derived data |
+
+### Invariants
+
+- **INV-R1:** Every crossing recorded matches a `search_parameter` → `Inner(t)` call
+- **INV-R2:** Pave block vertex positions exactly match mesh IC vertex positions
+- **INV-R3:** All existing tests pass unchanged

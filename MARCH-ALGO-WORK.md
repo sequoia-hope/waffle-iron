@@ -12,12 +12,12 @@ Work through in order within each tier. Each task is self-contained. Mark `[x]` 
 **Test pass rate: ~95%.** Determinism fully solved (BTreeMap iteration + fixed cascade limit).
 Core box-box, circle-on-box, and chained operations (up to 5) are reliable.
 
-**Test counts:**
-- truck-shapeops lib: 343 pass, 2 pre-existing fail (fillet, euler_characteristic)
+**Test counts (updated 2026-03-04):**
+- truck-shapeops lib: 360 pass, 2 pre-existing fail (fillet, euler_characteristic)
 - test-harness boolean_workflows: 38 pass
 - test-harness boolean_properties: 25 pass, 3 pre-existing fail (cm1/t3/mv1)
 - test-harness boolean_edge_cases: 8 pass
-- test-harness boolean_recovery: 14 pass, 1 pre-existing fail (t5), 1 ignored (S3)
+- test-harness boolean_recovery: 14 pass, 0 fail, 1 ignored (S3) — T5 RECOVERED
 - test-harness revolve_boolean: 5 pass, 3 ignored (RB2/RB5/RB8)
 - test-harness multi_op_chains: 4 pass, 1 pre-existing fail (MO6), 1 ignored (MO4)
 
@@ -27,7 +27,7 @@ Core box-box, circle-on-box, and chained operations (up to 5) are reliable.
 3. Complex multi-boolean cascade exhaustion (1 test: S3)
 4. Revolve+planar boolean (2 tests in revolve_cylinder_truck.rs)
 
-**Roadmap status:** Phases A-G complete, IC loop restructuring done (2026-03-03), D1 Phase 5 shadow mode done (2026-03-04).
+**Roadmap status:** Phases A-G complete, IC loop restructuring done (2026-03-03), D1 Phase 5 shadow mode done (2026-03-04), D2.5a shrunk-range-constrained weld active (2026-03-04).
 
 **Prerequisites completed (2026-03-03):**
 - IC loop restructuring: two-pass direct injection architecture (commit f65b24d)
@@ -38,6 +38,11 @@ Core box-box, circle-on-box, and chained operations (up to 5) are reliable.
 - Shadow-mode promotion tracking in pass 2a: per-IC is_presplit_hit checks, SUCCESS/FALLBACK counters
 - build_face_interference_from_ics: per-face crossing tables from IC accumulator
 - 10 new tests (4 interference, 5 loops_store, 1 integration), zero regressions
+
+**Sprint 49b (2026-03-04):**
+- Volume-guarded post-processing: `heal_and_dedup_volume_guarded()` saves vertex positions + edge curves before post-processing, restores if volume degrades >10%. T5 cascade result was correct (vol=961, 1.2% error), but `heal_intersection_curves`/`deduplicate_vertices` degraded volume to 657.7 — guard detects and reverts.
+- D1 all-or-nothing promotion: Restructured to check all 4 IC endpoints before executing (was per-endpoint mixed). 0% full promotion confirmed across entire test suite — analytical crossings don't align with mesh-derived IC endpoints (different geometric paths).
+- Root cause correction: CM1/T3/MV1/euler all fail from face division → open edges (8-28 open edges across all 50 cascade perturbations), not from mixed promotion, winding perturbation, or volume degradation as originally hypothesized.
 
 ---
 
@@ -54,9 +59,9 @@ architecture** adapted to Rust/truck idioms.
 |-----------|----------------|----------------------|-----|
 | **Fragmentation** | Full recompute per boolean op | Compute once, select buckets for union/intersect/difference | Eliminates redundant work in chained booleans |
 | **Interference** | Jump straight to F/F (mesh-based IC) | Bottom-up V/V → V/E → E/E → V/F → E/F → F/F | Lower-dimensional results prevent redundant higher-dimensional computation |
-| **Edge splitting** | IC endpoint projection + corner-touch snap | Pave-block-based deterministic splitting | Eliminates tolerance-dependent edge placement |
+| **Edge splitting** | IC endpoint projection + corner-touch snap | Pave-block-based deterministic splitting (analytical crossings failed — mesh-derived crossings needed) | Eliminates tolerance-dependent edge placement |
 | **Tolerance model** | 7 hand-tuned scaling factors from `tau_model` | Single `tau_model` + shrunk ranges per pave block | Mathematically principled; eliminates `tau_weld`, `tau_boundary`, `tau_edge_cluster`, `tau_area` |
-| **Classification** | Post-hoc cascade: coplanar → winding → ray-cast → edge-neighbor | IN/ON/OUT pre-computed during interference | Classification becomes a lookup, not a geometric computation |
+| **Classification** | Post-hoc cascade: coplanar → winding → ray-cast → edge-neighbor | IN/ON/OUT pre-computed during interference (current 4-tier cascade works well; D5 needs rethinking) | Classification becomes a lookup, not a geometric computation |
 | **Coplanar handling** | Multi-module heuristic cascade (`coplanar.rs`, `coplanar_overlay.rs`, `coplanar_splitting.rs`) | Same-domain connexity chains with `UnifySameDomain` post-pass | Systematic instead of heuristic |
 | **Assembly** | Radial assembly + progressive tolerance weld (v2) fallback with force_merge | Pave-block-paired edges with shrunk-range validation | Eliminates the destructive 5.0x tolerance escalation |
 
@@ -139,7 +144,7 @@ pub struct FragmentationResult<P, C, S> {
 These tasks replace truck's ad-hoc designs with production-grade OCCT-inspired
 equivalents. Each step is independently valuable and preserves test compatibility.
 
-### D1. Pave Block Integration into Face Division — ⚠️ PARTIAL (Phase 1+3+4+5)
+### D1. Pave Block Integration into Face Division — ⚠️ INFRASTRUCTURE COMPLETE (Phases 1-5 done, analytical crossings failed)
 **Replaces:** Current tolerance-dependent IC endpoint projection in `loops_store`
 **Files:** `vendor/truck/truck-shapeops/src/transversal/pave_block.rs`, `vendor/truck/truck-shapeops/src/transversal/divide_face/mod.rs`, `vendor/truck/truck-shapeops/src/transversal/loops_store/mod.rs`
 **Problem:** Face division currently projects IC endpoints onto face boundaries using tolerance-based matching. This causes figure-8 wires when IC endpoints land near face boundary vertices (the "corner-touch bug" partially fixed by MV3 snap). The root issue is that edge splitting is tolerance-dependent rather than topology-driven.
@@ -150,13 +155,15 @@ equivalents. Each step is independently valuable and preserves test compatibilit
 - IC loop restructuring: DONE (2026-03-03) — Two-pass architecture unlocks Phase 5
 - Phase 5 (shadow mode): DONE (2026-03-04) — Shadow-mode promotion tracking in pass 2a. `build_face_interference_from_ics`, `is_presplit_hit`, SUCCESS/FALLBACK counters. 10 new tests. Spec: `specs/d1_pave_block_integration.md`.
 - Phase 5 (active promotion): NOT YET — When D1_SHADOW_MODE=false, skip legacy vertex insertion for all-hit ICs
-**Fix:** Phase 5 promotion: Set `D1_SHADOW_MODE=false` to skip `add_polygon_vertex` → `search_parameter` → `Inner(t)` cuts for ICs where all 4 endpoints are pre-split hits (Front/Back). Use `reconstruct_boundary_wires()` to replace face wires with pre-split wires. Corner-touch snap (MV3) should become unnecessary.
+- Phase 6 (all-or-nothing promotion): DONE (2026-03-04) — Check-first restructuring eliminates mixed promotion path. 0% full promotion across test suite.
+- **Post-mortem:** Analytical `compute_ic_edge_crossings()` produces crossings on a fundamentally different geometric path than mesh-derived IC endpoints used by `add_polygon_vertex`. Mesh vertices come from polyline → Newton refinement → `search_parameter`, while analytical crossings come from segment-segment closest-approach on boundary edges. These answer different geometric questions and produce different positions (typically off by 0.01-0.1 units). **Realignment needed:** derive crossings FROM mesh IC path during `create_loops_stores` (the information already exists during `add_polygon_vertex` calls) instead of re-computing analytically.
+**Fix (revised):** Derive pave block crossings from mesh IC endpoints during `create_loops_stores`, not from analytical edge-edge computation. The crossing information already exists when `add_polygon_vertex` calls `search_parameter` — D1 just needs to capture it rather than re-derive it. This is a moderate rewrite of `interference.rs`. The existing infrastructure (FBG, counters, data structures) remains the foundation for D2 shrunk ranges.
 **Verify:** All boolean tests pass. PRESPLIT_HIT increases, PRESPLIT_MISS → 0.
 
-### D2. Shrunk Ranges
+### D2. Shrunk Ranges — ⚠️ PARTIAL (D2.1-D2.3 + D2.5a)
 **Replaces:** The 7-tolerance system (`tau_weld`, `tau_boundary`, `tau_edge_cluster`, `tau_area`)
 **Files:** `vendor/truck/truck-shapeops/src/transversal/pave_block.rs`, `vendor/truck/truck-shapeops/src/transversal/integrate/mod.rs`
-**Depends on:** D1 (pave blocks must be integrated first)
+**Depends on:** D1 data structures (DONE). D1 active promotion realignment is parallel work.
 **Problem:** truck derives 7 tolerance values from `tau_model` via hand-tuned scaling factors (0.4x for weld, 5.0x for edge cluster, etc.). These interact unpredictably: `tau_weld = 0.4x` merges vertices across narrow bosses, while `tau_boundary = 0.5x` is too tight for coarse IC approximations. The V2 assembly Level 2 (5.0x) destroys fine features.
 **Design:** Each pave block computes a **shrunk range** — the parametric interval reduced by the tolerance spheres of its bounding vertices:
 ```
@@ -164,16 +171,19 @@ shrunk_start: C(t) where dist(C(t), V_front) = Tol(V_front) + Tol(C)
 shrunk_end:   C(t) where dist(C(t), V_back)  = Tol(V_back)  + Tol(C)
 ```
 The shrunk range defines where interference can actually occur. Portions inside tolerance spheres are topologically part of the vertex, not the edge. If the shrunk range is empty (tolerance spheres consume the entire edge), the bounding vertices merge into a single same-domain vertex.
-**Fix:**
-- Add `shrunk_range: Option<(f64, f64)>` to `PaveBlock`
-- Compute via `fill_shrunk_data()` before E/E and E/F interference tests
-- Replace `tau_weld` usage with shrunk-range-based vertex merging
-- Replace `tau_boundary` usage with shrunk-range-based IC filtering
-- Replace `tau_edge_cluster` (the destructive 5.0x) with shrunk-range-based edge pairing
+**Existing work:**
+- D2.1+D2.2: DONE — `shrunk_range`, `vertex_tol_*`, `edge_tol` on `PaveBlock`, `fill_shrunk_data()` computation
+- D2.3: DONE — Shadow mode comparison: `compute_shrunk_weld_shadow` logs agree/disagree stats at each weld level
+- D2.5a: DONE (2026-03-04) — Shrunk-range-constrained weld at Level 2. Vertex pairs where weld says merge but shrunk says protect (shared edge length > 2*tau_model) are skipped. Level 3 force_merge remains as fallback. `SHRUNK_WELD_ACTIVE_PROTECT` counter tracks skipped merges.
+**Remaining:**
+- D2.4: Replace `tau_boundary` with shrunk-range IC filtering
+- D2.6: Remove unused tolerance fields from `BooleanTolerance`
+- D2.7: Add tolerance sensitivity tests
 - `BooleanTolerance` simplifies to: `tau_model` + `tau_mesh` + `tau_coplanar` (3 values instead of 7)
 **Verify:** All boolean tests pass. Remove `tau_weld`, `tau_boundary`, `tau_edge_cluster`, `tau_area` from `BooleanTolerance`. The tolerance sensitivity issues documented in truck issue #68 should improve.
 
 ### D3. Bottom-Up Interference Computation
+> ⚠️ **INTEGRATION POINT CHANGE:** Must use legacy path augmentation, not pave-block replacement, until D1 realignment completes.
 **Replaces:** Current F/F-only approach (jumps straight to mesh-based intersection curves)
 **Files:** `vendor/truck/truck-shapeops/src/transversal/integrate/mod.rs` (new interference pipeline)
 **Depends on:** D1 (pave blocks), D2 (shrunk ranges)
@@ -191,6 +201,7 @@ The shrunk range defines where interference can actually occur. Portions inside 
 **Verify:** All boolean tests pass. Add tests for V/V merging (coincident vertices across operands), E/E common blocks (shared edges between operands).
 
 ### D4. Same-Domain Connexity Chains
+> ⚠️ **INTEGRATION POINT CHANGE:** Can work independently once D3 redesigned with corrected integration points.
 **Replaces:** Multi-module coplanar heuristic cascade (`coplanar.rs`, `coplanar_overlay.rs`, `coplanar_splitting.rs`)
 **Files:** `vendor/truck/truck-shapeops/src/transversal/coplanar.rs` and related
 **Depends on:** D1 (pave blocks), D3 (bottom-up interference for proper face identification)
@@ -215,6 +226,7 @@ Post-processing with `UnifySameDomain`-style merge:
 **Verify:** All boolean tests pass (especially the coplanar pipeline tests in boolean_workflows.rs Category G). Sprint 41's reverted coplanar face merging should now work correctly because it's based on topological connexity rather than geometric heuristics.
 
 ### D5. Pre-Computed IN/ON/OUT Classification
+> ⚠️ **INTEGRATION POINT CHANGE:** Blocked by D3 redesign. Classification lookup requires bottom-up interference data.
 **Replaces:** Post-hoc classification cascade (winding → ray-cast → edge-neighbor propagation)
 **Files:** `vendor/truck/truck-shapeops/src/transversal/faces_classification/mod.rs`
 **Depends on:** D3 (bottom-up interference provides the state data)
@@ -247,12 +259,11 @@ These are independently valuable regardless of the architectural migration.
 **Fix:** Wrap all `eprintln!` in `#[cfg(feature = "boolean_debug")]` or `#[cfg(debug_assertions)]`. Add the feature flag to `Cargo.toml`. Enable in test builds, disable in release/WASM builds.
 **Verify:** `grep -rn "eprintln!" vendor/truck/truck-shapeops/src/transversal/ | grep -v "cfg("` returns 0 matches. Existing tests pass with the feature enabled.
 
-### ~~C2. Reduce V2 Assembly Tolerance Escalation~~ ✅ DONE (Phase 1)
-**Status:** Completed. Progression changed to 0.2x → 1.0x → 2.0x. Zero regressions.
+### ~~C2. Reduce V2 Assembly Tolerance Escalation~~ ✅ DONE (Phase 1), then superseded by D2.5a
+**Status:** Completed. Progression: 0.2x → 1.0x → 5.0x (tau_edge_cluster). D2.5a now constrains Level 2 with shrunk-range protection — vertex pairs sharing meaningful edges (length > 2*tau_model) are skipped. Level 3 force_merge remains as fallback.
 **Files:** `vendor/truck/truck-shapeops/src/transversal/integrate/mod.rs`
 **Problem:** Level 2 tolerance escalation uses 5.0x `tau_model`, merging vertices 5x apart. This destroys fine features and can create topologically invalid faces.
-**Fix:** Reduce to 2.0x. Change Level 1 from 0.4x to 1.0x (full `tau_model`). The progression becomes: 0.2x → 1.0x → 2.0x instead of 0.2x → 0.4x → 5.0x.
-**Note:** This is an interim fix. D2 (shrunk ranges) will eliminate the V2 assembly tolerance escalation entirely.
+**Fix:** D2.5a shrunk-range-constrained weld replaces the flat reduction approach. Pairs where shrunk says "protect" (shared edge > 2*tau_model) are skipped at Level 2. Remaining open edges handled by force_merge (Level 3).
 **Verify:** All currently-passing boolean tests still pass. Run proptest suite to check for regressions.
 
 ### ~~C3. Scale-Aware Gap-Filling Threshold~~ ✅ DONE (Phase 2)
@@ -323,7 +334,7 @@ and where we're investing to close the gap.
 | Edge splitting | IC endpoint projection + tolerance | Pave-block-based deterministic splitting | D1 |
 | Coplanar handling | Multi-module heuristic cascade | Same-domain connexity chains | D4 |
 | Face classification | Multi-tier fallback cascade | Pre-computed IN/ON/OUT from interference data | D5 |
-| Assembly recovery | Progressive tolerance escalation to 5.0x | Shrunk-range-based edge pairing | D2 |
+| Assembly recovery | Progressive tolerance escalation to 5.0x (now shrunk-constrained at L2) | Shrunk-range-based edge pairing | D2 |
 | Debug output | 89 `eprintln!` always active | Feature-gated debug output | C1 |
 | Gap-filling threshold | Fixed 5.0-unit maximum | Scale-aware formula → pave blocks eliminate gaps | C3 |
 
@@ -351,7 +362,7 @@ and where we're investing to close the gap.
 |-----------|-------|------|------|---------|----------------|
 | boolean_failures.rs | 22 | 21 | 1 | 0 | Angled extrude |
 | boolean_edge_cases.rs | 8 | 8 | 0 | 0 | - |
-| boolean_recovery.rs | 15 | 14 | 0 | 1 | S3: cascade exhaustion |
+| boolean_recovery.rs | 15 | 14 | 0 | 1 | S3: cascade |
 | boolean_workflows.rs | 38 | 38 | 0 | 0 | - |
 | boolean_shell_closure.rs | 4 | 4 | 0 | 0 | - |
 | boolean_determinism.rs | 3 | 3 | 0 | 0 | - |
@@ -373,6 +384,26 @@ cargo test -p test-harness          # Boolean-specific tests
 ```
 
 If any currently-passing test breaks, fix it before moving to the next task.
+
+---
+
+## Work Horizon
+
+### Tier 1 — Critical Path (~5 sessions)
+- **D1 realignment:** Derive pave block crossings from mesh IC path (during `create_loops_stores`)
+- **D2 completion** (D2.4/D2.6/D2.7): Shrunk ranges for boundary safety, tolerance field removal
+- → Fixes CM1/T3/MV1/euler (root cause: face division → open edges)
+
+### Tier 2 — IC Quality (~3-5 sessions)
+- **Analytical SSI:** Cone-cylinder, torus-cylinder, and additional surface pairs
+- **Adaptive Newton refinement** with convergence guards for mesh-based IC
+- → Fixes Q4/Q5/MO4 cascade-dependent failures
+
+### Tier 3 — Production Hardening (~5+ sessions)
+- **Lower-dimensional interference** (V/V, V/E, E/E detection) — D3
+- **Topology-first assembly** (Sugihara & Iri) — structural improvements
+- **D3-D5 redesign** with corrected integration points (legacy path augmentation)
+- → Robust for arbitrary user geometry
 
 ---
 
