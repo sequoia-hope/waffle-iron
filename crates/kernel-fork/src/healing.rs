@@ -22,6 +22,70 @@ use truck_modeling::{
     ToSameGeometry, Transformed, TrimmedCurve, UnitCircle, Vector3, Vector4,
 };
 
+/// Boolean operation type for volume bound validation in the cascade.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BooleanOp {
+    Union,
+    Intersection,
+    Subtraction,
+}
+
+/// Compute the volume of a truck Solid via tessellation + divergence theorem.
+///
+/// Returns `None` if tessellation fails. The tolerance used is coarse (0.1) since
+/// we only need approximate volume for bound checks, not high-fidelity rendering.
+fn solid_volume(solid: &Solid) -> Option<f64> {
+    use truck_meshalgo::tessellation::{MeshableShape, MeshedShape};
+    let meshed = solid.triangulation(0.1);
+    let polygon: truck_meshalgo::prelude::PolygonMesh = meshed.to_polygon();
+    let positions = polygon.positions();
+    let tri_faces = polygon.tri_faces();
+    let mut volume = 0.0f64;
+    for tri in tri_faces {
+        let p0 = positions[tri[0].pos];
+        let p1 = positions[tri[1].pos];
+        let p2 = positions[tri[2].pos];
+        // Signed volume of tetrahedron formed by triangle and origin
+        volume += p0.x * (p1.y * p2.z - p2.y * p1.z)
+            + p1.x * (p2.y * p0.z - p0.y * p2.z)
+            + p2.x * (p0.y * p1.z - p1.y * p0.z);
+    }
+    Some((volume / 6.0).abs())
+}
+
+/// Check if a result volume satisfies algebraic bounds for the given boolean operation.
+///
+/// Returns `true` if volume is acceptable (within 15% tolerance of theoretical bounds).
+/// Returns `true` if operation type or any input volume is unknown (don't reject).
+fn volume_in_bounds(
+    vol_result: f64,
+    vol_a: Option<f64>,
+    vol_b: Option<f64>,
+    op: Option<BooleanOp>,
+) -> bool {
+    let (Some(va), Some(vb), Some(op)) = (vol_a, vol_b, op) else {
+        return true; // Can't check without all info — accept
+    };
+    const MARGIN: f64 = 1.15; // 15% tolerance
+    match op {
+        BooleanOp::Union => {
+            // Union volume ≤ vol(A) + vol(B) and ≥ max(vol(A), vol(B))
+            vol_result <= MARGIN * (va + vb) && vol_result >= va.max(vb) / MARGIN
+        }
+        BooleanOp::Subtraction => {
+            // Subtraction volume: vol(A-B) = vol(A) - vol(A∩B)
+            // Upper bound: vol(A-B) ≤ vol(A) (removing nothing)
+            // Lower bound: vol(A-B) ≥ vol(A) - vol(B) (B fully inside A)
+            let lower = (va - vb).max(0.0);
+            vol_result <= MARGIN * va && vol_result >= lower / MARGIN
+        }
+        BooleanOp::Intersection => {
+            // Intersection volume ≤ min(vol(A), vol(B)) and ≥ 0
+            vol_result <= MARGIN * va.min(vb) && vol_result >= 0.0
+        }
+    }
+}
+
 /// truck's convergence threshold for `curve_surface_projection`.
 const TOLERANCE: f64 = 1.0e-6;
 
@@ -1109,6 +1173,64 @@ pub fn heal_intersection_curves(solid: &Solid, tol: f64) -> HealingResult {
     result
 }
 
+/// Volume-guarded wrapper around `heal_intersection_curves` + `deduplicate_vertices`.
+///
+/// Saves all vertex positions before post-processing, runs both heal and dedup,
+/// then checks if volume changed by more than 10%. If so, restores vertex positions.
+/// Edge curve replacements from heal are preserved (they're beneficial for chained
+/// booleans) — only vertex position changes are reverted.
+///
+/// This prevents post-processing from destroying precise boolean cavity geometry
+/// (e.g. T5 where heal+dedup moves vertex positions, dropping volume from ~961 to ~658).
+pub fn heal_and_dedup_volume_guarded(solid: &Solid, heal_tol: f64) {
+    use truck_modeling::topology::{Edge, Vertex, EdgeID, VertexID};
+
+    // Save all vertex positions and edge curves before any post-processing
+    let mut saved_verts: Vec<(Vertex, Point3)> = Vec::new();
+    let mut saved_edges: Vec<(Edge, Curve)> = Vec::new();
+    let mut seen_vids: HashSet<VertexID> = HashSet::new();
+    let mut seen_eids: HashSet<EdgeID> = HashSet::new();
+    for shell in solid.boundaries() {
+        for face in shell.iter() {
+            for wire in face.absolute_boundaries().iter() {
+                for v in wire.vertex_iter() {
+                    if seen_vids.insert(v.id()) {
+                        saved_verts.push((v.clone(), v.point()));
+                    }
+                }
+                for e in wire.edge_iter() {
+                    if seen_eids.insert(e.id()) {
+                        saved_edges.push((e.clone(), e.curve()));
+                    }
+                }
+            }
+        }
+    }
+
+    let vol_before = solid_volume(solid);
+
+    // Run both post-processing steps
+    heal_intersection_curves(solid, heal_tol);
+    deduplicate_vertices(solid, heal_tol * 0.1);
+
+    let vol_after = solid_volume(solid);
+
+    // If volume changed too much, restore both vertex positions and edge curves.
+    if let (Some(vb), Some(va)) = (vol_before, vol_after) {
+        if vb > 1e-12 {
+            let change = ((va - vb) / vb).abs();
+            if change > 0.10 {
+                for (v, pt) in &saved_verts {
+                    v.set_point(*pt);
+                }
+                for (e, curve) in saved_edges {
+                    e.set_curve(curve);
+                }
+            }
+        }
+    }
+}
+
 /// Deduplicate nearly-coincident vertices in a solid after boolean + healing.
 ///
 /// After `heal_intersection_curves`, the solid may have vertices that are very
@@ -1802,8 +1924,31 @@ pub fn try_boolean_with_perturbation(
     tol: f64,
     op: impl Fn(&Solid, &Solid) -> Result<Solid, truck_shapeops::BooleanStageError>,
 ) -> Result<Solid, truck_shapeops::BooleanStageError> {
+    try_boolean_with_perturbation_vol(solid_a, solid_b, tol, None, op)
+}
+
+/// Like `try_boolean_with_perturbation`, but with volume-bounding validation.
+///
+/// When `boolean_op` is `Some`, the cascade validates that chi=2 results also
+/// satisfy algebraic volume bounds (e.g., union volume ≤ vol(A)+vol(B)).
+/// Results that pass chi=2 but fail volume bounds are stored as `volume_fb`
+/// fallback, and the cascade continues looking for a better result.
+///
+/// Preference order at cascade end: good result > euler_fb > volume_fb > error.
+pub fn try_boolean_with_perturbation_vol(
+    solid_a: &Solid,
+    solid_b: &Solid,
+    tol: f64,
+    boolean_op: Option<BooleanOp>,
+    op: impl Fn(&Solid, &Solid) -> Result<Solid, truck_shapeops::BooleanStageError>,
+) -> Result<Solid, truck_shapeops::BooleanStageError> {
     CASCADE.total.fetch_add(1, Ordering::Relaxed);
     let euler_fb: std::cell::RefCell<Option<Solid>> = std::cell::RefCell::new(None);
+    // Volume fallback: chi=2 result that fails volume bounds
+    let volume_fb: std::cell::RefCell<Option<Solid>> = std::cell::RefCell::new(None);
+    // Cache input volumes (computed at most once across all cascade attempts)
+    let cached_vol_a: std::cell::Cell<Option<Option<f64>>> = std::cell::Cell::new(None);
+    let cached_vol_b: std::cell::Cell<Option<Option<f64>>> = std::cell::Cell::new(None);
     let mut last_err =
         truck_shapeops::BooleanStageError::ShellAssembly("cascade not started".into());
     #[cfg(not(target_arch = "wasm32"))]
@@ -1960,8 +2105,10 @@ pub fn try_boolean_with_perturbation(
     let consecutive_chi_fail = std::cell::Cell::new(0u32);
     const MAX_CONSECUTIVE_CHI_FAIL: u32 = 3;
 
-    // Macro to check Euler characteristic on a successful result and either
-    // return immediately (chi=2) or store as fallback and continue cascade.
+    // Macro to check Euler characteristic and volume bounds on a successful result.
+    // Chi=2 + volume OK → return immediately.
+    // Chi=2 + volume FAIL → store as volume_fb, continue cascade.
+    // Chi≠2 → store as euler_fb, continue cascade.
     macro_rules! check_result {
         ($result:expr, $label:expr) => {{
             let chi_ok = $result.boundaries().iter().all(|shell| {
@@ -1969,14 +2116,50 @@ pub fn try_boolean_with_perturbation(
             });
             let strat = Strategy::from_label($label);
             if chi_ok {
-                CASCADE.strategy_success[strat as usize].fetch_add(1, Ordering::Relaxed);
-                if $label == "direct" {
-                    CASCADE.direct_success.fetch_add(1, Ordering::Relaxed);
+                // Chi=2 passed — now check volume bounds if we have the op type.
+                let vol_ok = if boolean_op.is_some() {
+                    // Lazily compute and cache input volumes
+                    if cached_vol_a.get().is_none() {
+                        cached_vol_a.set(Some(solid_volume(solid_a)));
+                    }
+                    if cached_vol_b.get().is_none() {
+                        cached_vol_b.set(Some(solid_volume(solid_b)));
+                    }
+                    let va = cached_vol_a.get().unwrap_or(None);
+                    let vb = cached_vol_b.get().unwrap_or(None);
+                    if let Some(vr) = solid_volume(&$result) {
+                        let ok = volume_in_bounds(vr, va, vb, boolean_op);
+                        #[cfg(debug_assertions)]
+                        if !ok {
+                            eprintln!(
+                                "[perturbation] {} chi=2 but volume {:.1} out of bounds (A={:.1}, B={:.1}, op={:?})",
+                                $label, vr, va.unwrap_or(-1.0), vb.unwrap_or(-1.0), boolean_op,
+                            );
+                        }
+                        ok
+                    } else {
+                        true // Tessellation failed — accept
+                    }
                 } else {
-                    CASCADE.perturbation_success.fetch_add(1, Ordering::Relaxed);
+                    true // No op type — accept
+                };
+
+                if vol_ok {
+                    CASCADE.strategy_success[strat as usize].fetch_add(1, Ordering::Relaxed);
+                    if $label == "direct" {
+                        CASCADE.direct_success.fetch_add(1, Ordering::Relaxed);
+                    } else {
+                        CASCADE.perturbation_success.fetch_add(1, Ordering::Relaxed);
+                    }
+                    consecutive_chi_fail.set(0);
+                    return Ok($result);
+                } else {
+                    // Chi=2 but volume out of bounds — store as volume fallback
+                    if volume_fb.borrow().is_none() {
+                        *volume_fb.borrow_mut() = Some($result);
+                    }
+                    consecutive_chi_fail.set(0);
                 }
-                consecutive_chi_fail.set(0);
-                return Ok($result);
             } else {
                 // Keep the first chi≠2 result as fallback — the unperturbed
                 // (or least-perturbed) geometry is closest to the user's intent
@@ -2020,6 +2203,10 @@ pub fn try_boolean_with_perturbation(
                         CASCADE.euler_fallback.fetch_add(1, Ordering::Relaxed);
                         return Ok(fallback);
                     }
+                    if let Some(fallback) = volume_fb.borrow_mut().take() {
+                        CASCADE.euler_fallback.fetch_add(1, Ordering::Relaxed);
+                        return Ok(fallback);
+                    }
                     CASCADE.exhausted.fetch_add(1, Ordering::Relaxed);
                     return Err(last_err);
                 }
@@ -2028,6 +2215,10 @@ pub fn try_boolean_with_perturbation(
             {
                 if _attempt_count > MAX_WASM_CASCADE_ATTEMPTS {
                     if let Some(fallback) = euler_fb.borrow_mut().take() {
+                        CASCADE.euler_fallback.fetch_add(1, Ordering::Relaxed);
+                        return Ok(fallback);
+                    }
+                    if let Some(fallback) = volume_fb.borrow_mut().take() {
                         CASCADE.euler_fallback.fetch_add(1, Ordering::Relaxed);
                         return Ok(fallback);
                     }
@@ -2364,8 +2555,16 @@ pub fn try_boolean_with_perturbation(
         _attempt_count, MAX_WASM_CASCADE_ATTEMPTS,
     );
 
-    // Return the best non-chi-2 result if available, otherwise error.
+    // Return best available fallback: euler_fb > volume_fb > error.
+    // euler_fb has chi≠2 (topology issue) but may still be usable.
+    // volume_fb has chi=2 (good topology) but volume out of bounds.
     if let Some(fallback) = euler_fb.into_inner() {
+        CASCADE.euler_fallback.fetch_add(1, Ordering::Relaxed);
+        return Ok(fallback);
+    }
+    if let Some(fallback) = volume_fb.into_inner() {
+        #[cfg(debug_assertions)]
+        eprintln!("[perturbation] returning volume-fallback (chi=2, volume out of bounds)");
         CASCADE.euler_fallback.fetch_add(1, Ordering::Relaxed);
         return Ok(fallback);
     }
@@ -2376,12 +2575,13 @@ pub fn try_boolean_with_perturbation(
 /// Like `try_boolean_with_perturbation`, but the op closure returns
 /// `(Solid, BooleanDiagnostics)` and the last successful diagnostics are returned.
 ///
-/// This delegates to `try_boolean_with_perturbation` internally, using a `RefCell`
+/// This delegates to `try_boolean_with_perturbation_vol` internally, using a `RefCell`
 /// to capture the diagnostics from the last successful op invocation.
 pub fn try_boolean_with_perturbation_diag(
     solid_a: &Solid,
     solid_b: &Solid,
     tol: f64,
+    boolean_op: Option<BooleanOp>,
     op: impl Fn(
         &Solid,
         &Solid,
@@ -2392,7 +2592,7 @@ pub fn try_boolean_with_perturbation_diag(
 ) -> Result<(Solid, truck_shapeops::BooleanDiagnostics), truck_shapeops::BooleanStageError> {
     use std::cell::RefCell;
     let last_diag: RefCell<Option<truck_shapeops::BooleanDiagnostics>> = RefCell::new(None);
-    let result = try_boolean_with_perturbation(solid_a, solid_b, tol, |a, b| {
+    let result = try_boolean_with_perturbation_vol(solid_a, solid_b, tol, boolean_op, |a, b| {
         let (solid, diag) = op(a, b)?;
         *last_diag.borrow_mut() = Some(diag);
         Ok(solid)

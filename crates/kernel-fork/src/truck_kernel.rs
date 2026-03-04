@@ -434,6 +434,7 @@ impl TruckKernel {
         &mut self,
         a: &KernelSolidHandle,
         b: &KernelSolidHandle,
+        boolean_op: crate::healing::BooleanOp,
         make_op: F,
     ) -> Result<Solid, KernelError>
     where
@@ -481,11 +482,10 @@ impl TruckKernel {
 
         let op = make_op(tols);
         let (result, diag) =
-            crate::healing::try_boolean_with_perturbation_diag(&solid_a, &solid_b, tol, op)
+            crate::healing::try_boolean_with_perturbation_diag(&solid_a, &solid_b, tol, Some(boolean_op), op)
                 .map_err(|e| KernelError::from(BooleanError::from(e)))?;
         self.last_boolean_diagnostics = Some(build_diagnostics_summary(&diag));
-        crate::healing::heal_intersection_curves(&result, heal_tol);
-        crate::healing::deduplicate_vertices(&result, heal_tol * 0.1);
+        crate::healing::heal_and_dedup_volume_guarded(&result, heal_tol);
         Ok(result)
     }
 
@@ -596,7 +596,7 @@ impl Kernel for TruckKernel {
         a: &KernelSolidHandle,
         b: &KernelSolidHandle,
     ) -> Result<KernelSolidHandle, KernelError> {
-        let result = self.run_boolean_op(a, b, |tols| {
+        let result = self.run_boolean_op(a, b, crate::healing::BooleanOp::Union, |tols| {
             move |a, b| truck_shapeops::or_result_with_tol_diag(a, b, &tols)
         })?;
         #[cfg(debug_assertions)]
@@ -614,7 +614,7 @@ impl Kernel for TruckKernel {
         a: &KernelSolidHandle,
         b: &KernelSolidHandle,
     ) -> Result<KernelSolidHandle, KernelError> {
-        let result = self.run_boolean_op(a, b, |tols| {
+        let result = self.run_boolean_op(a, b, crate::healing::BooleanOp::Subtraction, |tols| {
             move |a, b| truck_shapeops::difference_result_with_tol_diag(a, b, &tols)
         })?;
         #[cfg(debug_assertions)]
@@ -632,7 +632,7 @@ impl Kernel for TruckKernel {
         a: &KernelSolidHandle,
         b: &KernelSolidHandle,
     ) -> Result<KernelSolidHandle, KernelError> {
-        let result = self.run_boolean_op(a, b, |tols| {
+        let result = self.run_boolean_op(a, b, crate::healing::BooleanOp::Intersection, |tols| {
             move |a, b| truck_shapeops::and_result_with_tol_diag(a, b, &tols)
         })?;
         Ok(self.store_solid(result))
@@ -643,7 +643,7 @@ impl Kernel for TruckKernel {
         a: &KernelSolidHandle,
         b: &KernelSolidHandle,
     ) -> Result<Vec<KernelSolidHandle>, KernelError> {
-        let result = self.run_boolean_op(a, b, |tols| {
+        let result = self.run_boolean_op(a, b, crate::healing::BooleanOp::Union, |tols| {
             move |a, b| truck_shapeops::or_result_with_tol_diag(a, b, &tols)
         })?;
         Ok(self.split_multi_shell(result))
@@ -654,7 +654,7 @@ impl Kernel for TruckKernel {
         a: &KernelSolidHandle,
         b: &KernelSolidHandle,
     ) -> Result<Vec<KernelSolidHandle>, KernelError> {
-        let result = self.run_boolean_op(a, b, |tols| {
+        let result = self.run_boolean_op(a, b, crate::healing::BooleanOp::Subtraction, |tols| {
             move |a, b| truck_shapeops::difference_result_with_tol_diag(a, b, &tols)
         })?;
         Ok(self.split_multi_shell(result))
@@ -665,7 +665,7 @@ impl Kernel for TruckKernel {
         a: &KernelSolidHandle,
         b: &KernelSolidHandle,
     ) -> Result<Vec<KernelSolidHandle>, KernelError> {
-        let result = self.run_boolean_op(a, b, |tols| {
+        let result = self.run_boolean_op(a, b, crate::healing::BooleanOp::Intersection, |tols| {
             move |a, b| truck_shapeops::and_result_with_tol_diag(a, b, &tols)
         })?;
         Ok(self.split_multi_shell(result))
