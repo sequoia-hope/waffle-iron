@@ -7,13 +7,13 @@ Work through in order within each tier. Each task is self-contained. Mark `[x]` 
 
 ---
 
-## Current State (updated 2026-03-03)
+## Current State (updated 2026-03-04)
 
 **Test pass rate: ~95%.** Determinism fully solved (BTreeMap iteration + fixed cascade limit).
 Core box-box, circle-on-box, and chained operations (up to 5) are reliable.
 
 **Test counts:**
-- truck-shapeops lib: 333 pass, 2 pre-existing fail (fillet, euler_characteristic)
+- truck-shapeops lib: 343 pass, 2 pre-existing fail (fillet, euler_characteristic)
 - test-harness boolean_workflows: 38 pass
 - test-harness boolean_properties: 25 pass, 3 pre-existing fail (cm1/t3/mv1)
 - test-harness boolean_edge_cases: 8 pass
@@ -27,12 +27,17 @@ Core box-box, circle-on-box, and chained operations (up to 5) are reliable.
 3. Complex multi-boolean cascade exhaustion (1 test: S3)
 4. Revolve+planar boolean (2 tests in revolve_cylinder_truck.rs)
 
-**Roadmap status:** Phases A-G complete, IC loop restructuring done (2026-03-03), H planned.
+**Roadmap status:** Phases A-G complete, IC loop restructuring done (2026-03-03), D1 Phase 5 shadow mode done (2026-03-04).
 
 **Prerequisites completed (2026-03-03):**
 - IC loop restructuring: two-pass direct injection architecture (commit f65b24d)
 - IC loop regression fix: defensive closure, biangle filtering, poly store restoration (commit cdd397f)
 - Analytical IC construction: try_new_nearest fallback for torus-plane ICs (commit 8f06750)
+
+**D1 Phase 5 (2026-03-04):**
+- Shadow-mode promotion tracking in pass 2a: per-IC is_presplit_hit checks, SUCCESS/FALLBACK counters
+- build_face_interference_from_ics: per-face crossing tables from IC accumulator
+- 10 new tests (4 interference, 5 loops_store, 1 integration), zero regressions
 
 ---
 
@@ -134,7 +139,7 @@ pub struct FragmentationResult<P, C, S> {
 These tasks replace truck's ad-hoc designs with production-grade OCCT-inspired
 equivalents. Each step is independently valuable and preserves test compatibility.
 
-### D1. Pave Block Integration into Face Division — ⚠️ PARTIAL (Phase 1+3+4)
+### D1. Pave Block Integration into Face Division — ⚠️ PARTIAL (Phase 1+3+4+5)
 **Replaces:** Current tolerance-dependent IC endpoint projection in `loops_store`
 **Files:** `vendor/truck/truck-shapeops/src/transversal/pave_block.rs`, `vendor/truck/truck-shapeops/src/transversal/divide_face/mod.rs`, `vendor/truck/truck-shapeops/src/transversal/loops_store/mod.rs`
 **Problem:** Face division currently projects IC endpoints onto face boundaries using tolerance-based matching. This causes figure-8 wires when IC endpoints land near face boundary vertices (the "corner-touch bug" partially fixed by MV3 snap). The root issue is that edge splitting is tolerance-dependent rather than topology-driven.
@@ -143,9 +148,10 @@ equivalents. Each step is independently valuable and preserves test compatibilit
 - Phase 3 (pre-splitting): DONE — `presplit_one_shell`, `split_geom_edge_at_crossings` in `interference.rs`. Wired between pass 1 and pass 2 in `create_loops_stores`.
 - Phase 4 (instrumentation): DONE — `PAVE_PRESPLIT_HIT/MISS` counters, `build_sub_edges` curve projection fix
 - IC loop restructuring: DONE (2026-03-03) — Two-pass architecture unlocks Phase 5
-- Phase 5 (active promotion): NOT STARTED — replace legacy vertex insertion with pave-block-driven wiring
-**Fix:** Phase 5: Use `reconstruct_boundary_wires()` to replace face wires with pre-split wires. Skip tolerance-dependent `add_polygon_vertex` → `search_parameter` → `Inner(t)` cuts entirely. IC loop restructuring has removed the global-state interleaving blocker.
-**Verify:** All boolean tests pass. PRESPLIT_HIT increases, PRESPLIT_MISS → 0. Corner-touch snap (MV3) should become unnecessary.
+- Phase 5 (shadow mode): DONE (2026-03-04) — Shadow-mode promotion tracking in pass 2a. `build_face_interference_from_ics`, `is_presplit_hit`, SUCCESS/FALLBACK counters. 10 new tests. Spec: `specs/d1_pave_block_integration.md`.
+- Phase 5 (active promotion): NOT YET — When D1_SHADOW_MODE=false, skip legacy vertex insertion for all-hit ICs
+**Fix:** Phase 5 promotion: Set `D1_SHADOW_MODE=false` to skip `add_polygon_vertex` → `search_parameter` → `Inner(t)` cuts for ICs where all 4 endpoints are pre-split hits (Front/Back). Use `reconstruct_boundary_wires()` to replace face wires with pre-split wires. Corner-touch snap (MV3) should become unnecessary.
+**Verify:** All boolean tests pass. PRESPLIT_HIT increases, PRESPLIT_MISS → 0.
 
 ### D2. Shrunk Ranges
 **Replaces:** The 7-tolerance system (`tau_weld`, `tau_boundary`, `tau_edge_cluster`, `tau_area`)
