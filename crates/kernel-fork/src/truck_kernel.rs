@@ -1532,57 +1532,84 @@ impl Kernel for TruckKernel {
                     });
                 }
 
-                // Build a lookup: start_point_index → SplineSegment
-                let spline_map: HashMap<usize, &SplineSegment> = profile
-                    .spline_segments
-                    .iter()
-                    .map(|s| (s.start_point_index, s))
-                    .collect();
-
                 let n = pts_3d.len();
-                let vertices: Vec<_> = pts_3d.iter().map(|&p| builder::vertex(p)).collect();
-                let mut wire_edges: Vec<Edge> = Vec::new();
-                for i in 0..n {
-                    let j = (i + 1) % n;
 
-                    let curve = if let Some(seg) = spline_map.get(&i) {
-                        // Convert spline control points from UV to 3D
-                        let ctrl_pts_3d: Vec<Point3> = seg
-                            .control_points
-                            .iter()
-                            .map(|&(u, v)| origin + x_axis * u + y_axis * v)
-                            .collect();
+                // For 4-vertex straight-edge profiles (rectangles/parallelograms),
+                // use builder::tsweep to create the face. This produces wire edges
+                // with the same orientation pattern as tsweep-created boxes, which
+                // is required for the boolean engine's absolute_boundaries()
+                // convention to work correctly on the swept solid's side faces.
+                if n == 4 && profile.spline_segments.is_empty() {
+                    // Ensure CCW winding in sketch UV space
+                    let signed_area: f64 = (0..n)
+                        .map(|i| {
+                            let j = (i + 1) % n;
+                            let ui = (pts_3d[i] - origin).dot(x_axis);
+                            let vi = (pts_3d[i] - origin).dot(y_axis);
+                            let uj = (pts_3d[j] - origin).dot(x_axis);
+                            let vj = (pts_3d[j] - origin).dot(y_axis);
+                            ui * vj - uj * vi
+                        })
+                        .sum();
+                    let (p0, p1, p3) = if signed_area >= 0.0 {
+                        (pts_3d[0], pts_3d[1], pts_3d[3])
+                    } else {
+                        // CW winding: reverse to CCW by swapping edge directions
+                        (pts_3d[0], pts_3d[3], pts_3d[1])
+                    };
+                    let v = builder::vertex(p0);
+                    let e = builder::tsweep(&v, p1 - p0);
+                    builder::tsweep(&e, p3 - p0)
+                } else {
+                    // General polygon or spline profile: manual edge construction
+                    let spline_map: HashMap<usize, &SplineSegment> = profile
+                        .spline_segments
+                        .iter()
+                        .map(|s| (s.start_point_index, s))
+                        .collect();
 
-                        if ctrl_pts_3d.len() >= 2 {
-                            let degree = 3.min(ctrl_pts_3d.len() - 1);
-                            let knots = clamped_knot_vector(ctrl_pts_3d.len(), degree);
-                            let knot_vec =
-                                truck_geometry::prelude::KnotVec::from(knots);
-                            let bsp = truck_geometry::prelude::BSplineCurve::new(
-                                knot_vec,
-                                ctrl_pts_3d,
-                            );
-                            truck_modeling::geometry::Curve::BSplineCurve(bsp)
+                    let vertices: Vec<_> = pts_3d.iter().map(|&p| builder::vertex(p)).collect();
+                    let mut wire_edges: Vec<Edge> = Vec::new();
+                    for i in 0..n {
+                        let j = (i + 1) % n;
+
+                        let curve = if let Some(seg) = spline_map.get(&i) {
+                            // Convert spline control points from UV to 3D
+                            let ctrl_pts_3d: Vec<Point3> = seg
+                                .control_points
+                                .iter()
+                                .map(|&(u, v)| origin + x_axis * u + y_axis * v)
+                                .collect();
+
+                            if ctrl_pts_3d.len() >= 2 {
+                                let degree = 3.min(ctrl_pts_3d.len() - 1);
+                                let knots = clamped_knot_vector(ctrl_pts_3d.len(), degree);
+                                let knot_vec =
+                                    truck_geometry::prelude::KnotVec::from(knots);
+                                let bsp = truck_geometry::prelude::BSplineCurve::new(
+                                    knot_vec,
+                                    ctrl_pts_3d,
+                                );
+                                truck_modeling::geometry::Curve::BSplineCurve(bsp)
+                            } else {
+                                truck_modeling::geometry::Curve::Line(
+                                    truck_modeling::geometry::Line(pts_3d[i], pts_3d[j]),
+                                )
+                            }
                         } else {
-                            // Fallback to line
                             truck_modeling::geometry::Curve::Line(
                                 truck_modeling::geometry::Line(pts_3d[i], pts_3d[j]),
                             )
-                        }
-                    } else {
-                        truck_modeling::geometry::Curve::Line(
-                            truck_modeling::geometry::Line(pts_3d[i], pts_3d[j]),
-                        )
-                    };
+                        };
 
-                    let edge = Edge::new(&vertices[i], &vertices[j], curve);
-                    wire_edges.push(edge);
+                        let edge = Edge::new(&vertices[i], &vertices[j], curve);
+                        wire_edges.push(edge);
+                    }
+                    let wire = Wire::from_iter(wire_edges);
+                    builder::try_attach_plane(&[wire]).map_err(|e| KernelError::Other {
+                        message: format!("Failed to create planar face: {}", e),
+                    })?
                 }
-                let wire = Wire::from_iter(wire_edges);
-
-                builder::try_attach_plane(&[wire]).map_err(|e| KernelError::Other {
-                    message: format!("Failed to create planar face: {}", e),
-                })?
             };
 
             let face_id = self.alloc_id();
@@ -3897,5 +3924,286 @@ mod tests {
             "Plane should have infinite curvature radius, got {}",
             r
         );
+    }
+
+    /// Test CM1 geometry: compare kernel-created vs tsweep-created boxes
+    #[test]
+    fn test_cm1_geometry_compare_construction() {
+        use truck_topology::shell::ShellCondition;
+
+        // --- tsweep-created boxes (PASS) ---
+        let tsweep_a: Solid = {
+            let v = builder::vertex(Point3::new(-5.0, -5.0, 0.0));
+            let e = builder::tsweep(&v, 10.0 * Vector3::unit_x());
+            let f = builder::tsweep(&e, 10.0 * Vector3::unit_y());
+            builder::tsweep(&f, 10.0 * Vector3::unit_z())
+        };
+        let tsweep_b: Solid = {
+            let v = builder::vertex(Point3::new(0.0, 0.0, 0.0));
+            let e = builder::tsweep(&v, 8.0 * Vector3::unit_x());
+            let f = builder::tsweep(&e, 8.0 * Vector3::unit_y());
+            builder::tsweep(&f, 8.0 * Vector3::unit_z())
+        };
+
+        // --- kernel-created boxes (FAIL) ---
+        let mut kernel = TruckKernel::new();
+        let kernel_a = {
+            let profile = ClosedProfile {
+                entity_ids: vec![1, 2, 3, 4],
+                is_outer: true,
+                circle: None,
+                spline_segments: vec![],
+            };
+            let mut pos = HashMap::new();
+            pos.insert(1, (-5.0, -5.0));
+            pos.insert(2, (5.0, -5.0));
+            pos.insert(3, (5.0, 5.0));
+            pos.insert(4, (-5.0, 5.0));
+            let fids = kernel
+                .make_faces_from_profiles(
+                    &[profile], [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0], &pos,
+                )
+                .unwrap();
+            let h = kernel.extrude_face(fids[0], [0.0, 0.0, 1.0], 10.0).unwrap();
+            kernel.get_solid(&h).unwrap().clone()
+        };
+        let kernel_b = {
+            let profile = ClosedProfile {
+                entity_ids: vec![1, 2, 3, 4],
+                is_outer: true,
+                circle: None,
+                spline_segments: vec![],
+            };
+            let mut pos = HashMap::new();
+            pos.insert(1, (0.0, 0.0));
+            pos.insert(2, (8.0, 0.0));
+            pos.insert(3, (8.0, 8.0));
+            pos.insert(4, (0.0, 8.0));
+            let fids = kernel
+                .make_faces_from_profiles(
+                    &[profile], [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0], &pos,
+                )
+                .unwrap();
+            let h = kernel.extrude_face(fids[0], [0.0, 0.0, 1.0], 8.0).unwrap();
+            kernel.get_solid(&h).unwrap().clone()
+        };
+
+        // Compare topology
+        for (label, solid) in [("tsweep_a", &tsweep_a), ("kernel_a", &kernel_a),
+                                ("tsweep_b", &tsweep_b), ("kernel_b", &kernel_b)] {
+            let shell = &solid.boundaries()[0];
+            let face_count = shell.face_iter().count();
+            let mut vids = std::collections::HashSet::new();
+            let mut eids = std::collections::HashSet::new();
+            for face in shell.face_iter() {
+                for wire in face.absolute_boundaries() {
+                    for v in wire.vertex_iter() {
+                        vids.insert(v.id());
+                    }
+                    for edge in wire.edge_iter() {
+                        eids.insert(edge.id());
+                    }
+                }
+            }
+            eprintln!(
+                "{}: F={} E={} V={} condition={:?}",
+                label, face_count, eids.len(), vids.len(), shell.shell_condition()
+            );
+            // Print each face's surface type and boundary vertices
+            for (fi, face) in shell.face_iter().enumerate() {
+                let wires = face.absolute_boundaries();
+                let w = &wires[0];
+                let verts: Vec<_> = w.vertex_iter().map(|v| {
+                    let p = v.point();
+                    format!("({:.1},{:.1},{:.1})", p.x, p.y, p.z)
+                }).collect();
+                let orient = if face.orientation() { "+" } else { "-" };
+                eprintln!("  {}[{}]{}: {} verts: {}", label, fi, orient, verts.len(), verts.join(" → "));
+            }
+        }
+
+        // Boolean both
+        let tsweep_result = truck_shapeops::or(&tsweep_a, &tsweep_b, 0.05);
+        let kernel_result = truck_shapeops::or(&kernel_a, &kernel_b, 0.05);
+
+        eprintln!("tsweep union: {}", if tsweep_result.is_some() { "OK" } else { "FAIL" });
+        eprintln!("kernel union: {}", if kernel_result.is_some() { "OK" } else { "FAIL" });
+
+        // Also test: tsweep_a + kernel_b (cross-construction)
+        let cross_result = truck_shapeops::or(&tsweep_a, &kernel_b, 0.05);
+        eprintln!("cross union (tsweep_a+kernel_b): {}", if cross_result.is_some() { "OK" } else { "FAIL" });
+
+        let cross_result2 = truck_shapeops::or(&kernel_a, &tsweep_b, 0.05);
+        eprintln!("cross union (kernel_a+tsweep_b): {}", if cross_result2.is_some() { "OK" } else { "FAIL" });
+
+        assert!(tsweep_result.is_some(), "tsweep union must succeed");
+        assert!(kernel_result.is_some(), "kernel union must succeed");
+    }
+
+    /// Test kernel boxes with the exact kernel boolean pipeline (layered tols + diag path)
+    #[test]
+    fn test_cm1_kernel_pipeline_boolean() {
+        let mut kernel = TruckKernel::new();
+
+        // Create box A: 10x10x10
+        let kernel_a = {
+            let profile = ClosedProfile {
+                entity_ids: vec![1, 2, 3, 4],
+                is_outer: true,
+                circle: None,
+                spline_segments: vec![],
+            };
+            let mut pos = HashMap::new();
+            pos.insert(1, (-5.0, -5.0));
+            pos.insert(2, (5.0, -5.0));
+            pos.insert(3, (5.0, 5.0));
+            pos.insert(4, (-5.0, 5.0));
+            let fids = kernel
+                .make_faces_from_profiles(
+                    &[profile], [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0], &pos,
+                )
+                .unwrap();
+            let h = kernel.extrude_face(fids[0], [0.0, 0.0, 1.0], 10.0).unwrap();
+            kernel.get_solid(&h).unwrap().clone()
+        };
+
+        // Create box B: 8x8x8 at offset (4,4,0) relative → actually at (4-1,4-1,0) = from (-1,-1,0) to (7,7,8)
+        // CM1 uses offset [4,4,0] on 10x10x10 + 8x8x8, centered boxes:
+        // A: (-5,-5,0) to (5,5,10)
+        // B: (-4+4, -4+4, 0) = (0,0,0) to (8,8,8)
+        let kernel_b = {
+            let profile = ClosedProfile {
+                entity_ids: vec![1, 2, 3, 4],
+                is_outer: true,
+                circle: None,
+                spline_segments: vec![],
+            };
+            let mut pos = HashMap::new();
+            pos.insert(1, (0.0, 0.0));
+            pos.insert(2, (8.0, 0.0));
+            pos.insert(3, (8.0, 8.0));
+            pos.insert(4, (0.0, 8.0));
+            let fids = kernel
+                .make_faces_from_profiles(
+                    &[profile], [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0], &pos,
+                )
+                .unwrap();
+            let h = kernel.extrude_face(fids[0], [0.0, 0.0, 1.0], 8.0).unwrap();
+            kernel.get_solid(&h).unwrap().clone()
+        };
+
+        // Test with truck_shapeops::or (uniform tol) - should pass with fix
+        let or_result = truck_shapeops::or(&kernel_a, &kernel_b, 0.05);
+        eprintln!("or (uniform tol): {}", if or_result.is_some() { "OK" } else { "FAIL" });
+
+        // Test with or_result_with_tol_diag + layered tol (kernel pipeline)
+        let tols = crate::types::BooleanOptions::for_boolean_tol(0.05).to_boolean_tolerance();
+        let diag_result = truck_shapeops::or_result_with_tol_diag(&kernel_a, &kernel_b, &tols);
+        let diag_ok = diag_result.is_ok();
+        eprintln!("or_diag (layered tol): {}", if diag_ok { "OK" } else { "FAIL" });
+
+        assert!(or_result.is_some(), "or (uniform) must succeed");
+        assert!(diag_result.is_ok(), "or_diag (layered) must succeed");
+    }
+
+    /// Test with EXACT feature engine parameters: x_axis=[0,-1,0], rect_profile(0,0,w,h)
+    #[test]
+    fn test_cm1_feature_engine_exact_params() {
+        let mut kernel = TruckKernel::new();
+
+        // Feature engine uses tangent_x_from_normal([0,0,1]) = [0,-1,0]
+        let x_axis = [0.0, -1.0, 0.0];
+
+        // Box A: origin=[0,0,0], normal=[0,0,1], rect_profile(0,0,10,10)
+        // 3D corners: [0,0,0], [0,-10,0], [10,-10,0], [10,0,0]
+        let kernel_a = {
+            let profile = ClosedProfile {
+                entity_ids: vec![1, 2, 3, 4],
+                is_outer: true,
+                circle: None,
+                spline_segments: vec![],
+            };
+            let mut pos = HashMap::new();
+            pos.insert(1, (0.0, 0.0));
+            pos.insert(2, (10.0, 0.0));
+            pos.insert(3, (10.0, 10.0));
+            pos.insert(4, (0.0, 10.0));
+            let fids = kernel
+                .make_faces_from_profiles(
+                    &[profile], [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], x_axis, &pos,
+                )
+                .unwrap();
+            let h = kernel.extrude_face(fids[0], [0.0, 0.0, 1.0], 10.0).unwrap();
+            kernel.get_solid(&h).unwrap().clone()
+        };
+
+        // Box B: origin=[4,4,0], normal=[0,0,1], rect_profile(0,0,8,8)
+        // 3D corners: [4,4,0], [4,-4,0], [12,-4,0], [12,4,0]
+        let kernel_b = {
+            let profile = ClosedProfile {
+                entity_ids: vec![1, 2, 3, 4],
+                is_outer: true,
+                circle: None,
+                spline_segments: vec![],
+            };
+            let mut pos = HashMap::new();
+            pos.insert(1, (0.0, 0.0));
+            pos.insert(2, (8.0, 0.0));
+            pos.insert(3, (8.0, 8.0));
+            pos.insert(4, (0.0, 8.0));
+            let fids = kernel
+                .make_faces_from_profiles(
+                    &[profile], [4.0, 4.0, 0.0], [0.0, 0.0, 1.0], x_axis, &pos,
+                )
+                .unwrap();
+            let h = kernel.extrude_face(fids[0], [0.0, 0.0, 1.0], 8.0).unwrap();
+            kernel.get_solid(&h).unwrap().clone()
+        };
+
+        // Diagnostic: check edge sharing between adjacent faces
+        for (label, solid) in [("A", &kernel_a), ("B", &kernel_b)] {
+            let shell = &solid.boundaries()[0];
+            eprintln!("Box {} shell: {} faces", label, shell.len());
+            // Collect edge ID -> which faces it appears in
+            let mut edge_faces: std::collections::BTreeMap<u64, Vec<(usize, String)>> = std::collections::BTreeMap::new();
+            for (fi, face) in shell.face_iter().enumerate() {
+                let ori = if face.orientation() { "+" } else { "-" };
+                eprintln!("  face[{}]{}", fi, ori);
+                for wire in face.absolute_boundaries() {
+                    for edge in wire.iter() {
+                        let eid = edge.id().raw();
+                        let f = edge.absolute_front().point();
+                        let b = edge.absolute_back().point();
+                        let desc = format!("f{}{}({:.1},{:.1},{:.1})->({:.1},{:.1},{:.1})",
+                            fi, ori, f.x, f.y, f.z, b.x, b.y, b.z);
+                        edge_faces.entry(eid).or_default().push((fi, desc));
+                    }
+                }
+            }
+            let shared: Vec<_> = edge_faces.iter().filter(|(_, v)| v.len() > 1).collect();
+            let unshared: Vec<_> = edge_faces.iter().filter(|(_, v)| v.len() == 1).collect();
+            eprintln!("  {} shared edges, {} unshared edges", shared.len(), unshared.len());
+            if !unshared.is_empty() {
+                for (eid, locs) in &unshared {
+                    eprintln!("    UNSHARED eid={}: {}", eid, locs[0].1);
+                }
+            }
+        }
+
+        // Test or (uniform tol)
+        let or_result = truck_shapeops::or(&kernel_a, &kernel_b, 0.05);
+        eprintln!(
+            "or (uniform tol): {}",
+            if or_result.is_some() { "OK" } else { "FAIL" }
+        );
+
+        // Test or_result_with_tol_diag (layered tol)
+        let tols = crate::types::BooleanOptions::for_boolean_tol(0.05).to_boolean_tolerance();
+        let diag_result = truck_shapeops::or_result_with_tol_diag(&kernel_a, &kernel_b, &tols);
+        let diag_ok = diag_result.is_ok();
+        eprintln!("or_diag (layered tol): {}", if diag_ok { "OK" } else { "FAIL" });
+
+        assert!(or_result.is_some(), "or (uniform) must succeed with feature-engine axes");
+        assert!(diag_ok, "or_diag (layered) must succeed with feature-engine axes");
     }
 }
