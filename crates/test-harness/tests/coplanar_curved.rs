@@ -764,6 +764,53 @@ fn diag_true_nurbs_wasm_tolerance() {
     );
 }
 
+/// Reproduce the user's failure: full-depth cylinder cut fails with 12 open edges.
+/// Try multiple radius/height combos to find a failing configuration.
+#[test]
+fn diag_reproduce_gui_failure() {
+    let configs = [
+        // (outer_r, inner_r, height, label)
+        (10.0, 5.0, 10.0, "r10/r5/h10"),
+        (5.0, 2.0, 10.0, "r5/r2/h10"),
+        (5.0, 3.0, 10.0, "r5/r3/h10"),
+        (10.0, 3.0, 20.0, "r10/r3/h20"),
+        (8.0, 4.0, 15.0, "r8/r4/h15"),
+        (5.0, 1.0, 10.0, "r5/r1/h10"),
+        (3.0, 1.5, 5.0, "r3/r1.5/h5"),
+        (20.0, 8.0, 30.0, "r20/r8/h30"),
+    ];
+
+    let mut failures = Vec::new();
+    for (outer_r, inner_r, height, label) in &configs {
+        let mut m = ModelBuilder::truck();
+        m.true_circle_sketch("outer_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., *outer_r)
+            .unwrap();
+        m.extrude("cyl", "outer_sk", *height).unwrap();
+
+        m.true_circle_sketch("cut_sk", [0., 0., *height], [0., 0., 1.], 0., 0., *inner_r)
+            .unwrap();
+
+        match m.extrude_cut("hole", "cut_sk", *height) {
+            Ok(_) => {
+                if m.assert_has_solid("hole").is_ok() {
+                    eprintln!("  {} → OK", label);
+                } else {
+                    eprintln!("  {} → no solid!", label);
+                    failures.push(*label);
+                }
+            }
+            Err(e) => {
+                eprintln!("  {} → FAIL: {}", label, e);
+                failures.push(*label);
+            }
+        }
+    }
+
+    eprintln!("\nResults: {}/{} passed, failures: {:?}",
+        configs.len() - failures.len(), configs.len(), failures);
+    // Don't assert — this is a diagnostic to find which configs fail
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // CPU — Coplanar Curved-Face Unions
 // ══════════════════════════════════════════════════════════════════════════════
