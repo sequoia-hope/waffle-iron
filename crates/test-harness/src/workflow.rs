@@ -153,6 +153,82 @@ impl ModelBuilder {
         self.extract_last_feature_id(name, "FinishSketch(circle)", response)
     }
 
+    /// Create a true NURBS circle sketch (matching GUI path) in one call.
+    ///
+    /// Unlike `circle_sketch` which creates a polygon approximation, this creates
+    /// a true circular wire via rsweep (rational B-spline), matching the exact
+    /// code path used when a user draws a circle in the GUI.
+    pub fn true_circle_sketch(
+        &mut self,
+        name: &str,
+        origin: [f64; 3],
+        normal: [f64; 3],
+        cx: f64,
+        cy: f64,
+        r: f64,
+    ) -> Result<Uuid, HarnessError> {
+        self.check_name_available(name)?;
+
+        let plane = datum_plane_ref(Uuid::new_v4());
+        wasm_bridge::dispatch(
+            &mut self.state,
+            UiToEngine::BeginSketch { plane },
+            self.kernel.as_mut(),
+        );
+
+        // Create a single Circle entity (the GUI creates this when user draws a circle)
+        let circle_entity = SketchEntity::Circle {
+            id: 1,
+            center_id: 2,
+            radius: r,
+            construction: false,
+        };
+        let center_entity = SketchEntity::Point {
+            id: 2,
+            x: cx,
+            y: cy,
+            construction: true,
+        };
+
+        for entity in [center_entity, circle_entity] {
+            wasm_bridge::dispatch(
+                &mut self.state,
+                UiToEngine::AddSketchEntity { entity },
+                self.kernel.as_mut(),
+            );
+        }
+
+        // Create profile with CircleProfile (matching GUI's finishSketch enhancement)
+        let mut positions = std::collections::HashMap::new();
+        positions.insert(2, (cx, cy));
+
+        let profiles = vec![ClosedProfile {
+            entity_ids: vec![1],
+            is_outer: true,
+            circle: Some(waffle_types::CircleProfile {
+                center_u: cx,
+                center_v: cy,
+                radius: r,
+            }),
+            spline_segments: vec![],
+        }];
+
+        let response = wasm_bridge::dispatch(
+            &mut self.state,
+            UiToEngine::FinishSketch {
+                solved_positions: positions,
+                solved_profiles: profiles,
+                plane_origin: origin,
+                plane_normal: normal,
+                entities: vec![],
+                constraints: vec![],
+            },
+            self.kernel.as_mut(),
+        );
+
+        self.extract_last_feature_id(name, "FinishSketch(true_circle)", response)
+    }
+
     // ── Manual Sketch ───────────────────────────────────────────────────
 
     /// Begin a manual sketch on the given plane.
@@ -946,6 +1022,18 @@ impl ModelBuilder {
         let handle = self.solid_handle(name)?;
         self.kernel
             .tessellate(&handle, 0.1)
+            .map_err(|e| HarnessError::Engine(e.to_string()))
+    }
+
+    /// Tessellate with explicit tolerance (e.g., 0.0001 to match WASM path).
+    pub fn tessellate_with_tol(
+        &mut self,
+        name: &str,
+        tol: f64,
+    ) -> Result<RenderMesh, HarnessError> {
+        let handle = self.solid_handle(name)?;
+        self.kernel
+            .tessellate(&handle, tol)
             .map_err(|e| HarnessError::Engine(e.to_string()))
     }
 

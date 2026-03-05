@@ -820,3 +820,292 @@ fn test_no_catch_unwind_in_shapeops_hot_path() {
         "healing.rs should still contain its intentional catch_unwind"
     );
 }
+
+// ── B16: Concentric curved cylinder per-face bbox diagnostic ────
+
+/// Create a true curved cylinder (revolved surface) at the given offset and store in kernel.
+fn make_offset_cylinder(
+    kernel: &mut TruckKernel,
+    cx: f64,
+    cy: f64,
+    cz: f64,
+    radius: f64,
+    height: f64,
+) -> KernelSolidHandle {
+    use truck_modeling::builder;
+    use truck_modeling::{Point3, Rad, Vector3};
+
+    let v = builder::vertex(Point3::new(cx + radius, cy, cz));
+    let center = Point3::new(cx, cy, cz);
+    let wire = builder::rsweep(&v, center, Vector3::unit_z(), Rad(2.0 * std::f64::consts::PI), 3);
+    let face = builder::try_attach_plane(&[wire]).expect("Failed to create circular face");
+    let solid = builder::tsweep(&face, Vector3::new(0.0, 0.0, height));
+    kernel.store_solid(solid)
+}
+
+#[test]
+fn diag_curved_cylinder_subtract_face_bboxes() {
+    let mut kernel = TruckKernel::new();
+
+    // Outer cylinder r=5, h=20 (true revolved surface)
+    let h_outer = make_offset_cylinder(&mut kernel, 0.0, 0.0, 0.0, 5.0, 20.0);
+
+    // Get outer cylinder bbox as reference
+    let outer_mesh = kernel.tessellate(&h_outer, 0.05).unwrap();
+    let outer_bbox = mesh_bbox(&outer_mesh);
+    eprintln!("=== OUTER CYLINDER BBOX ===");
+    eprintln!("  min: [{:.2}, {:.2}, {:.2}]", outer_bbox.0[0], outer_bbox.0[1], outer_bbox.0[2]);
+    eprintln!("  max: [{:.2}, {:.2}, {:.2}]", outer_bbox.1[0], outer_bbox.1[1], outer_bbox.1[2]);
+
+    // Inner cylinder r=2, h=20 (concentric)
+    let h_inner = make_offset_cylinder(&mut kernel, 0.0, 0.0, 0.0, 2.0, 20.0);
+
+    // Subtract inner from outer
+    let h_tube = kernel
+        .boolean_subtract(&h_outer, &h_inner)
+        .expect("concentric cylinder subtract should succeed");
+
+    let mesh = kernel.tessellate(&h_tube, 0.05).unwrap();
+    let total_bbox = mesh_bbox(&mesh);
+    eprintln!("\n=== TUBE TOTAL BBOX ===");
+    eprintln!("  min: [{:.2}, {:.2}, {:.2}]", total_bbox.0[0], total_bbox.0[1], total_bbox.0[2]);
+    eprintln!("  max: [{:.2}, {:.2}, {:.2}]", total_bbox.1[0], total_bbox.1[1], total_bbox.1[2]);
+
+    // Get face signatures for surface type info
+    let introspect = TruckIntrospect::new(&kernel);
+    let face_ids = introspect.list_faces(&h_tube);
+    eprintln!("\n=== PER-FACE BOUNDING BOXES ({} faces) ===", mesh.face_ranges.len());
+
+    let mut bad_faces = Vec::new();
+    for (fi, face_range) in mesh.face_ranges.iter().enumerate() {
+        let mut face_min = [f32::MAX; 3];
+        let mut face_max = [f32::MIN; 3];
+
+        for tri_base in (face_range.start_index..face_range.end_index).step_by(3) {
+            for corner in 0..3usize {
+                let vi = mesh.indices[tri_base as usize + corner] as usize * 3;
+                for j in 0..3 {
+                    face_min[j] = face_min[j].min(mesh.vertices[vi + j]);
+                    face_max[j] = face_max[j].max(mesh.vertices[vi + j]);
+                }
+            }
+        }
+        let tri_count = (face_range.end_index - face_range.start_index) / 3;
+
+        // Check if this face extends beyond the outer cylinder bbox
+        let tol = 1.0; // generous tolerance
+        let exceeds = face_max[0] > outer_bbox.1[0] + tol
+            || face_max[1] > outer_bbox.1[1] + tol
+            || face_max[2] > outer_bbox.1[2] + tol
+            || face_min[0] < outer_bbox.0[0] - tol
+            || face_min[1] < outer_bbox.0[1] - tol
+            || face_min[2] < outer_bbox.0[2] - tol;
+        let flag = if exceeds { " *** EXCEEDS ***" } else { "" };
+        if exceeds {
+            bad_faces.push((fi, face_min, face_max));
+        }
+
+        // Get face signature if available
+        let sig_info = if fi < face_ids.len() {
+            let sig = introspect.compute_signature(face_ids[fi], kernel_fork::types::TopoKind::Face);
+            format!("type={:?}", sig.surface_type)
+        } else {
+            "no-sig".to_string()
+        };
+
+        eprintln!(
+            "  face[{}]: {} tris, min=[{:.2},{:.2},{:.2}], max=[{:.2},{:.2},{:.2}] {} {}",
+            fi, tri_count,
+            face_min[0], face_min[1], face_min[2],
+            face_max[0], face_max[1], face_max[2],
+            sig_info,
+            flag,
+        );
+    }
+
+    eprintln!("\n=== SUMMARY ===");
+    eprintln!("  Total faces: {}", mesh.face_ranges.len());
+    eprintln!("  Faces exceeding outer bbox: {}", bad_faces.len());
+    for (fi, fmin, fmax) in &bad_faces {
+        eprintln!(
+            "    face[{}]: min=[{:.2},{:.2},{:.2}], max=[{:.2},{:.2},{:.2}]",
+            fi, fmin[0], fmin[1], fmin[2], fmax[0], fmax[1], fmax[2]
+        );
+    }
+
+    assert!(
+        bad_faces.is_empty(),
+        "{} faces extend beyond the outer cylinder bounding box!",
+        bad_faces.len()
+    );
+}
+
+/// Reproduce exact GUI workflow: circle at z=20 extruded downward (inverted normal).
+/// This matches what happens when user draws circle on top face and extrude-cuts.
+#[test]
+fn diag_gui_workflow_cylinder_cut_full_depth() {
+    use truck_modeling::builder;
+    use truck_modeling::{EuclideanSpace, Point3, Rad, Vector3};
+    use truck_modeling::geometry::Surface;
+    use truck_modeling::InnerSpace;
+
+    let mut kernel = TruckKernel::new();
+
+    // Step 1: Outer cylinder r=5, h=20 (circle at z=0, extrude up)
+    let v_outer = builder::vertex(Point3::new(5.0, 0.0, 0.0));
+    let wire_outer = builder::rsweep(
+        &v_outer,
+        Point3::origin(),
+        Vector3::unit_z(),
+        Rad(2.0 * std::f64::consts::PI),
+        3,
+    );
+    let face_outer = builder::try_attach_plane(&[wire_outer]).unwrap();
+    let outer_solid = builder::tsweep(&face_outer, Vector3::new(0.0, 0.0, 20.0));
+    let h_outer = kernel.store_solid(outer_solid);
+
+    // Get outer bounding box
+    let outer_mesh = kernel.tessellate(&h_outer, 0.05).unwrap();
+    let outer_bbox = mesh_bbox(&outer_mesh);
+    eprintln!("=== OUTER CYLINDER BBOX ===");
+    eprintln!("  min: [{:.2}, {:.2}, {:.2}]", outer_bbox.0[0], outer_bbox.0[1], outer_bbox.0[2]);
+    eprintln!("  max: [{:.2}, {:.2}, {:.2}]", outer_bbox.1[0], outer_bbox.1[1], outer_bbox.1[2]);
+
+    // Step 2: Inner cylinder — circle at z=20, extrude DOWNWARD (GUI workflow)
+    // In GUI: user draws circle on top face (z=20, normal [0,0,1])
+    // Extrude-cut goes downward, so sweep_vec = [0,0,-20]
+    // The feature-engine flips the face because sweep opposes normal
+    let v_inner = builder::vertex(Point3::new(2.0, 0.0, 20.0));
+    let wire_inner = builder::rsweep(
+        &v_inner,
+        Point3::new(0.0, 0.0, 20.0),
+        Vector3::unit_z(),
+        Rad(2.0 * std::f64::consts::PI),
+        3,
+    );
+    let face_inner = builder::try_attach_plane(&[wire_inner]).unwrap();
+    // Mimic extrude_face: check if sweep direction opposes face normal, flip if so
+    let sweep_vec = Vector3::new(0.0, 0.0, -20.0);
+    let face_normal: Option<Vector3> = match face_inner.surface() {
+        Surface::Plane(ref p) => Some(p.normal()),
+        _ => None,
+    };
+    let face_inner = if let Some(n) = face_normal {
+        if InnerSpace::dot(n, sweep_vec) < 0.0 {
+            eprintln!("  [flip] Inner face normal opposes sweep direction, inverting");
+            face_inner.inverse()
+        } else {
+            face_inner
+        }
+    } else {
+        face_inner
+    };
+    let inner_solid = builder::tsweep(&face_inner, sweep_vec);
+    let h_inner = kernel.store_solid(inner_solid);
+
+    // Check inner cylinder bbox
+    let inner_mesh = kernel.tessellate(&h_inner, 0.05).unwrap();
+    let inner_bbox = mesh_bbox(&inner_mesh);
+    eprintln!("\n=== INNER CYLINDER (tool body) BBOX ===");
+    eprintln!("  min: [{:.2}, {:.2}, {:.2}]", inner_bbox.0[0], inner_bbox.0[1], inner_bbox.0[2]);
+    eprintln!("  max: [{:.2}, {:.2}, {:.2}]", inner_bbox.1[0], inner_bbox.1[1], inner_bbox.1[2]);
+
+    // Step 3: Subtract
+    let h_tube = kernel
+        .boolean_subtract(&h_outer, &h_inner)
+        .expect("GUI-workflow concentric cylinder subtract should succeed");
+
+    let mesh = kernel.tessellate(&h_tube, 0.05).unwrap();
+    let total_bbox = mesh_bbox(&mesh);
+    eprintln!("\n=== TUBE TOTAL BBOX ===");
+    eprintln!("  min: [{:.2}, {:.2}, {:.2}]", total_bbox.0[0], total_bbox.0[1], total_bbox.0[2]);
+    eprintln!("  max: [{:.2}, {:.2}, {:.2}]", total_bbox.1[0], total_bbox.1[1], total_bbox.1[2]);
+
+    // Check total bbox doesn't exceed outer
+    let tol = 1.0;
+    let total_exceeds = total_bbox.1[0] > outer_bbox.1[0] + tol
+        || total_bbox.1[1] > outer_bbox.1[1] + tol
+        || total_bbox.1[2] > outer_bbox.1[2] + tol
+        || total_bbox.0[0] < outer_bbox.0[0] - tol
+        || total_bbox.0[1] < outer_bbox.0[1] - tol
+        || total_bbox.0[2] < outer_bbox.0[2] - tol;
+    eprintln!("  Total bbox exceeds outer: {}", total_exceeds);
+
+    // Per-face bounding boxes
+    let introspect = TruckIntrospect::new(&kernel);
+    let face_ids = introspect.list_faces(&h_tube);
+    eprintln!("\n=== PER-FACE BOUNDING BOXES ({} faces) ===", mesh.face_ranges.len());
+
+    let mut bad_faces = Vec::new();
+    for (fi, face_range) in mesh.face_ranges.iter().enumerate() {
+        let mut face_min = [f32::MAX; 3];
+        let mut face_max = [f32::MIN; 3];
+
+        for tri_base in (face_range.start_index..face_range.end_index).step_by(3) {
+            for corner in 0..3usize {
+                let vi = mesh.indices[tri_base as usize + corner] as usize * 3;
+                for j in 0..3 {
+                    face_min[j] = face_min[j].min(mesh.vertices[vi + j]);
+                    face_max[j] = face_max[j].max(mesh.vertices[vi + j]);
+                }
+            }
+        }
+        let tri_count = (face_range.end_index - face_range.start_index) / 3;
+
+        let tol = 1.0;
+        let exceeds = face_max[0] > outer_bbox.1[0] + tol
+            || face_max[1] > outer_bbox.1[1] + tol
+            || face_max[2] > outer_bbox.1[2] + tol
+            || face_min[0] < outer_bbox.0[0] - tol
+            || face_min[1] < outer_bbox.0[1] - tol
+            || face_min[2] < outer_bbox.0[2] - tol;
+        let flag = if exceeds { " *** EXCEEDS ***" } else { "" };
+        if exceeds {
+            bad_faces.push((fi, face_min, face_max));
+        }
+
+        let sig_info = if fi < face_ids.len() {
+            let sig = introspect.compute_signature(face_ids[fi], kernel_fork::types::TopoKind::Face);
+            format!("type={:?}", sig.surface_type)
+        } else {
+            "no-sig".to_string()
+        };
+
+        eprintln!(
+            "  face[{}]: {} tris, min=[{:.2},{:.2},{:.2}], max=[{:.2},{:.2},{:.2}] {} {}",
+            fi, tri_count,
+            face_min[0], face_min[1], face_min[2],
+            face_max[0], face_max[1], face_max[2],
+            sig_info,
+            flag,
+        );
+    }
+
+    eprintln!("\n=== SUMMARY ===");
+    eprintln!("  Total faces: {}", mesh.face_ranges.len());
+    eprintln!("  Faces exceeding outer bbox: {}", bad_faces.len());
+    for (fi, fmin, fmax) in &bad_faces {
+        eprintln!(
+            "    face[{}]: min=[{:.2},{:.2},{:.2}], max=[{:.2},{:.2},{:.2}]",
+            fi, fmin[0], fmin[1], fmin[2], fmax[0], fmax[1], fmax[2]
+        );
+    }
+
+    assert!(
+        bad_faces.is_empty(),
+        "{} faces extend beyond the outer cylinder bounding box!",
+        bad_faces.len()
+    );
+}
+
+fn mesh_bbox(mesh: &kernel_fork::types::RenderMesh) -> ([f32; 3], [f32; 3]) {
+    let mut min = [f32::MAX; 3];
+    let mut max = [f32::MIN; 3];
+    for chunk in mesh.vertices.chunks(3) {
+        for i in 0..3 {
+            min[i] = min[i].min(chunk[i]);
+            max[i] = max[i].max(chunk[i]);
+        }
+    }
+    (min, max)
+}
