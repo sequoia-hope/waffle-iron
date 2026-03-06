@@ -17,4 +17,7 @@ pub mod corpus;
 pub mod coverage;
 pub mod determinism;
 pub mod properties;
+pub mod properties_v2;
+pub mod regions;
 pub mod strategies;
+pub mod strategies_v2;

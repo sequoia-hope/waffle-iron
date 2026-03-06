@@ -238,6 +238,54 @@ pub fn circle_profile(cx: f64, cy: f64, r: f64, segments: u32) -> ProfileData {
     (entities, positions, profiles)
 }
 
+/// Build a convex polygon sketch profile from explicit vertex positions.
+///
+/// Returns (entities, solved_positions, profiles) ready for FinishSketch.
+/// Points are numbered 1..=N, lines 100..100+N-1.
+pub fn polygon_profile(vertices: &[(f64, f64)]) -> ProfileData {
+    let n = vertices.len() as u32;
+    assert!(n >= 3, "polygon_profile requires at least 3 vertices");
+
+    let mut entities = Vec::new();
+    let mut positions = HashMap::new();
+
+    // Points: IDs 1..=N
+    for (i, &(x, y)) in vertices.iter().enumerate() {
+        let id = (i as u32) + 1;
+        entities.push(SketchEntity::Point {
+            id,
+            x,
+            y,
+            construction: false,
+        });
+        positions.insert(id, (x, y));
+    }
+
+    // Lines: IDs 100..100+N-1, connecting consecutive vertices (closing the loop)
+    let mut entity_ids = Vec::new();
+    for i in 0..n {
+        let lid = 100 + i;
+        let start_id = i + 1;
+        let end_id = (i + 1) % n + 1;
+        entities.push(SketchEntity::Line {
+            id: lid,
+            start_id,
+            end_id,
+            construction: false,
+        });
+        entity_ids.push(i + 1);
+    }
+
+    let profiles = vec![ClosedProfile {
+        entity_ids,
+        is_outer: true,
+        circle: None,
+        spline_segments: vec![],
+    }];
+
+    (entities, positions, profiles)
+}
+
 // ── Gear Profile Builder ───────────────────────────────────────────────────
 
 /// Build a gear-shaped sketch profile with involute-approximated teeth.
@@ -558,6 +606,33 @@ mod tests {
         assert_eq!(entities.len(), 17);
         assert_eq!(positions.len(), 9); // center + 8 perimeter
         assert_eq!(profiles.len(), 1);
+    }
+
+    #[test]
+    fn polygon_profile_triangle() {
+        let verts = vec![(0.0, 0.0), (10.0, 0.0), (5.0, 8.66)];
+        let (entities, positions, profiles) = polygon_profile(&verts);
+        // 3 points + 3 lines = 6 entities
+        assert_eq!(entities.len(), 6);
+        assert_eq!(positions.len(), 3);
+        assert_eq!(profiles.len(), 1);
+        assert!(profiles[0].is_outer);
+        assert_eq!(profiles[0].entity_ids.len(), 3);
+    }
+
+    #[test]
+    fn polygon_profile_hexagon() {
+        let verts: Vec<(f64, f64)> = (0..6)
+            .map(|i| {
+                let angle = std::f64::consts::TAU * (i as f64) / 6.0;
+                (10.0 * angle.cos(), 10.0 * angle.sin())
+            })
+            .collect();
+        let (entities, positions, profiles) = polygon_profile(&verts);
+        // 6 points + 6 lines = 12 entities
+        assert_eq!(entities.len(), 12);
+        assert_eq!(positions.len(), 6);
+        assert_eq!(profiles[0].entity_ids.len(), 6);
     }
 
     #[test]
