@@ -1026,6 +1026,11 @@ fn g1_rect_boss_coplanar_auto_union() {
 
 /// Stacked boxes with coplanar face at z=10 — no volumetric overlap.
 /// Verifies that coplanar face union produces correct topology and volume.
+// PERTURBATION-DEPENDENT: direct attempt fails (8 open edges in shell assembly).
+// Succeeds via asymm-scale perturbation (~attempt #37). The truck-level
+// `stacked_boxes_coplanar_union` test passes without perturbation, so the
+// root cause is in the kernel-fork cascade path (likely `or_result_with_tol_diag`
+// finalization vs `or_result_with_tol` finalization).
 #[test]
 fn g2_stacked_boxes_coplanar_face() {
     let mut m = ModelBuilder::truck();

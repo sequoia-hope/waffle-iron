@@ -53,15 +53,61 @@ fn solid_volume(solid: &Solid) -> Option<f64> {
     Some((volume / 6.0).abs())
 }
 
+/// Compute what fraction of the smaller operand's AABB volume is overlapped
+/// by the larger operand's AABB. Returns 0.0 for disjoint operands, 1.0 for
+/// fully contained ones.
+fn aabb_overlap_fraction(solid_a: &Solid, solid_b: &Solid) -> f64 {
+    let (min_a, max_a) = solid_aabb(solid_a);
+    let (min_b, max_b) = solid_aabb(solid_b);
+    // Compute intersection AABB
+    let mut overlap_vol = 1.0f64;
+    for i in 0..3 {
+        let lo = min_a[i].max(min_b[i]);
+        let hi = max_a[i].min(max_b[i]);
+        if lo >= hi {
+            return 0.0; // Disjoint along this axis
+        }
+        overlap_vol *= hi - lo;
+    }
+    // Compute each operand's AABB volume
+    let vol_a = (max_a[0] - min_a[0]) * (max_a[1] - min_a[1]) * (max_a[2] - min_a[2]);
+    let vol_b = (max_b[0] - min_b[0]) * (max_b[1] - min_b[1]) * (max_b[2] - min_b[2]);
+    let min_vol = vol_a.min(vol_b).max(1e-30);
+    (overlap_vol / min_vol).min(1.0)
+}
+
+/// Compute the axis-aligned bounding box of a solid from its boundary vertices.
+fn solid_aabb(solid: &Solid) -> ([f64; 3], [f64; 3]) {
+    let mut min = [f64::MAX; 3];
+    let mut max = [f64::MIN; 3];
+    for shell in solid.boundaries() {
+        for v in shell.vertex_iter() {
+            let p = v.point();
+            min[0] = min[0].min(p.x);
+            min[1] = min[1].min(p.y);
+            min[2] = min[2].min(p.z);
+            max[0] = max[0].max(p.x);
+            max[1] = max[1].max(p.y);
+            max[2] = max[2].max(p.z);
+        }
+    }
+    (min, max)
+}
+
 /// Check if a result volume satisfies algebraic bounds for the given boolean operation.
 ///
 /// Returns `true` if volume is acceptable (within 15% tolerance of theoretical bounds).
 /// Returns `true` if operation type or any input volume is unknown (don't reject).
+///
+/// `operand_aabb_overlap` is the fraction of AABB overlap between the two operands
+/// (0.0 = disjoint, 1.0 = fully overlapping). When operands are nearly disjoint,
+/// union volume must be close to the sum of individual volumes.
 fn volume_in_bounds(
     vol_result: f64,
     vol_a: Option<f64>,
     vol_b: Option<f64>,
     op: Option<BooleanOp>,
+    operand_aabb_overlap: f64,
 ) -> bool {
     let (Some(va), Some(vb), Some(op)) = (vol_a, vol_b, op) else {
         return true; // Can't check without all info — accept
@@ -69,8 +115,20 @@ fn volume_in_bounds(
     const MARGIN: f64 = 1.15; // 15% tolerance
     match op {
         BooleanOp::Union => {
-            // Union volume ≤ vol(A) + vol(B) and ≥ max(vol(A), vol(B))
-            vol_result <= MARGIN * (va + vb) && vol_result >= va.max(vb) / MARGIN
+            let upper = vol_result <= MARGIN * (va + vb);
+            let lower = vol_result >= va.max(vb) / MARGIN;
+            if !upper || !lower {
+                return false;
+            }
+            // For nearly disjoint operands (AABB overlap < 1%), the union volume
+            // must be close to the sum. This catches "one operand dropped" bugs
+            // (g2 stacked boxes: vol=1000 instead of 2000) without rejecting
+            // coincident geometry (h3: A|A = A, which has 100% AABB overlap).
+            if operand_aabb_overlap < 0.01 {
+                vol_result >= (va + vb) * 0.85
+            } else {
+                true
+            }
         }
         BooleanOp::Subtraction => {
             // Subtraction volume: vol(A-B) = vol(A) - vol(A∩B)
@@ -1183,7 +1241,7 @@ pub fn heal_intersection_curves(solid: &Solid, tol: f64) -> HealingResult {
 /// This prevents post-processing from destroying precise boolean cavity geometry
 /// (e.g. T5 where heal+dedup moves vertex positions, dropping volume from ~961 to ~658).
 pub fn heal_and_dedup_volume_guarded(solid: &Solid, heal_tol: f64) {
-    use truck_modeling::topology::{Edge, Vertex, EdgeID, VertexID};
+    use truck_modeling::topology::{Edge, EdgeID, Vertex, VertexID};
 
     // Save all vertex positions and edge curves before any post-processing
     let mut saved_verts: Vec<(Vertex, Point3)> = Vec::new();
@@ -2029,6 +2087,10 @@ pub fn try_boolean_with_perturbation_vol(
 
     let effective_a = healed_a.as_ref().unwrap_or(solid_a);
 
+    // Pre-compute AABB overlap fraction for volume bound checks.
+    // Used to tighten union bounds when operands are geometrically disjoint.
+    let overlap_frac = aabb_overlap_fraction(effective_a, solid_b);
+
     // Cumulative timeout for the entire perturbation cascade (120 seconds).
     // Without this, a failing boolean on a complex body can burn 50+ retries
     // at 20-60s each, taking 15+ minutes total. 120s allows ~30 attempts
@@ -2128,12 +2190,12 @@ pub fn try_boolean_with_perturbation_vol(
                     let va = cached_vol_a.get().unwrap_or(None);
                     let vb = cached_vol_b.get().unwrap_or(None);
                     if let Some(vr) = solid_volume(&$result) {
-                        let ok = volume_in_bounds(vr, va, vb, boolean_op);
+                        let ok = volume_in_bounds(vr, va, vb, boolean_op, overlap_frac);
                         #[cfg(debug_assertions)]
                         if !ok {
                             eprintln!(
-                                "[perturbation] {} chi=2 but volume {:.1} out of bounds (A={:.1}, B={:.1}, op={:?})",
-                                $label, vr, va.unwrap_or(-1.0), vb.unwrap_or(-1.0), boolean_op,
+                                "[perturbation] {} chi=2 but volume {:.1} out of bounds (A={:.1}, B={:.1}, op={:?}, aabb_overlap={:.3})",
+                                $label, vr, va.unwrap_or(-1.0), vb.unwrap_or(-1.0), boolean_op, overlap_frac,
                             );
                         }
                         ok

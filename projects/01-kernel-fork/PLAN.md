@@ -210,8 +210,34 @@ Key files:
 - `integrate/tests.rs`: `stacked_boxes_coplanar_union` reproduction test
 
 Recovered: `stacked_boxes_coplanar_union` (truck-level, vol=2000.0, 12 faces, 0 open edges).
-The test-harness `g2_stacked_boxes_coplanar_face` still fails (pre-existing — perturbation
-retry loop in kernel-fork masks the fix).
+
+### B18: Fix g2 Kernel Path + AABB-Aware Union Volume Bounds ✅ (Sprint 58)
+
+Two-part fix to recover `g2_stacked_boxes_coplanar_face` through the kernel path:
+
+**Part A — Align `tau_mesh` with `tau_model`** (`types.rs`):
+`BooleanOptions` constructors (`default`, `for_scale`, `for_boolean_tol`) all used
+`tau_mesh = 0.5 * tau_model`, while `BooleanTolerance::from_model_tol()` (used by all
+truck-level tests) uses `tau_mesh = tau_model`. The halved mesh tolerance produced
+different IC topology at coplanar boundaries. Fix: set `tau_mesh = tau_model` in all
+three constructors. The `validate()` check `tau_mesh <= tau_model` passes when equal.
+
+**Part B — AABB-aware union volume bounds** (`healing.rs`):
+The perturbation cascade accepted wrong vol=1000 results (should be 2000) because the
+union lower bound `max(A,B)/1.15 = 869.6` was too loose. A naive sum-fraction check
+(`vol >= sum * 0.55`) breaks coincident-box tests (h3: A|A = A, ratio=0.5). Fix: compute
+AABB overlap fraction between operands before the cascade. When overlap < 1% (geometrically
+disjoint), require `vol >= (va+vb) * 0.85`. When overlap >= 1%, use original bounds.
+- g2: AABB overlap = 0.0 (disjoint), rejects vol=1000, cascade continues to asymm-scale
+  which produces correct vol≈2000.
+- h3: AABB overlap = 1.0 (coincident), original bounds accept vol=1000 (correct).
+
+**Part C — Truck-level regression test** (`integrate/tests.rs`):
+`stacked_boxes_coplanar_union_half_mesh_tol` — same g2 geometry with `tau_mesh = 0.025`
+(half of `tau_model = 0.05`) to confirm B17 fix works regardless of mesh tolerance ratio.
+
+Recovered: `g2_stacked_boxes_coplanar_face` (test-harness, vol≈2000 via asymm-scale).
+Still perturbation-dependent — direct attempt fails with 8 open edges.
 
 ---
 
@@ -219,11 +245,11 @@ retry loop in kernel-fork masks the fix).
 
 | Suite | Pass | Fail | Ignored |
 |-------|------|------|---------|
-| truck-shapeops | 373 | 3* | 3 |
+| truck-shapeops | 374 | 3* | 3 |
 | truck-geometry (revolved_curve) | 11 | 0 | 0 |
 | kernel-fork | 203 | 1* | 2 |
 | test-harness/boolean_properties | 28 | 0 | 0 |
-| test-harness/boolean_workflows | 36 | 2‡ | 0 |
+| test-harness/boolean_workflows | 37 | 1‡ | 0 |
 | test-harness/boolean_edge_cases | 8 | 0 | 0 |
 | test-harness/boolean_recovery | 14 | 0 | 1 |
 | test-harness/boolean_shell_closure | 3 | 1* | 0 |
@@ -231,10 +257,21 @@ retry loop in kernel-fork masks the fix).
 | test-harness/coplanar_curved | 13 | 0 | 1 |
 | test-harness/multi_op_chains | 5 | 0 | 1 |
 | test-harness/revolve_boolean | 3 | 2† | 3 |
-| test-harness (total) | 400+ | 5 | 6 |
+| test-harness (total) | 400+ | 4 | 6 |
 
 *Pre-existing failures (fillet, euler_characteristic, perturbed, shell_closure_overlapping_cuts)
 †RB1, RB6 — pre-existing regression from D1.6/D1.7 commits (boundary-coincident IC skip)
-‡e2_very_large_boss_exceeds_face, g2_stacked_boxes — pre-existing (g2 fixed at truck level but kernel perturbation retry masks fix)
+‡e2_very_large_boss_exceeds_face — pre-existing (all 23 perturbation attempts exhausted)
 
-Last updated: Sprint 57 (2026-03-06)
+Last updated: Sprint 58 (2026-03-06)
+
+---
+
+## Perturbation-Dependent Tests
+
+Tests that pass but require the perturbation cascade (direct attempt fails).
+These are candidates for improvement — ideally the direct boolean should succeed.
+
+| Test | Strategy | Attempts | Root Cause |
+|------|----------|----------|------------|
+| g2_stacked_boxes_coplanar_face | asymm-scale | ~37 | Direct `or_result_with_tol_diag` produces 8 open edges; truck-level `or` passes — difference is in finalization path |

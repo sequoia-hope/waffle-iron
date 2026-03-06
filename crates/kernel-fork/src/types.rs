@@ -215,7 +215,7 @@ impl Default for BooleanOptions {
         let tau_model = 1e-7;
         Self {
             tau_model,
-            tau_mesh: 0.5 * tau_model,
+            tau_mesh: tau_model,
             tau_weld: 0.4 * tau_model,
             tau_work: 1e-12,
             tau_coplanar: tau_model,
@@ -234,7 +234,7 @@ impl BooleanOptions {
         let tau_model = (extent * 1e-7).clamp(1e-9, 1e-5);
         Self {
             tau_model,
-            tau_mesh: 0.5 * tau_model,
+            tau_mesh: tau_model,
             tau_weld: 0.4 * tau_model,
             tau_work: 1e-12,
             tau_coplanar: tau_model,
@@ -308,7 +308,7 @@ impl BooleanOptions {
     pub fn for_boolean_tol(tol: f64) -> Self {
         Self {
             tau_model: tol,
-            tau_mesh: tol * 0.5,
+            tau_mesh: tol,
             tau_weld: tol * 0.4,
             tau_work: 1e-12,
             // tau_coplanar must equal tau_model — the coplanar distance check
@@ -578,8 +578,8 @@ mod tests {
             opts.tau_model
         );
         assert!(
-            (opts.tau_mesh - 5e-8).abs() < 1e-15,
-            "tau_mesh should be 5e-8, got {}",
+            (opts.tau_mesh - 1e-7).abs() < 1e-15,
+            "tau_mesh should be 1e-7 (= tau_model), got {}",
             opts.tau_mesh
         );
         assert!(
@@ -647,8 +647,8 @@ mod tests {
             small.tau_model
         );
         assert!(
-            (small.tau_mesh - expected_tau * 0.5).abs() < 1e-20,
-            "tau_mesh should be half of tau_model"
+            (small.tau_mesh - expected_tau).abs() < 1e-20,
+            "tau_mesh should equal tau_model"
         );
         assert!(
             small.validate().is_ok(),
@@ -795,8 +795,8 @@ mod tests {
             "tau_model should equal input tol"
         );
         assert!(
-            (opts.tau_mesh - tol * 0.5).abs() < 1e-15,
-            "tau_mesh should be tol/2"
+            (opts.tau_mesh - tol).abs() < 1e-15,
+            "tau_mesh should equal tol"
         );
         assert!(
             (opts.tau_weld - tol * 0.4).abs() < 1e-15,
