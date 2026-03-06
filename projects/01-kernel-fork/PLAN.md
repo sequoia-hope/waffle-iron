@@ -239,17 +239,56 @@ disjoint), require `vol >= (va+vb) * 0.85`. When overlap >= 1%, use original bou
 Recovered: `g2_stacked_boxes_coplanar_face` (test-harness, vol≈2000 via asymm-scale).
 Still perturbation-dependent — direct attempt fails with 8 open edges.
 
+### B19: Contained-Larger-Than-Container Coplanar Union ✅ (Sprint 59)
+
+Fixes `e2_very_large_boss_exceeds_face`: 10×10×10 box unioned with 16-gon prism (r=8,
+center (5,5)) on z=10 top face. Boss is LARGER than box face — all 23 perturbation
+attempts previously failed with "4 open edges."
+
+**Three root causes fixed:**
+
+**Fix 1 — Symmetric coplanar adjacency skip** (`loops_store/mod.rs`):
+The `coplanar_adj_skip` set was asymmetric. When `i_in_j` (box top contained in boss
+bottom), the code skipped `(shell0_adjacent, container_j)` but missed
+`(contained_i, shell1_adjacent)`. This allowed ICs between box top and boss lateral
+faces, duplicating the containment injection boundary. Fix: add symmetric skip entries
+for both containment directions.
+
+**Fix 2 — B19 early-exit for containment-only loops** (`divide_face/mod.rs`):
+For coplanar faces with containment-only loops (from boundary injection, not IC
+processing), use `construct_ring_disc_direct` to build ring+disc faces directly from
+the loops_store wires. This preserves original edge identity — `divide_one_face_v2`
+uses FBG parametric-space decomposition which creates NEW edges, breaking edge sharing
+with adjacent faces.
+
+**Fix 3 — Ring face excluded from contained disc fixup** (`integrate/mod.rs`):
+The contained fixup (A) incorrectly moved ring faces from or1 → and1. The ring's outer
+wire (16-gon) centroid at (5,5,10) is inside the contained face (box top 10×10), but
+the ring face ITSELF extends far beyond the box. Fix: skip faces with multiple boundary
+wires (rings have holes; disc faces are simple single-wire faces). Also unified the
+`altshell_to_shell` conversion: all four buckets (and0/or0/and1/or1) pass through a
+single `Shell::try_mapped` call to preserve cross-bucket edge sharing.
+
+Key files:
+- `loops_store/mod.rs`: symmetric skip in `coplanar_adj_skip` (lines 1635-1682)
+- `divide_face/mod.rs`: `construct_ring_disc_direct` + `is_containment_only_loops`
+- `integrate/mod.rs`: ring face guard in contained fixup, unified altshell_to_shell
+- `integrate/tests.rs`: `large_boss_exceeds_face_union` reproduction test
+
+Recovered: `e2_very_large_boss_exceeds_face` (test-harness, vol≈1993, 0 open edges).
+Also: `large_boss_exceeds_face_union` (truck-level, same geometry).
+
 ---
 
 ## Test Scoreboard
 
 | Suite | Pass | Fail | Ignored |
 |-------|------|------|---------|
-| truck-shapeops | 374 | 3* | 3 |
+| truck-shapeops | 375 | 3* | 3 |
 | truck-geometry (revolved_curve) | 11 | 0 | 0 |
 | kernel-fork | 203 | 1* | 2 |
 | test-harness/boolean_properties | 28 | 0 | 0 |
-| test-harness/boolean_workflows | 37 | 1‡ | 0 |
+| test-harness/boolean_workflows | 38 | 0 | 0 |
 | test-harness/boolean_edge_cases | 8 | 0 | 0 |
 | test-harness/boolean_recovery | 14 | 0 | 1 |
 | test-harness/boolean_shell_closure | 3 | 1* | 0 |
@@ -257,13 +296,12 @@ Still perturbation-dependent — direct attempt fails with 8 open edges.
 | test-harness/coplanar_curved | 13 | 0 | 1 |
 | test-harness/multi_op_chains | 5 | 0 | 1 |
 | test-harness/revolve_boolean | 3 | 2† | 3 |
-| test-harness (total) | 400+ | 4 | 6 |
+| test-harness (total) | 400+ | 3 | 6 |
 
 *Pre-existing failures (fillet, euler_characteristic, perturbed, shell_closure_overlapping_cuts)
 †RB1, RB6 — pre-existing regression from D1.6/D1.7 commits (boundary-coincident IC skip)
-‡e2_very_large_boss_exceeds_face — pre-existing (all 23 perturbation attempts exhausted)
 
-Last updated: Sprint 58 (2026-03-06)
+Last updated: Sprint 59 (2026-03-06)
 
 ---
 
