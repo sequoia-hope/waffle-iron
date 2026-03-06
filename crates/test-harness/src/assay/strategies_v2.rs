@@ -226,6 +226,8 @@ pub struct ChainResult {
     pub completed_steps: usize,
     pub step_volumes: Vec<f64>,
     pub final_feature: String,
+    /// Per-step volume invariant results (I9-I12) for boolean operations.
+    pub volume_invariant_results: Vec<super::properties::PropertyResult>,
 }
 
 /// 3D cross product helper.
@@ -528,11 +530,127 @@ pub mod strats_v2 {
         ]
     }
 
+    /// Estimate the approximate radius of a profile from its vertices.
+    pub fn estimate_profile_radius(profile: &ProfileSpec) -> f64 {
+        let verts = super::profile_spec_vertices(profile);
+        if verts.is_empty() {
+            return 10.0;
+        }
+        let cx: f64 = verts.iter().map(|v| v.0).sum::<f64>() / verts.len() as f64;
+        let cy: f64 = verts.iter().map(|v| v.1).sum::<f64>() / verts.len() as f64;
+        verts
+            .iter()
+            .map(|v| ((v.0 - cx).powi(2) + (v.1 - cy).powi(2)).sqrt())
+            .fold(0.0f64, f64::max)
+            .max(2.0)
+    }
+
+    /// Overlap-biased sketch plane: origin near `center`, within `half_extent`.
+    ///
+    /// 60% axis-aligned, 40% tilted (same ratio as `sketch_plane_any`).
+    fn overlap_biased_plane(
+        center: [f64; 3],
+        half_extent: f64,
+    ) -> impl Strategy<Value = SketchPlaneSpec> {
+        let he = half_extent;
+        let c = center;
+        prop_oneof![
+            // 60% axis-aligned with origin near center
+            6 => (0u8..3, -he..he).prop_map(move |(axis, offset)| {
+                match axis {
+                    0 => SketchPlaneSpec {
+                        origin: [c[0], c[1], c[2] + offset],
+                        normal: [0.0, 0.0, 1.0],
+                    },
+                    1 => SketchPlaneSpec {
+                        origin: [c[0], c[1] + offset, c[2]],
+                        normal: [0.0, 1.0, 0.0],
+                    },
+                    _ => SketchPlaneSpec {
+                        origin: [c[0] + offset, c[1], c[2]],
+                        normal: [1.0, 0.0, 0.0],
+                    },
+                }
+            }),
+            // 40% tilted with origin near center
+            4 => (
+                -he..he, -he..he, -he..he,
+                0.1f64..std::f64::consts::PI - 0.1,
+                0.0f64..std::f64::consts::TAU,
+            ).prop_map(move |(dx, dy, dz, theta, phi)| {
+                SketchPlaneSpec {
+                    origin: [c[0] + dx, c[1] + dy, c[2] + dz],
+                    normal: [
+                        theta.sin() * phi.cos(),
+                        theta.sin() * phi.sin(),
+                        theta.cos(),
+                    ],
+                }
+            }),
+        ]
+    }
+
+    /// Overlap-biased convex polygon: radius proportional to `half_extent`,
+    /// center offset near zero so it overlaps the base body.
+    fn overlap_biased_polygon(half_extent: f64) -> impl Strategy<Value = ProfileSpec> {
+        let r_min = half_extent * 0.3;
+        let r_max = (half_extent * 1.5).max(r_min + 1.0);
+        (
+            3u32..=8,
+            r_min..r_max,
+            -half_extent * 0.3..half_extent * 0.3, // small center offset
+            -half_extent * 0.3..half_extent * 0.3,
+            0.0f64..std::f64::consts::TAU,
+        )
+            .prop_map(|(n_sides, radius, cx, cy, rotation)| {
+                let vertices = (0..n_sides)
+                    .map(|k| {
+                        let angle =
+                            std::f64::consts::TAU * (k as f64) / (n_sides as f64) + rotation;
+                        (cx + radius * angle.cos(), cy + radius * angle.sin())
+                    })
+                    .collect();
+                ProfileSpec::ConvexPolygon(ConvexPolygonSpec { vertices })
+            })
+    }
+
+    /// Overlap-biased chain step: plane near center, polygon sized to overlap,
+    /// extrude depth scaled to half_extent.
+    fn overlap_biased_step(center: [f64; 3], half_extent: f64) -> impl Strategy<Value = ChainStep> {
+        let d_min = (half_extent * 0.5).max(1.0);
+        let d_max = (half_extent * 2.0).max(d_min + 1.0);
+        prop_oneof![
+            // 70% overlap-biased polygon (high overlap probability)
+            7 => (
+                overlap_biased_plane(center, half_extent),
+                overlap_biased_polygon(half_extent),
+                d_min..d_max,
+            ).prop_map(|(plane, profile, depth)| ChainStep {
+                name: String::new(),
+                plane,
+                profile,
+                operation: OperationSpec::Extrude { depth },
+            }),
+            // 30% any profile (variety, may not overlap — tests disjoint cases)
+            3 => (
+                overlap_biased_plane(center, half_extent),
+                profile_spec_any(),
+                d_min..d_max,
+            ).prop_map(|(plane, profile, depth)| ChainStep {
+                name: String::new(),
+                plane,
+                profile,
+                operation: OperationSpec::Extrude { depth },
+            }),
+        ]
+    }
+
     /// Level 6: Generate a modeling chain with 2-5 steps.
     ///
     /// Step 0: Always axis-aligned + convex + extrude (reliable base).
-    /// Steps 1+: Any plane + any profile + extrude, then boolean against
-    /// the accumulated result.
+    /// Steps 1+: Overlap-biased plane + profile + extrude, then boolean
+    /// against the accumulated result. ~70-80% of subsequent steps will
+    /// spatially overlap the base body.
     pub fn modeling_chain() -> impl Strategy<Value = ModelingChain> {
         let step0 = (axis_aligned_plane(), convex_polygon(), extrude_depth()).prop_map(
             |(plane, poly, ext)| ChainStep {
@@ -543,25 +661,27 @@ pub mod strats_v2 {
             },
         );
 
-        let subsequent_steps = proptest::collection::vec(
-            (sketch_plane_any(), profile_spec_any(), extrude_depth()).prop_map(
-                |(plane, profile, ext)| ChainStep {
-                    name: String::new(),
-                    plane,
-                    profile,
-                    operation: OperationSpec::Extrude { depth: ext.depth },
-                },
-            ),
-            1..=4,
-        );
+        step0.prop_flat_map(|s0| {
+            // Derive spatial bounds from step 0
+            let base_radius = estimate_profile_radius(&s0.profile);
+            let base_depth = match &s0.operation {
+                OperationSpec::Extrude { depth } => *depth,
+                _ => 10.0,
+            };
+            let half_extent = base_radius.max(base_depth / 2.0);
+            let base_center = s0.plane.origin;
 
-        (step0, subsequent_steps).prop_map(|(first, mut rest)| {
-            let mut steps = vec![first];
-            for (i, mut step) in rest.drain(..).enumerate() {
-                step.name = format!("step_{}", i + 1);
-                steps.push(step);
-            }
-            ModelingChain { steps }
+            let biased_steps =
+                proptest::collection::vec(overlap_biased_step(base_center, half_extent), 1..=4);
+
+            biased_steps.prop_map(move |rest| {
+                let mut steps = vec![s0.clone()];
+                for (i, mut step) in rest.into_iter().enumerate() {
+                    step.name = format!("step_{}", i + 1);
+                    steps.push(step);
+                }
+                ModelingChain { steps }
+            })
         })
     }
 
@@ -932,6 +1052,26 @@ fn measure_volume(builder: &mut ModelBuilder, name: &str) -> Result<f64, String>
     Ok(mesh_volume(&mesh))
 }
 
+/// Check per-step volume invariants (I9-I12) for a boolean operation.
+///
+/// Tessellates operands A and B plus the result, then runs
+/// `check_volume_monotonicity`. If tessellation of any operand fails,
+/// the check is silently skipped (not a hard failure).
+fn check_step_volume_invariants(
+    builder: &mut ModelBuilder,
+    a_name: &str,
+    b_name: &str,
+    result_name: &str,
+    op: BoolOp,
+) -> Option<super::properties::PropertyResult> {
+    let mesh_a = builder.tessellate(a_name).ok()?;
+    let mesh_b = builder.tessellate(b_name).ok()?;
+    let mesh_r = builder.tessellate(result_name).ok()?;
+    Some(super::properties::check_volume_monotonicity(
+        &mesh_a, &mesh_b, &mesh_r, op,
+    ))
+}
+
 /// Execute a modeling chain and return intermediate results.
 ///
 /// Partial chains are valid: if a step fails with a known kernel limitation,
@@ -940,6 +1080,7 @@ pub fn execute_chain(scenario: &GenerativeChainScenario) -> Result<ChainResult, 
     let mut builder = ModelBuilder::truck();
     let chain = &scenario.chain;
     let mut step_volumes = Vec::new();
+    let mut vol_invariants = Vec::new();
 
     // Step 0: Create base body (always extrude, always merge)
     let step0 = &chain.steps[0];
@@ -969,6 +1110,7 @@ pub fn execute_chain(scenario: &GenerativeChainScenario) -> Result<ChainResult, 
                 completed_steps: 1,
                 step_volumes,
                 final_feature: "ext_0".to_string(),
+                volume_invariant_results: vol_invariants,
             });
         }
         Err(e) => return Err(e),
@@ -1008,6 +1150,7 @@ pub fn execute_chain(scenario: &GenerativeChainScenario) -> Result<ChainResult, 
                     completed_steps: i + 1,
                     step_volumes,
                     final_feature: last_feature,
+                    volume_invariant_results: vol_invariants,
                 });
             }
             Err(e) => return Err(e),
@@ -1021,6 +1164,16 @@ pub fn execute_chain(scenario: &GenerativeChainScenario) -> Result<ChainResult, 
                 // produced a tessellatable solid with positive volume.
                 match measure_volume(&mut builder, &bool_name) {
                     Ok(vol) if vol > 1e-6 => {
+                        // Check per-step volume invariants (I9-I12)
+                        if let Some(inv) = check_step_volume_invariants(
+                            &mut builder,
+                            &last_feature,
+                            &ext_name,
+                            &bool_name,
+                            op,
+                        ) {
+                            vol_invariants.push(inv);
+                        }
                         last_feature = bool_name;
                         step_volumes.push(vol);
                     }
@@ -1032,6 +1185,7 @@ pub fn execute_chain(scenario: &GenerativeChainScenario) -> Result<ChainResult, 
                             completed_steps: i + 1,
                             step_volumes,
                             final_feature: last_feature,
+                            volume_invariant_results: vol_invariants,
                         });
                     }
                     Err(e) if is_known_kernel_limitation(&e) => {
@@ -1042,6 +1196,7 @@ pub fn execute_chain(scenario: &GenerativeChainScenario) -> Result<ChainResult, 
                             completed_steps: i + 1,
                             step_volumes,
                             final_feature: last_feature,
+                            volume_invariant_results: vol_invariants,
                         });
                     }
                     Err(e) => return Err(e),
@@ -1053,6 +1208,7 @@ pub fn execute_chain(scenario: &GenerativeChainScenario) -> Result<ChainResult, 
                     completed_steps: i + 1,
                     step_volumes,
                     final_feature: last_feature,
+                    volume_invariant_results: vol_invariants,
                 });
             }
             Err(e) => return Err(e),
@@ -1064,6 +1220,7 @@ pub fn execute_chain(scenario: &GenerativeChainScenario) -> Result<ChainResult, 
         step_volumes,
         final_feature: last_feature,
         builder,
+        volume_invariant_results: vol_invariants,
     })
 }
 
@@ -1421,6 +1578,36 @@ mod tests {
             angle_deg: 180.0,
         };
         assert!(format!("{}", rev).contains("revolve"));
+    }
+
+    #[test]
+    fn estimate_profile_radius_convex() {
+        // A regular triangle with radius 10 centered at origin
+        let profile = ProfileSpec::ConvexPolygon(ConvexPolygonSpec {
+            vertices: vec![(10.0, 0.0), (-5.0, 8.66), (-5.0, -8.66)],
+        });
+        let r = strats_v2::estimate_profile_radius(&profile);
+        assert!((r - 10.0).abs() < 0.1, "Expected ~10.0, got {}", r);
+    }
+
+    #[test]
+    fn estimate_profile_radius_offset_center() {
+        // Square centered at (5,5) with half-side 3 → radius ≈ 3*sqrt(2) ≈ 4.24
+        let profile = ProfileSpec::ConvexPolygon(ConvexPolygonSpec {
+            vertices: vec![(2.0, 2.0), (8.0, 2.0), (8.0, 8.0), (2.0, 8.0)],
+        });
+        let r = strats_v2::estimate_profile_radius(&profile);
+        assert!((r - 4.243).abs() < 0.1, "Expected ~4.24, got {}", r);
+    }
+
+    #[test]
+    fn estimate_profile_radius_minimum() {
+        // Tiny profile — should clamp to 2.0
+        let profile = ProfileSpec::ConvexPolygon(ConvexPolygonSpec {
+            vertices: vec![(0.0, 0.0), (0.5, 0.0), (0.25, 0.4)],
+        });
+        let r = strats_v2::estimate_profile_radius(&profile);
+        assert!(r >= 2.0, "Minimum radius should be 2.0, got {}", r);
     }
 
     #[test]

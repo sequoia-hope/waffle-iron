@@ -481,9 +481,14 @@ impl TruckKernel {
         let solid_b = crate::healing::pre_split_closed_edges(&solid_b, tol);
 
         let op = make_op(tols);
-        let (result, diag) =
-            crate::healing::try_boolean_with_perturbation_diag(&solid_a, &solid_b, tol, Some(boolean_op), op)
-                .map_err(|e| KernelError::from(BooleanError::from(e)))?;
+        let (result, diag) = crate::healing::try_boolean_with_perturbation_diag(
+            &solid_a,
+            &solid_b,
+            tol,
+            Some(boolean_op),
+            op,
+        )
+        .map_err(|e| KernelError::from(BooleanError::from(e)))?;
         self.last_boolean_diagnostics = Some(build_diagnostics_summary(&diag));
         crate::healing::heal_and_dedup_volume_guarded(&result, heal_tol);
         Ok(result)
@@ -632,9 +637,10 @@ impl Kernel for TruckKernel {
         a: &KernelSolidHandle,
         b: &KernelSolidHandle,
     ) -> Result<KernelSolidHandle, KernelError> {
-        let result = self.run_boolean_op(a, b, crate::healing::BooleanOp::Intersection, |tols| {
-            move |a, b| truck_shapeops::and_result_with_tol_diag(a, b, &tols)
-        })?;
+        let result =
+            self.run_boolean_op(a, b, crate::healing::BooleanOp::Intersection, |tols| {
+                move |a, b| truck_shapeops::and_result_with_tol_diag(a, b, &tols)
+            })?;
         Ok(self.store_solid(result))
     }
 
@@ -665,9 +671,10 @@ impl Kernel for TruckKernel {
         a: &KernelSolidHandle,
         b: &KernelSolidHandle,
     ) -> Result<Vec<KernelSolidHandle>, KernelError> {
-        let result = self.run_boolean_op(a, b, crate::healing::BooleanOp::Intersection, |tols| {
-            move |a, b| truck_shapeops::and_result_with_tol_diag(a, b, &tols)
-        })?;
+        let result =
+            self.run_boolean_op(a, b, crate::healing::BooleanOp::Intersection, |tols| {
+                move |a, b| truck_shapeops::and_result_with_tol_diag(a, b, &tols)
+            })?;
         Ok(self.split_multi_shell(result))
     }
 
@@ -1584,8 +1591,7 @@ impl Kernel for TruckKernel {
                             if ctrl_pts_3d.len() >= 2 {
                                 let degree = 3.min(ctrl_pts_3d.len() - 1);
                                 let knots = clamped_knot_vector(ctrl_pts_3d.len(), degree);
-                                let knot_vec =
-                                    truck_geometry::prelude::KnotVec::from(knots);
+                                let knot_vec = truck_geometry::prelude::KnotVec::from(knots);
                                 let bsp = truck_geometry::prelude::BSplineCurve::new(
                                     knot_vec,
                                     ctrl_pts_3d,
@@ -1597,9 +1603,9 @@ impl Kernel for TruckKernel {
                                 )
                             }
                         } else {
-                            truck_modeling::geometry::Curve::Line(
-                                truck_modeling::geometry::Line(pts_3d[i], pts_3d[j]),
-                            )
+                            truck_modeling::geometry::Curve::Line(truck_modeling::geometry::Line(
+                                pts_3d[i], pts_3d[j],
+                            ))
                         };
 
                         let edge = Edge::new(&vertices[i], &vertices[j], curve);
@@ -3961,7 +3967,11 @@ mod tests {
             pos.insert(4, (-5.0, 5.0));
             let fids = kernel
                 .make_faces_from_profiles(
-                    &[profile], [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0], &pos,
+                    &[profile],
+                    [0.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                    [1.0, 0.0, 0.0],
+                    &pos,
                 )
                 .unwrap();
             let h = kernel.extrude_face(fids[0], [0.0, 0.0, 1.0], 10.0).unwrap();
@@ -3981,7 +3991,11 @@ mod tests {
             pos.insert(4, (0.0, 8.0));
             let fids = kernel
                 .make_faces_from_profiles(
-                    &[profile], [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0], &pos,
+                    &[profile],
+                    [0.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                    [1.0, 0.0, 0.0],
+                    &pos,
                 )
                 .unwrap();
             let h = kernel.extrude_face(fids[0], [0.0, 0.0, 1.0], 8.0).unwrap();
@@ -3989,8 +4003,12 @@ mod tests {
         };
 
         // Compare topology
-        for (label, solid) in [("tsweep_a", &tsweep_a), ("kernel_a", &kernel_a),
-                                ("tsweep_b", &tsweep_b), ("kernel_b", &kernel_b)] {
+        for (label, solid) in [
+            ("tsweep_a", &tsweep_a),
+            ("kernel_a", &kernel_a),
+            ("tsweep_b", &tsweep_b),
+            ("kernel_b", &kernel_b),
+        ] {
             let shell = &solid.boundaries()[0];
             let face_count = shell.face_iter().count();
             let mut vids = std::collections::HashSet::new();
@@ -4007,18 +4025,32 @@ mod tests {
             }
             eprintln!(
                 "{}: F={} E={} V={} condition={:?}",
-                label, face_count, eids.len(), vids.len(), shell.shell_condition()
+                label,
+                face_count,
+                eids.len(),
+                vids.len(),
+                shell.shell_condition()
             );
             // Print each face's surface type and boundary vertices
             for (fi, face) in shell.face_iter().enumerate() {
                 let wires = face.absolute_boundaries();
                 let w = &wires[0];
-                let verts: Vec<_> = w.vertex_iter().map(|v| {
-                    let p = v.point();
-                    format!("({:.1},{:.1},{:.1})", p.x, p.y, p.z)
-                }).collect();
+                let verts: Vec<_> = w
+                    .vertex_iter()
+                    .map(|v| {
+                        let p = v.point();
+                        format!("({:.1},{:.1},{:.1})", p.x, p.y, p.z)
+                    })
+                    .collect();
                 let orient = if face.orientation() { "+" } else { "-" };
-                eprintln!("  {}[{}]{}: {} verts: {}", label, fi, orient, verts.len(), verts.join(" → "));
+                eprintln!(
+                    "  {}[{}]{}: {} verts: {}",
+                    label,
+                    fi,
+                    orient,
+                    verts.len(),
+                    verts.join(" → ")
+                );
             }
         }
 
@@ -4026,15 +4058,39 @@ mod tests {
         let tsweep_result = truck_shapeops::or(&tsweep_a, &tsweep_b, 0.05);
         let kernel_result = truck_shapeops::or(&kernel_a, &kernel_b, 0.05);
 
-        eprintln!("tsweep union: {}", if tsweep_result.is_some() { "OK" } else { "FAIL" });
-        eprintln!("kernel union: {}", if kernel_result.is_some() { "OK" } else { "FAIL" });
+        eprintln!(
+            "tsweep union: {}",
+            if tsweep_result.is_some() {
+                "OK"
+            } else {
+                "FAIL"
+            }
+        );
+        eprintln!(
+            "kernel union: {}",
+            if kernel_result.is_some() {
+                "OK"
+            } else {
+                "FAIL"
+            }
+        );
 
         // Also test: tsweep_a + kernel_b (cross-construction)
         let cross_result = truck_shapeops::or(&tsweep_a, &kernel_b, 0.05);
-        eprintln!("cross union (tsweep_a+kernel_b): {}", if cross_result.is_some() { "OK" } else { "FAIL" });
+        eprintln!(
+            "cross union (tsweep_a+kernel_b): {}",
+            if cross_result.is_some() { "OK" } else { "FAIL" }
+        );
 
         let cross_result2 = truck_shapeops::or(&kernel_a, &tsweep_b, 0.05);
-        eprintln!("cross union (kernel_a+tsweep_b): {}", if cross_result2.is_some() { "OK" } else { "FAIL" });
+        eprintln!(
+            "cross union (kernel_a+tsweep_b): {}",
+            if cross_result2.is_some() {
+                "OK"
+            } else {
+                "FAIL"
+            }
+        );
 
         assert!(tsweep_result.is_some(), "tsweep union must succeed");
         assert!(kernel_result.is_some(), "kernel union must succeed");
@@ -4060,7 +4116,11 @@ mod tests {
             pos.insert(4, (-5.0, 5.0));
             let fids = kernel
                 .make_faces_from_profiles(
-                    &[profile], [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0], &pos,
+                    &[profile],
+                    [0.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                    [1.0, 0.0, 0.0],
+                    &pos,
                 )
                 .unwrap();
             let h = kernel.extrude_face(fids[0], [0.0, 0.0, 1.0], 10.0).unwrap();
@@ -4085,7 +4145,11 @@ mod tests {
             pos.insert(4, (0.0, 8.0));
             let fids = kernel
                 .make_faces_from_profiles(
-                    &[profile], [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0], &pos,
+                    &[profile],
+                    [0.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                    [1.0, 0.0, 0.0],
+                    &pos,
                 )
                 .unwrap();
             let h = kernel.extrude_face(fids[0], [0.0, 0.0, 1.0], 8.0).unwrap();
@@ -4094,13 +4158,19 @@ mod tests {
 
         // Test with truck_shapeops::or (uniform tol) - should pass with fix
         let or_result = truck_shapeops::or(&kernel_a, &kernel_b, 0.05);
-        eprintln!("or (uniform tol): {}", if or_result.is_some() { "OK" } else { "FAIL" });
+        eprintln!(
+            "or (uniform tol): {}",
+            if or_result.is_some() { "OK" } else { "FAIL" }
+        );
 
         // Test with or_result_with_tol_diag + layered tol (kernel pipeline)
         let tols = crate::types::BooleanOptions::for_boolean_tol(0.05).to_boolean_tolerance();
         let diag_result = truck_shapeops::or_result_with_tol_diag(&kernel_a, &kernel_b, &tols);
         let diag_ok = diag_result.is_ok();
-        eprintln!("or_diag (layered tol): {}", if diag_ok { "OK" } else { "FAIL" });
+        eprintln!(
+            "or_diag (layered tol): {}",
+            if diag_ok { "OK" } else { "FAIL" }
+        );
 
         assert!(or_result.is_some(), "or (uniform) must succeed");
         assert!(diag_result.is_ok(), "or_diag (layered) must succeed");
@@ -4130,7 +4200,11 @@ mod tests {
             pos.insert(4, (0.0, 10.0));
             let fids = kernel
                 .make_faces_from_profiles(
-                    &[profile], [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], x_axis, &pos,
+                    &[profile],
+                    [0.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                    x_axis,
+                    &pos,
                 )
                 .unwrap();
             let h = kernel.extrude_face(fids[0], [0.0, 0.0, 1.0], 10.0).unwrap();
@@ -4153,7 +4227,11 @@ mod tests {
             pos.insert(4, (0.0, 8.0));
             let fids = kernel
                 .make_faces_from_profiles(
-                    &[profile], [4.0, 4.0, 0.0], [0.0, 0.0, 1.0], x_axis, &pos,
+                    &[profile],
+                    [4.0, 4.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                    x_axis,
+                    &pos,
                 )
                 .unwrap();
             let h = kernel.extrude_face(fids[0], [0.0, 0.0, 1.0], 8.0).unwrap();
@@ -4165,7 +4243,8 @@ mod tests {
             let shell = &solid.boundaries()[0];
             eprintln!("Box {} shell: {} faces", label, shell.len());
             // Collect edge ID -> which faces it appears in
-            let mut edge_faces: std::collections::BTreeMap<u64, Vec<(usize, String)>> = std::collections::BTreeMap::new();
+            let mut edge_faces: std::collections::BTreeMap<u64, Vec<(usize, String)>> =
+                std::collections::BTreeMap::new();
             for (fi, face) in shell.face_iter().enumerate() {
                 let ori = if face.orientation() { "+" } else { "-" };
                 eprintln!("  face[{}]{}", fi, ori);
@@ -4174,15 +4253,21 @@ mod tests {
                         let eid = edge.id().raw();
                         let f = edge.absolute_front().point();
                         let b = edge.absolute_back().point();
-                        let desc = format!("f{}{}({:.1},{:.1},{:.1})->({:.1},{:.1},{:.1})",
-                            fi, ori, f.x, f.y, f.z, b.x, b.y, b.z);
+                        let desc = format!(
+                            "f{}{}({:.1},{:.1},{:.1})->({:.1},{:.1},{:.1})",
+                            fi, ori, f.x, f.y, f.z, b.x, b.y, b.z
+                        );
                         edge_faces.entry(eid).or_default().push((fi, desc));
                     }
                 }
             }
             let shared: Vec<_> = edge_faces.iter().filter(|(_, v)| v.len() > 1).collect();
             let unshared: Vec<_> = edge_faces.iter().filter(|(_, v)| v.len() == 1).collect();
-            eprintln!("  {} shared edges, {} unshared edges", shared.len(), unshared.len());
+            eprintln!(
+                "  {} shared edges, {} unshared edges",
+                shared.len(),
+                unshared.len()
+            );
             if !unshared.is_empty() {
                 for (eid, locs) in &unshared {
                     eprintln!("    UNSHARED eid={}: {}", eid, locs[0].1);
@@ -4201,9 +4286,18 @@ mod tests {
         let tols = crate::types::BooleanOptions::for_boolean_tol(0.05).to_boolean_tolerance();
         let diag_result = truck_shapeops::or_result_with_tol_diag(&kernel_a, &kernel_b, &tols);
         let diag_ok = diag_result.is_ok();
-        eprintln!("or_diag (layered tol): {}", if diag_ok { "OK" } else { "FAIL" });
+        eprintln!(
+            "or_diag (layered tol): {}",
+            if diag_ok { "OK" } else { "FAIL" }
+        );
 
-        assert!(or_result.is_some(), "or (uniform) must succeed with feature-engine axes");
-        assert!(diag_ok, "or_diag (layered) must succeed with feature-engine axes");
+        assert!(
+            or_result.is_some(),
+            "or (uniform) must succeed with feature-engine axes"
+        );
+        assert!(
+            diag_ok,
+            "or_diag (layered) must succeed with feature-engine axes"
+        );
     }
 }

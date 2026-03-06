@@ -837,7 +837,13 @@ fn make_offset_cylinder(
 
     let v = builder::vertex(Point3::new(cx + radius, cy, cz));
     let center = Point3::new(cx, cy, cz);
-    let wire = builder::rsweep(&v, center, Vector3::unit_z(), Rad(2.0 * std::f64::consts::PI), 3);
+    let wire = builder::rsweep(
+        &v,
+        center,
+        Vector3::unit_z(),
+        Rad(2.0 * std::f64::consts::PI),
+        3,
+    );
     let face = builder::try_attach_plane(&[wire]).expect("Failed to create circular face");
     let solid = builder::tsweep(&face, Vector3::new(0.0, 0.0, height));
     kernel.store_solid(solid)
@@ -854,8 +860,14 @@ fn diag_curved_cylinder_subtract_face_bboxes() {
     let outer_mesh = kernel.tessellate(&h_outer, 0.05).unwrap();
     let outer_bbox = mesh_bbox(&outer_mesh);
     eprintln!("=== OUTER CYLINDER BBOX ===");
-    eprintln!("  min: [{:.2}, {:.2}, {:.2}]", outer_bbox.0[0], outer_bbox.0[1], outer_bbox.0[2]);
-    eprintln!("  max: [{:.2}, {:.2}, {:.2}]", outer_bbox.1[0], outer_bbox.1[1], outer_bbox.1[2]);
+    eprintln!(
+        "  min: [{:.2}, {:.2}, {:.2}]",
+        outer_bbox.0[0], outer_bbox.0[1], outer_bbox.0[2]
+    );
+    eprintln!(
+        "  max: [{:.2}, {:.2}, {:.2}]",
+        outer_bbox.1[0], outer_bbox.1[1], outer_bbox.1[2]
+    );
 
     // Inner cylinder r=2, h=20 (concentric)
     let h_inner = make_offset_cylinder(&mut kernel, 0.0, 0.0, 0.0, 2.0, 20.0);
@@ -868,13 +880,22 @@ fn diag_curved_cylinder_subtract_face_bboxes() {
     let mesh = kernel.tessellate(&h_tube, 0.05).unwrap();
     let total_bbox = mesh_bbox(&mesh);
     eprintln!("\n=== TUBE TOTAL BBOX ===");
-    eprintln!("  min: [{:.2}, {:.2}, {:.2}]", total_bbox.0[0], total_bbox.0[1], total_bbox.0[2]);
-    eprintln!("  max: [{:.2}, {:.2}, {:.2}]", total_bbox.1[0], total_bbox.1[1], total_bbox.1[2]);
+    eprintln!(
+        "  min: [{:.2}, {:.2}, {:.2}]",
+        total_bbox.0[0], total_bbox.0[1], total_bbox.0[2]
+    );
+    eprintln!(
+        "  max: [{:.2}, {:.2}, {:.2}]",
+        total_bbox.1[0], total_bbox.1[1], total_bbox.1[2]
+    );
 
     // Get face signatures for surface type info
     let introspect = TruckIntrospect::new(&kernel);
     let face_ids = introspect.list_faces(&h_tube);
-    eprintln!("\n=== PER-FACE BOUNDING BOXES ({} faces) ===", mesh.face_ranges.len());
+    eprintln!(
+        "\n=== PER-FACE BOUNDING BOXES ({} faces) ===",
+        mesh.face_ranges.len()
+    );
 
     let mut bad_faces = Vec::new();
     for (fi, face_range) in mesh.face_ranges.iter().enumerate() {
@@ -907,7 +928,8 @@ fn diag_curved_cylinder_subtract_face_bboxes() {
 
         // Get face signature if available
         let sig_info = if fi < face_ids.len() {
-            let sig = introspect.compute_signature(face_ids[fi], kernel_fork::types::TopoKind::Face);
+            let sig =
+                introspect.compute_signature(face_ids[fi], kernel_fork::types::TopoKind::Face);
             format!("type={:?}", sig.surface_type)
         } else {
             "no-sig".to_string()
@@ -915,9 +937,14 @@ fn diag_curved_cylinder_subtract_face_bboxes() {
 
         eprintln!(
             "  face[{}]: {} tris, min=[{:.2},{:.2},{:.2}], max=[{:.2},{:.2},{:.2}] {} {}",
-            fi, tri_count,
-            face_min[0], face_min[1], face_min[2],
-            face_max[0], face_max[1], face_max[2],
+            fi,
+            tri_count,
+            face_min[0],
+            face_min[1],
+            face_min[2],
+            face_max[0],
+            face_max[1],
+            face_max[2],
             sig_info,
             flag,
         );
@@ -945,9 +972,9 @@ fn diag_curved_cylinder_subtract_face_bboxes() {
 #[test]
 fn diag_gui_workflow_cylinder_cut_full_depth() {
     use truck_modeling::builder;
-    use truck_modeling::{EuclideanSpace, Point3, Rad, Vector3};
     use truck_modeling::geometry::Surface;
     use truck_modeling::InnerSpace;
+    use truck_modeling::{EuclideanSpace, Point3, Rad, Vector3};
 
     let mut kernel = TruckKernel::new();
 
@@ -968,8 +995,14 @@ fn diag_gui_workflow_cylinder_cut_full_depth() {
     let outer_mesh = kernel.tessellate(&h_outer, 0.05).unwrap();
     let outer_bbox = mesh_bbox(&outer_mesh);
     eprintln!("=== OUTER CYLINDER BBOX ===");
-    eprintln!("  min: [{:.2}, {:.2}, {:.2}]", outer_bbox.0[0], outer_bbox.0[1], outer_bbox.0[2]);
-    eprintln!("  max: [{:.2}, {:.2}, {:.2}]", outer_bbox.1[0], outer_bbox.1[1], outer_bbox.1[2]);
+    eprintln!(
+        "  min: [{:.2}, {:.2}, {:.2}]",
+        outer_bbox.0[0], outer_bbox.0[1], outer_bbox.0[2]
+    );
+    eprintln!(
+        "  max: [{:.2}, {:.2}, {:.2}]",
+        outer_bbox.1[0], outer_bbox.1[1], outer_bbox.1[2]
+    );
 
     // Step 2: Inner cylinder — circle at z=20, extrude DOWNWARD (GUI workflow)
     // In GUI: user draws circle on top face (z=20, normal [0,0,1])
@@ -1007,8 +1040,14 @@ fn diag_gui_workflow_cylinder_cut_full_depth() {
     let inner_mesh = kernel.tessellate(&h_inner, 0.05).unwrap();
     let inner_bbox = mesh_bbox(&inner_mesh);
     eprintln!("\n=== INNER CYLINDER (tool body) BBOX ===");
-    eprintln!("  min: [{:.2}, {:.2}, {:.2}]", inner_bbox.0[0], inner_bbox.0[1], inner_bbox.0[2]);
-    eprintln!("  max: [{:.2}, {:.2}, {:.2}]", inner_bbox.1[0], inner_bbox.1[1], inner_bbox.1[2]);
+    eprintln!(
+        "  min: [{:.2}, {:.2}, {:.2}]",
+        inner_bbox.0[0], inner_bbox.0[1], inner_bbox.0[2]
+    );
+    eprintln!(
+        "  max: [{:.2}, {:.2}, {:.2}]",
+        inner_bbox.1[0], inner_bbox.1[1], inner_bbox.1[2]
+    );
 
     // Step 3: Subtract
     let h_tube = kernel
@@ -1018,8 +1057,14 @@ fn diag_gui_workflow_cylinder_cut_full_depth() {
     let mesh = kernel.tessellate(&h_tube, 0.05).unwrap();
     let total_bbox = mesh_bbox(&mesh);
     eprintln!("\n=== TUBE TOTAL BBOX ===");
-    eprintln!("  min: [{:.2}, {:.2}, {:.2}]", total_bbox.0[0], total_bbox.0[1], total_bbox.0[2]);
-    eprintln!("  max: [{:.2}, {:.2}, {:.2}]", total_bbox.1[0], total_bbox.1[1], total_bbox.1[2]);
+    eprintln!(
+        "  min: [{:.2}, {:.2}, {:.2}]",
+        total_bbox.0[0], total_bbox.0[1], total_bbox.0[2]
+    );
+    eprintln!(
+        "  max: [{:.2}, {:.2}, {:.2}]",
+        total_bbox.1[0], total_bbox.1[1], total_bbox.1[2]
+    );
 
     // Check total bbox doesn't exceed outer
     let tol = 1.0;
@@ -1034,7 +1079,10 @@ fn diag_gui_workflow_cylinder_cut_full_depth() {
     // Per-face bounding boxes
     let introspect = TruckIntrospect::new(&kernel);
     let face_ids = introspect.list_faces(&h_tube);
-    eprintln!("\n=== PER-FACE BOUNDING BOXES ({} faces) ===", mesh.face_ranges.len());
+    eprintln!(
+        "\n=== PER-FACE BOUNDING BOXES ({} faces) ===",
+        mesh.face_ranges.len()
+    );
 
     let mut bad_faces = Vec::new();
     for (fi, face_range) in mesh.face_ranges.iter().enumerate() {
@@ -1065,7 +1113,8 @@ fn diag_gui_workflow_cylinder_cut_full_depth() {
         }
 
         let sig_info = if fi < face_ids.len() {
-            let sig = introspect.compute_signature(face_ids[fi], kernel_fork::types::TopoKind::Face);
+            let sig =
+                introspect.compute_signature(face_ids[fi], kernel_fork::types::TopoKind::Face);
             format!("type={:?}", sig.surface_type)
         } else {
             "no-sig".to_string()
@@ -1073,9 +1122,14 @@ fn diag_gui_workflow_cylinder_cut_full_depth() {
 
         eprintln!(
             "  face[{}]: {} tris, min=[{:.2},{:.2},{:.2}], max=[{:.2},{:.2},{:.2}] {} {}",
-            fi, tri_count,
-            face_min[0], face_min[1], face_min[2],
-            face_max[0], face_max[1], face_max[2],
+            fi,
+            tri_count,
+            face_min[0],
+            face_min[1],
+            face_min[2],
+            face_max[0],
+            face_max[1],
+            face_max[2],
             sig_info,
             flag,
         );

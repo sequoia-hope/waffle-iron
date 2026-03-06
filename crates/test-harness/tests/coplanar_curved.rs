@@ -521,11 +521,20 @@ fn diag_face_bboxes_full_depth_subtract() {
     let mesh = m.tessellate("tube").unwrap();
     let (total_min, total_max) = mesh_bounding_box(&mesh);
     eprintln!("\n=== TUBE TOTAL BBOX ===");
-    eprintln!("  min: [{:.2}, {:.2}, {:.2}]", total_min[0], total_min[1], total_min[2]);
-    eprintln!("  max: [{:.2}, {:.2}, {:.2}]", total_max[0], total_max[1], total_max[2]);
+    eprintln!(
+        "  min: [{:.2}, {:.2}, {:.2}]",
+        total_min[0], total_min[1], total_min[2]
+    );
+    eprintln!(
+        "  max: [{:.2}, {:.2}, {:.2}]",
+        total_max[0], total_max[1], total_max[2]
+    );
 
     // Per-face bounding boxes
-    eprintln!("\n=== PER-FACE BOUNDING BOXES ({} faces) ===", mesh.face_ranges.len());
+    eprintln!(
+        "\n=== PER-FACE BOUNDING BOXES ({} faces) ===",
+        mesh.face_ranges.len()
+    );
     let mut bad_faces = Vec::new();
     for (fi, face_range) in mesh.face_ranges.iter().enumerate() {
         let mut face_min = [f32::MAX; 3];
@@ -557,9 +566,14 @@ fn diag_face_bboxes_full_depth_subtract() {
 
         eprintln!(
             "  face[{}]: {} tris, min=[{:.2},{:.2},{:.2}], max=[{:.2},{:.2},{:.2}]{}",
-            fi, tri_count,
-            face_min[0], face_min[1], face_min[2],
-            face_max[0], face_max[1], face_max[2],
+            fi,
+            tri_count,
+            face_min[0],
+            face_min[1],
+            face_min[2],
+            face_max[0],
+            face_max[1],
+            face_max[2],
             flag,
         );
     }
@@ -621,7 +635,10 @@ fn diag_true_nurbs_circle_extrude_cut_full_depth() {
     eprintln!("  max: [{:.2}, {:.2}, {:.2}]", t_max[0], t_max[1], t_max[2]);
 
     // Per-face bounding boxes
-    eprintln!("\n=== PER-FACE BOUNDING BOXES ({} faces) ===", mesh.face_ranges.len());
+    eprintln!(
+        "\n=== PER-FACE BOUNDING BOXES ({} faces) ===",
+        mesh.face_ranges.len()
+    );
     let mut bad_faces = Vec::new();
     for (fi, face_range) in mesh.face_ranges.iter().enumerate() {
         let mut face_min = [f32::MAX; 3];
@@ -652,9 +669,14 @@ fn diag_true_nurbs_circle_extrude_cut_full_depth() {
 
         eprintln!(
             "  face[{}]: {} tris, min=[{:.2},{:.2},{:.2}], max=[{:.2},{:.2},{:.2}]{}",
-            fi, tri_count,
-            face_min[0], face_min[1], face_min[2],
-            face_max[0], face_max[1], face_max[2],
+            fi,
+            tri_count,
+            face_min[0],
+            face_min[1],
+            face_min[2],
+            face_max[0],
+            face_max[1],
+            face_max[2],
             flag,
         );
     }
@@ -721,7 +743,11 @@ fn diag_true_nurbs_wasm_tolerance() {
     eprintln!("\n=== TUBE (tol=0.0001) ===");
     eprintln!("  min: [{:.3}, {:.3}, {:.3}]", t_min[0], t_min[1], t_min[2]);
     eprintln!("  max: [{:.3}, {:.3}, {:.3}]", t_max[0], t_max[1], t_max[2]);
-    eprintln!("  faces: {}, tris: {}", mesh.face_ranges.len(), mesh.indices.len() / 3);
+    eprintln!(
+        "  faces: {}, tris: {}",
+        mesh.face_ranges.len(),
+        mesh.indices.len() / 3
+    );
 
     // Check per-face bboxes
     let mut bad_faces = Vec::new();
@@ -748,9 +774,14 @@ fn diag_true_nurbs_wasm_tolerance() {
         if exceeds {
             eprintln!(
                 "  *** BAD face[{}]: {} tris, min=[{:.3},{:.3},{:.3}], max=[{:.3},{:.3},{:.3}]",
-                fi, tri_count,
-                face_min[0], face_min[1], face_min[2],
-                face_max[0], face_max[1], face_max[2],
+                fi,
+                tri_count,
+                face_min[0],
+                face_min[1],
+                face_min[2],
+                face_max[0],
+                face_max[1],
+                face_max[2],
             );
             bad_faces.push(fi);
         }
@@ -806,8 +837,12 @@ fn diag_reproduce_gui_failure() {
         }
     }
 
-    eprintln!("\nResults: {}/{} passed, failures: {:?}",
-        configs.len() - failures.len(), configs.len(), failures);
+    eprintln!(
+        "\nResults: {}/{} passed, failures: {:?}",
+        configs.len() - failures.len(),
+        configs.len(),
+        failures
+    );
     // Don't assert — this is a diagnostic to find which configs fail
 }
 
