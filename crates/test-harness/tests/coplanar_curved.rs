@@ -234,13 +234,11 @@ fn cpc1_concentric_cylinder_cut_full_depth() {
 /// IGNORED: All 23 perturbation attempts fail with 16 open edges at z=20.
 /// Root cause: containment injection splits outer top cap into ring+disc,
 /// but face division creates NEW boundary edges for the ring that are
-/// topologically disconnected from the lateral faces' top edges.
-/// The v2 weld cannot resolve this because the ring's outer wire has
-/// different Arc<Edge> IDs from the lateral top edges. Volume and chi
-/// pass (the mesh is close enough) but the shell is not closed.
-/// Needs: edge-sharing during face division, or post-assembly edge merge.
+/// B25 fix: ring face status was incorrectly set to the hole wire's
+/// containment status (And), causing integrate_by_component to propagate
+/// And to all connected lateral faces. Fix: ring status = Or (ring area
+/// is always outside the other solid for containment injection cases).
 #[test]
-#[ignore = "CPC2: all 23 perturbation attempts fail — 16 open edges at z=20 ring (ring outer edges disconnected from laterals)"]
 fn cpc2_concentric_cylinder_cut_partial_depth() {
     let mut m = ModelBuilder::truck();
 
