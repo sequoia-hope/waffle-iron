@@ -1,8 +1,8 @@
 # B21: Torus-Plane Boolean Face Division Failure
 
-**Status**: Investigation complete, fix not yet implemented
-**Sprint**: 60
-**Severity**: Medium — RB1/RB6 are `#[ignore]`, no CI regression
+**Status**: Partial fix implemented (try_separate_wire_faces recovery). RB1/RB6 still fail — deeper IC edge identity issue remains.
+**Sprint**: 60-61
+**Severity**: Medium — RB1/RB6 are not `#[ignore]`, fail in CI
 **Related**: D1.6 (boundary-coincident IC skip), D1.7 (all_on_boundary three-way logic)
 
 ## Problem
@@ -64,6 +64,62 @@ always at x≈0. The 4 ICs always form a rectangle on the torus face, always
 create a non-simple wire, and always cause the same structural failure.
 Perturbation only affects numerical precision, not the wire topology problem.
 
+## B21 Fix: `try_separate_wire_faces` (Partial)
+
+### Implementation (Sprint 61)
+
+Added `try_separate_wire_faces` recovery function in
+`vendor/truck/truck-shapeops/src/transversal/divide_face/mod.rs`:
+
+1. Iterates over each BoundaryWire in loops
+2. For simple wires: filters by `is_closed && !is_biangle_wire && len >= 3`
+3. For non-simple wires: applies `split_wire_recursive` to decompose
+   figure-8 wires, then filters sub-loops by same criteria
+4. Skips wires with spatial extent < `tol * 0.1` (degenerate slivers)
+5. Creates `Face::try_new(vec![wire], surface)` for each valid wire
+6. Preserves face orientation and wire status
+7. Returns `Some(faces)` if ≥ 2 faces created, else `None`
+
+### Injection points
+
+1. **All-Unknown path (line ~851)**: When `Face::try_new` fails in the
+   all-Unknown block (D1.7 reset makes IC-affected faces appear all-Unknown).
+   Activated on perturbation attempts where wires become non-simple.
+
+2. **divide_one_face_v2 None path (line ~995)**: After `construct_ring_disc_direct`
+   fails. Activated when FBG and legacy division both fail.
+
+### Why RB1/RB6 still fail
+
+The B21 recovery successfully splits torus faces into separate wire faces,
+but the 8 open edges persist because:
+
+1. **len >= 3 guard**: The torus all-Unknown path has wire[0] (4 edges) and
+   wire[1] (2 edges). Wire[1] is a 2-edge closed wire (IC edge + boundary
+   segment), which is filtered by `len >= 3`. Relaxing to `len >= 2` causes
+   downstream "Two same vertices cannot construct an edge" panics on other
+   tests (g2_stacked_boxes_coplanar_face).
+
+2. **IC edge identity between shells**: Even when B21 splits the torus face
+   correctly, the 8 open edges remain because IC edges from the torus shell
+   don't pair with corresponding IC edges on the box shell. The box face
+   uses FBG parametric-space decomposition which may create new edge objects
+   with different Arc<Edge> identity.
+
+3. **v-seam edge splitting inconsistency**: When `add_edge` inserts IC
+   endpoints on torus boundary edges, the v-seam edges get split into segments.
+   But neighboring torus sector faces sharing those v-seam edges may not get
+   the same split (depends on whether `add_polygon_vertex` propagated the
+   edge cut via `swap_edge_into_wire` to all faces).
+
+### What the B21 recovery DOES help
+
+- Prevents `face.clone()` fallback (undivided face) for faces where
+  `Face::try_new` fails due to non-disjoint wires
+- Successfully activates for the "v2 None" path (3 wires, all with len >= 3)
+- Provides a foundation for future torus-plane boolean fixes
+- Zero regressions on all existing test suites
+
 ## Debug Evidence
 
 ### Open edges (consistent across all 20 attempts)
@@ -79,17 +135,15 @@ open[6]: (0.0007,-2.0000,7.0000)->(7.0000,-2.0000,0.0000) refs=1  — seam→IC
 open[7]: (0.0007,-2.0000,2.0000)->(2.0000,-2.0000,0.0000) refs=1  — seam→IC
 ```
 
-### Face division log
+### Face division log (with B21)
 
 ```
 face 0 all-Unknown — rebuilding from loops_store
-face 0 try_new FAILED (NotSimpleWire) — using original face.clone()
-face 2 all-Unknown — rebuilding from loops_store
-face 2 try_new FAILED (NotSimpleWire) — using original face.clone()
+face 0 try_new FAILED (NotSimpleWire) — trying B21 recovery
+  wire[0]: len=4, simple, closed, Unknown → passes
+  wire[1]: len=2, simple, closed, Unknown → filtered (len < 3)
+  1 face created → recovery fails (need ≥ 2)
 ```
-
-Faces 8 and 10 (torus lateral faces, non-seam) divide successfully into
-2 fragments each.
 
 ### AABB-skipped ICs
 
@@ -104,7 +158,7 @@ vertices, incorrectly skipping `add_edge`. **This is wrong.** No `[ic_skip]`
 messages appear for the critical torus faces. The D1.6/D1.7 skip logic is
 not triggering — the failure is downstream in face division (NotSimpleWire).
 
-## Proposed Fix Approaches
+## Proposed Fix Approaches (for remaining open edges)
 
 ### Approach A: Multi-IC face division (recommended)
 
@@ -146,38 +200,14 @@ into smaller angular sectors (e.g., 4 × 90° sectors). This:
 **Complexity**: Low for torus, but must be generalized for other periodic
 surfaces.
 
-### Approach D: Wire simplification after IC injection
-
-After adding all IC edges to a face's boundary wire, detect and fix
-non-simple (self-intersecting) wires before calling `Face::try_new`:
-
-1. Find wire self-intersection vertices (visited more than once)
-2. Split wire at self-intersection points into sub-loops
-3. Classify sub-loops as inside/outside using winding number
-4. Build separate faces from each sub-loop
-
-**Complexity**: Medium. Wire self-intersection detection in 3D on parametric
-surfaces requires care.
-
-## Recommendation
-
-**Approach A** (multi-IC face division) is the cleanest solution. The
-existing `divide_face` code handles single-IC cases well. The torus failure
-occurs because 4 ICs simultaneously splice into one face. Recognizing closed
-IC loops as face subdivision regions avoids the figure-8 wire problem
-entirely.
-
-**Approach C** (pre-decomposition) is the easiest to implement but is a
-surface-specific workaround rather than a general fix.
-
 ## Affected Tests
 
 | Test | Status | Notes |
 |------|--------|-------|
-| RB1 `rb1_revolve_union_with_box` | FAIL | 8 open edges, NotSimpleWire |
+| RB1 `rb1_revolve_union_with_box` | FAIL | 8 open edges, NotSimpleWire (B21 activates but insufficient) |
 | RB6 `rb6_box_union_with_revolve` | FAIL | Same root cause (commutative) |
 | RB2, RB5, RB8 | ignored | Different root cause (IC edge refs=1) |
-| RB3, RB4, RB7 | PASS | Partial revolve (not 360°), no v-seam |
+| RB3, RB4, RB7 | PASS (RB3 pre-existing fail) | Partial revolve (not 360°), no v-seam |
 
 ## Invariants
 
@@ -188,8 +218,9 @@ surface-specific workaround rather than a general fix.
 
 ## Future Work
 
+- Implement Approach A (multi-IC face division) or Approach C (torus
+  pre-decomposition) to fully resolve the 8 open edges
+- Investigate IC edge identity between shells (FBG vs loops_store Arc<Edge>)
 - Generalize to any periodic surface (sphere, cone with seam)
-- Consider pre-decomposition for all 360° revolve surfaces to simplify
-  the boolean pipeline
 - RB2/RB5/RB8 have a different root cause (IC edge sharing refs=1) that
   requires separate investigation
