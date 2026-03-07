@@ -1095,3 +1095,178 @@ fn bnc4_box_true_nurbs_circle_cut_large_radius() {
         expected
     );
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// BNC5-7 — Exact Coplanar (No Perturbation) Tests
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// These tests use explicit boolean_subtract to bypass feature-engine's cut_eps
+// perturbation. The tool body is EXACTLY coplanar with the target body faces.
+// This is the scenario that fails in the GUI.
+
+/// BNC5: Box 10x10x10 + NURBS circle subtract, EXACT coplanar (no cut_eps).
+///
+/// Box z=0..10, cylinder z=0..10 (both caps exactly coplanar with box faces).
+/// Uses explicit boolean_subtract to bypass feature-engine's cut_eps=0.1.
+///
+/// Expected: box with cylindrical hole, vol ≈ 10^3 - π*r²*10.
+#[test]
+fn bnc5_box_nurbs_circle_subtract_exact_coplanar() {
+    let mut m = ModelBuilder::truck();
+
+    // Box 10x10x10 from z=0 to z=10
+    m.rect_sketch("box_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m.extrude_no_merge("box", "box_sk", 10.0).unwrap();
+    m.assert_has_solid("box").unwrap();
+
+    // NURBS circle cylinder r=2 centered at (5,5), z=0 to z=10 (EXACT coplanar)
+    m.true_circle_sketch("cyl_sk", [0., 0., 0.], [0., 0., 1.], 5., 5., 2.)
+        .unwrap();
+    m.extrude_no_merge("cyl", "cyl_sk", 10.0).unwrap();
+    m.assert_has_solid("cyl").unwrap();
+
+    // Explicit subtract (no cut_eps)
+    m.boolean_subtract("hole", "box", "cyl").unwrap();
+    m.assert_has_solid("hole").unwrap();
+
+    // Volume oracle
+    let mesh = m.tessellate("hole").unwrap();
+    assert_mesh_finite(&mesh, "bnc5");
+    let vol = mesh_volume(&mesh);
+    let expected = 10.0 * 10.0 * 10.0 - std::f64::consts::PI * 2.0 * 2.0 * 10.0;
+    assert!(
+        (vol - expected).abs() < expected * 0.10,
+        "BNC5: volume {:.1} not within 10% of expected {:.1}",
+        vol,
+        expected
+    );
+}
+
+/// BNC6: NURBS cylinder + inner NURBS circle subtract, EXACT coplanar.
+///
+/// Outer cylinder r=5, inner cylinder r=2, both z=0..10 (caps exactly coplanar).
+/// Uses explicit boolean_subtract.
+///
+/// Expected: tube, vol ≈ π*(5²-2²)*10.
+#[test]
+fn bnc6_nurbs_cylinder_subtract_exact_coplanar() {
+    let mut m = ModelBuilder::truck();
+
+    // Outer NURBS cylinder r=5, z=0 to z=10
+    m.true_circle_sketch("outer_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.)
+        .unwrap();
+    m.extrude_no_merge("outer", "outer_sk", 10.0).unwrap();
+    m.assert_has_solid("outer").unwrap();
+
+    // Inner NURBS cylinder r=2, z=0 to z=10 (EXACT coplanar)
+    m.true_circle_sketch("inner_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 2.)
+        .unwrap();
+    m.extrude_no_merge("inner", "inner_sk", 10.0).unwrap();
+    m.assert_has_solid("inner").unwrap();
+
+    // Explicit subtract
+    m.boolean_subtract("tube", "outer", "inner").unwrap();
+    m.assert_has_solid("tube").unwrap();
+
+    // Volume oracle
+    let mesh = m.tessellate("tube").unwrap();
+    assert_mesh_finite(&mesh, "bnc6");
+    let vol = mesh_volume(&mesh);
+    let expected = std::f64::consts::PI * (5.0 * 5.0 - 2.0 * 2.0) * 10.0;
+    assert!(
+        (vol - expected).abs() < expected * 0.10,
+        "BNC6: volume {:.1} not within 10% of expected {:.1}",
+        vol,
+        expected
+    );
+}
+
+/// BNC7: NURBS cylinder + NURBS circle cut via feature engine, full depth.
+///
+/// Exact user scenario: draw NURBS circle → extrude → draw smaller NURBS circle
+/// on top face → extrude cut with depth = original extrude depth.
+/// This goes through the full feature-engine pipeline (auto-merge, cut_eps).
+///
+/// Expected: tube, vol ≈ π*(5²-2²)*20.
+#[test]
+fn bnc7_nurbs_cylinder_nurbs_cut_full_depth_feature_engine() {
+    let mut m = ModelBuilder::truck();
+
+    // Step 1: NURBS circle r=5, extrude up 20
+    m.true_circle_sketch("outer_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.)
+        .unwrap();
+    m.extrude("cyl", "outer_sk", 20.0).unwrap();
+    m.assert_has_solid("cyl").unwrap();
+
+    // Step 2: NURBS circle r=2 on top face (z=20), cut full depth (20)
+    m.true_circle_sketch("cut_sk", [0., 0., 20.], [0., 0., 1.], 0., 0., 2.)
+        .unwrap();
+    m.extrude_cut("hole", "cut_sk", 20.0).unwrap();
+    m.assert_has_solid("hole").unwrap();
+    m.assert_no_errors().unwrap();
+
+    // Volume oracle: tube = outer - inner
+    let mesh = m.tessellate("hole").unwrap();
+    assert_mesh_finite(&mesh, "bnc7");
+    let vol = mesh_volume(&mesh);
+    let outer_vol = std::f64::consts::PI * 5.0 * 5.0 * 20.0;
+    let inner_vol = std::f64::consts::PI * 2.0 * 2.0 * 20.0;
+    let expected = outer_vol - inner_vol;
+    assert!(
+        (vol - expected).abs() < expected * 0.10,
+        "BNC7: volume {:.1} not within 10% of expected {:.1}",
+        vol,
+        expected
+    );
+
+    // Bounding box: cylinder height 20
+    let (bb_min, bb_max) = mesh_bounding_box(&mesh);
+    assert!(
+        bb_max[2] > 19.0 && bb_max[2] < 21.0,
+        "BNC7: top should be near z=20, got z={}",
+        bb_max[2]
+    );
+    assert!(
+        bb_min[2] > -1.0 && bb_min[2] < 1.0,
+        "BNC7: bottom should be near z=0, got z={}",
+        bb_min[2]
+    );
+}
+
+/// BNC8: Box + NURBS circle cut via feature-engine with direction forcing no eps.
+///
+/// Uses extrude_directed with explicit direction to test if the feature engine
+/// can handle exact coplanar when direction is explicit (bypasses cut_eps).
+///
+/// Expected: box with hole, vol ≈ 10^3 - π*r²*10.
+#[test]
+fn bnc8_box_nurbs_circle_cut_directed_no_eps() {
+    let mut m = ModelBuilder::truck();
+
+    // Box 10x10x10
+    m.rect_sketch("box_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m.extrude("box", "box_sk", 10.0).unwrap();
+    m.assert_has_solid("box").unwrap();
+
+    // NURBS circle on top face (z=10), directed cut downward
+    m.true_circle_sketch("cut_sk", [0., 0., 10.], [0., 0., 1.], 5., 5., 2.)
+        .unwrap();
+    m.extrude_directed("hole", "cut_sk", 10.0, [0., 0., -1.], true)
+        .unwrap();
+    m.assert_has_solid("hole").unwrap();
+    m.assert_no_errors().unwrap();
+
+    // Volume oracle
+    let mesh = m.tessellate("hole").unwrap();
+    assert_mesh_finite(&mesh, "bnc7");
+    let vol = mesh_volume(&mesh);
+    let expected = 10.0 * 10.0 * 10.0 - std::f64::consts::PI * 2.0 * 2.0 * 10.0;
+    assert!(
+        (vol - expected).abs() < expected * 0.10,
+        "BNC7: volume {:.1} not within 10% of expected {:.1}",
+        vol,
+        expected
+    );
+}

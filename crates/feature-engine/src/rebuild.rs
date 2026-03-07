@@ -234,16 +234,13 @@ fn execute_feature(
             // For bidirectional: create a single extrude from (origin - second_depth * direction)
             // in +direction with total_depth = primary + second. This avoids boolean union.
             //
-            // For cuts: extend the tool 0.1 past entry/exit faces to avoid exact
-            // coplanarity with the target. The truck coplanar pipeline handles box-box
-            // coplanar faces, but cylinder-box coplanar still fails. Required for
-            // cylinder-box booleans where the truck coplanar pipeline cannot handle
-            // curved-face coplanarity.
-            // Tested: 0.01 and 0.05 break b1/b3 circle-cut-through-boss tests.
-            //
-            // For boss merges: no eps needed. The truck coplanar pipeline handles
-            // coplanar face union directly.
-            let cut_eps = if params.cut { 0.1 } else { 0.0 };
+            // B23: cut_eps removed. The truck coplanar pipeline (containment injection
+            // + ring/disc face division) handles exact coplanarity for all tested cases:
+            // box-box, box-cylinder, cylinder-cylinder, NURBS circle cuts.
+            // Previously cut_eps=0.1 was needed, but B14-B22 fixes resolved the
+            // underlying coplanar boolean failures. Verified: BNC1-7, CPC1-4, CPB1-2,
+            // CPE1-2, CPU1-2, all boolean_properties/workflows/recovery tests pass.
+            let cut_eps = 0.0;
             // For cuts: only reverse when no explicit direction was provided.
             // When the user sends an explicit direction, trust it as-is.
             let should_reverse_for_cut = params.direction.is_none();
