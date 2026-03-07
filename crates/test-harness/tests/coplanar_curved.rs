@@ -957,3 +957,141 @@ fn cpu2_overlapping_cylinders_union() {
         chi
     );
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// BNC — Box + NURBS Circle Cut (GUI path reproducer)
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// These tests reproduce the exact GUI failure: draw a rectangle → extrude to
+// create a box → draw a true NURBS circle on the top face → extrude as cut.
+// The GUI always uses CircleProfile (rsweep NURBS circle), not polygon approx.
+
+/// BNC1: Box 10x10x10 + centered NURBS circle cut r=2, full depth through.
+///
+/// This is the exact scenario reported in the GUI crash:
+///   "shell assembly failed: v2: 12 open edges after all levels"
+///
+/// Expected: box with cylindrical hole, vol ≈ 10^3 - π*r²*h = 1000 - 125.7 ≈ 874.
+#[test]
+fn bnc1_box_true_nurbs_circle_cut_through() {
+    let mut m = base_cube();
+
+    // True NURBS circle on top face (z=10), centered at (5,5), r=2
+    m.true_circle_sketch("cut_sk", [0., 0., 10.], [0., 0., 1.], 5., 5., 2.)
+        .unwrap();
+    m.extrude_cut("hole", "cut_sk", 10.0).unwrap();
+    m.assert_has_solid("hole").unwrap();
+    m.assert_no_errors().unwrap();
+
+    // Volume oracle
+    let mesh = m.tessellate("hole").unwrap();
+    assert_mesh_finite(&mesh, "bnc1");
+    let vol = mesh_volume(&mesh);
+    let expected = 10.0 * 10.0 * 10.0 - std::f64::consts::PI * 2.0 * 2.0 * 10.0;
+    assert!(
+        (vol - expected).abs() < expected * 0.10,
+        "BNC1: volume {:.1} not within 10% of expected {:.1}",
+        vol,
+        expected
+    );
+
+    // Bounding box: box is 10x10x10
+    let (bb_min, bb_max) = mesh_bounding_box(&mesh);
+    assert!(
+        bb_max[2] > 9.0 && bb_max[2] < 11.0,
+        "BNC1: top should be near z=10, got z={}",
+        bb_max[2]
+    );
+    assert!(
+        bb_min[2] > -1.0 && bb_min[2] < 1.0,
+        "BNC1: bottom should be near z=0, got z={}",
+        bb_min[2]
+    );
+}
+
+/// BNC2: Box 10x10x10 + centered NURBS circle cut r=2, shallow depth=5.
+///
+/// Blind pocket (not through). The cylinder only goes halfway through the box.
+///
+/// Expected: vol ≈ 10^3 - π*r²*5 = 1000 - 62.8 ≈ 937.
+#[test]
+fn bnc2_box_true_nurbs_circle_cut_shallow() {
+    let mut m = base_cube();
+
+    // True NURBS circle on top face (z=10), centered at (5,5), r=2
+    m.true_circle_sketch("cut_sk", [0., 0., 10.], [0., 0., 1.], 5., 5., 2.)
+        .unwrap();
+    m.extrude_cut("pocket", "cut_sk", 5.0).unwrap();
+    m.assert_has_solid("pocket").unwrap();
+    m.assert_no_errors().unwrap();
+
+    // Volume oracle
+    let mesh = m.tessellate("pocket").unwrap();
+    assert_mesh_finite(&mesh, "bnc2");
+    let vol = mesh_volume(&mesh);
+    let expected = 10.0 * 10.0 * 10.0 - std::f64::consts::PI * 2.0 * 2.0 * 5.0;
+    assert!(
+        (vol - expected).abs() < expected * 0.10,
+        "BNC2: volume {:.1} not within 10% of expected {:.1}",
+        vol,
+        expected
+    );
+}
+
+/// BNC3: Box 10x10x10 + off-center NURBS circle cut at (3,3), r=2, full depth.
+///
+/// Circle is not centered on the box face.
+///
+/// Expected: vol ≈ 10^3 - π*r²*10 ≈ 874.
+#[test]
+fn bnc3_box_true_nurbs_circle_cut_off_center() {
+    let mut m = base_cube();
+
+    // True NURBS circle on top face (z=10), off-center at (3,3), r=2
+    m.true_circle_sketch("cut_sk", [0., 0., 10.], [0., 0., 1.], 3., 3., 2.)
+        .unwrap();
+    m.extrude_cut("hole", "cut_sk", 10.0).unwrap();
+    m.assert_has_solid("hole").unwrap();
+    m.assert_no_errors().unwrap();
+
+    // Volume oracle
+    let mesh = m.tessellate("hole").unwrap();
+    assert_mesh_finite(&mesh, "bnc3");
+    let vol = mesh_volume(&mesh);
+    let expected = 10.0 * 10.0 * 10.0 - std::f64::consts::PI * 2.0 * 2.0 * 10.0;
+    assert!(
+        (vol - expected).abs() < expected * 0.10,
+        "BNC3: volume {:.1} not within 10% of expected {:.1}",
+        vol,
+        expected
+    );
+}
+
+/// BNC4: Box 10x10x10 + large NURBS circle cut r=4 (close to box edges), full depth.
+///
+/// The circle is large enough that it's close to the box edges but still contained.
+///
+/// Expected: vol ≈ 10^3 - π*16*10 ≈ 497.
+#[test]
+fn bnc4_box_true_nurbs_circle_cut_large_radius() {
+    let mut m = base_cube();
+
+    // True NURBS circle on top face (z=10), centered at (5,5), r=4
+    m.true_circle_sketch("cut_sk", [0., 0., 10.], [0., 0., 1.], 5., 5., 4.)
+        .unwrap();
+    m.extrude_cut("hole", "cut_sk", 10.0).unwrap();
+    m.assert_has_solid("hole").unwrap();
+    m.assert_no_errors().unwrap();
+
+    // Volume oracle
+    let mesh = m.tessellate("hole").unwrap();
+    assert_mesh_finite(&mesh, "bnc4");
+    let vol = mesh_volume(&mesh);
+    let expected = 10.0 * 10.0 * 10.0 - std::f64::consts::PI * 4.0 * 4.0 * 10.0;
+    assert!(
+        (vol - expected).abs() < expected * 0.15,
+        "BNC4: volume {:.1} not within 15% of expected {:.1}",
+        vol,
+        expected
+    );
+}
