@@ -90,7 +90,7 @@ test.describe('sketch polyline tool', () => {
 
 		// Create a point at (5, 0) via API
 		await page.evaluate(() => {
-			window.__waffle.addSketchEntity({ type: 'Point', id: 900, x: 5, y: 0 });
+			window.__waffle.addSketchEntity({ type: 'Point', id: 900, x: 5, y: 0, construction: false });
 		});
 		await page.waitForTimeout(200);
 

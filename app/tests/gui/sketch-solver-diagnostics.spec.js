@@ -87,8 +87,8 @@ test.describe('sketch solver diagnostics', () => {
 
 		// Now add extra unconstrained points via API
 		await page.evaluate(() => {
-			window.__waffle.addSketchEntity({ type: 'Point', x: 3, y: 4 });
-			window.__waffle.addSketchEntity({ type: 'Point', x: 7, y: 8 });
+			window.__waffle.addSketchEntity({ type: 'Point', x: 3, y: 4, construction: false });
+			window.__waffle.addSketchEntity({ type: 'Point', x: 7, y: 8, construction: false });
 		});
 		await page.waitForTimeout(500);
 

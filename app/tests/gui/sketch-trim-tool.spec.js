@@ -39,12 +39,12 @@ test.describe('sketch trim tool', () => {
 		// Draw two crossing lines forming an X using the API for precise positioning
 		await page.evaluate(() => {
 			// Line 1: (-5, -5) to (5, 5)
-			const p1 = window.__waffle.addSketchEntity({ type: 'Point', x: -5, y: -5 });
-			const p2 = window.__waffle.addSketchEntity({ type: 'Point', x: 5, y: 5 });
+			const p1 = window.__waffle.addSketchEntity({ type: 'Point', x: -5, y: -5, construction: false });
+			const p2 = window.__waffle.addSketchEntity({ type: 'Point', x: 5, y: 5, construction: false });
 			window.__waffle.addSketchEntity({ type: 'Line', start_id: p1, end_id: p2 });
 			// Line 2: (-5, 5) to (5, -5)
-			const p3 = window.__waffle.addSketchEntity({ type: 'Point', x: -5, y: 5 });
-			const p4 = window.__waffle.addSketchEntity({ type: 'Point', x: 5, y: -5 });
+			const p3 = window.__waffle.addSketchEntity({ type: 'Point', x: -5, y: 5, construction: false });
+			const p4 = window.__waffle.addSketchEntity({ type: 'Point', x: 5, y: -5, construction: false });
 			window.__waffle.addSketchEntity({ type: 'Line', start_id: p3, end_id: p4 });
 		});
 		await page.waitForTimeout(500);
@@ -80,8 +80,8 @@ test.describe('sketch trim tool', () => {
 
 		// Draw a single line far from where we'll click
 		await page.evaluate(() => {
-			const p1 = window.__waffle.addSketchEntity({ type: 'Point', x: -10, y: -10 });
-			const p2 = window.__waffle.addSketchEntity({ type: 'Point', x: -8, y: -8 });
+			const p1 = window.__waffle.addSketchEntity({ type: 'Point', x: -10, y: -10, construction: false });
+			const p2 = window.__waffle.addSketchEntity({ type: 'Point', x: -8, y: -8, construction: false });
 			window.__waffle.addSketchEntity({ type: 'Line', start_id: p1, end_id: p2 });
 		});
 		await page.waitForTimeout(300);

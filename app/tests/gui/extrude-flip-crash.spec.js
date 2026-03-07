@@ -32,10 +32,10 @@ async function createSketchWithRectangle(page) {
 
 	await page.evaluate(() => {
 		const w = window.__waffle;
-		w.addSketchEntity({ type: 'Point', id: 1, x: -30, y: -30 });
-		w.addSketchEntity({ type: 'Point', id: 2, x: 30, y: -30 });
-		w.addSketchEntity({ type: 'Point', id: 3, x: 30, y: 30 });
-		w.addSketchEntity({ type: 'Point', id: 4, x: -30, y: 30 });
+		w.addSketchEntity({ type: 'Point', id: 1, x: -30, y: -30, construction: false });
+		w.addSketchEntity({ type: 'Point', id: 2, x: 30, y: -30, construction: false });
+		w.addSketchEntity({ type: 'Point', id: 3, x: 30, y: 30, construction: false });
+		w.addSketchEntity({ type: 'Point', id: 4, x: -30, y: 30, construction: false });
 		w.addSketchEntity({ type: 'Line', id: 5, start_id: 1, end_id: 2, construction: false });
 		w.addSketchEntity({ type: 'Line', id: 6, start_id: 2, end_id: 3, construction: false });
 		w.addSketchEntity({ type: 'Line', id: 7, start_id: 3, end_id: 4, construction: false });
@@ -114,10 +114,10 @@ test.describe('Extrude flip direction — no crash', () => {
 
 		await page.evaluate(() => {
 			const w = window.__waffle;
-			w.addSketchEntity({ type: 'Point', id: 1, x: -10, y: -10 });
-			w.addSketchEntity({ type: 'Point', id: 2, x: 10, y: -10 });
-			w.addSketchEntity({ type: 'Point', id: 3, x: 10, y: 10 });
-			w.addSketchEntity({ type: 'Point', id: 4, x: -10, y: 10 });
+			w.addSketchEntity({ type: 'Point', id: 1, x: -10, y: -10, construction: false });
+			w.addSketchEntity({ type: 'Point', id: 2, x: 10, y: -10, construction: false });
+			w.addSketchEntity({ type: 'Point', id: 3, x: 10, y: 10, construction: false });
+			w.addSketchEntity({ type: 'Point', id: 4, x: -10, y: 10, construction: false });
 			w.addSketchEntity({ type: 'Line', id: 5, start_id: 1, end_id: 2, construction: false });
 			w.addSketchEntity({ type: 'Line', id: 6, start_id: 2, end_id: 3, construction: false });
 			w.addSketchEntity({ type: 'Line', id: 7, start_id: 3, end_id: 4, construction: false });

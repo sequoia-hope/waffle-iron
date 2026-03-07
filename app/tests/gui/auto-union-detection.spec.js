@@ -34,10 +34,10 @@ async function createBaseBox(page) {
 
 	await page.evaluate(() => {
 		const w = window.__waffle;
-		w.addSketchEntity({ type: 'Point', id: 1, x: -30, y: -30 });
-		w.addSketchEntity({ type: 'Point', id: 2, x: 30, y: -30 });
-		w.addSketchEntity({ type: 'Point', id: 3, x: 30, y: 30 });
-		w.addSketchEntity({ type: 'Point', id: 4, x: -30, y: 30 });
+		w.addSketchEntity({ type: 'Point', id: 1, x: -30, y: -30, construction: false });
+		w.addSketchEntity({ type: 'Point', id: 2, x: 30, y: -30, construction: false });
+		w.addSketchEntity({ type: 'Point', id: 3, x: 30, y: 30, construction: false });
+		w.addSketchEntity({ type: 'Point', id: 4, x: -30, y: 30, construction: false });
 		w.addSketchEntity({ type: 'Line', id: 5, start_id: 1, end_id: 2, construction: false });
 		w.addSketchEntity({ type: 'Line', id: 6, start_id: 2, end_id: 3, construction: false });
 		w.addSketchEntity({ type: 'Line', id: 7, start_id: 3, end_id: 4, construction: false });
@@ -80,10 +80,10 @@ async function createBossOnTop(page, expectedFeaturesBefore) {
 
 	await page.evaluate(() => {
 		const w = window.__waffle;
-		w.addSketchEntity({ type: 'Point', id: 101, x: -15, y: -15 });
-		w.addSketchEntity({ type: 'Point', id: 102, x: 15, y: -15 });
-		w.addSketchEntity({ type: 'Point', id: 103, x: 15, y: 15 });
-		w.addSketchEntity({ type: 'Point', id: 104, x: -15, y: 15 });
+		w.addSketchEntity({ type: 'Point', id: 101, x: -15, y: -15, construction: false });
+		w.addSketchEntity({ type: 'Point', id: 102, x: 15, y: -15, construction: false });
+		w.addSketchEntity({ type: 'Point', id: 103, x: 15, y: 15, construction: false });
+		w.addSketchEntity({ type: 'Point', id: 104, x: -15, y: 15, construction: false });
 		w.addSketchEntity({ type: 'Line', id: 105, start_id: 101, end_id: 102, construction: false });
 		w.addSketchEntity({ type: 'Line', id: 106, start_id: 102, end_id: 103, construction: false });
 		w.addSketchEntity({ type: 'Line', id: 107, start_id: 103, end_id: 104, construction: false });

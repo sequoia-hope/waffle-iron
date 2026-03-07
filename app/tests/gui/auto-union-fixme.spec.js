@@ -35,10 +35,10 @@ async function createBaseBox(page, size = 30, depth = 60) {
 
 	await page.evaluate(({ s }) => {
 		const w = window.__waffle;
-		w.addSketchEntity({ type: 'Point', id: 1, x: -s, y: -s });
-		w.addSketchEntity({ type: 'Point', id: 2, x: s, y: -s });
-		w.addSketchEntity({ type: 'Point', id: 3, x: s, y: s });
-		w.addSketchEntity({ type: 'Point', id: 4, x: -s, y: s });
+		w.addSketchEntity({ type: 'Point', id: 1, x: -s, y: -s, construction: false });
+		w.addSketchEntity({ type: 'Point', id: 2, x: s, y: -s, construction: false });
+		w.addSketchEntity({ type: 'Point', id: 3, x: s, y: s, construction: false });
+		w.addSketchEntity({ type: 'Point', id: 4, x: -s, y: s, construction: false });
 		w.addSketchEntity({ type: 'Line', id: 5, start_id: 1, end_id: 2, construction: false });
 		w.addSketchEntity({ type: 'Line', id: 6, start_id: 2, end_id: 3, construction: false });
 		w.addSketchEntity({ type: 'Line', id: 7, start_id: 3, end_id: 4, construction: false });
@@ -79,10 +79,10 @@ async function createBoss(page, origin, normal, size, depth, expectedFeaturesBef
 	await page.evaluate(({ s }) => {
 		const w = window.__waffle;
 		const base = 200;
-		w.addSketchEntity({ type: 'Point', id: base + 1, x: -s, y: -s });
-		w.addSketchEntity({ type: 'Point', id: base + 2, x: s, y: -s });
-		w.addSketchEntity({ type: 'Point', id: base + 3, x: s, y: s });
-		w.addSketchEntity({ type: 'Point', id: base + 4, x: -s, y: s });
+		w.addSketchEntity({ type: 'Point', id: base + 1, x: -s, y: -s, construction: false });
+		w.addSketchEntity({ type: 'Point', id: base + 2, x: s, y: -s, construction: false });
+		w.addSketchEntity({ type: 'Point', id: base + 3, x: s, y: s, construction: false });
+		w.addSketchEntity({ type: 'Point', id: base + 4, x: -s, y: s, construction: false });
 		w.addSketchEntity({ type: 'Line', id: base + 5, start_id: base + 1, end_id: base + 2, construction: false });
 		w.addSketchEntity({ type: 'Line', id: base + 6, start_id: base + 2, end_id: base + 3, construction: false });
 		w.addSketchEntity({ type: 'Line', id: base + 7, start_id: base + 3, end_id: base + 4, construction: false });
@@ -148,10 +148,10 @@ test.describe('auto-union edge cases', () => {
 
 		await waffle.page.evaluate(() => {
 			const w = window.__waffle;
-			w.addSketchEntity({ type: 'Point', id: 301, x: -30, y: -15 });
-			w.addSketchEntity({ type: 'Point', id: 302, x: 0, y: -15 });
-			w.addSketchEntity({ type: 'Point', id: 303, x: 0, y: 15 });
-			w.addSketchEntity({ type: 'Point', id: 304, x: -30, y: 15 });
+			w.addSketchEntity({ type: 'Point', id: 301, x: -30, y: -15, construction: false });
+			w.addSketchEntity({ type: 'Point', id: 302, x: 0, y: -15, construction: false });
+			w.addSketchEntity({ type: 'Point', id: 303, x: 0, y: 15, construction: false });
+			w.addSketchEntity({ type: 'Point', id: 304, x: -30, y: 15, construction: false });
 			w.addSketchEntity({ type: 'Line', id: 305, start_id: 301, end_id: 302, construction: false });
 			w.addSketchEntity({ type: 'Line', id: 306, start_id: 302, end_id: 303, construction: false });
 			w.addSketchEntity({ type: 'Line', id: 307, start_id: 303, end_id: 304, construction: false });
@@ -204,10 +204,10 @@ test.describe('auto-union edge cases', () => {
 
 		await waffle.page.evaluate(() => {
 			const w = window.__waffle;
-			w.addSketchEntity({ type: 'Point', id: 401, x: -10, y: -10 });
-			w.addSketchEntity({ type: 'Point', id: 402, x: 10, y: -10 });
-			w.addSketchEntity({ type: 'Point', id: 403, x: 10, y: 10 });
-			w.addSketchEntity({ type: 'Point', id: 404, x: -10, y: 10 });
+			w.addSketchEntity({ type: 'Point', id: 401, x: -10, y: -10, construction: false });
+			w.addSketchEntity({ type: 'Point', id: 402, x: 10, y: -10, construction: false });
+			w.addSketchEntity({ type: 'Point', id: 403, x: 10, y: 10, construction: false });
+			w.addSketchEntity({ type: 'Point', id: 404, x: -10, y: 10, construction: false });
 			w.addSketchEntity({ type: 'Line', id: 405, start_id: 401, end_id: 402, construction: false });
 			w.addSketchEntity({ type: 'Line', id: 406, start_id: 402, end_id: 403, construction: false });
 			w.addSketchEntity({ type: 'Line', id: 407, start_id: 403, end_id: 404, construction: false });
@@ -236,10 +236,10 @@ test.describe('auto-union edge cases', () => {
 
 		await waffle.page.evaluate(() => {
 			const w = window.__waffle;
-			w.addSketchEntity({ type: 'Point', id: 501, x: -10, y: -10 });
-			w.addSketchEntity({ type: 'Point', id: 502, x: 10, y: -10 });
-			w.addSketchEntity({ type: 'Point', id: 503, x: 10, y: 10 });
-			w.addSketchEntity({ type: 'Point', id: 504, x: -10, y: 10 });
+			w.addSketchEntity({ type: 'Point', id: 501, x: -10, y: -10, construction: false });
+			w.addSketchEntity({ type: 'Point', id: 502, x: 10, y: -10, construction: false });
+			w.addSketchEntity({ type: 'Point', id: 503, x: 10, y: 10, construction: false });
+			w.addSketchEntity({ type: 'Point', id: 504, x: -10, y: 10, construction: false });
 			w.addSketchEntity({ type: 'Line', id: 505, start_id: 501, end_id: 502, construction: false });
 			w.addSketchEntity({ type: 'Line', id: 506, start_id: 502, end_id: 503, construction: false });
 			w.addSketchEntity({ type: 'Line', id: 507, start_id: 503, end_id: 504, construction: false });

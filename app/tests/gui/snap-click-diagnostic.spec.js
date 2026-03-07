@@ -138,8 +138,8 @@ test.describe('snap point coincident detection', () => {
 		await page.evaluate(() => {
 			const w = window.__waffle;
 			// Create two points and a line
-			w.addSketchEntity({ type: 'Point', id: 101, x: -5, y: 0 });
-			w.addSketchEntity({ type: 'Point', id: 102, x: 5, y: 0 });
+			w.addSketchEntity({ type: 'Point', id: 101, x: -5, y: 0, construction: false });
+			w.addSketchEntity({ type: 'Point', id: 102, x: 5, y: 0, construction: false });
 			w.addSketchEntity({ type: 'Line', id: 103, start_id: 101, end_id: 102, construction: false });
 		});
 		await waitForEntityCount(page, 3, 3000);

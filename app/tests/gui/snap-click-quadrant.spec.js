@@ -52,7 +52,7 @@ test.describe('quadrant snap click — 10x repetition', () => {
 		// 2. Create a reference circle via API: center=(0,0), radius=5
 		await page.evaluate(() => {
 			const w = window.__waffle;
-			w.addSketchEntity({ type: 'Point', id: 9001, x: 0, y: 0 });
+			w.addSketchEntity({ type: 'Point', id: 9001, x: 0, y: 0, construction: false });
 			w.addSketchEntity({ type: 'Circle', id: 9002, center_id: 9001, radius: 5, construction: false });
 		});
 		await waitForEntityCount(page, 2, 3000);
@@ -174,7 +174,7 @@ test.describe('quadrant snap click — 10x repetition', () => {
 		// Create reference circle at origin with radius 5
 		await page.evaluate(() => {
 			const w = window.__waffle;
-			w.addSketchEntity({ type: 'Point', id: 8001, x: 0, y: 0 });
+			w.addSketchEntity({ type: 'Point', id: 8001, x: 0, y: 0, construction: false });
 			w.addSketchEntity({ type: 'Circle', id: 8002, center_id: 8001, radius: 5, construction: false });
 		});
 		await waitForEntityCount(page, 2, 3000);
@@ -205,7 +205,7 @@ test.describe('quadrant snap click — 10x repetition', () => {
 		// Create reference circle at origin with radius 5
 		await page.evaluate(() => {
 			const w = window.__waffle;
-			w.addSketchEntity({ type: 'Point', id: 7001, x: 0, y: 0 });
+			w.addSketchEntity({ type: 'Point', id: 7001, x: 0, y: 0, construction: false });
 			w.addSketchEntity({ type: 'Circle', id: 7002, center_id: 7001, radius: 5, construction: false });
 		});
 		await waitForEntityCount(page, 2, 3000);

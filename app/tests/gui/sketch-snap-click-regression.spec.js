@@ -253,8 +253,8 @@ test.describe('sketch snap click regression', () => {
 		// Create a line from (-5, 0) to (5, 0) via API — midpoint at (0, 0)
 		await page.evaluate(() => {
 			const w = window.__waffle;
-			w.addSketchEntity({ type: 'Point', id: 6001, x: -5, y: 0 });
-			w.addSketchEntity({ type: 'Point', id: 6002, x: 5, y: 0 });
+			w.addSketchEntity({ type: 'Point', id: 6001, x: -5, y: 0, construction: false });
+			w.addSketchEntity({ type: 'Point', id: 6002, x: 5, y: 0, construction: false });
 			w.addSketchEntity({ type: 'Line', id: 6003, start_id: 6001, end_id: 6002, construction: false });
 		});
 		await waitForEntityCount(page, 3, 3000);
@@ -295,7 +295,7 @@ test.describe('sketch snap click regression', () => {
 		// Create a circle center at (0, 0) radius 3 via API
 		await page.evaluate(() => {
 			const w = window.__waffle;
-			w.addSketchEntity({ type: 'Point', id: 7001, x: 0, y: 0 });
+			w.addSketchEntity({ type: 'Point', id: 7001, x: 0, y: 0, construction: false });
 			w.addSketchEntity({ type: 'Circle', id: 7002, center_id: 7001, radius: 3, construction: false });
 		});
 		await waitForEntityCount(page, 2, 3000);

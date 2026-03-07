@@ -151,8 +151,8 @@ test.describe('sketch construction toggle', () => {
 		// Add a construction line across the rectangle using fixed IDs
 		await page.evaluate(() => {
 			const w = window.__waffle;
-			w.addSketchEntity({ type: 'Point', id: 9001, x: -80, y: 0 });
-			w.addSketchEntity({ type: 'Point', id: 9002, x: 80, y: 0 });
+			w.addSketchEntity({ type: 'Point', id: 9001, x: -80, y: 0, construction: false });
+			w.addSketchEntity({ type: 'Point', id: 9002, x: 80, y: 0, construction: false });
 			w.addSketchEntity({ type: 'Line', id: 9003, start_id: 9001, end_id: 9002, construction: true });
 		});
 		await page.waitForTimeout(500);

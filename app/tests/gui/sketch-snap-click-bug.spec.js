@@ -39,7 +39,7 @@ test.describe('sketch snap click diagnostics', () => {
 
 		// Add a point at (5, 0) via API
 		await page.evaluate(() => {
-			window.__waffle.addSketchEntity({ type: 'Point', id: 999, x: 5, y: 0 });
+			window.__waffle.addSketchEntity({ type: 'Point', id: 999, x: 5, y: 0, construction: false });
 		});
 		await waitForEntityCount(page, 1, 3000);
 
@@ -167,8 +167,8 @@ test.describe('sketch snap click diagnostics', () => {
 		// Create a line via API: 2 points + 1 line from (-5, 0) to (5, 0)
 		await page.evaluate(() => {
 			const w = window.__waffle;
-			w.addSketchEntity({ type: 'Point', id: 201, x: -5, y: 0 });
-			w.addSketchEntity({ type: 'Point', id: 202, x: 5, y: 0 });
+			w.addSketchEntity({ type: 'Point', id: 201, x: -5, y: 0, construction: false });
+			w.addSketchEntity({ type: 'Point', id: 202, x: 5, y: 0, construction: false });
 			w.addSketchEntity({ type: 'Line', id: 203, start_id: 201, end_id: 202, construction: false });
 		});
 		await waitForEntityCount(page, 3, 3000);
