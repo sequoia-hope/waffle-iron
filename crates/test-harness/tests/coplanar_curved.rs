@@ -1260,13 +1260,178 @@ fn bnc8_box_nurbs_circle_cut_directed_no_eps() {
 
     // Volume oracle
     let mesh = m.tessellate("hole").unwrap();
-    assert_mesh_finite(&mesh, "bnc7");
+    assert_mesh_finite(&mesh, "bnc8");
     let vol = mesh_volume(&mesh);
     let expected = 10.0 * 10.0 * 10.0 - std::f64::consts::PI * 2.0 * 2.0 * 10.0;
     assert!(
         (vol - expected).abs() < expected * 0.10,
-        "BNC7: volume {:.1} not within 10% of expected {:.1}",
+        "BNC8: volume {:.1} not within 10% of expected {:.1}",
         vol,
         expected
+    );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// BNC9-11 — Ring + Quadrant Cut (B24)
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// Tests for boolean subtract on annular faces: create a ring (outer cylinder
+// minus inner cylinder), then cut a notch at a quadrant position on the ring
+// wall. The ring's top face has 2 boundary loops (outer circle + inner hole).
+
+/// BNC9: Ring + quadrant cut via feature engine (user's exact scenario).
+///
+/// 1. NURBS circle r=5 → extrude 10 → cylinder
+/// 2. NURBS circle r=2.5 on top face → extrude cut 10 → ring
+/// 3. NURBS circle r=1 at (3.75,0) on top face → extrude cut 10 → C-shape
+///
+/// Expected: has_solid, volume ≈ ring - notch (±20%), no errors.
+#[test]
+fn bnc9_ring_quadrant_cut_feature_engine() {
+    let mut m = ModelBuilder::truck();
+
+    // Step 1: Outer cylinder r=5, h=10
+    m.true_circle_sketch("outer_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.)
+        .unwrap();
+    m.extrude("cyl", "outer_sk", 10.0).unwrap();
+    m.assert_has_solid("cyl").unwrap();
+
+    // Step 2: Inner cut r=2.5, full depth → ring
+    m.true_circle_sketch("inner_sk", [0., 0., 10.], [0., 0., 1.], 0., 0., 2.5)
+        .unwrap();
+    m.extrude_cut("ring", "inner_sk", 10.0).unwrap();
+    m.assert_has_solid("ring").unwrap();
+
+    // Step 3: Notch cut r=1 at (3.75, 0), full depth → C-shape
+    m.true_circle_sketch("notch_sk", [0., 0., 10.], [0., 0., 1.], 3.75, 0., 1.)
+        .unwrap();
+    m.extrude_cut("cshape", "notch_sk", 10.0).unwrap();
+    m.assert_has_solid("cshape").unwrap();
+    m.assert_no_errors().unwrap();
+
+    // Volume oracle: ring - notch
+    let mesh = m.tessellate("cshape").unwrap();
+    assert_mesh_finite(&mesh, "bnc9");
+    let vol = mesh_volume(&mesh);
+    let ring_vol = std::f64::consts::PI * (5.0 * 5.0 - 2.5 * 2.5) * 10.0;
+    let notch_vol = std::f64::consts::PI * 1.0 * 1.0 * 10.0;
+    let expected = ring_vol - notch_vol;
+    assert!(
+        (vol - expected).abs() < expected * 0.20,
+        "BNC9: volume {:.1} not within 20% of expected {:.1}",
+        vol,
+        expected
+    );
+}
+
+/// BNC10: Ring + notch via explicit boolean subtract (bypass feature engine).
+///
+/// 1. Extrude outer (r=5), inner (r=2.5), notch (r=1 at 3.75,0) as 3 solids
+/// 2. boolean_subtract outer - inner → ring
+/// 3. boolean_subtract ring - notch → C-shape
+///
+/// Expected: has_solid, volume ≈ ring - notch (±20%).
+#[test]
+fn bnc10_ring_quadrant_cut_explicit_boolean() {
+    let mut m = ModelBuilder::truck();
+
+    // Outer cylinder r=5, h=10
+    m.true_circle_sketch("outer_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.)
+        .unwrap();
+    m.extrude_no_merge("outer", "outer_sk", 10.0).unwrap();
+    m.assert_has_solid("outer").unwrap();
+
+    // Inner cylinder r=2.5, h=10
+    m.true_circle_sketch("inner_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 2.5)
+        .unwrap();
+    m.extrude_no_merge("inner", "inner_sk", 10.0).unwrap();
+    m.assert_has_solid("inner").unwrap();
+
+    // Notch cylinder r=1, center (3.75, 0), h=10
+    m.true_circle_sketch("notch_sk", [0., 0., 0.], [0., 0., 1.], 3.75, 0., 1.)
+        .unwrap();
+    m.extrude_no_merge("notch", "notch_sk", 10.0).unwrap();
+    m.assert_has_solid("notch").unwrap();
+
+    // Ring = outer - inner
+    m.boolean_subtract("ring", "outer", "inner").unwrap();
+    m.assert_has_solid("ring").unwrap();
+
+    // C-shape = ring - notch
+    m.boolean_subtract("cshape", "ring", "notch").unwrap();
+    m.assert_has_solid("cshape").unwrap();
+
+    // Volume oracle
+    let mesh = m.tessellate("cshape").unwrap();
+    assert_mesh_finite(&mesh, "bnc10");
+    let vol = mesh_volume(&mesh);
+    let ring_vol = std::f64::consts::PI * (5.0 * 5.0 - 2.5 * 2.5) * 10.0;
+    let notch_vol = std::f64::consts::PI * 1.0 * 1.0 * 10.0;
+    let expected = ring_vol - notch_vol;
+    assert!(
+        (vol - expected).abs() < expected * 0.20,
+        "BNC10: volume {:.1} not within 20% of expected {:.1}",
+        vol,
+        expected
+    );
+}
+
+/// BNC11: Notch straddling inner hole boundary (hardest case).
+///
+/// Notch center at (2.5, 0), r=1.5 — overlaps inner boundary.
+/// ICs must split both outer and inner boundary loops of the annular face.
+///
+/// Expected: has_solid, volume, topology.
+#[test]
+fn bnc11_notch_straddling_inner_boundary() {
+    let mut m = ModelBuilder::truck();
+
+    // Outer cylinder r=5, h=10
+    m.true_circle_sketch("outer_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.)
+        .unwrap();
+    m.extrude_no_merge("outer", "outer_sk", 10.0).unwrap();
+    m.assert_has_solid("outer").unwrap();
+
+    // Inner cylinder r=2.5, h=10
+    m.true_circle_sketch("inner_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 2.5)
+        .unwrap();
+    m.extrude_no_merge("inner", "inner_sk", 10.0).unwrap();
+    m.assert_has_solid("inner").unwrap();
+
+    // Ring = outer - inner
+    m.boolean_subtract("ring", "outer", "inner").unwrap();
+    m.assert_has_solid("ring").unwrap();
+
+    // Notch straddling inner boundary: center (2.5, 0), r=1.5
+    // This overlaps both the inner hole edge (r=2.5 from origin) and ring wall
+    m.true_circle_sketch("notch_sk", [0., 0., 0.], [0., 0., 1.], 2.5, 0., 1.5)
+        .unwrap();
+    m.extrude_no_merge("notch", "notch_sk", 10.0).unwrap();
+    m.assert_has_solid("notch").unwrap();
+
+    // C-shape = ring - notch
+    m.boolean_subtract("cshape", "ring", "notch").unwrap();
+    m.assert_has_solid("cshape").unwrap();
+
+    // Volume oracle: ring - (portion of notch inside ring)
+    // The notch extends from x=1.0 to x=4.0. The ring spans r=2.5 to r=5.0.
+    // Only the portion of the notch inside the ring is subtracted.
+    // Approximate: vol should be less than full ring but more than ring - full notch
+    let mesh = m.tessellate("cshape").unwrap();
+    assert_mesh_finite(&mesh, "bnc11");
+    let vol = mesh_volume(&mesh);
+    let ring_vol = std::f64::consts::PI * (5.0 * 5.0 - 2.5 * 2.5) * 10.0;
+    // notch fully inside ring would be π*1.5²*10 ≈ 70.7, but it straddles so less
+    assert!(
+        vol > ring_vol * 0.50,
+        "BNC11: volume {:.1} should be > 50% of ring {:.1}",
+        vol,
+        ring_vol
+    );
+    assert!(
+        vol < ring_vol * 0.99,
+        "BNC11: volume {:.1} should be < ring {:.1} (notch was subtracted)",
+        vol,
+        ring_vol
     );
 }
