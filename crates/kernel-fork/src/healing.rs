@@ -2299,6 +2299,48 @@ pub fn try_boolean_with_perturbation_vol(
         Err(e) => last_err = e,
     }
 
+    // B27: Early asymmetric scale — for parallel-cylinder booleans (circle-cut-cut),
+    // direct booleans fail due to degenerate ICs from edge alignment. Asymmetric
+    // scaling along one axis breaks the alignment cheaply. Try this immediately
+    // after direct, before the expensive coplanar/diagonal cascade, so WASM
+    // (10-attempt limit) can reach it.
+    {
+        let centroid = solid_centroid(solid_b);
+        let cv = Vector3::new(centroid.x, centroid.y, centroid.z);
+        let early_asymm: [(f64, f64, f64); 3] = [
+            (1.01, 1.0, 1.0),
+            (1.0, 1.01, 1.0),
+            (1.0, 1.0, 1.01),
+        ];
+        for (sx, sy, sz) in &early_asymm {
+            check_timeout!();
+            let scaled_b = solid_b.mapped(
+                |p| {
+                    let v = Vector3::new(p.x, p.y, p.z);
+                    let rel = v - cv;
+                    let scaled = Vector3::new(rel.x * sx, rel.y * sy, rel.z * sz);
+                    Point3::new(cv.x + scaled.x, cv.y + scaled.y, cv.z + scaled.z)
+                },
+                |c| {
+                    let trans = Matrix4::from_translation(cv)
+                        * Matrix4::from_nonuniform_scale(*sx, *sy, *sz)
+                        * Matrix4::from_translation(-cv);
+                    c.transformed(trans)
+                },
+                |s| {
+                    let trans = Matrix4::from_translation(cv)
+                        * Matrix4::from_nonuniform_scale(*sx, *sy, *sz)
+                        * Matrix4::from_translation(-cv);
+                    s.transformed(trans)
+                },
+            );
+            match try_op(effective_a, &scaled_b, &mut _attempt_count, "asymm-scale") {
+                Ok(result) => check_result!(result, "asymm-scale"),
+                Err(e) => last_err = e,
+            }
+        }
+    }
+
     // Scale-aware perturbation epsilons based on bounding box extent
     let extent = solid_max_extent(effective_a).max(solid_max_extent(solid_b));
 
