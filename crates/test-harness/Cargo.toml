@@ -17,3 +17,5 @@ thiserror = "1"
 proptest = "1.6"
 i_overlay = { version = "4.4", default-features = false }
 truck-base = "0.5"
+truck-modeling = "0.6"
+truck-shapeops = "0.4"

@@ -1961,11 +1961,13 @@ fn solid_max_extent(solid: &Solid) -> f64 {
 }
 
 /// Maximum number of cascade attempts on WASM before bailing out.
-/// WASM stack is smaller than native (8MB+), so deep recursive cascades
-/// risk stack overflow that emits `unreachable` which `catch_unwind`
-/// cannot catch. 3 attempts covers the direct attempt plus 2 perturbations.
+/// WASM stack is 4MB (set in .cargo/config.toml), and each attempt is iterative
+/// (not recursive), so stack overflow risk is low. 10 attempts covers:
+/// 1 direct + 2 coplanar-composite + 7 directional strategies.
+/// B27: Increased from 3→10 because 3 caused real user-facing failures
+/// (circle-cut-cut GUI test needed attempt #27 on native).
 #[cfg(target_arch = "wasm32")]
-const MAX_WASM_CASCADE_ATTEMPTS: u32 = 3;
+const MAX_WASM_CASCADE_ATTEMPTS: u32 = 10;
 
 /// Try a boolean operation with multi-axis perturbation retry.
 ///
