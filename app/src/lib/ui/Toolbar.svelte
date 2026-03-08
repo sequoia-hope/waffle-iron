@@ -301,8 +301,11 @@
 			</div>
 			{#if showSketchTools}
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<div class="dropdown-backdrop" onclick={() => showSketchTools = false}></div>
-				<div class="dropdown-panel dropdown-fixed" style="top: {dropdownPos.top}px; left: {dropdownPos.left}px;" data-testid="sketch-tools-dropdown">
+				<div class="dropdown-backdrop" onclick={() => showSketchTools = false} onpointerdown={(e) => e.stopPropagation()}></div>
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div class="dropdown-panel dropdown-fixed" style="top: {dropdownPos.top}px; left: {dropdownPos.left}px;" data-testid="sketch-tools-dropdown"
+				onpointerdown={(e) => e.stopPropagation()}
+			>
 					<div class="dropdown-grid">
 						{#each sketchTools as t}
 							<button
@@ -344,8 +347,11 @@
 			</div>
 			{#if showConstraints}
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<div class="dropdown-backdrop" onclick={() => showConstraints = false}></div>
-				<div class="dropdown-panel dropdown-fixed constraints-panel" style="top: {dropdownPos.top}px; left: {dropdownPos.left}px;" data-testid="constraints-dropdown">
+				<div class="dropdown-backdrop" onclick={() => showConstraints = false} onpointerdown={(e) => e.stopPropagation()}></div>
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div class="dropdown-panel dropdown-fixed constraints-panel" style="top: {dropdownPos.top}px; left: {dropdownPos.left}px;" data-testid="constraints-dropdown"
+				onpointerdown={(e) => e.stopPropagation()}
+			>
 					<div class="dropdown-grid constraints-grid">
 						{#each constraintButtons as cb}
 							<button
