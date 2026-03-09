@@ -7,6 +7,7 @@ use super::point::{Point3, Vector3};
 pub enum CurveGeom {
     Linear(Line3D),
     Circular(Circle3D),
+    Arc(Arc3D),
 }
 
 /// A line in 3D space.
@@ -22,4 +23,14 @@ pub struct Circle3D {
     pub center: Point3,
     pub normal: Vector3,
     pub radius: f64,
+}
+
+/// A partial circular arc in 3D space.
+#[derive(Debug, Clone)]
+pub struct Arc3D {
+    pub center: Point3,
+    pub normal: Vector3,
+    pub radius: f64,
+    pub start_point: Point3,
+    pub sweep_angle: f64,
 }

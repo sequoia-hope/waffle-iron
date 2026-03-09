@@ -1,9 +1,9 @@
 //! WaffleKernel — clean-sheet B-Rep kernel.
 //!
-//! Supports: make_faces_from_profiles → extrude_face → tessellate/extract_edges → introspect.
-//! Boolean ops, revolve, fillet, chamfer, shell remain NotSupported.
+//! Supports: make_faces_from_profiles → extrude_face/revolve_face → tessellate/extract_edges → introspect.
+//! Boolean ops (box-box). Fillet, chamfer, shell remain NotSupported.
 
-use crate::geometry::curve::{Circle3D, CurveGeom, Line3D};
+use crate::geometry::curve::{Arc3D, Circle3D, CurveGeom, Line3D};
 use crate::geometry::point::{Point3, Vector3};
 use crate::geometry::surface::{Cylinder, Plane, SurfaceGeom};
 use crate::tessellation;
@@ -31,6 +31,7 @@ pub(crate) struct WaffleSolid {
     pub(crate) face_geometry: HashMap<FaceIdx, SurfaceGeom>,
     pub(crate) edge_geometry: HashMap<EdgeIdx, CurveGeom>,
     pub(crate) cylinder_params: Option<CylinderParams>,
+    pub(crate) revolve_params: Option<RevolveParams>,
 }
 
 /// Parameters for cylinder tessellation (stored after extrude_circle).
@@ -41,6 +42,15 @@ pub(crate) struct CylinderParams {
     pub y_axis: [f64; 3],
     pub direction: [f64; 3],
     pub depth: f64,
+}
+
+/// Parameters for revolve tessellation (stored after revolve_polygon).
+pub(crate) struct RevolveParams {
+    pub axis_origin: [f64; 3],
+    pub axis_dir: [f64; 3],
+    pub angle_rad: f64,
+    /// Per lateral face: (FaceIdx, start_vertex_3d, end_vertex_3d)
+    pub lateral_faces: Vec<(FaceIdx, [f64; 3], [f64; 3])>,
 }
 
 /// Circle geometry stored in a standalone face (pre-extrude).
@@ -101,10 +111,15 @@ impl WaffleKernel {
                 id: KernelId(b.id()),
             })?;
 
-        // Guard: no cylinders
+        // Guard: no cylinders or revolve solids
         if solid_a.cylinder_params.is_some() || solid_b.cylinder_params.is_some() {
             return Err(KernelError::NotSupported {
                 operation: "boolean on cylinders".to_string(),
+            });
+        }
+        if solid_a.revolve_params.is_some() || solid_b.revolve_params.is_some() {
+            return Err(KernelError::NotSupported {
+                operation: "boolean on revolve solids".to_string(),
             });
         }
 
@@ -135,6 +150,293 @@ impl WaffleKernel {
                 face_geometry: result.face_geometry,
                 edge_geometry: result.edge_geometry,
                 cylinder_params: None,
+                revolve_params: None,
+            },
+        );
+
+        Ok(KernelSolidHandle(handle_id))
+    }
+
+    /// Revolve a polygon profile around an axis to create a solid with analytic surfaces.
+    fn revolve_polygon(
+        &mut self,
+        standalone: &StandaloneFace,
+        axis_origin: [f64; 3],
+        axis_direction: [f64; 3],
+        angle_deg: f64,
+    ) -> Result<KernelSolidHandle, KernelError> {
+        let angle_rad = angle_deg.to_radians();
+        let axis_dir = vec3_normalize(axis_direction);
+        let n = standalone.vertices.len();
+        let tau_model = 1e-7;
+
+        // Validate all profile edges are axis-aligned (constant radius OR constant height)
+        for i in 0..n {
+            let v_a = standalone.vertices[i];
+            let v_b = standalone.vertices[(i + 1) % n];
+            let r_a = {
+                let v = vec3_sub(v_a, axis_origin);
+                let proj = vec3_scale(axis_dir, vec3_dot(v, axis_dir));
+                vec3_length(vec3_sub(v, proj))
+            };
+            let r_b = {
+                let v = vec3_sub(v_b, axis_origin);
+                let proj = vec3_scale(axis_dir, vec3_dot(v, axis_dir));
+                vec3_length(vec3_sub(v, proj))
+            };
+            let h_a = vec3_dot(vec3_sub(v_a, axis_origin), axis_dir);
+            let h_b = vec3_dot(vec3_sub(v_b, axis_origin), axis_dir);
+            let same_radius = (r_a - r_b).abs() < tau_model;
+            let same_height = (h_a - h_b).abs() < tau_model;
+            if !same_radius && !same_height {
+                return Err(KernelError::NotSupported {
+                    operation: "revolve: profile edge neither radial nor axial".to_string(),
+                });
+            }
+        }
+
+        // Compute start (angle=0) and end (angle=angle_rad) vertex positions
+        let start_verts: Vec<[f64; 3]> = standalone.vertices.clone();
+        let end_verts: Vec<[f64; 3]> = start_verts
+            .iter()
+            .map(|&v| rotate_point_around_axis(v, axis_origin, axis_dir, angle_rad))
+            .collect();
+
+        let mut arena = TopoArena::new();
+
+        // Phase 1: Build start cap polygon using Euler ops
+        let (_, _, face0, v_start_0) = mvfs(&mut arena, start_verts[0]);
+        let loop0 = arena.faces[face0.0].outer_loop;
+
+        let mut bottom_verts = vec![v_start_0];
+        for i in 1..n {
+            let (_, vi) = mev(&mut arena, bottom_verts[i - 1], loop0, start_verts[i]);
+            bottom_verts.push(vi);
+        }
+
+        // Close the start cap: connect last vertex back to first
+        let (_close_edge, start_cap_face) =
+            mef(&mut arena, bottom_verts[n - 1], bottom_verts[0], loop0);
+
+        // Fix stale vertex half_edge pointers (same pattern as extrude)
+        {
+            let start_he = arena.loops[loop0.0].half_edge;
+            let mut he = start_he;
+            loop {
+                let v = arena.half_edges[he.0].origin;
+                arena.vertices[v.0].half_edge = Some(he);
+                he = arena.half_edges[he.0].next;
+                if he == start_he {
+                    break;
+                }
+            }
+        }
+
+        // Phase 2: Create end cap vertices by extending from start vertices
+        let mut top_verts = Vec::with_capacity(n);
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..n {
+            let (_, tv) = mev(&mut arena, bottom_verts[i], loop0, end_verts[i]);
+            top_verts.push(tv);
+        }
+
+        // Phase 3: Create lateral faces by connecting consecutive end vertices
+        let mut side_faces = Vec::with_capacity(n);
+        for i in 0..n {
+            let next = (i + 1) % n;
+            let (_, sf) = mef(&mut arena, top_verts[i], top_verts[next], loop0);
+            side_faces.push(sf);
+        }
+
+        // Build maps: allocate KernelIds for all topology entities
+        let handle_id = self.alloc_handle();
+        let mut face_map = HashMap::new();
+        let mut edge_map = HashMap::new();
+        let mut vertex_map = HashMap::new();
+        let mut face_geometry = HashMap::new();
+        let mut edge_geometry = HashMap::new();
+        let mut lateral_face_data = Vec::new();
+
+        // Compute rotated profile normal for end cap
+        let rotated_normal = rotate_point_around_axis(
+            vec3_add(axis_origin, standalone.plane_normal),
+            axis_origin,
+            axis_dir,
+            angle_rad,
+        );
+        let end_cap_normal = vec3_sub(rotated_normal, axis_origin);
+
+        // Start cap face (start_cap_face)
+        let start_cap_kid = self.alloc_id();
+        face_map.insert(start_cap_kid, start_cap_face);
+        face_geometry.insert(
+            start_cap_face,
+            SurfaceGeom::Planar(Plane {
+                origin: Point3::from_array(standalone.plane_origin),
+                normal: Vector3::from_array(vec3_negate(standalone.plane_normal)),
+            }),
+        );
+
+        // End cap face (face0, the residual face after all mef splits)
+        let end_cap_kid = self.alloc_id();
+        face_map.insert(end_cap_kid, face0);
+        let end_cap_origin =
+            rotate_point_around_axis(standalone.plane_origin, axis_origin, axis_dir, angle_rad);
+        face_geometry.insert(
+            face0,
+            SurfaceGeom::Planar(Plane {
+                origin: Point3::from_array(end_cap_origin),
+                normal: Vector3::from_array(end_cap_normal),
+            }),
+        );
+
+        // Lateral faces with geometry assignment
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..n {
+            let sf = side_faces[i];
+            let sf_kid = self.alloc_id();
+            face_map.insert(sf_kid, sf);
+
+            let v_a = start_verts[i];
+            let v_b = start_verts[(i + 1) % n];
+
+            // Compute radius and height for this profile edge
+            let r_a = {
+                let v = vec3_sub(v_a, axis_origin);
+                let proj = vec3_scale(axis_dir, vec3_dot(v, axis_dir));
+                vec3_length(vec3_sub(v, proj))
+            };
+            let r_b = {
+                let v = vec3_sub(v_b, axis_origin);
+                let proj = vec3_scale(axis_dir, vec3_dot(v, axis_dir));
+                vec3_length(vec3_sub(v, proj))
+            };
+            let h_a = vec3_dot(vec3_sub(v_a, axis_origin), axis_dir);
+            let h_b = vec3_dot(vec3_sub(v_b, axis_origin), axis_dir);
+
+            if (r_a - r_b).abs() < tau_model {
+                // Cylindrical face at constant radius
+                let radius = (r_a + r_b) / 2.0;
+                let avg_height = (h_a + h_b) / 2.0;
+                let cyl_origin = vec3_add(axis_origin, vec3_scale(axis_dir, avg_height));
+                face_geometry.insert(
+                    sf,
+                    SurfaceGeom::Cylindrical(Cylinder {
+                        origin: Point3::from_array(cyl_origin),
+                        axis: Vector3::from_array(axis_dir),
+                        radius,
+                    }),
+                );
+            } else {
+                // Planar face at constant height
+                let height = (h_a + h_b) / 2.0;
+                let plane_origin = vec3_add(axis_origin, vec3_scale(axis_dir, height));
+                // Normal: +axis_dir if face is top, -axis_dir if bottom
+                // Check which direction faces outward by comparing to centroid
+                let centroid = polygon_centroid(&start_verts);
+                let centroid_height = vec3_dot(vec3_sub(centroid, axis_origin), axis_dir);
+                let normal = if height > centroid_height {
+                    axis_dir
+                } else {
+                    vec3_negate(axis_dir)
+                };
+                face_geometry.insert(
+                    sf,
+                    SurfaceGeom::Planar(Plane {
+                        origin: Point3::from_array(plane_origin),
+                        normal: Vector3::from_array(normal),
+                    }),
+                );
+            }
+
+            lateral_face_data.push((sf, v_a, v_b));
+        }
+
+        // Map all edges and assign geometry
+        for (idx, _edge) in arena.edges.iter().enumerate() {
+            let eid = self.alloc_id();
+            edge_map.insert(eid, EdgeIdx(idx));
+
+            let he_a = arena.edges[idx].half_edge;
+            let v_start = arena.half_edges[he_a.0].origin;
+            let v_end = arena.half_edges[arena.half_edges[he_a.0].twin.0].origin;
+            let p0 = arena.vertices[v_start.0].position;
+            let p1 = arena.vertices[v_end.0].position;
+
+            // Determine if this is an arc edge (connects start vertex to corresponding end vertex)
+            let is_arc = bottom_verts
+                .iter()
+                .zip(top_verts.iter())
+                .any(|(&bv, &tv)| (v_start == bv && v_end == tv) || (v_start == tv && v_end == bv));
+
+            if is_arc {
+                // Find the start position (on the start cap)
+                let (arc_start, arc_center_radius) = if bottom_verts.contains(&v_start) {
+                    let start_pos = p0;
+                    let v = vec3_sub(start_pos, axis_origin);
+                    let proj = vec3_scale(axis_dir, vec3_dot(v, axis_dir));
+                    let radial = vec3_sub(v, proj);
+                    let radius = vec3_length(radial);
+                    let center = vec3_add(axis_origin, proj);
+                    (start_pos, (center, radius))
+                } else {
+                    // v_end is the start cap vertex
+                    let start_pos = p1;
+                    let v = vec3_sub(start_pos, axis_origin);
+                    let proj = vec3_scale(axis_dir, vec3_dot(v, axis_dir));
+                    let radial = vec3_sub(v, proj);
+                    let radius = vec3_length(radial);
+                    let center = vec3_add(axis_origin, proj);
+                    (start_pos, (center, radius))
+                };
+                let (center, radius) = arc_center_radius;
+                edge_geometry.insert(
+                    EdgeIdx(idx),
+                    CurveGeom::Arc(Arc3D {
+                        center: Point3::from_array(center),
+                        normal: Vector3::from_array(axis_dir),
+                        radius,
+                        start_point: Point3::from_array(arc_start),
+                        sweep_angle: angle_rad,
+                    }),
+                );
+            } else {
+                // Linear edge (cap edge)
+                let dir = vec3_sub(p1, p0);
+                edge_geometry.insert(
+                    EdgeIdx(idx),
+                    CurveGeom::Linear(Line3D {
+                        origin: Point3::from_array(p0),
+                        direction: Vector3::from_array(dir),
+                    }),
+                );
+            }
+        }
+
+        // Map all vertices
+        for (idx, _) in arena.vertices.iter().enumerate() {
+            let vid = self.alloc_id();
+            vertex_map.insert(vid, VertexIdx(idx));
+        }
+
+        let revolve_params = RevolveParams {
+            axis_origin,
+            axis_dir,
+            angle_rad,
+            lateral_faces: lateral_face_data,
+        };
+
+        self.solids.insert(
+            handle_id,
+            WaffleSolid {
+                arena,
+                face_map,
+                edge_map,
+                vertex_map,
+                face_geometry,
+                edge_geometry,
+                cylinder_params: None,
+                revolve_params: Some(revolve_params),
             },
         );
 
@@ -329,6 +631,7 @@ impl WaffleKernel {
                 face_geometry,
                 edge_geometry,
                 cylinder_params: Some(cylinder_params),
+                revolve_params: None,
             },
         );
 
@@ -383,6 +686,27 @@ fn vec3_normalize(v: [f64; 3]) -> [f64; 3] {
 
 fn vec3_negate(v: [f64; 3]) -> [f64; 3] {
     [-v[0], -v[1], -v[2]]
+}
+
+/// Rotate a point around an axis (Rodrigues' rotation formula).
+fn rotate_point_around_axis(
+    point: [f64; 3],
+    axis_origin: [f64; 3],
+    axis_dir: [f64; 3],
+    angle_rad: f64,
+) -> [f64; 3] {
+    let v = vec3_sub(point, axis_origin);
+    let k = axis_dir; // must be normalized
+    let cos_a = angle_rad.cos();
+    let sin_a = angle_rad.sin();
+    let k_dot_v = vec3_dot(k, v);
+    let k_cross_v = vec3_cross(k, v);
+    // v_rot = v*cos(a) + (k x v)*sin(a) + k*(k.v)*(1 - cos(a))
+    let rotated = vec3_add(
+        vec3_add(vec3_scale(v, cos_a), vec3_scale(k_cross_v, sin_a)),
+        vec3_scale(k, k_dot_v * (1.0 - cos_a)),
+    );
+    vec3_add(axis_origin, rotated)
 }
 
 /// Compute polygon area using cross product magnitudes (works in 3D).
@@ -726,6 +1050,7 @@ impl Kernel for WaffleKernel {
                 face_geometry,
                 edge_geometry,
                 cylinder_params: None,
+                revolve_params: None,
             },
         );
 
@@ -750,6 +1075,7 @@ impl Kernel for WaffleKernel {
             &ws.face_geometry,
             &ws.edge_geometry,
             ws.cylinder_params.as_ref(),
+            ws.revolve_params.as_ref(),
         )
     }
 
@@ -770,14 +1096,36 @@ impl Kernel for WaffleKernel {
 
     fn revolve_face(
         &mut self,
-        _face: KernelId,
-        _axis_origin: [f64; 3],
-        _axis_direction: [f64; 3],
-        _angle: f64,
+        face: KernelId,
+        axis_origin: [f64; 3],
+        axis_direction: [f64; 3],
+        angle: f64,
     ) -> Result<KernelSolidHandle, KernelError> {
-        Err(KernelError::NotSupported {
-            operation: "revolve_face".to_string(),
-        })
+        // Validate angle (API receives degrees)
+        if angle <= 0.0 {
+            return Err(KernelError::Other {
+                message: format!("revolve angle must be positive, got {}", angle),
+            });
+        }
+        if angle >= 360.0 {
+            return Err(KernelError::NotSupported {
+                operation: "revolve: full 360° revolution".to_string(),
+            });
+        }
+
+        let standalone = self
+            .standalone_faces
+            .remove(&face.0)
+            .ok_or(KernelError::EntityNotFound { id: face })?;
+
+        // Circle profile → NotSupported
+        if standalone.circle_info.is_some() {
+            return Err(KernelError::NotSupported {
+                operation: "revolve: circle profile (torus)".to_string(),
+            });
+        }
+
+        self.revolve_polygon(&standalone, axis_origin, axis_direction, angle)
     }
 
     fn boolean_union(
@@ -1134,6 +1482,30 @@ fn compute_edge_signature(ws: &WaffleSolid, edge_idx: EdgeIdx) -> TopoSignature 
             circle.center.x + r,
             circle.center.y + r,
             circle.center.z + r,
+        ];
+        return TopoSignature {
+            surface_type: None,
+            area: None,
+            centroid: Some(centroid),
+            normal: None,
+            bbox: Some(bbox),
+            adjacency_hash: None,
+            length: Some(length),
+        };
+    }
+
+    // Check for arc edge geometry
+    if let Some(CurveGeom::Arc(ref arc)) = ws.edge_geometry.get(&edge_idx) {
+        let length = arc.radius * arc.sweep_angle;
+        let centroid = [arc.center.x, arc.center.y, arc.center.z];
+        let r = arc.radius;
+        let bbox = [
+            arc.center.x - r,
+            arc.center.y - r,
+            arc.center.z - r,
+            arc.center.x + r,
+            arc.center.y + r,
+            arc.center.z + r,
         ];
         return TopoSignature {
             surface_type: None,

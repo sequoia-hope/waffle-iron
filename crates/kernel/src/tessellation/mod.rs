@@ -8,7 +8,7 @@ use crate::geometry::surface::SurfaceGeom;
 use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::*;
 use crate::types::*;
-use crate::waffle_kernel::CylinderParams;
+use crate::waffle_kernel::{CylinderParams, RevolveParams};
 use std::collections::HashMap;
 
 /// Number of segments for circular/cylindrical tessellation.
@@ -24,6 +24,7 @@ pub(crate) fn tessellate_solid(
     face_geometry: &HashMap<FaceIdx, SurfaceGeom>,
     _edge_geometry: &HashMap<EdgeIdx, CurveGeom>,
     cylinder_params: Option<&CylinderParams>,
+    revolve_params: Option<&RevolveParams>,
 ) -> Result<RenderMesh, KernelError> {
     let mut vertices: Vec<f32> = Vec::new();
     let mut normals: Vec<f32> = Vec::new();
@@ -32,6 +33,31 @@ pub(crate) fn tessellate_solid(
 
     for (&kid, &face_idx) in face_map {
         let geom = face_geometry.get(&face_idx);
+
+        // Check if this face is a revolve lateral face
+        if let Some(rp) = revolve_params {
+            if let Some(lateral) = rp.lateral_faces.iter().find(|(fi, _, _)| *fi == face_idx) {
+                let start_index = indices.len() as u32;
+                tessellate_revolve_lateral(
+                    &lateral.1,
+                    &lateral.2,
+                    &rp.axis_origin,
+                    &rp.axis_dir,
+                    rp.angle_rad,
+                    geom,
+                    &mut vertices,
+                    &mut normals,
+                    &mut indices,
+                );
+                let end_index = indices.len() as u32;
+                face_ranges.push(FaceRange {
+                    face_id: KernelId(kid),
+                    start_index,
+                    end_index,
+                });
+                continue;
+            }
+        }
 
         match geom {
             Some(SurfaceGeom::Cylindrical(cyl)) => {
@@ -262,6 +288,108 @@ fn tessellate_cylindrical_face(
     }
 }
 
+/// Tessellate one lateral face of a revolve solid (cylindrical or planar annular).
+///
+/// Generates a grid of (N+1) x 2 vertices by rotating two profile edge endpoints
+/// through the revolution angle in N steps, producing 2N triangles.
+#[allow(clippy::too_many_arguments)]
+fn tessellate_revolve_lateral(
+    start_v0: &[f64; 3],
+    start_v1: &[f64; 3],
+    axis_origin: &[f64; 3],
+    axis_dir: &[f64; 3],
+    angle_rad: f64,
+    geom: Option<&SurfaceGeom>,
+    vertices: &mut Vec<f32>,
+    normals: &mut Vec<f32>,
+    indices: &mut Vec<u32>,
+) {
+    let n = CIRCLE_SEGMENTS;
+    let base_vertex = vertices.len() as u32 / 3;
+
+    // Generate (N+1) x 2 vertex grid
+    for i in 0..=n {
+        let theta = angle_rad * (i as f64) / (n as f64);
+        let cos_t = theta.cos();
+        let sin_t = theta.sin();
+
+        // Rotate both vertices around axis using Rodrigues
+        for sv in &[start_v0, start_v1] {
+            let v = sub3(**sv, *axis_origin);
+            let k_dot_v = dot3(*axis_dir, v);
+            let k_cross_v = cross3(*axis_dir, v);
+            let rotated = [
+                axis_origin[0]
+                    + v[0] * cos_t
+                    + k_cross_v[0] * sin_t
+                    + axis_dir[0] * k_dot_v * (1.0 - cos_t),
+                axis_origin[1]
+                    + v[1] * cos_t
+                    + k_cross_v[1] * sin_t
+                    + axis_dir[1] * k_dot_v * (1.0 - cos_t),
+                axis_origin[2]
+                    + v[2] * cos_t
+                    + k_cross_v[2] * sin_t
+                    + axis_dir[2] * k_dot_v * (1.0 - cos_t),
+            ];
+            vertices.push(rotated[0] as f32);
+            vertices.push(rotated[1] as f32);
+            vertices.push(rotated[2] as f32);
+
+            // Compute normal based on face geometry type
+            match geom {
+                Some(SurfaceGeom::Cylindrical(_)) => {
+                    // Radially outward normal
+                    let proj = [
+                        axis_origin[0] + axis_dir[0] * k_dot_v,
+                        axis_origin[1] + axis_dir[1] * k_dot_v,
+                        axis_origin[2] + axis_dir[2] * k_dot_v,
+                    ];
+                    let radial = sub3(rotated, proj);
+                    let len =
+                        (radial[0] * radial[0] + radial[1] * radial[1] + radial[2] * radial[2])
+                            .sqrt();
+                    if len > 1e-15 {
+                        normals.push((radial[0] / len) as f32);
+                        normals.push((radial[1] / len) as f32);
+                        normals.push((radial[2] / len) as f32);
+                    } else {
+                        normals.push(0.0);
+                        normals.push(0.0);
+                        normals.push(1.0);
+                    }
+                }
+                Some(SurfaceGeom::Planar(plane)) => {
+                    normals.push(plane.normal.x as f32);
+                    normals.push(plane.normal.y as f32);
+                    normals.push(plane.normal.z as f32);
+                }
+                _ => {
+                    normals.push(0.0);
+                    normals.push(0.0);
+                    normals.push(1.0);
+                }
+            }
+        }
+    }
+
+    // Generate quads: each step i produces a quad from vertices [i*2, i*2+1, (i+1)*2, (i+1)*2+1]
+    for i in 0..n as u32 {
+        let v00 = base_vertex + i * 2;
+        let v01 = base_vertex + i * 2 + 1;
+        let v10 = base_vertex + (i + 1) * 2;
+        let v11 = base_vertex + (i + 1) * 2 + 1;
+
+        indices.push(v00);
+        indices.push(v01);
+        indices.push(v10);
+
+        indices.push(v10);
+        indices.push(v01);
+        indices.push(v11);
+    }
+}
+
 /// Tessellate a polygon face with known planar geometry (fan triangulation).
 #[allow(clippy::too_many_arguments)]
 fn tessellate_polygon_face(
@@ -406,6 +534,42 @@ pub(crate) fn extract_edges(
         let start_vertex = vertices.len() as u32 / 3;
 
         match edge_geometry.get(&edge_idx) {
+            Some(CurveGeom::Arc(arc)) => {
+                // Partial arc edge: generate polyline spanning sweep_angle
+                let normal = [arc.normal.x, arc.normal.y, arc.normal.z];
+                let center = [arc.center.x, arc.center.y, arc.center.z];
+                let start_pt = [arc.start_point.x, arc.start_point.y, arc.start_point.z];
+                // Derive x_axis from start point relative to center
+                let radial = sub3(start_pt, center);
+                let len =
+                    (radial[0] * radial[0] + radial[1] * radial[1] + radial[2] * radial[2]).sqrt();
+                let x_axis = [radial[0] / len, radial[1] / len, radial[2] / len];
+                let y_axis = cross3(normal, x_axis);
+
+                // Number of segments proportional to sweep angle
+                let n_segs = ((CIRCLE_SEGMENTS as f64) * arc.sweep_angle / std::f64::consts::TAU)
+                    .ceil()
+                    .max(4.0) as usize;
+
+                for i in 0..=n_segs {
+                    let theta = arc.sweep_angle * (i as f64) / (n_segs as f64);
+                    let cos_t = theta.cos();
+                    let sin_t = theta.sin();
+                    let px = center[0] + arc.radius * (cos_t * x_axis[0] + sin_t * y_axis[0]);
+                    let py = center[1] + arc.radius * (cos_t * x_axis[1] + sin_t * y_axis[1]);
+                    let pz = center[2] + arc.radius * (cos_t * x_axis[2] + sin_t * y_axis[2]);
+                    vertices.push(px as f32);
+                    vertices.push(py as f32);
+                    vertices.push(pz as f32);
+                }
+
+                let end_vertex = vertices.len() as u32 / 3;
+                edge_ranges.push(EdgeRange {
+                    edge_id: KernelId(kid),
+                    start_vertex,
+                    end_vertex,
+                });
+            }
             Some(CurveGeom::Circular(circle)) => {
                 // Circular edge: generate N+1 point polyline
                 let n = CIRCLE_SEGMENTS;
@@ -480,6 +644,10 @@ fn cross3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
 
 fn cross3f(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     cross3(a, b)
+}
+
+fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 
 /// Derive orthogonal x/y axes from a normal vector for circle tessellation.

@@ -1327,3 +1327,250 @@ fn k4_intersect_micro() {
         rel_err
     );
 }
+
+// ── Group L: Revolve ────────────────────────────────────────────
+
+/// Helper: create a revolve solid from a rect profile.
+/// Profile is centered at (cx, cy) with width w, height h on XY plane.
+/// Revolved around the Y axis (origin=[0,0,0], dir=[0,1,0]) by given angle in degrees.
+fn make_revolve_rect(
+    cx: f64,
+    cy: f64,
+    w: f64,
+    h: f64,
+    angle_deg: f64,
+) -> (WaffleKernel, KernelSolidHandle) {
+    let mut k = WaffleKernel::new();
+    let (profiles, positions) = make_rect_profile(cx, cy, w, h);
+    let faces = k
+        .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+        .expect("make_faces should succeed");
+    // Revolve around Y axis
+    let solid = k
+        .revolve_face(faces[0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], angle_deg)
+        .expect("revolve should succeed");
+    (k, solid)
+}
+
+#[test]
+fn l1_revolve_half_turn_volume() {
+    // Rect centered at x=5, w=2, h=4 → area=8, centroid at x=5 from Y axis
+    // Pappus: V = π × 5 × 8 = 125.66
+    let (mut k, solid) = make_revolve_rect(5.0, 0.0, 2.0, 4.0, 180.0);
+    let mesh = k.tessellate(&solid, 0.01).expect("tessellate revolve");
+    let vol = mesh_volume(&mesh);
+    let expected = std::f64::consts::PI * 5.0 * 8.0; // ≈ 125.66
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.01,
+        "Half-turn revolve volume should be ~{:.2}, got {:.2} (rel_err={:.4})",
+        expected,
+        vol,
+        rel_err
+    );
+}
+
+#[test]
+fn l2_revolve_quarter_turn_volume() {
+    // Rect centered at x=10, w=2, h=3 → area=6, centroid at x=10 from Y axis
+    // Pappus: V = (π/2) × 10 × 6 = 94.25
+    let (mut k, solid) = make_revolve_rect(10.0, 0.0, 2.0, 3.0, 90.0);
+    let mesh = k.tessellate(&solid, 0.01).expect("tessellate revolve");
+    let vol = mesh_volume(&mesh);
+    let expected = std::f64::consts::FRAC_PI_2 * 10.0 * 6.0; // ≈ 94.25
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.01,
+        "Quarter-turn revolve volume should be ~{:.2}, got {:.2} (rel_err={:.4})",
+        expected,
+        vol,
+        rel_err
+    );
+}
+
+#[test]
+fn l3_revolve_half_turn_watertight() {
+    let (mut k, solid) = make_revolve_rect(5.0, 0.0, 2.0, 4.0, 180.0);
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    assert!(
+        check_watertight(&mesh),
+        "Half-turn revolve mesh must be watertight"
+    );
+}
+
+#[test]
+fn l4_revolve_quarter_turn_watertight() {
+    let (mut k, solid) = make_revolve_rect(10.0, 0.0, 2.0, 3.0, 90.0);
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    assert!(
+        check_watertight(&mesh),
+        "Quarter-turn revolve mesh must be watertight"
+    );
+}
+
+#[test]
+fn l5_revolve_euler_characteristic() {
+    let (k, solid) = make_revolve_rect(5.0, 0.0, 2.0, 4.0, 180.0);
+    let v = k.list_vertices(&solid).len() as i64;
+    let e = k.list_edges(&solid).len() as i64;
+    let f = k.list_faces(&solid).len() as i64;
+    assert_eq!(
+        v - e + f,
+        2,
+        "Euler formula V-E+F must equal 2 for revolve (got V={}, E={}, F={})",
+        v,
+        e,
+        f
+    );
+}
+
+#[test]
+fn l6_revolve_topology_counts() {
+    // Rect profile has M=4 vertices → 2M=8 V, 3M=12 E, M+2=6 F
+    let (k, solid) = make_revolve_rect(5.0, 0.0, 2.0, 4.0, 180.0);
+    let v = k.list_vertices(&solid).len();
+    let e = k.list_edges(&solid).len();
+    let f = k.list_faces(&solid).len();
+    assert_eq!(v, 8, "Revolve rect should have 8 vertices, got {}", v);
+    assert_eq!(e, 12, "Revolve rect should have 12 edges, got {}", e);
+    assert_eq!(f, 6, "Revolve rect should have 6 faces, got {}", f);
+}
+
+#[test]
+fn l7_revolve_face_geometry_types() {
+    // 2 cylindrical + 4 planar (2 annular + 2 caps) = 6 faces
+    let (k, solid) = make_revolve_rect(5.0, 0.0, 2.0, 4.0, 180.0);
+    let faces = k.list_faces(&solid);
+    let sigs: Vec<_> = faces
+        .iter()
+        .map(|&fid| k.compute_signature(fid, TopoKind::Face))
+        .collect();
+    let cylindrical_count = sigs
+        .iter()
+        .filter(|s| s.surface_type.as_deref() == Some("cylindrical"))
+        .count();
+    let planar_count = sigs
+        .iter()
+        .filter(|s| s.surface_type.as_deref() == Some("planar"))
+        .count();
+    assert_eq!(
+        cylindrical_count, 2,
+        "Revolve rect should have 2 cylindrical faces, got {}",
+        cylindrical_count
+    );
+    assert_eq!(
+        planar_count, 4,
+        "Revolve rect should have 4 planar faces, got {}",
+        planar_count
+    );
+}
+
+#[test]
+fn l8_revolve_edge_geometry_types() {
+    // 4 arc + 8 linear = 12 edges
+    let (k, solid) = make_revolve_rect(5.0, 0.0, 2.0, 4.0, 180.0);
+    let edges = k.list_edges(&solid);
+    assert_eq!(edges.len(), 12);
+    // Arc edges have length = radius * sweep_angle (not full circle length)
+    // Linear edges have finite length
+    // We can distinguish by checking: arc edges have length proportional to π
+    let sigs: Vec<_> = edges
+        .iter()
+        .map(|&eid| k.compute_signature(eid, TopoKind::Edge))
+        .collect();
+    // Arc edges: length = radius * π (for 180°)
+    // The 4 profile vertices are at distances 4, 6, 6, 4 from Y axis (for cx=5, w=2, h=4, cy=0)
+    // Wait: the rect is centered at (5, 0) with w=2, h=4
+    // Vertices: (4, -2), (6, -2), (6, 2), (4, 2)
+    // Distances from Y axis (x-values): 4, 6, 6, 4
+    // Arc lengths: 4π, 6π, 6π, 4π
+    let mut arc_count = 0;
+    let mut linear_count = 0;
+    for sig in &sigs {
+        if let Some(len) = sig.length {
+            // Arc edges have length = r * π for 180° revolve
+            // Check if length is close to some r*π
+            let r_candidate = len / std::f64::consts::PI;
+            if (r_candidate - 4.0).abs() < 0.5 || (r_candidate - 6.0).abs() < 0.5 {
+                arc_count += 1;
+            } else {
+                linear_count += 1;
+            }
+        }
+    }
+    assert_eq!(arc_count, 4, "Should have 4 arc edges, got {}", arc_count);
+    assert_eq!(
+        linear_count, 8,
+        "Should have 8 linear edges, got {}",
+        linear_count
+    );
+}
+
+#[test]
+fn l9_revolve_zero_angle_error() {
+    let mut k = WaffleKernel::new();
+    let (profiles, positions) = make_rect_profile(5.0, 0.0, 2.0, 4.0);
+    let faces = k
+        .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+        .unwrap();
+    let result = k.revolve_face(faces[0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], 0.0);
+    assert!(result.is_err(), "Zero angle should fail");
+    if let Err(KernelError::Other { .. }) = result {
+        // expected
+    } else {
+        panic!("Expected KernelError::Other for zero angle, got {:?}", result);
+    }
+}
+
+#[test]
+fn l10_revolve_full_360_error() {
+    let mut k = WaffleKernel::new();
+    let (profiles, positions) = make_rect_profile(5.0, 0.0, 2.0, 4.0);
+    let faces = k
+        .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+        .unwrap();
+    let result = k.revolve_face(faces[0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], 360.0);
+    assert!(result.is_err(), "Full 360° should fail");
+    if let Err(KernelError::NotSupported { .. }) = result {
+        // expected
+    } else {
+        panic!(
+            "Expected KernelError::NotSupported for 360°, got {:?}",
+            result
+        );
+    }
+}
+
+#[test]
+fn l11_revolve_circle_not_supported() {
+    let mut k = WaffleKernel::new();
+    let (profiles, positions) = make_circle_profile(5.0, 0.0, 1.0);
+    let faces = k
+        .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+        .unwrap();
+    let result = k.revolve_face(faces[0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], 180.0);
+    assert!(result.is_err(), "Circle revolve should fail");
+    if let Err(KernelError::NotSupported { .. }) = result {
+        // expected
+    } else {
+        panic!(
+            "Expected KernelError::NotSupported for circle revolve, got {:?}",
+            result
+        );
+    }
+}
+
+#[test]
+fn l12_revolve_invalid_face_error() {
+    let mut k = WaffleKernel::new();
+    let result = k.revolve_face(KernelId(99999), [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], 180.0);
+    assert!(result.is_err(), "Invalid face should fail");
+    if let Err(KernelError::EntityNotFound { .. }) = result {
+        // expected
+    } else {
+        panic!(
+            "Expected KernelError::EntityNotFound for invalid face, got {:?}",
+            result
+        );
+    }
+}
