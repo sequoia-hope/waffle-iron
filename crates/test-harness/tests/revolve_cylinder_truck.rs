@@ -1,4 +1,4 @@
-//! RealKernel integration tests for revolve operations and cylinder geometry.
+//! WaffleKernel integration tests for revolve operations and cylinder geometry.
 //!
 //! Tests partial revolves, cylinder topology, revolve+boolean combinations,
 //! and save/load roundtrips with complex feature trees.

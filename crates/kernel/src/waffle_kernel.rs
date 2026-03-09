@@ -1,4 +1,4 @@
-//! RealKernel — clean-sheet B-Rep kernel (stub implementation).
+//! WaffleKernel — clean-sheet B-Rep kernel (stub implementation).
 //!
 //! All methods currently return NotSupported. Implementation will be built up
 //! incrementally, tracked by the assay score (target: 400/400).
@@ -8,23 +8,23 @@ use crate::types::*;
 use std::collections::HashMap;
 
 /// Clean-sheet geometry kernel. Currently a stub — all operations return NotSupported.
-pub struct RealKernel {
+pub struct WaffleKernel {
     _next_id: u64,
 }
 
-impl RealKernel {
+impl WaffleKernel {
     pub fn new() -> Self {
         Self { _next_id: 1 }
     }
 }
 
-impl Default for RealKernel {
+impl Default for WaffleKernel {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Kernel for RealKernel {
+impl Kernel for WaffleKernel {
     fn extrude_face(
         &mut self,
         _face: KernelId,
@@ -145,7 +145,7 @@ impl Kernel for RealKernel {
     }
 }
 
-impl KernelIntrospect for RealKernel {
+impl KernelIntrospect for WaffleKernel {
     fn list_faces(&self, _solid: &KernelSolidHandle) -> Vec<KernelId> {
         vec![]
     }
@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn real_kernel_returns_not_supported() {
-        let mut k = RealKernel::new();
+        let mut k = WaffleKernel::new();
         let handle = KernelSolidHandle(1);
         let id = KernelId(1);
 
@@ -213,7 +213,7 @@ mod tests {
 
     #[test]
     fn real_kernel_introspect_returns_empty() {
-        let k = RealKernel::new();
+        let k = WaffleKernel::new();
         let handle = KernelSolidHandle(1);
 
         assert!(k.list_faces(&handle).is_empty());

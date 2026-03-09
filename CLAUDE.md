@@ -76,7 +76,7 @@ See `docs/TESTING.md` for tier definitions and how to add tests.
 ## Test Philosophy
 
 - **Every public function gets a test.**
-- **Mock dependencies.** Use MockKernel, not RealKernel, for unit tests.
+- **Mock dependencies.** Use MockKernel, not WaffleKernel, for unit tests.
 - **Tests must be deterministic.** No random values, no system time, no filesystem side effects.
 - **Tests are permanent.** Never delete a passing test. Fix it if it's wrong.
 - **Property-based tests** where applicable: Euler's formula (V-E+F=2), watertightness, manifoldness.

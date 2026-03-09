@@ -1,4 +1,4 @@
-//! Boolean edge case and boundary tests for RealKernel.
+//! Boolean edge case and boundary tests for WaffleKernel.
 //!
 //! These tests probe the boundary conditions of the boolean pipeline:
 //! disjoint solids, barely-touching geometry, barely-overlapping geometry,

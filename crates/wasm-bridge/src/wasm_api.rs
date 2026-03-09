@@ -20,7 +20,7 @@ thread_local! {
 /// Holds the engine state and kernel for the WASM module.
 struct WasmEngine {
     state: EngineState,
-    kernel: kernel::RealKernel,
+    kernel: kernel::WaffleKernel,
 }
 
 /// Initialize the WASM engine. Must be called once before any other function.
@@ -33,7 +33,7 @@ pub fn init() {
     ENGINE_STATE.with(|cell| {
         *cell.borrow_mut() = Some(WasmEngine {
             state: EngineState::new(),
-            kernel: kernel::RealKernel::new(),
+            kernel: kernel::WaffleKernel::new(),
         });
     });
 }

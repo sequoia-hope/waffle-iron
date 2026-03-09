@@ -1,4 +1,4 @@
-//! GeomRef resolution tests against the real RealKernel.
+//! GeomRef resolution tests against the real WaffleKernel.
 //!
 //! These test the full pipeline (sketch -> extrude -> role assignment -> GeomRef resolution)
 //! using real truck geometry, not MockKernel. This catches issues that MockKernel's

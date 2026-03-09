@@ -1,4 +1,4 @@
-//! Comprehensive boolean workflow end-to-end tests for RealKernel.
+//! Comprehensive boolean workflow end-to-end tests for WaffleKernel.
 //!
 //! These tests exercise the full feature engine pipeline (sketch → extrude → boolean)
 //! through `ModelBuilder::kernel()`, covering boss union, cut operations, free-space
@@ -433,7 +433,7 @@ fn d1_offset_boss_partial_overlap() {
 }
 
 /// D2: Boss on boss (double coplanar). Chained boolean.
-/// Fixed via coplanar perturbation retry in RealKernel::boolean_union.
+/// Fixed via coplanar perturbation retry in WaffleKernel::boolean_union.
 #[test]
 fn d2_symmetric_boss_on_boss_stack() {
     let mut m = base_cube();
@@ -883,7 +883,7 @@ fn f3_rect_subtract_volume() {
 }
 
 /// F4: Boolean intersect — tests the boolean_intersect() API path.
-/// No engine-level test exists for intersect with RealKernel.
+/// No engine-level test exists for intersect with WaffleKernel.
 #[test]
 fn f4_boolean_intersect_workflow() {
     let mut m = ModelBuilder::kernel();

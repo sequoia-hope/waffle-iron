@@ -1,4 +1,4 @@
-//! Boolean failure diagnostic tests for RealKernel.
+//! Boolean failure diagnostic tests for WaffleKernel.
 //!
 //! These tests systematically probe the boundary conditions of truck 0.4's
 //! boolean operations. They document known failures and verify workarounds.

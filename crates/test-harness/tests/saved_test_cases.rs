@@ -1,4 +1,4 @@
-//! Tests that replay the user-reported .waffle test cases through RealKernel.
+//! Tests that replay the user-reported .waffle test cases through WaffleKernel.
 //!
 //! These tests recreate the feature sequences from:
 //!   - app/tests/cases/several-extrudes.waffle

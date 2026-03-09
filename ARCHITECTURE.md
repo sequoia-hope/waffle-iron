@@ -151,7 +151,7 @@ Same inputs must always produce the same results. This is critical for testing a
 
 ### Mock-Driven Development
 
-Every Rust crate can be tested against mock implementations of its dependencies. The `MockKernel` (which implements the `Kernel` and `KernelIntrospect` traits with deterministic synthetic topology) is as important as `RealKernel`. Agents can develop and test feature-engine and modeling-ops without a working kernel build.
+Every Rust crate can be tested against mock implementations of its dependencies. The `MockKernel` (which implements the `Kernel` and `KernelIntrospect` traits with deterministic synthetic topology) is as important as `WaffleKernel`. Agents can develop and test feature-engine and modeling-ops without a working kernel build.
 
 ### Session-Independent
 
@@ -167,14 +167,14 @@ All 3D rendering happens in JavaScript via three.js/Threlte on the main thread. 
 
 ## Current Kernel Status
 
-The clean-sheet kernel (`crates/kernel/`) is under active development. Current assay score: **0/400**. All `Kernel` trait methods in `RealKernel` return `NotSupported`.
+The clean-sheet kernel (`crates/kernel/`) is under active development. Current assay score: **0/400**. All `Kernel` trait methods in `WaffleKernel` return `NotSupported`.
 
 ### What exists:
 - Half-edge B-Rep topology data structure with arena-based storage
 - Euler operators (mvfs, mev, mef, kemr, kfmrh) with invariant validation
 - Analytic geometry stubs (Point3, Vector3, Plane, Cylinder, Cone, Sphere, Torus)
 - `MockKernel` (full deterministic test double, ~1,700 lines)
-- `RealKernel` (stub — all operations return `NotSupported`)
+- `WaffleKernel` (stub — all operations return `NotSupported`)
 - 400-case assay test suite with analytical ground truth
 
 ### What's next (in priority order):

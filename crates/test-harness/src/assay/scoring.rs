@@ -58,7 +58,7 @@ pub struct ExecutionResult {
     pub bbox: Option<([f64; 3], [f64; 3])>,
 }
 
-/// Run the full assay catalog using RealKernel.
+/// Run the full assay catalog using WaffleKernel.
 pub fn run_assay_kernel(cases: &[AssayCase]) -> AssayReport {
     run_assay_with(cases, || ModelBuilder::kernel())
 }

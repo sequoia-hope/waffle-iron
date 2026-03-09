@@ -1,4 +1,4 @@
-//! RealKernel scenario tests.
+//! WaffleKernel scenario tests.
 //!
 //! These test against real truck geometry. Some operations are known
 //! to fail or be unsupported — those tests are #[ignore]d.
@@ -97,7 +97,7 @@ fn test_truck_chamfer() {
     m.assert_has_solid("cham").unwrap();
 }
 
-// ── Additional RealKernel tests ────────────────────────────────────────────
+// ── Additional WaffleKernel tests ────────────────────────────────────────────
 
 #[test]
 fn test_truck_shell() {

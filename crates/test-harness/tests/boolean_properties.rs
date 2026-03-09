@@ -1,4 +1,4 @@
-//! Property-based boolean tests for RealKernel.
+//! Property-based boolean tests for WaffleKernel.
 //!
 //! These tests verify algebraic, topological, and geometric invariants that
 //! must hold for any correct boolean implementation. They catch classification

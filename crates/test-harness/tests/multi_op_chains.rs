@@ -1,4 +1,4 @@
-//! Cross-crate multi-operation chain tests for RealKernel.
+//! Cross-crate multi-operation chain tests for WaffleKernel.
 //!
 //! These tests exercise the full sketch → extrude → boolean → tessellation
 //! pipeline through `ModelBuilder::kernel()`, verifying that chained operations

@@ -1,4 +1,4 @@
-//! Recovery branch and perturbation cascade tests for RealKernel booleans.
+//! Recovery branch and perturbation cascade tests for WaffleKernel booleans.
 //!
 //! These tests exercise the finalize_boolean_shell recovery levels (0-6) in
 //! `vendor/truck/truck-shapeops/src/transversal/integrate/mod.rs` and the

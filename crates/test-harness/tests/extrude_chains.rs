@@ -1,4 +1,4 @@
-//! Comprehensive extrude chain end-to-end tests for RealKernel.
+//! Comprehensive extrude chain end-to-end tests for WaffleKernel.
 //!
 //! These tests exercise sequential cut chains, boss-cut alternation,
 //! multi-face cuts, intersecting cuts, topology stability, volume tracking,

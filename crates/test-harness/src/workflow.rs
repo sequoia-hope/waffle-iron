@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use feature_engine::types::*;
 use kernel::types::{KernelSolidHandle, RenderMesh};
-use kernel::{MockKernel, RealKernel};
+use kernel::{MockKernel, WaffleKernel};
 use modeling_ops::types::OpResult;
 use modeling_ops::KernelBundle;
 use uuid::Uuid;
@@ -44,11 +44,11 @@ impl ModelBuilder {
         }
     }
 
-    /// Create a new ModelBuilder with RealKernel (real geometry).
+    /// Create a new ModelBuilder with WaffleKernel (real geometry).
     pub fn kernel() -> Self {
         Self {
             state: EngineState::new(),
-            kernel: Box::new(RealKernel::new()),
+            kernel: Box::new(WaffleKernel::new()),
             named_features: HashMap::new(),
             history: Vec::new(),
             auto_check: false,

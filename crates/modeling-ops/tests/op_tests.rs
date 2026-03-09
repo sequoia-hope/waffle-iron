@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use kernel::{Kernel, KernelId, KernelIntrospect};
-use kernel::{MockKernel, RealKernel};
+use kernel::{MockKernel, WaffleKernel};
 use modeling_ops::boolean::{execute_boolean, BooleanKind};
 use modeling_ops::chamfer::execute_chamfer;
 use modeling_ops::diff::{self, signature_similarity};
@@ -920,10 +920,10 @@ fn role_indices_are_sequential() {
     );
 }
 
-// ── M10: RealKernel Integration Tests ─────────────────────────────────
+// ── M10: WaffleKernel Integration Tests ─────────────────────────────────
 
-/// Helper: create a face from a rectangular profile using RealKernel.
-fn make_truck_face(kernel: &mut RealKernel) -> KernelId {
+/// Helper: create a face from a rectangular profile using WaffleKernel.
+fn make_truck_face(kernel: &mut WaffleKernel) -> KernelId {
     let profile = ClosedProfile {
         entity_ids: vec![1, 2, 3, 4],
         is_outer: true,
@@ -950,7 +950,7 @@ fn make_truck_face(kernel: &mut RealKernel) -> KernelId {
 
 #[test]
 fn truck_extrude_produces_valid_op_result() {
-    let mut kernel = RealKernel::new();
+    let mut kernel = WaffleKernel::new();
     let face_id = make_truck_face(&mut kernel);
 
     let result = execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], 5.0, None).unwrap();
@@ -965,7 +965,7 @@ fn truck_extrude_produces_valid_op_result() {
 
 #[test]
 fn truck_extrude_has_correct_topology() {
-    let mut kernel = RealKernel::new();
+    let mut kernel = WaffleKernel::new();
     let face_id = make_truck_face(&mut kernel);
 
     let result = execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], 5.0, None).unwrap();
@@ -990,7 +990,7 @@ fn truck_extrude_has_correct_topology() {
 
 #[test]
 fn truck_extrude_assigns_roles() {
-    let mut kernel = RealKernel::new();
+    let mut kernel = WaffleKernel::new();
     let face_id = make_truck_face(&mut kernel);
 
     let result = execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], 5.0, None).unwrap();
@@ -1016,7 +1016,7 @@ fn truck_extrude_assigns_roles() {
 
 #[test]
 fn truck_extrude_provenance_has_signatures() {
-    let mut kernel = RealKernel::new();
+    let mut kernel = WaffleKernel::new();
     let face_id = make_truck_face(&mut kernel);
 
     let result = execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], 5.0, None).unwrap();
@@ -1033,7 +1033,7 @@ fn truck_extrude_provenance_has_signatures() {
 
 #[test]
 fn truck_revolve_produces_valid_op_result() {
-    let mut kernel = RealKernel::new();
+    let mut kernel = WaffleKernel::new();
     let face_id = make_truck_face(&mut kernel);
 
     let result = execute_revolve(
@@ -1056,7 +1056,7 @@ fn truck_revolve_produces_valid_op_result() {
 
 #[test]
 fn truck_revolve_assigns_roles() {
-    let mut kernel = RealKernel::new();
+    let mut kernel = WaffleKernel::new();
     let face_id = make_truck_face(&mut kernel);
 
     // Partial revolve (90 degrees)
@@ -1093,7 +1093,7 @@ fn truck_revolve_assigns_roles() {
 
 #[test]
 fn truck_fillet_works_on_planar_edge() {
-    let mut kernel = RealKernel::new();
+    let mut kernel = WaffleKernel::new();
     let face_id = make_truck_face(&mut kernel);
     let result = execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], 5.0, None).unwrap();
     let handle = &result.outputs[0].1.handle;
@@ -1103,7 +1103,7 @@ fn truck_fillet_works_on_planar_edge() {
     let fillet_result = execute_fillet(&mut kernel, handle, &[edges[0]], 0.5);
     assert!(
         fillet_result.is_ok(),
-        "RealKernel fillet should succeed on planar edges: {:?}",
+        "WaffleKernel fillet should succeed on planar edges: {:?}",
         fillet_result.err()
     );
 
@@ -1120,7 +1120,7 @@ fn truck_fillet_works_on_planar_edge() {
 
 #[test]
 fn truck_chamfer_works_on_planar_edge() {
-    let mut kernel = RealKernel::new();
+    let mut kernel = WaffleKernel::new();
     let face_id = make_truck_face(&mut kernel);
     let result = execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], 5.0, None).unwrap();
     let handle = &result.outputs[0].1.handle;
@@ -1129,14 +1129,14 @@ fn truck_chamfer_works_on_planar_edge() {
     let chamfer_result = execute_chamfer(&mut kernel, handle, &[edges[0]], 0.5);
     assert!(
         chamfer_result.is_ok(),
-        "RealKernel chamfer should succeed on planar edges: {:?}",
+        "WaffleKernel chamfer should succeed on planar edges: {:?}",
         chamfer_result.err()
     );
 }
 
 #[test]
 fn truck_shell_works_on_planar_box() {
-    let mut kernel = RealKernel::new();
+    let mut kernel = WaffleKernel::new();
     let face_id = make_truck_face(&mut kernel);
     let result = execute_extrude(&mut kernel, face_id, [0.0, 0.0, 1.0], 5.0, None).unwrap();
     let handle = &result.outputs[0].1.handle;
@@ -1145,7 +1145,7 @@ fn truck_shell_works_on_planar_box() {
     let shell_result = execute_shell(&mut kernel, handle, &[faces[0]], 0.5);
     assert!(
         shell_result.is_ok(),
-        "RealKernel shell should succeed on planar boxes: {:?}",
+        "WaffleKernel shell should succeed on planar boxes: {:?}",
         shell_result.err()
     );
 }

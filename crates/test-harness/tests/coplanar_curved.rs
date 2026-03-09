@@ -1,4 +1,4 @@
-//! Coplanar curved-face boolean tests for RealKernel.
+//! Coplanar curved-face boolean tests for WaffleKernel.
 //!
 //! Tests for boolean operations where circular/curved faces are coplanar
 //! (e.g., top caps of concentric cylinders at same height).

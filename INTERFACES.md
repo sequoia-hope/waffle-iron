@@ -943,12 +943,12 @@ pub struct EdgeRange {
 
 ## G) Kernel Abstraction Traits
 
-**Implementor:** kernel (RealKernel, MockKernel)
+**Implementor:** kernel (WaffleKernel, MockKernel)
 **Consumer:** modeling-ops, feature-engine
 
 ```rust
 /// Core geometry kernel trait. Provides all shape construction and modification operations.
-/// Implemented by RealKernel (clean-sheet kernel) and MockKernel (deterministic test double).
+/// Implemented by WaffleKernel (clean-sheet kernel) and MockKernel (deterministic test double).
 ///
 /// All methods take &mut self because kernel operations mutate internal state.
 /// Methods return Result to handle kernel failures gracefully.

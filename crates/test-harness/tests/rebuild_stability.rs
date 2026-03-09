@@ -7,7 +7,7 @@
 //!   - Suppress/unsuppress cycle preserves role assignments
 //!   - Multi-feature chains rebuild deterministically
 //!
-//! Uses RealKernel for real geometry validation.
+//! Uses WaffleKernel for real geometry validation.
 
 use test_harness::helpers::mesh_bounding_box;
 use test_harness::ModelBuilder;
@@ -244,7 +244,7 @@ fn rs4_suppress_unsuppress_preserves_roles() {
     );
 }
 
-// ── RS5: Multi-feature chain rebuild determinism with RealKernel ───────────
+// ── RS5: Multi-feature chain rebuild determinism with WaffleKernel ───────────
 
 /// Build a 3-feature chain (sketch → extrude → boss), save/load twice,
 /// and verify that body counts, feature counts, and topology are
