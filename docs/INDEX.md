@@ -1,11 +1,14 @@
 # Documentation Index
 
-All documentation files in `docs/`, categorized. Updated 2026-03-02.
+All documentation files in `docs/`, categorized. Updated 2026-03-09.
 
 ## Architecture
 
 | File | Description |
 |------|-------------|
+| `SYSTEM_DESIGN.md` | Research-annotated system architecture with `[#N]` reference citations per subsystem |
+| `ALGORITHM_DECISIONS.md` | Algorithm Decision Records (ADR-1 through ADR-9) with alternatives and rationale |
+| `CROSS_REFERENCE.md` | Algorithm → paper → code mapping for 30+ implementations |
 | `SYSTEM-INTERFACES.md` | Cross-crate data flows, dependency graph, interface type contracts |
 | `PERSISTENT-NAMING.md` | GeomRef persistent naming system for stable geometry references across rebuilds |
 | `test-tooling-design.md` | GUI architecture and testing infrastructure component hierarchy |
@@ -18,7 +21,7 @@ Located in `/governance/`, not `docs/`:
 
 | File | Description |
 |------|-------------|
-| `governance/ENGINEERING_CONSTITUTION.md` | Non-negotiable engineering rules (P1-P7), test requirements, amendment process |
+| `governance/ENGINEERING_CONSTITUTION.md` | Non-negotiable engineering rules (P1-P8), test requirements, amendment process |
 | `governance/FEATURE_IMPLEMENTATION_PROTOCOL.md` | Required workflow for modeling features: spec, test, implement, validate |
 
 ## Testing

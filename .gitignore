@@ -15,3 +15,20 @@ test-timings-gui.json
 
 # Reference documentation (fetched from external sources)
 docs/references/
+
+# Reference PDFs (large binaries, not code)
+refs/
+
+# GUI test artifacts (Playwright screenshots, failure dirs)
+app/screenshots/
+app/static/screenshots/
+app/test-results/
+test-results/
+app/tests/*.png
+
+# PropTest regression seeds (generated at runtime)
+*.proptest-regressions
+
+# Vim swap files (dot-prefix variants)
+.*.swp
+.*.swo
