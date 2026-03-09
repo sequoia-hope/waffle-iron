@@ -1,4 +1,6 @@
 //! Edge healing for boolean operation results.
+//! Ref #1: Patrikalakis Ch.6 — differential geometry of intersection curves.
+//! Ref #32: Piegl & Tiller — NURBS curve construction and fitting.
 //!
 //! After a boolean operation, result edges may carry `IntersectionCurve` geometry
 //! that stores `Box<Surface>` references and re-runs `double_projection` (Newton

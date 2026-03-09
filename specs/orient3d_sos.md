@@ -4,6 +4,12 @@
 **Sprint:** 37
 **File:** `vendor/truck/truck-shapeops/src/transversal/robust_classify.rs`
 
+## Research Basis
+
+- **[#5] Edelsbrunner & Mucke (1990)** — Simulation of Simplicity: virtual infinitesimal perturbation for deterministic degenerate-case resolution. Cofactor chain peeling (SignDet) for orient3d at D=3.
+- **[#4] Shewchuk (1997)** — Adaptive precision floating-point for exact orient3d sign computation. The `robust` crate implements this.
+- **[#19] Devillers & Preparata (1998)** — Filter failure probability for orient3d is ~10^-14 (essentially never fails at double precision).
+
 ## Goal
 
 When `robust_orient3d(a, b, c, d)` returns exactly `0.0` (point `d` is coplanar

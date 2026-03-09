@@ -2,6 +2,13 @@
 
 ## Status: DEFERRED — injection mechanism incompatible
 
+## Research Basis
+
+- **[#26] Yang & Jia (2025)** — Overlap is a 2D phenomenon with 1D boundary. Bilevel optimization computes the overlap boundary as a shared topological entity from the start. Our `add_independent_loop` approach creates isolated wires, which is structurally wrong.
+- **[#8] Zhou et al. (2016)** — CDT clustering for coplanar mesh triangles.
+- **[#3] OpenCASCADE** — Same-domain analysis and connexity chains for coplanar face pairs.
+- **Deviation from [#26]**: We used iOverlay 2D polygon boolean instead of bilevel optimization. The 2D boolean correctly computes overlap regions, but `inject_overlay_fragments` fails because it creates topologically isolated wires rather than splicing into existing boundary wires.
+
 ## Root Cause
 
 The boolean pipeline's `inject_coplanar_boundary_loops` in `loops_store/mod.rs` handles

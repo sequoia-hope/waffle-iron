@@ -169,10 +169,32 @@ fn estimate_surface_curvature_radius(surface: &Surface) -> f64 {
 }
 
 /// Compute scale-aware boolean tolerance from two solids' geometry.
+/// Ref #24: Yang (2025) — unit-cube normalization before mesh boolean.
+/// Ref #27: Li (2026) — all production systems normalize scale.
+/// Ref #31: Li (2025) — unit-cube + epsilon=1e-6 after normalization.
 ///
 /// Considers both bounding box extent (for overall scale) and minimum edge
 /// length (for feature size). The tolerance must be small enough that
 /// `weld_coincident_edges` doesn't merge vertices across small features
+/// B27: Compute a uniform scale factor to normalize small geometry.
+///
+/// When the maximum extent of both operands is below 1.0, numerical issues
+/// arise in mesh-based IC extraction, Newton iteration (`search_triple`),
+/// and `search_nearest_parameter`. These are all designed for unit-scale
+/// geometry (extent ~1-100). By scaling small geometry up to unit scale,
+/// these algorithms operate at their intended numerical precision.
+///
+/// Returns 1.0 (no scaling needed) when max extent >= 1.0.
+fn compute_scale_normalization(solid_a: &Solid, solid_b: &Solid) -> f64 {
+    let extent = solid_max_extent(solid_a).max(solid_max_extent(solid_b));
+    if !(1e-15..1.0).contains(&extent) {
+        1.0
+    } else {
+        // Scale so that max extent becomes ~10.0 (comfortable for all algorithms)
+        10.0 / extent
+    }
+}
+
 /// (the failure threshold is roughly tol/min_edge > 0.10).
 ///
 /// For a 10×10×10 box with a 16-gon prism (r=1, min_edge≈0.39):
@@ -430,6 +452,10 @@ impl TruckKernel {
     /// Shared boolean operation setup: validate, heal, compute tolerances, run cascade.
     /// The `make_op` callback receives the pre-computed `BooleanTolerance` and returns
     /// the truck boolean closure to execute.
+    ///
+    /// B27: When geometry is small (max extent < 1.0), both operands are uniformly
+    /// scaled up so that mesh-based IC extraction and Newton iteration work at
+    /// normal numerical precision. The result is scaled back down after the boolean.
     fn run_boolean_op<F, G>(
         &mut self,
         a: &KernelSolidHandle,
@@ -465,6 +491,30 @@ impl TruckKernel {
         validate_solid_for_boolean(&solid_a, "solid_a")?;
         validate_solid_for_boolean(&solid_b, "solid_b")?;
 
+        // B27: Scale up small geometry to avoid numerical precision issues.
+        // At mm scale, mesh-based IC extraction and Newton iteration are unreliable.
+        // Uniform scaling to bring max dimension to ~1.0 fixes these issues.
+        let scale_factor = compute_scale_normalization(&solid_a, &solid_b);
+        #[cfg(debug_assertions)]
+        if scale_factor != 1.0 {
+            eprintln!(
+                "[B27-scale] scale_factor={:.2} extent_a={:.6} extent_b={:.6}",
+                scale_factor,
+                solid_max_extent(&solid_a),
+                solid_max_extent(&solid_b),
+            );
+        }
+        let (solid_a, solid_b) = if scale_factor != 1.0 {
+            let s = Vector3::new(scale_factor, scale_factor, scale_factor);
+            let origin = Point3::new(0.0, 0.0, 0.0);
+            (
+                builder::scaled(&solid_a, origin, s),
+                builder::scaled(&solid_b, origin, s),
+            )
+        } else {
+            (solid_a, solid_b)
+        };
+
         let heal_tol = compute_healing_tol(&solid_a, &solid_b);
         crate::healing::heal_intersection_curves(&solid_a, heal_tol);
         crate::healing::heal_intersection_curves(&solid_b, heal_tol);
@@ -491,6 +541,17 @@ impl TruckKernel {
         .map_err(|e| KernelError::from(BooleanError::from(e)))?;
         self.last_boolean_diagnostics = Some(build_diagnostics_summary(&diag));
         crate::healing::heal_and_dedup_volume_guarded(&result, heal_tol);
+
+        // B27: Scale result back to original size
+        let result = if scale_factor != 1.0 {
+            let inv = 1.0 / scale_factor;
+            let s = Vector3::new(inv, inv, inv);
+            let origin = Point3::new(0.0, 0.0, 0.0);
+            builder::scaled(&result, origin, s)
+        } else {
+            result
+        };
+
         Ok(result)
     }
 

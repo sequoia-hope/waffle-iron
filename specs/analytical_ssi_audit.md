@@ -4,6 +4,13 @@ Sprint 38 WS1 introduced analytical surface-surface intersection (SSI) for
 plane-cylinder pairs. This document audits the implementation for correctness,
 edge-case coverage, and future extensibility.
 
+## Research Basis
+
+- **[#1] Patrikalakis Ch.5** — SSI algorithms: lattice, marching, subdivision. Ch.6: differential geometry of intersection curves (tangent = n1 x n2).
+- **[#27] Li et al. (2026)** — SSI method survey. Hybrid architecture recommended: analytical for simple pairs, topology-guaranteed [#25] for complex pairs.
+- **[#25] Yang et al. (2023)** — Topology-guaranteed SSI via Dixon resultant. Determines correct number of IC branches before tracing. Future direction for replacing mesh-based IC extraction.
+- **[#32] Piegl & Tiller Ch.7** — Conics and circles as rational NURBS quadratics. Used for exact representation of plane-cylinder IC arcs.
+
 ## 1. Overview
 
 The analytical SSI system operates at **two layers**:

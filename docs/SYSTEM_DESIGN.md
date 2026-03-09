@@ -36,7 +36,7 @@ Research references use `[#N]` notation from REFERENCES.md.
 │  ├─ Predicates: exact adaptive [#4], SoS [#5]      │
 │  ├─ Validation: self-intersection [#31], body check │
 │  │   [#33 §14.1]                                    │
-│  ├─ Tessellation: curvature-adaptive                │
+│  ├─ Tessellation: curvature-adaptive [#34, #35]     │
 │  └─ Tolerances: 6-type policy [#33 Ch.16]           │
 └─────────────────────────────────────────────────────┘
 ```

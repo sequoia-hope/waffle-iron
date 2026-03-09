@@ -1,5 +1,15 @@
 # Specification for a Production‑Robust B‑Rep Boolean Solver in Truck for Waffle Iron
 
+## Research Basis
+
+- **[#2] Hoffmann Ch.3** — B-rep boolean pipeline architecture: shell intersection, face classification via neighborhood analysis, face subdivision, result assembly
+- **[#3] OpenCASCADE GFA** — Staged interference (VV→VE→EE→VF→EF→FF), pave blocks, FaceInfo In/On/Sc states, same-domain analysis
+- **[#24] Yang et al. (2025)** — Target architecture: hybrid B-Rep/mesh boolean with bijective mapping, zero failures, 17x faster than OCCT
+- **[#17] Requicha & Voelcker (1985)** — Regularized boolean semantics (closure-of-interior), set membership classification
+- **[#33] Stroud §6.1** — Stepwise boolean assembly with Euler operators, ENTERS/LEAVES/INOSCUL classification
+- **[#7] Jacobson (2013)** — Generalized winding numbers for inside/outside classification
+- **[#6] Sugihara & Iri (2000)** — Topology-oriented implementation: topology-first, numerics only for branch selection
+
 ## Context and baseline in the Waffle Iron vendor fork
 
 Waffle Iron is currently in a **documentation / planning** phase and has selected a **fork of Truck** as its geometry kernel. citeturn7view2 The Waffle Iron repository vendors that fork as a git submodule at `vendor/truck`, pointing to `sequoia-hope/truck`. citeturn7view0 Waffle Iron also patches Cargo dependencies so the workspace uses the vendored Truck crates (e.g., `truck-topology`, `truck-meshalgo`, `truck-shapeops`) specifically noting the local fork is for **boolean operation improvements** and is pinned to the `truck-shapeops` v0.4.0 baseline. citeturn7view1

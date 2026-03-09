@@ -6,29 +6,33 @@ Technical references for B-rep kernel development, boolean operations, and compu
 
 Find references by topic. Numbers refer to reference entries below.
 
-**Boolean operations (general)** → #2 Ch.3, #3, #17, #20, #24 (hybrid B-Rep/mesh)
-**Boolean pipeline architecture** → #2 Ch.3, #3 (GFA), #8 (mesh arrangements), #17 (PADL), #24 (6-stage hybrid)
+**Boolean operations (general)** → #2 Ch.3, #3, #17, #20, #24 (hybrid B-Rep/mesh), #33 §6.1 (stepwise with Euler ops)
+**Boolean pipeline architecture** → #2 Ch.3, #3 (GFA), #8 (mesh arrangements), #17 (PADL), #24 (6-stage hybrid), #33 §6.1 (SSI→sew→merge→separate)
 **BSP trees** → #11 (EMBER), #18 (Bernstein)
-**B-rep foundations** → #2 Ch.2, #16 (Euler ops), #17 (set membership classification)
+**B-rep foundations** → #2 Ch.2, #16 (Euler ops), #17 (set membership classification), #33 Ch.3 (datastructures/traversals), #33 Ch.4 (Euler ops spanning sets)
 **CDT / constrained Delaunay** → #10 (optimized CDT), #12 (per-triangle CDT)
 **Chained booleans** → #24 (bijective re-mapping preserves topology across chains)
 **Classification (face/in-out)** → #7 (winding number), #8 (winding number vectors), #12 (radial sort), #17 (set membership), #20 (4-way/8-way), #30 (GWN on trimmed NURBS, no tessellation)
-**Coplanar / overlap regions** → #3 (same-domain analysis), #8 (coplanar CDT clustering), #10 (coplanar-heavy perf), #11 (plane-based repr), #26 (overlap as 2D phenomenon, bilevel optimization)
+**Coplanar / overlap regions** → #3 (same-domain analysis), #8 (coplanar CDT clustering), #10 (coplanar-heavy perf), #11 (plane-based repr), #26 (overlap as 2D phenomenon, bilevel optimization), #33 §6.1 (coincident surface imprinting)
+**Curve-face intersection classification** → #33 §6.1.1 (ENTERS/LEAVES/INOSCUL/OUTOSCUL/WIRE/ONEDGE, sequencing rules)
 **CSG / constructive solid geometry** → #14 (hybrid CSG), #17 (CSG→BRep), #2 Ch.3
 **Curvature (curves)** → #22 (finite total curvature, discrete/smooth bridge)
 **Curved surface booleans** → #13 (ESOLID, exact on quadrics), #14 (hybrid NURBS/mesh), #24 (hybrid B-Rep/mesh, SIGGRAPH 2025), #28 (watertight NURBS reparameterization)
+**Datastructure design (B-rep)** → #33 Ch.3 (entity hierarchy, traversals, Appendix A specs), #16 (Mäntylä)
 **DCEL / half-edge** → #16 (Mäntylä), #20 (Tekla/DCEL hierarchy)
 **Deflation / singularity regulation** → #29 (over-determined system transforms singular zeros to regular)
 **Degeneracy handling** → #5 (SoS), #6 (topology-oriented), #8 (no general position), #12 (two-case reduction), #25 (characteristic points determine topology), #29 (deflation for tangent points/tiny loops)
 **Delaunay complexes** → #23 Ch.III (alpha complexes)
 **Dixon resultant / implicitization** → #25 (Dixon matrix for SSI topology), #27 (algebraic methods survey)
 **Edge splitting / pave blocks** → #3 (OCCT pave blocks, shrunk ranges)
-**Euler operators** → #2 Ch.2, #16 (completeness proof), #20 (MEV/MEF/MEKL)
+**Euler operators** → #2 Ch.2, #16 (completeness proof), #20 (MEV/MEF/MEKL), #33 Ch.4 (spanning sets, matrix decomposition, 99 operators)
 **Exact arithmetic** → #4 (adaptive expansions), #9 (indirect predicates), #10 (exact constructions), #13 (lazy exact), #15 (Nef, exact throughout), #19 (filter thresholds)
 **Floating-point robustness** → #1 Ch.4, #2 Ch.4, #4, #19 (filter failure probabilities)
 **Homology / topological invariants** → #23 Ch.IV–V (Euler characteristic, Betti numbers)
 **Hybrid B-Rep/mesh boolean** → #14 (Sheng 2018), #24 (Yang 2025, bijective mapping)
 **Intersection curves** → #1 Ch.5–6, #3 (FF interference), #13 (algebraic curves on quadrics), #25 (topology-guaranteed tracing), #27 (comprehensive survey)
+**Feature modelling** → #33 Ch.9 (facesets, frames, design-by-features, recognition, verification)
+**Gluing / face joining** → #33 §6.4 (identical topology), #33 §6.13 (non-matching faces via local boolean)
 **Manifoldness** → #6 (topology-first guarantees), #16 (Euler ops preserve), #17 (regularization)
 **Mesh arrangements** → #8 (Zhou), #9 (Cherchi), #10 (Levy), #12 (Barki)
 **Mesh booleans (exact)** → #8, #9, #10, #11, #12, #18
@@ -53,14 +57,17 @@ Find references by topic. Numbers refer to reference entries below.
 **Rust implementations** → #21 (kigumi mesh booleans)
 **Scale normalization** → #24 (unit-cube normalization before mesh boolean), #27 (all production systems normalize), #31 (unit-cube + ε=10⁻⁶ after normalization)
 **Set membership classification** → #17 (PADL), #20 (in/out/on)
+**Model verification / healing** → #33 §14.1 (ACIS body checker: edge convexity, containment, self-intersection), #33 §14.2 (topological/geometric healing)
+**Non-manifold models** → #33 Ch.5 (partial/degenerate/non-manifold, compound models, wedge structures)
 **Shell assembly / closure** → #3 (building part stages), #15 (Nef), #16 (Euler ops)
 **Simplicial complexes** → #23 Ch.III
 **Spatial indexing / AABB** → #2 Ch.3.7, #12 (AABB-accelerated)
 **SSI topology determination** → #25 (Dixon matrix, characteristic points), #27 (algebraic vs numerical survey), #29 (IATA, interval algebraic analysis in 4D)
 **Surface-surface intersection** → #1 Ch.5 (lattice/marching/subdivision), #3 (FF interference), #25 (topology-guaranteed tracing), #27 (comprehensive survey), #28 (isocurve reparameterization), #29 (IATA hybrid symbolic-numeric)
-**Tessellation / mesh conversion** → #22 (curvature across discrete/smooth boundary)
-**Tolerance / fuzzy** → #3 (fuzzy booleans, SetFuzzyValue), #13 (lazy exact vs tolerance), #28 (gap-free via reparameterization)
-**Topological validity** → #6 (topology-oriented), #16 (Euler ops), #23 (homology invariants)
+**Tessellation / mesh conversion** → #22 (curvature across discrete/smooth boundary), #34 (curvature-adapted remeshing via R^6 embedding), #35 (conforming NURBS tessellation with anisotropic metrics)
+**Tolerance / fuzzy** → #3 (fuzzy booleans, SetFuzzyValue), #13 (lazy exact vs tolerance), #28 (gap-free via reparameterization), #33 Ch.16 (6 tolerance types, consistency rules)
+**Sweeping / extrude / revolve** → #33 §6.2 (edge-based sweep/swing with Euler ops, movable-edge detection)
+**Topological validity** → #6 (topology-oriented), #16 (Euler ops), #23 (homology invariants), #33 Ch.4 (Euler ops preserve Euler-Poincaré)
 **Trim testing (2D)** → #30 (2D GWN for parametric trim containment)
 **Watertightness / gap-free geometry** → #28 (isocurve reparameterization), #24 (mesh boolean guarantees watertight), #30 (GWN robust to non-watertight geometry)
 **Self-intersection detection** → #31 (algebraic signature, NURBS control-point-based)
@@ -786,6 +793,66 @@ https://dl.acm.org/doi/10.1145/3727620
 
 **Comparison**: 2-4 orders of magnitude faster than OCCT and ACIS for simple surfaces. More robust on degenerate cases (near-tangential self-intersections, small loops, closed surfaces).
 
+### 33. Stroud — "Boundary Representation Modelling Techniques"
+
+**Local copy**: `refs/stroud2006_brep_modelling_techniques.pdf`
+
+**Citation**: Stroud, I. "Boundary Representation Modelling Techniques." Springer-Verlag, London, 2006. ISBN: 978-1-84628-312-3.
+
+**Relevance**: **HIGH**. The comprehensive textbook on B-rep solid modelling implementation. Written by a practitioner who worked on BUILD (Cambridge), GPM, and ACIS-era systems. Covers datastructures, Euler operators, boolean operations, sweeping, feature modelling, tolerances, and debugging — with algorithms given as stepwise sequences of Euler operators that preserve topological validity throughout. Uniquely practical: describes not just what algorithms do, but implementation pitfalls, special cases, error recovery, and design decisions.
+
+**Chapter map (key chapters for our kernel)**:
+
+- **Ch. 3 — Datastructures and tools**: B-rep entity hierarchy (vertex, edge, loop-edge link, face, loop, facegroup, shell, body). Topological connections, traversal algorithms (all faces at vertex, all edges in face, etc.), geometric interrogations (point-in-face, curve-face intersection classification). Assembly structures with instances and constraints. **Key for designing our kernel's data structures.**
+- **Ch. 4 — Euler operators**: The 99 possible Euler operators, spanning sets (MEV, MEF, MBFV, MGB, MEKH + inverses), and decomposition of any topological change into Euler operator sequences via matrix inversion. Euler-Poincaré formula: v-e+f-h=2(b-g). **Key for implementing topology-preserving kernel operations.**
+- **Ch. 5 — Special representations**: Non-manifold, degenerate, and partial (open) models. Conversion between representations. Boolean operations on non-manifold models (ambiguity issues). Compound models with wedge-based structures.
+- **Ch. 6 — Stepwise modelling algorithms**: The core chapter.
+  - §6.1 Boolean operations (pp. 126–141): Face-face comparison with AABB hierarchy, SSI→curve-face intersection with ENTERS/LEAVES/INOSCUL/OUTOSCUL/WIRE/ONEDGE classification, wire-edge sewing, coincident surface handling (imprinting), merging via A IN B / A OUT B / A ON B decomposition, shell separation, point-in-body containment test. Assembly booleans. Local (progressive) booleans.
+  - §6.2 Sweeping/swinging (extrude/revolve): Edge-based improved sweep with movable-edge detection, special cases (axis edges, wire edges, faces swept past neighbors).
+  - §6.4 Gluing coincident topology: Identical face gluing, edge gluing, vertex gluing.
+  - §6.8 Planar sectioning.
+  - §6.9 Imprinting.
+  - §6.11 SETSURF (surface replacement in a face with edge/vertex recalculation).
+  - §6.13 Gluing non-matching faces (local boolean with imprinting).
+- **Ch. 7 — Modelling operator definition**: Task decomposition methodology for designing new operations. Pathological conditions analysis. Detailed worked examples: slot/pocket addition, edge rebating. **Key for our feature engine design.**
+- **Ch. 9 — Feature modelling**: Feature datastructures (facesets, frames), design-by-features, feature recognition, feature verification. Relevant to our parametric feature engine.
+- **Ch. 13 — Free-form geometry**: Bézier, B-spline, NURBS curves and surfaces. Interpolation, lofting, multi-patch SETSURF, surface sculpting. Complements Piegl & Tiller (#32) with modelling-oriented perspective.
+- **Ch. 14 — Applications**: Model verification (§14.1, ACIS body checker approach: edge convexity, face containment, dangling vertices, self-intersection), model healing (§14.2: topological, geometric, combined), STL→B-rep recreation. **Key for our model validation layer.**
+- **Ch. 16 — Tolerances and debugging**: Six tolerance types (TOLABS machine, TOLEPS length, TOLANG angle, TOLGEO geometric, TOLREL relative, TOLPOL polynomial). Consistency rules for tolerance usage. Error handling with return codes and tracebacks.
+- **Appendix A — Data definitions**: Complete datastructure specifications for all B-rep entities (vertex, edge, loop-edge link, face, loop, facegroup, shell, wireframe/sheet/volume objects, point, curve, surface, instance, feature, etc.). Geometry format specifications (plane, sphere, cylinder, cone, quadric, toroid, free-form).
+
+**Key insights for our kernel**:
+
+1. **Euler operators as building blocks**: All complex operations decomposed into Euler operator sequences. Any valid B-rep change can be expressed as a sequence of MEV, MEF, MBFV, MGB, MEKH + inverses. This ensures topological validity is maintained incrementally — never create an invalid intermediate state. The matrix decomposition (§4.1) provides a systematic way to verify operator sequences.
+2. **Stepwise boolean approach**: Wire edges are added to faces during SSI (maintaining validity at each step), then sewn into the boundary. This is different from truck's approach (which builds topology all at once). The incremental approach makes error recovery possible — if a face-face comparison fails, the model is still valid up to that point.
+3. **Curve-face intersection classification** (§6.1.1): The 6-type classification (ENTERS/LEAVES/INOSCUL/OUTOSCUL/WIRE/ONEDGE) with sequencing rules provides a complete framework for intersection boundary creation. ONEDGE handling (partial edge coincidence) directly addresses our D2 coincident-edge degeneracy.
+4. **A ON B handling**: Coincident surfaces are resolved by imprinting each face on the other to produce matching sub-faces. This is the classical approach to our D1 coplanar degeneracy.
+5. **Bulletin Board technique**: ACIS-style change recording for undo/recovery. Copy-before-modify for operation rollback. Important for our feature engine's rebuild error recovery.
+6. **Local booleans**: Progressive face-pair traversal (follow intersection boundaries to neighboring faces) instead of all-pairs comparison. More efficient and naturally handles the locality of typical CAD operations.
+7. **Model verification** (§14.1): Systematic checks — edge convexity, face containment, dangling elements, self-intersection. ACIS uses resabs distance tolerance for all checks. Comprehensive validation is essential for kernel reliability.
+
+## Tessellation References
+
+### 34. Dassi, Mola & Si — "Curvature-Adapted Remeshing of CAD Surfaces" (2014/2018)
+
+**Access**: Free PDF (conference version):
+https://www.sandia.gov/imr/Papers/20_IMR23_Dassi.pdf
+
+Also: https://files01.core.ac.uk/download/pdf/198237553.pdf
+
+**Citation**: Dassi, F., Mola, A. and Si, H. "Curvature-adapted remeshing of CAD surfaces." *Procedia Engineering* 82:253–265, 2014 (23rd International Meshing Roundtable). Journal version: *Engineering with Computers* 34:565–576, 2018.
+
+**Relevance**: Curvature-adaptive surface remeshing via R^6 embedding. Each surface point p with unit normal n is lifted to (p, lambda*n) in R^6, where lambda controls curvature sensitivity. A mesh that is "uniform" in R^6 is automatically curvature-adapted in R^3 — flat regions get large triangles, curved regions get small ones. Local mesh modifications (split/collapse/flip/smooth) are evaluated against the R^6 metric. Simpler than metric-tensor approaches and directly applicable to truck's existing `PolygonMesh`.
+
+### 35. Aubry, Dey, Mestreau, Karamete & Gayman — "A Robust Conforming NURBS Tessellation for Industrial Applications Based on a Mesh Generation Approach" (2015)
+
+**Access**: Elsevier (paywall):
+https://www.sciencedirect.com/science/article/abs/pii/S0010448515000032
+
+**Citation**: Aubry, R., Dey, S., Mestreau, E.L., Karamete, B.K. and Gayman, D. "A robust conforming NURBS tessellation for industrial applications based on a mesh generation approach." *Computer-Aided Design* 63:26–38, 2015.
+
+**Relevance**: Industrial-grade NURBS tessellation framed as mesh generation. Uses anisotropic metric tensors from principal curvatures to drive triangle aspect ratios. Guarantees watertight conformity between adjacent NURBS patches by meshing shared boundary curves once in 3D. Handles NURBS degeneracies (collapsed edges, seam lines, singular poles) common in naval and aerospace CAD. More rigorous than #34 for production tessellation, but requires curvature tensor computation infrastructure.
+
 ## How to Reference During Development
 
 When working on boolean reliability or kernel improvements:
@@ -813,3 +880,6 @@ When working on boolean reliability or kernel improvements:
 21. **Use Spainhour (#30)** for face classification — GWN directly on trimmed NURBS without tessellation. The correct replacement for ray-cast voting and mesh-based winding numbers. BSD-licensed Axom implementation available.
 22. **Use Li (#31)** for pre-boolean validation — algebraic signature certifies self-intersection-freedom from control points in microseconds. Also: loop detection via collinear normals, flatness bounds, subdivision-avoiding-shared-boundaries
 23. **Use Piegl & Tiller (#32)** for ALL NURBS geometry implementation — evaluation (A3.1/A3.5), knot insertion (A5.1/A5.3), point inversion (A6.1/A6.2), degree elevation (A5.9), curve fitting (A9.1). The implementation manual for the geometry layer.
+24. **Use Stroud (#33)** for B-rep kernel architecture — datastructure design (Ch.3), Euler operator framework (Ch.4), stepwise boolean with wire-edge sewing (§6.1), sweep/revolve (§6.2), model verification (§14.1), tolerance design (Ch.16). The practitioner's guide to building a modelling system from scratch.
+25. **Use Dassi (#34)** for curvature-adaptive tessellation — R^6 embedding (p, lambda*n) makes uniform meshes automatically curvature-adapted. Simpler than metric tensors, directly applicable to truck's PolygonMesh.
+26. **Use Aubry (#35)** for industrial-grade NURBS tessellation — anisotropic metric tensors from principal curvatures, watertight conformity between adjacent patches, degeneracy handling for production CAD models.
