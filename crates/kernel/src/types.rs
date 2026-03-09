@@ -169,7 +169,10 @@ impl BooleanOptions {
 
     pub fn validate(&self) -> Result<(), String> {
         if self.tau_model <= 0.0 {
-            return Err(format!("tau_model must be positive, got {}", self.tau_model));
+            return Err(format!(
+                "tau_model must be positive, got {}",
+                self.tau_model
+            ));
         }
         if self.tau_mesh <= 0.0 {
             return Err(format!("tau_mesh must be positive, got {}", self.tau_mesh));
@@ -181,22 +184,40 @@ impl BooleanOptions {
             return Err(format!("tau_work must be positive, got {}", self.tau_work));
         }
         if self.tau_coplanar <= 0.0 {
-            return Err(format!("tau_coplanar must be positive, got {}", self.tau_coplanar));
+            return Err(format!(
+                "tau_coplanar must be positive, got {}",
+                self.tau_coplanar
+            ));
         }
         if self.min_feature_size <= 0.0 {
-            return Err(format!("min_feature_size must be positive, got {}", self.min_feature_size));
+            return Err(format!(
+                "min_feature_size must be positive, got {}",
+                self.min_feature_size
+            ));
         }
         if self.tau_mesh > self.tau_model {
-            return Err(format!("tau_mesh ({}) must be <= tau_model ({})", self.tau_mesh, self.tau_model));
+            return Err(format!(
+                "tau_mesh ({}) must be <= tau_model ({})",
+                self.tau_mesh, self.tau_model
+            ));
         }
         if self.tau_work >= self.tau_model {
-            return Err(format!("tau_work ({}) must be < tau_model ({})", self.tau_work, self.tau_model));
+            return Err(format!(
+                "tau_work ({}) must be < tau_model ({})",
+                self.tau_work, self.tau_model
+            ));
         }
         if self.tau_weld < 0.1 * self.tau_model {
-            return Err(format!("tau_weld ({}) must be >= 0.1 * tau_model ({})", self.tau_weld, self.tau_model));
+            return Err(format!(
+                "tau_weld ({}) must be >= 0.1 * tau_model ({})",
+                self.tau_weld, self.tau_model
+            ));
         }
         if self.min_feature_size < self.tau_model {
-            return Err(format!("min_feature_size ({}) must be >= tau_model ({})", self.min_feature_size, self.tau_model));
+            return Err(format!(
+                "min_feature_size ({}) must be >= tau_model ({})",
+                self.min_feature_size, self.tau_model
+            ));
         }
         Ok(())
     }
@@ -232,10 +253,14 @@ mod tests {
 
     #[test]
     fn test_kernel_error_display() {
-        let err = KernelError::BooleanFailed { reason: "test".to_string() };
+        let err = KernelError::BooleanFailed {
+            reason: "test".to_string(),
+        };
         assert_eq!(format!("{}", err), "boolean operation failed: test");
 
-        let err = KernelError::NotSupported { operation: "fillet".to_string() };
+        let err = KernelError::NotSupported {
+            operation: "fillet".to_string(),
+        };
         assert_eq!(format!("{}", err), "operation not supported: fillet");
     }
 
@@ -256,7 +281,10 @@ mod tests {
 
     #[test]
     fn test_boolean_options_validate_rejects_bad() {
-        let bad = BooleanOptions { tau_mesh: 1e-6, ..BooleanOptions::default() };
+        let bad = BooleanOptions {
+            tau_mesh: 1e-6,
+            ..BooleanOptions::default()
+        };
         assert!(bad.validate().is_err());
     }
 
@@ -272,7 +300,9 @@ mod tests {
 
     #[test]
     fn test_boolean_error_to_kernel_error() {
-        let bool_err = BooleanError::ClassificationFailed { detail: "ambiguous".to_string() };
+        let bool_err = BooleanError::ClassificationFailed {
+            detail: "ambiguous".to_string(),
+        };
         let kernel_err: KernelError = bool_err.into();
         match &kernel_err {
             KernelError::BooleanFailed { reason } => {

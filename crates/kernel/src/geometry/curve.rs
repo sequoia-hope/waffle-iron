@@ -2,6 +2,13 @@
 
 use super::point::{Point3, Vector3};
 
+/// Geometry attached to a B-Rep edge.
+#[derive(Debug, Clone)]
+pub enum CurveGeom {
+    Linear(Line3D),
+    Circular(Circle3D),
+}
+
 /// A line in 3D space.
 #[derive(Debug, Clone)]
 pub struct Line3D {

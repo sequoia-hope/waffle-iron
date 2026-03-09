@@ -222,11 +222,7 @@ pub fn kemr(arena: &mut TopoArena, edge: EdgeIdx) {
 /// Creates a through-hole or cavity by killing a face and creating a new shell.
 ///
 /// Euler change: F-1, S+1 → V-E+F-2S unchanged if genus adjusts.
-pub fn kfmrh(
-    arena: &mut TopoArena,
-    face_to_kill: FaceIdx,
-    host_face: FaceIdx,
-) {
+pub fn kfmrh(arena: &mut TopoArena, face_to_kill: FaceIdx, host_face: FaceIdx) {
     let killed_loop = arena.faces[face_to_kill.0].outer_loop;
 
     // Add the killed face's outer loop as an inner loop of the host face
@@ -258,10 +254,7 @@ fn find_he_from_vertex_in_loop(
         }
         he = arena.half_edges[he.0].next;
         if he == start {
-            panic!(
-                "Vertex {:?} not found in loop {:?}",
-                vertex, loop_
-            );
+            panic!("Vertex {:?} not found in loop {:?}", vertex, loop_);
         }
     }
 }
@@ -318,8 +311,8 @@ mod tests {
         assert_eq!(arena.face_count(), 2);
 
         // Euler: V - E + F = 3 - 3 + 2 = 2 ✓
-        let euler = arena.vertex_count() as i64 - arena.edge_count() as i64
-            + arena.face_count() as i64;
+        let euler =
+            arena.vertex_count() as i64 - arena.edge_count() as i64 + arena.face_count() as i64;
         assert_eq!(euler, 2, "Euler formula V-E+F should be 2");
     }
 
@@ -341,8 +334,8 @@ mod tests {
         assert_eq!(arena.edge_count(), 4);
         assert_eq!(arena.face_count(), 2);
 
-        let euler = arena.vertex_count() as i64 - arena.edge_count() as i64
-            + arena.face_count() as i64;
+        let euler =
+            arena.vertex_count() as i64 - arena.edge_count() as i64 + arena.face_count() as i64;
         assert_eq!(euler, 2);
     }
 }

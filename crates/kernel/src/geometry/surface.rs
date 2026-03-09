@@ -2,6 +2,13 @@
 
 use super::point::{Point3, Vector3};
 
+/// Geometry attached to a B-Rep face.
+#[derive(Debug, Clone)]
+pub enum SurfaceGeom {
+    Planar(Plane),
+    Cylindrical(Cylinder),
+}
+
 /// An infinite plane.
 #[derive(Debug, Clone)]
 pub struct Plane {

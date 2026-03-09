@@ -1,20 +1,66 @@
-//! WaffleKernel — clean-sheet B-Rep kernel (stub implementation).
+//! WaffleKernel — clean-sheet B-Rep kernel.
 //!
-//! All methods currently return NotSupported. Implementation will be built up
-//! incrementally, tracked by the assay score (target: 400/400).
+//! Supports: make_faces_from_profiles → extrude_face → tessellate/extract_edges → introspect.
+//! Boolean ops, revolve, fillet, chamfer, shell remain NotSupported.
 
+use crate::geometry::curve::{CurveGeom, Line3D};
+use crate::geometry::point::{Point3, Vector3};
+use crate::geometry::surface::{Plane, SurfaceGeom};
+use crate::tessellation;
+use crate::topology::arena::TopoArena;
+use crate::topology::euler_ops::{mef, mev, mvfs};
+use crate::topology::half_edge::*;
 use crate::traits::{Kernel, KernelIntrospect};
 use crate::types::*;
 use std::collections::HashMap;
 
-/// Clean-sheet geometry kernel. Currently a stub — all operations return NotSupported.
+/// Clean-sheet geometry kernel with half-edge B-Rep topology.
 pub struct WaffleKernel {
-    _next_id: u64,
+    next_id: u64,
+    next_handle: u64,
+    solids: HashMap<u64, WaffleSolid>,
+    standalone_faces: HashMap<u64, StandaloneFace>,
+}
+
+/// A full B-Rep solid with topology arena and geometry maps.
+struct WaffleSolid {
+    arena: TopoArena,
+    face_map: HashMap<u64, FaceIdx>,
+    edge_map: HashMap<u64, EdgeIdx>,
+    vertex_map: HashMap<u64, VertexIdx>,
+    face_geometry: HashMap<FaceIdx, SurfaceGeom>,
+    #[allow(dead_code)]
+    edge_geometry: HashMap<EdgeIdx, CurveGeom>,
+}
+
+/// A standalone planar face (pre-extrude), stored as ordered 3D vertices.
+struct StandaloneFace {
+    vertices: Vec<[f64; 3]>,
+    plane_origin: [f64; 3],
+    #[allow(dead_code)]
+    plane_normal: [f64; 3],
 }
 
 impl WaffleKernel {
     pub fn new() -> Self {
-        Self { _next_id: 1 }
+        Self {
+            next_id: 1,
+            next_handle: 1,
+            solids: HashMap::new(),
+            standalone_faces: HashMap::new(),
+        }
+    }
+
+    fn alloc_id(&mut self) -> u64 {
+        let id = self.next_id;
+        self.next_id += 1;
+        id
+    }
+
+    fn alloc_handle(&mut self) -> u64 {
+        let h = self.next_handle;
+        self.next_handle += 1;
+        h
     }
 }
 
@@ -24,16 +70,391 @@ impl Default for WaffleKernel {
     }
 }
 
+// ── Helper geometry functions ────────────────────────────────────────────
+
+fn vec3_sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+
+fn vec3_add(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
+
+fn vec3_scale(v: [f64; 3], s: f64) -> [f64; 3] {
+    [v[0] * s, v[1] * s, v[2] * s]
+}
+
+fn vec3_cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
+fn vec3_dot(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+fn vec3_length(v: [f64; 3]) -> f64 {
+    vec3_dot(v, v).sqrt()
+}
+
+fn vec3_normalize(v: [f64; 3]) -> [f64; 3] {
+    let len = vec3_length(v);
+    if len < 1e-15 {
+        v
+    } else {
+        vec3_scale(v, 1.0 / len)
+    }
+}
+
+fn vec3_negate(v: [f64; 3]) -> [f64; 3] {
+    [-v[0], -v[1], -v[2]]
+}
+
+/// Compute polygon area using cross product magnitudes (works in 3D).
+fn polygon_area_3d(verts: &[[f64; 3]]) -> f64 {
+    if verts.len() < 3 {
+        return 0.0;
+    }
+    let mut sum = [0.0, 0.0, 0.0];
+    for i in 1..verts.len() - 1 {
+        let ab = vec3_sub(verts[i], verts[0]);
+        let ac = vec3_sub(verts[i + 1], verts[0]);
+        let c = vec3_cross(ab, ac);
+        sum = vec3_add(sum, c);
+    }
+    vec3_length(sum) * 0.5
+}
+
+/// Compute centroid of a polygon.
+fn polygon_centroid(verts: &[[f64; 3]]) -> [f64; 3] {
+    let n = verts.len() as f64;
+    let mut c = [0.0, 0.0, 0.0];
+    for v in verts {
+        c[0] += v[0];
+        c[1] += v[1];
+        c[2] += v[2];
+    }
+    [c[0] / n, c[1] / n, c[2] / n]
+}
+
+/// Compute AABB from a set of vertices.
+fn compute_bbox(verts: &[[f64; 3]]) -> [f64; 6] {
+    let mut min = [f64::MAX; 3];
+    let mut max = [f64::MIN; 3];
+    for v in verts {
+        for i in 0..3 {
+            if v[i] < min[i] {
+                min[i] = v[i];
+            }
+            if v[i] > max[i] {
+                max[i] = v[i];
+            }
+        }
+    }
+    [min[0], min[1], min[2], max[0], max[1], max[2]]
+}
+
+// ── Kernel trait implementation ──────────────────────────────────────────
+
 impl Kernel for WaffleKernel {
+    fn make_faces_from_profiles(
+        &mut self,
+        profiles: &[ClosedProfile],
+        plane_origin: [f64; 3],
+        plane_normal: [f64; 3],
+        plane_x_axis: [f64; 3],
+        positions: &HashMap<u32, (f64, f64)>,
+    ) -> Result<Vec<KernelId>, KernelError> {
+        // Compute plane Y axis from normal x X-axis
+        let plane_y_axis = vec3_cross(plane_normal, plane_x_axis);
+
+        let mut face_ids = Vec::new();
+
+        for profile in profiles {
+            if profile.circle.is_some() {
+                // Circle profiles not yet supported
+                return Err(KernelError::NotSupported {
+                    operation: "make_faces_from_profiles(circle)".to_string(),
+                });
+            }
+
+            // Collect all positions, sorted by key for deterministic ordering
+            let mut keys: Vec<u32> = positions.keys().copied().collect();
+            keys.sort();
+
+            if keys.len() < 3 {
+                return Err(KernelError::Other {
+                    message: format!("Need at least 3 vertices for a polygon, got {}", keys.len()),
+                });
+            }
+
+            // Convert 2D sketch coords → 3D world coords
+            let vertices_3d: Vec<[f64; 3]> = keys
+                .iter()
+                .map(|k| {
+                    let (u, v) = positions[k];
+                    vec3_add(
+                        plane_origin,
+                        vec3_add(vec3_scale(plane_x_axis, u), vec3_scale(plane_y_axis, v)),
+                    )
+                })
+                .collect();
+
+            // Validate non-zero area
+            let area = polygon_area_3d(&vertices_3d);
+            if area < 1e-15 {
+                return Err(KernelError::Other {
+                    message: "Profile has zero area".to_string(),
+                });
+            }
+
+            let face_id = self.alloc_id();
+            self.standalone_faces.insert(
+                face_id,
+                StandaloneFace {
+                    vertices: vertices_3d,
+                    plane_origin,
+                    plane_normal,
+                },
+            );
+            face_ids.push(KernelId(face_id));
+        }
+
+        Ok(face_ids)
+    }
+
     fn extrude_face(
         &mut self,
-        _face: KernelId,
-        _direction: [f64; 3],
-        _depth: f64,
+        face: KernelId,
+        direction: [f64; 3],
+        depth: f64,
     ) -> Result<KernelSolidHandle, KernelError> {
-        Err(KernelError::NotSupported {
-            operation: "extrude_face".to_string(),
-        })
+        if depth <= 0.0 {
+            return Err(KernelError::Other {
+                message: "extrude depth must be positive".to_string(),
+            });
+        }
+
+        let standalone = self
+            .standalone_faces
+            .remove(&face.0)
+            .ok_or(KernelError::EntityNotFound { id: face })?;
+
+        let n = standalone.vertices.len();
+        let offset = vec3_scale(direction, depth);
+
+        let mut arena = TopoArena::new();
+
+        // Phase 1: Build bottom face polygon using Euler ops
+        let (_, _, face0, v_bottom_0) = mvfs(&mut arena, standalone.vertices[0]);
+        let loop0 = arena.faces[face0.0].outer_loop;
+
+        let mut bottom_verts = vec![v_bottom_0];
+        for i in 1..n {
+            let (_, vi) = mev(
+                &mut arena,
+                bottom_verts[i - 1],
+                loop0,
+                standalone.vertices[i],
+            );
+            bottom_verts.push(vi);
+        }
+
+        // Close the bottom face: connect last vertex back to first
+        let (_close_edge, bottom_face) =
+            mef(&mut arena, bottom_verts[n - 1], bottom_verts[0], loop0);
+
+        // After mef, loop0 is the "outer" face (face0) loop going around the bottom polygon CCW.
+        // bottom_face has its own loop going CW (inner/bottom).
+
+        // CRITICAL: After mef splits the loop, some vertex.half_edge pointers are stale
+        // (pointing into the bottom_face loop instead of loop0). Fix them by walking loop0
+        // and updating each vertex's half_edge to reference its outgoing half-edge in loop0.
+        {
+            let start_he = arena.loops[loop0.0].half_edge;
+            let mut he = start_he;
+            loop {
+                let v = arena.half_edges[he.0].origin;
+                arena.vertices[v.0].half_edge = Some(he);
+                he = arena.half_edges[he.0].next;
+                if he == start_he {
+                    break;
+                }
+            }
+        }
+
+        // Phase 2: Create top vertices by extending from bottom vertices
+        let mut top_verts = Vec::with_capacity(n);
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..n {
+            let top_pos = vec3_add(standalone.vertices[i], offset);
+            let (_, tv) = mev(&mut arena, bottom_verts[i], loop0, top_pos);
+            top_verts.push(tv);
+        }
+
+        // Phase 3: Create side faces by connecting consecutive top vertices with mef.
+        // After the mev calls, loop0 has wire edges sticking up from each bottom vertex.
+        // We connect consecutive top vertices to form side quads.
+        // For each side i: connect top_verts[i] to top_verts[(i+1) % n]
+        // The last mef closes the top face.
+        let mut side_faces = Vec::with_capacity(n);
+        for i in 0..n {
+            let next = (i + 1) % n;
+            let (_, sf) = mef(&mut arena, top_verts[i], top_verts[next], loop0);
+            side_faces.push(sf);
+        }
+        // After all n mef calls, the last one closes the top face.
+        // The faces created are: side_faces[0..n-1] are side faces, side_faces[n-1] is the top face.
+        // Actually, each mef creates a new face from the split. The last mef should close loop0
+        // into the top face. Let me think...
+        // After n mef calls, we have n new faces (the sides) plus the original face0 becomes the top.
+        // Actually face0 is the "infinite" outer face from mvfs. After all mef splits, loop0 shrinks
+        // to just the top polygon, making face0 effectively the top face.
+
+        // Assign face roles:
+        // bottom_face = the bottom face
+        // face0 = becomes the top face after all the side mef splits
+        // side_faces[0..n] = n side faces
+        // Wait, we have n side_faces from n mef calls. But the last mef should close the
+        // top. Let me count: Each mef creates one new face. After n mef calls for sides,
+        // we've created n new faces (side faces), and the residual loop0 face (face0) is the top.
+
+        // Build maps: allocate KernelIds for all topology entities
+        let handle_id = self.alloc_handle();
+        let mut face_map = HashMap::new();
+        let mut edge_map = HashMap::new();
+        let mut vertex_map = HashMap::new();
+        let mut face_geometry = HashMap::new();
+        let mut edge_geometry = HashMap::new();
+
+        let dir_norm = vec3_normalize(direction);
+
+        // Bottom face
+        let bottom_face_kid = self.alloc_id();
+        face_map.insert(bottom_face_kid, bottom_face);
+        face_geometry.insert(
+            bottom_face,
+            SurfaceGeom::Planar(Plane {
+                origin: Point3::from_array(standalone.plane_origin),
+                normal: Vector3::from_array(vec3_negate(dir_norm)),
+            }),
+        );
+
+        // Top face (face0 after all splits)
+        let top_face_kid = self.alloc_id();
+        face_map.insert(top_face_kid, face0);
+        let top_origin = vec3_add(standalone.plane_origin, offset);
+        face_geometry.insert(
+            face0,
+            SurfaceGeom::Planar(Plane {
+                origin: Point3::from_array(top_origin),
+                normal: Vector3::from_array(dir_norm),
+            }),
+        );
+
+        // Side faces with outward normals
+        let center_bottom = polygon_centroid(&standalone.vertices);
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..n {
+            let sf = side_faces[i];
+            let sf_kid = self.alloc_id();
+            face_map.insert(sf_kid, sf);
+
+            // Compute outward normal for this side face
+            let v_a = standalone.vertices[i];
+            let v_b = standalone.vertices[(i + 1) % n];
+            let edge_dir = vec3_sub(v_b, v_a);
+            // Outward normal = cross(edge_dir, extrude_dir), possibly negated
+            let mut side_normal = vec3_normalize(vec3_cross(edge_dir, direction));
+            // Check it points outward (away from center)
+            let mid = vec3_scale(vec3_add(v_a, v_b), 0.5);
+            let to_center = vec3_sub(center_bottom, mid);
+            if vec3_dot(side_normal, to_center) > 0.0 {
+                side_normal = vec3_negate(side_normal);
+            }
+
+            face_geometry.insert(
+                sf,
+                SurfaceGeom::Planar(Plane {
+                    origin: Point3::from_array(mid),
+                    normal: Vector3::from_array(side_normal),
+                }),
+            );
+        }
+
+        // Map all edges
+        for (idx, _edge) in arena.edges.iter().enumerate() {
+            let eid = self.alloc_id();
+            edge_map.insert(eid, EdgeIdx(idx));
+
+            // Compute edge geometry (linear)
+            let he_a = arena.edges[idx].half_edge;
+            let v_start = arena.half_edges[he_a.0].origin;
+            let v_end = arena.half_edges[arena.half_edges[he_a.0].twin.0].origin;
+            let p0 = arena.vertices[v_start.0].position;
+            let p1 = arena.vertices[v_end.0].position;
+            let dir = vec3_sub(p1, p0);
+            edge_geometry.insert(
+                EdgeIdx(idx),
+                CurveGeom::Linear(Line3D {
+                    origin: Point3::from_array(p0),
+                    direction: Vector3::from_array(dir),
+                }),
+            );
+        }
+
+        // Map all vertices
+        for (idx, _) in arena.vertices.iter().enumerate() {
+            let vid = self.alloc_id();
+            vertex_map.insert(vid, VertexIdx(idx));
+        }
+
+        self.solids.insert(
+            handle_id,
+            WaffleSolid {
+                arena,
+                face_map,
+                edge_map,
+                vertex_map,
+                face_geometry,
+                edge_geometry,
+            },
+        );
+
+        Ok(KernelSolidHandle(handle_id))
+    }
+
+    fn tessellate(
+        &mut self,
+        solid: &KernelSolidHandle,
+        _tolerance: f64,
+    ) -> Result<RenderMesh, KernelError> {
+        let ws = self
+            .solids
+            .get(&solid.id())
+            .ok_or(KernelError::EntityNotFound {
+                id: KernelId(solid.id()),
+            })?;
+
+        tessellation::tessellate_flat_faces(&ws.arena, &ws.face_map, &ws.face_geometry)
+    }
+
+    fn extract_edges(
+        &mut self,
+        solid: &KernelSolidHandle,
+        _tolerance: f64,
+    ) -> Result<EdgeRenderData, KernelError> {
+        let ws = self
+            .solids
+            .get(&solid.id())
+            .ok_or(KernelError::EntityNotFound {
+                id: KernelId(solid.id()),
+            })?;
+
+        tessellation::extract_edges(&ws.arena, &ws.edge_map)
     }
 
     fn revolve_face(
@@ -110,114 +531,285 @@ impl Kernel for WaffleKernel {
             operation: "shell".to_string(),
         })
     }
-
-    fn tessellate(
-        &mut self,
-        _solid: &KernelSolidHandle,
-        _tolerance: f64,
-    ) -> Result<RenderMesh, KernelError> {
-        Err(KernelError::NotSupported {
-            operation: "tessellate".to_string(),
-        })
-    }
-
-    fn extract_edges(
-        &mut self,
-        _solid: &KernelSolidHandle,
-        _tolerance: f64,
-    ) -> Result<EdgeRenderData, KernelError> {
-        Err(KernelError::NotSupported {
-            operation: "extract_edges".to_string(),
-        })
-    }
-
-    fn make_faces_from_profiles(
-        &mut self,
-        _profiles: &[ClosedProfile],
-        _plane_origin: [f64; 3],
-        _plane_normal: [f64; 3],
-        _plane_x_axis: [f64; 3],
-        _positions: &HashMap<u32, (f64, f64)>,
-    ) -> Result<Vec<KernelId>, KernelError> {
-        Err(KernelError::NotSupported {
-            operation: "make_faces_from_profiles".to_string(),
-        })
-    }
 }
 
+// ── KernelIntrospect ─────────────────────────────────────────────────────
+
 impl KernelIntrospect for WaffleKernel {
-    fn list_faces(&self, _solid: &KernelSolidHandle) -> Vec<KernelId> {
+    fn list_faces(&self, solid: &KernelSolidHandle) -> Vec<KernelId> {
+        self.solids
+            .get(&solid.id())
+            .map(|ws| ws.face_map.keys().map(|&k| KernelId(k)).collect())
+            .unwrap_or_default()
+    }
+
+    fn list_edges(&self, solid: &KernelSolidHandle) -> Vec<KernelId> {
+        self.solids
+            .get(&solid.id())
+            .map(|ws| ws.edge_map.keys().map(|&k| KernelId(k)).collect())
+            .unwrap_or_default()
+    }
+
+    fn list_vertices(&self, solid: &KernelSolidHandle) -> Vec<KernelId> {
+        self.solids
+            .get(&solid.id())
+            .map(|ws| ws.vertex_map.keys().map(|&k| KernelId(k)).collect())
+            .unwrap_or_default()
+    }
+
+    fn face_edges(&self, face: KernelId) -> Vec<KernelId> {
+        for ws in self.solids.values() {
+            if let Some(&face_idx) = ws.face_map.get(&face.0) {
+                return collect_face_edge_kids(ws, face_idx);
+            }
+        }
         vec![]
     }
 
-    fn list_edges(&self, _solid: &KernelSolidHandle) -> Vec<KernelId> {
+    fn edge_faces(&self, edge: KernelId) -> Vec<KernelId> {
+        for ws in self.solids.values() {
+            if let Some(&edge_idx) = ws.edge_map.get(&edge.0) {
+                return collect_edge_face_kids(ws, edge_idx);
+            }
+        }
         vec![]
     }
 
-    fn list_vertices(&self, _solid: &KernelSolidHandle) -> Vec<KernelId> {
-        vec![]
-    }
-
-    fn face_edges(&self, _face: KernelId) -> Vec<KernelId> {
-        vec![]
-    }
-
-    fn edge_faces(&self, _edge: KernelId) -> Vec<KernelId> {
-        vec![]
-    }
-
-    fn edge_vertices(&self, _edge: KernelId) -> (KernelId, KernelId) {
+    fn edge_vertices(&self, edge: KernelId) -> (KernelId, KernelId) {
+        for ws in self.solids.values() {
+            if let Some(&edge_idx) = ws.edge_map.get(&edge.0) {
+                let he_a = ws.arena.edges[edge_idx.0].half_edge;
+                let he_b = ws.arena.half_edges[he_a.0].twin;
+                let v0 = ws.arena.half_edges[he_a.0].origin;
+                let v1 = ws.arena.half_edges[he_b.0].origin;
+                let kid0 = reverse_lookup_vertex(ws, v0);
+                let kid1 = reverse_lookup_vertex(ws, v1);
+                return (kid0, kid1);
+            }
+        }
         (KernelId(0), KernelId(0))
     }
 
-    fn face_neighbors(&self, _face: KernelId) -> Vec<KernelId> {
+    fn face_neighbors(&self, face: KernelId) -> Vec<KernelId> {
+        for ws in self.solids.values() {
+            if let Some(&face_idx) = ws.face_map.get(&face.0) {
+                let edge_kids = collect_face_edge_kids(ws, face_idx);
+                let mut neighbors = Vec::new();
+                for ek in &edge_kids {
+                    let fk = self.edge_faces(*ek);
+                    for f in fk {
+                        if f != face && !neighbors.contains(&f) {
+                            neighbors.push(f);
+                        }
+                    }
+                }
+                return neighbors;
+            }
+        }
         vec![]
     }
 
-    fn compute_signature(&self, _entity: KernelId, _kind: TopoKind) -> TopoSignature {
+    fn compute_signature(&self, entity: KernelId, kind: TopoKind) -> TopoSignature {
+        for ws in self.solids.values() {
+            match kind {
+                TopoKind::Face => {
+                    if let Some(&face_idx) = ws.face_map.get(&entity.0) {
+                        return compute_face_signature(ws, face_idx);
+                    }
+                }
+                TopoKind::Edge => {
+                    if let Some(&edge_idx) = ws.edge_map.get(&entity.0) {
+                        return compute_edge_signature(ws, edge_idx);
+                    }
+                }
+                TopoKind::Vertex => {
+                    if let Some(&vert_idx) = ws.vertex_map.get(&entity.0) {
+                        return compute_vertex_signature(ws, vert_idx);
+                    }
+                }
+                _ => {}
+            }
+        }
         TopoSignature::empty()
     }
 
     fn compute_all_signatures(
         &self,
-        _solid: &KernelSolidHandle,
-        _kind: TopoKind,
+        solid: &KernelSolidHandle,
+        kind: TopoKind,
     ) -> Vec<(KernelId, TopoSignature)> {
-        vec![]
+        let ws = match self.solids.get(&solid.id()) {
+            Some(ws) => ws,
+            None => return vec![],
+        };
+
+        match kind {
+            TopoKind::Face => ws
+                .face_map
+                .iter()
+                .map(|(&kid, &fidx)| (KernelId(kid), compute_face_signature(ws, fidx)))
+                .collect(),
+            TopoKind::Edge => ws
+                .edge_map
+                .iter()
+                .map(|(&kid, &eidx)| (KernelId(kid), compute_edge_signature(ws, eidx)))
+                .collect(),
+            TopoKind::Vertex => ws
+                .vertex_map
+                .iter()
+                .map(|(&kid, &vidx)| (KernelId(kid), compute_vertex_signature(ws, vidx)))
+                .collect(),
+            _ => vec![],
+        }
     }
 }
 
+// ── Introspect helpers ───────────────────────────────────────────────────
+
+/// Walk the outer loop of a face, collecting vertices.
+fn collect_face_vertices(arena: &TopoArena, face_idx: FaceIdx) -> Vec<[f64; 3]> {
+    let loop_idx = arena.faces[face_idx.0].outer_loop;
+    let start_he = arena.loops[loop_idx.0].half_edge;
+    let mut verts = Vec::new();
+    let mut he = start_he;
+    loop {
+        let v = arena.half_edges[he.0].origin;
+        verts.push(arena.vertices[v.0].position);
+        he = arena.half_edges[he.0].next;
+        if he == start_he {
+            break;
+        }
+    }
+    verts
+}
+
+/// Collect KernelId keys for edges around a face's outer loop.
+fn collect_face_edge_kids(ws: &WaffleSolid, face_idx: FaceIdx) -> Vec<KernelId> {
+    let loop_idx = ws.arena.faces[face_idx.0].outer_loop;
+    let start_he = ws.arena.loops[loop_idx.0].half_edge;
+    let mut edge_kids = Vec::new();
+    let mut he = start_he;
+    loop {
+        let edge_idx = ws.arena.half_edges[he.0].edge;
+        if let Some(kid) = reverse_lookup_edge_id(ws, edge_idx) {
+            if !edge_kids.contains(&KernelId(kid)) {
+                edge_kids.push(KernelId(kid));
+            }
+        }
+        he = ws.arena.half_edges[he.0].next;
+        if he == start_he {
+            break;
+        }
+    }
+    edge_kids
+}
+
+/// Collect KernelId keys for faces adjacent to an edge.
+fn collect_edge_face_kids(ws: &WaffleSolid, edge_idx: EdgeIdx) -> Vec<KernelId> {
+    let he_a = ws.arena.edges[edge_idx.0].half_edge;
+    let he_b = ws.arena.half_edges[he_a.0].twin;
+    let loop_a = ws.arena.half_edges[he_a.0].loop_;
+    let loop_b = ws.arena.half_edges[he_b.0].loop_;
+    let face_a = ws.arena.loops[loop_a.0].face;
+    let face_b = ws.arena.loops[loop_b.0].face;
+
+    let mut result = Vec::new();
+    if let Some(kid) = reverse_lookup_face_id(ws, face_a) {
+        result.push(KernelId(kid));
+    }
+    if face_b != face_a {
+        if let Some(kid) = reverse_lookup_face_id(ws, face_b) {
+            result.push(KernelId(kid));
+        }
+    }
+    result
+}
+
+fn reverse_lookup_edge_id(ws: &WaffleSolid, edge_idx: EdgeIdx) -> Option<u64> {
+    ws.edge_map
+        .iter()
+        .find(|(_, &v)| v == edge_idx)
+        .map(|(&k, _)| k)
+}
+
+fn reverse_lookup_face_id(ws: &WaffleSolid, face_idx: FaceIdx) -> Option<u64> {
+    ws.face_map
+        .iter()
+        .find(|(_, &v)| v == face_idx)
+        .map(|(&k, _)| k)
+}
+
+fn reverse_lookup_vertex(ws: &WaffleSolid, vert_idx: VertexIdx) -> KernelId {
+    ws.vertex_map
+        .iter()
+        .find(|(_, &v)| v == vert_idx)
+        .map(|(&k, _)| KernelId(k))
+        .unwrap_or(KernelId(0))
+}
+
+fn compute_face_signature(ws: &WaffleSolid, face_idx: FaceIdx) -> TopoSignature {
+    let verts = collect_face_vertices(&ws.arena, face_idx);
+    let area = polygon_area_3d(&verts);
+    let centroid = polygon_centroid(&verts);
+    let bbox = compute_bbox(&verts);
+
+    let normal = ws.face_geometry.get(&face_idx).map(|g| match g {
+        SurfaceGeom::Planar(p) => [p.normal.x, p.normal.y, p.normal.z],
+        SurfaceGeom::Cylindrical(_) => [0.0, 0.0, 0.0],
+    });
+
+    let surface_type = ws.face_geometry.get(&face_idx).map(|g| match g {
+        SurfaceGeom::Planar(_) => "planar".to_string(),
+        SurfaceGeom::Cylindrical(_) => "cylindrical".to_string(),
+    });
+
+    TopoSignature {
+        surface_type,
+        area: Some(area),
+        centroid: Some(centroid),
+        normal,
+        bbox: Some(bbox),
+        adjacency_hash: None,
+        length: None,
+    }
+}
+
+fn compute_edge_signature(ws: &WaffleSolid, edge_idx: EdgeIdx) -> TopoSignature {
+    let he_a = ws.arena.edges[edge_idx.0].half_edge;
+    let he_b = ws.arena.half_edges[he_a.0].twin;
+    let p0 = ws.arena.vertices[ws.arena.half_edges[he_a.0].origin.0].position;
+    let p1 = ws.arena.vertices[ws.arena.half_edges[he_b.0].origin.0].position;
+    let length = vec3_length(vec3_sub(p1, p0));
+    let centroid = vec3_scale(vec3_add(p0, p1), 0.5);
+    let bbox = compute_bbox(&[p0, p1]);
+
+    TopoSignature {
+        surface_type: None,
+        area: None,
+        centroid: Some(centroid),
+        normal: None,
+        bbox: Some(bbox),
+        adjacency_hash: None,
+        length: Some(length),
+    }
+}
+
+fn compute_vertex_signature(ws: &WaffleSolid, vert_idx: VertexIdx) -> TopoSignature {
+    let p = ws.arena.vertices[vert_idx.0].position;
+    TopoSignature {
+        surface_type: None,
+        area: None,
+        centroid: Some(p),
+        normal: None,
+        bbox: Some([p[0], p[1], p[2], p[0], p[1], p[2]]),
+        adjacency_hash: None,
+        length: None,
+    }
+}
+
+// ── Tests ────────────────────────────────────────────────────────────────
+
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn real_kernel_returns_not_supported() {
-        let mut k = WaffleKernel::new();
-        let handle = KernelSolidHandle(1);
-        let id = KernelId(1);
-
-        assert!(matches!(
-            k.extrude_face(id, [0.0, 0.0, 1.0], 1.0),
-            Err(KernelError::NotSupported { .. })
-        ));
-        assert!(matches!(
-            k.boolean_union(&handle, &handle),
-            Err(KernelError::NotSupported { .. })
-        ));
-        assert!(matches!(
-            k.tessellate(&handle, 0.1),
-            Err(KernelError::NotSupported { .. })
-        ));
-    }
-
-    #[test]
-    fn real_kernel_introspect_returns_empty() {
-        let k = WaffleKernel::new();
-        let handle = KernelSolidHandle(1);
-
-        assert!(k.list_faces(&handle).is_empty());
-        assert!(k.list_edges(&handle).is_empty());
-        assert!(k.list_vertices(&handle).is_empty());
-    }
+    include!("waffle_kernel_tests.rs");
 }
