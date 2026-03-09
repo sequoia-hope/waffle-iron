@@ -26,6 +26,15 @@
       "expectedOutcome": "should_pass",
       "tags": [],
       "created": "2026-03-02T03:01:51.647Z"
+    },
+    {
+      "id": "circle-cut-cut",
+      "name": "circle cut cut",
+      "filename": "circle-cut-cut.waffle",
+      "description": "Circle extrude then two circle cuts",
+      "expectedOutcome": "should_pass",
+      "tags": [],
+      "created": "2026-03-08T20:12:15.523Z"
     }
   ]
 }

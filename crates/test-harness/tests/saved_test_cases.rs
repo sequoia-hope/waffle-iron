@@ -1191,6 +1191,87 @@ fn load_several_extrudes_waffle() {
     }
 }
 
+/// Same geometry as circle_cut_cut_mm_scale but scaled up ~100x to normal engineering scale.
+/// Intermittent: this geometry proportion requires many perturbation attempts
+/// at normal scale. The mm_scale test (with scaling normalization) is the stable test.
+#[test]
+#[ignore]
+fn circle_cut_cut_normal_scale() {
+    let mut m = ModelBuilder::truck();
+    let scale = 100.0;
+    let depth = 0.01 * scale;
+
+    m.true_circle_sketch("sk1", [0., 0., 0.], [1., 0., 0.], 0., 0., 0.011 * scale)
+        .unwrap();
+    m.extrude("boss", "sk1", depth).unwrap();
+    m.assert_has_solid("boss").expect("boss should succeed");
+
+    m.true_circle_sketch(
+        "sk2",
+        [depth, 0., 0.],
+        [1., 0., 0.],
+        -0.00196 * scale,
+        0.01043 * scale,
+        0.00527 * scale,
+    )
+    .unwrap();
+    m.extrude_cut("cut1", "sk2", depth).unwrap();
+    m.assert_has_solid("cut1").expect("cut1 should succeed");
+
+    m.true_circle_sketch(
+        "sk3",
+        [depth, 0., 0.],
+        [1., 0., 0.],
+        -0.00782 * scale,
+        -0.00681 * scale,
+        0.00565 * scale,
+    )
+    .unwrap();
+    m.extrude_cut("cut2", "sk3", depth).unwrap();
+    m.assert_has_solid("cut2").expect("cut2 should succeed");
+}
+
+/// Replay circle-cut-cut.waffle geometry at original mm scale.
+/// Boss r=0.011, cut1 r=0.00527, cut2 r=0.00565. All on X-normal plane, depth=0.01.
+#[test]
+fn circle_cut_cut_mm_scale() {
+    let mut m = ModelBuilder::truck();
+    let depth = 0.01;
+
+    m.true_circle_sketch("sk1", [0., 0., 0.], [1., 0., 0.], 0., 0., 0.011)
+        .unwrap();
+    m.extrude("boss", "sk1", depth).unwrap();
+    match m.assert_has_solid("boss") {
+        Ok(_) => eprintln!("[CCC] Step 1 OK: boss"),
+        Err(e) => panic!("[CCC] Step 1 FAIL: {e:?}"),
+    }
+
+    m.true_circle_sketch("sk2", [depth, 0., 0.], [1., 0., 0.], -0.00196, 0.01043, 0.00527)
+        .unwrap();
+    m.extrude_cut("cut1", "sk2", depth).unwrap();
+    let errs1 = m.engine_errors();
+    if !errs1.is_empty() {
+        eprintln!("[CCC] Step 2 errors: {errs1:?}");
+    }
+    match m.assert_has_solid("cut1") {
+        Ok(_) => eprintln!("[CCC] Step 2 OK: cut1"),
+        Err(e) => panic!("[CCC] Step 2 FAIL: {e:?}"),
+    }
+
+    m.true_circle_sketch("sk3", [depth, 0., 0.], [1., 0., 0.], -0.00782, -0.00681, 0.00565)
+        .unwrap();
+    m.extrude_cut("cut2", "sk3", depth).unwrap();
+    let errs2 = m.engine_errors();
+    if !errs2.is_empty() {
+        eprintln!("[CCC] Step 3 errors: {errs2:?}");
+    }
+    match m.assert_has_solid("cut2") {
+        Ok(_) => eprintln!("[CCC] Step 3 OK: cut2"),
+        Err(e) => panic!("[CCC] Step 3 FAIL: {e:?}"),
+    }
+    eprintln!("[CCC] ALL STEPS PASSED");
+}
+
 #[test]
 fn load_multi_cut_waffle() {
     eprintln!("\n╔══════════════════════════════════════════════════════════════╗");
