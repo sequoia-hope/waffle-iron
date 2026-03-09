@@ -53,9 +53,8 @@ proptest! {
         let mut volumes: Vec<f64> = Vec::new();
 
         for _ in 0..3 {
-            // Reset ID counter so each run allocates identical SequentialIDs.
-            // Safe because the previous run's entities are dropped before reset.
-            truck_base::reset_id_sequence();
+            // (truck_base::reset_id_sequence was here for truck's FxHashMap
+            // determinism — no longer needed with clean-sheet kernel)
 
             match safe_execute_chain(&scenario) {
                 Ok(mut result) => {

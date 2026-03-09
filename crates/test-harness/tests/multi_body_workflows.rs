@@ -1,7 +1,7 @@
 //! Multi-body workflow tests.
 //!
 //! Tests for independent extrudes (no auto-merge), boolean combinations,
-//! suppress/undo interactions with multiple bodies, and TruckKernel variants.
+//! suppress/undo interactions with multiple bodies, and RealKernel variants.
 
 use test_harness::ModelBuilder;
 
@@ -119,12 +119,12 @@ fn test_undo_after_boolean_union_mock() {
     m.assert_has_solid("box2").unwrap();
 }
 
-// ── TruckKernel: two independent extrudes ────────────────────────────────
+// ── RealKernel: two independent extrudes ────────────────────────────────
 
-/// Two independent extrudes with TruckKernel — both should produce meshes.
+/// Two independent extrudes with RealKernel — both should produce meshes.
 #[test]
 fn test_two_independent_extrudes_truck() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     m.rect_sketch("sk1", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();

@@ -39,7 +39,7 @@ fn count_visible_bodies(m: &ModelBuilder) -> usize {
     body_count
 }
 
-fn assert_mesh_finite(mesh: &kernel_fork::types::RenderMesh, label: &str) {
+fn assert_mesh_finite(mesh: &kernel::types::RenderMesh, label: &str) {
     for (i, v) in mesh.vertices.iter().enumerate() {
         assert!(
             v.is_finite(),
@@ -66,7 +66,7 @@ fn assert_mesh_finite(mesh: &kernel_fork::types::RenderMesh, label: &str) {
 
 #[test]
 fn rb1_revolve_union_with_box() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Rectangular sketch on XZ plane, offset from Y axis to create torus-like solid.
     // Note: with normal=[0,0,1], sketch (u,v) maps to world (v, -u, 0),
@@ -105,7 +105,7 @@ fn rb1_revolve_union_with_box() {
 #[test]
 #[ignore = "Full-revolve torus subtract: divide_face panics (index out of bounds) and single attempt takes 18+ min. Likely IC marching gets stuck on torus surface parameterization."]
 fn rb2_revolve_subtract_from_box() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Create a 10x10x10 box at origin
     m.rect_sketch("sk_box", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
@@ -153,7 +153,7 @@ fn rb2_revolve_subtract_from_box() {
 
 #[test]
 fn rb3_partial_revolve_90_union() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Rect sketch on XZ plane, offset from Y axis.
     // Note: with normal=[0,0,1], sketch (u,v) maps to world (v, -u, 0),
@@ -184,7 +184,7 @@ fn rb3_partial_revolve_90_union() {
 
 #[test]
 fn rb4_partial_revolve_180_subtract() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Create a 15x15x15 box at origin
     m.rect_sketch("sk_box", [0., 0., 0.], [0., 0., 1.], 0., 0., 15., 15.)
@@ -220,7 +220,7 @@ fn rb4_partial_revolve_180_subtract() {
 #[test]
 #[ignore = "Cylinder-torus IC: no analytical SSI for cylinder-torus surface pairs. Separate from torus-plane issues in RB1/RB2/RB6/RB8."]
 fn rb5_revolve_then_extrude_cut() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Create a circle sketch on XZ plane (center at (5, 0), radius 1) for torus
     m.circle_sketch("sk_ring", [0., 0., 0.], [0., 0., 1.], 5., 0., 1.)
@@ -254,7 +254,7 @@ fn rb5_revolve_then_extrude_cut() {
 
 #[test]
 fn rb6_extrude_then_revolve_union() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Create 10x10x10 box at origin first
     m.rect_sketch("sk_box", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
@@ -290,7 +290,7 @@ fn rb6_extrude_then_revolve_union() {
 
 #[test]
 fn rb7_two_revolves_union() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // First torus: circle at (3, 0), radius 1, revolved around Y
     m.circle_sketch("sk_ring1", [0., 0., 0.], [0., 0., 1.], 3., 0., 1.)
@@ -327,7 +327,7 @@ fn rb7_two_revolves_union() {
 #[test]
 #[ignore = "Full-revolve torus-plane boolean: same root cause as RB1 — face fragment edge misalignment after division. Tests intersect op variant."]
 fn rb8_revolve_intersect_with_box() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Create a circle sketch on XZ plane (center at (5, 0), radius 2) for torus
     m.circle_sketch("sk_ring", [0., 0., 0.], [0., 0., 1.], 5., 0., 2.)

@@ -1,4 +1,4 @@
-use kernel_fork::RenderMesh;
+use kernel::RenderMesh;
 
 /// Convert a `RenderMesh` to binary STL format.
 ///

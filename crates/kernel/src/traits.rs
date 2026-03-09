@@ -2,7 +2,7 @@ use crate::types::*;
 use std::collections::HashMap;
 
 /// Core geometry kernel trait. Provides all shape construction and modification operations.
-/// Implemented by TruckKernel (wraps real truck) and MockKernel (deterministic test double).
+/// Implemented by RealKernel (clean-sheet kernel) and MockKernel (deterministic test double).
 pub trait Kernel {
     /// Extrude a planar face along a direction vector.
     fn extrude_face(

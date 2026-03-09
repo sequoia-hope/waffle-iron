@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-kernel-fork = { path = "../kernel-fork" }
+kernel = { path = "../kernel" }
 modeling-ops = { path = "../modeling-ops" }
 waffle-types = { path = "../waffle-types" }
 uuid = { version = "1", features = ["v4", "serde"] }

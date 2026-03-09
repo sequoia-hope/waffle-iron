@@ -10,7 +10,7 @@ The system has four layers:
 
 ### Kernel Layer (Rust, compiled to WASM)
 
-**truck fork** — BREP geometry, NURBS surfaces, boolean operations, tessellation. This is our fork of the [truck](https://github.com/ricosjp/truck) crate ecosystem. The kernel is being redesigned as a clean-sheet implementation informed by published research (see `REFERENCES.md` and `/docs/SYSTEM_DESIGN.md` for the research-annotated architecture). The target boolean architecture is hybrid B-Rep/mesh [Ref #24: Barton et al.], using exact adaptive predicates [Ref #4: Shewchuk], generalized winding numbers [Ref #7: Jacobson et al.], and topology-guaranteed SSI [Ref #25]. All truck types are wrapped behind the `Kernel` and `KernelIntrospect` traits — no truck types leak to other layers.
+**`crates/kernel/`** — Clean-sheet B-Rep geometry kernel informed by published research (see `REFERENCES.md` and `/docs/SYSTEM_DESIGN.md`). Half-edge topology with Euler operators [Ref #16: Mantyla, #33: Stroud Ch.4], analytic and NURBS geometry, hybrid B-Rep/mesh boolean pipeline [Ref #24: Barton et al.], exact adaptive predicates [Ref #4: Shewchuk], generalized winding numbers [Ref #7: Jacobson et al.], and topology-guaranteed SSI [Ref #25]. Exposes `Kernel` and `KernelIntrospect` traits — no kernel internals leak to other layers. Progress tracked via assay score (target: 400/400). The archived truck fork (`archive/truck/`) served as the previous kernel through Sprint 67.
 
 ### Engine Layer (Rust, compiled to WASM, runs in Web Worker)
 
@@ -91,8 +91,8 @@ User Input
 ┌─────────────────────────────────────────────────────────────┐
 │  KERNEL LAYER (WASM)                                        │
 │                                                             │
-│  kernel-fork (truck)                                        │
-│    ├── BREP construction (tsweep, rsweep)                   │
+│  kernel (clean-sheet)                                       │
+│    ├── Topology: Euler operators (half-edge B-Rep)          │
 │    ├── Boolean operations (union, subtract, intersect)      │
 │    ├── Topology introspection (faces, edges, vertices)      │
 │    ├── Tessellation → RenderMesh with face-range metadata   │
@@ -116,7 +116,7 @@ wasm-bridge → sketch-ui (update display, color by status)
 
 | # | Project | Purpose | Technology | Dependencies | Status |
 |---|---------|---------|------------|-------------|--------|
-| 01 | kernel-fork | BREP geometry via truck fork | Rust | None | Complete (M1-M11 + boolean sprints) |
+| 01 | kernel | Clean-sheet B-Rep geometry kernel | Rust | None | In progress (assay score 0/400) |
 | 02 | sketch-solver | 2D constraint solving via slvs | Rust + C (libslvs) | None | Complete (M1-M10 + Emscripten WASM) |
 | 03 | wasm-bridge | WASM↔JS communication protocol | Rust + JS | 01 | Complete (M1-M8) |
 | 04 | 3d-viewport | three.js rendering via Threlte | Svelte + JS | 01 | Complete |
@@ -130,7 +130,7 @@ wasm-bridge → sketch-ui (update display, color by status)
 ### Dependency Graph
 
 ```
-Phase 1 (parallel):  01-kernel-fork + 02-sketch-solver
+Phase 1 (parallel):  01-kernel + 02-sketch-solver
 Phase 2 (parallel):  03-wasm-bridge + 04-3d-viewport        (depend on 01)
 Phase 3:             05-sketch-ui                            (depends on 02, 03, 04)
 Phase 4 (parallel):  06-feature-engine + 07-modeling-ops     (depend on 01)
@@ -151,7 +151,7 @@ Same inputs must always produce the same results. This is critical for testing a
 
 ### Mock-Driven Development
 
-Every Rust crate can be tested against mock implementations of its dependencies. The `MockKernel` (which implements the `Kernel` and `KernelIntrospect` traits with deterministic synthetic topology) is as important as `TruckKernel`. Agents can develop and test feature-engine and modeling-ops without a working truck build.
+Every Rust crate can be tested against mock implementations of its dependencies. The `MockKernel` (which implements the `Kernel` and `KernelIntrospect` traits with deterministic synthetic topology) is as important as `RealKernel`. Agents can develop and test feature-engine and modeling-ops without a working kernel build.
 
 ### Session-Independent
 
@@ -165,45 +165,28 @@ The test suite only grows. Passing tests must never be deleted. If a test is wro
 
 All 3D rendering happens in JavaScript via three.js/Threlte on the main thread. Rust/WASM produces tessellated meshes with face-range metadata for picking. Rust does NOT render anything. This boundary is absolute.
 
-## Known Kernel Gaps
+## Current Kernel Status
 
-Limitations of the truck crate ecosystem. Items marked **(mitigated)** have Waffle Iron workarounds in place.
+The clean-sheet kernel (`crates/kernel/`) is under active development. Current assay score: **0/400**. All `Kernel` trait methods in `RealKernel` return `NotSupported`.
 
-### Boolean Performance (mitigated)
+### What exists:
+- Half-edge B-Rep topology data structure with arena-based storage
+- Euler operators (mvfs, mev, mef, kemr, kfmrh) with invariant validation
+- Analytic geometry stubs (Point3, Vector3, Plane, Cylinder, Cone, Sphere, Torus)
+- `MockKernel` (full deterministic test double, ~1,700 lines)
+- `RealKernel` (stub — all operations return `NotSupported`)
+- 400-case assay test suite with analytical ground truth
 
-Upstream truck booleans were extremely slow (cube-cylinder: 13-15s). Our fork has per-stage tolerance layering (`BooleanTolerance`), a deterministic perturbation cascade with healing, and analytical SSI for plane-cylinder/cone/sphere pairs. Simple booleans now complete in ~1s. Complex cases (torus intersections, chained booleans) remain slower than commercial kernels. Active improvement area — see `MARCH-ALGO-WORK.md`.
+### What's next (in priority order):
+1. Primitives (box, cylinder, sphere via Euler ops) + basic tessellation
+2. `make_faces_from_profiles` + `extrude_face`
+3. Single booleans (hybrid B-Rep/mesh pipeline)
+4. Chained booleans
+5. Edge cases + stress tests
 
-### Boolean Robustness (mitigated)
-
-Our fork adds `BooleanError` result types, robust geometric predicates (orient3d with SoS tiebreak), winding-number classification, pave block corner detection, and an 11-strategy healing cascade. ~80% of edge cases pass. Known remaining failures: torus-plane IC (360-degree revolve bodies), deeply chained multi-cut operations, cylinder-cylinder analytical SSI. See `specs/` for per-issue specs.
-
-### No Subtraction Primitive (mitigated)
-
-Upstream truck has no `difference()` — requires `solid.not()` + `and()`. kernel-fork wraps this into `Kernel::boolean_subtract()` so callers see a single API.
-
-### No Fillets or Chamfers
-
-truck provides no modeling-level fillet or chamfer operations. Experimental implementations exist in our modeling-ops crate but are **deferred indefinitely** pending boolean reliability.
-
-### Persistent Naming (mitigated)
-
-Upstream truck has no persistent topology IDs across operations. Waffle Iron's feature-engine implements the GeomRef system: semantic geometry references that survive rebuilds via topology introspection and role-based matching.
-
-### No Dedicated Primitives (mitigated)
-
-Upstream truck has no `box()` / `cylinder()` / `sphere()` functions — everything is built via successive sweeps. kernel-fork's `primitives.rs` provides construction helpers that wrap the sweep sequences.
-
-### Tessellation: Single Control Knob
-
-`MeshableShape::triangulation(tol)` provides chordal tolerance as the only parameter. No adaptive refinement, no LOD, no curvature-based density. Waffle Iron scales the tolerance based on model bounding box extent.
-
-### STEP I/O Limitations
-
-AP203 only. No AP214 (colors/layers) or AP242 (modern standard). Import is incomplete. Boolean results cannot be exported to STEP (the writer doesn't handle post-boolean solids).
-
-### Assembly Support Not Ready
-
-truck-assembly provides only positional grouping from STEP files. No constraint solving, no mates. Waffle Iron assemblies are deferred.
+### Deferred indefinitely:
+- Fillet, chamfer, shell operations
+- Assembly support
 
 ## Architectural Precedent: CADmium
 

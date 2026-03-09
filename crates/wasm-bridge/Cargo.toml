@@ -12,7 +12,7 @@ native-solver = ["sketch-solver"]
 
 [dependencies]
 feature-engine = { path = "../feature-engine" }
-kernel-fork = { path = "../kernel-fork" }
+kernel = { path = "../kernel" }
 modeling-ops = { path = "../modeling-ops" }
 sketch-solver = { path = "../sketch-solver", optional = true }
 file-format = { path = "../file-format" }

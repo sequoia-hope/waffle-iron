@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use kernel_fork::{KernelId, KernelIntrospect, KernelSolidHandle};
+use kernel::{KernelId, KernelIntrospect, KernelSolidHandle};
 use waffle_types::{TopoKind, TopoSignature};
 
 use crate::types::EntityRecord;

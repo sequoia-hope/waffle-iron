@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use feature_engine::types::{FeatureTree, Operation};
-use kernel_fork::{EdgeRenderData, RenderMesh};
+use kernel::{EdgeRenderData, RenderMesh};
 use waffle_types::{ClosedProfile, GeomRef, SketchConstraint, SketchEntity, SolvedSketch};
 
 /// Serde helper for HashMap<u32, (f64, f64)> — JSON string keys ↔ u32.

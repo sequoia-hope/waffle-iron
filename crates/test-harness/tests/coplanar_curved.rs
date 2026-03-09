@@ -1,4 +1,4 @@
-//! Coplanar curved-face boolean tests for TruckKernel.
+//! Coplanar curved-face boolean tests for RealKernel.
 //!
 //! Tests for boolean operations where circular/curved faces are coplanar
 //! (e.g., top caps of concentric cylinders at same height).
@@ -37,7 +37,7 @@ fn approx_cylinder_volume(r: f64, h: f64) -> f64 {
 }
 
 /// Assert all mesh vertices and normals are finite (no NaN/Inf).
-fn assert_mesh_finite(mesh: &kernel_fork::types::RenderMesh, label: &str) {
+fn assert_mesh_finite(mesh: &kernel::types::RenderMesh, label: &str) {
     for (i, v) in mesh.vertices.iter().enumerate() {
         assert!(
             v.is_finite(),
@@ -60,7 +60,7 @@ fn assert_mesh_finite(mesh: &kernel_fork::types::RenderMesh, label: &str) {
 
 /// Create a 10x10x10 base cube at origin on XY plane.
 fn base_cube() -> ModelBuilder {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("cube", "base_sk", 10.0).unwrap();
@@ -81,7 +81,7 @@ fn base_cube() -> ModelBuilder {
 /// Expected: tube with vol ≈ cyl(5,20) - cyl(2,20).
 #[test]
 fn cpe1_concentric_cylinders_subtract() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Outer cylinder r=5, h=20
     m.circle_sketch("outer_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.)
@@ -131,7 +131,7 @@ fn cpe1_concentric_cylinders_subtract() {
 /// Expected: tube with vol ≈ cyl(5,20) - cyl(1.5,20).
 #[test]
 fn cpe2_offset_cylinders_subtract() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Outer cylinder r=5, h=20
     m.circle_sketch("outer_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.)
@@ -184,7 +184,7 @@ fn cpe2_offset_cylinders_subtract() {
 /// Expected: tube with vol ≈ cyl(5,20) - cyl(2,20).
 #[test]
 fn cpc1_concentric_cylinder_cut_full_depth() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Outer cylinder r=5, h=20
     m.circle_sketch("outer_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.)
@@ -240,7 +240,7 @@ fn cpc1_concentric_cylinder_cut_full_depth() {
 /// is always outside the other solid for containment injection cases).
 #[test]
 fn cpc2_concentric_cylinder_cut_partial_depth() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Outer cylinder r=5, h=20
     m.circle_sketch("outer_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.)
@@ -292,7 +292,7 @@ fn cpc2_concentric_cylinder_cut_partial_depth() {
 /// Expected: tube with vol ≈ cyl(5,20) - cyl(1.5,20).
 #[test]
 fn cpc3_offset_cylinder_cut_full_depth() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Outer cylinder r=5, h=20
     m.circle_sketch("outer_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.)
@@ -341,7 +341,7 @@ fn cpc3_offset_cylinder_cut_full_depth() {
 /// Expected: vol ≈ cyl(5,20) - cyl(2,20), no engine errors.
 #[test]
 fn cpc4_concentric_cut_via_feature_engine() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Step 1: Extrude outer cylinder (auto-merge, becomes base body)
     m.circle_sketch("outer_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.)
@@ -492,7 +492,7 @@ fn cpb2_box_boss_deep_cut_through() {
 fn diag_face_bboxes_full_depth_subtract() {
     use test_harness::helpers::mesh_bounding_box;
 
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Outer cylinder r=5, h=20
     m.circle_sketch("outer_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.)
@@ -606,7 +606,7 @@ fn diag_face_bboxes_full_depth_subtract() {
 fn diag_true_nurbs_circle_extrude_cut_full_depth() {
     use test_harness::helpers::mesh_bounding_box;
 
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Step 1: True NURBS circle r=5, extrude up 20
     m.true_circle_sketch("outer_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.)
@@ -716,7 +716,7 @@ fn diag_true_nurbs_circle_extrude_cut_full_depth() {
 fn diag_true_nurbs_wasm_tolerance() {
     use test_harness::helpers::mesh_bounding_box;
 
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Outer cylinder r=5, h=20
     m.true_circle_sketch("outer_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.)
@@ -811,7 +811,7 @@ fn diag_reproduce_gui_failure() {
 
     let mut failures = Vec::new();
     for (outer_r, inner_r, height, label) in &configs {
-        let mut m = ModelBuilder::truck();
+        let mut m = ModelBuilder::kernel();
         m.true_circle_sketch("outer_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., *outer_r)
             .unwrap();
         m.extrude("cyl", "outer_sk", *height).unwrap();
@@ -857,7 +857,7 @@ fn diag_reproduce_gui_failure() {
 /// Expected: vol ≈ cyl(5,20) (outer contains inner).
 #[test]
 fn cpu1_concentric_cylinders_union() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Outer cylinder r=5, h=20
     m.circle_sketch("outer_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.)
@@ -910,7 +910,7 @@ fn cpu1_concentric_cylinders_union() {
 /// Expected: cyl(3,20) < vol < 2*cyl(3,20).
 #[test]
 fn cpu2_overlapping_cylinders_union() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Cylinder A: r=3, h=20, centered at origin
     m.circle_sketch("cyl_a_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 3.)
@@ -1110,7 +1110,7 @@ fn bnc4_box_true_nurbs_circle_cut_large_radius() {
 /// Expected: box with cylindrical hole, vol ≈ 10^3 - π*r²*10.
 #[test]
 fn bnc5_box_nurbs_circle_subtract_exact_coplanar() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Box 10x10x10 from z=0 to z=10
     m.rect_sketch("box_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
@@ -1149,7 +1149,7 @@ fn bnc5_box_nurbs_circle_subtract_exact_coplanar() {
 /// Expected: tube, vol ≈ π*(5²-2²)*10.
 #[test]
 fn bnc6_nurbs_cylinder_subtract_exact_coplanar() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Outer NURBS cylinder r=5, z=0 to z=10
     m.true_circle_sketch("outer_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.)
@@ -1189,7 +1189,7 @@ fn bnc6_nurbs_cylinder_subtract_exact_coplanar() {
 /// Expected: tube, vol ≈ π*(5²-2²)*20.
 #[test]
 fn bnc7_nurbs_cylinder_nurbs_cut_full_depth_feature_engine() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Step 1: NURBS circle r=5, extrude up 20
     m.true_circle_sketch("outer_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.)
@@ -1240,7 +1240,7 @@ fn bnc7_nurbs_cylinder_nurbs_cut_full_depth_feature_engine() {
 /// Expected: box with hole, vol ≈ 10^3 - π*r²*10.
 #[test]
 fn bnc8_box_nurbs_circle_cut_directed_no_eps() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Box 10x10x10
     m.rect_sketch("box_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
@@ -1286,7 +1286,7 @@ fn bnc8_box_nurbs_circle_cut_directed_no_eps() {
 /// Expected: has_solid, volume ≈ ring - notch (±20%), no errors.
 #[test]
 fn bnc9_ring_quadrant_cut_feature_engine() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Step 1: Outer cylinder r=5, h=10
     m.true_circle_sketch("outer_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.)
@@ -1331,7 +1331,7 @@ fn bnc9_ring_quadrant_cut_feature_engine() {
 /// Expected: has_solid, volume ≈ ring - notch (±20%).
 #[test]
 fn bnc10_ring_quadrant_cut_explicit_boolean() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Outer cylinder r=5, h=10
     m.true_circle_sketch("outer_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.)
@@ -1382,7 +1382,7 @@ fn bnc10_ring_quadrant_cut_explicit_boolean() {
 /// Expected: has_solid, volume, topology.
 #[test]
 fn bnc11_notch_straddling_inner_boundary() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Outer cylinder r=5, h=10
     m.true_circle_sketch("outer_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.)

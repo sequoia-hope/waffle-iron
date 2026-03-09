@@ -11,7 +11,7 @@ use test_harness::ModelBuilder;
 
 /// Build a boolean scenario using ModelBuilder and return (builder, mesh_a, mesh_b, mesh_result).
 fn execute_scenario(scenario: &BooleanScenario) -> Result<ModelBuilder, String> {
-    let mut builder = ModelBuilder::truck();
+    let mut builder = ModelBuilder::kernel();
 
     // Build body A
     match &scenario.body_a.profile {

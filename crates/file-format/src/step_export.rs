@@ -1,15 +1,15 @@
 use feature_engine::types::FeatureTree;
-use kernel_fork::TruckKernel;
+use kernel::{Kernel, RealKernel};
 use waffle_types::OutputKey;
 
 use crate::errors::ExportError;
 
 /// Export a feature tree to STEP AP203 format.
 ///
-/// Rebuilds the model from scratch using TruckKernel, then exports
+/// Rebuilds the model from scratch using RealKernel, then exports
 /// the final solid to a STEP string. Returns an error if the rebuild
 /// fails or produces no solid.
-pub fn export_step(tree: &FeatureTree, kb: &mut TruckKernel) -> Result<String, ExportError> {
+pub fn export_step(tree: &FeatureTree, kb: &mut RealKernel) -> Result<String, ExportError> {
     // Build an engine and rebuild
     let mut engine = feature_engine::Engine::new();
     engine.tree = tree.clone();
@@ -32,7 +32,7 @@ pub fn export_step(tree: &FeatureTree, kb: &mut TruckKernel) -> Result<String, E
         })
         .ok_or(ExportError::NoSolid)?;
 
-    // Export via TruckKernel
+    // Export via RealKernel
     let step_string = kb
         .export_step(&last_handle, "export.step")
         .map_err(|e| ExportError::StepExportFailed(format!("{}", e)))?;

@@ -1,6 +1,6 @@
 use feature_engine::types::*;
 use feature_engine::Engine;
-use kernel_fork::MockKernel;
+use kernel::MockKernel;
 use uuid::Uuid;
 use waffle_types::*;
 
@@ -2011,7 +2011,7 @@ fn boolean_intersect_at_engine_level() {
 
 #[test]
 fn extrude_depth_produces_proportional_bbox() {
-    use kernel_fork::KernelIntrospect;
+    use kernel::KernelIntrospect;
 
     let mut engine = Engine::new();
     let mut kernel = MockKernel::new();
@@ -2059,7 +2059,7 @@ fn extrude_depth_produces_proportional_bbox() {
 
 #[test]
 fn extrude_different_depths_produce_proportional_bboxes() {
-    use kernel_fork::KernelIntrospect;
+    use kernel::KernelIntrospect;
 
     let mut engine = Engine::new();
     let mut kernel = MockKernel::new();

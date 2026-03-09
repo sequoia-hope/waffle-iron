@@ -1,7 +1,7 @@
 use base64::Engine as _;
 use feature_engine::types::Operation;
 use file_format::ProjectMetadata;
-use kernel_fork::RenderMesh;
+use kernel::RenderMesh;
 use modeling_ops::KernelBundle;
 use waffle_types::OutputKey;
 
@@ -229,7 +229,7 @@ fn model_updated_response(state: &EngineState) -> EngineToUi {
 }
 
 /// Find the last active feature's solid handle by iterating features in reverse.
-fn find_last_solid_handle(state: &EngineState) -> Option<kernel_fork::KernelSolidHandle> {
+fn find_last_solid_handle(state: &EngineState) -> Option<kernel::KernelSolidHandle> {
     let tree = &state.engine.tree;
     let limit = tree.active_index.unwrap_or(tree.features.len());
     for feature in tree.features[..limit].iter().rev() {

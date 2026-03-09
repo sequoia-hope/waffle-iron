@@ -26,7 +26,7 @@ fn subtract_volume(
     ih: f64,
     id: f64,
 ) -> Option<f64> {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch(
         "outer_sk",
         [0., 0., 0.],
@@ -66,7 +66,7 @@ fn boss_union_volume(
     bh: f64,
     boss_h: f64,
 ) -> Option<f64> {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch(
         "base_sk",
         [0., 0., 0.],

@@ -5,8 +5,8 @@
 
 use std::collections::HashMap;
 
-use kernel_fork::types::RenderMesh;
-use kernel_fork::{KernelIntrospect, KernelSolidHandle};
+use kernel::types::RenderMesh;
+use kernel::{KernelIntrospect, KernelSolidHandle};
 use modeling_ops::types::OpResult;
 use waffle_types::Role;
 

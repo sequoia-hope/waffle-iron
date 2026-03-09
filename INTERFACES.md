@@ -23,7 +23,7 @@ use std::fmt;
 /// NEVER persisted. Valid only for the current kernel session.
 /// Obtained from kernel operations, passed back to kernel for queries/mutations.
 ///
-/// Producer: kernel-fork
+/// Producer: kernel
 /// Consumer: modeling-ops, feature-engine (runtime only)
 #[derive(Debug, Clone)]
 pub struct KernelSolidHandle(pub(crate) u64);
@@ -33,14 +33,14 @@ pub struct KernelSolidHandle(pub(crate) u64);
 /// Stable within a single kernel session but NOT across rebuilds or serialization.
 /// NEVER persisted — use GeomRef for persistent references.
 ///
-/// Producer: kernel-fork (via KernelIntrospect)
+/// Producer: kernel (via KernelIntrospect)
 /// Consumer: modeling-ops (for topology diffing), feature-engine (for resolution, runtime only)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct KernelId(pub u64);
 
 /// The kind of topological entity.
 ///
-/// Producer: kernel-fork
+/// Producer: kernel
 /// Consumer: all crates that work with topology
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type")]
@@ -195,7 +195,7 @@ pub enum Role {
 /// Used for signature-based matching when role-based resolution fails.
 /// All fields are optional — matching uses available fields with weighted scoring.
 ///
-/// Producer: kernel-fork (via KernelIntrospect::compute_signature)
+/// Producer: kernel (via KernelIntrospect::compute_signature)
 /// Consumer: feature-engine (for signature-based GeomRef resolution)
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TopoSignature {
@@ -871,7 +871,7 @@ pub enum EngineToUi {
 
 ## F) Render Mesh Types
 
-**Producer:** kernel-fork (tessellation)
+**Producer:** kernel (tessellation)
 **Consumer:** wasm-bridge (transfer), 3d-viewport (rendering), sketch-ui (picking)
 
 ```rust
@@ -879,7 +879,7 @@ pub enum EngineToUi {
 /// Vertex/normal/index data is transferred as TypedArray views into WASM memory
 /// for near-zero-copy performance.
 ///
-/// Producer: kernel-fork (tessellation)
+/// Producer: kernel (tessellation)
 /// Consumer: wasm-bridge → 3d-viewport (three.js rendering)
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RenderMesh {
@@ -898,7 +898,7 @@ pub struct RenderMesh {
 /// Maps a contiguous range of triangles to a logical face.
 /// face_ranges are sorted by start_index and non-overlapping.
 ///
-/// Producer: kernel-fork (during tessellation)
+/// Producer: kernel (during tessellation)
 /// Consumer: 3d-viewport (for picking), feature-engine (for selection)
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FaceRange {
@@ -913,7 +913,7 @@ pub struct FaceRange {
 /// Sharp edge data for rendering edge overlays in three.js.
 /// Displayed as line segments on top of the shaded mesh.
 ///
-/// Producer: kernel-fork (edge extraction)
+/// Producer: kernel (edge extraction)
 /// Consumer: wasm-bridge → 3d-viewport (three.js line rendering)
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct EdgeRenderData {
@@ -926,7 +926,7 @@ pub struct EdgeRenderData {
 
 /// Maps a contiguous range of edge line-segment vertices to a logical edge.
 ///
-/// Producer: kernel-fork
+/// Producer: kernel
 /// Consumer: 3d-viewport (for edge picking)
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct EdgeRange {
@@ -943,17 +943,17 @@ pub struct EdgeRange {
 
 ## G) Kernel Abstraction Traits
 
-**Implementor:** kernel-fork (TruckKernel, MockKernel)
+**Implementor:** kernel (RealKernel, MockKernel)
 **Consumer:** modeling-ops, feature-engine
 
 ```rust
 /// Core geometry kernel trait. Provides all shape construction and modification operations.
-/// Implemented by TruckKernel (wraps real truck) and MockKernel (deterministic test double).
+/// Implemented by RealKernel (clean-sheet kernel) and MockKernel (deterministic test double).
 ///
 /// All methods take &mut self because kernel operations mutate internal state.
 /// Methods return Result to handle kernel failures gracefully.
 ///
-/// Implementor: kernel-fork
+/// Implementor: kernel
 /// Consumer: modeling-ops
 pub trait Kernel {
     /// Extrude a planar face along a direction vector.
@@ -1042,7 +1042,7 @@ pub trait Kernel {
 
 /// Topology introspection trait. Provides read-only queries on kernel geometry.
 ///
-/// Implementor: kernel-fork
+/// Implementor: kernel
 /// Consumer: modeling-ops (for topology diffing and provenance), feature-engine (for GeomRef resolution)
 pub trait KernelIntrospect {
     /// List all faces of a solid.
@@ -1079,11 +1079,11 @@ pub trait KernelIntrospect {
 
 /// Errors from kernel operations.
 ///
-/// Producer: kernel-fork
+/// Producer: kernel
 /// Consumer: modeling-ops, feature-engine
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum KernelError {
-    /// Boolean operation failed (common with truck).
+    /// Boolean operation failed.
     #[error("boolean operation failed: {reason}")]
     BooleanFailed { reason: String },
 

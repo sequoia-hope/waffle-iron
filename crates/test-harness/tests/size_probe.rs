@@ -5,7 +5,7 @@ mod size_tests {
 
     #[test]
     fn three_sequential_3x3_cuts() {
-        let mut m = ModelBuilder::truck();
+        let mut m = ModelBuilder::kernel();
         m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
             .unwrap();
         m.extrude("cube", "base_sk", 10.0).unwrap();
@@ -34,7 +34,7 @@ mod size_tests {
 
     #[test]
     fn five_sequential_3x3_cuts() {
-        let mut m = ModelBuilder::truck();
+        let mut m = ModelBuilder::kernel();
         m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
             .unwrap();
         m.extrude("cube", "base_sk", 10.0).unwrap();
@@ -63,7 +63,7 @@ mod size_tests {
 
     #[test]
     fn boss_then_cut_3x3() {
-        let mut m = ModelBuilder::truck();
+        let mut m = ModelBuilder::kernel();
         m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
             .unwrap();
         m.extrude("cube", "base_sk", 10.0).unwrap();
@@ -92,7 +92,7 @@ mod size_tests {
 
     #[test]
     fn cut_then_boss_then_cut() {
-        let mut m = ModelBuilder::truck();
+        let mut m = ModelBuilder::kernel();
         m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
             .unwrap();
         m.extrude("cube", "base_sk", 10.0).unwrap();

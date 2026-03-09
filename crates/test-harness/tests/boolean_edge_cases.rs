@@ -1,4 +1,4 @@
-//! Boolean edge case and boundary tests for TruckKernel.
+//! Boolean edge case and boundary tests for RealKernel.
 //!
 //! These tests probe the boundary conditions of the boolean pipeline:
 //! disjoint solids, barely-touching geometry, barely-overlapping geometry,
@@ -17,7 +17,7 @@ use test_harness::ModelBuilder;
 /// Create a 10x10x10 base cube at origin on XY plane.
 /// Cube spans x∈[0,10], y∈[0,10], z∈[0,10].
 fn base_cube() -> ModelBuilder {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("cube", "base_sk", 10.0).unwrap();
@@ -26,7 +26,7 @@ fn base_cube() -> ModelBuilder {
 }
 
 /// Assert all mesh vertices and normals are finite (no NaN/Inf).
-fn assert_mesh_finite(mesh: &kernel_fork::types::RenderMesh, label: &str) {
+fn assert_mesh_finite(mesh: &kernel::types::RenderMesh, label: &str) {
     for (i, v) in mesh.vertices.iter().enumerate() {
         assert!(
             v.is_finite(),
@@ -57,7 +57,7 @@ fn assert_mesh_finite(mesh: &kernel_fork::types::RenderMesh, label: &str) {
 /// Currently booleans may struggle with disjoint inputs.
 #[test]
 fn de1_disjoint_boxes_union() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Box A: [0,5] x [0,5] x [0,5]
     m.rect_sketch("a_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5., 5.)
@@ -89,7 +89,7 @@ fn de1_disjoint_boxes_union() {
 /// is a single point, not a curve. The boolean must handle this gracefully.
 #[test]
 fn de2_barely_touching_boxes_union() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Box A: [0,5] x [0,5] x [0,5]
     m.rect_sketch("a_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5., 5.)
@@ -122,7 +122,7 @@ fn de2_barely_touching_boxes_union() {
 /// curves are close to degenerate.
 #[test]
 fn de3_barely_overlapping_boxes_union() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Box A: [0,10] x [0,10] x [0,10]
     m.rect_sketch("a_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
@@ -233,7 +233,7 @@ fn cs2_cylinder_on_cylinder_stacked() {
 /// This should work cleanly — no degenerate edges.
 #[test]
 fn et1_subtract_centered_box() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Outer: 20x20x20 box at origin
     m.rect_sketch("outer_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 20., 20.)
@@ -266,7 +266,7 @@ fn et1_subtract_centered_box() {
 /// Non-integer coordinates stress floating-point precision.
 #[test]
 fn et2_subtract_offset_box() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Base: 10x10x10
     m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
@@ -307,7 +307,7 @@ fn et2_subtract_offset_box() {
 /// should detect this and produce exact elliptic intersection curves.
 #[test]
 fn cc_int1_perpendicular_cylinder_bosses_union() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Cylinder A: along Z-axis at (5, 5), radius 2, height 15
     m.circle_sketch("cyl_a_sk", [0., 0., 0.], [0., 0., 1.], 5., 5., 2.)

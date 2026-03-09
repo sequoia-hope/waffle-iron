@@ -1,4 +1,4 @@
-//! Tests that replay the user-reported .waffle test cases through TruckKernel.
+//! Tests that replay the user-reported .waffle test cases through RealKernel.
 //!
 //! These tests recreate the feature sequences from:
 //!   - app/tests/cases/several-extrudes.waffle
@@ -124,7 +124,7 @@ fn several_extrudes_replay() {
     eprintln!("║  TEST CASE 1: several-extrudes.waffle                      ║");
     eprintln!("╚══════════════════════════════════════════════════════════════╝");
 
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // --- Step 1: Rect sketch at origin [0,0,0], normal [1,0,0], extrude depth=10 ---
     // From .waffle: rect corners in sketch 2D ~ (-15, -15) to (12, 10)
@@ -367,7 +367,7 @@ fn several_extrudes_simplified_abutting() {
     eprintln!("║  SIMPLIFIED: Abutting boxes on X axis                       ║");
     eprintln!("╚══════════════════════════════════════════════════════════════╝");
 
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Four abutting 10x20x20 boxes along X axis: [0,10], [10,20], [20,30], [30,40]
     // All sketches on YZ plane (normal [1,0,0])
@@ -461,7 +461,7 @@ fn several_extrudes_overlapping() {
     eprintln!("║  OVERLAPPING: Boxes that share volume, not just faces       ║");
     eprintln!("╚══════════════════════════════════════════════════════════════╝");
 
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Box 1: sketch at x=0, 20x20 rect, extrude 10 → x ∈ [0,10]
     m.rect_sketch("s1", [0., 0., 0.], [1., 0., 0.], -10., -10., 20., 20.)
@@ -542,7 +542,7 @@ fn multi_cut_replay() {
     eprintln!("║  TEST CASE 2: multi-cut.waffle                              ║");
     eprintln!("╚══════════════════════════════════════════════════════════════╝");
 
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // --- Step 1: Rect at origin [0,0,0], normal [1,0,0] ---
     // From .waffle: corners ~ (-17, -16) to (17, 17) in sketch 2D
@@ -651,7 +651,7 @@ fn multi_cut_simplified() {
     eprintln!("║  SIMPLIFIED: multi-cut with smaller geometry                ║");
     eprintln!("╚══════════════════════════════════════════════════════════════╝");
 
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Box: 10x10x10 at x=0..10 (sketch on YZ plane)
     m.rect_sketch("s1", [0., 0., 0.], [1., 0., 0.], -5., -5., 10., 10.)
@@ -702,7 +702,7 @@ fn multi_cut_simplified() {
 /// Bug detector: if the first body vanishes, bb_min.x >> 0.
 #[test]
 fn q1_multi_cut_preserves_first_body() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // e1: 10x10x10 box at x=[0,10]
     m.rect_sketch("sk1", [0., 0., 0.], [1., 0., 0.], -5., -5., 10., 10.)
@@ -795,7 +795,7 @@ fn q1_multi_cut_preserves_first_body() {
 /// The cut must affect the merged body, not just the cylinder.
 #[test]
 fn q2_multi_cut_box_cylinder_variant() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // e1: 10x10x10 box at x=[0,10]
     m.rect_sketch("sk1", [0., 0., 0.], [1., 0., 0.], -5., -5., 10., 10.)
@@ -867,7 +867,7 @@ fn q2_multi_cut_box_cylinder_variant() {
 /// Then a 4x4 rect cut from x=30, depth=30 (tool spans x=-0.1 to 30.1).
 #[test]
 fn q3_multi_cut_three_bodies_then_cut() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // e1: box at x=[0,10]
     m.rect_sketch("sk1", [0., 0., 0.], [1., 0., 0.], -5., -5., 10., 10.)
@@ -956,7 +956,7 @@ fn q3_multi_cut_three_bodies_then_cut() {
 /// This is the critical difference from Q1-Q3 which used origin-centered geometry.
 #[test]
 fn q4_multi_cut_waffle_geometry() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Step 1: ~34x33 rect at origin [0,0,0], normal [1,0,0], extrude depth=10
     // From .waffle: rect from (-17.25, -16.45) to (16.99, 16.50) in sketch 2D
@@ -1053,7 +1053,7 @@ fn q5_load_multi_cut_waffle_regression() {
     let json = std::fs::read_to_string("../../app/tests/cases/multi-cut.waffle")
         .expect("Failed to read multi-cut.waffle");
 
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.load(&json).expect("Failed to load multi-cut.waffle");
 
     let consumed = m.consumed_features();
@@ -1127,7 +1127,7 @@ fn load_several_extrudes_waffle() {
     let json = std::fs::read_to_string("../../app/tests/cases/several-extrudes.waffle")
         .expect("Failed to read several-extrudes.waffle");
 
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     match m.load(&json) {
         Ok(_) => {
             eprintln!("  Load succeeded!");
@@ -1197,7 +1197,7 @@ fn load_several_extrudes_waffle() {
 #[test]
 #[ignore]
 fn circle_cut_cut_normal_scale() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     let scale = 100.0;
     let depth = 0.01 * scale;
 
@@ -1235,7 +1235,7 @@ fn circle_cut_cut_normal_scale() {
 /// Boss r=0.011, cut1 r=0.00527, cut2 r=0.00565. All on X-normal plane, depth=0.01.
 #[test]
 fn circle_cut_cut_mm_scale() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     let depth = 0.01;
 
     m.true_circle_sketch("sk1", [0., 0., 0.], [1., 0., 0.], 0., 0., 0.011)
@@ -1281,7 +1281,7 @@ fn load_multi_cut_waffle() {
     let json = std::fs::read_to_string("../../app/tests/cases/multi-cut.waffle")
         .expect("Failed to read multi-cut.waffle");
 
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     match m.load(&json) {
         Ok(_) => {
             eprintln!("  Load succeeded!");

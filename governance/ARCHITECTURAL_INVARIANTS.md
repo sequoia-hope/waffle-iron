@@ -359,6 +359,28 @@ published work are considered technical debt.
 
 ---
 
+## A14. Units and Tolerance Policy
+
+### A14.1 All distances in meters
+
+The kernel's native unit for all geometric coordinates and distances is meters.
+All external inputs are assumed to be in meters unless explicitly converted.
+
+### A14.2 Feature size floor
+
+The kernel must support features down to 1 micrometer (1e-6 m). The model
+tolerance (TAU_MODEL = 1e-7 m) is one order of magnitude below this to prevent
+features from being lost to numerical rounding.
+
+### A14.3 Centralized tolerance constants
+
+No absolute tolerance constants may exist outside the kernel's `units.rs` module.
+All tolerances in the boolean pipeline, tessellation, and validation flow from
+`BooleanOptions` or the constants in `units.rs` (TAU_MODEL, TAU_WORK, MIN_FEATURE_SIZE).
+Ad-hoc epsilon values in other crates are forbidden.
+
+---
+
 ## A12. Change Control
 
 ### A12.1 Protected invariants

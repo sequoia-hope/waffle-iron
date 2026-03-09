@@ -3,8 +3,8 @@
 //! Every failure includes: expected vs actual, current feature tree summary,
 //! and any engine errors for maximum debuggability.
 
-use kernel_fork::types::RenderMesh;
-use kernel_fork::KernelSolidHandle;
+use kernel::types::RenderMesh;
+use kernel::KernelSolidHandle;
 use modeling_ops::types::OpResult;
 use modeling_ops::KernelBundle;
 use waffle_types::Role;

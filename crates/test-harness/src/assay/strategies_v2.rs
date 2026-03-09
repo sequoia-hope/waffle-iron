@@ -703,7 +703,7 @@ pub mod strats_v2 {
 pub fn execute_generative_extrude(
     scenario: &GenerativeExtrudeScenario,
 ) -> Result<ModelBuilder, String> {
-    let mut builder = ModelBuilder::truck();
+    let mut builder = ModelBuilder::kernel();
 
     // Build polygon profile
     let (entities, positions, profiles) = polygon_profile(&scenario.polygon.vertices);
@@ -887,7 +887,7 @@ pub fn execute_generative_profile(
         return Err("Profile has fewer than 3 vertices".to_string());
     }
 
-    let mut builder = ModelBuilder::truck();
+    let mut builder = ModelBuilder::kernel();
 
     // Build polygon profile from vertices
     let (entities, positions, profiles) = polygon_profile(&final_vertices);
@@ -1077,7 +1077,7 @@ fn check_step_volume_invariants(
 /// Partial chains are valid: if a step fails with a known kernel limitation,
 /// the completed steps are still returned for oracle checking.
 pub fn execute_chain(scenario: &GenerativeChainScenario) -> Result<ChainResult, String> {
-    let mut builder = ModelBuilder::truck();
+    let mut builder = ModelBuilder::kernel();
     let chain = &scenario.chain;
     let mut step_volumes = Vec::new();
     let mut vol_invariants = Vec::new();

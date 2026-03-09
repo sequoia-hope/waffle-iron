@@ -1,4 +1,4 @@
-//! TruckKernel scenario tests.
+//! RealKernel scenario tests.
 //!
 //! These test against real truck geometry. Some operations are known
 //! to fail or be unsupported — those tests are #[ignore]d.
@@ -9,7 +9,7 @@ use test_harness::ModelBuilder;
 
 #[test]
 fn test_truck_box_extrude() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box", "sk", 10.0).unwrap();
@@ -23,7 +23,7 @@ fn test_truck_box_extrude() {
 
 #[test]
 fn test_truck_revolve() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [5., 0., 0.], [0., 0., 1.], 5., 0., 5., 5.)
         .unwrap();
     m.revolve("rev", "sk", [0., 0., 0.], [0., 1., 0.], 360.0)
@@ -33,7 +33,7 @@ fn test_truck_revolve() {
 
 #[test]
 fn test_truck_tessellate_stl() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box", "sk", 10.0).unwrap();
@@ -47,7 +47,7 @@ fn test_truck_tessellate_stl() {
 
 #[test]
 fn test_truck_boolean_offset() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk1", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box1", "sk1", 10.0).unwrap();
@@ -63,7 +63,7 @@ fn test_truck_boolean_offset() {
 
 #[test]
 fn test_truck_boolean_coplanar() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk1", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box1", "sk1", 10.0).unwrap();
@@ -79,7 +79,7 @@ fn test_truck_boolean_coplanar() {
 
 #[test]
 fn test_truck_fillet() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box", "sk", 10.0).unwrap();
@@ -89,7 +89,7 @@ fn test_truck_fillet() {
 
 #[test]
 fn test_truck_chamfer() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box", "sk", 10.0).unwrap();
@@ -97,11 +97,11 @@ fn test_truck_chamfer() {
     m.assert_has_solid("cham").unwrap();
 }
 
-// ── Additional TruckKernel tests ────────────────────────────────────────────
+// ── Additional RealKernel tests ────────────────────────────────────────────
 
 #[test]
 fn test_truck_shell() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box", "sk", 10.0).unwrap();
@@ -111,7 +111,7 @@ fn test_truck_shell() {
 
 #[test]
 fn test_truck_boolean_subtract_offset() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk1", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box1", "sk1", 10.0).unwrap();
@@ -127,7 +127,7 @@ fn test_truck_boolean_subtract_offset() {
 
 #[test]
 fn test_truck_revolve_oracle() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [5., 0., 0.], [0., 0., 1.], 5., 0., 5., 5.)
         .unwrap();
     m.revolve("rev", "sk", [0., 0., 0.], [0., 1., 0.], 360.0)
@@ -163,7 +163,7 @@ fn test_truck_revolve_oracle() {
 
 #[test]
 fn test_truck_save_load_roundtrip() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box", "sk", 10.0).unwrap();
@@ -171,7 +171,7 @@ fn test_truck_save_load_roundtrip() {
 
     let json = m.save().unwrap();
 
-    let mut m2 = ModelBuilder::truck();
+    let mut m2 = ModelBuilder::kernel();
     m2.load(&json).unwrap();
     assert_eq!(m2.feature_count(), 2, "Loaded model should have 2 features");
     m2.assert_no_errors().unwrap();
@@ -179,7 +179,7 @@ fn test_truck_save_load_roundtrip() {
 
 #[test]
 fn test_truck_circle_extrude() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.circle_sketch("circle", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.)
         .unwrap();
     m.extrude("cyl", "circle", 10.0).unwrap();
@@ -195,7 +195,7 @@ fn test_truck_circle_extrude() {
 
 #[test]
 fn test_truck_circular_cut_through_cube() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Step 1: Create 10x10x10 base cube
     m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
@@ -293,7 +293,7 @@ fn test_truck_circular_cut_through_cube() {
 #[test]
 fn test_truck_extrude_through_all_cut() {
     // ThroughAll cut should punch a hole through the entire cube
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Base 10x10x10 cube
     m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
@@ -334,7 +334,7 @@ fn test_truck_extrude_through_all_cut() {
 #[test]
 fn test_truck_extrude_explicit_direction() {
     // Extrude in a non-normal direction
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude_directed("angled", "sk", 10.0, [1., 0., 1.], false)
@@ -361,7 +361,7 @@ fn test_truck_extrude_explicit_direction() {
 #[test]
 fn test_truck_extrude_symmetric() {
     // Symmetric extrude: equal depth in both directions from XY plane
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude_symmetric("sym", "sk", 20.0).unwrap();
@@ -402,7 +402,7 @@ fn test_truck_extrude_symmetric() {
 #[test]
 fn test_truck_extrude_bidirectional() {
     // Asymmetric bidirectional: 15 up, 5 down
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude_bidirectional("bidir", "sk", 15.0, 5.0).unwrap();
@@ -432,7 +432,7 @@ fn test_truck_extrude_bidirectional() {
 #[test]
 fn test_truck_cut_direction_selection() {
     // Cut with explicit direction vector pointing downward
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Base cube
     m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
@@ -454,7 +454,7 @@ fn test_truck_cut_direction_selection() {
 #[test]
 fn test_truck_extrude_through_all_no_target() {
     // ThroughAll without existing body: uses generous fallback depth
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude_through_all("ext", "sk", false).unwrap();
@@ -479,7 +479,7 @@ fn test_truck_extrude_through_all_no_target() {
 #[test]
 fn test_truck_extrude_symmetric_topology() {
     // Verify symmetric extrude produces valid manifold topology
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 5.], [0., 0., 1.], 0., 0., 8., 8.)
         .unwrap();
     m.extrude_symmetric("sym", "sk", 10.0).unwrap();
@@ -537,7 +537,7 @@ fn assert_extrude_mesh_checks(m: &mut ModelBuilder, name: &str) {
 
 #[test]
 fn test_truck_extrude_normals_default_direction() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box", "sk", 10.0).unwrap();
@@ -549,7 +549,7 @@ fn test_truck_extrude_normals_default_direction() {
 #[test]
 fn test_truck_extrude_normals_flipped_xy() {
     // XY sketch, extrude in -Z (flipped normal)
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude_directed("ext", "sk", 10.0, [0., 0., -1.], false)
@@ -562,7 +562,7 @@ fn test_truck_extrude_normals_flipped_xy() {
 #[test]
 fn test_truck_extrude_normals_flipped_xz() {
     // XZ sketch (normal = +Y), extrude in -Y
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 1., 0.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude_directed("ext", "sk", 10.0, [0., -1., 0.], false)
@@ -575,7 +575,7 @@ fn test_truck_extrude_normals_flipped_xz() {
 #[test]
 fn test_truck_extrude_normals_flipped_yz() {
     // YZ sketch (normal = +X), extrude in -X
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [1., 0., 0.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude_directed("ext", "sk", 10.0, [-1., 0., 0.], false)
@@ -588,7 +588,7 @@ fn test_truck_extrude_normals_flipped_yz() {
 #[test]
 fn test_truck_extrude_normals_angled() {
     // Non-axis-aligned direction
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude_directed("ext", "sk", 10.0, [-1., 0., -1.], false)
@@ -600,7 +600,7 @@ fn test_truck_extrude_normals_angled() {
 
 #[test]
 fn test_truck_extrude_normals_symmetric() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude_symmetric("ext", "sk", 20.0).unwrap();
@@ -611,7 +611,7 @@ fn test_truck_extrude_normals_symmetric() {
 
 #[test]
 fn test_truck_extrude_normals_bidirectional() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude_bidirectional("ext", "sk", 15.0, 5.0).unwrap();
@@ -623,12 +623,12 @@ fn test_truck_extrude_normals_bidirectional() {
 #[test]
 fn test_truck_extrude_signed_volume_both_dirs() {
     // Same sketch extruded in +Z and -Z should both yield positive signed volume
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk_up", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("ext_up", "sk_up", 10.0).unwrap();
 
-    let mut m2 = ModelBuilder::truck();
+    let mut m2 = ModelBuilder::kernel();
     m2.rect_sketch("sk_down", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m2.extrude_directed("ext_down", "sk_down", 10.0, [0., 0., -1.], false)
@@ -655,7 +655,7 @@ fn test_truck_extrude_signed_volume_both_dirs() {
 #[test]
 fn test_truck_extrude_normals_per_face_consistency() {
     // Per-face-range check: all triangles within each face have outward normals
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box", "sk", 10.0).unwrap();
@@ -685,7 +685,7 @@ fn test_truck_extrude_normals_flipped_cut() {
     // Cut extrude with explicit direction pointing into the solid.
     // When direction is opposite to sketch normal, the engine should
     // use it as-is (not reverse it) for the cut tool body.
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Base cube
     m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
@@ -760,7 +760,7 @@ fn test_truck_extrude_normals_flipped_cut() {
 #[test]
 fn test_truck_circle_flipped_xy_normals() {
     // Circle on XY plane, extrude in -Z (flipped)
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.circle_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.)
         .unwrap();
     m.extrude_directed("cyl", "sk", 10.0, [0., 0., -1.], false)
@@ -791,7 +791,7 @@ fn test_truck_circle_flipped_xy_normals() {
 #[test]
 fn test_truck_circle_flipped_xz_normals() {
     // Circle on XZ plane (normal = +Y), extrude in -Y (flipped)
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.circle_sketch("sk", [0., 0., 0.], [0., 1., 0.], 0., 0., 5.)
         .unwrap();
     m.extrude_directed("cyl", "sk", 10.0, [0., -1., 0.], false)
@@ -822,7 +822,7 @@ fn test_truck_circle_flipped_xz_normals() {
 #[test]
 fn test_truck_circle_flipped_yz_normals() {
     // Circle on YZ plane (normal = +X), extrude in -X (flipped)
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.circle_sketch("sk", [0., 0., 0.], [1., 0., 0.], 0., 0., 5.)
         .unwrap();
     m.extrude_directed("cyl", "sk", 10.0, [-1., 0., 0.], false)
@@ -853,12 +853,12 @@ fn test_truck_circle_flipped_yz_normals() {
 #[test]
 fn test_truck_circle_signed_volume_both_dirs() {
     // Same circle extruded +Z and -Z — both should have positive signed volume
-    let mut m_up = ModelBuilder::truck();
+    let mut m_up = ModelBuilder::kernel();
     m_up.circle_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.)
         .unwrap();
     m_up.extrude("cyl_up", "sk", 10.0).unwrap();
 
-    let mut m_down = ModelBuilder::truck();
+    let mut m_down = ModelBuilder::kernel();
     m_down
         .circle_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.)
         .unwrap();
@@ -905,7 +905,7 @@ fn test_truck_flipped_extrude_strict_outward() {
     ];
 
     for (name, normal, flipped_dir) in &configs {
-        let mut m = ModelBuilder::truck();
+        let mut m = ModelBuilder::kernel();
         let sk_name = format!("{}_sk", name);
         m.rect_sketch(&sk_name, [0., 0., 0.], *normal, 0., 0., 10., 10.)
             .unwrap();
@@ -939,7 +939,7 @@ fn test_truck_flipped_extrude_strict_outward() {
     ];
 
     for (name, normal, flipped_dir) in &circle_configs {
-        let mut m = ModelBuilder::truck();
+        let mut m = ModelBuilder::kernel();
         let sk_name = format!("{}_sk", name);
         m.circle_sketch(&sk_name, [0., 0., 0.], *normal, 0., 0., 5.)
             .unwrap();
@@ -971,7 +971,7 @@ fn test_truck_flipped_extrude_strict_outward() {
 
 #[test]
 fn test_truck_chamfer_topology() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box", "sk", 10.0).unwrap();
@@ -1022,7 +1022,7 @@ fn test_truck_chamfer_topology() {
 
 #[test]
 fn test_truck_shell_topology() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box", "sk", 10.0).unwrap();
@@ -1065,7 +1065,7 @@ fn test_truck_shell_topology() {
 /// This is the most common CAD cut scenario (pocket).
 #[test]
 fn test_truck_rect_cut_inside_box() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Base 10x10x10 cube
     m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)

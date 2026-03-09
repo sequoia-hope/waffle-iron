@@ -21,7 +21,7 @@ use test_harness::ModelBuilder;
 fn gear_cylinder_cut() -> (ModelBuilder, std::time::Duration) {
     let total_start = Instant::now();
 
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // 1. Create gear sketch on XY plane
     let (gear_entities, gear_positions, gear_profiles) = gear_profile(20, 2.0, 20.0);
@@ -196,7 +196,7 @@ fn slow_gear_waffle_file_load() {
 
     let total_start = Instant::now();
 
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.load(&json).expect("Failed to load slow-gear.waffle");
 
     let load_elapsed = total_start.elapsed();

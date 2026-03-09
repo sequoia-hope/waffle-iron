@@ -16,7 +16,7 @@ When rules conflict, the following precedence applies (highest first):
 
 **Fillet, chamfer, and shell operations are DEFERRED INDEFINITELY. Do NOT work on them.**
 
-Experimental TruckKernel implementations exist (Sprint 18) and MockKernel tests pass, but these operations depend on boolean reliability which is itself fragile. UI dialogs display warning banners with disabled Apply buttons.
+Experimental implementations exist (Sprint 18) and MockKernel tests pass, but these operations depend on boolean reliability which is itself under development. UI dialogs display warning banners with disabled Apply buttons.
 
 **Never suggest fillet, chamfer, or shell as "next steps" or "what to work on."** If a session plan includes fillet/chamfer/shell work, skip it and choose a different task.
 
@@ -24,7 +24,7 @@ Experimental TruckKernel implementations exist (Sprint 18) and MockKernel tests 
 
 When asked "what should I work on?", choose from these areas:
 
-1. **Boolean shapeops reliability** — Improve truck boolean robustness in `vendor/truck/`. Fix box-cylinder, coplanar, and chained operation failures.
+1. **Kernel implementation** — Build the clean-sheet kernel in `crates/kernel/`. Track progress via assay score (target: 400/400).
 2. **GUI test coverage** — Expand Playwright tests in `app/tests/gui/`. Cover all drawing modes, feature dialogs, and viewport interactions with both click-click and click-drag.
 3. **Cross-crate integration tests** — Expand `crates/test-harness/` with multi-operation scenarios: sketch → extrude → boolean → tessellation → verify.
 4. **Extrude/revolve pipeline polish** — Improve reliability and UX of the working feature creation operations.
@@ -76,7 +76,7 @@ See `docs/TESTING.md` for tier definitions and how to add tests.
 ## Test Philosophy
 
 - **Every public function gets a test.**
-- **Mock dependencies.** Use MockKernel, not TruckKernel, for unit tests.
+- **Mock dependencies.** Use MockKernel, not RealKernel, for unit tests.
 - **Tests must be deterministic.** No random values, no system time, no filesystem side effects.
 - **Tests are permanent.** Never delete a passing test. Fix it if it's wrong.
 - **Property-based tests** where applicable: Euler's formula (V-E+F=2), watertightness, manifoldness.
@@ -86,7 +86,7 @@ See `docs/TESTING.md` for tier definitions and how to add tests.
 - **Rust crates produce data** (meshes, entity lists, solve results). They do NOT render.
 - **Rendering happens in Svelte/three.js.** The `three.js` boundary is absolute.
 - **WASM ↔ JS communication** goes through wasm-bridge only. No direct WASM imports in UI components.
-- **Kernel types don't leak.** Use the Kernel/KernelIntrospect traits. Never expose truck types to other crates.
+- **Kernel types don't leak.** Use the Kernel/KernelIntrospect traits. Never expose kernel internals to other crates.
 
 ## GUI Test Rules
 
@@ -104,7 +104,7 @@ See `docs/TESTING.md` for tier definitions and how to add tests.
   sketch code.** It's the canary — if it fails, drawing is broken.
 - **WASM crash detection**: Use `collectCrashErrors(page)` + `expectNoAnyCrash()` from helpers/state.js.
   NEVER use `getState().engineReady` as a crash oracle — it is not reliably reset on crash.
-  With panic=unwind enabled (nightly + -Zbuild-std), catch_unwind catches truck panics gracefully.
+  With panic=unwind enabled (nightly + -Zbuild-std), catch_unwind catches kernel panics gracefully.
   Use `expectNoAnyCrash` (strict, zero crashes) for new tests.
 
 ## WASM Rebuild Workflow
@@ -139,7 +139,7 @@ Each sub-project under `projects/` contains:
 ## Dependency Graph
 
 ```
-Phase 1 (parallel):  01-kernel-fork + 02-sketch-solver
+Phase 1 (parallel):  01-kernel + 02-sketch-solver
 Phase 2 (parallel):  03-wasm-bridge + 04-3d-viewport
 Phase 3:             05-sketch-ui
 Phase 4 (parallel):  06-feature-engine + 07-modeling-ops

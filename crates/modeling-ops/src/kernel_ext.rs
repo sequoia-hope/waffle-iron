@@ -1,4 +1,4 @@
-use kernel_fork::{Kernel, KernelIntrospect};
+use kernel::{Kernel, KernelIntrospect};
 
 /// Combined trait for operations that need both mutable Kernel access
 /// and read-only KernelIntrospect access on the same object.

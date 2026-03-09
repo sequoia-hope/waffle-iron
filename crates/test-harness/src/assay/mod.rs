@@ -13,11 +13,14 @@
 //! - Level 4: Degeneracy families (coplanar, coincident, tangential)
 //! - Level 5: Chains (2-5 sequential operations)
 
+pub mod catalog;
 pub mod corpus;
 pub mod coverage;
 pub mod determinism;
 pub mod properties;
 pub mod properties_v2;
 pub mod regions;
+pub mod runner;
+pub mod scoring;
 pub mod strategies;
 pub mod strategies_v2;

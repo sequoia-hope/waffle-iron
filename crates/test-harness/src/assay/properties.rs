@@ -6,7 +6,7 @@
 use crate::helpers::{mesh_bounding_box, mesh_volume};
 use crate::oracle::{self, OracleVerdict};
 use crate::workflow::ModelBuilder;
-use kernel_fork::types::RenderMesh;
+use kernel::types::RenderMesh;
 
 use super::strategies::BoolOp;
 

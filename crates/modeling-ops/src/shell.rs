@@ -1,4 +1,4 @@
-use kernel_fork::{KernelId, KernelSolidHandle};
+use kernel::{KernelId, KernelSolidHandle};
 use waffle_types::{OutputKey, Role, TopoKind};
 
 use crate::diff::{self, TopoSnapshot};
@@ -56,7 +56,7 @@ pub fn execute_shell(
 /// Assign roles to faces of a shelled solid.
 /// Inner (offset) faces get ShellInnerFace role.
 fn assign_shell_roles(
-    introspect: &dyn kernel_fork::KernelIntrospect,
+    introspect: &dyn kernel::KernelIntrospect,
     solid: &KernelSolidHandle,
     before: &TopoSnapshot,
 ) -> Vec<(KernelId, Role)> {

@@ -1,4 +1,4 @@
-//! Boolean failure diagnostic tests for TruckKernel.
+//! Boolean failure diagnostic tests for RealKernel.
 //!
 //! These tests systematically probe the boundary conditions of truck 0.4's
 //! boolean operations. They document known failures and verify workarounds.
@@ -30,7 +30,7 @@ use test_harness::ModelBuilder;
 /// extruded 10 units in +Z. Due to the tangent frame computation, the
 /// actual 3D extent is approximately x∈[0,10], y∈[−10,0], z∈[0,10].
 fn base_cube() -> ModelBuilder {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("cube", "base_sk", 10.0).unwrap();
@@ -46,7 +46,7 @@ fn base_cube() -> ModelBuilder {
 /// The second extrude (offset from the first) automatically merges.
 #[test]
 fn rect_offset_extrudes_auto_union() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // First box: 10×10×10
     m.rect_sketch("sk1", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
@@ -238,7 +238,7 @@ fn boss_extrude_coplanar_auto_union() {
 /// faces are coplanar, the auto-union succeeds directly.
 #[test]
 fn boss_extrude_offset_auto_union() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     m.rect_sketch("sk1", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
@@ -473,7 +473,7 @@ fn cut_reduces_volume() {
 /// An auto-union of an offset boss should increase the total volume.
 #[test]
 fn boss_auto_union_increases_volume() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     m.rect_sketch("sk1", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();

@@ -570,8 +570,8 @@ fn resolve_depth(
 /// Project all vertices of a solid onto a direction vector relative to an origin.
 /// Returns the maximum signed projection distance.
 fn compute_solid_extent(
-    introspect: &dyn kernel_fork::KernelIntrospect,
-    solid: &kernel_fork::KernelSolidHandle,
+    introspect: &dyn kernel::KernelIntrospect,
+    solid: &kernel::KernelSolidHandle,
     origin: [f64; 3],
     direction: [f64; 3],
 ) -> f64 {
@@ -659,7 +659,7 @@ fn resolve_reference_position(
 fn find_latest_solid_handle(
     feature: &Feature,
     feature_results: &HashMap<Uuid, OpResult>,
-) -> Result<kernel_fork::KernelSolidHandle, EngineError> {
+) -> Result<kernel::KernelSolidHandle, EngineError> {
     // Get the target feature from the first edge/face reference
     let first_ref = match &feature.operation {
         Operation::Fillet { params } => params.edges.first(),
@@ -739,7 +739,7 @@ fn find_most_recent_solid(
     current_feature: &Feature,
     feature_results: &HashMap<Uuid, OpResult>,
     tree: &FeatureTree,
-) -> Option<kernel_fork::KernelSolidHandle> {
+) -> Option<kernel::KernelSolidHandle> {
     let active = tree.active_features();
     // Walk backwards through features BEFORE the current one
     let current_idx = active
@@ -795,7 +795,7 @@ fn find_sketch_result(
 fn find_solid_handle(
     geom_ref: &waffle_types::GeomRef,
     feature_results: &HashMap<Uuid, OpResult>,
-) -> Result<kernel_fork::KernelSolidHandle, EngineError> {
+) -> Result<kernel::KernelSolidHandle, EngineError> {
     let (feature_id, output_key) = match &geom_ref.anchor {
         waffle_types::Anchor::FeatureOutput {
             feature_id,
@@ -1268,7 +1268,7 @@ mod tests {
         let results = HashMap::new();
         let result = execute_feature(
             &feature,
-            &mut kernel_fork::MockKernel::new(),
+            &mut kernel::MockKernel::new(),
             &results,
             &tree,
         );
@@ -1296,7 +1296,7 @@ mod tests {
         // Verify execution succeeds
         let result = execute_feature(
             &feature,
-            &mut kernel_fork::MockKernel::new(),
+            &mut kernel::MockKernel::new(),
             &results,
             &tree,
         );
@@ -1327,7 +1327,7 @@ mod tests {
         let results = HashMap::new();
         let result = execute_feature(
             &feature,
-            &mut kernel_fork::MockKernel::new(),
+            &mut kernel::MockKernel::new(),
             &results,
             &tree,
         );
@@ -1357,7 +1357,7 @@ mod tests {
         let results = HashMap::new();
         let result = execute_feature(
             &feature,
-            &mut kernel_fork::MockKernel::new(),
+            &mut kernel::MockKernel::new(),
             &results,
             &tree,
         );
@@ -1406,7 +1406,7 @@ mod tests {
         let mut results = HashMap::new();
         let r1 = execute_feature(
             &first_plane,
-            &mut kernel_fork::MockKernel::new(),
+            &mut kernel::MockKernel::new(),
             &results,
             &tree,
         )

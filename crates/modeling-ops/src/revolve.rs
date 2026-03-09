@@ -1,4 +1,4 @@
-use kernel_fork::{KernelId, KernelSolidHandle};
+use kernel::{KernelId, KernelSolidHandle};
 use waffle_types::{OutputKey, Role, TopoKind};
 
 use crate::diff::{self, TopoSnapshot};
@@ -52,7 +52,7 @@ pub fn execute_revolve(
 
 /// Assign semantic roles to faces of a revolved solid.
 fn assign_revolve_roles(
-    introspect: &dyn kernel_fork::KernelIntrospect,
+    introspect: &dyn kernel::KernelIntrospect,
     solid: &KernelSolidHandle,
     axis_direction: &[f64; 3],
     angle: f64,

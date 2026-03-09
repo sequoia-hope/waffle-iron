@@ -1,4 +1,4 @@
-use kernel_fork::{KernelId, KernelSolidHandle};
+use kernel::{KernelId, KernelSolidHandle};
 use waffle_types::{OutputKey, Role, TopoKind};
 
 use crate::diff::{self, TopoSnapshot};
@@ -55,7 +55,7 @@ pub fn execute_chamfer(
 /// Assign roles to faces of a chamfered solid.
 /// New faces created by chamfer get ChamferFace roles.
 fn assign_chamfer_roles(
-    introspect: &dyn kernel_fork::KernelIntrospect,
+    introspect: &dyn kernel::KernelIntrospect,
     solid: &KernelSolidHandle,
     before: &TopoSnapshot,
 ) -> Vec<(KernelId, Role)> {

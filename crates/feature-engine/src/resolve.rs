@@ -1,4 +1,4 @@
-use kernel_fork::KernelId;
+use kernel::KernelId;
 use modeling_ops::OpResult;
 use uuid::Uuid;
 use waffle_types::{
@@ -402,7 +402,7 @@ fn resolve_by_signature(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kernel_fork::KernelId;
+    use kernel::KernelId;
     use modeling_ops::{Diagnostics, EntityRecord, OpResult, Provenance};
     use waffle_types::{Filter, TieBreak, TopoKind, TopoQuery, TopoSignature};
 

@@ -6,8 +6,8 @@
 use std::collections::HashMap;
 
 use feature_engine::types::*;
-use kernel_fork::types::{KernelSolidHandle, RenderMesh};
-use kernel_fork::{MockKernel, TruckKernel};
+use kernel::types::{KernelSolidHandle, RenderMesh};
+use kernel::{MockKernel, RealKernel};
 use modeling_ops::types::OpResult;
 use modeling_ops::KernelBundle;
 use uuid::Uuid;
@@ -44,11 +44,11 @@ impl ModelBuilder {
         }
     }
 
-    /// Create a new ModelBuilder with TruckKernel (real geometry).
-    pub fn truck() -> Self {
+    /// Create a new ModelBuilder with RealKernel (real geometry).
+    pub fn kernel() -> Self {
         Self {
             state: EngineState::new(),
-            kernel: Box::new(TruckKernel::new()),
+            kernel: Box::new(RealKernel::new()),
             named_features: HashMap::new(),
             history: Vec::new(),
             auto_check: false,
@@ -1077,7 +1077,7 @@ impl ModelBuilder {
     pub fn face_signatures(
         &self,
         name: &str,
-    ) -> Result<Vec<(kernel_fork::KernelId, TopoSignature)>, HarnessError> {
+    ) -> Result<Vec<(kernel::KernelId, TopoSignature)>, HarnessError> {
         let handle = self.solid_handle(name)?;
         let introspect = self.kernel.as_introspect();
         Ok(introspect.compute_all_signatures(&handle, TopoKind::Face))
@@ -1122,7 +1122,7 @@ impl ModelBuilder {
     }
 
     /// Get a reference to the kernel bundle (for direct oracle calls).
-    pub fn kernel(&self) -> &dyn KernelBundle {
+    pub fn kernel_ref(&self) -> &dyn KernelBundle {
         self.kernel.as_ref()
     }
 

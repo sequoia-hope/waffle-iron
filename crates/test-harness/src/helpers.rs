@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use kernel_fork::types::RenderMesh;
+use kernel::types::RenderMesh;
 use uuid::Uuid;
 use waffle_types::Role;
 use waffle_types::*;

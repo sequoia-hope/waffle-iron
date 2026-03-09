@@ -1,7 +1,7 @@
-//! Comprehensive boolean workflow end-to-end tests for TruckKernel.
+//! Comprehensive boolean workflow end-to-end tests for RealKernel.
 //!
 //! These tests exercise the full feature engine pipeline (sketch → extrude → boolean)
-//! through `ModelBuilder::truck()`, covering boss union, cut operations, free-space
+//! through `ModelBuilder::kernel()`, covering boss union, cut operations, free-space
 //! cuts, partial overlaps, and adversarial edge cases.
 //!
 //! Categories:
@@ -18,18 +18,13 @@
 use test_harness::helpers::{mesh_bounding_box, mesh_volume};
 use test_harness::ModelBuilder;
 
-// Direct truck boolean imports for non-perturbation tests
-use kernel_fork::primitives::make_cylinder;
-use truck_modeling::builder;
-use truck_modeling::Vector3;
-
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /// Create a standard 10×10×10 base cube.
 ///
 /// Cube spans approximately x∈[−10,0], y∈[0,10], z∈[0,10].
 fn base_cube() -> ModelBuilder {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("cube", "base_sk", 10.0).unwrap();
@@ -340,7 +335,7 @@ fn c1_cut_directed_away_from_solid() {
 /// C2: Cut with no prior solid. extrude_cut should fail when there's nothing to cut from.
 #[test]
 fn c2_cut_in_free_space_no_target() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Only a sketch, no solid body yet
     m.circle_sketch("sk", [0., 0., 0.], [0., 0., 1.], 5., 5., 3.)
@@ -394,7 +389,7 @@ fn c3_cut_misses_solid_laterally() {
 /// D1: Two offset boxes with partial overlap, no coplanar faces. Standard boolean.
 #[test]
 fn d1_offset_boss_partial_overlap() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     m.rect_sketch("sk1", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
@@ -438,7 +433,7 @@ fn d1_offset_boss_partial_overlap() {
 }
 
 /// D2: Boss on boss (double coplanar). Chained boolean.
-/// Fixed via coplanar perturbation retry in TruckKernel::boolean_union.
+/// Fixed via coplanar perturbation retry in RealKernel::boolean_union.
 #[test]
 fn d2_symmetric_boss_on_boss_stack() {
     let mut m = base_cube();
@@ -469,7 +464,7 @@ fn d2_symmetric_boss_on_boss_stack() {
 /// D3: Partially overlapping coplanar rects. Fixed via coplanar bounding-box overlap + parity.
 #[test]
 fn d3_partially_overlapping_coplanar_rects() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     m.rect_sketch("sk1", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
@@ -488,7 +483,7 @@ fn d3_partially_overlapping_coplanar_rects() {
 /// D4: Two offset boxes with partial overlap (variant — different offsets).
 #[test]
 fn d4_partially_overlapping_offset_bosses() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     m.rect_sketch("sk1", [0., 0., 0.], [0., 0., 1.], 0., 0., 8., 8.)
         .unwrap();
@@ -687,7 +682,7 @@ fn e4_cut_depth_exactly_solid_height() {
 /// well-separated positions inside the cube.
 #[test]
 fn e5_multiple_non_overlapping_cuts() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
@@ -721,7 +716,7 @@ fn e5_multiple_non_overlapping_cuts() {
 /// E6: Two explicit boolean_subtracts. Chained boolean.
 #[test]
 fn e6_explicit_two_subtracts() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
@@ -888,10 +883,10 @@ fn f3_rect_subtract_volume() {
 }
 
 /// F4: Boolean intersect — tests the boolean_intersect() API path.
-/// No engine-level test exists for intersect with TruckKernel.
+/// No engine-level test exists for intersect with RealKernel.
 #[test]
 fn f4_boolean_intersect_workflow() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Box1: 10x10x10
     m.rect_sketch("sk1", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
@@ -998,7 +993,7 @@ fn f5_chained_extrude_cut_diagnostic() {
 /// through the extrude-with-merge path (merge=true, no eps applied).
 #[test]
 fn g1_rect_boss_coplanar_auto_union() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
@@ -1039,7 +1034,7 @@ fn g1_rect_boss_coplanar_auto_union() {
 // finalization vs `or_result_with_tol` finalization).
 #[test]
 fn g2_stacked_boxes_coplanar_face() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     m.rect_sketch("sk1", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
@@ -1095,7 +1090,7 @@ fn g3_full_face_rect_cut() {
 #[test]
 fn h1_union_commutativity() {
     // A | B
-    let mut m_ab = ModelBuilder::truck();
+    let mut m_ab = ModelBuilder::kernel();
     m_ab.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m_ab.extrude_no_merge("a", "sk_a", 10.0).unwrap();
@@ -1105,7 +1100,7 @@ fn h1_union_commutativity() {
     m_ab.boolean_union("ab", "a", "b").unwrap();
 
     // B | A
-    let mut m_ba = ModelBuilder::truck();
+    let mut m_ba = ModelBuilder::kernel();
     m_ba.rect_sketch("sk_b", [3., 3., 3.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m_ba.extrude_no_merge("b", "sk_b", 10.0).unwrap();
@@ -1141,7 +1136,7 @@ fn h1_union_commutativity() {
 #[test]
 fn h2_intersection_commutativity() {
     // A & B
-    let mut m_ab = ModelBuilder::truck();
+    let mut m_ab = ModelBuilder::kernel();
     m_ab.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m_ab.extrude_no_merge("a", "sk_a", 10.0).unwrap();
@@ -1151,7 +1146,7 @@ fn h2_intersection_commutativity() {
     m_ab.boolean_intersect("ab", "a", "b").unwrap();
 
     // B & A
-    let mut m_ba = ModelBuilder::truck();
+    let mut m_ba = ModelBuilder::kernel();
     m_ba.rect_sketch("sk_b", [3., 3., 3.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m_ba.extrude_no_merge("b", "sk_b", 10.0).unwrap();
@@ -1184,7 +1179,7 @@ fn h2_intersection_commutativity() {
 /// H3: Union idempotence — A|A volume ≈ A volume (within 5%).
 #[test]
 fn h3_union_idempotence() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude_no_merge("a", "sk_a", 10.0).unwrap();
@@ -1215,7 +1210,7 @@ fn h3_union_idempotence() {
 #[test]
 fn h4_difference_non_commutative() {
     // A \ B
-    let mut m_ab = ModelBuilder::truck();
+    let mut m_ab = ModelBuilder::kernel();
     m_ab.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m_ab.extrude_no_merge("a", "sk_a", 10.0).unwrap();
@@ -1225,7 +1220,7 @@ fn h4_difference_non_commutative() {
     m_ab.boolean_subtract("ab", "a", "b").unwrap();
 
     // B \ A
-    let mut m_ba = ModelBuilder::truck();
+    let mut m_ba = ModelBuilder::kernel();
     m_ba.rect_sketch("sk_b", [3., 3., 3.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m_ba.extrude_no_merge("b", "sk_b", 10.0).unwrap();
@@ -1266,7 +1261,7 @@ fn h4_difference_non_commutative() {
 /// With feature-aware tolerance, tol ≈ 0.02 and the operation succeeds.
 #[test]
 fn i1_polygon_cut_feature_aware_tolerance() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
@@ -1294,7 +1289,7 @@ fn i1_polygon_cut_feature_aware_tolerance() {
 fn i2_parametric_radius_sweep() {
     for r_int in 2..=6 {
         let r = r_int as f64 * 0.5;
-        let mut m = ModelBuilder::truck();
+        let mut m = ModelBuilder::kernel();
 
         m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
             .unwrap();
@@ -1329,7 +1324,7 @@ fn i2_parametric_radius_sweep() {
 /// Step 3: Circle cut — center (-11.17, -11.05), r=4.68, depth 10 (partial overlap)
 #[test]
 fn i1_circle_cut_cut_waffle() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Step 1: Circle boss
     let r1 = 11.6;
@@ -1416,118 +1411,14 @@ fn i1_circle_cut_cut_waffle() {
     eprintln!("[I1] ALL 3 STEPS PASSED");
 }
 
-/// I2: Direct truck boolean (no perturbation) for chained parallel-cylinder subtract.
-///
-/// Exercises the full I1 geometry (boss → cut1 → cut2) using direct
-/// `truck_shapeops::difference_result` calls, bypassing the perturbation
-/// cascade in healing.rs. The chained sequence is critical — the second
-/// subtract operates on the result of the first, which has more complex
-/// topology (non-trivial lateral faces from the first cut).
-///
-/// B27: Boss r=11.6, cut1 r=6.64 at (−0.226, 11.09), cut2 r=4.68 at (−11.17, −11.05).
-/// All along +Z axis, height=10.
-#[test]
-fn i3_parallel_cylinder_subtract_direct() {
-    let tol = 0.05;
-
-    // Boss cylinder: r=11.6, height=10, centered at origin, along +Z
-    let boss = make_cylinder(11.6, 10.0);
-
-    // Cut 1: r=6.64, offset at (-0.226, 11.09, 0)
-    let cut1_raw = make_cylinder(6.64, 10.0);
-    let cut1 = builder::translated(&cut1_raw, Vector3::new(-0.226, 11.09, 0.0));
-
-    // Step 1: boss - cut1
-    let result1 = truck_shapeops::difference_result(&boss, &cut1, tol);
-    assert!(
-        result1.is_ok(),
-        "[I3] Step 1 direct subtract should not panic: {:?}",
-        result1.err()
-    );
-    let solid1 = result1.unwrap();
-    let open1: usize = solid1
-        .boundaries()
-        .iter()
-        .map(|s| truck_shapeops::diagnose_open_edges(s).len())
-        .sum();
-    eprintln!(
-        "[I3] Step 1: {} shells, {} open edges",
-        solid1.boundaries().len(),
-        open1
-    );
-    assert_eq!(
-        open1, 0,
-        "[I3] Step 1 should have 0 open edges, got {}",
-        open1
-    );
-
-    // Cut 2: r=4.68, offset at (-11.17, -11.05, 0)
-    let cut2_raw = make_cylinder(4.68, 10.0);
-    let cut2 = builder::translated(&cut2_raw, Vector3::new(-11.17, -11.05, 0.0));
-
-    // Step 2: (boss - cut1) - cut2 — chained operation on complex topology
-    let result2 = truck_shapeops::difference_result(&solid1, &cut2, tol);
-    assert!(
-        result2.is_ok(),
-        "[I3] Step 2 direct subtract should not panic: {:?}",
-        result2.err()
-    );
-    let solid2 = result2.unwrap();
-    let open2: usize = solid2
-        .boundaries()
-        .iter()
-        .map(|s| truck_shapeops::diagnose_open_edges(s).len())
-        .sum();
-    eprintln!(
-        "[I3] Step 2: {} shells, {} open edges",
-        solid2.boundaries().len(),
-        open2
-    );
-    assert_eq!(
-        open2, 0,
-        "[I3] Step 2 should have 0 open edges, got {}",
-        open2
-    );
-
-    eprintln!("[I3] ALL STEPS PASSED — chained parallel-cylinder subtract works directly");
-}
-
-/// I3: Concentric parallel cylinders — cut fully inside boss.
-/// Boss r=10, cut r=3 at origin, both along +Z. Simple concentric through-hole.
-#[test]
-fn i4_concentric_cylinder_subtract_direct() {
-    let tol = 0.05;
-    let boss = make_cylinder(10.0, 10.0);
-    let cut = make_cylinder(3.0, 10.0);
-
-    let result = truck_shapeops::difference_result(&boss, &cut, tol);
-    assert!(
-        result.is_ok(),
-        "[I4] Concentric subtract failed: {:?}",
-        result.err()
-    );
-
-    let solid = result.unwrap();
-    let open: usize = solid
-        .boundaries()
-        .iter()
-        .map(|s| truck_shapeops::diagnose_open_edges(s).len())
-        .sum();
-    assert_eq!(open, 0, "[I4] Should have 0 open edges, got {}", open);
-    eprintln!(
-        "[I4] Concentric subtract: {} shells, 0 open edges",
-        solid.boundaries().len()
-    );
-}
-
-/// I4: Three sequential cylinder cuts (via feature engine with perturbation).
+/// I5: Three sequential cylinder cuts (via feature engine).
 ///
 /// Boss r=12, three cuts with different radii and offsets. Uses ModelBuilder
 /// (feature engine + perturbation cascade) since chained direct booleans
 /// on complex cylinder topology are beyond current truck reliability.
 #[test]
 fn i5_three_sequential_cylinder_cuts() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     let depth = 10.0;
 
     // Boss cylinder r=12
@@ -1584,150 +1475,4 @@ fn i5_three_sequential_cylinder_cuts() {
     eprintln!("[I4] All 3 cuts passed: vol {v0:.0} → {v1:.0} → {v2:.0} → {v3:.0}");
 }
 
-/// I7: Direct (no perturbation) chained parallel-cylinder subtract.
-///
-/// B28: Tests chained boolean (boss - cut1 - cut2) without perturbation cascade.
-/// Step 1 (single cut) passes with 0 open edges. Step 2 (chained cut on result
-/// of step 1) fails because BSplineSurface faces from step 1 can't be properly
-/// divided — `add_polygon_vertex_capturing` can't find IC endpoints on complex
-/// polygon boundaries. Requires major face division rework to fix.
-#[test]
-#[ignore = "B28: chained booleans without perturbation require face division rework"]
-fn i7_parallel_cylinder_subtract_no_perturbation() {
-    let tol = 0.05;
-
-    // Boss cylinder: r=11.6, height=10 (same proportions as I1/I3 but smaller doesn't matter)
-    let boss = make_cylinder(11.6, 10.0);
-
-    // Cut 1: r=6.64, offset at (-0.226, 11.09)
-    // Perpendicular axis distance = sqrt(0.226² + 11.09²) ≈ 11.09
-    // Since |r0-r1| = 4.96 < 11.09 < r0+r1 = 18.24, cylinders overlap radially
-    let cut1_raw = make_cylinder(6.64, 10.0);
-    let cut1 = builder::translated(&cut1_raw, Vector3::new(-0.226, 11.09, 0.0));
-
-    // Step 1: boss - cut1 (direct, no perturbation)
-    let result1 = truck_shapeops::difference_result(&boss, &cut1, tol);
-    assert!(
-        result1.is_ok(),
-        "[I7] Step 1 direct subtract failed: {:?}",
-        result1.err()
-    );
-    let solid1 = result1.unwrap();
-    let open1: usize = solid1
-        .boundaries()
-        .iter()
-        .map(|s| truck_shapeops::diagnose_open_edges(s).len())
-        .sum();
-    eprintln!(
-        "[I7] Step 1: {} shells, {} open edges",
-        solid1.boundaries().len(),
-        open1
-    );
-    assert_eq!(
-        open1, 0,
-        "[I7] Step 1 should have 0 open edges, got {}",
-        open1
-    );
-
-    // Step 2: chained cut (result1 - cut2)
-    let cut2_raw = make_cylinder(5.65, 10.0);
-    let cut2 = builder::translated(&cut2_raw, Vector3::new(-7.82, -6.81, 0.0));
-
-    let result2 = truck_shapeops::difference_result(&solid1, &cut2, tol);
-    assert!(
-        result2.is_ok(),
-        "[I7] Step 2 direct subtract failed: {:?}",
-        result2.err()
-    );
-    let solid2 = result2.unwrap();
-    let open2: usize = solid2
-        .boundaries()
-        .iter()
-        .map(|s| truck_shapeops::diagnose_open_edges(s).len())
-        .sum();
-    eprintln!(
-        "[I7] Step 2: {} shells, {} open edges",
-        solid2.boundaries().len(),
-        open2
-    );
-    assert_eq!(
-        open2, 0,
-        "[I7] Step 2 should have 0 open edges, got {}",
-        open2
-    );
-}
-
-/// I8: Multi-scale parallel-cylinder subtract — same topology at meter, mm, and micron.
-///
-/// B28: Verifies that single-cut boolean works at any scale by constructing
-/// geometry at a comfortable scale (the same base dimensions) and scaling
-/// the output. This proves the boolean pipeline produces consistent results
-/// regardless of user-specified dimensions, as long as the kernel applies
-/// scale normalization (which kernel-fork::run_boolean_op does).
-///
-/// The truck boolean pipeline uses absolute tolerances (TOLERANCE=1e-6) that
-/// assume geometry in the 1.0-100.0 range. Rather than scaling mm-scale NURBS
-/// (which can introduce precision artifacts), we construct at the reference
-/// scale and verify the boolean produces the same topology each time.
-#[test]
-fn i8_parallel_cylinder_multi_scale() {
-    let tol = 0.05;
-
-    // Reference dimensions (comfortable for truck's absolute tolerances)
-    let r_boss = 11.6;
-    let r_cut = 6.64;
-    let height = 10.0;
-    let offset_x = -0.226;
-    let offset_y = 11.09;
-
-    // Run the boolean 3 times at the SAME reference scale.
-    // This verifies determinism and that the topology is stable.
-    // The actual scale independence is provided by kernel-fork's
-    // compute_scale_normalization which scales geometry before calling truck.
-    let scales: &[&str] = &["run1", "run2", "run3"];
-    let mut face_counts: Vec<usize> = Vec::new();
-
-    for label in scales {
-        let boss = make_cylinder(r_boss, height);
-        let cut_raw = make_cylinder(r_cut, height);
-        let cut = builder::translated(&cut_raw, Vector3::new(offset_x, offset_y, 0.0));
-
-        // Reset ID sequence between runs for determinism (B20)
-        truck_base::reset_id_sequence();
-
-        let result = truck_shapeops::difference_result(&boss, &cut, tol);
-        assert!(
-            result.is_ok(),
-            "[I8] {label} subtract failed: {:?}",
-            result.err()
-        );
-        let solid = result.unwrap();
-        let open: usize = solid
-            .boundaries()
-            .iter()
-            .map(|s| truck_shapeops::diagnose_open_edges(s).len())
-            .sum();
-        let n_faces: usize = solid
-            .boundaries()
-            .iter()
-            .map(|s| s.face_iter().count())
-            .sum();
-
-        eprintln!("[I8] {label}: {} faces, {} open edges", n_faces, open);
-        assert_eq!(
-            open, 0,
-            "[I8] {label} should have 0 open edges, got {}",
-            open
-        );
-        face_counts.push(n_faces);
-    }
-
-    // All runs should produce the same face count
-    assert!(
-        face_counts.windows(2).all(|w| w[0] == w[1]),
-        "[I8] Face counts differ across runs: {:?}",
-        face_counts
-    );
-    eprintln!("[I8] All runs produced {} faces", face_counts[0]);
-}
 

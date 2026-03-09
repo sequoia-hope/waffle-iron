@@ -22,7 +22,7 @@ use waffle_types::{Anchor, GeomRef, OutputKey, ResolvePolicy, Role, Selector, To
 /// returns the same KernelId.
 #[test]
 fn gf1_role_and_signature_resolve_same_entity() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box", "sk", 10.0).unwrap();
@@ -38,7 +38,7 @@ fn gf1_role_and_signature_resolve_same_entity() {
     let role_resolved = resolve_geom_ref(&role_ref, &results).unwrap();
 
     // Get the signature of the resolved face from introspection
-    let introspect = m.kernel().as_introspect();
+    let introspect = m.kernel_ref().as_introspect();
     let sig = introspect.compute_signature(role_resolved.kernel_id, TopoKind::Face);
 
     // Resolve by Signature using the computed signature
@@ -70,7 +70,7 @@ fn gf1_role_and_signature_resolve_same_entity() {
 /// to returning any face of the same kind, with a warning.
 #[test]
 fn gf2_best_effort_falls_back_on_missing_role() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box", "sk", 10.0).unwrap();
@@ -112,7 +112,7 @@ fn gf2_best_effort_falls_back_on_missing_role() {
 /// a clear error message.
 #[test]
 fn gf3_strict_fails_on_missing_role() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box", "sk", 10.0).unwrap();
@@ -149,7 +149,7 @@ fn gf3_strict_fails_on_missing_role() {
 /// still resolve, and the boolean result should have its own provenance.
 #[test]
 fn gf4_role_resolution_after_boolean_union() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Box A
     m.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
@@ -201,7 +201,7 @@ fn gf4_role_resolution_after_boolean_union() {
 /// Signature selector should still find the closest match with BestEffort.
 #[test]
 fn gf5_signature_resolution_with_perturbed_values() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box", "sk", 10.0).unwrap();
@@ -215,7 +215,7 @@ fn gf5_signature_resolution_with_perturbed_values() {
     // Get the actual top face signature
     let role_ref = face_ref(feature_id, Role::EndCapPositive, 0);
     let role_resolved = resolve_geom_ref(&role_ref, &results).unwrap();
-    let introspect = m.kernel().as_introspect();
+    let introspect = m.kernel_ref().as_introspect();
     let mut sig = introspect.compute_signature(role_resolved.kernel_id, TopoKind::Face);
 
     // Perturb the centroid slightly (simulate geometry changes after edit)
@@ -251,7 +251,7 @@ fn gf5_signature_resolution_with_perturbed_values() {
 /// pointing in the requested direction.
 #[test]
 fn gf6_query_resolution_by_normal_direction() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box", "sk", 10.0).unwrap();
@@ -282,7 +282,7 @@ fn gf6_query_resolution_by_normal_direction() {
 /// to the last available match.
 #[test]
 fn gf7_best_effort_clamps_out_of_range_index() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box", "sk", 10.0).unwrap();
@@ -345,7 +345,7 @@ fn gf7_best_effort_clamps_out_of_range_index() {
 /// since load() remaps names from the feature tree (not ModelBuilder names).
 #[test]
 fn gf8_save_load_preserves_role_resolution() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box", "sk", 10.0).unwrap();
@@ -380,7 +380,7 @@ fn gf8_save_load_preserves_role_resolution() {
     let json = m.save().unwrap();
 
     // Load into fresh builder (triggers rebuild)
-    let mut m2 = ModelBuilder::truck();
+    let mut m2 = ModelBuilder::kernel();
     m2.load(&json).unwrap();
 
     assert_eq!(

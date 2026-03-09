@@ -249,7 +249,7 @@ fn test_undo_redo_preserves_topology() {
     let result = m.state.engine.get_result(redo_extrude_id);
     assert!(result.is_some(), "Redo'd extrude should have result");
     let handle = &result.unwrap().outputs[0].1.handle;
-    let introspect = m.kernel().as_introspect();
+    let introspect = m.kernel_ref().as_introspect();
     let v2 = introspect.list_vertices(handle).len();
     let e2 = introspect.list_edges(handle).len();
     let f2 = introspect.list_faces(handle).len();

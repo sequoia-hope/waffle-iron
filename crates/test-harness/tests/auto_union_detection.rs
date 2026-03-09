@@ -15,7 +15,7 @@
 //!   - Union SUCCESS: boss mesh = merged body (large volume, extended bbox, F > 6)
 //!   - Union FAILURE: boss mesh = standalone boss (small volume, small bbox, F = 6)
 //!
-//! All tests use `ModelBuilder::truck()` (real geometry) with `extrude()` which
+//! All tests use `ModelBuilder::kernel()` (real geometry) with `extrude()` which
 //! sets `merge: true`, the same path the GUI uses.
 
 use test_harness::helpers::{mesh_bounding_box, mesh_volume};
@@ -26,7 +26,7 @@ use test_harness::ModelBuilder;
 
 /// Create a 10×10×10 base cube on the XY plane.
 fn base_cube() -> ModelBuilder {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("cube", "base_sk", 10.0).unwrap();

@@ -1,4 +1,4 @@
-//! TruckKernel integration tests for revolve operations and cylinder geometry.
+//! RealKernel integration tests for revolve operations and cylinder geometry.
 //!
 //! Tests partial revolves, cylinder topology, revolve+boolean combinations,
 //! and save/load roundtrips with complex feature trees.
@@ -10,7 +10,7 @@ use test_harness::ModelBuilder;
 
 #[test]
 fn test_truck_partial_revolve_180() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     // Rectangle at x=5..10, y=0..5 on XY plane
     m.rect_sketch("sk", [5., 0., 0.], [0., 0., 1.], 5., 0., 5., 5.)
         .unwrap();
@@ -41,7 +41,7 @@ fn test_truck_partial_revolve_180() {
 
 #[test]
 fn test_truck_partial_revolve_90() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     // Rectangle at x=5..10, y=0..5 on XY plane
     m.rect_sketch("sk", [5., 0., 0.], [0., 0., 1.], 5., 0., 5., 5.)
         .unwrap();
@@ -72,7 +72,7 @@ fn test_truck_partial_revolve_90() {
 
 #[test]
 fn test_partial_revolve_90_roles() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [5., 0., 0.], [0., 0., 1.], 5., 0., 5., 5.)
         .unwrap();
     m.revolve("rev", "sk", [0., 0., 0.], [0., 1., 0.], 90.0)
@@ -97,7 +97,7 @@ fn test_partial_revolve_90_roles() {
 
 #[test]
 fn test_partial_revolve_180_roles() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [5., 0., 0.], [0., 0., 1.], 5., 0., 5., 5.)
         .unwrap();
     m.revolve("rev", "sk", [0., 0., 0.], [0., 1., 0.], 180.0)
@@ -125,7 +125,7 @@ fn test_partial_revolve_180_roles() {
 #[test]
 #[ignore] // Known truck limitation: boolean union of curved (revolve) + planar (extrude) solids
 fn test_truck_revolve_boolean_union() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Revolve a ring: rect at x=5..7, y=0..5 → thin torus
     m.rect_sketch("sk_ring", [5., 0., 0.], [0., 0., 1.], 5., 0., 2., 5.)
@@ -149,7 +149,7 @@ fn test_truck_revolve_boolean_union() {
 
 #[test]
 fn test_truck_cylinder_topology() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.circle_sketch("sk_cyl", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.0)
         .unwrap();
     m.extrude("cyl", "sk_cyl", 10.0).unwrap();
@@ -194,7 +194,7 @@ fn test_truck_cylinder_topology() {
 
 #[test]
 fn test_truck_save_load_complex_tree() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // 1. Base plate 20x20x10
     m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 20., 20.)
@@ -218,7 +218,7 @@ fn test_truck_save_load_complex_tree() {
     assert!(!json.is_empty(), "Saved JSON should not be empty");
 
     // Load into fresh builder
-    let mut m2 = ModelBuilder::truck();
+    let mut m2 = ModelBuilder::kernel();
     m2.load(&json).unwrap();
     m2.assert_feature_count(6).unwrap();
     m2.assert_no_errors().unwrap();
@@ -229,7 +229,7 @@ fn test_truck_save_load_complex_tree() {
 #[test]
 #[ignore] // Known truck limitation: boolean cut of cylindrical hole through curved (revolve) solid
 fn test_truck_revolve_with_cut() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Revolve a ring: rect at x=5..7, y=0..5 → thin torus
     m.rect_sketch("sk_ring", [5., 0., 0.], [0., 0., 1.], 5., 0., 2., 5.)

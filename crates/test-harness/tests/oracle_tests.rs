@@ -1,7 +1,7 @@
 //! Tests for verification oracles.
 
-use kernel_fork::types::{FaceRange, RenderMesh};
-use kernel_fork::KernelId;
+use kernel::types::{FaceRange, RenderMesh};
+use kernel::KernelId;
 use test_harness::oracle::*;
 use test_harness::ModelBuilder;
 
@@ -20,7 +20,7 @@ fn build_mock_box() -> (ModelBuilder, String) {
 fn euler_formula_passes_for_box() {
     let (m, name) = build_mock_box();
     let handle = m.solid_handle(&name).unwrap();
-    let result = check_euler_formula(m.kernel().as_introspect(), &handle);
+    let result = check_euler_formula(m.kernel_ref().as_introspect(), &handle);
     assert!(
         result.passed,
         "Box should satisfy Euler's formula: {}",
@@ -32,7 +32,7 @@ fn euler_formula_passes_for_box() {
 fn manifold_edges_passes_for_box() {
     let (m, name) = build_mock_box();
     let handle = m.solid_handle(&name).unwrap();
-    let result = check_manifold_edges(m.kernel().as_introspect(), &handle);
+    let result = check_manifold_edges(m.kernel_ref().as_introspect(), &handle);
     assert!(
         result.passed,
         "Box edges should be manifold: {}",
@@ -44,7 +44,7 @@ fn manifold_edges_passes_for_box() {
 fn face_validity_passes_for_box() {
     let (m, name) = build_mock_box();
     let handle = m.solid_handle(&name).unwrap();
-    let result = check_face_validity(m.kernel().as_introspect(), &handle);
+    let result = check_face_validity(m.kernel_ref().as_introspect(), &handle);
     assert!(
         result.passed,
         "Box faces should be valid: {}",
@@ -57,7 +57,7 @@ fn topology_counts_correct_for_box() {
     let (m, name) = build_mock_box();
     let handle = m.solid_handle(&name).unwrap();
     // MockKernel box: V=8 E=12 F=6
-    let result = check_topology_counts(m.kernel().as_introspect(), &handle, 8, 12, 6);
+    let result = check_topology_counts(m.kernel_ref().as_introspect(), &handle, 8, 12, 6);
     assert!(result.passed, "Box V=8 E=12 F=6: {}", result.detail);
 }
 
@@ -65,7 +65,7 @@ fn topology_counts_correct_for_box() {
 fn topology_counts_fails_with_wrong_values() {
     let (m, name) = build_mock_box();
     let handle = m.solid_handle(&name).unwrap();
-    let result = check_topology_counts(m.kernel().as_introspect(), &handle, 99, 99, 99);
+    let result = check_topology_counts(m.kernel_ref().as_introspect(), &handle, 99, 99, 99);
     assert!(!result.passed, "Should fail with wrong counts");
 }
 

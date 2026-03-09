@@ -1,6 +1,3 @@
 [submodule "claude-remote"]
 	path = claude-remote
 	url = https://github.com/sequoia-hope/claude-remote.git
-[submodule "vendor/truck"]
-	path = vendor/truck
-	url = https://github.com/sequoia-hope/truck.git

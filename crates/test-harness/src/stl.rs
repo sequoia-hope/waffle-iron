@@ -1,7 +1,7 @@
 //! STL export from RenderMesh — binary and ASCII formats.
 
 use crate::helpers::HarnessError;
-use kernel_fork::types::RenderMesh;
+use kernel::types::RenderMesh;
 
 /// Export a RenderMesh as a binary STL file.
 ///

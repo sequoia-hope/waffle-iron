@@ -15,7 +15,7 @@ If there is a conflict, **this Constitution overrides all other project document
 
 This Constitution applies to all changes that affect any of the following:
 
-- Modeling logic (feature engine, modeling ops, kernel fork, sketch solver integration)
+- Modeling logic (feature engine, modeling ops, kernel, sketch solver integration)
 - Geometry representation, BREP, topology, meshing, picking metadata
 - Serialization/file format of CAD data
 - WASM bridge/protocol between JS and WASM

@@ -1,4 +1,4 @@
-//! GeomRef resolution tests against the real TruckKernel.
+//! GeomRef resolution tests against the real RealKernel.
 //!
 //! These test the full pipeline (sketch -> extrude -> role assignment -> GeomRef resolution)
 //! using real truck geometry, not MockKernel. This catches issues that MockKernel's
@@ -21,7 +21,7 @@ fn resolve_face_normal(m: &ModelBuilder, feature_name: &str, role: Role, index: 
     let resolved = resolve_geom_ref(&geom_ref, &results)
         .unwrap_or_else(|e| panic!("Failed to resolve {:?} index {}: {}", role, index, e));
 
-    let introspect = m.kernel().as_introspect();
+    let introspect = m.kernel_ref().as_introspect();
     let sig = introspect.compute_signature(resolved.kernel_id, TopoKind::Face);
     sig.normal
         .unwrap_or_else(|| panic!("Face {:?} has no normal", role))
@@ -39,7 +39,7 @@ fn vec_len(v: [f64; 3]) -> f64 {
 
 #[test]
 fn test_truck_geomref_top_face_normal() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box", "sk", 10.0).unwrap();
@@ -63,7 +63,7 @@ fn test_truck_geomref_top_face_normal() {
 
 #[test]
 fn test_truck_geomref_bottom_face_normal() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box", "sk", 10.0).unwrap();
@@ -82,7 +82,7 @@ fn test_truck_geomref_bottom_face_normal() {
 
 #[test]
 fn test_truck_geomref_all_box_faces() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box", "sk", 10.0).unwrap();
@@ -157,7 +157,7 @@ fn test_truck_geomref_all_box_faces() {
 
 #[test]
 fn test_truck_geomref_side_faces_orthogonal() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box", "sk", 10.0).unwrap();
@@ -210,7 +210,7 @@ fn test_truck_geomref_side_faces_orthogonal() {
 
 #[test]
 fn test_truck_geomref_two_extrudes_first_survives() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // First extrude
     m.rect_sketch("sk1", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
@@ -259,7 +259,7 @@ fn test_truck_geomref_two_extrudes_first_survives() {
 
 #[test]
 fn test_truck_geomref_xz_plane_extrude() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     // Sketch on XZ plane (normal = +Y)
     m.rect_sketch("sk", [0., 0., 0.], [0., 1., 0.], 0., 0., 10., 10.)
         .unwrap();
@@ -285,7 +285,7 @@ fn test_truck_geomref_xz_plane_extrude() {
 
 #[test]
 fn test_truck_geomref_yz_plane_extrude() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     // Sketch on YZ plane (normal = +X)
     m.rect_sketch("sk", [0., 0., 0.], [1., 0., 0.], 0., 0., 10., 10.)
         .unwrap();
@@ -305,7 +305,7 @@ fn test_truck_geomref_yz_plane_extrude() {
 
 #[test]
 fn test_truck_geomref_after_boolean_subtract() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Big box
     m.rect_sketch("sk1", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
@@ -351,7 +351,7 @@ fn test_truck_geomref_after_boolean_subtract() {
 
 #[test]
 fn test_truck_geomref_fallback_resolution() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box", "sk", 10.0).unwrap();
@@ -411,7 +411,7 @@ fn test_truck_geomref_fallback_resolution() {
 
 #[test]
 fn test_truck_geomref_circle_extrude_roles() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.circle_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.)
         .unwrap();
     m.extrude("cyl", "sk", 10.0).unwrap();
@@ -446,7 +446,7 @@ fn test_truck_geomref_circle_extrude_roles() {
 
 #[test]
 fn test_truck_geomref_unique_kernel_ids() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box", "sk", 10.0).unwrap();
@@ -491,7 +491,7 @@ fn test_truck_geomref_unique_kernel_ids() {
 
 #[test]
 fn test_truck_geomref_normal_matches_direct_introspect() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box", "sk", 10.0).unwrap();
@@ -503,7 +503,7 @@ fn test_truck_geomref_normal_matches_direct_introspect() {
 
     // Get face signatures directly from the solid handle
     let handle = m.solid_handle("box").unwrap();
-    let introspect = m.kernel().as_introspect();
+    let introspect = m.kernel_ref().as_introspect();
     let all_sigs = introspect.compute_all_signatures(&handle, TopoKind::Face);
 
     // Resolve EndCapPositive and verify it matches one of the direct signatures
@@ -532,7 +532,7 @@ fn test_truck_geomref_normal_matches_direct_introspect() {
 
 #[test]
 fn test_truck_revolve_full_360_role_detection() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     // Rectangle offset from Y axis (x=5..10), revolve 360 around Y axis
     m.rect_sketch("sk", [5., 0., 0.], [0., 0., 1.], 5., 0., 5., 5.)
         .unwrap();
@@ -563,7 +563,7 @@ fn test_truck_revolve_full_360_role_detection() {
 
 #[test]
 fn test_truck_revolve_partial_role_detection() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     // Rectangle offset from Y axis, revolve 180 degrees
     m.rect_sketch("sk", [5., 0., 0.], [0., 0., 1.], 5., 0., 5., 5.)
         .unwrap();
@@ -602,7 +602,7 @@ fn test_truck_revolve_partial_role_detection() {
 
     let start_ref = face_ref(feature_id, Role::RevStartFace, 0);
     let start_resolved = resolve_geom_ref(&start_ref, &results).unwrap();
-    let introspect = m.kernel().as_introspect();
+    let introspect = m.kernel_ref().as_introspect();
     let start_sig = introspect.compute_signature(start_resolved.kernel_id, TopoKind::Face);
     if let Some(normal) = start_sig.normal {
         let axis_alignment = normal[1].abs(); // Y-axis component
@@ -618,7 +618,7 @@ fn test_truck_revolve_partial_role_detection() {
 
 #[test]
 fn test_truck_revolve_side_faces_have_normals() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk", [5., 0., 0.], [0., 0., 1.], 5., 0., 5., 5.)
         .unwrap();
     m.revolve("rev", "sk", [0., 0., 0.], [0., 1., 0.], 360.0)
@@ -627,7 +627,7 @@ fn test_truck_revolve_side_faces_have_normals() {
 
     let op_result = m.op_result("rev").unwrap();
     let roles = &op_result.provenance.role_assignments;
-    let introspect = m.kernel().as_introspect();
+    let introspect = m.kernel_ref().as_introspect();
 
     // Verify all assigned faces have computable normals
     for (kernel_id, role) in roles {
@@ -645,7 +645,7 @@ fn test_truck_revolve_side_faces_have_normals() {
 
 #[test]
 fn test_truck_geomref_survives_cut_extrude() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Base cube
     m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
@@ -685,7 +685,7 @@ fn test_truck_geomref_roles_consistent_across_planes() {
     ];
 
     for (label, normal) in &planes {
-        let mut m = ModelBuilder::truck();
+        let mut m = ModelBuilder::kernel();
         let sk_name = format!("sk_{}", label);
         let box_name = format!("box_{}", label);
 
@@ -735,7 +735,7 @@ fn test_truck_geomref_roles_consistent_across_planes() {
 /// the entire chain.
 #[test]
 fn test_truck_geomref_chain_through_boolean() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Box A
     m.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
@@ -774,7 +774,7 @@ fn test_truck_geomref_chain_through_boolean() {
     // Top face of box_a should still resolve with correct normal
     let top_ref = face_ref(box_a_id, Role::EndCapPositive, 0);
     let top_resolved = resolve_geom_ref(&top_ref, &results).unwrap();
-    let introspect = m.kernel().as_introspect();
+    let introspect = m.kernel_ref().as_introspect();
     let sig = introspect.compute_signature(top_resolved.kernel_id, TopoKind::Face);
     if let Some(normal) = sig.normal {
         assert!(
@@ -791,7 +791,7 @@ fn test_truck_geomref_chain_through_boolean() {
 /// assignments from the first extrude persist independently of the second.
 #[test]
 fn test_truck_geomref_sequential_extrudes_roles_persist() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Base box
     m.rect_sketch("sk1", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)

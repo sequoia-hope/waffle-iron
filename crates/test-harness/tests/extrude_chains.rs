@@ -1,8 +1,8 @@
-//! Comprehensive extrude chain end-to-end tests for TruckKernel.
+//! Comprehensive extrude chain end-to-end tests for RealKernel.
 //!
 //! These tests exercise sequential cut chains, boss-cut alternation,
 //! multi-face cuts, intersecting cuts, topology stability, volume tracking,
-//! and stress tests through `ModelBuilder::truck()`.
+//! and stress tests through `ModelBuilder::kernel()`.
 //!
 //! Categories:
 //!   J — Sequential Cut Chains (12 tests)
@@ -28,7 +28,7 @@ use test_harness::ModelBuilder;
 /// Create a standard 10x10x10 base cube on the XY plane.
 /// Cube spans x∈[0,10], y∈[0,10], z∈[0,10].
 fn base_cube() -> ModelBuilder {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("cube", "base_sk", 10.0).unwrap();

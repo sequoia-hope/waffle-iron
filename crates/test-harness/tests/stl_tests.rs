@@ -1,6 +1,6 @@
 //! Tests for STL export functionality.
 
-use kernel_fork::types::RenderMesh;
+use kernel::types::RenderMesh;
 use test_harness::stl::{export_ascii_stl, export_binary_stl};
 
 fn make_triangle_mesh() -> RenderMesh {
@@ -16,8 +16,8 @@ fn make_triangle_mesh() -> RenderMesh {
             0.0, 0.0, 1.0, // n2
         ],
         indices: vec![0, 1, 2],
-        face_ranges: vec![kernel_fork::types::FaceRange {
-            face_id: kernel_fork::KernelId(1),
+        face_ranges: vec![kernel::types::FaceRange {
+            face_id: kernel::KernelId(1),
             start_index: 0,
             end_index: 3,
         }],

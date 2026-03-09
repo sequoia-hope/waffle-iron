@@ -1,4 +1,4 @@
-use kernel_fork::{KernelId, KernelSolidHandle};
+use kernel::{KernelId, KernelSolidHandle};
 use waffle_types::{OutputKey, Role, TopoKind};
 
 use crate::diff::{self, TopoSnapshot};
@@ -98,7 +98,7 @@ pub fn execute_boolean(
 
 /// Assign roles to boolean result faces.
 fn assign_boolean_roles(
-    introspect: &dyn kernel_fork::KernelIntrospect,
+    introspect: &dyn kernel::KernelIntrospect,
     result: &KernelSolidHandle,
     snap_a: &TopoSnapshot,
     snap_b: &TopoSnapshot,

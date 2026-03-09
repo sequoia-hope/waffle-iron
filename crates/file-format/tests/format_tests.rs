@@ -626,10 +626,10 @@ fn make_rebuild_compatible_tree() -> FeatureTree {
 
 #[test]
 fn step_export_simple_box() {
-    use kernel_fork::TruckKernel;
+    use kernel::RealKernel;
 
     let tree = make_rebuild_compatible_tree();
-    let mut kb = TruckKernel::new();
+    let mut kb = RealKernel::new();
 
     let step = export_step(&tree, &mut kb).unwrap();
 
@@ -644,10 +644,10 @@ fn step_export_simple_box() {
 
 #[test]
 fn step_export_empty_tree_returns_error() {
-    use kernel_fork::TruckKernel;
+    use kernel::RealKernel;
 
     let tree = FeatureTree::new();
-    let mut kb = TruckKernel::new();
+    let mut kb = RealKernel::new();
 
     let result = export_step(&tree, &mut kb);
     assert!(result.is_err(), "Empty tree should fail STEP export");
@@ -655,13 +655,13 @@ fn step_export_empty_tree_returns_error() {
 
 #[test]
 fn step_export_suppressed_only_returns_error() {
-    use kernel_fork::TruckKernel;
+    use kernel::RealKernel;
 
     let mut tree = make_simple_tree();
     // Suppress the extrude — only sketch remains, which has no solid
     tree.features[1].suppressed = true;
 
-    let mut kb = TruckKernel::new();
+    let mut kb = RealKernel::new();
     let result = export_step(&tree, &mut kb);
     // Sketch-only tree has no solid outputs
     assert!(result.is_err(), "Sketch-only tree should fail STEP export");
@@ -671,7 +671,7 @@ fn step_export_suppressed_only_returns_error() {
 
 #[test]
 fn round_trip_save_load_rebuild_produces_solid() {
-    use kernel_fork::TruckKernel;
+    use kernel::RealKernel;
 
     // 1. Create a rebuild-compatible tree
     let original_tree = make_rebuild_compatible_tree();
@@ -685,8 +685,8 @@ fn round_trip_save_load_rebuild_produces_solid() {
     assert_eq!(loaded_meta.name, "Round Trip Rebuild");
     assert_eq!(loaded_tree.features.len(), original_tree.features.len());
 
-    // 4. Rebuild with TruckKernel
-    let mut kb = TruckKernel::new();
+    // 4. Rebuild with RealKernel
+    let mut kb = RealKernel::new();
     let mut engine = feature_engine::Engine::new();
     engine.tree = loaded_tree.clone();
     engine.rebuild_from_scratch(&mut kb);
@@ -714,7 +714,7 @@ fn round_trip_save_load_rebuild_produces_solid() {
 
 #[test]
 fn round_trip_preserves_feature_ids_through_rebuild() {
-    use kernel_fork::TruckKernel;
+    use kernel::RealKernel;
 
     let original_tree = make_rebuild_compatible_tree();
     let original_ids: Vec<Uuid> = original_tree.features.iter().map(|f| f.id).collect();
@@ -727,7 +727,7 @@ fn round_trip_preserves_feature_ids_through_rebuild() {
     assert_eq!(original_ids, loaded_ids);
 
     // Rebuild and verify results are keyed by the same IDs
-    let mut kb = TruckKernel::new();
+    let mut kb = RealKernel::new();
     let mut engine = feature_engine::Engine::new();
     engine.tree = loaded_tree;
     engine.rebuild_from_scratch(&mut kb);
@@ -743,11 +743,11 @@ fn round_trip_preserves_feature_ids_through_rebuild() {
 
 #[test]
 fn round_trip_step_export_matches_original() {
-    use kernel_fork::TruckKernel;
+    use kernel::RealKernel;
 
     // Build original tree and export STEP
     let tree = make_rebuild_compatible_tree();
-    let mut kb = TruckKernel::new();
+    let mut kb = RealKernel::new();
     let original_step = export_step(&tree, &mut kb).unwrap();
 
     // Save → load → export STEP again
@@ -755,7 +755,7 @@ fn round_trip_step_export_matches_original() {
     let json = save_project(&tree, &meta);
     let (loaded_tree, _) = load_project(&json).unwrap();
 
-    let mut kb2 = TruckKernel::new();
+    let mut kb2 = RealKernel::new();
     let loaded_step = export_step(&loaded_tree, &mut kb2).unwrap();
 
     // Both STEP exports should contain the same structural elements
@@ -832,11 +832,11 @@ fn load_triggers_migration_path_for_old_version() {
 
 #[test]
 fn round_trip_rebuild_topology_matches() {
-    use kernel_fork::TruckKernel;
+    use kernel::RealKernel;
 
     // Build original
     let tree = make_rebuild_compatible_tree();
-    let mut kb1 = TruckKernel::new();
+    let mut kb1 = RealKernel::new();
     let mut engine1 = feature_engine::Engine::new();
     engine1.tree = tree.clone();
     engine1.rebuild_from_scratch(&mut kb1);
@@ -846,7 +846,7 @@ fn round_trip_rebuild_topology_matches() {
     let json = save_project(&tree, &meta);
     let (loaded_tree, _) = load_project(&json).unwrap();
 
-    let mut kb2 = TruckKernel::new();
+    let mut kb2 = RealKernel::new();
     let mut engine2 = feature_engine::Engine::new();
     engine2.tree = loaded_tree;
     engine2.rebuild_from_scratch(&mut kb2);
@@ -896,7 +896,7 @@ fn round_trip_rebuild_topology_matches() {
 /// Build a tree with sketch + extrude + chamfer, save → load → rebuild → verify.
 #[test]
 fn round_trip_multi_feature_with_chamfer() {
-    use kernel_fork::TruckKernel;
+    use kernel::RealKernel;
 
     let sketch_feature_id = Uuid::new_v4();
 
@@ -1088,8 +1088,8 @@ fn round_trip_multi_feature_with_chamfer() {
         other => panic!("Expected Chamfer, got {:?}", other),
     }
 
-    // Rebuild with TruckKernel and verify solid exists
-    let mut kb = TruckKernel::new();
+    // Rebuild with RealKernel and verify solid exists
+    let mut kb = RealKernel::new();
     let mut engine = feature_engine::Engine::new();
     engine.tree = loaded_tree.clone();
     engine.rebuild_from_scratch(&mut kb);

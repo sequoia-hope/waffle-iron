@@ -1,4 +1,4 @@
-use kernel_fork::{EdgeRenderData, KernelId, KernelSolidHandle, RenderMesh};
+use kernel::{EdgeRenderData, KernelId, KernelSolidHandle, RenderMesh};
 use waffle_types::{OutputKey, Role, TopoKind, TopoSignature};
 
 /// Complete result of a modeling operation.
@@ -89,7 +89,7 @@ pub struct Diagnostics {
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum OpError {
     #[error("kernel error: {0}")]
-    Kernel(#[from] kernel_fork::KernelError),
+    Kernel(#[from] kernel::KernelError),
 
     #[error("no profiles available for operation")]
     NoProfiles,

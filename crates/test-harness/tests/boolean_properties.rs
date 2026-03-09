@@ -1,4 +1,4 @@
-//! Property-based boolean tests for TruckKernel.
+//! Property-based boolean tests for RealKernel.
 //!
 //! These tests verify algebraic, topological, and geometric invariants that
 //! must hold for any correct boolean implementation. They catch classification
@@ -22,7 +22,7 @@ use test_harness::ModelBuilder;
 /// Create a 10x10x10 base cube at origin on XY plane.
 /// Cube spans x∈[0,10], y∈[0,10], z∈[0,10].
 fn base_cube() -> ModelBuilder {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("cube", "base_sk", 10.0).unwrap();
@@ -67,7 +67,7 @@ fn approx_cylinder_volume(r: f64, h: f64) -> f64 {
 #[test]
 fn v1_union_volume_monotonicity() {
     // Box A: 10x10x10 at origin
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude_no_merge("box_a", "sk_a", 10.0).unwrap();
@@ -140,7 +140,7 @@ fn v2_subtract_volume_monotonicity() {
 /// Inclusion-exclusion: vol(A∪B) = vol(A) + vol(B) - vol(A∩B) <= vol(A) + vol(B).
 #[test]
 fn v3_union_volume_inclusion() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude_no_merge("box_a", "sk_a", 10.0).unwrap();
@@ -172,7 +172,7 @@ fn v3_union_volume_inclusion() {
 #[test]
 fn v4_subtract_volume_positive() {
     // Large cube A: 10x10x10
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude_no_merge("box_a", "sk_a", 10.0).unwrap();
@@ -207,7 +207,7 @@ fn v4_subtract_volume_positive() {
 /// of the boundary must be 2.
 #[test]
 fn t1_euler_invariant_simple_union() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude_no_merge("box_a", "sk_a", 10.0).unwrap();
@@ -266,7 +266,7 @@ fn t2_euler_invariant_box_cylinder_union() {
 #[test]
 fn t3_no_nan_in_vertices() {
     // Union
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude_no_merge("box_a", "sk_a", 10.0).unwrap();
@@ -314,7 +314,7 @@ fn t3_no_nan_in_vertices() {
 /// Subtraction can only remove material, never extend the bounding box.
 #[test]
 fn bb1_subtract_bbox_containment() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude_no_merge("box_a", "sk_a", 10.0).unwrap();
@@ -359,7 +359,7 @@ fn bb1_subtract_bbox_containment() {
 /// The union bounding box must fit within the combined bounding boxes of the inputs.
 #[test]
 fn bb2_union_bbox_containment() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude_no_merge("box_a", "sk_a", 10.0).unwrap();
@@ -409,7 +409,7 @@ fn bb2_union_bbox_containment() {
 /// CH1: 2 sequential unions → body_count==1.
 #[test]
 fn ch1_chain_2_box_unions_body_count() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Base cube
     m.rect_sketch("sk0", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
@@ -437,7 +437,7 @@ fn ch1_chain_2_box_unions_body_count() {
 /// CH2: 3 sequential unions → body_count==1.
 #[test]
 fn ch2_chain_3_box_unions_body_count() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     m.rect_sketch("sk0", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
@@ -471,7 +471,7 @@ fn ch2_chain_3_box_unions_body_count() {
 /// Stress test for chained boolean stability.
 #[test]
 fn ch3_chain_5_box_unions_body_count() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     m.rect_sketch("sk0", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
@@ -575,7 +575,7 @@ fn ch5_two_unions_then_cut_body_count() {
 #[test]
 fn cm1_union_commutativity_volume() {
     // A ∪ B
-    let mut m_ab = ModelBuilder::truck();
+    let mut m_ab = ModelBuilder::kernel();
     m_ab.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m_ab.extrude_no_merge("box_a", "sk_a", 10.0).unwrap();
@@ -587,7 +587,7 @@ fn cm1_union_commutativity_volume() {
     let vol_ab = mesh_volume(&mesh_ab);
 
     // B ∪ A (reversed operand order)
-    let mut m_ba = ModelBuilder::truck();
+    let mut m_ba = ModelBuilder::kernel();
     m_ba.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m_ba.extrude_no_merge("box_a", "sk_a", 10.0).unwrap();
@@ -620,7 +620,7 @@ fn cm1_union_commutativity_volume() {
 /// curves producing ~2 fragments per split face, plus new boundary faces).
 #[test]
 fn fc1_union_face_count_reasonable() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude_no_merge("box_a", "sk_a", 10.0).unwrap();
@@ -663,7 +663,7 @@ fn fc1_union_face_count_reasonable() {
 /// into a single solid.
 #[test]
 fn ec1_abutting_boxes_union() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Box A: [0,10] x [0,10] x [0,10]
     m.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
@@ -701,7 +701,7 @@ fn ec1_abutting_boxes_union() {
 /// but body count should remain 1 (the outer shell).
 #[test]
 fn ec2_contained_box_subtract() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Large box: 20x20x20
     m.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 20., 20.)
@@ -738,7 +738,7 @@ fn ec2_contained_box_subtract() {
 /// Two boxes that don't touch at all should remain as separate bodies.
 #[test]
 fn ec3_non_overlapping_boxes_union() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Box A: [0,5] x [0,5] x [0,5]
     m.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 5., 5.)
@@ -767,7 +767,7 @@ fn ec3_non_overlapping_boxes_union() {
 /// equals the overlap region.
 #[test]
 fn ec4_intersection_positive_volume() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Box A: [0,10] x [0,10] x [0,10]
     m.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
@@ -802,7 +802,7 @@ fn ec4_intersection_positive_volume() {
 /// This is the fundamental boolean algebra identity that must hold.
 #[test]
 fn mv1_inclusion_exclusion_identity() {
-    let mut m1 = ModelBuilder::truck();
+    let mut m1 = ModelBuilder::kernel();
     m1.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m1.extrude_no_merge("box_a", "sk_a", 10.0).unwrap();
@@ -821,7 +821,7 @@ fn mv1_inclusion_exclusion_identity() {
     let vol_union = mesh_volume(&mesh_u);
 
     // Intersection (separate builder to avoid consumed features)
-    let mut m2 = ModelBuilder::truck();
+    let mut m2 = ModelBuilder::kernel();
     m2.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m2.extrude_no_merge("box_a", "sk_a", 10.0).unwrap();
@@ -851,7 +851,7 @@ fn mv1_inclusion_exclusion_identity() {
 #[test]
 fn mv2_subtract_equals_minus_intersection() {
     // Build A and B
-    let mut m1 = ModelBuilder::truck();
+    let mut m1 = ModelBuilder::kernel();
     m1.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m1.extrude_no_merge("box_a", "sk_a", 10.0).unwrap();
@@ -868,7 +868,7 @@ fn mv2_subtract_equals_minus_intersection() {
     let vol_diff = mesh_volume(&mesh_d);
 
     // A ∩ B (separate builder)
-    let mut m2 = ModelBuilder::truck();
+    let mut m2 = ModelBuilder::kernel();
     m2.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m2.extrude_no_merge("box_a", "sk_a", 10.0).unwrap();
@@ -896,7 +896,7 @@ fn mv2_subtract_equals_minus_intersection() {
 /// A partial box subtraction should still yield a genus-0 solid with V-E+F=2.
 #[test]
 fn mv3_euler_invariant_subtract() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude_no_merge("box_a", "sk_a", 10.0).unwrap();
@@ -925,7 +925,7 @@ fn mv3_euler_invariant_subtract() {
 /// snapping must prevent figure-8 wires.
 #[test]
 fn corner_touch_reuses_boundary_vertex() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude_no_merge("box_a", "sk_a", 10.0).unwrap();
@@ -964,7 +964,7 @@ fn corner_touch_reuses_boundary_vertex() {
 /// Corner-touch snap should NOT fire here.
 #[test]
 fn non_corner_ic_still_splits_edge() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude_no_merge("box_a", "sk_a", 10.0).unwrap();
@@ -1000,7 +1000,7 @@ fn non_corner_ic_still_splits_edge() {
 /// coplanar face classification.
 #[test]
 fn np1_abutting_boxes_medium_size() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Box A: [0,8] x [0,8] x [0,8]
     m.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 8., 8.)

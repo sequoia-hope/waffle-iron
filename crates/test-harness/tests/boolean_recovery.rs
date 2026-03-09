@@ -1,4 +1,4 @@
-//! Recovery branch and perturbation cascade tests for TruckKernel booleans.
+//! Recovery branch and perturbation cascade tests for RealKernel booleans.
 //!
 //! These tests exercise the finalize_boolean_shell recovery levels (0-6) in
 //! `vendor/truck/truck-shapeops/src/transversal/integrate/mod.rs` and the
@@ -17,7 +17,7 @@ use test_harness::ModelBuilder;
 /// Create a standard 10×10×10 base cube on the XY plane.
 /// Cube spans x∈[0,10], y∈[0,10], z∈[0,10].
 fn base_cube() -> ModelBuilder {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("cube", "base_sk", 10.0).unwrap();
@@ -54,7 +54,7 @@ fn count_visible_bodies(m: &ModelBuilder) -> usize {
 /// level 0 (standard weld). Verifies the happy path through finalize_boolean_shell.
 #[test]
 fn r1_recovery_level_0_clean_union() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Box A: x∈[0,5], y∈[0,5], z∈[0,5]
     m.rect_sketch("a_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5., 5.)
@@ -88,7 +88,7 @@ fn r1_recovery_level_0_clean_union() {
 /// need welding. Standard weld (level 0-1) should close the shell.
 #[test]
 fn r2_recovery_level_weld_overlapping_boxes() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Box A: x∈[0,6], y∈[0,5], z∈[0,5]
     m.rect_sketch("a_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 6., 5.)
@@ -131,7 +131,7 @@ fn r2_recovery_level_weld_overlapping_boxes() {
 // Previously ignored: test had sketch coordinate mapping bug (rect offsets
 // instead of plane_origin offset). Fixed Sprint 42 — coplanar union works.
 fn r3_recovery_wider_weld_abutting_boxes() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Box A: 5×5×5 at origin. plane_origin offset approach (same as EC1)
     // to ensure correct sketch → world coordinate mapping.
@@ -299,7 +299,7 @@ fn s3_scale_expand_complex_shell() {
 /// direction and use corner-coplanar perturbation strategy.
 #[test]
 fn s4_corner_coplanar_l_shaped() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Base: 10×10×5 box (lower half)
     m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
@@ -341,7 +341,7 @@ fn s4_corner_coplanar_l_shaped() {
 /// perturbation cascade.
 #[test]
 fn t1_cascade_direct_strategy_succeeds() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Box A: x∈[0,8], y∈[0,6], z∈[0,6]
     m.rect_sketch("a_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 8., 6.)
@@ -522,7 +522,7 @@ fn t5_subtract_single_body() {
 /// boxes to verify the AND recovery path works.
 #[test]
 fn t6_intersect_recovery_path() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Box A: x∈[0,8], y∈[0,8], z∈[0,8]
     m.rect_sketch("a_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 8., 8.)

@@ -4,7 +4,7 @@
 //! extrude boss (auto-union via merge=true). This is the primary CAD workflow
 //! that the boss eps offset fix enables.
 //!
-//! All tests use `ModelBuilder::truck()` with `extrude()` which sets
+//! All tests use `ModelBuilder::kernel()` with `extrude()` which sets
 //! `merge: true`, the same path the GUI uses.
 
 use test_harness::helpers::{mesh_bounding_box, mesh_volume};
@@ -14,7 +14,7 @@ use test_harness::ModelBuilder;
 
 /// Create a 10×10×10 base cube on the XY plane.
 fn base_cube() -> ModelBuilder {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("cube", "base_sk", 10.0).unwrap();
@@ -288,7 +288,7 @@ fn two_bosses_on_same_face_sequential() {
 /// each face's boundary into the other creates degenerate face division topology.
 #[test]
 fn rect_extrude_opposite_directions_union() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Shared sketch at z=0
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)

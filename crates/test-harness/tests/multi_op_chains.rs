@@ -1,7 +1,7 @@
-//! Cross-crate multi-operation chain tests for TruckKernel.
+//! Cross-crate multi-operation chain tests for RealKernel.
 //!
 //! These tests exercise the full sketch → extrude → boolean → tessellation
-//! pipeline through `ModelBuilder::truck()`, verifying that chained operations
+//! pipeline through `ModelBuilder::kernel()`, verifying that chained operations
 //! produce correct geometry across crate boundaries.
 //!
 //! Categories:
@@ -21,7 +21,7 @@ use test_harness::ModelBuilder;
 /// Create a standard 10x10x10 base cube on the XY plane.
 /// Cube spans x∈[0,10], y∈[0,10], z∈[0,10].
 fn base_cube() -> ModelBuilder {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
     m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("cube", "base_sk", 10.0).unwrap();
@@ -48,7 +48,7 @@ fn count_visible_bodies(m: &ModelBuilder) -> usize {
 }
 
 /// Verify mesh has no NaN or infinite vertices.
-fn assert_mesh_finite(mesh: &kernel_fork::types::RenderMesh, label: &str) {
+fn assert_mesh_finite(mesh: &kernel::types::RenderMesh, label: &str) {
     for (i, v) in mesh.vertices.iter().enumerate() {
         assert!(
             v.is_finite(),
@@ -101,7 +101,7 @@ fn assert_bbox_reasonable(min: &[f32; 3], max: &[f32; 3], label: &str) {
 /// creation through boolean combination to mesh output.
 #[test]
 fn mo1_sketch_extrude_union_tessellate() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Box A: [0,10] x [0,10] x [0,10]
     m.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
@@ -177,7 +177,7 @@ fn mo1_sketch_extrude_union_tessellate() {
 /// geometry that booleans can handle.
 #[test]
 fn mo2_two_sketches_different_planes_union() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Box A on XY plane (normal=[0,0,1]):
     // tangent_x=[0,-1,0], tangent_y=[1,0,0]
@@ -314,7 +314,7 @@ fn mo3_extrude_cuts_from_different_directions() {
 #[test]
 #[ignore = "Full-revolve torus-plane boolean: same root cause as RB1 — face fragment edge misalignment after division → cascade exhausts 30 strategies in 120s."]
 fn mo4_revolve_then_boolean() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Create a box first
     m.rect_sketch("box_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
@@ -372,7 +372,7 @@ fn mo4_revolve_then_boolean() {
 #[test]
 fn mo5_feature_tree_rebuild_idempotency() {
     // Build a multi-feature model
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     m.rect_sketch("sk0", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
@@ -402,7 +402,7 @@ fn mo5_feature_tree_rebuild_idempotency() {
     let json = m.save().unwrap();
 
     // Load into a fresh builder (triggers full rebuild)
-    let mut m2 = ModelBuilder::truck();
+    let mut m2 = ModelBuilder::kernel();
     m2.load(&json).unwrap();
 
     // Verify body count is the same
@@ -422,7 +422,7 @@ fn mo5_feature_tree_rebuild_idempotency() {
     );
 
     // Load again (second rebuild) to verify idempotency
-    let mut m3 = ModelBuilder::truck();
+    let mut m3 = ModelBuilder::kernel();
     m3.load(&json).unwrap();
 
     let bodies_third = count_visible_bodies(&m3);
@@ -447,7 +447,7 @@ fn mo5_feature_tree_rebuild_idempotency() {
 /// regressions where chained booleans produce fragmented bodies.
 #[test]
 fn mo6_body_count_after_n_operations() {
-    let mut m = ModelBuilder::truck();
+    let mut m = ModelBuilder::kernel();
 
     // Base cube: normal=[0,0,1], tangent_x=[0,-1,0], tangent_y=[1,0,0]
     // sketch (u,v) → world (v, -u, 0)
