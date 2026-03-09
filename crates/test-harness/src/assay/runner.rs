@@ -16,7 +16,7 @@ pub fn execute_recipe(
 ) -> Result<ExecutionResult, String> {
     let mut counter = Counter::new();
 
-    let final_name = build_solid(builder, &mut counter, recipe)?;
+    let final_name = build_solid(builder, &mut counter, recipe, false)?;
 
     // Tessellate
     let mesh = builder
@@ -68,10 +68,14 @@ impl Counter {
 }
 
 /// Recursively build a solid from a recipe, returning the feature name.
+///
+/// `for_boolean`: when true, uses `extrude_no_merge` so bodies remain separate
+/// for explicit boolean operations (prevents auto-union during extrude).
 fn build_solid(
     builder: &mut ModelBuilder,
     counter: &mut Counter,
     recipe: &AssayRecipe,
+    for_boolean: bool,
 ) -> Result<String, String> {
     match recipe {
         AssayRecipe::Extrude {
@@ -96,16 +100,22 @@ fn build_solid(
                 }
             }
 
-            builder
-                .extrude(&extrude_name, &sketch_name, *depth)
-                .map_err(|e| format!("extrude failed: {}", e))?;
+            if for_boolean {
+                builder
+                    .extrude_no_merge(&extrude_name, &sketch_name, *depth)
+                    .map_err(|e| format!("extrude failed: {}", e))?;
+            } else {
+                builder
+                    .extrude(&extrude_name, &sketch_name, *depth)
+                    .map_err(|e| format!("extrude failed: {}", e))?;
+            }
 
             Ok(extrude_name)
         }
 
         AssayRecipe::Boolean { a, b, op } => {
-            let name_a = build_solid(builder, counter, a)?;
-            let name_b = build_solid(builder, counter, b)?;
+            let name_a = build_solid(builder, counter, a, true)?;
+            let name_b = build_solid(builder, counter, b, true)?;
             let bool_name = counter.next("boolean");
 
             match op {
@@ -157,10 +167,10 @@ fn build_solid(
         }
 
         AssayRecipe::Chain { initial, steps } => {
-            let mut current_name = build_solid(builder, counter, initial)?;
+            let mut current_name = build_solid(builder, counter, initial, true)?;
 
             for step in steps {
-                let operand_name = build_solid(builder, counter, &step.operand)?;
+                let operand_name = build_solid(builder, counter, &step.operand, true)?;
                 let bool_name = counter.next("chain_step");
 
                 match step.op {

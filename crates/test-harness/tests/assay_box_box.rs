@@ -6,7 +6,7 @@ use proptest::prelude::*;
 use test_harness::assay::properties::*;
 use test_harness::assay::strategies::strats::*;
 use test_harness::assay::strategies::*;
-use test_harness::helpers::{mesh_bounding_box, mesh_volume};
+use test_harness::helpers::mesh_volume;
 use test_harness::ModelBuilder;
 
 /// Build a boolean scenario using ModelBuilder and return (builder, mesh_a, mesh_b, mesh_result).
@@ -92,7 +92,7 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(20))]
 
     #[test]
-    fn union_volume_monotonicity(scenario in boolean_scenario_union()) {
+    fn union_volume_monotonicity(scenario in boolean_scenario_union_rect()) {
         if let Ok(mut builder) = execute_scenario(&scenario) {
             let results = run_all_boolean_properties(
                 &mut builder, "body_a", "body_b", "result", BoolOp::Union,
@@ -107,7 +107,7 @@ proptest! {
     }
 
     #[test]
-    fn subtract_volume_bounded(scenario in boolean_scenario_subtract()) {
+    fn subtract_volume_bounded(scenario in boolean_scenario_subtract_rect()) {
         if let Ok(mut builder) = execute_scenario(&scenario) {
             let mesh_a = builder.tessellate("body_a").unwrap();
             let mesh_r = builder.tessellate("result").unwrap();
@@ -124,7 +124,7 @@ proptest! {
     }
 
     #[test]
-    fn intersect_volume_bounded(scenario in boolean_scenario_intersect()) {
+    fn intersect_volume_bounded(scenario in boolean_scenario_intersect_rect()) {
         if let Ok(mut builder) = execute_scenario(&scenario) {
             let mesh_a = builder.tessellate("body_a").unwrap();
             let mesh_b = builder.tessellate("body_b").unwrap();
@@ -144,7 +144,7 @@ proptest! {
     }
 
     #[test]
-    fn union_bbox_containment(scenario in boolean_scenario_union()) {
+    fn union_bbox_containment(scenario in boolean_scenario_union_rect()) {
         if let Ok(mut builder) = execute_scenario(&scenario) {
             let mesh_a = builder.tessellate("body_a").unwrap();
             let mesh_b = builder.tessellate("body_b").unwrap();
@@ -153,4 +153,48 @@ proptest! {
             prop_assert!(result.passed, "BBox containment failed: {}", result.detail);
         }
     }
+}
+
+// ── Deterministic integration tests ─────────────────────────────────────
+
+/// Two 10x10x10 boxes overlapping by 5 units along X.
+/// Union volume = 10*10*10 + 10*10*10 - 5*10*10 = 1500.
+#[test]
+fn deterministic_box_box_union_volume() {
+    let mut b = ModelBuilder::kernel();
+    b.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    b.extrude_no_merge("body_a", "sk_a", 10.).unwrap();
+    b.rect_sketch("sk_b", [0., 0., 0.], [0., 0., 1.], 5., 0., 10., 10.)
+        .unwrap();
+    b.extrude_no_merge("body_b", "sk_b", 10.).unwrap();
+    b.boolean_union("result", "body_a", "body_b").unwrap();
+    let mesh = b.tessellate("result").unwrap();
+    let vol = mesh_volume(&mesh);
+    assert!(
+        (vol - 1500.0).abs() < 1.0,
+        "Union volume: expected ~1500, got {}",
+        vol
+    );
+}
+
+/// Two 10x10x10 boxes overlapping by 5 units along X.
+/// Subtract volume = 10*10*10 - 5*10*10 = 500.
+#[test]
+fn deterministic_box_box_subtract_volume() {
+    let mut b = ModelBuilder::kernel();
+    b.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    b.extrude_no_merge("body_a", "sk_a", 10.).unwrap();
+    b.rect_sketch("sk_b", [0., 0., 0.], [0., 0., 1.], 5., 0., 10., 10.)
+        .unwrap();
+    b.extrude_no_merge("body_b", "sk_b", 10.).unwrap();
+    b.boolean_subtract("result", "body_a", "body_b").unwrap();
+    let mesh = b.tessellate("result").unwrap();
+    let vol = mesh_volume(&mesh);
+    assert!(
+        (vol - 500.0).abs() < 1.0,
+        "Subtract volume: expected ~500, got {}",
+        vol
+    );
 }

@@ -219,6 +219,66 @@ pub mod strats {
         }
     }
 
+    // ── Rect-only variants (for box-box tests that require WaffleKernel) ─
+
+    prop_compose! {
+        /// Level 2: Solid body with rect-only profile at XY origin.
+        pub fn solid_body_xy_rect()
+            (profile in rect_profile_strategy().prop_map(SketchProfile::Rect),
+             depth in dim_range())
+        -> SolidBodySpec {
+            SolidBodySpec {
+                profile,
+                origin: [0.0, 0.0, 0.0],
+                normal: [0.0, 0.0, 1.0],
+                depth,
+            }
+        }
+    }
+
+    prop_compose! {
+        /// Level 2: Solid body with rect-only profile at offset origin.
+        pub fn solid_body_offset_rect()
+            (profile in rect_profile_strategy().prop_map(SketchProfile::Rect),
+             depth in dim_range(),
+             ox in offset_range(), oy in offset_range(), oz in offset_range())
+        -> SolidBodySpec {
+            SolidBodySpec {
+                profile,
+                origin: [ox, oy, oz],
+                normal: [0.0, 0.0, 1.0],
+                depth,
+            }
+        }
+    }
+
+    prop_compose! {
+        /// Level 3: Rect-only boolean scenario (union).
+        pub fn boolean_scenario_union_rect()
+            (a in solid_body_xy_rect(), b in solid_body_offset_rect())
+        -> BooleanScenario {
+            BooleanScenario { body_a: a, body_b: b, op: BoolOp::Union }
+        }
+    }
+
+    prop_compose! {
+        /// Level 3: Rect-only boolean scenario (subtract).
+        pub fn boolean_scenario_subtract_rect()
+            (a in solid_body_xy_rect(), b in solid_body_offset_rect())
+        -> BooleanScenario {
+            BooleanScenario { body_a: a, body_b: b, op: BoolOp::Subtract }
+        }
+    }
+
+    prop_compose! {
+        /// Level 3: Rect-only boolean scenario (intersect).
+        pub fn boolean_scenario_intersect_rect()
+            (a in solid_body_xy_rect(), b in solid_body_offset_rect())
+        -> BooleanScenario {
+            BooleanScenario { body_a: a, body_b: b, op: BoolOp::Intersect }
+        }
+    }
+
     prop_compose! {
         /// Level 4: Coplanar — body_b shares the same Z=0 base plane.
         pub fn coplanar_scenario()

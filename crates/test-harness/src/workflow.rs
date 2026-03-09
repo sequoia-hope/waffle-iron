@@ -863,7 +863,15 @@ impl ModelBuilder {
             self.kernel.as_mut(),
         );
 
-        self.extract_last_feature_id(name, "AddFeature(Boolean)", response)
+        let id = self.extract_last_feature_id(name, "AddFeature(Boolean)", response)?;
+
+        // Check if the boolean failed during rebuild (error stored in engine.errors)
+        for (err_id, err_msg) in &self.state.engine.errors {
+            if *err_id == id {
+                return Err(HarnessError::Engine(err_msg.clone()));
+            }
+        }
+        Ok(id)
     }
 
     // ── History ─────────────────────────────────────────────────────────
