@@ -1,6 +1,8 @@
 pub(crate) mod boolean;
 pub mod geometry;
 pub mod mock_kernel;
+#[allow(dead_code)]
+pub(crate) mod ssi;
 pub mod tessellation;
 pub mod topology;
 pub mod traits;

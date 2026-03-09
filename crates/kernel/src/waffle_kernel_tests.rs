@@ -1130,22 +1130,23 @@ fn j1_invalid_handle_errors() {
 }
 
 #[test]
-fn j2_cylinder_boolean_not_supported() {
-    let (mut k, box_solid) = make_unit_box();
-    let (profiles_c, positions_c) = make_circle_profile(0.0, 0.0, 1.0);
-    let face_c = k
-        .make_faces_from_profiles(&profiles_c, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions_c)
-        .unwrap();
-    let cyl_solid = k.extrude_face(face_c[0], Z_DIR, 1.0).unwrap();
+fn j2_box_cyl_union_basic() {
+    // Now that cylinder booleans are supported, verify basic union succeeds
+    let mut k = WaffleKernel::new();
+    // 10x10x10 box centered at origin
+    let (pb, posb) = make_rect_profile(0.0, 0.0, 10.0, 10.0);
+    let fb = k.make_faces_from_profiles(&pb, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posb).unwrap();
+    let box_solid = k.extrude_face(fb[0], Z_DIR, 10.0).unwrap();
+    // r=3 cylinder at origin, h=10
+    let (profiles_c, positions_c) = make_circle_profile(0.0, 0.0, 3.0);
+    let face_c = k.make_faces_from_profiles(&profiles_c, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions_c).unwrap();
+    let cyl_solid = k.extrude_face(face_c[0], Z_DIR, 10.0).unwrap();
     let result = k.boolean_union(&box_solid, &cyl_solid);
-    assert!(result.is_err(), "Boolean on cylinder should fail");
-    if let Err(ref e) = result {
-        assert!(
-            matches!(e, KernelError::NotSupported { .. }),
-            "Expected NotSupported, got {:?}",
-            e
-        );
-    }
+    assert!(result.is_ok(), "Box-cylinder union should succeed, got: {:?}", result.err());
+    let handle = result.unwrap();
+    let mesh = k.tessellate(&handle, 0.01).unwrap();
+    let vol = mesh_volume(&mesh);
+    assert!(vol > 0.0, "Union volume should be positive, got {}", vol);
 }
 
 #[test]
@@ -1572,5 +1573,416 @@ fn l12_revolve_invalid_face_error() {
             "Expected KernelError::EntityNotFound for invalid face, got {:?}",
             result
         );
+    }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Milestone 5: SSI-based cylindrical boolean operation tests
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/// Create a box and a cylinder in the same kernel and perform a boolean op.
+fn do_box_cyl_boolean(
+    box_cx: f64, box_cy: f64, box_w: f64, box_h: f64, box_d: f64,
+    cyl_cx: f64, cyl_cy: f64, cyl_r: f64, cyl_d: f64,
+    op: crate::boolean::BoolOp,
+) -> Result<(WaffleKernel, KernelSolidHandle), KernelError> {
+    let mut k = WaffleKernel::new();
+    let (pb, posb) = make_rect_profile(box_cx, box_cy, box_w, box_h);
+    let fb = k.make_faces_from_profiles(&pb, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posb).unwrap();
+    let box_solid = k.extrude_face(fb[0], Z_DIR, box_d).unwrap();
+    let (pc, posc) = make_circle_profile(cyl_cx, cyl_cy, cyl_r);
+    let fc = k.make_faces_from_profiles(&pc, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posc).unwrap();
+    let cyl_solid = k.extrude_face(fc[0], Z_DIR, cyl_d).unwrap();
+    let result = match op {
+        crate::boolean::BoolOp::Union => k.boolean_union(&box_solid, &cyl_solid)?,
+        crate::boolean::BoolOp::Subtract => k.boolean_subtract(&box_solid, &cyl_solid)?,
+        crate::boolean::BoolOp::Intersect => k.boolean_intersect(&box_solid, &cyl_solid)?,
+    };
+    Ok((k, result))
+}
+
+/// Create two cylinders and perform a boolean op.
+fn do_cyl_cyl_boolean(
+    cx_a: f64, cy_a: f64, r_a: f64, d_a: f64,
+    cx_b: f64, cy_b: f64, r_b: f64, d_b: f64,
+    op: crate::boolean::BoolOp,
+) -> Result<(WaffleKernel, KernelSolidHandle), KernelError> {
+    let mut k = WaffleKernel::new();
+    let (pa, posa) = make_circle_profile(cx_a, cy_a, r_a);
+    let fa = k.make_faces_from_profiles(&pa, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posa).unwrap();
+    let cyl_a = k.extrude_face(fa[0], Z_DIR, d_a).unwrap();
+    let (pb, posb) = make_circle_profile(cx_b, cy_b, r_b);
+    let fb = k.make_faces_from_profiles(&pb, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posb).unwrap();
+    let cyl_b = k.extrude_face(fb[0], Z_DIR, d_b).unwrap();
+    let result = match op {
+        crate::boolean::BoolOp::Union => k.boolean_union(&cyl_a, &cyl_b)?,
+        crate::boolean::BoolOp::Subtract => k.boolean_subtract(&cyl_a, &cyl_b)?,
+        crate::boolean::BoolOp::Intersect => k.boolean_intersect(&cyl_a, &cyl_b)?,
+    };
+    Ok((k, result))
+}
+
+// ── Group M: Box-Cylinder Booleans ─────────────────────────────────
+
+#[test]
+fn m1_box_enclosed_cyl_subtract_volume() {
+    // 12x12x10 box centered at origin minus r=3 cylinder at origin
+    // Expected: 1440 - 90pi ~= 1157.26
+    let (mut k, result) = do_box_cyl_boolean(
+        0.0, 0.0, 12.0, 12.0, 10.0,
+        0.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Subtract,
+    ).expect("enclosed cyl subtract should succeed");
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    let vol = mesh_volume(&mesh);
+    let expected = 12.0 * 12.0 * 10.0 - PI * 9.0 * 10.0;
+    assert!(
+        (vol - expected).abs() < 5.0,
+        "Volume should be ~{:.2}, got {:.2} (diff={:.2})",
+        expected, vol, (vol - expected).abs()
+    );
+}
+
+#[test]
+fn m2_box_enclosed_cyl_subtract_watertight() {
+    let (mut k, result) = do_box_cyl_boolean(
+        0.0, 0.0, 12.0, 12.0, 10.0,
+        0.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Subtract,
+    ).expect("enclosed cyl subtract should succeed");
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    assert!(check_watertight(&mesh), "Subtract result mesh must be watertight");
+}
+
+#[test]
+fn m3_box_enclosed_cyl_subtract_euler() {
+    let (k, result) = do_box_cyl_boolean(
+        0.0, 0.0, 12.0, 12.0, 10.0,
+        0.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Subtract,
+    ).expect("enclosed cyl subtract should succeed");
+    let v = k.list_vertices(&result).len() as i64;
+    let e = k.list_edges(&result).len() as i64;
+    let f = k.list_faces(&result).len() as i64;
+    assert_eq!(v - e + f, 2, "V-E+F must be 2 (V={}, E={}, F={})", v, e, f);
+}
+
+#[test]
+fn m4_box_cyl_union_inscribed_volume() {
+    // 10x10x10 box union r=5 cyl (cylinder inscribed in box) -> vol ~= 1000
+    let (mut k, result) = do_box_cyl_boolean(
+        0.0, 0.0, 10.0, 10.0, 10.0,
+        0.0, 0.0, 5.0, 10.0,
+        crate::boolean::BoolOp::Union,
+    ).expect("inscribed union should succeed");
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    let vol = mesh_volume(&mesh);
+    assert!(
+        (vol - 1000.0).abs() < 5.0,
+        "Inscribed union volume should be ~1000, got {:.2}",
+        vol
+    );
+}
+
+#[test]
+fn m5_box_cyl_intersect_inscribed_volume() {
+    // 10x10x10 box intersect r=5 cyl -> vol ~= pi*25*10 ~= 785.40
+    let (mut k, result) = do_box_cyl_boolean(
+        0.0, 0.0, 10.0, 10.0, 10.0,
+        0.0, 0.0, 5.0, 10.0,
+        crate::boolean::BoolOp::Intersect,
+    ).expect("inscribed intersect should succeed");
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    let vol = mesh_volume(&mesh);
+    let expected = PI * 25.0 * 10.0;
+    assert!(
+        (vol - expected).abs() < 5.0,
+        "Inscribed intersect volume should be ~{:.2}, got {:.2}",
+        expected, vol
+    );
+}
+
+#[test]
+fn m6_box_cyl_intersect_watertight() {
+    let (mut k, result) = do_box_cyl_boolean(
+        0.0, 0.0, 10.0, 10.0, 10.0,
+        0.0, 0.0, 5.0, 10.0,
+        crate::boolean::BoolOp::Intersect,
+    ).expect("inscribed intersect should succeed");
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    assert!(check_watertight(&mesh), "Intersect result mesh must be watertight");
+}
+
+#[test]
+fn m7_box_cyl_result_has_cylindrical_face() {
+    let (k, result) = do_box_cyl_boolean(
+        0.0, 0.0, 12.0, 12.0, 10.0,
+        0.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Subtract,
+    ).expect("enclosed cyl subtract should succeed");
+    let faces = k.list_faces(&result);
+    let has_cyl = faces.iter().any(|&fid| {
+        let sig = k.compute_signature(fid, TopoKind::Face);
+        sig.surface_type.as_deref() == Some("cylindrical")
+    });
+    assert!(has_cyl, "Subtract result should have at least one cylindrical face");
+}
+
+#[test]
+fn m8_box_cyl_result_has_arc_edges() {
+    let (k, result) = do_box_cyl_boolean(
+        0.0, 0.0, 12.0, 12.0, 10.0,
+        0.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Subtract,
+    ).expect("enclosed cyl subtract should succeed");
+    let edges = k.list_edges(&result);
+    let has_arc = edges.iter().any(|&eid| {
+        let sig = k.compute_signature(eid, TopoKind::Edge);
+        // Arc edges have a length field based on arc geometry
+        sig.length.map_or(false, |l| l > 0.0)
+    });
+    assert!(has_arc, "Subtract result should have at least one arc/circular edge");
+}
+
+#[test]
+fn m9_box_cyl_disjoint_union_volume() {
+    // Box at (0,0) and cylinder at (20,0) -- disjoint
+    // Box: 10x10x10 = 1000, Cyl: pi*9*10 ~= 282.74
+    let (mut k, result) = do_box_cyl_boolean(
+        0.0, 0.0, 10.0, 10.0, 10.0,
+        20.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Union,
+    ).expect("disjoint union should succeed");
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    let vol = mesh_volume(&mesh);
+    let expected = 1000.0 + PI * 9.0 * 10.0;
+    assert!(
+        (vol - expected).abs() < 5.0,
+        "Disjoint union volume should be ~{:.2}, got {:.2}",
+        expected, vol
+    );
+}
+
+// ── Diagnostic: standalone cylinder tessellation ──────────────────
+
+#[test]
+fn diag_standalone_cyl_volume() {
+    // Build a standalone cylinder via build_cyl_result and tessellate
+    // This tests the boolean-result tessellation path (no cylinder_params)
+    let cyl = CylinderParams {
+        center_bottom: [20.0, 0.0, 0.0],
+        radius: 3.0,
+        depth: 10.0,
+        direction: [0.0, 0.0, 1.0],
+        x_axis: [1.0, 0.0, 0.0],
+        y_axis: [0.0, 1.0, 0.0],
+    };
+    let mut next_id = 1000u64;
+    let mut id_alloc = || { let id = next_id; next_id += 1; id };
+    let result = crate::boolean::build_cyl_result(&cyl, &mut id_alloc).unwrap();
+    let mesh = crate::tessellation::tessellate_solid(
+        &result.arena, &result.face_map, &result.face_geometry,
+        &result.edge_geometry, None, None,
+    ).unwrap();
+
+    let vol = mesh_volume(&mesh);
+    let expected = PI * 9.0 * 10.0;
+    assert!(check_watertight(&mesh), "Standalone cylinder must be watertight");
+    assert!((vol - expected).abs() < 5.0, "Standalone cyl volume should be ~{:.2}, got {:.2}", expected, vol);
+}
+
+// ── Group N: Cylinder-Cylinder Booleans ────────────────────────────
+
+#[test]
+fn n1_cyl_cyl_union_volume() {
+    // Two r=3 cylinders, centers 3 apart, h=10
+    // Union cross-section area = 2*pi*r^2 - lens_area
+    let r: f64 = 3.0;
+    let d: f64 = 3.0;
+    let a = d / 2.0;
+    let h = (r * r - a * a).sqrt();
+    let lens = r * r * (a / r).acos() + r * r * ((d - a) / r).acos() - d * h;
+    let union_area = 2.0 * PI * r * r - lens;
+    let expected = union_area * 10.0;
+    let (mut k, result) = do_cyl_cyl_boolean(
+        0.0, 0.0, 3.0, 10.0,
+        3.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Union,
+    ).expect("cyl-cyl union should succeed");
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    let vol = mesh_volume(&mesh);
+    assert!(
+        (vol - expected).abs() < 10.0,
+        "Cyl-cyl union volume should be ~{:.2}, got {:.2} (diff={:.2})",
+        expected, vol, (vol - expected).abs()
+    );
+}
+
+#[test]
+fn n2_cyl_cyl_union_watertight() {
+    let (mut k, result) = do_cyl_cyl_boolean(
+        0.0, 0.0, 3.0, 10.0,
+        3.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Union,
+    ).expect("cyl-cyl union should succeed");
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    assert!(check_watertight(&mesh), "Cyl-cyl union mesh must be watertight");
+}
+
+#[test]
+fn n3_cyl_cyl_subtract_volume() {
+    // cyl_A - cyl_B: area = pi*r^2 - lens
+    let r: f64 = 3.0;
+    let d: f64 = 3.0;
+    let a = d / 2.0;
+    let h = (r * r - a * a).sqrt();
+    let lens = r * r * (a / r).acos() + r * r * ((d - a) / r).acos() - d * h;
+    let subtract_area = PI * r * r - lens;
+    let expected = subtract_area * 10.0;
+    let (mut k, result) = do_cyl_cyl_boolean(
+        0.0, 0.0, 3.0, 10.0,
+        3.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Subtract,
+    ).expect("cyl-cyl subtract should succeed");
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    let vol = mesh_volume(&mesh);
+    assert!(
+        (vol - expected).abs() < 10.0,
+        "Cyl-cyl subtract volume should be ~{:.2}, got {:.2} (diff={:.2})",
+        expected, vol, (vol - expected).abs()
+    );
+}
+
+#[test]
+fn n4_cyl_cyl_subtract_watertight() {
+    let (mut k, result) = do_cyl_cyl_boolean(
+        0.0, 0.0, 3.0, 10.0,
+        3.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Subtract,
+    ).expect("cyl-cyl subtract should succeed");
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    assert!(check_watertight(&mesh), "Cyl-cyl subtract mesh must be watertight");
+}
+
+#[test]
+fn n5_cyl_cyl_union_euler() {
+    let (k, result) = do_cyl_cyl_boolean(
+        0.0, 0.0, 3.0, 10.0,
+        3.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Union,
+    ).expect("cyl-cyl union should succeed");
+    let v = k.list_vertices(&result).len() as i64;
+    let e = k.list_edges(&result).len() as i64;
+    let f = k.list_faces(&result).len() as i64;
+    assert_eq!(v - e + f, 2, "V-E+F must be 2 (V={}, E={}, F={})", v, e, f);
+}
+
+// ── Group O: Edge Cases + SSI Unit Tests ──────────────────────────
+
+#[test]
+fn o1_revolve_boolean_still_unsupported() {
+    let mut k = WaffleKernel::new();
+    // Create a revolve solid
+    let (profiles, positions) = make_rect_profile(5.0, 0.0, 2.0, 4.0);
+    let faces = k.make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions).unwrap();
+    let revolve = k.revolve_face(faces[0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], 180.0).unwrap();
+    // Create a box
+    let (pb, posb) = make_rect_profile(0.0, 0.0, 10.0, 10.0);
+    let fb = k.make_faces_from_profiles(&pb, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posb).unwrap();
+    let box_solid = k.extrude_face(fb[0], Z_DIR, 10.0).unwrap();
+    // Boolean with revolve should still be NotSupported
+    let result = k.boolean_union(&revolve, &box_solid);
+    assert!(result.is_err(), "Revolve boolean should fail");
+    if let Err(ref e) = result {
+        assert!(
+            matches!(e, KernelError::NotSupported { .. }),
+            "Expected NotSupported for revolve boolean, got {:?}", e
+        );
+    }
+}
+
+#[test]
+fn o2_ssi_plane_perp_cylinder_circle() {
+    use crate::ssi::*;
+    let cyl = CylinderParams {
+        center_bottom: [0.0, 0.0, 0.0],
+        radius: 3.0,
+        x_axis: [1.0, 0.0, 0.0],
+        y_axis: [0.0, 1.0, 0.0],
+        direction: [0.0, 0.0, 1.0],
+        depth: 10.0,
+    };
+    let curves = plane_perp_cylinder_ssi(5.0, &cyl);
+    assert_eq!(curves.len(), 1, "Should produce exactly 1 circle");
+    if let SSICurve::Circle { center, radius, .. } = &curves[0] {
+        assert!((center[0]).abs() < 1e-9, "Circle center x should be 0");
+        assert!((center[1]).abs() < 1e-9, "Circle center y should be 0");
+        assert!((center[2] - 5.0).abs() < 1e-9, "Circle center z should be 5");
+        assert!((radius - 3.0).abs() < 1e-9, "Circle radius should be 3");
+    } else {
+        panic!("Expected SSICurve::Circle");
+    }
+}
+
+#[test]
+fn o3_ssi_plane_parallel_cylinder_lines() {
+    use crate::ssi::*;
+    let cyl = CylinderParams {
+        center_bottom: [0.0, 0.0, 0.0],
+        radius: 3.0,
+        x_axis: [1.0, 0.0, 0.0],
+        y_axis: [0.0, 1.0, 0.0],
+        direction: [0.0, 0.0, 1.0],
+        depth: 10.0,
+    };
+    // Plane at x=1, normal=[1,0,0]
+    let curves = plane_parallel_cylinder_ssi(
+        [1.0, 0.0, 0.0], [1.0, 0.0, 0.0], &cyl, 0.0, 10.0
+    );
+    assert_eq!(curves.len(), 2, "Should produce 2 lines");
+    // Lines should be at x=1, y=+/-sqrt(9-1)=+/-sqrt(8)
+    let sqrt8 = 8.0_f64.sqrt();
+    for curve in &curves {
+        if let SSICurve::Line { start, end } = curve {
+            assert!((start[0] - 1.0).abs() < 1e-9, "Line x should be 1.0");
+            assert!((start[1].abs() - sqrt8).abs() < 1e-6, "Line y should be +/-sqrt(8), got {}", start[1]);
+            assert!((start[2]).abs() < 1e-9, "Line start z should be 0");
+            assert!((end[2] - 10.0).abs() < 1e-9, "Line end z should be 10");
+        } else {
+            panic!("Expected SSICurve::Line");
+        }
+    }
+}
+
+#[test]
+fn o4_ssi_cyl_cyl_parallel_lines() {
+    use crate::ssi::*;
+    let cyl_a = CylinderParams {
+        center_bottom: [0.0, 0.0, 0.0],
+        radius: 3.0,
+        x_axis: [1.0, 0.0, 0.0],
+        y_axis: [0.0, 1.0, 0.0],
+        direction: [0.0, 0.0, 1.0],
+        depth: 10.0,
+    };
+    let cyl_b = CylinderParams {
+        center_bottom: [3.0, 0.0, 0.0],
+        radius: 3.0,
+        x_axis: [1.0, 0.0, 0.0],
+        y_axis: [0.0, 1.0, 0.0],
+        direction: [0.0, 0.0, 1.0],
+        depth: 10.0,
+    };
+    let curves = cylinder_cylinder_ssi(&cyl_a, &cyl_b, 0.0, 10.0);
+    assert_eq!(curves.len(), 2, "Should produce 2 intersection lines");
+    for curve in &curves {
+        if let SSICurve::Line { start, end: _ } = curve {
+            assert!((start[0] - 1.5).abs() < 1e-6, "Line x should be 1.5, got {}", start[0]);
+            let expected_y = (9.0 - 2.25_f64).sqrt(); // sqrt(6.75) ~= 2.598
+            assert!((start[1].abs() - expected_y).abs() < 1e-6,
+                "Line y should be +/-{:.3}, got {}", expected_y, start[1]);
+        } else {
+            panic!("Expected SSICurve::Line");
+        }
     }
 }

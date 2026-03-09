@@ -111,12 +111,7 @@ impl WaffleKernel {
                 id: KernelId(b.id()),
             })?;
 
-        // Guard: no cylinders or revolve solids
-        if solid_a.cylinder_params.is_some() || solid_b.cylinder_params.is_some() {
-            return Err(KernelError::NotSupported {
-                operation: "boolean on cylinders".to_string(),
-            });
-        }
+        // Guard: revolve solids not supported for booleans
         if solid_a.revolve_params.is_some() || solid_b.revolve_params.is_some() {
             return Err(KernelError::NotSupported {
                 operation: "boolean on revolve solids".to_string(),
@@ -130,13 +125,18 @@ impl WaffleKernel {
             id
         };
 
-        let result = crate::boolean::boolean_op(
-            solid_a,
-            solid_b,
-            op,
-            &BooleanOptions::default(),
-            &mut id_alloc,
-        )?;
+        // Dispatch: use SSI pipeline for cylinders, polygon clipping for box-box
+        let result = if solid_a.cylinder_params.is_some() || solid_b.cylinder_params.is_some() {
+            crate::boolean::ssi_boolean_op(solid_a, solid_b, op, &mut id_alloc)?
+        } else {
+            crate::boolean::boolean_op(
+                solid_a,
+                solid_b,
+                op,
+                &BooleanOptions::default(),
+                &mut id_alloc,
+            )?
+        };
         self.next_id = next_id;
 
         let handle_id = self.alloc_handle();
