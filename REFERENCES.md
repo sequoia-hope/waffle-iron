@@ -6,51 +6,65 @@ Technical references for B-rep kernel development, boolean operations, and compu
 
 Find references by topic. Numbers refer to reference entries below.
 
-**Boolean operations (general)** → #2 Ch.3, #3, #17, #20
-**Boolean pipeline architecture** → #2 Ch.3, #3 (GFA), #8 (mesh arrangements), #17 (PADL)
+**Boolean operations (general)** → #2 Ch.3, #3, #17, #20, #24 (hybrid B-Rep/mesh)
+**Boolean pipeline architecture** → #2 Ch.3, #3 (GFA), #8 (mesh arrangements), #17 (PADL), #24 (6-stage hybrid)
 **BSP trees** → #11 (EMBER), #18 (Bernstein)
 **B-rep foundations** → #2 Ch.2, #16 (Euler ops), #17 (set membership classification)
 **CDT / constrained Delaunay** → #10 (optimized CDT), #12 (per-triangle CDT)
-**Classification (face/in-out)** → #7 (winding number), #8 (winding number vectors), #12 (radial sort), #17 (set membership), #20 (4-way/8-way)
-**Coplanar faces** → #3 (same-domain analysis), #8 (coplanar CDT clustering), #10 (coplanar-heavy perf), #11 (plane-based repr)
+**Chained booleans** → #24 (bijective re-mapping preserves topology across chains)
+**Classification (face/in-out)** → #7 (winding number), #8 (winding number vectors), #12 (radial sort), #17 (set membership), #20 (4-way/8-way), #30 (GWN on trimmed NURBS, no tessellation)
+**Coplanar / overlap regions** → #3 (same-domain analysis), #8 (coplanar CDT clustering), #10 (coplanar-heavy perf), #11 (plane-based repr), #26 (overlap as 2D phenomenon, bilevel optimization)
 **CSG / constructive solid geometry** → #14 (hybrid CSG), #17 (CSG→BRep), #2 Ch.3
 **Curvature (curves)** → #22 (finite total curvature, discrete/smooth bridge)
-**Curved surface booleans** → #13 (ESOLID, exact on quadrics), #14 (hybrid NURBS/mesh)
+**Curved surface booleans** → #13 (ESOLID, exact on quadrics), #14 (hybrid NURBS/mesh), #24 (hybrid B-Rep/mesh, SIGGRAPH 2025), #28 (watertight NURBS reparameterization)
 **DCEL / half-edge** → #16 (Mäntylä), #20 (Tekla/DCEL hierarchy)
-**Degeneracy handling** → #5 (SoS), #6 (topology-oriented), #8 (no general position), #12 (two-case reduction)
+**Deflation / singularity regulation** → #29 (over-determined system transforms singular zeros to regular)
+**Degeneracy handling** → #5 (SoS), #6 (topology-oriented), #8 (no general position), #12 (two-case reduction), #25 (characteristic points determine topology), #29 (deflation for tangent points/tiny loops)
 **Delaunay complexes** → #23 Ch.III (alpha complexes)
+**Dixon resultant / implicitization** → #25 (Dixon matrix for SSI topology), #27 (algebraic methods survey)
 **Edge splitting / pave blocks** → #3 (OCCT pave blocks, shrunk ranges)
 **Euler operators** → #2 Ch.2, #16 (completeness proof), #20 (MEV/MEF/MEKL)
 **Exact arithmetic** → #4 (adaptive expansions), #9 (indirect predicates), #10 (exact constructions), #13 (lazy exact), #15 (Nef, exact throughout), #19 (filter thresholds)
 **Floating-point robustness** → #1 Ch.4, #2 Ch.4, #4, #19 (filter failure probabilities)
 **Homology / topological invariants** → #23 Ch.IV–V (Euler characteristic, Betti numbers)
-**Intersection curves** → #1 Ch.5–6, #3 (FF interference), #13 (algebraic curves on quadrics)
+**Hybrid B-Rep/mesh boolean** → #14 (Sheng 2018), #24 (Yang 2025, bijective mapping)
+**Intersection curves** → #1 Ch.5–6, #3 (FF interference), #13 (algebraic curves on quadrics), #25 (topology-guaranteed tracing), #27 (comprehensive survey)
 **Manifoldness** → #6 (topology-first guarantees), #16 (Euler ops preserve), #17 (regularization)
 **Mesh arrangements** → #8 (Zhou), #9 (Cherchi), #10 (Levy), #12 (Barki)
 **Mesh booleans (exact)** → #8, #9, #10, #11, #12, #18
 **Morse theory** → #23 Ch.VI
 **Nef polyhedra** → #15 (CGAL Nef 3D, sphere maps, non-manifold)
-**NURBS / parametric surfaces** → #1 Ch.5, #2 Ch.5, #13 (ESOLID), #14 (hybrid)
+**Knot insertion / refinement / degree elevation** → #32 Ch.5 (algorithms A5.1-A5.9)
+**NURBS / parametric surfaces** → #1 Ch.5, #2 Ch.5, #13 (ESOLID), #14 (hybrid), #28 (watertight reparameterization), #32 (comprehensive NURBS algorithms)
+**NURBS evaluation and derivatives** → #32 Ch.2-4 (basis functions, curves, surfaces, rational forms)
+**NURBS implementation** → #32 Ch.13 (data structures, memory, error control, programming concepts)
 **Numerical robustness** → #1 Ch.4, #2 Ch.4, #4, #6, #19
+**Point inversion / projection** → #32 Ch.6 (A6.1-A6.5, Newton iteration with convergence criteria)
 **Offset curves/surfaces** → #1 Ch.11
 **orient2d / orient3d** → #4 (Shewchuk), #5 (SoS perturbation), #9 (indirect variants), #19 (failure prob)
+**Overlap region extraction** → #26 (Yang 2025, bilevel optimization, 2D overlap boundary)
 **Perturbation (SoS)** → #5 (Edelsbrunner-Mucke), #8 (uses SoS for triangle sort)
 **Perturbation cascade (ours, alternatives)** → #5 (SoS replacement), #6 (topology-oriented replacement), #3 (fuzzy booleans)
 **Persistent homology** → #23 Ch.VII
 **Plane-based representation** → #11 (EMBER, integer coords), #18 (BSP + planes)
 **Radial sort** → #10 (Levy, non-manifold edges), #12 (Barki, classification)
 **Regularized booleans** → #12 (explicit regularization), #17 (closure-of-interior definition)
-**Robustness comparison** → #15 (Nef vs ACIS), #20 (Tekla vs CGAL vs EMBER)
+**Robustness comparison** → #15 (Nef vs ACIS), #20 (Tekla vs CGAL vs EMBER), #27 (SSI method comparison across OCCT/ACIS/SolidWorks)
 **Rust implementations** → #21 (kigumi mesh booleans)
+**Scale normalization** → #24 (unit-cube normalization before mesh boolean), #27 (all production systems normalize), #31 (unit-cube + ε=10⁻⁶ after normalization)
 **Set membership classification** → #17 (PADL), #20 (in/out/on)
 **Shell assembly / closure** → #3 (building part stages), #15 (Nef), #16 (Euler ops)
 **Simplicial complexes** → #23 Ch.III
 **Spatial indexing / AABB** → #2 Ch.3.7, #12 (AABB-accelerated)
-**Surface-surface intersection** → #1 Ch.5 (lattice/marching/subdivision), #3 (FF interference)
+**SSI topology determination** → #25 (Dixon matrix, characteristic points), #27 (algebraic vs numerical survey), #29 (IATA, interval algebraic analysis in 4D)
+**Surface-surface intersection** → #1 Ch.5 (lattice/marching/subdivision), #3 (FF interference), #25 (topology-guaranteed tracing), #27 (comprehensive survey), #28 (isocurve reparameterization), #29 (IATA hybrid symbolic-numeric)
 **Tessellation / mesh conversion** → #22 (curvature across discrete/smooth boundary)
-**Tolerance / fuzzy** → #3 (fuzzy booleans, SetFuzzyValue), #13 (lazy exact vs tolerance)
+**Tolerance / fuzzy** → #3 (fuzzy booleans, SetFuzzyValue), #13 (lazy exact vs tolerance), #28 (gap-free via reparameterization)
 **Topological validity** → #6 (topology-oriented), #16 (Euler ops), #23 (homology invariants)
-**Winding numbers** → #7 (generalized), #8 (winding number vectors), #11 (EMBER WNV)
+**Trim testing (2D)** → #30 (2D GWN for parametric trim containment)
+**Watertightness / gap-free geometry** → #28 (isocurve reparameterization), #24 (mesh boolean guarantees watertight), #30 (GWN robust to non-watertight geometry)
+**Self-intersection detection** → #31 (algebraic signature, NURBS control-point-based)
+**Winding numbers** → #7 (generalized), #8 (winding number vectors), #11 (EMBER WNV), #30 (GWN on trimmed NURBS via Stokes' theorem)
 
 ## Primary References
 
@@ -504,21 +518,298 @@ https://webhomes.maths.ed.ac.uk/~v1ranick/papers/edelcomp.pdf
 - **Part B** (Topology): Homology, Duality (Poincaré, Alexander), Morse Theory (smooth/piecewise-linear)
 - **Part C** (Algorithms): Persistence, Reeb Graphs
 
+### 32. Piegl & Tiller — "The NURBS Book" (2nd Edition, 1997)
+
+**Access**: Springer (purchased). ISBN 978-3-540-61545-3.
+
+**Local copy**: `refs/piegl_tiller1997_nurbs_book.pdf` (646 pages, full text extraction: 32,703 lines)
+
+**Citation**: Piegl, L. and Tiller, W. *The NURBS Book*. 2nd ed. Springer, Monographs in Visual Communications, 1997.
+
+**Relevance**: **The standard reference for NURBS implementation.** Every algorithm needed for the geometry layer of a CAD kernel — evaluation, knot insertion, degree elevation, point inversion, surface construction, fitting — is presented with C-like pseudocode, geometric interpretation, and tested implementations. This is the implementation manual for our kernel's geometry layer.
+
+**Chapter map for kernel development**:
+
+- **Ch. 1: Curve and Surface Basics** (pp. 1-43) — Implicit vs parametric forms, Bezier curves, rational Bezier, tensor product surfaces. Foundation for understanding the representation.
+- **Ch. 2: B-Spline Basis Functions** (pp. 47-78) — Definition, properties, derivatives, computational algorithms. The Cox-de Boor recursion and its stable evaluation.
+- **Ch. 3: B-spline Curves and Surfaces** (pp. 81-116) — Definition, properties, derivatives for both curves and surfaces. The core data structures.
+- **Ch. 4: Rational B-spline (NURBS) Curves and Surfaces** (pp. 117-138) — NURBS definition, properties, derivatives. The generalization from B-splines to rational forms. Homogeneous coordinate representation.
+- **Ch. 5: Fundamental Geometric Algorithms** (pp. 141-227) — **Critical chapter.** Knot insertion (Algorithm A5.1), knot refinement, knot removal, degree elevation (A5.9), degree reduction. These are the building blocks for subdivision, Bezier extraction, and surface splitting — all needed for SSI and boolean face division.
+- **Ch. 6: Advanced Geometric Algorithms** (pp. 229-279) — **Critical chapter.** Point inversion and projection (A6.1-A6.5), surface tangent vector inversion, reparameterization, curve/surface reversal. Point inversion is the operation truck's `search_parameter` implements — this chapter provides the correct algorithms with convergence analysis.
+- **Ch. 7: Conics and Circles** (pp. 281-330) — Conic arcs as rational quadratics, circle construction. Relevant for representing cylinder/cone/sphere edges exactly.
+- **Ch. 8: Construction of Common Surfaces** (pp. 333-351) — Bilinear, cylinders, ruled surfaces, surfaces of revolution, scaling. Direct construction of the primitive surfaces in mechanical CAD (cylinder, cone, sphere, torus).
+- **Ch. 9: Curve and Surface Fitting** (pp. 361-452) — Global/local interpolation, least squares approximation, constrained fitting. Needed for fitting NURBS curves to intersection curve sample points (IC edge healing).
+- **Ch. 10: Advanced Surface Construction** (pp. 455-496) — Skinning, sweeping, Coons surfaces, curve network interpolation. Feature creation operations.
+- **Ch. 11: Shape Modification Tools** (pp. 509-562) — Control point repositioning, weight modification, warping, bending, constraint-based shaping. Parametric editing.
+- **Ch. 12: Standards and Data Exchange** (pp. 571-586) — IGES, STEP, PHIGS. File format interoperability.
+- **Ch. 13: B-spline Programming Concepts** (pp. 593-616) — Data types, data structures, memory allocation, error control, utility routines. Implementation architecture.
+
+**Key algorithms for our kernel** (by algorithm number):
+- **A2.1**: FindSpan — locate knot span for parameter value
+- **A2.2/A2.3**: BasisFuns / DersBasisFuns — evaluate basis functions and derivatives
+- **A3.1/A3.5**: CurvePoint / SurfacePoint — evaluate curve/surface at parameter
+- **A3.2/A3.6**: CurveDerivsAlg1 / SurfaceDerivsAlg1 — compute derivatives
+- **A5.1**: CurveKnotIns — knot insertion (Oslo algorithm)
+- **A5.3**: SurfaceKnotIns — surface knot insertion
+- **A5.4**: RefineKnotVectCurve — knot refinement
+- **A5.9**: DegreeElevateCurve — degree elevation
+- **A6.1**: CurvePointInversion — point inversion on curves (Newton iteration with convergence criteria)
+- **A6.2**: SurfacePointInversion — point inversion on surfaces (Newton iteration in 2D parameter space)
+- **A9.1**: GlobalCurveInterp — global curve interpolation through points
+
+## Recent Advances in Curved Boolean Operations (2019–2026)
+
+### 24. Yang, Jia & Yan — "Boolean Operations on NURBS B-Rep Models via a Hybrid Approach" (2025)
+
+**Access**: SIGGRAPH 2025. PDF available at author's page:
+https://yangjieyin.github.io/homepage/
+
+**Local copy**: `refs/yang2025_hybrid_boolean.pdf`
+
+**Citation**: Yang, J., Jia, X. and Yan, D.-M. "Boolean Operations for Solids Represented by NURBS B-Rep via a Hybrid Approach." ACM Transactions on Graphics (SIGGRAPH 2025).
+
+**Relevance**: **The most important reference for our kernel redesign.** Solves the fundamental problem that has plagued our pipeline: performing reliable boolean operations on NURBS B-rep without degrading to mesh approximations. Uses bijective mesh↔B-Rep mapping to get the best of both worlds — exact mesh boolean for topological decisions, NURBS surfaces for geometric accuracy. Zero failures on their test suite, 17× faster than OCCT, supports chained booleans via re-mapping.
+
+**Six-stage pipeline**:
+1. **Tessellation**: Convert B-Rep faces to triangulated mesh with bijective mapping (each mesh triangle maps to exactly one B-Rep face, preserving parametric coordinates).
+2. **Mesh Boolean**: Apply Cherchi et al. 2022 exact mesh boolean (indirect predicates, no perturbation, no general position assumptions). This produces the topologically correct result mesh.
+3. **Topology Extraction**: From the result mesh, extract the topological structure — which original faces survive, how they are trimmed, which new edges are created. The bijective mapping makes this unambiguous.
+4. **SSI Refinement**: For intersection edges that lie on curved surfaces, refine the mesh-derived approximation to true surface-surface intersection curves using tangent-plane optimization. Key insight: the mesh boolean gives the correct topology (which faces intersect, the combinatorial structure of the result), and this stage only improves geometric accuracy.
+5. **Trim Curve Construction**: Build NURBS trim curves on the original surfaces from the refined intersection curves. The original surfaces are never re-approximated — only re-trimmed.
+6. **B-Rep Assembly**: Assemble the final B-Rep from trimmed faces, inheriting the topology from the mesh boolean and geometry from the original NURBS surfaces.
+
+**Key insights for our work**:
+- **Bijective mapping is the key enabler**: Every mesh vertex/edge/triangle maps to exactly one B-Rep vertex/edge/face and vice versa. This eliminates the "which face does this intersection point belong to?" ambiguity that causes our `add_polygon_vertex_capturing` failures.
+- **Topology from mesh, geometry from NURBS**: The mesh boolean is guaranteed correct (exact predicates). The NURBS geometry is preserved (never tessellated-and-reconstructed). This separates the hard problem (topological correctness) from the tractable problem (geometric accuracy).
+- **Chained booleans work**: After each boolean, re-tessellate the result and rebuild the bijective mapping. No accumulated error, no degraded face geometry.
+- **Scale-independent**: Mesh boolean operates after unit-cube normalization. No absolute tolerances.
+- **17× faster than OCCT** on their benchmark suite, with zero failures vs OCCT's non-trivial failure rate.
+
+### 25. Yang, Jia & Yan — "Topology Guaranteed B-Rep Surface-Surface Intersection" (2023)
+
+**Access**: ACM Digital Library (open access):
+https://dl.acm.org/doi/abs/10.1145/3618349
+
+**Local copy**: `refs/yang2023_topology_guaranteed_ssi.pdf`
+
+**Citation**: Yang, J., Jia, X. and Yan, D.-M. "Topology Guaranteed B-Rep Surface-Surface Intersection." ACM Transactions on Graphics 42(6):240, 2023 (SIGGRAPH Asia).
+
+**Relevance**: Solves the SSI topology determination problem — knowing the correct topology (number of branches, connectivity, singularities) of the intersection curve BEFORE tracing it. This eliminates the class of failures where our pipeline traces an intersection curve with the wrong topology (missing branches, incorrect connectivity at singular points).
+
+**Five-stage algorithm**:
+1. **Bounding box test**: Quick rejection for non-intersecting surface pairs.
+2. **Implicitization via Dixon matrix**: Convert one parametric surface to implicit form using the Dixon resultant matrix. The Dixon matrix is more numerically stable than Sylvester/Bezout resultants for NURBS surfaces.
+3. **Characteristic point computation**: Find singular points of the implicit curve in parameter space. These are the points where the intersection curve topology changes — branch points, cusps, self-intersections. Uses the GCD of the Dixon resultant and its partial derivatives.
+4. **Topology determination**: From the characteristic points, determine the exact topology of each intersection branch — is it a loop? does it connect to the surface boundary? how many branches meet at each singular point?
+5. **Curve tracing with topology guarantee**: Trace the intersection curve using the determined topology as a constraint. If tracing produces a result inconsistent with the determined topology, it is an error to be corrected, not accepted.
+
+**Also introduces**: Redundant curve clipping — when the Dixon resultant introduces spurious algebraic curves (from the implicitization process), these are detected and removed before topology determination.
+
+**Performance**: Successfully handles cases where OCCT, ACIS, and SolidWorks fail, including high-degree NURBS with multiple tangential contacts.
+
+### 26. Yang & Jia — "Overlap Region Extraction for Two B-Rep Models" (2025)
+
+**Access**: SIGGRAPH Asia 2025. PDF available at author's page:
+https://yangjieyin.github.io/homepage/
+
+**Local copy**: `refs/yang2025_overlap_region_extraction.pdf`
+
+**Citation**: Yang, J. and Jia, X. "Overlap Region Extraction for Two B-Rep Models." ACM Transactions on Graphics (SIGGRAPH Asia 2025).
+
+**Relevance**: **Directly solves our D1 (coplanar faces) problem.** Our entire D1 patch cascade (B14 through B26, ~3000 lines of code) was trying to force 1D intersection curve semantics onto what is fundamentally a 2D phenomenon. When two surfaces are coplanar or near-coplanar, their "intersection" is not a curve but a 2D overlap region bounded by a 1D curve. This paper provides the correct framework.
+
+**Key insight — overlap is 2D with 1D boundary**: When two NURBS surfaces are coplanar (or nearly so), standard SSI algorithms fail because they search for a 1D intersection curve, but the intersection is a 2D surface region. The correct approach is:
+1. **Detect** that the surfaces overlap (not just intersect along a curve).
+2. **Compute the overlap boundary** — the 1D curve where one surface's trim boundary crosses the other surface. This is a 2D problem in the shared parameter space, not a 3D SSI problem.
+3. **Extract the overlap region** as a bounded 2D domain.
+
+**Bilevel optimization**: The overlap boundary is computed via bilevel optimization. The outer level finds points on surface A's trim boundary that lie on surface B (a constrained optimization in A's parameter space). The inner level projects these points onto surface B (closest-point projection). The boundary curve is then traced in both parameter spaces simultaneously.
+
+**Why our D1 approach was wrong**: We tried to compute coplanar "intersection curves" by projecting trim boundaries, computing 2D polygon booleans (iOverlay), and injecting overlay fragments. This failed because:
+- The projection step loses the parametric connection between surfaces
+- `add_independent_loop` creates topologically isolated wires (no vertex sharing)
+- The boundary curve needs to be a shared topological entity, not independent geometry
+Yang's bilevel approach computes the boundary curve as a shared entity from the start.
+
+**Implications for kernel design**: Overlap detection should be a **preprocessing step** before SSI, not a special case within it. The overlap boundary is computed with different algorithms than transversal intersection curves.
+
+### 27. Li, Yang & Jia — "Surface-Surface Intersection Computation: A Survey with New Results" (2026)
+
+**Access**: Computer-Aided Design (Elsevier), 2026.
+
+**Local copy**: `refs/li2026_ssi_survey.pdf`
+
+**Citation**: Li, J., Yang, J. and Jia, X. "Surface-Surface Intersection Computation: A Survey with New Results." Computer-Aided Design, 2026.
+
+**Relevance**: The most comprehensive and current survey of SSI methods. Covers taxonomy, algorithms, open problems, and comparative benchmarks. Validates the hybrid approach (#24) as the state of the art.
+
+**SSI method taxonomy**:
+- **Lattice methods**: Subdivide parameter domains into grids, find approximate intersection points, connect into curves. Simple but resolution-dependent. OCCT's IntPatch uses a variant.
+- **Marching methods**: Start from a seed point, march along the intersection curve using differential geometry (tangent vector = n₁ × n₂). Fast but can miss disconnected branches and has trouble at singular points.
+- **Subdivision methods**: Recursively subdivide both surfaces until patches are sufficiently flat, then intersect the flat approximations. Robust but slow. Bezier clipping is a refined variant.
+- **Algebraic methods**: Implicitize one surface (Dixon/Sylvester resultant), reduce to curve tracing in 2D. Exact topology but high algebraic degree. Yang 2023 (#25) is the state of the art here.
+- **Hybrid methods**: Combine two or more approaches. The recommended architecture: fast numerical method for easy cases, algebraic fallback for degenerate cases.
+
+**Comparative benchmarks** (Table 5 in the paper):
+- OCCT fails on 4/8 test cases (high-degree tangential, self-intersecting, near-degenerate)
+- ACIS fails on 2/8 test cases
+- SolidWorks fails on 3/8 test cases
+- Yang 2023 (#25) succeeds on all 8/8
+
+**Open problems identified**:
+1. Robust singular point handling (cusps, branch points)
+2. Near-tangential intersection (the hardest case numerically)
+3. Self-intersecting surfaces
+4. High-degree NURBS (degree > 6)
+5. Performance at interactive rates for complex models
+6. Integration of SSI with boolean pipeline (topology preservation across the full pipeline)
+
+**Key recommendations from the survey**:
+- No single SSI method handles all cases — hybrid architecture is necessary
+- Algebraic topology determination (#25) should be used as preprocessing for numerical tracing
+- Scale normalization to unit cube is essential before any numerical SSI
+- Adaptive precision (exact predicates with floating-point filters) is the correct robustness strategy
+
+### 28. Urick, Marussig, Hughes, Riesenfeld & Cohen — "Watertight Boolean Operations: A Framework for Creating CAD-compatible Gap-free Editable Solid Models" (2019)
+
+**Access**: Computer-Aided Design (Elsevier), 2019.
+
+**Local copy**: `refs/urick2019_watertight_booleans.pdf`
+
+**Citation**: Urick, B., Marussig, B., Hughes, T.J.R., Riesenfeld, R.F. and Cohen, E. "Watertight Boolean Operations: A Framework for Creating CAD-compatible Gap-free Editable Solid Models." Computer-Aided Design 115:80–98, 2019.
+
+**Relevance**: Addresses the gap problem in NURBS boolean results — after trimming, adjacent faces don't share exact edge geometry, creating gaps that cause problems for downstream operations (meshing, analysis, chained booleans). Their solution: reparameterize trimmed faces so that intersection curves become isoparametric lines (knot lines) of untrimmed patches.
+
+**Three-stage process**:
+1. **SSI computation**: Standard surface-surface intersection to find intersection curves.
+2. **Isocurve reparameterization**: For each trimmed face adjacent to an intersection curve, reparameterize the surface so that the intersection curve becomes an isoparametric curve (constant u or constant v). The reparameterized surface is untrimmed along that edge — no trim curve needed, so no gap.
+3. **Result assembly**: Assemble the reparameterized patches into a watertight B-Rep. Adjacent faces share exact edge geometry by construction (both use the same isoparametric curve as their common edge).
+
+**Key insight for our work**: Traditional NURBS booleans produce trimmed surfaces with approximate trim curves. Two adjacent trimmed faces approximate the intersection curve independently — their trim curves are close but not identical, creating gaps. The reparameterization approach eliminates this by making the intersection curve part of the surface parameterization itself.
+
+**Limitations**: Reparameterization can distort the surface parameterization, affecting surface quality. Works best for simple intersection topologies. Complex intersection patterns (many branches, tangential contacts) make reparameterization impractical. The hybrid approach (#24) handles these cases better by keeping original surface parameterizations and relying on exact mesh topology.
+
+**Relevance to our kernel**: Useful for simple-topology intersections (planar cuts, cylinder-plane) where reparameterization is straightforward. For complex cases, the hybrid approach (#24) is more appropriate. Could be a post-processing step to improve geometric quality of boolean results.
+
+### 29. Cheng, Zhang, Xiao & Li — "Topology-Driven Approximation to Rational Surface-Surface Intersection via Interval Algebraic Topology Analysis" (2023)
+
+**Access**: ACM open access:
+https://dl.acm.org/doi/10.1145/3592452
+
+**Local copy**: `refs/cheng2023_topology_driven_ssi.pdf`
+
+**Citation**: Cheng, J.-S., Zhang, B., Xiao, Y. and Li, M. "Topology-driven approximation to rational surface-surface intersection via interval algebraic topology analysis." ACM Transactions on Graphics 42(4):38, 2023 (SIGGRAPH).
+
+**Relevance**: A hybrid symbolic-numeric SSI framework that determines intersection topology BEFORE tracing, using interval algebraic topology analysis (IATA) in the 4D parameter space. Handles all the hard cases: tangent points (isolated or not), tangent curves, tiny loops, self-intersections, partial surface coincidences, and mixed combinations. Compared favorably against IRIT, SISL, and Parasolid — correct topology on 15/16 benchmark cases vs. partial failures in all three competitors.
+
+**Key innovation — IATA (Interval Algebraic Topology Analysis)**: Maps SSI singularities from 3D physical space to algebraic system solutions in 4D parameter space (s,t,u,v). The SSI curve C is viewed as the image of a 4D implicit curve Ψ = {R₁(s,t) - R₂(u,v) = 0} under projection. Singularities of C correspond to singularities of Ψ, which can be classified and computed algebraically.
+
+**Three fundamental singular cases + regular**:
+- **C₀ (regular)**: Non-zero tangent vector TΨ in at least one component. Simple connected curve segments. Monotonicity analysis suffices.
+- **C₁ (surface singularity)**: Cusp points/curves on one surface. Detected via Σ₁ = ∂R₁/∂s × ∂R₁/∂t = 0. The 4D preimage is regular on Ψ even though the 3D projection is singular — so C₁ singularities can be computed as regular zeros.
+- **C₂ (tangency)**: Two surfaces tangent — normals are collinear. TΨ = 0 at these points. The hardest case. Sub-cases: isolated tangent points, tangent curves, tiny loops, partial coincidence, and mixtures. Solved via **deflation** — transform singular zeros into regular zeros of an over-determined system Φ = Ψ ∩ TΨ.
+- **C₃ (self-intersection)**: Two distinct 4D points map to the same 3D point. 6D algebraic system. Theorem 3 provides injectivity conditions to rule out self-intersection within a box.
+
+**Deflation technique for C₂**: The key challenge is that tangent points are singular zeros of both Ψ and its tangent vector. Deflation adds the tangent vector equations TΨᵢ = 0 to form an over-determined system where the singular zero becomes regular. For isolated tangent points and tiny loops (which co-exist with other singularities), Lemma 2 constructs a regulated system Φ whose regular curve passes through both isolated singularities and tiny loops, enabling their robust detection.
+
+**Overall algorithm (Algorithm 1)**:
+1. Construct BVHs for both surfaces, find candidate box pairs
+2. Classify each 4D box as C₀/C₁/C₂ by checking function system zeros
+3. Resolve C₂ boxes first (most complex) — compute singularity sub-cases via decision trees
+4. Trace regular branches through C₀ boxes from boundary points and C₂-derived starting points
+5. Resolve C₁ singularities globally
+6. Resolve C₃ self-intersections
+7. Link traced point sequences, optionally fit B-splines
+
+**Performance**: Implemented in C++ with GPU for initial box generation. Slower than competitors on easy cases (6s vs 0.01-0.8s for regular multi-loop) but correct on hard cases where others fail. Currently limited to rational Bézier surfaces (degree 3-7); extension to general NURBS noted as future work.
+
+**Relevance to our kernel**: Complementary to Yang 2023 (#25) — both determine SSI topology before tracing, but via different approaches. Cheng uses interval algebraic analysis in the 4D parameter box; Yang uses Dixon matrix implicitization. Cheng handles self-intersecting surfaces (C₃) which Yang does not address. The deflation technique for detecting isolated tangent points and tiny loops is novel and directly applicable to our tangential intersection failures (D4). The interval Newton certification of solution existence/uniqueness provides rigorous topology guarantees. Could serve as the algebraic fallback in a hybrid SSI architecture.
+
+### 30. Spainhour & Weiss — "Robust Containment Queries over Collections of Trimmed NURBS Surfaces via Generalized Winding Numbers" (2026)
+
+**Access**: ACM open access:
+https://dl.acm.org/doi/10.1145/3797957
+
+**Implementation**: BSD-licensed, in LLNL's Axom library:
+https://github.com/llnl/axom
+
+**Local copy**: `refs/spainhour2026_gwn_trimmed_nurbs.pdf`
+
+**Citation**: Spainhour, J. and Weiss, K. "Robust Containment Queries over Collections of Trimmed NURBS Surfaces via Generalized Winding Numbers." ACM Transactions on Graphics, 2026. DOI: 10.1145/3797957.
+
+**Relevance**: **Critical reference for our kernel's face classification.** The first algorithm for evaluating generalized winding numbers (GWN) directly on trimmed NURBS surfaces — no tessellation, no point clouds, no mesh approximation. This directly solves the inside/outside classification problem that has driven the majority of our boolean pipeline bugs (B14 through B27). The GWN degrades gracefully for non-watertight geometry, eliminating the class of misclassifications that arise from tessellation-dependent evaluation.
+
+**Core technique — Stokes' theorem dimension reduction**: The 2D surface integral for solid angle (GWN definition) is reduced to a 1D line integral along the trimming curve boundaries of each NURBS patch. This provides both efficiency (O(n) vs O(n²) quadrature nodes) and stability (near-singular behavior localized to boundary curves, not entire surface). A half-integer correction term accounts for the GWN field's jump discontinuity across surfaces.
+
+**Three-case evaluation**:
+- **Far-field**: Query point outside surface AABB → direct boundary integral only. Cheap. >90% of point-surface pairs in practice.
+- **Near-field**: Query inside AABB → boundary integral + correction via line-surface intersection test. Each signed intersection adds ±0.5.
+- **Edge cases**: Intersection near boundary curves, cusps, or tangencies → extract parametric disk, reprocess recursively.
+
+**Key techniques for our kernel**:
+1. **GWN-based face classification**: Replace tessellation-based winding number + ray-cast voting with direct NURBS GWN evaluation. Eliminates discretization-dependent misclassification. For each face fragment, pick interior point, sum GWN against other solid's patches. GWN > 0.5 → inside.
+2. **2D GWN for trim testing**: Uses 2D generalized winding numbers (from Spainhour et al. 2024) to determine whether parametric points lie within trimmed face regions. More robust than edge-crossing parity tests when trimming curves have gaps.
+3. **GARP for line-surface intersection**: Recursive NURBS subdivision to approximately-bilinear sub-patches, solved with Reshetov 2019 closed-form bilinear intersection. Avoids Newton convergence failures near tangencies.
+4. **Parametric disk extraction**: Isolates problematic regions (cusps, boundary intersections) by splitting along small parametric circles. General-purpose degenerate-case handler.
+5. **Tolerance architecture**: Three independent, relative/user-controlled tolerances (quadrature εq, intersection εlsi, disk radius) — superior to truck's single absolute 1e-6.
+6. **Memoization**: Quadrature nodes cached per trimming curve, reused across all classification queries for the same solid. Natural for boolean pipeline where many fragments classify against same patches.
+
+**Coincident point handling**: For points ON the surface, GWN is defined as average of two one-sided limits → 0.5 at single-layer surfaces. Correction terms cancel. Provides principled coplanar face classification without heuristics.
+
+**Performance**: 0.004ms (far-field) to 94ms (edge cases) per query. Feasible for boolean pipeline classifying ~10-100 face fragments.
+
+### 31. Li, Jia & Chen — "Fast Determination and Computation of Self-intersections for NURBS Surfaces" (2025)
+
+**Access**: ACM open access (CC-BY 4.0):
+https://dl.acm.org/doi/10.1145/3727620
+
+**Local copy**: `refs/li2025_nurbs_self_intersection.pdf`
+
+**Citation**: Li, K., Jia, X. and Chen, F. "Fast Determination and Computation of Self-intersections for NURBS Surfaces." ACM Transactions on Graphics 44(2):18, 2025. DOI: 10.1145/3727620.
+
+**Relevance**: Fast algebraic self-intersection detection for NURBS surfaces. The algebraic signature — computed purely from control points — certifies self-intersection-freedom in microseconds. Useful as pre-boolean validation and for detecting problematic faces before SSI. Also validates unit-cube normalization as standard practice.
+
+**Key innovation — algebraic signature**: For a NURBS patch, the determination function f(u,v) = (Sᵤ × Sᵥ) · N(u₀,v₀) is expressed in B-spline basis. If all coefficients cₖₗ ≥ 0, the surface normal stays within a half-sphere → no self-intersection possible. Computed from control point differences and cross products — no surface evaluation needed.
+
+**Recursive subdivision algorithm**:
+1. Compute algebraic signature. If all non-negative → certified self-intersection-free.
+2. Subdivide at two nearby interior knots (avoids shared-boundary ambiguity).
+3. Cross-check complementary sub-patches for mutual intersection (OBB → control net → Newton).
+4. Recurse on each sub-patch. Terminate at tolerance 10⁻⁶ after unit-cube normalization.
+
+**Useful techniques for our kernel**:
+1. **Pre-boolean validation**: Check input faces for self-intersection before entering SSI pipeline.
+2. **Unit-cube normalization**: Confirms our B27 `compute_scale_normalization` approach. Paper uses ε=10⁻⁶ geometric, ε₁=10⁻³ flatness after normalization.
+3. **Loop detection via collinear normals**: 4-equation system (Eq. 8) detects small intersection loops that marching methods miss. Applicable to tangential IC detection (D4).
+4. **Flatness bound (Theorem C.3)**: Tight upper bound on patch-to-plane distance from second-order control point differences. Useful for adaptive tessellation/subdivision criteria.
+5. **Subdivision avoiding shared boundaries**: Cutting at two nearby knots instead of midpoint prevents degenerate shared-boundary configurations.
+
+**Comparison**: 2-4 orders of magnitude faster than OCCT and ACIS for simple surfaces. More robust on degenerate cases (near-tangential self-intersections, small loops, closed surfaces).
+
 ## How to Reference During Development
 
 When working on boolean reliability or kernel improvements:
 
-1. **Start with Hoffmann Ch. 3** for the algorithmic framework — understand the overall pipeline before diving into specifics
-2. **Study OpenCascade docs (#3)** for production-validated degenerate handling — the staged interference approach (VV→VE→EE→VF→EF→FF) and pave block data structures
-3. **Use Patrikalakis Ch. 5** for intersection algorithm details — when you need to understand or improve how two surfaces find their intersection curve
-4. **Use Patrikalakis Ch. 4** for robustness — when debugging numerical issues or tolerance problems
-5. **Use Hoffmann Ch. 4** for error analysis — when trying to understand why geometric operations fail
-6. **Use Jacobson (#7) + Zhou (#8)** for classification — winding numbers are the correct replacement for our ray-cast majority voting
-7. **Use Sugihara & Iri (#6)** for architectural guidance — topology-first algorithm design eliminates the need for perturbation
-8. **Use Edelsbrunner & Mucke (#5)** for degenerate handling — Simulation of Simplicity eliminates all degenerate-case special handling
-9. **Use ESOLID (#13) or Sheng (#14)** for curved surface intersection — hybrid NURBS/mesh approach for robust booleans
-10. **Use Devillers & Preparata (#19)** for filter threshold computation — when adding new predicates or assessing whether floating-point is sufficient for a geometric decision
-11. **Use Levy (#10) or Cherchi (#9)** for exact constructions without CGAL — arithmetic expansions for both predicates and constructed intersection points
-12. **Use Barki (#12)** for co-refinement + radial-sort classification — the two-case reduction (orientable/non-orientable) simplifies classification logic
-13. **Use Hachenberger (#15 EWCG)** for sphere-map overlay and Nef polyhedra — when investigating alternatives to our shell closure recovery
-14. **Use Astarlioglu (#20)** for comparative analysis — quantitative robustness data across Tekla/CGAL/EMBER on standard test cases
+1. **Start with Yang (#24)** for the target architecture — the hybrid B-Rep/mesh pipeline is the state of the art for NURBS boolean operations. This is the blueprint for our kernel redesign.
+2. **Start with Hoffmann Ch. 3** for the algorithmic framework — understand the overall pipeline before diving into specifics
+3. **Study OpenCascade docs (#3)** for production-validated degenerate handling — the staged interference approach (VV→VE→EE→VF→EF→FF) and pave block data structures
+4. **Use Patrikalakis Ch. 5** for intersection algorithm details — when you need to understand or improve how two surfaces find their intersection curve
+5. **Use Patrikalakis Ch. 4** for robustness — when debugging numerical issues or tolerance problems
+6. **Use Hoffmann Ch. 4** for error analysis — when trying to understand why geometric operations fail
+7. **Use Jacobson (#7) + Zhou (#8)** for classification — winding numbers are the correct replacement for our ray-cast majority voting
+8. **Use Sugihara & Iri (#6)** for architectural guidance — topology-first algorithm design eliminates the need for perturbation
+9. **Use Edelsbrunner & Mucke (#5)** for degenerate handling — Simulation of Simplicity eliminates all degenerate-case special handling
+10. **Use ESOLID (#13) or Sheng (#14)** for curved surface intersection — hybrid NURBS/mesh approach for robust booleans
+11. **Use Devillers & Preparata (#19)** for filter threshold computation — when adding new predicates or assessing whether floating-point is sufficient for a geometric decision
+12. **Use Levy (#10) or Cherchi (#9)** for exact constructions without CGAL — arithmetic expansions for both predicates and constructed intersection points
+13. **Use Barki (#12)** for co-refinement + radial-sort classification — the two-case reduction (orientable/non-orientable) simplifies classification logic
+14. **Use Hachenberger (#15 EWCG)** for sphere-map overlay and Nef polyhedra — when investigating alternatives to our shell closure recovery
+15. **Use Astarlioglu (#20)** for comparative analysis — quantitative robustness data across Tekla/CGAL/EMBER on standard test cases
+16. **Use Yang (#25)** for SSI topology determination — when intersection curve tracing fails due to missing branches or incorrect connectivity at singular points
+17. **Use Yang (#26)** for coplanar/overlap handling — when two surfaces overlap rather than intersect along a curve. Overlap detection should be preprocessing, not a special case.
+18. **Use Li (#27)** for SSI method selection — comprehensive comparison of all SSI approaches with failure modes and benchmarks
+19. **Use Urick (#28)** for watertight edge geometry — isocurve reparameterization for gap-free results on simple intersection topologies
+20. **Use Cheng (#29)** for tangential/degenerate SSI — IATA framework with deflation handles isolated tangent points, tiny loops, and mixed singular cases that other methods miss
+21. **Use Spainhour (#30)** for face classification — GWN directly on trimmed NURBS without tessellation. The correct replacement for ray-cast voting and mesh-based winding numbers. BSD-licensed Axom implementation available.
+22. **Use Li (#31)** for pre-boolean validation — algebraic signature certifies self-intersection-freedom from control points in microseconds. Also: loop detection via collinear normals, flatness bounds, subdivision-avoiding-shared-boundaries
+23. **Use Piegl & Tiller (#32)** for ALL NURBS geometry implementation — evaluation (A3.1/A3.5), knot insertion (A5.1/A5.3), point inversion (A6.1/A6.2), degree elevation (A5.9), curve fitting (A9.1). The implementation manual for the geometry layer.
