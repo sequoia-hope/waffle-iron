@@ -6,6 +6,9 @@
 .DS_Store
 Cargo.lock
 
+# Claude Code session state
+.claude/
+
 # Docker
 .env
 
