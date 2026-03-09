@@ -1474,5 +1474,3 @@ fn i5_three_sequential_cylinder_cuts() {
 
     eprintln!("[I4] All 3 cuts passed: vol {v0:.0} → {v1:.0} → {v2:.0} → {v3:.0}");
 }
-
-

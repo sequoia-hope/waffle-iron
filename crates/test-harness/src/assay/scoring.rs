@@ -70,7 +70,10 @@ pub fn run_assay_mock(cases: &[AssayCase]) -> AssayReport {
 
 /// Run the full assay catalog using the provided builder factory.
 /// Each case gets a fresh ModelBuilder to avoid state leakage.
-pub fn run_assay_with<F: Fn() -> ModelBuilder>(cases: &[AssayCase], make_builder: F) -> AssayReport {
+pub fn run_assay_with<F: Fn() -> ModelBuilder>(
+    cases: &[AssayCase],
+    make_builder: F,
+) -> AssayReport {
     let start = Instant::now();
     let mut results = Vec::with_capacity(cases.len());
     let mut passed = 0usize;
@@ -161,11 +164,7 @@ fn run_single_case<F: Fn() -> ModelBuilder>(make_builder: &F, case: &AssayCase) 
     }
 }
 
-fn check_expected(
-    expected: &AssayExpected,
-    actual: &ExecutionResult,
-    failures: &mut Vec<String>,
-) {
+fn check_expected(expected: &AssayExpected, actual: &ExecutionResult, failures: &mut Vec<String>) {
     // Volume check
     if let Some(exp_vol) = expected.volume {
         match actual.volume {
@@ -188,10 +187,7 @@ fn check_expected(
         match actual.euler {
             Some(act_euler) => {
                 if act_euler != exp_euler {
-                    failures.push(format!(
-                        "Euler: expected {}, got {}",
-                        exp_euler, act_euler
-                    ));
+                    failures.push(format!("Euler: expected {}, got {}", exp_euler, act_euler));
                 }
             }
             None => {

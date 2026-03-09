@@ -24,10 +24,7 @@ fn assay_full_kernel() {
         if result.status != AssayStatus::Passed {
             println!(
                 "  {} [{}] {:?}: {}",
-                result.id,
-                result.description,
-                result.status,
-                result.detail
+                result.id, result.description, result.status, result.detail
             );
         }
     }

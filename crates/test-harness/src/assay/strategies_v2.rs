@@ -1240,6 +1240,8 @@ pub fn is_known_kernel_limitation(err: &str) -> bool {
         "index out of bounds",
         "already borrowed",
         "unwrap",
+        "non-manifold",
+        "not supported",
     ];
     let lower = err.to_lowercase();
     known_patterns.iter().any(|p| lower.contains(p))

@@ -1246,8 +1246,15 @@ fn circle_cut_cut_mm_scale() {
         Err(e) => panic!("[CCC] Step 1 FAIL: {e:?}"),
     }
 
-    m.true_circle_sketch("sk2", [depth, 0., 0.], [1., 0., 0.], -0.00196, 0.01043, 0.00527)
-        .unwrap();
+    m.true_circle_sketch(
+        "sk2",
+        [depth, 0., 0.],
+        [1., 0., 0.],
+        -0.00196,
+        0.01043,
+        0.00527,
+    )
+    .unwrap();
     m.extrude_cut("cut1", "sk2", depth).unwrap();
     let errs1 = m.engine_errors();
     if !errs1.is_empty() {
@@ -1258,8 +1265,15 @@ fn circle_cut_cut_mm_scale() {
         Err(e) => panic!("[CCC] Step 2 FAIL: {e:?}"),
     }
 
-    m.true_circle_sketch("sk3", [depth, 0., 0.], [1., 0., 0.], -0.00782, -0.00681, 0.00565)
-        .unwrap();
+    m.true_circle_sketch(
+        "sk3",
+        [depth, 0., 0.],
+        [1., 0., 0.],
+        -0.00782,
+        -0.00681,
+        0.00565,
+    )
+    .unwrap();
     m.extrude_cut("cut2", "sk3", depth).unwrap();
     let errs2 = m.engine_errors();
     if !errs2.is_empty() {

@@ -6,8 +6,8 @@
 use crate::assay::catalog::{AssayRecipe, BoolOp, Profile};
 use crate::assay::scoring::ExecutionResult;
 
-use kernel::types::RenderMesh;
 use crate::workflow::ModelBuilder;
+use kernel::types::RenderMesh;
 
 /// Execute a recipe against a ModelBuilder and return measured results.
 pub fn execute_recipe(
@@ -160,7 +160,13 @@ fn build_solid(
             // ModelBuilder::revolve takes degrees
             let angle_deg = angle_rad.to_degrees();
             builder
-                .revolve(&revolve_name, &sketch_name, *axis_origin, *axis_dir, angle_deg)
+                .revolve(
+                    &revolve_name,
+                    &sketch_name,
+                    *axis_origin,
+                    *axis_dir,
+                    angle_deg,
+                )
                 .map_err(|e| format!("revolve failed: {}", e))?;
 
             Ok(revolve_name)
@@ -234,6 +240,9 @@ fn mesh_volume(mesh: &RenderMesh) -> f64 {
 }
 
 /// Check if a triangle mesh is watertight (every edge shared by exactly 2 triangles).
+///
+/// Uses position-based edge matching (quantized to 1e-6 grid) instead of index-based,
+/// because the kernel produces per-face tessellation with non-shared vertices.
 fn check_watertight(mesh: &RenderMesh) -> bool {
     use std::collections::HashMap;
 
@@ -241,7 +250,17 @@ fn check_watertight(mesh: &RenderMesh) -> bool {
         return true;
     }
 
-    let mut edge_count: HashMap<(u32, u32), u32> = HashMap::new();
+    // Quantize vertex positions to avoid floating-point mismatches
+    let quantize = |idx: u32| -> (i64, i64, i64) {
+        let base = idx as usize * 3;
+        (
+            (mesh.vertices[base] as f64 * 1e6).round() as i64,
+            (mesh.vertices[base + 1] as f64 * 1e6).round() as i64,
+            (mesh.vertices[base + 2] as f64 * 1e6).round() as i64,
+        )
+    };
+
+    let mut edge_count: HashMap<((i64, i64, i64), (i64, i64, i64)), u32> = HashMap::new();
     let num_tris = mesh.indices.len() / 3;
 
     for i in 0..num_tris {
@@ -252,8 +271,8 @@ fn check_watertight(mesh: &RenderMesh) -> bool {
         ];
 
         for j in 0..3 {
-            let a = tri[j];
-            let b = tri[(j + 1) % 3];
+            let a = quantize(tri[j]);
+            let b = quantize(tri[(j + 1) % 3]);
             let edge = if a < b { (a, b) } else { (b, a) };
             *edge_count.entry(edge).or_insert(0) += 1;
         }
