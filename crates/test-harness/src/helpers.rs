@@ -231,7 +231,11 @@ pub fn circle_profile(cx: f64, cy: f64, r: f64, segments: u32) -> ProfileData {
     let profiles = vec![ClosedProfile {
         entity_ids,
         is_outer: true,
-        circle: None,
+        circle: Some(waffle_types::CircleProfile {
+            center_u: cx,
+            center_v: cy,
+            radius: r,
+        }),
         spline_segments: vec![],
     }];
 

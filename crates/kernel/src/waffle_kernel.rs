@@ -3,9 +3,9 @@
 //! Supports: make_faces_from_profiles → extrude_face → tessellate/extract_edges → introspect.
 //! Boolean ops, revolve, fillet, chamfer, shell remain NotSupported.
 
-use crate::geometry::curve::{CurveGeom, Line3D};
+use crate::geometry::curve::{Circle3D, CurveGeom, Line3D};
 use crate::geometry::point::{Point3, Vector3};
-use crate::geometry::surface::{Plane, SurfaceGeom};
+use crate::geometry::surface::{Cylinder, Plane, SurfaceGeom};
 use crate::tessellation;
 use crate::topology::arena::TopoArena;
 use crate::topology::euler_ops::{mef, mev, mvfs};
@@ -29,16 +29,34 @@ struct WaffleSolid {
     edge_map: HashMap<u64, EdgeIdx>,
     vertex_map: HashMap<u64, VertexIdx>,
     face_geometry: HashMap<FaceIdx, SurfaceGeom>,
-    #[allow(dead_code)]
     edge_geometry: HashMap<EdgeIdx, CurveGeom>,
+    cylinder_params: Option<CylinderParams>,
 }
 
-/// A standalone planar face (pre-extrude), stored as ordered 3D vertices.
+/// Parameters for cylinder tessellation (stored after extrude_circle).
+pub(crate) struct CylinderParams {
+    pub center_bottom: [f64; 3],
+    pub radius: f64,
+    pub x_axis: [f64; 3],
+    pub y_axis: [f64; 3],
+    pub direction: [f64; 3],
+    pub depth: f64,
+}
+
+/// Circle geometry stored in a standalone face (pre-extrude).
+struct CircleInfo {
+    center_3d: [f64; 3],
+    radius: f64,
+    x_axis: [f64; 3],
+    y_axis: [f64; 3],
+}
+
+/// A standalone face (pre-extrude), stored as either polygon vertices or circle info.
 struct StandaloneFace {
     vertices: Vec<[f64; 3]>,
     plane_origin: [f64; 3],
-    #[allow(dead_code)]
     plane_normal: [f64; 3],
+    circle_info: Option<CircleInfo>,
 }
 
 impl WaffleKernel {
@@ -61,6 +79,200 @@ impl WaffleKernel {
         let h = self.next_handle;
         self.next_handle += 1;
         h
+    }
+
+    /// Build a true cylinder B-Rep: 2 vertices, 3 edges, 3 faces.
+    fn extrude_circle(
+        &mut self,
+        circle_info: &CircleInfo,
+        standalone: &StandaloneFace,
+        direction: [f64; 3],
+        depth: f64,
+    ) -> Result<KernelSolidHandle, KernelError> {
+        let center = circle_info.center_3d;
+        let r = circle_info.radius;
+        let x_axis = circle_info.x_axis;
+        let y_axis = circle_info.y_axis;
+        let dir_norm = vec3_normalize(direction);
+
+        // Seam point positions
+        let bottom_seam = vec3_add(center, vec3_scale(x_axis, r));
+        let top_center = vec3_add(center, vec3_scale(dir_norm, depth));
+        let top_seam = vec3_add(bottom_seam, vec3_scale(dir_norm, depth));
+
+        let mut arena = TopoArena::new();
+
+        // Build topology: 1 solid, 1 shell, 3 faces, 3 loops, 2 vertices, 3 edges (6 half-edges)
+        let solid_idx = arena.add_solid();
+        let shell_idx = arena.add_shell(solid_idx);
+        arena.solids[solid_idx.0].outer_shell = shell_idx;
+
+        // 3 faces
+        let bottom_face_idx = arena.add_face(shell_idx);
+        let top_face_idx = arena.add_face(shell_idx);
+        let side_face_idx = arena.add_face(shell_idx);
+        arena.shells[shell_idx.0].face = bottom_face_idx;
+
+        // 3 loops (one per face)
+        let bottom_loop = arena.add_loop(bottom_face_idx);
+        let top_loop = arena.add_loop(top_face_idx);
+        let side_loop = arena.add_loop(side_face_idx);
+        arena.faces[bottom_face_idx.0].outer_loop = bottom_loop;
+        arena.faces[top_face_idx.0].outer_loop = top_loop;
+        arena.faces[side_face_idx.0].outer_loop = side_loop;
+
+        // 2 vertices
+        let v_bottom = arena.add_vertex(bottom_seam);
+        let v_top = arena.add_vertex(top_seam);
+
+        // 3 edges (each creates 2 half-edges)
+        let (e_bottom, he_bot_a, he_bot_b) = arena.add_edge();
+        let (e_top, he_top_a, he_top_b) = arena.add_edge();
+        let (e_seam, he_seam_a, he_seam_b) = arena.add_edge();
+
+        // Wire bottom cap: he_bot_a is a self-loop in bottom_loop
+        arena.half_edges[he_bot_a.0].origin = v_bottom;
+        arena.half_edges[he_bot_a.0].next = he_bot_a;
+        arena.half_edges[he_bot_a.0].prev = he_bot_a;
+        arena.half_edges[he_bot_a.0].loop_ = bottom_loop;
+        arena.loops[bottom_loop.0].half_edge = he_bot_a;
+
+        // Wire top cap: he_top_a is a self-loop in top_loop
+        arena.half_edges[he_top_a.0].origin = v_top;
+        arena.half_edges[he_top_a.0].next = he_top_a;
+        arena.half_edges[he_top_a.0].prev = he_top_a;
+        arena.half_edges[he_top_a.0].loop_ = top_loop;
+        arena.loops[top_loop.0].half_edge = he_top_a;
+
+        // Wire side face: he_bot_b → he_seam_a → he_top_b → he_seam_b → (cycle)
+        arena.half_edges[he_bot_b.0].origin = v_bottom;
+        arena.half_edges[he_bot_b.0].next = he_seam_a;
+        arena.half_edges[he_bot_b.0].prev = he_seam_b;
+        arena.half_edges[he_bot_b.0].loop_ = side_loop;
+
+        arena.half_edges[he_seam_a.0].origin = v_bottom;
+        arena.half_edges[he_seam_a.0].next = he_top_b;
+        arena.half_edges[he_seam_a.0].prev = he_bot_b;
+        arena.half_edges[he_seam_a.0].loop_ = side_loop;
+
+        arena.half_edges[he_top_b.0].origin = v_top;
+        arena.half_edges[he_top_b.0].next = he_seam_b;
+        arena.half_edges[he_top_b.0].prev = he_seam_a;
+        arena.half_edges[he_top_b.0].loop_ = side_loop;
+
+        arena.half_edges[he_seam_b.0].origin = v_top;
+        arena.half_edges[he_seam_b.0].next = he_bot_b;
+        arena.half_edges[he_seam_b.0].prev = he_top_b;
+        arena.half_edges[he_seam_b.0].loop_ = side_loop;
+
+        arena.loops[side_loop.0].half_edge = he_bot_b;
+
+        // Set vertex half-edge references
+        arena.vertices[v_bottom.0].half_edge = Some(he_bot_a);
+        arena.vertices[v_top.0].half_edge = Some(he_top_a);
+
+        // Build maps and geometry
+        let handle_id = self.alloc_handle();
+        let mut face_map = HashMap::new();
+        let mut edge_map = HashMap::new();
+        let mut vertex_map = HashMap::new();
+        let mut face_geometry = HashMap::new();
+        let mut edge_geometry = HashMap::new();
+
+        // Face geometry
+        let bottom_kid = self.alloc_id();
+        face_map.insert(bottom_kid, bottom_face_idx);
+        face_geometry.insert(
+            bottom_face_idx,
+            SurfaceGeom::Planar(Plane {
+                origin: Point3::from_array(center),
+                normal: Vector3::from_array(vec3_negate(dir_norm)),
+            }),
+        );
+
+        let top_kid = self.alloc_id();
+        face_map.insert(top_kid, top_face_idx);
+        face_geometry.insert(
+            top_face_idx,
+            SurfaceGeom::Planar(Plane {
+                origin: Point3::from_array(top_center),
+                normal: Vector3::from_array(dir_norm),
+            }),
+        );
+
+        let side_kid = self.alloc_id();
+        face_map.insert(side_kid, side_face_idx);
+        face_geometry.insert(
+            side_face_idx,
+            SurfaceGeom::Cylindrical(Cylinder {
+                origin: Point3::from_array(center),
+                axis: Vector3::from_array(dir_norm),
+                radius: r,
+            }),
+        );
+
+        // Edge geometry
+        let bot_edge_kid = self.alloc_id();
+        edge_map.insert(bot_edge_kid, e_bottom);
+        edge_geometry.insert(
+            e_bottom,
+            CurveGeom::Circular(Circle3D {
+                center: Point3::from_array(center),
+                normal: Vector3::from_array(standalone.plane_normal),
+                radius: r,
+            }),
+        );
+
+        let top_edge_kid = self.alloc_id();
+        edge_map.insert(top_edge_kid, e_top);
+        edge_geometry.insert(
+            e_top,
+            CurveGeom::Circular(Circle3D {
+                center: Point3::from_array(top_center),
+                normal: Vector3::from_array(standalone.plane_normal),
+                radius: r,
+            }),
+        );
+
+        let seam_edge_kid = self.alloc_id();
+        edge_map.insert(seam_edge_kid, e_seam);
+        edge_geometry.insert(
+            e_seam,
+            CurveGeom::Linear(Line3D {
+                origin: Point3::from_array(bottom_seam),
+                direction: Vector3::from_array(vec3_scale(dir_norm, depth)),
+            }),
+        );
+
+        // Vertex map
+        let vbot_kid = self.alloc_id();
+        vertex_map.insert(vbot_kid, v_bottom);
+        let vtop_kid = self.alloc_id();
+        vertex_map.insert(vtop_kid, v_top);
+
+        let cylinder_params = CylinderParams {
+            center_bottom: center,
+            radius: r,
+            x_axis,
+            y_axis,
+            direction: dir_norm,
+            depth,
+        };
+
+        self.solids.insert(
+            handle_id,
+            WaffleSolid {
+                arena,
+                face_map,
+                edge_map,
+                vertex_map,
+                face_geometry,
+                edge_geometry,
+                cylinder_params: Some(cylinder_params),
+            },
+        );
+
+        Ok(KernelSolidHandle(handle_id))
     }
 }
 
@@ -174,14 +386,40 @@ impl Kernel for WaffleKernel {
         let mut face_ids = Vec::new();
 
         for profile in profiles {
-            if profile.circle.is_some() {
-                // Circle profiles not yet supported
-                return Err(KernelError::NotSupported {
-                    operation: "make_faces_from_profiles(circle)".to_string(),
-                });
+            if let Some(ref circle) = profile.circle {
+                // Circle profile path
+                if circle.radius <= 0.0 {
+                    return Err(KernelError::Other {
+                        message: format!("Circle radius must be positive, got {}", circle.radius),
+                    });
+                }
+                let center_3d = vec3_add(
+                    plane_origin,
+                    vec3_add(
+                        vec3_scale(plane_x_axis, circle.center_u),
+                        vec3_scale(plane_y_axis, circle.center_v),
+                    ),
+                );
+                let face_id = self.alloc_id();
+                self.standalone_faces.insert(
+                    face_id,
+                    StandaloneFace {
+                        vertices: vec![],
+                        plane_origin,
+                        plane_normal,
+                        circle_info: Some(CircleInfo {
+                            center_3d,
+                            radius: circle.radius,
+                            x_axis: plane_x_axis,
+                            y_axis: plane_y_axis,
+                        }),
+                    },
+                );
+                face_ids.push(KernelId(face_id));
+                continue;
             }
 
-            // Collect all positions, sorted by key for deterministic ordering
+            // Polygon profile path
             let mut keys: Vec<u32> = positions.keys().copied().collect();
             keys.sort();
 
@@ -218,6 +456,7 @@ impl Kernel for WaffleKernel {
                     vertices: vertices_3d,
                     plane_origin,
                     plane_normal,
+                    circle_info: None,
                 },
             );
             face_ids.push(KernelId(face_id));
@@ -242,6 +481,11 @@ impl Kernel for WaffleKernel {
             .standalone_faces
             .remove(&face.0)
             .ok_or(KernelError::EntityNotFound { id: face })?;
+
+        // Dispatch: circle or polygon extrude
+        if let Some(ref circle_info) = standalone.circle_info {
+            return self.extrude_circle(circle_info, &standalone, direction, depth);
+        }
 
         let n = standalone.vertices.len();
         let offset = vec3_scale(direction, depth);
@@ -421,6 +665,7 @@ impl Kernel for WaffleKernel {
                 vertex_map,
                 face_geometry,
                 edge_geometry,
+                cylinder_params: None,
             },
         );
 
@@ -439,7 +684,13 @@ impl Kernel for WaffleKernel {
                 id: KernelId(solid.id()),
             })?;
 
-        tessellation::tessellate_flat_faces(&ws.arena, &ws.face_map, &ws.face_geometry)
+        tessellation::tessellate_solid(
+            &ws.arena,
+            &ws.face_map,
+            &ws.face_geometry,
+            &ws.edge_geometry,
+            ws.cylinder_params.as_ref(),
+        )
     }
 
     fn extract_edges(
@@ -454,7 +705,7 @@ impl Kernel for WaffleKernel {
                 id: KernelId(solid.id()),
             })?;
 
-        tessellation::extract_edges(&ws.arena, &ws.edge_map)
+        tessellation::extract_edges(&ws.arena, &ws.edge_map, &ws.edge_geometry)
     }
 
     fn revolve_face(
@@ -749,9 +1000,51 @@ fn reverse_lookup_vertex(ws: &WaffleSolid, vert_idx: VertexIdx) -> KernelId {
 
 fn compute_face_signature(ws: &WaffleSolid, face_idx: FaceIdx) -> TopoSignature {
     let verts = collect_face_vertices(&ws.arena, face_idx);
+
+    // For cylinder caps (self-loop faces with 1 vertex), use circle geometry
+    if let Some(ref cyl) = ws.cylinder_params {
+        if let Some(SurfaceGeom::Planar(ref plane)) = ws.face_geometry.get(&face_idx) {
+            if verts.len() == 1 {
+                // This is a circular cap face
+                let area = std::f64::consts::PI * cyl.radius * cyl.radius;
+                let centroid = [plane.origin.x, plane.origin.y, plane.origin.z];
+                let normal = [plane.normal.x, plane.normal.y, plane.normal.z];
+                // Bbox: center ± radius in the cap plane
+                let cx = plane.origin.x;
+                let cy = plane.origin.y;
+                let cz = plane.origin.z;
+                let bbox = [
+                    cx - cyl.radius,
+                    cy - cyl.radius,
+                    cz - cyl.radius,
+                    cx + cyl.radius,
+                    cy + cyl.radius,
+                    cz + cyl.radius,
+                ];
+                return TopoSignature {
+                    surface_type: Some("planar".to_string()),
+                    area: Some(area),
+                    centroid: Some(centroid),
+                    normal: Some(normal),
+                    bbox: Some(bbox),
+                    adjacency_hash: None,
+                    length: None,
+                };
+            }
+        }
+    }
+
     let area = polygon_area_3d(&verts);
-    let centroid = polygon_centroid(&verts);
-    let bbox = compute_bbox(&verts);
+    let centroid = if verts.is_empty() {
+        [0.0; 3]
+    } else {
+        polygon_centroid(&verts)
+    };
+    let bbox = if verts.is_empty() {
+        [0.0; 6]
+    } else {
+        compute_bbox(&verts)
+    };
 
     let normal = ws.face_geometry.get(&face_idx).map(|g| match g {
         SurfaceGeom::Planar(p) => [p.normal.x, p.normal.y, p.normal.z],
@@ -775,6 +1068,30 @@ fn compute_face_signature(ws: &WaffleSolid, face_idx: FaceIdx) -> TopoSignature 
 }
 
 fn compute_edge_signature(ws: &WaffleSolid, edge_idx: EdgeIdx) -> TopoSignature {
+    // Check for circular edge geometry
+    if let Some(CurveGeom::Circular(ref circle)) = ws.edge_geometry.get(&edge_idx) {
+        let length = 2.0 * std::f64::consts::PI * circle.radius;
+        let centroid = [circle.center.x, circle.center.y, circle.center.z];
+        let r = circle.radius;
+        let bbox = [
+            circle.center.x - r,
+            circle.center.y - r,
+            circle.center.z - r,
+            circle.center.x + r,
+            circle.center.y + r,
+            circle.center.z + r,
+        ];
+        return TopoSignature {
+            surface_type: None,
+            area: None,
+            centroid: Some(centroid),
+            normal: None,
+            bbox: Some(bbox),
+            adjacency_hash: None,
+            length: Some(length),
+        };
+    }
+
     let he_a = ws.arena.edges[edge_idx.0].half_edge;
     let he_b = ws.arena.half_edges[he_a.0].twin;
     let p0 = ws.arena.vertices[ws.arena.half_edges[he_a.0].origin.0].position;

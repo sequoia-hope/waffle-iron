@@ -508,3 +508,335 @@ fn f2_macro_box_volume() {
         rel_err
     );
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Milestone 2: Circle-extrude (cylinder) pipeline tests
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+use std::f64::consts::PI;
+
+// ── Circle helpers ─────────────────────────────────────────────
+
+/// Create a circle profile for testing.
+/// Returns (profiles, positions) suitable for make_faces_from_profiles.
+fn make_circle_profile(
+    cx: f64,
+    cy: f64,
+    r: f64,
+) -> (Vec<ClosedProfile>, HashMap<u32, (f64, f64)>) {
+    let mut positions = HashMap::new();
+    positions.insert(1, (cx, cy));
+
+    let profile = ClosedProfile {
+        entity_ids: vec![1],
+        is_outer: true,
+        circle: Some(CircleProfile {
+            center_u: cx,
+            center_v: cy,
+            radius: r,
+        }),
+        spline_segments: vec![],
+    };
+
+    (vec![profile], positions)
+}
+
+/// Helper: create a unit cylinder (r=1, depth=1) on XY plane.
+fn make_unit_cylinder() -> (WaffleKernel, KernelSolidHandle) {
+    let mut k = WaffleKernel::new();
+    let (profiles, positions) = make_circle_profile(0.0, 0.0, 1.0);
+    let face_ids = k
+        .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+        .expect("make_faces_from_profiles should succeed for unit circle");
+    let solid = k
+        .extrude_face(face_ids[0], Z_DIR, 1.0)
+        .expect("extrude_face should succeed for unit cylinder");
+    (k, solid)
+}
+
+/// Helper: create a cylinder with given radius and depth on XY plane.
+fn make_cylinder(r: f64, depth: f64) -> (WaffleKernel, KernelSolidHandle) {
+    let mut k = WaffleKernel::new();
+    let (profiles, positions) = make_circle_profile(0.0, 0.0, r);
+    let face_ids = k
+        .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+        .expect("make_faces_from_profiles should succeed");
+    let solid = k
+        .extrude_face(face_ids[0], Z_DIR, depth)
+        .expect("extrude_face should succeed");
+    (k, solid)
+}
+
+// ── Group CA: make_faces_from_profiles (circles) ───────────────
+
+#[test]
+fn ca1_circle_produces_one_face() {
+    let mut k = WaffleKernel::new();
+    let (profiles, positions) = make_circle_profile(0.0, 0.0, 5.0);
+    let face_ids = k
+        .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+        .expect("CircleProfile r=5 should produce faces");
+    assert_eq!(
+        face_ids.len(),
+        1,
+        "One circle profile should produce exactly 1 face"
+    );
+}
+
+#[test]
+fn ca2_zero_radius_errors() {
+    let mut k = WaffleKernel::new();
+    let (profiles, positions) = make_circle_profile(0.0, 0.0, 0.0);
+    let result =
+        k.make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions);
+    assert!(result.is_err(), "Zero-radius circle should produce an error");
+}
+
+#[test]
+fn ca3_negative_radius_errors() {
+    let mut k = WaffleKernel::new();
+    let (profiles, positions) = make_circle_profile(0.0, 0.0, -1.0);
+    let result =
+        k.make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions);
+    assert!(
+        result.is_err(),
+        "Negative-radius circle should produce an error"
+    );
+}
+
+// ── Group CB: extrude_face (cylinder topology) ─────────────────
+
+#[test]
+fn cb1_unit_cylinder_topology() {
+    let (k, solid) = make_unit_cylinder();
+    let verts = k.list_vertices(&solid);
+    let edges = k.list_edges(&solid);
+    let faces = k.list_faces(&solid);
+    assert_eq!(verts.len(), 2, "Cylinder must have 2 vertices (pole points)");
+    assert_eq!(edges.len(), 3, "Cylinder must have 3 edges (2 circles + 1 seam)");
+    assert_eq!(faces.len(), 3, "Cylinder must have 3 faces (top + bottom + lateral)");
+}
+
+#[test]
+fn cb2_unit_cylinder_euler() {
+    let (k, solid) = make_unit_cylinder();
+    let v = k.list_vertices(&solid).len() as i64;
+    let e = k.list_edges(&solid).len() as i64;
+    let f = k.list_faces(&solid).len() as i64;
+    assert_eq!(
+        v - e + f,
+        2,
+        "Euler formula V-E+F must equal 2 for cylinder (got V={}, E={}, F={})",
+        v,
+        e,
+        f
+    );
+}
+
+#[test]
+fn cb3_scaled_cylinder_topology() {
+    let (k, solid) = make_cylinder(5.0, 10.0);
+    let verts = k.list_vertices(&solid);
+    let edges = k.list_edges(&solid);
+    let faces = k.list_faces(&solid);
+    assert_eq!(verts.len(), 2, "Scaled cylinder must have 2 vertices");
+    assert_eq!(edges.len(), 3, "Scaled cylinder must have 3 edges");
+    assert_eq!(faces.len(), 3, "Scaled cylinder must have 3 faces");
+}
+
+// ── Group CC: tessellate (cylinder) ────────────────────────────
+
+#[test]
+fn cc1_unit_cylinder_volume() {
+    let (mut k, solid) = make_unit_cylinder();
+    let mesh = k
+        .tessellate(&solid, 0.01)
+        .expect("tessellate should succeed for unit cylinder");
+    let vol = mesh_volume(&mesh);
+    let expected = PI; // π·r²·h = π·1·1
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.01,
+        "Unit cylinder volume should be ~π ({:.6}), got {:.6} (rel_err={:.4})",
+        expected,
+        vol,
+        rel_err
+    );
+}
+
+#[test]
+fn cc2_simple_cylinder_volume() {
+    let (mut k, solid) = make_cylinder(5.0, 10.0);
+    let mesh = k
+        .tessellate(&solid, 0.01)
+        .expect("tessellate should succeed");
+    let vol = mesh_volume(&mesh);
+    let expected = 250.0 * PI; // π·25·10
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.01,
+        "Cylinder r=5 d=10 volume should be ~250π ({:.2}), got {:.2} (rel_err={:.4})",
+        expected,
+        vol,
+        rel_err
+    );
+}
+
+#[test]
+fn cc3_tall_rod_volume() {
+    let (mut k, solid) = make_cylinder(1.0, 100.0);
+    let mesh = k
+        .tessellate(&solid, 0.01)
+        .expect("tessellate should succeed");
+    let vol = mesh_volume(&mesh);
+    let expected = 100.0 * PI; // π·1·100
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.01,
+        "Tall rod volume should be ~100π ({:.2}), got {:.2} (rel_err={:.4})",
+        expected,
+        vol,
+        rel_err
+    );
+}
+
+#[test]
+fn cc4_wide_short_volume() {
+    let (mut k, solid) = make_cylinder(10.0, 1.0);
+    let mesh = k
+        .tessellate(&solid, 0.01)
+        .expect("tessellate should succeed");
+    let vol = mesh_volume(&mesh);
+    let expected = 100.0 * PI; // π·100·1
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.01,
+        "Wide short cylinder volume should be ~100π ({:.2}), got {:.2} (rel_err={:.4})",
+        expected,
+        vol,
+        rel_err
+    );
+}
+
+#[test]
+fn cc5_cylinder_watertight() {
+    let (mut k, solid) = make_unit_cylinder();
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    assert!(
+        check_watertight(&mesh),
+        "Cylinder mesh must be watertight (every edge shared by exactly 2 triangles)"
+    );
+}
+
+#[test]
+fn cc6_cylinder_bbox() {
+    let r = 5.0;
+    let d = 10.0;
+    let (mut k, solid) = make_cylinder(r, d);
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    let (min, max) = mesh_bbox(&mesh);
+    let tol = 0.5; // cylinder tessellation with N=64 won't hit exact r at the bbox
+    assert!((min[0] - (-r)).abs() < tol, "bbox min x ~ -{}, got {}", r, min[0]);
+    assert!((min[1] - (-r)).abs() < tol, "bbox min y ~ -{}, got {}", r, min[1]);
+    assert!(min[2].abs() < tol, "bbox min z ~ 0, got {}", min[2]);
+    assert!((max[0] - r).abs() < tol, "bbox max x ~ {}, got {}", r, max[0]);
+    assert!((max[1] - r).abs() < tol, "bbox max y ~ {}, got {}", r, max[1]);
+    assert!((max[2] - d).abs() < tol, "bbox max z ~ {}, got {}", d, max[2]);
+}
+
+#[test]
+fn cc7_cylinder_3_face_ranges() {
+    let (mut k, solid) = make_unit_cylinder();
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    assert_eq!(
+        mesh.face_ranges.len(),
+        3,
+        "Cylinder mesh should have 3 face ranges (top + bottom + lateral)"
+    );
+}
+
+// ── Group CD: extract_edges (cylinder) ─────────────────────────
+
+#[test]
+fn cd1_cylinder_3_edge_ranges() {
+    let (mut k, solid) = make_unit_cylinder();
+    let edges = k
+        .extract_edges(&solid, 0.01)
+        .expect("extract_edges should succeed for cylinder");
+    assert_eq!(
+        edges.edge_ranges.len(),
+        3,
+        "Cylinder should have 3 edge ranges (2 circles + 1 seam)"
+    );
+}
+
+#[test]
+fn cd2_circular_edge_has_many_vertices() {
+    let (mut k, solid) = make_unit_cylinder();
+    let edges = k
+        .extract_edges(&solid, 0.01)
+        .expect("extract_edges should succeed");
+    // At least one edge range should span many vertices (a circle polyline, N>=16)
+    let has_circle_edge = edges.edge_ranges.iter().any(|er| {
+        let vert_count = (er.end_vertex - er.start_vertex) / 3;
+        vert_count >= 16
+    });
+    assert!(
+        has_circle_edge,
+        "At least one edge should be a circular polyline with ≥16 vertices"
+    );
+}
+
+// ── Group CE: introspection (cylinder) ─────────────────────────
+
+#[test]
+fn ce1_list_faces_returns_3() {
+    let (k, solid) = make_unit_cylinder();
+    let faces = k.list_faces(&solid);
+    assert_eq!(faces.len(), 3, "Cylinder should have 3 faces");
+}
+
+#[test]
+fn ce2_list_edges_returns_3() {
+    let (k, solid) = make_unit_cylinder();
+    let edges = k.list_edges(&solid);
+    assert_eq!(edges.len(), 3, "Cylinder should have 3 edges");
+}
+
+// ── Group CF: scale coverage (cylinder) ────────────────────────
+
+#[test]
+fn cf1_micro_cylinder_volume() {
+    let (mut k, solid) = make_cylinder(1e-4, 1e-4);
+    let mesh = k
+        .tessellate(&solid, 1e-6)
+        .expect("tessellate should succeed for micro cylinder");
+    let vol = mesh_volume(&mesh);
+    let expected = PI * 1e-12; // π·(1e-4)²·(1e-4)
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.01,
+        "Micro cylinder volume should be ~π×1e-12 ({:.6e}), got {:.6e} (rel_err={:.4})",
+        expected,
+        vol,
+        rel_err
+    );
+}
+
+#[test]
+fn cf2_macro_cylinder_volume() {
+    let (mut k, solid) = make_cylinder(1e3, 1e3);
+    let mesh = k
+        .tessellate(&solid, 1.0)
+        .expect("tessellate should succeed for macro cylinder");
+    let vol = mesh_volume(&mesh);
+    let expected = PI * 1e9; // π·(1e3)²·(1e3)
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.01,
+        "Macro cylinder volume should be ~π×1e9 ({:.2e}), got {:.2e} (rel_err={:.4})",
+        expected,
+        vol,
+        rel_err
+    );
+}
