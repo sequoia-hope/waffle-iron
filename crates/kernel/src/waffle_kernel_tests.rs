@@ -840,3 +840,490 @@ fn cf2_macro_cylinder_volume() {
         rel_err
     );
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Milestone 3: Box-box boolean operation tests
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// ── Boolean helpers ──────────────────────────────────────────────
+
+/// Create two overlapping boxes for boolean tests.
+/// Box A: rect(5,5) 10×10 extruded z=0→10  → x=[0,10], y=[0,10], z=[0,10]
+/// Box B: rect(10,5) 10×10 extruded z=0→10 → x=[5,15], y=[0,10], z=[0,10]
+/// Overlap region: x=[5,10], y=[0,10], z=[0,10] → volume 500
+fn make_overlapping_boxes() -> (WaffleKernel, KernelSolidHandle, KernelSolidHandle) {
+    let mut k = WaffleKernel::new();
+
+    // Box A
+    let (profiles_a, positions_a) = make_rect_profile(5.0, 5.0, 10.0, 10.0);
+    let face_a = k
+        .make_faces_from_profiles(&profiles_a, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions_a)
+        .unwrap();
+    let solid_a = k.extrude_face(face_a[0], Z_DIR, 10.0).unwrap();
+
+    // Box B
+    let (profiles_b, positions_b) = make_rect_profile(10.0, 5.0, 10.0, 10.0);
+    let face_b = k
+        .make_faces_from_profiles(&profiles_b, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions_b)
+        .unwrap();
+    let solid_b = k.extrude_face(face_b[0], Z_DIR, 10.0).unwrap();
+
+    (k, solid_a, solid_b)
+}
+
+/// Create two overlapping boxes at a given scale factor.
+fn make_overlapping_boxes_scaled(
+    scale: f64,
+) -> (WaffleKernel, KernelSolidHandle, KernelSolidHandle) {
+    let mut k = WaffleKernel::new();
+    let s = scale;
+
+    let (profiles_a, positions_a) = make_rect_profile(5.0 * s, 5.0 * s, 10.0 * s, 10.0 * s);
+    let face_a = k
+        .make_faces_from_profiles(&profiles_a, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions_a)
+        .unwrap();
+    let solid_a = k.extrude_face(face_a[0], Z_DIR, 10.0 * s).unwrap();
+
+    let (profiles_b, positions_b) = make_rect_profile(10.0 * s, 5.0 * s, 10.0 * s, 10.0 * s);
+    let face_b = k
+        .make_faces_from_profiles(&profiles_b, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions_b)
+        .unwrap();
+    let solid_b = k.extrude_face(face_b[0], Z_DIR, 10.0 * s).unwrap();
+
+    (k, solid_a, solid_b)
+}
+
+// ── Group G: Boolean Union (box-box) ────────────────────────────
+
+#[test]
+fn g1_union_volume() {
+    let (mut k, a, b) = make_overlapping_boxes();
+    let result = k.boolean_union(&a, &b).expect("union should succeed");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate union");
+    let vol = mesh_volume(&mesh);
+    assert!(
+        (vol - 1500.0).abs() < 15.0,
+        "Union volume should be ~1500, got {}",
+        vol
+    );
+}
+
+#[test]
+fn g2_union_face_count() {
+    let (mut k, a, b) = make_overlapping_boxes();
+    let result = k.boolean_union(&a, &b).unwrap();
+    let faces = k.list_faces(&result);
+    assert_eq!(
+        faces.len(),
+        10,
+        "Union of half-overlapping boxes should have 10 faces, got {}",
+        faces.len()
+    );
+}
+
+#[test]
+fn g3_union_euler() {
+    let (mut k, a, b) = make_overlapping_boxes();
+    let result = k.boolean_union(&a, &b).unwrap();
+    let v = k.list_vertices(&result).len() as i64;
+    let e = k.list_edges(&result).len() as i64;
+    let f = k.list_faces(&result).len() as i64;
+    assert_eq!(
+        v - e + f,
+        2,
+        "Euler formula V-E+F must equal 2 for union (got V={}, E={}, F={})",
+        v,
+        e,
+        f
+    );
+}
+
+#[test]
+fn g4_union_watertight() {
+    let (mut k, a, b) = make_overlapping_boxes();
+    let result = k.boolean_union(&a, &b).unwrap();
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    assert!(
+        check_watertight(&mesh),
+        "Union mesh must be watertight"
+    );
+}
+
+#[test]
+fn g5_union_bbox() {
+    let (mut k, a, b) = make_overlapping_boxes();
+    let result = k.boolean_union(&a, &b).unwrap();
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    let (min, max) = mesh_bbox(&mesh);
+    let tol = 0.1;
+    assert!(min[0].abs() < tol, "union bbox min x ~ 0, got {}", min[0]);
+    assert!(min[1].abs() < tol, "union bbox min y ~ 0, got {}", min[1]);
+    assert!(min[2].abs() < tol, "union bbox min z ~ 0, got {}", min[2]);
+    assert!((max[0] - 15.0).abs() < tol, "union bbox max x ~ 15, got {}", max[0]);
+    assert!((max[1] - 10.0).abs() < tol, "union bbox max y ~ 10, got {}", max[1]);
+    assert!((max[2] - 10.0).abs() < tol, "union bbox max z ~ 10, got {}", max[2]);
+}
+
+#[test]
+fn g6_union_tessellation_face_ranges() {
+    let (mut k, a, b) = make_overlapping_boxes();
+    let result = k.boolean_union(&a, &b).unwrap();
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    assert_eq!(
+        mesh.face_ranges.len(),
+        10,
+        "Union mesh should have 10 face_ranges, got {}",
+        mesh.face_ranges.len()
+    );
+}
+
+// ── Group H: Boolean Subtract (box-box) ─────────────────────────
+
+#[test]
+fn h1_subtract_volume() {
+    let (mut k, a, b) = make_overlapping_boxes();
+    let result = k.boolean_subtract(&a, &b).expect("subtract should succeed");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate subtract");
+    let vol = mesh_volume(&mesh);
+    assert!(
+        (vol - 500.0).abs() < 5.0,
+        "Subtract (A-B) volume should be ~500, got {}",
+        vol
+    );
+}
+
+#[test]
+fn h2_subtract_face_count() {
+    let (mut k, a, b) = make_overlapping_boxes();
+    let result = k.boolean_subtract(&a, &b).unwrap();
+    let faces = k.list_faces(&result);
+    assert_eq!(
+        faces.len(),
+        6,
+        "Subtract (A-B) should have 6 faces, got {}",
+        faces.len()
+    );
+}
+
+#[test]
+fn h3_subtract_euler() {
+    let (mut k, a, b) = make_overlapping_boxes();
+    let result = k.boolean_subtract(&a, &b).unwrap();
+    let v = k.list_vertices(&result).len() as i64;
+    let e = k.list_edges(&result).len() as i64;
+    let f = k.list_faces(&result).len() as i64;
+    assert_eq!(
+        v - e + f,
+        2,
+        "Euler formula V-E+F must equal 2 for subtract (got V={}, E={}, F={})",
+        v,
+        e,
+        f
+    );
+}
+
+#[test]
+fn h4_subtract_watertight() {
+    let (mut k, a, b) = make_overlapping_boxes();
+    let result = k.boolean_subtract(&a, &b).unwrap();
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    assert!(
+        check_watertight(&mesh),
+        "Subtract mesh must be watertight"
+    );
+}
+
+#[test]
+fn h5_subtract_bbox() {
+    let (mut k, a, b) = make_overlapping_boxes();
+    let result = k.boolean_subtract(&a, &b).unwrap();
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    let (min, max) = mesh_bbox(&mesh);
+    let tol = 0.1;
+    assert!(min[0].abs() < tol, "subtract bbox min x ~ 0, got {}", min[0]);
+    assert!(min[1].abs() < tol, "subtract bbox min y ~ 0, got {}", min[1]);
+    assert!(min[2].abs() < tol, "subtract bbox min z ~ 0, got {}", min[2]);
+    assert!((max[0] - 5.0).abs() < tol, "subtract bbox max x ~ 5, got {}", max[0]);
+    assert!((max[1] - 10.0).abs() < tol, "subtract bbox max y ~ 10, got {}", max[1]);
+    assert!((max[2] - 10.0).abs() < tol, "subtract bbox max z ~ 10, got {}", max[2]);
+}
+
+// ── Group I: Boolean Intersect (box-box) ────────────────────────
+
+#[test]
+fn i1_intersect_volume() {
+    let (mut k, a, b) = make_overlapping_boxes();
+    let result = k.boolean_intersect(&a, &b).expect("intersect should succeed");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate intersect");
+    let vol = mesh_volume(&mesh);
+    assert!(
+        (vol - 500.0).abs() < 5.0,
+        "Intersect volume should be ~500, got {}",
+        vol
+    );
+}
+
+#[test]
+fn i2_intersect_face_count() {
+    let (mut k, a, b) = make_overlapping_boxes();
+    let result = k.boolean_intersect(&a, &b).unwrap();
+    let faces = k.list_faces(&result);
+    assert_eq!(
+        faces.len(),
+        6,
+        "Intersect should have 6 faces, got {}",
+        faces.len()
+    );
+}
+
+#[test]
+fn i3_intersect_euler() {
+    let (mut k, a, b) = make_overlapping_boxes();
+    let result = k.boolean_intersect(&a, &b).unwrap();
+    let v = k.list_vertices(&result).len() as i64;
+    let e = k.list_edges(&result).len() as i64;
+    let f = k.list_faces(&result).len() as i64;
+    assert_eq!(
+        v - e + f,
+        2,
+        "Euler formula V-E+F must equal 2 for intersect (got V={}, E={}, F={})",
+        v,
+        e,
+        f
+    );
+}
+
+#[test]
+fn i4_intersect_watertight() {
+    let (mut k, a, b) = make_overlapping_boxes();
+    let result = k.boolean_intersect(&a, &b).unwrap();
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    assert!(
+        check_watertight(&mesh),
+        "Intersect mesh must be watertight"
+    );
+}
+
+#[test]
+fn i5_intersect_bbox() {
+    let (mut k, a, b) = make_overlapping_boxes();
+    let result = k.boolean_intersect(&a, &b).unwrap();
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    let (min, max) = mesh_bbox(&mesh);
+    let tol = 0.1;
+    assert!((min[0] - 5.0).abs() < tol, "intersect bbox min x ~ 5, got {}", min[0]);
+    assert!(min[1].abs() < tol, "intersect bbox min y ~ 0, got {}", min[1]);
+    assert!(min[2].abs() < tol, "intersect bbox min z ~ 0, got {}", min[2]);
+    assert!((max[0] - 10.0).abs() < tol, "intersect bbox max x ~ 10, got {}", max[0]);
+    assert!((max[1] - 10.0).abs() < tol, "intersect bbox max y ~ 10, got {}", max[1]);
+    assert!((max[2] - 10.0).abs() < tol, "intersect bbox max z ~ 10, got {}", max[2]);
+}
+
+// ── Group J: Edge Cases ─────────────────────────────────────────
+
+#[test]
+fn j1_invalid_handle_errors() {
+    let (mut k, a, _b) = make_overlapping_boxes();
+    let bad = KernelSolidHandle(99999);
+    assert!(k.boolean_union(&a, &bad).is_err(), "bad handle B → error");
+    assert!(k.boolean_union(&bad, &a).is_err(), "bad handle A → error");
+}
+
+#[test]
+fn j2_cylinder_boolean_not_supported() {
+    let (mut k, box_solid) = make_unit_box();
+    let (profiles_c, positions_c) = make_circle_profile(0.0, 0.0, 1.0);
+    let face_c = k
+        .make_faces_from_profiles(&profiles_c, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions_c)
+        .unwrap();
+    let cyl_solid = k.extrude_face(face_c[0], Z_DIR, 1.0).unwrap();
+    let result = k.boolean_union(&box_solid, &cyl_solid);
+    assert!(result.is_err(), "Boolean on cylinder should fail");
+    if let Err(ref e) = result {
+        assert!(
+            matches!(e, KernelError::NotSupported { .. }),
+            "Expected NotSupported, got {:?}",
+            e
+        );
+    }
+}
+
+#[test]
+fn j3_disjoint_boxes_union() {
+    // Two boxes that don't overlap at all
+    let mut k = WaffleKernel::new();
+
+    let (pa, posa) = make_rect_profile(0.5, 0.5, 1.0, 1.0);
+    let fa = k
+        .make_faces_from_profiles(&pa, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posa)
+        .unwrap();
+    let sa = k.extrude_face(fa[0], Z_DIR, 1.0).unwrap();
+
+    let (pb, posb) = make_rect_profile(10.5, 0.5, 1.0, 1.0);
+    let fb = k
+        .make_faces_from_profiles(&pb, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posb)
+        .unwrap();
+    let sb = k.extrude_face(fb[0], Z_DIR, 1.0).unwrap();
+
+    let result = k.boolean_union(&sa, &sb).expect("disjoint union should succeed");
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    let vol = mesh_volume(&mesh);
+    // Two unit boxes → volume = 2.0
+    assert!(
+        (vol - 2.0).abs() < 0.05,
+        "Disjoint union volume should be ~2.0, got {}",
+        vol
+    );
+}
+
+#[test]
+fn j4_identical_boxes_union() {
+    // Two identical boxes → degenerate case (all faces coplanar).
+    // Current implementation correctly detects this as degenerate and returns
+    // the primary solid's faces via Partial(inside=original, outside=empty).
+    let mut k = WaffleKernel::new();
+
+    let (pa, posa) = make_rect_profile(0.5, 0.5, 1.0, 1.0);
+    let fa = k
+        .make_faces_from_profiles(&pa, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posa)
+        .unwrap();
+    let sa = k.extrude_face(fa[0], Z_DIR, 1.0).unwrap();
+
+    let (pb, posb) = make_rect_profile(0.5, 0.5, 1.0, 1.0);
+    let fb = k
+        .make_faces_from_profiles(&pb, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posb)
+        .unwrap();
+    let sb = k.extrude_face(fb[0], Z_DIR, 1.0).unwrap();
+
+    let result = k.boolean_union(&sa, &sb).expect("identical union should succeed");
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    let vol = mesh_volume(&mesh);
+    assert!(
+        (vol - 1.0).abs() < 0.05,
+        "Identical union volume should be ~1.0, got {}",
+        vol
+    );
+}
+
+#[test]
+fn j5_identical_boxes_subtract() {
+    // A - A = empty → should return error (empty result).
+    // All faces are coplanar — no outside fragments and no truly-inside B faces.
+    let mut k = WaffleKernel::new();
+
+    let (pa, posa) = make_rect_profile(0.5, 0.5, 1.0, 1.0);
+    let fa = k
+        .make_faces_from_profiles(&pa, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posa)
+        .unwrap();
+    let sa = k.extrude_face(fa[0], Z_DIR, 1.0).unwrap();
+
+    let (pb, posb) = make_rect_profile(0.5, 0.5, 1.0, 1.0);
+    let fb = k
+        .make_faces_from_profiles(&pb, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posb)
+        .unwrap();
+    let sb = k.extrude_face(fb[0], Z_DIR, 1.0).unwrap();
+
+    let result = k.boolean_subtract(&sa, &sb);
+    assert!(
+        result.is_err(),
+        "Subtracting identical boxes should fail (empty result)"
+    );
+}
+
+#[test]
+fn j6_disjoint_boxes_intersect() {
+    // Disjoint boxes → intersect = empty → should return error
+    let mut k = WaffleKernel::new();
+
+    let (pa, posa) = make_rect_profile(0.5, 0.5, 1.0, 1.0);
+    let fa = k
+        .make_faces_from_profiles(&pa, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posa)
+        .unwrap();
+    let sa = k.extrude_face(fa[0], Z_DIR, 1.0).unwrap();
+
+    let (pb, posb) = make_rect_profile(10.5, 0.5, 1.0, 1.0);
+    let fb = k
+        .make_faces_from_profiles(&pb, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posb)
+        .unwrap();
+    let sb = k.extrude_face(fb[0], Z_DIR, 1.0).unwrap();
+
+    let result = k.boolean_intersect(&sa, &sb);
+    assert!(
+        result.is_err(),
+        "Intersecting disjoint boxes should fail (empty result)"
+    );
+}
+
+// ── Group K: Scale Coverage ─────────────────────────────────────
+
+#[test]
+fn k1_union_micro() {
+    let (mut k, a, b) = make_overlapping_boxes_scaled(1e-3);
+    let result = k.boolean_union(&a, &b).expect("micro union should succeed");
+    let mesh = k.tessellate(&result, 1e-5).unwrap();
+    let vol = mesh_volume(&mesh);
+    let expected = 1500.0 * 1e-9; // scale³
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.02,
+        "Micro union volume should be ~{:.6e}, got {:.6e} (rel_err={:.4})",
+        expected,
+        vol,
+        rel_err
+    );
+}
+
+#[test]
+fn k2_union_macro() {
+    let (mut k, a, b) = make_overlapping_boxes_scaled(1e2);
+    let result = k.boolean_union(&a, &b).expect("macro union should succeed");
+    let mesh = k.tessellate(&result, 1.0).unwrap();
+    let vol = mesh_volume(&mesh);
+    let expected = 1500.0 * 1e6; // scale³
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.02,
+        "Macro union volume should be ~{:.2e}, got {:.2e} (rel_err={:.4})",
+        expected,
+        vol,
+        rel_err
+    );
+}
+
+#[test]
+fn k3_subtract_micro() {
+    let (mut k, a, b) = make_overlapping_boxes_scaled(1e-3);
+    let result = k
+        .boolean_subtract(&a, &b)
+        .expect("micro subtract should succeed");
+    let mesh = k.tessellate(&result, 1e-5).unwrap();
+    let vol = mesh_volume(&mesh);
+    let expected = 500.0 * 1e-9;
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.02,
+        "Micro subtract volume should be ~{:.6e}, got {:.6e} (rel_err={:.4})",
+        expected,
+        vol,
+        rel_err
+    );
+}
+
+#[test]
+fn k4_intersect_micro() {
+    let (mut k, a, b) = make_overlapping_boxes_scaled(1e-3);
+    let result = k
+        .boolean_intersect(&a, &b)
+        .expect("micro intersect should succeed");
+    let mesh = k.tessellate(&result, 1e-5).unwrap();
+    let vol = mesh_volume(&mesh);
+    let expected = 500.0 * 1e-9;
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.02,
+        "Micro intersect volume should be ~{:.6e}, got {:.6e} (rel_err={:.4})",
+        expected,
+        vol,
+        rel_err
+    );
+}

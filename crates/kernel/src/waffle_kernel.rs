@@ -23,14 +23,14 @@ pub struct WaffleKernel {
 }
 
 /// A full B-Rep solid with topology arena and geometry maps.
-struct WaffleSolid {
-    arena: TopoArena,
-    face_map: HashMap<u64, FaceIdx>,
-    edge_map: HashMap<u64, EdgeIdx>,
-    vertex_map: HashMap<u64, VertexIdx>,
-    face_geometry: HashMap<FaceIdx, SurfaceGeom>,
-    edge_geometry: HashMap<EdgeIdx, CurveGeom>,
-    cylinder_params: Option<CylinderParams>,
+pub(crate) struct WaffleSolid {
+    pub(crate) arena: TopoArena,
+    pub(crate) face_map: HashMap<u64, FaceIdx>,
+    pub(crate) edge_map: HashMap<u64, EdgeIdx>,
+    pub(crate) vertex_map: HashMap<u64, VertexIdx>,
+    pub(crate) face_geometry: HashMap<FaceIdx, SurfaceGeom>,
+    pub(crate) edge_geometry: HashMap<EdgeIdx, CurveGeom>,
+    pub(crate) cylinder_params: Option<CylinderParams>,
 }
 
 /// Parameters for cylinder tessellation (stored after extrude_circle).
@@ -79,6 +79,66 @@ impl WaffleKernel {
         let h = self.next_handle;
         self.next_handle += 1;
         h
+    }
+
+    /// Execute a boolean operation on two box solids.
+    fn do_boolean(
+        &mut self,
+        a: &KernelSolidHandle,
+        b: &KernelSolidHandle,
+        op: crate::boolean::BoolOp,
+    ) -> Result<KernelSolidHandle, KernelError> {
+        let solid_a = self
+            .solids
+            .get(&a.id())
+            .ok_or(KernelError::EntityNotFound {
+                id: KernelId(a.id()),
+            })?;
+        let solid_b = self
+            .solids
+            .get(&b.id())
+            .ok_or(KernelError::EntityNotFound {
+                id: KernelId(b.id()),
+            })?;
+
+        // Guard: no cylinders
+        if solid_a.cylinder_params.is_some() || solid_b.cylinder_params.is_some() {
+            return Err(KernelError::NotSupported {
+                operation: "boolean on cylinders".to_string(),
+            });
+        }
+
+        let mut next_id = self.next_id;
+        let mut id_alloc = || {
+            let id = next_id;
+            next_id += 1;
+            id
+        };
+
+        let result = crate::boolean::boolean_op(
+            solid_a,
+            solid_b,
+            op,
+            &BooleanOptions::default(),
+            &mut id_alloc,
+        )?;
+        self.next_id = next_id;
+
+        let handle_id = self.alloc_handle();
+        self.solids.insert(
+            handle_id,
+            WaffleSolid {
+                arena: result.arena,
+                face_map: result.face_map,
+                edge_map: result.edge_map,
+                vertex_map: result.vertex_map,
+                face_geometry: result.face_geometry,
+                edge_geometry: result.edge_geometry,
+                cylinder_params: None,
+            },
+        );
+
+        Ok(KernelSolidHandle(handle_id))
     }
 
     /// Build a true cylinder B-Rep: 2 vertices, 3 edges, 3 faces.
@@ -722,32 +782,26 @@ impl Kernel for WaffleKernel {
 
     fn boolean_union(
         &mut self,
-        _a: &KernelSolidHandle,
-        _b: &KernelSolidHandle,
+        a: &KernelSolidHandle,
+        b: &KernelSolidHandle,
     ) -> Result<KernelSolidHandle, KernelError> {
-        Err(KernelError::NotSupported {
-            operation: "boolean_union".to_string(),
-        })
+        self.do_boolean(a, b, crate::boolean::BoolOp::Union)
     }
 
     fn boolean_subtract(
         &mut self,
-        _a: &KernelSolidHandle,
-        _b: &KernelSolidHandle,
+        a: &KernelSolidHandle,
+        b: &KernelSolidHandle,
     ) -> Result<KernelSolidHandle, KernelError> {
-        Err(KernelError::NotSupported {
-            operation: "boolean_subtract".to_string(),
-        })
+        self.do_boolean(a, b, crate::boolean::BoolOp::Subtract)
     }
 
     fn boolean_intersect(
         &mut self,
-        _a: &KernelSolidHandle,
-        _b: &KernelSolidHandle,
+        a: &KernelSolidHandle,
+        b: &KernelSolidHandle,
     ) -> Result<KernelSolidHandle, KernelError> {
-        Err(KernelError::NotSupported {
-            operation: "boolean_intersect".to_string(),
-        })
+        self.do_boolean(a, b, crate::boolean::BoolOp::Intersect)
     }
 
     fn fillet_edges(

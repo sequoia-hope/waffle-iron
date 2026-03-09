@@ -1,3 +1,4 @@
+pub(crate) mod boolean;
 pub mod geometry;
 pub mod mock_kernel;
 pub mod tessellation;
