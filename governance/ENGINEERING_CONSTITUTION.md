@@ -58,7 +58,7 @@ No modeling feature work begins without a spec file in `/specs/` describing:
 - Failure modes / expected errors
 
 ### P3 — Tests must fail before the fix
-For feature work and bug fixes, tests must demonstrate the problem first (fail on prior code), then pass after implementation.
+Feature work and bug fixes use red/green TDD: write a failing test (red), then implement until it passes (green).
 
 ### P4 — Branches are not allowed to be untested
 If a change introduces a behavior branch, there must be tests exercising **every branch**.  
@@ -80,8 +80,15 @@ Agents may not introduce “convenient” cross-layer shortcuts. The layering de
 Architecture changes require explicit human approval (see §10).
 
 ### P7 — Small, auditable changes
-Feature work must be decomposed into small increments that preserve passing tests at each step.  
+Feature work must be decomposed into small increments that preserve passing tests at each step.
 Large multi-subsystem “one-shot” merges are not allowed.
+
+### P8 — Design decisions cite research
+Kernel and algorithm design choices must reference published techniques from REFERENCES.md.
+Specs must include a “Research Basis” section listing the references that informed the design.
+Implementation comments must cite reference numbers for non-obvious algorithmic choices
+(e.g., `// Ref #4: Shewchuk adaptive predicates for orient3d`).
+Ad-hoc algorithmic invention is not acceptable when a published, peer-reviewed solution exists.
 
 ---
 
@@ -211,7 +218,7 @@ If a requirement cannot be tested, it must be rewritten until it can.
 A feature is not “done” unless:
 
 - [ ] `/specs/<feature>.md` exists and enumerates all modes/branches
-- [ ] Tests fail on previous code and pass after implementation
+- [ ] Red/green TDD followed: tests fail before implementation, pass after
 - [ ] Every new branch is executed by at least one test
 - [ ] Tests assert numeric/structural oracles (not only “no error”)
 - [ ] Parameters are normalized early to reduce branching

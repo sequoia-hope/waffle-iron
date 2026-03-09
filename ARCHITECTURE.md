@@ -10,7 +10,7 @@ The system has four layers:
 
 ### Kernel Layer (Rust, compiled to WASM)
 
-**truck fork** — BREP geometry, NURBS surfaces, boolean operations, tessellation. This is our fork of the [truck](https://github.com/ricosjp/truck) crate ecosystem. The kernel provides the geometric foundation: constructing solids via sweeps, computing booleans, tessellating BREP to triangle meshes, and introspecting topology (listing faces, edges, vertices and their relationships). All truck types are wrapped behind the `Kernel` and `KernelIntrospect` traits — no truck types leak to other layers.
+**truck fork** — BREP geometry, NURBS surfaces, boolean operations, tessellation. This is our fork of the [truck](https://github.com/ricosjp/truck) crate ecosystem. The kernel is being redesigned as a clean-sheet implementation informed by published research (see `REFERENCES.md` and `/docs/SYSTEM_DESIGN.md` for the research-annotated architecture). The target boolean architecture is hybrid B-Rep/mesh [Ref #24: Barton et al.], using exact adaptive predicates [Ref #4: Shewchuk], generalized winding numbers [Ref #7: Jacobson et al.], and topology-guaranteed SSI [Ref #25]. All truck types are wrapped behind the `Kernel` and `KernelIntrospect` traits — no truck types leak to other layers.
 
 ### Engine Layer (Rust, compiled to WASM, runs in Web Worker)
 

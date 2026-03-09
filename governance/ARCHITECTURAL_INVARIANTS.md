@@ -340,6 +340,25 @@ Bridge tests should validate:
 
 ---
 
+## A13. Research-Grounded Architecture
+
+### A13.1 Algorithm selection must cite literature
+When multiple approaches exist for a geometric algorithm (SSI, classification,
+boolean pipeline, tessellation), the chosen approach must cite a reference from
+REFERENCES.md with rationale for why it was selected.
+
+### A13.2 SYSTEM_DESIGN.md is the architectural research map
+The file `/docs/SYSTEM_DESIGN.md` maintains a module-level architecture diagram
+with research annotations. Each major subsystem cites the references that inform
+its design. This document must be updated when architectural decisions change.
+
+### A13.3 No reinventing solved problems
+If a peer-reviewed, published algorithm exists for a problem, it must be used
+(or explicitly justified why not). Ad-hoc geometric algorithms that duplicate
+published work are considered technical debt.
+
+---
+
 ## A12. Change Control
 
 ### A12.1 Protected invariants

@@ -136,6 +136,16 @@ Define:
 - Degenerate geometry handling
 - Expected error type or behavior
 
+#### 7. Research Basis
+
+Reference entries from REFERENCES.md that inform the design:
+- Which algorithm is being implemented or adapted
+- Which reference describes the technique
+- Any deviations from the published approach and why
+
+If no published technique exists for the approach taken, state this explicitly
+and justify the custom design.
+
 ### 3.3 Exit Criteria for Spec Phase
 
 Spec is complete when:
@@ -155,8 +165,8 @@ Test Author executes this phase.
 
 ### 4.1 Constraints
 
+- Red/green TDD: tests must fail (red) before implementation makes them pass (green).
 - May not modify implementation code.
-- Must cause at least one failing test on current code.
 
 ### 4.2 Test Requirements
 
@@ -188,14 +198,11 @@ Tests must include numeric or structural assertions such as:
 
 Tests that only check "no panic" are insufficient.
 
-### 4.4 Failing Demonstration
+### 4.4 Red Phase Demonstration
 
-Before implementation begins, Test Author must demonstrate:
-
-- Tests fail on current code, OR
-- Coverage report shows new branches unexecuted
-
-This failure must be documented in PR or logs.
+Before implementation begins, Test Author must demonstrate the red phase:
+tests fail on current code, or coverage report shows new branches unexecuted.
+Document in PR or logs.
 
 ### 4.5 Exit Criteria for Test Phase
 

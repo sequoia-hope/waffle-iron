@@ -45,6 +45,8 @@ A modeling feature is complete only if ALL of the following are satisfied.
   - [ ] Invariants (formal behavioral rules)
   - [ ] Oracles (measurable validation rules)
   - [ ] Failure modes
+- [ ] Research Basis section lists applicable references from REFERENCES.md
+- [ ] Non-obvious algorithmic choices cite reference numbers in code comments
 - [ ] No undocumented branches exist in implementation
 - [ ] Spec matches final behavior (no divergence)
 
@@ -52,8 +54,7 @@ A modeling feature is complete only if ALL of the following are satisfied.
 
 ## 1.2 Test Requirements
 
-- [ ] Tests were written before implementation changes
-- [ ] At least one test failed on previous code
+- [ ] Red/green TDD followed: tests failed before implementation, pass after
 - [ ] Every branch in the branch table is exercised by at least one test
 - [ ] Tests include numeric or structural assertions (not only "no panic")
 - [ ] At least one canonical case exists
