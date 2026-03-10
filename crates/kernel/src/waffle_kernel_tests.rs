@@ -1872,6 +1872,96 @@ fn n5_cyl_cyl_union_euler() {
     assert_eq!(v - e + f, 2, "V-E+F must be 2 (V={}, E={}, F={})", v, e, f);
 }
 
+/// Create two cylinders with custom plane Z and direction, then perform a boolean op.
+fn do_cyl_cyl_boolean_directed(
+    cx_a: f64, cy_a: f64, r_a: f64, plane_z_a: f64, dir_a: [f64; 3], d_a: f64,
+    cx_b: f64, cy_b: f64, r_b: f64, plane_z_b: f64, dir_b: [f64; 3], d_b: f64,
+    op: crate::boolean::BoolOp,
+) -> Result<(WaffleKernel, KernelSolidHandle), KernelError> {
+    let mut k = WaffleKernel::new();
+    let origin_a = [0.0, 0.0, plane_z_a];
+    let (pa, posa) = make_circle_profile(cx_a, cy_a, r_a);
+    let fa = k.make_faces_from_profiles(&pa, origin_a, XY_NORMAL, XY_X_AXIS, &posa).unwrap();
+    let cyl_a = k.extrude_face(fa[0], dir_a, d_a).unwrap();
+    let origin_b = [0.0, 0.0, plane_z_b];
+    let (pb, posb) = make_circle_profile(cx_b, cy_b, r_b);
+    let fb = k.make_faces_from_profiles(&pb, origin_b, XY_NORMAL, XY_X_AXIS, &posb).unwrap();
+    let cyl_b = k.extrude_face(fb[0], dir_b, d_b).unwrap();
+    let result = match op {
+        crate::boolean::BoolOp::Union => k.boolean_union(&cyl_a, &cyl_b)?,
+        crate::boolean::BoolOp::Subtract => k.boolean_subtract(&cyl_a, &cyl_b)?,
+        crate::boolean::BoolOp::Intersect => k.boolean_intersect(&cyl_a, &cyl_b)?,
+    };
+    Ok((k, result))
+}
+
+// ── Group N (continued): Direction-aware Cyl-Cyl Booleans ──────────
+
+#[test]
+fn n6_cyl_cyl_subtract_reversed_direction() {
+    // cyl_a: z=[0,10] upward, r=3
+    // cyl_b: center_bottom=[3,0,10], dir=[0,0,-1], depth=10 → z=[0,10]
+    // Same geometry as n3 (forward subtract), volume should match.
+    let r: f64 = 3.0;
+    let d: f64 = 3.0;
+    let a = d / 2.0;
+    let h = (r * r - a * a).sqrt();
+    let lens = r * r * (a / r).acos() + r * r * ((d - a) / r).acos() - d * h;
+    let subtract_area = PI * r * r - lens;
+    let expected = subtract_area * 10.0;
+
+    let (mut k, result) = do_cyl_cyl_boolean_directed(
+        0.0, 0.0, 3.0, 0.0, Z_DIR, 10.0,           // A: z=0..10 upward
+        3.0, 0.0, 3.0, 10.0, [0.0, 0.0, -1.0], 10.0, // B: z=10..0 downward
+        crate::boolean::BoolOp::Subtract,
+    ).expect("cyl-cyl subtract with reversed B should succeed");
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    let vol = mesh_volume(&mesh);
+    assert!(
+        (vol - expected).abs() < 10.0,
+        "Reversed-dir subtract volume should be ~{:.2}, got {:.2} (diff={:.2})",
+        expected, vol, (vol - expected).abs()
+    );
+}
+
+#[test]
+fn n7_cyl_cyl_union_stacked() {
+    // cyl_a: z=[0,10], r=3 at (0,0)
+    // cyl_b: z=[10,20], r=3 at (1,0)
+    // Z overlap at z=10 only (touching) → should fail with "no Z overlap"
+    let result = do_cyl_cyl_boolean_directed(
+        0.0, 0.0, 3.0, 0.0, Z_DIR, 10.0,
+        1.0, 0.0, 3.0, 10.0, Z_DIR, 10.0,
+        crate::boolean::BoolOp::Union,
+    );
+    assert!(result.is_err(), "Touching-only Z overlap should fail");
+}
+
+#[test]
+fn n8_cyl_cyl_subtract_reversed_watertight() {
+    // Same geometry as n6 — check watertight
+    let (mut k, result) = do_cyl_cyl_boolean_directed(
+        0.0, 0.0, 3.0, 0.0, Z_DIR, 10.0,
+        3.0, 0.0, 3.0, 10.0, [0.0, 0.0, -1.0], 10.0,
+        crate::boolean::BoolOp::Subtract,
+    ).expect("cyl-cyl subtract with reversed B should succeed");
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    assert!(check_watertight(&mesh), "Reversed-dir subtract mesh must be watertight");
+}
+
+#[test]
+fn n9_cyl_cyl_cut_no_overlap() {
+    // cyl_a: z=[0,10] upward, r=3
+    // cyl_b: center_bottom=[3,0,0], dir=[0,0,-1], depth=10 → z=[-10,0]
+    // No Z overlap → boolean should fail
+    let result = do_cyl_cyl_boolean_directed(
+        0.0, 0.0, 3.0, 0.0, Z_DIR, 10.0,
+        3.0, 0.0, 3.0, 0.0, [0.0, 0.0, -1.0], 10.0,
+        crate::boolean::BoolOp::Subtract,
+    );
+    assert!(result.is_err(), "Non-overlapping Z ranges should fail");
+}
+
 // ── Group O: Edge Cases + SSI Unit Tests ──────────────────────────
 
 #[test]

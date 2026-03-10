@@ -29,13 +29,22 @@ pub(crate) struct Aabb {
     pub max: [f64; 3],
 }
 
+// ── Z range helper ─────────────────────────────────────────────────────────
+
+/// Compute the actual Z extent of a cylinder, accounting for direction.
+/// Returns (z_min, z_max) regardless of whether direction is +Z or -Z.
+pub(crate) fn cyl_z_range(cyl: &CylinderParams) -> (f64, f64) {
+    let z0 = cyl.center_bottom[2];
+    let z1 = z0 + cyl.depth * cyl.direction[2];
+    (z0.min(z1), z0.max(z1))
+}
+
 // ── SSI computation ────────────────────────────────────────────────────────
 
 /// Compute SSI between a plane perpendicular to the Z-axis and a Z-axis cylinder.
 /// Returns a circle at the plane height if within the cylinder's Z range.
 pub(crate) fn plane_perp_cylinder_ssi(plane_z: f64, cyl: &CylinderParams) -> Vec<SSICurve> {
-    let cyl_z_min = cyl.center_bottom[2];
-    let cyl_z_max = cyl.center_bottom[2] + cyl.depth;
+    let (cyl_z_min, cyl_z_max) = cyl_z_range(cyl);
 
     if plane_z < cyl_z_min - 1e-9 || plane_z > cyl_z_max + 1e-9 {
         return vec![];
@@ -155,8 +164,7 @@ pub(crate) fn point_in_cylinder(pt: [f64; 3], cyl: &CylinderParams) -> bool {
     let dx = pt[0] - cyl.center_bottom[0];
     let dy = pt[1] - cyl.center_bottom[1];
     let dist_2d = (dx * dx + dy * dy).sqrt();
-    let z_min = cyl.center_bottom[2];
-    let z_max = cyl.center_bottom[2] + cyl.depth;
+    let (z_min, z_max) = cyl_z_range(cyl);
 
     dist_2d < cyl.radius - 1e-9 && pt[2] > z_min + 1e-9 && pt[2] < z_max - 1e-9
 }
@@ -205,8 +213,7 @@ pub(crate) fn box_cyl_disjoint(aabb: &Aabb, cyl: &CylinderParams) -> bool {
     }
 
     // Check Z overlap
-    let cyl_z_min = cyl.center_bottom[2];
-    let cyl_z_max = cyl_z_min + cyl.depth;
+    let (cyl_z_min, cyl_z_max) = cyl_z_range(cyl);
     if cyl_z_max < aabb.min[2] + 1e-9 || cyl_z_min > aabb.max[2] - 1e-9 {
         return true;
     }

@@ -1037,10 +1037,11 @@ fn cyl_cyl_boolean(
             }),
         }
     } else {
-        // Compute z range overlap
-        let z_min = cyl_a.center_bottom[2].max(cyl_b.center_bottom[2]);
-        let z_max =
-            (cyl_a.center_bottom[2] + cyl_a.depth).min(cyl_b.center_bottom[2] + cyl_b.depth);
+        // Compute z range overlap (direction-aware)
+        let (az_min, az_max) = ssi::cyl_z_range(cyl_a);
+        let (bz_min, bz_max) = ssi::cyl_z_range(cyl_b);
+        let z_min = az_min.max(bz_min);
+        let z_max = az_max.min(bz_max);
         if z_max <= z_min + 1e-9 {
             return Err(KernelError::BooleanFailed {
                 reason: "no Z overlap".to_string(),
