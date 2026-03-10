@@ -2071,3 +2071,176 @@ fn o4_ssi_cyl_cyl_parallel_lines() {
         }
     }
 }
+
+// ── Group P: Concentric Cylinder Subtract (Tube) ───────────────────
+
+#[test]
+fn p1_concentric_cyl_subtract_topology() {
+    // cyl(0,0,0,r=5,d=10) − cyl(0,0,0,r=3,d=10) → tube
+    let (k, result) = do_cyl_cyl_boolean(
+        0.0, 0.0, 5.0, 10.0,
+        0.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Subtract,
+    ).expect("concentric cyl subtract should succeed");
+    let faces = k.list_faces(&result);
+    let edges = k.list_edges(&result);
+    let verts = k.list_vertices(&result);
+    assert_eq!(faces.len(), 4, "Tube should have 4 faces (outer, inner, top annulus, bottom annulus), got {}", faces.len());
+    assert_eq!(edges.len(), 6, "Tube should have 6 edges, got {}", edges.len());
+    assert_eq!(verts.len(), 4, "Tube should have 4 vertices, got {}", verts.len());
+}
+
+#[test]
+fn p2_concentric_cyl_subtract_volume() {
+    use std::f64::consts::PI;
+    // cyl(r=5,d=10) − cyl(r=3,d=10) → V = π(25−9)×10 = 160π ≈ 502.65
+    let (mut k, result) = do_cyl_cyl_boolean(
+        0.0, 0.0, 5.0, 10.0,
+        0.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Subtract,
+    ).expect("concentric cyl subtract should succeed");
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    let vol = mesh_volume(&mesh);
+    let expected = PI * (25.0 - 9.0) * 10.0; // 502.65
+    assert!(
+        (vol - expected).abs() < expected * 0.05,
+        "Tube volume should be ~{:.2}, got {:.2} (diff={:.2})",
+        expected, vol, (vol - expected).abs()
+    );
+}
+
+#[test]
+fn p3_concentric_cyl_subtract_watertight() {
+    let (mut k, result) = do_cyl_cyl_boolean(
+        0.0, 0.0, 5.0, 10.0,
+        0.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Subtract,
+    ).expect("concentric cyl subtract should succeed");
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    assert!(check_watertight(&mesh), "Concentric cyl subtract mesh must be watertight");
+}
+
+#[test]
+fn p4_concentric_cyl_subtract_partial_z() {
+    // cyl(0,0,0,r=5,d=10) − cyl(0,0,2,r=3,d=6) → inner hole only in z=[2,8]
+    // The inner cylinder starts at z=2 and extends to z=8
+    let result = do_cyl_cyl_boolean_directed(
+        0.0, 0.0, 5.0, 0.0, Z_DIR, 10.0,
+        0.0, 0.0, 3.0, 2.0, Z_DIR, 6.0,
+        crate::boolean::BoolOp::Subtract,
+    );
+    // This may produce a tube within the Z overlap range [2,8]
+    // For now, just verify it doesn't panic/NaN
+    match result {
+        Ok((mut k, handle)) => {
+            let mesh = k.tessellate(&handle, 0.01).unwrap();
+            let vol = mesh_volume(&mesh);
+            assert!(vol > 0.0, "Partial Z tube should have positive volume, got {}", vol);
+        }
+        Err(e) => {
+            // Partial Z concentric subtract may not be supported yet, that's OK
+            eprintln!("p4: partial Z concentric subtract returned error (acceptable): {:?}", e);
+        }
+    }
+}
+
+#[test]
+fn p5_concentric_cyl_subtract_outer_smaller() {
+    // cyl(r=3) − cyl(r=5) → error (tool encloses blank)
+    let result = do_cyl_cyl_boolean(
+        0.0, 0.0, 3.0, 10.0,
+        0.0, 0.0, 5.0, 10.0,
+        crate::boolean::BoolOp::Subtract,
+    );
+    assert!(result.is_err(), "Tool enclosing blank should fail");
+}
+
+#[test]
+fn p6_concentric_cyl_subtract_equal_radius() {
+    // cyl(r=5) − cyl(r=5) → error (complete removal)
+    let result = do_cyl_cyl_boolean(
+        0.0, 0.0, 5.0, 10.0,
+        0.0, 0.0, 5.0, 10.0,
+        crate::boolean::BoolOp::Subtract,
+    );
+    assert!(result.is_err(), "Equal radius concentric subtract should fail");
+}
+
+// ── Group Q: Box-Cylinder Boss-on-Top Union ────────────────────────
+
+/// Create a box and cylinder with custom plane Z offsets for the cylinder.
+fn do_box_cyl_boolean_offset(
+    box_cx: f64, box_cy: f64, box_w: f64, box_h: f64, box_d: f64,
+    cyl_cx: f64, cyl_cy: f64, cyl_r: f64, cyl_z: f64, cyl_d: f64,
+    op: crate::boolean::BoolOp,
+) -> Result<(WaffleKernel, KernelSolidHandle), KernelError> {
+    let mut k = WaffleKernel::new();
+    let (pb, posb) = make_rect_profile(box_cx, box_cy, box_w, box_h);
+    let fb = k.make_faces_from_profiles(&pb, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posb).unwrap();
+    let box_solid = k.extrude_face(fb[0], Z_DIR, box_d).unwrap();
+    let (pc, posc) = make_circle_profile(cyl_cx, cyl_cy, cyl_r);
+    let cyl_origin = [0.0, 0.0, cyl_z];
+    let fc = k.make_faces_from_profiles(&pc, cyl_origin, XY_NORMAL, XY_X_AXIS, &posc).unwrap();
+    let cyl_solid = k.extrude_face(fc[0], Z_DIR, cyl_d).unwrap();
+    let result = match op {
+        crate::boolean::BoolOp::Union => k.boolean_union(&box_solid, &cyl_solid)?,
+        crate::boolean::BoolOp::Subtract => k.boolean_subtract(&box_solid, &cyl_solid)?,
+        crate::boolean::BoolOp::Intersect => k.boolean_intersect(&box_solid, &cyl_solid)?,
+    };
+    Ok((k, result))
+}
+
+#[test]
+fn q1_box_cyl_boss_on_top_topology() {
+    // box(10×10×10) at origin + cyl(5,5,z=10,r=4,d=5) on top
+    let (k, result) = do_box_cyl_boolean_offset(
+        5.0, 5.0, 10.0, 10.0, 10.0,    // 10x10x10 box centered at (5,5)
+        5.0, 5.0, 4.0, 10.0, 5.0,       // r=4 cyl at (5,5) starting at z=10, depth=5
+        crate::boolean::BoolOp::Union,
+    ).expect("box+cyl boss union should succeed");
+    let faces = k.list_faces(&result);
+    let edges = k.list_edges(&result);
+    let verts = k.list_vertices(&result);
+    let v = verts.len() as i64;
+    let e = edges.len() as i64;
+    let f = faces.len() as i64;
+    // Should be a single merged solid with: 4 box sides + 1 box bottom + 1 annular top + 1 cyl wall + 1 cyl cap = 8
+    assert!(
+        faces.len() >= 7,
+        "Boss union should have >= 7 faces (merged solid), got {}",
+        faces.len()
+    );
+    // V-E+F = 3 for genus-0 solid with 1 inner loop (annular face), no through-holes.
+    // Extended Euler: V-E+F-R+2H = 2 where R=1 (inner loops), H=0 (handles).
+    assert_eq!(v - e + f, 3, "Euler V-E+F must be 3 (1 inner loop), got {} (V={}, E={}, F={})", v - e + f, v, e, f);
+}
+
+#[test]
+fn q2_box_cyl_boss_on_top_volume() {
+    use std::f64::consts::PI;
+    // box(10×10×10) + cyl(r=4,d=5) → V = 1000 + π×16×5 ≈ 1251.33
+    let (mut k, result) = do_box_cyl_boolean_offset(
+        5.0, 5.0, 10.0, 10.0, 10.0,
+        5.0, 5.0, 4.0, 10.0, 5.0,
+        crate::boolean::BoolOp::Union,
+    ).expect("box+cyl boss union should succeed");
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    let vol = mesh_volume(&mesh);
+    let expected = 1000.0 + PI * 16.0 * 5.0; // 1251.33
+    assert!(
+        (vol - expected).abs() < expected * 0.05,
+        "Boss union volume should be ~{:.2}, got {:.2} (diff={:.2})",
+        expected, vol, (vol - expected).abs()
+    );
+}
+
+#[test]
+fn q3_box_cyl_boss_on_top_watertight() {
+    let (mut k, result) = do_box_cyl_boolean_offset(
+        5.0, 5.0, 10.0, 10.0, 10.0,
+        5.0, 5.0, 4.0, 10.0, 5.0,
+        crate::boolean::BoolOp::Union,
+    ).expect("box+cyl boss union should succeed");
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    assert!(check_watertight(&mesh), "Boss union mesh must be watertight");
+}

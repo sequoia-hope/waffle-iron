@@ -919,7 +919,34 @@ fn tessellate_planar_face_with_hole(
 
     // Collect outer boundary vertices
     let outer_loop_idx = arena.faces[face_idx.0].outer_loop;
-    let outer_verts = collect_loop_verts(arena, outer_loop_idx);
+    let outer_start_he = arena.loops[outer_loop_idx.0].half_edge;
+    let outer_is_self_loop = arena.half_edges[outer_start_he.0].next == outer_start_he;
+
+    let outer_verts: Vec<[f64; 3]> = if outer_is_self_loop {
+        // Self-loop: generate circle vertices from edge geometry (e.g., tube annular cap)
+        let edge = arena.half_edges[outer_start_he.0].edge;
+        if let Some(CurveGeom::Circular(ref circle)) = edge_geometry.get(&edge) {
+            let cap_normal = [plane.normal.x, plane.normal.y, plane.normal.z];
+            let (cx_axis, cy_axis) = make_circle_axes(&cap_normal);
+            let n = CIRCLE_SEGMENTS;
+            (0..n)
+                .map(|i| {
+                    let theta = std::f64::consts::TAU * (i as f64) / (n as f64);
+                    let cos_t = theta.cos();
+                    let sin_t = theta.sin();
+                    [
+                        circle.center.x + circle.radius * (cos_t * cx_axis[0] + sin_t * cy_axis[0]),
+                        circle.center.y + circle.radius * (cos_t * cx_axis[1] + sin_t * cy_axis[1]),
+                        circle.center.z + circle.radius * (cos_t * cx_axis[2] + sin_t * cy_axis[2]),
+                    ]
+                })
+                .collect()
+        } else {
+            return;
+        }
+    } else {
+        collect_loop_verts(arena, outer_loop_idx)
+    };
 
     // Collect inner boundary vertices (from first inner loop)
     let inner_loops = &arena.faces[face_idx.0].inner_loops;

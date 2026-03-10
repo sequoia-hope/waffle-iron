@@ -848,7 +848,9 @@ fn generate_chained_booleans(cases: &mut Vec<AssayCase>) {
             expected: AssayExpected {
                 volume: Some(1000.0 + PI * 16.0 * 5.0),
                 volume_tol: 5.0,
-                euler: Some(2),
+                // V-E+F = 3 for genus-0 solid with 1 inner loop (annular face), no through-holes.
+                // Extended Euler: V-E+F-R+2H = 2 where R=1 (inner loops), H=0 (handles).
+                euler: Some(3),
                 face_count: None,
                 watertight: true,
                 bbox: None,

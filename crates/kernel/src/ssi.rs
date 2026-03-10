@@ -212,9 +212,9 @@ pub(crate) fn box_cyl_disjoint(aabb: &Aabb, cyl: &CylinderParams) -> bool {
         return true;
     }
 
-    // Check Z overlap
+    // Check Z overlap — use tolerance so Z-touching surfaces are NOT disjoint
     let (cyl_z_min, cyl_z_max) = cyl_z_range(cyl);
-    if cyl_z_max < aabb.min[2] + 1e-9 || cyl_z_min > aabb.max[2] - 1e-9 {
+    if cyl_z_max < aabb.min[2] - 1e-9 || cyl_z_min > aabb.max[2] + 1e-9 {
         return true;
     }
 

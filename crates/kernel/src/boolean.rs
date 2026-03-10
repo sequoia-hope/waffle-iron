@@ -975,12 +975,22 @@ fn box_cyl_boolean(
     op: BoolOp,
     id_alloc: &mut dyn FnMut() -> u64,
 ) -> Result<BooleanResult, KernelError> {
-    let enclosed = ssi::cyl_enclosed_in_box(cyl, box_aabb);
+    let xy_enclosed = ssi::cyl_enclosed_in_box(cyl, box_aabb);
     let disjoint = ssi::box_cyl_disjoint(box_aabb, cyl);
+
+    // Check full 3D enclosure: XY-enclosed AND Z range within box
+    let (cyl_z_min, cyl_z_max) = ssi::cyl_z_range(cyl);
+    let z_enclosed = cyl_z_min >= box_aabb.min[2] - 1e-9 && cyl_z_max <= box_aabb.max[2] + 1e-9;
+    let fully_enclosed = xy_enclosed && z_enclosed;
+
+    // Detect boss-on-top/bottom: cylinder XY-enclosed, Z-touching at one face, extends beyond
+    let z_touches_top = (cyl_z_min - box_aabb.max[2]).abs() < 1e-9;
+    let z_touches_bot = (cyl_z_max - box_aabb.min[2]).abs() < 1e-9;
+    let is_boss = xy_enclosed && !z_enclosed && (z_touches_top || z_touches_bot);
 
     match op {
         BoolOp::Subtract => {
-            if enclosed {
+            if fully_enclosed {
                 build_box_minus_enclosed_cyl(box_aabb, cyl, id_alloc)
             } else if disjoint {
                 clone_solid_as_result(box_solid, id_alloc)
@@ -991,9 +1001,11 @@ fn box_cyl_boolean(
             }
         }
         BoolOp::Union => {
-            if enclosed {
+            if fully_enclosed {
                 // Cylinder fully inside box → union = box
                 clone_solid_as_result(box_solid, id_alloc)
+            } else if is_boss {
+                build_box_with_cyl_boss(box_aabb, cyl, z_touches_top, id_alloc)
             } else if disjoint {
                 build_disjoint_box_cyl_union(box_aabb, cyl, id_alloc)
             } else {
@@ -1003,7 +1015,7 @@ fn box_cyl_boolean(
             }
         }
         BoolOp::Intersect => {
-            if enclosed {
+            if fully_enclosed {
                 // Cylinder fully inside box → intersect = cylinder
                 build_cyl_result(cyl, id_alloc)
             } else if disjoint {
@@ -1048,7 +1060,7 @@ fn cyl_cyl_boolean(
             });
         }
 
-        // Compute 2D intersection points
+        // Compute 2D distance between centers
         let c1 = [cyl_a.center_bottom[0], cyl_a.center_bottom[1]];
         let c2 = [cyl_b.center_bottom[0], cyl_b.center_bottom[1]];
         let r1 = cyl_a.radius;
@@ -1056,6 +1068,39 @@ fn cyl_cyl_boolean(
         let dx = c2[0] - c1[0];
         let dy = c2[1] - c1[1];
         let d = (dx * dx + dy * dy).sqrt();
+
+        // Concentric cylinders: d ≈ 0, avoid division by zero
+        if d < 1e-9 {
+            return match op {
+                BoolOp::Subtract => {
+                    if r2 >= r1 - 1e-9 {
+                        Err(KernelError::BooleanFailed {
+                            reason: "tool encloses or equals blank (concentric)".to_string(),
+                        })
+                    } else {
+                        build_cyl_tube(cyl_a, cyl_b, z_min, z_max, id_alloc)
+                    }
+                }
+                BoolOp::Union => {
+                    // Concentric union: keep larger cylinder
+                    if r1 >= r2 {
+                        build_cyl_result(cyl_a, id_alloc)
+                    } else {
+                        build_cyl_result(cyl_b, id_alloc)
+                    }
+                }
+                BoolOp::Intersect => {
+                    // Concentric intersect: keep smaller cylinder
+                    if r1 <= r2 {
+                        build_cyl_result(cyl_a, id_alloc)
+                    } else {
+                        build_cyl_result(cyl_b, id_alloc)
+                    }
+                }
+            };
+        }
+
+        // Non-concentric: compute 2D intersection points
         let a = (r1 * r1 - r2 * r2 + d * d) / (2.0 * d);
         let h = (r1 * r1 - a * a).max(0.0).sqrt();
         let ux = dx / d;
@@ -1255,6 +1300,292 @@ pub(crate) fn build_cyl_result(
     })
 }
 
+// ── Build concentric cylinder tube ────────────────────────────────────
+
+/// Build a tube (hollow cylinder) from concentric cylinder subtraction.
+///
+/// Topology: 4 faces (outer wall, inner wall, top annulus, bottom annulus),
+/// 4 edges (outer top circle, outer bottom circle, inner top circle, inner bottom circle),
+/// 2 vertices (top seam, bottom seam). Inner loops on cap faces via kemr pattern.
+/// V-E+F = 2-4+4 = 2.
+fn build_cyl_tube(
+    outer_cyl: &CylinderParams,
+    inner_cyl: &CylinderParams,
+    z_min: f64,
+    z_max: f64,
+    id_alloc: &mut dyn FnMut() -> u64,
+) -> Result<BooleanResult, KernelError> {
+    let cx = outer_cyl.center_bottom[0];
+    let cy = outer_cyl.center_bottom[1];
+    let r_outer = outer_cyl.radius;
+    let r_inner = inner_cyl.radius;
+    let dir = outer_cyl.direction;
+
+    // Seam points (at +X from center)
+    let bot_outer_seam = [cx + r_outer, cy, z_min];
+    let top_outer_seam = [cx + r_outer, cy, z_max];
+    let bot_inner_seam = [cx + r_inner, cy, z_min];
+    let top_inner_seam = [cx + r_inner, cy, z_max];
+
+    let mut arena = TopoArena::new();
+    let solid_idx = arena.add_solid();
+    let shell_idx = arena.add_shell(solid_idx);
+    arena.solids[solid_idx.0].outer_shell = shell_idx;
+
+    // 4 faces
+    let face_outer = arena.add_face(shell_idx);
+    let face_inner = arena.add_face(shell_idx);
+    let face_top = arena.add_face(shell_idx);
+    let face_bot = arena.add_face(shell_idx);
+    arena.shells[shell_idx.0].face = face_outer;
+
+    // Outer loops for each face
+    let loop_outer = arena.add_loop(face_outer);
+    let loop_inner = arena.add_loop(face_inner);
+    let loop_top_outer = arena.add_loop(face_top);
+    let loop_bot_outer = arena.add_loop(face_bot);
+    arena.faces[face_outer.0].outer_loop = loop_outer;
+    arena.faces[face_inner.0].outer_loop = loop_inner;
+    arena.faces[face_top.0].outer_loop = loop_top_outer;
+    arena.faces[face_bot.0].outer_loop = loop_bot_outer;
+
+    // Inner loops for annular caps
+    let loop_top_inner = arena.add_loop(face_top);
+    let loop_bot_inner = arena.add_loop(face_bot);
+    arena.faces[face_top.0].inner_loops.push(loop_top_inner);
+    arena.faces[face_bot.0].inner_loops.push(loop_bot_inner);
+
+    // 4 vertices: outer bottom seam, outer top seam, inner bottom seam, inner top seam
+    // But for the standard cylinder B-Rep with seam edges, we only need 2 vertices
+    // on the outer cylinder and 2 on the inner cylinder. However the annular caps
+    // connect outer and inner, so we need all 4.
+    // Actually: the outer wall self-loops with 2 vertices, inner wall self-loops with 2 vertices,
+    // and the annular caps connect them. So we need 4 vertices total.
+    // But wait — the annular caps need to reference both outer and inner seam vertices.
+    // Let's keep it simple: 4 vertices.
+    let v_bot_outer = arena.add_vertex(bot_outer_seam);
+    let v_top_outer = arena.add_vertex(top_outer_seam);
+    let v_bot_inner = arena.add_vertex(bot_inner_seam);
+    let v_top_inner = arena.add_vertex(top_inner_seam);
+
+    // 7 edges:
+    // e_outer_bot: outer bottom circle (self-loop on bottom cap outer)
+    // e_outer_top: outer top circle (self-loop on top cap outer)
+    // e_inner_bot: inner bottom circle (self-loop on bottom cap inner)
+    // e_inner_top: inner top circle (self-loop on top cap inner)
+    // e_outer_seam: outer vertical seam
+    // e_inner_seam: inner vertical seam
+    // But actually, following the same pattern as build_cyl_result and build_box_minus_enclosed_cyl:
+    // Outer wall: 3 edges (outer_bot circle, outer_top circle, outer_seam line)
+    //   - loop: seam_a → top_b → seam_b → bot_b (4 half-edges)
+    // Inner wall: 3 edges (inner_bot circle, inner_top circle, inner_seam line)
+    //   - loop: seam_a → top_b → seam_b → bot_b (4 half-edges)
+    // Top cap outer loop: 1 self-loop edge (outer_top circle) — he_outer_top_a
+    // Top cap inner loop: 1 self-loop edge (inner_top circle) — he_inner_top_a
+    // Bottom cap outer loop: 1 self-loop edge (outer_bot circle) — he_outer_bot_a
+    // Bottom cap inner loop: 1 self-loop edge (inner_bot circle) — he_inner_bot_a
+
+    let (e_outer_bot, he_obot_a, he_obot_b) = arena.add_edge();
+    let (e_outer_top, he_otop_a, he_otop_b) = arena.add_edge();
+    let (e_outer_seam, he_oseam_a, he_oseam_b) = arena.add_edge();
+    let (e_inner_bot, he_ibot_a, he_ibot_b) = arena.add_edge();
+    let (e_inner_top, he_itop_a, he_itop_b) = arena.add_edge();
+    let (e_inner_seam, he_iseam_a, he_iseam_b) = arena.add_edge();
+
+    // ── Outer wall loop: oseam_a(bot→top) → otop_b(top→top) → oseam_b(top→bot) → obot_b(bot→bot)
+    arena.half_edges[he_oseam_a.0].origin = v_bot_outer;
+    arena.half_edges[he_oseam_a.0].next = he_otop_b;
+    arena.half_edges[he_oseam_a.0].prev = he_obot_b;
+    arena.half_edges[he_oseam_a.0].loop_ = loop_outer;
+
+    arena.half_edges[he_otop_b.0].origin = v_top_outer;
+    arena.half_edges[he_otop_b.0].next = he_oseam_b;
+    arena.half_edges[he_otop_b.0].prev = he_oseam_a;
+    arena.half_edges[he_otop_b.0].loop_ = loop_outer;
+
+    arena.half_edges[he_oseam_b.0].origin = v_top_outer;
+    arena.half_edges[he_oseam_b.0].next = he_obot_b;
+    arena.half_edges[he_oseam_b.0].prev = he_otop_b;
+    arena.half_edges[he_oseam_b.0].loop_ = loop_outer;
+
+    arena.half_edges[he_obot_b.0].origin = v_bot_outer;
+    arena.half_edges[he_obot_b.0].next = he_oseam_a;
+    arena.half_edges[he_obot_b.0].prev = he_oseam_b;
+    arena.half_edges[he_obot_b.0].loop_ = loop_outer;
+
+    arena.loops[loop_outer.0].half_edge = he_oseam_a;
+
+    // ── Inner wall loop: iseam_a(bot→top) → itop_b(top→top) → iseam_b(top→bot) → ibot_b(bot→bot)
+    arena.half_edges[he_iseam_a.0].origin = v_bot_inner;
+    arena.half_edges[he_iseam_a.0].next = he_itop_b;
+    arena.half_edges[he_iseam_a.0].prev = he_ibot_b;
+    arena.half_edges[he_iseam_a.0].loop_ = loop_inner;
+
+    arena.half_edges[he_itop_b.0].origin = v_top_inner;
+    arena.half_edges[he_itop_b.0].next = he_iseam_b;
+    arena.half_edges[he_itop_b.0].prev = he_iseam_a;
+    arena.half_edges[he_itop_b.0].loop_ = loop_inner;
+
+    arena.half_edges[he_iseam_b.0].origin = v_top_inner;
+    arena.half_edges[he_iseam_b.0].next = he_ibot_b;
+    arena.half_edges[he_iseam_b.0].prev = he_itop_b;
+    arena.half_edges[he_iseam_b.0].loop_ = loop_inner;
+
+    arena.half_edges[he_ibot_b.0].origin = v_bot_inner;
+    arena.half_edges[he_ibot_b.0].next = he_iseam_a;
+    arena.half_edges[he_ibot_b.0].prev = he_iseam_b;
+    arena.half_edges[he_ibot_b.0].loop_ = loop_inner;
+
+    arena.loops[loop_inner.0].half_edge = he_iseam_a;
+
+    // ── Top cap outer loop: self-loop on outer top circle
+    arena.half_edges[he_otop_a.0].origin = v_top_outer;
+    arena.half_edges[he_otop_a.0].next = he_otop_a;
+    arena.half_edges[he_otop_a.0].prev = he_otop_a;
+    arena.half_edges[he_otop_a.0].loop_ = loop_top_outer;
+    arena.loops[loop_top_outer.0].half_edge = he_otop_a;
+
+    // ── Top cap inner loop: self-loop on inner top circle
+    arena.half_edges[he_itop_a.0].origin = v_top_inner;
+    arena.half_edges[he_itop_a.0].next = he_itop_a;
+    arena.half_edges[he_itop_a.0].prev = he_itop_a;
+    arena.half_edges[he_itop_a.0].loop_ = loop_top_inner;
+    arena.loops[loop_top_inner.0].half_edge = he_itop_a;
+
+    // ── Bottom cap outer loop: self-loop on outer bottom circle
+    arena.half_edges[he_obot_a.0].origin = v_bot_outer;
+    arena.half_edges[he_obot_a.0].next = he_obot_a;
+    arena.half_edges[he_obot_a.0].prev = he_obot_a;
+    arena.half_edges[he_obot_a.0].loop_ = loop_bot_outer;
+    arena.loops[loop_bot_outer.0].half_edge = he_obot_a;
+
+    // ── Bottom cap inner loop: self-loop on inner bottom circle
+    arena.half_edges[he_ibot_a.0].origin = v_bot_inner;
+    arena.half_edges[he_ibot_a.0].next = he_ibot_a;
+    arena.half_edges[he_ibot_a.0].prev = he_ibot_a;
+    arena.half_edges[he_ibot_a.0].loop_ = loop_bot_inner;
+    arena.loops[loop_bot_inner.0].half_edge = he_ibot_a;
+
+    // ── Vertex half-edge refs
+    arena.vertices[v_bot_outer.0].half_edge = Some(he_obot_a);
+    arena.vertices[v_top_outer.0].half_edge = Some(he_otop_a);
+    arena.vertices[v_bot_inner.0].half_edge = Some(he_ibot_a);
+    arena.vertices[v_top_inner.0].half_edge = Some(he_itop_a);
+
+    // ── Face geometry
+    let top_center = [cx, cy, z_max];
+    let bot_center = [cx, cy, z_min];
+
+    let mut face_geometry = HashMap::new();
+    face_geometry.insert(
+        face_outer,
+        SurfaceGeom::Cylindrical(Cylinder {
+            origin: Point3::from_array([cx, cy, z_min]),
+            axis: Vector3::from_array(dir),
+            radius: r_outer,
+        }),
+    );
+    face_geometry.insert(
+        face_inner,
+        SurfaceGeom::Cylindrical(Cylinder {
+            origin: Point3::from_array([cx, cy, z_min]),
+            axis: Vector3::from_array(dir),
+            radius: -r_inner, // negative = inward-facing normal
+        }),
+    );
+    face_geometry.insert(
+        face_top,
+        SurfaceGeom::Planar(Plane {
+            origin: Point3::from_array(top_center),
+            normal: Vector3::from_array(dir),
+        }),
+    );
+    face_geometry.insert(
+        face_bot,
+        SurfaceGeom::Planar(Plane {
+            origin: Point3::from_array(bot_center),
+            normal: Vector3::from_array(v3_negate(dir)),
+        }),
+    );
+
+    // ── Edge geometry
+    let mut edge_geometry = HashMap::new();
+    edge_geometry.insert(
+        e_outer_bot,
+        CurveGeom::Circular(Circle3D {
+            center: Point3::from_array(bot_center),
+            normal: Vector3::from_array(v3_negate(dir)),
+            radius: r_outer,
+        }),
+    );
+    edge_geometry.insert(
+        e_outer_top,
+        CurveGeom::Circular(Circle3D {
+            center: Point3::from_array(top_center),
+            normal: Vector3::from_array(dir),
+            radius: r_outer,
+        }),
+    );
+    edge_geometry.insert(
+        e_inner_bot,
+        CurveGeom::Circular(Circle3D {
+            center: Point3::from_array(bot_center),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            radius: r_inner,
+        }),
+    );
+    edge_geometry.insert(
+        e_inner_top,
+        CurveGeom::Circular(Circle3D {
+            center: Point3::from_array(top_center),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            radius: r_inner,
+        }),
+    );
+    edge_geometry.insert(
+        e_outer_seam,
+        CurveGeom::Linear(Line3D {
+            origin: Point3::from_array(bot_outer_seam),
+            direction: Vector3::from_array([0.0, 0.0, z_max - z_min]),
+        }),
+    );
+    edge_geometry.insert(
+        e_inner_seam,
+        CurveGeom::Linear(Line3D {
+            origin: Point3::from_array(bot_inner_seam),
+            direction: Vector3::from_array([0.0, 0.0, z_max - z_min]),
+        }),
+    );
+
+    // ── Build maps
+    let mut face_map = HashMap::new();
+    let mut edge_map = HashMap::new();
+    let mut vertex_map = HashMap::new();
+    face_map.insert(id_alloc(), face_outer);
+    face_map.insert(id_alloc(), face_inner);
+    face_map.insert(id_alloc(), face_top);
+    face_map.insert(id_alloc(), face_bot);
+    edge_map.insert(id_alloc(), e_outer_bot);
+    edge_map.insert(id_alloc(), e_outer_top);
+    edge_map.insert(id_alloc(), e_inner_bot);
+    edge_map.insert(id_alloc(), e_inner_top);
+    edge_map.insert(id_alloc(), e_outer_seam);
+    edge_map.insert(id_alloc(), e_inner_seam);
+    vertex_map.insert(id_alloc(), v_bot_outer);
+    vertex_map.insert(id_alloc(), v_top_outer);
+    vertex_map.insert(id_alloc(), v_bot_inner);
+    vertex_map.insert(id_alloc(), v_top_inner);
+
+    Ok(BooleanResult {
+        arena,
+        face_map,
+        edge_map,
+        vertex_map,
+        face_geometry,
+        edge_geometry,
+    })
+}
+
 // ── Build box-minus-enclosed-cylinder ──────────────────────────────────
 
 /// Build a box with a cylindrical through-hole (enclosed cylinder subtract).
@@ -1431,6 +1762,181 @@ fn build_disjoint_box_cyl_union(
 
     // Merge the cylinder arena into the box result
     merge_brep_into(&mut result, &cyl_result, id_alloc);
+
+    Ok(result)
+}
+
+/// Build a box with a cylindrical boss on top (or bottom).
+///
+/// The cylinder is XY-enclosed in the box and sits on the box top (or bottom) face.
+/// Result: box with annular cap face + cylinder wall + cylinder end cap.
+///
+/// Topology: 4 box side faces + 1 box opposite cap + 1 annular cap + 1 cyl wall + 1 cyl cap = 8 faces.
+fn build_box_with_cyl_boss(
+    aabb: &Aabb,
+    cyl: &CylinderParams,
+    on_top: bool,
+    id_alloc: &mut dyn FnMut() -> u64,
+) -> Result<BooleanResult, KernelError> {
+    let cx = cyl.center_bottom[0];
+    let cy = cyl.center_bottom[1];
+    let r = cyl.radius;
+    let (cyl_z_min, cyl_z_max) = ssi::cyl_z_range(cyl);
+
+    // Build box as polygon faces
+    let box_faces = make_box_face_polys(aabb);
+    let tau_weld = 1e-7;
+    let mut result = build_brep_from_polygons(&box_faces, tau_weld, id_alloc)?;
+
+    // Find the face to punch the hole in (top or bottom)
+    let mut face_punch = None;
+    let punch_z = if on_top { aabb.max[2] } else { aabb.min[2] };
+    for (&fi, geom) in &result.face_geometry {
+        if let SurfaceGeom::Planar(plane) = geom {
+            let matches = if on_top {
+                plane.normal.z > 0.5
+            } else {
+                plane.normal.z < -0.5
+            };
+            if matches {
+                face_punch = Some(fi);
+            }
+        }
+    }
+    let face_punch = face_punch.ok_or(KernelError::BooleanFailed {
+        reason: "cannot find face to punch for boss".to_string(),
+    })?;
+
+    // Cylinder end Z (the end away from the box)
+    let cyl_end_z = if on_top { cyl_z_max } else { cyl_z_min };
+    let cyl_dir = if on_top {
+        [0.0, 0.0, 1.0]
+    } else {
+        [0.0, 0.0, -1.0]
+    };
+
+    // Add cylinder seam vertices at the punched face and at the cyl end
+    let punch_seam = [cx + r, cy, punch_z];
+    let end_seam = [cx + r, cy, cyl_end_z];
+    let v_punch_seam = result.arena.add_vertex(punch_seam);
+    let v_end_seam = result.arena.add_vertex(end_seam);
+
+    // Add inner loop to the punched face (annular hole)
+    let inner_loop = result.arena.add_loop(face_punch);
+    result.arena.faces[face_punch.0]
+        .inner_loops
+        .push(inner_loop);
+
+    // Inner circle self-loop at punch face
+    let (e_punch_circle, he_punch_a, he_punch_b) = result.arena.add_edge();
+    result.arena.half_edges[he_punch_a.0].origin = v_punch_seam;
+    result.arena.half_edges[he_punch_a.0].next = he_punch_a;
+    result.arena.half_edges[he_punch_a.0].prev = he_punch_a;
+    result.arena.half_edges[he_punch_a.0].loop_ = inner_loop;
+    result.arena.loops[inner_loop.0].half_edge = he_punch_a;
+
+    // End cap circle
+    let (e_end_circle, he_end_a, he_end_b) = result.arena.add_edge();
+
+    // End cap face
+    let shell_idx = ShellIdx(0);
+    let face_end_cap = result.arena.add_face(shell_idx);
+    let loop_end_cap = result.arena.add_loop(face_end_cap);
+    result.arena.faces[face_end_cap.0].outer_loop = loop_end_cap;
+
+    // End cap: self-loop
+    result.arena.half_edges[he_end_a.0].origin = v_end_seam;
+    result.arena.half_edges[he_end_a.0].next = he_end_a;
+    result.arena.half_edges[he_end_a.0].prev = he_end_a;
+    result.arena.half_edges[he_end_a.0].loop_ = loop_end_cap;
+    result.arena.loops[loop_end_cap.0].half_edge = he_end_a;
+
+    // Cylinder side face
+    let face_cyl = result.arena.add_face(shell_idx);
+    let loop_cyl = result.arena.add_loop(face_cyl);
+    result.arena.faces[face_cyl.0].outer_loop = loop_cyl;
+
+    // Seam edge (vertical)
+    let (e_seam, he_seam_a, he_seam_b) = result.arena.add_edge();
+
+    // Cylinder side loop: seam_a(punch→end) → end_b(end→end) → seam_b(end→punch) → punch_b(punch→punch)
+    result.arena.half_edges[he_seam_a.0].origin = v_punch_seam;
+    result.arena.half_edges[he_seam_a.0].next = he_end_b;
+    result.arena.half_edges[he_seam_a.0].prev = he_punch_b;
+    result.arena.half_edges[he_seam_a.0].loop_ = loop_cyl;
+
+    result.arena.half_edges[he_end_b.0].origin = v_end_seam;
+    result.arena.half_edges[he_end_b.0].next = he_seam_b;
+    result.arena.half_edges[he_end_b.0].prev = he_seam_a;
+    result.arena.half_edges[he_end_b.0].loop_ = loop_cyl;
+
+    result.arena.half_edges[he_seam_b.0].origin = v_end_seam;
+    result.arena.half_edges[he_seam_b.0].next = he_punch_b;
+    result.arena.half_edges[he_seam_b.0].prev = he_end_b;
+    result.arena.half_edges[he_seam_b.0].loop_ = loop_cyl;
+
+    result.arena.half_edges[he_punch_b.0].origin = v_punch_seam;
+    result.arena.half_edges[he_punch_b.0].next = he_seam_a;
+    result.arena.half_edges[he_punch_b.0].prev = he_seam_b;
+    result.arena.half_edges[he_punch_b.0].loop_ = loop_cyl;
+
+    result.arena.loops[loop_cyl.0].half_edge = he_seam_a;
+
+    // Vertex half-edge refs
+    result.arena.vertices[v_punch_seam.0].half_edge = Some(he_punch_a);
+    result.arena.vertices[v_end_seam.0].half_edge = Some(he_end_a);
+
+    // Face geometry
+    result.face_geometry.insert(
+        face_cyl,
+        SurfaceGeom::Cylindrical(Cylinder {
+            origin: Point3::from_array([cx, cy, punch_z]),
+            axis: Vector3::from_array(cyl_dir),
+            radius: r,
+        }),
+    );
+    result.face_geometry.insert(
+        face_end_cap,
+        SurfaceGeom::Planar(Plane {
+            origin: Point3::from_array([cx, cy, cyl_end_z]),
+            normal: Vector3::from_array(cyl_dir),
+        }),
+    );
+
+    // Edge geometry
+    result.edge_geometry.insert(
+        e_punch_circle,
+        CurveGeom::Circular(Circle3D {
+            center: Point3::from_array([cx, cy, punch_z]),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            radius: r,
+        }),
+    );
+    result.edge_geometry.insert(
+        e_end_circle,
+        CurveGeom::Circular(Circle3D {
+            center: Point3::from_array([cx, cy, cyl_end_z]),
+            normal: Vector3::from_array(cyl_dir),
+            radius: r,
+        }),
+    );
+    let seam_height = (cyl_end_z - punch_z).abs();
+    result.edge_geometry.insert(
+        e_seam,
+        CurveGeom::Linear(Line3D {
+            origin: Point3::from_array(punch_seam),
+            direction: Vector3::from_array(v3_scale(cyl_dir, seam_height)),
+        }),
+    );
+
+    // Add IDs for new entities
+    result.face_map.insert(id_alloc(), face_cyl);
+    result.face_map.insert(id_alloc(), face_end_cap);
+    result.edge_map.insert(id_alloc(), e_punch_circle);
+    result.edge_map.insert(id_alloc(), e_end_circle);
+    result.edge_map.insert(id_alloc(), e_seam);
+    result.vertex_map.insert(id_alloc(), v_punch_seam);
+    result.vertex_map.insert(id_alloc(), v_end_seam);
 
     Ok(result)
 }
