@@ -803,21 +803,9 @@ impl Kernel for WaffleKernel {
                 continue;
             }
 
-            // Polygon profile path — use entity_ids as vertex ordering when they
-            // are all valid keys in positions (excludes construction points for
-            // profiles like gears). Fall back to sorted positions keys otherwise.
-            let all_in_positions = !profile.entity_ids.is_empty()
-                && profile
-                    .entity_ids
-                    .iter()
-                    .all(|id| positions.contains_key(id));
-            let keys: Vec<u32> = if all_in_positions {
-                profile.entity_ids.clone()
-            } else {
-                let mut k: Vec<u32> = positions.keys().copied().collect();
-                k.sort();
-                k
-            };
+            // Polygon profile path
+            let mut keys: Vec<u32> = positions.keys().copied().collect();
+            keys.sort();
 
             if keys.len() < 3 {
                 return Err(KernelError::Other {
