@@ -242,36 +242,35 @@ fn execute_feature(
             // CPE1-2, CPU1-2, all boolean_properties/workflows/recovery tests pass.
             let cut_eps = 0.0;
             // For cuts: determine direction based on where the target body is
-            // relative to the sketch plane. When the body centroid is "behind"
-            // the sketch plane (in the -normal direction), reverse the extrude
-            // so the cut goes toward the body. When the body is "ahead" (in
-            // the +normal direction), keep the default direction.
+            // relative to the sketch plane. Project all target body vertices
+            // onto the extrude axis to find the body's extent midpoint, then
+            // check which side of the sketch plane it falls on.
+            //
+            // Using vertex positions (not face centroids) gives the true
+            // geometric bounding box along the extrude axis, robust against
+            // asymmetric face counts or face centroid weighting.
             let should_reverse_for_cut = if params.cut && params.direction.is_none() {
                 if let Some(target_handle) = find_most_recent_solid(feature, feature_results, tree)
                 {
-                    let faces = kb.list_faces(&target_handle);
-                    let mut sum = [0.0f64; 3];
-                    let mut count = 0usize;
-                    for &fid in &faces {
-                        let sig = kb.compute_signature(fid, TopoKind::Face);
-                        if let Some(c) = sig.centroid {
-                            sum[0] += c[0];
-                            sum[1] += c[1];
-                            sum[2] += c[2];
-                            count += 1;
+                    let verts = kb.list_vertices(&target_handle);
+                    let sketch_proj = sketch.plane_origin[0] * direction[0]
+                        + sketch.plane_origin[1] * direction[1]
+                        + sketch.plane_origin[2] * direction[2];
+                    let mut proj_min = f64::INFINITY;
+                    let mut proj_max = f64::NEG_INFINITY;
+                    for &vid in &verts {
+                        let sig = kb.compute_signature(vid, TopoKind::Vertex);
+                        if let Some(p) = sig.centroid {
+                            let proj =
+                                p[0] * direction[0] + p[1] * direction[1] + p[2] * direction[2];
+                            proj_min = proj_min.min(proj);
+                            proj_max = proj_max.max(proj);
                         }
                     }
-                    if count > 0 {
-                        let avg = [
-                            sum[0] / count as f64,
-                            sum[1] / count as f64,
-                            sum[2] / count as f64,
-                        ];
-                        let dot = (avg[0] - sketch.plane_origin[0]) * direction[0]
-                            + (avg[1] - sketch.plane_origin[1]) * direction[1]
-                            + (avg[2] - sketch.plane_origin[2]) * direction[2];
-                        // Reverse only when body is behind sketch plane (-direction side)
-                        dot < 0.0
+                    if proj_min.is_finite() && proj_max.is_finite() {
+                        let body_mid = (proj_min + proj_max) * 0.5;
+                        // Reverse only when body midpoint is behind sketch plane
+                        body_mid < sketch_proj
                     } else {
                         true // fallback: legacy reverse behavior
                     }
