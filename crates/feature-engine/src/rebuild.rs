@@ -241,9 +241,46 @@ fn execute_feature(
             // underlying coplanar boolean failures. Verified: BNC1-7, CPC1-4, CPB1-2,
             // CPE1-2, CPU1-2, all boolean_properties/workflows/recovery tests pass.
             let cut_eps = 0.0;
-            // For cuts: only reverse when no explicit direction was provided.
-            // When the user sends an explicit direction, trust it as-is.
-            let should_reverse_for_cut = params.direction.is_none();
+            // For cuts: determine direction based on where the target body is
+            // relative to the sketch plane. When the body centroid is "behind"
+            // the sketch plane (in the -normal direction), reverse the extrude
+            // so the cut goes toward the body. When the body is "ahead" (in
+            // the +normal direction), keep the default direction.
+            let should_reverse_for_cut = if params.cut && params.direction.is_none() {
+                if let Some(target_handle) = find_most_recent_solid(feature, feature_results, tree)
+                {
+                    let faces = kb.list_faces(&target_handle);
+                    let mut sum = [0.0f64; 3];
+                    let mut count = 0usize;
+                    for &fid in &faces {
+                        let sig = kb.compute_signature(fid, TopoKind::Face);
+                        if let Some(c) = sig.centroid {
+                            sum[0] += c[0];
+                            sum[1] += c[1];
+                            sum[2] += c[2];
+                            count += 1;
+                        }
+                    }
+                    if count > 0 {
+                        let avg = [
+                            sum[0] / count as f64,
+                            sum[1] / count as f64,
+                            sum[2] / count as f64,
+                        ];
+                        let dot = (avg[0] - sketch.plane_origin[0]) * direction[0]
+                            + (avg[1] - sketch.plane_origin[1]) * direction[1]
+                            + (avg[2] - sketch.plane_origin[2]) * direction[2];
+                        // Reverse only when body is behind sketch plane (-direction side)
+                        dot < 0.0
+                    } else {
+                        true // fallback: legacy reverse behavior
+                    }
+                } else {
+                    true // no target body: legacy reverse behavior
+                }
+            } else {
+                false // explicit direction or non-cut: never auto-reverse
+            };
             let (extrude_direction, extrude_depth, face_origin) = match (params.cut, second_depth) {
                 (true, Some(sd)) => {
                     if should_reverse_for_cut {
@@ -1266,12 +1303,7 @@ mod tests {
             active_index: None,
         };
         let results = HashMap::new();
-        let result = execute_feature(
-            &feature,
-            &mut kernel::MockKernel::new(),
-            &results,
-            &tree,
-        );
+        let result = execute_feature(&feature, &mut kernel::MockKernel::new(), &results, &tree);
         assert!(result.is_ok(), "PointNormal datum plane should succeed");
         assert!(
             result.unwrap().outputs.is_empty(),
@@ -1294,12 +1326,7 @@ mod tests {
         let results = HashMap::new();
 
         // Verify execution succeeds
-        let result = execute_feature(
-            &feature,
-            &mut kernel::MockKernel::new(),
-            &results,
-            &tree,
-        );
+        let result = execute_feature(&feature, &mut kernel::MockKernel::new(), &results, &tree);
         assert!(result.is_ok(), "Offset from built-in should succeed");
 
         // Verify resolution
@@ -1325,12 +1352,7 @@ mod tests {
             active_index: None,
         };
         let results = HashMap::new();
-        let result = execute_feature(
-            &feature,
-            &mut kernel::MockKernel::new(),
-            &results,
-            &tree,
-        );
+        let result = execute_feature(&feature, &mut kernel::MockKernel::new(), &results, &tree);
         assert!(result.is_err(), "Zero normal should fail");
         let err = result.unwrap_err().to_string();
         assert!(
@@ -1355,12 +1377,7 @@ mod tests {
             active_index: None,
         };
         let results = HashMap::new();
-        let result = execute_feature(
-            &feature,
-            &mut kernel::MockKernel::new(),
-            &results,
-            &tree,
-        );
+        let result = execute_feature(&feature, &mut kernel::MockKernel::new(), &results, &tree);
         assert!(result.is_err(), "Missing base plane should fail");
         let err = result.unwrap_err().to_string();
         assert!(
