@@ -1,0 +1,45 @@
+{
+  "id": "R0005",
+  "description": "2 ops, scale=1.70e-1, extrude(gear,boss)+extrude(rectangle,boss)",
+  "master_seed": 42,
+  "test_seed": 9039304369631583590,
+  "scale": 0.16960155729176485,
+  "log_scale": -0.7705701643427769,
+  "plane_origin": [
+    -0.10547294318079034,
+    -0.1541959586951149,
+    -0.07295654359962953
+  ],
+  "plane_normal": [
+    0.07858720540527993,
+    0.33663540618795007,
+    -0.9383499637380832
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "gear",
+      "profile_size": 0.07208066184900006,
+      "depth_or_angle": 0.10612046835239197,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.0995763032535886,
+      "depth_or_angle": 0.03877614906045246,
+      "is_cut": false
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 0.5088046718752945,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [
+      "increase",
+      "increase"
+    ]
+  },
+  "generator_version": 1
+}

@@ -1209,6 +1209,31 @@ impl ModelBuilder {
         }
     }
 
+    /// Tessellate the last non-suppressed feature that has a solid output.
+    ///
+    /// Useful after `load()` when feature names aren't known in advance.
+    pub fn tessellate_last(&mut self) -> Result<RenderMesh, HarnessError> {
+        let tree = &self.state.engine.tree;
+        let limit = tree.active_index.unwrap_or(tree.features.len());
+        for feature in tree.features[..limit].iter().rev() {
+            if feature.suppressed {
+                continue;
+            }
+            if let Some(result) = self.state.engine.get_result(feature.id) {
+                if !result.outputs.is_empty() {
+                    let handle = result.outputs[0].1.handle.clone();
+                    return self
+                        .kernel
+                        .tessellate(&handle, 0.1)
+                        .map_err(|e| HarnessError::Engine(e.to_string()));
+                }
+            }
+        }
+        Err(HarnessError::NoSolid {
+            name: "no active features with solids".into(),
+        })
+    }
+
     /// Export a named feature's solid as binary STL.
     pub fn export_stl(&mut self, name: &str) -> Result<Vec<u8>, HarnessError> {
         let mesh = self.tessellate(name)?;

@@ -1,0 +1,1364 @@
+{
+  "format": "waffle-iron",
+  "version": 2,
+  "project": {
+    "name": "Assay R0013",
+    "created": "2026-03-10T20:19:48.459970794Z",
+    "modified": "2026-03-10T20:19:48.459970794Z"
+  },
+  "features": {
+    "features": [
+      {
+        "id": "08529f4c-c7c7-475d-bddf-90074ed70c7f",
+        "name": "Sketch 1",
+        "operation": {
+          "type": "Sketch",
+          "sketch": {
+            "id": "08529f4c-c7c7-475d-bddf-90074ed70c7f",
+            "plane": {
+              "kind": {
+                "type": "Face"
+              },
+              "anchor": {
+                "type": "Datum",
+                "datum_id": "a901f35c-3ad3-4408-a560-0cb10702575b"
+              },
+              "selector": {
+                "type": "Role",
+                "role": {
+                  "type": "EndCapPositive"
+                },
+                "index": 0
+              },
+              "policy": {
+                "type": "Strict"
+              }
+            },
+            "plane_origin": [
+              -25.597819956079405,
+              6.658868037639522,
+              -19.234739481359732
+            ],
+            "plane_normal": [
+              0.7678723271797376,
+              -0.043411155905988534,
+              -0.6391303158937777
+            ],
+            "entities": [
+              {
+                "type": "Point",
+                "id": 1,
+                "x": 0.0,
+                "y": 0.0,
+                "construction": true
+              },
+              {
+                "type": "Circle",
+                "id": 2,
+                "center_id": 1,
+                "radius": 8.732049255537229,
+                "construction": false
+              }
+            ],
+            "constraints": [],
+            "solve_status": {
+              "type": "FullyConstrained"
+            },
+            "solved_positions": {
+              "1": [
+                0.0,
+                0.0
+              ]
+            },
+            "solved_profiles": [
+              {
+                "entity_ids": [
+                  2
+                ],
+                "is_outer": true,
+                "circle": {
+                  "center_u": 0.0,
+                  "center_v": 0.0,
+                  "radius": 8.732049255537229
+                }
+              }
+            ]
+          }
+        },
+        "suppressed": false,
+        "references": []
+      },
+      {
+        "id": "7f9c8a21-0fe8-4074-840f-814c24d4e69b",
+        "name": "Extrude 1",
+        "operation": {
+          "type": "Extrude",
+          "params": {
+            "sketch_id": "08529f4c-c7c7-475d-bddf-90074ed70c7f",
+            "profile_index": 0,
+            "depth": 36.0708149544552,
+            "direction": null,
+            "symmetric": false,
+            "cut": false,
+            "merge": true,
+            "target_body": null,
+            "depth_mode": {
+              "type": "Blind"
+            },
+            "second_direction": null
+          }
+        },
+        "suppressed": false,
+        "references": []
+      },
+      {
+        "id": "97aa8b35-dde5-4392-9cd6-c8563f54b3a7",
+        "name": "Sketch 2",
+        "operation": {
+          "type": "Sketch",
+          "sketch": {
+            "id": "97aa8b35-dde5-4392-9cd6-c8563f54b3a7",
+            "plane": {
+              "kind": {
+                "type": "Face"
+              },
+              "anchor": {
+                "type": "Datum",
+                "datum_id": "59794276-4f95-4322-88a8-3d7fbbe6988e"
+              },
+              "selector": {
+                "type": "Role",
+                "role": {
+                  "type": "EndCapPositive"
+                },
+                "index": 0
+              },
+              "policy": {
+                "type": "Strict"
+              }
+            },
+            "plane_origin": [
+              -25.597819956079405,
+              6.658868037639522,
+              -19.234739481359732
+            ],
+            "plane_normal": [
+              0.7678723271797376,
+              -0.043411155905988534,
+              -0.6391303158937777
+            ],
+            "entities": [
+              {
+                "type": "Point",
+                "id": 1,
+                "x": 15.354961689179822,
+                "y": -1.3188388325302778,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 2,
+                "x": 15.354961689179822,
+                "y": 1.3188388325302778,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 3,
+                "x": 23.225304337276825,
+                "y": 4.019297105334046,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 4,
+                "x": 21.7113653974382,
+                "y": 9.175299633199973,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 5,
+                "x": 15.41149520138685,
+                "y": 0.0,
+                "construction": true
+              },
+              {
+                "type": "Point",
+                "id": 6,
+                "x": 22.615750313189995,
+                "y": 6.640583449631746,
+                "construction": true
+              },
+              {
+                "type": "Arc",
+                "id": 1000,
+                "center_id": 5,
+                "start_id": 1,
+                "end_id": 2,
+                "construction": false
+              },
+              {
+                "type": "Line",
+                "id": 1001,
+                "start_id": 2,
+                "end_id": 3,
+                "construction": false
+              },
+              {
+                "type": "Arc",
+                "id": 1002,
+                "center_id": 6,
+                "start_id": 3,
+                "end_id": 4,
+                "construction": false
+              },
+              {
+                "type": "Line",
+                "id": 1003,
+                "start_id": 4,
+                "end_id": 7,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 7,
+                "x": 13.630433872021323,
+                "y": 7.192041212536517,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 8,
+                "x": 12.204397662998613,
+                "y": 9.410996866738609,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 9,
+                "x": 17.36537325218877,
+                "y": 15.937795411920785,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 10,
+                "x": 13.304221349090273,
+                "y": 19.456803567762282,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 11,
+                "x": 12.964974784377485,
+                "y": 8.332083363890806,
+                "construction": true
+              },
+              {
+                "type": "Point",
+                "id": 12,
+                "x": 15.435409384007956,
+                "y": 17.813412023757703,
+                "construction": true
+              },
+              {
+                "type": "Arc",
+                "id": 1004,
+                "center_id": 11,
+                "start_id": 7,
+                "end_id": 8,
+                "construction": false
+              },
+              {
+                "type": "Line",
+                "id": 1005,
+                "start_id": 8,
+                "end_id": 9,
+                "construction": false
+              },
+              {
+                "type": "Arc",
+                "id": 1006,
+                "center_id": 12,
+                "start_id": 9,
+                "end_id": 10,
+                "construction": false
+              },
+              {
+                "type": "Line",
+                "id": 1007,
+                "start_id": 10,
+                "end_id": 13,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 13,
+                "x": 7.578339608539645,
+                "y": 13.41949898915787,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 14,
+                "x": 5.179023610968564,
+                "y": 14.515229890683788,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 15,
+                "x": 5.992058857394973,
+                "y": 22.79615628630386,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 16,
+                "x": 0.6730810255422255,
+                "y": 23.560909844764726,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 17,
+                "x": 6.402166479462629,
+                "y": 14.018789131434104,
+                "construction": true
+              },
+              {
+                "type": "Point",
+                "id": 18,
+                "x": 3.3544350367945213,
+                "y": 23.33060814389547,
+                "construction": true
+              },
+              {
+                "type": "Arc",
+                "id": 1008,
+                "center_id": 17,
+                "start_id": 13,
+                "end_id": 14,
+                "construction": false
+              },
+              {
+                "type": "Line",
+                "id": 1009,
+                "start_id": 14,
+                "end_id": 15,
+                "construction": false
+              },
+              {
+                "type": "Arc",
+                "id": 1010,
+                "center_id": 18,
+                "start_id": 15,
+                "end_id": 16,
+                "construction": false
+              },
+              {
+                "type": "Line",
+                "id": 1011,
+                "start_id": 16,
+                "end_id": 19,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 19,
+                "x": -0.8798239346644274,
+                "y": 15.38636065437053,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 20,
+                "x": -3.4906538443117996,
+                "y": 15.010979984050381,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 21,
+                "x": -7.283691886756983,
+                "y": 22.416898609728932,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 22,
+                "x": -12.171757767852204,
+                "y": 20.184593719488284,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 23,
+                "x": -2.1932844471348774,
+                "y": 15.25462840177781,
+                "construction": true
+              },
+              {
+                "type": "Point",
+                "id": 24,
+                "x": -9.791548733295784,
+                "y": 21.440501024546283,
+                "construction": true
+              },
+              {
+                "type": "Arc",
+                "id": 1012,
+                "center_id": 23,
+                "start_id": 19,
+                "end_id": 20,
+                "construction": false
+              },
+              {
+                "type": "Line",
+                "id": 1013,
+                "start_id": 20,
+                "end_id": 21,
+                "construction": false
+              },
+              {
+                "type": "Arc",
+                "id": 1014,
+                "center_id": 24,
+                "start_id": 21,
+                "end_id": 22,
+                "construction": false
+              },
+              {
+                "type": "Line",
+                "id": 1015,
+                "start_id": 22,
+                "end_id": 25,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 25,
+                "x": -9.058649595151408,
+                "y": 12.468161526649915,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 26,
+                "x": -11.052073367804656,
+                "y": 10.740849994997273,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 27,
+                "x": -18.246921920971218,
+                "y": 14.920434014801865,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 28,
+                "x": -21.152149471484307,
+                "y": 10.399811705798454,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 29,
+                "x": -10.09238305877443,
+                "y": 11.647230938610805,
+                "construction": true
+              },
+              {
+                "type": "Point",
+                "id": 30,
+                "x": -19.828784964342034,
+                "y": 12.743186321244767,
+                "construction": true
+              },
+              {
+                "type": "Arc",
+                "id": 1016,
+                "center_id": 29,
+                "start_id": 25,
+                "end_id": 26,
+                "construction": false
+              },
+              {
+                "type": "Line",
+                "id": 1017,
+                "start_id": 26,
+                "end_id": 27,
+                "construction": false
+              },
+              {
+                "type": "Arc",
+                "id": 1018,
+                "center_id": 30,
+                "start_id": 27,
+                "end_id": 28,
+                "construction": false
+              },
+              {
+                "type": "Line",
+                "id": 1019,
+                "start_id": 28,
+                "end_id": 31,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 31,
+                "x": -14.361418014537312,
+                "y": 5.591409210037578,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 32,
+                "x": -15.104537687238356,
+                "y": 3.06057602375208,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 33,
+                "x": -23.416883171866544,
+                "y": 2.6868370429242487,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 34,
+                "x": -23.416883171866544,
+                "y": -2.686837042924243,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 35,
+                "x": -14.787221358624226,
+                "y": 4.341919947836142,
+                "construction": true
+              },
+              {
+                "type": "Point",
+                "id": 36,
+                "x": -23.570522072709302,
+                "y": 2.8865564410575485e-15,
+                "construction": true
+              },
+              {
+                "type": "Arc",
+                "id": 1020,
+                "center_id": 35,
+                "start_id": 31,
+                "end_id": 32,
+                "construction": false
+              },
+              {
+                "type": "Line",
+                "id": 1021,
+                "start_id": 32,
+                "end_id": 33,
+                "construction": false
+              },
+              {
+                "type": "Arc",
+                "id": 1022,
+                "center_id": 36,
+                "start_id": 33,
+                "end_id": 34,
+                "construction": false
+              },
+              {
+                "type": "Line",
+                "id": 1023,
+                "start_id": 34,
+                "end_id": 37,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 37,
+                "x": -15.104537687238356,
+                "y": -3.060576023752077,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 38,
+                "x": -14.361418014537314,
+                "y": -5.5914092100375745,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 39,
+                "x": -21.152149471484314,
+                "y": -10.399811705798438,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 40,
+                "x": -18.246921920971225,
+                "y": -14.920434014801852,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 41,
+                "x": -14.787221358624228,
+                "y": -4.341919947836137,
+                "construction": true
+              },
+              {
+                "type": "Point",
+                "id": 42,
+                "x": -19.82878496434204,
+                "y": -12.743186321244755,
+                "construction": true
+              },
+              {
+                "type": "Arc",
+                "id": 1024,
+                "center_id": 41,
+                "start_id": 37,
+                "end_id": 38,
+                "construction": false
+              },
+              {
+                "type": "Line",
+                "id": 1025,
+                "start_id": 38,
+                "end_id": 39,
+                "construction": false
+              },
+              {
+                "type": "Arc",
+                "id": 1026,
+                "center_id": 42,
+                "start_id": 39,
+                "end_id": 40,
+                "construction": false
+              },
+              {
+                "type": "Line",
+                "id": 1027,
+                "start_id": 40,
+                "end_id": 43,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 43,
+                "x": -11.05207336780466,
+                "y": -10.740849994997271,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 44,
+                "x": -9.058649595151412,
+                "y": -12.468161526649913,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 45,
+                "x": -12.171757767852199,
+                "y": -20.184593719488287,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 46,
+                "x": -7.283691886756988,
+                "y": -22.416898609728932,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 47,
+                "x": -10.092383058774434,
+                "y": -11.647230938610804,
+                "construction": true
+              },
+              {
+                "type": "Point",
+                "id": 48,
+                "x": -9.791548733295784,
+                "y": -21.440501024546283,
+                "construction": true
+              },
+              {
+                "type": "Arc",
+                "id": 1028,
+                "center_id": 47,
+                "start_id": 43,
+                "end_id": 44,
+                "construction": false
+              },
+              {
+                "type": "Line",
+                "id": 1029,
+                "start_id": 44,
+                "end_id": 45,
+                "construction": false
+              },
+              {
+                "type": "Arc",
+                "id": 1030,
+                "center_id": 48,
+                "start_id": 45,
+                "end_id": 46,
+                "construction": false
+              },
+              {
+                "type": "Line",
+                "id": 1031,
+                "start_id": 46,
+                "end_id": 49,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 49,
+                "x": -3.4906538443117965,
+                "y": -15.010979984050381,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 50,
+                "x": -0.879823934664438,
+                "y": -15.38636065437053,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 51,
+                "x": 0.6730810255422249,
+                "y": -23.560909844764726,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 52,
+                "x": 5.992058857394962,
+                "y": -22.79615628630386,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 53,
+                "x": -2.193284447134881,
+                "y": -15.254628401777808,
+                "construction": true
+              },
+              {
+                "type": "Point",
+                "id": 54,
+                "x": 3.3544350367945155,
+                "y": -23.330608143895475,
+                "construction": true
+              },
+              {
+                "type": "Arc",
+                "id": 1032,
+                "center_id": 53,
+                "start_id": 49,
+                "end_id": 50,
+                "construction": false
+              },
+              {
+                "type": "Line",
+                "id": 1033,
+                "start_id": 50,
+                "end_id": 51,
+                "construction": false
+              },
+              {
+                "type": "Arc",
+                "id": 1034,
+                "center_id": 54,
+                "start_id": 51,
+                "end_id": 52,
+                "construction": false
+              },
+              {
+                "type": "Line",
+                "id": 1035,
+                "start_id": 52,
+                "end_id": 55,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 55,
+                "x": 5.179023610968564,
+                "y": -14.515229890683788,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 56,
+                "x": 7.578339608539633,
+                "y": -13.419498989157876,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 57,
+                "x": 13.304221349090263,
+                "y": -19.456803567762286,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 58,
+                "x": 17.365373252188757,
+                "y": -15.937795411920801,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 59,
+                "x": 6.402166479462623,
+                "y": -14.018789131434108,
+                "construction": true
+              },
+              {
+                "type": "Point",
+                "id": 60,
+                "x": 15.435409384007944,
+                "y": -17.813412023757714,
+                "construction": true
+              },
+              {
+                "type": "Arc",
+                "id": 1036,
+                "center_id": 59,
+                "start_id": 55,
+                "end_id": 56,
+                "construction": false
+              },
+              {
+                "type": "Line",
+                "id": 1037,
+                "start_id": 56,
+                "end_id": 57,
+                "construction": false
+              },
+              {
+                "type": "Arc",
+                "id": 1038,
+                "center_id": 60,
+                "start_id": 57,
+                "end_id": 58,
+                "construction": false
+              },
+              {
+                "type": "Line",
+                "id": 1039,
+                "start_id": 58,
+                "end_id": 61,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 61,
+                "x": 12.204397662998618,
+                "y": -9.410996866738603,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 62,
+                "x": 13.630433872021321,
+                "y": -7.1920412125365205,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 63,
+                "x": 21.711365397438204,
+                "y": -9.17529963319997,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 64,
+                "x": 23.225304337276825,
+                "y": -4.019297105334054,
+                "construction": false
+              },
+              {
+                "type": "Point",
+                "id": 65,
+                "x": 12.964974784377485,
+                "y": -8.332083363890805,
+                "construction": true
+              },
+              {
+                "type": "Point",
+                "id": 66,
+                "x": 22.615750313189995,
+                "y": -6.640583449631749,
+                "construction": true
+              },
+              {
+                "type": "Arc",
+                "id": 1040,
+                "center_id": 65,
+                "start_id": 61,
+                "end_id": 62,
+                "construction": false
+              },
+              {
+                "type": "Line",
+                "id": 1041,
+                "start_id": 62,
+                "end_id": 63,
+                "construction": false
+              },
+              {
+                "type": "Arc",
+                "id": 1042,
+                "center_id": 66,
+                "start_id": 63,
+                "end_id": 64,
+                "construction": false
+              },
+              {
+                "type": "Line",
+                "id": 1043,
+                "start_id": 64,
+                "end_id": 1,
+                "construction": false
+              }
+            ],
+            "constraints": [],
+            "solve_status": {
+              "type": "FullyConstrained"
+            },
+            "solved_positions": {
+              "35": [
+                -14.787221358624226,
+                4.341919947836142
+              ],
+              "45": [
+                -12.171757767852199,
+                -20.184593719488287
+              ],
+              "46": [
+                -7.283691886756988,
+                -22.416898609728932
+              ],
+              "61": [
+                12.204397662998618,
+                -9.410996866738603
+              ],
+              "48": [
+                -9.791548733295784,
+                -21.440501024546283
+              ],
+              "36": [
+                -23.570522072709302,
+                2.8865564410575485e-15
+              ],
+              "66": [
+                22.615750313189995,
+                -6.640583449631749
+              ],
+              "24": [
+                -9.791548733295784,
+                21.440501024546283
+              ],
+              "57": [
+                13.304221349090263,
+                -19.456803567762286
+              ],
+              "17": [
+                6.402166479462629,
+                14.018789131434104
+              ],
+              "2": [
+                15.354961689179822,
+                1.3188388325302778
+              ],
+              "54": [
+                3.3544350367945155,
+                -23.330608143895475
+              ],
+              "34": [
+                -23.416883171866544,
+                -2.686837042924243
+              ],
+              "19": [
+                -0.8798239346644274,
+                15.38636065437053
+              ],
+              "47": [
+                -10.092383058774434,
+                -11.647230938610804
+              ],
+              "13": [
+                7.578339608539645,
+                13.41949898915787
+              ],
+              "41": [
+                -14.787221358624228,
+                -4.341919947836137
+              ],
+              "43": [
+                -11.05207336780466,
+                -10.740849994997271
+              ],
+              "23": [
+                -2.1932844471348774,
+                15.25462840177781
+              ],
+              "22": [
+                -12.171757767852204,
+                20.184593719488284
+              ],
+              "65": [
+                12.964974784377485,
+                -8.332083363890805
+              ],
+              "7": [
+                13.630433872021323,
+                7.192041212536517
+              ],
+              "28": [
+                -21.152149471484307,
+                10.399811705798454
+              ],
+              "64": [
+                23.225304337276825,
+                -4.019297105334054
+              ],
+              "62": [
+                13.630433872021321,
+                -7.1920412125365205
+              ],
+              "9": [
+                17.36537325218877,
+                15.937795411920785
+              ],
+              "11": [
+                12.964974784377485,
+                8.332083363890806
+              ],
+              "5": [
+                15.41149520138685,
+                0.0
+              ],
+              "21": [
+                -7.283691886756983,
+                22.416898609728932
+              ],
+              "42": [
+                -19.82878496434204,
+                -12.743186321244755
+              ],
+              "6": [
+                22.615750313189995,
+                6.640583449631746
+              ],
+              "14": [
+                5.179023610968564,
+                14.515229890683788
+              ],
+              "15": [
+                5.992058857394973,
+                22.79615628630386
+              ],
+              "30": [
+                -19.828784964342034,
+                12.743186321244767
+              ],
+              "27": [
+                -18.246921920971218,
+                14.920434014801865
+              ],
+              "12": [
+                15.435409384007956,
+                17.813412023757703
+              ],
+              "10": [
+                13.304221349090273,
+                19.456803567762282
+              ],
+              "55": [
+                5.179023610968564,
+                -14.515229890683788
+              ],
+              "32": [
+                -15.104537687238356,
+                3.06057602375208
+              ],
+              "56": [
+                7.578339608539633,
+                -13.419498989157876
+              ],
+              "8": [
+                12.204397662998613,
+                9.410996866738609
+              ],
+              "53": [
+                -2.193284447134881,
+                -15.254628401777808
+              ],
+              "31": [
+                -14.361418014537312,
+                5.591409210037578
+              ],
+              "49": [
+                -3.4906538443117965,
+                -15.010979984050381
+              ],
+              "50": [
+                -0.879823934664438,
+                -15.38636065437053
+              ],
+              "40": [
+                -18.246921920971225,
+                -14.920434014801852
+              ],
+              "26": [
+                -11.052073367804656,
+                10.740849994997273
+              ],
+              "51": [
+                0.6730810255422249,
+                -23.560909844764726
+              ],
+              "16": [
+                0.6730810255422255,
+                23.560909844764726
+              ],
+              "33": [
+                -23.416883171866544,
+                2.6868370429242487
+              ],
+              "52": [
+                5.992058857394962,
+                -22.79615628630386
+              ],
+              "37": [
+                -15.104537687238356,
+                -3.060576023752077
+              ],
+              "44": [
+                -9.058649595151412,
+                -12.468161526649913
+              ],
+              "58": [
+                17.365373252188757,
+                -15.937795411920801
+              ],
+              "59": [
+                6.402166479462623,
+                -14.018789131434108
+              ],
+              "39": [
+                -21.152149471484314,
+                -10.399811705798438
+              ],
+              "20": [
+                -3.4906538443117996,
+                15.010979984050381
+              ],
+              "3": [
+                23.225304337276825,
+                4.019297105334046
+              ],
+              "1": [
+                15.354961689179822,
+                -1.3188388325302778
+              ],
+              "63": [
+                21.711365397438204,
+                -9.17529963319997
+              ],
+              "38": [
+                -14.361418014537314,
+                -5.5914092100375745
+              ],
+              "4": [
+                21.7113653974382,
+                9.175299633199973
+              ],
+              "25": [
+                -9.058649595151408,
+                12.468161526649915
+              ],
+              "18": [
+                3.3544350367945213,
+                23.33060814389547
+              ],
+              "29": [
+                -10.09238305877443,
+                11.647230938610805
+              ],
+              "60": [
+                15.435409384007944,
+                -17.813412023757714
+              ]
+            },
+            "solved_profiles": [
+              {
+                "entity_ids": [
+                  1000,
+                  1001,
+                  1002,
+                  1003,
+                  1004,
+                  1005,
+                  1006,
+                  1007,
+                  1008,
+                  1009,
+                  1010,
+                  1011,
+                  1012,
+                  1013,
+                  1014,
+                  1015,
+                  1016,
+                  1017,
+                  1018,
+                  1019,
+                  1020,
+                  1021,
+                  1022,
+                  1023,
+                  1024,
+                  1025,
+                  1026,
+                  1027,
+                  1028,
+                  1029,
+                  1030,
+                  1031,
+                  1032,
+                  1033,
+                  1034,
+                  1035,
+                  1036,
+                  1037,
+                  1038,
+                  1039,
+                  1040,
+                  1041,
+                  1042,
+                  1043
+                ],
+                "is_outer": true,
+                "vertex_ids": [
+                  1,
+                  5,
+                  2,
+                  3,
+                  6,
+                  4,
+                  7,
+                  11,
+                  8,
+                  9,
+                  12,
+                  10,
+                  13,
+                  17,
+                  14,
+                  15,
+                  18,
+                  16,
+                  19,
+                  23,
+                  20,
+                  21,
+                  24,
+                  22,
+                  25,
+                  29,
+                  26,
+                  27,
+                  30,
+                  28,
+                  31,
+                  35,
+                  32,
+                  33,
+                  36,
+                  34,
+                  37,
+                  41,
+                  38,
+                  39,
+                  42,
+                  40,
+                  43,
+                  47,
+                  44,
+                  45,
+                  48,
+                  46,
+                  49,
+                  53,
+                  50,
+                  51,
+                  54,
+                  52,
+                  55,
+                  59,
+                  56,
+                  57,
+                  60,
+                  58,
+                  61,
+                  65,
+                  62,
+                  63,
+                  66,
+                  64
+                ]
+              }
+            ]
+          }
+        },
+        "suppressed": false,
+        "references": []
+      },
+      {
+        "id": "efa42e48-fe4c-471f-bb35-a35bb22b7ed4",
+        "name": "Extrude 2",
+        "operation": {
+          "type": "Extrude",
+          "params": {
+            "sketch_id": "97aa8b35-dde5-4392-9cd6-c8563f54b3a7",
+            "profile_index": 0,
+            "depth": 43.422633650579954,
+            "direction": null,
+            "symmetric": false,
+            "cut": false,
+            "merge": true,
+            "target_body": null,
+            "depth_mode": {
+              "type": "Blind"
+            },
+            "second_direction": null
+          }
+        },
+        "suppressed": false,
+        "references": []
+      }
+    ],
+    "active_index": null
+  }
+}

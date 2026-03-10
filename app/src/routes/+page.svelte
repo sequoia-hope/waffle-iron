@@ -11,6 +11,7 @@
 	import { initEngine, getMobileLayout, setMobileLayout, getMobileActivePanel, toggleMobilePanel } from '$lib/engine/store.svelte.js';
 	import TestCaseBrowser from '$lib/ui/TestCaseBrowser.svelte';
 	import SaveTestCaseDialog from '$lib/ui/SaveTestCaseDialog.svelte';
+	import AssayBrowser from '$lib/ui/AssayBrowser.svelte';
 
 	let leftWidth = $state(200);
 	let rightWidth = $state(250);
@@ -133,6 +134,7 @@
 <ToastContainer />
 <TestCaseBrowser />
 <SaveTestCaseDialog />
+<AssayBrowser />
 
 <style>
 	.app-shell {

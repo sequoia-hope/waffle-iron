@@ -1,0 +1,45 @@
+{
+  "id": "R0064",
+  "description": "2 ops, scale=1.53e3, extrude(rectangle,boss)+extrude(rectangle,cut)",
+  "master_seed": 42,
+  "test_seed": 9039304369631583649,
+  "scale": 1531.3836520994676,
+  "log_scale": 3.1850840065812918,
+  "plane_origin": [
+    390.4941137741994,
+    190.9304574694545,
+    8.618225506379076
+  ],
+  "plane_normal": [
+    -0.3063922204068311,
+    -0.34311210816957044,
+    0.8879177262008034
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 1105.1027136587159,
+      "depth_or_angle": 263.864242911702,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 1040.045653966479,
+      "depth_or_angle": 1182.8405146134794,
+      "is_cut": true
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 4594.150956298403,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [
+      "increase",
+      "decrease"
+    ]
+  },
+  "generator_version": 1
+}

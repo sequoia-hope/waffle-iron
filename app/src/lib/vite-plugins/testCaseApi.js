@@ -7,6 +7,7 @@ export default function testCaseApiPlugin() {
 		configureServer(server) {
 			const CASES_DIR = path.resolve(server.config.root, 'tests/cases');
 			const MANIFEST_PATH = path.join(CASES_DIR, 'manifest.json');
+			const ASSAY_DIR = path.resolve(server.config.root, 'tests/cases/assay');
 
 			// Ensure directory + manifest exist
 			if (!fs.existsSync(CASES_DIR)) {
@@ -155,6 +156,55 @@ export default function testCaseApiPlugin() {
 					res.statusCode = 405;
 					res.end(JSON.stringify({ error: 'Method not allowed' }));
 
+				} catch (err) {
+					res.statusCode = 500;
+					res.end(JSON.stringify({ error: err.message }));
+				}
+			});
+
+			// Assay cases API
+			server.middlewares.use('/api/assay-cases', async (req, res, next) => {
+				res.setHeader('Content-Type', 'application/json');
+				try {
+					const url = new URL(req.url, 'http://localhost');
+					const pathParts = url.pathname.split('/').filter(Boolean);
+					const id = pathParts[0] || null;
+					const subResource = pathParts[1] || null;
+
+					if (req.method === 'GET' && !id) {
+						const manifestPath = path.join(ASSAY_DIR, 'manifest.json');
+						if (!fs.existsSync(manifestPath)) {
+							res.end(JSON.stringify({ master_seed: 0, count: 0, generator_version: 0, cases: [] }));
+							return;
+						}
+						res.end(fs.readFileSync(manifestPath, 'utf-8'));
+						return;
+					}
+
+					if (req.method === 'GET' && id && subResource === 'meta') {
+						const metaPath = path.join(ASSAY_DIR, `${id}.meta.json`);
+						if (!fs.existsSync(metaPath)) {
+							res.statusCode = 404;
+							res.end(JSON.stringify({ error: 'Meta not found' }));
+							return;
+						}
+						res.end(fs.readFileSync(metaPath, 'utf-8'));
+						return;
+					}
+
+					if (req.method === 'GET' && id) {
+						const wafflePath = path.join(ASSAY_DIR, `${id}.waffle`);
+						if (!fs.existsSync(wafflePath)) {
+							res.statusCode = 404;
+							res.end(JSON.stringify({ error: 'Case not found' }));
+							return;
+						}
+						res.end(fs.readFileSync(wafflePath, 'utf-8'));
+						return;
+					}
+
+					res.statusCode = 405;
+					res.end(JSON.stringify({ error: 'Method not allowed' }));
 				} catch (err) {
 					res.statusCode = 500;
 					res.end(JSON.stringify({ error: err.message }));

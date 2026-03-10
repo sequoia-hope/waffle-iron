@@ -142,6 +142,9 @@ let testCaseBrowserState = $state({ visible: false, cases: [], loading: false, e
 /** @type {{ name: string, description: string, expectedOutcome: string, tags: string } | null} */
 let saveTestCaseDialogState = $state(null);
 
+/** @type {{ visible: boolean, cases: Array<object>, activeCase: string | null, activeMeta: object | null, loading: boolean, error: string | null }} */
+let assayBrowserState = $state({ visible: false, cases: [], activeCase: null, activeMeta: null, loading: false, error: null });
+
 /** @type {{ entityA: number, entityB: number | null, sketchX: number, sketchY: number, dimType: 'distance'|'radius'|'angle', defaultValue: number } | null} */
 let dimensionPopup = $state(null);
 
@@ -3372,6 +3375,53 @@ export async function removeTestCase(id) {
 		await refreshTestCases();
 	} catch (err) {
 		showToast('error', `Failed to delete test case: ${err.message}`);
+	}
+}
+
+// -- Assay browser --
+
+export function getAssayBrowserState() { return assayBrowserState; }
+
+export function toggleAssayBrowser() {
+	if (assayBrowserState.visible) {
+		assayBrowserState.visible = false;
+	} else {
+		assayBrowserState.visible = true;
+		refreshAssayCases();
+	}
+}
+
+export function hideAssayBrowser() {
+	assayBrowserState.visible = false;
+}
+
+export async function refreshAssayCases() {
+	assayBrowserState.loading = true;
+	assayBrowserState.error = null;
+	try {
+		const { fetchAssayManifest } = await import('./assayCaseApi.js');
+		const manifest = await fetchAssayManifest();
+		assayBrowserState.cases = manifest.cases || [];
+	} catch (err) {
+		assayBrowserState.error = err.message;
+	} finally {
+		assayBrowserState.loading = false;
+	}
+}
+
+export async function loadAssayCase(id) {
+	try {
+		const { fetchAssayCase, fetchAssayMeta } = await import('./assayCaseApi.js');
+		const [waffleData, meta] = await Promise.all([
+			fetchAssayCase(id),
+			fetchAssayMeta(id)
+		]);
+		assayBrowserState.activeCase = id;
+		assayBrowserState.activeMeta = meta;
+		await loadProject(waffleData);
+		showToast('info', `Assay case ${id} loaded`);
+	} catch (err) {
+		showToast('error', `Failed to load assay case: ${err.message}`);
 	}
 }
 

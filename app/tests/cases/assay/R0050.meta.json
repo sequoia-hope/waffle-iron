@@ -1,0 +1,53 @@
+{
+  "id": "R0050",
+  "description": "3 ops, scale=1.15e1, revolve(rectangle,boss)+revolve(circle,cut)+revolve(circle,boss)",
+  "master_seed": 42,
+  "test_seed": 9039304369631583635,
+  "scale": 11.498236765134621,
+  "log_scale": 1.060631247146345,
+  "plane_origin": [
+    6.58217429049337,
+    -9.294037297438177,
+    11.292239898799128
+  ],
+  "plane_normal": [
+    -0.5216504263734693,
+    0.7194739084489,
+    0.45851731453200517
+  ],
+  "operations": [
+    {
+      "kind": "revolve",
+      "profile_type": "rectangle",
+      "profile_size": 4.339879558437624,
+      "depth_or_angle": 344.9123127592738,
+      "is_cut": false
+    },
+    {
+      "kind": "revolve",
+      "profile_type": "circle",
+      "profile_size": 2.6339012305075946,
+      "depth_or_angle": 115.11090931462253,
+      "is_cut": true
+    },
+    {
+      "kind": "revolve",
+      "profile_type": "circle",
+      "profile_size": 2.517285374581937,
+      "depth_or_angle": 330.0213886475462,
+      "is_cut": false
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 34.49471029540386,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [
+      "increase",
+      "decrease",
+      "increase"
+    ]
+  },
+  "generator_version": 1
+}

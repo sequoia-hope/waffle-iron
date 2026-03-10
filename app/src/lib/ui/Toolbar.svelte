@@ -33,6 +33,7 @@
 		getProjectName,
 		setProjectName,
 		toggleTestCaseBrowser,
+		toggleAssayBrowser,
 		getShowDatumPlanes,
 		getShowOriginTriad,
 		toggleDatumPlanes,
@@ -500,6 +501,9 @@
 					<button class="overflow-item" disabled={!ready}
 						data-testid="toolbar-btn-tests"
 						onclick={() => { closeOverflow(); toggleTestCaseBrowser(); }}>Tests</button>
+					<button class="overflow-item" disabled={!ready}
+						data-testid="toolbar-btn-assay"
+						onclick={() => { closeOverflow(); toggleAssayBrowser(); }}>Assay</button>
 					<div class="overflow-separator"></div>
 					<button class="overflow-item"
 						data-testid="toolbar-btn-reload"
@@ -530,6 +534,9 @@
 			<button class="toolbar-btn" disabled={!ready} title="Test Cases (Ctrl+Shift+T)"
 				data-testid="toolbar-btn-tests"
 				onclick={() => toggleTestCaseBrowser()}>Tests</button>
+			<button class="toolbar-btn" disabled={!ready} title="Assay Browser"
+				data-testid="toolbar-btn-assay"
+				onclick={() => toggleAssayBrowser()}>Assay</button>
 		</div>
 	{/if}
 
