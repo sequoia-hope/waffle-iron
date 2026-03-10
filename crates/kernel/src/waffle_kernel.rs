@@ -803,27 +803,9 @@ impl Kernel for WaffleKernel {
                 continue;
             }
 
-            // Polygon profile path — sort vertices by angle around centroid
-            // so the polygon winds correctly (important for profiles like gears
-            // where numeric ID order doesn't match geometric boundary order).
+            // Polygon profile path
             let mut keys: Vec<u32> = positions.keys().copied().collect();
-            if keys.len() >= 3 {
-                let (cx, cy) = {
-                    let n = keys.len() as f64;
-                    let (sx, sy) = keys.iter().fold((0.0, 0.0), |(ax, ay), k| {
-                        let (px, py) = positions[k];
-                        (ax + px, ay + py)
-                    });
-                    (sx / n, sy / n)
-                };
-                keys.sort_by(|a, b| {
-                    let (ax, ay) = positions[a];
-                    let (bx, by) = positions[b];
-                    let angle_a = (ay - cy).atan2(ax - cx);
-                    let angle_b = (by - cy).atan2(bx - cx);
-                    angle_a.partial_cmp(&angle_b).unwrap()
-                });
-            }
+            keys.sort();
 
             if keys.len() < 3 {
                 return Err(KernelError::Other {
