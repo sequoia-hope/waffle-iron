@@ -411,9 +411,13 @@ pub fn gear_profile(teeth: u32, module_val: f64, pressure_angle_deg: f64) -> Pro
         let root_center_id = base_id + 4;
         let tip_center_id = base_id + 5;
 
+        // Winding order per tooth: root_start → root_center → root_end →
+        // tip_start → tip_center → tip_end (includes arc midpoints)
         boundary_point_ids.push(root_start_id);
+        boundary_point_ids.push(root_center_id);
         boundary_point_ids.push(root_end_id);
         boundary_point_ids.push(tip_start_id);
+        boundary_point_ids.push(tip_center_id);
         boundary_point_ids.push(tip_end_id);
 
         // Root arc: root_start → root_end
@@ -665,8 +669,8 @@ mod tests {
         assert!(profiles[0].is_outer);
         assert_eq!(
             profiles[0].entity_ids.len(),
-            80,
-            "4 boundary points per tooth × 20"
+            120,
+            "6 points per tooth × 20 (4 boundary + 2 arc midpoints)"
         );
     }
 
