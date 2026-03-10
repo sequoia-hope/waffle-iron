@@ -110,6 +110,9 @@ GUI_FAST_SPECS=(
   selection/box-select.spec.js
   selection/edge-pick.spec.js
   selection/select-other.spec.js
+  sketch-polyline-drag.spec.js
+  tool-switching-mid-operation.spec.js
+  unit-conversion-display.spec.js
 )
 
 # ---------------------------------------------------------------------------
