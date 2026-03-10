@@ -31,6 +31,7 @@ fn make_rect_profile(
     let profile = ClosedProfile {
         entity_ids: vec![10, 11, 12, 13],
         is_outer: true,
+        vertex_ids: vec![],
         circle: None,
         spline_segments: vec![],
     };
@@ -530,6 +531,7 @@ fn make_circle_profile(
     let profile = ClosedProfile {
         entity_ids: vec![1],
         is_outer: true,
+        vertex_ids: vec![],
         circle: Some(CircleProfile {
             center_u: cx,
             center_v: cy,
@@ -2243,4 +2245,91 @@ fn q3_box_cyl_boss_on_top_watertight() {
     ).expect("box+cyl boss union should succeed");
     let mesh = k.tessellate(&result, 0.01).unwrap();
     assert!(check_watertight(&mesh), "Boss union mesh must be watertight");
+}
+
+// ── Group VID: vertex_ids ordering tests ────────────────────────
+
+#[test]
+fn vid1_vertex_ids_ordering_respected() {
+    // Create a profile with vertex_ids in reverse order [4,3,2,1]
+    // The kernel should use this order, not sorted [1,2,3,4]
+    let mut k = WaffleKernel::new();
+    let mut positions = HashMap::new();
+    positions.insert(1, (0.0, 0.0));
+    positions.insert(2, (10.0, 0.0));
+    positions.insert(3, (10.0, 10.0));
+    positions.insert(4, (0.0, 10.0));
+
+    let profile = ClosedProfile {
+        entity_ids: vec![],
+        is_outer: true,
+        vertex_ids: vec![4, 3, 2, 1], // Reversed order
+        circle: None,
+        spline_segments: vec![],
+    };
+
+    let face_ids = k
+        .make_faces_from_profiles(&[profile], XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+        .expect("make_faces should succeed with vertex_ids");
+
+    assert_eq!(face_ids.len(), 1, "Should produce one face");
+
+    // Verify the face was created — extrude it to confirm the geometry is valid
+    let solid = k
+        .extrude_face(face_ids[0], Z_DIR, 5.0)
+        .expect("extrude should succeed with vertex_ids-ordered face");
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    assert!(mesh.vertices.len() > 0, "Mesh should have vertices");
+}
+
+#[test]
+fn vid2_vertex_ids_preferred_over_entity_ids() {
+    // vertex_ids = [1,2,3,4] (valid), entity_ids = [10,11,12,13] (not in positions)
+    // The kernel should use vertex_ids successfully
+    let mut k = WaffleKernel::new();
+    let mut positions = HashMap::new();
+    positions.insert(1, (0.0, 0.0));
+    positions.insert(2, (10.0, 0.0));
+    positions.insert(3, (10.0, 10.0));
+    positions.insert(4, (0.0, 10.0));
+
+    let profile = ClosedProfile {
+        entity_ids: vec![10, 11, 12, 13], // Not in positions
+        is_outer: true,
+        vertex_ids: vec![1, 2, 3, 4], // Valid point IDs
+        circle: None,
+        spline_segments: vec![],
+    };
+
+    let face_ids = k
+        .make_faces_from_profiles(&[profile], XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+        .expect("make_faces should use vertex_ids when entity_ids are invalid");
+
+    assert_eq!(face_ids.len(), 1);
+}
+
+#[test]
+fn vid3_vertex_ids_skipped_when_ids_missing() {
+    // vertex_ids has ID 99 which doesn't exist in positions
+    // Should fall back to entity_ids or sorted keys
+    let mut k = WaffleKernel::new();
+    let mut positions = HashMap::new();
+    positions.insert(1, (0.0, 0.0));
+    positions.insert(2, (10.0, 0.0));
+    positions.insert(3, (10.0, 10.0));
+    positions.insert(4, (0.0, 10.0));
+
+    let profile = ClosedProfile {
+        entity_ids: vec![1, 2, 3, 4], // Valid as fallback
+        is_outer: true,
+        vertex_ids: vec![1, 2, 3, 99], // 99 not in positions
+        circle: None,
+        spline_segments: vec![],
+    };
+
+    let face_ids = k
+        .make_faces_from_profiles(&[profile], XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+        .expect("make_faces should fall back to entity_ids");
+
+    assert_eq!(face_ids.len(), 1);
 }

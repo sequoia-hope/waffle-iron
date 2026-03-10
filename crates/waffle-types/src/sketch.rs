@@ -255,6 +255,10 @@ pub struct ClosedProfile {
     pub entity_ids: Vec<u32>,
     /// Whether the profile winds counter-clockwise (outward) or clockwise (hole).
     pub is_outer: bool,
+    /// Ordered point IDs in geometric winding order for polygon construction.
+    /// When non-empty, the kernel uses these instead of entity_ids or sorted keys.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub vertex_ids: Vec<u32>,
     /// If this profile is a standalone circle, its center and radius in sketch UV coordinates.
     /// When present, the kernel constructs a true NURBS circular wire instead of a polygon.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -535,6 +539,7 @@ mod tests {
         let p = ClosedProfile {
             entity_ids: vec![1, 2, 3],
             is_outer: true,
+            vertex_ids: vec![],
             circle: None,
             spline_segments: vec![SplineSegment {
                 start_point_index: 0,
@@ -801,6 +806,7 @@ mod tests {
         let p = ClosedProfile {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
+            vertex_ids: vec![],
             circle: None,
             spline_segments: vec![],
         };
@@ -823,6 +829,7 @@ mod tests {
             profiles: vec![ClosedProfile {
                 entity_ids: vec![1, 2],
                 is_outer: false,
+                vertex_ids: vec![],
                 circle: None,
                 spline_segments: vec![],
             }],

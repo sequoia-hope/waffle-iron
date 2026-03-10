@@ -803,16 +803,20 @@ impl Kernel for WaffleKernel {
                 continue;
             }
 
-            // Polygon profile path — use entity_ids when they provide a valid
-            // vertex ordering (all IDs present in positions). This preserves
-            // correct winding for profiles like gears where numeric ID order
-            // doesn't match boundary traversal order.
-            let all_ids_in_positions = !profile.entity_ids.is_empty()
+            // Polygon profile path — prefer vertex_ids, fall back to entity_ids, then sorted keys.
+            let keys: Vec<u32> = if !profile.vertex_ids.is_empty()
+                && profile
+                    .vertex_ids
+                    .iter()
+                    .all(|id| positions.contains_key(id))
+            {
+                profile.vertex_ids.clone()
+            } else if !profile.entity_ids.is_empty()
                 && profile
                     .entity_ids
                     .iter()
-                    .all(|id| positions.contains_key(id));
-            let keys: Vec<u32> = if all_ids_in_positions {
+                    .all(|id| positions.contains_key(id))
+            {
                 profile.entity_ids.clone()
             } else {
                 let mut k: Vec<u32> = positions.keys().copied().collect();

@@ -172,6 +172,7 @@ pub fn rect_profile(x: f64, y: f64, w: f64, h: f64) -> ProfileData {
     let profiles = vec![ClosedProfile {
         entity_ids: vec![1, 2, 3, 4],
         is_outer: true,
+        vertex_ids: vec![1, 2, 3, 4],
         circle: None,
         spline_segments: vec![],
     }];
@@ -231,6 +232,7 @@ pub fn circle_profile(cx: f64, cy: f64, r: f64, segments: u32) -> ProfileData {
     let profiles = vec![ClosedProfile {
         entity_ids,
         is_outer: true,
+        vertex_ids: (point_start..point_start + segments).collect(),
         circle: Some(waffle_types::CircleProfile {
             center_u: cx,
             center_v: cy,
@@ -283,6 +285,7 @@ pub fn polygon_profile(vertices: &[(f64, f64)]) -> ProfileData {
     let profiles = vec![ClosedProfile {
         entity_ids,
         is_outer: true,
+        vertex_ids: (1..=n).collect(),
         circle: None,
         spline_segments: vec![],
     }];
@@ -465,8 +468,9 @@ pub fn gear_profile(teeth: u32, module_val: f64, pressure_angle_deg: f64) -> Pro
     }
 
     let profiles = vec![ClosedProfile {
-        entity_ids: boundary_point_ids,
+        entity_ids: (1000..1000 + teeth * 4).collect::<Vec<u32>>(),
         is_outer: true,
+        vertex_ids: boundary_point_ids.clone(),
         circle: None,
         spline_segments: vec![],
     }];
@@ -669,6 +673,11 @@ mod tests {
         assert!(profiles[0].is_outer);
         assert_eq!(
             profiles[0].entity_ids.len(),
+            80,
+            "4 curve entities per tooth × 20 (root arc, left flank, tip arc, right flank)"
+        );
+        assert_eq!(
+            profiles[0].vertex_ids.len(),
             120,
             "6 points per tooth × 20 (4 boundary + 2 arc midpoints)"
         );

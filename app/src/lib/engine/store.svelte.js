@@ -2638,7 +2638,7 @@ export async function finishSketch() {
 			seg.end_point_index = (seg.start_point_index + 1) % pointIds.length;
 		}
 
-		const result = { entity_ids: pointIds, is_outer: p.isOuter };
+		const result = { entity_ids: [...p.entityIds], is_outer: p.isOuter, vertex_ids: pointIds };
 		if (splineSegments.length > 0) {
 			result.spline_segments = splineSegments;
 		}

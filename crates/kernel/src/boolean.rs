@@ -2540,6 +2540,7 @@ mod tests {
         let profile = ClosedProfile {
             entity_ids: vec![10, 11, 12, 13],
             is_outer: true,
+            vertex_ids: vec![],
             circle: None,
             spline_segments: vec![],
         };

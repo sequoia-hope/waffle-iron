@@ -223,6 +223,7 @@ mod tests {
             solved_profiles: vec![ClosedProfile {
                 entity_ids: vec![1, 2, 3, 4],
                 is_outer: true,
+                vertex_ids: vec![],
                 circle: Some(CircleProfile {
                     center_u: 10.0,
                     center_v: 15.0,

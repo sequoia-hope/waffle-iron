@@ -17,6 +17,7 @@ fn make_face(kernel: &mut MockKernel) -> KernelId {
     let profile = ClosedProfile {
         entity_ids: vec![1, 2, 3, 4],
         is_outer: true,
+        vertex_ids: vec![],
         circle: None,
         spline_segments: vec![],
     };
@@ -365,6 +366,7 @@ fn boolean_assigns_body_a_b_roles() {
     let profile_b = ClosedProfile {
         entity_ids: vec![10, 11, 12, 13],
         is_outer: true,
+        vertex_ids: vec![],
         circle: None,
         spline_segments: vec![],
     };
@@ -927,6 +929,7 @@ fn make_truck_face(kernel: &mut WaffleKernel) -> KernelId {
     let profile = ClosedProfile {
         entity_ids: vec![1, 2, 3, 4],
         is_outer: true,
+        vertex_ids: vec![],
         circle: None,
         spline_segments: vec![],
     };

@@ -537,6 +537,10 @@ pub struct ClosedProfile {
     pub entity_ids: Vec<u32>,
     /// Whether the profile winds counter-clockwise (outward) or clockwise (hole).
     pub is_outer: bool,
+    /// Ordered point IDs in geometric winding order for polygon construction.
+    /// When non-empty, the kernel uses these instead of entity_ids or sorted keys.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub vertex_ids: Vec<u32>,
 }
 ```
 

@@ -25,7 +25,7 @@ export function extractProfiles(entities, positions) {
 	// Standalone non-construction circles are automatic profiles
 	for (const entity of entities) {
 		if (entity.type === 'Circle' && !entity.construction) {
-			profiles.push({ entityIds: [entity.id], isOuter: true });
+			profiles.push({ entityIds: [entity.id], isOuter: true, vertexIds: [] });
 		}
 	}
 
@@ -106,7 +106,7 @@ export function extractProfiles(entities, positions) {
 
 		if (faceEdges.length >= 2) {
 			const winding = computeSignedArea(faceVertices, positions);
-			profiles.push({ entityIds: faceEdges, isOuter: winding > 0 });
+			profiles.push({ entityIds: faceEdges, isOuter: winding > 0, vertexIds: [...faceVertices] });
 		}
 	}
 

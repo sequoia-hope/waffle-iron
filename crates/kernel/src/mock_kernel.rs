@@ -1094,8 +1094,28 @@ impl Kernel for MockKernel {
             let area = if let Some(ref circ) = profile.circle {
                 std::f64::consts::PI * circ.radius * circ.radius
             } else {
-                let pts: Vec<(f64, f64)> = profile
-                    .entity_ids
+                // Polygon profile — prefer vertex_ids, fall back to entity_ids, then sorted keys.
+                let keys: Vec<u32> = if !profile.vertex_ids.is_empty()
+                    && profile
+                        .vertex_ids
+                        .iter()
+                        .all(|id| positions.contains_key(id))
+                {
+                    profile.vertex_ids.clone()
+                } else if !profile.entity_ids.is_empty()
+                    && profile
+                        .entity_ids
+                        .iter()
+                        .all(|id| positions.contains_key(id))
+                {
+                    profile.entity_ids.clone()
+                } else {
+                    let mut k: Vec<u32> = positions.keys().copied().collect();
+                    k.sort();
+                    k
+                };
+
+                let pts: Vec<(f64, f64)> = keys
                     .iter()
                     .filter_map(|id| positions.get(id).copied())
                     .collect();
@@ -1301,6 +1321,7 @@ mod tests {
         let profile = ClosedProfile {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
+            vertex_ids: vec![],
             circle: None,
             spline_segments: vec![],
         };

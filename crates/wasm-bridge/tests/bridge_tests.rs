@@ -61,6 +61,7 @@ fn make_sketch_op() -> Operation {
         solved_profiles: vec![ClosedProfile {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
+            vertex_ids: vec![],
             circle: None,
             spline_segments: vec![],
         }],
@@ -657,6 +658,7 @@ fn dispatch_sketch_then_extrude_produces_solid() {
     let solved_profiles = vec![ClosedProfile {
         entity_ids: vec![1, 2, 3, 4],
         is_outer: true,
+        vertex_ids: vec![],
         circle: None,
         spline_segments: vec![],
     }];
@@ -899,6 +901,7 @@ fn dispatch_export_step_with_solid_reaches_kernel() {
             solved_profiles: vec![waffle_types::ClosedProfile {
                 entity_ids: vec![1, 2, 3, 4],
                 is_outer: true,
+                vertex_ids: vec![],
                 circle: None,
                 spline_segments: vec![],
             }],
@@ -1079,6 +1082,7 @@ fn serde_roundtrip_finish_sketch() {
         solved_profiles: vec![ClosedProfile {
             entity_ids: vec![1, 2, 3],
             is_outer: true,
+            vertex_ids: vec![],
             circle: None,
             spline_segments: vec![],
         }],
@@ -1233,6 +1237,7 @@ fn serde_roundtrip_sketch_solved() {
             profiles: vec![ClosedProfile {
                 entity_ids: vec![1, 2],
                 is_outer: true,
+                vertex_ids: vec![],
                 circle: None,
                 spline_segments: vec![],
             }],

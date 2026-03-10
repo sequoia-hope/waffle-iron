@@ -147,6 +147,7 @@ pub fn contours_to_profiles(regions: &[ClosedRegion]) -> ProfileData {
             hole_profiles.push(ClosedProfile {
                 entity_ids: hole_point_ids,
                 is_outer: false,
+                vertex_ids: vec![],
                 circle: None,
                 spline_segments: vec![],
             });
@@ -156,6 +157,7 @@ pub fn contours_to_profiles(regions: &[ClosedRegion]) -> ProfileData {
         profiles.push(ClosedProfile {
             entity_ids: outer_point_ids,
             is_outer: true,
+            vertex_ids: vec![],
             circle: None,
             spline_segments: vec![],
         });

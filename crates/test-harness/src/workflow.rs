@@ -205,6 +205,7 @@ impl ModelBuilder {
         let profiles = vec![ClosedProfile {
             entity_ids: vec![1],
             is_outer: true,
+            vertex_ids: vec![],
             circle: Some(waffle_types::CircleProfile {
                 center_u: cx,
                 center_v: cy,

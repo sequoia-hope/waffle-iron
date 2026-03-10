@@ -27,6 +27,7 @@ pub fn extract_profiles(
                 profiles.push(ClosedProfile {
                     entity_ids: vec![*id],
                     is_outer: true,
+                    vertex_ids: vec![],
                     circle: None,
                     spline_segments: vec![],
                 });
@@ -163,6 +164,7 @@ pub fn extract_profiles(
             profiles.push(ClosedProfile {
                 entity_ids: face_edges,
                 is_outer: winding > 0.0,
+                vertex_ids: face_vertices,
                 circle: None,
                 spline_segments: vec![],
             });
