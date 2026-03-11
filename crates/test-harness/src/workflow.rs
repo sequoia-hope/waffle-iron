@@ -1166,6 +1166,36 @@ impl ModelBuilder {
             })
     }
 
+    /// Count distinct (unconsumed) solid outputs — for merge validation.
+    ///
+    /// Counts non-suppressed, non-sketch, non-datum features that produced
+    /// `OutputKey::Main` outputs and were not consumed by boolean operations.
+    pub fn distinct_solid_count(&self) -> usize {
+        let tree = &self.state.engine.tree;
+        let limit = tree.active_index.unwrap_or(tree.features.len());
+        let mut count = 0;
+        for feature in &tree.features[..limit] {
+            if feature.suppressed {
+                continue;
+            }
+            if matches!(
+                &feature.operation,
+                Operation::Sketch { .. } | Operation::DatumPlane { .. }
+            ) {
+                continue;
+            }
+            if self.state.engine.consumed_features.contains(&feature.id) {
+                continue;
+            }
+            if let Some(result) = self.state.engine.get_result(feature.id) {
+                if result.outputs.iter().any(|(k, _)| *k == OutputKey::Main) {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
     /// Get the dispatch history log.
     pub fn history(&self) -> &[(String, String)] {
         &self.history

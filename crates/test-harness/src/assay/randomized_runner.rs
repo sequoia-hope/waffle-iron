@@ -258,6 +258,20 @@ fn replay_and_validate(case: &DiscoveredCase, use_kernel: bool) -> AssayResult {
         failures.push(msg);
     }
 
+    // Check: multi-operation boss cases should produce a single merged solid.
+    // If merge=true on N boss operations but the result is N separate solids,
+    // the merges failed silently.
+    let n_ops = meta.operations.len();
+    if n_ops > 1 {
+        let solid_count = builder.distinct_solid_count();
+        if solid_count > 1 {
+            failures.push(format!(
+                "merge incomplete: {} operations produced {} separate solids (expected 1 merged)",
+                n_ops, solid_count
+            ));
+        }
+    }
+
     // Collect mesh oracle failures
     for v in &verdicts {
         if !v.passed {
@@ -342,6 +356,8 @@ pub enum FailureCategory {
     PassGenuine,
     /// Passes but only exercises trivial single-boss paths (no cuts/booleans).
     PassBossOnly,
+    /// Multi-operation case where merge failed silently — separate solids remain.
+    MergeIncomplete,
 }
 
 impl std::fmt::Display for FailureCategory {
@@ -358,6 +374,7 @@ impl std::fmt::Display for FailureCategory {
             Self::MultipleFailures => write!(f, "multiple-failures"),
             Self::PassGenuine => write!(f, "pass-genuine"),
             Self::PassBossOnly => write!(f, "pass-boss-only"),
+            Self::MergeIncomplete => write!(f, "merge-incomplete"),
         }
     }
 }
@@ -422,6 +439,11 @@ pub fn categorize_result(result: &AssayResult, meta: &AssayMeta) -> FailureCateg
             // 0. Auto-union failed (highest priority — root cause when co-occurring with mesh checks)
             if has_auto_union_failed {
                 return FailureCategory::AutoUnionFailed;
+            }
+
+            // 0b. Merge incomplete (multi-op case where merge failed silently)
+            if detail.contains("merge incomplete:") {
+                return FailureCategory::MergeIncomplete;
             }
 
             // 1. Boolean not supported (engine-level: geometry combo not implemented)
@@ -822,6 +844,92 @@ mod tests {
         let category = categorize_result(&result, &meta);
         assert_eq!(category, FailureCategory::AutoUnionFailed);
         assert_eq!(category.to_string(), "auto-union-failed");
+    }
+
+    #[test]
+    fn categorize_detects_merge_incomplete() {
+        use crate::assay::gen::{AssayMeta, OpMeta, OracleExpectations};
+        use std::time::Duration;
+
+        let result = AssayResult {
+            id: "R0099".to_string(),
+            description: "test merge incomplete".to_string(),
+            status: AssayStatus::Failed,
+            duration: Duration::from_millis(10),
+            detail: "merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)"
+                .to_string(),
+        };
+        let meta = AssayMeta {
+            id: "R0099".to_string(),
+            description: "test merge incomplete".to_string(),
+            master_seed: 0,
+            test_seed: 0,
+            scale: 1.0,
+            log_scale: 0.0,
+            plane_origin: [0.0; 3],
+            plane_normal: [0.0, 0.0, 1.0],
+            operations: vec![
+                OpMeta {
+                    kind: "extrude".to_string(),
+                    profile_type: "rectangle".to_string(),
+                    profile_size: 0.01,
+                    depth_or_angle: 0.01,
+                    is_cut: false,
+                },
+                OpMeta {
+                    kind: "extrude".to_string(),
+                    profile_type: "circle".to_string(),
+                    profile_size: 0.01,
+                    depth_or_angle: 0.01,
+                    is_cut: false,
+                },
+            ],
+            oracles: OracleExpectations {
+                euler_target: 2,
+                expect_watertight: true,
+                max_bbox_extent: 1.0,
+                expect_positive_volume: true,
+                volume_monotonicity: vec![],
+            },
+            generator_version: 3,
+        };
+
+        let category = categorize_result(&result, &meta);
+        assert_eq!(category, FailureCategory::MergeIncomplete);
+        assert_eq!(category.to_string(), "merge-incomplete");
+    }
+
+    #[test]
+    #[ignore] // Runs real kernel on full corpus — use `cargo test -p test-harness --lib -- --ignored`
+    fn multi_boss_no_false_pass() {
+        // Validate that multi-op cases marked Passed don't have merge-incomplete failures.
+        // Uses the real assay corpus if available.
+        let assay_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("app/tests/cases/assay");
+        if !assay_dir.exists() {
+            return;
+        }
+
+        let cases = discover_cases(&assay_dir);
+        for case in &cases {
+            let result = replay_and_validate(case, true);
+            if result.status == AssayStatus::Passed {
+                let meta: AssayMeta =
+                    serde_json::from_str(&fs::read_to_string(&case.meta_path).unwrap()).unwrap();
+                if meta.operations.len() > 1 {
+                    // Multi-op passes must not have merge-incomplete in detail
+                    assert!(
+                        !result.detail.contains("merge incomplete"),
+                        "Case {} passed but has merge-incomplete failure",
+                        case.id
+                    );
+                }
+            }
+        }
     }
 
     #[test]

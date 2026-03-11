@@ -1,30 +1,33 @@
 # ASSAY v3 Failure Catalog — WaffleKernel
 
 Generated: 2026-03-10
-Score: **4/100** (4 pass, 87 fail, 9 error)
+Score: **5/100** (5 pass, 86 fail, 9 error)
 
 ## Summary by Root Cause
 
 | Category | Count | Status |
 |---|---|---|
-| boolean-watertight | 31 | failed |
-| revolve-normals | 21 | failed |
+| boolean-watertight | 26 | failed |
 | auto-union-failed | 17 | failed |
 | revolve-not-supported | 14 | failed |
+| merge-incomplete | 14 | failed |
+| revolve-normals | 11 | failed |
 | cascading-failure | 7 | errored |
 | boolean-not-supported | 5 | failed |
 | pass-boss-only | 4 | passed |
+| pass-genuine | 1 | passed |
 | boolean-normals | 1 | failed |
 
 ## Highest-Leverage Fixes
 
-1. **Fix boolean-watertight** → would address ~31 cases
-2. **Fix revolve-normals** → would address ~21 cases
-3. **Fix auto-union-failed** → would address ~17 cases
-4. **Fix revolve-not-supported** → would address ~14 cases
-5. **Fix cascading-failure** → would address ~7 cases
-6. **Fix boolean-not-supported** → would address ~5 cases
-7. **Fix boolean-normals** → would address ~1 cases
+1. **Fix boolean-watertight** → would address ~26 cases
+2. **Fix auto-union-failed** → would address ~17 cases
+3. **Fix revolve-not-supported** → would address ~14 cases
+4. **Fix merge-incomplete** → would address ~14 cases
+5. **Fix revolve-normals** → would address ~11 cases
+6. **Fix cascading-failure** → would address ~7 cases
+7. **Fix boolean-not-supported** → would address ~5 cases
+8. **Fix boolean-normals** → would address ~1 cases
 
 ## Individual Case Results
 
@@ -33,7 +36,7 @@ Score: **4/100** (4 pass, 87 fail, 9 error)
 - **Operations**: revolve(rectangle,boss) + extrude(circle,boss)
 - **Scale**: 4.54e-1 (log: -0.34)
 - **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: boolean on revolve solids. Body created as standalone.
+- **Detail**: auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: boolean on revolve solids. Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)
 
 ### R0002 — PASS
 
@@ -61,7 +64,7 @@ Score: **4/100** (4 pass, 87 fail, 9 error)
 - **Operations**: extrude(gear,boss) + extrude(rectangle,boss)
 - **Scale**: 1.70e-1 (log: -0.77)
 - **Category**: revolve-normals
-- **Detail**: consistent_normals: 10 of 632 triangles have reversed normals; outward_normals: only 532 of 632 triangles (84.2%) have outward normals (need 95%)
+- **Detail**: consistent_normals: 10 of 632 triangles have reversed normals; outward_normals: only 535 of 632 triangles (84.7%) have outward normals (need 95%)
 
 ### R0006 — ERROR
 
@@ -82,7 +85,7 @@ Score: **4/100** (4 pass, 87 fail, 9 error)
 - **Operations**: extrude(rectangle,boss) + revolve(circle,cut) + extrude(gear,boss)
 - **Scale**: 1.27e2 (log: 2.10)
 - **Category**: boolean-watertight
-- **Detail**: partial rebuild (1 error(s)): d1ffa7d1-7f95-4d10-9de9-40429468acac: operation error: kernel error: operation not supported: revolve: circle profile (torus); watertight_mesh: 1 unpaired edges out of 1148 total; consistent_normals: 66 of 766 triangles have reversed normals; face_range_coverage: empty range at index 8
+- **Detail**: partial rebuild (1 error(s)): d1ffa7d1-7f95-4d10-9de9-40429468acac: operation error: kernel error: operation not supported: revolve: circle profile (torus); watertight_mesh: 1 unpaired edges out of 1148 total; consistent_normals: 67 of 766 triangles have reversed normals; face_range_coverage: empty range at index 9
 
 ### R0009 — FAIL
 
@@ -96,21 +99,21 @@ Score: **4/100** (4 pass, 87 fail, 9 error)
 - **Operations**: extrude(rectangle,boss) + extrude(gear,boss)
 - **Scale**: 1.32e2 (log: 2.12)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 10 unpaired edges out of 1247 total; consistent_normals: 82 of 831 triangles have reversed normals; no_degenerate_triangles: 5 of 831 triangles are degenerate; face_range_coverage: empty range at index 9; outward_normals: only 728 of 831 triangles (87.6%) have outward normals (need 95%)
+- **Detail**: watertight_mesh: 7 unpaired edges out of 1250 total; consistent_normals: 87 of 835 triangles have reversed normals; no_degenerate_triangles: 4 of 835 triangles are degenerate; face_range_coverage: empty range at index 41; outward_normals: only 730 of 835 triangles (87.4%) have outward normals (need 95%)
 
 ### R0011 — FAIL
 
 - **Operations**: extrude(rectangle,boss) + extrude(gear,boss)
 - **Scale**: 7.15e3 (log: 3.85)
 - **Category**: revolve-normals
-- **Detail**: consistent_normals: 77 of 1012 triangles have reversed normals; no_degenerate_triangles: 1 of 1012 triangles are degenerate; outward_normals: only 760 of 1012 triangles (75.1%) have outward normals (need 95%)
+- **Detail**: consistent_normals: 79 of 1012 triangles have reversed normals; no_degenerate_triangles: 1 of 1012 triangles are degenerate; outward_normals: only 760 of 1012 triangles (75.1%) have outward normals (need 95%)
 
 ### R0012 — FAIL
 
 - **Operations**: revolve(rectangle,boss) + revolve(rectangle,cut) + extrude(gear,boss)
 - **Scale**: 6.95e1 (log: 1.84)
 - **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: boolean on revolve solids. Body created as standalone.
+- **Detail**: auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: boolean on revolve solids. Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged)
 
 ### R0013 — PASS
 
@@ -119,12 +122,12 @@ Score: **4/100** (4 pass, 87 fail, 9 error)
 - **Category**: pass-boss-only
 - **Detail**: 7 oracles passed
 
-### R0014 — FAIL
+### R0014 — PASS
 
 - **Operations**: extrude(gear,boss) + extrude(rectangle,cut) + extrude(rectangle,boss)
 - **Scale**: 1.28e3 (log: 3.11)
-- **Category**: revolve-normals
-- **Detail**: consistent_normals: 1 of 560 triangles have reversed normals
+- **Category**: pass-genuine
+- **Detail**: 7 oracles passed
 
 ### R0015 — FAIL
 
@@ -144,8 +147,8 @@ Score: **4/100** (4 pass, 87 fail, 9 error)
 
 - **Operations**: extrude(circle,boss) + revolve(circle,boss) + revolve(rectangle,cut)
 - **Scale**: 4.03e3 (log: 3.61)
-- **Category**: revolve-normals
-- **Detail**: partial rebuild (1 error(s)): 5ac440ab-b291-4c80-8ea3-6324b906aac5: operation error: kernel error: operation not supported: revolve: circle profile (torus); consistent_normals: 124 of 516 triangles have reversed normals; outward_normals: only 386 of 516 triangles (74.8%) have outward normals (need 95%)
+- **Category**: merge-incomplete
+- **Detail**: partial rebuild (1 error(s)): 5ac440ab-b291-4c80-8ea3-6324b906aac5: operation error: kernel error: operation not supported: revolve: circle profile (torus); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); consistent_normals: 124 of 516 triangles have reversed normals; outward_normals: only 386 of 516 triangles (74.8%) have outward normals (need 95%)
 
 ### R0018 — FAIL
 
@@ -173,7 +176,7 @@ Score: **4/100** (4 pass, 87 fail, 9 error)
 - **Operations**: extrude(rectangle,boss) + extrude(circle,boss) + extrude(circle,boss)
 - **Scale**: 2.73e-1 (log: -0.56)
 - **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: partial box-cylinder union. Body created as standalone.
+- **Detail**: auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: partial box-cylinder union. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)
 
 ### R0022 — FAIL
 
@@ -201,7 +204,7 @@ Score: **4/100** (4 pass, 87 fail, 9 error)
 - **Operations**: extrude(gear,boss) + extrude(circle,boss) + revolve(circle,cut)
 - **Scale**: 2.22e3 (log: 3.35)
 - **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: partial box-cylinder union. Body created as standalone.; partial rebuild (1 error(s)): ffbbf521-bdf1-4fc3-baee-d043c1df00ba: operation error: kernel error: operation not supported: revolve: circle profile (torus)
+- **Detail**: auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: partial box-cylinder union. Body created as standalone.; partial rebuild (1 error(s)): ffbbf521-bdf1-4fc3-baee-d043c1df00ba: operation error: kernel error: operation not supported: revolve: circle profile (torus); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)
 
 ### R0026 — FAIL
 
@@ -214,8 +217,8 @@ Score: **4/100** (4 pass, 87 fail, 9 error)
 
 - **Operations**: revolve(gear,boss) + revolve(rectangle,cut) + revolve(rectangle,cut)
 - **Scale**: 7.82e3 (log: 3.89)
-- **Category**: revolve-normals
-- **Detail**: partial rebuild (1 error(s)): 430badd4-2068-4322-acca-39f405c7cb01: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; consistent_normals: 128 of 516 triangles have reversed normals; outward_normals: only 260 of 516 triangles (50.4%) have outward normals (need 95%)
+- **Category**: merge-incomplete
+- **Detail**: partial rebuild (1 error(s)): 430badd4-2068-4322-acca-39f405c7cb01: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); consistent_normals: 128 of 516 triangles have reversed normals; outward_normals: only 260 of 516 triangles (50.4%) have outward normals (need 95%)
 
 ### R0028 — ERROR
 
@@ -270,15 +273,15 @@ Score: **4/100** (4 pass, 87 fail, 9 error)
 
 - **Operations**: revolve(rectangle,boss) + revolve(rectangle,cut)
 - **Scale**: 1.45e0 (log: 0.16)
-- **Category**: revolve-normals
-- **Detail**: consistent_normals: 136 of 516 triangles have reversed normals; outward_normals: only 259 of 516 triangles (50.2%) have outward normals (need 95%)
+- **Category**: merge-incomplete
+- **Detail**: merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); consistent_normals: 136 of 516 triangles have reversed normals; outward_normals: only 259 of 516 triangles (50.2%) have outward normals (need 95%)
 
 ### R0036 — FAIL
 
 - **Operations**: extrude(gear,boss) + extrude(gear,boss) + extrude(circle,cut)
 - **Scale**: 7.33e-2 (log: -1.14)
 - **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 8054. Body created as standalone.; watertight_mesh: 256 unpaired edges out of 536 total; consistent_normals: 32 of 272 triangles have reversed normals; outward_normals: only 144 of 272 triangles (52.9%) have outward normals (need 95%)
+- **Detail**: auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 8030. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 256 unpaired edges out of 536 total; consistent_normals: 32 of 272 triangles have reversed normals; outward_normals: only 144 of 272 triangles (52.9%) have outward normals (need 95%)
 
 ### R0037 — ERROR
 
@@ -291,8 +294,8 @@ Score: **4/100** (4 pass, 87 fail, 9 error)
 
 - **Operations**: revolve(rectangle,boss) + revolve(rectangle,cut) + revolve(circle,cut)
 - **Scale**: 1.35e1 (log: 1.13)
-- **Category**: revolve-normals
-- **Detail**: partial rebuild (1 error(s)): b7fb4a00-2d17-4599-b3d5-14e324758552: operation error: kernel error: operation not supported: revolve: circle profile (torus); consistent_normals: 126 of 516 triangles have reversed normals; outward_normals: only 129 of 516 triangles (25.0%) have outward normals (need 95%)
+- **Category**: merge-incomplete
+- **Detail**: partial rebuild (1 error(s)): b7fb4a00-2d17-4599-b3d5-14e324758552: operation error: kernel error: operation not supported: revolve: circle profile (torus); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); consistent_normals: 126 of 516 triangles have reversed normals; outward_normals: only 129 of 516 triangles (25.0%) have outward normals (need 95%)
 
 ### R0039 — FAIL
 
@@ -319,8 +322,8 @@ Score: **4/100** (4 pass, 87 fail, 9 error)
 
 - **Operations**: extrude(rectangle,boss) + revolve(rectangle,boss)
 - **Scale**: 8.59e2 (log: 2.93)
-- **Category**: revolve-normals
-- **Detail**: consistent_normals: 122 of 516 triangles have reversed normals; outward_normals: only 258 of 516 triangles (50.0%) have outward normals (need 95%)
+- **Category**: merge-incomplete
+- **Detail**: merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); consistent_normals: 122 of 516 triangles have reversed normals; outward_normals: only 258 of 516 triangles (50.0%) have outward normals (need 95%)
 
 ### R0043 — FAIL
 
@@ -341,7 +344,7 @@ Score: **4/100** (4 pass, 87 fail, 9 error)
 - **Operations**: extrude(circle,boss) + extrude(gear,boss)
 - **Scale**: 4.90e-3 (log: -2.31)
 - **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: partial box-cylinder union. Body created as standalone.; watertight_mesh: 12 unpaired edges out of 378 total
+- **Detail**: auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: partial box-cylinder union. Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 12 unpaired edges out of 378 total
 
 ### R0046 — FAIL
 
@@ -354,8 +357,8 @@ Score: **4/100** (4 pass, 87 fail, 9 error)
 
 - **Operations**: extrude(circle,boss) + revolve(rectangle,boss)
 - **Scale**: 2.09e-4 (log: -3.68)
-- **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 19 unpaired edges out of 26 total; consistent_normals: 129 of 516 triangles have reversed normals; outward_normals: only 257 of 516 triangles (49.8%) have outward normals (need 95%)
+- **Category**: merge-incomplete
+- **Detail**: merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 19 unpaired edges out of 26 total; consistent_normals: 129 of 516 triangles have reversed normals; outward_normals: only 257 of 516 triangles (49.8%) have outward normals (need 95%)
 
 ### R0048 — FAIL
 
@@ -369,7 +372,7 @@ Score: **4/100** (4 pass, 87 fail, 9 error)
 - **Operations**: extrude(circle,boss) + extrude(gear,boss)
 - **Scale**: 4.31e-3 (log: -2.37)
 - **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: partial box-cylinder union. Body created as standalone.; watertight_mesh: 19 unpaired edges out of 800 total
+- **Detail**: auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: partial box-cylinder union. Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 19 unpaired edges out of 800 total
 
 ### R0050 — FAIL
 
@@ -382,22 +385,22 @@ Score: **4/100** (4 pass, 87 fail, 9 error)
 
 - **Operations**: extrude(circle,boss) + revolve(circle,cut) + revolve(rectangle,boss)
 - **Scale**: 3.37e-3 (log: -2.47)
-- **Category**: boolean-watertight
-- **Detail**: partial rebuild (1 error(s)): 8fc9f51e-ffb7-4003-bd6f-7a9d1a8e510b: operation error: kernel error: operation not supported: revolve: circle profile (torus); watertight_mesh: 133 unpaired edges out of 267 total; consistent_normals: 127 of 516 triangles have reversed normals; outward_normals: only 386 of 516 triangles (74.8%) have outward normals (need 95%)
+- **Category**: merge-incomplete
+- **Detail**: partial rebuild (1 error(s)): 8fc9f51e-ffb7-4003-bd6f-7a9d1a8e510b: operation error: kernel error: operation not supported: revolve: circle profile (torus); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 133 unpaired edges out of 267 total; consistent_normals: 127 of 516 triangles have reversed normals; outward_normals: only 386 of 516 triangles (74.8%) have outward normals (need 95%)
 
 ### R0052 — FAIL
 
 - **Operations**: extrude(gear,boss) + extrude(rectangle,cut)
 - **Scale**: 5.87e1 (log: 1.77)
 - **Category**: boolean-watertight
-- **Detail**: partial rebuild (1 error(s)): a0a8a309-e068-4508-8f08-6202b433a308: operation error: kernel error: boolean operation failed: non-manifold result: 24 half-edges unpaired out of 612
+- **Detail**: partial rebuild (1 error(s)): a0a8a309-e068-4508-8f08-6202b433a308: operation error: kernel error: boolean operation failed: non-manifold result: 24 half-edges unpaired out of 580
 
 ### R0053 — FAIL
 
 - **Operations**: revolve(rectangle,boss) + extrude(rectangle,boss) + revolve(gear,boss)
 - **Scale**: 1.49e2 (log: 2.17)
 - **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: boolean on revolve solids. Body created as standalone.; partial rebuild (1 error(s)): 0896c481-31f7-4f35-a4f2-a72d2c9cfebc: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial
+- **Detail**: auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: boolean on revolve solids. Body created as standalone.; partial rebuild (1 error(s)): 0896c481-31f7-4f35-a4f2-a72d2c9cfebc: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)
 
 ### R0054 — ERROR
 
@@ -410,8 +413,8 @@ Score: **4/100** (4 pass, 87 fail, 9 error)
 
 - **Operations**: extrude(rectangle,boss) + revolve(rectangle,cut) + extrude(circle,cut)
 - **Scale**: 7.27e1 (log: 1.86)
-- **Category**: revolve-normals
-- **Detail**: partial rebuild (1 error(s)): 72e7f959-a36c-404a-92b6-3be7e35722d0: operation error: kernel error: operation not supported: boolean on revolve solids; consistent_normals: 135 of 516 triangles have reversed normals; outward_normals: only 258 of 516 triangles (50.0%) have outward normals (need 95%)
+- **Category**: merge-incomplete
+- **Detail**: partial rebuild (1 error(s)): 72e7f959-a36c-404a-92b6-3be7e35722d0: operation error: kernel error: operation not supported: boolean on revolve solids; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); consistent_normals: 135 of 516 triangles have reversed normals; outward_normals: only 258 of 516 triangles (50.0%) have outward normals (need 95%)
 
 ### R0056 — FAIL
 
@@ -432,14 +435,14 @@ Score: **4/100** (4 pass, 87 fail, 9 error)
 - **Operations**: extrude(rectangle,boss) + extrude(gear,cut) + extrude(gear,boss)
 - **Scale**: 4.33e-1 (log: -0.36)
 - **Category**: boolean-watertight
-- **Detail**: partial rebuild (1 error(s)): a7939659-53ba-45a8-8126-209de39d78d4: operation error: kernel error: boolean operation failed: non-manifold result: 72 half-edges unpaired out of 200; consistent_normals: 48 of 972 triangles have reversed normals
+- **Detail**: partial rebuild (1 error(s)): a7939659-53ba-45a8-8126-209de39d78d4: operation error: kernel error: boolean operation failed: non-manifold result: 72 half-edges unpaired out of 200; consistent_normals: 47 of 972 triangles have reversed normals; no_degenerate_triangles: 1 of 972 triangles are degenerate
 
 ### R0059 — FAIL
 
 - **Operations**: extrude(circle,boss) + revolve(circle,boss) + extrude(rectangle,boss)
 - **Scale**: 3.80e2 (log: 2.58)
 - **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: partial box-cylinder union. Body created as standalone.; partial rebuild (1 error(s)): 9d72cc18-ad15-4278-923c-ee0993ab6857: operation error: kernel error: operation not supported: revolve: circle profile (torus)
+- **Detail**: auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: partial box-cylinder union. Body created as standalone.; partial rebuild (1 error(s)): 9d72cc18-ad15-4278-923c-ee0993ab6857: operation error: kernel error: operation not supported: revolve: circle profile (torus); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)
 
 ### R0060 — FAIL
 
@@ -460,7 +463,7 @@ Score: **4/100** (4 pass, 87 fail, 9 error)
 - **Operations**: extrude(rectangle,boss) + extrude(gear,boss)
 - **Scale**: 1.87e-4 (log: -3.73)
 - **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 176 half-edges unpaired out of 2542. Body created as standalone.; watertight_mesh: 24 unpaired edges out of 26 total; no_degenerate_triangles: 22 of 260 triangles are degenerate
+- **Detail**: auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 127 half-edges unpaired out of 2539. Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 24 unpaired edges out of 26 total; no_degenerate_triangles: 22 of 260 triangles are degenerate
 
 ### R0063 — FAIL
 
@@ -487,22 +490,22 @@ Score: **4/100** (4 pass, 87 fail, 9 error)
 
 - **Operations**: extrude(rectangle,boss) + extrude(gear,boss) + extrude(circle,boss)
 - **Scale**: 1.19e0 (log: 0.08)
-- **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 3 unpaired edges out of 1446 total; consistent_normals: 101 of 963 triangles have reversed normals
+- **Category**: revolve-normals
+- **Detail**: consistent_normals: 104 of 964 triangles have reversed normals
 
 ### R0067 — FAIL
 
 - **Operations**: extrude(circle,boss) + extrude(rectangle,boss)
 - **Scale**: 1.24e-1 (log: -0.91)
 - **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: partial box-cylinder union. Body created as standalone.
+- **Detail**: auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: partial box-cylinder union. Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)
 
 ### R0068 — FAIL
 
 - **Operations**: extrude(rectangle,boss) + revolve(rectangle,boss)
 - **Scale**: 4.84e-2 (log: -1.31)
-- **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 27 unpaired edges out of 747 total; consistent_normals: 114 of 516 triangles have reversed normals; outward_normals: only 386 of 516 triangles (74.8%) have outward normals (need 95%)
+- **Category**: merge-incomplete
+- **Detail**: merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 27 unpaired edges out of 747 total; consistent_normals: 114 of 516 triangles have reversed normals; outward_normals: only 386 of 516 triangles (74.8%) have outward normals (need 95%)
 
 ### R0069 — FAIL
 
@@ -530,21 +533,21 @@ Score: **4/100** (4 pass, 87 fail, 9 error)
 - **Operations**: extrude(gear,boss) + extrude(gear,cut) + revolve(gear,cut)
 - **Scale**: 5.55e-4 (log: -3.26)
 - **Category**: boolean-watertight
-- **Detail**: partial rebuild (2 error(s)): 691d1057-0a1a-4b04-b4a4-f4a3dcc17ac7: operation error: kernel error: boolean operation failed: non-manifold result: 495 half-edges unpaired out of 6353; a0c03aee-5af0-41d3-80d5-260665b76d56: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; watertight_mesh: 119 unpaired edges out of 189 total
+- **Detail**: partial rebuild (2 error(s)): 691d1057-0a1a-4b04-b4a4-f4a3dcc17ac7: operation error: kernel error: boolean operation failed: non-manifold result: 495 half-edges unpaired out of 6329; a0c03aee-5af0-41d3-80d5-260665b76d56: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; watertight_mesh: 119 unpaired edges out of 189 total
 
 ### R0073 — FAIL
 
 - **Operations**: extrude(rectangle,boss) + extrude(rectangle,boss)
 - **Scale**: 3.97e2 (log: 2.60)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 3 unpaired edges out of 81 total; consistent_normals: 3 of 56 triangles have reversed normals; face_range_coverage: empty range at index 11
+- **Detail**: watertight_mesh: 2 unpaired edges out of 79 total; consistent_normals: 3 of 54 triangles have reversed normals; no_degenerate_triangles: 1 of 54 triangles are degenerate; face_range_coverage: empty range at index 4
 
 ### R0074 — FAIL
 
 - **Operations**: extrude(circle,boss) + revolve(rectangle,cut) + extrude(circle,boss)
 - **Scale**: 3.40e-1 (log: -0.47)
 - **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: boolean on revolve solids. Body created as standalone.
+- **Detail**: auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: boolean on revolve solids. Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged)
 
 ### R0075 — ERROR
 
@@ -558,7 +561,7 @@ Score: **4/100** (4 pass, 87 fail, 9 error)
 - **Operations**: extrude(rectangle,boss) + extrude(gear,cut) + extrude(circle,boss)
 - **Scale**: 2.31e0 (log: 0.36)
 - **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: partial box-cylinder union. Body created as standalone.; partial rebuild (1 error(s)): 792211a6-badf-47a4-8f2a-443826960f31: operation error: kernel error: boolean operation failed: non-manifold result: 144 half-edges unpaired out of 852
+- **Detail**: auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: partial box-cylinder union. Body created as standalone.; partial rebuild (1 error(s)): 792211a6-badf-47a4-8f2a-443826960f31: operation error: kernel error: boolean operation failed: non-manifold result: 144 half-edges unpaired out of 852; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)
 
 ### R0077 — ERROR
 
@@ -586,14 +589,14 @@ Score: **4/100** (4 pass, 87 fail, 9 error)
 - **Operations**: extrude(rectangle,boss) + extrude(rectangle,boss)
 - **Scale**: 3.91e-2 (log: -1.41)
 - **Category**: revolve-normals
-- **Detail**: consistent_normals: 3 of 52 triangles have reversed normals; no_degenerate_triangles: 1 of 52 triangles are degenerate
+- **Detail**: consistent_normals: 2 of 52 triangles have reversed normals; no_degenerate_triangles: 1 of 52 triangles are degenerate
 
 ### R0081 — FAIL
 
 - **Operations**: extrude(gear,boss) + extrude(rectangle,cut) + revolve(gear,boss)
 - **Scale**: 2.24e-1 (log: -0.65)
 - **Category**: boolean-watertight
-- **Detail**: partial rebuild (2 error(s)): dbacb0ff-3e4a-40cf-a494-4ea57581b0f3: operation error: kernel error: boolean operation failed: non-manifold result: 26 half-edges unpaired out of 844; b3407682-c9e7-4d82-a320-521783ae8b88: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial
+- **Detail**: partial rebuild (2 error(s)): dbacb0ff-3e4a-40cf-a494-4ea57581b0f3: operation error: kernel error: boolean operation failed: non-manifold result: 26 half-edges unpaired out of 852; b3407682-c9e7-4d82-a320-521783ae8b88: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial
 
 ### R0082 — FAIL
 
@@ -621,21 +624,21 @@ Score: **4/100** (4 pass, 87 fail, 9 error)
 - **Operations**: revolve(rectangle,boss) + extrude(gear,boss) + extrude(circle,cut)
 - **Scale**: 2.79e0 (log: 0.45)
 - **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: boolean on revolve solids. Body created as standalone.; partial rebuild (1 error(s)): 536834de-2a2d-4df8-9f08-26e55171716e: operation error: kernel error: operation not supported: partial box-cylinder subtract
+- **Detail**: auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: boolean on revolve solids. Body created as standalone.; partial rebuild (1 error(s)): 536834de-2a2d-4df8-9f08-26e55171716e: operation error: kernel error: operation not supported: partial box-cylinder subtract; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)
 
 ### R0086 — FAIL
 
 - **Operations**: extrude(rectangle,boss) + extrude(circle,boss)
 - **Scale**: 1.96e2 (log: 2.29)
 - **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: partial box-cylinder union. Body created as standalone.
+- **Detail**: auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: partial box-cylinder union. Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)
 
 ### R0087 — FAIL
 
 - **Operations**: revolve(rectangle,boss) + extrude(gear,cut) + extrude(gear,boss)
 - **Scale**: 4.04e1 (log: 1.61)
 - **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: boolean on revolve solids. Body created as standalone.; partial rebuild (1 error(s)): aa6f38d5-4105-4a7d-b6e3-d4399d46d78b: operation error: kernel error: operation not supported: boolean on revolve solids
+- **Detail**: auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: boolean on revolve solids. Body created as standalone.; partial rebuild (1 error(s)): aa6f38d5-4105-4a7d-b6e3-d4399d46d78b: operation error: kernel error: operation not supported: boolean on revolve solids; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)
 
 ### R0088 — FAIL
 
@@ -655,22 +658,22 @@ Score: **4/100** (4 pass, 87 fail, 9 error)
 
 - **Operations**: extrude(circle,boss) + extrude(gear,boss) + revolve(rectangle,cut)
 - **Scale**: 8.30e2 (log: 2.92)
-- **Category**: revolve-normals
-- **Detail**: consistent_normals: 124 of 516 triangles have reversed normals; outward_normals: only 259 of 516 triangles (50.2%) have outward normals (need 95%)
+- **Category**: merge-incomplete
+- **Detail**: merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); consistent_normals: 124 of 516 triangles have reversed normals; outward_normals: only 259 of 516 triangles (50.2%) have outward normals (need 95%)
 
 ### R0091 — FAIL
 
 - **Operations**: extrude(gear,boss) + revolve(circle,cut) + revolve(rectangle,cut)
 - **Scale**: 1.59e-4 (log: -3.80)
-- **Category**: boolean-watertight
-- **Detail**: partial rebuild (1 error(s)): 823da386-51d8-4cd8-bc08-387ff8c5dc7f: operation error: kernel error: operation not supported: revolve: circle profile (torus); watertight_mesh: 20 unpaired edges out of 24 total; consistent_normals: 136 of 516 triangles have reversed normals; outward_normals: only 258 of 516 triangles (50.0%) have outward normals (need 95%)
+- **Category**: merge-incomplete
+- **Detail**: partial rebuild (1 error(s)): 823da386-51d8-4cd8-bc08-387ff8c5dc7f: operation error: kernel error: operation not supported: revolve: circle profile (torus); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 20 unpaired edges out of 24 total; consistent_normals: 136 of 516 triangles have reversed normals; outward_normals: only 258 of 516 triangles (50.0%) have outward normals (need 95%)
 
 ### R0092 — FAIL
 
 - **Operations**: extrude(circle,boss) + extrude(rectangle,cut) + extrude(gear,boss)
 - **Scale**: 1.56e-2 (log: -1.81)
 - **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: partial box-cylinder union. Body created as standalone.; partial rebuild (1 error(s)): f599cb4c-e9be-43d8-b9f8-369f3e33dd7c: operation error: kernel error: operation not supported: cylinder minus box
+- **Detail**: auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: partial box-cylinder union. Body created as standalone.; partial rebuild (1 error(s)): f599cb4c-e9be-43d8-b9f8-369f3e33dd7c: operation error: kernel error: operation not supported: cylinder minus box; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)
 
 ### R0093 — FAIL
 
@@ -683,8 +686,8 @@ Score: **4/100** (4 pass, 87 fail, 9 error)
 
 - **Operations**: extrude(rectangle,boss) + revolve(rectangle,cut) + extrude(gear,cut)
 - **Scale**: 8.79e2 (log: 2.94)
-- **Category**: revolve-normals
-- **Detail**: partial rebuild (1 error(s)): d2f059f0-014b-4cd2-b5b0-458267cdfa89: operation error: kernel error: operation not supported: boolean on revolve solids; consistent_normals: 128 of 516 triangles have reversed normals; outward_normals: only 130 of 516 triangles (25.2%) have outward normals (need 95%)
+- **Category**: merge-incomplete
+- **Detail**: partial rebuild (1 error(s)): d2f059f0-014b-4cd2-b5b0-458267cdfa89: operation error: kernel error: operation not supported: boolean on revolve solids; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); consistent_normals: 128 of 516 triangles have reversed normals; outward_normals: only 130 of 516 triangles (25.2%) have outward normals (need 95%)
 
 ### R0095 — ERROR
 
@@ -698,7 +701,7 @@ Score: **4/100** (4 pass, 87 fail, 9 error)
 - **Operations**: extrude(gear,boss) + extrude(rectangle,boss)
 - **Scale**: 8.88e-3 (log: -2.05)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 312 unpaired edges out of 1731 total; consistent_normals: 50 of 1451 triangles have reversed normals; no_degenerate_triangles: 99 of 1451 triangles are degenerate
+- **Detail**: watertight_mesh: 313 unpaired edges out of 1730 total; consistent_normals: 47 of 1452 triangles have reversed normals; no_degenerate_triangles: 106 of 1452 triangles are degenerate
 
 ### R0097 — FAIL
 
@@ -718,12 +721,12 @@ Score: **4/100** (4 pass, 87 fail, 9 error)
 
 - **Operations**: extrude(circle,boss) + extrude(circle,cut) + revolve(rectangle,cut)
 - **Scale**: 1.09e1 (log: 1.04)
-- **Category**: revolve-normals
-- **Detail**: consistent_normals: 140 of 516 triangles have reversed normals; outward_normals: only 259 of 516 triangles (50.2%) have outward normals (need 95%)
+- **Category**: merge-incomplete
+- **Detail**: merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); consistent_normals: 140 of 516 triangles have reversed normals; outward_normals: only 259 of 516 triangles (50.2%) have outward normals (need 95%)
 
 ### R0100 — FAIL
 
 - **Operations**: revolve(rectangle,boss) + revolve(rectangle,cut)
 - **Scale**: 2.25e2 (log: 2.35)
-- **Category**: revolve-normals
-- **Detail**: consistent_normals: 139 of 516 triangles have reversed normals; outward_normals: only 129 of 516 triangles (25.0%) have outward normals (need 95%)
+- **Category**: merge-incomplete
+- **Detail**: merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); consistent_normals: 139 of 516 triangles have reversed normals; outward_normals: only 129 of 516 triangles (25.0%) have outward normals (need 95%)
