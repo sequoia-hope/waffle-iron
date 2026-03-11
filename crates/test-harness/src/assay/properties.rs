@@ -4,7 +4,7 @@
 //! Results are returned as structured data, not panics.
 
 use crate::helpers::{mesh_bounding_box, mesh_volume};
-use crate::oracle::{self, OracleVerdict};
+use crate::oracle;
 use crate::workflow::ModelBuilder;
 use kernel::types::RenderMesh;
 

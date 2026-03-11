@@ -1528,6 +1528,74 @@ fn build_brep_from_polygons(
         }
     }
 
+    // Step 3c: Position-based fallback twin pairing
+    // Some edges fail to pair when same-position vertices got different indices
+    // due to quantization grid boundary effects.
+    {
+        let mut pos_directed_he: HashMap<((i64, i64, i64), (i64, i64, i64)), Vec<HalfEdgeIdx>> =
+            HashMap::new();
+
+        // Build position-based map for unpaired half-edges only
+        for &he_idx in &unpaired_hes {
+            if paired.contains(&he_idx) {
+                continue;
+            }
+            let origin = arena.half_edges[he_idx.0].origin;
+            let next_he = arena.half_edges[he_idx.0].next;
+            let dest = arena.half_edges[next_he.0].origin;
+            let origin_pos = quantize(arena.vertices[origin.0].position);
+            let dest_pos = quantize(arena.vertices[dest.0].position);
+            pos_directed_he
+                .entry((origin_pos, dest_pos))
+                .or_default()
+                .push(he_idx);
+        }
+
+        // Try to pair using position keys (reverse direction lookup)
+        for he_idx in unpaired_hes.clone() {
+            if paired.contains(&he_idx) {
+                continue;
+            }
+            let origin = arena.half_edges[he_idx.0].origin;
+            let next_he = arena.half_edges[he_idx.0].next;
+            let dest = arena.half_edges[next_he.0].origin;
+            let origin_pos = quantize(arena.vertices[origin.0].position);
+            let dest_pos = quantize(arena.vertices[dest.0].position);
+
+            // Look for reverse-direction edge by position
+            if let Some(candidates) = pos_directed_he.get(&(dest_pos, origin_pos)) {
+                for &twin_idx in candidates {
+                    if twin_idx != he_idx && !paired.contains(&twin_idx) {
+                        // Pair them
+                        let edge_idx = EdgeIdx(arena.edges.len());
+                        arena.edges.push(Edge { half_edge: he_idx });
+                        arena.half_edges[he_idx.0].twin = twin_idx;
+                        arena.half_edges[he_idx.0].edge = edge_idx;
+                        arena.half_edges[twin_idx.0].twin = he_idx;
+                        arena.half_edges[twin_idx.0].edge = edge_idx;
+                        paired.insert(he_idx);
+                        paired.insert(twin_idx);
+
+                        // Add edge geometry
+                        let p0 = arena.vertices[origin.0].position;
+                        let p1 = arena.vertices[dest.0].position;
+                        let dir = v3_sub(p1, p0);
+                        edge_geometry.insert(
+                            edge_idx,
+                            CurveGeom::Linear(Line3D {
+                                origin: Point3::from_array(p0),
+                                direction: Vector3::from_array(dir),
+                            }),
+                        );
+                        let eid = id_alloc();
+                        edge_map.insert(eid, edge_idx);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     // Step 4: Verify all half-edges are paired (manifold check)
     let unpaired_count = unpaired_hes.len() - paired.len();
     if unpaired_count > 0 {

@@ -10,7 +10,7 @@ use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::*;
 use crate::types::*;
 use crate::units::TAU_NORMALIZE;
-use crate::vecmath::{compute_plane_basis, v3_cross, v3_dot, v3_sub};
+use crate::vecmath::{compute_plane_basis, v3_cross, v3_dot, v3_length, v3_sub};
 use crate::waffle_kernel::{CylinderParams, RevolveParams};
 use std::collections::HashMap;
 
@@ -564,6 +564,25 @@ fn tessellate_polygon_face(
         plane.normal.z as f32,
     ];
 
+    // Check if loop winding matches stored normal using Newell method.
+    // If it disagrees, reverse loop vertices BEFORE emitting to the buffer
+    // and tessellating. This ensures ALL triangles have consistent winding.
+    let n = loop_verts.len();
+    let stored_normal = [plane.normal.x, plane.normal.y, plane.normal.z];
+    let mut newell = [0.0f64; 3];
+    for i in 0..n {
+        let curr = loop_verts[i];
+        let next = loop_verts[(i + 1) % n];
+        newell[0] += (curr[1] - next[1]) * (curr[2] + next[2]);
+        newell[1] += (curr[2] - next[2]) * (curr[0] + next[0]);
+        newell[2] += (curr[0] - next[0]) * (curr[1] + next[1]);
+    }
+    let dot = v3_dot(newell, stored_normal);
+    if dot < 0.0 {
+        // Winding disagrees with stored normal — reverse loop vertices
+        loop_verts.reverse();
+    }
+
     let base_vertex = vertices.len() as u32 / 3;
     let start_index = indices.len() as u32;
 
@@ -576,75 +595,69 @@ fn tessellate_polygon_face(
         normals_out.push(normal[2]);
     }
 
-    // Check if loop winding matches stored normal using Newell method.
-    let n = loop_verts.len();
-    let stored_normal = [plane.normal.x, plane.normal.y, plane.normal.z];
-    let mut newell = [0.0f64; 3];
-    for i in 0..n {
-        let curr = loop_verts[i];
-        let next = loop_verts[(i + 1) % n];
-        newell[0] += (curr[1] - next[1]) * (curr[2] + next[2]);
-        newell[1] += (curr[2] - next[2]) * (curr[0] + next[0]);
-        newell[2] += (curr[0] - next[0]) * (curr[1] + next[1]);
-    }
-    let dot = v3_dot(newell, stored_normal);
-    let flip = dot < 0.0;
-
     // Convexity check: for each consecutive triple of edges, verify the cross
-    // product agrees in sign with the Newell normal. If all agree → convex.
+    // product agrees in sign with the stored face normal. If all agree → convex.
     let is_convex = {
-        let newell_len = v3_dot(newell, newell).sqrt();
-        if newell_len < TAU_NORMALIZE {
-            true // degenerate → fall back to fan
-        } else {
-            let nn = [
-                newell[0] / newell_len,
-                newell[1] / newell_len,
-                newell[2] / newell_len,
-            ];
-            let mut convex = true;
-            for i in 0..n {
-                let a = loop_verts[i];
-                let b = loop_verts[(i + 1) % n];
-                let c = loop_verts[(i + 2) % n];
-                let ab = v3_sub(b, a);
-                let bc = v3_sub(c, b);
-                let cross = v3_cross(ab, bc);
-                if v3_dot(cross, nn) < 0.0 {
-                    convex = false;
-                    break;
-                }
+        let mut convex = true;
+        for i in 0..n {
+            let a = loop_verts[i];
+            let b = loop_verts[(i + 1) % n];
+            let c = loop_verts[(i + 2) % n];
+            let ab = v3_sub(b, a);
+            let bc = v3_sub(c, b);
+            let cross = v3_cross(ab, bc);
+            if v3_dot(cross, stored_normal) < 0.0 {
+                convex = false;
+                break;
             }
-            convex
         }
+        convex
     };
 
     if is_convex {
-        // Fast path: fan triangulation for convex polygons
-        for i in 1..n as u32 - 1 {
-            if flip {
-                indices.push(base_vertex);
-                indices.push(base_vertex + i + 1);
-                indices.push(base_vertex + i);
-            } else {
-                indices.push(base_vertex);
-                indices.push(base_vertex + i);
-                indices.push(base_vertex + i + 1);
+        // Fast path: fan triangulation for convex polygons.
+        // Find a fan center that avoids degenerate (collinear) triangles.
+        let fan_center = (0..n).find(|&j| {
+            // Check all fan triangles: (j, j+1, j+2), (j, j+2, j+3), ... wrapping
+            (1..n - 1).all(|i| {
+                let a = (j + i) % n;
+                let b = (j + i + 1) % n;
+                let e1 = v3_sub(loop_verts[a], loop_verts[j]);
+                let e2 = v3_sub(loop_verts[b], loop_verts[j]);
+                let cr = v3_cross(e1, e2);
+                v3_dot(cr, cr) > 1e-20
+            })
+        });
+        if let Some(fc) = fan_center {
+            for i in 1..n - 1 {
+                let a = (fc + i) % n;
+                let b = (fc + i + 1) % n;
+                indices.push(base_vertex + fc as u32);
+                indices.push(base_vertex + a as u32);
+                indices.push(base_vertex + b as u32);
+            }
+        } else {
+            // All fan centers produce degenerate triangles; fall back to ear-clip
+            let (u_axis, v_axis) = compute_plane_basis(stored_normal);
+            let coords_2d: Vec<f64> = loop_verts
+                .iter()
+                .flat_map(|v| {
+                    let d = v3_sub(*v, loop_verts[0]);
+                    vec![v3_dot(d, u_axis), v3_dot(d, v_axis)]
+                })
+                .collect();
+            let tri_indices =
+                earcutr::earcut(&coords_2d, &[], 2).expect("earcut failed on convex polygon");
+            for chunk in tri_indices.chunks(3) {
+                indices.push(base_vertex + chunk[0] as u32);
+                indices.push(base_vertex + chunk[1] as u32);
+                indices.push(base_vertex + chunk[2] as u32);
             }
         }
     } else {
         // Non-convex path: ear-clipping via earcutr
-        let newell_len = v3_dot(newell, newell).sqrt();
-        let nn = if newell_len < TAU_NORMALIZE {
-            stored_normal
-        } else {
-            [
-                newell[0] / newell_len,
-                newell[1] / newell_len,
-                newell[2] / newell_len,
-            ]
-        };
-        let (u_axis, v_axis) = compute_plane_basis(nn);
+        // Project onto 2D using stored face normal as the projection axis
+        let (u_axis, v_axis) = compute_plane_basis(stored_normal);
 
         let coords_2d: Vec<f64> = loop_verts
             .iter()
@@ -658,15 +671,54 @@ fn tessellate_polygon_face(
             earcutr::earcut(&coords_2d, &[], 2).expect("earcut failed on polygon face");
 
         for chunk in tri_indices.chunks(3) {
-            if flip {
-                indices.push(base_vertex + chunk[0] as u32);
-                indices.push(base_vertex + chunk[2] as u32);
-                indices.push(base_vertex + chunk[1] as u32);
-            } else {
-                indices.push(base_vertex + chunk[0] as u32);
-                indices.push(base_vertex + chunk[1] as u32);
-                indices.push(base_vertex + chunk[2] as u32);
-            }
+            indices.push(base_vertex + chunk[0] as u32);
+            indices.push(base_vertex + chunk[1] as u32);
+            indices.push(base_vertex + chunk[2] as u32);
+        }
+    }
+
+    // Per-triangle winding correction pass using f64 precision from loop_verts.
+    // Catches any remaining mismatches after the global winding correction.
+    // For degenerate triangles (near-zero cross product), use the bulk winding decision
+    // from the first non-degenerate triangle to avoid noise-driven flips.
+    let tri_start = start_index as usize;
+    let tri_end = indices.len();
+
+    // Determine bulk winding from first non-degenerate triangle
+    let mut bulk_flip = false;
+    for t in (tri_start..tri_end).step_by(3) {
+        let li0 = (indices[t] - base_vertex) as usize;
+        let li1 = (indices[t + 1] - base_vertex) as usize;
+        let li2 = (indices[t + 2] - base_vertex) as usize;
+        let v0 = loop_verts[li0];
+        let v1 = loop_verts[li1];
+        let v2 = loop_verts[li2];
+        let e1 = v3_sub(v1, v0);
+        let e2 = v3_sub(v2, v0);
+        let tri_normal = v3_cross(e1, e2);
+        if v3_length(tri_normal) > 1e-12 {
+            bulk_flip = v3_dot(tri_normal, stored_normal) < 0.0;
+            break;
+        }
+    }
+
+    for t in (tri_start..tri_end).step_by(3) {
+        let li0 = (indices[t] - base_vertex) as usize;
+        let li1 = (indices[t + 1] - base_vertex) as usize;
+        let li2 = (indices[t + 2] - base_vertex) as usize;
+        let v0 = loop_verts[li0];
+        let v1 = loop_verts[li1];
+        let v2 = loop_verts[li2];
+        let e1 = v3_sub(v1, v0);
+        let e2 = v3_sub(v2, v0);
+        let tri_normal = v3_cross(e1, e2);
+        let should_flip = if v3_length(tri_normal) > 1e-12 {
+            v3_dot(tri_normal, stored_normal) < 0.0
+        } else {
+            bulk_flip
+        };
+        if should_flip {
+            indices.swap(t + 1, t + 2);
         }
     }
 
@@ -765,10 +817,51 @@ fn tessellate_polygon_face_fallback(
     };
 
     if is_convex {
-        for i in 1..nv as u32 - 1 {
-            indices.push(base_vertex);
-            indices.push(base_vertex + i);
-            indices.push(base_vertex + i + 1);
+        // Find a fan center that avoids degenerate (collinear) triangles.
+        let fan_center = (0..nv).find(|&j| {
+            (1..nv - 1).all(|i| {
+                let a = (j + i) % nv;
+                let b = (j + i + 1) % nv;
+                let e1 = v3_sub(loop_verts[a], loop_verts[j]);
+                let e2 = v3_sub(loop_verts[b], loop_verts[j]);
+                let cr = v3_cross(e1, e2);
+                v3_dot(cr, cr) > 1e-20
+            })
+        });
+        if let Some(fc) = fan_center {
+            for i in 1..nv - 1 {
+                let a = (fc + i) % nv;
+                let b = (fc + i + 1) % nv;
+                indices.push(base_vertex + fc as u32);
+                indices.push(base_vertex + a as u32);
+                indices.push(base_vertex + b as u32);
+            }
+        } else {
+            // Fall back to ear-clip if no good fan center
+            let nn = if newell_len < TAU_NORMALIZE {
+                [0.0, 0.0, 1.0]
+            } else {
+                [
+                    newell[0] / newell_len,
+                    newell[1] / newell_len,
+                    newell[2] / newell_len,
+                ]
+            };
+            let (u_axis, v_axis) = compute_plane_basis(nn);
+            let coords_2d: Vec<f64> = loop_verts
+                .iter()
+                .flat_map(|v| {
+                    let d = v3_sub(*v, loop_verts[0]);
+                    vec![v3_dot(d, u_axis), v3_dot(d, v_axis)]
+                })
+                .collect();
+            let tri_indices = earcutr::earcut(&coords_2d, &[], 2)
+                .expect("earcut failed on polygon face (fallback convex)");
+            for chunk in tri_indices.chunks(3) {
+                indices.push(base_vertex + chunk[0] as u32);
+                indices.push(base_vertex + chunk[1] as u32);
+                indices.push(base_vertex + chunk[2] as u32);
+            }
         }
     } else {
         let nn = if newell_len < TAU_NORMALIZE {
@@ -797,6 +890,43 @@ fn tessellate_polygon_face_fallback(
             indices.push(base_vertex + chunk[0] as u32);
             indices.push(base_vertex + chunk[1] as u32);
             indices.push(base_vertex + chunk[2] as u32);
+        }
+    }
+
+    // Per-triangle winding correction using f64 loop_verts for precision.
+    // For degenerate triangles, fall back to bulk winding decision.
+    let face_n = [normal[0] as f64, normal[1] as f64, normal[2] as f64];
+    let tri_start = start_index as usize;
+    let tri_end = indices.len();
+
+    let mut bulk_flip = false;
+    for t in (tri_start..tri_end).step_by(3) {
+        let li0 = (indices[t] - base_vertex) as usize;
+        let li1 = (indices[t + 1] - base_vertex) as usize;
+        let li2 = (indices[t + 2] - base_vertex) as usize;
+        let e1 = v3_sub(loop_verts[li1], loop_verts[li0]);
+        let e2 = v3_sub(loop_verts[li2], loop_verts[li0]);
+        let tri_normal = v3_cross(e1, e2);
+        if v3_length(tri_normal) > 1e-12 {
+            bulk_flip = v3_dot(tri_normal, face_n) < 0.0;
+            break;
+        }
+    }
+
+    for t in (tri_start..tri_end).step_by(3) {
+        let li0 = (indices[t] - base_vertex) as usize;
+        let li1 = (indices[t + 1] - base_vertex) as usize;
+        let li2 = (indices[t + 2] - base_vertex) as usize;
+        let e1 = v3_sub(loop_verts[li1], loop_verts[li0]);
+        let e2 = v3_sub(loop_verts[li2], loop_verts[li0]);
+        let tri_normal = v3_cross(e1, e2);
+        let should_flip = if v3_length(tri_normal) > 1e-12 {
+            v3_dot(tri_normal, face_n) < 0.0
+        } else {
+            bulk_flip
+        };
+        if should_flip {
+            indices.swap(t + 1, t + 2);
         }
     }
 
@@ -1342,30 +1472,52 @@ fn tessellate_planar_face_with_hole(
         }
     }
 
-    // Check winding of first triangle against face normal and reverse if needed
-    let reverse = if let Some(&(a, b, c)) = tri_buf.first() {
-        let get_pos = |idx: u32| -> [f64; 3] {
-            let i = idx as usize;
-            if i < n_outer {
-                outer_verts[i]
-            } else {
-                inner_verts[i - n_outer]
-            }
-        };
-        let pa = get_pos(a - base);
-        let pb = get_pos(b - base);
-        let pc = get_pos(c - base);
+    // Per-triangle winding correction against face normal.
+    // The advancing-front may produce mixed winding for some triangles,
+    // so correct each one individually (same approach as tessellate_polygon_face).
+    let stored_n = [plane.normal.x, plane.normal.y, plane.normal.z];
+    let get_pos = |idx: u32| -> [f64; 3] {
+        let i = (idx - base) as usize;
+        if i < n_outer {
+            outer_verts[i]
+        } else {
+            inner_verts[i - n_outer]
+        }
+    };
+
+    // Determine bulk winding from first non-degenerate triangle
+    let mut bulk_reverse = false;
+    for &(a, b, c) in &tri_buf {
+        let pa = get_pos(a);
+        let pb = get_pos(b);
+        let pc = get_pos(c);
         let ab = v3_sub(pb, pa);
         let ac = v3_sub(pc, pa);
         let cr = v3_cross(ab, ac);
-        let dot = cr[0] * plane.normal.x + cr[1] * plane.normal.y + cr[2] * plane.normal.z;
-        dot < 0.0
-    } else {
-        false
-    };
+        let cr_len = v3_length(cr);
+        if cr_len > 1e-12 {
+            let dot = cr[0] * stored_n[0] + cr[1] * stored_n[1] + cr[2] * stored_n[2];
+            bulk_reverse = dot < 0.0;
+            break;
+        }
+    }
 
     for (a, b, c) in tri_buf {
-        if reverse {
+        let pa = get_pos(a);
+        let pb = get_pos(b);
+        let pc = get_pos(c);
+        let ab = v3_sub(pb, pa);
+        let ac = v3_sub(pc, pa);
+        let cr = v3_cross(ab, ac);
+        let cr_len = v3_length(cr);
+        // For degenerate triangles (near-zero cross product), use bulk winding
+        let should_reverse = if cr_len > 1e-12 {
+            let dot = cr[0] * stored_n[0] + cr[1] * stored_n[1] + cr[2] * stored_n[2];
+            dot < 0.0
+        } else {
+            bulk_reverse
+        };
+        if should_reverse {
             indices.push(a);
             indices.push(c);
             indices.push(b);

@@ -5,6 +5,7 @@
 //!
 //! Reference: Patrikalakis Ch.5 — SSI algorithms for analytic surfaces.
 
+use crate::vecmath::{mat3_mul_vec, Mat3};
 use crate::waffle_kernel::{CylinderParams, WaffleSolid};
 
 // ── SSI curve types ────────────────────────────────────────────────────────
@@ -203,6 +204,23 @@ pub(crate) fn point_in_cylinder(pt: [f64; 3], cyl: &CylinderParams) -> bool {
 }
 
 // ── Aabb extraction ────────────────────────────────────────────────────────
+
+/// Compute the AABB of a solid's vertices after rotating into a given frame.
+///
+/// Used by `box_cyl_boolean` to project a box into the cylinder's Z-aligned
+/// frame so that XY/Z enclosure checks are valid for tilted extrude directions.
+pub(crate) fn compute_rotated_box_aabb(solid: &WaffleSolid, m: &Mat3) -> Aabb {
+    let mut min = [f64::INFINITY; 3];
+    let mut max = [f64::NEG_INFINITY; 3];
+    for vertex in &solid.arena.vertices {
+        let p = mat3_mul_vec(m, vertex.position);
+        for i in 0..3 {
+            min[i] = min[i].min(p[i]);
+            max[i] = max[i].max(p[i]);
+        }
+    }
+    Aabb { min, max }
+}
 
 /// Extract the Aabb from a solid's vertex positions.
 pub(crate) fn compute_box_aabb(solid: &WaffleSolid) -> Aabb {

@@ -3016,3 +3016,626 @@ fn rc3_revolve_both_caps_100pct_consistent() {
         total, consistent, total
     );
 }
+
+// ── Group C8-C10: Normal/winding agreement ──────────────────────────────
+
+/// Check that every triangle's geometric normal (cross product of winding)
+/// agrees with its stored normal attribute. Returns (agree, disagree).
+fn check_normals_outward(mesh: &RenderMesh) -> (usize, usize) {
+    let mut agree = 0;
+    let mut disagree = 0;
+    let n_tris = mesh.indices.len() / 3;
+    for i in 0..n_tris {
+        let i0 = mesh.indices[i * 3] as usize;
+        let i1 = mesh.indices[i * 3 + 1] as usize;
+        let i2 = mesh.indices[i * 3 + 2] as usize;
+        let v0 = [
+            mesh.vertices[i0 * 3] as f64,
+            mesh.vertices[i0 * 3 + 1] as f64,
+            mesh.vertices[i0 * 3 + 2] as f64,
+        ];
+        let v1 = [
+            mesh.vertices[i1 * 3] as f64,
+            mesh.vertices[i1 * 3 + 1] as f64,
+            mesh.vertices[i1 * 3 + 2] as f64,
+        ];
+        let v2 = [
+            mesh.vertices[i2 * 3] as f64,
+            mesh.vertices[i2 * 3 + 1] as f64,
+            mesh.vertices[i2 * 3 + 2] as f64,
+        ];
+        let e1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
+        let e2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
+        let geo_n = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        let stored_n = [
+            mesh.normals[i0 * 3] as f64,
+            mesh.normals[i0 * 3 + 1] as f64,
+            mesh.normals[i0 * 3 + 2] as f64,
+        ];
+        let dot = geo_n[0] * stored_n[0] + geo_n[1] * stored_n[1] + geo_n[2] * stored_n[2];
+        if dot > 0.0 {
+            agree += 1;
+        } else {
+            disagree += 1;
+        }
+    }
+    (agree, disagree)
+}
+
+#[test]
+fn c8_unit_box_normals_agree_with_winding() {
+    let (mut k, solid) = make_unit_box();
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    let (agree, disagree) = check_normals_outward(&mesh);
+    assert_eq!(
+        disagree, 0,
+        "All triangle normals must agree with winding: {} agree, {} disagree",
+        agree, disagree
+    );
+}
+
+#[test]
+fn c9_signed_volume_positive() {
+    // Signed volume (without .abs()) must be positive for outward-pointing normals
+    let (mut k, solid) = make_unit_box();
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    let mut vol = 0.0f64;
+    let n_tris = mesh.indices.len() / 3;
+    for i in 0..n_tris {
+        let i0 = mesh.indices[i * 3] as usize;
+        let i1 = mesh.indices[i * 3 + 1] as usize;
+        let i2 = mesh.indices[i * 3 + 2] as usize;
+        let v0 = [
+            mesh.vertices[i0 * 3] as f64,
+            mesh.vertices[i0 * 3 + 1] as f64,
+            mesh.vertices[i0 * 3 + 2] as f64,
+        ];
+        let v1 = [
+            mesh.vertices[i1 * 3] as f64,
+            mesh.vertices[i1 * 3 + 1] as f64,
+            mesh.vertices[i1 * 3 + 2] as f64,
+        ];
+        let v2 = [
+            mesh.vertices[i2 * 3] as f64,
+            mesh.vertices[i2 * 3 + 1] as f64,
+            mesh.vertices[i2 * 3 + 2] as f64,
+        ];
+        vol += v0[0] * (v1[1] * v2[2] - v2[1] * v1[2])
+            - v1[0] * (v0[1] * v2[2] - v2[1] * v0[2])
+            + v2[0] * (v0[1] * v1[2] - v1[1] * v0[2]);
+    }
+    vol /= 6.0;
+    assert!(
+        vol > 0.0,
+        "Signed mesh volume must be positive (outward normals), got {}",
+        vol
+    );
+}
+
+#[test]
+fn c10_scaled_box_normals_agree() {
+    let (mut k, solid) = make_scaled_box(2.0, 3.0, 5.0);
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    let (_, disagree) = check_normals_outward(&mesh);
+    assert_eq!(disagree, 0, "Scaled box normals must agree with winding");
+}
+
+// ── Group BN: Boolean Result Normals (Track A RED tests) ─────────────
+
+#[test]
+fn bn1_rect_rect_union_normals_consistent() {
+    // Two overlapping rect extrudes → union → ALL normals consistent.
+    // This is the simplest boolean normal test case.
+    let (mut k, box1) = make_scaled_box(2.0, 2.0, 2.0);
+    let (p2, pos2) = make_rect_profile(1.5, 1.5, 2.0, 2.0);
+    let f2 = k
+        .make_faces_from_profiles(&p2, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos2)
+        .expect("profile 2");
+    let box2 = k.extrude_face(f2[0], Z_DIR, 2.0).expect("extrude 2");
+    let result = k.boolean_union(&box1, &box2).expect("union");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate union");
+
+    let (consistent, total) = check_normals_consistent(&mesh);
+    assert!(total > 0, "bn1: mesh should have triangles");
+    assert_eq!(
+        consistent, total,
+        "bn1: all {} union triangles should have consistent normals, but only {}/{} do",
+        total, consistent, total
+    );
+}
+
+#[test]
+fn bn2_gear_rect_cut_normals_consistent() {
+    // Gear boss extruded, then a rect cut through it → ALL normals consistent.
+    let mut k = WaffleKernel::new();
+
+    // Base: rect extrude
+    let (p1, pos1) = make_rect_profile(0.0, 0.0, 20.0, 20.0);
+    let f1 = k
+        .make_faces_from_profiles(&p1, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos1)
+        .expect("base profile");
+    let base = k.extrude_face(f1[0], Z_DIR, 5.0).expect("base extrude");
+
+    // Boss: gear extrude overlapping the base
+    let (gp, gpos) = make_gear_profile(0.0, 0.0, 8, 1.5);
+    let gf = k
+        .make_faces_from_profiles(&gp, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &gpos)
+        .expect("gear profile");
+    let gear_solid = k.extrude_face(gf[0], Z_DIR, 5.0).expect("gear extrude");
+
+    // Union base + gear
+    let merged = k.boolean_union(&base, &gear_solid).expect("union");
+    let mesh = k.tessellate(&merged, 0.01).expect("tessellate");
+
+    let (consistent, total) = check_normals_consistent(&mesh);
+    assert!(total > 0, "bn2: mesh should have triangles");
+    assert_eq!(
+        consistent, total,
+        "bn2: all {} boolean triangles should have consistent normals, but only {}/{} do",
+        total, consistent, total
+    );
+}
+
+#[test]
+fn bn3_rect_rect_cut_normals_consistent() {
+    // Rect base with rect cut → normals consistent.
+    // Cutter is fully inside the base (no shared faces/edges).
+    let (mut k, base) = make_scaled_box(4.0, 4.0, 4.0);
+    let (p2, pos2) = make_rect_profile(2.0, 2.0, 1.0, 1.0);
+    let f2 = k
+        .make_faces_from_profiles(&p2, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos2)
+        .expect("cut profile");
+    let cutter = k.extrude_face(f2[0], Z_DIR, 2.0).expect("cut extrude");
+    let result = k.boolean_subtract(&base, &cutter).expect("subtract");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+
+    let (consistent, total) = check_normals_consistent(&mesh);
+    assert!(total > 0, "bn3: mesh should have triangles");
+    assert_eq!(
+        consistent, total,
+        "bn3: all {} cut result triangles should have consistent normals, but only {}/{} do",
+        total, consistent, total
+    );
+}
+
+#[test]
+fn bn4_rect_rect_union_outward_normals() {
+    // Two overlapping rect extrudes → union → ≥95% outward normals.
+    let (mut k, box1) = make_scaled_box(2.0, 2.0, 2.0);
+    let (p2, pos2) = make_rect_profile(1.5, 1.5, 2.0, 2.0);
+    let f2 = k
+        .make_faces_from_profiles(&p2, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos2)
+        .expect("profile 2");
+    let box2 = k.extrude_face(f2[0], Z_DIR, 2.0).expect("extrude 2");
+    let result = k.boolean_union(&box1, &box2).expect("union");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate union");
+
+    let (agree, disagree) = check_normals_outward(&mesh);
+    let total = agree + disagree;
+    assert!(total > 0, "bn4: mesh should have triangles");
+    let ratio = agree as f64 / total as f64;
+    assert!(
+        ratio >= 0.95,
+        "bn4: outward normals {}/{} = {:.1}%, expected >= 95%",
+        agree, total, ratio * 100.0
+    );
+}
+
+// ── Group BW2: Boolean Welding (Track B RED tests) ───────────────────
+
+#[test]
+fn bw4_gear_rect_subtract_no_nonmanifold() {
+    // Gear boss extruded on a larger rect base, then subtract the gear shape
+    // from outside → must not produce non-manifold error.
+    let mut k = WaffleKernel::new();
+
+    // Large base
+    let (p1, pos1) = make_rect_profile(0.0, 0.0, 30.0, 30.0);
+    let f1 = k
+        .make_faces_from_profiles(&p1, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos1)
+        .expect("base profile");
+    let base = k.extrude_face(f1[0], Z_DIR, 5.0).expect("base extrude");
+
+    // Gear cutter (smaller, centered, fully inside base XY footprint)
+    let (gp, gpos) = make_gear_profile(0.0, 0.0, 6, 1.0);
+    let gf = k
+        .make_faces_from_profiles(&gp, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &gpos)
+        .expect("gear profile");
+    let gear_solid = k.extrude_face(gf[0], Z_DIR, 3.0).expect("gear extrude");
+
+    // Subtract gear from base — this triggers non-convex clipping
+    let result = k.boolean_subtract(&base, &gear_solid);
+    assert!(
+        result.is_ok(),
+        "bw4: gear cut from rect base should not produce non-manifold error, got: {:?}",
+        result.err()
+    );
+
+    // If we got a result, verify it's watertight
+    if let Ok(ref solid) = result {
+        let mesh = k.tessellate(solid, 0.01).expect("tessellate");
+        assert!(
+            check_watertight(&mesh),
+            "bw4: gear-cut result mesh should be watertight"
+        );
+    }
+}
+
+#[test]
+fn bw5_gear_gear_union_watertight() {
+    // Two overlapping gear solids → union → watertight.
+    let mut k = WaffleKernel::new();
+
+    let (gp1, gpos1) = make_gear_profile(0.0, 0.0, 8, 1.5);
+    let gf1 = k
+        .make_faces_from_profiles(&gp1, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &gpos1)
+        .expect("gear1 profile");
+    let gear1 = k.extrude_face(gf1[0], Z_DIR, 5.0).expect("gear1 extrude");
+
+    let (gp2, gpos2) = make_gear_profile(5.0, 0.0, 8, 1.5);
+    let gf2 = k
+        .make_faces_from_profiles(&gp2, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &gpos2)
+        .expect("gear2 profile");
+    let gear2 = k.extrude_face(gf2[0], Z_DIR, 5.0).expect("gear2 extrude");
+
+    let result = k.boolean_union(&gear1, &gear2);
+    assert!(
+        result.is_ok(),
+        "bw5: gear+gear union should succeed, got: {:?}",
+        result.err()
+    );
+
+    if let Ok(ref solid) = result {
+        let mesh = k.tessellate(solid, 0.01).expect("tessellate");
+        assert!(
+            check_watertight(&mesh),
+            "bw5: gear+gear union mesh should be watertight"
+        );
+    }
+}
+
+#[test]
+fn bw6_overlapping_gear_rect_union_no_unpaired() {
+    // Gear + rect overlapping → union → no unpaired half-edges.
+    let (mut k, gear, rect) = make_gear_rect_solids();
+    let result = k.boolean_union(&gear, &rect);
+    assert!(
+        result.is_ok(),
+        "bw6: gear+rect union should not fail with non-manifold error, got: {:?}",
+        result.err()
+    );
+
+    if let Ok(ref solid) = result {
+        let mesh = k.tessellate(solid, 0.01).expect("tessellate");
+        assert!(
+            check_watertight(&mesh),
+            "bw6: gear+rect union mesh should be watertight"
+        );
+    }
+}
+
+#[test]
+fn diag_tilted_box_cyl_boss_normals() {
+    // Mimics R0002: box + cylinder boss union on a tilted plane.
+    // Both consistent_normals and outward_normals should pass.
+    let mut k = WaffleKernel::new();
+
+    // Tilted plane (similar to R0002)
+    let plane_origin = [0.0, 0.0, 0.0];
+    let plane_normal = v3_normalize([-0.52, -0.75, -0.41]);
+
+    // Compute x-axis perpendicular to plane normal
+    let up: [f64; 3] = if plane_normal[1].abs() < 0.9 { [0.0, 1.0, 0.0] } else { [1.0, 0.0, 0.0] };
+    let x_axis = v3_normalize(v3_cross(up, plane_normal));
+
+    // Op1: Rect boss (wide, short) — 1.5×1.5×0.3
+    let (p1, pos1) = make_rect_profile(0.0, 0.0, 1.5, 1.5);
+    let f1 = k.make_faces_from_profiles(&p1, plane_origin, plane_normal, x_axis, &pos1)
+        .expect("rect profile");
+    let box1 = k.extrude_face(f1[0], plane_normal, 0.3).expect("rect extrude");
+
+    // Op2: Circle boss (narrow, tall) — r=0.35, d=1.4
+    let circle_profiles = vec![ClosedProfile {
+        entity_ids: vec![],
+        is_outer: true,
+        vertex_ids: vec![],
+        circle: Some(waffle_types::sketch::CircleProfile {
+            center_u: 0.0,
+            center_v: 0.0,
+            radius: 0.35,
+        }),
+        spline_segments: vec![],
+    }];
+    let circle_positions = HashMap::new();
+    let f2 = k.make_faces_from_profiles(&circle_profiles, plane_origin, plane_normal, x_axis, &circle_positions)
+        .expect("circle profile");
+    let cyl = k.extrude_face(f2[0], plane_normal, 1.4).expect("circle extrude");
+
+    // Union box + cylinder
+    let result = k.boolean_union(&box1, &cyl).expect("union");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+
+    let n_tris = mesh.indices.len() / 3;
+    eprintln!("diag: {} triangles", n_tris);
+
+    // Check consistent normals
+    let (consistent, total) = check_normals_consistent(&mesh);
+    eprintln!("diag: consistent {}/{}", consistent, total);
+
+    // Check outward normals (centroid-based)
+    let (agree, disagree) = check_normals_outward(&mesh);
+    eprintln!("diag: outward {}/{} = {:.1}%", agree, agree + disagree,
+        agree as f64 / (agree + disagree) as f64 * 100.0);
+
+    // Dump per-face info for failing triangles
+    let verts = &mesh.vertices;
+    let norms = &mesh.normals;
+    let vertex_count = verts.len() / 3;
+    let mut cx = 0.0f64;
+    let mut cy = 0.0f64;
+    let mut cz = 0.0f64;
+    for chunk in verts.chunks(3) {
+        cx += chunk[0] as f64;
+        cy += chunk[1] as f64;
+        cz += chunk[2] as f64;
+    }
+    cx /= vertex_count as f64;
+    cy /= vertex_count as f64;
+    cz /= vertex_count as f64;
+    eprintln!("diag: centroid = ({:.4}, {:.4}, {:.4})", cx, cy, cz);
+
+    let mut fail_count = 0;
+    for tri_idx in 0..n_tris {
+        let i0 = mesh.indices[tri_idx * 3] as usize * 3;
+        let i1 = mesh.indices[tri_idx * 3 + 1] as usize * 3;
+        let i2 = mesh.indices[tri_idx * 3 + 2] as usize * 3;
+
+        let tcx = (verts[i0] as f64 + verts[i1] as f64 + verts[i2] as f64) / 3.0;
+        let tcy = (verts[i0+1] as f64 + verts[i1+1] as f64 + verts[i2+1] as f64) / 3.0;
+        let tcz = (verts[i0+2] as f64 + verts[i1+2] as f64 + verts[i2+2] as f64) / 3.0;
+
+        let dx = tcx - cx;
+        let dy = tcy - cy;
+        let dz = tcz - cz;
+
+        let snx = norms[i0] as f64;
+        let sny = norms[i0+1] as f64;
+        let snz = norms[i0+2] as f64;
+
+        let dot = dx * snx + dy * sny + dz * snz;
+        if dot <= 0.0 && fail_count < 5 {
+            fail_count += 1;
+            eprintln!("  FAIL tri {}: normal=({:.4},{:.4},{:.4}), to_centroid=({:.4},{:.4},{:.4}), dot={:.6}",
+                tri_idx, snx, sny, snz, dx, dy, dz, dot);
+            eprintln!("    tri_center=({:.4},{:.4},{:.4})", tcx, tcy, tcz);
+        }
+    }
+
+    // For now, just check consistent normals and report
+    assert_eq!(consistent, total,
+        "diag: consistent normals {}/{}", consistent, total);
+}
+
+#[test]
+fn diag_r0080_reversed_normals() {
+    // R0080: 2 ops, rect boss + rect boss union on a tilted plane.
+    // Plane: origin=[-0.009, 0.029, 0.018], normal=[0.896, -0.261, 0.360]
+    // Op1: rect, size=0.0135, depth=0.022
+    // Op2: rect, size=0.0085, depth=0.014
+    //
+    // Reports 2 of 52 triangles with reversed normals after tessellation.
+    // This test diagnoses which faces they belong to.
+
+    let mut k = WaffleKernel::new();
+
+    let plane_origin = [-0.009, 0.029, 0.018];
+    let plane_normal = v3_normalize([0.896, -0.261, 0.360]);
+
+    // Compute x-axis perpendicular to plane normal
+    let up: [f64; 3] = if plane_normal[1].abs() < 0.9 {
+        [0.0, 1.0, 0.0]
+    } else {
+        [1.0, 0.0, 0.0]
+    };
+    let x_axis = v3_normalize(v3_cross(up, plane_normal));
+
+    // Op1: Rect boss from actual waffle file
+    // half-w = 0.006765903712694094, half-h = 0.008200168228051405
+    // width = 0.013531807425388188, height = 0.01640033645610281
+    let depth1 = 0.022039034776529052;
+    let w1 = 0.013531807425388188;
+    let h1 = 0.01640033645610281;
+    let (p1, pos1) = make_rect_profile(0.0, 0.0, w1, h1);
+    let f1 = k
+        .make_faces_from_profiles(&p1, plane_origin, plane_normal, x_axis, &pos1)
+        .expect("rect profile 1");
+    let s1 = k
+        .extrude_face(f1[0], plane_normal, depth1)
+        .expect("rect extrude 1");
+
+    // Op2: Rect boss from actual waffle file
+    // half-w = 0.0042670763756742355, half-h = 0.012470663147198819
+    // width = 0.008534152751348471, height = 0.024941326294397638
+    // NOTE: Op2 is NARROWER but TALLER than Op1 — genuine intersection
+    let depth2 = 0.013785546729418438;
+    let w2 = 0.008534152751348471;
+    let h2 = 0.024941326294397638;
+    let (p2, pos2) = make_rect_profile(0.0, 0.0, w2, h2);
+    let f2 = k
+        .make_faces_from_profiles(&p2, plane_origin, plane_normal, x_axis, &pos2)
+        .expect("rect profile 2");
+    let s2 = k
+        .extrude_face(f2[0], plane_normal, depth2)
+        .expect("rect extrude 2");
+
+    // Boolean union
+    let result = k.boolean_union(&s1, &s2).expect("union");
+
+    // Tessellate
+    let mesh = k.tessellate(&result, 0.001).expect("tessellate");
+
+    let n_tris = mesh.indices.len() / 3;
+    eprintln!("\n=== R0080 Diagnostic ===");
+    eprintln!("plane_normal = [{:.4}, {:.4}, {:.4}]", plane_normal[0], plane_normal[1], plane_normal[2]);
+    eprintln!("plane_origin = [{:.4}, {:.4}, {:.4}]", plane_origin[0], plane_origin[1], plane_origin[2]);
+    eprintln!("x_axis       = [{:.4}, {:.4}, {:.4}]", x_axis[0], x_axis[1], x_axis[2]);
+    eprintln!("total triangles: {}", n_tris);
+    eprintln!("face_ranges: {}", mesh.face_ranges.len());
+    for (fi, fr) in mesh.face_ranges.iter().enumerate() {
+        let tri_start = fr.start_index / 3;
+        let tri_end = fr.end_index / 3;
+        eprintln!("  face_range[{}]: face_id={:?}, tris {}..{} ({} tris)",
+            fi, fr.face_id, tri_start, tri_end, tri_end - tri_start);
+    }
+
+    // Check each triangle: compute geometric normal from winding, compare with stored normal
+    let (consistent, total) = check_normals_consistent(&mesh);
+    eprintln!("\nconsistent normals: {}/{}", consistent, total);
+
+    let mut reversed_count = 0;
+    for tri_idx in 0..n_tris {
+        let i0 = mesh.indices[tri_idx * 3] as usize;
+        let i1 = mesh.indices[tri_idx * 3 + 1] as usize;
+        let i2 = mesh.indices[tri_idx * 3 + 2] as usize;
+
+        let v0 = [
+            mesh.vertices[i0 * 3] as f64,
+            mesh.vertices[i0 * 3 + 1] as f64,
+            mesh.vertices[i0 * 3 + 2] as f64,
+        ];
+        let v1 = [
+            mesh.vertices[i1 * 3] as f64,
+            mesh.vertices[i1 * 3 + 1] as f64,
+            mesh.vertices[i1 * 3 + 2] as f64,
+        ];
+        let v2 = [
+            mesh.vertices[i2 * 3] as f64,
+            mesh.vertices[i2 * 3 + 1] as f64,
+            mesh.vertices[i2 * 3 + 2] as f64,
+        ];
+
+        // Stored normal (from vertex 0 of triangle)
+        let stored_n = [
+            mesh.normals[i0 * 3] as f64,
+            mesh.normals[i0 * 3 + 1] as f64,
+            mesh.normals[i0 * 3 + 2] as f64,
+        ];
+
+        // Geometric normal from triangle winding
+        let e1 = v3_sub(v1, v0);
+        let e2 = v3_sub(v2, v0);
+        let geo_n = v3_cross(e1, e2);
+
+        // Magnitude of cross product (2x triangle area)
+        let cross_mag = (geo_n[0] * geo_n[0] + geo_n[1] * geo_n[1] + geo_n[2] * geo_n[2]).sqrt();
+
+        // Dot product: positive => agree, negative => reversed
+        let dot = v3_dot(geo_n, stored_n);
+
+        if dot <= 0.0 {
+            reversed_count += 1;
+
+            // Find which face_range this triangle belongs to
+            let idx_offset = (tri_idx * 3) as u32;
+            let face_range_idx = mesh.face_ranges.iter().position(|fr| {
+                idx_offset >= fr.start_index && idx_offset < fr.end_index
+            });
+
+            let geo_n_norm = if cross_mag > 1e-15 {
+                [geo_n[0] / cross_mag, geo_n[1] / cross_mag, geo_n[2] / cross_mag]
+            } else {
+                [0.0, 0.0, 0.0]
+            };
+
+            eprintln!("\n  REVERSED tri {} (face_range={:?}):", tri_idx, face_range_idx);
+            eprintln!("    vertices:");
+            eprintln!("      v0 = [{:.6}, {:.6}, {:.6}]", v0[0], v0[1], v0[2]);
+            eprintln!("      v1 = [{:.6}, {:.6}, {:.6}]", v1[0], v1[1], v1[2]);
+            eprintln!("      v2 = [{:.6}, {:.6}, {:.6}]", v2[0], v2[1], v2[2]);
+            eprintln!("    stored_normal  = [{:.6}, {:.6}, {:.6}]", stored_n[0], stored_n[1], stored_n[2]);
+            eprintln!("    geo_normal     = [{:.6}, {:.6}, {:.6}]", geo_n_norm[0], geo_n_norm[1], geo_n_norm[2]);
+            eprintln!("    cross_mag      = {:.9} (2x tri area)", cross_mag);
+            eprintln!("    dot(geo,stored)= {:.9}", dot);
+
+            // Also show what face this range corresponds to
+            if let Some(fri) = face_range_idx {
+                let fr = &mesh.face_ranges[fri];
+                eprintln!("    face_range detail: face_id={:?}, indices {}..{}", fr.face_id, fr.start_index, fr.end_index);
+            }
+        }
+    }
+
+    // Also check using f32 arithmetic (matching the assay oracle exactly)
+    let mut f32_reversed = 0;
+    for tri_idx in 0..n_tris {
+        let i0 = mesh.indices[tri_idx * 3] as usize * 3;
+        let i1 = mesh.indices[tri_idx * 3 + 1] as usize * 3;
+        let i2 = mesh.indices[tri_idx * 3 + 2] as usize * 3;
+
+        // f32 cross product (matching oracle)
+        let ax = mesh.vertices[i1] - mesh.vertices[i0];
+        let ay = mesh.vertices[i1 + 1] - mesh.vertices[i0 + 1];
+        let az = mesh.vertices[i1 + 2] - mesh.vertices[i0 + 2];
+        let bx = mesh.vertices[i2] - mesh.vertices[i0];
+        let by = mesh.vertices[i2 + 1] - mesh.vertices[i0 + 1];
+        let bz = mesh.vertices[i2 + 2] - mesh.vertices[i0 + 2];
+        let gnx = ay * bz - az * by;
+        let gny = az * bx - ax * bz;
+        let gnz = ax * by - ay * bx;
+
+        // Average stored normal (matching oracle)
+        let snx = (mesh.normals[i0] + mesh.normals[i1] + mesh.normals[i2]) / 3.0;
+        let sny = (mesh.normals[i0 + 1] + mesh.normals[i1 + 1] + mesh.normals[i2 + 1]) / 3.0;
+        let snz = (mesh.normals[i0 + 2] + mesh.normals[i1 + 2] + mesh.normals[i2 + 2]) / 3.0;
+
+        let dot = gnx * snx + gny * sny + gnz * snz;
+        if dot < 0.0 {
+            f32_reversed += 1;
+            // Compute cross product magnitude to check for degenerate
+            let cross_mag = ((gnx * gnx + gny * gny + gnz * gnz) as f64).sqrt();
+            eprintln!("  f32-REVERSED tri {}: dot={:.9}, cross_mag={:.9}", tri_idx, dot, cross_mag);
+        }
+    }
+    eprintln!("\nf32 reversed (oracle method): {}/{}", f32_reversed, n_tris);
+
+    // Check for degenerate triangles (zero area)
+    let mut degen_count = 0;
+    for tri_idx in 0..n_tris {
+        let i0 = mesh.indices[tri_idx * 3] as usize * 3;
+        let i1 = mesh.indices[tri_idx * 3 + 1] as usize * 3;
+        let i2 = mesh.indices[tri_idx * 3 + 2] as usize * 3;
+
+        let ax = (mesh.vertices[i1] - mesh.vertices[i0]) as f64;
+        let ay = (mesh.vertices[i1 + 1] - mesh.vertices[i0 + 1]) as f64;
+        let az = (mesh.vertices[i1 + 2] - mesh.vertices[i0 + 2]) as f64;
+        let bx = (mesh.vertices[i2] - mesh.vertices[i0]) as f64;
+        let by = (mesh.vertices[i2 + 1] - mesh.vertices[i0 + 1]) as f64;
+        let bz = (mesh.vertices[i2 + 2] - mesh.vertices[i0 + 2]) as f64;
+        let cx = ay * bz - az * by;
+        let cy = az * bx - ax * bz;
+        let cz = ax * by - ay * bx;
+        let area2 = (cx * cx + cy * cy + cz * cz).sqrt();
+        if area2 < 1e-15 {
+            degen_count += 1;
+            eprintln!("  DEGENERATE tri {}: area*2={:.2e}", tri_idx, area2);
+        }
+    }
+    eprintln!("degenerate triangles: {}/{}", degen_count, n_tris);
+
+    // Check outward normals (centroid-based heuristic)
+    let (outward_agree, outward_disagree) = check_normals_outward(&mesh);
+    eprintln!("outward normals: {}/{} agree ({:.1}%)",
+        outward_agree, outward_agree + outward_disagree,
+        outward_agree as f64 / (outward_agree + outward_disagree) as f64 * 100.0);
+
+    eprintln!("\n=== Summary ===");
+    eprintln!("  f64 reversed:    {}/{}", reversed_count, n_tris);
+    eprintln!("  f32 reversed:    {}/{}", f32_reversed, n_tris);
+    eprintln!("  degenerate:      {}/{}", degen_count, n_tris);
+    eprintln!("  outward normals: {}/{}", outward_agree, outward_agree + outward_disagree);
+    eprintln!("=================\n");
+}
