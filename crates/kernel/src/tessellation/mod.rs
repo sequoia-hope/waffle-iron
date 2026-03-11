@@ -735,42 +735,70 @@ fn tessellate_cylindrical_patch(
     normals: &mut Vec<f32>,
     indices: &mut Vec<u32>,
 ) {
-    let center = [cyl.origin.x, cyl.origin.y];
+    let origin = [cyl.origin.x, cyl.origin.y, cyl.origin.z];
     // Negative radius signals inward-facing normals (hole surface)
     let inward = cyl.radius < 0.0;
     let r = cyl.radius.abs();
     let axis = [cyl.axis.x, cyl.axis.y, cyl.axis.z];
+    let (cx_axis, cy_axis) = make_circle_axes(&axis);
 
-    // Walk face boundary to find Z range and angular range
+    // Walk face boundary to find axial range and angular range.
+    // Uses axis-generic projection: axial position = dot(pos - origin, axis).
     let loop_idx = arena.faces[face_idx.0].outer_loop;
     let start_he = arena.loops[loop_idx.0].half_edge;
 
-    let mut z_min = f64::INFINITY;
-    let mut z_max = f64::NEG_INFINITY;
+    let mut t_min = f64::INFINITY;
+    let mut t_max = f64::NEG_INFINITY;
     let mut angle_start: Option<f64> = None;
     let mut total_sweep = 0.0_f64;
 
-    // Check if this is a full cylinder (self-loop with seam) or partial patch
     let mut he = start_he;
     let mut has_circular_edge = false;
     let mut has_arc_edge = false;
-    let mut first_arc: Option<(f64, f64)> = None; // (start_angle, sweep_angle) from Arc geometry
+    let mut first_arc: Option<(f64, f64)> = None; // (start_angle, sweep_angle)
+                                                  // For partial patches: use the arc geometry's normal to derive a consistent
+                                                  // local frame. The arc's start_point and sweep were computed in this frame,
+                                                  // so tessellation vertex placement must use the same frame.
+    let mut arc_cx_axis: Option<[f64; 3]> = None;
+    let mut arc_cy_axis: Option<[f64; 3]> = None;
     loop {
         let v = arena.half_edges[he.0].origin;
         let pos = arena.vertices[v.0].position;
-        z_min = z_min.min(pos[2]);
-        z_max = z_max.max(pos[2]);
+        // Project onto cylinder axis for axial range
+        let dp = [pos[0] - origin[0], pos[1] - origin[1], pos[2] - origin[2]];
+        let t = dp[0] * axis[0] + dp[1] * axis[1] + dp[2] * axis[2];
+        t_min = t_min.min(t);
+        t_max = t_max.max(t);
 
         let edge = arena.half_edges[he.0].edge;
         if let Some(CurveGeom::Arc(ref arc)) = edge_geometry.get(&edge) {
+            if arc_cx_axis.is_none() {
+                // Derive local frame from the arc's normal (not the face axis)
+                // to ensure angular consistency with arc start_point/sweep.
+                let arc_n = [arc.normal.x, arc.normal.y, arc.normal.z];
+                let (acx, acy) = make_circle_axes(&arc_n);
+                arc_cx_axis = Some(acx);
+                arc_cy_axis = Some(acy);
+            }
             if first_arc.is_none() {
-                // Use the arc's own start_angle (from start_point) and sweep
-                let arc_start =
-                    (arc.start_point.y - center[1]).atan2(arc.start_point.x - center[0]);
-                first_arc = Some((arc_start, arc.sweep_angle.abs()));
+                let acx = arc_cx_axis.unwrap();
+                let acy = arc_cy_axis.unwrap();
+                let sp = [
+                    arc.start_point.x - origin[0],
+                    arc.start_point.y - origin[1],
+                    arc.start_point.z - origin[2],
+                ];
+                let sp_cx = sp[0] * acx[0] + sp[1] * acx[1] + sp[2] * acx[2];
+                let sp_cy = sp[0] * acy[0] + sp[1] * acy[1] + sp[2] * acy[2];
+                first_arc = Some((sp_cy.atan2(sp_cx), arc.sweep_angle.abs()));
             }
             total_sweep += arc.sweep_angle.abs();
-            let a = (pos[1] - center[1]).atan2(pos[0] - center[0]);
+            // Project vertex radial vector into arc's frame for angle
+            let acx = arc_cx_axis.unwrap();
+            let acy = arc_cy_axis.unwrap();
+            let v_cx = dp[0] * acx[0] + dp[1] * acx[1] + dp[2] * acx[2];
+            let v_cy = dp[0] * acy[0] + dp[1] * acy[1] + dp[2] * acy[2];
+            let a = v_cy.atan2(v_cx);
             if angle_start.is_none() {
                 angle_start = Some(a);
             }
@@ -786,32 +814,35 @@ fn tessellate_cylindrical_patch(
         }
     }
 
-    // Full cylinder: has Circular edges (not Arc), or total sweep close to 2π
-    // Partial patch from cyl-cyl booleans: has Arc edges, use single arc's sweep
     let is_full = has_circular_edge || (total_sweep > std::f64::consts::TAU - 0.1 && !has_arc_edge);
 
     if is_full || angle_start.is_none() {
-        // Full cylinder: tessellate like tessellate_cylindrical_face
-        let (cx_axis, cy_axis) = make_circle_axes(&axis);
+        // Full cylinder: tessellate using axis-generic parametric placement
         let n = CIRCLE_SEGMENTS;
         let base_vertex = vertices.len() as u32 / 3;
-
         let normal_sign = if inward { -1.0_f64 } else { 1.0_f64 };
 
         for row in 0..2 {
-            let z = if row == 0 { z_min } else { z_max };
+            let t = if row == 0 { t_min } else { t_max };
+            // Center of cross-section at axial position t
+            let base = [
+                origin[0] + t * axis[0],
+                origin[1] + t * axis[1],
+                origin[2] + t * axis[2],
+            ];
             for i in 0..n {
                 let theta = std::f64::consts::TAU * (i as f64) / (n as f64);
                 let cos_t = theta.cos();
                 let sin_t = theta.sin();
-                let px = center[0] + r * (cos_t * cx_axis[0] + sin_t * cy_axis[0]);
-                let py = center[1] + r * (cos_t * cx_axis[1] + sin_t * cy_axis[1]);
+                let px = base[0] + r * (cos_t * cx_axis[0] + sin_t * cy_axis[0]);
+                let py = base[1] + r * (cos_t * cx_axis[1] + sin_t * cy_axis[1]);
+                let pz = base[2] + r * (cos_t * cx_axis[2] + sin_t * cy_axis[2]);
                 vertices.push(px as f32);
                 vertices.push(py as f32);
-                vertices.push(z as f32);
+                vertices.push(pz as f32);
                 let nx = normal_sign * (cos_t * cx_axis[0] + sin_t * cy_axis[0]);
                 let ny = normal_sign * (cos_t * cx_axis[1] + sin_t * cy_axis[1]);
-                let nz = 0.0;
+                let nz = normal_sign * (cos_t * cx_axis[2] + sin_t * cy_axis[2]);
                 normals.push(nx as f32);
                 normals.push(ny as f32);
                 normals.push(nz as f32);
@@ -826,7 +857,6 @@ fn tessellate_cylindrical_patch(
             let top = base_vertex + n32 + i;
             let top_next = base_vertex + n32 + next;
             if inward {
-                // Reverse winding for inward-facing normals
                 indices.push(bot);
                 indices.push(top);
                 indices.push(bot_next);
@@ -843,8 +873,17 @@ fn tessellate_cylindrical_patch(
             }
         }
     } else {
-        // Partial cylinder patch: use angular range from the arc edge geometry
-        // (top and bottom arcs have the same range, so use the first one's start_angle + sweep)
+        // Partial cylinder patch: use angular range from arc edge geometry.
+        // IMPORTANT: Use the arc's local frame (arc_cx_axis/arc_cy_axis) for vertex
+        // placement, since the arc angles (start_point, sweep) were computed in that
+        // frame. When the face axis is antiparallel to the arc normal (e.g., face
+        // axis=[0,0,-1] but arc.normal=[0,0,1]), make_circle_axes returns different
+        // frames, so we must use the arc's frame consistently.
+        let pcx = arc_cx_axis.unwrap_or(cx_axis);
+        let pcy = arc_cy_axis.unwrap_or(cy_axis);
+        // The arc normal may be antiparallel to the face axis. For axial base
+        // positioning, we use the face axis (which determines the actual axial
+        // extent of the face geometry).
         let (a_start, sweep) =
             first_arc.unwrap_or((angle_start.unwrap_or(0.0), std::f64::consts::TAU));
         let normal_sign = if inward { -1.0_f64 } else { 1.0_f64 };
@@ -855,19 +894,28 @@ fn tessellate_cylindrical_patch(
         let base_vertex = vertices.len() as u32 / 3;
 
         for row in 0..2 {
-            let z = if row == 0 { z_min } else { z_max };
+            let t = if row == 0 { t_min } else { t_max };
+            let base = [
+                origin[0] + t * axis[0],
+                origin[1] + t * axis[1],
+                origin[2] + t * axis[2],
+            ];
             for i in 0..=n {
                 let theta = a_start + sweep * (i as f64) / (n as f64);
                 let cos_t = theta.cos();
                 let sin_t = theta.sin();
-                let px = center[0] + r * cos_t;
-                let py = center[1] + r * sin_t;
+                let px = base[0] + r * (cos_t * pcx[0] + sin_t * pcy[0]);
+                let py = base[1] + r * (cos_t * pcx[1] + sin_t * pcy[1]);
+                let pz = base[2] + r * (cos_t * pcx[2] + sin_t * pcy[2]);
                 vertices.push(px as f32);
                 vertices.push(py as f32);
-                vertices.push(z as f32);
-                normals.push((normal_sign * cos_t) as f32);
-                normals.push((normal_sign * sin_t) as f32);
-                normals.push(0.0);
+                vertices.push(pz as f32);
+                let nx = normal_sign * (cos_t * pcx[0] + sin_t * pcy[0]);
+                let ny = normal_sign * (cos_t * pcx[1] + sin_t * pcy[1]);
+                let nz = normal_sign * (cos_t * pcx[2] + sin_t * pcy[2]);
+                normals.push(nx as f32);
+                normals.push(ny as f32);
+                normals.push(nz as f32);
             }
         }
 
@@ -878,7 +926,6 @@ fn tessellate_cylindrical_patch(
             let top = base_vertex + m + i;
             let top_next = base_vertex + m + i + 1;
             if inward {
-                // Reverse winding for inward-facing normals
                 indices.push(bot);
                 indices.push(top);
                 indices.push(bot_next);

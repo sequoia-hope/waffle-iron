@@ -31,12 +31,29 @@ pub(crate) struct Aabb {
 
 // ── Z range helper ─────────────────────────────────────────────────────────
 
-/// Compute the actual Z extent of a cylinder, accounting for direction.
-/// Returns (z_min, z_max) regardless of whether direction is +Z or -Z.
+/// Compute the Z extent of a cylinder from its center_bottom and direction.
+///
+/// This function assumes the cylinder has been rotated into a Z-aligned frame
+/// (via `rotation_to_z` in boolean.rs). After rotation, the cylinder's axis
+/// is [0,0,±1], so only the Z component matters.
+///
+/// Returns (z_min, z_max) of the cylinder's Z extent.
 pub(crate) fn cyl_z_range(cyl: &CylinderParams) -> (f64, f64) {
     let z0 = cyl.center_bottom[2];
     let z1 = z0 + cyl.depth * cyl.direction[2];
     (z0.min(z1), z0.max(z1))
+}
+
+/// Check if two cylinder axes are parallel (within tolerance).
+///
+/// Two axes are parallel if |dot(a.direction, b.direction)| ≈ 1.
+/// Non-parallel cylinder booleans produce elliptical intersection curves
+/// and are not supported (Ref #1 Patrikalakis Ch.5).
+pub(crate) fn cyls_parallel(a: &CylinderParams, b: &CylinderParams) -> bool {
+    let dot = a.direction[0] * b.direction[0]
+        + a.direction[1] * b.direction[1]
+        + a.direction[2] * b.direction[2];
+    dot.abs() > 1.0 - 1e-9
 }
 
 // ── SSI computation ────────────────────────────────────────────────────────
@@ -159,14 +176,30 @@ pub(crate) fn point_in_box(pt: [f64; 3], aabb: &Aabb) -> bool {
         && pt[2] < aabb.max[2] - 1e-9
 }
 
-/// Test if a point is strictly inside a Z-axis cylinder.
+/// Test if a point is strictly inside a cylinder (axis-generic).
+///
+/// Projects the point onto the cylinder's actual axis direction to check both
+/// axial containment (within [0, depth]) and radial distance (within radius).
 pub(crate) fn point_in_cylinder(pt: [f64; 3], cyl: &CylinderParams) -> bool {
-    let dx = pt[0] - cyl.center_bottom[0];
-    let dy = pt[1] - cyl.center_bottom[1];
-    let dist_2d = (dx * dx + dy * dy).sqrt();
-    let (z_min, z_max) = cyl_z_range(cyl);
-
-    dist_2d < cyl.radius - 1e-9 && pt[2] > z_min + 1e-9 && pt[2] < z_max - 1e-9
+    let dp = [
+        pt[0] - cyl.center_bottom[0],
+        pt[1] - cyl.center_bottom[1],
+        pt[2] - cyl.center_bottom[2],
+    ];
+    let d = cyl.direction;
+    // Axial projection: distance along cylinder axis from center_bottom
+    let axial = dp[0] * d[0] + dp[1] * d[1] + dp[2] * d[2];
+    if axial < 1e-9 || axial > cyl.depth - 1e-9 {
+        return false;
+    }
+    // Radial distance: perpendicular distance from axis
+    let proj = [
+        dp[0] - axial * d[0],
+        dp[1] - axial * d[1],
+        dp[2] - axial * d[2],
+    ];
+    let dist_radial = (proj[0] * proj[0] + proj[1] * proj[1] + proj[2] * proj[2]).sqrt();
+    dist_radial < cyl.radius - 1e-9
 }
 
 // ── Aabb extraction ────────────────────────────────────────────────────────

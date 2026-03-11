@@ -1,0 +1,609 @@
+{
+  "errored": 9,
+  "failed": 89,
+  "generated": "2026-03-10",
+  "passed": 2,
+  "results": [
+    {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: boolean on revolve solids. Body created as standalone.",
+      "id": "R0001",
+      "status": "fail"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "7 oracles passed",
+      "id": "R0002",
+      "status": "pass"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "no solid — 2 engine error(s): 2eafc12b-da2b-48db-ba6f-fd35f4d379fb: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; de728ec4-8e5a-4f93-b1d6-c3cb117000ce: GeomRef resolution failed: Cut extrude requires an existing body to subtract from",
+      "id": "R0003",
+      "status": "error"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): cfb44fd9-1c48-410d-8f19-4520719a98c3: operation error: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 824; consistent_normals: 42 of 476 triangles have reversed normals",
+      "id": "R0004",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 43 of 632 triangles have reversed normals; outward_normals: only 538 of 632 triangles (85.1%) have outward normals (need 95%)",
+      "id": "R0005",
+      "status": "fail"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 30s",
+      "id": "R0006",
+      "status": "error"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (2 error(s)): a2293d8a-e99d-4e4e-afe0-e2230525f692: operation error: kernel error: operation not supported: cylinder minus box; cbca49a2-9ec4-4f54-b9fe-11e69ea794a3: operation error: kernel error: operation not supported: cylinder minus box; watertight_mesh: 22 unpaired edges out of 26 total",
+      "id": "R0007",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): d1ffa7d1-7f95-4d10-9de9-40429468acac: operation error: kernel error: operation not supported: revolve: circle profile (torus); watertight_mesh: 135 unpaired edges out of 1242 total; consistent_normals: 168 of 918 triangles have reversed normals",
+      "id": "R0008",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): 8b33009e-78c9-48d0-9ae1-79a980c14567: operation error: kernel error: boolean operation failed: non-manifold result: 256 half-edges unpaired out of 1280; watertight_mesh: 13 unpaired edges out of 16 total; consistent_normals: 35 of 380 triangles have reversed normals; no_degenerate_triangles: 3 of 380 triangles are degenerate",
+      "id": "R0009",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 53 unpaired edges out of 1290 total; consistent_normals: 101 of 896 triangles have reversed normals; no_degenerate_triangles: 24 of 896 triangles are degenerate; outward_normals: only 758 of 896 triangles (84.6%) have outward normals (need 95%)",
+      "id": "R0010",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 13 unpaired edges out of 1553 total; consistent_normals: 134 of 1044 triangles have reversed normals; no_degenerate_triangles: 4 of 1044 triangles are degenerate; outward_normals: only 778 of 1044 triangles (74.5%) have outward normals (need 95%)",
+      "id": "R0011",
+      "status": "fail"
+    },
+    {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: boolean on revolve solids. Body created as standalone.; consistent_normals: 40 of 452 triangles have reversed normals",
+      "id": "R0012",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 24 of 260 triangles have reversed normals",
+      "id": "R0013",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 57 of 560 triangles have reversed normals",
+      "id": "R0014",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): e70af511-c5e7-4187-beea-2a614239be9a: operation error: kernel error: boolean operation failed: non-manifold result: 28 half-edges unpaired out of 656; watertight_mesh: 18 unpaired edges out of 19 total; consistent_normals: 36 of 404 triangles have reversed normals; no_degenerate_triangles: 2 of 404 triangles are degenerate",
+      "id": "R0015",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): 33f4929c-4c82-4ee9-87ec-dd611e225056: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; watertight_mesh: 256 unpaired edges out of 536 total; consistent_normals: 17 of 272 triangles have reversed normals; outward_normals: only 144 of 272 triangles (52.9%) have outward normals (need 95%)",
+      "id": "R0016",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "partial rebuild (1 error(s)): 5ac440ab-b291-4c80-8ea3-6324b906aac5: operation error: kernel error: operation not supported: revolve: circle profile (torus); consistent_normals: 252 of 516 triangles have reversed normals",
+      "id": "R0017",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-not-supported",
+      "detail": "partial rebuild (1 error(s)): 63f3f73d-e749-419d-abd2-24456bc5feb6: operation error: kernel error: operation not supported: cylinder minus box",
+      "id": "R0018",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "partial rebuild (1 error(s)): b63a8293-7e78-4dfa-aaa9-cb87b711b9a1: operation error: kernel error: operation not supported: partial box-cylinder subtract; consistent_normals: 22 of 236 triangles have reversed normals",
+      "id": "R0019",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-not-supported",
+      "detail": "partial rebuild (2 error(s)): 98694c9b-b337-49d1-9310-57903832952b: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; 199ed53e-39a8-4187-a0d7-010fb3804ae8: operation error: kernel error: boolean operation failed: tool encloses or equals blank (concentric)",
+      "id": "R0020",
+      "status": "fail"
+    },
+    {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: partial box-cylinder union. Body created as standalone.",
+      "id": "R0021",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 256 unpaired edges out of 536 total; consistent_normals: 57 of 272 triangles have reversed normals; outward_normals: only 144 of 272 triangles (52.9%) have outward normals (need 95%)",
+      "id": "R0022",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-not-supported",
+      "detail": "partial rebuild (1 error(s)): fd39939c-8a7e-4616-972f-7e74abb4a922: operation error: kernel error: operation not supported: cylinder minus box",
+      "id": "R0023",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 34 of 356 triangles have reversed normals",
+      "id": "R0024",
+      "status": "fail"
+    },
+    {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: partial box-cylinder union. Body created as standalone.; partial rebuild (1 error(s)): ffbbf521-bdf1-4fc3-baee-d043c1df00ba: operation error: kernel error: operation not supported: revolve: circle profile (torus)",
+      "id": "R0025",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-not-supported",
+      "detail": "partial rebuild (2 error(s)): 82b064bf-5260-4a8c-bbaa-2d5b971d9945: operation error: kernel error: operation not supported: revolve: circle profile (torus); 9c7567cb-90b4-491e-a6b8-3a704d14ba23: GeomRef resolution failed: Cut extrude requires an existing body to subtract from",
+      "id": "R0026",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "partial rebuild (1 error(s)): 430badd4-2068-4322-acca-39f405c7cb01: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; consistent_normals: 255 of 516 triangles have reversed normals",
+      "id": "R0027",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-not-supported",
+      "detail": "no solid — 2 engine error(s): f6040581-253b-4473-a428-afb599f0f87f: operation error: kernel error: operation not supported: revolve: circle profile (torus); 7cb0610f-9ea4-4b4d-87c8-f34dd7a78c97: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial",
+      "id": "R0028",
+      "status": "error"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "7 oracles passed",
+      "id": "R0029",
+      "status": "pass"
+    },
+    {
+      "category": "boolean-normals",
+      "detail": "partial rebuild (1 error(s)): b1b8b53c-3898-45fe-8dcd-019c3237e7fb: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; watertight_mesh: 3 unpaired edges out of 3 total; outward_normals: only 384 of 512 triangles (75.0%) have outward normals (need 95%)",
+      "id": "R0030",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 258 unpaired edges out of 534 total; consistent_normals: 72 of 272 triangles have reversed normals; outward_normals: only 144 of 272 triangles (52.9%) have outward normals (need 95%)",
+      "id": "R0031",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "partial rebuild (1 error(s)): 42458b1e-e596-43b2-aebe-bd486bcf1c0f: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; consistent_normals: 35 of 380 triangles have reversed normals",
+      "id": "R0032",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "partial rebuild (1 error(s)): b83a3f65-ae75-4cf5-96f6-ebc0b3933843: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; consistent_normals: 30 of 332 triangles have reversed normals",
+      "id": "R0033",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "partial rebuild (2 error(s)): 45a0fb84-7c09-4ac6-bc42-2b1d2a6a07ab: operation error: kernel error: operation not supported: partial box-cylinder subtract; 312dfd5e-03cc-4139-8dcf-24dec771c60f: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; consistent_normals: 20 of 212 triangles have reversed normals",
+      "id": "R0034",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 270 of 516 triangles have reversed normals",
+      "id": "R0035",
+      "status": "fail"
+    },
+    {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 8038. Body created as standalone.; watertight_mesh: 256 unpaired edges out of 536 total; consistent_normals: 32 of 272 triangles have reversed normals; outward_normals: only 144 of 272 triangles (52.9%) have outward normals (need 95%)",
+      "id": "R0036",
+      "status": "fail"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "no solid — 3 engine error(s): 411b712c-2c2d-4c4d-abdf-4906d433b513: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; b07641ab-fe08-4c8c-845f-2844c5037e78: GeomRef resolution failed: Cut extrude requires an existing body to subtract from; 35481419-85f0-40fe-9275-f3b896a39213: GeomRef resolution failed: Cut extrude requires an existing body to subtract from",
+      "id": "R0037",
+      "status": "error"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "partial rebuild (1 error(s)): b7fb4a00-2d17-4599-b3d5-14e324758552: operation error: kernel error: operation not supported: revolve: circle profile (torus); consistent_normals: 257 of 516 triangles have reversed normals",
+      "id": "R0038",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-not-supported",
+      "detail": "partial rebuild (1 error(s)): 5339d09f-3137-4ee1-bbdb-f609580b5383: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial",
+      "id": "R0039",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "outward_normals: only 384 of 512 triangles (75.0%) have outward normals (need 95%)",
+      "id": "R0040",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 256 unpaired edges out of 536 total; consistent_normals: 6 of 272 triangles have reversed normals; outward_normals: only 144 of 272 triangles (52.9%) have outward normals (need 95%)",
+      "id": "R0041",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 252 of 516 triangles have reversed normals",
+      "id": "R0042",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (2 error(s)): 09332637-f9cf-4018-8014-53c9a6bc54c9: operation error: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 52; 7bd84b45-121b-43eb-ba7b-29ae8dd9bec1: operation error: kernel error: boolean operation failed: non-manifold result: 134 half-edges unpaired out of 478",
+      "id": "R0043",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "partial rebuild (1 error(s)): e837ffa0-b2e8-40c9-9cf4-b7fe97244163: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; consistent_normals: 261 of 516 triangles have reversed normals",
+      "id": "R0044",
+      "status": "fail"
+    },
+    {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: partial box-cylinder union. Body created as standalone.; watertight_mesh: 12 unpaired edges out of 378 total; consistent_normals: 24 of 260 triangles have reversed normals",
+      "id": "R0045",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-not-supported",
+      "detail": "partial rebuild (2 error(s)): 28e43665-fd67-476e-8f4f-15c621e29f58: operation error: kernel error: operation not supported: cylinder minus box; 1cf12932-c2ff-449d-aa90-6929d8c8cf5a: operation error: kernel error: operation not supported: revolve: circle profile (torus)",
+      "id": "R0046",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 19 unpaired edges out of 26 total; consistent_normals: 261 of 516 triangles have reversed normals",
+      "id": "R0047",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-not-supported",
+      "detail": "partial rebuild (1 error(s)): 69a29728-7cd4-48a1-9d14-1a306dc28566: operation error: kernel error: operation not supported: cylinder minus box",
+      "id": "R0048",
+      "status": "fail"
+    },
+    {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: partial box-cylinder union. Body created as standalone.; watertight_mesh: 19 unpaired edges out of 800 total; consistent_normals: 48 of 548 triangles have reversed normals",
+      "id": "R0049",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "partial rebuild (2 error(s)): 089aae83-a855-4102-a2b3-91b88330e2e0: operation error: kernel error: operation not supported: revolve: circle profile (torus); 133d439b-a6ba-44e1-82f2-0a49a326205b: operation error: kernel error: operation not supported: revolve: circle profile (torus); consistent_normals: 250 of 516 triangles have reversed normals",
+      "id": "R0050",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): 8fc9f51e-ffb7-4003-bd6f-7a9d1a8e510b: operation error: kernel error: operation not supported: revolve: circle profile (torus); watertight_mesh: 133 unpaired edges out of 267 total; consistent_normals: 255 of 516 triangles have reversed normals",
+      "id": "R0051",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): a0a8a309-e068-4508-8f08-6202b433a308: operation error: kernel error: boolean operation failed: non-manifold result: 24 half-edges unpaired out of 580; consistent_normals: 35 of 380 triangles have reversed normals",
+      "id": "R0052",
+      "status": "fail"
+    },
+    {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: boolean on revolve solids. Body created as standalone.; partial rebuild (1 error(s)): 0896c481-31f7-4f35-a4f2-a72d2c9cfebc: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial",
+      "id": "R0053",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-not-supported",
+      "detail": "no solid — 3 engine error(s): 2ba7aa1c-f668-4361-9fa2-05233091d6ca: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; 069d9f11-23f4-4e3c-9c72-68aa73f5544e: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; 1a4082b7-08e6-4498-bd67-4393ea5ab0f3: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial",
+      "id": "R0054",
+      "status": "error"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "partial rebuild (1 error(s)): 72e7f959-a36c-404a-92b6-3be7e35722d0: operation error: kernel error: operation not supported: boolean on revolve solids; consistent_normals: 249 of 516 triangles have reversed normals",
+      "id": "R0055",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): c2cd5329-bf55-4aee-8657-8a7b953b2326: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; watertight_mesh: 97 unpaired edges out of 233 total",
+      "id": "R0056",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "partial rebuild (1 error(s)): 1eddf950-5939-4129-8a7e-33c5645962f1: operation error: kernel error: operation not supported: revolve: circle profile (torus); consistent_normals: 55 of 540 triangles have reversed normals; no_degenerate_triangles: 1 of 540 triangles are degenerate",
+      "id": "R0057",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): a7939659-53ba-45a8-8126-209de39d78d4: operation error: kernel error: boolean operation failed: non-manifold result: 72 half-edges unpaired out of 200; watertight_mesh: 13 unpaired edges out of 1468 total; consistent_normals: 54 of 988 triangles have reversed normals; no_degenerate_triangles: 3 of 988 triangles are degenerate",
+      "id": "R0058",
+      "status": "fail"
+    },
+    {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: partial box-cylinder union. Body created as standalone.; partial rebuild (1 error(s)): 9d72cc18-ad15-4278-923c-ee0993ab6857: operation error: kernel error: operation not supported: revolve: circle profile (torus)",
+      "id": "R0059",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "partial rebuild (1 error(s)): 87dcceeb-2f91-4dca-b4de-a564997673f1: operation error: kernel error: operation not supported: revolve: circle profile (torus); consistent_normals: 43 of 500 triangles have reversed normals",
+      "id": "R0060",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-not-supported",
+      "detail": "partial rebuild (1 error(s)): c39b72b8-8df5-4097-81f7-61b7384b63a8: operation error: kernel error: operation not supported: cylinder minus box",
+      "id": "R0061",
+      "status": "fail"
+    },
+    {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 225 half-edges unpaired out of 2967. Body created as standalone.; watertight_mesh: 23 unpaired edges out of 27 total; consistent_normals: 24 of 260 triangles have reversed normals; no_degenerate_triangles: 1 of 260 triangles are degenerate",
+      "id": "R0062",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): 14c5eedb-a958-41ad-b1c0-2ebd08cd0d35: operation error: kernel error: operation not supported: cylinder minus box; watertight_mesh: 141 unpaired edges out of 588 total; consistent_normals: 46 of 524 triangles have reversed normals",
+      "id": "R0063",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): d62863c3-c2f6-4ea9-82ea-7199adb28383: operation error: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 64",
+      "id": "R0064",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-not-supported",
+      "detail": "partial rebuild (2 error(s)): 35129c28-e0db-4151-91f6-0838b853c0b1: operation error: kernel error: boolean operation failed: tool encloses or equals blank (concentric); 017d570d-0261-495a-b8fc-c6dc0761edc7: operation error: kernel error: operation not supported: revolve: circle profile (torus)",
+      "id": "R0065",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 72 unpaired edges out of 1494 total; consistent_normals: 110 of 1044 triangles have reversed normals; no_degenerate_triangles: 7 of 1044 triangles are degenerate",
+      "id": "R0066",
+      "status": "fail"
+    },
+    {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: partial box-cylinder union. Body created as standalone.",
+      "id": "R0067",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 27 unpaired edges out of 747 total; consistent_normals: 242 of 516 triangles have reversed normals",
+      "id": "R0068",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): 8dfb4e5b-49d7-4b20-865c-bc9bcd4b97d3: operation error: kernel error: operation not supported: partial box-cylinder subtract; watertight_mesh: 23 unpaired edges out of 30 total; consistent_normals: 30 of 332 triangles have reversed normals; no_degenerate_triangles: 1 of 332 triangles are degenerate",
+      "id": "R0069",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "partial rebuild (2 error(s)): 116f0f25-b9c8-4fb8-82f6-ec970eab7388: operation error: kernel error: operation not supported: boolean on revolve solids; fc073149-ca66-449d-a5b8-37b2674a5f9c: operation error: kernel error: operation not supported: boolean on revolve solids; consistent_normals: 247 of 516 triangles have reversed normals",
+      "id": "R0070",
+      "status": "fail"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "no solid — 3 engine error(s): ec49d7df-1704-4f3f-bb29-3e387328f7ed: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; 471b860a-ed33-48e5-9a85-f1f2e02e522b: GeomRef resolution failed: Cut extrude requires an existing body to subtract from; 7822eee9-8395-42b2-96f4-43de6c01ab09: operation error: kernel error: operation not supported: revolve: circle profile (torus)",
+      "id": "R0071",
+      "status": "error"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (2 error(s)): 691d1057-0a1a-4b04-b4a4-f4a3dcc17ac7: operation error: kernel error: boolean operation failed: non-manifold result: 495 half-edges unpaired out of 6865; a0c03aee-5af0-41d3-80d5-260665b76d56: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; watertight_mesh: 112 unpaired edges out of 194 total; consistent_normals: 34 of 356 triangles have reversed normals",
+      "id": "R0072",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 2 unpaired edges out of 82 total; consistent_normals: 4 of 56 triangles have reversed normals; no_degenerate_triangles: 1 of 56 triangles are degenerate",
+      "id": "R0073",
+      "status": "fail"
+    },
+    {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: boolean on revolve solids. Body created as standalone.",
+      "id": "R0074",
+      "status": "fail"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "no solid — 2 engine error(s): ffd26745-d939-4b01-a3f0-a1aa0f40edfc: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; 92d4bd82-73c9-4a49-86a1-7297e0029ef2: GeomRef resolution failed: Cut extrude requires an existing body to subtract from",
+      "id": "R0075",
+      "status": "error"
+    },
+    {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: partial box-cylinder union. Body created as standalone.; partial rebuild (1 error(s)): 792211a6-badf-47a4-8f2a-443826960f31: operation error: kernel error: boolean operation failed: non-manifold result: 144 half-edges unpaired out of 852",
+      "id": "R0076",
+      "status": "fail"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "no solid — 2 engine error(s): d2bf3b19-2244-4132-8464-932fc20f024b: operation error: kernel error: operation not supported: revolve: circle profile (torus); 5286cb05-9565-401a-8a5c-1793b7c088ee: GeomRef resolution failed: Cut extrude requires an existing body to subtract from",
+      "id": "R0077",
+      "status": "error"
+    },
+    {
+      "category": "revolve-not-supported",
+      "detail": "partial rebuild (1 error(s)): db91e0e3-1315-427b-9173-8b1f9d03f307: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial",
+      "id": "R0078",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-not-supported",
+      "detail": "partial rebuild (2 error(s)): a43f8dcd-b450-4d02-ac81-0ff88750f3a0: operation error: kernel error: operation not supported: revolve: circle profile (torus); a0b62186-dc73-445f-b810-d8f942f627d0: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial",
+      "id": "R0079",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 3 of 52 triangles have reversed normals; no_degenerate_triangles: 2 of 52 triangles are degenerate",
+      "id": "R0080",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (2 error(s)): dbacb0ff-3e4a-40cf-a494-4ea57581b0f3: operation error: kernel error: boolean operation failed: non-manifold result: 26 half-edges unpaired out of 856; b3407682-c9e7-4d82-a320-521783ae8b88: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; consistent_normals: 43 of 500 triangles have reversed normals",
+      "id": "R0081",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "partial rebuild (1 error(s)): 680332a8-8c0a-4c07-b3ec-beb1a8c9f789: operation error: kernel error: operation not supported: revolve: circle profile (torus); consistent_normals: 277 of 516 triangles have reversed normals",
+      "id": "R0082",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): 3d1e21cb-e782-4658-a8f3-2bc91acbd5f7: operation error: kernel error: boolean operation failed: non-manifold result: 242 half-edges unpaired out of 1210; consistent_normals: 24 of 260 triangles have reversed normals",
+      "id": "R0083",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): 45c95a46-1388-46f7-8a92-2cd4512c40eb: operation error: kernel error: operation not supported: revolve: circle profile (torus); watertight_mesh: 92 unpaired edges out of 233 total; consistent_normals: 24 of 260 triangles have reversed normals",
+      "id": "R0084",
+      "status": "fail"
+    },
+    {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: boolean on revolve solids. Body created as standalone.; partial rebuild (1 error(s)): 536834de-2a2d-4df8-9f08-26e55171716e: operation error: kernel error: operation not supported: partial box-cylinder subtract; consistent_normals: 43 of 500 triangles have reversed normals",
+      "id": "R0085",
+      "status": "fail"
+    },
+    {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: partial box-cylinder union. Body created as standalone.",
+      "id": "R0086",
+      "status": "fail"
+    },
+    {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: boolean on revolve solids. Body created as standalone.; partial rebuild (1 error(s)): aa6f38d5-4105-4a7d-b6e3-d4399d46d78b: operation error: kernel error: operation not supported: boolean on revolve solids; consistent_normals: 46 of 524 triangles have reversed normals",
+      "id": "R0087",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (2 error(s)): 8c9e197f-783b-41d2-b469-24d61bd6b540: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; 40e457d5-2845-4cd4-825c-cecd94c84166: operation error: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 40",
+      "id": "R0088",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 4 of 36 triangles have reversed normals; outward_normals: only 24 of 36 triangles (66.7%) have outward normals (need 95%)",
+      "id": "R0089",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 258 of 516 triangles have reversed normals",
+      "id": "R0090",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): 823da386-51d8-4cd8-bc08-387ff8c5dc7f: operation error: kernel error: operation not supported: revolve: circle profile (torus); watertight_mesh: 20 unpaired edges out of 24 total; consistent_normals: 258 of 516 triangles have reversed normals",
+      "id": "R0091",
+      "status": "fail"
+    },
+    {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: partial box-cylinder union. Body created as standalone.; partial rebuild (1 error(s)): f599cb4c-e9be-43d8-b9f8-369f3e33dd7c: operation error: kernel error: operation not supported: cylinder minus box; consistent_normals: 26 of 284 triangles have reversed normals",
+      "id": "R0092",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (2 error(s)): 33a80866-f4fe-4449-8f7f-32ab158981c0: operation error: kernel error: operation not supported: cylinder minus box; 048a0354-49be-4a1e-93ef-b3903711f1e3: operation error: kernel error: operation not supported: cylinder minus box; watertight_mesh: 46 unpaired edges out of 334 total",
+      "id": "R0093",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "partial rebuild (1 error(s)): d2f059f0-014b-4cd2-b5b0-458267cdfa89: operation error: kernel error: operation not supported: boolean on revolve solids; consistent_normals: 254 of 516 triangles have reversed normals",
+      "id": "R0094",
+      "status": "fail"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "no solid — 3 engine error(s): 85686a4e-09b6-4a3a-a2de-7fe8b58abcad: operation error: kernel error: operation not supported: revolve: circle profile (torus); dea960a4-5a0e-479b-b2f5-f70206fe1a3d: GeomRef resolution failed: Cut extrude requires an existing body to subtract from; 8591a898-4ab2-4717-813b-9ccae3cf2dec: operation error: kernel error: operation not supported: revolve: circle profile (torus)",
+      "id": "R0095",
+      "status": "error"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 311 unpaired edges out of 1733 total; consistent_normals: 36 of 1452 triangles have reversed normals; no_degenerate_triangles: 4 of 1452 triangles are degenerate",
+      "id": "R0096",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-not-supported",
+      "detail": "partial rebuild (1 error(s)): 8d9c5971-0790-43db-b9eb-90e39ec11412: operation error: kernel error: operation not supported: revolve: circle profile (torus)",
+      "id": "R0097",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): 085e3fb5-a3fc-4040-9071-ea84f74662d4: operation error: kernel error: operation not supported: partial box-cylinder subtract; watertight_mesh: 256 unpaired edges out of 536 total; consistent_normals: 2 of 272 triangles have reversed normals; outward_normals: only 144 of 272 triangles (52.9%) have outward normals (need 95%)",
+      "id": "R0098",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 259 of 516 triangles have reversed normals",
+      "id": "R0099",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 242 of 516 triangles have reversed normals",
+      "id": "R0100",
+      "status": "fail"
+    }
+  ],
+  "total": 100
+}

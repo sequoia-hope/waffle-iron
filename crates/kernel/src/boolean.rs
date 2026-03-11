@@ -78,6 +78,125 @@ fn v3_negate(v: [f64; 3]) -> [f64; 3] {
     [-v[0], -v[1], -v[2]]
 }
 
+fn v3_normalize(v: [f64; 3]) -> [f64; 3] {
+    let len = v3_length(v);
+    if len < 1e-15 {
+        v
+    } else {
+        [v[0] / len, v[1] / len, v[2] / len]
+    }
+}
+
+/// 3×3 rotation matrix stored row-major.
+type Mat3 = [[f64; 3]; 3];
+
+const MAT3_IDENTITY: Mat3 = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+
+/// Apply a 3×3 rotation matrix to a vector.
+fn mat3_mul_vec(m: &Mat3, v: [f64; 3]) -> [f64; 3] {
+    [
+        m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2],
+        m[1][0] * v[0] + m[1][1] * v[1] + m[1][2] * v[2],
+        m[2][0] * v[0] + m[2][1] * v[1] + m[2][2] * v[2],
+    ]
+}
+
+/// Transpose of a 3×3 matrix (inverse for orthonormal rotation matrices).
+fn mat3_transpose(m: &Mat3) -> Mat3 {
+    [
+        [m[0][0], m[1][0], m[2][0]],
+        [m[0][1], m[1][1], m[2][1]],
+        [m[0][2], m[1][2], m[2][2]],
+    ]
+}
+
+/// Compute a rotation matrix that maps unit vector `dir` to [0, 0, 1].
+///
+/// Uses Rodrigues' rotation formula around the axis `cross(dir, Z)`.
+fn rotation_to_z(dir: [f64; 3]) -> Mat3 {
+    let z = [0.0, 0.0, 1.0];
+    let cos_theta = v3_dot(dir, z); // dir · Z = dz
+
+    // Already Z-aligned (within tolerance)
+    if cos_theta > 1.0 - 1e-12 {
+        return MAT3_IDENTITY;
+    }
+
+    // Anti-parallel to Z: rotate 180° around X
+    if cos_theta < -1.0 + 1e-12 {
+        return [[1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, -1.0]];
+    }
+
+    // General case: rotation axis = cross(dir, Z), normalized
+    let axis = v3_normalize(v3_cross(dir, z));
+    let s = (1.0 - cos_theta * cos_theta).max(0.0).sqrt(); // sin(theta)
+    let c = cos_theta;
+    let t = 1.0 - c;
+    let (x, y, zz) = (axis[0], axis[1], axis[2]);
+
+    // Rodrigues' rotation matrix
+    [
+        [t * x * x + c, t * x * y - s * zz, t * x * zz + s * y],
+        [t * x * y + s * zz, t * y * y + c, t * y * zz - s * x],
+        [t * x * zz - s * y, t * y * zz + s * x, t * zz * zz + c],
+    ]
+}
+
+/// Transform CylinderParams into a rotated coordinate frame.
+fn rotate_cyl_params(cyl: &CylinderParams, m: &Mat3) -> CylinderParams {
+    CylinderParams {
+        center_bottom: mat3_mul_vec(m, cyl.center_bottom),
+        radius: cyl.radius,
+        x_axis: mat3_mul_vec(m, cyl.x_axis),
+        y_axis: mat3_mul_vec(m, cyl.y_axis),
+        direction: mat3_mul_vec(m, cyl.direction),
+        depth: cyl.depth,
+    }
+}
+
+/// Transform a BooleanResult back from a rotated frame using the inverse rotation.
+fn rotate_boolean_result(result: &mut BooleanResult, m_inv: &Mat3) {
+    // Rotate all vertex positions
+    for vertex in &mut result.arena.vertices {
+        vertex.position = mat3_mul_vec(m_inv, vertex.position);
+    }
+
+    // Rotate face geometry (plane normals/origins, cylinder axes/origins)
+    for geom in result.face_geometry.values_mut() {
+        match geom {
+            SurfaceGeom::Planar(plane) => {
+                plane.origin = Point3::from_array(mat3_mul_vec(m_inv, plane.origin.to_array()));
+                plane.normal = Vector3::from_array(mat3_mul_vec(m_inv, plane.normal.to_array()));
+            }
+            SurfaceGeom::Cylindrical(cyl) => {
+                cyl.origin = Point3::from_array(mat3_mul_vec(m_inv, cyl.origin.to_array()));
+                cyl.axis = Vector3::from_array(mat3_mul_vec(m_inv, cyl.axis.to_array()));
+            }
+        }
+    }
+
+    // Rotate edge geometry (line endpoints/directions, circles, arcs)
+    for geom in result.edge_geometry.values_mut() {
+        match geom {
+            CurveGeom::Linear(line) => {
+                line.origin = Point3::from_array(mat3_mul_vec(m_inv, line.origin.to_array()));
+                line.direction =
+                    Vector3::from_array(mat3_mul_vec(m_inv, line.direction.to_array()));
+            }
+            CurveGeom::Circular(circle) => {
+                circle.center = Point3::from_array(mat3_mul_vec(m_inv, circle.center.to_array()));
+                circle.normal = Vector3::from_array(mat3_mul_vec(m_inv, circle.normal.to_array()));
+            }
+            CurveGeom::Arc(arc) => {
+                arc.center = Point3::from_array(mat3_mul_vec(m_inv, arc.center.to_array()));
+                arc.normal = Vector3::from_array(mat3_mul_vec(m_inv, arc.normal.to_array()));
+                arc.start_point =
+                    Point3::from_array(mat3_mul_vec(m_inv, arc.start_point.to_array()));
+            }
+        }
+    }
+}
+
 /// Compute polygon area using cross-product accumulation (works in 3D).
 fn polygon_area_3d(verts: &[[f64; 3]]) -> f64 {
     if verts.len() < 3 {
@@ -226,6 +345,130 @@ fn clip_polygon_by_solid(
     current
 }
 
+// ── Ray-casting point-in-solid ───────────────────────────────────────────
+
+/// Test if a point is inside a closed polyhedral solid.
+/// Casts a ray in +Z direction, counts face crossings. Odd = inside.
+///
+/// If the ray grazes an edge/vertex (ambiguous result), retries with
+/// perturbed directions.
+///
+/// Ref #7 Jacobson: generalized winding number (simplified to ray-crossing
+/// for polyhedral solids).
+fn point_in_solid(point: [f64; 3], faces: &[FacePoly]) -> bool {
+    // Try multiple ray directions, including both positive and negative,
+    // to handle points near boundaries (e.g., at z=max where upward rays
+    // exit the solid immediately and give 0 crossings).
+    let directions = [
+        [0.0, 0.0, 1.0],
+        [0.0, 0.0, -1.0],
+        [0.0, 1.0, 0.0],
+        [0.0, -1.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [-1.0, 0.0, 0.0],
+        [0.57735, 0.57735, 0.57735],    // (1,1,1)/sqrt(3)
+        [-0.57735, -0.57735, -0.57735], // (-1,-1,-1)/sqrt(3)
+    ];
+
+    for &dir in &directions {
+        let mut crossings = 0u32;
+        let mut grazing = false;
+
+        for poly in faces {
+            let denom = v3_dot(dir, poly.normal);
+            if denom.abs() < 1e-12 {
+                // Ray nearly parallel to this face — check if point is near the face plane
+                let dist = v3_dot(v3_sub(point, poly.origin), poly.normal).abs();
+                if dist < 1e-9 {
+                    grazing = true;
+                    break;
+                }
+                continue;
+            }
+
+            let t = v3_dot(v3_sub(poly.origin, point), poly.normal) / denom;
+            if t <= 1e-12 {
+                continue;
+            }
+
+            let hit = v3_add(point, v3_scale(dir, t));
+
+            // Project to 2D
+            let nx = poly.normal[0].abs();
+            let ny = poly.normal[1].abs();
+            let nz = poly.normal[2].abs();
+            let (ax_u, ax_v) = if nz >= nx && nz >= ny {
+                (0, 1)
+            } else if ny >= nx {
+                (0, 2)
+            } else {
+                (1, 2)
+            };
+
+            let hit_u = hit[ax_u];
+            let hit_v = hit[ax_v];
+
+            // Check if hit point is very close to a polygon edge (grazing)
+            let n = poly.verts.len();
+            let mut near_edge = false;
+            for i in 0..n {
+                let a = poly.verts[i];
+                let b = poly.verts[(i + 1) % n];
+                let edge = v3_sub(b, a);
+                let edge_len_sq = v3_dot(edge, edge);
+                if edge_len_sq < 1e-30 {
+                    continue;
+                }
+                let ap = v3_sub(hit, a);
+                let param = v3_dot(ap, edge) / edge_len_sq;
+                if (-0.01..=1.01).contains(&param) {
+                    let closest = v3_add(a, v3_scale(edge, param.clamp(0.0, 1.0)));
+                    let dist_sq = v3_dot(v3_sub(hit, closest), v3_sub(hit, closest));
+                    if dist_sq < 1e-14 {
+                        near_edge = true;
+                        break;
+                    }
+                }
+            }
+            if near_edge {
+                grazing = true;
+                break;
+            }
+
+            // Crossing-number PIP test
+            let mut pip_crossings = 0u32;
+            for i in 0..n {
+                let a = &poly.verts[i];
+                let b = &poly.verts[(i + 1) % n];
+                let au = a[ax_u];
+                let av = a[ax_v];
+                let bu = b[ax_u];
+                let bv = b[ax_v];
+
+                if (av <= hit_v && bv > hit_v) || (bv <= hit_v && av > hit_v) {
+                    let frac = (hit_v - av) / (bv - av);
+                    let u_intercept = au + frac * (bu - au);
+                    if hit_u < u_intercept {
+                        pip_crossings += 1;
+                    }
+                }
+            }
+
+            if pip_crossings % 2 == 1 {
+                crossings += 1;
+            }
+        }
+
+        if !grazing {
+            return crossings % 2 == 1;
+        }
+        // If grazing, try next direction
+    }
+
+    // All directions were grazing — conservatively say outside
+    false
+}
+
 // ── Face classification ─────────────────────────────────────────────────
 
 /// Classification of a face fragment with respect to the opposing solid.
@@ -255,6 +498,15 @@ enum FaceClass {
 }
 
 /// Classify a face polygon against the opposing solid's faces.
+///
+/// Uses Sutherland-Hodgman clipping as the primary classifier, with
+/// point-in-solid ray casting as a secondary check when S-H reports the
+/// face is "fully inside" (inside_area ≈ original_area). For convex solids,
+/// S-H is authoritative; for non-convex solids, S-H can falsely report
+/// full containment when the half-space intersection is degenerate.
+/// Ray casting correctly handles both convex and non-convex solids.
+///
+/// Ref #7 Jacobson: winding number approach (simplified to ray casting).
 fn classify_face(face: &FacePoly, opposing: &[FacePoly], tau: f64) -> FaceClass {
     let original_area = polygon_area_3d(&face.verts);
     if original_area < 1e-15 {
@@ -278,52 +530,367 @@ fn classify_face(face: &FacePoly, opposing: &[FacePoly], tau: f64) -> FaceClass 
         }
     });
 
-    let inside = clip_polygon_by_solid(&face.verts, opposing, tau, Some(face.normal));
-    let inside_area = polygon_area_3d(&inside);
+    // Heuristic: a convex solid from extruding a convex polygon has at most
+    // ~12 faces (rect=6, hexagon=8, etc.). Solids with many more faces are
+    // likely non-convex (e.g., gear profiles with 50+ faces). For non-convex
+    // opposing solids, Sutherland-Hodgman clipping gives wrong results, so
+    // we use pure ray-casting classification instead.
+    let opposing_likely_convex = opposing.len() <= 12;
 
-    // Face is fully outside if inside clip has negligible area
-    if inside_area < 1e-15 {
+    if opposing_likely_convex {
+        // Convex opposing solid: S-H clipping is authoritative
+        let inside = clip_polygon_by_solid(&face.verts, opposing, tau, Some(face.normal));
+        let inside_area = polygon_area_3d(&inside);
+
+        if inside_area < 1e-15 {
+            return FaceClass::Outside;
+        }
+
+        let rel_diff = (inside_area - original_area).abs() / original_area;
+        if rel_diff < 1e-6 {
+            if has_antiparallel_coplanar {
+                return FaceClass::CoplanarTouching;
+            }
+            if has_coplanar {
+                return FaceClass::CoplanarPartial {
+                    inside: face.verts.clone(),
+                    outside_frags: vec![],
+                };
+            }
+            return FaceClass::Inside;
+        }
+
+        // Partial: split face using S-H (correct for convex opposing solid)
+        let outside_frags = split_outside_fragments(&face.verts, opposing, tau, Some(face.normal));
+        let has_same_dir_coplanar = has_coplanar && !has_antiparallel_coplanar;
+        if has_same_dir_coplanar {
+            return FaceClass::CoplanarPartial {
+                inside,
+                outside_frags,
+            };
+        }
+        return FaceClass::Partial {
+            inside,
+            outside_frags,
+        };
+    }
+
+    // Non-convex opposing solid: use ray-casting for classification.
+    // S-H clipping cannot reliably classify or split faces against non-convex
+    // solids because the half-space intersection is degenerate.
+    let inward_offset = v3_scale(face.normal, -tau * 100.0);
+
+    // Handle coplanar cases first
+    if has_antiparallel_coplanar {
+        return FaceClass::CoplanarTouching;
+    }
+    if has_coplanar {
+        // For coplanar faces, S-H can still find the overlap region because
+        // the clip skips coplanar opposing faces and clips against the
+        // opposing solid's bounding planes only (which form a convex set
+        // per-coplanar-face). Use S-H for the overlap calculation.
+        let inside = clip_polygon_by_solid(&face.verts, opposing, tau, Some(face.normal));
+        let inside_area = polygon_area_3d(&inside);
+        if inside_area > 1e-15 {
+            let outside_frags =
+                split_outside_fragments(&face.verts, opposing, tau, Some(face.normal));
+            return FaceClass::CoplanarPartial {
+                inside,
+                outside_frags,
+            };
+        }
         return FaceClass::Outside;
     }
 
-    // Face is fully inside if inside clip matches original area
-    let rel_diff = (inside_area - original_area).abs() / original_area;
-    if rel_diff < 1e-6 {
-        if has_antiparallel_coplanar {
-            // Face lies on the shared boundary between two touching solids.
-            // The anti-parallel coplanar face means the opposing solid's surface
-            // touches this face from the other side.
-            return FaceClass::CoplanarTouching;
+    // Non-coplanar face against non-convex solid: classify by centroid ray-casting.
+    // Cannot produce partial fragments (S-H splitting is unreliable for
+    // non-convex solids), so classify as either fully Inside or fully Outside.
+    let centroid = polygon_centroid(&face.verts);
+    let sample = v3_add(centroid, inward_offset);
+    if point_in_solid(sample, opposing) {
+        return FaceClass::Inside;
+    }
+    FaceClass::Outside
+}
+
+/// Classify a face against a non-convex opposing solid using edge-piercing
+/// analysis combined with local S-H clipping.
+///
+/// For non-convex opposing solids, S-H clipping against ALL opposing faces
+/// is incorrect (half-space intersection ≠ solid interior). Instead, this
+/// function identifies which opposing faces have edges that ACTUALLY pierce
+/// this face, and clips only against those relevant planes. Locally, the
+/// relevant planes form a convex boundary around the intersection, making
+/// S-H valid. For faces with no piercings, uses centroid ray-casting.
+///
+/// Ref #7 Jacobson: winding numbers for inside/outside classification.
+/// Classify a face against a non-convex opposing solid using progressive
+/// splitting by face-face intersection planes.
+///
+/// For non-convex opposing solids, S-H clipping against ALL opposing faces
+/// is incorrect (half-space intersection ≠ solid interior).  Instead:
+///
+/// 1. Find opposing faces whose plane actually intersects this face
+///    (verified via `face_face_intersection_segment`).
+/// 2. Progressively split this face by those planes (keeping BOTH halves
+///    at each step — unlike S-H which keeps only the inside).
+/// 3. Classify each resulting fragment with `point_in_solid`.
+///
+/// This produces matching boundary edges with the opposing solid's S-H
+/// splits because both sides clip against the same face planes.
+///
+/// Ref #7 Jacobson: winding numbers for inside/outside classification.
+fn classify_face_nonconvex(face: &FacePoly, opposing: &[FacePoly], tau: f64) -> FaceClass {
+    let original_area = polygon_area_3d(&face.verts);
+    if original_area < 1e-15 {
+        return FaceClass::Outside;
+    }
+
+    // Check coplanar partnerships
+    let has_antiparallel_coplanar = opposing.iter().any(|opp| {
+        let dot_n = v3_dot(face.normal, opp.normal);
+        if dot_n < -(1.0 - 1e-6) {
+            let dist = v3_dot(v3_sub(face.verts[0], opp.origin), opp.normal).abs();
+            dist < tau * 100.0
+        } else {
+            false
         }
-        if has_coplanar {
-            // Same-direction coplanar: face overlaps with an opposing face.
+    });
+
+    if has_antiparallel_coplanar {
+        return FaceClass::CoplanarTouching;
+    }
+
+    let has_coplanar = opposing
+        .iter()
+        .any(|opp| is_coplanar(face.normal, face.verts[0], opp, tau));
+
+    if has_coplanar {
+        return classify_coplanar_nonconvex(face, opposing, tau);
+    }
+
+    // ── Non-coplanar path: progressive splitting ─────────────────────────
+    //
+    // Split the face by each opposing face plane that straddles it.
+    // Uses `clip_polygon_by_plane` (same as S-H and coplanar path) to
+    // ensure exact vertex positions match adjacent face fragments.
+    // Fragment classification uses `point_in_solid`.
+
+    let mut cutting_planes: Vec<([f64; 3], [f64; 3])> = Vec::new();
+
+    for opp in opposing {
+        if is_coplanar(face.normal, face.verts[0], opp, tau) {
+            continue;
+        }
+
+        // Straddle check: face must have vertices on both sides of the plane
+        let mut has_pos = false;
+        let mut has_neg = false;
+        for v in &face.verts {
+            let d = v3_dot(v3_sub(*v, opp.origin), opp.normal);
+            if d > tau {
+                has_pos = true;
+            }
+            if d < -tau {
+                has_neg = true;
+            }
+        }
+        if has_pos && has_neg {
+            cutting_planes.push((opp.origin, v3_negate(opp.normal)));
+        }
+    }
+
+    let inward_offset = v3_scale(face.normal, -tau * 100.0);
+
+    if cutting_planes.is_empty() {
+        // No planes straddle — classify centroid
+        let centroid = polygon_centroid(&face.verts);
+        let sample = v3_add(centroid, inward_offset);
+        if point_in_solid(sample, opposing) {
+            return FaceClass::Inside;
+        }
+        return FaceClass::Outside;
+    }
+
+    // Progressive splitting: split face by each cutting plane,
+    // keeping BOTH halves at each step.
+    let mut fragments: Vec<Vec<[f64; 3]>> = vec![face.verts.clone()];
+
+    for (plane_pt, inward_n) in &cutting_planes {
+        let outward_n = v3_negate(*inward_n);
+        let mut new_fragments = Vec::new();
+        for frag in &fragments {
+            let half_in = clip_polygon_by_plane(frag, *plane_pt, *inward_n, tau);
+            let half_out = clip_polygon_by_plane(frag, *plane_pt, outward_n, tau);
+            if half_in.len() >= 3 && polygon_area_3d(&half_in) > 1e-15 {
+                new_fragments.push(half_in);
+            }
+            if half_out.len() >= 3 && polygon_area_3d(&half_out) > 1e-15 {
+                new_fragments.push(half_out);
+            }
+        }
+        fragments = new_fragments;
+    }
+
+    // Classify each fragment with point_in_solid
+    let mut inside_frags: Vec<Vec<[f64; 3]>> = Vec::new();
+    let mut outside_frags: Vec<Vec<[f64; 3]>> = Vec::new();
+
+    for frag in fragments {
+        let centroid = polygon_centroid(&frag);
+        let sample = v3_add(centroid, inward_offset);
+        if point_in_solid(sample, opposing) {
+            inside_frags.push(frag);
+        } else {
+            outside_frags.push(frag);
+        }
+    }
+
+    if inside_frags.is_empty() {
+        return FaceClass::Outside;
+    }
+    if outside_frags.is_empty() {
+        return FaceClass::Inside;
+    }
+
+    // Use the largest inside fragment as the canonical "inside" polygon
+    let inside = inside_frags
+        .into_iter()
+        .max_by(|a, b| polygon_area_3d(a).partial_cmp(&polygon_area_3d(b)).unwrap())
+        .unwrap();
+
+    FaceClass::Partial {
+        inside,
+        outside_frags,
+    }
+}
+
+/// Classify a coplanar face against a non-convex opposing solid.
+///
+/// Uses vertex-based classification (same as the non-coplanar path).
+/// Each vertex is classified via `point_in_solid`, and edge crossings
+/// are found analytically or via binary search.
+fn classify_coplanar_nonconvex(face: &FacePoly, opposing: &[FacePoly], tau: f64) -> FaceClass {
+    // For coplanar faces, use progressive splitting by opposing side face
+    // planes (straddle-only check — no face-face intersection needed because
+    // all perpendicular planes that straddle the coplanar face are relevant).
+    // This produces EXACT vertex positions matching the S-H splits on the
+    // opposing coplanar face, preventing boundary vertex mismatches.
+    let mut cutting_planes: Vec<([f64; 3], [f64; 3])> = Vec::new();
+
+    for opp in opposing {
+        if is_coplanar(face.normal, face.verts[0], opp, tau) {
+            continue;
+        }
+
+        // Straddle check: face must have vertices on both sides of the plane
+        let mut has_pos = false;
+        let mut has_neg = false;
+        for v in &face.verts {
+            let d = v3_dot(v3_sub(*v, opp.origin), opp.normal);
+            if d > tau {
+                has_pos = true;
+            }
+            if d < -tau {
+                has_neg = true;
+            }
+        }
+        if has_pos && has_neg {
+            cutting_planes.push((opp.origin, v3_negate(opp.normal)));
+        }
+    }
+
+    let inward_offset = v3_scale(face.normal, -tau * 100.0);
+
+    if cutting_planes.is_empty() {
+        // No non-coplanar faces cut us — fully inside or outside
+        let centroid = polygon_centroid(&face.verts);
+        let sample = v3_add(centroid, inward_offset);
+        if point_in_solid(sample, opposing) {
             return FaceClass::CoplanarPartial {
                 inside: face.verts.clone(),
                 outside_frags: vec![],
             };
         }
-        // No coplanar partner → truly inside the opposing solid's volume.
-        return FaceClass::Inside;
+        return FaceClass::Outside;
     }
 
-    // Partial: split face into inside + multiple outside fragments.
-    // Each clipping plane that cuts the face produces an outside piece.
-    let outside_frags = split_outside_fragments(&face.verts, opposing, tau, Some(face.normal));
-    // Only use CoplanarPartial for same-direction coplanar (not anti-parallel).
-    // Anti-parallel coplanar partial overlap is a touching boundary where the
-    // inside portion should be removed in union (like step shapes / T-brackets).
-    let has_same_dir_coplanar = has_coplanar && !has_antiparallel_coplanar;
-    if has_same_dir_coplanar {
-        FaceClass::CoplanarPartial {
-            inside,
-            outside_frags,
+    // Progressive splitting by non-coplanar opposing face planes
+    let mut fragments: Vec<Vec<[f64; 3]>> = vec![face.verts.clone()];
+
+    for (plane_pt, inward_n) in &cutting_planes {
+        let outward_n = v3_negate(*inward_n);
+        let mut new_fragments = Vec::new();
+        for frag in &fragments {
+            let half_in = clip_polygon_by_plane(frag, *plane_pt, *inward_n, tau);
+            let half_out = clip_polygon_by_plane(frag, *plane_pt, outward_n, tau);
+            if half_in.len() >= 3 && polygon_area_3d(&half_in) > 1e-15 {
+                new_fragments.push(half_in);
+            }
+            if half_out.len() >= 3 && polygon_area_3d(&half_out) > 1e-15 {
+                new_fragments.push(half_out);
+            }
         }
-    } else {
-        FaceClass::Partial {
-            inside,
-            outside_frags,
+        fragments = new_fragments;
+    }
+
+    // Classify each fragment using point_in_solid (offset inward from the face)
+    let mut inside_frags: Vec<Vec<[f64; 3]>> = Vec::new();
+    let mut outside_frags: Vec<Vec<[f64; 3]>> = Vec::new();
+
+    for frag in fragments {
+        let centroid = polygon_centroid(&frag);
+        let sample = v3_add(centroid, inward_offset);
+        if point_in_solid(sample, opposing) {
+            inside_frags.push(frag);
+        } else {
+            outside_frags.push(frag);
         }
     }
+
+    if inside_frags.is_empty() {
+        return FaceClass::Outside;
+    }
+
+    let original_area = polygon_area_3d(&face.verts);
+    let inside_total_area: f64 = inside_frags.iter().map(|f| polygon_area_3d(f)).sum();
+    if (inside_total_area - original_area).abs() / original_area < 1e-6 {
+        return FaceClass::CoplanarPartial {
+            inside: face.verts.clone(),
+            outside_frags: vec![],
+        };
+    }
+
+    if outside_frags.is_empty() {
+        return FaceClass::CoplanarPartial {
+            inside: face.verts.clone(),
+            outside_frags: vec![],
+        };
+    }
+
+    let inside = inside_frags
+        .into_iter()
+        .max_by(|a, b| polygon_area_3d(a).partial_cmp(&polygon_area_3d(b)).unwrap())
+        .unwrap();
+
+    FaceClass::CoplanarPartial {
+        inside,
+        outside_frags,
+    }
+}
+
+/// Compute the centroid (average position) of a polygon's vertices.
+fn polygon_centroid(verts: &[[f64; 3]]) -> [f64; 3] {
+    let n = verts.len() as f64;
+    let mut cx = 0.0;
+    let mut cy = 0.0;
+    let mut cz = 0.0;
+    for v in verts {
+        cx += v[0];
+        cy += v[1];
+        cz += v[2];
+    }
+    [cx / n, cy / n, cz / n]
 }
 
 /// Split a face polygon by the opposing solid's planes, collecting all
@@ -392,15 +959,35 @@ pub(crate) fn boolean_op(
         });
     }
 
-    // Classify each face of A against B's volume, and vice versa
+    // Detect non-convex solids: convex extrudes have at most ~12 faces.
+    // Use S-H face splitting when the opposing solid is convex (correct),
+    // and ray-casting-only classification when it's non-convex (S-H
+    // gives wrong fragments for non-convex half-space intersections).
+    let b_convex = b_faces.len() <= 12;
+    let a_convex = a_faces.len() <= 12;
+
     let a_classified: Vec<(FacePoly, FaceClass)> = a_faces
         .iter()
-        .map(|f| (f.clone(), classify_face(f, &b_faces, tau)))
+        .map(|f| {
+            let class = if b_convex {
+                classify_face(f, &b_faces, tau)
+            } else {
+                classify_face_nonconvex(f, &b_faces, tau)
+            };
+            (f.clone(), class)
+        })
         .collect();
 
     let b_classified: Vec<(FacePoly, FaceClass)> = b_faces
         .iter()
-        .map(|f| (f.clone(), classify_face(f, &a_faces, tau)))
+        .map(|f| {
+            let class = if a_convex {
+                classify_face(f, &a_faces, tau)
+            } else {
+                classify_face_nonconvex(f, &a_faces, tau)
+            };
+            (f.clone(), class)
+        })
         .collect();
 
     // Select face fragments based on the operation.
@@ -684,17 +1271,18 @@ fn collect_union_fragments(
                 }
             }
             FaceClass::CoplanarPartial {
-                inside,
+                inside: _,
                 outside_frags,
             } => {
                 // Same-direction coplanar: "inside" is surface overlap.
                 if is_primary {
-                    // Primary: emit ALL sub-regions (inside + outside frags).
-                    // This keeps the coplanar overlap but with split edges.
-                    push_frag(output, inside, face);
-                    for frag in outside_frags {
-                        push_frag(output, frag, face);
-                    }
+                    // Primary: emit the ORIGINAL unsplit face. Using
+                    // fragments would create duplicate directed edges
+                    // with the secondary's outside fragments (both are
+                    // coplanar same-direction, so their shared boundary
+                    // edges have the same winding). T-junction resolution
+                    // will insert split vertices from adjacent faces.
+                    output.push(face.clone());
                 } else {
                     // Secondary: emit only outside frags.
                     for frag in outside_frags {
@@ -1031,8 +1619,46 @@ fn box_cyl_boolean(
     }
 }
 
-/// Cylinder-cylinder boolean dispatch.
+/// Cylinder-cylinder boolean with frame rotation for axis-generic support.
+///
+/// Rotates both cylinders into a Z-aligned frame, performs the boolean using
+/// the Z-assumption logic, then rotates the result back. For Z-aligned inputs,
+/// `rotation_to_z` returns the identity matrix — zero overhead.
+///
+/// Non-parallel cylinders are rejected (elliptical SSI curves are unsupported).
+///
+/// Ref #24 Barton: frame normalization before boolean.
+/// Ref #6 Sugihara-Iri: isometric transform preserves manifoldness.
 fn cyl_cyl_boolean(
+    cyl_a: &CylinderParams,
+    cyl_b: &CylinderParams,
+    op: BoolOp,
+    id_alloc: &mut dyn FnMut() -> u64,
+) -> Result<BooleanResult, KernelError> {
+    if !ssi::cyls_parallel(cyl_a, cyl_b) {
+        return Err(KernelError::NotSupported {
+            operation: "non-parallel cylinder-cylinder boolean".to_string(),
+        });
+    }
+
+    // Rotate both cylinders to Z-aligned frame using cyl_a's direction
+    let m = rotation_to_z(cyl_a.direction);
+    let m_inv = mat3_transpose(&m);
+    let cyl_a_z = rotate_cyl_params(cyl_a, &m);
+    let cyl_b_z = rotate_cyl_params(cyl_b, &m);
+
+    let mut result = cyl_cyl_boolean_z_aligned(&cyl_a_z, &cyl_b_z, op, id_alloc)?;
+
+    // Rotate result back to original frame
+    rotate_boolean_result(&mut result, &m_inv);
+    Ok(result)
+}
+
+/// Z-aligned cylinder-cylinder boolean dispatch (internal).
+///
+/// Assumes both cylinders have direction ≈ [0,0,±1]. All SSI and build
+/// functions use Z-axis assumptions that are valid in this rotated frame.
+fn cyl_cyl_boolean_z_aligned(
     cyl_a: &CylinderParams,
     cyl_b: &CylinderParams,
     op: BoolOp,
@@ -1477,11 +2103,12 @@ fn build_cyl_tube(
     let bot_center = [cx, cy, z_min];
 
     let mut face_geometry = HashMap::new();
+    // Z-aligned function: always use [0,0,1] axis and z_min origin for consistent tessellation
     face_geometry.insert(
         face_outer,
         SurfaceGeom::Cylindrical(Cylinder {
             origin: Point3::from_array([cx, cy, z_min]),
-            axis: Vector3::from_array(dir),
+            axis: Vector3::new(0.0, 0.0, 1.0),
             radius: r_outer,
         }),
     );
@@ -1489,7 +2116,7 @@ fn build_cyl_tube(
         face_inner,
         SurfaceGeom::Cylindrical(Cylinder {
             origin: Point3::from_array([cx, cy, z_min]),
-            axis: Vector3::from_array(dir),
+            axis: Vector3::new(0.0, 0.0, 1.0),
             radius: -r_inner, // negative = inward-facing normal
         }),
     );
@@ -1497,14 +2124,14 @@ fn build_cyl_tube(
         face_top,
         SurfaceGeom::Planar(Plane {
             origin: Point3::from_array(top_center),
-            normal: Vector3::from_array(dir),
+            normal: Vector3::new(0.0, 0.0, 1.0),
         }),
     );
     face_geometry.insert(
         face_bot,
         SurfaceGeom::Planar(Plane {
             origin: Point3::from_array(bot_center),
-            normal: Vector3::from_array(v3_negate(dir)),
+            normal: Vector3::new(0.0, 0.0, -1.0),
         }),
     );
 
@@ -2385,19 +3012,24 @@ fn build_partial_cyl_cyl(
     arena.vertices[v3.0].half_edge = Some(he_aat_b);
 
     // ── Face geometry ───────────────────────────────────────────────
+    // This is a Z-aligned function, so face axes are always [0,0,1].
+    // For antiparallel cylinders (direction=[0,0,-1]), normalize the origin
+    // to the z_min end so tessellation row ordering is consistent.
 
     let mut face_geometry = HashMap::new();
+    let origin_a_z = [cyl_a.center_bottom[0], cyl_a.center_bottom[1], z_min];
     face_geometry.insert(
         face_cyl_a,
         SurfaceGeom::Cylindrical(Cylinder {
-            origin: Point3::from_array(cyl_a.center_bottom),
-            axis: Vector3::from_array(cyl_a.direction),
+            origin: Point3::from_array(origin_a_z),
+            axis: Vector3::new(0.0, 0.0, 1.0),
             radius: ra,
         }),
     );
+    let origin_b_z = [cyl_b.center_bottom[0], cyl_b.center_bottom[1], z_min];
     let cyl_b_geom = SurfaceGeom::Cylindrical(Cylinder {
-        origin: Point3::from_array(cyl_b.center_bottom),
-        axis: Vector3::from_array(cyl_b.direction),
+        origin: Point3::from_array(origin_b_z),
+        axis: Vector3::new(0.0, 0.0, 1.0),
         radius: if flip_arc2 { -rb } else { rb },
     });
     face_geometry.insert(face_cyl_b, cyl_b_geom);
@@ -2919,6 +3551,98 @@ mod tests {
         kernel
             .extrude_face(face_ids[0], Z_DIR, depth)
             .expect("extrude_face should succeed")
+    }
+
+    // ── Frame rotation unit tests ──────────────────────────────────
+
+    #[test]
+    fn rotation_to_z_identity_for_z_aligned() {
+        let m = rotation_to_z([0.0, 0.0, 1.0]);
+        for i in 0..3 {
+            for j in 0..3 {
+                let expected = if i == j { 1.0 } else { 0.0 };
+                assert!(
+                    (m[i][j] - expected).abs() < 1e-15,
+                    "rotation_to_z([0,0,1]) should be identity, m[{}][{}] = {}",
+                    i,
+                    j,
+                    m[i][j]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn rotation_to_z_maps_x_to_z() {
+        let m = rotation_to_z([1.0, 0.0, 0.0]);
+        let result = mat3_mul_vec(&m, [1.0, 0.0, 0.0]);
+        assert!((result[0]).abs() < 1e-12, "x component should be ~0");
+        assert!((result[1]).abs() < 1e-12, "y component should be ~0");
+        assert!((result[2] - 1.0).abs() < 1e-12, "z component should be ~1");
+    }
+
+    #[test]
+    fn rotation_to_z_maps_y_to_z() {
+        let m = rotation_to_z([0.0, 1.0, 0.0]);
+        let result = mat3_mul_vec(&m, [0.0, 1.0, 0.0]);
+        assert!((result[0]).abs() < 1e-12);
+        assert!((result[1]).abs() < 1e-12);
+        assert!((result[2] - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn rotation_to_z_maps_45deg_to_z() {
+        let c = std::f64::consts::FRAC_1_SQRT_2;
+        let dir = [c, 0.0, c];
+        let m = rotation_to_z(dir);
+        let result = mat3_mul_vec(&m, dir);
+        assert!((result[0]).abs() < 1e-12);
+        assert!((result[1]).abs() < 1e-12);
+        assert!((result[2] - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn rotation_to_z_anti_z() {
+        let m = rotation_to_z([0.0, 0.0, -1.0]);
+        let result = mat3_mul_vec(&m, [0.0, 0.0, -1.0]);
+        assert!((result[0]).abs() < 1e-12);
+        assert!((result[1]).abs() < 1e-12);
+        assert!((result[2] - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn rotate_cyl_params_roundtrip() {
+        let cyl = CylinderParams {
+            center_bottom: [1.0, 2.0, 3.0],
+            radius: 5.0,
+            x_axis: [0.0, 0.0, -1.0],
+            y_axis: [0.0, 1.0, 0.0],
+            direction: [1.0, 0.0, 0.0],
+            depth: 10.0,
+        };
+        let m = rotation_to_z(cyl.direction);
+        let m_inv = mat3_transpose(&m);
+        let rotated = rotate_cyl_params(&cyl, &m);
+        let back = rotate_cyl_params(&rotated, &m_inv);
+
+        for i in 0..3 {
+            assert!(
+                (back.center_bottom[i] - cyl.center_bottom[i]).abs() < 1e-12,
+                "center_bottom[{}] roundtrip: {} vs {}",
+                i,
+                back.center_bottom[i],
+                cyl.center_bottom[i]
+            );
+            assert!(
+                (back.direction[i] - cyl.direction[i]).abs() < 1e-12,
+                "direction[{}] roundtrip: {} vs {}",
+                i,
+                back.direction[i],
+                cyl.direction[i]
+            );
+        }
+        assert!((back.radius - cyl.radius).abs() < 1e-15);
+        assert!((back.depth - cyl.depth).abs() < 1e-15);
     }
 
     #[test]

@@ -2333,3 +2333,369 @@ fn vid3_vertex_ids_skipped_when_ids_missing() {
 
     assert_eq!(face_ids.len(), 1);
 }
+
+// ── Group R: Full-depth concentric cylinder cut regression tests ────────────
+//
+// These tests probe the "no Z overlap" bug in cyl_cyl_boolean() (boolean.rs:1057-1060)
+// when performing full-depth circular cuts. The bug manifests when cyl_z_range()
+// computes a tool cylinder whose Z range doesn't overlap the blank, typically
+// because the cut direction or origin isn't properly adjusted for top-face sketches.
+
+#[test]
+fn r1_concentric_full_depth_subtract() {
+    // Boss: z=0→20 upward, r=5
+    // Cut:  z=0→20 upward, r=2, concentric
+    // Full overlap, concentric subtract → should produce a tube.
+    let result = do_cyl_cyl_boolean_directed(
+        0.0, 0.0, 5.0, 0.0, Z_DIR, 20.0,   // A: z=0..20 up
+        0.0, 0.0, 2.0, 0.0, Z_DIR, 20.0,   // B: z=0..20 up, concentric
+        crate::boolean::BoolOp::Subtract,
+    );
+    assert!(result.is_ok(), "Concentric full-depth subtract should succeed: {:?}", result.err());
+}
+
+#[test]
+fn r2_concentric_full_depth_from_top() {
+    // Boss: z=0→20 upward, r=5
+    // Cut:  z=20→0 downward (dir [0,0,-1], depth=20), r=2, concentric
+    // Same Z range, reversed direction → should still work.
+    let result = do_cyl_cyl_boolean_directed(
+        0.0, 0.0, 5.0, 0.0, Z_DIR, 20.0,              // A: z=0..20 up
+        0.0, 0.0, 2.0, 20.0, [0.0, 0.0, -1.0], 20.0,  // B: z=20..0 down
+        crate::boolean::BoolOp::Subtract,
+    );
+    assert!(result.is_ok(), "Concentric subtract from top should succeed: {:?}", result.err());
+}
+
+#[test]
+fn r3_cut_slight_overshoot() {
+    // Boss: z=0→20 upward, r=5
+    // Cut:  z=-0.1→20.1, r=2, concentric (slightly overshoots both ends)
+    // Should succeed — overshoot is fine, overlap is [0, 20].
+    let result = do_cyl_cyl_boolean_directed(
+        0.0, 0.0, 5.0, 0.0, Z_DIR, 20.0,      // A: z=0..20
+        0.0, 0.0, 2.0, -0.1, Z_DIR, 20.2,      // B: z=-0.1..20.1
+        crate::boolean::BoolOp::Subtract,
+    );
+    assert!(result.is_ok(), "Overshoot cut should succeed: {:?}", result.err());
+}
+
+#[test]
+fn r4_cut_exact_match_from_top_face() {
+    // Boss: z=0→20, dir [0,0,1], r=5
+    // Cut:  plane_z=20, dir [0,0,-1], depth=20, r=2
+    // cyl_z_range for B: z0=20, z1=20+20*(-1)=0 → (0, 20)
+    // Overlap should be [0, 20] — this tests direction normalization in cyl_z_range.
+    let result = do_cyl_cyl_boolean_directed(
+        0.0, 0.0, 5.0, 0.0, Z_DIR, 20.0,              // A: z=0..20
+        0.0, 0.0, 2.0, 20.0, [0.0, 0.0, -1.0], 20.0,  // B: plane at z=20, cuts down
+        crate::boolean::BoolOp::Subtract,
+    );
+    assert!(result.is_ok(), "Top-face downward cut should succeed: {:?}", result.err());
+}
+
+#[test]
+fn r5_gui_mimic_sketch_on_top_face() {
+    // Reproduce the GUI's parameter construction:
+    // - Boss extruded upward from z=0, depth=20 → z=0..20
+    // - Sketch placed on top face at z=20, normal=[0,0,1]
+    // - GUI sends direction=[0,0,1] (sketch normal), depth=20
+    // - rebuild.rs should_reverse_for_cut may or may not fire
+    //
+    // If direction is NOT reversed: cut cylinder starts at z=20, goes up to z=40
+    //   → cyl_z_range = (20, 40), no overlap with boss (0, 20) → "no Z overlap" error
+    //
+    // If direction IS reversed: cut starts at z=20, goes down to z=0
+    //   → cyl_z_range = (0, 20), full overlap → success
+    //
+    // This test directly calls cyl_cyl_boolean with the "not reversed" params
+    // to confirm the bug exists at the kernel level.
+    let result = do_cyl_cyl_boolean_directed(
+        0.0, 0.0, 5.0, 0.0, Z_DIR, 20.0,   // A: boss z=0..20
+        0.0, 0.0, 2.0, 20.0, Z_DIR, 20.0,   // B: cut from z=20 UPWARD (unreversed)
+        crate::boolean::BoolOp::Subtract,
+    );
+    // This SHOULD fail with "no Z overlap" — confirming the bug.
+    // If it succeeds, the kernel handles it; the bug is elsewhere.
+    assert!(
+        result.is_err(),
+        "Unreversed top-face cut should fail with 'no Z overlap' (confirms bug); \
+         if this passes, the bug is in rebuild.rs direction logic, not the kernel"
+    );
+    let err_msg = format!("{:?}", result.err().unwrap());
+    assert!(
+        err_msg.contains("no Z overlap"),
+        "Expected 'no Z overlap' error, got: {}",
+        err_msg
+    );
+}
+
+#[test]
+fn r6_zero_depth_cut() {
+    // depth=0 → extrude_face rejects with "extrude depth must be positive".
+    // Verify this fails gracefully (returns Err, not panic).
+    let mut k = WaffleKernel::new();
+    let (profiles, positions) = make_circle_profile(0.0, 0.0, 2.0);
+    let face_ids = k
+        .make_faces_from_profiles(&profiles, [0.0, 0.0, 10.0], XY_NORMAL, XY_X_AXIS, &positions)
+        .unwrap();
+    let result = k.extrude_face(face_ids[0], Z_DIR, 0.0);
+    // Should fail with an error, not panic
+    assert!(result.is_err(), "Zero-depth extrude should produce an error, not succeed");
+}
+
+// ── Group R (continued): Non-Z-Axis Cyl-Cyl Booleans ──────────────────
+// Tests r7-r9 exercise cyl_cyl_boolean with cylinders extruded along X/Y/45°.
+// These catch axis assumptions in cyl_z_range() which only uses direction[2].
+
+#[test]
+fn r7_cyl_cyl_subtract_x_axis() {
+    // Both cylinders on XY plane but extruded along X axis.
+    // Frame rotation maps X→Z before processing, then rotates back.
+    let (mut k, result) = do_cyl_cyl_boolean_directed(
+        0.0, 0.0, 5.0, 0.0, [1.0, 0.0, 0.0], 20.0, // A along X
+        0.0, 0.0, 2.0, 0.0, [1.0, 0.0, 0.0], 20.0, // B along X, concentric
+        crate::boolean::BoolOp::Subtract,
+    )
+    .expect("r7: X-axis concentric subtract should succeed");
+
+    // Volume: π(R²-r²)·h = π(25-4)·20
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    let vol = mesh_volume(&mesh);
+    let expected = PI * (25.0 - 4.0) * 20.0;
+    assert!(
+        (vol - expected).abs() < 20.0,
+        "r7: X-axis tube volume should be ~{:.2}, got {:.2}",
+        expected, vol
+    );
+    assert!(check_watertight(&mesh), "r7: mesh should be watertight");
+}
+
+#[test]
+fn r8_cyl_cyl_subtract_y_axis() {
+    // Both cylinders on XY plane but extruded along Y axis.
+    // Frame rotation maps Y→Z before processing, then rotates back.
+    let (mut k, result) = do_cyl_cyl_boolean_directed(
+        0.0, 0.0, 5.0, 0.0, [0.0, 1.0, 0.0], 20.0, // A along Y
+        0.0, 0.0, 2.0, 0.0, [0.0, 1.0, 0.0], 20.0, // B along Y, concentric
+        crate::boolean::BoolOp::Subtract,
+    )
+    .expect("r8: Y-axis concentric subtract should succeed");
+
+    // Volume: π(R²-r²)·h = π(25-4)·20
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    let vol = mesh_volume(&mesh);
+    let expected = PI * (25.0 - 4.0) * 20.0;
+    assert!(
+        (vol - expected).abs() < 20.0,
+        "r8: Y-axis tube volume should be ~{:.2}, got {:.2}",
+        expected, vol
+    );
+    assert!(check_watertight(&mesh), "r8: mesh should be watertight");
+}
+
+#[test]
+fn r9_cyl_cyl_subtract_45deg() {
+    // Both cylinders extruded along a 45° direction in XZ plane.
+    // Frame rotation maps 45°→Z before processing, then rotates back.
+    let c = std::f64::consts::FRAC_1_SQRT_2;
+    let dir45 = [c, 0.0, c]; // 45° in XZ plane
+    let (mut k, result) = do_cyl_cyl_boolean_directed(
+        0.0, 0.0, 5.0, 0.0, dir45, 20.0, // A along 45°
+        0.0, 0.0, 2.0, 0.0, dir45, 20.0, // B along 45°, concentric
+        crate::boolean::BoolOp::Subtract,
+    )
+    .expect("r9: 45° concentric subtract should succeed");
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    let vol = mesh_volume(&mesh);
+    let expected = PI * (25.0 - 4.0) * 20.0;
+    assert!(
+        (vol - expected).abs() < 20.0,
+        "r9: 45° subtract volume should be ~{:.2}, got {:.2} (diff={:.2})",
+        expected,
+        vol,
+        (vol - expected).abs()
+    );
+    assert!(check_watertight(&mesh), "r9: mesh should be watertight");
+}
+
+// ── Group L: Non-Convex Boolean (Gear + Rect) ──────────────────
+
+/// Create a simplified gear-like polygon profile with N teeth.
+/// Returns (profiles, positions) suitable for make_faces_from_profiles.
+///
+/// The gear approximation uses straight lines (no involute curves) with
+/// N teeth at regular intervals. Each tooth has 4 vertices:
+///   root_left, tip_left, tip_right, root_right
+/// Total vertices = N * 4.
+fn make_gear_profile(
+    cx: f64,
+    cy: f64,
+    teeth: u32,
+    module_val: f64,
+) -> (Vec<ClosedProfile>, HashMap<u32, (f64, f64)>) {
+    use std::f64::consts::PI;
+
+    let pitch_radius = (teeth as f64) * module_val / 2.0;
+    let addendum_radius = pitch_radius + module_val;
+    let dedendum_radius = pitch_radius - 1.25 * module_val;
+    let tooth_angle = 2.0 * PI / (teeth as f64);
+    let tip_half_angle = 0.20 * tooth_angle;
+    let root_half_angle = 0.15 * tooth_angle;
+
+    let mut positions = HashMap::new();
+    let mut vertex_ids = Vec::new();
+    let mut next_id = 1u32;
+
+    for t in 0..teeth {
+        let base_angle = (t as f64) * tooth_angle;
+        let tooth_center_angle = base_angle + tooth_angle / 2.0;
+
+        // Root left (start of tooth gap)
+        let root_left_angle = base_angle + root_half_angle;
+        let rl_x = cx + dedendum_radius * root_left_angle.cos();
+        let rl_y = cy + dedendum_radius * root_left_angle.sin();
+        positions.insert(next_id, (rl_x, rl_y));
+        vertex_ids.push(next_id);
+        next_id += 1;
+
+        // Tip left
+        let tip_left_angle = tooth_center_angle - tip_half_angle;
+        let tl_x = cx + addendum_radius * tip_left_angle.cos();
+        let tl_y = cy + addendum_radius * tip_left_angle.sin();
+        positions.insert(next_id, (tl_x, tl_y));
+        vertex_ids.push(next_id);
+        next_id += 1;
+
+        // Tip right
+        let tip_right_angle = tooth_center_angle + tip_half_angle;
+        let tr_x = cx + addendum_radius * tip_right_angle.cos();
+        let tr_y = cy + addendum_radius * tip_right_angle.sin();
+        positions.insert(next_id, (tr_x, tr_y));
+        vertex_ids.push(next_id);
+        next_id += 1;
+
+        // Root right (end of tooth, start of gap to next tooth)
+        let root_right_angle = (t as f64 + 1.0) * tooth_angle - root_half_angle;
+        let rr_x = cx + dedendum_radius * root_right_angle.cos();
+        let rr_y = cy + dedendum_radius * root_right_angle.sin();
+        positions.insert(next_id, (rr_x, rr_y));
+        vertex_ids.push(next_id);
+        next_id += 1;
+    }
+
+    let profile = ClosedProfile {
+        entity_ids: vec![],
+        is_outer: true,
+        vertex_ids,
+        circle: None,
+        spline_segments: vec![],
+    };
+
+    (vec![profile], positions)
+}
+
+/// Create overlapping gear + rect solids for boolean tests.
+/// Gear: 12-tooth gear centered at origin, extruded z=0→5.
+/// Rect: 10×10 box centered at (4,0), extruded z=0→5.
+/// They overlap significantly.
+fn make_gear_rect_solids() -> (WaffleKernel, KernelSolidHandle, KernelSolidHandle) {
+    let mut k = WaffleKernel::new();
+
+    // Gear: 12 teeth, module=2.0 → pitch_r=12, addendum_r=14, dedendum_r=9.5
+    let (gear_profiles, gear_positions) = make_gear_profile(0.0, 0.0, 12, 2.0);
+    let gear_face = k
+        .make_faces_from_profiles(&gear_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &gear_positions)
+        .expect("gear profile should succeed");
+    let gear_solid = k
+        .extrude_face(gear_face[0], Z_DIR, 5.0)
+        .expect("gear extrude should succeed");
+
+    // Rect: 10×10 box centered at (4, 0)
+    let (rect_profiles, rect_positions) = make_rect_profile(4.0, 0.0, 10.0, 10.0);
+    let rect_face = k
+        .make_faces_from_profiles(&rect_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &rect_positions)
+        .expect("rect profile should succeed");
+    let rect_solid = k
+        .extrude_face(rect_face[0], Z_DIR, 5.0)
+        .expect("rect extrude should succeed");
+
+    (k, gear_solid, rect_solid)
+}
+
+#[test]
+fn l1_gear_rect_union_succeeds() {
+    let (mut k, gear, rect) = make_gear_rect_solids();
+    let result = k.boolean_union(&gear, &rect);
+    assert!(
+        result.is_ok(),
+        "l1: gear+rect union should succeed, got: {:?}",
+        result.err()
+    );
+}
+
+#[test]
+fn l2_gear_rect_union_volume() {
+    let (mut k, gear, rect) = make_gear_rect_solids();
+    let result = k.boolean_union(&gear, &rect).expect("union should succeed");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate union");
+    let vol = mesh_volume(&mesh);
+    // Rect volume = 10*10*5 = 500
+    // Gear extends beyond rect on the left side, so union > 500
+    assert!(
+        vol > 450.0,
+        "l2: gear+rect union volume should be > 450, got {:.2}",
+        vol
+    );
+    // Union volume should not exceed sum of both volumes
+    // Gear volume ≈ avg(ded², add²) * π * 5 ≈ ~2300, rect = 500
+    // Union ≤ gear + rect = ~2800 (with overlap)
+    assert!(
+        vol < 3000.0,
+        "l2: gear+rect union volume should be < 3000, got {:.2}",
+        vol
+    );
+}
+
+#[test]
+fn l3_gear_rect_union_watertight() {
+    let (mut k, gear, rect) = make_gear_rect_solids();
+    let result = k.boolean_union(&gear, &rect).expect("union should succeed");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate union");
+    assert!(
+        check_watertight(&mesh),
+        "l3: gear+rect union mesh should be watertight"
+    );
+}
+
+#[test]
+fn l4_gear_rect_union_euler() {
+    let (mut k, gear, rect) = make_gear_rect_solids();
+    let result = k.boolean_union(&gear, &rect).expect("union should succeed");
+    let v = k.list_vertices(&result).len() as i64;
+    let e = k.list_edges(&result).len() as i64;
+    let f = k.list_faces(&result).len() as i64;
+    assert_eq!(v - e + f, 2, "l4: Euler V-E+F should be 2 (got V={v}, E={e}, F={f})");
+}
+
+#[test]
+fn l5_rect_gear_union_symmetric() {
+    // union(A,B) volume ≈ union(B,A) volume
+    let (mut k1, gear1, rect1) = make_gear_rect_solids();
+    let r1 = k1.boolean_union(&gear1, &rect1).expect("union A,B");
+    let m1 = k1.tessellate(&r1, 0.01).expect("tess 1");
+    let vol1 = mesh_volume(&m1);
+
+    let (mut k2, gear2, rect2) = make_gear_rect_solids();
+    let r2 = k2.boolean_union(&rect2, &gear2).expect("union B,A");
+    let m2 = k2.tessellate(&r2, 0.01).expect("tess 2");
+    let vol2 = mesh_volume(&m2);
+
+    let diff = (vol1 - vol2).abs();
+    let tol = vol1.max(vol2) * 0.05; // 5% tolerance
+    assert!(
+        diff < tol,
+        "l5: union(gear,rect) vol {:.2} ≈ union(rect,gear) vol {:.2} (diff={:.2}, tol={:.2})",
+        vol1, vol2, diff, tol
+    );
+}

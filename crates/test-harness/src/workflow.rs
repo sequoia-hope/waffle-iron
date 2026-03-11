@@ -1145,6 +1145,11 @@ impl ModelBuilder {
         &self.state.engine.errors
     }
 
+    /// Get engine warnings.
+    pub fn engine_warnings(&self) -> &[String] {
+        &self.state.engine.warnings
+    }
+
     /// Get feature IDs consumed by successful boolean operations.
     pub fn consumed_features(&self) -> &std::collections::HashSet<Uuid> {
         &self.state.engine.consumed_features

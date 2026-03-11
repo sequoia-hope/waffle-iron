@@ -18,9 +18,15 @@
 //! All tests use `ModelBuilder::kernel()` (real geometry) with `extrude()` which
 //! sets `merge: true`, the same path the GUI uses.
 
+use std::path::Path;
+
+use test_harness::assay::randomized_runner::{discover_cases, run_randomized_assay};
+use test_harness::assay::scoring::AssayStatus;
 use test_harness::helpers::{mesh_bounding_box, mesh_volume};
 use test_harness::oracle;
 use test_harness::ModelBuilder;
+
+const ASSAY_DIR: &str = "../../app/tests/cases/assay";
 
 // ── Helper ─────────────────────────────────────────────────────────────────
 
@@ -382,4 +388,88 @@ fn auto_union_stress_various_positions() {
             f
         );
     }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Test 8 — Assay R0001 has auto-union warnings
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Verify that R0001 produces auto-union warnings when loaded through WaffleKernel.
+/// This proves the warning exists on current code (governance P3: red test).
+#[test]
+fn r0001_has_auto_union_warnings() {
+    let dir = Path::new(ASSAY_DIR);
+    if !dir.exists() {
+        eprintln!("Assay corpus not generated yet — skipping");
+        return;
+    }
+
+    let cases = discover_cases(dir);
+    let r0001 = match cases.iter().find(|c| c.id == "R0001") {
+        Some(c) => c,
+        None => {
+            eprintln!("R0001 not found in corpus — skipping");
+            return;
+        }
+    };
+
+    let waffle_json = std::fs::read_to_string(&r0001.waffle_path).expect("read R0001.waffle");
+    let mut builder = ModelBuilder::kernel();
+    builder
+        .load(&waffle_json)
+        .expect("LoadProject should succeed");
+
+    let warnings = builder.engine_warnings();
+    let auto_union_warnings: Vec<&String> = warnings
+        .iter()
+        .filter(|w| w.contains("Auto-union failed"))
+        .collect();
+
+    assert!(
+        !auto_union_warnings.is_empty(),
+        "R0001 should produce auto-union warnings, got warnings: {:?}",
+        warnings
+    );
+    println!(
+        "R0001 auto-union warnings ({}): {:?}",
+        auto_union_warnings.len(),
+        auto_union_warnings
+    );
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Test 9 — Assay runner catches auto-union
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Verify that the assay runner correctly flags R0001 as Failed with auto-union-failed detail.
+/// This validates the runner correctly detects the issue.
+#[test]
+fn assay_runner_catches_auto_union() {
+    let dir = Path::new(ASSAY_DIR);
+    if !dir.exists() {
+        eprintln!("Assay corpus not generated yet — skipping");
+        return;
+    }
+
+    let report = run_randomized_assay(dir, true);
+    let r0001 = match report.results.iter().find(|r| r.id == "R0001") {
+        Some(r) => r,
+        None => {
+            panic!("R0001 not found in assay results");
+        }
+    };
+
+    assert_eq!(
+        r0001.status,
+        AssayStatus::Failed,
+        "R0001 should be Failed, not {:?}. Detail: {}",
+        r0001.status,
+        r0001.detail
+    );
+    assert!(
+        r0001.detail.contains("auto-union-failed"),
+        "R0001 detail should contain 'auto-union-failed', got: {}",
+        r0001.detail
+    );
+    println!("R0001 correctly detected: {}", r0001.detail);
 }
