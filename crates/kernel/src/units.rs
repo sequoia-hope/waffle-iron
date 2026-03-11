@@ -14,3 +14,11 @@ pub const MIN_FEATURE_SIZE: f64 = 1e-6;
 /// Numeric working precision floor: 1e-12 meters.
 /// Used for iterative solver convergence.
 pub const TAU_WORK: f64 = 1e-12;
+
+/// Zero-length vector guard: 1e-15.
+/// Used to prevent division by zero in vector normalization.
+pub const TAU_NORMALIZE: f64 = 1e-15;
+
+/// Near-parallel / coplanar threshold: 1e-6.
+/// Used for dot-product checks against 1.0 (parallel) or 0.0 (perpendicular).
+pub const TAU_PARALLEL: f64 = 1e-6;

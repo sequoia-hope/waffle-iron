@@ -11,6 +11,8 @@ use crate::geometry::surface::{Plane, SurfaceGeom};
 use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::*;
 use crate::types::*;
+use crate::units::{TAU_NORMALIZE, TAU_PARALLEL};
+use crate::vecmath::*;
 use crate::waffle_kernel::WaffleSolid;
 use std::collections::HashMap;
 
@@ -42,72 +44,6 @@ struct FacePoly {
     verts: Vec<[f64; 3]>,
     normal: [f64; 3],
     origin: [f64; 3],
-}
-
-// ── Vector math helpers ─────────────────────────────────────────────────
-
-fn v3_sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-
-fn v3_add(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
-}
-
-fn v3_scale(v: [f64; 3], s: f64) -> [f64; 3] {
-    [v[0] * s, v[1] * s, v[2] * s]
-}
-
-fn v3_dot(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-
-fn v3_cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-
-fn v3_length(v: [f64; 3]) -> f64 {
-    v3_dot(v, v).sqrt()
-}
-
-fn v3_negate(v: [f64; 3]) -> [f64; 3] {
-    [-v[0], -v[1], -v[2]]
-}
-
-fn v3_normalize(v: [f64; 3]) -> [f64; 3] {
-    let len = v3_length(v);
-    if len < 1e-15 {
-        v
-    } else {
-        [v[0] / len, v[1] / len, v[2] / len]
-    }
-}
-
-/// 3×3 rotation matrix stored row-major.
-type Mat3 = [[f64; 3]; 3];
-
-const MAT3_IDENTITY: Mat3 = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
-
-/// Apply a 3×3 rotation matrix to a vector.
-fn mat3_mul_vec(m: &Mat3, v: [f64; 3]) -> [f64; 3] {
-    [
-        m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2],
-        m[1][0] * v[0] + m[1][1] * v[1] + m[1][2] * v[2],
-        m[2][0] * v[0] + m[2][1] * v[1] + m[2][2] * v[2],
-    ]
-}
-
-/// Transpose of a 3×3 matrix (inverse for orthonormal rotation matrices).
-fn mat3_transpose(m: &Mat3) -> Mat3 {
-    [
-        [m[0][0], m[1][0], m[2][0]],
-        [m[0][1], m[1][1], m[2][1]],
-        [m[0][2], m[1][2], m[2][2]],
-    ]
 }
 
 /// Compute a rotation matrix that maps unit vector `dir` to [0, 0, 1].
@@ -302,15 +238,42 @@ fn clip_polygon_by_plane(
     output
 }
 
+/// Coplanarity classification between two face planes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum CoplanarClass {
+    NotCoplanar,
+    SameDirection,
+    AntiParallel,
+}
+
+/// Classify whether a face is coplanar with an opposing face, and if so,
+/// whether their normals are parallel or anti-parallel.
+fn classify_coplanarity(
+    face_normal: [f64; 3],
+    face_point: [f64; 3],
+    opp: &FacePoly,
+    tau: f64,
+) -> CoplanarClass {
+    let dot_n = v3_dot(face_normal, opp.normal);
+    if dot_n.abs() > 1.0 - TAU_PARALLEL {
+        let dist = v3_dot(v3_sub(face_point, opp.origin), opp.normal).abs();
+        if dist < tau * 100.0 {
+            if dot_n > 0.0 {
+                CoplanarClass::SameDirection
+            } else {
+                CoplanarClass::AntiParallel
+            }
+        } else {
+            CoplanarClass::NotCoplanar
+        }
+    } else {
+        CoplanarClass::NotCoplanar
+    }
+}
+
 /// Check if a face polygon is coplanar with an opposing face.
 fn is_coplanar(face_normal: [f64; 3], face_point: [f64; 3], opp: &FacePoly, tau: f64) -> bool {
-    let dot_n = v3_dot(face_normal, opp.normal);
-    if dot_n.abs() > 1.0 - 1e-6 {
-        let dist = v3_dot(v3_sub(face_point, opp.origin), opp.normal).abs();
-        dist < tau * 100.0
-    } else {
-        false
-    }
+    classify_coplanarity(face_normal, face_point, opp, tau) != CoplanarClass::NotCoplanar
 }
 
 /// Clip a polygon by a convex solid's interior (intersection of inward half-spaces).
@@ -509,26 +472,23 @@ enum FaceClass {
 /// Ref #7 Jacobson: winding number approach (simplified to ray casting).
 fn classify_face(face: &FacePoly, opposing: &[FacePoly], tau: f64) -> FaceClass {
     let original_area = polygon_area_3d(&face.verts);
-    if original_area < 1e-15 {
+    if original_area < TAU_NORMALIZE {
         return FaceClass::Outside;
     }
 
-    // Check if this face has any coplanar partner on the opposing solid
-    let has_coplanar = opposing
-        .iter()
-        .any(|opp| is_coplanar(face.normal, face.verts[0], opp, tau));
-
-    // Check specifically for anti-parallel coplanar (touching boundary)
-    let has_antiparallel_coplanar = opposing.iter().any(|opp| {
-        let dot_n = v3_dot(face.normal, opp.normal);
-        if dot_n < -(1.0 - 1e-6) {
-            // Anti-parallel normals
-            let dist = v3_dot(v3_sub(face.verts[0], opp.origin), opp.normal).abs();
-            dist < tau * 100.0
-        } else {
-            false
+    // Classify coplanarity with each opposing face
+    let mut has_coplanar = false;
+    let mut has_antiparallel_coplanar = false;
+    for opp in opposing {
+        match classify_coplanarity(face.normal, face.verts[0], opp, tau) {
+            CoplanarClass::SameDirection => has_coplanar = true,
+            CoplanarClass::AntiParallel => {
+                has_coplanar = true;
+                has_antiparallel_coplanar = true;
+            }
+            CoplanarClass::NotCoplanar => {}
         }
-    });
+    }
 
     // Heuristic: a convex solid from extruding a convex polygon has at most
     // ~12 faces (rect=6, hexagon=8, etc.). Solids with many more faces are
@@ -542,12 +502,12 @@ fn classify_face(face: &FacePoly, opposing: &[FacePoly], tau: f64) -> FaceClass 
         let inside = clip_polygon_by_solid(&face.verts, opposing, tau, Some(face.normal));
         let inside_area = polygon_area_3d(&inside);
 
-        if inside_area < 1e-15 {
+        if inside_area < TAU_NORMALIZE {
             return FaceClass::Outside;
         }
 
         let rel_diff = (inside_area - original_area).abs() / original_area;
-        if rel_diff < 1e-6 {
+        if rel_diff < TAU_PARALLEL {
             if has_antiparallel_coplanar {
                 return FaceClass::CoplanarTouching;
             }
@@ -642,22 +602,14 @@ fn classify_face(face: &FacePoly, opposing: &[FacePoly], tau: f64) -> FaceClass 
 /// Ref #7 Jacobson: winding numbers for inside/outside classification.
 fn classify_face_nonconvex(face: &FacePoly, opposing: &[FacePoly], tau: f64) -> FaceClass {
     let original_area = polygon_area_3d(&face.verts);
-    if original_area < 1e-15 {
+    if original_area < TAU_NORMALIZE {
         return FaceClass::Outside;
     }
 
     // Check coplanar partnerships
-    let has_antiparallel_coplanar = opposing.iter().any(|opp| {
-        let dot_n = v3_dot(face.normal, opp.normal);
-        if dot_n < -(1.0 - 1e-6) {
-            let dist = v3_dot(v3_sub(face.verts[0], opp.origin), opp.normal).abs();
-            dist < tau * 100.0
-        } else {
-            false
-        }
-    });
-
-    if has_antiparallel_coplanar {
+    if opposing.iter().any(|opp| {
+        classify_coplanarity(face.normal, face.verts[0], opp, tau) == CoplanarClass::AntiParallel
+    }) {
         return FaceClass::CoplanarTouching;
     }
 
@@ -722,10 +674,10 @@ fn classify_face_nonconvex(face: &FacePoly, opposing: &[FacePoly], tau: f64) -> 
         for frag in &fragments {
             let half_in = clip_polygon_by_plane(frag, *plane_pt, *inward_n, tau);
             let half_out = clip_polygon_by_plane(frag, *plane_pt, outward_n, tau);
-            if half_in.len() >= 3 && polygon_area_3d(&half_in) > 1e-15 {
+            if half_in.len() >= 3 && polygon_area_3d(&half_in) > TAU_NORMALIZE {
                 new_fragments.push(half_in);
             }
-            if half_out.len() >= 3 && polygon_area_3d(&half_out) > 1e-15 {
+            if half_out.len() >= 3 && polygon_area_3d(&half_out) > TAU_NORMALIZE {
                 new_fragments.push(half_out);
             }
         }
@@ -824,10 +776,10 @@ fn classify_coplanar_nonconvex(face: &FacePoly, opposing: &[FacePoly], tau: f64)
         for frag in &fragments {
             let half_in = clip_polygon_by_plane(frag, *plane_pt, *inward_n, tau);
             let half_out = clip_polygon_by_plane(frag, *plane_pt, outward_n, tau);
-            if half_in.len() >= 3 && polygon_area_3d(&half_in) > 1e-15 {
+            if half_in.len() >= 3 && polygon_area_3d(&half_in) > TAU_NORMALIZE {
                 new_fragments.push(half_in);
             }
-            if half_out.len() >= 3 && polygon_area_3d(&half_out) > 1e-15 {
+            if half_out.len() >= 3 && polygon_area_3d(&half_out) > TAU_NORMALIZE {
                 new_fragments.push(half_out);
             }
         }
@@ -927,7 +879,7 @@ fn split_outside_fragments(
         // Clip to keep outside portion (on the outward side of this plane)
         let outside_part = clip_polygon_by_plane(&current, opp_face.origin, opp_face.normal, tau);
 
-        if outside_part.len() >= 3 && polygon_area_3d(&outside_part) > 1e-15 {
+        if outside_part.len() >= 3 && polygon_area_3d(&outside_part) > TAU_NORMALIZE {
             outside_frags.push(outside_part);
         }
 
@@ -1136,10 +1088,12 @@ fn resolve_t_junctions(polys: &[FacePoly], tau: f64) -> Vec<FacePoly> {
                     continue; // not in interior
                 }
 
-                // Check distance from the line
+                // Check distance from the line (relative to edge length)
                 let proj = v3_add(a, v3_scale(edge_vec, t));
-                let dist_sq = v3_dot(v3_sub(v, proj), v3_sub(v, proj));
-                if dist_sq < tau * tau * 100.0 {
+                let diff = v3_sub(v, proj);
+                let dist_sq = v3_dot(diff, diff);
+                let rel_tol_sq = edge_len_sq * (tau * 10.0) * (tau * 10.0);
+                if dist_sq < tau * tau * 100.0 || dist_sq < rel_tol_sq {
                     splits.push((t, v));
                 }
             }
@@ -1357,6 +1311,7 @@ fn build_brep_from_polygons(
     let mut unpaired_hes: Vec<HalfEdgeIdx> = Vec::new();
 
     let mut first_face_idx = None;
+    let mut face_idx_map: HashMap<usize, FaceIdx> = HashMap::new();
 
     for (fi, face_poly) in faces.iter().enumerate() {
         let vert_indices = &face_vert_indices[fi];
@@ -1379,6 +1334,7 @@ fn build_brep_from_polygons(
         }
 
         let face_idx = arena.add_face(shell_idx);
+        face_idx_map.insert(fi, face_idx);
         if first_face_idx.is_none() {
             first_face_idx = Some(face_idx);
         }
@@ -1476,6 +1432,98 @@ fn build_brep_from_polygons(
                 // Allocate KernelId for this edge
                 let eid = id_alloc();
                 edge_map.insert(eid, edge_idx);
+            }
+        }
+    }
+
+    // Step 3b: Remove degenerate faces (area < tau_weld^2) and retry twin pairing.
+    // Degenerate faces arise from near-coplanar clipping and produce unpaired half-edges.
+    let tau_sq = tau_weld * tau_weld;
+    let mut degenerate_faces: Vec<FaceIdx> = Vec::new();
+    for (fi, face_poly) in faces.iter().enumerate() {
+        if face_poly.verts.len() < 3 {
+            continue;
+        }
+        let area = polygon_area_3d(&face_poly.verts);
+        if area < tau_sq {
+            // Find the FaceIdx for this face (fi-th face that was added)
+            // We track face indices during creation
+            if let Some(&fidx) = face_idx_map.get(&fi) {
+                degenerate_faces.push(fidx);
+            }
+        }
+    }
+
+    if !degenerate_faces.is_empty() {
+        // Collect half-edges belonging to degenerate faces
+        let mut degen_hes: std::collections::HashSet<HalfEdgeIdx> =
+            std::collections::HashSet::new();
+        for &face_idx in &degenerate_faces {
+            let loop_idx = arena.faces[face_idx.0].outer_loop;
+            let start_he = arena.loops[loop_idx.0].half_edge;
+            let mut he = start_he;
+            loop {
+                degen_hes.insert(he);
+                he = arena.half_edges[he.0].next;
+                if he == start_he {
+                    break;
+                }
+            }
+        }
+
+        // Unpair any half-edges paired with degenerate face half-edges
+        for &he in &degen_hes {
+            if paired.contains(&he) {
+                let twin = arena.half_edges[he.0].twin;
+                if twin != he {
+                    paired.remove(&he);
+                    paired.remove(&twin);
+                }
+            }
+        }
+
+        // Remove degenerate half-edges from unpaired tracking
+        unpaired_hes.retain(|he| !degen_hes.contains(he));
+
+        // Retry twin pairing for newly unpaired half-edges
+        for &he_idx in &unpaired_hes {
+            if paired.contains(&he_idx) {
+                continue;
+            }
+            let origin = arena.half_edges[he_idx.0].origin;
+            let next_he = arena.half_edges[he_idx.0].next;
+            let dest = arena.half_edges[next_he.0].origin;
+
+            if let Some(&twin_idx) = directed_he.get(&(dest, origin)) {
+                if twin_idx != he_idx
+                    && !paired.contains(&twin_idx)
+                    && !degen_hes.contains(&twin_idx)
+                {
+                    let edge_idx = EdgeIdx(arena.edges.len());
+                    arena.edges.push(Edge { half_edge: he_idx });
+
+                    arena.half_edges[he_idx.0].twin = twin_idx;
+                    arena.half_edges[he_idx.0].edge = edge_idx;
+                    arena.half_edges[twin_idx.0].twin = he_idx;
+                    arena.half_edges[twin_idx.0].edge = edge_idx;
+
+                    paired.insert(he_idx);
+                    paired.insert(twin_idx);
+
+                    let p0 = arena.vertices[origin.0].position;
+                    let p1 = arena.vertices[dest.0].position;
+                    let dir = v3_sub(p1, p0);
+                    edge_geometry.insert(
+                        edge_idx,
+                        CurveGeom::Linear(Line3D {
+                            origin: Point3::from_array(p0),
+                            direction: Vector3::from_array(dir),
+                        }),
+                    );
+
+                    let eid = id_alloc();
+                    edge_map.insert(eid, edge_idx);
+                }
             }
         }
     }

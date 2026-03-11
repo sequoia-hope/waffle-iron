@@ -8,6 +8,8 @@ use crate::geometry::surface::SurfaceGeom;
 use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::*;
 use crate::types::*;
+use crate::units::TAU_NORMALIZE;
+use crate::vecmath::{v3_cross, v3_dot, v3_sub};
 use crate::waffle_kernel::{CylinderParams, RevolveParams};
 use std::collections::HashMap;
 
@@ -300,7 +302,7 @@ fn tessellate_circular_cap(
         vertices[p2_idx + 1] as f64 - center[1],
         vertices[p2_idx + 2] as f64 - center[2],
     ];
-    let cross = cross3f(v1, v2);
+    let cross = v3_cross(v1, v2);
     let dot = cross[0] * normal[0] + cross[1] * normal[1] + cross[2] * normal[2];
     let reverse = dot < 0.0;
 
@@ -408,9 +410,9 @@ fn tessellate_revolve_lateral(
 
         // Rotate both vertices around axis using Rodrigues
         for sv in &[start_v0, start_v1] {
-            let v = sub3(**sv, *axis_origin);
-            let k_dot_v = dot3(*axis_dir, v);
-            let k_cross_v = cross3(*axis_dir, v);
+            let v = v3_sub(**sv, *axis_origin);
+            let k_dot_v = v3_dot(*axis_dir, v);
+            let k_cross_v = v3_cross(*axis_dir, v);
             let rotated = [
                 axis_origin[0]
                     + v[0] * cos_t
@@ -438,11 +440,11 @@ fn tessellate_revolve_lateral(
                         axis_origin[1] + axis_dir[1] * k_dot_v,
                         axis_origin[2] + axis_dir[2] * k_dot_v,
                     ];
-                    let radial = sub3(rotated, proj);
+                    let radial = v3_sub(rotated, proj);
                     let len =
                         (radial[0] * radial[0] + radial[1] * radial[1] + radial[2] * radial[2])
                             .sqrt();
-                    if len > 1e-15 {
+                    if len > TAU_NORMALIZE {
                         normals.push((radial[0] / len) as f32);
                         normals.push((radial[1] / len) as f32);
                         normals.push((radial[2] / len) as f32);
@@ -531,10 +533,30 @@ fn tessellate_polygon_face(
         normals_out.push(normal[2]);
     }
 
+    // Check if loop winding matches stored normal using Newell method.
+    // Unlike checking just the first triangle, this is robust for non-convex polygons.
+    let n = loop_verts.len();
+    let mut newell = [0.0f64; 3];
+    for i in 0..n {
+        let curr = loop_verts[i];
+        let next = loop_verts[(i + 1) % n];
+        newell[0] += (curr[1] - next[1]) * (curr[2] + next[2]);
+        newell[1] += (curr[2] - next[2]) * (curr[0] + next[0]);
+        newell[2] += (curr[0] - next[0]) * (curr[1] + next[1]);
+    }
+    let dot = v3_dot(newell, [plane.normal.x, plane.normal.y, plane.normal.z]);
+    let flip = dot < 0.0;
+
     for i in 1..loop_verts.len() as u32 - 1 {
-        indices.push(base_vertex);
-        indices.push(base_vertex + i);
-        indices.push(base_vertex + i + 1);
+        if flip {
+            indices.push(base_vertex);
+            indices.push(base_vertex + i + 1);
+            indices.push(base_vertex + i);
+        } else {
+            indices.push(base_vertex);
+            indices.push(base_vertex + i);
+            indices.push(base_vertex + i + 1);
+        }
     }
 
     let end_index = indices.len() as u32;
@@ -573,11 +595,11 @@ fn tessellate_polygon_face_fallback(
         return;
     }
 
-    let ab = sub3(loop_verts[1], loop_verts[0]);
-    let ac = sub3(loop_verts[2], loop_verts[0]);
-    let n = cross3(ab, ac);
+    let ab = v3_sub(loop_verts[1], loop_verts[0]);
+    let ac = v3_sub(loop_verts[2], loop_verts[0]);
+    let n = v3_cross(ab, ac);
     let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-    let normal = if len < 1e-15 {
+    let normal = if len < TAU_NORMALIZE {
         [0.0f32, 0.0, 1.0]
     } else {
         [
@@ -633,11 +655,11 @@ pub(crate) fn extract_edges(
                 let center = [arc.center.x, arc.center.y, arc.center.z];
                 let start_pt = [arc.start_point.x, arc.start_point.y, arc.start_point.z];
                 // Derive x_axis from start point relative to center
-                let radial = sub3(start_pt, center);
+                let radial = v3_sub(start_pt, center);
                 let len =
                     (radial[0] * radial[0] + radial[1] * radial[1] + radial[2] * radial[2]).sqrt();
                 let x_axis = [radial[0] / len, radial[1] / len, radial[2] / len];
-                let y_axis = cross3(normal, x_axis);
+                let y_axis = v3_cross(normal, x_axis);
 
                 // Number of segments proportional to sweep angle
                 let n_segs = ((CIRCLE_SEGMENTS as f64) * arc.sweep_angle / std::f64::consts::TAU)
@@ -1160,9 +1182,9 @@ fn tessellate_planar_face_with_hole(
         let pa = get_pos(a - base);
         let pb = get_pos(b - base);
         let pc = get_pos(c - base);
-        let ab = sub3(pb, pa);
-        let ac = sub3(pc, pa);
-        let cr = cross3(ab, ac);
+        let ab = v3_sub(pb, pa);
+        let ac = v3_sub(pc, pa);
+        let cr = v3_cross(ab, ac);
         let dot = cr[0] * plane.normal.x + cr[1] * plane.normal.y + cr[2] * plane.normal.z;
         dot < 0.0
     } else {
@@ -1373,26 +1395,6 @@ fn tessellate_arc_bounded_cap(
 
 // ── Geometry helpers ─────────────────────────────────────────────────────
 
-fn sub3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-
-fn cross3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-
-fn cross3f(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    cross3(a, b)
-}
-
-fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-
 /// Derive orthogonal x/y axes from a normal vector for circle tessellation.
 fn make_circle_axes(normal: &[f64; 3]) -> ([f64; 3], [f64; 3]) {
     let n = *normal;
@@ -1402,9 +1404,9 @@ fn make_circle_axes(normal: &[f64; 3]) -> ([f64; 3], [f64; 3]) {
     } else {
         [0.0, 1.0, 0.0]
     };
-    let x = cross3(n, up);
+    let x = v3_cross(n, up);
     let len = (x[0] * x[0] + x[1] * x[1] + x[2] * x[2]).sqrt();
     let x_norm = [x[0] / len, x[1] / len, x[2] / len];
-    let y = cross3(n, x_norm);
+    let y = v3_cross(n, x_norm);
     (x_norm, y)
 }

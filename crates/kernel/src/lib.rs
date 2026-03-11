@@ -8,6 +8,7 @@ pub mod topology;
 pub mod traits;
 pub mod types;
 pub mod units;
+pub(crate) mod vecmath;
 pub mod waffle_kernel;
 
 pub use mock_kernel::MockKernel;

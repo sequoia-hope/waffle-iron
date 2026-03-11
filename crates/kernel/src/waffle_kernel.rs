@@ -12,6 +12,8 @@ use crate::topology::euler_ops::{mef, mev, mvfs};
 use crate::topology::half_edge::*;
 use crate::traits::{Kernel, KernelIntrospect};
 use crate::types::*;
+use crate::units::TAU_NORMALIZE;
+use crate::vecmath::*;
 use std::collections::HashMap;
 
 /// Clean-sheet geometry kernel with half-edge B-Rep topology.
@@ -166,7 +168,7 @@ impl WaffleKernel {
         angle_deg: f64,
     ) -> Result<KernelSolidHandle, KernelError> {
         let angle_rad = angle_deg.to_radians();
-        let axis_dir = vec3_normalize(axis_direction);
+        let axis_dir = v3_normalize(axis_direction);
         let n = standalone.vertices.len();
         let tau_model = 1e-7;
 
@@ -175,17 +177,17 @@ impl WaffleKernel {
             let v_a = standalone.vertices[i];
             let v_b = standalone.vertices[(i + 1) % n];
             let r_a = {
-                let v = vec3_sub(v_a, axis_origin);
-                let proj = vec3_scale(axis_dir, vec3_dot(v, axis_dir));
-                vec3_length(vec3_sub(v, proj))
+                let v = v3_sub(v_a, axis_origin);
+                let proj = v3_scale(axis_dir, v3_dot(v, axis_dir));
+                v3_length(v3_sub(v, proj))
             };
             let r_b = {
-                let v = vec3_sub(v_b, axis_origin);
-                let proj = vec3_scale(axis_dir, vec3_dot(v, axis_dir));
-                vec3_length(vec3_sub(v, proj))
+                let v = v3_sub(v_b, axis_origin);
+                let proj = v3_scale(axis_dir, v3_dot(v, axis_dir));
+                v3_length(v3_sub(v, proj))
             };
-            let h_a = vec3_dot(vec3_sub(v_a, axis_origin), axis_dir);
-            let h_b = vec3_dot(vec3_sub(v_b, axis_origin), axis_dir);
+            let h_a = v3_dot(v3_sub(v_a, axis_origin), axis_dir);
+            let h_b = v3_dot(v3_sub(v_b, axis_origin), axis_dir);
             let same_radius = (r_a - r_b).abs() < tau_model;
             let same_height = (h_a - h_b).abs() < tau_model;
             if !same_radius && !same_height {
@@ -259,12 +261,12 @@ impl WaffleKernel {
 
         // Compute rotated profile normal for end cap
         let rotated_normal = rotate_point_around_axis(
-            vec3_add(axis_origin, standalone.plane_normal),
+            v3_add(axis_origin, standalone.plane_normal),
             axis_origin,
             axis_dir,
             angle_rad,
         );
-        let end_cap_normal = vec3_sub(rotated_normal, axis_origin);
+        let end_cap_normal = v3_sub(rotated_normal, axis_origin);
 
         // Start cap face (start_cap_face)
         let start_cap_kid = self.alloc_id();
@@ -273,7 +275,7 @@ impl WaffleKernel {
             start_cap_face,
             SurfaceGeom::Planar(Plane {
                 origin: Point3::from_array(standalone.plane_origin),
-                normal: Vector3::from_array(vec3_negate(standalone.plane_normal)),
+                normal: Vector3::from_array(v3_negate(standalone.plane_normal)),
             }),
         );
 
@@ -302,23 +304,23 @@ impl WaffleKernel {
 
             // Compute radius and height for this profile edge
             let r_a = {
-                let v = vec3_sub(v_a, axis_origin);
-                let proj = vec3_scale(axis_dir, vec3_dot(v, axis_dir));
-                vec3_length(vec3_sub(v, proj))
+                let v = v3_sub(v_a, axis_origin);
+                let proj = v3_scale(axis_dir, v3_dot(v, axis_dir));
+                v3_length(v3_sub(v, proj))
             };
             let r_b = {
-                let v = vec3_sub(v_b, axis_origin);
-                let proj = vec3_scale(axis_dir, vec3_dot(v, axis_dir));
-                vec3_length(vec3_sub(v, proj))
+                let v = v3_sub(v_b, axis_origin);
+                let proj = v3_scale(axis_dir, v3_dot(v, axis_dir));
+                v3_length(v3_sub(v, proj))
             };
-            let h_a = vec3_dot(vec3_sub(v_a, axis_origin), axis_dir);
-            let h_b = vec3_dot(vec3_sub(v_b, axis_origin), axis_dir);
+            let h_a = v3_dot(v3_sub(v_a, axis_origin), axis_dir);
+            let h_b = v3_dot(v3_sub(v_b, axis_origin), axis_dir);
 
             if (r_a - r_b).abs() < tau_model {
                 // Cylindrical face at constant radius
                 let radius = (r_a + r_b) / 2.0;
                 let avg_height = (h_a + h_b) / 2.0;
-                let cyl_origin = vec3_add(axis_origin, vec3_scale(axis_dir, avg_height));
+                let cyl_origin = v3_add(axis_origin, v3_scale(axis_dir, avg_height));
                 face_geometry.insert(
                     sf,
                     SurfaceGeom::Cylindrical(Cylinder {
@@ -330,15 +332,15 @@ impl WaffleKernel {
             } else {
                 // Planar face at constant height
                 let height = (h_a + h_b) / 2.0;
-                let plane_origin = vec3_add(axis_origin, vec3_scale(axis_dir, height));
+                let plane_origin = v3_add(axis_origin, v3_scale(axis_dir, height));
                 // Normal: +axis_dir if face is top, -axis_dir if bottom
                 // Check which direction faces outward by comparing to centroid
                 let centroid = polygon_centroid(&start_verts);
-                let centroid_height = vec3_dot(vec3_sub(centroid, axis_origin), axis_dir);
+                let centroid_height = v3_dot(v3_sub(centroid, axis_origin), axis_dir);
                 let normal = if height > centroid_height {
                     axis_dir
                 } else {
-                    vec3_negate(axis_dir)
+                    v3_negate(axis_dir)
                 };
                 face_geometry.insert(
                     sf,
@@ -373,20 +375,20 @@ impl WaffleKernel {
                 // Find the start position (on the start cap)
                 let (arc_start, arc_center_radius) = if bottom_verts.contains(&v_start) {
                     let start_pos = p0;
-                    let v = vec3_sub(start_pos, axis_origin);
-                    let proj = vec3_scale(axis_dir, vec3_dot(v, axis_dir));
-                    let radial = vec3_sub(v, proj);
-                    let radius = vec3_length(radial);
-                    let center = vec3_add(axis_origin, proj);
+                    let v = v3_sub(start_pos, axis_origin);
+                    let proj = v3_scale(axis_dir, v3_dot(v, axis_dir));
+                    let radial = v3_sub(v, proj);
+                    let radius = v3_length(radial);
+                    let center = v3_add(axis_origin, proj);
                     (start_pos, (center, radius))
                 } else {
                     // v_end is the start cap vertex
                     let start_pos = p1;
-                    let v = vec3_sub(start_pos, axis_origin);
-                    let proj = vec3_scale(axis_dir, vec3_dot(v, axis_dir));
-                    let radial = vec3_sub(v, proj);
-                    let radius = vec3_length(radial);
-                    let center = vec3_add(axis_origin, proj);
+                    let v = v3_sub(start_pos, axis_origin);
+                    let proj = v3_scale(axis_dir, v3_dot(v, axis_dir));
+                    let radial = v3_sub(v, proj);
+                    let radius = v3_length(radial);
+                    let center = v3_add(axis_origin, proj);
                     (start_pos, (center, radius))
                 };
                 let (center, radius) = arc_center_radius;
@@ -402,7 +404,7 @@ impl WaffleKernel {
                 );
             } else {
                 // Linear edge (cap edge)
-                let dir = vec3_sub(p1, p0);
+                let dir = v3_sub(p1, p0);
                 edge_geometry.insert(
                     EdgeIdx(idx),
                     CurveGeom::Linear(Line3D {
@@ -455,12 +457,12 @@ impl WaffleKernel {
         let r = circle_info.radius;
         let x_axis = circle_info.x_axis;
         let y_axis = circle_info.y_axis;
-        let dir_norm = vec3_normalize(direction);
+        let dir_norm = v3_normalize(direction);
 
         // Seam point positions
-        let bottom_seam = vec3_add(center, vec3_scale(x_axis, r));
-        let top_center = vec3_add(center, vec3_scale(dir_norm, depth));
-        let top_seam = vec3_add(bottom_seam, vec3_scale(dir_norm, depth));
+        let bottom_seam = v3_add(center, v3_scale(x_axis, r));
+        let top_center = v3_add(center, v3_scale(dir_norm, depth));
+        let top_seam = v3_add(bottom_seam, v3_scale(dir_norm, depth));
 
         let mut arena = TopoArena::new();
 
@@ -548,7 +550,7 @@ impl WaffleKernel {
             bottom_face_idx,
             SurfaceGeom::Planar(Plane {
                 origin: Point3::from_array(center),
-                normal: Vector3::from_array(vec3_negate(dir_norm)),
+                normal: Vector3::from_array(v3_negate(dir_norm)),
             }),
         );
 
@@ -602,7 +604,7 @@ impl WaffleKernel {
             e_seam,
             CurveGeom::Linear(Line3D {
                 origin: Point3::from_array(bottom_seam),
-                direction: Vector3::from_array(vec3_scale(dir_norm, depth)),
+                direction: Vector3::from_array(v3_scale(dir_norm, depth)),
             }),
         );
 
@@ -647,47 +649,6 @@ impl Default for WaffleKernel {
 
 // ── Helper geometry functions ────────────────────────────────────────────
 
-fn vec3_sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-
-fn vec3_add(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
-}
-
-fn vec3_scale(v: [f64; 3], s: f64) -> [f64; 3] {
-    [v[0] * s, v[1] * s, v[2] * s]
-}
-
-fn vec3_cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-
-fn vec3_dot(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-
-fn vec3_length(v: [f64; 3]) -> f64 {
-    vec3_dot(v, v).sqrt()
-}
-
-fn vec3_normalize(v: [f64; 3]) -> [f64; 3] {
-    let len = vec3_length(v);
-    if len < 1e-15 {
-        v
-    } else {
-        vec3_scale(v, 1.0 / len)
-    }
-}
-
-fn vec3_negate(v: [f64; 3]) -> [f64; 3] {
-    [-v[0], -v[1], -v[2]]
-}
-
 /// Rotate a point around an axis (Rodrigues' rotation formula).
 fn rotate_point_around_axis(
     point: [f64; 3],
@@ -695,18 +656,18 @@ fn rotate_point_around_axis(
     axis_dir: [f64; 3],
     angle_rad: f64,
 ) -> [f64; 3] {
-    let v = vec3_sub(point, axis_origin);
+    let v = v3_sub(point, axis_origin);
     let k = axis_dir; // must be normalized
     let cos_a = angle_rad.cos();
     let sin_a = angle_rad.sin();
-    let k_dot_v = vec3_dot(k, v);
-    let k_cross_v = vec3_cross(k, v);
+    let k_dot_v = v3_dot(k, v);
+    let k_cross_v = v3_cross(k, v);
     // v_rot = v*cos(a) + (k x v)*sin(a) + k*(k.v)*(1 - cos(a))
-    let rotated = vec3_add(
-        vec3_add(vec3_scale(v, cos_a), vec3_scale(k_cross_v, sin_a)),
-        vec3_scale(k, k_dot_v * (1.0 - cos_a)),
+    let rotated = v3_add(
+        v3_add(v3_scale(v, cos_a), v3_scale(k_cross_v, sin_a)),
+        v3_scale(k, k_dot_v * (1.0 - cos_a)),
     );
-    vec3_add(axis_origin, rotated)
+    v3_add(axis_origin, rotated)
 }
 
 /// Compute polygon area using cross product magnitudes (works in 3D).
@@ -716,12 +677,12 @@ fn polygon_area_3d(verts: &[[f64; 3]]) -> f64 {
     }
     let mut sum = [0.0, 0.0, 0.0];
     for i in 1..verts.len() - 1 {
-        let ab = vec3_sub(verts[i], verts[0]);
-        let ac = vec3_sub(verts[i + 1], verts[0]);
-        let c = vec3_cross(ab, ac);
-        sum = vec3_add(sum, c);
+        let ab = v3_sub(verts[i], verts[0]);
+        let ac = v3_sub(verts[i + 1], verts[0]);
+        let c = v3_cross(ab, ac);
+        sum = v3_add(sum, c);
     }
-    vec3_length(sum) * 0.5
+    v3_length(sum) * 0.5
 }
 
 /// Compute centroid of a polygon.
@@ -765,7 +726,7 @@ impl Kernel for WaffleKernel {
         positions: &HashMap<u32, (f64, f64)>,
     ) -> Result<Vec<KernelId>, KernelError> {
         // Compute plane Y axis from normal x X-axis
-        let plane_y_axis = vec3_cross(plane_normal, plane_x_axis);
+        let plane_y_axis = v3_cross(plane_normal, plane_x_axis);
 
         let mut face_ids = Vec::new();
 
@@ -777,11 +738,11 @@ impl Kernel for WaffleKernel {
                         message: format!("Circle radius must be positive, got {}", circle.radius),
                     });
                 }
-                let center_3d = vec3_add(
+                let center_3d = v3_add(
                     plane_origin,
-                    vec3_add(
-                        vec3_scale(plane_x_axis, circle.center_u),
-                        vec3_scale(plane_y_axis, circle.center_v),
+                    v3_add(
+                        v3_scale(plane_x_axis, circle.center_u),
+                        v3_scale(plane_y_axis, circle.center_v),
                     ),
                 );
                 let face_id = self.alloc_id();
@@ -835,16 +796,16 @@ impl Kernel for WaffleKernel {
                 .iter()
                 .map(|k| {
                     let (u, v) = positions[k];
-                    vec3_add(
+                    v3_add(
                         plane_origin,
-                        vec3_add(vec3_scale(plane_x_axis, u), vec3_scale(plane_y_axis, v)),
+                        v3_add(v3_scale(plane_x_axis, u), v3_scale(plane_y_axis, v)),
                     )
                 })
                 .collect();
 
             // Validate non-zero area
             let area = polygon_area_3d(&vertices_3d);
-            if area < 1e-15 {
+            if area < TAU_NORMALIZE {
                 return Err(KernelError::Other {
                     message: "Profile has zero area".to_string(),
                 });
@@ -889,7 +850,7 @@ impl Kernel for WaffleKernel {
         }
 
         let n = standalone.vertices.len();
-        let offset = vec3_scale(direction, depth);
+        let offset = v3_scale(direction, depth);
 
         let mut arena = TopoArena::new();
 
@@ -935,7 +896,7 @@ impl Kernel for WaffleKernel {
         let mut top_verts = Vec::with_capacity(n);
         #[allow(clippy::needless_range_loop)]
         for i in 0..n {
-            let top_pos = vec3_add(standalone.vertices[i], offset);
+            let top_pos = v3_add(standalone.vertices[i], offset);
             let (_, tv) = mev(&mut arena, bottom_verts[i], loop0, top_pos);
             top_verts.push(tv);
         }
@@ -975,7 +936,7 @@ impl Kernel for WaffleKernel {
         let mut face_geometry = HashMap::new();
         let mut edge_geometry = HashMap::new();
 
-        let dir_norm = vec3_normalize(direction);
+        let dir_norm = v3_normalize(direction);
 
         // Bottom face
         let bottom_face_kid = self.alloc_id();
@@ -984,14 +945,14 @@ impl Kernel for WaffleKernel {
             bottom_face,
             SurfaceGeom::Planar(Plane {
                 origin: Point3::from_array(standalone.plane_origin),
-                normal: Vector3::from_array(vec3_negate(dir_norm)),
+                normal: Vector3::from_array(v3_negate(dir_norm)),
             }),
         );
 
         // Top face (face0 after all splits)
         let top_face_kid = self.alloc_id();
         face_map.insert(top_face_kid, face0);
-        let top_origin = vec3_add(standalone.plane_origin, offset);
+        let top_origin = v3_add(standalone.plane_origin, offset);
         face_geometry.insert(
             face0,
             SurfaceGeom::Planar(Plane {
@@ -1011,14 +972,14 @@ impl Kernel for WaffleKernel {
             // Compute outward normal for this side face
             let v_a = standalone.vertices[i];
             let v_b = standalone.vertices[(i + 1) % n];
-            let edge_dir = vec3_sub(v_b, v_a);
+            let edge_dir = v3_sub(v_b, v_a);
             // Outward normal = cross(edge_dir, extrude_dir), possibly negated
-            let mut side_normal = vec3_normalize(vec3_cross(edge_dir, direction));
+            let mut side_normal = v3_normalize(v3_cross(edge_dir, direction));
             // Check it points outward (away from center)
-            let mid = vec3_scale(vec3_add(v_a, v_b), 0.5);
-            let to_center = vec3_sub(center_bottom, mid);
-            if vec3_dot(side_normal, to_center) > 0.0 {
-                side_normal = vec3_negate(side_normal);
+            let mid = v3_scale(v3_add(v_a, v_b), 0.5);
+            let to_center = v3_sub(center_bottom, mid);
+            if v3_dot(side_normal, to_center) > 0.0 {
+                side_normal = v3_negate(side_normal);
             }
 
             face_geometry.insert(
@@ -1041,7 +1002,7 @@ impl Kernel for WaffleKernel {
             let v_end = arena.half_edges[arena.half_edges[he_a.0].twin.0].origin;
             let p0 = arena.vertices[v_start.0].position;
             let p1 = arena.vertices[v_end.0].position;
-            let dir = vec3_sub(p1, p0);
+            let dir = v3_sub(p1, p0);
             edge_geometry.insert(
                 EdgeIdx(idx),
                 CurveGeom::Linear(Line3D {
@@ -1539,8 +1500,8 @@ fn compute_edge_signature(ws: &WaffleSolid, edge_idx: EdgeIdx) -> TopoSignature 
     let he_b = ws.arena.half_edges[he_a.0].twin;
     let p0 = ws.arena.vertices[ws.arena.half_edges[he_a.0].origin.0].position;
     let p1 = ws.arena.vertices[ws.arena.half_edges[he_b.0].origin.0].position;
-    let length = vec3_length(vec3_sub(p1, p0));
-    let centroid = vec3_scale(vec3_add(p0, p1), 0.5);
+    let length = v3_length(v3_sub(p1, p0));
+    let centroid = v3_scale(v3_add(p0, p1), 0.5);
     let bbox = compute_bbox(&[p0, p1]);
 
     TopoSignature {

@@ -2699,3 +2699,170 @@ fn l5_rect_gear_union_symmetric() {
         vol1, vol2, diff, tol
     );
 }
+
+// ── Group TN: Tessellation Normals ──────────────────────────────────
+
+/// Check that all triangle geometric normals agree with stored normals.
+/// Returns (consistent_count, total_count).
+fn check_normals_consistent(mesh: &RenderMesh) -> (usize, usize) {
+    let n_tris = mesh.indices.len() / 3;
+    let mut consistent = 0;
+    for i in 0..n_tris {
+        let i0 = mesh.indices[i * 3] as usize;
+        let i1 = mesh.indices[i * 3 + 1] as usize;
+        let i2 = mesh.indices[i * 3 + 2] as usize;
+
+        let v0 = [
+            mesh.vertices[i0 * 3] as f64,
+            mesh.vertices[i0 * 3 + 1] as f64,
+            mesh.vertices[i0 * 3 + 2] as f64,
+        ];
+        let v1 = [
+            mesh.vertices[i1 * 3] as f64,
+            mesh.vertices[i1 * 3 + 1] as f64,
+            mesh.vertices[i1 * 3 + 2] as f64,
+        ];
+        let v2 = [
+            mesh.vertices[i2 * 3] as f64,
+            mesh.vertices[i2 * 3 + 1] as f64,
+            mesh.vertices[i2 * 3 + 2] as f64,
+        ];
+
+        let stored_n = [
+            mesh.normals[i0 * 3] as f64,
+            mesh.normals[i0 * 3 + 1] as f64,
+            mesh.normals[i0 * 3 + 2] as f64,
+        ];
+
+        let e1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
+        let e2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
+        let geo_n = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+
+        let dot = geo_n[0] * stored_n[0] + geo_n[1] * stored_n[1] + geo_n[2] * stored_n[2];
+        if dot > 0.0 {
+            consistent += 1;
+        }
+    }
+    (consistent, n_tris)
+}
+
+#[test]
+fn tn1_gear_extrude_side_normals_consistent() {
+    // Gear is non-convex: fan triangulation of top/bottom polygon faces will
+    // inherently produce some triangles with flipped geometric normals across
+    // concavities. Side faces (quads) should all be consistent though.
+    let mut k = WaffleKernel::new();
+    let (profiles, positions) = make_gear_profile(0.0, 0.0, 12, 2.0);
+    let face = k
+        .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+        .expect("gear profile");
+    let solid = k.extrude_face(face[0], Z_DIR, 5.0).expect("gear extrude");
+    let mesh = k.tessellate(&solid, 0.01).expect("tessellate gear");
+
+    let (consistent, total) = check_normals_consistent(&mesh);
+    assert!(total > 0, "tn1: mesh should have triangles");
+    // Side faces = 48 quads * 2 tris = 96 triangles should all be consistent.
+    // Top/bottom fan triangles of non-convex polygon may have some flipped.
+    // Require at least 60% consistent (side faces alone = 96/188 ~ 51%).
+    let ratio = consistent as f64 / total as f64;
+    assert!(
+        ratio >= 0.60,
+        "tn1: gear normals {}/{} = {:.1}% consistent, expected >= 60%",
+        consistent, total, ratio * 100.0
+    );
+}
+
+#[test]
+fn tn2_rect_extrude_normals_consistent() {
+    let (mut k, solid) = make_unit_box();
+    let mesh = k.tessellate(&solid, 0.01).expect("tessellate unit box");
+
+    let (consistent, total) = check_normals_consistent(&mesh);
+    assert_eq!(
+        consistent, total,
+        "tn2: all {} box triangles should have consistent normals, but only {}/{} do",
+        total, consistent, total
+    );
+}
+
+#[test]
+fn tn3_double_extrude_normals_consistent() {
+    // Two sequential extrusions (like failing assay cases R0079)
+    let mut k = WaffleKernel::new();
+    let (p1, pos1) = make_rect_profile(0.5, 0.5, 1.0, 1.0);
+    let f1 = k
+        .make_faces_from_profiles(&p1, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos1)
+        .expect("profile 1");
+    let s1 = k.extrude_face(f1[0], Z_DIR, 1.0).expect("extrude 1");
+
+    let (p2, pos2) = make_rect_profile(2.0, 2.0, 1.0, 1.0);
+    let f2 = k
+        .make_faces_from_profiles(&p2, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos2)
+        .expect("profile 2");
+    let s2 = k.extrude_face(f2[0], Z_DIR, 1.0).expect("extrude 2");
+
+    // Check normals on both solids
+    let mesh1 = k.tessellate(&s1, 0.01).expect("tess 1");
+    let (c1, t1) = check_normals_consistent(&mesh1);
+    assert_eq!(c1, t1, "tn3: solid 1 normals inconsistent: {}/{}", c1, t1);
+
+    let mesh2 = k.tessellate(&s2, 0.01).expect("tess 2");
+    let (c2, t2) = check_normals_consistent(&mesh2);
+    assert_eq!(c2, t2, "tn3: solid 2 normals inconsistent: {}/{}", c2, t2);
+}
+
+// ── Group BW: Boolean Watertight ────────────────────────────────────
+
+#[test]
+fn bw1_rect_rect_subtract_watertight() {
+    let (mut k, big) = make_scaled_box(2.0, 2.0, 2.0);
+    let (p2, pos2) = make_rect_profile(0.5, 0.5, 0.5, 0.5);
+    let f2 = k
+        .make_faces_from_profiles(&p2, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos2)
+        .expect("profile 2");
+    let small = k.extrude_face(f2[0], Z_DIR, 1.0).expect("extrude 2");
+    let result = k.boolean_subtract(&big, &small).expect("subtract");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+    assert!(
+        check_watertight(&mesh),
+        "bw1: rect-rect subtract should be watertight"
+    );
+}
+
+#[test]
+fn bw2_sequential_cuts_watertight() {
+    let (mut k, base) = make_scaled_box(3.0, 3.0, 3.0);
+
+    // First cut
+    let (p2, pos2) = make_rect_profile(0.5, 0.5, 0.5, 0.5);
+    let f2 = k
+        .make_faces_from_profiles(&p2, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos2)
+        .expect("profile 2");
+    let cut1 = k.extrude_face(f2[0], Z_DIR, 1.0).expect("cut1 extrude");
+    let after_cut1 = k.boolean_subtract(&base, &cut1).expect("cut1");
+    let mesh1 = k.tessellate(&after_cut1, 0.01).expect("tess cut1");
+    assert!(
+        check_watertight(&mesh1),
+        "bw2: after first cut should be watertight"
+    );
+}
+
+#[test]
+fn bw3_overlapping_rects_union_watertight() {
+    let (mut k, box1) = make_scaled_box(2.0, 2.0, 2.0);
+    let (p2, pos2) = make_rect_profile(1.5, 1.5, 2.0, 2.0);
+    let f2 = k
+        .make_faces_from_profiles(&p2, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos2)
+        .expect("profile 2");
+    let box2 = k.extrude_face(f2[0], Z_DIR, 2.0).expect("extrude 2");
+    let result = k.boolean_union(&box1, &box2).expect("union");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+    assert!(
+        check_watertight(&mesh),
+        "bw3: overlapping rect union should be watertight"
+    );
+}

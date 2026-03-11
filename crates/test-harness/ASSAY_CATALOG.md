@@ -7,8 +7,8 @@ Score: **2/100** (2 pass, 89 fail, 9 error)
 
 | Category | Count | Status |
 |---|---|---|
-| boolean-watertight | 32 | failed |
-| revolve-normals | 27 | failed |
+| boolean-watertight | 31 | failed |
+| revolve-normals | 28 | failed |
 | auto-union-failed | 17 | failed |
 | revolve-not-supported | 10 | failed |
 | cascading-failure | 7 | errored |
@@ -18,8 +18,8 @@ Score: **2/100** (2 pass, 89 fail, 9 error)
 
 ## Highest-Leverage Fixes
 
-1. **Fix boolean-watertight** → would address ~32 cases
-2. **Fix revolve-normals** → would address ~27 cases
+1. **Fix boolean-watertight** → would address ~31 cases
+2. **Fix revolve-normals** → would address ~28 cases
 3. **Fix auto-union-failed** → would address ~17 cases
 4. **Fix revolve-not-supported** → would address ~10 cases
 5. **Fix cascading-failure** → would address ~7 cases
@@ -61,7 +61,7 @@ Score: **2/100** (2 pass, 89 fail, 9 error)
 - **Operations**: extrude(gear,boss) + extrude(rectangle,boss)
 - **Scale**: 1.70e-1 (log: -0.77)
 - **Category**: revolve-normals
-- **Detail**: consistent_normals: 43 of 632 triangles have reversed normals; outward_normals: only 538 of 632 triangles (85.1%) have outward normals (need 95%)
+- **Detail**: consistent_normals: 44 of 632 triangles have reversed normals; outward_normals: only 538 of 632 triangles (85.1%) have outward normals (need 95%)
 
 ### R0006 — ERROR
 
@@ -82,7 +82,7 @@ Score: **2/100** (2 pass, 89 fail, 9 error)
 - **Operations**: extrude(rectangle,boss) + revolve(circle,cut) + extrude(gear,boss)
 - **Scale**: 1.27e2 (log: 2.10)
 - **Category**: boolean-watertight
-- **Detail**: partial rebuild (1 error(s)): d1ffa7d1-7f95-4d10-9de9-40429468acac: operation error: kernel error: operation not supported: revolve: circle profile (torus); watertight_mesh: 135 unpaired edges out of 1242 total; consistent_normals: 168 of 918 triangles have reversed normals
+- **Detail**: partial rebuild (1 error(s)): d1ffa7d1-7f95-4d10-9de9-40429468acac: operation error: kernel error: operation not supported: revolve: circle profile (torus); watertight_mesh: 135 unpaired edges out of 1245 total; consistent_normals: 173 of 920 triangles have reversed normals
 
 ### R0009 — FAIL
 
@@ -96,14 +96,14 @@ Score: **2/100** (2 pass, 89 fail, 9 error)
 - **Operations**: extrude(rectangle,boss) + extrude(gear,boss)
 - **Scale**: 1.32e2 (log: 2.12)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 53 unpaired edges out of 1290 total; consistent_normals: 101 of 896 triangles have reversed normals; no_degenerate_triangles: 24 of 896 triangles are degenerate; outward_normals: only 758 of 896 triangles (84.6%) have outward normals (need 95%)
+- **Detail**: watertight_mesh: 51 unpaired edges out of 1286 total; consistent_normals: 99 of 892 triangles have reversed normals; no_degenerate_triangles: 24 of 892 triangles are degenerate; outward_normals: only 754 of 892 triangles (84.5%) have outward normals (need 95%)
 
 ### R0011 — FAIL
 
 - **Operations**: extrude(rectangle,boss) + extrude(gear,boss)
 - **Scale**: 7.15e3 (log: 3.85)
-- **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 13 unpaired edges out of 1553 total; consistent_normals: 134 of 1044 triangles have reversed normals; no_degenerate_triangles: 4 of 1044 triangles are degenerate; outward_normals: only 778 of 1044 triangles (74.5%) have outward normals (need 95%)
+- **Category**: revolve-normals
+- **Detail**: consistent_normals: 131 of 996 triangles have reversed normals; no_degenerate_triangles: 13 of 996 triangles are degenerate; outward_normals: only 748 of 996 triangles (75.1%) have outward normals (need 95%)
 
 ### R0012 — FAIL
 
@@ -124,14 +124,14 @@ Score: **2/100** (2 pass, 89 fail, 9 error)
 - **Operations**: extrude(gear,boss) + extrude(rectangle,cut) + extrude(rectangle,boss)
 - **Scale**: 1.28e3 (log: 3.11)
 - **Category**: revolve-normals
-- **Detail**: consistent_normals: 57 of 560 triangles have reversed normals
+- **Detail**: consistent_normals: 56 of 560 triangles have reversed normals; no_degenerate_triangles: 1 of 560 triangles are degenerate
 
 ### R0015 — FAIL
 
 - **Operations**: extrude(gear,boss) + extrude(rectangle,cut) + extrude(circle,boss)
 - **Scale**: 1.12e-4 (log: -3.95)
 - **Category**: boolean-watertight
-- **Detail**: partial rebuild (1 error(s)): e70af511-c5e7-4187-beea-2a614239be9a: operation error: kernel error: boolean operation failed: non-manifold result: 28 half-edges unpaired out of 656; watertight_mesh: 18 unpaired edges out of 19 total; consistent_normals: 36 of 404 triangles have reversed normals; no_degenerate_triangles: 2 of 404 triangles are degenerate
+- **Detail**: partial rebuild (1 error(s)): e70af511-c5e7-4187-beea-2a614239be9a: operation error: kernel error: boolean operation failed: non-manifold result: 28 half-edges unpaired out of 626; watertight_mesh: 18 unpaired edges out of 19 total; consistent_normals: 36 of 404 triangles have reversed normals; no_degenerate_triangles: 2 of 404 triangles are degenerate
 
 ### R0016 — FAIL
 
@@ -278,7 +278,7 @@ Score: **2/100** (2 pass, 89 fail, 9 error)
 - **Operations**: extrude(gear,boss) + extrude(gear,boss) + extrude(circle,cut)
 - **Scale**: 7.33e-2 (log: -1.14)
 - **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 8038. Body created as standalone.; watertight_mesh: 256 unpaired edges out of 536 total; consistent_normals: 32 of 272 triangles have reversed normals; outward_normals: only 144 of 272 triangles (52.9%) have outward normals (need 95%)
+- **Detail**: auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 8052. Body created as standalone.; watertight_mesh: 256 unpaired edges out of 536 total; consistent_normals: 32 of 272 triangles have reversed normals; outward_normals: only 144 of 272 triangles (52.9%) have outward normals (need 95%)
 
 ### R0037 — ERROR
 
@@ -390,7 +390,7 @@ Score: **2/100** (2 pass, 89 fail, 9 error)
 - **Operations**: extrude(gear,boss) + extrude(rectangle,cut)
 - **Scale**: 5.87e1 (log: 1.77)
 - **Category**: boolean-watertight
-- **Detail**: partial rebuild (1 error(s)): a0a8a309-e068-4508-8f08-6202b433a308: operation error: kernel error: boolean operation failed: non-manifold result: 24 half-edges unpaired out of 580; consistent_normals: 35 of 380 triangles have reversed normals
+- **Detail**: partial rebuild (1 error(s)): a0a8a309-e068-4508-8f08-6202b433a308: operation error: kernel error: boolean operation failed: non-manifold result: 24 half-edges unpaired out of 548; consistent_normals: 35 of 380 triangles have reversed normals
 
 ### R0053 — FAIL
 
@@ -425,7 +425,7 @@ Score: **2/100** (2 pass, 89 fail, 9 error)
 - **Operations**: extrude(rectangle,boss) + revolve(circle,boss) + extrude(gear,boss)
 - **Scale**: 1.04e2 (log: 2.02)
 - **Category**: revolve-normals
-- **Detail**: partial rebuild (1 error(s)): 1eddf950-5939-4129-8a7e-33c5645962f1: operation error: kernel error: operation not supported: revolve: circle profile (torus); consistent_normals: 55 of 540 triangles have reversed normals; no_degenerate_triangles: 1 of 540 triangles are degenerate
+- **Detail**: partial rebuild (1 error(s)): 1eddf950-5939-4129-8a7e-33c5645962f1: operation error: kernel error: operation not supported: revolve: circle profile (torus); consistent_normals: 55 of 540 triangles have reversed normals
 
 ### R0058 — FAIL
 
@@ -460,7 +460,7 @@ Score: **2/100** (2 pass, 89 fail, 9 error)
 - **Operations**: extrude(rectangle,boss) + extrude(gear,boss)
 - **Scale**: 1.87e-4 (log: -3.73)
 - **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 225 half-edges unpaired out of 2967. Body created as standalone.; watertight_mesh: 23 unpaired edges out of 27 total; consistent_normals: 24 of 260 triangles have reversed normals; no_degenerate_triangles: 1 of 260 triangles are degenerate
+- **Detail**: auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 152 half-edges unpaired out of 2540. Body created as standalone.; watertight_mesh: 23 unpaired edges out of 27 total; consistent_normals: 24 of 260 triangles have reversed normals; no_degenerate_triangles: 1 of 260 triangles are degenerate
 
 ### R0063 — FAIL
 
@@ -530,14 +530,14 @@ Score: **2/100** (2 pass, 89 fail, 9 error)
 - **Operations**: extrude(gear,boss) + extrude(gear,cut) + revolve(gear,cut)
 - **Scale**: 5.55e-4 (log: -3.26)
 - **Category**: boolean-watertight
-- **Detail**: partial rebuild (2 error(s)): 691d1057-0a1a-4b04-b4a4-f4a3dcc17ac7: operation error: kernel error: boolean operation failed: non-manifold result: 495 half-edges unpaired out of 6865; a0c03aee-5af0-41d3-80d5-260665b76d56: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; watertight_mesh: 112 unpaired edges out of 194 total; consistent_normals: 34 of 356 triangles have reversed normals
+- **Detail**: partial rebuild (2 error(s)): 691d1057-0a1a-4b04-b4a4-f4a3dcc17ac7: operation error: kernel error: boolean operation failed: non-manifold result: 495 half-edges unpaired out of 6337; a0c03aee-5af0-41d3-80d5-260665b76d56: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; watertight_mesh: 112 unpaired edges out of 194 total; consistent_normals: 34 of 356 triangles have reversed normals
 
 ### R0073 — FAIL
 
 - **Operations**: extrude(rectangle,boss) + extrude(rectangle,boss)
 - **Scale**: 3.97e2 (log: 2.60)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 2 unpaired edges out of 82 total; consistent_normals: 4 of 56 triangles have reversed normals; no_degenerate_triangles: 1 of 56 triangles are degenerate
+- **Detail**: watertight_mesh: 6 unpaired edges out of 84 total; consistent_normals: 5 of 60 triangles have reversed normals; no_degenerate_triangles: 4 of 60 triangles are degenerate
 
 ### R0074 — FAIL
 
@@ -593,7 +593,7 @@ Score: **2/100** (2 pass, 89 fail, 9 error)
 - **Operations**: extrude(gear,boss) + extrude(rectangle,cut) + revolve(gear,boss)
 - **Scale**: 2.24e-1 (log: -0.65)
 - **Category**: boolean-watertight
-- **Detail**: partial rebuild (2 error(s)): dbacb0ff-3e4a-40cf-a494-4ea57581b0f3: operation error: kernel error: boolean operation failed: non-manifold result: 26 half-edges unpaired out of 856; b3407682-c9e7-4d82-a320-521783ae8b88: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; consistent_normals: 43 of 500 triangles have reversed normals
+- **Detail**: partial rebuild (2 error(s)): dbacb0ff-3e4a-40cf-a494-4ea57581b0f3: operation error: kernel error: boolean operation failed: non-manifold result: 26 half-edges unpaired out of 852; b3407682-c9e7-4d82-a320-521783ae8b88: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; consistent_normals: 43 of 500 triangles have reversed normals
 
 ### R0082 — FAIL
 
@@ -642,14 +642,14 @@ Score: **2/100** (2 pass, 89 fail, 9 error)
 - **Operations**: revolve(gear,boss) + extrude(rectangle,boss) + extrude(rectangle,cut)
 - **Scale**: 7.56e2 (log: 2.88)
 - **Category**: boolean-watertight
-- **Detail**: partial rebuild (2 error(s)): 8c9e197f-783b-41d2-b469-24d61bd6b540: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; 40e457d5-2845-4cd4-825c-cecd94c84166: operation error: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 40
+- **Detail**: partial rebuild (2 error(s)): 8c9e197f-783b-41d2-b469-24d61bd6b540: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; 40e457d5-2845-4cd4-825c-cecd94c84166: operation error: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 46
 
 ### R0089 — FAIL
 
 - **Operations**: extrude(rectangle,boss) + extrude(rectangle,boss) + extrude(circle,boss)
 - **Scale**: 1.66e-1 (log: -0.78)
 - **Category**: revolve-normals
-- **Detail**: consistent_normals: 4 of 36 triangles have reversed normals; outward_normals: only 24 of 36 triangles (66.7%) have outward normals (need 95%)
+- **Detail**: consistent_normals: 6 of 36 triangles have reversed normals; outward_normals: only 24 of 36 triangles (66.7%) have outward normals (need 95%)
 
 ### R0090 — FAIL
 
@@ -698,7 +698,7 @@ Score: **2/100** (2 pass, 89 fail, 9 error)
 - **Operations**: extrude(gear,boss) + extrude(rectangle,boss)
 - **Scale**: 8.88e-3 (log: -2.05)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 311 unpaired edges out of 1733 total; consistent_normals: 36 of 1452 triangles have reversed normals; no_degenerate_triangles: 4 of 1452 triangles are degenerate
+- **Detail**: watertight_mesh: 313 unpaired edges out of 1732 total; consistent_normals: 36 of 1452 triangles have reversed normals; no_degenerate_triangles: 4 of 1452 triangles are degenerate
 
 ### R0097 — FAIL
 

@@ -30,7 +30,7 @@
     },
     {
       "category": "revolve-normals",
-      "detail": "consistent_normals: 43 of 632 triangles have reversed normals; outward_normals: only 538 of 632 triangles (85.1%) have outward normals (need 95%)",
+      "detail": "consistent_normals: 44 of 632 triangles have reversed normals; outward_normals: only 538 of 632 triangles (85.1%) have outward normals (need 95%)",
       "id": "R0005",
       "status": "fail"
     },
@@ -48,7 +48,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): d1ffa7d1-7f95-4d10-9de9-40429468acac: operation error: kernel error: operation not supported: revolve: circle profile (torus); watertight_mesh: 135 unpaired edges out of 1242 total; consistent_normals: 168 of 918 triangles have reversed normals",
+      "detail": "partial rebuild (1 error(s)): d1ffa7d1-7f95-4d10-9de9-40429468acac: operation error: kernel error: operation not supported: revolve: circle profile (torus); watertight_mesh: 135 unpaired edges out of 1245 total; consistent_normals: 173 of 920 triangles have reversed normals",
       "id": "R0008",
       "status": "fail"
     },
@@ -60,13 +60,13 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 53 unpaired edges out of 1290 total; consistent_normals: 101 of 896 triangles have reversed normals; no_degenerate_triangles: 24 of 896 triangles are degenerate; outward_normals: only 758 of 896 triangles (84.6%) have outward normals (need 95%)",
+      "detail": "watertight_mesh: 51 unpaired edges out of 1286 total; consistent_normals: 99 of 892 triangles have reversed normals; no_degenerate_triangles: 24 of 892 triangles are degenerate; outward_normals: only 754 of 892 triangles (84.5%) have outward normals (need 95%)",
       "id": "R0010",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 13 unpaired edges out of 1553 total; consistent_normals: 134 of 1044 triangles have reversed normals; no_degenerate_triangles: 4 of 1044 triangles are degenerate; outward_normals: only 778 of 1044 triangles (74.5%) have outward normals (need 95%)",
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 131 of 996 triangles have reversed normals; no_degenerate_triangles: 13 of 996 triangles are degenerate; outward_normals: only 748 of 996 triangles (75.1%) have outward normals (need 95%)",
       "id": "R0011",
       "status": "fail"
     },
@@ -84,13 +84,13 @@
     },
     {
       "category": "revolve-normals",
-      "detail": "consistent_normals: 57 of 560 triangles have reversed normals",
+      "detail": "consistent_normals: 56 of 560 triangles have reversed normals; no_degenerate_triangles: 1 of 560 triangles are degenerate",
       "id": "R0014",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): e70af511-c5e7-4187-beea-2a614239be9a: operation error: kernel error: boolean operation failed: non-manifold result: 28 half-edges unpaired out of 656; watertight_mesh: 18 unpaired edges out of 19 total; consistent_normals: 36 of 404 triangles have reversed normals; no_degenerate_triangles: 2 of 404 triangles are degenerate",
+      "detail": "partial rebuild (1 error(s)): e70af511-c5e7-4187-beea-2a614239be9a: operation error: kernel error: boolean operation failed: non-manifold result: 28 half-edges unpaired out of 626; watertight_mesh: 18 unpaired edges out of 19 total; consistent_normals: 36 of 404 triangles have reversed normals; no_degenerate_triangles: 2 of 404 triangles are degenerate",
       "id": "R0015",
       "status": "fail"
     },
@@ -216,7 +216,7 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 8038. Body created as standalone.; watertight_mesh: 256 unpaired edges out of 536 total; consistent_normals: 32 of 272 triangles have reversed normals; outward_normals: only 144 of 272 triangles (52.9%) have outward normals (need 95%)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 8052. Body created as standalone.; watertight_mesh: 256 unpaired edges out of 536 total; consistent_normals: 32 of 272 triangles have reversed normals; outward_normals: only 144 of 272 triangles (52.9%) have outward normals (need 95%)",
       "id": "R0036",
       "status": "fail"
     },
@@ -312,7 +312,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): a0a8a309-e068-4508-8f08-6202b433a308: operation error: kernel error: boolean operation failed: non-manifold result: 24 half-edges unpaired out of 580; consistent_normals: 35 of 380 triangles have reversed normals",
+      "detail": "partial rebuild (1 error(s)): a0a8a309-e068-4508-8f08-6202b433a308: operation error: kernel error: boolean operation failed: non-manifold result: 24 half-edges unpaired out of 548; consistent_normals: 35 of 380 triangles have reversed normals",
       "id": "R0052",
       "status": "fail"
     },
@@ -342,7 +342,7 @@
     },
     {
       "category": "revolve-normals",
-      "detail": "partial rebuild (1 error(s)): 1eddf950-5939-4129-8a7e-33c5645962f1: operation error: kernel error: operation not supported: revolve: circle profile (torus); consistent_normals: 55 of 540 triangles have reversed normals; no_degenerate_triangles: 1 of 540 triangles are degenerate",
+      "detail": "partial rebuild (1 error(s)): 1eddf950-5939-4129-8a7e-33c5645962f1: operation error: kernel error: operation not supported: revolve: circle profile (torus); consistent_normals: 55 of 540 triangles have reversed normals",
       "id": "R0057",
       "status": "fail"
     },
@@ -372,7 +372,7 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 225 half-edges unpaired out of 2967. Body created as standalone.; watertight_mesh: 23 unpaired edges out of 27 total; consistent_normals: 24 of 260 triangles have reversed normals; no_degenerate_triangles: 1 of 260 triangles are degenerate",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 152 half-edges unpaired out of 2540. Body created as standalone.; watertight_mesh: 23 unpaired edges out of 27 total; consistent_normals: 24 of 260 triangles have reversed normals; no_degenerate_triangles: 1 of 260 triangles are degenerate",
       "id": "R0062",
       "status": "fail"
     },
@@ -432,13 +432,13 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (2 error(s)): 691d1057-0a1a-4b04-b4a4-f4a3dcc17ac7: operation error: kernel error: boolean operation failed: non-manifold result: 495 half-edges unpaired out of 6865; a0c03aee-5af0-41d3-80d5-260665b76d56: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; watertight_mesh: 112 unpaired edges out of 194 total; consistent_normals: 34 of 356 triangles have reversed normals",
+      "detail": "partial rebuild (2 error(s)): 691d1057-0a1a-4b04-b4a4-f4a3dcc17ac7: operation error: kernel error: boolean operation failed: non-manifold result: 495 half-edges unpaired out of 6337; a0c03aee-5af0-41d3-80d5-260665b76d56: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; watertight_mesh: 112 unpaired edges out of 194 total; consistent_normals: 34 of 356 triangles have reversed normals",
       "id": "R0072",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 2 unpaired edges out of 82 total; consistent_normals: 4 of 56 triangles have reversed normals; no_degenerate_triangles: 1 of 56 triangles are degenerate",
+      "detail": "watertight_mesh: 6 unpaired edges out of 84 total; consistent_normals: 5 of 60 triangles have reversed normals; no_degenerate_triangles: 4 of 60 triangles are degenerate",
       "id": "R0073",
       "status": "fail"
     },
@@ -486,7 +486,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (2 error(s)): dbacb0ff-3e4a-40cf-a494-4ea57581b0f3: operation error: kernel error: boolean operation failed: non-manifold result: 26 half-edges unpaired out of 856; b3407682-c9e7-4d82-a320-521783ae8b88: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; consistent_normals: 43 of 500 triangles have reversed normals",
+      "detail": "partial rebuild (2 error(s)): dbacb0ff-3e4a-40cf-a494-4ea57581b0f3: operation error: kernel error: boolean operation failed: non-manifold result: 26 half-edges unpaired out of 852; b3407682-c9e7-4d82-a320-521783ae8b88: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; consistent_normals: 43 of 500 triangles have reversed normals",
       "id": "R0081",
       "status": "fail"
     },
@@ -528,13 +528,13 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (2 error(s)): 8c9e197f-783b-41d2-b469-24d61bd6b540: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; 40e457d5-2845-4cd4-825c-cecd94c84166: operation error: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 40",
+      "detail": "partial rebuild (2 error(s)): 8c9e197f-783b-41d2-b469-24d61bd6b540: operation error: kernel error: operation not supported: revolve: profile edge neither radial nor axial; 40e457d5-2845-4cd4-825c-cecd94c84166: operation error: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 46",
       "id": "R0088",
       "status": "fail"
     },
     {
       "category": "revolve-normals",
-      "detail": "consistent_normals: 4 of 36 triangles have reversed normals; outward_normals: only 24 of 36 triangles (66.7%) have outward normals (need 95%)",
+      "detail": "consistent_normals: 6 of 36 triangles have reversed normals; outward_normals: only 24 of 36 triangles (66.7%) have outward normals (need 95%)",
       "id": "R0089",
       "status": "fail"
     },
@@ -576,7 +576,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 311 unpaired edges out of 1733 total; consistent_normals: 36 of 1452 triangles have reversed normals; no_degenerate_triangles: 4 of 1452 triangles are degenerate",
+      "detail": "watertight_mesh: 313 unpaired edges out of 1732 total; consistent_normals: 36 of 1452 triangles have reversed normals; no_degenerate_triangles: 4 of 1452 triangles are degenerate",
       "id": "R0096",
       "status": "fail"
     },
