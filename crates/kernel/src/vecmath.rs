@@ -45,6 +45,47 @@ pub(crate) fn v3_normalize(v: [f64; 3]) -> [f64; 3] {
     }
 }
 
+/// Compute an orthonormal basis (u, v) for a plane given its normal.
+pub(crate) fn compute_plane_basis(normal: [f64; 3]) -> ([f64; 3], [f64; 3]) {
+    let up = if normal[0].abs() < 0.9 {
+        [1.0, 0.0, 0.0]
+    } else {
+        [0.0, 1.0, 0.0]
+    };
+    let u = v3_normalize(v3_cross(normal, up));
+    let v = v3_cross(normal, u);
+    (u, v)
+}
+
+/// Newell method for computing polygon normal from vertex loop.
+pub(crate) fn compute_newell_normal(verts: &[[f64; 3]]) -> [f64; 3] {
+    let n = verts.len();
+    let mut newell = [0.0f64; 3];
+    for i in 0..n {
+        let curr = verts[i];
+        let next = verts[(i + 1) % n];
+        newell[0] += (curr[1] - next[1]) * (curr[2] + next[2]);
+        newell[1] += (curr[2] - next[2]) * (curr[0] + next[0]);
+        newell[2] += (curr[0] - next[0]) * (curr[1] + next[1]);
+    }
+    v3_normalize(newell)
+}
+
+/// Compute centroid (average) of a set of vertices.
+pub(crate) fn compute_centroid(verts: &[[f64; 3]]) -> [f64; 3] {
+    let n = verts.len() as f64;
+    if n < 1.0 {
+        return [0.0; 3];
+    }
+    let mut sum = [0.0; 3];
+    for v in verts {
+        sum[0] += v[0];
+        sum[1] += v[1];
+        sum[2] += v[2];
+    }
+    [sum[0] / n, sum[1] / n, sum[2] / n]
+}
+
 /// 3x3 rotation matrix stored row-major.
 pub(crate) type Mat3 = [[f64; 3]; 3];
 

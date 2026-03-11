@@ -259,14 +259,37 @@ impl WaffleKernel {
         let mut edge_geometry = HashMap::new();
         let mut lateral_face_data = Vec::new();
 
-        // Compute rotated profile normal for end cap
-        let rotated_normal = rotate_point_around_axis(
-            v3_add(axis_origin, standalone.plane_normal),
-            axis_origin,
-            axis_dir,
-            angle_rad,
-        );
-        let end_cap_normal = v3_sub(rotated_normal, axis_origin);
+        // Compute solid centroid for outward-pointing normal determination
+        let solid_center = {
+            let mut all_verts: Vec<[f64; 3]> = start_verts.clone();
+            all_verts.extend_from_slice(&end_verts);
+            compute_centroid(&all_verts)
+        };
+
+        // Derive cap normals from actual loop winding (Newell) + outward direction
+        let start_cap_normal = {
+            let loop_verts = get_face_loop_verts(&arena, start_cap_face);
+            let newell = compute_newell_normal(&loop_verts);
+            let face_center = compute_centroid(&loop_verts);
+            let outward = v3_sub(face_center, solid_center);
+            if v3_dot(newell, outward) >= 0.0 {
+                newell
+            } else {
+                v3_negate(newell)
+            }
+        };
+
+        let end_cap_normal = {
+            let loop_verts = get_face_loop_verts(&arena, face0);
+            let newell = compute_newell_normal(&loop_verts);
+            let face_center = compute_centroid(&loop_verts);
+            let outward = v3_sub(face_center, solid_center);
+            if v3_dot(newell, outward) >= 0.0 {
+                newell
+            } else {
+                v3_negate(newell)
+            }
+        };
 
         // Start cap face (start_cap_face)
         let start_cap_kid = self.alloc_id();
@@ -275,7 +298,7 @@ impl WaffleKernel {
             start_cap_face,
             SurfaceGeom::Planar(Plane {
                 origin: Point3::from_array(standalone.plane_origin),
-                normal: Vector3::from_array(v3_negate(standalone.plane_normal)),
+                normal: Vector3::from_array(start_cap_normal),
             }),
         );
 
@@ -650,6 +673,23 @@ impl Default for WaffleKernel {
 // ── Helper geometry functions ────────────────────────────────────────────
 
 /// Rotate a point around an axis (Rodrigues' rotation formula).
+/// Get all vertex positions from a face's outer loop.
+fn get_face_loop_verts(arena: &TopoArena, face: FaceIdx) -> Vec<[f64; 3]> {
+    let loop_idx = arena.faces[face.0].outer_loop;
+    let start_he = arena.loops[loop_idx.0].half_edge;
+    let mut verts = Vec::new();
+    let mut he = start_he;
+    loop {
+        let v = arena.half_edges[he.0].origin;
+        verts.push(arena.vertices[v.0].position);
+        he = arena.half_edges[he.0].next;
+        if he == start_he {
+            break;
+        }
+    }
+    verts
+}
+
 fn rotate_point_around_axis(
     point: [f64; 3],
     axis_origin: [f64; 3],

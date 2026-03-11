@@ -2751,10 +2751,9 @@ fn check_normals_consistent(mesh: &RenderMesh) -> (usize, usize) {
 }
 
 #[test]
-fn tn1_gear_extrude_side_normals_consistent() {
-    // Gear is non-convex: fan triangulation of top/bottom polygon faces will
-    // inherently produce some triangles with flipped geometric normals across
-    // concavities. Side faces (quads) should all be consistent though.
+fn tn1_gear_extrude_all_normals_consistent() {
+    // With ear-clipping, all triangles (including non-convex gear polygon faces)
+    // should have consistent normals.
     let mut k = WaffleKernel::new();
     let (profiles, positions) = make_gear_profile(0.0, 0.0, 12, 2.0);
     let face = k
@@ -2765,14 +2764,10 @@ fn tn1_gear_extrude_side_normals_consistent() {
 
     let (consistent, total) = check_normals_consistent(&mesh);
     assert!(total > 0, "tn1: mesh should have triangles");
-    // Side faces = 48 quads * 2 tris = 96 triangles should all be consistent.
-    // Top/bottom fan triangles of non-convex polygon may have some flipped.
-    // Require at least 60% consistent (side faces alone = 96/188 ~ 51%).
-    let ratio = consistent as f64 / total as f64;
-    assert!(
-        ratio >= 0.60,
-        "tn1: gear normals {}/{} = {:.1}% consistent, expected >= 60%",
-        consistent, total, ratio * 100.0
+    assert_eq!(
+        consistent, total,
+        "tn1: all {} gear triangles should have consistent normals, but only {}/{} do",
+        total, consistent, total
     );
 }
 
@@ -2864,5 +2859,160 @@ fn bw3_overlapping_rects_union_watertight() {
     assert!(
         check_watertight(&mesh),
         "bw3: overlapping rect union should be watertight"
+    );
+}
+
+// ── Group EC: Ear-Clipping Tessellation ──────────────────────────────
+
+#[test]
+fn ec1_gear_earclip_all_normals_consistent() {
+    // With ear-clipping, ALL triangles on non-convex gear polygon faces
+    // should have consistent normals (not just ~61% from fan triangulation).
+    let mut k = WaffleKernel::new();
+    let (profiles, positions) = make_gear_profile(0.0, 0.0, 12, 2.0);
+    let face = k
+        .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+        .expect("gear profile");
+    let solid = k.extrude_face(face[0], Z_DIR, 5.0).expect("gear extrude");
+    let mesh = k.tessellate(&solid, 0.01).expect("tessellate gear");
+
+    let (consistent, total) = check_normals_consistent(&mesh);
+    assert!(total > 0, "ec1: mesh should have triangles");
+    assert_eq!(
+        consistent, total,
+        "ec1: all {} gear triangles should have consistent normals, but only {}/{} do",
+        total, consistent, total
+    );
+}
+
+#[test]
+fn ec2_gear_earclip_no_degenerate_triangles() {
+    // All triangles from ear-clipping should have positive area.
+    let mut k = WaffleKernel::new();
+    let (profiles, positions) = make_gear_profile(0.0, 0.0, 12, 2.0);
+    let face = k
+        .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+        .expect("gear profile");
+    let solid = k.extrude_face(face[0], Z_DIR, 5.0).expect("gear extrude");
+    let mesh = k.tessellate(&solid, 0.01).expect("tessellate gear");
+
+    let n_tris = mesh.indices.len() / 3;
+    let mut degenerate_count = 0;
+    for i in 0..n_tris {
+        let i0 = mesh.indices[i * 3] as usize;
+        let i1 = mesh.indices[i * 3 + 1] as usize;
+        let i2 = mesh.indices[i * 3 + 2] as usize;
+
+        let v0 = [
+            mesh.vertices[i0 * 3] as f64,
+            mesh.vertices[i0 * 3 + 1] as f64,
+            mesh.vertices[i0 * 3 + 2] as f64,
+        ];
+        let v1 = [
+            mesh.vertices[i1 * 3] as f64,
+            mesh.vertices[i1 * 3 + 1] as f64,
+            mesh.vertices[i1 * 3 + 2] as f64,
+        ];
+        let v2 = [
+            mesh.vertices[i2 * 3] as f64,
+            mesh.vertices[i2 * 3 + 1] as f64,
+            mesh.vertices[i2 * 3 + 2] as f64,
+        ];
+
+        let e1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
+        let e2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
+        let cross = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        let area = (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt() * 0.5;
+        if area < 1e-12 {
+            degenerate_count += 1;
+        }
+    }
+    assert_eq!(
+        degenerate_count, 0,
+        "ec2: found {} degenerate (zero-area) triangles out of {}",
+        degenerate_count, n_tris
+    );
+}
+
+#[test]
+fn ec3_convex_rect_still_works() {
+    // Convex rectangles should still produce correct results via fan fast-path.
+    let (mut k, solid) = make_unit_box();
+    let mesh = k.tessellate(&solid, 0.01).expect("tessellate unit box");
+
+    let (consistent, total) = check_normals_consistent(&mesh);
+    assert_eq!(
+        consistent, total,
+        "ec3: all {} rect triangles should have consistent normals, but only {}/{} do",
+        total, consistent, total
+    );
+
+    let vol = mesh_volume(&mesh);
+    assert!(
+        (vol - 1.0).abs() < 0.01,
+        "ec3: unit box volume should be ~1.0, got {}",
+        vol
+    );
+
+    assert!(
+        check_watertight(&mesh),
+        "ec3: unit box mesh should be watertight"
+    );
+}
+
+// ── Group RC: Revolve Cap Normals ────────────────────────────────────
+
+#[test]
+fn rc1_revolve_start_cap_normal_outward() {
+    // Revolve a rectangle 90 degrees. Start cap normal should point outward
+    // (away from solid centroid).
+    let (mut k, solid) = make_revolve_rect(5.0, 0.0, 2.0, 4.0, 90.0);
+    let mesh = k.tessellate(&solid, 0.01).expect("tessellate revolve");
+
+    // Find cap face triangles (those with z-aligned or similar flat normals)
+    // and check that their geometric normals agree with stored normals.
+    let (consistent, total) = check_normals_consistent(&mesh);
+    assert!(total > 0, "rc1: mesh should have triangles");
+    // Start cap should have correct normals. Allow 95% for lateral face rounding.
+    let ratio = consistent as f64 / total as f64;
+    assert!(
+        ratio >= 0.95,
+        "rc1: revolve normals {}/{} = {:.1}% consistent, expected >= 95%",
+        consistent, total, ratio * 100.0
+    );
+}
+
+#[test]
+fn rc2_revolve_end_cap_normal_outward() {
+    // Revolve 180 degrees — end cap should also have outward normals.
+    let (mut k, solid) = make_revolve_rect(5.0, 0.0, 2.0, 4.0, 180.0);
+    let mesh = k.tessellate(&solid, 0.01).expect("tessellate revolve");
+
+    let (consistent, total) = check_normals_consistent(&mesh);
+    assert!(total > 0, "rc2: mesh should have triangles");
+    let ratio = consistent as f64 / total as f64;
+    assert!(
+        ratio >= 0.95,
+        "rc2: revolve normals {}/{} = {:.1}% consistent, expected >= 95%",
+        consistent, total, ratio * 100.0
+    );
+}
+
+#[test]
+fn rc3_revolve_both_caps_100pct_consistent() {
+    // With the cap normal fix, 100% of triangles should be consistent.
+    let (mut k, solid) = make_revolve_rect(10.0, 0.0, 2.0, 3.0, 90.0);
+    let mesh = k.tessellate(&solid, 0.01).expect("tessellate revolve");
+
+    let (consistent, total) = check_normals_consistent(&mesh);
+    assert!(total > 0, "rc3: mesh should have triangles");
+    assert_eq!(
+        consistent, total,
+        "rc3: all {} revolve triangles should have consistent normals, but only {}/{} do",
+        total, consistent, total
     );
 }

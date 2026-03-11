@@ -1,7 +1,8 @@
 //! Tessellation — converting B-Rep faces to triangle meshes.
 //!
-//! Handles flat (planar) face triangulation using fan decomposition,
-//! and geometry-driven tessellation for cylindrical faces and circular caps.
+//! Handles flat (planar) face triangulation using ear-clipping (non-convex)
+//! or fan decomposition (convex fast-path), and geometry-driven tessellation
+//! for cylindrical faces and circular caps.
 
 use crate::geometry::curve::CurveGeom;
 use crate::geometry::surface::SurfaceGeom;
@@ -9,7 +10,7 @@ use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::*;
 use crate::types::*;
 use crate::units::TAU_NORMALIZE;
-use crate::vecmath::{v3_cross, v3_dot, v3_sub};
+use crate::vecmath::{compute_plane_basis, v3_cross, v3_dot, v3_sub};
 use crate::waffle_kernel::{CylinderParams, RevolveParams};
 use std::collections::HashMap;
 
@@ -483,6 +484,48 @@ fn tessellate_revolve_lateral(
         indices.push(v01);
         indices.push(v11);
     }
+
+    // Post-fix: check first triangle's geometric normal against stored normal.
+    // If they disagree, flip stored normals (not winding) to match geometry.
+    {
+        let first_tri_start = indices.len() - (n * 2) * 3;
+        let i0 = indices[first_tri_start] as usize;
+        let i1 = indices[first_tri_start + 1] as usize;
+        let i2 = indices[first_tri_start + 2] as usize;
+        let p0 = [
+            vertices[i0 * 3] as f64,
+            vertices[i0 * 3 + 1] as f64,
+            vertices[i0 * 3 + 2] as f64,
+        ];
+        let p1 = [
+            vertices[i1 * 3] as f64,
+            vertices[i1 * 3 + 1] as f64,
+            vertices[i1 * 3 + 2] as f64,
+        ];
+        let p2 = [
+            vertices[i2 * 3] as f64,
+            vertices[i2 * 3 + 1] as f64,
+            vertices[i2 * 3 + 2] as f64,
+        ];
+        let e1 = v3_sub(p1, p0);
+        let e2 = v3_sub(p2, p0);
+        let geo_normal = v3_cross(e1, e2);
+        let stored = [
+            normals[i0 * 3] as f64,
+            normals[i0 * 3 + 1] as f64,
+            normals[i0 * 3 + 2] as f64,
+        ];
+        if v3_dot(geo_normal, stored) < 0.0 {
+            // Flip all stored normals for this face
+            let n_verts = (n + 1) * 2;
+            let normals_start = base_vertex as usize * 3;
+            for j in 0..n_verts {
+                normals[normals_start + j * 3] = -normals[normals_start + j * 3];
+                normals[normals_start + j * 3 + 1] = -normals[normals_start + j * 3 + 1];
+                normals[normals_start + j * 3 + 2] = -normals[normals_start + j * 3 + 2];
+            }
+        }
+    }
 }
 
 /// Tessellate a polygon face with known planar geometry (fan triangulation).
@@ -534,8 +577,8 @@ fn tessellate_polygon_face(
     }
 
     // Check if loop winding matches stored normal using Newell method.
-    // Unlike checking just the first triangle, this is robust for non-convex polygons.
     let n = loop_verts.len();
+    let stored_normal = [plane.normal.x, plane.normal.y, plane.normal.z];
     let mut newell = [0.0f64; 3];
     for i in 0..n {
         let curr = loop_verts[i];
@@ -544,18 +587,86 @@ fn tessellate_polygon_face(
         newell[1] += (curr[2] - next[2]) * (curr[0] + next[0]);
         newell[2] += (curr[0] - next[0]) * (curr[1] + next[1]);
     }
-    let dot = v3_dot(newell, [plane.normal.x, plane.normal.y, plane.normal.z]);
+    let dot = v3_dot(newell, stored_normal);
     let flip = dot < 0.0;
 
-    for i in 1..loop_verts.len() as u32 - 1 {
-        if flip {
-            indices.push(base_vertex);
-            indices.push(base_vertex + i + 1);
-            indices.push(base_vertex + i);
+    // Convexity check: for each consecutive triple of edges, verify the cross
+    // product agrees in sign with the Newell normal. If all agree → convex.
+    let is_convex = {
+        let newell_len = v3_dot(newell, newell).sqrt();
+        if newell_len < TAU_NORMALIZE {
+            true // degenerate → fall back to fan
         } else {
-            indices.push(base_vertex);
-            indices.push(base_vertex + i);
-            indices.push(base_vertex + i + 1);
+            let nn = [
+                newell[0] / newell_len,
+                newell[1] / newell_len,
+                newell[2] / newell_len,
+            ];
+            let mut convex = true;
+            for i in 0..n {
+                let a = loop_verts[i];
+                let b = loop_verts[(i + 1) % n];
+                let c = loop_verts[(i + 2) % n];
+                let ab = v3_sub(b, a);
+                let bc = v3_sub(c, b);
+                let cross = v3_cross(ab, bc);
+                if v3_dot(cross, nn) < 0.0 {
+                    convex = false;
+                    break;
+                }
+            }
+            convex
+        }
+    };
+
+    if is_convex {
+        // Fast path: fan triangulation for convex polygons
+        for i in 1..n as u32 - 1 {
+            if flip {
+                indices.push(base_vertex);
+                indices.push(base_vertex + i + 1);
+                indices.push(base_vertex + i);
+            } else {
+                indices.push(base_vertex);
+                indices.push(base_vertex + i);
+                indices.push(base_vertex + i + 1);
+            }
+        }
+    } else {
+        // Non-convex path: ear-clipping via earcutr
+        let newell_len = v3_dot(newell, newell).sqrt();
+        let nn = if newell_len < TAU_NORMALIZE {
+            stored_normal
+        } else {
+            [
+                newell[0] / newell_len,
+                newell[1] / newell_len,
+                newell[2] / newell_len,
+            ]
+        };
+        let (u_axis, v_axis) = compute_plane_basis(nn);
+
+        let coords_2d: Vec<f64> = loop_verts
+            .iter()
+            .flat_map(|v| {
+                let d = v3_sub(*v, loop_verts[0]);
+                vec![v3_dot(d, u_axis), v3_dot(d, v_axis)]
+            })
+            .collect();
+
+        let tri_indices =
+            earcutr::earcut(&coords_2d, &[], 2).expect("earcut failed on polygon face");
+
+        for chunk in tri_indices.chunks(3) {
+            if flip {
+                indices.push(base_vertex + chunk[0] as u32);
+                indices.push(base_vertex + chunk[2] as u32);
+                indices.push(base_vertex + chunk[1] as u32);
+            } else {
+                indices.push(base_vertex + chunk[0] as u32);
+                indices.push(base_vertex + chunk[1] as u32);
+                indices.push(base_vertex + chunk[2] as u32);
+            }
         }
     }
 
@@ -595,17 +706,24 @@ fn tessellate_polygon_face_fallback(
         return;
     }
 
-    let ab = v3_sub(loop_verts[1], loop_verts[0]);
-    let ac = v3_sub(loop_verts[2], loop_verts[0]);
-    let n = v3_cross(ab, ac);
-    let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-    let normal = if len < TAU_NORMALIZE {
+    // Compute Newell normal for robust non-convex handling
+    let nv = loop_verts.len();
+    let mut newell = [0.0f64; 3];
+    for i in 0..nv {
+        let curr = loop_verts[i];
+        let next = loop_verts[(i + 1) % nv];
+        newell[0] += (curr[1] - next[1]) * (curr[2] + next[2]);
+        newell[1] += (curr[2] - next[2]) * (curr[0] + next[0]);
+        newell[2] += (curr[0] - next[0]) * (curr[1] + next[1]);
+    }
+    let newell_len = v3_dot(newell, newell).sqrt();
+    let normal = if newell_len < TAU_NORMALIZE {
         [0.0f32, 0.0, 1.0]
     } else {
         [
-            (n[0] / len) as f32,
-            (n[1] / len) as f32,
-            (n[2] / len) as f32,
+            (newell[0] / newell_len) as f32,
+            (newell[1] / newell_len) as f32,
+            (newell[2] / newell_len) as f32,
         ]
     };
 
@@ -621,10 +739,65 @@ fn tessellate_polygon_face_fallback(
         normals_out.push(normal[2]);
     }
 
-    for i in 1..loop_verts.len() as u32 - 1 {
-        indices.push(base_vertex);
-        indices.push(base_vertex + i);
-        indices.push(base_vertex + i + 1);
+    // Convexity check
+    let is_convex = if newell_len < TAU_NORMALIZE {
+        true
+    } else {
+        let nn = [
+            newell[0] / newell_len,
+            newell[1] / newell_len,
+            newell[2] / newell_len,
+        ];
+        let mut convex = true;
+        for i in 0..nv {
+            let a = loop_verts[i];
+            let b = loop_verts[(i + 1) % nv];
+            let c = loop_verts[(i + 2) % nv];
+            let ab = v3_sub(b, a);
+            let bc = v3_sub(c, b);
+            let cross = v3_cross(ab, bc);
+            if v3_dot(cross, nn) < 0.0 {
+                convex = false;
+                break;
+            }
+        }
+        convex
+    };
+
+    if is_convex {
+        for i in 1..nv as u32 - 1 {
+            indices.push(base_vertex);
+            indices.push(base_vertex + i);
+            indices.push(base_vertex + i + 1);
+        }
+    } else {
+        let nn = if newell_len < TAU_NORMALIZE {
+            [0.0, 0.0, 1.0]
+        } else {
+            [
+                newell[0] / newell_len,
+                newell[1] / newell_len,
+                newell[2] / newell_len,
+            ]
+        };
+        let (u_axis, v_axis) = compute_plane_basis(nn);
+
+        let coords_2d: Vec<f64> = loop_verts
+            .iter()
+            .flat_map(|v| {
+                let d = v3_sub(*v, loop_verts[0]);
+                vec![v3_dot(d, u_axis), v3_dot(d, v_axis)]
+            })
+            .collect();
+
+        let tri_indices =
+            earcutr::earcut(&coords_2d, &[], 2).expect("earcut failed on polygon face (fallback)");
+
+        for chunk in tri_indices.chunks(3) {
+            indices.push(base_vertex + chunk[0] as u32);
+            indices.push(base_vertex + chunk[1] as u32);
+            indices.push(base_vertex + chunk[2] as u32);
+        }
     }
 
     let end_index = indices.len() as u32;
