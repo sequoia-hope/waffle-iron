@@ -632,6 +632,28 @@ pub fn check_role_exists(op: &OpResult, role: &Role, min_count: usize) -> Oracle
     }
 }
 
+/// Check that the mesh has positive signed volume (correct outward winding).
+///
+/// A correctly-oriented closed mesh with outward normals produces positive
+/// signed volume via the divergence theorem. Negative signed volume indicates
+/// inverted normals or inside-out winding.
+pub fn check_positive_signed_volume(mesh: &RenderMesh) -> OracleVerdict {
+    let signed_vol = crate::helpers::mesh_signed_volume(mesh);
+    if signed_vol > 0.0 {
+        OracleVerdict::pass_val(
+            "positive_signed_volume",
+            format!("signed volume = {:.6e}", signed_vol),
+            signed_vol,
+        )
+    } else {
+        OracleVerdict::fail_val(
+            "positive_signed_volume",
+            format!("signed volume = {:.6e} (should be > 0)", signed_vol),
+            signed_vol,
+        )
+    }
+}
+
 // ── Composite ───────────────────────────────────────────────────────────────
 
 /// Run all applicable checks on a solid + mesh + op_result combination.
@@ -644,6 +666,7 @@ pub fn run_all_mesh_checks(mesh: &RenderMesh) -> Vec<OracleVerdict> {
         check_face_range_coverage(mesh),
         check_valid_indices(mesh),
         check_outward_normals(mesh, 0.95),
+        check_positive_signed_volume(mesh),
     ]
 }
 

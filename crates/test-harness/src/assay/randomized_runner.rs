@@ -12,7 +12,7 @@ use std::time::Instant;
 
 use crate::assay::gen::{AssayMeta, CorpusManifest};
 use crate::assay::scoring::{AssayReport, AssayResult, AssayStatus};
-use crate::helpers::{mesh_bounding_box, mesh_volume};
+use crate::helpers::{mesh_bounding_box, mesh_signed_volume};
 use crate::oracle::run_all_mesh_checks;
 use crate::workflow::ModelBuilder;
 
@@ -284,11 +284,11 @@ fn replay_and_validate(case: &DiscoveredCase, use_kernel: bool) -> AssayResult {
         failures.push("empty mesh: no triangles".to_string());
     }
 
-    // Volume positivity check
+    // Volume positivity check (use signed volume to catch inverted winding)
     if meta.oracles.expect_positive_volume {
-        let vol = mesh_volume(&mesh);
+        let vol = mesh_signed_volume(&mesh);
         if vol <= 0.0 {
-            failures.push(format!("expected positive volume, got {:.6e}", vol));
+            failures.push(format!("expected positive signed volume, got {:.6e}", vol));
         }
     }
 

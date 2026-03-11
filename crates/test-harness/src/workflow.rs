@@ -109,6 +109,48 @@ impl ModelBuilder {
         self.extract_last_feature_id(name, "FinishSketch", response)
     }
 
+    /// Create a polygon sketch from explicit vertex positions in one call.
+    pub fn polygon_sketch(
+        &mut self,
+        name: &str,
+        origin: [f64; 3],
+        normal: [f64; 3],
+        vertices: &[(f64, f64)],
+    ) -> Result<Uuid, HarnessError> {
+        self.check_name_available(name)?;
+
+        let plane = datum_plane_ref(Uuid::new_v4());
+        wasm_bridge::dispatch(
+            &mut self.state,
+            UiToEngine::BeginSketch { plane },
+            self.kernel.as_mut(),
+        );
+
+        let (entities, positions, profiles) = polygon_profile(vertices);
+        for entity in entities {
+            wasm_bridge::dispatch(
+                &mut self.state,
+                UiToEngine::AddSketchEntity { entity },
+                self.kernel.as_mut(),
+            );
+        }
+
+        let response = wasm_bridge::dispatch(
+            &mut self.state,
+            UiToEngine::FinishSketch {
+                solved_positions: positions,
+                solved_profiles: profiles,
+                plane_origin: origin,
+                plane_normal: normal,
+                entities: vec![],
+                constraints: vec![],
+            },
+            self.kernel.as_mut(),
+        );
+
+        self.extract_last_feature_id(name, "FinishSketch(polygon)", response)
+    }
+
     /// Create a circular sketch (polygon approximation) in one call.
     pub fn circle_sketch(
         &mut self,

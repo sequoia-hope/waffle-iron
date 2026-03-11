@@ -1603,31 +1603,69 @@ pub(crate) fn ssi_boolean_op(
     }
 }
 
-/// Box-cylinder boolean dispatch.
+/// Box-cylinder boolean dispatch with frame rotation for axis-generic support.
+///
+/// Rotates the box AABB and cylinder into a Z-aligned frame (using the
+/// cylinder's direction), performs the boolean using Z-assumption logic,
+/// then rotates the result back. For Z-aligned inputs, `rotation_to_z`
+/// returns the identity matrix — zero overhead.
+///
+/// Ref #24 Barton: frame normalization before boolean.
 fn box_cyl_boolean(
-    box_aabb: &Aabb,
+    _box_aabb: &Aabb,
     box_solid: &WaffleSolid,
     cyl: &CylinderParams,
     op: BoolOp,
     id_alloc: &mut dyn FnMut() -> u64,
 ) -> Result<BooleanResult, KernelError> {
-    let xy_enclosed = ssi::cyl_enclosed_in_box(cyl, box_aabb);
-    let disjoint = ssi::box_cyl_disjoint(box_aabb, cyl);
+    // Rotate into cylinder's Z-aligned frame
+    let m = rotation_to_z(cyl.direction);
+    let m_inv = mat3_transpose(&m);
+    let cyl_z = rotate_cyl_params(cyl, &m);
+    let box_aabb = ssi::compute_rotated_box_aabb(box_solid, &m);
+
+    let xy_enclosed_aabb = ssi::cyl_enclosed_in_box(&cyl_z, &box_aabb);
+    // AABB enclosure is necessary but not sufficient for non-convex polygon extrudes.
+    // A rectangular prism has exactly 6 faces; more faces indicate a non-rectangular
+    // (possibly concave) polygon extrude. Refine with point-in-solid test.
+    let xy_enclosed = if xy_enclosed_aabb && box_solid.face_map.len() > 6 {
+        let face_polys = extract_face_polys(box_solid);
+        if face_polys.len() < 4 {
+            xy_enclosed_aabb // Not enough faces for reliable point_in_solid
+        } else {
+            // Test cylinder axis midpoint against the solid's actual face polygons
+            // in the ORIGINAL (unrotated) frame.
+            let cyl_mid = [
+                cyl.center_bottom[0] + cyl.direction[0] * cyl.depth * 0.5,
+                cyl.center_bottom[1] + cyl.direction[1] * cyl.depth * 0.5,
+                cyl.center_bottom[2] + cyl.direction[2] * cyl.depth * 0.5,
+            ];
+            point_in_solid(cyl_mid, &face_polys)
+        }
+    } else {
+        xy_enclosed_aabb
+    };
+    let disjoint = ssi::box_cyl_disjoint(&box_aabb, &cyl_z);
 
     // Check full 3D enclosure: XY-enclosed AND Z range within box
-    let (cyl_z_min, cyl_z_max) = ssi::cyl_z_range(cyl);
+    let (cyl_z_min, cyl_z_max) = ssi::cyl_z_range(&cyl_z);
     let z_enclosed = cyl_z_min >= box_aabb.min[2] - 1e-9 && cyl_z_max <= box_aabb.max[2] + 1e-9;
     let fully_enclosed = xy_enclosed && z_enclosed;
 
-    // Detect boss-on-top/bottom: cylinder XY-enclosed, Z-touching at one face, extends beyond
-    let z_touches_top = (cyl_z_min - box_aabb.max[2]).abs() < 1e-9;
-    let z_touches_bot = (cyl_z_max - box_aabb.min[2]).abs() < 1e-9;
-    let is_boss = xy_enclosed && !z_enclosed && (z_touches_top || z_touches_bot);
+    // Detect boss: cylinder XY-enclosed and extends beyond box on top and/or bottom.
+    // Covers both the "sits on top/bottom" case (z_touches) and the "passes through"
+    // case (cylinder starts inside box but extends beyond a face).
+    let extends_above = cyl_z_max > box_aabb.max[2] + 1e-9;
+    let extends_below = cyl_z_min < box_aabb.min[2] - 1e-9;
+    let is_boss_top = xy_enclosed && !fully_enclosed && extends_above && !extends_below;
+    let is_boss_bot = xy_enclosed && !fully_enclosed && extends_below && !extends_above;
 
     match op {
         BoolOp::Subtract => {
             if fully_enclosed {
-                build_box_minus_enclosed_cyl(box_aabb, cyl, id_alloc)
+                let mut result = build_box_minus_enclosed_cyl(&box_aabb, &cyl_z, id_alloc)?;
+                rotate_boolean_result(&mut result, &m_inv);
+                Ok(result)
             } else if disjoint {
                 clone_solid_as_result(box_solid, id_alloc)
             } else {
@@ -1638,12 +1676,16 @@ fn box_cyl_boolean(
         }
         BoolOp::Union => {
             if fully_enclosed {
-                // Cylinder fully inside box → union = box
+                // Cylinder fully inside box → union = box (original frame)
                 clone_solid_as_result(box_solid, id_alloc)
-            } else if is_boss {
-                build_box_with_cyl_boss(box_aabb, cyl, z_touches_top, id_alloc)
+            } else if is_boss_top || is_boss_bot {
+                let mut result = build_box_with_cyl_boss(&box_aabb, &cyl_z, is_boss_top, id_alloc)?;
+                rotate_boolean_result(&mut result, &m_inv);
+                Ok(result)
             } else if disjoint {
-                build_disjoint_box_cyl_union(box_aabb, cyl, id_alloc)
+                let mut result = build_disjoint_box_cyl_union(&box_aabb, &cyl_z, id_alloc)?;
+                rotate_boolean_result(&mut result, &m_inv);
+                Ok(result)
             } else {
                 Err(KernelError::NotSupported {
                     operation: "partial box-cylinder union".to_string(),
@@ -1653,7 +1695,9 @@ fn box_cyl_boolean(
         BoolOp::Intersect => {
             if fully_enclosed {
                 // Cylinder fully inside box → intersect = cylinder
-                build_cyl_result(cyl, id_alloc)
+                let mut result = build_cyl_result(&cyl_z, id_alloc)?;
+                rotate_boolean_result(&mut result, &m_inv);
+                Ok(result)
             } else if disjoint {
                 Err(KernelError::BooleanFailed {
                     reason: "no intersection (disjoint)".to_string(),
@@ -3691,6 +3735,87 @@ mod tests {
         }
         assert!((back.radius - cyl.radius).abs() < 1e-15);
         assert!((back.depth - cyl.depth).abs() < 1e-15);
+    }
+
+    /// Create a circle profile centered at (cx, cy) with radius r.
+    fn make_circle_profile(
+        cx: f64,
+        cy: f64,
+        r: f64,
+    ) -> (Vec<ClosedProfile>, HashMap<u32, (f64, f64)>) {
+        let mut positions = HashMap::new();
+        positions.insert(1, (cx, cy));
+
+        let profile = ClosedProfile {
+            entity_ids: vec![1],
+            is_outer: true,
+            vertex_ids: vec![],
+            circle: Some(crate::types::CircleProfile {
+                center_u: cx,
+                center_v: cy,
+                radius: r,
+            }),
+            spline_segments: vec![],
+        };
+
+        (vec![profile], positions)
+    }
+
+    #[test]
+    fn box_cyl_union_tilted_plane() {
+        // R0002 regression: box-cylinder union on tilted plane must include both bodies.
+        // Without frame rotation, the Z-axis enclosure check falsely detects the
+        // cylinder as enclosed in the box and discards it.
+        let dir = v3_normalize([-0.5196, -0.7471, -0.4145]);
+        // Compute a valid x_axis perpendicular to dir
+        let up = if dir[1].abs() < 0.9 {
+            [0.0, 1.0, 0.0]
+        } else {
+            [1.0, 0.0, 0.0]
+        };
+        let x_axis = v3_normalize(v3_cross(up, dir));
+
+        let mut kernel = WaffleKernel::new();
+
+        // Create box on tilted plane: 2x2 rect, depth 0.3
+        let (rect_profiles, rect_positions) = make_rect_profile(0.0, 0.0, 2.0, 2.0);
+        let rect_faces = kernel
+            .make_faces_from_profiles(&rect_profiles, [0.0; 3], dir, x_axis, &rect_positions)
+            .expect("make rect faces");
+        let box_handle = kernel
+            .extrude_face(rect_faces[0], dir, 0.3)
+            .expect("extrude box");
+
+        use crate::traits::KernelIntrospect;
+
+        // Count box faces
+        let box_faces = kernel.list_faces(&box_handle).len();
+
+        // Create cylinder on tilted plane: radius 0.5, depth 1.5, boss on top of box
+        // Position it so center_bottom is on the box top face
+        let cyl_origin = [dir[0] * 0.3, dir[1] * 0.3, dir[2] * 0.3];
+        let (circ_profiles, circ_positions) = make_circle_profile(0.0, 0.0, 0.5);
+        let circ_faces = kernel
+            .make_faces_from_profiles(&circ_profiles, cyl_origin, dir, x_axis, &circ_positions)
+            .expect("make circle faces");
+        let cyl_handle = kernel
+            .extrude_face(circ_faces[0], dir, 1.5)
+            .expect("extrude cylinder");
+
+        // Union: box + cylinder boss
+        let result = kernel.boolean_union(&box_handle, &cyl_handle);
+        let union_handle = result.expect("box-cyl union on tilted plane should succeed");
+
+        // The union result must have MORE faces than the box alone (6),
+        // proving the cylinder was not discarded. Boss union produces 8 faces.
+        let union_faces = kernel.list_faces(&union_handle).len();
+
+        assert!(
+            union_faces > box_faces,
+            "Union should include cylinder geometry: union_faces={} must be > box_faces={}",
+            union_faces,
+            box_faces
+        );
     }
 
     #[test]
