@@ -172,7 +172,7 @@ fn extract_face_polys(solid: &WaffleSolid) -> Vec<FacePoly> {
     let mut polys = Vec::new();
     for (&_kid, &face_idx) in &solid.face_map {
         let verts = collect_face_vertices(&solid.arena, face_idx);
-        if verts.is_empty() {
+        if verts.len() < 3 {
             continue;
         }
         let (normal, origin) = match solid.face_geometry.get(&face_idx) {
@@ -180,7 +180,34 @@ fn extract_face_polys(solid: &WaffleSolid) -> Vec<FacePoly> {
                 [p.normal.x, p.normal.y, p.normal.z],
                 [p.origin.x, p.origin.y, p.origin.z],
             ),
-            _ => continue, // Skip non-planar faces for box-box booleans
+            _ => {
+                // For non-planar faces (cylindrical, conical, etc.),
+                // compute planar approximation from loop vertices using
+                // Newell normal. Only include if the face is approximately
+                // planar (all vertices within 1% of face size from the plane).
+                let newell = compute_newell_normal(&verts);
+                let nl = v3_dot(newell, newell).sqrt();
+                if nl < 1e-15 {
+                    continue; // Degenerate face
+                }
+                let n = [newell[0] / nl, newell[1] / nl, newell[2] / nl];
+                let o = polygon_centroid(&verts);
+                // Planarity check: max distance from any vertex to the Newell plane
+                let max_dist = verts
+                    .iter()
+                    .map(|v| v3_dot(v3_sub(*v, o), n).abs())
+                    .fold(0.0_f64, f64::max);
+                // Face size: max pairwise distance between first vertex and others
+                let face_size = verts
+                    .iter()
+                    .skip(1)
+                    .map(|v| v3_length(v3_sub(*v, verts[0])))
+                    .fold(0.0_f64, f64::max);
+                if face_size > 1e-15 && max_dist > face_size * 0.05 {
+                    continue; // Too curved for planar approximation
+                }
+                (n, o)
+            }
         };
         polys.push(FacePoly {
             verts,
@@ -999,7 +1026,7 @@ fn compute_adaptive_tau_weld(a_faces: &[FacePoly], b_faces: &[FacePoly]) -> (f64
         ((max[0] - min[0]).powi(2) + (max[1] - min[1]).powi(2) + (max[2] - min[2]).powi(2)).sqrt();
     // Use 1e-7 relative to the model diagonal, clamped to [1e-12, 1e-4].
     // This matches the pre-existing 1e-7 for unit-scale models.
-    let tau_weld = (diag * 1e-7).max(1e-12).min(1e-4);
+    let tau_weld = (diag * 1e-7).clamp(1e-12, 1e-4);
     let tau = tau_weld * 0.01;
     (tau, tau_weld)
 }

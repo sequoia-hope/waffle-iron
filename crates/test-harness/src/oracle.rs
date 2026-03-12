@@ -180,19 +180,29 @@ pub fn check_topology_counts(
 /// Uses position-based edge matching (quantized to 1e-4) to handle meshes with
 /// per-face vertices (non-shared vertex indices but shared positions).
 pub fn check_watertight_mesh(mesh: &RenderMesh) -> OracleVerdict {
-    // Quantize vertex positions to allow position-based matching
-    fn quantize(v: f32) -> i64 {
-        (v as f64 * 10000.0).round() as i64
-    }
+    // Compute scale-adaptive quantization: at large coordinate magnitudes,
+    // f32 precision degrades. Using a fixed grid of 1e-4 fails when f32
+    // noise (~magnitude * 1.2e-7) exceeds 1e-4 (magnitude > ~800).
+    // We use max(1e-4, max_abs_coord * 2e-6) to stay well above f32 noise.
+    let max_abs = mesh
+        .vertices
+        .iter()
+        .map(|v| v.abs())
+        .fold(0.0_f32, f32::max);
+    let grid_size = (1e-4_f64).max(max_abs as f64 * 2e-6);
+    let inv_grid = 1.0 / grid_size;
 
-    fn vert_key(mesh: &RenderMesh, idx: u32) -> (i64, i64, i64) {
+    // Quantize vertex positions to allow position-based matching
+    let quantize = |v: f32| -> i64 { (v as f64 * inv_grid).round() as i64 };
+
+    let vert_key = |idx: u32| -> (i64, i64, i64) {
         let i = idx as usize * 3;
         (
             quantize(mesh.vertices[i]),
             quantize(mesh.vertices[i + 1]),
             quantize(mesh.vertices[i + 2]),
         )
-    }
+    };
 
     type PosEdge = ((i64, i64, i64), (i64, i64, i64));
 
@@ -210,9 +220,9 @@ pub fn check_watertight_mesh(mesh: &RenderMesh) -> OracleVerdict {
         if tri.len() < 3 {
             continue;
         }
-        let va = vert_key(mesh, tri[0]);
-        let vb = vert_key(mesh, tri[1]);
-        let vc = vert_key(mesh, tri[2]);
+        let va = vert_key(tri[0]);
+        let vb = vert_key(tri[1]);
+        let vc = vert_key(tri[2]);
 
         *edge_counts.entry(make_edge(va, vb)).or_insert(0) += 1;
         *edge_counts.entry(make_edge(vb, vc)).or_insert(0) += 1;

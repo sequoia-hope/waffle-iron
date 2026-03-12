@@ -1915,6 +1915,114 @@ fn remove_degenerate_triangles(
     *face_ranges = new_ranges;
 }
 
+/// Snap nearby vertex positions so coincident vertices have identical f32 values.
+///
+/// Per-face tessellation creates separate vertices at shared B-Rep edges.
+/// After boolean operations, independent polygon clipping can produce tiny
+/// position differences at shared edges. This function groups vertices within
+/// a scale-adaptive tolerance and sets all vertices in each group to the same
+/// position (the first vertex encountered in that group).
+///
+/// Normals and indices are NOT modified — only positions are snapped.
+/// This preserves sharp-edge normals while ensuring the oracle's watertight
+/// check sees matching edge endpoints.
+#[allow(dead_code)]
+fn snap_close_positions(vertices: &mut [f32]) {
+    use std::collections::HashMap;
+
+    let num_verts = vertices.len() / 3;
+    if num_verts < 2 {
+        return;
+    }
+
+    // Compute bounding box diagonal for scale-adaptive tolerance
+    let mut bbox_min = [f32::INFINITY; 3];
+    let mut bbox_max = [f32::NEG_INFINITY; 3];
+    for i in 0..num_verts {
+        for j in 0..3 {
+            let v = vertices[i * 3 + j];
+            if v < bbox_min[j] {
+                bbox_min[j] = v;
+            }
+            if v > bbox_max[j] {
+                bbox_max[j] = v;
+            }
+        }
+    }
+    let diag = ((bbox_max[0] - bbox_min[0]).powi(2)
+        + (bbox_max[1] - bbox_min[1]).powi(2)
+        + (bbox_max[2] - bbox_min[2]).powi(2))
+    .sqrt();
+
+    if diag < 1e-12 {
+        return;
+    }
+
+    // Tolerance: 1e-5 relative to diagonal, clamped.
+    // At scale 1 (diag~10): tolerance = 1e-4, well above f32 noise.
+    // At scale 1000 (diag~10000): tolerance = 0.1, sufficient for large models.
+    // At scale 0.001 (diag~0.01): tolerance = 1e-7, above f32 noise at that scale.
+    let tolerance = (diag * 1e-5).clamp(1e-8, 1e-2);
+    let tol_sq = tolerance * tolerance;
+    let inv_cell = 1.0 / tolerance;
+
+    // Spatial hash: cell -> list of vertex indices
+    let mut cells: HashMap<(i32, i32, i32), Vec<usize>> = HashMap::new();
+    for i in 0..num_verts {
+        let cx = (vertices[i * 3] * inv_cell).floor() as i32;
+        let cy = (vertices[i * 3 + 1] * inv_cell).floor() as i32;
+        let cz = (vertices[i * 3 + 2] * inv_cell).floor() as i32;
+        cells.entry((cx, cy, cz)).or_default().push(i);
+    }
+
+    // For each vertex, find the earliest vertex in the neighborhood that's close enough.
+    // Use union-find style: snap to the canonical (lowest-index) vertex in each cluster.
+    let mut snap_target: Vec<usize> = (0..num_verts).collect();
+
+    for i in 0..num_verts {
+        if snap_target[i] != i {
+            continue; // Already snapped to an earlier vertex
+        }
+        let px = vertices[i * 3];
+        let py = vertices[i * 3 + 1];
+        let pz = vertices[i * 3 + 2];
+        let cx = (px * inv_cell).floor() as i32;
+        let cy = (py * inv_cell).floor() as i32;
+        let cz = (pz * inv_cell).floor() as i32;
+
+        // Check 3x3x3 neighborhood for later vertices to snap to this one
+        for dx in -1..=1_i32 {
+            for dy in -1..=1_i32 {
+                for dz in -1..=1_i32 {
+                    if let Some(neighbors) = cells.get(&(cx + dx, cy + dy, cz + dz)) {
+                        for &j in neighbors {
+                            if j <= i || snap_target[j] != j {
+                                continue;
+                            }
+                            let dist_sq = (vertices[j * 3] - px).powi(2)
+                                + (vertices[j * 3 + 1] - py).powi(2)
+                                + (vertices[j * 3 + 2] - pz).powi(2);
+                            if dist_sq < tol_sq {
+                                snap_target[j] = i;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Apply: set each snapped vertex's position to its target's position
+    for i in 0..num_verts {
+        let t = snap_target[i];
+        if t != i {
+            vertices[i * 3] = vertices[t * 3];
+            vertices[i * 3 + 1] = vertices[t * 3 + 1];
+            vertices[i * 3 + 2] = vertices[t * 3 + 2];
+        }
+    }
+}
+
 /// Weld mesh vertices by merging nearby positions.
 ///
 /// Per-face tessellation creates separate vertices for each face's edges.
@@ -1965,7 +2073,7 @@ fn weld_mesh_vertices(
 
     // Use 1e-5 relative to diagonal, clamped for safety.
     // f32 has ~7 digits precision, so 1e-5 relative is well above noise floor.
-    let tau = (diag * 1e-5).max(1e-8).min(1e-2);
+    let tau = (diag * 1e-5).clamp(1e-8, 1e-2);
     let inv_tau = 1.0 / tau;
 
     // Build vertex welding map: quantize (position + normal) → canonical vertex index.
