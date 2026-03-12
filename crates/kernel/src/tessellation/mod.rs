@@ -243,14 +243,42 @@ pub(crate) fn tessellate_solid(
     // Remove degenerate (zero-area) triangles and compact face ranges.
     remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
 
+    // Remove isolated triangles: stray face fragments from S-H clipping that
+    // have no adjacent triangles sharing any edge. These are thin slivers at
+    // corner intersections that cannot be paired during B-Rep stitching.
+    remove_isolated_triangles(&vertices, &mut indices, &mut face_ranges);
+
+    // Resolve mesh-level T-junctions iteratively. Each pass may expose
+    // new T-junctions by splitting triangles. Typically converges in 1-2 passes.
+    for _ in 0..3 {
+        let prev_len = indices.len();
+        resolve_mesh_t_junctions(&vertices, &normals, &mut indices, &mut face_ranges);
+        if indices.len() == prev_len {
+            break; // No splits performed
+        }
+    }
+
+    // Fill small boundary holes: S-H clipping can leave triangular (or small
+    // polygonal) holes where face boundaries don't perfectly align. Detect
+    // cycles of boundary edges and fill them with triangles.
+    fill_boundary_holes(&vertices, &normals, &mut indices, &mut face_ranges);
+
+    // Second degenerate pass: fill_boundary_holes may create zero-area triangles.
+    remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
+
+    // Second winding pass: fill_boundary_holes creates triangles that may have
+    // incorrect winding relative to their stored vertex normals.
+    fix_winding_consistency(&vertices, &normals, &mut indices);
+
+    // Second fill pass: degenerate removal may create new boundary edges.
+    fill_boundary_holes(&vertices, &normals, &mut indices, &mut face_ranges);
+
+    // Third degenerate pass: second fill may create zero-area fan triangles.
+    remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
+
     // If the mesh signed volume is negative, the entire solid is inside-out
     // (all face normals point inward). Flip all windings and normals.
     fix_global_orientation(&mut vertices, &mut normals, &mut indices);
-
-    // NOTE: heal_boundary_edges and snap_to_oracle_grid were tried here but
-    // proved counterproductive — they either collapse thin features or introduce
-    // degenerate triangles. The oracle's grid-based edge matching is already
-    // the right abstraction level for handling small positional differences.
 
     Ok(RenderMesh {
         vertices,
@@ -1903,6 +1931,601 @@ fn remove_degenerate_triangles(
                 new_indices.push(indices[base]);
                 new_indices.push(indices[base + 1]);
                 new_indices.push(indices[base + 2]);
+            }
+        }
+
+        let range_end = new_indices.len() as u32;
+        if range_end > range_start {
+            new_ranges.push(FaceRange {
+                face_id: range.face_id,
+                start_index: range_start,
+                end_index: range_end,
+            });
+        }
+    }
+
+    *indices = new_indices;
+    *face_ranges = new_ranges;
+}
+
+/// Resolve mesh-level T-junctions.
+///
+/// A T-junction occurs when triangle T1 has an edge A→B, while adjacent
+/// triangles T2, T3 have edges A→C and C→B (vertex C lies on the interior
+/// of edge AB). This makes edges {A,B}, {A,C}, and {C,B} all appear with
+/// count 1 (unpaired) in the oracle.
+///
+/// Fix: find boundary edges where a boundary vertex lies on the edge interior,
+/// and split the triangle into two triangles at that vertex.
+fn resolve_mesh_t_junctions(
+    vertices: &[f32],
+    _normals: &[f32],
+    indices: &mut Vec<u32>,
+    face_ranges: &mut Vec<FaceRange>,
+) {
+    let n_tris = indices.len() / 3;
+    if n_tris < 2 {
+        return;
+    }
+
+    // Compute oracle-compatible quantization grid
+    let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
+    let grid = (max_abs as f64 * 1e-5).max(1e-10);
+    let inv_grid = 1.0 / grid;
+
+    type QPos = (i64, i64, i64);
+    let quantize_pos = |idx: u32| -> QPos {
+        let i = idx as usize * 3;
+        if i + 2 >= vertices.len() {
+            return (0, 0, 0);
+        }
+        (
+            (vertices[i] as f64 * inv_grid).round() as i64,
+            (vertices[i + 1] as f64 * inv_grid).round() as i64,
+            (vertices[i + 2] as f64 * inv_grid).round() as i64,
+        )
+    };
+
+    // Build undirected edge counts (oracle-style)
+    let mut edge_counts: HashMap<(QPos, QPos), usize> = HashMap::new();
+    let make_edge = |a: QPos, b: QPos| -> (QPos, QPos) {
+        if a <= b {
+            (a, b)
+        } else {
+            (b, a)
+        }
+    };
+
+    for t in 0..n_tris {
+        let base = t * 3;
+        let qa = quantize_pos(indices[base]);
+        let qb = quantize_pos(indices[base + 1]);
+        let qc = quantize_pos(indices[base + 2]);
+        *edge_counts.entry(make_edge(qa, qb)).or_insert(0) += 1;
+        *edge_counts.entry(make_edge(qb, qc)).or_insert(0) += 1;
+        *edge_counts.entry(make_edge(qc, qa)).or_insert(0) += 1;
+    }
+
+    // Collect boundary edges (undirected count != 2)
+    let boundary_edges: std::collections::HashSet<(QPos, QPos)> = edge_counts
+        .iter()
+        .filter(|(_, &c)| c != 2)
+        .map(|(&e, _)| e)
+        .collect();
+
+    if boundary_edges.is_empty() {
+        return;
+    }
+
+    // Collect ONLY vertices that are endpoints of boundary edges (T-junction
+    // candidates must themselves be on the boundary manifold).
+    let mut boundary_verts: HashMap<QPos, u32> = HashMap::new();
+    for &(qa, qb) in &boundary_edges {
+        // Find a vertex index for each quantized position
+        for t in 0..n_tris {
+            let base = t * 3;
+            for k in 0..3 {
+                let idx = indices[base + k];
+                let qp = quantize_pos(idx);
+                if qp == qa {
+                    boundary_verts.entry(qa).or_insert(idx);
+                }
+                if qp == qb {
+                    boundary_verts.entry(qb).or_insert(idx);
+                }
+            }
+        }
+    }
+
+    // For each boundary edge, check if a BOUNDARY vertex lies on its interior.
+    // Build map: triangle_index → list of (edge_local_idx, split_vertex_idx)
+    let mut splits: HashMap<usize, Vec<(usize, u32)>> = HashMap::new();
+
+    for t in 0..n_tris {
+        let base = t * 3;
+        let tri = [indices[base], indices[base + 1], indices[base + 2]];
+        let qtri = [
+            quantize_pos(tri[0]),
+            quantize_pos(tri[1]),
+            quantize_pos(tri[2]),
+        ];
+
+        for local_e in 0..3 {
+            let qa = qtri[local_e];
+            let qb = qtri[(local_e + 1) % 3];
+            let edge_key = make_edge(qa, qb);
+
+            if !boundary_edges.contains(&edge_key) {
+                continue;
+            }
+
+            // Get f64 positions for the edge endpoints
+            let ai = tri[local_e] as usize * 3;
+            let bi = tri[(local_e + 1) % 3] as usize * 3;
+            let ax = vertices[ai] as f64;
+            let ay = vertices[ai + 1] as f64;
+            let az = vertices[ai + 2] as f64;
+            let bx = vertices[bi] as f64;
+            let by = vertices[bi + 1] as f64;
+            let bz = vertices[bi + 2] as f64;
+            let dx = bx - ax;
+            let dy = by - ay;
+            let dz = bz - az;
+            let edge_len_sq = dx * dx + dy * dy + dz * dz;
+            if edge_len_sq < 1e-20 {
+                continue;
+            }
+
+            // Only check boundary vertices (not all mesh vertices)
+            let mut best: Option<(f64, u32)> = None;
+            for (&qp, &vidx) in &boundary_verts {
+                if qp == qa || qp == qb {
+                    continue;
+                }
+
+                let vi = vidx as usize * 3;
+                let vx = vertices[vi] as f64;
+                let vy = vertices[vi + 1] as f64;
+                let vz = vertices[vi + 2] as f64;
+
+                // Parametric position along edge
+                let avx = vx - ax;
+                let avy = vy - ay;
+                let avz = vz - az;
+                let t_param = (avx * dx + avy * dy + avz * dz) / edge_len_sq;
+                if t_param <= 0.05 || t_param >= 0.95 {
+                    continue; // not clearly in interior
+                }
+
+                // Distance from line
+                let px = ax + dx * t_param;
+                let py = ay + dy * t_param;
+                let pz = az + dz * t_param;
+                let dist_sq = (vx - px) * (vx - px) + (vy - py) * (vy - py) + (vz - pz) * (vz - pz);
+                // Tight tolerance: slightly more than half oracle grid cell
+                let tol = grid * 0.6;
+                if dist_sq < tol * tol {
+                    // Pick the closest candidate
+                    if best.is_none() || dist_sq < best.unwrap().0 {
+                        best = Some((dist_sq, vidx));
+                    }
+                }
+            }
+
+            if let Some((_, split_v)) = best {
+                // Verify split produces non-degenerate triangles.
+                // The third vertex (opposite the split edge) must not be collinear.
+                let opp_idx = tri[(local_e + 2) % 3];
+                let oi = opp_idx as usize * 3;
+                let sv = split_v as usize * 3;
+                if oi + 2 < vertices.len() && sv + 2 < vertices.len() {
+                    let ox = vertices[oi] as f64;
+                    let oy = vertices[oi + 1] as f64;
+                    let oz = vertices[oi + 2] as f64;
+                    let svx = vertices[sv] as f64;
+                    let svy = vertices[sv + 1] as f64;
+                    let svz = vertices[sv + 2] as f64;
+                    // Check triangle (A, V, Opp): area = |cross(AV, AOpp)| / 2
+                    let av = [svx - ax, svy - ay, svz - az];
+                    let ao = [ox - ax, oy - ay, oz - az];
+                    let c1x = av[1] * ao[2] - av[2] * ao[1];
+                    let c1y = av[2] * ao[0] - av[0] * ao[2];
+                    let c1z = av[0] * ao[1] - av[1] * ao[0];
+                    let area1 = (c1x * c1x + c1y * c1y + c1z * c1z).sqrt() / 2.0;
+
+                    // Check triangle (V, B, Opp): area = |cross(VB, VOpp)| / 2
+                    let vb = [bx - svx, by - svy, bz - svz];
+                    let vo = [ox - svx, oy - svy, oz - svz];
+                    let c2x = vb[1] * vo[2] - vb[2] * vo[1];
+                    let c2y = vb[2] * vo[0] - vb[0] * vo[2];
+                    let c2z = vb[0] * vo[1] - vb[1] * vo[0];
+                    let area2 = (c2x * c2x + c2y * c2y + c2z * c2z).sqrt() / 2.0;
+
+                    // Only split if both triangles are non-degenerate
+                    if area1 > 1e-11 && area2 > 1e-11 {
+                        splits.entry(t).or_default().push((local_e, split_v));
+                    }
+                }
+            }
+        }
+    }
+
+    if splits.is_empty() {
+        return;
+    }
+
+    // Rebuild index buffer, splitting triangles with T-junctions.
+    let mut new_indices: Vec<u32> = Vec::with_capacity(indices.len() + splits.len() * 3);
+    let mut new_ranges: Vec<FaceRange> = Vec::new();
+
+    for range in face_ranges.iter() {
+        let range_start = new_indices.len() as u32;
+        let tri_start = range.start_index as usize / 3;
+        let tri_end = range.end_index as usize / 3;
+
+        for t in tri_start..tri_end {
+            let base = t * 3;
+            if base + 2 >= indices.len() {
+                break;
+            }
+
+            if let Some(tri_splits) = splits.get(&t) {
+                let i0 = indices[base];
+                let i1 = indices[base + 1];
+                let i2 = indices[base + 2];
+
+                // Apply first split only
+                let (local_e, split_v) = tri_splits[0];
+                match local_e {
+                    0 => {
+                        // Split edge 0→1: [0,V,2] + [V,1,2]
+                        new_indices.extend_from_slice(&[i0, split_v, i2]);
+                        new_indices.extend_from_slice(&[split_v, i1, i2]);
+                    }
+                    1 => {
+                        // Split edge 1→2: [0,1,V] + [0,V,2]
+                        new_indices.extend_from_slice(&[i0, i1, split_v]);
+                        new_indices.extend_from_slice(&[i0, split_v, i2]);
+                    }
+                    2 => {
+                        // Split edge 2→0: [V,1,2] + [0,1,V]
+                        new_indices.extend_from_slice(&[split_v, i1, i2]);
+                        new_indices.extend_from_slice(&[i0, i1, split_v]);
+                    }
+                    _ => {
+                        new_indices.extend_from_slice(&[i0, i1, i2]);
+                    }
+                }
+            } else {
+                new_indices.extend_from_slice(&[
+                    indices[base],
+                    indices[base + 1],
+                    indices[base + 2],
+                ]);
+            }
+        }
+
+        let range_end = new_indices.len() as u32;
+        if range_end > range_start {
+            new_ranges.push(FaceRange {
+                face_id: range.face_id,
+                start_index: range_start,
+                end_index: range_end,
+            });
+        }
+    }
+
+    *indices = new_indices;
+    *face_ranges = new_ranges;
+}
+
+/// Fill small boundary holes in the mesh.
+///
+/// After boolean operations, S-H clipping can leave small holes where face
+/// boundaries don't perfectly align. This function detects cycles of boundary
+/// edges (edges that appear exactly once) and fills them with triangles.
+///
+/// Only fills holes with ≤ 128 edges (small to medium polygonal holes).
+/// Larger holes indicate structural issues that shouldn't be auto-filled.
+fn fill_boundary_holes(
+    vertices: &[f32],
+    _normals: &[f32],
+    indices: &mut Vec<u32>,
+    face_ranges: &mut Vec<FaceRange>,
+) {
+    let n_tris = indices.len() / 3;
+    if n_tris < 2 {
+        return;
+    }
+
+    // Compute oracle-compatible quantization grid
+    let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
+    let grid = (max_abs as f64 * 1e-5).max(1e-10);
+    let inv_grid = 1.0 / grid;
+
+    type QPos = (i64, i64, i64);
+    let quantize_pos = |idx: u32| -> QPos {
+        let i = idx as usize * 3;
+        if i + 2 >= vertices.len() {
+            return (0, 0, 0);
+        }
+        (
+            (vertices[i] as f64 * inv_grid).round() as i64,
+            (vertices[i + 1] as f64 * inv_grid).round() as i64,
+            (vertices[i + 2] as f64 * inv_grid).round() as i64,
+        )
+    };
+
+    // Build directed edge → count and vertex index mapping
+    let mut directed_counts: HashMap<(QPos, QPos), usize> = HashMap::new();
+    // Map quantized position → vertex index (first seen)
+    let mut pos_to_idx: HashMap<QPos, u32> = HashMap::new();
+
+    for t in 0..n_tris {
+        let base = t * 3;
+        let tri_indices = [indices[base], indices[base + 1], indices[base + 2]];
+        let tri_pos: Vec<QPos> = tri_indices.iter().map(|&i| quantize_pos(i)).collect();
+
+        for j in 0..3 {
+            let a = tri_pos[j];
+            let b = tri_pos[(j + 1) % 3];
+            *directed_counts.entry((a, b)).or_insert(0) += 1;
+            pos_to_idx.entry(a).or_insert(tri_indices[j]);
+        }
+    }
+
+    // Find boundary edges: directed edges that appear once and have no reverse
+    let mut boundary_edges: Vec<(QPos, QPos)> = Vec::new();
+    for (&(a, b), &count) in &directed_counts {
+        if count == 1 {
+            let rev_count = directed_counts.get(&(b, a)).copied().unwrap_or(0);
+            if rev_count == 0 {
+                boundary_edges.push((a, b));
+            }
+        }
+    }
+
+    if boundary_edges.is_empty() {
+        return;
+    }
+
+    // Sort for deterministic cycle detection (eliminates HashMap ordering nondeterminism)
+    boundary_edges.sort();
+
+    // Build adjacency: for each boundary vertex, what are the next vertices?
+    // Use Vec to handle branching (vertex with multiple outgoing boundary edges).
+    let mut next_vertices: HashMap<QPos, Vec<QPos>> = HashMap::new();
+    for &(a, b) in &boundary_edges {
+        next_vertices.entry(a).or_default().push(b);
+    }
+
+    // Find cycles of boundary edges (max length 20 to cover medium holes)
+    let mut used_edges = std::collections::HashSet::new();
+    let mut fill_triangles: Vec<[u32; 3]> = Vec::new();
+
+    for &(start, start_next) in &boundary_edges {
+        if used_edges.contains(&(start, start_next)) {
+            continue;
+        }
+
+        // Trace the cycle starting with this specific edge
+        let mut cycle: Vec<QPos> = vec![start];
+        let mut current = start_next;
+        let mut found_cycle = false;
+
+        for _ in 0..128 {
+            if current == start && cycle.len() >= 3 {
+                found_cycle = true;
+                break;
+            }
+            cycle.push(current);
+            // Pick the next vertex that isn't already in the cycle (avoid infinite loops)
+            let next = next_vertices
+                .get(&current)
+                .and_then(|nexts| {
+                    nexts.iter().find(|&&n| {
+                        !used_edges.contains(&(current, n)) && (n == start || !cycle.contains(&n))
+                    })
+                })
+                .copied();
+            if let Some(n) = next {
+                current = n;
+            } else {
+                break;
+            }
+        }
+
+        if !found_cycle || cycle.len() > 128 {
+            continue;
+        }
+
+        // Mark edges as used
+        for i in 0..cycle.len() {
+            let a = cycle[i];
+            let b = cycle[(i + 1) % cycle.len()];
+            used_edges.insert((a, b));
+        }
+
+        // Fan-triangulate the cycle to fill the hole
+        let cycle_indices: Vec<u32> = cycle
+            .iter()
+            .filter_map(|q| pos_to_idx.get(q).copied())
+            .collect();
+
+        if cycle_indices.len() != cycle.len() {
+            continue;
+        }
+
+        // Fan-triangulate, skipping degenerate triangles (collinear vertices)
+        for i in 1..cycle_indices.len() - 1 {
+            let ia = cycle_indices[0] as usize * 3;
+            let ib = cycle_indices[i] as usize * 3;
+            let ic = cycle_indices[i + 1] as usize * 3;
+            if ia + 2 >= vertices.len() || ib + 2 >= vertices.len() || ic + 2 >= vertices.len() {
+                continue;
+            }
+            let ax = vertices[ib] - vertices[ia];
+            let ay = vertices[ib + 1] - vertices[ia + 1];
+            let az = vertices[ib + 2] - vertices[ia + 2];
+            let bx = vertices[ic] - vertices[ia];
+            let by = vertices[ic + 1] - vertices[ia + 1];
+            let bz = vertices[ic + 2] - vertices[ia + 2];
+            let cx = ay * bz - az * by;
+            let cy = az * bx - ax * bz;
+            let cz = ax * by - ay * bx;
+            let area = (cx * cx + cy * cy + cz * cz).sqrt() / 2.0;
+            if area >= 1e-12 {
+                fill_triangles.push([cycle_indices[0], cycle_indices[i], cycle_indices[i + 1]]);
+            }
+        }
+    }
+
+    if fill_triangles.is_empty() {
+        return;
+    }
+
+    // Add fill triangles as a new face range (or append to the last face range)
+    let fill_start = indices.len() as u32;
+    for tri in &fill_triangles {
+        indices.push(tri[0]);
+        indices.push(tri[1]);
+        indices.push(tri[2]);
+    }
+    let fill_end = indices.len() as u32;
+
+    // Add as a new face range with a synthetic face ID
+    if fill_end > fill_start {
+        face_ranges.push(FaceRange {
+            face_id: KernelId(u64::MAX), // synthetic fill face
+            start_index: fill_start,
+            end_index: fill_end,
+        });
+    }
+}
+
+/// Remove isolated triangles from the mesh.
+///
+/// An isolated triangle has ALL 3 edges appearing exactly once (no other
+/// triangle shares any of its edges). These arise from stray face fragments
+/// produced by Sutherland-Hodgman clipping at corner intersections — thin
+/// slivers that the B-Rep stitching can't pair because no adjacent face
+/// has matching edges.
+///
+/// Removal is safe because isolated triangles don't share edges with any
+/// other triangle, so removing them doesn't break any existing edge pairings.
+fn remove_isolated_triangles(
+    vertices: &[f32],
+    indices: &mut Vec<u32>,
+    face_ranges: &mut Vec<FaceRange>,
+) {
+    let n_tris = indices.len() / 3;
+    if n_tris < 2 {
+        return;
+    }
+
+    // Compute oracle-compatible quantization grid for edge matching
+    let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
+    let grid = (max_abs as f64 * 1e-5).max(1e-10);
+    let inv_grid = 1.0 / grid;
+    let quantize = |idx: u32| -> (i64, i64, i64) {
+        let i = idx as usize * 3;
+        if i + 2 >= vertices.len() {
+            return (0, 0, 0);
+        }
+        (
+            (vertices[i] as f64 * inv_grid).round() as i64,
+            (vertices[i + 1] as f64 * inv_grid).round() as i64,
+            (vertices[i + 2] as f64 * inv_grid).round() as i64,
+        )
+    };
+
+    type PosEdge = ((i64, i64, i64), (i64, i64, i64));
+    fn make_edge(a: (i64, i64, i64), b: (i64, i64, i64)) -> PosEdge {
+        if a <= b {
+            (a, b)
+        } else {
+            (b, a)
+        }
+    }
+
+    // Build edge count map
+    let mut edge_counts: HashMap<PosEdge, usize> = HashMap::new();
+    for t in 0..n_tris {
+        let base = t * 3;
+        let va = quantize(indices[base]);
+        let vb = quantize(indices[base + 1]);
+        let vc = quantize(indices[base + 2]);
+        *edge_counts.entry(make_edge(va, vb)).or_insert(0) += 1;
+        *edge_counts.entry(make_edge(vb, vc)).or_insert(0) += 1;
+        *edge_counts.entry(make_edge(vc, va)).or_insert(0) += 1;
+    }
+
+    // Mark triangles where ALL 3 edges are unpaired (count != 2)
+    let mut keep = vec![true; n_tris];
+    for t in 0..n_tris {
+        let base = t * 3;
+        let va = quantize(indices[base]);
+        let vb = quantize(indices[base + 1]);
+        let vc = quantize(indices[base + 2]);
+        let e1 = edge_counts.get(&make_edge(va, vb)).copied().unwrap_or(0);
+        let e2 = edge_counts.get(&make_edge(vb, vc)).copied().unwrap_or(0);
+        let e3 = edge_counts.get(&make_edge(vc, va)).copied().unwrap_or(0);
+        if e1 != 2 && e2 != 2 && e3 != 2 {
+            keep[t] = false;
+        }
+    }
+
+    let removed = keep.iter().filter(|&&k| !k).count();
+    #[cfg(test)]
+    {
+        let unpaired = edge_counts.values().filter(|&&c| c != 2).count();
+        if unpaired > 0 || removed > 0 {
+            eprintln!(
+                "remove_isolated_triangles: n_tris={}, unpaired_edges={}, isolated_removed={}",
+                n_tris, unpaired, removed
+            );
+            // Show triangles with any unpaired edges
+            for t in 0..n_tris {
+                let base = t * 3;
+                let va = quantize(indices[base]);
+                let vb = quantize(indices[base + 1]);
+                let vc = quantize(indices[base + 2]);
+                let e1 = edge_counts.get(&make_edge(va, vb)).copied().unwrap_or(0);
+                let e2 = edge_counts.get(&make_edge(vb, vc)).copied().unwrap_or(0);
+                let e3 = edge_counts.get(&make_edge(vc, va)).copied().unwrap_or(0);
+                if e1 != 2 || e2 != 2 || e3 != 2 {
+                    let i0 = indices[base] as usize;
+                    let i1 = indices[base + 1] as usize;
+                    let i2 = indices[base + 2] as usize;
+                    eprintln!(
+                        "  tri[{}]: edge_counts=({},{},{}) v0=({:.4},{:.4},{:.4}) v1=({:.4},{:.4},{:.4}) v2=({:.4},{:.4},{:.4})",
+                        t, e1, e2, e3,
+                        vertices[i0*3], vertices[i0*3+1], vertices[i0*3+2],
+                        vertices[i1*3], vertices[i1*3+1], vertices[i1*3+2],
+                        vertices[i2*3], vertices[i2*3+1], vertices[i2*3+2],
+                    );
+                }
+            }
+        }
+    }
+    if removed == 0 {
+        return;
+    }
+
+    // Rebuild indices and face ranges without isolated triangles
+    let mut new_indices = Vec::with_capacity(indices.len());
+    let mut new_ranges = Vec::new();
+
+    for range in face_ranges.iter() {
+        let range_start = new_indices.len() as u32;
+        let tri_start = range.start_index as usize / 3;
+        let tri_end = range.end_index as usize / 3;
+
+        for t in tri_start..tri_end {
+            if t < n_tris && keep[t] {
+                new_indices.push(indices[t * 3]);
+                new_indices.push(indices[t * 3 + 1]);
+                new_indices.push(indices[t * 3 + 2]);
             }
         }
 

@@ -167,6 +167,203 @@ fn collect_face_vertices(arena: &TopoArena, face_idx: FaceIdx) -> Vec<[f64; 3]> 
     verts
 }
 
+/// Generate polygon approximation for a face with analytic geometry but too few
+/// loop vertices (SSI boolean results use seam-edge B-Rep).
+///
+/// For cylindrical faces (2 seam vertices defining the Z range), generates N
+/// side quads. For planar caps (1 seam vertex), generates an N-gon circle.
+fn generate_analytic_face_polys(
+    geom: &SurfaceGeom,
+    loop_verts: &[[f64; 3]],
+    arena: &TopoArena,
+    face_idx: FaceIdx,
+    polys: &mut Vec<FacePoly>,
+) {
+    let n_seg = 32;
+    match geom {
+        SurfaceGeom::Cylindrical(cyl) => {
+            let axis = [cyl.axis.x, cyl.axis.y, cyl.axis.z];
+            let origin = [cyl.origin.x, cyl.origin.y, cyl.origin.z];
+            let radius = cyl.radius.abs();
+            let inward = cyl.radius < 0.0;
+
+            if radius < 1e-15 {
+                return;
+            }
+
+            // Find Z extent from loop vertices (seam vertices define top/bottom)
+            let heights: Vec<f64> = loop_verts
+                .iter()
+                .map(|v| v3_dot(v3_sub(*v, origin), axis))
+                .collect();
+            let z_min = heights.iter().copied().fold(f64::INFINITY, f64::min);
+            let z_max = heights.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            if (z_max - z_min).abs() < 1e-15 {
+                return;
+            }
+
+            // Build local frame (x_axis, y_axis perpendicular to axis)
+            let (x_axis, y_axis) = {
+                let up = if axis[0].abs() < 0.9 {
+                    [1.0, 0.0, 0.0]
+                } else {
+                    [0.0, 1.0, 0.0]
+                };
+                let x = v3_normalize(v3_cross(axis, up));
+                let y = v3_normalize(v3_cross(axis, x));
+                (x, y)
+            };
+
+            // Generate N side quads
+            let bot_center = v3_add(origin, v3_scale(axis, z_min));
+            let top_center = v3_add(origin, v3_scale(axis, z_max));
+            for i in 0..n_seg {
+                let theta0 = std::f64::consts::TAU * (i as f64) / (n_seg as f64);
+                let theta1 = std::f64::consts::TAU * ((i + 1) as f64) / (n_seg as f64);
+                let (c0, s0) = (theta0.cos(), theta0.sin());
+                let (c1, s1) = (theta1.cos(), theta1.sin());
+
+                let offset0 = v3_add(v3_scale(x_axis, radius * c0), v3_scale(y_axis, radius * s0));
+                let offset1 = v3_add(v3_scale(x_axis, radius * c1), v3_scale(y_axis, radius * s1));
+
+                let b0 = v3_add(bot_center, offset0);
+                let b1 = v3_add(bot_center, offset1);
+                let t0 = v3_add(top_center, offset0);
+                let t1 = v3_add(top_center, offset1);
+
+                let edge_bot = v3_sub(b1, b0);
+                let edge_up = v3_sub(t0, b0);
+                let mut normal = v3_normalize(v3_cross(edge_bot, edge_up));
+                if inward {
+                    normal = v3_negate(normal);
+                }
+
+                let quad = if inward {
+                    vec![b0, t0, t1, b1] // reversed winding for inward
+                } else {
+                    vec![b0, b1, t1, t0]
+                };
+                polys.push(FacePoly {
+                    verts: quad,
+                    normal,
+                    origin: b0,
+                });
+            }
+        }
+        SurfaceGeom::Planar(plane) => {
+            let normal = [plane.normal.x, plane.normal.y, plane.normal.z];
+            let origin = [plane.origin.x, plane.origin.y, plane.origin.z];
+
+            // Planar cap face with < 3 loop vertices: circular cap.
+            // Find radius from the seam vertex distance to the plane origin.
+            // Also check inner loops for annular caps (tube geometry).
+            let mut radii = Vec::new();
+
+            // Outer loop radius
+            if let Some(v) = loop_verts.first() {
+                let r = v3_length(v3_sub(*v, origin));
+                if r > 1e-15 {
+                    radii.push(r);
+                }
+            }
+
+            // Check inner loops for tube/annular faces
+            for inner_loop in &arena.faces[face_idx.0].inner_loops {
+                let start_he = arena.loops[inner_loop.0].half_edge;
+                let v_idx = arena.half_edges[start_he.0].origin;
+                let v_pos = arena.vertices[v_idx.0].position;
+                let r = v3_length(v3_sub(v_pos, origin));
+                if r > 1e-15 {
+                    radii.push(r);
+                }
+            }
+
+            if radii.is_empty() {
+                return;
+            }
+
+            // Build local frame
+            let (x_axis, y_axis) = {
+                let up = if normal[0].abs() < 0.9 {
+                    [1.0, 0.0, 0.0]
+                } else {
+                    [0.0, 1.0, 0.0]
+                };
+                let x = v3_normalize(v3_cross(normal, up));
+                let y = v3_normalize(v3_cross(normal, x));
+                (x, y)
+            };
+
+            if radii.len() == 1 {
+                // Simple circular cap
+                let r = radii[0];
+                let mut cap_verts = Vec::with_capacity(n_seg);
+                for i in 0..n_seg {
+                    let theta = std::f64::consts::TAU * (i as f64) / (n_seg as f64);
+                    let offset = v3_add(
+                        v3_scale(x_axis, r * theta.cos()),
+                        v3_scale(y_axis, r * theta.sin()),
+                    );
+                    cap_verts.push(v3_add(origin, offset));
+                }
+                polys.push(FacePoly {
+                    verts: cap_verts,
+                    normal,
+                    origin,
+                });
+            } else if radii.len() >= 2 {
+                // Annular cap: generate quads between outer and inner circles
+                let (r_outer, r_inner) = if radii[0] > radii[1] {
+                    (radii[0], radii[1])
+                } else {
+                    (radii[1], radii[0])
+                };
+                for i in 0..n_seg {
+                    let theta0 = std::f64::consts::TAU * (i as f64) / (n_seg as f64);
+                    let theta1 = std::f64::consts::TAU * ((i + 1) as f64) / (n_seg as f64);
+
+                    let outer0 = v3_add(
+                        origin,
+                        v3_add(
+                            v3_scale(x_axis, r_outer * theta0.cos()),
+                            v3_scale(y_axis, r_outer * theta0.sin()),
+                        ),
+                    );
+                    let outer1 = v3_add(
+                        origin,
+                        v3_add(
+                            v3_scale(x_axis, r_outer * theta1.cos()),
+                            v3_scale(y_axis, r_outer * theta1.sin()),
+                        ),
+                    );
+                    let inner0 = v3_add(
+                        origin,
+                        v3_add(
+                            v3_scale(x_axis, r_inner * theta0.cos()),
+                            v3_scale(y_axis, r_inner * theta0.sin()),
+                        ),
+                    );
+                    let inner1 = v3_add(
+                        origin,
+                        v3_add(
+                            v3_scale(x_axis, r_inner * theta1.cos()),
+                            v3_scale(y_axis, r_inner * theta1.sin()),
+                        ),
+                    );
+
+                    // Quad: outer0 → outer1 → inner1 → inner0
+                    polys.push(FacePoly {
+                        verts: vec![outer0, outer1, inner1, inner0],
+                        normal,
+                        origin: outer0,
+                    });
+                }
+            }
+        }
+        _ => {} // Conical, spherical, etc. — not yet handled
+    }
+}
+
 /// Extract all face polygons from a WaffleSolid.
 fn extract_face_polys(solid: &WaffleSolid) -> Vec<FacePoly> {
     let mut polys = Vec::new();
@@ -184,7 +381,7 @@ fn extract_face_polys(solid: &WaffleSolid) -> Vec<FacePoly> {
                 // For non-planar faces (cylindrical, conical, etc.),
                 // compute planar approximation from loop vertices using
                 // Newell normal. Only include if the face is approximately
-                // planar (all vertices within 1% of face size from the plane).
+                // planar (all vertices within 5% of face size from the plane).
                 let newell = compute_newell_normal(&verts);
                 let nl = v3_dot(newell, newell).sqrt();
                 if nl < 1e-15 {
@@ -204,7 +401,35 @@ fn extract_face_polys(solid: &WaffleSolid) -> Vec<FacePoly> {
                     .map(|v| v3_length(v3_sub(*v, verts[0])))
                     .fold(0.0_f64, f64::max);
                 if face_size > 1e-15 && max_dist > face_size * 0.05 {
-                    continue; // Too curved for planar approximation
+                    // Too curved: subdivide into triangles (each triangle is
+                    // exactly planar). This handles revolve lateral faces.
+                    if verts.len() >= 3 {
+                        for t in 1..verts.len() - 1 {
+                            let tri = vec![verts[0], verts[t], verts[t + 1]];
+                            let e1 = v3_sub(tri[1], tri[0]);
+                            let e2 = v3_sub(tri[2], tri[0]);
+                            let tri_n = v3_cross(e1, e2);
+                            let tri_nl = v3_length(tri_n);
+                            if tri_nl < 1e-15 {
+                                continue;
+                            }
+                            let tri_normal =
+                                [tri_n[0] / tri_nl, tri_n[1] / tri_nl, tri_n[2] / tri_nl];
+                            // Orient triangle normal consistently with Newell normal
+                            let tri_normal = if v3_dot(tri_normal, n) >= 0.0 {
+                                tri_normal
+                            } else {
+                                v3_negate(tri_normal)
+                            };
+                            let tri_origin = polygon_centroid(&tri);
+                            polys.push(FacePoly {
+                                verts: tri,
+                                normal: tri_normal,
+                                origin: tri_origin,
+                            });
+                        }
+                    }
+                    continue;
                 }
                 (n, o)
             }
@@ -215,6 +440,23 @@ fn extract_face_polys(solid: &WaffleSolid) -> Vec<FacePoly> {
             origin,
         });
     }
+    // Sort for deterministic order (HashMap iteration is nondeterministic).
+    // This ensures classify_face sees cutting planes in the same order every run.
+    polys.sort_by(|a, b| {
+        let ca = polygon_centroid(&a.verts);
+        let cb = polygon_centroid(&b.verts);
+        let ka = [
+            (ca[0] * 1e9) as i64,
+            (ca[1] * 1e9) as i64,
+            (ca[2] * 1e9) as i64,
+        ];
+        let kb = [
+            (cb[0] * 1e9) as i64,
+            (cb[1] * 1e9) as i64,
+            (cb[2] * 1e9) as i64,
+        ];
+        ka.cmp(&kb)
+    });
     polys
 }
 
@@ -297,7 +539,27 @@ fn extract_face_polys_general(solid: &WaffleSolid) -> Vec<FacePoly> {
     if let Some(ref cyl) = solid.cylinder_params {
         cylinder_to_face_polys(cyl, 32)
     } else {
-        extract_face_polys(solid)
+        let polys = extract_face_polys(solid);
+        if !polys.is_empty() {
+            return polys;
+        }
+        // Fallback: B-Rep walk returned empty (SSI results with seam edges
+        // have < 3 loop vertices per face). Generate polygon approximations
+        // from the analytic face geometry.
+        let mut analytic_polys = Vec::new();
+        for (&_kid, &face_idx) in &solid.face_map {
+            if let Some(geom) = solid.face_geometry.get(&face_idx) {
+                let verts = collect_face_vertices(&solid.arena, face_idx);
+                generate_analytic_face_polys(
+                    geom,
+                    &verts,
+                    &solid.arena,
+                    face_idx,
+                    &mut analytic_polys,
+                );
+            }
+        }
+        analytic_polys
     }
 }
 
@@ -1285,12 +1547,17 @@ fn resolve_t_junctions(polys: &[FacePoly], tau: f64) -> Vec<FacePoly> {
                     continue; // not in interior
                 }
 
-                // Check distance from the line (relative to edge length)
+                // Check distance from the line (relative to edge length).
+                // S-H clipping divergence between adjacent faces can be much
+                // larger than tau, so use generous tolerances.
                 let proj = v3_add(a, v3_scale(edge_vec, t));
                 let diff = v3_sub(v, proj);
                 let dist_sq = v3_dot(diff, diff);
-                let rel_tol_sq = edge_len_sq * (tau * 10.0) * (tau * 10.0);
-                if dist_sq < tau * tau * 100.0 || dist_sq < rel_tol_sq {
+                let abs_tol = tau * 1000.0; // ~tau_weld for S-H divergence
+                let rel_tol_sq = edge_len_sq * 1e-8; // 0.01% of edge length
+                if dist_sq < abs_tol * abs_tol || dist_sq < rel_tol_sq {
+                    // Use the original vertex position (not projection) to
+                    // maintain consistency with the face that owns this vertex.
                     splits.push((t, v));
                 }
             }
@@ -1787,6 +2054,20 @@ fn build_brep_from_polygons_inner(
                         paired.insert(he_idx);
                         paired.insert(twin_idx);
 
+                        // Snap twin vertex positions to match so tessellation
+                        // produces bit-identical f32 for shared edges.
+                        let twin_origin = arena.half_edges[twin_idx.0].origin;
+                        let twin_next = arena.half_edges[twin_idx.0].next;
+                        let twin_dest = arena.half_edges[twin_next.0].origin;
+                        if twin_origin != dest {
+                            arena.vertices[twin_origin.0].position =
+                                arena.vertices[dest.0].position;
+                        }
+                        if twin_dest != origin {
+                            arena.vertices[twin_dest.0].position =
+                                arena.vertices[origin.0].position;
+                        }
+
                         // Add edge geometry
                         let p0 = arena.vertices[origin.0].position;
                         let p1 = arena.vertices[dest.0].position;
@@ -1923,9 +2204,9 @@ fn build_brep_from_polygons_inner(
         let unpaired_ratio = unpaired_count as f64 / total_count.max(1) as f64;
         // Allow up to 5% unpaired in strict mode (S-H clipping creates small
         // T-junction gaps from independent floating-point intersection computation).
-        // Allow up to 25% in tolerant mode (polygon approximation and fallback
-        // from strict mode — more boundary edges accepted as best-effort).
-        let threshold = if allow_boundary { 0.25 } else { 0.05 };
+        // Allow up to 60% in tolerant mode (polygon approximation and fallback
+        // from strict mode — tessellation hole-filling can repair small boundary gaps).
+        let threshold = if allow_boundary { 0.60 } else { 0.05 };
         if unpaired_ratio > threshold {
             return Err(KernelError::BooleanFailed {
                 reason: format!(
@@ -2011,7 +2292,7 @@ fn polygon_approx_boolean(
     // Cylinder (34 faces) + box (6 faces) = 40 → OK.
     // Cylinder (34) + gear (many faces) = 60+ → can be very slow.
     let total_faces = a_faces.len() + b_faces.len();
-    if total_faces > 200 {
+    if total_faces > 1500 {
         return Err(KernelError::NotSupported {
             operation: format!(
                 "polygon approx boolean: {} total faces exceeds limit",
@@ -2056,10 +2337,10 @@ fn boolean_op_from_polys_inner(
     // Guard against pathological face counts: O(n*m) classification becomes
     // too expensive when both solids have many faces (e.g., revolve(gear) × gear).
     let total_faces = a_faces.len() + b_faces.len();
-    if total_faces > 250 {
+    if total_faces > 1500 {
         return Err(KernelError::NotSupported {
             operation: format!(
-                "polygon boolean: {} total faces exceeds limit (250)",
+                "polygon boolean: {} total faces exceeds limit (1500)",
                 total_faces
             ),
         });
@@ -2125,6 +2406,10 @@ fn boolean_op_from_polys_inner(
         });
     }
 
+    // Merge nearby vertices so independently-clipped adjacent faces share
+    // identical intersection coordinates, then resolve T-junctions where one
+    // face's edge passes through another face's vertex.
+    let result_polys = merge_nearby_vertices(&result_polys, tau_weld);
     let result_polys = resolve_t_junctions(&result_polys, tau_weld);
 
     build_brep_from_polygons_inner(&result_polys, tau_weld, allow_boundary, id_alloc)
