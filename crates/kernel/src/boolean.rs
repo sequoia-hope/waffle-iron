@@ -1502,11 +1502,17 @@ pub(crate) fn boolean_op_tolerant(
 /// This avoids moving isolated vertices and preserves original face geometry.
 #[allow(dead_code)]
 fn merge_nearby_vertices(polys: &[FacePoly], tau_weld: f64) -> Vec<FacePoly> {
-    // Use generous tolerance: intersection vertices from mating faces of
-    // different solids can differ by much more than tau_weld due to independent
-    // edge-plane intersection computation. Factor of 75 ensures merge_tol
-    // exceeds the oracle's f32 quantization grid (max_abs * 1e-5).
-    let merge_tol = tau_weld * 50.0;
+    // Compute merge tolerance directly from vertex coordinates to align with
+    // the oracle's f32 quantization grid (max_abs * 1e-5). Use 2x grid to
+    // ensure vertices within one oracle grid cell always merge.
+    let max_coord = polys
+        .iter()
+        .flat_map(|f| f.verts.iter())
+        .flat_map(|v| v.iter())
+        .map(|c| c.abs())
+        .fold(0.0_f64, f64::max);
+    let oracle_grid = (max_coord * 1e-5).max(1e-10);
+    let merge_tol = (oracle_grid * 2.0).max(tau_weld * 50.0);
     let inv_tau = 1.0 / merge_tol;
     let weld_dist_sq = merge_tol * merge_tol;
 

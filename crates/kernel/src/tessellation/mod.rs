@@ -276,11 +276,21 @@ pub(crate) fn tessellate_solid(
     // Third degenerate pass: second fill may create zero-area fan triangles.
     remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
 
-    // Weld boundary vertices that are close enough to match in the oracle grid.
-    weld_boundary_vertices(&mut vertices, &indices);
+    // Iterative weld+fill: weld may expose new boundary holes that need filling.
+    for _ in 0..3 {
+        let prev_len = indices.len();
+        weld_boundary_vertices(&mut vertices, &indices);
+        remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
+        fill_boundary_holes(&vertices, &normals, &mut indices, &mut face_ranges);
+        remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
+        if indices.len() == prev_len {
+            break;
+        }
+    }
 
-    // Post-weld degenerate removal: welding may collapse boundary vertices.
-    remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
+    // Snap boundary vertex positions to the oracle's f32 quantization grid.
+    // Only snap vertices on unpaired edges to avoid collapsing interior features.
+    snap_boundary_to_oracle_grid(&mut vertices, &indices);
 
     // If the mesh signed volume is negative, the entire solid is inside-out
     // (all face normals point inward). Flip all windings and normals.
@@ -1941,8 +1951,8 @@ fn weld_boundary_vertices(vertices: &mut [f32], indices: &[u32]) {
         }
     }
 
-    // Weld threshold: 1.5x oracle grid — catches vertices in adjacent cells
-    let weld_dist_sq = (grid * 1.5) * (grid * 1.5);
+    // Weld threshold: 2.5x oracle grid — catches vertices in adjacent cells
+    let weld_dist_sq = (grid * 2.5) * (grid * 2.5);
 
     // O(N²) pairwise check — N is small (boundary vertices only)
     for i in 0..n {
@@ -2713,41 +2723,81 @@ fn remove_isolated_triangles(
 /// Max position change: grid/2 ≈ 5e-5 at unit scale (0.05mm), well within
 /// manufacturing tolerance and f32 visual precision.
 #[allow(dead_code)]
-fn snap_to_oracle_grid(vertices: &mut [f32]) {
-    let num_verts = vertices.len() / 3;
-    if num_verts == 0 {
+/// Snap boundary vertex positions to the oracle's quantization grid.
+/// Only vertices on unpaired edges are snapped, preserving interior mesh quality.
+fn snap_boundary_to_oracle_grid(vertices: &mut [f32], indices: &[u32]) {
+    if vertices.is_empty() || indices.is_empty() {
         return;
     }
+    let n_verts = vertices.len() / 3;
+    let n_tris = indices.len() / 3;
 
-    // Compute bounding box diagonal
-    let mut bbox_min = [f32::INFINITY; 3];
-    let mut bbox_max = [f32::NEG_INFINITY; 3];
-    for i in 0..num_verts {
-        for j in 0..3 {
-            let v = vertices[i * 3 + j];
-            bbox_min[j] = bbox_min[j].min(v);
-            bbox_max[j] = bbox_max[j].max(v);
+    let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
+    let grid = (max_abs as f64 * 1e-5).max(1e-10);
+    let inv_grid = 1.0 / grid;
+
+    let quantize = |idx: u32| -> (i64, i64, i64) {
+        let i = idx as usize;
+        if i >= n_verts {
+            return (0, 0, 0);
+        }
+        (
+            (vertices[i * 3] as f64 * inv_grid).round() as i64,
+            (vertices[i * 3 + 1] as f64 * inv_grid).round() as i64,
+            (vertices[i * 3 + 2] as f64 * inv_grid).round() as i64,
+        )
+    };
+
+    type QPos = (i64, i64, i64);
+    let make_edge = |a: QPos, b: QPos| -> (QPos, QPos) {
+        if a <= b {
+            (a, b)
+        } else {
+            (b, a)
+        }
+    };
+
+    let mut edge_counts: HashMap<(QPos, QPos), usize> = HashMap::new();
+    for t in 0..n_tris {
+        let base = t * 3;
+        let qt = [
+            quantize(indices[base]),
+            quantize(indices[base + 1]),
+            quantize(indices[base + 2]),
+        ];
+        for e in 0..3 {
+            let edge = make_edge(qt[e], qt[(e + 1) % 3]);
+            if edge.0 != edge.1 {
+                *edge_counts.entry(edge).or_insert(0) += 1;
+            }
         }
     }
-    let diag = ((bbox_max[0] - bbox_min[0]).powi(2)
-        + (bbox_max[1] - bbox_min[1]).powi(2)
-        + (bbox_max[2] - bbox_min[2]).powi(2))
-    .sqrt();
 
-    // Compute oracle grid (same formula as check_watertight_mesh)
-    let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
-    let grid = (1e-4_f64).max(max_abs as f64 * 2e-6);
-
-    // Only snap if model is large enough relative to grid.
-    // If model diagonal < 10000 grid cells, snapping could collapse thin features
-    // (e.g., revolve faces, boolean fragments near the intersection boundary).
-    if (diag as f64) < grid * 10000.0 {
-        return;
+    // Collect boundary vertex indices
+    let mut is_boundary = HashSet::new();
+    for t in 0..n_tris {
+        let base = t * 3;
+        let tri = [indices[base], indices[base + 1], indices[base + 2]];
+        let qt = [quantize(tri[0]), quantize(tri[1]), quantize(tri[2])];
+        for e in 0..3 {
+            let edge = make_edge(qt[e], qt[(e + 1) % 3]);
+            if edge.0 != edge.1 {
+                if edge_counts.get(&edge).copied().unwrap_or(0) != 2 {
+                    is_boundary.insert(tri[e] as usize);
+                    is_boundary.insert(tri[(e + 1) % 3] as usize);
+                }
+            }
+        }
     }
 
-    let inv_grid = 1.0 / grid;
-    for v in vertices.iter_mut() {
-        *v = ((*v as f64 * inv_grid).round() * grid) as f32;
+    // Snap only boundary vertices to the grid
+    for &vi in &is_boundary {
+        if vi < n_verts {
+            for j in 0..3 {
+                let idx = vi * 3 + j;
+                vertices[idx] = ((vertices[idx] as f64 * inv_grid).round() * grid) as f32;
+            }
+        }
     }
 }
 
