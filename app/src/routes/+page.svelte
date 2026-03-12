@@ -143,7 +143,7 @@
 		/* columns set inline via style binding */
 		height: 100vh;
 		height: 100dvh;
-		width: 100vw;
+		width: 100%;
 	}
 
 	.toolbar-area {
@@ -281,10 +281,10 @@
 	}
 
 	.fab-left {
-		left: 4px;
+		left: max(4px, env(safe-area-inset-left, 0px));
 	}
 
 	.fab-right {
-		right: 4px;
+		right: max(4px, env(safe-area-inset-right, 0px));
 	}
 </style>

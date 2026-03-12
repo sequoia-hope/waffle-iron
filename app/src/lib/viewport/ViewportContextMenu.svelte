@@ -11,13 +11,18 @@
 
 	let ready = $derived(isEngineReady());
 
+	const getSafeInset = (prop) =>
+		parseFloat(getComputedStyle(document.documentElement).getPropertyValue(prop)) || 0;
+
 	let clampedPos = $derived.by(() => {
 		const menuWidth = 160;
 		const menuHeight = 200;
-		const maxX = window.innerWidth - menuWidth - 8;
+		const saiRight = getSafeInset('--sai-right');
+		const saiLeft = getSafeInset('--sai-left');
+		const maxX = window.innerWidth - menuWidth - 8 - saiRight;
 		const maxY = window.innerHeight - menuHeight - 8;
 		return {
-			x: Math.min(pos.x, Math.max(0, maxX)),
+			x: Math.min(pos.x, Math.max(saiLeft, maxX)),
 			y: Math.min(pos.y, Math.max(0, maxY))
 		};
 	});

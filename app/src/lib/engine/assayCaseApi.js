@@ -36,3 +36,20 @@ export async function fetchAssayMeta(id) {
 	if (!res.ok) throw new Error(`Failed to fetch assay meta ${id}: ${res.status}`);
 	return res.json();
 }
+
+/**
+ * Fetch assay results (pass/fail/error status for each case).
+ * Returns null if results.json doesn't exist yet.
+ * @returns {Promise<{ total: number, passed: number, failed: number, errored: number, results: Array<{ id: string, status: string, category: string, detail: string }> } | null>}
+ */
+export async function fetchAssayResults() {
+	try {
+		const res = await fetch(`${BASE}/results`);
+		if (!res.ok) return null;
+		const data = await res.json();
+		if (!data.results || data.results.length === 0) return null;
+		return data;
+	} catch {
+		return null;
+	}
+}

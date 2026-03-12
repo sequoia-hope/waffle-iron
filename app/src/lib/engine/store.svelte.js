@@ -142,8 +142,8 @@ let testCaseBrowserState = $state({ visible: false, cases: [], loading: false, e
 /** @type {{ name: string, description: string, expectedOutcome: string, tags: string } | null} */
 let saveTestCaseDialogState = $state(null);
 
-/** @type {{ visible: boolean, cases: Array<object>, activeCase: string | null, activeMeta: object | null, loading: boolean, error: string | null }} */
-let assayBrowserState = $state({ visible: false, cases: [], activeCase: null, activeMeta: null, loading: false, error: null });
+/** @type {{ visible: boolean, cases: Array<object>, activeCase: string | null, activeMeta: object | null, loading: boolean, error: string | null, results: Object<string, { status: string, category: string, detail: string }> }} */
+let assayBrowserState = $state({ visible: false, cases: [], activeCase: null, activeMeta: null, loading: false, error: null, results: {} });
 
 /** @type {{ entityA: number, entityB: number | null, sketchX: number, sketchY: number, dimType: 'distance'|'radius'|'angle', defaultValue: number } | null} */
 let dimensionPopup = $state(null);
@@ -207,6 +207,9 @@ let boxSelectState = $state({ active: false, startX: 0, startY: 0, endX: 0, endY
 
 /** @type {{ intersections: Array<any>, cycleIndex: number, lastScreenX: number, lastScreenY: number }} */
 let selectOtherState = $state({ intersections: [], cycleIndex: 0, lastScreenX: -1, lastScreenY: -1 });
+
+// -- Two-finger touch gesture state --
+let twoFingerActive = $state(false);
 
 // -- Mobile layout state --
 
@@ -3139,6 +3142,12 @@ export function toggleMobilePanel(panel) {
 	mobileActivePanel = mobileActivePanel === panel ? null : panel;
 }
 
+// -- Two-finger touch gesture --
+
+export function isTwoFingerGestureActive() { return twoFingerActive; }
+/** @param {boolean} v */
+export function setTwoFingerActive(v) { twoFingerActive = v; }
+
 // -- Project name --
 
 export function getProjectName() { return projectName; }
@@ -3399,9 +3408,20 @@ export async function refreshAssayCases() {
 	assayBrowserState.loading = true;
 	assayBrowserState.error = null;
 	try {
-		const { fetchAssayManifest } = await import('./assayCaseApi.js');
-		const manifest = await fetchAssayManifest();
+		const { fetchAssayManifest, fetchAssayResults } = await import('./assayCaseApi.js');
+		const [manifest, resultsData] = await Promise.all([
+			fetchAssayManifest(),
+			fetchAssayResults()
+		]);
 		assayBrowserState.cases = manifest.cases || [];
+		// Build results lookup map { id -> { status, category, detail } }
+		const resultsMap = {};
+		if (resultsData && resultsData.results) {
+			for (const r of resultsData.results) {
+				resultsMap[r.id] = { status: r.status, category: r.category, detail: r.detail };
+			}
+		}
+		assayBrowserState.results = resultsMap;
 	} catch (err) {
 		assayBrowserState.error = err.message;
 	} finally {

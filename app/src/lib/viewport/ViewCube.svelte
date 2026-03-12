@@ -70,7 +70,7 @@
 	.viewcube-container {
 		position: absolute;
 		top: 8px;
-		right: 8px;
+		right: max(8px, env(safe-area-inset-right, 0px));
 		z-index: 10;
 		pointer-events: auto;
 		display: flex;

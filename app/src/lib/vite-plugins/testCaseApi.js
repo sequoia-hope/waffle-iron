@@ -181,6 +181,16 @@ export default function testCaseApiPlugin() {
 						return;
 					}
 
+					if (req.method === 'GET' && id === 'results' && !subResource) {
+						const resultsPath = path.join(ASSAY_DIR, 'results.json');
+						if (!fs.existsSync(resultsPath)) {
+							res.end(JSON.stringify({ total: 0, passed: 0, failed: 0, errored: 0, results: [] }));
+							return;
+						}
+						res.end(fs.readFileSync(resultsPath, 'utf-8'));
+						return;
+					}
+
 					if (req.method === 'GET' && id && subResource === 'meta') {
 						const metaPath = path.join(ASSAY_DIR, `${id}.meta.json`);
 						if (!fs.existsSync(metaPath)) {

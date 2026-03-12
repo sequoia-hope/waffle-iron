@@ -126,6 +126,16 @@ pub struct RevolveParams {
     pub axis_origin: [f64; 3],
     pub axis_direction: [f64; 3],
     pub angle: f64,
+    /// If true, subtract this revolve from the target body.
+    #[serde(default)]
+    pub cut: bool,
+    /// If true (and cut=false), auto-union with the most recent body.
+    #[serde(default = "default_merge_true")]
+    pub merge: bool,
+}
+
+fn default_merge_true() -> bool {
+    true
 }
 
 /// Parameters for a fillet operation.

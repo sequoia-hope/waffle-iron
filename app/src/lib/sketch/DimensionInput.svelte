@@ -62,12 +62,15 @@
 		// Auto-dismiss on blur without applying
 		hideDimensionPopup();
 	}
+
+	const getSafeInset = (prop) =>
+		parseFloat(getComputedStyle(document.documentElement).getPropertyValue(prop)) || 0;
 </script>
 
 {#if popup && screenPos}
 	<div
 		class="dimension-input-overlay"
-		style="left: {Math.max(48, Math.min(screenPos.x, window.innerWidth - 48))}px; top: {Math.max(40, Math.min(screenPos.y, window.innerHeight - 16))}px;"
+		style="left: {Math.max(48 + getSafeInset('--sai-left'), Math.min(screenPos.x, window.innerWidth - 48 - getSafeInset('--sai-right')))}px; top: {Math.max(40, Math.min(screenPos.y, window.innerHeight - 16))}px;"
 	>
 		<input
 			type="text"

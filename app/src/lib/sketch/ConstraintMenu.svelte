@@ -13,13 +13,18 @@
 
 	let sm = $derived(getSketchMode());
 
+	const getSafeInset = (prop) =>
+		parseFloat(getComputedStyle(document.documentElement).getPropertyValue(prop)) || 0;
+
 	let clampedPos = $derived.by(() => {
 		const menuWidth = 150;
 		const menuHeight = 300;
-		const maxX = window.innerWidth - menuWidth - 8;
+		const saiRight = getSafeInset('--sai-right');
+		const saiLeft = getSafeInset('--sai-left');
+		const maxX = window.innerWidth - menuWidth - 8 - saiRight;
 		const maxY = window.innerHeight - menuHeight - 8;
 		return {
-			x: Math.min(menuPos.x, Math.max(0, maxX)),
+			x: Math.min(menuPos.x, Math.max(saiLeft, maxX)),
 			y: Math.min(menuPos.y, Math.max(0, maxY))
 		};
 	});

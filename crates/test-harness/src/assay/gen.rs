@@ -70,6 +70,9 @@ pub struct AssayMeta {
     pub oracles: OracleExpectations,
     /// Generator version that produced this case.
     pub generator_version: u32,
+    /// Whether this is a featured (curated) test case.
+    #[serde(default)]
+    pub featured: bool,
 }
 
 /// Metadata for a single operation.
@@ -119,6 +122,9 @@ pub struct ManifestEntry {
     pub filename: String,
     pub meta_filename: String,
     pub description: String,
+    /// Whether this is a featured (curated) test case.
+    #[serde(default)]
+    pub featured: bool,
 }
 
 /// Manifest for the entire corpus.
@@ -362,6 +368,8 @@ pub fn generate_case(master_seed: u64, index: usize) -> GeneratedCase {
                         ],
                         axis_direction: [plane_normal[1], -plane_normal[0], 0.0],
                         angle: depth_or_angle,
+                        cut: is_cut,
+                        merge: true,
                     },
                 },
                 suppressed: false,
@@ -430,6 +438,7 @@ pub fn generate_case(master_seed: u64, index: usize) -> GeneratedCase {
             volume_monotonicity,
         },
         generator_version: GENERATOR_VERSION,
+        featured: false,
     };
 
     GeneratedCase {
@@ -437,6 +446,313 @@ pub fn generate_case(master_seed: u64, index: usize) -> GeneratedCase {
         waffle_json,
         meta,
     }
+}
+
+// ── Featured Case Generation ──────────────────────────────────────────────
+
+/// Specification for a single featured test case.
+struct FeaturedSpec {
+    id: &'static str,
+    scale: f64,
+    w1: f64,
+    h1: f64,
+    d1: f64,
+    w2: f64,
+    h2: f64,
+    d2: f64,
+    description: &'static str,
+}
+
+/// 10 curated rect-boss + rect-boss test cases.
+const FEATURED_SPECS: [FeaturedSpec; 10] = [
+    FeaturedSpec {
+        id: "F0001",
+        scale: 1.0,
+        w1: 0.5,
+        h1: 0.5,
+        d1: 0.3,
+        w2: 0.5,
+        h2: 0.5,
+        d2: 0.3,
+        description: "Identical squares",
+    },
+    FeaturedSpec {
+        id: "F0002",
+        scale: 0.01,
+        w1: 0.006,
+        h1: 0.002,
+        d1: 0.004,
+        w2: 0.002,
+        h2: 0.006,
+        d2: 0.004,
+        description: "Small cross-shaped",
+    },
+    FeaturedSpec {
+        id: "F0003",
+        scale: 100.0,
+        w1: 60.0,
+        h1: 40.0,
+        d1: 30.0,
+        w2: 40.0,
+        h2: 60.0,
+        d2: 20.0,
+        description: "Large, swapped aspect",
+    },
+    FeaturedSpec {
+        id: "F0004",
+        scale: 1.0,
+        w1: 0.8,
+        h1: 0.2,
+        d1: 0.5,
+        w2: 0.2,
+        h2: 0.8,
+        d2: 0.5,
+        description: "Thin cross",
+    },
+    FeaturedSpec {
+        id: "F0005",
+        scale: 1.0,
+        w1: 0.3,
+        h1: 0.3,
+        d1: 0.1,
+        w2: 0.3,
+        h2: 0.3,
+        d2: 0.8,
+        description: "Same rect, different depths",
+    },
+    FeaturedSpec {
+        id: "F0006",
+        scale: 0.001,
+        w1: 0.0004,
+        h1: 0.0004,
+        d1: 0.0003,
+        w2: 0.0006,
+        h2: 0.0002,
+        d2: 0.0003,
+        description: "Micro scale",
+    },
+    FeaturedSpec {
+        id: "F0007",
+        scale: 10.0,
+        w1: 6.0,
+        h1: 6.0,
+        d1: 4.0,
+        w2: 3.0,
+        h2: 3.0,
+        d2: 2.0,
+        description: "Concentric squares",
+    },
+    FeaturedSpec {
+        id: "F0008",
+        scale: 1.0,
+        w1: 0.4,
+        h1: 0.4,
+        d1: 0.2,
+        w2: 0.6,
+        h2: 0.6,
+        d2: 0.4,
+        description: "Nested squares, deep",
+    },
+    FeaturedSpec {
+        id: "F0009",
+        scale: 0.1,
+        w1: 0.06,
+        h1: 0.04,
+        d1: 0.03,
+        w2: 0.04,
+        h2: 0.06,
+        d2: 0.02,
+        description: "Medium-small, swapped",
+    },
+    FeaturedSpec {
+        id: "F0010",
+        scale: 1.0,
+        w1: 0.5,
+        h1: 0.3,
+        d1: 0.01,
+        w2: 0.3,
+        h2: 0.5,
+        d2: 1.0,
+        description: "Shallow vs very deep",
+    },
+];
+
+/// Generate 10 curated featured test cases (rect-boss + rect-boss).
+///
+/// Writes `.waffle` and `.meta.json` files to `output_dir`.
+/// Returns manifest entries for inclusion in the corpus manifest.
+pub fn generate_featured_cases(output_dir: &std::path::Path) -> Vec<ManifestEntry> {
+    let mut entries = Vec::new();
+
+    for spec in &FEATURED_SPECS {
+        let plane_origin = [0.0, 0.0, 0.0];
+        let plane_normal = [0.0, 0.0, 1.0];
+
+        let mut features: Vec<Feature> = Vec::new();
+
+        // Operation 1: extrude(rect, boss)
+        let sketch1_id = Uuid::new_v4();
+        let (entities1, positions1, profiles1) =
+            rect_profile(-spec.w1 / 2.0, -spec.h1 / 2.0, spec.w1, spec.h1);
+        features.push(Feature {
+            id: sketch1_id,
+            name: "Sketch 1".to_string(),
+            operation: Operation::Sketch {
+                sketch: Sketch {
+                    id: sketch1_id,
+                    plane: datum_plane_ref(Uuid::new_v4()),
+                    plane_origin,
+                    plane_normal,
+                    entities: entities1,
+                    constraints: vec![],
+                    solve_status: SolveStatus::FullyConstrained,
+                    solved_positions: positions1,
+                    solved_profiles: profiles1,
+                },
+            },
+            suppressed: false,
+            references: vec![],
+        });
+        features.push(Feature {
+            id: Uuid::new_v4(),
+            name: "Extrude 1".to_string(),
+            operation: Operation::Extrude {
+                params: ExtrudeParams {
+                    sketch_id: sketch1_id,
+                    profile_index: 0,
+                    depth: spec.d1,
+                    direction: None,
+                    symmetric: false,
+                    cut: false,
+                    merge: true,
+                    target_body: None,
+                    depth_mode: DepthMode::Blind,
+                    second_direction: None,
+                },
+            },
+            suppressed: false,
+            references: vec![],
+        });
+
+        // Operation 2: extrude(rect, boss)
+        let sketch2_id = Uuid::new_v4();
+        let (entities2, positions2, profiles2) =
+            rect_profile(-spec.w2 / 2.0, -spec.h2 / 2.0, spec.w2, spec.h2);
+        features.push(Feature {
+            id: sketch2_id,
+            name: "Sketch 2".to_string(),
+            operation: Operation::Sketch {
+                sketch: Sketch {
+                    id: sketch2_id,
+                    plane: datum_plane_ref(Uuid::new_v4()),
+                    plane_origin,
+                    plane_normal,
+                    entities: entities2,
+                    constraints: vec![],
+                    solve_status: SolveStatus::FullyConstrained,
+                    solved_positions: positions2,
+                    solved_profiles: profiles2,
+                },
+            },
+            suppressed: false,
+            references: vec![],
+        });
+        features.push(Feature {
+            id: Uuid::new_v4(),
+            name: "Extrude 2".to_string(),
+            operation: Operation::Extrude {
+                params: ExtrudeParams {
+                    sketch_id: sketch2_id,
+                    profile_index: 0,
+                    depth: spec.d2,
+                    direction: None,
+                    symmetric: false,
+                    cut: false,
+                    merge: true,
+                    target_body: None,
+                    depth_mode: DepthMode::Blind,
+                    second_direction: None,
+                },
+            },
+            suppressed: false,
+            references: vec![],
+        });
+
+        let tree = FeatureTree {
+            features,
+            active_index: None,
+        };
+
+        let metadata = ProjectMetadata::new(format!("Assay {}", spec.id));
+        let waffle_json = save_project(&tree, &metadata);
+
+        let description = format!(
+            "2 ops, scale={:.2e}, extrude(rectangle,boss)+extrude(rectangle,boss) — {}",
+            spec.scale, spec.description
+        );
+
+        let max_bbox_extent = spec.scale * 3.0;
+
+        let meta = AssayMeta {
+            id: spec.id.to_string(),
+            description: description.clone(),
+            master_seed: 0,
+            test_seed: 0,
+            scale: spec.scale,
+            log_scale: spec.scale.log10(),
+            plane_origin,
+            plane_normal,
+            operations: vec![
+                OpMeta {
+                    kind: "extrude".to_string(),
+                    profile_type: "rectangle".to_string(),
+                    profile_size: spec.w1,
+                    depth_or_angle: spec.d1,
+                    is_cut: false,
+                },
+                OpMeta {
+                    kind: "extrude".to_string(),
+                    profile_type: "rectangle".to_string(),
+                    profile_size: spec.w2,
+                    depth_or_angle: spec.d2,
+                    is_cut: false,
+                },
+            ],
+            oracles: OracleExpectations {
+                euler_target: 2,
+                expect_watertight: true,
+                max_bbox_extent,
+                expect_positive_volume: true,
+                volume_monotonicity: vec!["increase".to_string(), "increase".to_string()],
+            },
+            generator_version: GENERATOR_VERSION,
+            featured: true,
+        };
+
+        let waffle_filename = format!("{}.waffle", spec.id);
+        let meta_filename = format!("{}.meta.json", spec.id);
+
+        let waffle_path = output_dir.join(&waffle_filename);
+        fs::write(&waffle_path, &waffle_json).unwrap_or_else(|e| {
+            panic!("failed to write {}: {}", waffle_path.display(), e);
+        });
+
+        let meta_path = output_dir.join(&meta_filename);
+        let meta_json = serde_json::to_string_pretty(&meta).expect("meta serialization failed");
+        fs::write(&meta_path, meta_json).unwrap_or_else(|e| {
+            panic!("failed to write {}: {}", meta_path.display(), e);
+        });
+
+        entries.push(ManifestEntry {
+            id: spec.id.to_string(),
+            filename: waffle_filename,
+            meta_filename,
+            description,
+            featured: true,
+        });
+    }
+
+    entries
 }
 
 // ── Corpus Generation ──────────────────────────────────────────────────────
@@ -483,13 +799,19 @@ pub fn generate_corpus(config: &CorpusConfig) -> CorpusStats {
             filename: waffle_filename,
             meta_filename,
             description: case.meta.description,
+            featured: false,
         });
     }
+
+    // Generate featured cases and append to manifest
+    let featured_entries = generate_featured_cases(&config.output_dir);
+    let featured_count = featured_entries.len();
+    manifest_entries.extend(featured_entries);
 
     // Write manifest.json
     let manifest = CorpusManifest {
         master_seed: config.master_seed,
-        count: config.case_count,
+        count: config.case_count + featured_count,
         generator_version: GENERATOR_VERSION,
         cases: manifest_entries,
     };
@@ -501,8 +823,8 @@ pub fn generate_corpus(config: &CorpusConfig) -> CorpusStats {
     });
 
     CorpusStats {
-        count: config.case_count,
-        extrude_count,
+        count: config.case_count + featured_count,
+        extrude_count: extrude_count + featured_count * 2, // each featured has 2 extrudes
         revolve_count,
     }
 }

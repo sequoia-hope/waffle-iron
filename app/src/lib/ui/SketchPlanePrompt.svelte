@@ -51,8 +51,8 @@
 
 	@media (max-width: 768px) {
 		.sketch-plane-prompt {
-			left: 8px;
-			right: 8px;
+			left: max(8px, env(safe-area-inset-left, 0px));
+			right: max(8px, env(safe-area-inset-right, 0px));
 			transform: none;
 			flex-wrap: wrap;
 			text-align: center;

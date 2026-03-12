@@ -17,7 +17,7 @@
 	.toast-container {
 		position: fixed;
 		bottom: calc(var(--statusbar-height, 28px) + 8px);
-		right: 12px;
+		right: max(12px, env(safe-area-inset-right, 0px));
 		z-index: 2000;
 		display: flex;
 		flex-direction: column;

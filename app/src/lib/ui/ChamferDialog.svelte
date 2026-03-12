@@ -91,7 +91,7 @@
 	.chamfer-panel {
 		position: absolute;
 		top: 12px;
-		right: 12px;
+		right: max(12px, env(safe-area-inset-right, 0px));
 		width: 240px;
 		z-index: 50;
 		background: var(--bg-tertiary, #2d2d2d);

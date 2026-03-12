@@ -203,7 +203,7 @@
 <style>
 	.gear-dialog {
 		position: absolute;
-		right: 16px;
+		right: max(16px, env(safe-area-inset-right, 0px));
 		top: 60px;
 		width: 260px;
 		background: var(--bg-tertiary, #2a2a3e);

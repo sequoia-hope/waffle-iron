@@ -5,7 +5,7 @@
 	import * as THREE from 'three';
 	import {
 		getSketchMode, setCameraRefs, getSketchPositions, getMeshes,
-		getCameraProjection, setViewCubeTransform
+		getCameraProjection, setViewCubeTransform, setTwoFingerActive
 	} from '$lib/engine/store.svelte.js';
 
 	const { scene, renderer, camera } = useThrelte();
@@ -164,8 +164,23 @@
 	/** Minimum camera distance to prevent zooming through objects */
 	const MIN_DISTANCE = 0.00005;
 
-	/** Maximum camera distance */
-	const MAX_DISTANCE = 2;
+	/** Maximum camera distance (dynamically updated by updateClippingPlanes) */
+	let maxDistance = 2;
+
+	// --- Two-finger touch gesture constants ---
+	const TOUCH_TWIST_SPEED = 1.5;
+	const MIN_PINCH_DISTANCE_PX = 10;
+
+	// --- Two-finger touch gesture state ---
+	/** @type {Array<{id: number, x: number, y: number}>} */
+	let activePointers = [];
+	/** @type {{x: number, y: number} | null} */
+	let prevMidpoint = null;
+	/** @type {number | null} */
+	let prevDistance = null;
+	/** @type {number | null} */
+	let prevAngle = null;
+	let isTwoFingerActive = false;
 
 	/** @returns {boolean} */
 	function isOrtho() {
@@ -199,8 +214,8 @@
 		const rect = canvas.getBoundingClientRect();
 
 		// Convert mouse position to normalized device coordinates (-1 to +1)
-		_mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-		_mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+		const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+		const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
 		// Calculate zoom factor from wheel delta
 		// Positive deltaY = scroll down = zoom out; negative = zoom in
@@ -208,14 +223,27 @@
 		const delta = -e.deltaY * zoomSpeed;
 		const zoomFactor = Math.max(0.1, Math.min(10, 1 + delta));
 
+		zoomTowardScreenPoint(zoomFactor, ndcX, ndcY);
+		controlsRef.update();
+		updateClippingPlanes();
+	}
+
+	/**
+	 * Zoom toward a screen point. Shared by wheel zoom and pinch zoom.
+	 * @param {number} zoomFactor - >1 zooms in, <1 zooms out
+	 * @param {number} ndcX - normalized device coordinate X (-1..1)
+	 * @param {number} ndcY - normalized device coordinate Y (-1..1)
+	 */
+	function zoomTowardScreenPoint(zoomFactor, ndcX, ndcY) {
+		if (!cameraRef || !controlsRef) return;
+
+		_mouse.x = ndcX;
+		_mouse.y = ndcY;
+
 		if (isOrtho()) {
-			// Ortho zoom: adjust frustumHalf (inverse of zoom level)
-			frustumHalf = Math.max(0.0001, Math.min(5, frustumHalf / zoomFactor));
+			frustumHalf = Math.max(0.0001, Math.min(maxDistance * 2, frustumHalf / zoomFactor));
 			updateOrthoFrustum();
 
-			// Dolly the camera in/out to keep distance proportional to frustum.
-			// This enables zoom-to-cursor behavior and keeps camera distance
-			// meaningful for raycasting and tests.
 			_raycaster.setFromCamera(_mouse, cameraRef);
 			const cameraDir = new THREE.Vector3();
 			cameraRef.getWorldDirection(cameraDir);
@@ -226,9 +254,8 @@
 				cameraRef.position.lerp(_planeIntersect, fraction);
 				controlsRef.target.lerp(_planeIntersect, fraction);
 			} else {
-				// No hit — dolly along view direction
 				const currentDist = cameraRef.position.distanceTo(controlsRef.target);
-				const newDist = Math.max(MIN_DISTANCE, Math.min(MAX_DISTANCE, currentDist / zoomFactor));
+				const newDist = Math.max(MIN_DISTANCE, Math.min(maxDistance, currentDist / zoomFactor));
 				const direction = new THREE.Vector3()
 					.subVectors(cameraRef.position, controlsRef.target)
 					.normalize();
@@ -236,15 +263,12 @@
 			}
 
 			cameraRef.updateProjectionMatrix();
-			controlsRef.update();
 			return;
 		}
 
-		// Perspective zoom (original logic)
-		// Cast a ray from the camera through the mouse position
+		// Perspective: raycast to find zoom target point
 		_raycaster.setFromCamera(_mouse, cameraRef);
 
-		// Collect all meshes in the scene for intersection testing
 		/** @type {THREE.Mesh[]} */
 		const meshes = [];
 		scene.traverse((obj) => {
@@ -254,7 +278,6 @@
 		});
 
 		let hitPoint = null;
-
 		if (meshes.length > 0) {
 			const intersections = _raycaster.intersectObjects(meshes, false);
 			if (intersections.length > 0) {
@@ -262,13 +285,10 @@
 			}
 		}
 
-		// If no mesh hit, project onto the plane passing through the current
-		// orbit target, perpendicular to the camera's view direction
 		if (!hitPoint) {
 			const cameraDir = new THREE.Vector3();
 			cameraRef.getWorldDirection(cameraDir);
 			_plane.setFromNormalAndCoplanarPoint(cameraDir, controlsRef.target);
-
 			const ray = _raycaster.ray;
 			if (ray.intersectPlane(_plane, _planeIntersect)) {
 				hitPoint = _planeIntersect;
@@ -276,17 +296,12 @@
 		}
 
 		if (hitPoint) {
-			// Zoom-to-cursor: lerp both camera and target toward the hit point.
-			// The view direction (target - camera) stays parallel but scales by
-			// (1 - fraction), so the point under the cursor remains fixed in
-			// screen space via perspective division cancellation.
 			const fraction = 1 - (1 / zoomFactor);
 			cameraRef.position.lerp(hitPoint, fraction);
 			controlsRef.target.lerp(hitPoint, fraction);
 		} else {
-			// No hit — dolly along view direction
 			const currentDist = cameraRef.position.distanceTo(controlsRef.target);
-			const newDist = Math.max(MIN_DISTANCE, Math.min(MAX_DISTANCE, currentDist / zoomFactor));
+			const newDist = Math.max(MIN_DISTANCE, Math.min(maxDistance, currentDist / zoomFactor));
 			const direction = new THREE.Vector3()
 				.subVectors(cameraRef.position, controlsRef.target)
 				.normalize();
@@ -295,8 +310,8 @@
 
 		// Clamp camera-to-target distance
 		const dist = cameraRef.position.distanceTo(controlsRef.target);
-		if (dist < MIN_DISTANCE || dist > MAX_DISTANCE) {
-			const clampedDist = Math.max(MIN_DISTANCE, Math.min(MAX_DISTANCE, dist));
+		if (dist < MIN_DISTANCE || dist > maxDistance) {
+			const clampedDist = Math.max(MIN_DISTANCE, Math.min(maxDistance, dist));
 			const dir = new THREE.Vector3()
 				.subVectors(cameraRef.position, controlsRef.target)
 				.normalize();
@@ -304,7 +319,133 @@
 		}
 
 		cameraRef.updateProjectionMatrix();
+	}
+
+	// --- Two-finger touch gesture handlers ---
+
+	/** @param {PointerEvent} e */
+	function onTouchPointerDown(e) {
+		if (e.pointerType !== 'touch') return;
+		// Bounds check: only handle touches that start on the canvas
+		const canvas = renderer.domElement;
+		const rect = canvas.getBoundingClientRect();
+		if (e.clientX < rect.left || e.clientX > rect.right ||
+			e.clientY < rect.top || e.clientY > rect.bottom) return;
+		// Add or update this pointer
+		const idx = activePointers.findIndex(p => p.id === e.pointerId);
+		if (idx >= 0) {
+			activePointers[idx] = { id: e.pointerId, x: e.clientX, y: e.clientY };
+		} else {
+			activePointers.push({ id: e.pointerId, x: e.clientX, y: e.clientY });
+		}
+
+		if (activePointers.length === 2) {
+			// Initialize two-finger gesture state
+			const [a, b] = activePointers;
+			prevMidpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+			prevDistance = Math.hypot(b.x - a.x, b.y - a.y);
+			prevAngle = Math.atan2(b.y - a.y, b.x - a.x);
+			isTwoFingerActive = true;
+			setTwoFingerActive(true);
+		}
+	}
+
+	/** @param {PointerEvent} e */
+	function onTouchPointerMove(e) {
+		if (e.pointerType !== 'touch') return;
+		// Update tracked pointer position
+		const idx = activePointers.findIndex(p => p.id === e.pointerId);
+		if (idx >= 0) {
+			activePointers[idx] = { id: e.pointerId, x: e.clientX, y: e.clientY };
+		}
+
+		if (activePointers.length !== 2 || !isTwoFingerActive) return;
+		if (!controlsRef || !cameraRef) return;
+
+		const [a, b] = activePointers;
+		const midX = (a.x + b.x) / 2;
+		const midY = (a.y + b.y) / 2;
+		const dist = Math.hypot(b.x - a.x, b.y - a.y);
+		const angle = Math.atan2(b.y - a.y, b.x - a.x);
+
+		// --- Pan: change in midpoint ---
+		if (prevMidpoint) {
+			const dx = midX - prevMidpoint.x;
+			const dy = midY - prevMidpoint.y;
+			if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+				// _pan expects pixel deltas; positive = screen-right/down
+				controlsRef._pan(dx, dy);
+			}
+		}
+
+		// --- Zoom: change in finger distance (pinch/spread) ---
+		if (prevDistance !== null && dist > MIN_PINCH_DISTANCE_PX && prevDistance > MIN_PINCH_DISTANCE_PX) {
+			const zoomFactor = dist / prevDistance;
+			if (Math.abs(zoomFactor - 1) > 0.001) {
+				const canvas = renderer.domElement;
+				const rect = canvas.getBoundingClientRect();
+				const ndcX = ((midX - rect.left) / rect.width) * 2 - 1;
+				const ndcY = -((midY - rect.top) / rect.height) * 2 + 1;
+				zoomTowardScreenPoint(zoomFactor, ndcX, ndcY);
+			}
+		}
+
+		// --- Rotate: change in angle between fingers (twist) ---
+		if (prevAngle !== null) {
+			let twistDelta = angle - prevAngle;
+			// Normalize to [-PI, PI] to handle atan2 wraparound
+			if (twistDelta > Math.PI) twistDelta -= 2 * Math.PI;
+			if (twistDelta < -Math.PI) twistDelta += 2 * Math.PI;
+			if (Math.abs(twistDelta) > 0.001) {
+				controlsRef._rotateLeft(twistDelta * TOUCH_TWIST_SPEED);
+			}
+		}
+
+		// Apply all accumulated deltas
 		controlsRef.update();
+		updateClippingPlanes();
+
+		// Update previous state
+		prevMidpoint = { x: midX, y: midY };
+		prevDistance = dist;
+		prevAngle = angle;
+	}
+
+	/** @param {PointerEvent} e */
+	function onTouchPointerUp(e) {
+		if (e.pointerType !== 'touch') return;
+		activePointers = activePointers.filter(p => p.id !== e.pointerId);
+
+		if (activePointers.length < 2) {
+			prevMidpoint = null;
+			prevDistance = null;
+			prevAngle = null;
+			if (isTwoFingerActive) {
+				isTwoFingerActive = false;
+				setTwoFingerActive(false);
+			}
+		}
+	}
+
+	/**
+	 * Dynamically update near/far clipping planes and maxDistance based on scene extent.
+	 */
+	function updateClippingPlanes() {
+		if (!cameraRef || !scene) return;
+		const box = new THREE.Box3();
+		scene.traverse((obj) => {
+			if (/** @type {any} */ (obj).isMesh && obj.visible) {
+				box.expandByObject(obj);
+			}
+		});
+		if (box.isEmpty()) return;
+		const center = box.getCenter(new THREE.Vector3());
+		const diagonal = box.getSize(new THREE.Vector3()).length();
+		const camDist = cameraRef.position.distanceTo(center);
+		cameraRef.near = Math.max(camDist * 0.001, diagonal * 0.0001, 1e-7);
+		cameraRef.far = Math.max(camDist + diagonal * 2, diagonal * 10);
+		cameraRef.updateProjectionMatrix();
+		maxDistance = Math.max(diagonal * 10, 2);
 	}
 
 	/**
@@ -355,6 +496,8 @@
 			controlsRef.target.copy(center);
 			controlsRef.update();
 		}
+
+		updateClippingPlanes();
 	}
 
 	/**
@@ -510,6 +653,14 @@
 		const canvas = renderer.domElement;
 		canvas.addEventListener('wheel', onWheel, { passive: false });
 
+		// Attach two-finger touch gesture handlers on window (not canvas)
+		// because OrbitControls calls setPointerCapture() on the wrapper div,
+		// which redirects pointer events away from the canvas during drags.
+		window.addEventListener('pointerdown', onTouchPointerDown);
+		window.addEventListener('pointermove', onTouchPointerMove);
+		window.addEventListener('pointerup', onTouchPointerUp);
+		window.addEventListener('pointercancel', onTouchPointerUp);
+
 		// Update aspect ratio on resize
 		const ro = new ResizeObserver(() => {
 			const w = canvas.clientWidth;
@@ -574,6 +725,10 @@
 		window.addEventListener('waffle-camera-projection-changed', /** @type {EventListener} */ (onProjectionChanged));
 		return () => {
 			canvas.removeEventListener('wheel', onWheel);
+			window.removeEventListener('pointerdown', onTouchPointerDown);
+			window.removeEventListener('pointermove', onTouchPointerMove);
+			window.removeEventListener('pointerup', onTouchPointerUp);
+			window.removeEventListener('pointercancel', onTouchPointerUp);
 			ro.disconnect();
 			window.removeEventListener('keydown', onKeyDown);
 			window.removeEventListener('waffle-snap-view', /** @type {EventListener} */ (onSnapView));
@@ -622,8 +777,8 @@
 			RIGHT: THREE.MOUSE.ROTATE    // Right = orbit
 		};
 		controlsRef.touches = {
-			ONE: -1,                        // Single finger = select/sketch
-			TWO: THREE.TOUCH.DOLLY_ROTATE   // Two fingers = pinch zoom + rotate
+			ONE: THREE.TOUCH.ROTATE,   // Single finger = orbit via quaternion patch
+			TWO: -1                    // Disabled — custom two-finger handler below
 		};
 		if (!sketchActive) {
 			// Ensure controls are re-enabled when leaving sketch mode.
@@ -701,7 +856,7 @@
 		position={[0.03, 0.03, 0.03]}
 		fov={50}
 		near={0.0001}
-		far={5}
+		far={10000}
 		bind:ref={cameraRef}
 	>
 		<OrbitControls
@@ -711,7 +866,7 @@
 			rotateSpeed={1.0}
 			enableZoom={false}
 			minDistance={0.00005}
-			maxDistance={2}
+			maxDistance={maxDistance}
 		/>
 	</T.PerspectiveCamera>
 {:else}
@@ -719,7 +874,7 @@
 		makeDefault
 		position={[0.03, 0.03, 0.03]}
 		near={0.0001}
-		far={5}
+		far={10000}
 		left={-frustumHalf * aspect}
 		right={frustumHalf * aspect}
 		top={frustumHalf}
@@ -733,7 +888,7 @@
 			rotateSpeed={1.0}
 			enableZoom={false}
 			minDistance={0.00005}
-			maxDistance={2}
+			maxDistance={maxDistance}
 		/>
 	</T.OrthographicCamera>
 {/if}

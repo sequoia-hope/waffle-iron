@@ -384,6 +384,8 @@ mod tests {
                         axis_origin: [10.0, 20.0, 30.0],
                         axis_direction: [0.0, 1.0, 0.0],
                         angle: 360.0,
+                        cut: false,
+                        merge: false,
                     },
                 },
                 suppressed: false,

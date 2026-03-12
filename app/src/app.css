@@ -1,4 +1,8 @@
 :root {
+	--sai-top: env(safe-area-inset-top, 0px);
+	--sai-right: env(safe-area-inset-right, 0px);
+	--sai-bottom: env(safe-area-inset-bottom, 0px);
+	--sai-left: env(safe-area-inset-left, 0px);
 	--bg-primary: #1e1e1e;
 	--bg-secondary: #252526;
 	--bg-tertiary: #2d2d2d;

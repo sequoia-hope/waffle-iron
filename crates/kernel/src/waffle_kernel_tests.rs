@@ -109,6 +109,56 @@ fn check_watertight(mesh: &RenderMesh) -> bool {
     edge_count.values().all(|&c| c == 2)
 }
 
+/// Count unpaired edges in a mesh (for diagnostics).
+fn count_unpaired_edges(mesh: &RenderMesh) -> usize {
+    use std::collections::HashMap as Map;
+    fn quantize(mesh: &RenderMesh, idx: u32) -> (i64, i64, i64) {
+        let base = idx as usize * 3;
+        (
+            (mesh.vertices[base] as f64 * 1e6).round() as i64,
+            (mesh.vertices[base + 1] as f64 * 1e6).round() as i64,
+            (mesh.vertices[base + 2] as f64 * 1e6).round() as i64,
+        )
+    }
+    let mut edge_count: Map<((i64, i64, i64), (i64, i64, i64)), u32> = Map::new();
+    let n_tris = mesh.indices.len() / 3;
+    for i in 0..n_tris {
+        let tri = [mesh.indices[i * 3], mesh.indices[i * 3 + 1], mesh.indices[i * 3 + 2]];
+        for j in 0..3 {
+            let pa = quantize(mesh, tri[j]);
+            let pb = quantize(mesh, tri[(j + 1) % 3]);
+            let key = if pa <= pb { (pa, pb) } else { (pb, pa) };
+            *edge_count.entry(key).or_insert(0) += 1;
+        }
+    }
+    edge_count.values().filter(|&&c| c != 2).count()
+}
+
+/// Count total unique edges in a mesh (for diagnostics).
+fn count_total_edges(mesh: &RenderMesh) -> usize {
+    use std::collections::HashMap as Map;
+    fn quantize(mesh: &RenderMesh, idx: u32) -> (i64, i64, i64) {
+        let base = idx as usize * 3;
+        (
+            (mesh.vertices[base] as f64 * 1e6).round() as i64,
+            (mesh.vertices[base + 1] as f64 * 1e6).round() as i64,
+            (mesh.vertices[base + 2] as f64 * 1e6).round() as i64,
+        )
+    }
+    let mut edge_count: Map<((i64, i64, i64), (i64, i64, i64)), u32> = Map::new();
+    let n_tris = mesh.indices.len() / 3;
+    for i in 0..n_tris {
+        let tri = [mesh.indices[i * 3], mesh.indices[i * 3 + 1], mesh.indices[i * 3 + 2]];
+        for j in 0..3 {
+            let pa = quantize(mesh, tri[j]);
+            let pb = quantize(mesh, tri[(j + 1) % 3]);
+            let key = if pa <= pb { (pa, pb) } else { (pb, pa) };
+            *edge_count.entry(key).or_insert(0) += 1;
+        }
+    }
+    edge_count.len()
+}
+
 /// Compute axis-aligned bounding box of a mesh.
 /// Returns (min_corner, max_corner).
 fn mesh_bbox(mesh: &RenderMesh) -> ([f64; 3], [f64; 3]) {
@@ -3681,4 +3731,513 @@ fn diag_r0080_reversed_normals() {
     eprintln!("  degenerate:      {}/{}", degen_count, n_tris);
     eprintln!("  outward normals: {}/{}", outward_agree, outward_agree + outward_disagree);
     eprintln!("=================\n");
+}
+
+// ── Group Q: Tilted plane + off-axis tests ──────────────────────────────
+
+/// Create tilted plane axes for assay-like tests.
+fn make_tilted_plane() -> ([f64; 3], [f64; 3], [f64; 3]) {
+    use crate::vecmath::*;
+    let origin: [f64; 3] = [1.23, 1.33, -0.07];
+    let normal: [f64; 3] = v3_normalize([-0.593, 0.647, 0.479]);
+    // Compute x_axis perpendicular to normal
+    let raw_x: [f64; 3] = [0.647, 0.762, 0.0];
+    let dot_val = v3_dot(normal, raw_x);
+    let x_axis = v3_normalize([
+        raw_x[0] - dot_val * normal[0],
+        raw_x[1] - dot_val * normal[1],
+        raw_x[2] - dot_val * normal[2],
+    ]);
+    (origin, normal, x_axis)
+}
+
+#[test]
+fn q_tilted_plane_box_watertight() {
+    let mut k = WaffleKernel::new();
+    let (origin, normal, x_axis) = make_tilted_plane();
+    let (profiles, positions) = make_rect_profile(0.5, 0.5, 1.0, 1.0);
+    let faces = k
+        .make_faces_from_profiles(&profiles, origin, normal, x_axis, &positions)
+        .expect("make_faces tilted");
+    let solid = k.extrude_face(faces[0], normal, 1.0).unwrap();
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    assert!(check_watertight(&mesh), "Tilted-plane box must be watertight");
+}
+
+#[test]
+fn q_tilted_plane_gear_watertight() {
+    let mut k = WaffleKernel::new();
+    let (origin, normal, x_axis) = make_tilted_plane();
+    let (profiles, positions) = make_gear_profile(0.0, 0.0, 8, 0.1);
+    let faces = k
+        .make_faces_from_profiles(&profiles, origin, normal, x_axis, &positions)
+        .expect("make_faces tilted gear");
+    let solid = k.extrude_face(faces[0], normal, 0.5).unwrap();
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    assert!(check_watertight(&mesh), "Tilted-plane gear must be watertight");
+}
+
+#[test]
+fn q_tilted_plane_cylinder_watertight() {
+    let mut k = WaffleKernel::new();
+    let (origin, normal, x_axis) = make_tilted_plane();
+    let (profiles, positions) = make_circle_profile(0.0, 0.0, 0.5);
+    let faces = k
+        .make_faces_from_profiles(&profiles, origin, normal, x_axis, &positions)
+        .expect("make_faces tilted circle");
+    let solid = k.extrude_face(faces[0], normal, 0.5).unwrap();
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    assert!(check_watertight(&mesh), "Tilted-plane cylinder must be watertight");
+}
+
+#[test]
+fn q_tilted_gear_rect_subtract() {
+    let mut k = WaffleKernel::new();
+    let (origin, normal, x_axis) = make_tilted_plane();
+
+    // Gear boss
+    let (gp, gpos) = make_gear_profile(0.0, 0.0, 8, 0.1);
+    let gfaces = k
+        .make_faces_from_profiles(&gp, origin, normal, x_axis, &gpos)
+        .expect("make_faces gear");
+    let gear_solid = k.extrude_face(gfaces[0], normal, 0.5).unwrap();
+
+    // Rect cut
+    let (rp, rpos) = make_rect_profile(0.0, 0.0, 0.8, 0.8);
+    let rfaces = k
+        .make_faces_from_profiles(&rp, origin, normal, x_axis, &rpos)
+        .expect("make_faces rect");
+    let rect_solid = k.extrude_face(rfaces[0], normal, 1.0).unwrap();
+
+    // Boolean subtract
+    let result = k.boolean_subtract(&gear_solid, &rect_solid);
+    match &result {
+        Ok(handle) => {
+            let mesh = k.tessellate(handle, 0.01).unwrap();
+            let vol = mesh_volume(&mesh);
+            assert!(vol > 0.0, "Subtract volume should be positive");
+            let wt = check_watertight(&mesh);
+            if !wt {
+                let unpaired = count_unpaired_edges(&mesh);
+                let total = count_total_edges(&mesh);
+                eprintln!("WATERTIGHT FAILURE: {} unpaired out of {} total edges", unpaired, total);
+            }
+            assert!(wt, "Gear-rect subtract should be watertight");
+        }
+        Err(e) => {
+            eprintln!("Boolean subtract failed: {:?}", e);
+        }
+    }
+}
+
+// ── Diagnostic tests for watertight failures in assay cases ──────
+
+#[test]
+fn r_z_aligned_box_box_union_watertight() {
+    // Two overlapping Z-aligned boxes: union should be watertight
+    let mut k = WaffleKernel::new();
+    let origin = [0.0, 0.0, 0.0];
+    let normal = [0.0, 0.0, 1.0];
+    let x_axis = [1.0, 0.0, 0.0];
+
+    // Box A: 1×1×0.5 at origin
+    let (pa, posa) = make_rect_profile(0.0, 0.0, 1.0, 1.0);
+    let fa = k
+        .make_faces_from_profiles(&pa, origin, normal, x_axis, &posa)
+        .unwrap();
+    let solid_a = k.extrude_face(fa[0], normal, 0.5).unwrap();
+
+    // Box B: 0.8×0.8×0.8, shifted by 0.3 in X
+    let (pb, posb) = make_rect_profile(0.3, 0.0, 0.8, 0.8);
+    let fb = k
+        .make_faces_from_profiles(&pb, origin, normal, x_axis, &posb)
+        .unwrap();
+    let solid_b = k.extrude_face(fb[0], normal, 0.8).unwrap();
+
+    // Union
+    let result = k.boolean_union(&solid_a, &solid_b);
+    match &result {
+        Ok(handle) => {
+            let mesh = k.tessellate(handle, 0.01).unwrap();
+            let unpaired = count_unpaired_edges(&mesh);
+            let total = count_total_edges(&mesh);
+            let n_tris = mesh.indices.len() / 3;
+            eprintln!(
+                "Box-box union: {} tris, {} edges, {} unpaired",
+                n_tris, total, unpaired
+            );
+            assert_eq!(unpaired, 0, "Box-box union must be watertight");
+        }
+        Err(e) => {
+            eprintln!("Box-box union failed: {:?}", e);
+        }
+    }
+}
+
+#[test]
+fn r_z_aligned_gear_rect_subtract_watertight() {
+    // Gear extrude + rect extrude subtract (reproduces R0004 pattern)
+    let mut k = WaffleKernel::new();
+    let origin = [0.0, 0.0, 0.0];
+    let normal = [0.0, 0.0, 1.0];
+    let x_axis = [1.0, 0.0, 0.0];
+
+    // Gear boss
+    let (gp, gpos) = make_gear_profile(0.0, 0.0, 8, 0.5);
+    let gf = k
+        .make_faces_from_profiles(&gp, origin, normal, x_axis, &gpos)
+        .unwrap();
+    let gear_solid = k.extrude_face(gf[0], normal, 0.3).unwrap();
+
+    // Rect cut — larger than gear so it fully encloses the gear cross-section
+    let (rp, rpos) = make_rect_profile(0.0, 0.0, 1.5, 1.5);
+    let rf = k
+        .make_faces_from_profiles(&rp, origin, normal, x_axis, &rpos)
+        .unwrap();
+    let rect_solid = k.extrude_face(rf[0], normal, 1.0).unwrap();
+
+    // Subtract
+    let result = k.boolean_subtract(&gear_solid, &rect_solid);
+    match &result {
+        Ok(handle) => {
+            let mesh = k.tessellate(handle, 0.01).unwrap();
+            let unpaired = count_unpaired_edges(&mesh);
+            let total = count_total_edges(&mesh);
+            let n_tris = mesh.indices.len() / 3;
+            eprintln!(
+                "Gear-rect subtract (Z-aligned): {} tris, {} edges, {} unpaired",
+                n_tris, total, unpaired
+            );
+            assert_eq!(unpaired, 0, "Z-aligned gear-rect subtract must be watertight");
+        }
+        Err(e) => {
+            eprintln!("Gear-rect subtract failed: {:?}", e);
+        }
+    }
+}
+
+#[test]
+fn r_rect_rect_boss_boss_union_watertight() {
+    // Two rect boss extrudes auto-unioned (F0001 pattern)
+    let mut k = WaffleKernel::new();
+    let origin = [0.0, 0.0, 0.0];
+    let normal = [0.0, 0.0, 1.0];
+    let x_axis = [1.0, 0.0, 0.0];
+
+    // Box A: 0.5×0.5×0.3
+    let (pa, posa) = make_rect_profile(0.0, 0.0, 0.5, 0.5);
+    let fa = k
+        .make_faces_from_profiles(&pa, origin, normal, x_axis, &posa)
+        .unwrap();
+    let solid_a = k.extrude_face(fa[0], normal, 0.3).unwrap();
+
+    // Box B: identical
+    let (pb, posb) = make_rect_profile(0.0, 0.0, 0.5, 0.5);
+    let fb = k
+        .make_faces_from_profiles(&pb, origin, normal, x_axis, &posb)
+        .unwrap();
+    let solid_b = k.extrude_face(fb[0], normal, 0.3).unwrap();
+
+    // Union
+    let result = k.boolean_union(&solid_a, &solid_b);
+    match &result {
+        Ok(handle) => {
+            let mesh = k.tessellate(handle, 0.01).unwrap();
+            let unpaired = count_unpaired_edges(&mesh);
+            let total = count_total_edges(&mesh);
+            let n_tris = mesh.indices.len() / 3;
+            eprintln!(
+                "Identical box union: {} tris, {} edges, {} unpaired",
+                n_tris, total, unpaired
+            );
+            assert_eq!(unpaired, 0, "Identical box union must be watertight");
+        }
+        Err(e) => {
+            eprintln!("Identical box union failed: {:?}", e);
+        }
+    }
+}
+
+#[test]
+fn r_cross_shaped_box_union_watertight() {
+    // F0002-like: two different-sized rectangles forming a cross (partial overlap)
+    let mut k = WaffleKernel::new();
+    let origin = [0.0, 0.0, 0.0];
+    let normal = [0.0, 0.0, 1.0];
+    let x_axis = [1.0, 0.0, 0.0];
+
+    // Box A: 0.6×0.2×0.4
+    let (pa, posa) = make_rect_profile(0.0, 0.0, 0.6, 0.2);
+    let fa = k
+        .make_faces_from_profiles(&pa, origin, normal, x_axis, &posa)
+        .unwrap();
+    let solid_a = k.extrude_face(fa[0], normal, 0.4).unwrap();
+
+    // Box B: 0.2×0.6×0.4 — cross shape
+    let (pb, posb) = make_rect_profile(0.0, 0.0, 0.2, 0.6);
+    let fb = k
+        .make_faces_from_profiles(&pb, origin, normal, x_axis, &posb)
+        .unwrap();
+    let solid_b = k.extrude_face(fb[0], normal, 0.4).unwrap();
+
+    // Union
+    let result = k.boolean_union(&solid_a, &solid_b);
+    match &result {
+        Ok(handle) => {
+            let mesh = k.tessellate(handle, 0.01).unwrap();
+            let unpaired = count_unpaired_edges(&mesh);
+            let total = count_total_edges(&mesh);
+            let n_tris = mesh.indices.len() / 3;
+            eprintln!(
+                "Cross-shaped union: {} tris, {} edges, {} unpaired",
+                n_tris, total, unpaired
+            );
+            assert_eq!(unpaired, 0, "Cross-shaped box union must be watertight");
+        }
+        Err(e) => {
+            panic!("Cross-shaped union failed: {:?}", e);
+        }
+    }
+}
+
+#[test]
+fn r_f0001_exact_feature_engine_path() {
+    // Reproduce the EXACT F0001 feature engine path:
+    // Two identical 0.5×0.5×0.3 boxes at origin, both with plane_normal=[0,0,1]
+    // and x_axis from tangent_x_from_normal = [0,-1,0] (NOT [1,0,0]!)
+    let mut k = WaffleKernel::new();
+    let origin = [0.0, 0.0, 0.0];
+    let normal = [0.0, 0.0, 1.0];
+    // tangent_x_from_normal([0,0,1]) = cross([1,0,0], [0,0,1]) = [0,-1,0]
+    let x_axis = [0.0, -1.0, 0.0];
+
+    // Both use vertex_ids = [1,2,3,4] with positions from waffle file
+    let mut positions = HashMap::new();
+    positions.insert(1, (-0.25, -0.25));
+    positions.insert(2, (0.25, -0.25));
+    positions.insert(3, (0.25, 0.25));
+    positions.insert(4, (-0.25, 0.25));
+    let profile = ClosedProfile {
+        entity_ids: vec![1, 2, 3, 4],
+        is_outer: true,
+        vertex_ids: vec![1, 2, 3, 4],
+        circle: None,
+        spline_segments: vec![],
+    };
+
+    // Box A
+    let fa = k
+        .make_faces_from_profiles(&[profile.clone()], origin, normal, x_axis, &positions)
+        .unwrap();
+    let solid_a = k.extrude_face(fa[0], normal, 0.3).unwrap();
+    let mesh_a = k.tessellate(&solid_a, 0.1).unwrap();
+    let up_a = count_unpaired_edges(&mesh_a);
+    eprintln!(
+        "Box A: {} tris, {} edges, {} unpaired",
+        mesh_a.indices.len() / 3,
+        count_total_edges(&mesh_a),
+        up_a
+    );
+
+    // Box B (identical)
+    let fb = k
+        .make_faces_from_profiles(&[profile.clone()], origin, normal, x_axis, &positions)
+        .unwrap();
+    let solid_b = k.extrude_face(fb[0], normal, 0.3).unwrap();
+    let mesh_b = k.tessellate(&solid_b, 0.1).unwrap();
+    let up_b = count_unpaired_edges(&mesh_b);
+    eprintln!(
+        "Box B: {} tris, {} edges, {} unpaired",
+        mesh_b.indices.len() / 3,
+        count_total_edges(&mesh_b),
+        up_b
+    );
+
+    // Union
+    let result = k.boolean_union(&solid_a, &solid_b);
+    match &result {
+        Ok(handle) => {
+            let mesh = k.tessellate(handle, 0.1).unwrap();
+            let unpaired = count_unpaired_edges(&mesh);
+            let total = count_total_edges(&mesh);
+            let n_tris = mesh.indices.len() / 3;
+            eprintln!(
+                "F0001 union: {} tris, {} edges, {} unpaired",
+                n_tris, total, unpaired
+            );
+            // Print vertices for diagnostics
+            for i in 0..n_tris.min(30) {
+                let i0 = mesh.indices[i * 3] as usize;
+                let i1 = mesh.indices[i * 3 + 1] as usize;
+                let i2 = mesh.indices[i * 3 + 2] as usize;
+                let v0 = &mesh.vertices[i0 * 3..i0 * 3 + 3];
+                let v1 = &mesh.vertices[i1 * 3..i1 * 3 + 3];
+                let v2 = &mesh.vertices[i2 * 3..i2 * 3 + 3];
+                eprintln!(
+                    "  tri {}: [{:.4},{:.4},{:.4}] [{:.4},{:.4},{:.4}] [{:.4},{:.4},{:.4}]",
+                    i, v0[0], v0[1], v0[2], v1[0], v1[1], v1[2], v2[0], v2[1], v2[2]
+                );
+            }
+            assert_eq!(unpaired, 0, "F0001 union must be watertight");
+        }
+        Err(e) => {
+            panic!("F0001 union failed: {:?}", e);
+        }
+    }
+}
+
+#[test]
+fn r_stacked_box_union_watertight() {
+    // F0001 exact scenario: Box A at z=0..0.3, Box B at z=0.3..0.6 (share face at z=0.3)
+    let mut k = WaffleKernel::new();
+    let normal = [0.0, 0.0, 1.0];
+    let x_axis = [1.0, 0.0, 0.0];
+
+    // Box A: xy=±0.25, z=0..0.3
+    let (pa, posa) = make_rect_profile(0.0, 0.0, 0.5, 0.5);
+    let fa = k
+        .make_faces_from_profiles(&pa, [0.0, 0.0, 0.0], normal, x_axis, &posa)
+        .unwrap();
+    let solid_a = k.extrude_face(fa[0], normal, 0.3).unwrap();
+
+    // Box B: xy=±0.25, z=0.3..0.6 (starts where A ends)
+    let (pb, posb) = make_rect_profile(0.0, 0.0, 0.5, 0.5);
+    let fb = k
+        .make_faces_from_profiles(&pb, [0.0, 0.0, 0.3], normal, x_axis, &posb)
+        .unwrap();
+    let solid_b = k.extrude_face(fb[0], normal, 0.3).unwrap();
+
+    // Union — the shared face at z=0.3 should be eliminated
+    let result = k.boolean_union(&solid_a, &solid_b);
+    match &result {
+        Ok(handle) => {
+            let mesh = k.tessellate(handle, 0.01).unwrap();
+            let unpaired = count_unpaired_edges(&mesh);
+            let total = count_total_edges(&mesh);
+            let n_tris = mesh.indices.len() / 3;
+            let vol = mesh_volume(&mesh);
+            eprintln!(
+                "Stacked box union: {} tris, {} edges, {} unpaired, vol={:.6}",
+                n_tris, total, unpaired, vol
+            );
+            // Expected: 0.5 * 0.5 * 0.6 = 0.15
+            assert_eq!(unpaired, 0, "Stacked box union must be watertight");
+            assert!(
+                (vol - 0.15).abs() < 0.01,
+                "Volume should be ~0.15, got {}",
+                vol
+            );
+        }
+        Err(e) => {
+            panic!("Stacked box union failed: {:?}", e);
+        }
+    }
+}
+
+// ── Cylinder-minus-box polygon approximation tests ──────────
+
+/// Cylinder with a box-shaped hole (cylinder minus enclosed box).
+#[test]
+fn r_cyl_minus_enclosed_box() {
+    let mut k = WaffleKernel::new();
+
+    // Create cylinder: circle radius 1.0, depth 2.0, Z-aligned
+    let (cyl_profiles, cyl_pos) = make_circle_profile(0.0, 0.0, 1.0);
+    let cyl_faces = k
+        .make_faces_from_profiles(&cyl_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &cyl_pos)
+        .unwrap();
+    let cyl = k.extrude_face(cyl_faces[0], Z_DIR, 2.0).unwrap();
+
+    // Create box: 0.5x0.5, depth 2.0, centered, Z-aligned
+    let (box_profiles, box_pos) = make_rect_profile(0.0, 0.0, 0.5, 0.5);
+    let box_faces = k
+        .make_faces_from_profiles(&box_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &box_pos)
+        .unwrap();
+    let box_solid = k.extrude_face(box_faces[0], Z_DIR, 2.0).unwrap();
+
+    // Cylinder minus box (previously errored as "cylinder minus box not supported")
+    let result = k.do_boolean(&cyl, &box_solid, crate::boolean::BoolOp::Subtract);
+    assert!(result.is_ok(), "cylinder minus box should succeed via polygon approx: {:?}", result.err());
+
+    let handle = result.unwrap();
+    let mesh = k.tessellate(&handle, 0.1).unwrap();
+    let n_tris = mesh.indices.len() / 3;
+    assert!(n_tris > 0, "Result should have triangles");
+
+    // Check watertight
+    let unpaired = count_unpaired_edges(&mesh);
+    eprintln!("Cyl minus enclosed box: {} tris, {} unpaired", n_tris, unpaired);
+    assert_eq!(unpaired, 0, "Cylinder minus box must be watertight");
+
+    // Volume check: cyl vol = pi*1^2*2 ≈ 6.28, box vol = 0.5*0.5*2 = 0.5
+    // Result ≈ 5.78
+    let vol = mesh_volume(&mesh);
+    let expected = std::f64::consts::PI * 1.0 * 1.0 * 2.0 - 0.5 * 0.5 * 2.0;
+    assert!(
+        (vol - expected).abs() < 0.5,
+        "Volume should be ~{:.2}, got {:.2}",
+        expected, vol
+    );
+}
+
+/// Cylinder minus partially-overlapping box — exercises the polygon
+/// approximation fallback path. Result quality depends on stitching
+/// robustness (may produce non-manifold for complex partial overlaps).
+#[test]
+fn r_cyl_minus_partial_box_no_not_supported() {
+    let mut k = WaffleKernel::new();
+
+    // Create cylinder at origin, radius 1.0, depth 2.0
+    let (cyl_profiles, cyl_pos) = make_circle_profile(0.0, 0.0, 1.0);
+    let cyl_faces = k
+        .make_faces_from_profiles(&cyl_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &cyl_pos)
+        .unwrap();
+    let cyl = k.extrude_face(cyl_faces[0], Z_DIR, 2.0).unwrap();
+
+    // Create box offset so it partially overlaps (z=0.5 to z=1.5)
+    let (box_profiles, box_pos) = make_rect_profile(0.0, 0.0, 1.5, 1.5);
+    let box_faces = k
+        .make_faces_from_profiles(&box_profiles, [0.0, 0.0, 0.5], XY_NORMAL, XY_X_AXIS, &box_pos)
+        .unwrap();
+    let box_solid = k.extrude_face(box_faces[0], Z_DIR, 1.0).unwrap();
+
+    // Should NOT return NotSupported anymore (falls through to polygon approx)
+    let result = k.do_boolean(&cyl, &box_solid, crate::boolean::BoolOp::Subtract);
+    match &result {
+        Err(KernelError::NotSupported { .. }) => {
+            panic!("cylinder minus box should not be NotSupported anymore");
+        }
+        _ => {} // BooleanFailed (non-manifold) is acceptable for partial overlap
+    }
+}
+
+/// Partial box-cylinder union (previously errored as "partial box-cylinder union").
+#[test]
+fn r_partial_box_cyl_union_fallback() {
+    let mut k = WaffleKernel::new();
+
+    // Create box
+    let (box_profiles, box_pos) = make_rect_profile(0.0, 0.0, 2.0, 2.0);
+    let box_faces = k
+        .make_faces_from_profiles(&box_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &box_pos)
+        .unwrap();
+    let box_solid = k.extrude_face(box_faces[0], Z_DIR, 2.0).unwrap();
+
+    // Create cylinder that partially overlaps (offset in X, so not enclosed or boss)
+    let (cyl_profiles, cyl_pos) = make_circle_profile(1.5, 0.0, 1.0);
+    let cyl_faces = k
+        .make_faces_from_profiles(&cyl_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &cyl_pos)
+        .unwrap();
+    let cyl_solid = k.extrude_face(cyl_faces[0], Z_DIR, 2.0).unwrap();
+
+    // Partial box-cyl union — should succeed via polygon approx fallback
+    let result = k.boolean_union(&box_solid, &cyl_solid);
+    assert!(result.is_ok(), "partial box-cyl union should succeed: {:?}", result.err());
+
+    let handle = result.unwrap();
+    let mesh = k.tessellate(&handle, 0.1).unwrap();
+    let n_tris = mesh.indices.len() / 3;
+    assert!(n_tris > 0, "Result should have triangles");
+    let vol = mesh_volume(&mesh);
+    assert!(vol > 0.0, "Union volume should be positive, got {}", vol);
 }

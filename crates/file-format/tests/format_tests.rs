@@ -289,6 +289,8 @@ fn save_all_operation_types() {
                 axis_origin: [0.0, 0.0, 0.0],
                 axis_direction: [0.0, 1.0, 0.0],
                 angle: std::f64::consts::PI,
+                cut: false,
+                merge: false,
             },
         },
         suppressed: false,

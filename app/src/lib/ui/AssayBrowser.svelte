@@ -10,6 +10,9 @@
 
 	let searchTerm = $state('');
 
+	// Status sort order: pass first, then fail, then error, then unknown
+	const statusOrder = { pass: 0, fail: 1, error: 2 };
+
 	let filtered = $derived.by(() => {
 		let cases = state.cases;
 		if (searchTerm.trim()) {
@@ -19,11 +22,32 @@
 				(c.description && c.description.toLowerCase().includes(term))
 			);
 		}
-		return cases;
+		// Sort: featured first, then by status (pass, fail, error), then by ID
+		const results = state.results || {};
+		return [...cases].sort((a, b) => {
+			const fa = a.featured ? 0 : 1;
+			const fb = b.featured ? 0 : 1;
+			if (fa !== fb) return fa - fb;
+			const sa = statusOrder[results[a.id]?.status] ?? 3;
+			const sb = statusOrder[results[b.id]?.status] ?? 3;
+			if (sa !== sb) return sa - sb;
+			return a.id.localeCompare(b.id);
+		});
 	});
 
 	let activeMeta = $derived(state.activeMeta);
 	let activeCase = $derived(state.activeCase);
+
+	function statusLabel(id) {
+		const r = state.results?.[id];
+		if (!r) return null;
+		return r.status;
+	}
+
+	// Count results
+	let passCount = $derived(Object.values(state.results || {}).filter(r => r.status === 'pass').length);
+	let totalResults = $derived(Object.keys(state.results || {}).length);
+	let featuredCount = $derived(state.cases.filter(c => c.featured).length);
 </script>
 
 {#if state.visible}
@@ -31,6 +55,12 @@
 	<div class="ab-header">
 		<span class="ab-title">Assay Browser</span>
 		<span class="ab-count">{state.cases.length} cases</span>
+		{#if totalResults > 0}
+			<span class="ab-score" data-testid="assay-score">{passCount}/{totalResults}</span>
+		{/if}
+		{#if featuredCount > 0}
+			<span class="ab-featured-count">{featuredCount} featured</span>
+		{/if}
 		<div class="ab-header-actions">
 			<button class="ab-icon-btn" title="Refresh" data-testid="assay-refresh" onclick={() => refreshAssayCases()}>&#x21bb;</button>
 			<button class="ab-icon-btn" title="Close" data-testid="assay-browser-close" onclick={() => hideAssayBrowser()}>&#x2715;</button>
@@ -57,14 +87,32 @@
 				<div class="ab-empty">No assay cases{searchTerm ? ' matching filter' : ' generated yet'}.</div>
 			{:else}
 				{#each filtered as c (c.id)}
+					{@const status = statusLabel(c.id)}
 					<button
 						class="ab-case-item"
 						class:active={activeCase === c.id}
+						class:status-pass={status === 'pass'}
+						class:status-fail={status === 'fail'}
+						class:status-error={status === 'error'}
+						class:status-featured={c.featured}
 						data-testid="assay-case-{c.id}"
 						onclick={() => loadAssayCase(c.id)}
 					>
-						<span class="ab-case-id">{c.id}</span>
+						<div class="ab-case-row">
+							{#if c.featured}
+								<span class="ab-status-badge featured">FEATURED</span>
+							{/if}
+							{#if status}
+								<span class="ab-status-badge" class:pass={status === 'pass'} class:fail={status === 'fail'} class:error={status === 'error'}>
+									{status === 'pass' ? 'PASS' : status === 'fail' ? 'FAIL' : 'ERR'}
+								</span>
+							{/if}
+							<span class="ab-case-id">{c.id}</span>
+						</div>
 						<span class="ab-case-desc">{c.description}</span>
+						{#if state.results?.[c.id]?.category}
+							<span class="ab-case-category">{state.results[c.id].category}</span>
+						{/if}
 					</button>
 				{/each}
 			{/if}
@@ -84,6 +132,9 @@
 				{/if}
 				{#if activeMeta.operations}
 					<div class="ab-oracle-row">Ops: {activeMeta.operations.map(o => `${o.kind}(${o.profile_type})`).join(', ')}</div>
+				{/if}
+				{#if activeCase && state.results?.[activeCase]}
+					<div class="ab-oracle-row ab-result-detail">Result: {state.results[activeCase].detail}</div>
 				{/if}
 			</div>
 		{/if}
@@ -126,6 +177,16 @@
 		background: var(--bg-primary);
 		padding: 1px 6px;
 		border-radius: 8px;
+	}
+
+	.ab-score {
+		font-size: 11px;
+		font-weight: 600;
+		color: #4caf50;
+		background: rgba(76, 175, 80, 0.12);
+		padding: 1px 6px;
+		border-radius: 8px;
+		font-family: monospace;
 	}
 
 	.ab-header-actions {
@@ -215,6 +276,73 @@
 		border-left: 2px solid var(--accent);
 	}
 
+	.ab-case-item.status-pass {
+		border-left: 2px solid #4caf50;
+	}
+
+	.ab-case-item.status-fail {
+		border-left: 2px solid #f44336;
+	}
+
+	.ab-case-item.status-error {
+		border-left: 2px solid #ff9800;
+	}
+
+	.ab-case-item.active.status-pass {
+		background: rgba(76, 175, 80, 0.1);
+	}
+
+	.ab-case-row {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.ab-status-badge {
+		display: inline-block;
+		font-size: 9px;
+		font-weight: 700;
+		padding: 1px 4px;
+		border-radius: 3px;
+		font-family: monospace;
+		letter-spacing: 0.5px;
+		line-height: 1.4;
+		flex-shrink: 0;
+	}
+
+	.ab-status-badge.pass {
+		background: rgba(76, 175, 80, 0.2);
+		color: #4caf50;
+	}
+
+	.ab-status-badge.fail {
+		background: rgba(244, 67, 54, 0.15);
+		color: #f44336;
+	}
+
+	.ab-status-badge.error {
+		background: rgba(255, 152, 0, 0.15);
+		color: #ff9800;
+	}
+
+	.ab-status-badge.featured {
+		background: rgba(255, 193, 7, 0.2);
+		color: #ffc107;
+	}
+
+	.ab-case-item.status-featured {
+		border-left: 2px solid #ffc107;
+	}
+
+	.ab-featured-count {
+		font-size: 11px;
+		color: #ffc107;
+		background: rgba(255, 193, 7, 0.12);
+		padding: 1px 6px;
+		border-radius: 8px;
+		font-family: monospace;
+	}
+
 	.ab-case-id {
 		font-weight: 600;
 		font-size: 11px;
@@ -228,6 +356,12 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.ab-case-category {
+		font-size: 10px;
+		color: var(--text-muted);
+		font-style: italic;
 	}
 
 	.ab-oracle-overlay {
@@ -247,6 +381,14 @@
 	.ab-oracle-row {
 		color: var(--text-secondary);
 		padding: 1px 0;
+	}
+
+	.ab-result-detail {
+		margin-top: 4px;
+		font-size: 10px;
+		word-break: break-word;
+		max-height: 60px;
+		overflow-y: auto;
 	}
 
 	@media (max-width: 768px) {

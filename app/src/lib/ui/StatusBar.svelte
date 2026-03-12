@@ -128,7 +128,7 @@
 		justify-content: space-between;
 		height: 100%;
 		background: var(--accent);
-		padding: 0 8px;
+		padding: 0 max(8px, env(safe-area-inset-right, 0px)) 0 max(8px, env(safe-area-inset-left, 0px));
 		padding-bottom: env(safe-area-inset-bottom, 0px);
 		font-size: 11px;
 		color: white;
@@ -257,7 +257,7 @@
 	@media (max-width: 480px) {
 		.statusbar {
 			font-size: 10px;
-			padding: 0 4px;
+			padding: 0 max(4px, env(safe-area-inset-right, 0px)) 0 max(4px, env(safe-area-inset-left, 0px));
 			padding-bottom: env(safe-area-inset-bottom, 0px);
 		}
 

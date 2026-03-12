@@ -779,6 +779,8 @@ impl ModelBuilder {
                         axis_origin,
                         axis_direction: axis_dir,
                         angle: angle_deg,
+                        cut: false,
+                        merge: false,
                     },
                 },
             },

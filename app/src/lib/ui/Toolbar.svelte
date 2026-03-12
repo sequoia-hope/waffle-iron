@@ -61,6 +61,7 @@
 	let showOverflow = $state(false);
 	let showConstraints = $state(false);
 	let showSketchTools = $state(false);
+	let showModelingTools = $state(false);
 
 	// Fixed-position dropdown tracking for mobile (avoids overflow:hidden clipping)
 	let dropdownPos = $state({ top: 0, left: 0, right: null });
@@ -74,7 +75,8 @@
 
 	function openOverflow(triggerEl) {
 		const rect = triggerEl.getBoundingClientRect();
-		overflowPos = { top: rect.bottom + 4, right: window.innerWidth - rect.right };
+		const saiRight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sai-right')) || 0;
+		overflowPos = { top: rect.bottom + 4, right: Math.max(4, window.innerWidth - rect.right - saiRight) };
 		showOverflow = !showOverflow;
 	}
 
@@ -431,35 +433,68 @@
 		</button>
 	{:else}
 		<!-- Modeling tools -->
-		<div class="toolbar-group">
-			{#each modelingTools as t}
+		{#if isMobile}
+			<!-- Mobile: modeling tools in dropdown -->
+			<div class="dropdown-container">
+				<button
+					class="toolbar-btn dropdown-trigger"
+					data-testid="toolbar-btn-modeling-dropdown"
+					onclick={(e) => { openDropdown(e.currentTarget, () => { showModelingTools = !showModelingTools; }); }}
+				>Model ▾</button>
+			</div>
+			{#if showModelingTools}
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div class="dropdown-backdrop" onclick={() => showModelingTools = false} onpointerdown={(e) => e.stopPropagation()}></div>
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div class="dropdown-panel dropdown-fixed" style="top: {dropdownPos.top}px; left: {dropdownPos.left}px;" data-testid="modeling-tools-dropdown"
+					onpointerdown={(e) => e.stopPropagation()}
+				>
+					<div class="dropdown-grid">
+						{#each modelingTools as t}
+							<button
+								class="toolbar-btn"
+								class:active={tool === t.id}
+								disabled={!ready}
+								title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
+								data-testid="toolbar-btn-{t.id}"
+								onclick={async () => { await handleToolClick(t.id); showModelingTools = false; }}
+							>{t.label}</button>
+						{/each}
+					</div>
+				</div>
+			{/if}
+		{:else}
+			<!-- Desktop: modeling tools inline -->
+			<div class="toolbar-group">
+				{#each modelingTools as t}
+					<button
+						class="toolbar-btn"
+						class:active={tool === t.id}
+						disabled={!ready}
+						title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
+						data-testid="toolbar-btn-{t.id}"
+						onclick={async () => { await handleToolClick(t.id); }}
+					>{t.label}</button>
+				{/each}
+			</div>
+			<div class="toolbar-sep"></div>
+			<div class="toolbar-group">
 				<button
 					class="toolbar-btn"
-					class:active={tool === t.id}
-					disabled={!ready}
-					title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
-					data-testid="toolbar-btn-{t.id}"
-					onclick={async () => { await handleToolClick(t.id); }}
-				>{t.label}</button>
-			{/each}
-		</div>
-		<div class="toolbar-sep"></div>
-		<div class="toolbar-group">
-			<button
-				class="toolbar-btn"
-				class:active={getShowDatumPlanes()}
-				title="Toggle Datum Planes"
-				data-testid="toolbar-btn-toggle-planes"
-				onclick={() => toggleDatumPlanes()}
-			>Planes</button>
-			<button
-				class="toolbar-btn"
-				class:active={getShowOriginTriad()}
-				title="Toggle Origin Axes"
-				data-testid="toolbar-btn-toggle-axes"
-				onclick={() => toggleOriginTriad()}
-			>Axes</button>
-		</div>
+					class:active={getShowDatumPlanes()}
+					title="Toggle Datum Planes"
+					data-testid="toolbar-btn-toggle-planes"
+					onclick={() => toggleDatumPlanes()}
+				>Planes</button>
+				<button
+					class="toolbar-btn"
+					class:active={getShowOriginTriad()}
+					title="Toggle Origin Axes"
+					data-testid="toolbar-btn-toggle-axes"
+					onclick={() => toggleOriginTriad()}
+				>Axes</button>
+			</div>
+		{/if}
 	{/if}
 
 	<div class="toolbar-sep"></div>
@@ -504,6 +539,17 @@
 					<button class="overflow-item" disabled={!ready}
 						data-testid="toolbar-btn-assay"
 						onclick={() => { closeOverflow(); toggleAssayBrowser(); }}>Assay</button>
+					<div class="overflow-separator"></div>
+					<button class="overflow-item" disabled={!ready}
+						data-testid="toolbar-btn-toggle-planes"
+						onclick={() => { closeOverflow(); toggleDatumPlanes(); }}>
+						{getShowDatumPlanes() ? '✓ ' : ''}Planes
+					</button>
+					<button class="overflow-item" disabled={!ready}
+						data-testid="toolbar-btn-toggle-axes"
+						onclick={() => { closeOverflow(); toggleOriginTriad(); }}>
+						{getShowOriginTriad() ? '✓ ' : ''}Axes
+					</button>
 					<div class="overflow-separator"></div>
 					<button class="overflow-item"
 						data-testid="toolbar-btn-reload"
@@ -557,7 +603,7 @@
 		height: 100%;
 		background: var(--bg-secondary);
 		border-bottom: 1px solid var(--border-color);
-		padding: 0 max(8px, env(safe-area-inset-left, 0px));
+		padding: 0 max(8px, env(safe-area-inset-right, 0px)) 0 max(8px, env(safe-area-inset-left, 0px));
 		gap: 4px;
 	}
 
@@ -755,7 +801,7 @@
 		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
 		z-index: 200;
 		min-width: 160px;
-		max-width: calc(100vw - 16px);
+		max-width: calc(100vw - 16px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
 		padding: 4px 0;
 	}
 
@@ -818,7 +864,7 @@
 		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
 		z-index: 200;
 		padding: 8px;
-		max-width: calc(100vw - 16px);
+		max-width: calc(100vw - 16px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
 	}
 
 	.dropdown-fixed {
@@ -839,7 +885,7 @@
 	}
 
 	.constraints-panel {
-		min-width: min(220px, calc(100vw - 16px));
+		min-width: min(220px, calc(100vw - 16px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
 	}
 
 	.constraints-grid {

@@ -445,7 +445,7 @@ fn execute_feature(
             }
 
             let face_index = params.profile_index.min(face_ids.len() - 1);
-            let result = execute_revolve(
+            let revolve_result = execute_revolve(
                 kb,
                 face_ids[face_index],
                 params.axis_origin,
@@ -453,7 +453,55 @@ fn execute_feature(
                 params.angle,
                 None,
             )?;
-            Ok(result)
+
+            if params.cut {
+                // Find the target body to subtract from
+                let target_handle = find_most_recent_solid(feature, feature_results, tree)
+                    .ok_or_else(|| EngineError::ResolutionFailed {
+                        reason: "Cut revolve requires an existing body to subtract from".into(),
+                    })?;
+
+                let tool_handle = revolve_result
+                    .outputs
+                    .first()
+                    .map(|(_, body)| body.handle.clone())
+                    .ok_or_else(|| EngineError::ResolutionFailed {
+                        reason: "Revolve produced no solid output for cut".into(),
+                    })?;
+
+                let boolean_result =
+                    execute_boolean(kb, &target_handle, &tool_handle, BooleanKind::Subtract)?;
+                Ok(boolean_result)
+            } else if params.merge {
+                // Auto-union revolve with existing body
+                if let Some(target_handle) = find_most_recent_solid(feature, feature_results, tree)
+                {
+                    if let Some(tool_handle) = revolve_result
+                        .outputs
+                        .first()
+                        .map(|(_, b)| b.handle.clone())
+                    {
+                        match execute_boolean(kb, &target_handle, &tool_handle, BooleanKind::Union)
+                        {
+                            Ok(union_result) => Ok(union_result),
+                            Err(e) => {
+                                let mut result = revolve_result;
+                                result.diagnostics.warnings.push(format!(
+                                    "Auto-union failed: {}. Body created as standalone.",
+                                    e
+                                ));
+                                Ok(result)
+                            }
+                        }
+                    } else {
+                        Ok(revolve_result)
+                    }
+                } else {
+                    Ok(revolve_result)
+                }
+            } else {
+                Ok(revolve_result)
+            }
         }
 
         Operation::BooleanCombine { params } => {
@@ -723,35 +771,10 @@ fn find_consumed_feature_ids(
 ) -> Vec<Uuid> {
     match &feature.operation {
         Operation::Extrude { params } if params.merge || params.cut => {
-            // Find the most recent feature BEFORE this one with a Main solid output.
-            // Only look at features earlier in the tree — features after this one
-            // are not valid merge targets (their results may be stale or absent).
-            let active = tree.active_features();
-            let current_idx = active
-                .iter()
-                .position(|f| f.id == feature.id)
-                .unwrap_or(active.len());
-            for f in active[..current_idx].iter().rev() {
-                if f.suppressed {
-                    continue;
-                }
-                if matches!(
-                    &f.operation,
-                    Operation::Sketch { .. } | Operation::DatumPlane { .. }
-                ) {
-                    continue;
-                }
-                if let Some(result) = feature_results.get(&f.id) {
-                    if result
-                        .outputs
-                        .iter()
-                        .any(|(key, _)| *key == OutputKey::Main)
-                    {
-                        return vec![f.id];
-                    }
-                }
-            }
-            vec![]
+            find_most_recent_consumed(feature, feature_results, tree)
+        }
+        Operation::Revolve { params } if params.merge || params.cut => {
+            find_most_recent_consumed(feature, feature_results, tree)
         }
         Operation::BooleanCombine { params } => {
             // Both body_a and body_b are consumed by the boolean result
@@ -802,6 +825,40 @@ fn find_most_recent_solid(
         }
     }
     None
+}
+
+/// Find the most recent feature with a Main solid output (for consumption tracking).
+fn find_most_recent_consumed(
+    feature: &Feature,
+    feature_results: &HashMap<Uuid, OpResult>,
+    tree: &FeatureTree,
+) -> Vec<Uuid> {
+    let active = tree.active_features();
+    let current_idx = active
+        .iter()
+        .position(|f| f.id == feature.id)
+        .unwrap_or(active.len());
+    for f in active[..current_idx].iter().rev() {
+        if f.suppressed {
+            continue;
+        }
+        if matches!(
+            &f.operation,
+            Operation::Sketch { .. } | Operation::DatumPlane { .. }
+        ) {
+            continue;
+        }
+        if let Some(result) = feature_results.get(&f.id) {
+            if result
+                .outputs
+                .iter()
+                .any(|(key, _)| *key == OutputKey::Main)
+            {
+                return vec![f.id];
+            }
+        }
+    }
+    vec![]
 }
 
 /// Find the Sketch data from a feature in the tree by sketch feature ID.

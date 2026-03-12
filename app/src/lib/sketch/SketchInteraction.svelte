@@ -5,7 +5,8 @@
 	import {
 		getSketchMode,
 		getActiveTool,
-		setSketchCursorPos
+		setSketchCursorPos,
+		isTwoFingerGestureActive
 	} from '$lib/engine/store.svelte.js';
 	import { buildSketchPlane, screenToSketchCoords } from './sketchCoords.js';
 	import { handleToolEvent, resetTool } from './tools.js';
@@ -41,6 +42,8 @@
 
 		/** @param {PointerEvent} e */
 		function handler(e) {
+			// Suppress sketch events during two-finger camera gestures
+			if (isTwoFingerGestureActive()) return;
 			// Skip secondary pointers (e.g. second finger in multi-touch)
 			if (!e.isPrimary) return;
 			// Skip right/middle mouse button on pointerdown

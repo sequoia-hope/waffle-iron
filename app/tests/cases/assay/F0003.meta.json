@@ -1,0 +1,46 @@
+{
+  "id": "F0003",
+  "description": "2 ops, scale=1.00e2, extrude(rectangle,boss)+extrude(rectangle,boss) — Large, swapped aspect",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 100.0,
+  "log_scale": 2.0,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 60.0,
+      "depth_or_angle": 30.0,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 40.0,
+      "depth_or_angle": 20.0,
+      "is_cut": false
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 300.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [
+      "increase",
+      "increase"
+    ]
+  },
+  "generator_version": 1,
+  "featured": true
+}

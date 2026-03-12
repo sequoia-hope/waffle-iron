@@ -537,6 +537,7 @@ pub fn build_catalog(dir: &Path, report: &AssayReport) -> Vec<CatalogEntry> {
                     volume_monotonicity: vec![],
                 },
                 generator_version: 0,
+                featured: false,
             });
 
         let category = categorize_result(result, &meta);
@@ -782,10 +783,13 @@ mod tests {
     fn discover_cases_from_corpus() {
         let (_dir, corpus_path) = generate_test_corpus(5);
         let cases = discover_cases(&corpus_path);
-        assert_eq!(cases.len(), 5);
+        assert_eq!(cases.len(), 15); // 5 random + 10 featured
         assert_eq!(cases[0].id, "R0001");
         assert!(cases[0].waffle_path.exists());
         assert!(cases[0].meta_path.exists());
+        // Featured cases at the end
+        assert_eq!(cases[5].id, "F0001");
+        assert!(cases[5].waffle_path.exists());
     }
 
     #[test]
@@ -839,6 +843,7 @@ mod tests {
                 volume_monotonicity: vec![],
             },
             generator_version: 3,
+            featured: false,
         };
 
         let category = categorize_result(&result, &meta);
@@ -892,6 +897,7 @@ mod tests {
                 volume_monotonicity: vec![],
             },
             generator_version: 3,
+            featured: false,
         };
 
         let category = categorize_result(&result, &meta);
@@ -936,7 +942,8 @@ mod tests {
     fn run_mock_smoke() {
         let (_dir, corpus_path) = generate_test_corpus(3);
         let report = run_randomized_assay(&corpus_path, false);
-        assert_eq!(report.total, 3);
+        // 3 random + 10 featured = 13 total
+        assert_eq!(report.total, 13);
         // Mock kernel produces deterministic results — all should complete (pass or fail, not error)
         assert_eq!(
             report.errored,

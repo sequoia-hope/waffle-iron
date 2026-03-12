@@ -2906,6 +2906,8 @@ fn make_revolve_op(sketch_id: Uuid) -> Operation {
             axis_origin: [-1.0, 0.0, 0.0],
             axis_direction: [0.0, 1.0, 0.0],
             angle: std::f64::consts::PI,
+            cut: false,
+            merge: false,
         },
     }
 }
@@ -2977,6 +2979,8 @@ fn revolve_profile_index_out_of_range_errors() {
             axis_origin: [-1.0, 0.0, 0.0],
             axis_direction: [0.0, 1.0, 0.0],
             angle: std::f64::consts::PI,
+            cut: false,
+            merge: false,
         },
     };
     let r1 = engine

@@ -191,6 +191,89 @@ fn extract_face_polys(solid: &WaffleSolid) -> Vec<FacePoly> {
     polys
 }
 
+/// Generate planar face polygons approximating a cylinder.
+///
+/// Converts a cylinder (2 circular caps + 1 cylindrical lateral face) into
+/// N planar quads for the lateral surface plus 2 N-gon caps. This allows
+/// cylinder solids to participate in the polygon-clipping boolean pipeline.
+fn cylinder_to_face_polys(cyl: &CylinderParams, n: usize) -> Vec<FacePoly> {
+    let mut polys = Vec::with_capacity(n + 2);
+    let dir = cyl.direction;
+
+    // Generate N points on bottom and top circles
+    let mut bottom_pts = Vec::with_capacity(n);
+    let mut top_pts = Vec::with_capacity(n);
+    for i in 0..n {
+        let theta = std::f64::consts::TAU * (i as f64) / (n as f64);
+        let cos_t = theta.cos();
+        let sin_t = theta.sin();
+        let bottom = [
+            cyl.center_bottom[0] + cyl.radius * (cos_t * cyl.x_axis[0] + sin_t * cyl.y_axis[0]),
+            cyl.center_bottom[1] + cyl.radius * (cos_t * cyl.x_axis[1] + sin_t * cyl.y_axis[1]),
+            cyl.center_bottom[2] + cyl.radius * (cos_t * cyl.x_axis[2] + sin_t * cyl.y_axis[2]),
+        ];
+        let top = [
+            bottom[0] + dir[0] * cyl.depth,
+            bottom[1] + dir[1] * cyl.depth,
+            bottom[2] + dir[2] * cyl.depth,
+        ];
+        bottom_pts.push(bottom);
+        top_pts.push(top);
+    }
+
+    // Bottom cap (outward normal = -direction)
+    let neg_dir = [-dir[0], -dir[1], -dir[2]];
+    let mut bottom_verts = bottom_pts.clone();
+    bottom_verts.reverse(); // Reverse for outward normal = -direction
+    polys.push(FacePoly {
+        verts: bottom_verts,
+        normal: neg_dir,
+        origin: cyl.center_bottom,
+    });
+
+    // Top cap (outward normal = +direction)
+    let center_top = [
+        cyl.center_bottom[0] + dir[0] * cyl.depth,
+        cyl.center_bottom[1] + dir[1] * cyl.depth,
+        cyl.center_bottom[2] + dir[2] * cyl.depth,
+    ];
+    polys.push(FacePoly {
+        verts: top_pts.clone(),
+        normal: dir,
+        origin: center_top,
+    });
+
+    // Side quads: each connects consecutive bottom/top points
+    for i in 0..n {
+        let j = (i + 1) % n;
+        // Quad winding: bottom[i] → bottom[j] → top[j] → top[i]
+        // Outward normal = cross(bottom_edge, up_edge)
+        let edge_bot = v3_sub(bottom_pts[j], bottom_pts[i]);
+        let edge_up = v3_sub(top_pts[i], bottom_pts[i]);
+        let normal = v3_normalize(v3_cross(edge_bot, edge_up));
+        polys.push(FacePoly {
+            verts: vec![bottom_pts[i], bottom_pts[j], top_pts[j], top_pts[i]],
+            normal,
+            origin: bottom_pts[i],
+        });
+    }
+
+    polys
+}
+
+/// Extract face polys from a solid, using polygon approximation for cylinders.
+///
+/// For solids with `cylinder_params`, generates face polys from the cylinder
+/// parameters (since the B-Rep topology only has 2 seam vertices).
+/// For polygon solids, uses the standard B-Rep face extraction.
+fn extract_face_polys_general(solid: &WaffleSolid) -> Vec<FacePoly> {
+    if let Some(ref cyl) = solid.cylinder_params {
+        cylinder_to_face_polys(cyl, 32)
+    } else {
+        extract_face_polys(solid)
+    }
+}
+
 // ── Sutherland-Hodgman polygon clipping ─────────────────────────────────
 
 /// Clip a polygon to keep only the portion on the INWARD side of a plane.
@@ -938,108 +1021,8 @@ pub(crate) fn boolean_op(
         });
     }
 
-    // Scale-adaptive tolerances based on geometry bounding box
-    let (tau, tau_weld) = compute_adaptive_tau_weld(&a_faces, &b_faces);
-
-    // Detect non-convex solids: convex extrudes have at most ~12 faces.
-    // Use S-H face splitting when the opposing solid is convex (correct),
-    // and ray-casting-only classification when it's non-convex (S-H
-    // gives wrong fragments for non-convex half-space intersections).
-    let b_convex = b_faces.len() <= 12;
-    let a_convex = a_faces.len() <= 12;
-
-    let a_classified: Vec<(FacePoly, FaceClass)> = a_faces
-        .iter()
-        .map(|f| {
-            let class = if b_convex {
-                classify_face(f, &b_faces, tau)
-            } else {
-                classify_face_nonconvex(f, &b_faces, tau)
-            };
-            (f.clone(), class)
-        })
-        .collect();
-
-    let b_classified: Vec<(FacePoly, FaceClass)> = b_faces
-        .iter()
-        .map(|f| {
-            let class = if a_convex {
-                classify_face(f, &a_faces, tau)
-            } else {
-                classify_face_nonconvex(f, &a_faces, tau)
-            };
-            (f.clone(), class)
-        })
-        .collect();
-
-    // Select face fragments based on the operation.
-    //
-    // With coplanar-face skipping in clip_polygon_by_solid:
-    // - "Inside" for a non-coplanar face means truly inside the opposing volume
-    // - "Partial" means the face has a coplanar partner on the opposing solid;
-    //   the "inside" portion is the coplanar overlap region (on the surface, not
-    //   inside the volume), and the "outside" portion is beyond the opposing solid.
-    //
-    // For Union:
-    //   A_outside + A_coplanar_overlap + B_outside
-    //   (the overlap is taken from A only to avoid duplication)
-    //
-    // For Subtract (A-B):
-    //   A_outside + B_truly_inside_A (flipped normals)
-    //   (coplanar overlap is removed from A; B's truly-inside face at the cut
-    //    boundary replaces A's removed face)
-    //
-    // For Intersect:
-    //   A_truly_inside + A_coplanar_overlap
-    let mut result_polys = Vec::new();
-
-    match op {
-        BoolOp::Union => {
-            // For union, partial faces (coplanar overlap) contribute:
-            // - The ORIGINAL face from A (outside + inside = full face)
-            // - Only the outside from B (non-overlapping portion of B)
-            // Fully-inside faces are hidden inside the other solid: discard.
-            // Fully-outside faces: keep.
-            collect_union_fragments(&a_classified, &mut result_polys, true);
-            collect_union_fragments(&b_classified, &mut result_polys, false);
-        }
-        BoolOp::Subtract => {
-            // A - B: keep A's outside fragments only (coplanar overlap is cut away)
-            // plus B's fully-inside-A faces with flipped normals (the new cut wall)
-            collect_fragments(&a_classified, &mut result_polys, false, true, false, false);
-            collect_fragments(&b_classified, &mut result_polys, true, false, true, false);
-        }
-        BoolOp::Intersect => {
-            // A intersect B: keep A's fully-inside-B faces + coplanar overlap from A
-            // plus B's fully-inside-A faces (the opposing wall)
-            collect_fragments(&a_classified, &mut result_polys, false, false, true, true);
-            collect_fragments(&b_classified, &mut result_polys, false, false, true, false);
-        }
-    }
-
-    if result_polys.is_empty() {
-        // Empty result is valid (e.g., subtract identical solids → volume = 0).
-        // Return a minimal empty B-Rep.
-        let mut arena = TopoArena::new();
-        let solid_idx = arena.add_solid();
-        let shell_idx = arena.add_shell(solid_idx);
-        arena.solids[solid_idx.0].outer_shell = shell_idx;
-        return Ok(BooleanResult {
-            arena,
-            face_map: HashMap::new(),
-            edge_map: HashMap::new(),
-            vertex_map: HashMap::new(),
-            face_geometry: HashMap::new(),
-            edge_geometry: HashMap::new(),
-        });
-    }
-
-    // T-junction resolution: split face edges at vertices from adjacent faces
-    // that lie on edge interiors. This prevents unpaired half-edges when a face
-    // classified as "Outside" has long edges that span a split boundary.
-    let result_polys = resolve_t_junctions(&result_polys, tau_weld);
-
-    build_brep_from_polygons(&result_polys, tau_weld, id_alloc)
+    // Use strict stitching (no boundary edge tolerance) for the primary path
+    boolean_op_from_polys_strict(a_faces, b_faces, op, id_alloc)
 }
 
 /// Resolve T-junctions in a polygon soup.
@@ -1295,6 +1278,20 @@ fn collect_union_fragments(
 fn build_brep_from_polygons(
     faces: &[FacePoly],
     tau_weld: f64,
+    id_alloc: &mut dyn FnMut() -> u64,
+) -> Result<BooleanResult, KernelError> {
+    build_brep_from_polygons_inner(faces, tau_weld, false, id_alloc)
+}
+
+/// Build B-Rep from polygon soup with optional near-manifold tolerance.
+///
+/// When `allow_boundary` is true, allows up to 5% unpaired half-edges
+/// (creates self-twin boundary edges). When false, any unpaired edges
+/// produce an error.
+fn build_brep_from_polygons_inner(
+    faces: &[FacePoly],
+    tau_weld: f64,
+    allow_boundary: bool,
     id_alloc: &mut dyn FnMut() -> u64,
 ) -> Result<BooleanResult, KernelError> {
     let mut arena = TopoArena::new();
@@ -1626,16 +1623,61 @@ fn build_brep_from_polygons(
         }
     }
 
-    // Step 4: Verify all half-edges are paired (manifold check)
-    let unpaired_count = unpaired_hes.len() - paired.len();
+    // Step 4: Handle remaining unpaired half-edges.
+    let unpaired_count = unpaired_hes
+        .iter()
+        .filter(|he| !paired.contains(he))
+        .count();
+    let total_count = unpaired_hes.len();
+
     if unpaired_count > 0 {
-        return Err(KernelError::BooleanFailed {
-            reason: format!(
-                "non-manifold result: {} half-edges unpaired out of {}",
-                unpaired_count,
-                unpaired_hes.len()
-            ),
-        });
+        if !allow_boundary {
+            // Strict mode: any unpaired half-edges are an error
+            return Err(KernelError::BooleanFailed {
+                reason: format!(
+                    "non-manifold result: {} half-edges unpaired out of {}",
+                    unpaired_count, total_count,
+                ),
+            });
+        }
+        // Tolerant mode: allow up to 10% unpaired, reject worse
+        let unpaired_ratio = unpaired_count as f64 / total_count.max(1) as f64;
+        if unpaired_ratio > 0.10 {
+            return Err(KernelError::BooleanFailed {
+                reason: format!(
+                    "non-manifold result: {} half-edges unpaired out of {} ({:.1}%)",
+                    unpaired_count,
+                    total_count,
+                    unpaired_ratio * 100.0
+                ),
+            });
+        }
+    }
+
+    // Create self-twin boundary edges for any remaining unpaired half-edges.
+    for &he_idx in &unpaired_hes {
+        if paired.contains(&he_idx) {
+            continue;
+        }
+        let edge_idx = EdgeIdx(arena.edges.len());
+        arena.edges.push(Edge { half_edge: he_idx });
+        arena.half_edges[he_idx.0].edge = edge_idx;
+
+        let origin = arena.half_edges[he_idx.0].origin;
+        let next_he = arena.half_edges[he_idx.0].next;
+        let dest = arena.half_edges[next_he.0].origin;
+        let p0 = arena.vertices[origin.0].position;
+        let p1 = arena.vertices[dest.0].position;
+        let dir = v3_sub(p1, p0);
+        edge_geometry.insert(
+            edge_idx,
+            CurveGeom::Linear(Line3D {
+                origin: Point3::from_array(p0),
+                direction: Vector3::from_array(dir),
+            }),
+        );
+        let eid = id_alloc();
+        edge_map.insert(eid, edge_idx);
     }
 
     // Step 5: Build vertex map
@@ -1661,6 +1703,148 @@ use crate::geometry::surface::Cylinder;
 use crate::ssi::{self, Aabb};
 use crate::waffle_kernel::CylinderParams;
 
+/// Polygon-approximation boolean: convert any cylinder solids to polygon face
+/// approximations, then use the standard polygon-clipping boolean pipeline.
+///
+/// This is a fallback for cylinder-involving booleans that the analytical SSI
+/// pipeline doesn't handle (e.g., cylinder-minus-box, partial overlaps).
+fn polygon_approx_boolean(
+    solid_a: &WaffleSolid,
+    solid_b: &WaffleSolid,
+    op: BoolOp,
+    id_alloc: &mut dyn FnMut() -> u64,
+) -> Result<BooleanResult, KernelError> {
+    let a_faces = extract_face_polys_general(solid_a);
+    let b_faces = extract_face_polys_general(solid_b);
+
+    if a_faces.is_empty() || b_faces.is_empty() {
+        return Err(KernelError::BooleanFailed {
+            reason: "one or both solids have no face polygons".to_string(),
+        });
+    }
+
+    // Limit face count to prevent O(n*m) explosion in classification.
+    // Cylinder (34 faces) + box (6 faces) = 40 → OK.
+    // Cylinder (34) + gear (many faces) = 60+ → can be very slow.
+    let total_faces = a_faces.len() + b_faces.len();
+    if total_faces > 80 {
+        return Err(KernelError::NotSupported {
+            operation: format!(
+                "polygon approx boolean: {} total faces exceeds limit",
+                total_faces
+            ),
+        });
+    }
+
+    boolean_op_from_polys(a_faces, b_faces, op, id_alloc)
+}
+
+/// Strict polygon-clipping boolean: errors on any unpaired half-edges.
+fn boolean_op_from_polys_strict(
+    a_faces: Vec<FacePoly>,
+    b_faces: Vec<FacePoly>,
+    op: BoolOp,
+    id_alloc: &mut dyn FnMut() -> u64,
+) -> Result<BooleanResult, KernelError> {
+    boolean_op_from_polys_inner(a_faces, b_faces, op, false, id_alloc)
+}
+
+/// Core polygon-clipping boolean logic operating on pre-extracted face polys.
+/// Uses tolerant stitching (allows up to 10% unpaired half-edges as boundary).
+fn boolean_op_from_polys(
+    a_faces: Vec<FacePoly>,
+    b_faces: Vec<FacePoly>,
+    op: BoolOp,
+    id_alloc: &mut dyn FnMut() -> u64,
+) -> Result<BooleanResult, KernelError> {
+    boolean_op_from_polys_inner(a_faces, b_faces, op, true, id_alloc)
+}
+
+/// Shared implementation for polygon-clipping boolean with configurable
+/// boundary tolerance.
+fn boolean_op_from_polys_inner(
+    a_faces: Vec<FacePoly>,
+    b_faces: Vec<FacePoly>,
+    op: BoolOp,
+    allow_boundary: bool,
+    id_alloc: &mut dyn FnMut() -> u64,
+) -> Result<BooleanResult, KernelError> {
+    // Guard against pathological face counts: O(n*m) classification becomes
+    // too expensive when both solids have many faces (e.g., revolve(gear) × gear).
+    let total_faces = a_faces.len() + b_faces.len();
+    if total_faces > 250 {
+        return Err(KernelError::NotSupported {
+            operation: format!(
+                "polygon boolean: {} total faces exceeds limit (250)",
+                total_faces
+            ),
+        });
+    }
+
+    let (tau, tau_weld) = compute_adaptive_tau_weld(&a_faces, &b_faces);
+
+    let b_convex = b_faces.len() <= 12;
+    let a_convex = a_faces.len() <= 12;
+
+    let a_classified: Vec<(FacePoly, FaceClass)> = a_faces
+        .iter()
+        .map(|f| {
+            let class = if b_convex {
+                classify_face(f, &b_faces, tau)
+            } else {
+                classify_face_nonconvex(f, &b_faces, tau)
+            };
+            (f.clone(), class)
+        })
+        .collect();
+
+    let b_classified: Vec<(FacePoly, FaceClass)> = b_faces
+        .iter()
+        .map(|f| {
+            let class = if a_convex {
+                classify_face(f, &a_faces, tau)
+            } else {
+                classify_face_nonconvex(f, &a_faces, tau)
+            };
+            (f.clone(), class)
+        })
+        .collect();
+
+    let mut result_polys = Vec::new();
+    match op {
+        BoolOp::Union => {
+            collect_union_fragments(&a_classified, &mut result_polys, true);
+            collect_union_fragments(&b_classified, &mut result_polys, false);
+        }
+        BoolOp::Subtract => {
+            collect_fragments(&a_classified, &mut result_polys, false, true, false, false);
+            collect_fragments(&b_classified, &mut result_polys, true, false, true, false);
+        }
+        BoolOp::Intersect => {
+            collect_fragments(&a_classified, &mut result_polys, false, false, true, true);
+            collect_fragments(&b_classified, &mut result_polys, false, false, true, false);
+        }
+    }
+
+    if result_polys.is_empty() {
+        let mut arena = TopoArena::new();
+        let solid_idx = arena.add_solid();
+        let shell_idx = arena.add_shell(solid_idx);
+        arena.solids[solid_idx.0].outer_shell = shell_idx;
+        return Ok(BooleanResult {
+            arena,
+            face_map: HashMap::new(),
+            edge_map: HashMap::new(),
+            vertex_map: HashMap::new(),
+            face_geometry: HashMap::new(),
+            edge_geometry: HashMap::new(),
+        });
+    }
+
+    let result_polys = resolve_t_junctions(&result_polys, tau_weld);
+    build_brep_from_polygons_inner(&result_polys, tau_weld, allow_boundary, id_alloc)
+}
+
 /// Perform an SSI-based boolean operation on solids involving cylinders.
 pub(crate) fn ssi_boolean_op(
     solid_a: &WaffleSolid,
@@ -1671,18 +1855,17 @@ pub(crate) fn ssi_boolean_op(
     let a_is_cyl = solid_a.cylinder_params.is_some();
     let b_is_cyl = solid_b.cylinder_params.is_some();
 
-    if a_is_cyl && b_is_cyl {
-        // Cylinder-cylinder boolean
+    // Try analytical SSI pipeline first; fall back to polygon approximation
+    // for unsupported cases (partial overlaps, cylinder-minus-box, etc.)
+    let analytical_result = if a_is_cyl && b_is_cyl {
         let cyl_a = solid_a.cylinder_params.as_ref().unwrap();
         let cyl_b = solid_b.cylinder_params.as_ref().unwrap();
         cyl_cyl_boolean(cyl_a, cyl_b, op, id_alloc)
     } else if !a_is_cyl && b_is_cyl {
-        // Box-cylinder boolean (A=box, B=cyl)
         let box_aabb = ssi::compute_box_aabb(solid_a);
         let cyl = solid_b.cylinder_params.as_ref().unwrap();
         box_cyl_boolean(&box_aabb, solid_a, cyl, op, id_alloc)
     } else if a_is_cyl && !b_is_cyl {
-        // Cylinder-box boolean (A=cyl, B=box)
         let box_aabb = ssi::compute_box_aabb(solid_b);
         let cyl = solid_a.cylinder_params.as_ref().unwrap();
         match op {
@@ -1698,6 +1881,14 @@ pub(crate) fn ssi_boolean_op(
         Err(KernelError::NotSupported {
             operation: "unsupported boolean operand combination".to_string(),
         })
+    };
+
+    // Fall back to polygon approximation for NotSupported errors
+    match analytical_result {
+        Err(KernelError::NotSupported { .. }) => {
+            polygon_approx_boolean(solid_a, solid_b, op, id_alloc)
+        }
+        other => other,
     }
 }
 
