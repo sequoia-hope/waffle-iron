@@ -4464,3 +4464,192 @@ fn bw7b_axis_aligned_rect_rect_union() {
         total
     );
 }
+
+// ── Group M: box_cyl_boolean AABB bug fixes (R0021, R0022) ─────
+
+/// R0022: gear(boss) + circle(cut) must not degenerate to AABB box.
+/// The gear has >6 faces, so box_cyl_boolean should fall back to polygon_approx_boolean.
+#[test]
+fn m1_gear_cyl_cut_preserves_shape() {
+    let mut k = WaffleKernel::new();
+
+    // Create a gear solid (>6 faces)
+    let (gear_profiles, gear_positions) = make_gear_profile(0.0, 0.0, 8, 1.5);
+    let gear_face = k
+        .make_faces_from_profiles(&gear_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &gear_positions)
+        .expect("gear profile");
+    let gear_solid = k
+        .extrude_face(gear_face[0], Z_DIR, 5.0)
+        .expect("gear extrude");
+
+    let gear_faces = k.list_faces(&gear_solid).len();
+    assert!(
+        gear_faces > 6,
+        "m1: gear should have >6 faces, got {}",
+        gear_faces
+    );
+
+    // Create a small cylinder for cutting (fully inside the gear)
+    let (cyl_profiles, cyl_positions) = make_circle_profile(0.0, 0.0, 1.0);
+    let cyl_face = k
+        .make_faces_from_profiles(&cyl_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &cyl_positions)
+        .expect("circle profile");
+    let cyl_solid = k
+        .extrude_face(cyl_face[0], Z_DIR, 5.0)
+        .expect("circle extrude");
+
+    // Boolean subtract: gear - cylinder
+    let result = k.boolean_subtract(&gear_solid, &cyl_solid);
+    assert!(
+        result.is_ok(),
+        "m1: gear-cyl subtract should succeed, got: {:?}",
+        result.err()
+    );
+
+    let handle = result.unwrap();
+    let result_faces = k.list_faces(&handle).len();
+
+    // Result must still have >6 faces (gear shape preserved, not collapsed to AABB)
+    assert!(
+        result_faces > 6,
+        "m1: gear-cyl cut result should have >6 faces (shape preserved), got {}",
+        result_faces
+    );
+}
+
+/// R0021: oriented rect + cylinder boss must preserve orientation.
+/// Tests that rotation_to_z_aligned properly aligns box edges with X/Y.
+#[test]
+fn m2_oriented_box_cyl_union() {
+    let mut k = WaffleKernel::new();
+
+    // Create a box on an angled plane (45° around Y axis)
+    // Normal = (sin45, 0, cos45), X-axis = (cos45, 0, -sin45)
+    let s45 = std::f64::consts::FRAC_1_SQRT_2;
+    let angled_origin = [0.0, 0.0, 0.0];
+    let angled_normal = [s45, 0.0, s45]; // 45° rotated from Z
+    let angled_x_axis = [s45, 0.0, -s45]; // perpendicular to normal in XZ plane
+
+    let (box_profiles, box_positions) = make_rect_profile(0.0, 0.0, 2.0, 2.0);
+    let box_face = k
+        .make_faces_from_profiles(
+            &box_profiles,
+            angled_origin,
+            angled_normal,
+            angled_x_axis,
+            &box_positions,
+        )
+        .expect("angled rect profile");
+    let box_solid = k
+        .extrude_face(box_face[0], angled_normal, 3.0)
+        .expect("angled rect extrude");
+
+    // Verify the box is not axis-aligned: AABB should be larger than 2x2x3
+    let box_mesh = k.tessellate(&box_solid, 0.01).expect("tessellate box");
+    let (box_min, box_max) = mesh_bbox(&box_mesh);
+    let box_dx = box_max[0] - box_min[0];
+    let box_dz = box_max[2] - box_min[2];
+    // An angled 2x3 box has AABB larger than 2 in both X and Z
+    assert!(
+        box_dx > 2.5 || box_dz > 3.5,
+        "m2: angled box should have AABB larger than axis-aligned (dx={:.3}, dz={:.3})",
+        box_dx,
+        box_dz
+    );
+
+    // Create a small cylinder along the same direction (fully inside the box)
+    let (cyl_profiles, cyl_positions) = make_circle_profile(0.0, 0.0, 0.3);
+    let cyl_face = k
+        .make_faces_from_profiles(
+            &cyl_profiles,
+            angled_origin,
+            angled_normal,
+            angled_x_axis,
+            &cyl_positions,
+        )
+        .expect("circle profile");
+    let cyl_solid = k
+        .extrude_face(cyl_face[0], angled_normal, 3.0)
+        .expect("circle extrude");
+
+    // Boolean subtract: box - cyl
+    let result = k.boolean_subtract(&box_solid, &cyl_solid);
+    assert!(
+        result.is_ok(),
+        "m2: oriented box-cyl subtract should succeed, got: {:?}",
+        result.err()
+    );
+
+    let handle = result.unwrap();
+    let result_mesh = k.tessellate(&handle, 0.01).expect("tessellate result");
+    let (res_min, res_max) = mesh_bbox(&result_mesh);
+
+    // The result should preserve orientation: its AABB should be similar to the box's AABB,
+    // not suddenly become axis-aligned (which would have a smaller AABB)
+    let res_dx = res_max[0] - res_min[0];
+    let res_dz = res_max[2] - res_min[2];
+    // Allow 20% tolerance for cylinder removal
+    assert!(
+        res_dx > box_dx * 0.8,
+        "m2: result X extent {:.3} should be close to box X extent {:.3} (orientation preserved)",
+        res_dx,
+        box_dx
+    );
+    assert!(
+        res_dz > box_dz * 0.8,
+        "m2: result Z extent {:.3} should be close to box Z extent {:.3} (orientation preserved)",
+        res_dz,
+        box_dz
+    );
+}
+
+/// Axis-aligned box + cyl subtract still works correctly through the analytical path.
+#[test]
+fn m3_axis_aligned_box_cyl_subtract() {
+    let mut k = WaffleKernel::new();
+
+    // Create a 4x4x4 box centered at (2,2,0)→(2,2,4)
+    let (box_profiles, box_positions) = make_rect_profile(2.0, 2.0, 4.0, 4.0);
+    let box_face = k
+        .make_faces_from_profiles(&box_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &box_positions)
+        .expect("rect profile");
+    let box_solid = k
+        .extrude_face(box_face[0], Z_DIR, 4.0)
+        .expect("rect extrude");
+
+    // Create a cylinder (r=1) centered at (2,2), fully inside the box
+    let (cyl_profiles, cyl_positions) = make_circle_profile(2.0, 2.0, 1.0);
+    let cyl_face = k
+        .make_faces_from_profiles(&cyl_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &cyl_positions)
+        .expect("circle profile");
+    let cyl_solid = k
+        .extrude_face(cyl_face[0], Z_DIR, 4.0)
+        .expect("circle extrude");
+
+    // Boolean subtract: box - cyl (should use analytical path)
+    let result = k.boolean_subtract(&box_solid, &cyl_solid);
+    assert!(
+        result.is_ok(),
+        "m3: axis-aligned box-cyl subtract should succeed, got: {:?}",
+        result.err()
+    );
+
+    let handle = result.unwrap();
+    let mesh = k.tessellate(&handle, 0.01).expect("tessellate");
+
+    // Volume should be box - cyl = 4^3 - π*1^2*4 ≈ 64 - 12.57 ≈ 51.43
+    let vol = mesh_volume(&mesh);
+    let expected = 4.0 * 4.0 * 4.0 - std::f64::consts::PI * 1.0 * 1.0 * 4.0;
+    assert!(
+        (vol - expected).abs() < expected * 0.15,
+        "m3: volume should be ~{:.2}, got {:.2}",
+        expected,
+        vol
+    );
+
+    // Must be watertight
+    assert!(
+        check_watertight(&mesh),
+        "m3: axis-aligned box-cyl subtract should be watertight"
+    );
+}

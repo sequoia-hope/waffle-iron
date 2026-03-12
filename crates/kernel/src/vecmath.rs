@@ -100,6 +100,17 @@ pub(crate) fn mat3_mul_vec(m: &Mat3, v: [f64; 3]) -> [f64; 3] {
     ]
 }
 
+/// Multiply two 3x3 matrices: result = a * b (row-major).
+pub(crate) fn mat3_mul(a: &Mat3, b: &Mat3) -> Mat3 {
+    let mut r = [[0.0; 3]; 3];
+    for i in 0..3 {
+        for j in 0..3 {
+            r[i][j] = a[i][0] * b[0][j] + a[i][1] * b[1][j] + a[i][2] * b[2][j];
+        }
+    }
+    r
+}
+
 /// Transpose of a 3x3 matrix (inverse for orthonormal rotation matrices).
 pub(crate) fn mat3_transpose(m: &Mat3) -> Mat3 {
     [

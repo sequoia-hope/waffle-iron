@@ -80,6 +80,41 @@ fn rotation_to_z(dir: [f64; 3]) -> Mat3 {
     ]
 }
 
+/// Like rotation_to_z, but also aligns a box solid's edges with X/Y.
+///
+/// Finds a side face normal (perpendicular to cyl_dir), uses it to
+/// determine the additional Z-rotation needed for full alignment.
+/// Ref #24 Barton: complete frame normalization.
+fn rotation_to_z_aligned(cyl_dir: [f64; 3], box_solid: &WaffleSolid) -> Mat3 {
+    let m1 = rotation_to_z(cyl_dir);
+
+    // Find a side face normal (perpendicular to cyl_dir)
+    let mut side_normal = None;
+    for geom in box_solid.face_geometry.values() {
+        if let SurfaceGeom::Planar(plane) = geom {
+            let n = plane.normal.to_array();
+            let dot = v3_dot(n, cyl_dir).abs();
+            if dot < 0.1 {
+                // Nearly perpendicular to cyl direction
+                side_normal = Some(n);
+                break;
+            }
+        }
+    }
+
+    let Some(sn) = side_normal else { return m1 };
+
+    // Rotate side normal into Z-frame
+    let sn_rot = mat3_mul_vec(&m1, sn);
+    // sn_rot should be mostly in XY plane; find its angle
+    let angle = sn_rot[1].atan2(sn_rot[0]);
+
+    // Z-rotation to align side normal with +X
+    let (cos_a, sin_a) = (angle.cos(), angle.sin());
+    let z_rot: Mat3 = [[cos_a, sin_a, 0.0], [-sin_a, cos_a, 0.0], [0.0, 0.0, 1.0]];
+    mat3_mul(&z_rot, &m1)
+}
+
 /// Transform CylinderParams into a rotated coordinate frame.
 fn rotate_cyl_params(cyl: &CylinderParams, m: &Mat3) -> CylinderParams {
     CylinderParams {
@@ -2636,8 +2671,16 @@ fn box_cyl_boolean(
     op: BoolOp,
     id_alloc: &mut dyn FnMut() -> u64,
 ) -> Result<BooleanResult, KernelError> {
-    // Rotate into cylinder's Z-aligned frame
-    let m = rotation_to_z(cyl.direction);
+    // Rotate into cylinder's Z-aligned frame.
+    // For non-rectangular solids (>6 faces), use rotation_to_z_aligned to align a
+    // side face normal with X, improving normal consistency (Barton [#24]).
+    // For rectangular solids, plain rotation_to_z suffices since the AABB
+    // reconstruction in make_box_face_polys handles the geometry.
+    let m = if box_solid.face_map.len() > 6 {
+        rotation_to_z_aligned(cyl.direction, box_solid)
+    } else {
+        rotation_to_z(cyl.direction)
+    };
     let m_inv = mat3_transpose(&m);
     let cyl_z = rotate_cyl_params(cyl, &m);
     let box_aabb = ssi::compute_rotated_box_aabb(box_solid, &m);
