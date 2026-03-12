@@ -891,6 +891,36 @@ fn split_outside_fragments(
 
 // ── Boolean operation dispatch ──────────────────────────────────────────
 
+/// Compute scale-adaptive weld tolerance from face polygon bounding boxes.
+///
+/// tau_weld: vertex welding tolerance (positions within this distance are merged).
+/// tau: face classification tolerance (signed-distance threshold for inside/outside).
+///
+/// Scales with model size to handle extreme scale ranges (1e-4 to 1e4).
+fn compute_adaptive_tau_weld(a_faces: &[FacePoly], b_faces: &[FacePoly]) -> (f64, f64) {
+    let mut min = [f64::INFINITY; 3];
+    let mut max = [f64::NEG_INFINITY; 3];
+    for face in a_faces.iter().chain(b_faces.iter()) {
+        for v in &face.verts {
+            for j in 0..3 {
+                if v[j] < min[j] {
+                    min[j] = v[j];
+                }
+                if v[j] > max[j] {
+                    max[j] = v[j];
+                }
+            }
+        }
+    }
+    let diag =
+        ((max[0] - min[0]).powi(2) + (max[1] - min[1]).powi(2) + (max[2] - min[2]).powi(2)).sqrt();
+    // Use 1e-7 relative to the model diagonal, clamped to [1e-12, 1e-4].
+    // This matches the pre-existing 1e-7 for unit-scale models.
+    let tau_weld = (diag * 1e-7).max(1e-12).min(1e-4);
+    let tau = tau_weld * 0.01;
+    (tau, tau_weld)
+}
+
 /// Perform a boolean operation on two box solids.
 pub(crate) fn boolean_op(
     solid_a: &WaffleSolid,
@@ -899,9 +929,6 @@ pub(crate) fn boolean_op(
     _opts: &BooleanOptions,
     id_alloc: &mut dyn FnMut() -> u64,
 ) -> Result<BooleanResult, KernelError> {
-    let tau = 1e-9;
-    let tau_weld = 1e-7;
-
     let a_faces = extract_face_polys(solid_a);
     let b_faces = extract_face_polys(solid_b);
 
@@ -910,6 +937,9 @@ pub(crate) fn boolean_op(
             reason: "one or both solids have no planar faces".to_string(),
         });
     }
+
+    // Scale-adaptive tolerances based on geometry bounding box
+    let (tau, tau_weld) = compute_adaptive_tau_weld(&a_faces, &b_faces);
 
     // Detect non-convex solids: convex extrudes have at most ~12 faces.
     // Use S-H face splitting when the opposing solid is convex (correct),
