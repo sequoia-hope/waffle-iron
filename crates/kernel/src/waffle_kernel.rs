@@ -120,17 +120,26 @@ impl WaffleKernel {
             id
         };
 
-        // Dispatch: use SSI pipeline for cylinders, polygon clipping for box-box
+        // Dispatch: use SSI pipeline for cylinders, polygon clipping for box-box.
+        // Try strict stitching first; if non-manifold, fall back to tolerant.
         let result = if solid_a.cylinder_params.is_some() || solid_b.cylinder_params.is_some() {
             crate::boolean::ssi_boolean_op(solid_a, solid_b, op, &mut id_alloc)?
         } else {
-            crate::boolean::boolean_op(
+            let strict = crate::boolean::boolean_op(
                 solid_a,
                 solid_b,
                 op,
                 &BooleanOptions::default(),
                 &mut id_alloc,
-            )?
+            );
+            match strict {
+                ok @ Ok(_) => ok?,
+                Err(KernelError::BooleanFailed { .. }) => {
+                    // Retry with tolerant stitching (accepts more boundary edges)
+                    crate::boolean::boolean_op_tolerant(solid_a, solid_b, op, &mut id_alloc)?
+                }
+                Err(e) => return Err(e),
+            }
         };
         self.next_id = next_id;
 

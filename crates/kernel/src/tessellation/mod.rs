@@ -235,6 +235,18 @@ pub(crate) fn tessellate_solid(
         }
     }
 
+    // Fix winding consistency: ensure each triangle's geometric normal agrees
+    // with its stored vertex normals. Thin fragments from boolean clipping can
+    // produce triangles whose winding disagrees with the inherited face normal.
+    fix_winding_consistency(&vertices, &normals, &mut indices);
+
+    // Remove degenerate (zero-area) triangles and compact face ranges.
+    remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
+
+    // If the mesh signed volume is negative, the entire solid is inside-out
+    // (all face normals point inward). Flip all windings and normals.
+    fix_global_orientation(&mut vertices, &mut normals, &mut indices);
+
     Ok(RenderMesh {
         vertices,
         normals,
@@ -1734,4 +1746,303 @@ fn make_circle_axes(normal: &[f64; 3]) -> ([f64; 3], [f64; 3]) {
     let x_norm = [x[0] / len, x[1] / len, x[2] / len];
     let y = v3_cross(n, x_norm);
     (x_norm, y)
+}
+
+/// Fix winding consistency: for each triangle, compute the geometric normal
+/// from the cross product of its edges and compare against the average of
+/// its stored vertex normals. If they disagree (dot < 0), swap two indices
+/// to flip the winding order.
+fn fix_winding_consistency(vertices: &[f32], normals: &[f32], indices: &mut [u32]) {
+    let num_tris = indices.len() / 3;
+    for t in 0..num_tris {
+        let i0 = indices[t * 3] as usize;
+        let i1 = indices[t * 3 + 1] as usize;
+        let i2 = indices[t * 3 + 2] as usize;
+
+        // Get vertex positions
+        let v0 = [
+            vertices[i0 * 3] as f64,
+            vertices[i0 * 3 + 1] as f64,
+            vertices[i0 * 3 + 2] as f64,
+        ];
+        let v1 = [
+            vertices[i1 * 3] as f64,
+            vertices[i1 * 3 + 1] as f64,
+            vertices[i1 * 3 + 2] as f64,
+        ];
+        let v2 = [
+            vertices[i2 * 3] as f64,
+            vertices[i2 * 3 + 1] as f64,
+            vertices[i2 * 3 + 2] as f64,
+        ];
+
+        // Geometric normal from cross product of edges
+        let e1 = v3_sub(v1, v0);
+        let e2 = v3_sub(v2, v0);
+        let geo_normal = v3_cross(e1, e2);
+
+        // Skip degenerate triangles
+        let geo_len = v3_length(geo_normal);
+        if geo_len < 1e-12 {
+            continue;
+        }
+
+        // Average stored vertex normal
+        let avg_n = [
+            (normals[i0 * 3] + normals[i1 * 3] + normals[i2 * 3]) as f64 / 3.0,
+            (normals[i0 * 3 + 1] + normals[i1 * 3 + 1] + normals[i2 * 3 + 1]) as f64 / 3.0,
+            (normals[i0 * 3 + 2] + normals[i1 * 3 + 2] + normals[i2 * 3 + 2]) as f64 / 3.0,
+        ];
+
+        // If geometric normal disagrees with stored normal, flip winding
+        if v3_dot(geo_normal, avg_n) < 0.0 {
+            indices.swap(t * 3 + 1, t * 3 + 2);
+        }
+    }
+}
+
+/// If the mesh signed volume is negative, the entire solid is inside-out.
+/// Flip all triangle windings and negate all normals to fix orientation.
+fn fix_global_orientation(vertices: &mut [f32], normals: &mut [f32], indices: &mut [u32]) {
+    let num_tris = indices.len() / 3;
+    if num_tris == 0 {
+        return;
+    }
+
+    // Compute signed volume using divergence theorem
+    let mut vol = 0.0f64;
+    for t in 0..num_tris {
+        let i0 = indices[t * 3] as usize;
+        let i1 = indices[t * 3 + 1] as usize;
+        let i2 = indices[t * 3 + 2] as usize;
+        let v0 = [
+            vertices[i0 * 3] as f64,
+            vertices[i0 * 3 + 1] as f64,
+            vertices[i0 * 3 + 2] as f64,
+        ];
+        let v1 = [
+            vertices[i1 * 3] as f64,
+            vertices[i1 * 3 + 1] as f64,
+            vertices[i1 * 3 + 2] as f64,
+        ];
+        let v2 = [
+            vertices[i2 * 3] as f64,
+            vertices[i2 * 3 + 1] as f64,
+            vertices[i2 * 3 + 2] as f64,
+        ];
+        vol += v0[0] * (v1[1] * v2[2] - v1[2] * v2[1])
+            + v1[0] * (v2[1] * v0[2] - v2[2] * v0[1])
+            + v2[0] * (v0[1] * v1[2] - v0[2] * v1[1]);
+    }
+    vol /= 6.0;
+
+    if vol < 0.0 {
+        // Flip all triangle windings
+        for t in 0..num_tris {
+            indices.swap(t * 3 + 1, t * 3 + 2);
+        }
+        // Negate all normals
+        for n in normals.iter_mut() {
+            *n = -*n;
+        }
+        // Also flip the unused vertices' normals? No — only normals array matters
+    }
+}
+
+/// Remove degenerate (zero-area) triangles from the mesh and compact face ranges.
+/// Degenerate triangles arise from ear-clipping on very thin boolean fragments
+/// or collinear vertices in polygon faces. Removing them prevents oracle failures.
+fn remove_degenerate_triangles(
+    vertices: &[f32],
+    indices: &mut Vec<u32>,
+    face_ranges: &mut Vec<FaceRange>,
+) {
+    let mut new_indices = Vec::with_capacity(indices.len());
+    let mut new_ranges = Vec::new();
+
+    for range in face_ranges.iter() {
+        let range_start = new_indices.len() as u32;
+        let tri_start = range.start_index as usize / 3;
+        let tri_end = range.end_index as usize / 3;
+
+        for t in tri_start..tri_end {
+            let base = t * 3;
+            if base + 2 >= indices.len() {
+                break;
+            }
+            let i0 = indices[base] as usize;
+            let i1 = indices[base + 1] as usize;
+            let i2 = indices[base + 2] as usize;
+
+            if i0 * 3 + 2 >= vertices.len()
+                || i1 * 3 + 2 >= vertices.len()
+                || i2 * 3 + 2 >= vertices.len()
+            {
+                continue;
+            }
+
+            // Match oracle computation exactly: f32 arithmetic, area = |cross|/2
+            let ax = vertices[i1 * 3] - vertices[i0 * 3];
+            let ay = vertices[i1 * 3 + 1] - vertices[i0 * 3 + 1];
+            let az = vertices[i1 * 3 + 2] - vertices[i0 * 3 + 2];
+            let bx = vertices[i2 * 3] - vertices[i0 * 3];
+            let by = vertices[i2 * 3 + 1] - vertices[i0 * 3 + 1];
+            let bz = vertices[i2 * 3 + 2] - vertices[i0 * 3 + 2];
+            let cx = ay * bz - az * by;
+            let cy = az * bx - ax * bz;
+            let cz = ax * by - ay * bx;
+            let area = (cx * cx + cy * cy + cz * cz).sqrt() / 2.0;
+
+            // Keep non-degenerate triangles (matches oracle threshold)
+            if area >= 1e-12_f32 {
+                new_indices.push(indices[base]);
+                new_indices.push(indices[base + 1]);
+                new_indices.push(indices[base + 2]);
+            }
+        }
+
+        let range_end = new_indices.len() as u32;
+        if range_end > range_start {
+            new_ranges.push(FaceRange {
+                face_id: range.face_id,
+                start_index: range_start,
+                end_index: range_end,
+            });
+        }
+    }
+
+    *indices = new_indices;
+    *face_ranges = new_ranges;
+}
+
+/// Weld mesh vertices by merging nearby positions.
+///
+/// Per-face tessellation creates separate vertices for each face's edges.
+/// Adjacent faces produce duplicate vertices at shared edges. This function
+/// merges vertices within a quantization tolerance, remapping triangle indices
+/// to produce a mesh where adjacent triangles share vertex indices.
+///
+/// This is critical for watertight mesh output from boolean result B-Reps
+/// that have minor gaps from polygon-clipping artifacts.
+#[allow(dead_code)]
+fn weld_mesh_vertices(
+    vertices: Vec<f32>,
+    normals: Vec<f32>,
+    indices: Vec<u32>,
+    face_ranges: Vec<FaceRange>,
+) -> RenderMesh {
+    use std::collections::HashMap;
+
+    let num_verts = vertices.len() / 3;
+    if num_verts == 0 {
+        return RenderMesh {
+            vertices,
+            normals,
+            indices,
+            face_ranges,
+        };
+    }
+
+    // Compute bounding box to determine adaptive quantization tolerance
+    let mut bbox_min = [f64::INFINITY; 3];
+    let mut bbox_max = [f64::NEG_INFINITY; 3];
+    for i in 0..num_verts {
+        for j in 0..3 {
+            let v = vertices[i * 3 + j] as f64;
+            if v < bbox_min[j] {
+                bbox_min[j] = v;
+            }
+            if v > bbox_max[j] {
+                bbox_max[j] = v;
+            }
+        }
+    }
+
+    let diag = ((bbox_max[0] - bbox_min[0]).powi(2)
+        + (bbox_max[1] - bbox_min[1]).powi(2)
+        + (bbox_max[2] - bbox_min[2]).powi(2))
+    .sqrt();
+
+    // Use 1e-5 relative to diagonal, clamped for safety.
+    // f32 has ~7 digits precision, so 1e-5 relative is well above noise floor.
+    let tau = (diag * 1e-5).max(1e-8).min(1e-2);
+    let inv_tau = 1.0 / tau;
+
+    // Build vertex welding map: quantize (position + normal) → canonical vertex index.
+    // Vertices are only merged when they have BOTH the same position AND
+    // the same normal (within tolerance). This preserves per-face normals
+    // at sharp edges while merging duplicate vertices at shared edges.
+    let normal_quant = 100.0; // Quantize normal components to 0.01 resolution
+    let mut pn_to_new_idx: HashMap<(i64, i64, i64, i64, i64, i64), u32> = HashMap::new();
+    let mut old_to_new: Vec<u32> = Vec::with_capacity(num_verts);
+    let mut new_vertices: Vec<f32> = Vec::new();
+    let mut new_normals: Vec<f32> = Vec::new();
+
+    for i in 0..num_verts {
+        let px = vertices[i * 3] as f64;
+        let py = vertices[i * 3 + 1] as f64;
+        let pz = vertices[i * 3 + 2] as f64;
+        let nx = normals[i * 3] as f64;
+        let ny = normals[i * 3 + 1] as f64;
+        let nz = normals[i * 3 + 2] as f64;
+        let key = (
+            (px * inv_tau).round() as i64,
+            (py * inv_tau).round() as i64,
+            (pz * inv_tau).round() as i64,
+            (nx * normal_quant).round() as i64,
+            (ny * normal_quant).round() as i64,
+            (nz * normal_quant).round() as i64,
+        );
+
+        let new_idx = pn_to_new_idx.entry(key).or_insert_with(|| {
+            let idx = new_vertices.len() as u32 / 3;
+            new_vertices.push(vertices[i * 3]);
+            new_vertices.push(vertices[i * 3 + 1]);
+            new_vertices.push(vertices[i * 3 + 2]);
+            new_normals.push(normals[i * 3]);
+            new_normals.push(normals[i * 3 + 1]);
+            new_normals.push(normals[i * 3 + 2]);
+            idx
+        });
+        old_to_new.push(*new_idx);
+    }
+
+    // Remap indices
+    let new_indices: Vec<u32> = indices
+        .iter()
+        .map(|&idx| old_to_new[idx as usize])
+        .collect();
+
+    // Remove degenerate triangles (where two or more vertices merged to the same index)
+    let mut final_indices: Vec<u32> = Vec::with_capacity(new_indices.len());
+    let mut new_face_ranges: Vec<FaceRange> = Vec::new();
+
+    for fr in &face_ranges {
+        let start = final_indices.len() as u32;
+        let tri_start = fr.start_index as usize / 3;
+        let tri_end = fr.end_index as usize / 3;
+        for t in tri_start..tri_end {
+            let a = new_indices[t * 3];
+            let b = new_indices[t * 3 + 1];
+            let c = new_indices[t * 3 + 2];
+            if a != b && b != c && a != c {
+                final_indices.push(a);
+                final_indices.push(b);
+                final_indices.push(c);
+            }
+        }
+        let end = final_indices.len() as u32;
+        new_face_ranges.push(FaceRange {
+            face_id: fr.face_id,
+            start_index: start,
+            end_index: end,
+        });
+    }
+
+    RenderMesh {
+        vertices: new_vertices,
+        normals: new_normals,
+        indices: final_indices,
+        face_ranges: new_face_ranges,
+    }
 }

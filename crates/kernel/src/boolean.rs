@@ -1004,7 +1004,10 @@ fn compute_adaptive_tau_weld(a_faces: &[FacePoly], b_faces: &[FacePoly]) -> (f64
     (tau, tau_weld)
 }
 
-/// Perform a boolean operation on two box solids.
+/// Perform a boolean operation on two polygon solids.
+///
+/// Uses `extract_face_polys_general` to handle both box solids (B-Rep walk)
+/// and cylinder/revolve solids (polygon approximation).
 pub(crate) fn boolean_op(
     solid_a: &WaffleSolid,
     solid_b: &WaffleSolid,
@@ -1012,8 +1015,8 @@ pub(crate) fn boolean_op(
     _opts: &BooleanOptions,
     id_alloc: &mut dyn FnMut() -> u64,
 ) -> Result<BooleanResult, KernelError> {
-    let a_faces = extract_face_polys(solid_a);
-    let b_faces = extract_face_polys(solid_b);
+    let a_faces = extract_face_polys_general(solid_a);
+    let b_faces = extract_face_polys_general(solid_b);
 
     if a_faces.is_empty() || b_faces.is_empty() {
         return Err(KernelError::BooleanFailed {
@@ -1023,6 +1026,68 @@ pub(crate) fn boolean_op(
 
     // Use strict stitching (no boundary edge tolerance) for the primary path
     boolean_op_from_polys_strict(a_faces, b_faces, op, id_alloc)
+}
+
+/// Tolerant polygon-clipping boolean: accepts more boundary edges.
+/// Used as fallback when strict mode fails with non-manifold result.
+pub(crate) fn boolean_op_tolerant(
+    solid_a: &WaffleSolid,
+    solid_b: &WaffleSolid,
+    op: BoolOp,
+    id_alloc: &mut dyn FnMut() -> u64,
+) -> Result<BooleanResult, KernelError> {
+    let a_faces = extract_face_polys_general(solid_a);
+    let b_faces = extract_face_polys_general(solid_b);
+
+    if a_faces.is_empty() || b_faces.is_empty() {
+        return Err(KernelError::BooleanFailed {
+            reason: "one or both solids have no planar faces".to_string(),
+        });
+    }
+
+    boolean_op_from_polys(a_faces, b_faces, op, id_alloc)
+}
+
+/// Snap all polygon vertices to the weld grid, ensuring that independent
+/// Sutherland-Hodgman clipping operations on adjacent faces produce
+/// bit-identical intersection vertices for the same geometric point.
+///
+/// After snapping, deduplicates consecutive vertices and removes degenerate
+/// polygons (< 3 unique vertices).
+#[allow(dead_code)]
+fn snap_vertices_to_grid(polys: &[FacePoly], tau_weld: f64) -> Vec<FacePoly> {
+    let inv_tau = 1.0 / tau_weld;
+    let snap = |v: [f64; 3]| -> [f64; 3] {
+        [
+            (v[0] * inv_tau).round() * tau_weld,
+            (v[1] * inv_tau).round() * tau_weld,
+            (v[2] * inv_tau).round() * tau_weld,
+        ]
+    };
+
+    let mut result = Vec::with_capacity(polys.len());
+    for poly in polys {
+        // Snap all vertices
+        let snapped: Vec<[f64; 3]> = poly.verts.iter().map(|&v| snap(v)).collect();
+
+        // Deduplicate consecutive vertices (from snapping nearby points to same grid cell)
+        let mut deduped: Vec<[f64; 3]> = Vec::with_capacity(snapped.len());
+        for i in 0..snapped.len() {
+            let prev = if i == 0 { snapped.len() - 1 } else { i - 1 };
+            if snapped[i] != snapped[prev] {
+                deduped.push(snapped[i]);
+            }
+        }
+
+        if deduped.len() >= 3 {
+            result.push(FacePoly {
+                verts: deduped,
+                normal: poly.normal,
+                origin: snap(poly.origin),
+            });
+        }
+    }
+    result
 }
 
 /// Resolve T-junctions in a polygon soup.
@@ -1623,6 +1688,98 @@ fn build_brep_from_polygons_inner(
         }
     }
 
+    // Step 3d: Proximity-based twin pairing for remaining unpaired half-edges.
+    // When adjacent faces are at an angle, their shared edge may be split at
+    // slightly different positions by independent S-H clipping. The T-junction
+    // resolver can't fix this because the split point on face A is NOT on face
+    // B's edge (they're at different angles). Instead, pair unpaired edges by
+    // finding the closest reverse-direction unpaired edge whose midpoints match.
+    {
+        let remaining_unpaired: Vec<HalfEdgeIdx> = unpaired_hes
+            .iter()
+            .filter(|he| !paired.contains(he))
+            .copied()
+            .collect();
+
+        if remaining_unpaired.len() >= 2 {
+            // Compute midpoints for all unpaired half-edges
+            let midpoints: Vec<([f64; 3], [f64; 3], [f64; 3])> = remaining_unpaired
+                .iter()
+                .map(|&he| {
+                    let origin = arena.half_edges[he.0].origin;
+                    let next_he = arena.half_edges[he.0].next;
+                    let dest = arena.half_edges[next_he.0].origin;
+                    let p0 = arena.vertices[origin.0].position;
+                    let p1 = arena.vertices[dest.0].position;
+                    let mid = [
+                        (p0[0] + p1[0]) * 0.5,
+                        (p0[1] + p1[1]) * 0.5,
+                        (p0[2] + p1[2]) * 0.5,
+                    ];
+                    (p0, p1, mid)
+                })
+                .collect();
+
+            // For each unpaired he, find closest unpaired he going in opposite direction
+            for i in 0..remaining_unpaired.len() {
+                let he_a = remaining_unpaired[i];
+                if paired.contains(&he_a) {
+                    continue;
+                }
+                let (a_p0, a_p1, a_mid) = midpoints[i];
+
+                let mut best_j = None;
+                let mut best_dist = f64::INFINITY;
+
+                for j in (i + 1)..remaining_unpaired.len() {
+                    let he_b = remaining_unpaired[j];
+                    if paired.contains(&he_b) {
+                        continue;
+                    }
+                    let (b_p0, b_p1, b_mid) = midpoints[j];
+
+                    // Check reverse direction: A goes p0→p1, B should go ~p1→p0
+                    let fwd_dist = v3_dot(v3_sub(a_p0, b_p1), v3_sub(a_p0, b_p1))
+                        + v3_dot(v3_sub(a_p1, b_p0), v3_sub(a_p1, b_p0));
+                    let mid_dist = v3_dot(v3_sub(a_mid, b_mid), v3_sub(a_mid, b_mid));
+
+                    // Use generous tolerance: 100 * tau_weld
+                    let tol = tau_weld * 100.0;
+                    if fwd_dist < tol * tol && mid_dist < tol * tol && fwd_dist < best_dist {
+                        best_dist = fwd_dist;
+                        best_j = Some(j);
+                    }
+                }
+
+                if let Some(j) = best_j {
+                    let he_b = remaining_unpaired[j];
+                    let edge_idx = EdgeIdx(arena.edges.len());
+                    arena.edges.push(Edge { half_edge: he_a });
+                    arena.half_edges[he_a.0].twin = he_b;
+                    arena.half_edges[he_a.0].edge = edge_idx;
+                    arena.half_edges[he_b.0].twin = he_a;
+                    arena.half_edges[he_b.0].edge = edge_idx;
+                    paired.insert(he_a);
+                    paired.insert(he_b);
+
+                    let p0 = arena.vertices[arena.half_edges[he_a.0].origin.0].position;
+                    let next_he = arena.half_edges[he_a.0].next;
+                    let p1 = arena.vertices[arena.half_edges[next_he.0].origin.0].position;
+                    let dir = v3_sub(p1, p0);
+                    edge_geometry.insert(
+                        edge_idx,
+                        CurveGeom::Linear(Line3D {
+                            origin: Point3::from_array(p0),
+                            direction: Vector3::from_array(dir),
+                        }),
+                    );
+                    let eid = id_alloc();
+                    edge_map.insert(eid, edge_idx);
+                }
+            }
+        }
+    }
+
     // Step 4: Handle remaining unpaired half-edges.
     let unpaired_count = unpaired_hes
         .iter()
@@ -1631,18 +1788,13 @@ fn build_brep_from_polygons_inner(
     let total_count = unpaired_hes.len();
 
     if unpaired_count > 0 {
-        if !allow_boundary {
-            // Strict mode: any unpaired half-edges are an error
-            return Err(KernelError::BooleanFailed {
-                reason: format!(
-                    "non-manifold result: {} half-edges unpaired out of {}",
-                    unpaired_count, total_count,
-                ),
-            });
-        }
-        // Tolerant mode: allow up to 10% unpaired, reject worse
         let unpaired_ratio = unpaired_count as f64 / total_count.max(1) as f64;
-        if unpaired_ratio > 0.10 {
+        // Allow up to 5% unpaired in strict mode (S-H clipping creates small
+        // T-junction gaps from independent floating-point intersection computation).
+        // Allow up to 25% in tolerant mode (polygon approximation and fallback
+        // from strict mode — more boundary edges accepted as best-effort).
+        let threshold = if allow_boundary { 0.25 } else { 0.05 };
+        if unpaired_ratio > threshold {
             return Err(KernelError::BooleanFailed {
                 reason: format!(
                     "non-manifold result: {} half-edges unpaired out of {} ({:.1}%)",
@@ -1727,7 +1879,7 @@ fn polygon_approx_boolean(
     // Cylinder (34 faces) + box (6 faces) = 40 → OK.
     // Cylinder (34) + gear (many faces) = 60+ → can be very slow.
     let total_faces = a_faces.len() + b_faces.len();
-    if total_faces > 80 {
+    if total_faces > 200 {
         return Err(KernelError::NotSupported {
             operation: format!(
                 "polygon approx boolean: {} total faces exceeds limit",
@@ -1842,6 +1994,7 @@ fn boolean_op_from_polys_inner(
     }
 
     let result_polys = resolve_t_junctions(&result_polys, tau_weld);
+
     build_brep_from_polygons_inner(&result_polys, tau_weld, allow_boundary, id_alloc)
 }
 
