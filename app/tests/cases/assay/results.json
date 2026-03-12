@@ -1,8 +1,8 @@
 {
   "errored": 0,
-  "failed": 82,
+  "failed": 73,
   "generated": "2026-03-10",
-  "passed": 28,
+  "passed": 37,
   "results": [
     {
       "category": "pass-boss-only",
@@ -18,7 +18,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): cf3f04dc-bb3a-4ab2-9a94-2c5671c176b5: operation error: kernel error: boolean operation failed: non-manifold result: 53 half-edges unpaired out of 499 (10.6%); watertight_mesh: 258 unpaired edges out of 17162 total; no_degenerate_triangles: 256 of 11696 triangles are degenerate; outward_normals: only 0 of 11440 triangles (0.0%) have outward normals (need 95%); positive_signed_volume: signed volume = -2.155921e3 (should be > 0); expected positive signed volume, got -2.155921e3",
+      "detail": "watertight_mesh: 54 unpaired edges out of 453 total",
       "id": "R0003",
       "status": "fail"
     },
@@ -29,14 +29,14 @@
       "status": "fail"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 8 unpaired edges out of 922 total",
       "id": "R0005",
-      "status": "pass"
+      "status": "fail"
     },
     {
-      "category": "tessellation-degenerate",
-      "detail": "partial rebuild (1 error(s)): 98a30b16-ef86-47af-9344-a0d469cb4c9f: operation error: kernel error: operation not supported: polygon boolean: 259 total faces exceeds limit (250); no_degenerate_triangles: 1 of 512 triangles are degenerate; face_range_coverage: empty range at index 4",
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): 98a30b16-ef86-47af-9344-a0d469cb4c9f: operation error: kernel error: operation not supported: polygon boolean: 260 total faces exceeds limit (250); watertight_mesh: 7 unpaired edges out of 767 total",
       "id": "R0006",
       "status": "fail"
     },
@@ -54,25 +54,25 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 775e9387-cce8-43c4-a1cc-4aabb0689bbe: operation error: kernel error: boolean operation failed: non-manifold result: 256 half-edges unpaired out of 1280 (20.0%); watertight_mesh: 14 unpaired edges out of 16 total; no_degenerate_triangles: 33 of 380 triangles are degenerate",
+      "detail": "watertight_mesh: 562 unpaired edges out of 1205 total",
       "id": "R0009",
       "status": "fail"
     },
     {
-      "category": "tessellation-degenerate",
-      "detail": "no_degenerate_triangles: 4 of 828 triangles are degenerate; face_range_coverage: empty range at index 9",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 14 unpaired edges out of 1240 total",
       "id": "R0010",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 12 unpaired edges out of 1518 total; no_degenerate_triangles: 2 of 1008 triangles are degenerate",
+      "detail": "watertight_mesh: 24 unpaired edges out of 1530 total",
       "id": "R0011",
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 42 half-edges unpaired out of 476 (8.8%). Body created as standalone.; partial rebuild (1 error(s)): a4feac21-93fc-4ea0-b4f8-bd4e2943a30f: operation error: kernel error: boolean operation failed: non-manifold result: 6 half-edges unpaired out of 8 (75.0%); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): a4feac21-93fc-4ea0-b4f8-bd4e2943a30f: operation error: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 16 (50.0%); watertight_mesh: 24 unpaired edges out of 807 total",
       "id": "R0012",
       "status": "fail"
     },
@@ -90,39 +90,39 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 17 unpaired edges out of 17 total; no_degenerate_triangles: 33 of 402 triangles are degenerate",
+      "detail": "watertight_mesh: 121 unpaired edges out of 602 total",
       "id": "R0015",
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 178 half-edges unpaired out of 2310 (7.7%). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0016",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): cd841cd7-27a4-49b0-84d4-348ad6f3c8fa: operation error: kernel error: operation not supported: polygon boolean: 512 total faces exceeds limit (250); watertight_mesh: 61 unpaired edges out of 1652 total",
+      "detail": "partial rebuild (1 error(s)): cd841cd7-27a4-49b0-84d4-348ad6f3c8fa: operation error: kernel error: operation not supported: polygon boolean: 514 total faces exceeds limit (250); watertight_mesh: 61 unpaired edges out of 1652 total",
       "id": "R0017",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): e18b7525-eb2f-4590-b7a4-7cbf3ef0d123: operation error: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 52 (15.4%)",
+      "detail": "watertight_mesh: 12 unpaired edges out of 105 total",
       "id": "R0018",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): f042edc8-9022-40cd-9d0a-77d4f4d34a18: operation error: kernel error: operation not supported: polygon approx boolean: 96 total faces exceeds limit",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 60 unpaired edges out of 297 total",
       "id": "R0019",
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: polygon approx boolean: 156 total faces exceeds limit. Body created as standalone.; partial rebuild (1 error(s)): abd6232d-86e3-47f2-8876-0fa1dd056fc2: operation error: kernel error: operation not supported: polygon approx boolean: 156 total faces exceeds limit; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 258 unpaired edges out of 23012 total; no_degenerate_triangles: 256 of 15596 triangles are degenerate; outward_normals: only 0 of 15340 triangles (0.0%) have outward normals (need 95%); positive_signed_volume: signed volume = -7.578841e3 (should be > 0); expected positive signed volume, got -7.578841e3",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0020",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "pass-boss-only",
@@ -150,25 +150,25 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 17 unpaired edges out of 1549 total; face_range_coverage: empty range at index 43",
+      "detail": "watertight_mesh: 17 unpaired edges out of 1549 total",
       "id": "R0025",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 7235c0d2-a765-4556-8d82-f50025794bd1: operation error: kernel error: boolean operation failed: non-manifold result: 17 half-edges unpaired out of 111 (15.3%); watertight_mesh: 31 unpaired edges out of 989 total; no_degenerate_triangles: 3 of 680 triangles are degenerate",
+      "detail": "watertight_mesh: 19 unpaired edges out of 437 total",
       "id": "R0026",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): d2b0feb1-a73f-4b5e-9359-4a778be3f586: operation error: kernel error: boolean operation failed: non-manifold result: 37 half-edges unpaired out of 395 (9.4%)",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0027",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 2204 unpaired edges out of 17784 total; no_degenerate_triangles: 324 of 13914 triangles are degenerate",
+      "detail": "watertight_mesh: 808 unpaired edges out of 18753 total",
       "id": "R0028",
       "status": "fail"
     },
@@ -179,10 +179,10 @@
       "status": "pass"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 5728cc04-1001-46a7-a51e-f0e2540a2084: operation error: kernel error: operation not supported: polygon approx boolean: 102 total faces exceeds limit; watertight_mesh: 3 unpaired edges out of 3 total",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0030",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "pass-genuine",
@@ -192,25 +192,25 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 303 unpaired edges out of 7701 total",
+      "detail": "watertight_mesh: 327 unpaired edges out of 7596 total",
       "id": "R0032",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 57 unpaired edges out of 1026 total; no_degenerate_triangles: 17 of 687 triangles are degenerate",
+      "detail": "watertight_mesh: 67 unpaired edges out of 1040 total",
       "id": "R0033",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 69135679-c412-43ed-afe6-c26774168323: operation error: kernel error: operation not supported: polygon approx boolean: 90 total faces exceeds limit; watertight_mesh: 94 unpaired edges out of 4811 total; face_range_coverage: empty range at index 524",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: boolean operation failed: one or both solids have no planar faces. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
       "id": "R0034",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 77817b8e-a014-4428-b934-3c0c1883dc09: operation error: kernel error: boolean operation failed: non-manifold result: 6 half-edges unpaired out of 8 (75.0%)",
+      "detail": "partial rebuild (1 error(s)): 77817b8e-a014-4428-b934-3c0c1883dc09: operation error: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 16 (50.0%)",
       "id": "R0035",
       "status": "fail"
     },
@@ -221,20 +221,20 @@
       "status": "pass"
     },
     {
-      "category": "boolean-normals",
-      "detail": "partial rebuild (1 error(s)): 04173271-baf8-4b74-b056-4d3208c10d3e: operation error: kernel error: operation not supported: polygon approx boolean: 114 total faces exceeds limit; watertight_mesh: 24 unpaired edges out of 491 total; outward_normals: only 0 of 320 triangles (0.0%) have outward normals (need 95%); positive_signed_volume: signed volume = -5.704904e-7 (should be > 0); expected positive signed volume, got -5.704904e-7",
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): 0f4e1b1a-d6e4-4b97-a886-fd5aa6b263fe: operation error: kernel error: operation not supported: polygon boolean: 387 total faces exceeds limit (250); watertight_mesh: 230 unpaired edges out of 1525 total",
       "id": "R0037",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (2 error(s)): 5a4a10ed-f532-45d7-a830-0d2e4d459dd8: operation error: kernel error: boolean operation failed: non-manifold result: 6 half-edges unpaired out of 8 (75.0%); 7a9b6470-58af-4040-9149-72d9ddaf9108: operation error: kernel error: boolean operation failed: non-manifold result: 189 half-edges unpaired out of 2965 (6.4%); outward_normals: only 0 of 516 triangles (0.0%) have outward normals (need 95%); positive_signed_volume: signed volume = -2.733682e2 (should be > 0); expected positive signed volume, got -2.733682e2",
+      "detail": "partial rebuild (1 error(s)): 5a4a10ed-f532-45d7-a830-0d2e4d459dd8: operation error: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 16 (50.0%); watertight_mesh: 99 unpaired edges out of 2349 total",
       "id": "R0038",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 442 unpaired edges out of 3762 total; no_degenerate_triangles: 112 of 2694 triangles are degenerate",
+      "detail": "watertight_mesh: 339 unpaired edges out of 2697 total",
       "id": "R0039",
       "status": "fail"
     },
@@ -251,62 +251,62 @@
       "status": "pass"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 29 half-edges unpaired out of 67 (43.3%). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); consistent_normals: 21 of 516 triangles have reversed normals",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 23 unpaired edges out of 98 total",
       "id": "R0042",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (2 error(s)): ba814631-298c-4935-863e-8890394ca8af: operation error: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 52 (15.4%); 0744d042-8bd4-4bd5-a9c2-867c8ce73652: operation error: kernel error: boolean operation failed: non-manifold result: 134 half-edges unpaired out of 478 (28.0%)",
+      "detail": "partial rebuild (1 error(s)): 0744d042-8bd4-4bd5-a9c2-867c8ce73652: operation error: kernel error: boolean operation failed: non-manifold result: 136 half-edges unpaired out of 480 (28.3%); watertight_mesh: 8 unpaired edges out of 49 total",
       "id": "R0043",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): e36b99e9-b087-4230-8a4a-68e25b08095a: operation error: kernel error: boolean operation failed: non-manifold result: 55 half-edges unpaired out of 593 (9.3%); watertight_mesh: 258 unpaired edges out of 20672 total; no_degenerate_triangles: 256 of 14036 triangles are degenerate",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0044",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: polygon approx boolean: 102 total faces exceeds limit. Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 12 unpaired edges out of 378 total",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 224 unpaired edges out of 2632 total",
       "id": "R0045",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 2b0f2a5d-9e38-4286-8dbf-c2522c275dcf: operation error: kernel error: boolean operation failed: non-manifold result: 22 half-edges unpaired out of 206 (10.7%); watertight_mesh: 17 unpaired edges out of 1081 total",
+      "detail": "watertight_mesh: 41 unpaired edges out of 424 total",
       "id": "R0046",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 20 unpaired edges out of 23 total; no_degenerate_triangles: 48 of 100 triangles are degenerate",
+      "detail": "watertight_mesh: 52 unpaired edges out of 104 total",
       "id": "R0047",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 7e456068-f987-4034-a461-e7404e44cf5a: operation error: kernel error: operation not supported: polygon approx boolean: 180 total faces exceeds limit",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 158 unpaired edges out of 637 total",
       "id": "R0048",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 19 unpaired edges out of 800 total",
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "R0049",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 93 half-edges unpaired out of 927 (10.0%). Body created as standalone.; partial rebuild (1 error(s)): f8a13e97-18a9-4931-96d4-ab6f305fe383: operation error: kernel error: boolean operation failed: non-manifold result: 60 half-edges unpaired out of 222 (27.0%); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 258 unpaired edges out of 5852 total; no_degenerate_triangles: 256 of 4156 triangles are degenerate; outward_normals: only 0 of 3900 triangles (0.0%) have outward normals (need 95%); positive_signed_volume: signed volume = -1.826607e2 (should be > 0); expected positive signed volume, got -1.826607e2",
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): f8a13e97-18a9-4931-96d4-ab6f305fe383: operation error: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 16 (50.0%); watertight_mesh: 76 unpaired edges out of 842 total",
       "id": "R0050",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 382 total faces exceeds limit (250). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 133 unpaired edges out of 267 total; consistent_normals: 38 of 516 triangles have reversed normals; outward_normals: only 478 of 516 triangles (92.6%) have outward normals (need 95%)",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 384 total faces exceeds limit (250). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); consistent_normals: 38 of 516 triangles have reversed normals; outward_normals: only 478 of 516 triangles (92.6%) have outward normals (need 95%)",
       "id": "R0051",
       "status": "fail"
     },
@@ -318,43 +318,43 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 16 half-edges unpaired out of 32 (50.0%). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 57 unpaired edges out of 2442 total; no_degenerate_triangles: 3 of 1635 triangles are degenerate; face_range_coverage: empty range at index 151",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 16 half-edges unpaired out of 42 (38.1%). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 57 unpaired edges out of 2459 total",
       "id": "R0053",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 707 total faces exceeds limit (250). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 258 unpaired edges out of 24182 total; no_degenerate_triangles: 256 of 16376 triangles are degenerate",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 689 total faces exceeds limit (250). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 18 unpaired edges out of 24162 total",
       "id": "R0054",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 6d3546f0-e057-46c0-938a-0c62043f55b5: operation error: kernel error: boolean operation failed: non-manifold result: 4 half-edges unpaired out of 26 (15.4%); watertight_mesh: 28 unpaired edges out of 626 total",
+      "detail": "watertight_mesh: 28 unpaired edges out of 626 total",
       "id": "R0055",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 94a73a42-7558-4331-ac12-86dc02b7ea31: operation error: kernel error: operation not supported: polygon approx boolean: 180 total faces exceeds limit; watertight_mesh: 97 unpaired edges out of 233 total",
+      "detail": "watertight_mesh: 247 unpaired edges out of 4697 total",
       "id": "R0056",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 255 total faces exceeds limit (250). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 254 total faces exceeds limit (250). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
       "id": "R0057",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 623d1870-6b99-4ee4-95bd-d4ee1627567c: operation error: kernel error: boolean operation failed: non-manifold result: 72 half-edges unpaired out of 200 (36.0%); watertight_mesh: 3 unpaired edges out of 1458 total; no_degenerate_triangles: 2 of 971 triangles are degenerate",
+      "detail": "partial rebuild (1 error(s)): 623d1870-6b99-4ee4-95bd-d4ee1627567c: operation error: kernel error: boolean operation failed: non-manifold result: 58 half-edges unpaired out of 166 (34.9%); watertight_mesh: 20 unpaired edges out of 1333 total",
       "id": "R0058",
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (2 warning(s)): Revolve 2: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 49 half-edges unpaired out of 239 (20.5%). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 21 half-edges unpaired out of 99 (21.2%). Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged)",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 93 unpaired edges out of 3011 total",
       "id": "R0059",
       "status": "fail"
     },
@@ -372,25 +372,25 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 37 unpaired edges out of 41 total; no_degenerate_triangles: 402 of 1372 triangles are degenerate",
+      "detail": "watertight_mesh: 418 unpaired edges out of 1361 total",
       "id": "R0062",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): d4208db3-7f66-482d-8724-b072c6fc521b: operation error: kernel error: boolean operation failed: non-manifold result: 34 half-edges unpaired out of 194 (17.5%); watertight_mesh: 95 unpaired edges out of 265 total",
+      "detail": "watertight_mesh: 267 unpaired edges out of 3557 total",
       "id": "R0063",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): ccbb482d-dd22-42c1-a1ab-7bed48f9dd18: operation error: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 64 (12.5%)",
+      "detail": "watertight_mesh: 11 unpaired edges out of 64 total",
       "id": "R0064",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 252758d7-bd19-432d-ad05-236b452673e9: operation error: kernel error: boolean operation failed: tool encloses or equals blank (concentric); watertight_mesh: 192 unpaired edges out of 2759 total; no_degenerate_triangles: 45 of 1977 triangles are degenerate",
+      "detail": "partial rebuild (1 error(s)): 252758d7-bd19-432d-ad05-236b452673e9: operation error: kernel error: boolean operation failed: tool encloses or equals blank (concentric); watertight_mesh: 157 unpaired edges out of 2947 total",
       "id": "R0065",
       "status": "fail"
     },
@@ -408,73 +408,73 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 25 half-edges unpaired out of 57 (43.9%). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 27 unpaired edges out of 747 total; consistent_normals: 8 of 516 triangles have reversed normals; outward_normals: only 8 of 516 triangles (1.6%) have outward normals (need 95%); positive_signed_volume: signed volume = -7.507733e-6 (should be > 0); expected positive signed volume, got -7.507733e-6",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 20 half-edges unpaired out of 76 (26.3%). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); consistent_normals: 8 of 516 triangles have reversed normals",
       "id": "R0068",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 12 unpaired edges out of 22 total",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0069",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (2 error(s)): cb9600ba-f8cf-4d7c-9b91-e6d2fb99392f: operation error: kernel error: boolean operation failed: non-manifold result: 419 half-edges unpaired out of 3815 (11.0%); 81509434-14b1-44c4-8b64-49662d509751: operation error: kernel error: boolean operation failed: non-manifold result: 88 half-edges unpaired out of 232 (37.9%); consistent_normals: 26 of 516 triangles have reversed normals; outward_normals: only 26 of 516 triangles (5.0%) have outward normals (need 95%); positive_signed_volume: signed volume = -4.294541e-7 (should be > 0); expected positive signed volume, got -4.294541e-7",
+      "detail": "partial rebuild (1 error(s)): 81509434-14b1-44c4-8b64-49662d509751: operation error: kernel error: operation not supported: polygon approx boolean: 1170 total faces exceeds limit; watertight_mesh: 492 unpaired edges out of 3633 total",
       "id": "R0070",
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 92 half-edges unpaired out of 452 (20.4%). Body created as standalone.; partial rebuild (1 error(s)): 4f166544-0784-473b-8651-ce87a6e8feec: operation error: kernel error: boolean operation failed: non-manifold result: 28 half-edges unpaired out of 384 (7.3%); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 3 unpaired edges out of 3 total; no_degenerate_triangles: 256 of 4156 triangles are degenerate",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 257 unpaired edges out of 661 total",
       "id": "R0071",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 65c74d95-4935-438a-a7f1-373009eb04a9: operation error: kernel error: boolean operation failed: non-manifold result: 440 half-edges unpaired out of 6616 (6.7%); watertight_mesh: 279 unpaired edges out of 323 total; no_degenerate_triangles: 473 of 4276 triangles are degenerate",
+      "detail": "partial rebuild (1 error(s)): cf875bba-ab5e-4ab1-b49e-bbee4e51f1ca: operation error: kernel error: operation not supported: polygon boolean: 882 total faces exceeds limit (250); watertight_mesh: 669 unpaired edges out of 3204 total",
       "id": "R0072",
       "status": "fail"
     },
     {
-      "category": "tessellation-degenerate",
-      "detail": "no_degenerate_triangles: 1 of 52 triangles are degenerate; face_range_coverage: empty range at index 7",
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "R0073",
-      "status": "fail"
+      "status": "pass"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "R0074",
+      "status": "pass"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 57 unpaired edges out of 963 total",
-      "id": "R0074",
-      "status": "fail"
-    },
-    {
-      "category": "boolean-normals",
-      "detail": "watertight_mesh: 50 unpaired edges out of 1570 total; outward_normals: only 0 of 1030 triangles (0.0%) have outward normals (need 95%); positive_signed_volume: signed volume = -2.592174e4 (should be > 0); expected positive signed volume, got -2.592174e4",
+      "detail": "watertight_mesh: 53 unpaired edges out of 1264 total",
       "id": "R0075",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): f17890aa-6e91-437a-8e1a-351952d007d4: operation error: kernel error: boolean operation failed: non-manifold result: 144 half-edges unpaired out of 852 (16.9%)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: polygon approx boolean: 214 total faces exceeds limit. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
       "id": "R0076",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 77450250-0d11-454f-a30f-a87905f345da: operation error: kernel error: boolean operation failed: non-manifold result: 21 half-edges unpaired out of 141 (14.9%); watertight_mesh: 258 unpaired edges out of 5852 total; no_degenerate_triangles: 256 of 4156 triangles are degenerate; outward_normals: only 0 of 3900 triangles (0.0%) have outward normals (need 95%); positive_signed_volume: signed volume = -3.413674e8 (should be > 0); expected positive signed volume, got -3.413674e8",
+      "detail": "watertight_mesh: 21 unpaired edges out of 135 total",
       "id": "R0077",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 49 half-edges unpaired out of 229 (21.4%). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 258 unpaired edges out of 10078 total; no_degenerate_triangles: 256 of 7016 triangles are degenerate",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: boolean operation failed: one or both solids have no planar faces. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
       "id": "R0078",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 34 half-edges unpaired out of 518 (6.6%). Body created as standalone.; partial rebuild (1 error(s)): 0f445b2c-f9a8-49bb-a0bd-a8281326e430: operation error: kernel error: boolean operation failed: non-manifold result: 293 half-edges unpaired out of 5067 (5.8%); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 1236 total faces exceeds limit (250). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
       "id": "R0079",
       "status": "fail"
     },
@@ -486,31 +486,31 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 268 total faces exceeds limit (250). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 280 unpaired edges out of 24112 total; no_degenerate_triangles: 256 of 16376 triangles are degenerate",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 268 total faces exceeds limit (250). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
       "id": "R0081",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 74c2b03d-da75-410e-b8ed-0e38cb2bc0fb: operation error: kernel error: boolean operation failed: non-manifold result: 98 half-edges unpaired out of 922 (10.6%); consistent_normals: 17 of 516 triangles have reversed normals; outward_normals: only 17 of 516 triangles (3.3%) have outward normals (need 95%); positive_signed_volume: signed volume = -8.704864e4 (should be > 0); expected positive signed volume, got -8.704864e4",
+      "detail": "watertight_mesh: 127 unpaired edges out of 1367 total",
       "id": "R0082",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 3ba1bbe2-56d1-493c-bb83-0a3345d18a53: operation error: kernel error: boolean operation failed: non-manifold result: 242 half-edges unpaired out of 1210 (20.0%)",
+      "detail": "watertight_mesh: 242 unpaired edges out of 1207 total",
       "id": "R0083",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 222 unpaired edges out of 315 total; no_degenerate_triangles: 30 of 1360 triangles are degenerate",
+      "detail": "watertight_mesh: 99 unpaired edges out of 2019 total",
       "id": "R0084",
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 59 half-edges unpaired out of 945 (6.2%). Body created as standalone.; partial rebuild (1 error(s)): 502aad62-b1dc-481f-8481-5eb667ca5e5c: operation error: kernel error: operation not supported: polygon approx boolean: 162 total faces exceeds limit; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): 502aad62-b1dc-481f-8481-5eb667ca5e5c: operation error: kernel error: operation not supported: polygon approx boolean: 290 total faces exceeds limit; watertight_mesh: 31 unpaired edges out of 1172 total",
       "id": "R0085",
       "status": "fail"
     },
@@ -522,13 +522,13 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 121 half-edges unpaired out of 1729 (7.0%). Body created as standalone.; partial rebuild (1 error(s)): 6d7acb35-c124-4d2d-9a11-a1cbb2459b03: operation error: kernel error: boolean operation failed: non-manifold result: 331 half-edges unpaired out of 2901 (11.4%); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 1130 total faces exceeds limit (250). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
       "id": "R0087",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 6c7cffa7-dbbc-4a80-95f5-2ce9142c1881: operation error: kernel error: operation not supported: polygon boolean: 1467 total faces exceeds limit (250); watertight_mesh: 28 unpaired edges out of 4832 total; face_range_coverage: empty range at index 27",
+      "detail": "partial rebuild (1 error(s)): 6c7cffa7-dbbc-4a80-95f5-2ce9142c1881: operation error: kernel error: operation not supported: polygon boolean: 1216 total faces exceeds limit (250); watertight_mesh: 49 unpaired edges out of 4095 total",
       "id": "R0088",
       "status": "fail"
     },
@@ -539,44 +539,44 @@
       "status": "pass"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 3e89f1d1-cbb2-406c-b63e-eb40240b0ca2: operation error: kernel error: boolean operation failed: non-manifold result: 4 half-edges unpaired out of 26 (15.4%)",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0090",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): eb0cee47-6d85-422b-aae7-06a59c784b86: operation error: kernel error: operation not supported: polygon boolean: 394 total faces exceeds limit (250); watertight_mesh: 18 unpaired edges out of 19 total; no_degenerate_triangles: 113 of 1051 triangles are degenerate",
+      "detail": "partial rebuild (1 error(s)): eb0cee47-6d85-422b-aae7-06a59c784b86: operation error: kernel error: operation not supported: polygon boolean: 396 total faces exceeds limit (250); watertight_mesh: 289 unpaired edges out of 1544 total",
       "id": "R0091",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 0a284f21-55e3-44ce-bc5a-12fb13ed9546: operation error: kernel error: boolean operation failed: non-manifold result: 32 half-edges unpaired out of 160 (20.0%)",
+      "detail": "watertight_mesh: 591 unpaired edges out of 2465 total",
       "id": "R0092",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (2 error(s)): 82f1837f-457d-4b89-b8a9-0d182759816f: operation error: kernel error: operation not supported: polygon approx boolean: 144 total faces exceeds limit; d1cd177f-5233-43e3-ae54-4d310215b4c0: operation error: kernel error: operation not supported: polygon approx boolean: 108 total faces exceeds limit; watertight_mesh: 46 unpaired edges out of 334 total",
+      "detail": "watertight_mesh: 174 unpaired edges out of 513 total",
       "id": "R0093",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (2 error(s)): 997d436f-cf9c-48ec-a00d-7dd8cd88ff07: operation error: kernel error: boolean operation failed: non-manifold result: 4 half-edges unpaired out of 20 (20.0%); 0709316f-95f2-4579-8f3e-a332afd4bd95: operation error: kernel error: boolean operation failed: non-manifold result: 100 half-edges unpaired out of 500 (20.0%)",
+      "detail": "watertight_mesh: 168 unpaired edges out of 882 total",
       "id": "R0094",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 2e32d2f9-134a-4088-80c6-f514b0b3f6b9: operation error: kernel error: boolean operation failed: non-manifold result: 21 half-edges unpaired out of 105 (20.0%); watertight_mesh: 101 unpaired edges out of 137 total; no_degenerate_triangles: 24 of 753 triangles are degenerate; outward_normals: only 0 of 619 triangles (0.0%) have outward normals (need 95%); positive_signed_volume: signed volume = -1.471383e-13 (should be > 0); expected positive signed volume, got -1.471383e-13",
+      "detail": "watertight_mesh: 60 unpaired edges out of 674 total",
       "id": "R0095",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 309 unpaired edges out of 1733 total; no_degenerate_triangles: 108 of 1452 triangles are degenerate",
+      "detail": "watertight_mesh: 150 unpaired edges out of 1441 total",
       "id": "R0096",
       "status": "fail"
     },
@@ -588,19 +588,19 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): a475deac-8ed0-4250-977a-073489858ce9: operation error: kernel error: operation not supported: polygon approx boolean: 722 total faces exceeds limit; watertight_mesh: 64 unpaired edges out of 2204 total; no_degenerate_triangles: 4 of 1448 triangles are degenerate",
+      "detail": "partial rebuild (1 error(s)): a475deac-8ed0-4250-977a-073489858ce9: operation error: kernel error: operation not supported: polygon approx boolean: 722 total faces exceeds limit; watertight_mesh: 76 unpaired edges out of 2204 total",
       "id": "R0098",
       "status": "fail"
     },
     {
-      "category": "revolve-normals",
-      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; expected positive signed volume, got 0.000000e0",
+      "category": "multiple-failures",
+      "detail": "partial rebuild (1 error(s)): aad1c0ba-a719-4d21-9877-71b4a7f767a0: operation error: kernel error: boolean operation failed: one or both solids have no planar faces",
       "id": "R0099",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): c4d347ab-c0b2-4fa3-ba77-68628ee93a4e: operation error: kernel error: boolean operation failed: non-manifold result: 10 half-edges unpaired out of 12 (83.3%); consistent_normals: 12 of 516 triangles have reversed normals",
+      "detail": "partial rebuild (1 error(s)): c4d347ab-c0b2-4fa3-ba77-68628ee93a4e: operation error: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 16 (50.0%); consistent_normals: 12 of 516 triangles have reversed normals",
       "id": "R0100",
       "status": "fail"
     },

@@ -423,6 +423,51 @@ fn clip_polygon_by_solid(
 /// Test if a point is inside a closed polyhedral solid.
 /// Casts a ray in +Z direction, counts face crossings. Odd = inside.
 ///
+/// Check if a set of face polygons forms a convex solid.
+///
+/// A solid is convex if every vertex of every face lies on or behind (inside)
+/// every face plane. Uses signed distance: positive = outside, negative = inside.
+/// Capped at 200 faces to avoid O(V*F) blowup for large face sets.
+#[allow(dead_code)]
+fn is_face_set_convex(faces: &[FacePoly], tau: f64) -> bool {
+    // Quick heuristic: very small or very large face sets
+    if faces.len() <= 6 {
+        return true; // Box or simpler — always convex
+    }
+    if faces.len() > 200 {
+        return false; // Too many faces to check efficiently
+    }
+
+    // Collect all unique vertices
+    let mut all_verts: Vec<[f64; 3]> = Vec::new();
+    for f in faces {
+        for &v in &f.verts {
+            // Simple dedup: skip if already present (exact match)
+            let exists = all_verts.iter().any(|&ev| {
+                let d = v3_sub(v, ev);
+                v3_dot(d, d) < tau * tau
+            });
+            if !exists {
+                all_verts.push(v);
+            }
+        }
+    }
+
+    // Check: every vertex is on or behind every face plane
+    for face in faces {
+        let n = face.normal;
+        let o = face.origin;
+        for &v in &all_verts {
+            let d = v3_dot(v3_sub(v, o), n);
+            if d > tau * 100.0 {
+                return false; // Vertex is significantly outside this face plane
+            }
+        }
+    }
+
+    true
+}
+
 /// If the ray grazes an edge/vertex (ambiguous result), retries with
 /// perturbed directions.
 ///
@@ -776,9 +821,14 @@ fn classify_face_nonconvex(face: &FacePoly, opposing: &[FacePoly], tau: f64) -> 
 
     // Progressive splitting: split face by each cutting plane,
     // keeping BOTH halves at each step.
+    // Cap fragment count to prevent exponential blowup (2^N planes).
+    const MAX_FRAGMENTS: usize = 512;
     let mut fragments: Vec<Vec<[f64; 3]>> = vec![face.verts.clone()];
 
     for (plane_pt, inward_n) in &cutting_planes {
+        if fragments.len() >= MAX_FRAGMENTS {
+            break; // Stop splitting — classify remaining fragments by centroid
+        }
         let outward_n = v3_negate(*inward_n);
         let mut new_fragments = Vec::new();
         for frag in &fragments {
@@ -878,9 +928,13 @@ fn classify_coplanar_nonconvex(face: &FacePoly, opposing: &[FacePoly], tau: f64)
     }
 
     // Progressive splitting by non-coplanar opposing face planes
+    const MAX_FRAGMENTS: usize = 512;
     let mut fragments: Vec<Vec<[f64; 3]>> = vec![face.verts.clone()];
 
     for (plane_pt, inward_n) in &cutting_planes {
+        if fragments.len() >= MAX_FRAGMENTS {
+            break;
+        }
         let outward_n = v3_negate(*inward_n);
         let mut new_fragments = Vec::new();
         for frag in &fragments {
@@ -1075,34 +1129,72 @@ pub(crate) fn boolean_op_tolerant(
     boolean_op_from_polys(a_faces, b_faces, op, id_alloc)
 }
 
-/// Snap all polygon vertices to the weld grid, ensuring that independent
-/// Sutherland-Hodgman clipping operations on adjacent faces produce
-/// bit-identical intersection vertices for the same geometric point.
+/// Merge nearby vertices across all polygons using multi-probe spatial hashing.
 ///
-/// After snapping, deduplicates consecutive vertices and removes degenerate
-/// polygons (< 3 unique vertices).
+/// When independent Sutherland-Hodgman clips produce slightly different coordinates
+/// for the same geometric point (e.g., two adjacent faces clipped by the same plane),
+/// this function maps them to the same canonical representative vertex.
+///
+/// Only vertices within `merge_tol` of an existing canonical vertex are merged.
+/// This avoids moving isolated vertices and preserves original face geometry.
 #[allow(dead_code)]
-fn snap_vertices_to_grid(polys: &[FacePoly], tau_weld: f64) -> Vec<FacePoly> {
-    let inv_tau = 1.0 / tau_weld;
-    let snap = |v: [f64; 3]| -> [f64; 3] {
-        [
-            (v[0] * inv_tau).round() * tau_weld,
-            (v[1] * inv_tau).round() * tau_weld,
-            (v[2] * inv_tau).round() * tau_weld,
-        ]
-    };
+fn merge_nearby_vertices(polys: &[FacePoly], tau_weld: f64) -> Vec<FacePoly> {
+    // Use generous tolerance: intersection vertices from mating faces of
+    // different solids can differ by much more than tau_weld due to independent
+    // edge-plane intersection computation.
+    let merge_tol = tau_weld * 50.0;
+    let inv_tau = 1.0 / merge_tol;
+    let weld_dist_sq = merge_tol * merge_tol;
+
+    // Build canonical vertex map: each vertex gets mapped to its representative
+    let mut canonical: HashMap<(i64, i64, i64), [f64; 3]> = HashMap::new();
+
+    let find_or_insert =
+        |pos: [f64; 3], canonical: &mut HashMap<(i64, i64, i64), [f64; 3]>| -> [f64; 3] {
+            let sx = pos[0] * inv_tau;
+            let sy = pos[1] * inv_tau;
+            let sz = pos[2] * inv_tau;
+            let primary = (sx.round() as i64, sy.round() as i64, sz.round() as i64);
+
+            // Multi-probe: check floor/ceil in each axis
+            let kx = [sx.floor() as i64, sx.ceil() as i64];
+            let ky = [sy.floor() as i64, sy.ceil() as i64];
+            let kz = [sz.floor() as i64, sz.ceil() as i64];
+
+            for &cx in &kx {
+                for &cy in &ky {
+                    for &cz in &kz {
+                        if let Some(&rep) = canonical.get(&(cx, cy, cz)) {
+                            let dx = pos[0] - rep[0];
+                            let dy = pos[1] - rep[1];
+                            let dz = pos[2] - rep[2];
+                            if dx * dx + dy * dy + dz * dz < weld_dist_sq {
+                                return rep; // Use existing canonical vertex
+                            }
+                        }
+                    }
+                }
+            }
+
+            // No match found — this vertex becomes its own canonical representative
+            canonical.insert(primary, pos);
+            pos
+        };
 
     let mut result = Vec::with_capacity(polys.len());
     for poly in polys {
-        // Snap all vertices
-        let snapped: Vec<[f64; 3]> = poly.verts.iter().map(|&v| snap(v)).collect();
+        let merged: Vec<[f64; 3]> = poly
+            .verts
+            .iter()
+            .map(|&v| find_or_insert(v, &mut canonical))
+            .collect();
 
-        // Deduplicate consecutive vertices (from snapping nearby points to same grid cell)
-        let mut deduped: Vec<[f64; 3]> = Vec::with_capacity(snapped.len());
-        for i in 0..snapped.len() {
-            let prev = if i == 0 { snapped.len() - 1 } else { i - 1 };
-            if snapped[i] != snapped[prev] {
-                deduped.push(snapped[i]);
+        // Deduplicate consecutive vertices
+        let mut deduped: Vec<[f64; 3]> = Vec::with_capacity(merged.len());
+        for i in 0..merged.len() {
+            let prev = if i == 0 { merged.len() - 1 } else { i - 1 };
+            if merged[i] != merged[prev] {
+                deduped.push(merged[i]);
             }
         }
 
@@ -1110,7 +1202,7 @@ fn snap_vertices_to_grid(polys: &[FacePoly], tau_weld: f64) -> Vec<FacePoly> {
             result.push(FacePoly {
                 verts: deduped,
                 normal: poly.normal,
-                origin: snap(poly.origin),
+                origin: poly.origin,
             });
         }
     }
@@ -1715,94 +1807,107 @@ fn build_brep_from_polygons_inner(
         }
     }
 
-    // Step 3d: Proximity-based twin pairing for remaining unpaired half-edges.
-    // When adjacent faces are at an angle, their shared edge may be split at
-    // slightly different positions by independent S-H clipping. The T-junction
-    // resolver can't fix this because the split point on face A is NOT on face
-    // B's edge (they're at different angles). Instead, pair unpaired edges by
-    // finding the closest reverse-direction unpaired edge whose midpoints match.
-    {
+    // Step 3d: Iterative proximity-based twin pairing for remaining unpaired half-edges.
+    // Independent S-H clipping produces slightly different intersection points for the
+    // same geometric edge. Use progressively relaxing tolerance to pair these edges:
+    // - Round 1: tight tolerance catches near-exact matches
+    // - Round 2-3: looser tolerances catch larger floating-point deviations
+    for &tol_mult in &[100.0_f64, 500.0, 2000.0] {
         let remaining_unpaired: Vec<HalfEdgeIdx> = unpaired_hes
             .iter()
             .filter(|he| !paired.contains(he))
             .copied()
             .collect();
 
-        if remaining_unpaired.len() >= 2 {
-            // Compute midpoints for all unpaired half-edges
-            let midpoints: Vec<([f64; 3], [f64; 3], [f64; 3])> = remaining_unpaired
-                .iter()
-                .map(|&he| {
-                    let origin = arena.half_edges[he.0].origin;
-                    let next_he = arena.half_edges[he.0].next;
-                    let dest = arena.half_edges[next_he.0].origin;
-                    let p0 = arena.vertices[origin.0].position;
-                    let p1 = arena.vertices[dest.0].position;
-                    let mid = [
-                        (p0[0] + p1[0]) * 0.5,
-                        (p0[1] + p1[1]) * 0.5,
-                        (p0[2] + p1[2]) * 0.5,
-                    ];
-                    (p0, p1, mid)
-                })
-                .collect();
+        if remaining_unpaired.len() < 2 {
+            break;
+        }
 
-            // For each unpaired he, find closest unpaired he going in opposite direction
-            for i in 0..remaining_unpaired.len() {
-                let he_a = remaining_unpaired[i];
-                if paired.contains(&he_a) {
+        // Compute midpoints for all unpaired half-edges
+        let midpoints: Vec<([f64; 3], [f64; 3], [f64; 3])> = remaining_unpaired
+            .iter()
+            .map(|&he| {
+                let origin = arena.half_edges[he.0].origin;
+                let next_he = arena.half_edges[he.0].next;
+                let dest = arena.half_edges[next_he.0].origin;
+                let p0 = arena.vertices[origin.0].position;
+                let p1 = arena.vertices[dest.0].position;
+                let mid = [
+                    (p0[0] + p1[0]) * 0.5,
+                    (p0[1] + p1[1]) * 0.5,
+                    (p0[2] + p1[2]) * 0.5,
+                ];
+                (p0, p1, mid)
+            })
+            .collect();
+
+        let tol = tau_weld * tol_mult;
+        let tol_sq = tol * tol;
+
+        for i in 0..remaining_unpaired.len() {
+            let he_a = remaining_unpaired[i];
+            if paired.contains(&he_a) {
+                continue;
+            }
+            let (a_p0, a_p1, a_mid) = midpoints[i];
+
+            let mut best_j = None;
+            let mut best_dist = f64::INFINITY;
+
+            for j in (i + 1)..remaining_unpaired.len() {
+                let he_b = remaining_unpaired[j];
+                if paired.contains(&he_b) {
                     continue;
                 }
-                let (a_p0, a_p1, a_mid) = midpoints[i];
+                let (b_p0, b_p1, b_mid) = midpoints[j];
 
-                let mut best_j = None;
-                let mut best_dist = f64::INFINITY;
+                // Check reverse direction: A goes p0→p1, B should go ~p1→p0
+                let fwd_dist = v3_dot(v3_sub(a_p0, b_p1), v3_sub(a_p0, b_p1))
+                    + v3_dot(v3_sub(a_p1, b_p0), v3_sub(a_p1, b_p0));
+                let mid_dist = v3_dot(v3_sub(a_mid, b_mid), v3_sub(a_mid, b_mid));
 
-                for j in (i + 1)..remaining_unpaired.len() {
-                    let he_b = remaining_unpaired[j];
-                    if paired.contains(&he_b) {
-                        continue;
-                    }
-                    let (b_p0, b_p1, b_mid) = midpoints[j];
-
-                    // Check reverse direction: A goes p0→p1, B should go ~p1→p0
-                    let fwd_dist = v3_dot(v3_sub(a_p0, b_p1), v3_sub(a_p0, b_p1))
-                        + v3_dot(v3_sub(a_p1, b_p0), v3_sub(a_p1, b_p0));
-                    let mid_dist = v3_dot(v3_sub(a_mid, b_mid), v3_sub(a_mid, b_mid));
-
-                    // Use generous tolerance: 100 * tau_weld
-                    let tol = tau_weld * 100.0;
-                    if fwd_dist < tol * tol && mid_dist < tol * tol && fwd_dist < best_dist {
-                        best_dist = fwd_dist;
-                        best_j = Some(j);
-                    }
+                if fwd_dist < tol_sq && mid_dist < tol_sq && fwd_dist < best_dist {
+                    best_dist = fwd_dist;
+                    best_j = Some(j);
                 }
+            }
 
-                if let Some(j) = best_j {
-                    let he_b = remaining_unpaired[j];
-                    let edge_idx = EdgeIdx(arena.edges.len());
-                    arena.edges.push(Edge { half_edge: he_a });
-                    arena.half_edges[he_a.0].twin = he_b;
-                    arena.half_edges[he_a.0].edge = edge_idx;
-                    arena.half_edges[he_b.0].twin = he_a;
-                    arena.half_edges[he_b.0].edge = edge_idx;
-                    paired.insert(he_a);
-                    paired.insert(he_b);
+            if let Some(j) = best_j {
+                let he_b = remaining_unpaired[j];
+                let edge_idx = EdgeIdx(arena.edges.len());
+                arena.edges.push(Edge { half_edge: he_a });
+                arena.half_edges[he_a.0].twin = he_b;
+                arena.half_edges[he_a.0].edge = edge_idx;
+                arena.half_edges[he_b.0].twin = he_a;
+                arena.half_edges[he_b.0].edge = edge_idx;
+                paired.insert(he_a);
+                paired.insert(he_b);
 
-                    let p0 = arena.vertices[arena.half_edges[he_a.0].origin.0].position;
-                    let next_he = arena.half_edges[he_a.0].next;
-                    let p1 = arena.vertices[arena.half_edges[next_he.0].origin.0].position;
-                    let dir = v3_sub(p1, p0);
-                    edge_geometry.insert(
-                        edge_idx,
-                        CurveGeom::Linear(Line3D {
-                            origin: Point3::from_array(p0),
-                            direction: Vector3::from_array(dir),
-                        }),
-                    );
-                    let eid = id_alloc();
-                    edge_map.insert(eid, edge_idx);
-                }
+                // Merge vertex positions: A goes p0→p1, B goes ~p1→~p0.
+                // Snap B's vertices to A's positions so the tessellation
+                // produces bit-identical f32 positions for shared edges.
+                let a_origin = arena.half_edges[he_a.0].origin;
+                let a_next_he = arena.half_edges[he_a.0].next;
+                let a_dest = arena.half_edges[a_next_he.0].origin;
+                let b_origin = arena.half_edges[he_b.0].origin;
+                let b_next_he = arena.half_edges[he_b.0].next;
+                let b_dest = arena.half_edges[b_next_he.0].origin;
+                // B.origin ≈ A.dest (reverse direction), B.dest ≈ A.origin
+                arena.vertices[b_origin.0].position = arena.vertices[a_dest.0].position;
+                arena.vertices[b_dest.0].position = arena.vertices[a_origin.0].position;
+
+                let p0 = arena.vertices[a_origin.0].position;
+                let p1 = arena.vertices[a_dest.0].position;
+                let dir = v3_sub(p1, p0);
+                edge_geometry.insert(
+                    edge_idx,
+                    CurveGeom::Linear(Line3D {
+                        origin: Point3::from_array(p0),
+                        direction: Vector3::from_array(dir),
+                    }),
+                );
+                let eid = id_alloc();
+                edge_map.insert(eid, edge_idx);
             }
         }
     }

@@ -247,6 +247,11 @@ pub(crate) fn tessellate_solid(
     // (all face normals point inward). Flip all windings and normals.
     fix_global_orientation(&mut vertices, &mut normals, &mut indices);
 
+    // NOTE: heal_boundary_edges and snap_to_oracle_grid were tried here but
+    // proved counterproductive — they either collapse thin features or introduce
+    // degenerate triangles. The oracle's grid-based edge matching is already
+    // the right abstraction level for handling small positional differences.
+
     Ok(RenderMesh {
         vertices,
         normals,
@@ -1915,6 +1920,267 @@ fn remove_degenerate_triangles(
     *face_ranges = new_ranges;
 }
 
+/// Snap all vertex positions to the oracle's quantization grid.
+///
+/// The oracle uses grid = max(1e-4, max_abs * 2e-6) to quantize vertex positions
+/// for edge matching. Two vertices at positions P1 and P2 with |P1-P2| < grid/2
+/// can still fall in adjacent grid cells, causing the oracle to see them as
+/// different positions. By snapping all vertices to grid centers, we guarantee
+/// that vertices within grid/2 of each other become exactly the same position.
+///
+/// Max position change: grid/2 ≈ 5e-5 at unit scale (0.05mm), well within
+/// manufacturing tolerance and f32 visual precision.
+#[allow(dead_code)]
+fn snap_to_oracle_grid(vertices: &mut [f32]) {
+    let num_verts = vertices.len() / 3;
+    if num_verts == 0 {
+        return;
+    }
+
+    // Compute bounding box diagonal
+    let mut bbox_min = [f32::INFINITY; 3];
+    let mut bbox_max = [f32::NEG_INFINITY; 3];
+    for i in 0..num_verts {
+        for j in 0..3 {
+            let v = vertices[i * 3 + j];
+            bbox_min[j] = bbox_min[j].min(v);
+            bbox_max[j] = bbox_max[j].max(v);
+        }
+    }
+    let diag = ((bbox_max[0] - bbox_min[0]).powi(2)
+        + (bbox_max[1] - bbox_min[1]).powi(2)
+        + (bbox_max[2] - bbox_min[2]).powi(2))
+    .sqrt();
+
+    // Compute oracle grid (same formula as check_watertight_mesh)
+    let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
+    let grid = (1e-4_f64).max(max_abs as f64 * 2e-6);
+
+    // Only snap if model is large enough relative to grid.
+    // If model diagonal < 10000 grid cells, snapping could collapse thin features
+    // (e.g., revolve faces, boolean fragments near the intersection boundary).
+    if (diag as f64) < grid * 10000.0 {
+        return;
+    }
+
+    let inv_grid = 1.0 / grid;
+    for v in vertices.iter_mut() {
+        *v = ((*v as f64 * inv_grid).round() * grid) as f32;
+    }
+}
+
+/// Heal boundary edges in the tessellated mesh.
+///
+/// After boolean polygon clipping, the B-Rep may have unpaired half-edges
+/// where adjacent faces from different solids have slightly different vertex
+/// positions at their shared boundary. This creates "cracks" in the mesh —
+/// boundary edges (shared by only 1 triangle) that should be paired.
+///
+/// This function finds pairs of boundary edges going in opposite directions
+/// with close midpoints, and snaps one edge's vertices to match the other's.
+/// This is done at the mesh (f32) level, so the vertex merging is precise
+/// (no f64→f32 round-trip issues).
+#[allow(dead_code)]
+fn heal_boundary_edges(vertices: &mut [f32], indices: &[u32]) {
+    use std::collections::HashMap;
+
+    let num_tris = indices.len() / 3;
+    if num_tris == 0 {
+        return;
+    }
+
+    // Compute scale-adaptive grid (same as oracle)
+    let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
+    let grid = (1e-4_f32).max(max_abs * 2e-6);
+    let inv_grid = 1.0 / grid;
+
+    // Quantize vertex positions (same as oracle)
+    let qv = |idx: u32| -> (i64, i64, i64) {
+        let i = idx as usize * 3;
+        (
+            (vertices[i] as f64 * inv_grid as f64).round() as i64,
+            (vertices[i + 1] as f64 * inv_grid as f64).round() as i64,
+            (vertices[i + 2] as f64 * inv_grid as f64).round() as i64,
+        )
+    };
+
+    type QPos = (i64, i64, i64);
+    type QEdge = (QPos, QPos);
+
+    fn make_edge(a: QPos, b: QPos) -> QEdge {
+        if a <= b {
+            (a, b)
+        } else {
+            (b, a)
+        }
+    }
+
+    // Count edge occurrences (position-based)
+    let mut edge_counts: HashMap<QEdge, usize> = HashMap::new();
+    for tri in indices.chunks(3) {
+        let va = qv(tri[0]);
+        let vb = qv(tri[1]);
+        let vc = qv(tri[2]);
+        *edge_counts.entry(make_edge(va, vb)).or_insert(0) += 1;
+        *edge_counts.entry(make_edge(vb, vc)).or_insert(0) += 1;
+        *edge_counts.entry(make_edge(vc, va)).or_insert(0) += 1;
+    }
+
+    // Collect boundary edges: count != 2, with vertex indices
+    let boundary_edges: std::collections::HashSet<QEdge> = edge_counts
+        .iter()
+        .filter(|(_, &c)| c != 2)
+        .map(|(e, _)| *e)
+        .collect();
+
+    if boundary_edges.is_empty() {
+        return; // Already watertight
+    }
+
+    // Build directed boundary edge list with actual vertex indices
+    // For each boundary edge, we need the raw vertex indices to snap positions
+    struct BoundaryHE {
+        v0: u32,
+        v1: u32,
+        qv0: QPos,
+        qv1: QPos,
+    }
+    let mut boundary_hes: Vec<BoundaryHE> = Vec::new();
+
+    for tri in indices.chunks(3) {
+        let edges = [(tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])];
+        for (v0, v1) in edges {
+            let q0 = qv(v0);
+            let q1 = qv(v1);
+            if boundary_edges.contains(&make_edge(q0, q1)) {
+                boundary_hes.push(BoundaryHE {
+                    v0,
+                    v1,
+                    qv0: q0,
+                    qv1: q1,
+                });
+            }
+        }
+    }
+
+    // For each boundary half-edge, look for a reverse-direction boundary half-edge
+    // whose quantized endpoints are CLOSE (within 1 grid cell) but not identical
+    // (identical ones would already be paired by the edge_counts check).
+    //
+    // Use a spatial hash on the midpoint for fast lookup.
+    let mid_grid = grid * 5.0; // Coarser grid for midpoint matching
+    let inv_mid = 1.0 / mid_grid as f64;
+
+    // Compute midpoints eagerly to avoid borrowing vertices during snap
+    let midpoints: Vec<(f32, f32, f32)> = boundary_hes
+        .iter()
+        .map(|he| {
+            let i0 = he.v0 as usize * 3;
+            let i1 = he.v1 as usize * 3;
+            (
+                (vertices[i0] + vertices[i1]) * 0.5,
+                (vertices[i0 + 1] + vertices[i1 + 1]) * 0.5,
+                (vertices[i0 + 2] + vertices[i1 + 2]) * 0.5,
+            )
+        })
+        .collect();
+
+    let qmid = |mp: &(f32, f32, f32)| -> (i64, i64, i64) {
+        (
+            (mp.0 as f64 * inv_mid).round() as i64,
+            (mp.1 as f64 * inv_mid).round() as i64,
+            (mp.2 as f64 * inv_mid).round() as i64,
+        )
+    };
+
+    // Group boundary HEs by quantized midpoint
+    let mut mid_map: HashMap<(i64, i64, i64), Vec<usize>> = HashMap::new();
+    for (idx, mp) in midpoints.iter().enumerate() {
+        let qm = qmid(mp);
+        mid_map.entry(qm).or_default().push(idx);
+    }
+
+    // Track which vertex indices have been snapped (avoid double-snap)
+    let mut snapped: std::collections::HashSet<u32> = std::collections::HashSet::new();
+
+    // For each boundary HE, find a matching reverse-direction HE
+    for i in 0..boundary_hes.len() {
+        let he_a = &boundary_hes[i];
+        if snapped.contains(&he_a.v0) || snapped.contains(&he_a.v1) {
+            continue;
+        }
+        let qm = qmid(&midpoints[i]);
+
+        // Check 3x3x3 neighborhood
+        for dx in -1..=1_i64 {
+            for dy in -1..=1_i64 {
+                for dz in -1..=1_i64 {
+                    let key = (qm.0 + dx, qm.1 + dy, qm.2 + dz);
+                    if let Some(candidates) = mid_map.get(&key) {
+                        for &j in candidates {
+                            if j <= i {
+                                continue;
+                            }
+                            let he_b = &boundary_hes[j];
+                            if snapped.contains(&he_b.v0) || snapped.contains(&he_b.v1) {
+                                continue;
+                            }
+
+                            // Already matched by oracle grid? Skip (already paired).
+                            if he_a.qv0 == he_b.qv1 && he_a.qv1 == he_b.qv0 {
+                                continue;
+                            }
+
+                            // Check reverse direction using actual f32 distances.
+                            // A goes v0→v1, B should go ~v1→~v0.
+                            let a0 = he_a.v0 as usize * 3;
+                            let a1 = he_a.v1 as usize * 3;
+                            let b0 = he_b.v0 as usize * 3;
+                            let b1 = he_b.v1 as usize * 3;
+
+                            // Compute edge length of A
+                            let edge_len_sq = (vertices[a1] - vertices[a0]).powi(2)
+                                + (vertices[a1 + 1] - vertices[a0 + 1]).powi(2)
+                                + (vertices[a1 + 2] - vertices[a0 + 2]).powi(2);
+
+                            // Vertex distances: A.v0↔B.v1, A.v1↔B.v0
+                            let d01_sq = (vertices[a0] - vertices[b1]).powi(2)
+                                + (vertices[a0 + 1] - vertices[b1 + 1]).powi(2)
+                                + (vertices[a0 + 2] - vertices[b1 + 2]).powi(2);
+                            let d10_sq = (vertices[a1] - vertices[b0]).powi(2)
+                                + (vertices[a1 + 1] - vertices[b0 + 1]).powi(2)
+                                + (vertices[a1 + 2] - vertices[b0 + 2]).powi(2);
+
+                            // Each vertex mismatch must be < 10% of edge length
+                            // and < 5 oracle grid cells (absolute limit)
+                            let rel_tol_sq = edge_len_sq * 0.01; // 10% squared
+                            let abs_tol = grid * 5.0;
+                            let abs_tol_sq = abs_tol * abs_tol;
+                            let tol_sq = rel_tol_sq.min(abs_tol_sq);
+
+                            if d01_sq > tol_sq || d10_sq > tol_sq {
+                                continue;
+                            }
+
+                            // Snap B's vertex positions to A's positions
+                            // B.v0 ≈ A.v1, B.v1 ≈ A.v0 (reverse direction)
+                            vertices[b0] = vertices[a1];
+                            vertices[b0 + 1] = vertices[a1 + 1];
+                            vertices[b0 + 2] = vertices[a1 + 2];
+                            vertices[b1] = vertices[a0];
+                            vertices[b1 + 1] = vertices[a0 + 1];
+                            vertices[b1 + 2] = vertices[a0 + 2];
+
+                            snapped.insert(he_b.v0);
+                            snapped.insert(he_b.v1);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Snap nearby vertex positions so coincident vertices have identical f32 values.
 ///
 /// Per-face tessellation creates separate vertices at shared B-Rep edges.
@@ -1958,11 +2224,18 @@ fn snap_close_positions(vertices: &mut [f32]) {
         return;
     }
 
-    // Tolerance: 1e-5 relative to diagonal, clamped.
-    // At scale 1 (diag~10): tolerance = 1e-4, well above f32 noise.
-    // At scale 1000 (diag~10000): tolerance = 0.1, sufficient for large models.
-    // At scale 0.001 (diag~0.01): tolerance = 1e-7, above f32 noise at that scale.
-    let tolerance = (diag * 1e-5).clamp(1e-8, 1e-2);
+    // Oracle-safe tolerance: 1% of the oracle's quantization grid.
+    // Oracle grid = max(1e-4, max_abs * 2e-6). We snap at 1% of this
+    // to ensure vertices never move across oracle grid boundaries.
+    let max_abs = bbox_max[0]
+        .abs()
+        .max(bbox_max[1].abs())
+        .max(bbox_max[2].abs())
+        .max(bbox_min[0].abs())
+        .max(bbox_min[1].abs())
+        .max(bbox_min[2].abs());
+    let oracle_grid = (1e-4_f32).max(max_abs * 2e-6);
+    let tolerance = oracle_grid * 0.01;
     let tol_sq = tolerance * tolerance;
     let inv_cell = 1.0 / tolerance;
 

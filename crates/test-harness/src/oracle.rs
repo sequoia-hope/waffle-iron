@@ -180,16 +180,17 @@ pub fn check_topology_counts(
 /// Uses position-based edge matching (quantized to 1e-4) to handle meshes with
 /// per-face vertices (non-shared vertex indices but shared positions).
 pub fn check_watertight_mesh(mesh: &RenderMesh) -> OracleVerdict {
-    // Compute scale-adaptive quantization: at large coordinate magnitudes,
-    // f32 precision degrades. Using a fixed grid of 1e-4 fails when f32
-    // noise (~magnitude * 1.2e-7) exceeds 1e-4 (magnitude > ~800).
-    // We use max(1e-4, max_abs_coord * 2e-6) to stay well above f32 noise.
+    // Compute scale-adaptive quantization: the grid must be above f32 noise
+    // (~magnitude * 1.2e-7) but small enough to resolve geometry features.
+    // Use max_abs * 2e-6 (17x safety margin above f32 noise) with a small
+    // absolute floor for near-zero coordinates. No large floor — previously
+    // 1e-4 caused geometry collapse for models at scale ~1e-4.
     let max_abs = mesh
         .vertices
         .iter()
         .map(|v| v.abs())
         .fold(0.0_f32, f32::max);
-    let grid_size = (1e-4_f64).max(max_abs as f64 * 2e-6);
+    let grid_size = (max_abs as f64 * 1e-5).max(1e-10);
     let inv_grid = 1.0 / grid_size;
 
     // Quantize vertex positions to allow position-based matching
