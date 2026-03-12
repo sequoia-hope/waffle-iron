@@ -1033,8 +1033,9 @@ impl Kernel for WaffleKernel {
             }),
         );
 
-        // Side faces with outward normals
-        let center_bottom = polygon_centroid(&standalone.vertices);
+        // Side faces with outward normals using Newell winding (correct for non-convex profiles)
+        let newell = compute_newell_normal(&standalone.vertices);
+        let winding_sign = v3_dot(newell, dir_norm).signum(); // +1 if CCW from extrude dir view
         #[allow(clippy::needless_range_loop)]
         for i in 0..n {
             let sf = side_faces[i];
@@ -1045,14 +1046,15 @@ impl Kernel for WaffleKernel {
             let v_a = standalone.vertices[i];
             let v_b = standalone.vertices[(i + 1) % n];
             let edge_dir = v3_sub(v_b, v_a);
-            // Outward normal = cross(edge_dir, extrude_dir), possibly negated
-            let mut side_normal = v3_normalize(v3_cross(edge_dir, direction));
-            // Check it points outward (away from center)
             let mid = v3_scale(v3_add(v_a, v_b), 0.5);
-            let to_center = v3_sub(center_bottom, mid);
-            if v3_dot(side_normal, to_center) > 0.0 {
-                side_normal = v3_negate(side_normal);
-            }
+            // Use polygon winding to determine outward direction.
+            // For CCW winding (viewed from extrude dir): outward = cross(edge_dir, extrude_dir)
+            // For CW winding: outward = cross(extrude_dir, edge_dir)
+            let side_normal = if winding_sign >= 0.0 {
+                v3_normalize(v3_cross(edge_dir, direction))
+            } else {
+                v3_normalize(v3_cross(direction, edge_dir))
+            };
 
             face_geometry.insert(
                 sf,
