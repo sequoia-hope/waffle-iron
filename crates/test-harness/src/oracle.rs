@@ -696,6 +696,98 @@ pub fn check_positive_signed_volume(mesh: &RenderMesh) -> OracleVerdict {
     }
 }
 
+// ── Shape Oracles ─────────────────────────────────────────────────────────
+
+/// Check whether a mesh has collapsed to its AABB (axis-aligned bounding box).
+///
+/// When the kernel reconstructs a non-rectangular operand from its AABB, the
+/// resulting mesh has all vertices on the 6 bounding-box faces. This oracle
+/// detects that degeneration: if every unique vertex lies on an AABB face and
+/// the mesh has more than 24 unique positions (ruling out legitimate small
+/// boxes), it fails.
+pub fn check_aabb_collapse(mesh: &RenderMesh) -> OracleVerdict {
+    use std::collections::HashSet;
+
+    if mesh.vertices.is_empty() {
+        return OracleVerdict::pass("aabb_collapse", "empty mesh — skipped".to_string());
+    }
+
+    let (bb_min, bb_max) = crate::helpers::mesh_bounding_box(mesh);
+
+    // Scale-adaptive tolerance: max_abs * 1e-4, floor 1e-8
+    let max_abs = bb_min
+        .iter()
+        .chain(bb_max.iter())
+        .map(|v| v.abs())
+        .fold(0.0_f32, f32::max);
+    let tol = (max_abs * 1e-4).max(1e-8);
+
+    // Collect unique vertex positions (quantized to tolerance)
+    let inv = 1.0 / tol;
+    let quantize = |v: f32| -> i64 { (v as f64 * inv as f64).round() as i64 };
+
+    let mut unique_positions: HashSet<(i64, i64, i64)> = HashSet::new();
+    for chunk in mesh.vertices.chunks(3) {
+        if chunk.len() < 3 {
+            continue;
+        }
+        unique_positions.insert((quantize(chunk[0]), quantize(chunk[1]), quantize(chunk[2])));
+    }
+
+    let total_unique = unique_positions.len();
+
+    // Small meshes (≤24 unique positions) could be legitimate tessellated boxes
+    if total_unique <= 24 {
+        return OracleVerdict::pass(
+            "aabb_collapse",
+            format!(
+                "{} unique positions ≤ 24 — too small to detect collapse",
+                total_unique
+            ),
+        );
+    }
+
+    // Check how many unique positions are NOT on any AABB face
+    let on_face = |x: f32, y: f32, z: f32| -> bool {
+        (x - bb_min[0]).abs() < tol
+            || (x - bb_max[0]).abs() < tol
+            || (y - bb_min[1]).abs() < tol
+            || (y - bb_max[1]).abs() < tol
+            || (z - bb_min[2]).abs() < tol
+            || (z - bb_max[2]).abs() < tol
+    };
+
+    let mut non_aabb_count = 0usize;
+    for chunk in mesh.vertices.chunks(3) {
+        if chunk.len() < 3 {
+            continue;
+        }
+        let key = (quantize(chunk[0]), quantize(chunk[1]), quantize(chunk[2]));
+        // Only count each unique position once — remove after checking
+        if unique_positions.remove(&key) && !on_face(chunk[0], chunk[1], chunk[2]) {
+            non_aabb_count += 1;
+        }
+    }
+
+    if non_aabb_count == 0 {
+        OracleVerdict::fail(
+            "aabb_collapse",
+            format!(
+                "all {} unique vertices lie on AABB faces — mesh collapsed to bounding box",
+                total_unique
+            ),
+        )
+    } else {
+        OracleVerdict::pass(
+            "aabb_collapse",
+            format!(
+                "{} of {} unique vertices are interior to AABB",
+                non_aabb_count, total_unique
+            ),
+        )
+    }
+}
+
 // ── Composite ───────────────────────────────────────────────────────────────
 
 /// Run all applicable checks on a solid + mesh + op_result combination.
@@ -722,4 +814,232 @@ pub fn run_topology_checks(
         check_manifold_edges(introspect, solid),
         check_face_validity(introspect, solid),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kernel::types::{FaceRange, RenderMesh};
+    use kernel::KernelId;
+
+    /// Build a unit cube mesh (8 corners, 12 triangles, per-face vertices).
+    /// All vertices lie exactly on the AABB faces [0,0,0]→[1,1,1].
+    fn make_unit_cube_mesh() -> RenderMesh {
+        // 6 faces × 4 verts = 24 verts, 6 faces × 2 tris = 12 tris
+        // But we need >24 unique positions to trigger the oracle.
+        // Use a denser tessellation: split each face into a 2×2 grid (9 verts, 8 tris per face).
+        let mut vertices = Vec::new();
+        let mut normals = Vec::new();
+        let mut indices = Vec::new();
+        let mut face_ranges = Vec::new();
+
+        // Helper: add a face as a 2×2 grid of quads (each quad = 2 tris)
+        let mut add_face = |corners: [[f32; 3]; 4], normal: [f32; 3]| {
+            // corners: [bl, br, tr, tl] — bottom-left, bottom-right, top-right, top-left
+            let start_idx = (vertices.len() / 3) as u32;
+            let idx_start = indices.len() as u32;
+
+            // 3×3 grid of vertices
+            for iy in 0..3 {
+                for ix in 0..3 {
+                    let u = ix as f32 / 2.0;
+                    let v = iy as f32 / 2.0;
+                    // Bilinear interpolation
+                    let x = corners[0][0] * (1.0 - u) * (1.0 - v)
+                        + corners[1][0] * u * (1.0 - v)
+                        + corners[2][0] * u * v
+                        + corners[3][0] * (1.0 - u) * v;
+                    let y = corners[0][1] * (1.0 - u) * (1.0 - v)
+                        + corners[1][1] * u * (1.0 - v)
+                        + corners[2][1] * u * v
+                        + corners[3][1] * (1.0 - u) * v;
+                    let z = corners[0][2] * (1.0 - u) * (1.0 - v)
+                        + corners[1][2] * u * (1.0 - v)
+                        + corners[2][2] * u * v
+                        + corners[3][2] * (1.0 - u) * v;
+                    vertices.extend_from_slice(&[x, y, z]);
+                    normals.extend_from_slice(&normal);
+                }
+            }
+
+            // 2×2 grid of quads → 8 triangles
+            for iy in 0..2u32 {
+                for ix in 0..2u32 {
+                    let bl = start_idx + iy * 3 + ix;
+                    let br = bl + 1;
+                    let tl = bl + 3;
+                    let tr = tl + 1;
+                    indices.extend_from_slice(&[bl, br, tr]);
+                    indices.extend_from_slice(&[bl, tr, tl]);
+                }
+            }
+
+            let idx_end = indices.len() as u32;
+            face_ranges.push(FaceRange {
+                face_id: KernelId(face_ranges.len() as u64),
+                start_index: idx_start,
+                end_index: idx_end,
+            });
+        };
+
+        // 6 faces of unit cube [0,0,0]→[1,1,1]
+        // Front (z=1)
+        add_face(
+            [
+                [0.0, 0.0, 1.0],
+                [1.0, 0.0, 1.0],
+                [1.0, 1.0, 1.0],
+                [0.0, 1.0, 1.0],
+            ],
+            [0.0, 0.0, 1.0],
+        );
+        // Back (z=0)
+        add_face(
+            [
+                [1.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [1.0, 1.0, 0.0],
+            ],
+            [0.0, 0.0, -1.0],
+        );
+        // Right (x=1)
+        add_face(
+            [
+                [1.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0],
+                [1.0, 1.0, 0.0],
+                [1.0, 1.0, 1.0],
+            ],
+            [1.0, 0.0, 0.0],
+        );
+        // Left (x=0)
+        add_face(
+            [
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [0.0, 1.0, 1.0],
+                [0.0, 1.0, 0.0],
+            ],
+            [-1.0, 0.0, 0.0],
+        );
+        // Top (y=1)
+        add_face(
+            [
+                [0.0, 1.0, 1.0],
+                [1.0, 1.0, 1.0],
+                [1.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0],
+            ],
+            [0.0, 1.0, 0.0],
+        );
+        // Bottom (y=0)
+        add_face(
+            [
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [1.0, 0.0, 1.0],
+                [0.0, 0.0, 1.0],
+            ],
+            [0.0, -1.0, 0.0],
+        );
+
+        RenderMesh {
+            vertices,
+            normals,
+            indices,
+            face_ranges,
+        }
+    }
+
+    #[test]
+    fn aabb_collapse_detects_pure_box() {
+        let mesh = make_unit_cube_mesh();
+        let unique_count = {
+            let mut s = std::collections::HashSet::new();
+            for c in mesh.vertices.chunks(3) {
+                s.insert((
+                    (c[0] * 1e6) as i64,
+                    (c[1] * 1e6) as i64,
+                    (c[2] * 1e6) as i64,
+                ));
+            }
+            s.len()
+        };
+        // 3×3 grid per face × 6 faces, but some shared on edges/corners
+        // Should be >24 unique positions
+        assert!(
+            unique_count > 24,
+            "test mesh needs >24 unique positions, got {}",
+            unique_count
+        );
+
+        let verdict = check_aabb_collapse(&mesh);
+        assert!(
+            !verdict.passed,
+            "should detect AABB collapse: {}",
+            verdict.detail
+        );
+    }
+
+    #[test]
+    fn aabb_collapse_passes_non_box() {
+        // Start with a unit cube mesh, then add a vertex interior to the AABB
+        let mut mesh = make_unit_cube_mesh();
+        // Add an extra triangle with a vertex at (0.5, 0.5, 0.5) — interior
+        let base = (mesh.vertices.len() / 3) as u32;
+        mesh.vertices
+            .extend_from_slice(&[0.5, 0.5, 0.5, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
+        mesh.normals
+            .extend_from_slice(&[0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0]);
+        let idx_start = mesh.indices.len() as u32;
+        mesh.indices.extend_from_slice(&[base, base + 1, base + 2]);
+        mesh.face_ranges.push(FaceRange {
+            face_id: KernelId(mesh.face_ranges.len() as u64),
+            start_index: idx_start,
+            end_index: mesh.indices.len() as u32,
+        });
+
+        let verdict = check_aabb_collapse(&mesh);
+        assert!(
+            verdict.passed,
+            "should pass with interior vertex: {}",
+            verdict.detail
+        );
+    }
+
+    #[test]
+    fn aabb_collapse_skips_small_mesh() {
+        // Simple box with 8 vertices (≤24 unique) — should pass even if all on AABB
+        let vertices = vec![
+            0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0,
+            1.0, 1.0, 1.0, 1.0, 0.0, 1.0, 1.0,
+        ];
+        let normals = vec![0.0; vertices.len()]; // dummy normals
+        let indices = vec![
+            0, 1, 2, 0, 2, 3, // front
+            4, 5, 6, 4, 6, 7, // back
+            0, 1, 5, 0, 5, 4, // bottom
+            3, 2, 6, 3, 6, 7, // top
+            0, 3, 7, 0, 7, 4, // left
+            1, 2, 6, 1, 6, 5, // right
+        ];
+        let mesh = RenderMesh {
+            vertices,
+            normals,
+            indices,
+            face_ranges: vec![FaceRange {
+                face_id: KernelId(0),
+                start_index: 0,
+                end_index: 36,
+            }],
+        };
+
+        let verdict = check_aabb_collapse(&mesh);
+        assert!(
+            verdict.passed,
+            "small mesh (≤24 unique verts) should pass: {}",
+            verdict.detail
+        );
+    }
 }

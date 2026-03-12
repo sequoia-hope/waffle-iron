@@ -272,6 +272,15 @@ fn replay_and_validate(case: &DiscoveredCase, use_kernel: bool) -> AssayResult {
         }
     }
 
+    // AABB-collapse check for gear profiles (rects legitimately produce boxes)
+    let has_gear_profile = meta.operations.iter().any(|op| op.profile_type == "gear");
+    if has_gear_profile && !mesh.vertices.is_empty() {
+        let verdict = crate::oracle::check_aabb_collapse(&mesh);
+        if !verdict.passed {
+            failures.push(format!("aabb_collapse: {}", verdict.detail));
+        }
+    }
+
     // Collect mesh oracle failures
     for v in &verdicts {
         if !v.passed {
@@ -358,6 +367,8 @@ pub enum FailureCategory {
     PassBossOnly,
     /// Multi-operation case where merge failed silently — separate solids remain.
     MergeIncomplete,
+    /// Mesh collapsed to its AABB — non-rectangular geometry replaced by bounding box.
+    AabbCollapse,
 }
 
 impl std::fmt::Display for FailureCategory {
@@ -375,6 +386,7 @@ impl std::fmt::Display for FailureCategory {
             Self::PassGenuine => write!(f, "pass-genuine"),
             Self::PassBossOnly => write!(f, "pass-boss-only"),
             Self::MergeIncomplete => write!(f, "merge-incomplete"),
+            Self::AabbCollapse => write!(f, "aabb-collapse"),
         }
     }
 }
@@ -444,6 +456,11 @@ pub fn categorize_result(result: &AssayResult, meta: &AssayMeta) -> FailureCateg
             // 0b. Merge incomplete (multi-op case where merge failed silently)
             if detail.contains("merge incomplete:") {
                 return FailureCategory::MergeIncomplete;
+            }
+
+            // 0c. AABB collapse (geometry degenerated to bounding box)
+            if detail.contains("aabb_collapse:") {
+                return FailureCategory::AabbCollapse;
             }
 
             // 1. Boolean not supported (engine-level: geometry combo not implemented)
