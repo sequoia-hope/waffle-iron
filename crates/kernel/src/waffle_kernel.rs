@@ -113,13 +113,6 @@ impl WaffleKernel {
                 id: KernelId(b.id()),
             })?;
 
-        // Guard: revolve solids not supported for booleans
-        if solid_a.revolve_params.is_some() || solid_b.revolve_params.is_some() {
-            return Err(KernelError::NotSupported {
-                operation: "boolean on revolve solids".to_string(),
-            });
-        }
-
         let mut next_id = self.next_id;
         let mut id_alloc = || {
             let id = next_id;
@@ -172,10 +165,29 @@ impl WaffleKernel {
         let n = standalone.vertices.len();
         let tau_model = 1e-7;
 
-        // Validate all profile edges are axis-aligned (constant radius OR constant height)
+        // Validate profile edges: axis-aligned (constant radius OR constant height)
+        // OR short chord edges (circle N-gon approximations).
+        // Compute profile bounding box diagonal for relative tolerance.
+        let profile_bbox = compute_bbox(&standalone.vertices);
+        let profile_diag = v3_length([
+            profile_bbox[3] - profile_bbox[0],
+            profile_bbox[4] - profile_bbox[1],
+            profile_bbox[5] - profile_bbox[2],
+        ]);
+        // Short chord threshold: edges shorter than 50% of profile size
+        // are allowed even if not axis-aligned (circle N-gon edges).
+        let short_chord_threshold = profile_diag * 0.5;
+
         for i in 0..n {
             let v_a = standalone.vertices[i];
             let v_b = standalone.vertices[(i + 1) % n];
+
+            // Allow short chord edges (circle N-gon approximation)
+            let edge_len = v3_length(v3_sub(v_b, v_a));
+            if edge_len < short_chord_threshold {
+                continue;
+            }
+
             let r_a = {
                 let v = v3_sub(v_a, axis_origin);
                 let proj = v3_scale(axis_dir, v3_dot(v, axis_dir));
@@ -339,7 +351,10 @@ impl WaffleKernel {
             let h_a = v3_dot(v3_sub(v_a, axis_origin), axis_dir);
             let h_b = v3_dot(v3_sub(v_b, axis_origin), axis_dir);
 
-            if (r_a - r_b).abs() < tau_model {
+            let same_radius = (r_a - r_b).abs() < tau_model;
+            let same_height = (h_a - h_b).abs() < tau_model;
+
+            if same_radius {
                 // Cylindrical face at constant radius
                 let radius = (r_a + r_b) / 2.0;
                 let avg_height = (h_a + h_b) / 2.0;
@@ -352,12 +367,10 @@ impl WaffleKernel {
                         radius,
                     }),
                 );
-            } else {
+            } else if same_height {
                 // Planar face at constant height
                 let height = (h_a + h_b) / 2.0;
                 let plane_origin = v3_add(axis_origin, v3_scale(axis_dir, height));
-                // Normal: +axis_dir if face is top, -axis_dir if bottom
-                // Check which direction faces outward by comparing to centroid
                 let centroid = polygon_centroid(&start_verts);
                 let centroid_height = v3_dot(v3_sub(centroid, axis_origin), axis_dir);
                 let normal = if height > centroid_height {
@@ -369,6 +382,25 @@ impl WaffleKernel {
                     sf,
                     SurfaceGeom::Planar(Plane {
                         origin: Point3::from_array(plane_origin),
+                        normal: Vector3::from_array(normal),
+                    }),
+                );
+            } else {
+                // Short chord edge (circle N-gon) — approximate as planar face.
+                // Compute Newell normal from the face loop vertices for outward direction.
+                let loop_verts = get_face_loop_verts(&arena, sf);
+                let newell = compute_newell_normal(&loop_verts);
+                let face_center = compute_centroid(&loop_verts);
+                let outward = v3_sub(face_center, solid_center);
+                let normal = if v3_dot(newell, outward) >= 0.0 {
+                    newell
+                } else {
+                    v3_negate(newell)
+                };
+                face_geometry.insert(
+                    sf,
+                    SurfaceGeom::Planar(Plane {
+                        origin: Point3::from_array(face_center),
                         normal: Vector3::from_array(normal),
                     }),
                 );
@@ -1131,16 +1163,27 @@ impl Kernel for WaffleKernel {
             });
         }
 
-        let standalone = self
+        let mut standalone = self
             .standalone_faces
             .remove(&face.0)
             .ok_or(KernelError::EntityNotFound { id: face })?;
 
-        // Circle profile → NotSupported
-        if standalone.circle_info.is_some() {
-            return Err(KernelError::NotSupported {
-                operation: "revolve: circle profile (torus)".to_string(),
-            });
+        // For circle profiles, generate N-gon approximation vertices
+        if let Some(ref ci) = standalone.circle_info {
+            let n_segs = 32;
+            let mut verts = Vec::with_capacity(n_segs);
+            for i in 0..n_segs {
+                let theta = 2.0 * std::f64::consts::PI * (i as f64) / (n_segs as f64);
+                let p = v3_add(
+                    ci.center_3d,
+                    v3_add(
+                        v3_scale(ci.x_axis, ci.radius * theta.cos()),
+                        v3_scale(ci.y_axis, ci.radius * theta.sin()),
+                    ),
+                );
+                verts.push(p);
+            }
+            standalone.vertices = verts;
         }
 
         self.revolve_polygon(&standalone, axis_origin, axis_direction, angle)

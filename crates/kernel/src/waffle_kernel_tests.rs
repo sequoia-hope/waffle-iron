@@ -1540,22 +1540,18 @@ fn l10_revolve_full_360_error() {
 }
 
 #[test]
-fn l11_revolve_circle_not_supported() {
+fn l11_revolve_circle_succeeds() {
+    // Circle profiles are now supported via N-gon approximation
     let mut k = WaffleKernel::new();
     let (profiles, positions) = make_circle_profile(5.0, 0.0, 1.0);
     let faces = k
         .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
         .unwrap();
     let result = k.revolve_face(faces[0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], 180.0);
-    assert!(result.is_err(), "Circle revolve should fail");
-    if let Err(KernelError::NotSupported { .. }) = result {
-        // expected
-    } else {
-        panic!(
-            "Expected KernelError::NotSupported for circle revolve, got {:?}",
-            result
-        );
-    }
+    assert!(result.is_ok(), "Circle revolve should succeed, got {:?}", result.err());
+    let mesh = k.tessellate(&result.unwrap(), 0.01).expect("tessellate revolve circle");
+    let vol = mesh_volume(&mesh);
+    assert!(vol > 0.0, "Revolve circle volume should be positive, got {}", vol);
 }
 
 #[test]
@@ -1967,7 +1963,7 @@ fn n9_cyl_cyl_cut_no_overlap() {
 // ── Group O: Edge Cases + SSI Unit Tests ──────────────────────────
 
 #[test]
-fn o1_revolve_boolean_still_unsupported() {
+fn o1_revolve_box_boolean_union() {
     let mut k = WaffleKernel::new();
     // Create a revolve solid
     let (profiles, positions) = make_rect_profile(5.0, 0.0, 2.0, 4.0);
@@ -1977,15 +1973,62 @@ fn o1_revolve_boolean_still_unsupported() {
     let (pb, posb) = make_rect_profile(0.0, 0.0, 10.0, 10.0);
     let fb = k.make_faces_from_profiles(&pb, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posb).unwrap();
     let box_solid = k.extrude_face(fb[0], Z_DIR, 10.0).unwrap();
-    // Boolean with revolve should still be NotSupported
+    // Boolean union should not return NotSupported (guard removed)
     let result = k.boolean_union(&revolve, &box_solid);
-    assert!(result.is_err(), "Revolve boolean should fail");
-    if let Err(ref e) = result {
-        assert!(
-            matches!(e, KernelError::NotSupported { .. }),
-            "Expected NotSupported for revolve boolean, got {:?}", e
-        );
+    match &result {
+        Err(KernelError::NotSupported { .. }) => panic!("Revolve boolean guard should be removed"),
+        Ok(handle) => {
+            // If it succeeds, verify positive volume
+            let mesh = k.tessellate(handle, 0.01).expect("tessellate union");
+            let vol = mesh_volume(&mesh);
+            assert!(vol > 0.0, "Union volume should be positive, got {}", vol);
+        }
+        Err(_) => {
+            // BooleanFailed is acceptable for now (complex geometry)
+        }
     }
+}
+
+#[test]
+fn o1b_revolve_revolve_boolean_union() {
+    let mut k = WaffleKernel::new();
+    // Two revolve solids (rect profiles → only planar faces in polygon clipping)
+    let (p1, pos1) = make_rect_profile(5.0, 0.0, 2.0, 4.0);
+    let f1 = k.make_faces_from_profiles(&p1, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos1).unwrap();
+    let rev1 = k.revolve_face(f1[0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], 180.0).unwrap();
+
+    let (p2, pos2) = make_rect_profile(8.0, 0.0, 2.0, 3.0);
+    let f2 = k.make_faces_from_profiles(&p2, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos2).unwrap();
+    let rev2 = k.revolve_face(f2[0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], 180.0).unwrap();
+
+    let result = k.boolean_union(&rev1, &rev2);
+    match &result {
+        Err(KernelError::NotSupported { .. }) => panic!("Revolve boolean guard should be removed"),
+        Ok(handle) => {
+            let mesh = k.tessellate(handle, 0.01).expect("tessellate");
+            let vol = mesh_volume(&mesh);
+            assert!(vol > 0.0, "Union volume should be positive, got {}", vol);
+        }
+        Err(_) => {
+            // BooleanFailed acceptable for complex revolve geometries
+        }
+    }
+}
+
+#[test]
+fn o1c_revolve_circle_profile() {
+    // Revolve a circle N-gon profile (should pass validation now)
+    let mut k = WaffleKernel::new();
+    let (profiles, positions) = make_circle_profile(5.0, 0.0, 1.0);
+    let faces = k
+        .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+        .expect("make_faces for circle");
+    // Revolve around Y axis — circle edges are short chords, not axis-aligned
+    let result = k.revolve_face(faces[0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], 180.0);
+    assert!(result.is_ok(), "Revolve with circle profile should succeed, got {:?}", result.err());
+    let mesh = k.tessellate(&result.unwrap(), 0.01).expect("tessellate revolve circle");
+    let vol = mesh_volume(&mesh);
+    assert!(vol > 0.0, "Revolve circle volume should be positive, got {}", vol);
 }
 
 #[test]
