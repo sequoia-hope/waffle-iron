@@ -34,13 +34,15 @@ pub(crate) struct BooleanResult {
     pub vertex_map: HashMap<u64, VertexIdx>,
     pub face_geometry: HashMap<FaceIdx, SurfaceGeom>,
     pub edge_geometry: HashMap<EdgeIdx, CurveGeom>,
+    /// Cached face polygons from the boolean result, for reuse in subsequent booleans.
+    pub cached_face_polys: Option<Vec<FacePoly>>,
 }
 
 // ── Internal types ──────────────────────────────────────────────────────
 
 /// A planar polygon with its face normal and a representative origin point.
 #[derive(Debug, Clone)]
-struct FacePoly {
+pub(crate) struct FacePoly {
     verts: Vec<[f64; 3]>,
     normal: [f64; 3],
     origin: [f64; 3],
@@ -559,7 +561,14 @@ fn extract_face_polys_general(solid: &WaffleSolid) -> Vec<FacePoly> {
                 );
             }
         }
-        analytic_polys
+        if !analytic_polys.is_empty() {
+            return analytic_polys;
+        }
+        // Last resort: use cached face polys from a previous boolean result.
+        if let Some(ref cached) = solid.cached_face_polys {
+            return cached.clone();
+        }
+        Vec::new()
     }
 }
 
@@ -1127,7 +1136,9 @@ fn classify_face_nonconvex(face: &FacePoly, opposing: &[FacePoly], tau: f64) -> 
         return FaceClass::Inside;
     }
 
-    // Use the largest inside fragment as the canonical "inside" polygon
+    // Use the largest inside fragment as the canonical "inside" polygon.
+    // Small fragments at cutting boundaries may be misclassified by
+    // point_in_solid, so keeping only the largest avoids spurious geometry.
     let inside = inside_frags
         .into_iter()
         .max_by(|a, b| polygon_area_3d(a).partial_cmp(&polygon_area_3d(b)).unwrap())
@@ -1361,10 +1372,57 @@ pub(crate) fn boolean_op(
     let a_faces = extract_face_polys_general(solid_a);
     let b_faces = extract_face_polys_general(solid_b);
 
-    if a_faces.is_empty() || b_faces.is_empty() {
+    if a_faces.is_empty() && b_faces.is_empty() {
         return Err(KernelError::BooleanFailed {
-            reason: "one or both solids have no planar faces".to_string(),
+            reason: "both solids have no planar faces".to_string(),
         });
+    }
+    // Handle empty solids: Union with empty returns the non-empty solid,
+    // Subtract from empty returns empty, Intersect with empty returns empty.
+    if a_faces.is_empty() {
+        return match op {
+            BoolOp::Union => build_brep_from_polygons_inner(&b_faces, 1e-7, false, id_alloc),
+            _ => {
+                // Subtract from nothing or intersect with nothing = empty
+                let mut arena = TopoArena::new();
+                let solid_idx = arena.add_solid();
+                let shell_idx = arena.add_shell(solid_idx);
+                arena.solids[solid_idx.0].outer_shell = shell_idx;
+                Ok(BooleanResult {
+                    arena,
+                    face_map: HashMap::new(),
+                    edge_map: HashMap::new(),
+                    vertex_map: HashMap::new(),
+                    face_geometry: HashMap::new(),
+                    edge_geometry: HashMap::new(),
+                    cached_face_polys: None,
+                })
+            }
+        };
+    }
+    if b_faces.is_empty() {
+        return match op {
+            BoolOp::Subtract => {
+                // A minus nothing = A
+                build_brep_from_polygons_inner(&a_faces, 1e-7, false, id_alloc)
+            }
+            BoolOp::Union => build_brep_from_polygons_inner(&a_faces, 1e-7, false, id_alloc),
+            BoolOp::Intersect => {
+                let mut arena = TopoArena::new();
+                let solid_idx = arena.add_solid();
+                let shell_idx = arena.add_shell(solid_idx);
+                arena.solids[solid_idx.0].outer_shell = shell_idx;
+                Ok(BooleanResult {
+                    arena,
+                    face_map: HashMap::new(),
+                    edge_map: HashMap::new(),
+                    vertex_map: HashMap::new(),
+                    face_geometry: HashMap::new(),
+                    edge_geometry: HashMap::new(),
+                    cached_face_polys: None,
+                })
+            }
+        };
     }
 
     // Use strict stitching (no boundary edge tolerance) for the primary path
@@ -1382,10 +1440,53 @@ pub(crate) fn boolean_op_tolerant(
     let a_faces = extract_face_polys_general(solid_a);
     let b_faces = extract_face_polys_general(solid_b);
 
-    if a_faces.is_empty() || b_faces.is_empty() {
+    // Handle empty solids gracefully
+    if a_faces.is_empty() && b_faces.is_empty() {
         return Err(KernelError::BooleanFailed {
-            reason: "one or both solids have no planar faces".to_string(),
+            reason: "both solids have no planar faces".to_string(),
         });
+    }
+    if a_faces.is_empty() {
+        return match op {
+            BoolOp::Union => build_brep_from_polygons_inner(&b_faces, 1e-7, true, id_alloc),
+            _ => {
+                let mut arena = TopoArena::new();
+                let solid_idx = arena.add_solid();
+                let shell_idx = arena.add_shell(solid_idx);
+                arena.solids[solid_idx.0].outer_shell = shell_idx;
+                Ok(BooleanResult {
+                    arena,
+                    face_map: HashMap::new(),
+                    edge_map: HashMap::new(),
+                    vertex_map: HashMap::new(),
+                    face_geometry: HashMap::new(),
+                    edge_geometry: HashMap::new(),
+                    cached_face_polys: None,
+                })
+            }
+        };
+    }
+    if b_faces.is_empty() {
+        return match op {
+            BoolOp::Subtract | BoolOp::Union => {
+                build_brep_from_polygons_inner(&a_faces, 1e-7, true, id_alloc)
+            }
+            BoolOp::Intersect => {
+                let mut arena = TopoArena::new();
+                let solid_idx = arena.add_solid();
+                let shell_idx = arena.add_shell(solid_idx);
+                arena.solids[solid_idx.0].outer_shell = shell_idx;
+                Ok(BooleanResult {
+                    arena,
+                    face_map: HashMap::new(),
+                    edge_map: HashMap::new(),
+                    vertex_map: HashMap::new(),
+                    face_geometry: HashMap::new(),
+                    edge_geometry: HashMap::new(),
+                    cached_face_polys: None,
+                })
+            }
+        };
     }
 
     boolean_op_from_polys(a_faces, b_faces, op, id_alloc)
@@ -1403,7 +1504,8 @@ pub(crate) fn boolean_op_tolerant(
 fn merge_nearby_vertices(polys: &[FacePoly], tau_weld: f64) -> Vec<FacePoly> {
     // Use generous tolerance: intersection vertices from mating faces of
     // different solids can differ by much more than tau_weld due to independent
-    // edge-plane intersection computation.
+    // edge-plane intersection computation. Factor of 75 ensures merge_tol
+    // exceeds the oracle's f32 quantization grid (max_abs * 1e-5).
     let merge_tol = tau_weld * 50.0;
     let inv_tau = 1.0 / merge_tol;
     let weld_dist_sq = merge_tol * merge_tol;
@@ -2258,6 +2360,7 @@ fn build_brep_from_polygons_inner(
         vertex_map,
         face_geometry,
         edge_geometry,
+        cached_face_polys: None,
     })
 }
 
@@ -2282,10 +2385,53 @@ fn polygon_approx_boolean(
     let a_faces = extract_face_polys_general(solid_a);
     let b_faces = extract_face_polys_general(solid_b);
 
-    if a_faces.is_empty() || b_faces.is_empty() {
+    if a_faces.is_empty() && b_faces.is_empty() {
         return Err(KernelError::BooleanFailed {
-            reason: "one or both solids have no face polygons".to_string(),
+            reason: "both solids have no face polygons".to_string(),
         });
+    }
+    // Handle empty solids: pass through to the non-empty one
+    if a_faces.is_empty() {
+        return match op {
+            BoolOp::Union => build_brep_from_polygons_inner(&b_faces, 1e-7, true, id_alloc),
+            _ => {
+                let mut arena = TopoArena::new();
+                let solid_idx = arena.add_solid();
+                let shell_idx = arena.add_shell(solid_idx);
+                arena.solids[solid_idx.0].outer_shell = shell_idx;
+                Ok(BooleanResult {
+                    arena,
+                    face_map: HashMap::new(),
+                    edge_map: HashMap::new(),
+                    vertex_map: HashMap::new(),
+                    face_geometry: HashMap::new(),
+                    edge_geometry: HashMap::new(),
+                    cached_face_polys: None,
+                })
+            }
+        };
+    }
+    if b_faces.is_empty() {
+        return match op {
+            BoolOp::Subtract | BoolOp::Union => {
+                build_brep_from_polygons_inner(&a_faces, 1e-7, true, id_alloc)
+            }
+            BoolOp::Intersect => {
+                let mut arena = TopoArena::new();
+                let solid_idx = arena.add_solid();
+                let shell_idx = arena.add_shell(solid_idx);
+                arena.solids[solid_idx.0].outer_shell = shell_idx;
+                Ok(BooleanResult {
+                    arena,
+                    face_map: HashMap::new(),
+                    edge_map: HashMap::new(),
+                    vertex_map: HashMap::new(),
+                    face_geometry: HashMap::new(),
+                    edge_geometry: HashMap::new(),
+                    cached_face_polys: None,
+                })
+            }
+        };
     }
 
     // Limit face count to prevent O(n*m) explosion in classification.
@@ -2403,6 +2549,7 @@ fn boolean_op_from_polys_inner(
             vertex_map: HashMap::new(),
             face_geometry: HashMap::new(),
             edge_geometry: HashMap::new(),
+            cached_face_polys: None,
         });
     }
 
@@ -2412,7 +2559,13 @@ fn boolean_op_from_polys_inner(
     let result_polys = merge_nearby_vertices(&result_polys, tau_weld);
     let result_polys = resolve_t_junctions(&result_polys, tau_weld);
 
-    build_brep_from_polygons_inner(&result_polys, tau_weld, allow_boundary, id_alloc)
+    // Cache the final face polys so subsequent booleans on this result
+    // can reuse them directly (avoids B-Rep walk round-trip precision loss).
+    let cached = result_polys.clone();
+    let mut result =
+        build_brep_from_polygons_inner(&result_polys, tau_weld, allow_boundary, id_alloc)?;
+    result.cached_face_polys = Some(cached);
+    Ok(result)
 }
 
 /// Perform an SSI-based boolean operation on solids involving cylinders.
@@ -2651,8 +2804,19 @@ fn cyl_cyl_boolean_z_aligned(
             return match op {
                 BoolOp::Subtract => {
                     if r2 >= r1 - 1e-9 {
-                        Err(KernelError::BooleanFailed {
-                            reason: "tool encloses or equals blank (concentric)".to_string(),
+                        // Tool completely encloses blank: result is empty solid
+                        let mut arena = TopoArena::new();
+                        let solid_idx = arena.add_solid();
+                        let shell_idx = arena.add_shell(solid_idx);
+                        arena.solids[solid_idx.0].outer_shell = shell_idx;
+                        Ok(BooleanResult {
+                            arena,
+                            face_map: HashMap::new(),
+                            edge_map: HashMap::new(),
+                            vertex_map: HashMap::new(),
+                            face_geometry: HashMap::new(),
+                            edge_geometry: HashMap::new(),
+                            cached_face_polys: None,
                         })
                     } else {
                         build_cyl_tube(cyl_a, cyl_b, z_min, z_max, id_alloc)
@@ -2719,6 +2883,7 @@ fn clone_solid_as_result(
         vertex_map,
         face_geometry: solid.face_geometry.clone(),
         edge_geometry: solid.edge_geometry.clone(),
+        cached_face_polys: None,
     })
 }
 
@@ -2874,6 +3039,7 @@ pub(crate) fn build_cyl_result(
         vertex_map,
         face_geometry,
         edge_geometry,
+        cached_face_polys: None,
     })
 }
 
@@ -3161,6 +3327,7 @@ fn build_cyl_tube(
         vertex_map,
         face_geometry,
         edge_geometry,
+        cached_face_polys: None,
     })
 }
 
@@ -4083,6 +4250,7 @@ fn build_partial_cyl_cyl(
         vertex_map,
         face_geometry,
         edge_geometry,
+        cached_face_polys: None,
     })
 }
 

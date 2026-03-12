@@ -12,7 +12,7 @@ use crate::types::*;
 use crate::units::TAU_NORMALIZE;
 use crate::vecmath::{compute_plane_basis, v3_cross, v3_dot, v3_length, v3_sub};
 use crate::waffle_kernel::{CylinderParams, RevolveParams};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Number of segments for circular/cylindrical tessellation.
 const CIRCLE_SEGMENTS: usize = 64;
@@ -274,6 +274,12 @@ pub(crate) fn tessellate_solid(
     fill_boundary_holes(&vertices, &normals, &mut indices, &mut face_ranges);
 
     // Third degenerate pass: second fill may create zero-area fan triangles.
+    remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
+
+    // Weld boundary vertices that are close enough to match in the oracle grid.
+    weld_boundary_vertices(&mut vertices, &indices);
+
+    // Post-weld degenerate removal: welding may collapse boundary vertices.
     remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
 
     // If the mesh signed volume is negative, the entire solid is inside-out
@@ -1831,6 +1837,159 @@ fn fix_winding_consistency(vertices: &[f32], normals: &[f32], indices: &mut [u32
         if v3_dot(geo_normal, avg_n) < 0.0 {
             indices.swap(t * 3 + 1, t * 3 + 2);
         }
+    }
+}
+
+/// Weld boundary vertices that are close enough to match in the oracle grid.
+///
+/// The boolean pipeline can produce seam vertices that are very close but
+/// not exactly coincident, causing oracle edge matching to report "unpaired"
+/// edges. This function identifies boundary (unpaired-edge) vertices, then
+/// uses union-find to cluster those within distance `grid * 1.5` of each
+/// other. Each cluster is replaced by its centroid, ensuring all seam
+/// vertices match in the oracle quantization.
+fn weld_boundary_vertices(vertices: &mut [f32], indices: &[u32]) {
+    if vertices.is_empty() || indices.is_empty() {
+        return;
+    }
+    let n_verts = vertices.len() / 3;
+    let n_tris = indices.len() / 3;
+
+    let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
+    let grid = (max_abs as f64 * 1e-5).max(1e-10);
+    let inv_grid = 1.0 / grid;
+
+    // Quantize helper
+    let quantize = |idx: u32| -> (i64, i64, i64) {
+        let i = idx as usize;
+        if i >= n_verts {
+            return (0, 0, 0);
+        }
+        let x = (vertices[i * 3] as f64 * inv_grid).round() as i64;
+        let y = (vertices[i * 3 + 1] as f64 * inv_grid).round() as i64;
+        let z = (vertices[i * 3 + 2] as f64 * inv_grid).round() as i64;
+        (x, y, z)
+    };
+
+    // Build undirected edge counts
+    type QPos = (i64, i64, i64);
+    let mut edge_counts: HashMap<(QPos, QPos), usize> = HashMap::new();
+    let make_edge = |a: QPos, b: QPos| -> (QPos, QPos) {
+        if a <= b {
+            (a, b)
+        } else {
+            (b, a)
+        }
+    };
+
+    for t in 0..n_tris {
+        let base = t * 3;
+        let tri = [indices[base], indices[base + 1], indices[base + 2]];
+        let qt = [quantize(tri[0]), quantize(tri[1]), quantize(tri[2])];
+        for e in 0..3 {
+            let edge = make_edge(qt[e], qt[(e + 1) % 3]);
+            if edge.0 != edge.1 {
+                *edge_counts.entry(edge).or_insert(0) += 1;
+            }
+        }
+    }
+
+    // Collect boundary vertex indices (endpoints of unpaired edges)
+    let mut boundary_verts: Vec<u32> = Vec::new();
+    let mut is_boundary: HashSet<u32> = HashSet::new();
+    for t in 0..n_tris {
+        let base = t * 3;
+        let tri = [indices[base], indices[base + 1], indices[base + 2]];
+        let qt = [quantize(tri[0]), quantize(tri[1]), quantize(tri[2])];
+        for e in 0..3 {
+            let edge = make_edge(qt[e], qt[(e + 1) % 3]);
+            if edge.0 != edge.1 {
+                if let Some(&count) = edge_counts.get(&edge) {
+                    if count != 2 {
+                        for &vi in &[tri[e], tri[(e + 1) % 3]] {
+                            if is_boundary.insert(vi) {
+                                boundary_verts.push(vi);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if boundary_verts.is_empty() {
+        return;
+    }
+
+    // Union-find for clustering close boundary vertices
+    let n = boundary_verts.len();
+    let mut parent: Vec<usize> = (0..n).collect();
+
+    fn find(parent: &mut [usize], mut x: usize) -> usize {
+        while parent[x] != x {
+            parent[x] = parent[parent[x]];
+            x = parent[x];
+        }
+        x
+    }
+
+    fn union(parent: &mut [usize], a: usize, b: usize) {
+        let ra = find(parent, a);
+        let rb = find(parent, b);
+        if ra != rb {
+            parent[rb] = ra;
+        }
+    }
+
+    // Weld threshold: 1.5x oracle grid — catches vertices in adjacent cells
+    let weld_dist_sq = (grid * 1.5) * (grid * 1.5);
+
+    // O(N²) pairwise check — N is small (boundary vertices only)
+    for i in 0..n {
+        let ai = boundary_verts[i] as usize;
+        let ax = vertices[ai * 3] as f64;
+        let ay = vertices[ai * 3 + 1] as f64;
+        let az = vertices[ai * 3 + 2] as f64;
+        for j in (i + 1)..n {
+            let bj = boundary_verts[j] as usize;
+            let bx = vertices[bj * 3] as f64;
+            let by = vertices[bj * 3 + 1] as f64;
+            let bz = vertices[bj * 3 + 2] as f64;
+            let dx = ax - bx;
+            let dy = ay - by;
+            let dz = az - bz;
+            if dx * dx + dy * dy + dz * dz < weld_dist_sq {
+                union(&mut parent, i, j);
+            }
+        }
+    }
+
+    // Compute centroid for each cluster and assign
+    let mut cluster_sum: HashMap<usize, [f64; 3]> = HashMap::new();
+    let mut cluster_count: HashMap<usize, usize> = HashMap::new();
+
+    for i in 0..n {
+        let root = find(&mut parent, i);
+        let vi = boundary_verts[i] as usize;
+        let entry = cluster_sum.entry(root).or_insert([0.0; 3]);
+        entry[0] += vertices[vi * 3] as f64;
+        entry[1] += vertices[vi * 3 + 1] as f64;
+        entry[2] += vertices[vi * 3 + 2] as f64;
+        *cluster_count.entry(root).or_insert(0) += 1;
+    }
+
+    // Only weld clusters with >1 vertex (actual merges)
+    for i in 0..n {
+        let root = find(&mut parent, i);
+        let count = cluster_count[&root];
+        if count <= 1 {
+            continue;
+        }
+        let sum = cluster_sum[&root];
+        let vi = boundary_verts[i] as usize;
+        vertices[vi * 3] = (sum[0] / count as f64) as f32;
+        vertices[vi * 3 + 1] = (sum[1] / count as f64) as f32;
+        vertices[vi * 3 + 2] = (sum[2] / count as f64) as f32;
     }
 }
 

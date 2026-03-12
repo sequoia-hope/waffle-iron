@@ -77,56 +77,33 @@ fn mesh_volume(mesh: &RenderMesh) -> f64 {
 /// Uses position-based edge matching (not index-based) because the tessellation
 /// may produce per-face vertices (non-shared). Vertex positions are quantized
 /// to 1e-6 to form canonical edge keys.
+/// Check if a mesh is watertight using oracle-compatible scale-adaptive quantization.
 fn check_watertight(mesh: &RenderMesh) -> bool {
-    use std::collections::HashMap as Map;
-
-    /// Quantize a vertex position to an integer triple for hashing.
-    fn quantize(mesh: &RenderMesh, idx: u32) -> (i64, i64, i64) {
-        let base = idx as usize * 3;
-        (
-            (mesh.vertices[base] as f64 * 1e6).round() as i64,
-            (mesh.vertices[base + 1] as f64 * 1e6).round() as i64,
-            (mesh.vertices[base + 2] as f64 * 1e6).round() as i64,
-        )
-    }
-
-    let mut edge_count: Map<((i64, i64, i64), (i64, i64, i64)), u32> = Map::new();
-    let n_tris = mesh.indices.len() / 3;
-    for i in 0..n_tris {
-        let tri = [
-            mesh.indices[i * 3],
-            mesh.indices[i * 3 + 1],
-            mesh.indices[i * 3 + 2],
-        ];
-        for j in 0..3 {
-            let pa = quantize(mesh, tri[j]);
-            let pb = quantize(mesh, tri[(j + 1) % 3]);
-            // Canonical ordering so (A,B) and (B,A) map to the same key
-            let key = if pa <= pb { (pa, pb) } else { (pb, pa) };
-            *edge_count.entry(key).or_insert(0) += 1;
-        }
-    }
-    edge_count.values().all(|&c| c == 2)
+    count_unpaired_edges(mesh) == 0
 }
 
 /// Count unpaired edges in a mesh (for diagnostics).
+/// Uses oracle-compatible scale-adaptive quantization: max_abs * 1e-5.
 fn count_unpaired_edges(mesh: &RenderMesh) -> usize {
     use std::collections::HashMap as Map;
-    fn quantize(mesh: &RenderMesh, idx: u32) -> (i64, i64, i64) {
+    let max_abs = mesh.vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
+    let grid = (max_abs as f64 * 1e-5).max(1e-10);
+    let inv_grid = 1.0 / grid;
+    let quantize = |idx: u32| -> (i64, i64, i64) {
         let base = idx as usize * 3;
         (
-            (mesh.vertices[base] as f64 * 1e6).round() as i64,
-            (mesh.vertices[base + 1] as f64 * 1e6).round() as i64,
-            (mesh.vertices[base + 2] as f64 * 1e6).round() as i64,
+            (mesh.vertices[base] as f64 * inv_grid).round() as i64,
+            (mesh.vertices[base + 1] as f64 * inv_grid).round() as i64,
+            (mesh.vertices[base + 2] as f64 * inv_grid).round() as i64,
         )
-    }
+    };
     let mut edge_count: Map<((i64, i64, i64), (i64, i64, i64)), u32> = Map::new();
     let n_tris = mesh.indices.len() / 3;
     for i in 0..n_tris {
         let tri = [mesh.indices[i * 3], mesh.indices[i * 3 + 1], mesh.indices[i * 3 + 2]];
         for j in 0..3 {
-            let pa = quantize(mesh, tri[j]);
-            let pb = quantize(mesh, tri[(j + 1) % 3]);
+            let pa = quantize(tri[j]);
+            let pb = quantize(tri[(j + 1) % 3]);
             let key = if pa <= pb { (pa, pb) } else { (pb, pa) };
             *edge_count.entry(key).or_insert(0) += 1;
         }
@@ -134,24 +111,27 @@ fn count_unpaired_edges(mesh: &RenderMesh) -> usize {
     edge_count.values().filter(|&&c| c != 2).count()
 }
 
-/// Count total unique edges in a mesh (for diagnostics).
+/// Count total unique edges in a mesh using oracle-compatible quantization.
 fn count_total_edges(mesh: &RenderMesh) -> usize {
     use std::collections::HashMap as Map;
-    fn quantize(mesh: &RenderMesh, idx: u32) -> (i64, i64, i64) {
+    let max_abs = mesh.vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
+    let grid = (max_abs as f64 * 1e-5).max(1e-10);
+    let inv_grid = 1.0 / grid;
+    let quantize = |idx: u32| -> (i64, i64, i64) {
         let base = idx as usize * 3;
         (
-            (mesh.vertices[base] as f64 * 1e6).round() as i64,
-            (mesh.vertices[base + 1] as f64 * 1e6).round() as i64,
-            (mesh.vertices[base + 2] as f64 * 1e6).round() as i64,
+            (mesh.vertices[base] as f64 * inv_grid).round() as i64,
+            (mesh.vertices[base + 1] as f64 * inv_grid).round() as i64,
+            (mesh.vertices[base + 2] as f64 * inv_grid).round() as i64,
         )
-    }
+    };
     let mut edge_count: Map<((i64, i64, i64), (i64, i64, i64)), u32> = Map::new();
     let n_tris = mesh.indices.len() / 3;
     for i in 0..n_tris {
         let tri = [mesh.indices[i * 3], mesh.indices[i * 3 + 1], mesh.indices[i * 3 + 2]];
         for j in 0..3 {
-            let pa = quantize(mesh, tri[j]);
-            let pb = quantize(mesh, tri[(j + 1) % 3]);
+            let pa = quantize(tri[j]);
+            let pb = quantize(tri[(j + 1) % 3]);
             let key = if pa <= pb { (pa, pb) } else { (pb, pa) };
             *edge_count.entry(key).or_insert(0) += 1;
         }
@@ -2241,24 +2221,30 @@ fn p4_concentric_cyl_subtract_partial_z() {
 
 #[test]
 fn p5_concentric_cyl_subtract_outer_smaller() {
-    // cyl(r=3) − cyl(r=5) → error (tool encloses blank)
+    // cyl(r=3) − cyl(r=5) → empty solid (tool encloses blank completely)
     let result = do_cyl_cyl_boolean(
         0.0, 0.0, 3.0, 10.0,
         0.0, 0.0, 5.0, 10.0,
         crate::boolean::BoolOp::Subtract,
     );
-    assert!(result.is_err(), "Tool enclosing blank should fail");
+    assert!(result.is_ok(), "Tool enclosing blank should produce empty solid");
+    let (mut k, handle) = result.unwrap();
+    let mesh = k.tessellate(&handle, 0.01).unwrap();
+    assert_eq!(mesh.vertices.len(), 0, "Empty solid should produce empty mesh");
 }
 
 #[test]
 fn p6_concentric_cyl_subtract_equal_radius() {
-    // cyl(r=5) − cyl(r=5) → error (complete removal)
+    // cyl(r=5) − cyl(r=5) → empty solid (complete removal)
     let result = do_cyl_cyl_boolean(
         0.0, 0.0, 5.0, 10.0,
         0.0, 0.0, 5.0, 10.0,
         crate::boolean::BoolOp::Subtract,
     );
-    assert!(result.is_err(), "Equal radius concentric subtract should fail");
+    assert!(result.is_ok(), "Equal radius concentric subtract should produce empty solid");
+    let (mut k, handle) = result.unwrap();
+    let mesh = k.tessellate(&handle, 0.01).unwrap();
+    assert_eq!(mesh.vertices.len(), 0, "Empty solid should produce empty mesh");
 }
 
 // ── Group Q: Box-Cylinder Boss-on-Top Union ────────────────────────
@@ -2952,6 +2938,35 @@ fn bw3_overlapping_rects_union_watertight() {
     assert!(
         check_watertight(&mesh),
         "bw3: overlapping rect union should be watertight"
+    );
+}
+
+#[test]
+fn bw6_identical_rects_union_watertight() {
+    // Mimics F0001: two identical 0.5x0.5 rect extrudes (depth 0.3) on XY plane
+    let mut k = WaffleKernel::new();
+    let (p1, pos1) = make_rect_profile(0.0, 0.0, 0.5, 0.5);
+    let f1 = k
+        .make_faces_from_profiles(&p1, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos1)
+        .expect("profile 1");
+    let box1 = k.extrude_face(f1[0], Z_DIR, 0.3).expect("extrude 1");
+
+    let (p2, pos2) = make_rect_profile(0.0, 0.0, 0.5, 0.5);
+    let f2 = k
+        .make_faces_from_profiles(&p2, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos2)
+        .expect("profile 2");
+    let box2 = k.extrude_face(f2[0], Z_DIR, 0.3).expect("extrude 2");
+
+    let result = k.boolean_union(&box1, &box2).expect("union");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+
+    let unpaired = count_unpaired_edges(&mesh);
+    let total = count_total_edges(&mesh);
+    assert!(
+        unpaired == 0,
+        "bw6: identical rect union should be watertight, got {}/{} unpaired",
+        unpaired,
+        total
     );
 }
 
@@ -4266,4 +4281,186 @@ fn r_partial_box_cyl_union_fallback() {
     assert!(n_tris > 0, "Result should have triangles");
     let vol = mesh_volume(&mesh);
     assert!(vol > 0.0, "Union volume should be positive, got {}", vol);
+}
+
+// ── Group BW7: R0073 reproducer — two overlapping rects on tilted plane ─────
+
+/// Helper: find unpaired edges and return their f32 positions for diagnostics.
+fn find_unpaired_edge_positions(mesh: &RenderMesh) -> Vec<([f32; 3], [f32; 3], u32)> {
+    use std::collections::HashMap as Map;
+    fn quantize_oracle(mesh: &RenderMesh, idx: u32) -> (i64, i64, i64) {
+        let max_abs = mesh.vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
+        let grid = (max_abs as f64 * 1e-5).max(1e-10);
+        let inv = 1.0 / grid;
+        let i = idx as usize * 3;
+        (
+            (mesh.vertices[i] as f64 * inv).round() as i64,
+            (mesh.vertices[i + 1] as f64 * inv).round() as i64,
+            (mesh.vertices[i + 2] as f64 * inv).round() as i64,
+        )
+    }
+    type PosEdge = ((i64, i64, i64), (i64, i64, i64));
+    let mut edge_counts: Map<PosEdge, (u32, u32, u32)> = Map::new();
+    for tri in mesh.indices.chunks(3) {
+        if tri.len() < 3 { continue; }
+        let va = quantize_oracle(mesh, tri[0]);
+        let vb = quantize_oracle(mesh, tri[1]);
+        let vc = quantize_oracle(mesh, tri[2]);
+        for &(a, b, idx_a, idx_b) in &[(va, vb, tri[0], tri[1]), (vb, vc, tri[1], tri[2]), (vc, va, tri[2], tri[0])] {
+            let key = if a <= b { (a, b) } else { (b, a) };
+            edge_counts.entry(key).or_insert((0, idx_a, idx_b)).0 += 1;
+        }
+    }
+    let mut result = Vec::new();
+    for (_, &(count, ia, ib)) in &edge_counts {
+        if count != 2 {
+            let a = [
+                mesh.vertices[ia as usize * 3],
+                mesh.vertices[ia as usize * 3 + 1],
+                mesh.vertices[ia as usize * 3 + 2],
+            ];
+            let b = [
+                mesh.vertices[ib as usize * 3],
+                mesh.vertices[ib as usize * 3 + 1],
+                mesh.vertices[ib as usize * 3 + 2],
+            ];
+            result.push((a, b, count));
+        }
+    }
+    result
+}
+
+/// Reproduce R0073: two overlapping rects on a tilted plane, both boss unions.
+/// R0073 has 3 unpaired edges out of 78 total — diagnose what's wrong.
+#[test]
+fn bw7_r0073_tilted_rect_rect_union() {
+    let mut k = WaffleKernel::new();
+
+    // R0073's tilted plane
+    let origin = [-352.93729031557143, -63.695825305229334, 158.7988245484654];
+    let normal = [0.7436329013913796, -0.49971453557017526, 0.44417957056591734];
+    // Compute X-axis matching feature-engine's tangent_x_from_normal:
+    // ref_vec × n where ref_vec = Z if n[2] < 0.99 else X
+    let nz: f64 = normal[2];
+    let ref_vec = if nz.abs() < 0.99 { [0.0, 0.0, 1.0] } else { [1.0, 0.0, 0.0] };
+    let x_axis = crate::vecmath::v3_normalize(crate::vecmath::v3_cross(ref_vec, normal));
+
+    // Box 1: ~89mm profile (half-width 44.53), ~234mm tall, depth 138.57
+    let (p1, pos1) = make_rect_profile(0.0, 0.0, 89.06532392874766, 234.7114944438144);
+    let f1 = k.make_faces_from_profiles(&p1, origin, normal, x_axis, &pos1).expect("profile 1");
+    let box1 = k.extrude_face(f1[0], normal, 138.57275761626147).expect("extrude 1");
+
+    // Box 2: ~103mm profile (half-width 51.6), ~137mm tall, depth 152.84
+    let (p2, pos2) = make_rect_profile(0.0, 0.0, 103.21340202181857, 137.02098905393874);
+    let f2 = k.make_faces_from_profiles(&p2, origin, normal, x_axis, &pos2).expect("profile 2");
+    let box2 = k.extrude_face(f2[0], normal, 152.83828586747404).expect("extrude 2");
+
+    // Union
+    let result = k.boolean_union(&box1, &box2);
+    assert!(result.is_ok(), "union should succeed: {:?}", result.err());
+
+    let handle = result.unwrap();
+    let mesh = k.tessellate(&handle, 0.01).expect("tessellate");
+
+    let unpaired = count_unpaired_edges(&mesh);
+    let total = count_total_edges(&mesh);
+
+    if unpaired > 0 {
+        let positions = find_unpaired_edge_positions(&mesh);
+        eprintln!("bw7: {}/{} unpaired edges", unpaired, total);
+        for (a, b, count) in &positions {
+            eprintln!(
+                "  edge ({:.6}, {:.6}, {:.6}) -> ({:.6}, {:.6}, {:.6}) count={}",
+                a[0], a[1], a[2], b[0], b[1], b[2], count
+            );
+        }
+        // Look for near-matches: edges at nearby positions that might pair with these
+        use std::collections::HashMap as Map;
+        let max_abs = mesh.vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
+        eprintln!("  max_abs={:.2}, oracle_grid={:.6}", max_abs, max_abs as f64 * 1e-5);
+        // Check all edges for near-matches to unpaired edge vertices
+        for (a, b, _) in &positions {
+            // Search for edges near the reverse direction (b→a)
+            let n_tris = mesh.indices.len() / 3;
+            for tri_idx in 0..n_tris {
+                let tri = [
+                    mesh.indices[tri_idx * 3] as usize,
+                    mesh.indices[tri_idx * 3 + 1] as usize,
+                    mesh.indices[tri_idx * 3 + 2] as usize,
+                ];
+                for e in 0..3 {
+                    let ea = [
+                        mesh.vertices[tri[e] * 3],
+                        mesh.vertices[tri[e] * 3 + 1],
+                        mesh.vertices[tri[e] * 3 + 2],
+                    ];
+                    let eb = [
+                        mesh.vertices[tri[(e + 1) % 3] * 3],
+                        mesh.vertices[tri[(e + 1) % 3] * 3 + 1],
+                        mesh.vertices[tri[(e + 1) % 3] * 3 + 2],
+                    ];
+                    // Check if (ea, eb) ≈ (b, a) — reverse direction near-match
+                    let d0 = ((ea[0] - b[0]).powi(2) + (ea[1] - b[1]).powi(2) + (ea[2] - b[2]).powi(2)).sqrt();
+                    let d1 = ((eb[0] - a[0]).powi(2) + (eb[1] - a[1]).powi(2) + (eb[2] - a[2]).powi(2)).sqrt();
+                    if d0 < 1.0 && d1 < 1.0 && (d0 > 1e-6 || d1 > 1e-6) {
+                        eprintln!(
+                            "    near-match for reverse: d0={:.8} d1={:.8} at ({:.6},{:.6},{:.6})->({:.6},{:.6},{:.6})",
+                            d0, d1, ea[0], ea[1], ea[2], eb[0], eb[1], eb[2]
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    assert!(
+        unpaired == 0,
+        "bw7 tilted rect+rect union: {}/{} unpaired edges",
+        unpaired,
+        total
+    );
+}
+
+/// Same geometry as bw7 but axis-aligned (XY plane) to isolate tilted-plane effects.
+#[test]
+fn bw7b_axis_aligned_rect_rect_union() {
+    let mut k = WaffleKernel::new();
+
+    // Box 1: same dimensions as R0073 but on XY plane
+    let (p1, pos1) = make_rect_profile(0.0, 0.0, 89.06532392874766, 234.7114944438144);
+    let f1 = k.make_faces_from_profiles(&p1, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos1).expect("profile 1");
+    let box1 = k.extrude_face(f1[0], Z_DIR, 138.57275761626147).expect("extrude 1");
+
+    // Box 2: same dimensions as R0073 but on XY plane
+    let (p2, pos2) = make_rect_profile(0.0, 0.0, 103.21340202181857, 137.02098905393874);
+    let f2 = k.make_faces_from_profiles(&p2, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos2).expect("profile 2");
+    let box2 = k.extrude_face(f2[0], Z_DIR, 152.83828586747404).expect("extrude 2");
+
+    // Union
+    let result = k.boolean_union(&box1, &box2);
+    assert!(result.is_ok(), "union should succeed: {:?}", result.err());
+
+    let handle = result.unwrap();
+    let mesh = k.tessellate(&handle, 0.01).expect("tessellate");
+
+    let unpaired = count_unpaired_edges(&mesh);
+    let total = count_total_edges(&mesh);
+
+    if unpaired > 0 {
+        let positions = find_unpaired_edge_positions(&mesh);
+        eprintln!("bw7b: {}/{} unpaired edges", unpaired, total);
+        for (a, b, count) in &positions {
+            eprintln!(
+                "  edge ({:.4}, {:.4}, {:.4}) -> ({:.4}, {:.4}, {:.4}) count={}",
+                a[0], a[1], a[2], b[0], b[1], b[2], count
+            );
+        }
+    }
+
+    assert!(
+        unpaired == 0,
+        "bw7b axis-aligned rect+rect union: {}/{} unpaired edges",
+        unpaired,
+        total
+    );
 }

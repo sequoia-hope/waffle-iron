@@ -34,6 +34,8 @@ pub(crate) struct WaffleSolid {
     pub(crate) edge_geometry: HashMap<EdgeIdx, CurveGeom>,
     pub(crate) cylinder_params: Option<CylinderParams>,
     pub(crate) revolve_params: Option<RevolveParams>,
+    /// Cached face polygons from boolean results for reuse in subsequent booleans.
+    pub(crate) cached_face_polys: Option<Vec<crate::boolean::FacePoly>>,
 }
 
 /// Parameters for cylinder tessellation (stored after extrude_circle).
@@ -155,6 +157,7 @@ impl WaffleKernel {
                 edge_geometry: result.edge_geometry,
                 cylinder_params: None,
                 revolve_params: None,
+                cached_face_polys: result.cached_face_polys,
             },
         );
 
@@ -503,6 +506,7 @@ impl WaffleKernel {
                 edge_geometry,
                 cylinder_params: None,
                 revolve_params: Some(revolve_params),
+                cached_face_polys: None,
             },
         );
 
@@ -698,6 +702,7 @@ impl WaffleKernel {
                 edge_geometry,
                 cylinder_params: Some(cylinder_params),
                 revolve_params: None,
+                cached_face_polys: None,
             },
         );
 
@@ -1112,6 +1117,7 @@ impl Kernel for WaffleKernel {
                 edge_geometry,
                 cylinder_params: None,
                 revolve_params: None,
+                cached_face_polys: None,
             },
         );
 
