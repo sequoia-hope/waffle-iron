@@ -1,5 +1,6 @@
 <script>
 	import { Canvas } from '@threlte/core';
+	import { WebGLRenderer } from 'three';
 	import Scene from './Scene.svelte';
 	import ViewCube from './ViewCube.svelte';
 	import ConstraintMenu from '$lib/sketch/ConstraintMenu.svelte';
@@ -13,7 +14,16 @@
 	import AutoRestoreDialog from '$lib/ui/AutoRestoreDialog.svelte';
 	import SketchPlanePrompt from '$lib/ui/SketchPlanePrompt.svelte';
 	import GearDialog from '$lib/ui/GearDialog.svelte';
-	import { isRebuilding } from '$lib/engine/store.svelte.js';
+	import { isRebuilding, getSketchMode } from '$lib/engine/store.svelte.js';
+	import { longPressContextMenu } from '$lib/ui/longPressContextMenu.js';
+
+	const createRenderer = (canvas) => new WebGLRenderer({
+		canvas,
+		powerPreference: 'high-performance',
+		antialias: true,
+		alpha: true,
+		logarithmicDepthBuffer: true
+	});
 
 	let showSpinner = $derived(isRebuilding());
 
@@ -66,13 +76,21 @@
 	});
 
 	function handleContextMenu(e) {
-		// Always suppress native contextmenu; we show our own on pointerup
 		e.preventDefault();
+		// Only show viewport menu for synthetic contextmenu events (from longPressContextMenu).
+		// Native browser contextmenu events are just suppressed — on desktop, the pointerup
+		// handler above handles right-click menu display.
+		// Skip if sketch mode is active — let ConstraintMenu handle it.
+		if (!e.isTrusted) {
+			if (getSketchMode()?.active) return;
+			ctxMenuPos = { x: e.clientX, y: e.clientY };
+			ctxMenuVisible = true;
+		}
 	}
 </script>
 
-<div class="viewport" data-testid="viewport" bind:this={viewportEl} oncontextmenu={handleContextMenu}>
-	<Canvas>
+<div class="viewport" data-testid="viewport" bind:this={viewportEl} oncontextmenu={handleContextMenu} use:longPressContextMenu>
+	<Canvas {createRenderer}>
 		<Scene />
 	</Canvas>
 	<ViewCube />

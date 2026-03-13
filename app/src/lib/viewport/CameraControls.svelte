@@ -167,6 +167,12 @@
 	/** Maximum camera distance (dynamically updated by updateClippingPlanes) */
 	let maxDistance = 2;
 
+	// --- Cached scene AABB for clipping plane updates ---
+	let cachedSceneBox = new THREE.Box3();
+	let cachedSceneSphere = new THREE.Sphere();
+	let cachedMeshCount = -1;
+	let sceneBBoxValid = false;
+
 	// --- Two-finger touch gesture constants ---
 	const TOUCH_TWIST_SPEED = 1.5;
 	const MIN_PINCH_DISTANCE_PX = 10;
@@ -428,24 +434,45 @@
 	}
 
 	/**
-	 * Dynamically update near/far clipping planes and maxDistance based on scene extent.
+	 * Recompute cached scene AABB only when mesh count changes.
+	 * @returns {boolean} Whether the AABB is valid (non-empty).
 	 */
-	function updateClippingPlanes() {
-		if (!cameraRef || !scene) return;
-		const box = new THREE.Box3();
+	function refreshSceneAABB() {
+		let meshCount = 0;
 		scene.traverse((obj) => {
-			if (/** @type {any} */ (obj).isMesh && obj.visible) {
-				box.expandByObject(obj);
-			}
+			if (/** @type {any} */ (obj).isMesh && obj.visible) meshCount++;
 		});
-		if (box.isEmpty()) return;
-		const center = box.getCenter(new THREE.Vector3());
-		const diagonal = box.getSize(new THREE.Vector3()).length();
-		const camDist = cameraRef.position.distanceTo(center);
-		cameraRef.near = Math.max(camDist * 0.001, diagonal * 0.0001, 1e-7);
-		cameraRef.far = Math.max(camDist + diagonal * 2, diagonal * 10);
+		if (meshCount !== cachedMeshCount) {
+			cachedMeshCount = meshCount;
+			cachedSceneBox.makeEmpty();
+			scene.traverse((obj) => {
+				if (/** @type {any} */ (obj).isMesh && obj.visible) {
+					cachedSceneBox.expandByObject(obj);
+				}
+			});
+			sceneBBoxValid = !cachedSceneBox.isEmpty();
+			if (sceneBBoxValid) cachedSceneBox.getBoundingSphere(cachedSceneSphere);
+		}
+		return sceneBBoxValid;
+	}
+
+	/**
+	 * Dynamically update near/far clipping planes and maxDistance based on scene extent.
+	 * Uses distance-to-AABB for near plane instead of heuristic fractions.
+	 * @param {boolean} [forceRefresh=false] - Force AABB recomputation.
+	 */
+	function updateClippingPlanes(forceRefresh) {
+		if (!cameraRef || !scene) return;
+		if (forceRefresh) cachedMeshCount = -1;
+		if (!refreshSceneAABB()) return;
+
+		const nearDist = cachedSceneBox.distanceToPoint(cameraRef.position);
+		const farDist = cameraRef.position.distanceTo(cachedSceneSphere.center) + cachedSceneSphere.radius;
+
+		cameraRef.near = Math.max(nearDist * 0.1, 1e-6);
+		cameraRef.far = Math.max(farDist * 2.0, 1.0);
 		cameraRef.updateProjectionMatrix();
-		maxDistance = Math.max(diagonal * 10, 2);
+		maxDistance = Math.max(cachedSceneSphere.radius * 20, 2);
 	}
 
 	/**
@@ -497,7 +524,7 @@
 			controlsRef.update();
 		}
 
-		updateClippingPlanes();
+		updateClippingPlanes(true);
 	}
 
 	/**
@@ -521,6 +548,7 @@
 		if (controlsRef) {
 			controlsRef.update();
 		}
+		updateClippingPlanes();
 	}
 
 	/**
@@ -565,6 +593,7 @@
 			controlsRef.target.copy(o);
 			controlsRef.update();
 		}
+		updateClippingPlanes();
 	}
 
 	/**
@@ -606,6 +635,7 @@
 			controlsRef.target.copy(center);
 			controlsRef.update();
 		}
+		updateClippingPlanes();
 	}
 
 	/**
@@ -641,6 +671,26 @@
 			setViewCubeTransform(css);
 		},
 		{ autoInvalidate: true }
+	);
+
+	// Per-frame clipping plane update — keeps near/far correct during orbit, pan, etc.
+	useTask(
+		'clipping-update',
+		() => {
+			if (!cameraRef || !sceneBBoxValid) return;
+			const nearDist = cachedSceneBox.distanceToPoint(cameraRef.position);
+			const farDist = cameraRef.position.distanceTo(cachedSceneSphere.center) + cachedSceneSphere.radius;
+			const newNear = Math.max(nearDist * 0.1, 1e-6);
+			const newFar = Math.max(farDist * 2.0, 1.0);
+			// Only update if changed meaningfully (>1% relative change)
+			if (Math.abs(cameraRef.near - newNear) / (cameraRef.near + 1e-10) > 0.01 ||
+				Math.abs(cameraRef.far - newFar) / (cameraRef.far + 1e-10) > 0.01) {
+				cameraRef.near = newNear;
+				cameraRef.far = newFar;
+				cameraRef.updateProjectionMatrix();
+			}
+		},
+		{ autoInvalidate: false }
 	);
 
 	onMount(() => {
@@ -855,8 +905,8 @@
 		makeDefault
 		position={[0.03, 0.03, 0.03]}
 		fov={50}
-		near={0.0001}
-		far={10000}
+		near={1e-6}
+		far={100000}
 		bind:ref={cameraRef}
 	>
 		<OrbitControls
@@ -873,8 +923,8 @@
 	<T.OrthographicCamera
 		makeDefault
 		position={[0.03, 0.03, 0.03]}
-		near={0.0001}
-		far={10000}
+		near={1e-6}
+		far={100000}
 		left={-frustumHalf * aspect}
 		right={frustumHalf * aspect}
 		top={frustumHalf}
