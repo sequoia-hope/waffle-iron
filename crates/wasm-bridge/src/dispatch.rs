@@ -203,6 +203,22 @@ fn handle_message(
             }
         }
 
+        // -- Gear generation (stateless) --
+        UiToEngine::GenerateGearPreview { params } => {
+            let polyline = waffle_types::generate_gear_preview_polyline(&params);
+            Ok(EngineToUi::GearPreviewGenerated { polyline })
+        }
+
+        UiToEngine::GenerateGearProfile { params } => {
+            let result = waffle_types::generate_gear_profile(&params);
+            Ok(EngineToUi::GearProfileGenerated {
+                entities: result.entities,
+                positions: result.positions,
+                profiles: result.profiles,
+                pitch_radius: result.pitch_radius,
+            })
+        }
+
         UiToEngine::ExportStl => {
             let mesh = find_last_mesh(state);
             match mesh {

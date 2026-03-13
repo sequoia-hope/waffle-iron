@@ -160,6 +160,10 @@ export class EngineBridge {
 			case 'Error':
 				if (this._onError) this._onError(msg);
 				break;
+			case 'GearPreviewGenerated':
+			case 'GearProfileGenerated':
+				// Resolved via pending promise — no event dispatch needed
+				break;
 		}
 
 		if (pending) {

@@ -5,10 +5,10 @@
 		createGear,
 		updateGear,
 		getMobileLayout,
-		getDocumentDisplayUnit
+		getDocumentDisplayUnit,
+		getBridge
 	} from '$lib/engine/store.svelte.js';
 	import { setPreview } from '$lib/sketch/sketchToolState.svelte.js';
-	import { generateGearPreviewPolyline } from '$lib/sketch/gearGeometry.js';
 	import { log } from '$lib/engine/logger.js';
 	import { internalToDisplay, displayToInternal, parseAndConvert, formatForInput, UNITS } from '$lib/units.js';
 	import { DEFAULT_GEAR_MODULE_DISPLAY, DEFAULT_GEAR_TOOTH_COUNT, DEFAULT_GEAR_PRESSURE_ANGLE } from '$lib/config.js';
@@ -56,7 +56,8 @@
 		}
 	});
 
-	// Live preview
+	// Live preview via WASM — latest-wins pattern for rapid slider changes
+	let previewGeneration = 0;
 	$effect(() => {
 		if (!dialogState) {
 			setPreview(null);
@@ -67,14 +68,20 @@
 		const params = {
 			toothCount: N,
 			module: m,
-			pressureAngle,
+			pressureAngleDeg: pressureAngle,
 			backlash,
 			centerX: dialogState.centerX ?? 0,
 			centerY: dialogState.centerY ?? 0,
 			rotationOffset: dialogState.rotationOffset ?? 0
 		};
-		const polyline = generateGearPreviewPolyline(params);
-		setPreview({ type: 'gear-preview', data: { polyline } });
+		const gen = ++previewGeneration;
+		const bridge = getBridge();
+		if (!bridge) return;
+		bridge.send({ type: 'GenerateGearPreview', params }).then(response => {
+			if (gen === previewGeneration) {
+				setPreview({ type: 'gear-preview', data: { polyline: response.polyline } });
+			}
+		}).catch(() => { /* stale or bridge error — ignore */ });
 	});
 
 	let pitchDiameter = $derived(toothCount * module_);
@@ -96,13 +103,13 @@
 		return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
 	});
 
-	function handleApply() {
+	async function handleApply() {
 		const N = Math.max(4, Math.round(toothCount));
 		const m = Math.max(0.0001, module_);
 		const params = {
 			toothCount: N,
 			module: m,
-			pressureAngle,
+			pressureAngleDeg: pressureAngle,
 			backlash,
 			centerX: dialogState.centerX ?? 0,
 			centerY: dialogState.centerY ?? 0,
@@ -110,10 +117,10 @@
 		};
 
 		if (editingGearId != null) {
-			updateGear(editingGearId, params);
+			await updateGear(editingGearId, params);
 			log('sketch', `Gear updated: ${N} teeth, module ${m}`);
 		} else {
-			createGear(params);
+			await createGear(params);
 			log('sketch', `Gear created: ${N} teeth, module ${m}`);
 		}
 

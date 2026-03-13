@@ -3,25 +3,25 @@
   "version": 2,
   "project": {
     "name": "Assay F0006",
-    "created": "2026-03-12T03:19:12.910359408Z",
-    "modified": "2026-03-12T03:19:12.910359408Z"
+    "created": "2026-03-13T01:19:38.729881446Z",
+    "modified": "2026-03-13T01:19:38.729881446Z"
   },
   "features": {
     "features": [
       {
-        "id": "c88a1451-629b-4a11-ae16-26ad209bf820",
+        "id": "9ae0b11d-e356-4697-adfc-000c51f898c4",
         "name": "Sketch 1",
         "operation": {
           "type": "Sketch",
           "sketch": {
-            "id": "c88a1451-629b-4a11-ae16-26ad209bf820",
+            "id": "9ae0b11d-e356-4697-adfc-000c51f898c4",
             "plane": {
               "kind": {
                 "type": "Face"
               },
               "anchor": {
                 "type": "Datum",
-                "datum_id": "3b94410d-7ae8-4ae8-9f57-ea40d873c69a"
+                "datum_id": "8ce9f032-87cf-491b-99e9-968c9d086f36"
               },
               "selector": {
                 "type": "Role",
@@ -107,20 +107,20 @@
               "type": "FullyConstrained"
             },
             "solved_positions": {
-              "3": [
-                0.0002,
-                0.0002
+              "1": [
+                -0.0002,
+                -0.0002
               ],
               "2": [
                 0.0002,
                 -0.0002
               ],
-              "1": [
-                -0.0002,
-                -0.0002
-              ],
               "4": [
                 -0.0002,
+                0.0002
+              ],
+              "3": [
+                0.0002,
                 0.0002
               ]
             },
@@ -147,12 +147,12 @@
         "references": []
       },
       {
-        "id": "96c06519-e252-41b4-8c1f-2cf88056bd47",
+        "id": "ce69f906-0743-449c-b3e0-764a2903f923",
         "name": "Extrude 1",
         "operation": {
           "type": "Extrude",
           "params": {
-            "sketch_id": "c88a1451-629b-4a11-ae16-26ad209bf820",
+            "sketch_id": "9ae0b11d-e356-4697-adfc-000c51f898c4",
             "profile_index": 0,
             "depth": 0.0003,
             "direction": null,
@@ -170,19 +170,19 @@
         "references": []
       },
       {
-        "id": "3d2068dd-ade6-4799-a5b4-a15d9170cf17",
+        "id": "be86832a-aed1-455e-9b9b-fa85a10c8af1",
         "name": "Sketch 2",
         "operation": {
           "type": "Sketch",
           "sketch": {
-            "id": "3d2068dd-ade6-4799-a5b4-a15d9170cf17",
+            "id": "be86832a-aed1-455e-9b9b-fa85a10c8af1",
             "plane": {
               "kind": {
                 "type": "Face"
               },
               "anchor": {
                 "type": "Datum",
-                "datum_id": "56916e18-4588-480c-a454-695e149f6fa1"
+                "datum_id": "ae2e50e5-8280-4da2-b5bf-3eab5a9c2ce5"
               },
               "selector": {
                 "type": "Role",
@@ -268,14 +268,6 @@
               "type": "FullyConstrained"
             },
             "solved_positions": {
-              "2": [
-                0.0003,
-                -0.0001
-              ],
-              "1": [
-                -0.0003,
-                -0.0001
-              ],
               "4": [
                 -0.0003,
                 0.0001
@@ -283,6 +275,14 @@
               "3": [
                 0.0003,
                 0.0001
+              ],
+              "1": [
+                -0.0003,
+                -0.0001
+              ],
+              "2": [
+                0.0003,
+                -0.0001
               ]
             },
             "solved_profiles": [
@@ -308,12 +308,12 @@
         "references": []
       },
       {
-        "id": "1a173454-ae7e-4e92-a60d-4957f3cc57be",
+        "id": "213f7943-06fb-4f6b-9e27-969a907db26f",
         "name": "Extrude 2",
         "operation": {
           "type": "Extrude",
           "params": {
-            "sketch_id": "3d2068dd-ade6-4799-a5b4-a15d9170cf17",
+            "sketch_id": "be86832a-aed1-455e-9b9b-fa85a10c8af1",
             "profile_index": 0,
             "depth": 0.0003,
             "direction": null,

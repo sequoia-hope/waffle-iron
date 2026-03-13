@@ -11,7 +11,6 @@ import { log, getLogs, exportLogs, clearLogs } from './logger.js';
 import { showToast, getToasts, dismissToast, initLoggerToasts } from '$lib/ui/toast.svelte.js';
 import { extractProfiles } from '$lib/sketch/profiles.js';
 import { sampleBSpline } from '$lib/sketch/bspline.js';
-import { generateGearProfile, generateGearPreviewPolyline } from '$lib/sketch/gearGeometry.js';
 import { getPreview, getSnapIndicator, getSnapCandidates as _getSnapCandidates } from '$lib/sketch/sketchToolState.svelte.js';
 import { resetTool, getToolState as _getToolState, getIsDragging as _getIsDragging, getPointerDownPos as _getPointerDownPos, getStartPos as _getStartPos, getStartPointId as _getStartPointId, getToolEventLog as _getToolEventLog, clearToolEventLog as _clearToolEventLog } from '$lib/sketch/tools.js';
 import { buildSketchPlane, sketchToScreen } from '$lib/sketch/sketchCoords.js';
@@ -245,6 +244,9 @@ let autoRestoreState = $state(null);
 
 /** @type {EngineBridge | null} */
 let bridge = null;
+
+/** Get the engine bridge instance (or null if not initialized). */
+export function getBridge() { return bridge; }
 
 /**
  * Initialize the engine bridge and WASM worker.
@@ -1439,78 +1441,39 @@ export function hideGearDialog() {
 }
 
 /**
- * Create a gear from parameters. Creates all sketch entities inside a single undo action.
- * @param {object} gearParams - { toothCount, module, pressureAngle, backlash, centerX, centerY, rotationOffset }
- * @returns {number} The gear ID
+ * Create a gear from parameters. Calls WASM to generate entities, then adds them locally.
+ * @param {object} gearParams - { toothCount, module, pressureAngleDeg, backlash, centerX, centerY, rotationOffset }
+ * @returns {Promise<number>} The gear ID
  */
-export function createGear(gearParams) {
+export async function createGear(gearParams) {
 	const gearId = nextGearId++;
-	const profile = generateGearProfile(gearParams);
+
+	// Generate gear profile via WASM
+	const response = await bridge.send({ type: 'GenerateGearProfile', params: gearParams });
 
 	beginSketchAction();
 	suppressProfileExtraction = true;
 
 	const entityIds = [];
-	const pointIdMap = new Map(); // profile point index -> entity ID
 
-	// Create point entities for all profile points
-	for (let i = 0; i < profile.points.length; i++) {
-		const pt = profile.points[i];
+	// Add all entities from the Rust-generated profile directly
+	for (const entity of response.entities) {
 		const id = allocEntityId();
-		addLocalEntity({ type: 'Point', id, x: pt.x, y: pt.y, construction: false });
-		pointIdMap.set(i, id);
+		// Remap the entity's ID to our local ID space
 		entityIds.push(id);
-	}
-
-	// Create spline entities
-	for (const spline of profile.splines) {
-		const id = allocEntityId();
-		const pointIds = spline.pointIndices.map(idx => pointIdMap.get(idx));
-		addLocalEntity({
-			type: 'Spline',
-			id,
-			point_ids: pointIds,
-			construction: false
-		});
-		entityIds.push(id);
-	}
-
-	// Create line entities (tip, root, radial connections)
-	for (const line of (profile.lines || [])) {
-		const id = allocEntityId();
-		addLocalEntity({
-			type: 'Line',
-			id,
-			start_id: pointIdMap.get(line.startIndex),
-			end_id: pointIdMap.get(line.endIndex),
-			construction: false
-		});
-		entityIds.push(id);
-	}
-
-	// Create arc entities (legacy support)
-	for (const arc of (profile.arcs || [])) {
-		const id = allocEntityId();
-		addLocalEntity({
-			type: 'Arc',
-			id,
-			center_id: pointIdMap.get(arc.centerIndex),
-			start_id: pointIdMap.get(arc.startIndex),
-			end_id: pointIdMap.get(arc.endIndex),
-			construction: false
-		});
-		entityIds.push(id);
+		// We add the entity as-is from Rust (already has correct structure)
+		addLocalEntity({ ...entity, id });
 	}
 
 	// Add pitch circle as construction geometry
-	const centerPointId = pointIdMap.get(0);
-	const pitchCircleCenterId = centerPointId != null ? centerPointId : allocEntityId();
+	// Find the center point (first entity is the center point at id=1 in Rust space)
+	const pitchCircleCenterId = entityIds[0]; // center point is always first
 	const pitchCircleId = allocEntityId();
 	addLocalEntity({
 		type: 'Circle',
 		id: pitchCircleId,
 		center_id: pitchCircleCenterId,
-		radius: profile.pitchRadius,
+		radius: response.pitch_radius,
 		construction: true
 	});
 	entityIds.push(pitchCircleId);
@@ -1539,7 +1502,7 @@ export function createGear(gearParams) {
  * @param {number} gearId
  * @param {object} newParams
  */
-export function updateGear(gearId, newParams) {
+export async function updateGear(gearId, newParams) {
 	const existing = gearRegistry.get(gearId);
 	if (!existing) return;
 
@@ -1559,7 +1522,7 @@ export function updateGear(gearId, newParams) {
 	// Create new gear with updated params
 	const mergedParams = { ...existing, ...newParams };
 	delete mergedParams.entityIds;
-	const newGearId = createGear(mergedParams);
+	const newGearId = await createGear(mergedParams);
 
 	// Remap old gearId to new
 	const updatedRegistry = new Map(gearRegistry);
@@ -3439,6 +3402,7 @@ export async function loadAssayCase(id) {
 		assayBrowserState.activeCase = id;
 		assayBrowserState.activeMeta = meta;
 		await loadProject(waffleData);
+		setTimeout(() => window.dispatchEvent(new Event('waffle-fit-all')), 100);
 		showToast('info', `Assay case ${id} loaded`);
 	} catch (err) {
 		showToast('error', `Failed to load assay case: ${err.message}`);

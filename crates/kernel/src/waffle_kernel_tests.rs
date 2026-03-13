@@ -2603,10 +2603,12 @@ fn r9_cyl_cyl_subtract_45deg() {
 /// Create a simplified gear-like polygon profile with N teeth.
 /// Returns (profiles, positions) suitable for make_faces_from_profiles.
 ///
-/// The gear approximation uses straight lines (no involute curves) with
-/// N teeth at regular intervals. Each tooth has 4 vertices:
-///   root_left, tip_left, tip_right, root_right
-/// Total vertices = N * 4.
+/// NOTE: This intentionally uses a simple polygon approximation (4 vertices per tooth)
+/// rather than `waffle_types::generate_gear_profile` (real involute with ~30 vertices
+/// per tooth). The kernel boolean tests need a manageable gear-like shape to test
+/// extrusion and boolean robustness; the full involute profile is too complex for
+/// current boolean capabilities. The real involute geometry is the single source of
+/// truth for the UI via `waffle_types::gear::generate_gear_profile`.
 fn make_gear_profile(
     cx: f64,
     cy: f64,
@@ -2630,7 +2632,6 @@ fn make_gear_profile(
         let base_angle = (t as f64) * tooth_angle;
         let tooth_center_angle = base_angle + tooth_angle / 2.0;
 
-        // Root left (start of tooth gap)
         let root_left_angle = base_angle + root_half_angle;
         let rl_x = cx + dedendum_radius * root_left_angle.cos();
         let rl_y = cy + dedendum_radius * root_left_angle.sin();
@@ -2638,7 +2639,6 @@ fn make_gear_profile(
         vertex_ids.push(next_id);
         next_id += 1;
 
-        // Tip left
         let tip_left_angle = tooth_center_angle - tip_half_angle;
         let tl_x = cx + addendum_radius * tip_left_angle.cos();
         let tl_y = cy + addendum_radius * tip_left_angle.sin();
@@ -2646,7 +2646,6 @@ fn make_gear_profile(
         vertex_ids.push(next_id);
         next_id += 1;
 
-        // Tip right
         let tip_right_angle = tooth_center_angle + tip_half_angle;
         let tr_x = cx + addendum_radius * tip_right_angle.cos();
         let tr_y = cy + addendum_radius * tip_right_angle.sin();
@@ -2654,7 +2653,6 @@ fn make_gear_profile(
         vertex_ids.push(next_id);
         next_id += 1;
 
-        // Root right (end of tooth, start of gap to next tooth)
         let root_right_angle = (t as f64 + 1.0) * tooth_angle - root_half_angle;
         let rr_x = cx + dedendum_radius * root_right_angle.cos();
         let rr_y = cy + dedendum_radius * root_right_angle.sin();

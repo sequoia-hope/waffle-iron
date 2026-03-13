@@ -5,7 +5,9 @@ use uuid::Uuid;
 
 use feature_engine::types::{FeatureTree, Operation};
 use kernel::{EdgeRenderData, RenderMesh};
-use waffle_types::{ClosedProfile, GeomRef, SketchConstraint, SketchEntity, SolvedSketch};
+use waffle_types::{
+    ClosedProfile, GearParams, GeomRef, SketchConstraint, SketchEntity, SolvedSketch,
+};
 
 /// Serde helper for HashMap<u32, (f64, f64)> — JSON string keys ↔ u32.
 mod u32_key_map {
@@ -144,6 +146,16 @@ pub enum UiToEngine {
     SetDisplayUnit {
         unit: String,
     },
+
+    // -- Gear generation (stateless) --
+    /// Generate a gear preview polyline for live rendering.
+    GenerateGearPreview {
+        params: GearParams,
+    },
+    /// Generate a full gear profile with sketch entities.
+    GenerateGearProfile {
+        params: GearParams,
+    },
 }
 
 /// Messages from the engine (WASM Worker) to the UI (JavaScript main thread).
@@ -189,4 +201,16 @@ pub enum EngineToUi {
 
     /// STL export is ready (base64-encoded binary STL).
     StlExportReady { stl_data: String },
+
+    /// Gear preview polyline generated.
+    GearPreviewGenerated { polyline: Vec<(f64, f64)> },
+
+    /// Full gear profile generated with sketch entities.
+    GearProfileGenerated {
+        entities: Vec<SketchEntity>,
+        #[serde(with = "u32_key_map")]
+        positions: HashMap<u32, (f64, f64)>,
+        profiles: Vec<ClosedProfile>,
+        pitch_radius: f64,
+    },
 }

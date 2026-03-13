@@ -295,187 +295,20 @@ pub fn polygon_profile(vertices: &[(f64, f64)]) -> ProfileData {
 
 // ── Gear Profile Builder ───────────────────────────────────────────────────
 
-/// Build a gear-shaped sketch profile with involute-approximated teeth.
+/// Build a gear-shaped sketch profile with real involute geometry.
 ///
-/// Uses arcs for tooth tips and root fillets, lines for flanks.
-/// For `teeth=20, module_val=2.0, pressure_angle_deg=20.0`:
-/// - pitch_radius = 20.0, addendum_radius = 22.0, dedendum_radius = 17.5
-/// - Produces ~80 curve entities (4 per tooth: 2 lines + 1 tip arc + 1 root arc)
+/// Delegates to `waffle_types::generate_gear_profile` — the single source of truth
+/// for gear geometry (shared with the JS/WASM UI).
 ///
 /// Returns (entities, solved_positions, profiles) ready for FinishSketch.
 pub fn gear_profile(teeth: u32, module_val: f64, pressure_angle_deg: f64) -> ProfileData {
-    use std::f64::consts::PI;
-
-    let pitch_radius = (teeth as f64) * module_val / 2.0;
-    let _pressure_angle = pressure_angle_deg * PI / 180.0;
-    let addendum_radius = pitch_radius + module_val;
-    let dedendum_radius = pitch_radius - 1.25 * module_val;
-    let tooth_angle = 2.0 * PI / (teeth as f64);
-
-    // Tooth geometry: each tooth spans tooth_angle.
-    // Layout within each tooth_angle (centered on tooth):
-    //   - Root arc: from root_start to root_end (bottom of gap)
-    //   - Left flank line: root_end to tip_start (rising)
-    //   - Tip arc: tip_start to tip_end (top of tooth)
-    //   - Right flank line: tip_end to next root_start (falling)
-    //
-    // Angular allocation per tooth:
-    //   tip_half_angle = 0.2 * tooth_angle (tip arc spans 40% of tooth)
-    //   root_half_angle = 0.15 * tooth_angle (root arc spans 30% of tooth)
-    //   flanks fill the remaining 30%
-
-    let tip_half_angle = 0.20 * tooth_angle;
-    let root_half_angle = 0.15 * tooth_angle;
-
-    let mut entities = Vec::new();
-    let mut positions = HashMap::new();
-    let mut boundary_point_ids = Vec::new();
-
-    // ID allocation:
-    // Per tooth: 6 points (4 boundary + 2 arc centers), 4 curve entities
-    // Points: 1..=(teeth*6), Curves: 1000..
-    // Point layout per tooth t (0-indexed):
-    //   root_start = t*6 + 1
-    //   root_end   = t*6 + 2
-    //   tip_start  = t*6 + 3
-    //   tip_end    = t*6 + 4
-    //   root_center= t*6 + 5 (construction)
-    //   tip_center = t*6 + 6 (construction)
-    let mut next_entity_id = 1000u32;
-
-    // Pre-compute all point positions
-    for t in 0..teeth {
-        let base_angle = (t as f64) * tooth_angle;
-        let tooth_center_angle = base_angle + tooth_angle / 2.0;
-
-        let root_center_angle = base_angle;
-        let root_start_angle = root_center_angle - root_half_angle;
-        let root_end_angle = root_center_angle + root_half_angle;
-        let tip_start_angle = tooth_center_angle - tip_half_angle;
-        let tip_end_angle = tooth_center_angle + tip_half_angle;
-
-        let base_id = t * 6 + 1;
-
-        // 4 boundary points
-        let pts = [
-            (
-                base_id,
-                dedendum_radius * root_start_angle.cos(),
-                dedendum_radius * root_start_angle.sin(),
-                false,
-            ),
-            (
-                base_id + 1,
-                dedendum_radius * root_end_angle.cos(),
-                dedendum_radius * root_end_angle.sin(),
-                false,
-            ),
-            (
-                base_id + 2,
-                addendum_radius * tip_start_angle.cos(),
-                addendum_radius * tip_start_angle.sin(),
-                false,
-            ),
-            (
-                base_id + 3,
-                addendum_radius * tip_end_angle.cos(),
-                addendum_radius * tip_end_angle.sin(),
-                false,
-            ),
-            // Arc center points (construction) — midpoint of arc on the circle
-            (
-                base_id + 4,
-                dedendum_radius * root_center_angle.cos(),
-                dedendum_radius * root_center_angle.sin(),
-                true,
-            ),
-            (
-                base_id + 5,
-                addendum_radius * tooth_center_angle.cos(),
-                addendum_radius * tooth_center_angle.sin(),
-                true,
-            ),
-        ];
-
-        for (id, x, y, construction) in pts {
-            entities.push(SketchEntity::Point {
-                id,
-                x,
-                y,
-                construction,
-            });
-            positions.insert(id, (x, y));
-        }
-
-        let root_start_id = base_id;
-        let root_end_id = base_id + 1;
-        let tip_start_id = base_id + 2;
-        let tip_end_id = base_id + 3;
-        let root_center_id = base_id + 4;
-        let tip_center_id = base_id + 5;
-
-        // Winding order per tooth: root_start → root_center → root_end →
-        // tip_start → tip_center → tip_end (includes arc midpoints)
-        boundary_point_ids.push(root_start_id);
-        boundary_point_ids.push(root_center_id);
-        boundary_point_ids.push(root_end_id);
-        boundary_point_ids.push(tip_start_id);
-        boundary_point_ids.push(tip_center_id);
-        boundary_point_ids.push(tip_end_id);
-
-        // Root arc: root_start → root_end
-        entities.push(SketchEntity::Arc {
-            id: next_entity_id,
-            center_id: root_center_id,
-            start_id: root_start_id,
-            end_id: root_end_id,
-            construction: false,
-        });
-        next_entity_id += 1;
-
-        // Left flank line: root_end → tip_start
-        entities.push(SketchEntity::Line {
-            id: next_entity_id,
-            start_id: root_end_id,
-            end_id: tip_start_id,
-            construction: false,
-        });
-        next_entity_id += 1;
-
-        // Tip arc: tip_start → tip_end
-        entities.push(SketchEntity::Arc {
-            id: next_entity_id,
-            center_id: tip_center_id,
-            start_id: tip_start_id,
-            end_id: tip_end_id,
-            construction: false,
-        });
-        next_entity_id += 1;
-
-        // Right flank line: tip_end → next tooth's root_start
-        let next_root_start_id = if t == teeth - 1 {
-            1u32 // first tooth's root_start
-        } else {
-            (t + 1) * 6 + 1
-        };
-        entities.push(SketchEntity::Line {
-            id: next_entity_id,
-            start_id: tip_end_id,
-            end_id: next_root_start_id,
-            construction: false,
-        });
-        next_entity_id += 1;
-    }
-
-    let profiles = vec![ClosedProfile {
-        entity_ids: (1000..1000 + teeth * 4).collect::<Vec<u32>>(),
-        is_outer: true,
-        vertex_ids: boundary_point_ids.clone(),
-        circle: None,
-        spline_segments: vec![],
-    }];
-
-    (entities, positions, profiles)
+    let result = waffle_types::generate_gear_profile(&waffle_types::GearParams {
+        tooth_count: teeth,
+        module: module_val,
+        pressure_angle_deg,
+        ..Default::default()
+    });
+    (result.entities, result.positions, result.profiles)
 }
 
 // ── Mesh Math Utilities ─────────────────────────────────────────────────────
@@ -650,11 +483,17 @@ mod tests {
     #[test]
     fn gear_profile_entity_counts() {
         let (entities, positions, profiles) = gear_profile(20, 2.0, 20.0);
-        // 20 teeth × 4 boundary points + 20 × 2 arc centers = 120 points
-        // 20 teeth × 4 curve entities (root arc, left flank, tip arc, right flank) = 80 curves
+        // Now uses real involute geometry from waffle_types::generate_gear_profile
+        // Per tooth: 1 center (shared) + 2 root + 26 involute = 29 non-shared points
+        // Total points: 1 + 20*2 + 20*26 = 561
+        // Per tooth: 2 splines + 2 lines + 2 arcs = 6 curve entities
         let point_count = entities
             .iter()
             .filter(|e| matches!(e, SketchEntity::Point { .. }))
+            .count();
+        let spline_count = entities
+            .iter()
+            .filter(|e| matches!(e, SketchEntity::Spline { .. }))
             .count();
         let arc_count = entities
             .iter()
@@ -664,40 +503,22 @@ mod tests {
             .iter()
             .filter(|e| matches!(e, SketchEntity::Line { .. }))
             .count();
-        assert_eq!(point_count, 120, "20 teeth × 6 points each");
-        assert_eq!(arc_count, 40, "20 teeth × 2 arcs each");
-        assert_eq!(line_count, 40, "20 teeth × 2 lines each");
-        assert_eq!(entities.len(), 200, "total entities");
-        assert_eq!(positions.len(), 120, "positions for all points");
+        assert_eq!(point_count, 561, "1 center + 20*2 root + 20*26 involute");
+        assert_eq!(spline_count, 40, "2 splines per tooth × 20 teeth");
+        assert_eq!(arc_count, 40, "2 arcs per tooth × 20 teeth");
+        assert_eq!(line_count, 40, "2 lines per tooth × 20 teeth");
+        assert_eq!(positions.len(), 561, "positions for all points");
         assert_eq!(profiles.len(), 1);
         assert!(profiles[0].is_outer);
-        assert_eq!(
-            profiles[0].entity_ids.len(),
-            80,
-            "4 curve entities per tooth × 20 (root arc, left flank, tip arc, right flank)"
-        );
-        assert_eq!(
-            profiles[0].vertex_ids.len(),
-            120,
-            "6 points per tooth × 20 (4 boundary + 2 arc midpoints)"
-        );
     }
 
     #[test]
-    fn gear_profile_closes_properly() {
-        let (entities, _positions, profiles) = gear_profile(20, 2.0, 20.0);
-        // The last line entity should connect to point ID 1 (first root_start)
-        let last_line = entities
-            .iter()
-            .filter(|e| matches!(e, SketchEntity::Line { .. }))
-            .last()
-            .unwrap();
-        if let SketchEntity::Line { end_id, .. } = last_line {
-            assert_eq!(
-                *end_id, 1,
-                "last right-flank line should close to first point"
-            );
-        }
+    fn gear_profile_has_spline_segments() {
+        let (_entities, _positions, profiles) = gear_profile(8, 1.0, 20.0);
+        assert_eq!(profiles.len(), 1);
+        assert!(profiles[0].is_outer);
+        // 2 spline segments per tooth × 8 teeth
+        assert_eq!(profiles[0].spline_segments.len(), 16);
     }
 
     #[test]

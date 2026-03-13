@@ -37,7 +37,8 @@ import {
 	getMeshes,
 	geomRefEquals,
 	getSketchMode,
-	removeSketchEntities
+	removeSketchEntities,
+	getBridge
 } from '$lib/engine/store.svelte.js';
 import {
 	findLineLineIntersection,
@@ -53,7 +54,6 @@ import { detectSnaps, collectSnapCandidates } from './snap.js';
 import { profileToPolygon, pointInPolygon } from './profiles.js';
 import { setPreview, setSnapIndicator, setSnapCandidates, getPreview as _getPreview, getSnapIndicator as _getSnapIndicator, getSnapCandidates as _getSnapCandidates } from './sketchToolState.svelte.js';
 import { buildSketchPlane } from './sketchCoords.js';
-import { generateGearPreviewPolyline } from './gearGeometry.js';
 import { projectEdgeToSketch, simplifyPolyline } from './projectGeometry.js';
 import { DRAG_THRESHOLD_PX, GEAR_PREVIEW_MODULE_M, DEFAULT_GEAR_TOOTH_COUNT, DEFAULT_GEAR_PRESSURE_ANGLE } from '$lib/config.js';
 
@@ -1347,16 +1347,23 @@ function handleGearTool(eventType, x, y, screenPixelSize) {
 
 	if (eventType === 'pointermove') {
 		updateSnapCandidates(snap, screenPixelSize);
-		// Show gear preview at cursor position
+		// Show gear preview at cursor position via WASM
 		if (toolState === 'idle') {
-			const polyline = generateGearPreviewPolyline({
-				toothCount: DEFAULT_GEAR_TOOTH_COUNT,
-				module: GEAR_PREVIEW_MODULE_M,
-				pressureAngle: DEFAULT_GEAR_PRESSURE_ANGLE,
-				centerX: snap.x,
-				centerY: snap.y
-			});
-			setPreview({ type: 'gear-preview', data: { polyline } });
+			const b = getBridge();
+			if (b) {
+				b.send({
+					type: 'GenerateGearPreview',
+					params: {
+						toothCount: DEFAULT_GEAR_TOOTH_COUNT,
+						module: GEAR_PREVIEW_MODULE_M,
+						pressureAngleDeg: DEFAULT_GEAR_PRESSURE_ANGLE,
+						centerX: snap.x,
+						centerY: snap.y
+					}
+				}).then(response => {
+					setPreview({ type: 'gear-preview', data: { polyline: response.polyline } });
+				}).catch(() => {});
+			}
 		}
 		return;
 	}

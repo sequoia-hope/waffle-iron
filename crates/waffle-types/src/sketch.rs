@@ -6,7 +6,7 @@ use crate::geom_ref::GeomRef;
 
 /// Serde helper for HashMap<u32, (f64, f64)>.
 /// JSON only supports string keys, so we need custom (de)serialization.
-mod u32_key_map {
+pub(crate) mod u32_key_map {
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
     use std::collections::HashMap;
 

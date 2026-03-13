@@ -1,8 +1,13 @@
+pub mod bspline;
+pub mod gear;
 pub mod geom_ref;
 pub mod roles;
 pub mod sketch;
 pub mod topo;
 
+pub use gear::{
+    generate_gear_preview_polyline, generate_gear_profile, GearParams, GearProfileResult,
+};
 pub use geom_ref::*;
 pub use roles::*;
 pub use sketch::*;
