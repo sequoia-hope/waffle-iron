@@ -591,6 +591,89 @@ export async function initEngine() {
 				console.table(d);
 				return d;
 			},
+			viewportDebug: () => {
+				const cam = cameraObject;
+				if (!cam) return { error: 'No camera' };
+				const canvas = document.querySelector('canvas');
+				const renderer = canvas?.__threlte_renderer ?? canvas?.getContext('webgl2');
+				// Compute scene AABB from meshes
+				const min = [Infinity, Infinity, Infinity];
+				const max = [-Infinity, -Infinity, -Infinity];
+				let hasVerts = false;
+				for (const m of meshes) {
+					if (!m.vertices || m.vertices.length < 3) continue;
+					for (let i = 0; i < m.vertices.length; i += 3) {
+						hasVerts = true;
+						for (let a = 0; a < 3; a++) {
+							if (m.vertices[i + a] < min[a]) min[a] = m.vertices[i + a];
+							if (m.vertices[i + a] > max[a]) max[a] = m.vertices[i + a];
+						}
+					}
+				}
+				const sceneAABB = hasVerts ? { min, max } : null;
+				let cameraDistanceToAABB = null;
+				let isInsideAABB = false;
+				if (sceneAABB) {
+					const p = cam.position;
+					isInsideAABB = p.x >= min[0] && p.x <= max[0] &&
+						p.y >= min[1] && p.y <= max[1] &&
+						p.z >= min[2] && p.z <= max[2];
+					// Distance to AABB center
+					const cx = (min[0] + max[0]) / 2;
+					const cy = (min[1] + max[1]) / 2;
+					const cz = (min[2] + max[2]) / 2;
+					cameraDistanceToAABB = Math.sqrt(
+						(p.x - cx) ** 2 + (p.y - cy) ** 2 + (p.z - cz) ** 2
+					);
+				}
+				const isOrtho = /** @type {any} */ (cam).isOrthographicCamera;
+				const result = {
+					camera: {
+						near: cam.near,
+						far: cam.far,
+						type: isOrtho ? 'orthographic' : 'perspective',
+						fov: /** @type {any} */ (cam).fov ?? null,
+						orthoFrustum: isOrtho ? {
+							left: /** @type {any} */ (cam).left,
+							right: /** @type {any} */ (cam).right,
+							top: /** @type {any} */ (cam).top,
+							bottom: /** @type {any} */ (cam).bottom,
+						} : null,
+						position: [cam.position.x, cam.position.y, cam.position.z],
+						projectionMatrix: cam.projectionMatrix.elements.slice(),
+					},
+					sceneAABB,
+					cameraDistanceToAABB,
+					isInsideAABB,
+					rendererInfo: {
+						logDepthBuffer: true, // set in createRenderer
+					},
+				};
+				console.table(result.camera);
+				return result;
+			},
+			toggleWireframe: () => {
+				const canvas = document.querySelector('canvas');
+				if (!canvas) return;
+				const scene = cameraObject?.parent;
+				if (!scene) return;
+				let toggled = 0;
+				scene.traverse((obj) => {
+					if (/** @type {any} */ (obj).isMesh && obj.visible) {
+						const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+						for (const mat of mats) {
+							if (mat && 'wireframe' in mat) {
+								mat.wireframe = !mat.wireframe;
+								mat.needsUpdate = true;
+								toggled++;
+							}
+						}
+					}
+				});
+				console.log(`Toggled wireframe on ${toggled} materials`);
+				return toggled;
+			},
+			shaderDebug: false,
 		};
 	}
 }

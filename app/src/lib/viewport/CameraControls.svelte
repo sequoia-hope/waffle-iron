@@ -457,22 +457,46 @@
 	}
 
 	/**
-	 * Dynamically update near/far clipping planes and maxDistance based on scene extent.
-	 * Uses distance-to-AABB for near plane instead of heuristic fractions.
+	 * Refresh scene AABB and update maxDistance + ortho near/far.
+	 * Perspective uses fixed near/far with log depth buffer for precision.
+	 * Orthographic uses tight near/far computed by projecting the scene
+	 * AABB onto the camera's view direction — this prevents z-fighting
+	 * while still allowing the camera to be inside the model.
 	 * @param {boolean} [forceRefresh=false] - Force AABB recomputation.
 	 */
 	function updateClippingPlanes(forceRefresh) {
 		if (!cameraRef || !scene) return;
 		if (forceRefresh) cachedMeshCount = -1;
 		if (!refreshSceneAABB()) return;
-
-		const nearDist = cachedSceneBox.distanceToPoint(cameraRef.position);
-		const farDist = cameraRef.position.distanceTo(cachedSceneSphere.center) + cachedSceneSphere.radius;
-
-		cameraRef.near = Math.max(nearDist * 0.1, 1e-6);
-		cameraRef.far = Math.max(farDist * 2.0, 1.0);
-		cameraRef.updateProjectionMatrix();
 		maxDistance = Math.max(cachedSceneSphere.radius * 20, 2);
+
+		if (isOrtho()) {
+			// Project AABB corners onto camera view direction to find tight near/far
+			const cam = /** @type {THREE.OrthographicCamera} */ (cameraRef);
+			const viewDir = new THREE.Vector3();
+			cam.getWorldDirection(viewDir);
+			const camPos = cam.position;
+
+			// Signed distance from camera to each AABB corner along view direction
+			let minDist = Infinity;
+			let maxDist = -Infinity;
+			for (let i = 0; i < 8; i++) {
+				const x = (i & 1) ? cachedSceneBox.max.x : cachedSceneBox.min.x;
+				const y = (i & 2) ? cachedSceneBox.max.y : cachedSceneBox.min.y;
+				const z = (i & 4) ? cachedSceneBox.max.z : cachedSceneBox.min.z;
+				const d = (x - camPos.x) * viewDir.x +
+				          (y - camPos.y) * viewDir.y +
+				          (z - camPos.z) * viewDir.z;
+				if (d < minDist) minDist = d;
+				if (d > maxDist) maxDist = d;
+			}
+
+			// Add padding and ensure minimum range for numerical stability
+			const padding = Math.max((maxDist - minDist) * 0.1, 0.01);
+			cam.near = minDist - padding;
+			cam.far = maxDist + padding;
+			cam.updateProjectionMatrix();
+		}
 	}
 
 	/**
@@ -673,26 +697,6 @@
 		{ autoInvalidate: true }
 	);
 
-	// Per-frame clipping plane update — keeps near/far correct during orbit, pan, etc.
-	useTask(
-		'clipping-update',
-		() => {
-			if (!cameraRef || !sceneBBoxValid) return;
-			const nearDist = cachedSceneBox.distanceToPoint(cameraRef.position);
-			const farDist = cameraRef.position.distanceTo(cachedSceneSphere.center) + cachedSceneSphere.radius;
-			const newNear = Math.max(nearDist * 0.1, 1e-6);
-			const newFar = Math.max(farDist * 2.0, 1.0);
-			// Only update if changed meaningfully (>1% relative change)
-			if (Math.abs(cameraRef.near - newNear) / (cameraRef.near + 1e-10) > 0.01 ||
-				Math.abs(cameraRef.far - newFar) / (cameraRef.far + 1e-10) > 0.01) {
-				cameraRef.near = newNear;
-				cameraRef.far = newFar;
-				cameraRef.updateProjectionMatrix();
-			}
-		},
-		{ autoInvalidate: false }
-	);
-
 	onMount(() => {
 		// Register camera and controls refs in the store
 		if (cameraRef && controlsRef) {
@@ -799,6 +803,12 @@
 				controlsRef._quaternionPatched = true;
 			}
 
+			// Update ortho near/far on every orbit/pan so clipping stays tight
+			function onControlsChange() {
+				if (isOrtho()) updateClippingPlanes();
+			}
+			controlsRef.addEventListener('change', onControlsChange);
+
 			// Restore saved camera state after projection switch remounts the camera
 			if (savedCameraState) {
 				cameraRef.position.copy(savedCameraState.position);
@@ -812,6 +822,10 @@
 				controlsRef.update();
 				savedCameraState = null;
 			}
+
+			return () => {
+				controlsRef.removeEventListener('change', onControlsChange);
+			};
 		}
 	});
 
@@ -905,8 +919,8 @@
 		makeDefault
 		position={[0.03, 0.03, 0.03]}
 		fov={50}
-		near={1e-6}
-		far={100000}
+		near={1e-4}
+		far={1e7}
 		bind:ref={cameraRef}
 	>
 		<OrbitControls
@@ -923,8 +937,8 @@
 	<T.OrthographicCamera
 		makeDefault
 		position={[0.03, 0.03, 0.03]}
-		near={1e-6}
-		far={100000}
+		near={-1e7}
+		far={1e7}
 		left={-frustumHalf * aspect}
 		right={frustumHalf * aspect}
 		top={frustumHalf}

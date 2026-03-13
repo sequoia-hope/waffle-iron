@@ -41,6 +41,7 @@
 		removeSketchEntities,
 		getSketchSolveStatus
 	} from '$lib/engine/store.svelte.js';
+	import { showToast } from '$lib/ui/toast.svelte.js';
 	import { getApplicableConstraints } from '$lib/sketch/constraintLogic.js';
 	import { resetTool } from '$lib/sketch/tools.js';
 	import { onMount } from 'svelte';
@@ -62,6 +63,8 @@
 	let showConstraints = $state(false);
 	let showSketchTools = $state(false);
 	let showModelingTools = $state(false);
+
+	let showDebugMenu = $state(false);
 
 	// Fixed-position dropdown tracking for mobile (avoids overflow:hidden clipping)
 	let dropdownPos = $state({ top: 0, left: 0, right: null });
@@ -209,6 +212,45 @@
 		} catch (err) {
 			console.error('Finish sketch error:', err);
 		}
+	}
+
+	function handleViewportDebug() {
+		const info = window.__waffle?.viewportDebug?.();
+		if (!info) { showToast('error', 'Viewport debug not available'); return; }
+		if (info.error) { showToast('error', info.error); return; }
+		const cam = info.camera;
+		const lines = [
+			`type: ${cam.type ?? 'unknown'}`,
+			`near: ${cam.near.toFixed(4)}, far: ${cam.far.toFixed(1)}`,
+		];
+		if (cam.fov != null) lines.push(`fov: ${cam.fov}`);
+		if (cam.orthoFrustum) {
+			const f = cam.orthoFrustum;
+			lines.push(`frustum: L=${f.left.toFixed(3)} R=${f.right.toFixed(3)} T=${f.top.toFixed(3)} B=${f.bottom.toFixed(3)}`);
+		}
+		lines.push(
+			`pos: [${cam.position.map(v => v.toFixed(2)).join(', ')}]`,
+			`dist: ${info.cameraDistanceToAABB?.toFixed(2) ?? 'N/A'}`,
+			`insideAABB: ${info.isInsideAABB}`,
+		);
+		if (info.sceneAABB) {
+			const s = info.sceneAABB;
+			lines.push(`AABB min: [${s.min.map(v => v.toFixed(2)).join(', ')}]`);
+			lines.push(`AABB max: [${s.max.map(v => v.toFixed(2)).join(', ')}]`);
+		}
+		lines.push(`logDepth: ${info.rendererInfo?.logDepthBuffer ?? 'N/A'}`);
+		showToast('info', lines.join('\n'), 8000);
+	}
+
+	function handleToggleWireframeDebug() {
+		const count = window.__waffle?.toggleWireframe?.();
+		showToast('info', count != null ? `Wireframe toggled on ${count} materials` : 'No meshes found');
+	}
+
+	function handleToggleShaderDebug() {
+		if (!window.__waffle) return;
+		window.__waffle.shaderDebug = !window.__waffle.shaderDebug;
+		showToast('info', `Shader debug: ${window.__waffle.shaderDebug ? 'ON' : 'OFF'}`);
 	}
 
 	onMount(() => {
@@ -540,6 +582,16 @@
 						data-testid="toolbar-btn-assay"
 						onclick={() => { closeOverflow(); toggleAssayBrowser(); }}>Assay</button>
 					<div class="overflow-separator"></div>
+					<button class="overflow-item"
+						data-testid="toolbar-btn-debug-viewport"
+						onclick={() => { closeOverflow(); handleViewportDebug(); }}>Viewport Info</button>
+					<button class="overflow-item"
+						data-testid="toolbar-btn-debug-wireframe"
+						onclick={() => { closeOverflow(); handleToggleWireframeDebug(); }}>Toggle Wireframe</button>
+					<button class="overflow-item"
+						data-testid="toolbar-btn-debug-shader"
+						onclick={() => { closeOverflow(); handleToggleShaderDebug(); }}>Toggle Shader Debug</button>
+					<div class="overflow-separator"></div>
 					<button class="overflow-item" disabled={!ready}
 						data-testid="toolbar-btn-toggle-planes"
 						onclick={() => { closeOverflow(); toggleDatumPlanes(); }}>
@@ -583,6 +635,27 @@
 			<button class="toolbar-btn" disabled={!ready} title="Assay Browser"
 				data-testid="toolbar-btn-assay"
 				onclick={() => toggleAssayBrowser()}>Assay</button>
+			<div class="dropdown-container">
+				<button class="toolbar-btn dropdown-trigger"
+					data-testid="toolbar-btn-debug-dropdown"
+					onclick={() => { showDebugMenu = !showDebugMenu; }}
+				>Debug ▾</button>
+				{#if showDebugMenu}
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div class="dropdown-backdrop" onclick={() => showDebugMenu = false}></div>
+					<div class="dropdown-panel" data-testid="debug-dropdown">
+						<button class="overflow-item"
+							data-testid="toolbar-btn-debug-viewport"
+							onclick={() => { showDebugMenu = false; handleViewportDebug(); }}>Viewport Info</button>
+						<button class="overflow-item"
+							data-testid="toolbar-btn-debug-wireframe"
+							onclick={() => { showDebugMenu = false; handleToggleWireframeDebug(); }}>Toggle Wireframe</button>
+						<button class="overflow-item"
+							data-testid="toolbar-btn-debug-shader"
+							onclick={() => { showDebugMenu = false; handleToggleShaderDebug(); }}>Toggle Shader Debug</button>
+					</div>
+				{/if}
+			</div>
 		</div>
 	{/if}
 
