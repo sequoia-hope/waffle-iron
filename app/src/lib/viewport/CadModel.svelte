@@ -138,7 +138,8 @@
 					roughness: 0.6,
 					transparent,
 					opacity,
-					depthWrite: !transparent
+					depthWrite: !transparent,
+				side: THREE.DoubleSide
 				})
 			];
 		}
@@ -174,7 +175,8 @@
 				roughness: 0.6,
 				transparent,
 				opacity,
-				depthWrite: !transparent
+				depthWrite: !transparent,
+				side: THREE.DoubleSide
 			});
 		});
 	}
@@ -190,7 +192,8 @@
 			roughness: 0.6,
 			transparent: inSketch,
 			opacity: inSketch ? 0.2 : 1.0,
-			depthWrite: !inSketch
+			depthWrite: !inSketch,
+			side: THREE.DoubleSide
 		});
 	});
 
