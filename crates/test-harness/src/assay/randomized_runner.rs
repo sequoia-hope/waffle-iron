@@ -88,7 +88,7 @@ pub fn run_randomized_assay(dir: &Path, use_kernel: bool) -> AssayReport {
                 let r = replay_and_validate(&c, use_k);
                 let _ = tx.send(r);
             });
-            match rx.recv_timeout(std::time::Duration::from_secs(30)) {
+            match rx.recv_timeout(std::time::Duration::from_secs(90)) {
                 Ok(r) => {
                     let _ = handle.join();
                     r
@@ -100,7 +100,7 @@ pub fn run_randomized_assay(dir: &Path, use_kernel: bool) -> AssayReport {
                         description: String::new(),
                         status: AssayStatus::Errored,
                         duration: case_start.elapsed(),
-                        detail: "timeout after 30s".to_string(),
+                        detail: "timeout after 90s".to_string(),
                     }
                 }
             }

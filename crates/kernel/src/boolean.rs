@@ -2236,7 +2236,7 @@ fn build_brep_from_polygons_inner(
     // same geometric edge. Use progressively relaxing tolerance to pair these edges:
     // - Round 1: tight tolerance catches near-exact matches
     // - Round 2-3: looser tolerances catch larger floating-point deviations
-    for &tol_mult in &[100.0_f64, 500.0, 2000.0] {
+    for &tol_mult in &[100.0_f64, 500.0, 2000.0, 5000.0] {
         let remaining_unpaired: Vec<HalfEdgeIdx> = unpaired_hes
             .iter()
             .filter(|he| !paired.contains(he))

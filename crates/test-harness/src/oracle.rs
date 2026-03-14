@@ -238,14 +238,25 @@ pub fn check_watertight_mesh(mesh: &RenderMesh) -> OracleVerdict {
             format!("all {} edges paired", edge_counts.len()),
         )
     } else {
-        OracleVerdict::fail(
-            "watertight_mesh",
+        // Count by edge multiplicity for diagnostics
+        let count_1 = non_paired.iter().filter(|(_, &c)| c == 1).count();
+        let count_3plus = non_paired.iter().filter(|(_, &c)| c >= 3).count();
+        let detail = if count_3plus > 0 {
+            format!(
+                "{} unpaired edges out of {} total ({} boundary, {} non-manifold)",
+                non_paired.len(),
+                edge_counts.len(),
+                count_1,
+                count_3plus
+            )
+        } else {
             format!(
                 "{} unpaired edges out of {} total",
                 non_paired.len(),
                 edge_counts.len()
-            ),
-        )
+            )
+        };
+        OracleVerdict::fail("watertight_mesh", detail)
     }
 }
 
