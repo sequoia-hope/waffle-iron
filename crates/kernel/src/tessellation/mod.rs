@@ -292,6 +292,22 @@ pub(crate) fn tessellate_solid(
     // Only snap vertices on unpaired edges to avoid collapsing interior features.
     snap_boundary_to_oracle_grid(&mut vertices, &indices);
 
+    // The snap may have moved boundary vertices enough to flip some triangle
+    // windings relative to their stored normals. Fix those before filling.
+    fix_winding_consistency(&vertices, &normals, &mut indices);
+
+    // Remove duplicate triangles (same 3 quantized vertex positions) that can
+    // cause non-manifold edges. Must happen before boundary fill so the fill
+    // doesn't see false boundary edges from overlapping fragments.
+    remove_duplicate_triangles(&vertices, &mut indices, &mut face_ranges);
+
+    // Close near-miss boundary chains: when an open chain of boundary edges
+    // has endpoints within a few grid cells, snap them together and fill the
+    // resulting closed cycle. This fixes the last few unpaired edges from
+    // S-H divergence at face intersection boundaries.
+    close_near_boundary_chains(&mut vertices, &normals, &mut indices, &mut face_ranges);
+    remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
+
     // If the mesh signed volume is negative, the entire solid is inside-out
     // (all face normals point inward). Flip all windings and normals.
     fix_global_orientation(&mut vertices, &mut normals, &mut indices);
@@ -2117,6 +2133,86 @@ fn remove_degenerate_triangles(
     *face_ranges = new_ranges;
 }
 
+/// Remove duplicate triangles: triangles whose 3 quantized vertex positions
+/// are identical to another triangle (regardless of vertex index or winding).
+/// When duplicates exist, keep only one copy. This eliminates non-manifold
+/// edges caused by overlapping face fragments from boolean operations.
+fn remove_duplicate_triangles(
+    vertices: &[f32],
+    indices: &mut Vec<u32>,
+    face_ranges: &mut Vec<FaceRange>,
+) {
+    let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
+    let grid = (max_abs as f64 * 1e-5).max(1e-10);
+    let inv_grid = 1.0 / grid;
+
+    type QPos = (i64, i64, i64);
+    let quantize = |idx: u32| -> QPos {
+        let i = idx as usize * 3;
+        if i + 2 >= vertices.len() {
+            return (0, 0, 0);
+        }
+        (
+            (vertices[i] as f64 * inv_grid).round() as i64,
+            (vertices[i + 1] as f64 * inv_grid).round() as i64,
+            (vertices[i + 2] as f64 * inv_grid).round() as i64,
+        )
+    };
+
+    // Canonical form: rotate to minimum vertex but preserve winding direction.
+    // Two triangles are duplicates only if they have the same cyclic vertex order
+    // (same directed edges). Triangles with opposite winding are NOT duplicates.
+    let tri_key = |a: QPos, b: QPos, c: QPos| -> [QPos; 3] {
+        // Rotate so the minimum vertex is first, preserving cyclic order
+        if a <= b && a <= c {
+            [a, b, c]
+        } else if b <= a && b <= c {
+            [b, c, a]
+        } else {
+            [c, a, b]
+        }
+    };
+
+    let mut seen: HashSet<[QPos; 3]> = HashSet::new();
+    let mut new_indices = Vec::with_capacity(indices.len());
+    let mut new_ranges = Vec::new();
+
+    for range in face_ranges.iter() {
+        let range_start = new_indices.len() as u32;
+        let tri_start = range.start_index as usize / 3;
+        let tri_end = range.end_index as usize / 3;
+
+        for t in tri_start..tri_end {
+            let base = t * 3;
+            if base + 2 >= indices.len() {
+                break;
+            }
+            let qa = quantize(indices[base]);
+            let qb = quantize(indices[base + 1]);
+            let qc = quantize(indices[base + 2]);
+            let key = tri_key(qa, qb, qc);
+
+            if seen.insert(key) {
+                new_indices.push(indices[base]);
+                new_indices.push(indices[base + 1]);
+                new_indices.push(indices[base + 2]);
+            }
+        }
+
+        let range_end = new_indices.len() as u32;
+        if range_end > range_start {
+            new_ranges.push(FaceRange {
+                face_id: range.face_id,
+                start_index: range_start,
+                end_index: range_end,
+            });
+        }
+    }
+
+    *indices = new_indices;
+    *face_ranges = new_ranges;
+}
+
 /// Resolve mesh-level T-junctions.
 ///
 /// A T-junction occurs when triangle T1 has an edge A→B, while adjacent
@@ -2572,6 +2668,284 @@ fn fill_boundary_holes(
     }
 }
 
+/// Close near-miss boundary chains by snapping close chain endpoints together.
+///
+/// After all other post-processing, some boundary edges form short open chains
+/// where the start and end vertices are very close (within a few oracle grid
+/// cells) but not identical. This happens when S-H clipping produces slightly
+/// different intersection coordinates on adjacent faces.
+///
+/// This function finds such chains, snaps the endpoint vertex positions to
+/// match the start vertex, and fills the resulting closed cycle with triangles.
+fn close_near_boundary_chains(
+    vertices: &mut [f32],
+    normals: &[f32],
+    indices: &mut Vec<u32>,
+    face_ranges: &mut Vec<FaceRange>,
+) {
+    // Strategy: find small groups of unpaired boundary edges that share vertices
+    // and can be "healed" by adding fill triangles with the correct winding.
+    //
+    // For a manifold mesh, every directed half-edge A→B must have a matching B→A.
+    // Unpaired edges (A→B exists but B→A doesn't) indicate missing faces.
+    // When N unpaired edges share exactly N vertices (forming a polygon hole),
+    // we can fill it with a fan of triangles.
+
+    let n_tris = indices.len() / 3;
+    if n_tris < 4 {
+        return;
+    }
+
+    let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
+    let grid = (max_abs as f64 * 1e-5).max(1e-10);
+    let inv_grid = 1.0 / grid;
+
+    type QPos = (i64, i64, i64);
+    let quantize_pos = |idx: u32| -> QPos {
+        let i = idx as usize * 3;
+        if i + 2 >= vertices.len() {
+            return (0, 0, 0);
+        }
+        (
+            (vertices[i] as f64 * inv_grid).round() as i64,
+            (vertices[i + 1] as f64 * inv_grid).round() as i64,
+            (vertices[i + 2] as f64 * inv_grid).round() as i64,
+        )
+    };
+
+    // Build directed edge counts
+    let mut directed_counts: HashMap<(QPos, QPos), usize> = HashMap::new();
+    let mut pos_to_idx: HashMap<QPos, u32> = HashMap::new();
+
+    for t in 0..n_tris {
+        let base = t * 3;
+        let tri_indices = [indices[base], indices[base + 1], indices[base + 2]];
+        let tri_pos: Vec<QPos> = tri_indices.iter().map(|&i| quantize_pos(i)).collect();
+
+        for j in 0..3 {
+            let a = tri_pos[j];
+            let b = tri_pos[(j + 1) % 3];
+            *directed_counts.entry((a, b)).or_insert(0) += 1;
+            pos_to_idx.entry(a).or_insert(tri_indices[j]);
+        }
+    }
+
+    // Find boundary edges: directed half-edges with no matching reverse
+    let mut boundary_edges: Vec<(QPos, QPos)> = Vec::new();
+    for (&(a, b), &count) in &directed_counts {
+        if count == 1 && directed_counts.get(&(b, a)).copied().unwrap_or(0) == 0 {
+            boundary_edges.push((a, b));
+        }
+    }
+
+    if boundary_edges.is_empty() {
+        return;
+    }
+
+    // Collect boundary vertex adjacency (undirected) using union-find-like component detection
+    let mut boundary_verts: HashSet<QPos> = HashSet::new();
+    let mut vert_adj: HashMap<QPos, HashSet<QPos>> = HashMap::new();
+    for &(a, b) in &boundary_edges {
+        boundary_verts.insert(a);
+        boundary_verts.insert(b);
+        vert_adj.entry(a).or_default().insert(b);
+        vert_adj.entry(b).or_default().insert(a);
+    }
+
+    // Find connected components of boundary vertices
+    let mut visited: HashSet<QPos> = HashSet::new();
+    let mut fill_triangles: Vec<[u32; 3]> = Vec::new();
+    let boundary_edge_set: HashSet<(QPos, QPos)> = boundary_edges.iter().copied().collect();
+
+    for &start in &boundary_verts {
+        if visited.contains(&start) {
+            continue;
+        }
+
+        // BFS to find connected component
+        let mut component: Vec<QPos> = Vec::new();
+        let mut queue = vec![start];
+        while let Some(v) = queue.pop() {
+            if visited.contains(&v) {
+                continue;
+            }
+            visited.insert(v);
+            component.push(v);
+            if let Some(neighbors) = vert_adj.get(&v) {
+                for &n in neighbors {
+                    if !visited.contains(&n) {
+                        queue.push(n);
+                    }
+                }
+            }
+        }
+
+        // Only handle small components (3-8 vertices)
+        if component.len() < 3 || component.len() > 8 {
+            continue;
+        }
+
+        // Count boundary edges in this component
+        let comp_set: HashSet<QPos> = component.iter().copied().collect();
+        let comp_edges: Vec<(QPos, QPos)> = boundary_edges
+            .iter()
+            .filter(|(a, b)| comp_set.contains(a) && comp_set.contains(b))
+            .copied()
+            .collect();
+
+        // For a triangle hole (3 edges, 3 vertices): add ONE triangle
+        // that produces the 3 REVERSE edges needed to pair the boundary
+        if component.len() == 3 && comp_edges.len() == 3 {
+            let a = component[0];
+            let b = component[1];
+            let c = component[2];
+
+            // We need to find a winding (a,b,c) such that the 3 half-edges
+            // a→b, b→c, c→a are exactly the reverses of the 3 boundary edges.
+            // Try both windings and pick the one that produces more reverse matches.
+            let winding_abc = [
+                boundary_edge_set.contains(&(b, a)),
+                boundary_edge_set.contains(&(c, b)),
+                boundary_edge_set.contains(&(a, c)),
+            ];
+            let winding_acb = [
+                boundary_edge_set.contains(&(c, a)),
+                boundary_edge_set.contains(&(b, c)),
+                boundary_edge_set.contains(&(a, b)),
+            ];
+
+            let abc_matches: usize = winding_abc.iter().filter(|&&x| x).count();
+            let acb_matches: usize = winding_acb.iter().filter(|&&x| x).count();
+
+            if let (Some(&ia), Some(&ib), Some(&ic)) =
+                (pos_to_idx.get(&a), pos_to_idx.get(&b), pos_to_idx.get(&c))
+            {
+                // Check area is non-degenerate
+                let ai = ia as usize * 3;
+                let bi = ib as usize * 3;
+                let ci = ic as usize * 3;
+                if ai + 2 < vertices.len() && bi + 2 < vertices.len() && ci + 2 < vertices.len() {
+                    let ax = vertices[bi] - vertices[ai];
+                    let ay = vertices[bi + 1] - vertices[ai + 1];
+                    let az = vertices[bi + 2] - vertices[ai + 2];
+                    let bx = vertices[ci] - vertices[ai];
+                    let by = vertices[ci + 1] - vertices[ai + 1];
+                    let bz = vertices[ci + 2] - vertices[ai + 2];
+                    let cx_n = ay * bz - az * by;
+                    let cy_n = az * bx - ax * bz;
+                    let cz_n = ax * by - ay * bx;
+                    let area = (cx_n * cx_n + cy_n * cy_n + cz_n * cz_n).sqrt() / 2.0;
+                    if area >= 1e-12 {
+                        // Also consider stored vertex normals: the geometric
+                        // normal of the fill triangle should agree with the
+                        // average stored normal at its vertices.
+                        let mut use_abc = abc_matches >= acb_matches;
+
+                        // If edge matching is tied, use normals as tiebreaker.
+                        // Also verify the edge-based choice against normals.
+                        if ai + 2 < normals.len()
+                            && bi + 2 < normals.len()
+                            && ci + 2 < normals.len()
+                        {
+                            let snx = (normals[ai] + normals[bi] + normals[ci]) as f64 / 3.0;
+                            let sny =
+                                (normals[ai + 1] + normals[bi + 1] + normals[ci + 1]) as f64 / 3.0;
+                            let snz =
+                                (normals[ai + 2] + normals[bi + 2] + normals[ci + 2]) as f64 / 3.0;
+                            // cx_n, cy_n, cz_n is the geometric normal for ABC winding
+                            let dot = cx_n as f64 * snx + cy_n as f64 * sny + cz_n as f64 * snz;
+                            // If normals disagree with edge-based choice, flip
+                            if abc_matches == acb_matches {
+                                use_abc = dot >= 0.0;
+                            } else if (use_abc && dot < 0.0) || (!use_abc && dot > 0.0) {
+                                // Edge matching and normals disagree — trust normals
+                                use_abc = dot >= 0.0;
+                            }
+                        }
+
+                        if use_abc {
+                            fill_triangles.push([ia, ib, ic]);
+                        } else {
+                            fill_triangles.push([ia, ic, ib]);
+                        }
+                    }
+                }
+            }
+        }
+
+        // For a quad hole (4 edges, 4 vertices): add 2 triangles
+        if component.len() == 4 && comp_edges.len() == 4 {
+            // Order vertices by tracing through the boundary edges (undirected)
+            let mut ordered: Vec<QPos> = vec![component[0]];
+            let mut remaining: HashSet<QPos> = component[1..].iter().copied().collect();
+            while !remaining.is_empty() && ordered.len() < 4 {
+                let last = *ordered.last().unwrap();
+                if let Some(&next) = remaining.iter().find(|&&v| {
+                    boundary_edge_set.contains(&(last, v)) || boundary_edge_set.contains(&(v, last))
+                }) {
+                    ordered.push(next);
+                    remaining.remove(&next);
+                } else {
+                    break;
+                }
+            }
+
+            if ordered.len() == 4 {
+                let a = ordered[0];
+                let b = ordered[1];
+                let c = ordered[2];
+                let d = ordered[3];
+
+                // Determine winding: check which direction pairs more boundary edges
+                let abcd_matches = [
+                    boundary_edge_set.contains(&(b, a)),
+                    boundary_edge_set.contains(&(c, b)),
+                    boundary_edge_set.contains(&(d, c)),
+                    boundary_edge_set.contains(&(a, d)),
+                ]
+                .iter()
+                .filter(|&&x| x)
+                .count();
+
+                if let (Some(&ia), Some(&ib), Some(&ic), Some(&id)) = (
+                    pos_to_idx.get(&a),
+                    pos_to_idx.get(&b),
+                    pos_to_idx.get(&c),
+                    pos_to_idx.get(&d),
+                ) {
+                    if abcd_matches >= 2 {
+                        fill_triangles.push([ia, ib, ic]);
+                        fill_triangles.push([ia, ic, id]);
+                    } else {
+                        fill_triangles.push([ia, ic, ib]);
+                        fill_triangles.push([ia, id, ic]);
+                    }
+                }
+            }
+        }
+    }
+
+    if fill_triangles.is_empty() {
+        return;
+    }
+
+    let fill_start = indices.len() as u32;
+    for tri in &fill_triangles {
+        indices.push(tri[0]);
+        indices.push(tri[1]);
+        indices.push(tri[2]);
+    }
+    let fill_end = indices.len() as u32;
+
+    if fill_end > fill_start {
+        face_ranges.push(FaceRange {
+            face_id: KernelId(u64::MAX - 1), // synthetic boundary fill
+            start_index: fill_start,
+            end_index: fill_end,
+        });
+    }
+}
+
 /// Remove isolated triangles from the mesh.
 ///
 /// An isolated triangle has ALL 3 edges appearing exactly once (no other
@@ -2781,11 +3155,9 @@ fn snap_boundary_to_oracle_grid(vertices: &mut [f32], indices: &[u32]) {
         let qt = [quantize(tri[0]), quantize(tri[1]), quantize(tri[2])];
         for e in 0..3 {
             let edge = make_edge(qt[e], qt[(e + 1) % 3]);
-            if edge.0 != edge.1 {
-                if edge_counts.get(&edge).copied().unwrap_or(0) != 2 {
-                    is_boundary.insert(tri[e] as usize);
-                    is_boundary.insert(tri[(e + 1) % 3] as usize);
-                }
+            if edge.0 != edge.1 && edge_counts.get(&edge).copied().unwrap_or(0) != 2 {
+                is_boundary.insert(tri[e] as usize);
+                is_boundary.insert(tri[(e + 1) % 3] as usize);
             }
         }
     }
