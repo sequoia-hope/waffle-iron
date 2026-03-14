@@ -209,6 +209,7 @@ fn collect_face_vertices(arena: &TopoArena, face_idx: FaceIdx) -> Vec<[f64; 3]> 
 ///
 /// For cylindrical faces (2 seam vertices defining the Z range), generates N
 /// side quads. For planar caps (1 seam vertex), generates an N-gon circle.
+#[allow(unreachable_patterns)]
 fn generate_analytic_face_polys(
     geom: &SurfaceGeom,
     loop_verts: &[[f64; 3]],
@@ -609,8 +610,23 @@ fn extract_face_polys_general(solid: &WaffleSolid) -> Vec<FacePoly> {
 
 // ── Sutherland-Hodgman polygon clipping ─────────────────────────────────
 
+/// Snap a coordinate to a grid to eliminate floating-point divergence.
+///
+/// When adjacent faces share a geometric edge and are clipped by the same
+/// plane, the intersection coordinates differ by ~1e-15 due to floating-point
+/// non-associativity. Snapping to a fine grid collapses this divergence so
+/// that both faces get identical intersection coordinates.
+#[inline]
+fn snap_to_grid(val: f64, inv_grid: f64) -> f64 {
+    (val * inv_grid).round() / inv_grid
+}
+
 /// Clip a polygon to keep only the portion on the INWARD side of a plane.
 /// Points where `dot(p - plane_point, inward_normal) >= -tau` are kept.
+///
+/// Intersection points are snapped to a fine grid (tau_weld-scale) to ensure
+/// that adjacent faces sharing a geometric edge get identical intersection
+/// coordinates when clipped by the same plane.
 fn clip_polygon_by_plane(
     verts: &[[f64; 3]],
     plane_point: [f64; 3],
@@ -624,6 +640,17 @@ fn clip_polygon_by_plane(
     let mut output = Vec::with_capacity(verts.len() + 1);
 
     let dist = |p: [f64; 3]| -> f64 { v3_dot(v3_sub(p, plane_point), inward_normal) };
+
+    // Snap grid for intersection points: fine enough to be geometrically
+    // insignificant, coarse enough to collapse ~1e-15 floating-point divergence.
+    // Use tau * 1e-4 — for unit-scale models this is ~1e-13, well below any
+    // geometric significance but well above machine epsilon (~2.2e-16).
+    let snap_grid = tau * 1e-4;
+    let inv_grid = if snap_grid > 0.0 {
+        1.0 / snap_grid
+    } else {
+        0.0
+    };
 
     let n = verts.len();
     for i in 0..n {
@@ -640,13 +667,23 @@ fn clip_polygon_by_plane(
             if !next_inside {
                 // Crossing from inside to outside: emit intersection
                 let t = d_current / (d_current - d_next);
-                let intersection = v3_add(current, v3_scale(v3_sub(next, current), t));
+                let mut intersection = v3_add(current, v3_scale(v3_sub(next, current), t));
+                if inv_grid > 0.0 {
+                    intersection[0] = snap_to_grid(intersection[0], inv_grid);
+                    intersection[1] = snap_to_grid(intersection[1], inv_grid);
+                    intersection[2] = snap_to_grid(intersection[2], inv_grid);
+                }
                 output.push(intersection);
             }
         } else if next_inside {
             // Crossing from outside to inside: emit intersection then next
             let t = d_current / (d_current - d_next);
-            let intersection = v3_add(current, v3_scale(v3_sub(next, current), t));
+            let mut intersection = v3_add(current, v3_scale(v3_sub(next, current), t));
+            if inv_grid > 0.0 {
+                intersection[0] = snap_to_grid(intersection[0], inv_grid);
+                intersection[1] = snap_to_grid(intersection[1], inv_grid);
+                intersection[2] = snap_to_grid(intersection[2], inv_grid);
+            }
             output.push(intersection);
         }
     }
@@ -1534,6 +1571,84 @@ pub(crate) fn boolean_op_tolerant(
 /// this function maps them to the same canonical representative vertex.
 ///
 /// Only vertices within `merge_tol` of an existing canonical vertex are merged.
+/// Remove near-duplicate face polygons from the boolean result.
+///
+/// When face classification produces overlapping fragments (e.g., a face
+/// partially inside the opposing solid is emitted twice from different
+/// classification paths), the resulting mesh has non-manifold edges.
+/// This function identifies fragments with nearly identical centroids,
+/// normals, and vertex counts, and keeps only one copy.
+fn dedup_face_polys(polys: &[FacePoly], tau_weld: f64) -> Vec<FacePoly> {
+    if polys.len() < 2 {
+        return polys.to_vec();
+    }
+
+    let tol_sq = (tau_weld * 10.0) * (tau_weld * 10.0);
+
+    let centroid = |p: &FacePoly| -> [f64; 3] {
+        let n = p.verts.len() as f64;
+        if n == 0.0 {
+            return [0.0; 3];
+        }
+        let mut c = [0.0; 3];
+        for v in &p.verts {
+            c[0] += v[0];
+            c[1] += v[1];
+            c[2] += v[2];
+        }
+        c[0] /= n;
+        c[1] /= n;
+        c[2] /= n;
+        c
+    };
+
+    let mut keep = vec![true; polys.len()];
+
+    for i in 0..polys.len() {
+        if !keep[i] {
+            continue;
+        }
+        let ci = centroid(&polys[i]);
+        let ni = polys[i].normal;
+        let ai = polygon_area_3d(&polys[i].verts);
+
+        for j in (i + 1)..polys.len() {
+            if !keep[j] {
+                continue;
+            }
+            // Same vertex count?
+            if polys[i].verts.len() != polys[j].verts.len() {
+                continue;
+            }
+            // Nearly parallel normals?
+            let dot = v3_dot(ni, polys[j].normal);
+            if dot.abs() < 0.99 {
+                continue;
+            }
+            // Nearly same area?
+            let aj = polygon_area_3d(&polys[j].verts);
+            if ai > 0.0 && (aj - ai).abs() / ai > 0.01 {
+                continue;
+            }
+            // Nearly same centroid?
+            let cj = centroid(&polys[j]);
+            let dx = ci[0] - cj[0];
+            let dy = ci[1] - cj[1];
+            let dz = ci[2] - cj[2];
+            if dx * dx + dy * dy + dz * dz < tol_sq {
+                keep[j] = false;
+            }
+        }
+    }
+
+    polys
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| keep[*i])
+        .map(|(_, p)| p.clone())
+        .collect()
+}
+
 /// This avoids moving isolated vertices and preserves original face geometry.
 #[allow(dead_code)]
 fn merge_nearby_vertices(polys: &[FacePoly], tau_weld: f64) -> Vec<FacePoly> {
@@ -1547,7 +1662,7 @@ fn merge_nearby_vertices(polys: &[FacePoly], tau_weld: f64) -> Vec<FacePoly> {
         .map(|c| c.abs())
         .fold(0.0_f64, f64::max);
     let oracle_grid = (max_coord * 1e-5).max(1e-10);
-    let merge_tol = (oracle_grid * 2.0).max(tau_weld * 50.0);
+    let merge_tol = (oracle_grid * 2.0).max(tau_weld * 10.0);
     let inv_tau = 1.0 / merge_tol;
     let weld_dist_sq = merge_tol * merge_tol;
 
@@ -2153,8 +2268,8 @@ fn build_brep_from_polygons_inner(
     // Some edges fail to pair when same-position vertices got different indices
     // due to quantization grid boundary effects.
     {
-        let mut pos_directed_he: HashMap<((i64, i64, i64), (i64, i64, i64)), Vec<HalfEdgeIdx>> =
-            HashMap::new();
+        type QEdge = ((i64, i64, i64), (i64, i64, i64));
+        let mut pos_directed_he: HashMap<QEdge, Vec<HalfEdgeIdx>> = HashMap::new();
 
         // Build position-based map for unpaired half-edges only
         for &he_idx in &unpaired_hes {
@@ -2479,7 +2594,7 @@ fn polygon_approx_boolean(
     // Cylinder (34 faces) + box (6 faces) = 40 → OK.
     // Cylinder (34) + gear (many faces) = 60+ → can be very slow.
     let total_faces = a_faces.len() + b_faces.len();
-    if total_faces > 1500 {
+    if total_faces > 5000 {
         return Err(KernelError::NotSupported {
             operation: format!(
                 "polygon approx boolean: {} total faces exceeds limit",
@@ -2524,10 +2639,10 @@ fn boolean_op_from_polys_inner(
     // Guard against pathological face counts: O(n*m) classification becomes
     // too expensive when both solids have many faces (e.g., revolve(gear) × gear).
     let total_faces = a_faces.len() + b_faces.len();
-    if total_faces > 1500 {
+    if total_faces > 5000 {
         return Err(KernelError::NotSupported {
             operation: format!(
-                "polygon boolean: {} total faces exceeds limit (1500)",
+                "polygon boolean: {} total faces exceeds limit (5000)",
                 total_faces
             ),
         });
@@ -2538,9 +2653,46 @@ fn boolean_op_from_polys_inner(
     let b_convex = b_faces.len() <= 12;
     let a_convex = a_faces.len() <= 12;
 
+    // Compute AABBs for early-out: faces entirely outside the opposing
+    // solid's bounding box are classified as Outside without expensive
+    // S-H clipping or ray casting.
+    let compute_aabb = |faces: &[FacePoly]| -> ([f64; 3], [f64; 3]) {
+        let mut mn = [f64::INFINITY; 3];
+        let mut mx = [f64::NEG_INFINITY; 3];
+        for f in faces {
+            for v in &f.verts {
+                for j in 0..3 {
+                    mn[j] = mn[j].min(v[j]);
+                    mx[j] = mx[j].max(v[j]);
+                }
+            }
+        }
+        (mn, mx)
+    };
+    let (a_min, a_max) = compute_aabb(&a_faces);
+    let (b_min, b_max) = compute_aabb(&b_faces);
+
+    let face_outside_aabb = |face: &FacePoly, aabb_min: &[f64; 3], aabb_max: &[f64; 3]| -> bool {
+        // Face is outside AABB if ALL its vertices are outside on the same side
+        // in any axis.
+        for axis in 0..3 {
+            if face.verts.iter().all(|v| v[axis] < aabb_min[axis] - tau) {
+                return true;
+            }
+            if face.verts.iter().all(|v| v[axis] > aabb_max[axis] + tau) {
+                return true;
+            }
+        }
+        false
+    };
+
     let a_classified: Vec<(FacePoly, FaceClass)> = a_faces
         .iter()
         .map(|f| {
+            // AABB early-out
+            if face_outside_aabb(f, &b_min, &b_max) {
+                return (f.clone(), FaceClass::Outside);
+            }
             let class = if b_convex {
                 classify_face(f, &b_faces, tau)
             } else {
@@ -2553,6 +2705,10 @@ fn boolean_op_from_polys_inner(
     let b_classified: Vec<(FacePoly, FaceClass)> = b_faces
         .iter()
         .map(|f| {
+            // AABB early-out
+            if face_outside_aabb(f, &a_min, &a_max) {
+                return (f.clone(), FaceClass::Outside);
+            }
             let class = if a_convex {
                 classify_face(f, &a_faces, tau)
             } else {
@@ -2593,6 +2749,10 @@ fn boolean_op_from_polys_inner(
             cached_face_polys: None,
         });
     }
+
+    // Remove near-duplicate face polygons: fragments with nearly identical
+    // centroids and normals that arise from classification edge cases.
+    let result_polys = dedup_face_polys(&result_polys, tau_weld);
 
     // Merge nearby vertices so independently-clipped adjacent faces share
     // identical intersection coordinates, then resolve T-junctions where one

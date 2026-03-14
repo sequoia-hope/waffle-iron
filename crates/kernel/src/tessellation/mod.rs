@@ -296,9 +296,8 @@ pub(crate) fn tessellate_solid(
     // windings relative to their stored normals. Fix those before filling.
     fix_winding_consistency(&vertices, &normals, &mut indices);
 
-    // Remove duplicate triangles (same 3 quantized vertex positions) that can
-    // cause non-manifold edges. Must happen before boundary fill so the fill
-    // doesn't see false boundary edges from overlapping fragments.
+    // Remove exact duplicate triangles (same winding, same quantized positions)
+    // that can cause non-manifold edges.
     remove_duplicate_triangles(&vertices, &mut indices, &mut face_ranges);
 
     // Close near-miss boundary chains: when an open chain of boundary edges
@@ -306,6 +305,9 @@ pub(crate) fn tessellate_solid(
     // resulting closed cycle. This fixes the last few unpaired edges from
     // S-H divergence at face intersection boundaries.
     close_near_boundary_chains(&mut vertices, &normals, &mut indices, &mut face_ranges);
+    // reduce_non_manifold_edges disabled: can remove correct triangles in
+    // small meshes, causing winding regressions (e.g., R0035).
+    // reduce_non_manifold_edges(&vertices, &mut indices, &mut face_ranges);
     remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
 
     // If the mesh signed volume is negative, the entire solid is inside-out
@@ -1971,13 +1973,13 @@ fn weld_boundary_vertices(vertices: &mut [f32], indices: &[u32]) {
     let weld_dist_sq = (grid * 2.5) * (grid * 2.5);
 
     // O(N²) pairwise check — N is small (boundary vertices only)
-    for i in 0..n {
-        let ai = boundary_verts[i] as usize;
+    for (i, &bv_i) in boundary_verts.iter().enumerate() {
+        let ai = bv_i as usize;
         let ax = vertices[ai * 3] as f64;
         let ay = vertices[ai * 3 + 1] as f64;
         let az = vertices[ai * 3 + 2] as f64;
-        for j in (i + 1)..n {
-            let bj = boundary_verts[j] as usize;
+        for (j, &bv_j) in boundary_verts.iter().enumerate().skip(i + 1) {
+            let bj = bv_j as usize;
             let bx = vertices[bj * 3] as f64;
             let by = vertices[bj * 3 + 1] as f64;
             let bz = vertices[bj * 3 + 2] as f64;
@@ -1994,9 +1996,9 @@ fn weld_boundary_vertices(vertices: &mut [f32], indices: &[u32]) {
     let mut cluster_sum: HashMap<usize, [f64; 3]> = HashMap::new();
     let mut cluster_count: HashMap<usize, usize> = HashMap::new();
 
-    for i in 0..n {
+    for (i, &bv_i) in boundary_verts.iter().enumerate() {
         let root = find(&mut parent, i);
-        let vi = boundary_verts[i] as usize;
+        let vi = bv_i as usize;
         let entry = cluster_sum.entry(root).or_insert([0.0; 3]);
         entry[0] += vertices[vi * 3] as f64;
         entry[1] += vertices[vi * 3 + 1] as f64;
@@ -2005,14 +2007,14 @@ fn weld_boundary_vertices(vertices: &mut [f32], indices: &[u32]) {
     }
 
     // Only weld clusters with >1 vertex (actual merges)
-    for i in 0..n {
+    for (i, &bv_i) in boundary_verts.iter().enumerate() {
         let root = find(&mut parent, i);
         let count = cluster_count[&root];
         if count <= 1 {
             continue;
         }
         let sum = cluster_sum[&root];
-        let vi = boundary_verts[i] as usize;
+        let vi = bv_i as usize;
         vertices[vi * 3] = (sum[0] / count as f64) as f32;
         vertices[vi * 3 + 1] = (sum[1] / count as f64) as f32;
         vertices[vi * 3 + 2] = (sum[2] / count as f64) as f32;
@@ -2070,6 +2072,137 @@ fn fix_global_orientation(vertices: &mut [f32], normals: &mut [f32], indices: &m
 /// Remove degenerate (zero-area) triangles from the mesh and compact face ranges.
 /// Degenerate triangles arise from ear-clipping on very thin boolean fragments
 /// or collinear vertices in polygon faces. Removing them prevents oracle failures.
+/// Reduce non-manifold edges by removing redundant triangles.
+///
+/// For each triangle, check if ALL 3 of its directed edges appear at least
+/// twice and if all 3 reverse edges also exist. If so, this triangle is
+/// fully redundant — removing it still leaves at least one copy of each
+/// directed edge AND its reverse, preserving mesh connectivity.
+///
+/// This conservatively eliminates overlapping face fragments from the boolean
+/// without breaking edge pairing.
+#[allow(dead_code)]
+fn reduce_non_manifold_edges(
+    vertices: &[f32],
+    indices: &mut Vec<u32>,
+    face_ranges: &mut Vec<FaceRange>,
+) {
+    let n_tris = indices.len() / 3;
+    if n_tris < 2 {
+        return;
+    }
+
+    let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
+    let grid = (max_abs as f64 * 1e-5).max(1e-10);
+    let inv_grid = 1.0 / grid;
+
+    type QPos = (i64, i64, i64);
+    let quantize_pos = |idx: u32| -> QPos {
+        let i = idx as usize * 3;
+        if i + 2 >= vertices.len() {
+            return (0, 0, 0);
+        }
+        (
+            (vertices[i] as f64 * inv_grid).round() as i64,
+            (vertices[i + 1] as f64 * inv_grid).round() as i64,
+            (vertices[i + 2] as f64 * inv_grid).round() as i64,
+        )
+    };
+
+    // Count directed edges across all triangles
+    let mut directed_counts: HashMap<(QPos, QPos), usize> = HashMap::new();
+    for t in 0..n_tris {
+        let base = t * 3;
+        let tri = [
+            quantize_pos(indices[base]),
+            quantize_pos(indices[base + 1]),
+            quantize_pos(indices[base + 2]),
+        ];
+        for j in 0..3 {
+            *directed_counts
+                .entry((tri[j], tri[(j + 1) % 3]))
+                .or_insert(0) += 1;
+        }
+    }
+
+    // Find triangles to remove: all 3 directed edges appear 2+ times AND
+    // all 3 reverse edges exist.
+    let mut remove = vec![false; n_tris];
+    for (t, should_remove) in remove.iter_mut().enumerate().take(n_tris) {
+        let base = t * 3;
+        let tri = [
+            quantize_pos(indices[base]),
+            quantize_pos(indices[base + 1]),
+            quantize_pos(indices[base + 2]),
+        ];
+
+        let mut all_dup = true;
+        let mut all_rev = true;
+        for j in 0..3 {
+            let fwd = (tri[j], tri[(j + 1) % 3]);
+            let rev = (tri[(j + 1) % 3], tri[j]);
+            if directed_counts.get(&fwd).copied().unwrap_or(0) < 2 {
+                all_dup = false;
+                break;
+            }
+            if directed_counts.get(&rev).copied().unwrap_or(0) < 1 {
+                all_rev = false;
+                break;
+            }
+        }
+
+        if all_dup && all_rev {
+            // Mark for removal and decrement edge counts
+            *should_remove = true;
+            for j in 0..3 {
+                let fwd = (tri[j], tri[(j + 1) % 3]);
+                if let Some(c) = directed_counts.get_mut(&fwd) {
+                    *c -= 1;
+                }
+            }
+        }
+    }
+
+    let removed: usize = remove.iter().filter(|&&r| r).count();
+    if removed == 0 {
+        return;
+    }
+
+    // Rebuild indices and face_ranges excluding removed triangles
+    let mut new_indices = Vec::with_capacity(indices.len());
+    let mut new_ranges = Vec::new();
+
+    for range in face_ranges.iter() {
+        let start = range.start_index as usize;
+        let end = range.end_index as usize;
+        let range_start = new_indices.len() as u32;
+        let range_tris = (end - start) / 3;
+        let tri_offset = start / 3;
+
+        for t in 0..range_tris {
+            let global_t = tri_offset + t;
+            if global_t < n_tris && !remove[global_t] {
+                let base = global_t * 3;
+                new_indices.push(indices[base]);
+                new_indices.push(indices[base + 1]);
+                new_indices.push(indices[base + 2]);
+            }
+        }
+
+        let range_end = new_indices.len() as u32;
+        if range_end > range_start {
+            new_ranges.push(FaceRange {
+                face_id: range.face_id,
+                start_index: range_start,
+                end_index: range_end,
+            });
+        }
+    }
+
+    *indices = new_indices;
+    *face_ranges = new_ranges;
+}
+
 fn remove_degenerate_triangles(
     vertices: &[f32],
     indices: &mut Vec<u32>,
@@ -2133,15 +2266,22 @@ fn remove_degenerate_triangles(
     *face_ranges = new_ranges;
 }
 
-/// Remove duplicate triangles: triangles whose 3 quantized vertex positions
-/// are identical to another triangle (regardless of vertex index or winding).
-/// When duplicates exist, keep only one copy. This eliminates non-manifold
-/// edges caused by overlapping face fragments from boolean operations.
+/// Remove exact duplicate triangles (same winding, same quantized positions).
+///
+/// When the boolean produces duplicate face fragments (same 3 vertices in
+/// same cyclic order), keep only one copy. This is conservative — it only
+/// removes triangles that are exact duplicates, not triangles that merely
+/// share edges.
 fn remove_duplicate_triangles(
     vertices: &[f32],
     indices: &mut Vec<u32>,
     face_ranges: &mut Vec<FaceRange>,
 ) {
+    let n_tris = indices.len() / 3;
+    if n_tris < 2 {
+        return;
+    }
+
     let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
     let grid = (max_abs as f64 * 1e-5).max(1e-10);
     let inv_grid = 1.0 / grid;
@@ -2159,11 +2299,8 @@ fn remove_duplicate_triangles(
         )
     };
 
-    // Canonical form: rotate to minimum vertex but preserve winding direction.
-    // Two triangles are duplicates only if they have the same cyclic vertex order
-    // (same directed edges). Triangles with opposite winding are NOT duplicates.
+    // Canonical form: rotate to minimum vertex, preserving winding direction.
     let tri_key = |a: QPos, b: QPos, c: QPos| -> [QPos; 3] {
-        // Rotate so the minimum vertex is first, preserving cyclic order
         if a <= b && a <= c {
             [a, b, c]
         } else if b <= a && b <= c {
@@ -2873,12 +3010,14 @@ fn close_near_boundary_chains(
             }
         }
 
-        // For a quad hole (4 edges, 4 vertices): add 2 triangles
-        if component.len() == 4 && comp_edges.len() == 4 {
+        // For a polygon hole (4+ edges, same number of vertices): trace the
+        // boundary loop, determine winding, and fan-triangulate.
+        if component.len() >= 4 && component.len() <= 16 && comp_edges.len() == component.len() {
             // Order vertices by tracing through the boundary edges (undirected)
+            let target_len = component.len();
             let mut ordered: Vec<QPos> = vec![component[0]];
             let mut remaining: HashSet<QPos> = component[1..].iter().copied().collect();
-            while !remaining.is_empty() && ordered.len() < 4 {
+            while !remaining.is_empty() && ordered.len() < target_len {
                 let last = *ordered.last().unwrap();
                 if let Some(&next) = remaining.iter().find(|&&v| {
                     boundary_edge_set.contains(&(last, v)) || boundary_edge_set.contains(&(v, last))
@@ -2890,35 +3029,40 @@ fn close_near_boundary_chains(
                 }
             }
 
-            if ordered.len() == 4 {
-                let a = ordered[0];
-                let b = ordered[1];
-                let c = ordered[2];
-                let d = ordered[3];
+            if ordered.len() == target_len {
+                // Determine winding: count how many consecutive pairs (ordered[i], ordered[i+1])
+                // match the REVERSE of a boundary edge (meaning our fill polygon's edge would
+                // pair the boundary edge).
+                let fwd_matches: usize = (0..target_len)
+                    .filter(|&i| {
+                        let a = ordered[i];
+                        let b = ordered[(i + 1) % target_len];
+                        boundary_edge_set.contains(&(b, a))
+                    })
+                    .count();
+                let rev_matches: usize = (0..target_len)
+                    .filter(|&i| {
+                        let a = ordered[i];
+                        let b = ordered[(i + 1) % target_len];
+                        boundary_edge_set.contains(&(a, b))
+                    })
+                    .count();
 
-                // Determine winding: check which direction pairs more boundary edges
-                let abcd_matches = [
-                    boundary_edge_set.contains(&(b, a)),
-                    boundary_edge_set.contains(&(c, b)),
-                    boundary_edge_set.contains(&(d, c)),
-                    boundary_edge_set.contains(&(a, d)),
-                ]
-                .iter()
-                .filter(|&&x| x)
-                .count();
+                let reverse_winding = rev_matches > fwd_matches;
 
-                if let (Some(&ia), Some(&ib), Some(&ic), Some(&id)) = (
-                    pos_to_idx.get(&a),
-                    pos_to_idx.get(&b),
-                    pos_to_idx.get(&c),
-                    pos_to_idx.get(&d),
-                ) {
-                    if abcd_matches >= 2 {
-                        fill_triangles.push([ia, ib, ic]);
-                        fill_triangles.push([ia, ic, id]);
-                    } else {
-                        fill_triangles.push([ia, ic, ib]);
-                        fill_triangles.push([ia, id, ic]);
+                // Resolve vertex indices
+                let vert_indices: Vec<Option<u32>> =
+                    ordered.iter().map(|q| pos_to_idx.get(q).copied()).collect();
+                if vert_indices.iter().all(|v| v.is_some()) {
+                    let vidx: Vec<u32> = vert_indices.into_iter().map(|v| v.unwrap()).collect();
+
+                    // Fan triangulation from vertex 0
+                    for j in 1..(target_len - 1) {
+                        if reverse_winding {
+                            fill_triangles.push([vidx[0], vidx[j + 1], vidx[j]]);
+                        } else {
+                            fill_triangles.push([vidx[0], vidx[j], vidx[j + 1]]);
+                        }
                     }
                 }
             }
@@ -3005,7 +3149,7 @@ fn remove_isolated_triangles(
 
     // Mark triangles where ALL 3 edges are unpaired (count != 2)
     let mut keep = vec![true; n_tris];
-    for t in 0..n_tris {
+    for (t, should_keep) in keep.iter_mut().enumerate().take(n_tris) {
         let base = t * 3;
         let va = quantize(indices[base]);
         let vb = quantize(indices[base + 1]);
@@ -3014,7 +3158,7 @@ fn remove_isolated_triangles(
         let e2 = edge_counts.get(&make_edge(vb, vc)).copied().unwrap_or(0);
         let e3 = edge_counts.get(&make_edge(vc, va)).copied().unwrap_or(0);
         if e1 != 2 && e2 != 2 && e3 != 2 {
-            keep[t] = false;
+            *should_keep = false;
         }
     }
 
