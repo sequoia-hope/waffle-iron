@@ -49,6 +49,9 @@ fn randomized_assay_full_kernel() {
     let report = run_randomized_assay(dir, true);
     let catalog = build_catalog(dir, &report);
 
+    // Write results.json so AssayBrowser GUI stays up-to-date
+    write_results_json(dir, &catalog);
+
     // Print summary
     println!("\n{}", catalog_summary(&report, &catalog));
 
