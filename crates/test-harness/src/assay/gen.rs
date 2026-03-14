@@ -100,6 +100,8 @@ pub struct OracleExpectations {
     /// Maximum bounding box extent (diagonal) in meters.
     pub max_bbox_extent: f64,
     /// Whether the final solid should have positive volume.
+    /// Vestigial: always true. Volume positivity is now checked unconditionally
+    /// by `check_positive_signed_volume()` in `run_all_mesh_checks()`.
     pub expect_positive_volume: bool,
     /// Per-step volume monotonicity: "increase" for boss, "decrease" for cut.
     pub volume_monotonicity: Vec<String>,

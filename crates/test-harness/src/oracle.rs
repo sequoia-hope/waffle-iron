@@ -799,6 +799,88 @@ pub fn check_aabb_collapse(mesh: &RenderMesh) -> OracleVerdict {
     }
 }
 
+// ── Assay Oracles ─────────────────────────────────────────────────────────
+
+/// Check that the mesh has at least the expected minimum number of triangles
+/// based on operation and profile types.
+///
+/// Minimum triangle counts by profile:
+/// - rectangle: 12 (6 faces × 2 tris)
+/// - circle: 32 (polygon approximation needs many tris)
+/// - gear: 96 (many teeth → many faces)
+///
+/// Revolve multiplier: 3× (rotational sweep adds lateral faces).
+/// Takes the max across all operations (booleans don't reduce complexity).
+pub fn check_minimum_triangle_count(
+    mesh: &RenderMesh,
+    operations: &[(String, String)], // (kind, profile_type) pairs
+) -> OracleVerdict {
+    let tri_count = mesh.indices.len() / 3;
+
+    let expected_min: usize = operations
+        .iter()
+        .map(|(kind, profile)| {
+            let base = match profile.as_str() {
+                "rectangle" => 12,
+                "circle" => 32,
+                "gear" => 96,
+                _ => 12,
+            };
+            let multiplier = if kind == "revolve" { 3 } else { 1 };
+            base * multiplier
+        })
+        .max()
+        .unwrap_or(12);
+
+    if tri_count >= expected_min {
+        OracleVerdict::pass(
+            "minimum_triangle_count",
+            format!("{} triangles >= minimum {}", tri_count, expected_min),
+        )
+    } else {
+        OracleVerdict::fail(
+            "minimum_triangle_count",
+            format!(
+                "{} triangles < expected minimum {} for operations {:?}",
+                tri_count, expected_min, operations
+            ),
+        )
+    }
+}
+
+/// Check that the mesh volume is within reasonable magnitude bounds given the scale.
+///
+/// Uses very loose bounds (8 orders of magnitude) to only catch extreme degeneration:
+/// - min_vol = scale³ × 1e-8
+/// - max_vol = scale³ × 1e8
+///
+/// This won't false-positive on unusual aspect ratios but catches things like
+/// a volume of 1e-20 for a 100m-scale object.
+pub fn check_volume_magnitude(mesh: &RenderMesh, scale: f64) -> OracleVerdict {
+    let vol = crate::helpers::mesh_signed_volume(mesh).abs();
+    let scale_cubed = scale * scale * scale;
+    let min_vol = scale_cubed * 1e-8;
+    let max_vol = scale_cubed * 1e8;
+
+    if vol >= min_vol && vol <= max_vol {
+        OracleVerdict::pass(
+            "volume_magnitude",
+            format!(
+                "volume {:.6e} within [{:.6e}, {:.6e}]",
+                vol, min_vol, max_vol
+            ),
+        )
+    } else {
+        OracleVerdict::fail(
+            "volume_magnitude",
+            format!(
+                "volume {:.6e} outside [{:.6e}, {:.6e}] for scale {:.6e}",
+                vol, min_vol, max_vol, scale
+            ),
+        )
+    }
+}
+
 // ── Composite ───────────────────────────────────────────────────────────────
 
 /// Run all applicable checks on a solid + mesh + op_result combination.
@@ -1050,6 +1132,102 @@ mod tests {
         assert!(
             verdict.passed,
             "small mesh (≤24 unique verts) should pass: {}",
+            verdict.detail
+        );
+    }
+
+    /// Helper: make a simple mesh with N triangles (degenerate but with valid indices).
+    fn make_mesh_with_n_tris(n: usize) -> RenderMesh {
+        // Each triangle gets 3 unique vertices to reach the desired count
+        let mut vertices = Vec::new();
+        let mut normals = Vec::new();
+        let mut indices = Vec::new();
+        for i in 0..n {
+            let base = (i * 3) as u32;
+            let z = i as f32 * 0.1;
+            vertices.extend_from_slice(&[0.0, 0.0, z, 1.0, 0.0, z, 0.0, 1.0, z]);
+            normals.extend_from_slice(&[0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0]);
+            indices.extend_from_slice(&[base, base + 1, base + 2]);
+        }
+        RenderMesh {
+            vertices,
+            normals,
+            indices,
+            face_ranges: vec![FaceRange {
+                face_id: KernelId(0),
+                start_index: 0,
+                end_index: (n * 3) as u32,
+            }],
+        }
+    }
+
+    #[test]
+    fn minimum_triangle_count_pass_rect_extrude() {
+        let mesh = make_mesh_with_n_tris(48);
+        let ops = vec![("extrude".to_string(), "rectangle".to_string())];
+        let verdict = check_minimum_triangle_count(&mesh, &ops);
+        assert!(
+            verdict.passed,
+            "48 tris should pass rect extrude (min 12): {}",
+            verdict.detail
+        );
+    }
+
+    #[test]
+    fn minimum_triangle_count_fail_circle_revolve() {
+        let mesh = make_mesh_with_n_tris(12);
+        let ops = vec![("revolve".to_string(), "circle".to_string())];
+        let verdict = check_minimum_triangle_count(&mesh, &ops);
+        assert!(
+            !verdict.passed,
+            "12 tris should fail circle revolve (min 96): {}",
+            verdict.detail
+        );
+    }
+
+    #[test]
+    fn minimum_triangle_count_uses_max_across_ops() {
+        let mesh = make_mesh_with_n_tris(50);
+        // rect extrude (min 12) + gear extrude (min 96) → max is 96
+        let ops = vec![
+            ("extrude".to_string(), "rectangle".to_string()),
+            ("extrude".to_string(), "gear".to_string()),
+        ];
+        let verdict = check_minimum_triangle_count(&mesh, &ops);
+        assert!(
+            !verdict.passed,
+            "50 tris should fail when gear op requires 96: {}",
+            verdict.detail
+        );
+    }
+
+    #[test]
+    fn volume_magnitude_pass_unit_cube() {
+        // Unit cube at scale 1: volume ~ 0.5 (from simple mesh), well within bounds
+        let mesh = make_mesh_with_n_tris(12);
+        // Volume of this mesh is non-trivial positive; scale=1 → bounds [1e-8, 1e8]
+        let verdict = check_volume_magnitude(&mesh, 1.0);
+        // The mesh_signed_volume of make_mesh_with_n_tris is ~0.5 per tri pair
+        // At scale 1, bounds are [1e-8, 1e8], so any reasonable volume passes
+        assert!(
+            verdict.passed,
+            "unit-scale mesh should pass magnitude check: {}",
+            verdict.detail
+        );
+    }
+
+    #[test]
+    fn volume_magnitude_fail_tiny_at_large_scale() {
+        // Tiny mesh (volume ~ 0.5) at scale 100 → expected vol ~ 1e6, actual ~ 0.5
+        // bounds: [100³ × 1e-8, 100³ × 1e8] = [1e-2, 1e14]
+        // 0.5 < 1e-2 should barely pass... let's use a really extreme case
+        // Scale 1e4 → bounds [1e4³ × 1e-8, ...] = [1e4, ...]
+        // Our mesh vol is ~0.5, which is < 1e4 → fail
+        let mesh = make_mesh_with_n_tris(12);
+        let verdict = check_volume_magnitude(&mesh, 1e4);
+        assert!(
+            !verdict.passed,
+            "tiny mesh at scale 1e4 should fail: {}",
             verdict.detail
         );
     }

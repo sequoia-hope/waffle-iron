@@ -272,9 +272,13 @@ fn replay_and_validate(case: &DiscoveredCase, use_kernel: bool) -> AssayResult {
         }
     }
 
-    // AABB-collapse check for gear profiles (rects legitimately produce boxes)
-    let has_gear_profile = meta.operations.iter().any(|op| op.profile_type == "gear");
-    if has_gear_profile && !mesh.vertices.is_empty() {
+    // AABB-collapse check: any non-rectangle profile can collapse to its AABB if
+    // the kernel degenerates. Only pure-rectangle cases legitimately produce box-shaped meshes.
+    let all_rectangles = meta
+        .operations
+        .iter()
+        .all(|op| op.profile_type == "rectangle");
+    if !all_rectangles && !mesh.vertices.is_empty() {
         let verdict = crate::oracle::check_aabb_collapse(&mesh);
         if !verdict.passed {
             failures.push(format!("aabb_collapse: {}", verdict.detail));
@@ -293,11 +297,28 @@ fn replay_and_validate(case: &DiscoveredCase, use_kernel: bool) -> AssayResult {
         failures.push("empty mesh: no triangles".to_string());
     }
 
-    // Volume positivity check (use signed volume to catch inverted winding)
-    if meta.oracles.expect_positive_volume {
-        let vol = mesh_signed_volume(&mesh);
-        if vol <= 0.0 {
-            failures.push(format!("expected positive signed volume, got {:.6e}", vol));
+    // Note: volume positivity is checked unconditionally by check_positive_signed_volume()
+    // in run_all_mesh_checks(). The meta.oracles.expect_positive_volume field is vestigial
+    // and always true — no separate inline check needed.
+
+    // Minimum triangle count oracle
+    {
+        let ops: Vec<(String, String)> = meta
+            .operations
+            .iter()
+            .map(|o| (o.kind.clone(), o.profile_type.clone()))
+            .collect();
+        let verdict = crate::oracle::check_minimum_triangle_count(&mesh, &ops);
+        if !verdict.passed {
+            failures.push(format!("minimum_triangle_count: {}", verdict.detail));
+        }
+    }
+
+    // Volume magnitude bounds oracle
+    if !mesh.vertices.is_empty() {
+        let verdict = crate::oracle::check_volume_magnitude(&mesh, meta.scale);
+        if !verdict.passed {
+            failures.push(format!("volume_magnitude: {}", verdict.detail));
         }
     }
 
@@ -414,8 +435,18 @@ fn check_volume_monotonicity(
         }
     }
 
-    // Compare consecutive volumes against expected monotonicity
+    // Report NaN volumes (load/tessellation failures)
     let mut violations = Vec::new();
+    let nan_count = volumes.iter().filter(|v| v.is_nan()).count();
+    if nan_count > 0 {
+        violations.push(format!(
+            "{} of {} steps had NaN volume (load/tessellation failure)",
+            nan_count,
+            volumes.len()
+        ));
+    }
+
+    // Compare consecutive volumes against expected monotonicity
     for i in 0..expected.len() {
         let vol = volumes[i];
         if vol.is_nan() || vol <= 0.0 {
@@ -481,6 +512,12 @@ pub enum FailureCategory {
     BooleanNormals,
     /// Degenerate triangles at revolve seams or boolean edges.
     TessellationDegenerate,
+    /// Mesh has fewer triangles than expected for its profile/operation types.
+    MeshTooSimple,
+    /// Volume magnitude is wildly out of range for the model's scale.
+    VolumeMagnitude,
+    /// Volume monotonicity violated — boss didn't increase or cut didn't decrease volume.
+    VolumeMonotonicity,
     /// Boolean operation not supported for the given geometry combo.
     BooleanNotSupported,
     /// Cascading failure: first op failed, subsequent cuts can't find a body.
@@ -495,8 +532,6 @@ pub enum FailureCategory {
     MergeIncomplete,
     /// Mesh collapsed to its AABB — non-rectangular geometry replaced by bounding box.
     AabbCollapse,
-    /// Volume monotonicity violated — boss didn't increase or cut didn't decrease volume.
-    VolumeMonotonicity,
 }
 
 impl std::fmt::Display for FailureCategory {
@@ -508,6 +543,9 @@ impl std::fmt::Display for FailureCategory {
             Self::BooleanWatertight => write!(f, "boolean-watertight"),
             Self::BooleanNormals => write!(f, "boolean-normals"),
             Self::TessellationDegenerate => write!(f, "tessellation-degenerate"),
+            Self::MeshTooSimple => write!(f, "mesh-too-simple"),
+            Self::VolumeMagnitude => write!(f, "volume-magnitude"),
+            Self::VolumeMonotonicity => write!(f, "volume-monotonicity"),
             Self::BooleanNotSupported => write!(f, "boolean-not-supported"),
             Self::CascadingFailure => write!(f, "cascading-failure"),
             Self::MultipleFailures => write!(f, "multiple-failures"),
@@ -515,7 +553,6 @@ impl std::fmt::Display for FailureCategory {
             Self::PassBossOnly => write!(f, "pass-boss-only"),
             Self::MergeIncomplete => write!(f, "merge-incomplete"),
             Self::AabbCollapse => write!(f, "aabb-collapse"),
-            Self::VolumeMonotonicity => write!(f, "volume-monotonicity"),
         }
     }
 }
@@ -592,11 +629,6 @@ pub fn categorize_result(result: &AssayResult, meta: &AssayMeta) -> FailureCateg
                 return FailureCategory::AabbCollapse;
             }
 
-            // 0d. Volume monotonicity violated
-            if detail.contains("volume_monotonicity:") {
-                return FailureCategory::VolumeMonotonicity;
-            }
-
             // 1. Boolean not supported (engine-level: geometry combo not implemented)
             if has_boolean_not_supported
                 && !has_boolean_manifold
@@ -649,6 +681,21 @@ pub fn categorize_result(result: &AssayResult, meta: &AssayMeta) -> FailureCateg
             // 6. Degenerate triangles only
             if has_degenerate_fail {
                 return FailureCategory::TessellationDegenerate;
+            }
+
+            // 6b. Mesh too simple (fewer triangles than expected)
+            if detail.contains("minimum_triangle_count:") {
+                return FailureCategory::MeshTooSimple;
+            }
+
+            // 6c. Volume magnitude out of range
+            if detail.contains("volume_magnitude:") {
+                return FailureCategory::VolumeMagnitude;
+            }
+
+            // 6d. Volume monotonicity violated
+            if detail.contains("volume_monotonicity:") {
+                return FailureCategory::VolumeMonotonicity;
             }
 
             // Fallback
@@ -1087,6 +1134,143 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn categorize_watertight_beats_monotonicity() {
+        // When both watertight AND monotonicity fail, categorize as BooleanWatertight
+        // (root cause) not VolumeMonotonicity (downstream symptom).
+        use crate::assay::gen::{AssayMeta, OpMeta, OracleExpectations};
+        use std::time::Duration;
+
+        let result = AssayResult {
+            id: "R0050".to_string(),
+            description: "test priority".to_string(),
+            status: AssayStatus::Failed,
+            duration: Duration::from_millis(10),
+            detail: "watertight_mesh: 5 unpaired edges out of 100 total; volume_monotonicity: step 2: expected decrease, vol 1.5e0 >= prev 1.0e0".to_string(),
+        };
+        let meta = AssayMeta {
+            id: "R0050".to_string(),
+            description: "test priority".to_string(),
+            master_seed: 0,
+            test_seed: 0,
+            scale: 1.0,
+            log_scale: 0.0,
+            plane_origin: [0.0; 3],
+            plane_normal: [0.0, 0.0, 1.0],
+            operations: vec![OpMeta {
+                kind: "extrude".to_string(),
+                profile_type: "rectangle".to_string(),
+                profile_size: 0.01,
+                depth_or_angle: 0.01,
+                is_cut: false,
+            }],
+            oracles: OracleExpectations {
+                euler_target: 2,
+                expect_watertight: true,
+                max_bbox_extent: 1.0,
+                expect_positive_volume: true,
+                volume_monotonicity: vec!["increase".to_string()],
+            },
+            generator_version: 3,
+            featured: false,
+        };
+
+        let category = categorize_result(&result, &meta);
+        assert_eq!(
+            category,
+            FailureCategory::BooleanWatertight,
+            "watertight failure should take priority over volume monotonicity"
+        );
+    }
+
+    #[test]
+    fn categorize_detects_mesh_too_simple() {
+        use crate::assay::gen::{AssayMeta, OpMeta, OracleExpectations};
+        use std::time::Duration;
+
+        let result = AssayResult {
+            id: "R0100".to_string(),
+            description: "test mesh too simple".to_string(),
+            status: AssayStatus::Failed,
+            duration: Duration::from_millis(10),
+            detail: "minimum_triangle_count: 12 triangles < expected minimum 36".to_string(),
+        };
+        let meta = AssayMeta {
+            id: "R0100".to_string(),
+            description: "test".to_string(),
+            master_seed: 0,
+            test_seed: 0,
+            scale: 1.0,
+            log_scale: 0.0,
+            plane_origin: [0.0; 3],
+            plane_normal: [0.0, 0.0, 1.0],
+            operations: vec![OpMeta {
+                kind: "revolve".to_string(),
+                profile_type: "rectangle".to_string(),
+                profile_size: 0.01,
+                depth_or_angle: 90.0,
+                is_cut: true,
+            }],
+            oracles: OracleExpectations {
+                euler_target: 2,
+                expect_watertight: true,
+                max_bbox_extent: 1.0,
+                expect_positive_volume: true,
+                volume_monotonicity: vec![],
+            },
+            generator_version: 3,
+            featured: false,
+        };
+
+        let category = categorize_result(&result, &meta);
+        assert_eq!(category, FailureCategory::MeshTooSimple);
+        assert_eq!(category.to_string(), "mesh-too-simple");
+    }
+
+    #[test]
+    fn categorize_detects_volume_magnitude() {
+        use crate::assay::gen::{AssayMeta, OpMeta, OracleExpectations};
+        use std::time::Duration;
+
+        let result = AssayResult {
+            id: "R0042".to_string(),
+            description: "test volume magnitude".to_string(),
+            status: AssayStatus::Failed,
+            duration: Duration::from_millis(10),
+            detail: "volume_magnitude: volume 1e-20 outside [1e-2, 1e14] for scale 1e2".to_string(),
+        };
+        let meta = AssayMeta {
+            id: "R0042".to_string(),
+            description: "test".to_string(),
+            master_seed: 0,
+            test_seed: 0,
+            scale: 100.0,
+            log_scale: 2.0,
+            plane_origin: [0.0; 3],
+            plane_normal: [0.0, 0.0, 1.0],
+            operations: vec![OpMeta {
+                kind: "extrude".to_string(),
+                profile_type: "rectangle".to_string(),
+                profile_size: 50.0,
+                depth_or_angle: 30.0,
+                is_cut: false,
+            }],
+            oracles: OracleExpectations {
+                euler_target: 2,
+                expect_watertight: true,
+                max_bbox_extent: 300.0,
+                expect_positive_volume: true,
+                volume_monotonicity: vec![],
+            },
+            generator_version: 3,
+            featured: false,
+        };
+
+        let category = categorize_result(&result, &meta);
+        assert_eq!(category, FailureCategory::VolumeMagnitude);
+        assert_eq!(category.to_string(), "volume-magnitude");
     }
 
     #[test]
