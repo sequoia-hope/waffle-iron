@@ -8,7 +8,7 @@
       "filename": "R0001.waffle",
       "meta_filename": "R0001.meta.json",
       "description": "2 ops, scale=4.54e-1, revolve(rectangle,boss)+extrude(circle,boss)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0002",
@@ -22,7 +22,7 @@
       "filename": "R0003.waffle",
       "meta_filename": "R0003.meta.json",
       "description": "2 ops, scale=2.16e2, revolve(gear,boss)+extrude(rectangle,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0004",
@@ -57,7 +57,7 @@
       "filename": "R0008.waffle",
       "meta_filename": "R0008.meta.json",
       "description": "3 ops, scale=1.27e2, extrude(rectangle,boss)+revolve(circle,cut)+extrude(gear,boss)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0009",
@@ -85,7 +85,7 @@
       "filename": "R0012.waffle",
       "meta_filename": "R0012.meta.json",
       "description": "3 ops, scale=6.95e1, revolve(rectangle,boss)+revolve(rectangle,cut)+extrude(gear,boss)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0013",
@@ -113,14 +113,14 @@
       "filename": "R0016.waffle",
       "meta_filename": "R0016.meta.json",
       "description": "3 ops, scale=5.01e-2, revolve(gear,boss)+extrude(gear,boss)+extrude(circle,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0017",
       "filename": "R0017.waffle",
       "meta_filename": "R0017.meta.json",
       "description": "3 ops, scale=4.03e3, extrude(circle,boss)+revolve(circle,boss)+revolve(rectangle,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0018",
@@ -141,7 +141,7 @@
       "filename": "R0020.waffle",
       "meta_filename": "R0020.meta.json",
       "description": "3 ops, scale=4.93e1, extrude(circle,boss)+revolve(gear,boss)+extrude(circle,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0021",
@@ -176,28 +176,28 @@
       "filename": "R0025.waffle",
       "meta_filename": "R0025.meta.json",
       "description": "3 ops, scale=2.22e3, extrude(gear,boss)+extrude(circle,boss)+revolve(circle,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0026",
       "filename": "R0026.waffle",
       "meta_filename": "R0026.meta.json",
       "description": "3 ops, scale=1.33e-1, revolve(circle,boss)+extrude(circle,cut)+extrude(rectangle,boss)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0027",
       "filename": "R0027.waffle",
       "meta_filename": "R0027.meta.json",
       "description": "3 ops, scale=7.82e3, revolve(gear,boss)+revolve(rectangle,cut)+revolve(rectangle,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0028",
       "filename": "R0028.waffle",
       "meta_filename": "R0028.meta.json",
       "description": "2 ops, scale=2.36e-2, revolve(circle,boss)+revolve(gear,boss)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0029",
@@ -211,7 +211,7 @@
       "filename": "R0030.waffle",
       "meta_filename": "R0030.meta.json",
       "description": "3 ops, scale=1.78e-4, extrude(circle,boss)+revolve(gear,cut)+extrude(circle,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0031",
@@ -225,28 +225,28 @@
       "filename": "R0032.waffle",
       "meta_filename": "R0032.meta.json",
       "description": "2 ops, scale=2.33e2, revolve(gear,boss)+extrude(gear,boss)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0033",
       "filename": "R0033.waffle",
       "meta_filename": "R0033.meta.json",
       "description": "2 ops, scale=1.98e-2, extrude(gear,boss)+revolve(gear,boss)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0034",
       "filename": "R0034.waffle",
       "meta_filename": "R0034.meta.json",
       "description": "3 ops, scale=9.45e2, extrude(gear,boss)+extrude(circle,cut)+revolve(gear,boss)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0035",
       "filename": "R0035.waffle",
       "meta_filename": "R0035.meta.json",
       "description": "2 ops, scale=1.45e0, revolve(rectangle,boss)+revolve(rectangle,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0036",
@@ -260,21 +260,21 @@
       "filename": "R0037.waffle",
       "meta_filename": "R0037.meta.json",
       "description": "3 ops, scale=2.18e-2, revolve(gear,boss)+extrude(circle,cut)+extrude(rectangle,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0038",
       "filename": "R0038.waffle",
       "meta_filename": "R0038.meta.json",
       "description": "3 ops, scale=1.35e1, revolve(rectangle,boss)+revolve(rectangle,cut)+revolve(circle,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0039",
       "filename": "R0039.waffle",
       "meta_filename": "R0039.meta.json",
       "description": "2 ops, scale=2.38e-2, extrude(rectangle,boss)+revolve(gear,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0040",
@@ -295,7 +295,7 @@
       "filename": "R0042.waffle",
       "meta_filename": "R0042.meta.json",
       "description": "2 ops, scale=8.59e2, extrude(rectangle,boss)+revolve(rectangle,boss)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0043",
@@ -309,7 +309,7 @@
       "filename": "R0044.waffle",
       "meta_filename": "R0044.meta.json",
       "description": "2 ops, scale=3.98e3, revolve(gear,boss)+revolve(rectangle,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0045",
@@ -323,14 +323,14 @@
       "filename": "R0046.waffle",
       "meta_filename": "R0046.meta.json",
       "description": "3 ops, scale=4.62e-1, extrude(circle,boss)+extrude(rectangle,cut)+revolve(circle,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0047",
       "filename": "R0047.waffle",
       "meta_filename": "R0047.meta.json",
       "description": "2 ops, scale=2.09e-4, extrude(circle,boss)+revolve(rectangle,boss)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0048",
@@ -351,14 +351,14 @@
       "filename": "R0050.waffle",
       "meta_filename": "R0050.meta.json",
       "description": "3 ops, scale=1.15e1, revolve(rectangle,boss)+revolve(circle,cut)+revolve(circle,boss)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0051",
       "filename": "R0051.waffle",
       "meta_filename": "R0051.meta.json",
       "description": "3 ops, scale=3.37e-3, extrude(circle,boss)+revolve(circle,cut)+revolve(rectangle,boss)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0052",
@@ -372,35 +372,35 @@
       "filename": "R0053.waffle",
       "meta_filename": "R0053.meta.json",
       "description": "3 ops, scale=1.49e2, revolve(rectangle,boss)+extrude(rectangle,boss)+revolve(gear,boss)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0054",
       "filename": "R0054.waffle",
       "meta_filename": "R0054.meta.json",
       "description": "3 ops, scale=4.83e1, revolve(gear,boss)+revolve(gear,cut)+revolve(gear,boss)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0055",
       "filename": "R0055.waffle",
       "meta_filename": "R0055.meta.json",
       "description": "3 ops, scale=7.27e1, extrude(rectangle,boss)+revolve(rectangle,cut)+extrude(circle,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0056",
       "filename": "R0056.waffle",
       "meta_filename": "R0056.meta.json",
       "description": "2 ops, scale=3.81e-3, extrude(circle,boss)+revolve(gear,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0057",
       "filename": "R0057.waffle",
       "meta_filename": "R0057.meta.json",
       "description": "3 ops, scale=1.04e2, extrude(rectangle,boss)+revolve(circle,boss)+extrude(gear,boss)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0058",
@@ -414,14 +414,14 @@
       "filename": "R0059.waffle",
       "meta_filename": "R0059.meta.json",
       "description": "3 ops, scale=3.80e2, extrude(circle,boss)+revolve(circle,boss)+extrude(rectangle,boss)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0060",
       "filename": "R0060.waffle",
       "meta_filename": "R0060.meta.json",
       "description": "2 ops, scale=3.77e1, extrude(gear,boss)+revolve(circle,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0061",
@@ -456,7 +456,7 @@
       "filename": "R0065.waffle",
       "meta_filename": "R0065.meta.json",
       "description": "3 ops, scale=8.72e-3, extrude(circle,boss)+extrude(circle,cut)+revolve(circle,boss)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0066",
@@ -477,7 +477,7 @@
       "filename": "R0068.waffle",
       "meta_filename": "R0068.meta.json",
       "description": "2 ops, scale=4.84e-2, extrude(rectangle,boss)+revolve(rectangle,boss)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0069",
@@ -491,21 +491,21 @@
       "filename": "R0070.waffle",
       "meta_filename": "R0070.meta.json",
       "description": "3 ops, scale=1.74e-2, revolve(rectangle,boss)+extrude(gear,cut)+extrude(circle,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0071",
       "filename": "R0071.waffle",
       "meta_filename": "R0071.meta.json",
       "description": "3 ops, scale=1.86e-4, revolve(gear,boss)+extrude(rectangle,cut)+revolve(circle,boss)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0072",
       "filename": "R0072.waffle",
       "meta_filename": "R0072.meta.json",
       "description": "3 ops, scale=5.55e-4, extrude(gear,boss)+extrude(gear,cut)+revolve(gear,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0073",
@@ -519,14 +519,14 @@
       "filename": "R0074.waffle",
       "meta_filename": "R0074.meta.json",
       "description": "3 ops, scale=3.40e-1, extrude(circle,boss)+revolve(rectangle,cut)+extrude(circle,boss)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0075",
       "filename": "R0075.waffle",
       "meta_filename": "R0075.meta.json",
       "description": "2 ops, scale=1.89e2, revolve(gear,boss)+extrude(gear,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0076",
@@ -540,21 +540,21 @@
       "filename": "R0077.waffle",
       "meta_filename": "R0077.meta.json",
       "description": "2 ops, scale=4.50e3, revolve(circle,boss)+extrude(rectangle,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0078",
       "filename": "R0078.waffle",
       "meta_filename": "R0078.meta.json",
       "description": "3 ops, scale=1.37e-1, extrude(circle,boss)+extrude(circle,boss)+revolve(gear,boss)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0079",
       "filename": "R0079.waffle",
       "meta_filename": "R0079.meta.json",
       "description": "3 ops, scale=7.88e-3, revolve(circle,boss)+revolve(gear,cut)+extrude(rectangle,boss)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0080",
@@ -568,14 +568,14 @@
       "filename": "R0081.waffle",
       "meta_filename": "R0081.meta.json",
       "description": "3 ops, scale=2.24e-1, extrude(gear,boss)+extrude(rectangle,cut)+revolve(gear,boss)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0082",
       "filename": "R0082.waffle",
       "meta_filename": "R0082.meta.json",
       "description": "2 ops, scale=6.40e2, revolve(rectangle,boss)+revolve(circle,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0083",
@@ -589,14 +589,14 @@
       "filename": "R0084.waffle",
       "meta_filename": "R0084.meta.json",
       "description": "2 ops, scale=9.59e-4, revolve(circle,boss)+extrude(gear,boss)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0085",
       "filename": "R0085.waffle",
       "meta_filename": "R0085.meta.json",
       "description": "3 ops, scale=2.79e0, revolve(rectangle,boss)+extrude(gear,boss)+extrude(circle,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0086",
@@ -610,14 +610,14 @@
       "filename": "R0087.waffle",
       "meta_filename": "R0087.meta.json",
       "description": "3 ops, scale=4.04e1, revolve(rectangle,boss)+extrude(gear,cut)+extrude(gear,boss)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0088",
       "filename": "R0088.waffle",
       "meta_filename": "R0088.meta.json",
       "description": "3 ops, scale=7.56e2, revolve(gear,boss)+extrude(rectangle,boss)+extrude(rectangle,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0089",
@@ -631,14 +631,14 @@
       "filename": "R0090.waffle",
       "meta_filename": "R0090.meta.json",
       "description": "3 ops, scale=8.30e2, extrude(circle,boss)+extrude(gear,boss)+revolve(rectangle,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0091",
       "filename": "R0091.waffle",
       "meta_filename": "R0091.meta.json",
       "description": "3 ops, scale=1.59e-4, extrude(gear,boss)+revolve(circle,cut)+revolve(rectangle,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0092",
@@ -659,14 +659,14 @@
       "filename": "R0094.waffle",
       "meta_filename": "R0094.meta.json",
       "description": "3 ops, scale=8.79e2, extrude(rectangle,boss)+revolve(rectangle,cut)+extrude(gear,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0095",
       "filename": "R0095.waffle",
       "meta_filename": "R0095.meta.json",
       "description": "3 ops, scale=1.14e-3, revolve(circle,boss)+extrude(rectangle,cut)+revolve(circle,boss)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0096",
@@ -680,7 +680,7 @@
       "filename": "R0097.waffle",
       "meta_filename": "R0097.meta.json",
       "description": "2 ops, scale=1.38e1, extrude(rectangle,boss)+revolve(circle,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0098",
@@ -694,83 +694,83 @@
       "filename": "R0099.waffle",
       "meta_filename": "R0099.meta.json",
       "description": "3 ops, scale=1.09e1, extrude(circle,boss)+extrude(circle,cut)+revolve(rectangle,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "R0100",
       "filename": "R0100.waffle",
       "meta_filename": "R0100.meta.json",
       "description": "2 ops, scale=2.25e2, revolve(rectangle,boss)+revolve(rectangle,cut)",
-      "featured": false
+      "featured": true
     },
     {
       "id": "F0001",
       "filename": "F0001.waffle",
       "meta_filename": "F0001.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — Identical squares",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Identical squares",
       "featured": true
     },
     {
       "id": "F0002",
       "filename": "F0002.waffle",
       "meta_filename": "F0002.meta.json",
-      "description": "2 ops, scale=1.00e-2, extrude(rectangle,boss)+extrude(rectangle,boss) — Small cross-shaped",
+      "description": "2 ops, scale=1.00e-2, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Small cross-shaped",
       "featured": true
     },
     {
       "id": "F0003",
       "filename": "F0003.waffle",
       "meta_filename": "F0003.meta.json",
-      "description": "2 ops, scale=1.00e2, extrude(rectangle,boss)+extrude(rectangle,boss) — Large, swapped aspect",
+      "description": "2 ops, scale=1.00e2, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Large, swapped aspect",
       "featured": true
     },
     {
       "id": "F0004",
       "filename": "F0004.waffle",
       "meta_filename": "F0004.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — Thin cross",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Thin cross",
       "featured": true
     },
     {
       "id": "F0005",
       "filename": "F0005.waffle",
       "meta_filename": "F0005.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — Same rect, different depths",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Same rect, different depths",
       "featured": true
     },
     {
       "id": "F0006",
       "filename": "F0006.waffle",
       "meta_filename": "F0006.meta.json",
-      "description": "2 ops, scale=1.00e-3, extrude(rectangle,boss)+extrude(rectangle,boss) — Micro scale",
+      "description": "2 ops, scale=1.00e-3, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Micro scale",
       "featured": true
     },
     {
       "id": "F0007",
       "filename": "F0007.waffle",
       "meta_filename": "F0007.meta.json",
-      "description": "2 ops, scale=1.00e1, extrude(rectangle,boss)+extrude(rectangle,boss) — Concentric squares",
+      "description": "2 ops, scale=1.00e1, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Concentric squares",
       "featured": true
     },
     {
       "id": "F0008",
       "filename": "F0008.waffle",
       "meta_filename": "F0008.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — Nested squares, deep",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Nested squares, deep",
       "featured": true
     },
     {
       "id": "F0009",
       "filename": "F0009.waffle",
       "meta_filename": "F0009.meta.json",
-      "description": "2 ops, scale=1.00e-1, extrude(rectangle,boss)+extrude(rectangle,boss) — Medium-small, swapped",
+      "description": "2 ops, scale=1.00e-1, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Medium-small, swapped",
       "featured": true
     },
     {
       "id": "F0010",
       "filename": "F0010.waffle",
       "meta_filename": "F0010.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — Shallow vs very deep",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Shallow vs very deep",
       "featured": true
     }
   ]

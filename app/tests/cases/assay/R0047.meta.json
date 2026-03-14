@@ -19,14 +19,14 @@
     {
       "kind": "extrude",
       "profile_type": "circle",
-      "profile_size": 0.000029166127362351675,
-      "depth_or_angle": 0.00002863523977074512,
+      "profile_size": 2.9166127362351675e-05,
+      "depth_or_angle": 2.863523977074512e-05,
       "is_cut": false
     },
     {
       "kind": "revolve",
       "profile_type": "rectangle",
-      "profile_size": 0.00004490803557263784,
+      "profile_size": 4.490803557263784e-05,
       "depth_or_angle": 64.10069420128315,
       "is_cut": false
     }
@@ -42,5 +42,5 @@
     ]
   },
   "generator_version": 1,
-  "featured": false
+  "featured": true
 }

@@ -7,8 +7,8 @@
   "log_scale": -3.7985458909454675,
   "plane_origin": [
     -0.00011798215119673686,
-    -0.00009035295465795552,
-    -0.00009170888617512346
+    -9.035295465795552e-05,
+    -9.170888617512346e-05
   ],
   "plane_normal": [
     0.3541675249692322,
@@ -19,21 +19,21 @@
     {
       "kind": "extrude",
       "profile_type": "gear",
-      "profile_size": 0.0000477062592325378,
-      "depth_or_angle": 0.00005257489689329471,
+      "profile_size": 4.77062592325378e-05,
+      "depth_or_angle": 5.257489689329471e-05,
       "is_cut": false
     },
     {
       "kind": "revolve",
       "profile_type": "circle",
-      "profile_size": 0.000032215218086629406,
+      "profile_size": 3.2215218086629406e-05,
       "depth_or_angle": 108.33939059418414,
       "is_cut": true
     },
     {
       "kind": "revolve",
       "profile_type": "rectangle",
-      "profile_size": 0.00006869532132755825,
+      "profile_size": 6.869532132755825e-05,
       "depth_or_angle": 232.95517187881376,
       "is_cut": true
     }
@@ -50,5 +50,5 @@
     ]
   },
   "generator_version": 1,
-  "featured": false
+  "featured": true
 }

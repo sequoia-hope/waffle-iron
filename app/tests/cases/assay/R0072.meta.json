@@ -7,7 +7,7 @@
   "log_scale": -3.2556987859555857,
   "plane_origin": [
     -0.0002816355850068565,
-    3.1142911978985013e-6,
+    3.1142911978985013e-06,
     0.0001765551376550459
   ],
   "plane_normal": [
@@ -50,5 +50,5 @@
     ]
   },
   "generator_version": 1,
-  "featured": false
+  "featured": true
 }
