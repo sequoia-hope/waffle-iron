@@ -301,6 +301,13 @@ fn replay_and_validate(case: &DiscoveredCase, use_kernel: bool) -> AssayResult {
         }
     }
 
+    // Volume monotonicity check (per-step)
+    if !meta.oracles.volume_monotonicity.is_empty() {
+        if let Some(failure_msg) = check_volume_monotonicity(case, use_kernel, &meta) {
+            failures.push(failure_msg);
+        }
+    }
+
     // Bounding box extent check
     if !mesh.vertices.is_empty() {
         let (bb_min, bb_max) = mesh_bounding_box(&mesh);
@@ -338,6 +345,125 @@ fn replay_and_validate(case: &DiscoveredCase, use_kernel: bool) -> AssayResult {
     }
 }
 
+/// Check volume monotonicity by replaying the model incrementally.
+///
+/// Loads the `.waffle` with truncated feature lists (first 2 features, then 4, etc.)
+/// to capture per-step volumes. Compares consecutive volumes against expected directions.
+fn check_volume_monotonicity(
+    case: &DiscoveredCase,
+    use_kernel: bool,
+    meta: &AssayMeta,
+) -> Option<String> {
+    let waffle_json = fs::read_to_string(&case.waffle_path).ok()?;
+    let doc: serde_json::Value = serde_json::from_str(&waffle_json).ok()?;
+
+    let features = doc
+        .get("features")
+        .and_then(|f| f.get("features"))
+        .and_then(|f| f.as_array())
+        .cloned()?;
+
+    let n_ops = meta.operations.len();
+    let expected = &meta.oracles.volume_monotonicity;
+    if expected.len() != n_ops {
+        return Some(format!(
+            "volume_monotonicity: expected {} entries for {} ops, got {}",
+            n_ops,
+            n_ops,
+            expected.len()
+        ));
+    }
+
+    // Each operation = 2 features (sketch + op). Collect volume after each op.
+    let mut volumes: Vec<f64> = Vec::new();
+    for step in 0..n_ops {
+        let feature_count = (step + 1) * 2; // include sketch + op for this step
+        let truncated_features: Vec<serde_json::Value> =
+            features.iter().take(feature_count).cloned().collect();
+
+        // Build a truncated waffle JSON
+        let mut truncated_doc = doc.clone();
+        truncated_doc["features"]["features"] = serde_json::Value::Array(truncated_features);
+        let truncated_json = match serde_json::to_string(&truncated_doc) {
+            Ok(s) => s,
+            Err(_) => {
+                volumes.push(f64::NAN);
+                continue;
+            }
+        };
+
+        let mut builder = if use_kernel {
+            ModelBuilder::kernel()
+        } else {
+            ModelBuilder::mock()
+        };
+
+        if builder.load(&truncated_json).is_err() {
+            volumes.push(f64::NAN);
+            continue;
+        }
+
+        match builder.tessellate_last() {
+            Ok(mesh) => {
+                let vol = mesh_signed_volume(&mesh);
+                volumes.push(vol.abs());
+            }
+            Err(_) => {
+                volumes.push(f64::NAN);
+            }
+        }
+    }
+
+    // Compare consecutive volumes against expected monotonicity
+    let mut violations = Vec::new();
+    for i in 0..expected.len() {
+        let vol = volumes[i];
+        if vol.is_nan() || vol <= 0.0 {
+            // Can't check monotonicity if we couldn't get a valid volume
+            continue;
+        }
+        if i == 0 {
+            // First op: just verify we got a positive volume (boss)
+            continue;
+        }
+        let prev_vol = volumes[i - 1];
+        if prev_vol.is_nan() || prev_vol <= 0.0 {
+            continue;
+        }
+
+        let direction = &expected[i];
+        match direction.as_str() {
+            "increase" => {
+                if vol <= prev_vol {
+                    violations.push(format!(
+                        "step {}: expected increase, vol {:.6e} <= prev {:.6e}",
+                        i + 1,
+                        vol,
+                        prev_vol
+                    ));
+                }
+            }
+            "decrease" => {
+                if vol >= prev_vol {
+                    violations.push(format!(
+                        "step {}: expected decrease, vol {:.6e} >= prev {:.6e}",
+                        i + 1,
+                        vol,
+                        prev_vol
+                    ));
+                }
+            }
+            _ => {} // unknown direction, skip
+        }
+    }
+
+    if violations.is_empty() {
+        None
+    } else {
+        Some(format!("volume_monotonicity: {}", violations.join(", ")))
+    }
+}
+
 // ── Failure Categorization ────────────────────────────────────────────────
 
 /// Root cause category for a test case result.
@@ -369,6 +495,8 @@ pub enum FailureCategory {
     MergeIncomplete,
     /// Mesh collapsed to its AABB — non-rectangular geometry replaced by bounding box.
     AabbCollapse,
+    /// Volume monotonicity violated — boss didn't increase or cut didn't decrease volume.
+    VolumeMonotonicity,
 }
 
 impl std::fmt::Display for FailureCategory {
@@ -387,6 +515,7 @@ impl std::fmt::Display for FailureCategory {
             Self::PassBossOnly => write!(f, "pass-boss-only"),
             Self::MergeIncomplete => write!(f, "merge-incomplete"),
             Self::AabbCollapse => write!(f, "aabb-collapse"),
+            Self::VolumeMonotonicity => write!(f, "volume-monotonicity"),
         }
     }
 }
@@ -461,6 +590,11 @@ pub fn categorize_result(result: &AssayResult, meta: &AssayMeta) -> FailureCateg
             // 0c. AABB collapse (geometry degenerated to bounding box)
             if detail.contains("aabb_collapse:") {
                 return FailureCategory::AabbCollapse;
+            }
+
+            // 0d. Volume monotonicity violated
+            if detail.contains("volume_monotonicity:") {
+                return FailureCategory::VolumeMonotonicity;
             }
 
             // 1. Boolean not supported (engine-level: geometry combo not implemented)
