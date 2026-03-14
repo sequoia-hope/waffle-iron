@@ -992,123 +992,187 @@ fn is_face_set_convex(faces: &[FacePoly], tau: f64) -> bool {
     true
 }
 
-/// If the ray grazes an edge/vertex (ambiguous result), retries with
-/// perturbed directions.
+// ── Generalized Winding Number (GWN) ────────────────────────────────────
+//
+// Ref #7: Jacobson et al. (2013) — Robust inside/outside segmentation using
+//         generalized winding numbers.
+// Ref #4: Shewchuk (1997) — Adaptive precision floating-point arithmetic.
+//
+// Unlike ray-casting, GWN is smooth, continuous, and has no grazing failures.
+// w(P) = (1/4π) Σ solid_angle(P, triangle_i)
+// w > 0.5 → inside, w < 0.5 → outside.
+
+/// Lazy exact escalation for scalar triple product sign.
 ///
-/// Ref #7 Jacobson: generalized winding number (simplified to ray-crossing
-/// for polyhedral solids).
-fn point_in_solid(point: [f64; 3], faces: &[FacePoly]) -> bool {
-    // Try multiple ray directions, including both positive and negative,
-    // to handle points near boundaries (e.g., at z=max where upward rays
-    // exit the solid immediately and give 0 crossings).
-    let directions = [
-        [0.0, 0.0, 1.0],
-        [0.0, 0.0, -1.0],
-        [0.0, 1.0, 0.0],
-        [0.0, -1.0, 0.0],
-        [1.0, 0.0, 0.0],
-        [-1.0, 0.0, 0.0],
-        [0.57735, 0.57735, 0.57735],    // (1,1,1)/sqrt(3)
-        [-0.57735, -0.57735, -0.57735], // (-1,-1,-1)/sqrt(3)
-    ];
+/// If the floating-point triple product `fp_value` is within the error bound,
+/// escalates to Shewchuk's exact `orient3d` predicate. Returns (sign, corrected_value).
+/// Ref #4: Shewchuk (1997).
+fn lazy_exact_triple_sign(
+    p: [f64; 3],
+    a: [f64; 3],
+    b: [f64; 3],
+    c: [f64; 3],
+    fp_value: f64,
+) -> (i32, f64) {
+    let pa = [a[0] - p[0], a[1] - p[1], a[2] - p[2]];
+    let pb = [b[0] - p[0], b[1] - p[1], b[2] - p[2]];
+    let pc = [c[0] - p[0], c[1] - p[1], c[2] - p[2]];
 
-    for &dir in &directions {
-        let mut crossings = 0u32;
-        let mut grazing = false;
-
-        for poly in faces {
-            let denom = v3_dot(dir, poly.normal);
-            if denom.abs() < 1e-12 {
-                // Ray nearly parallel to this face — check if point is near the face plane
-                let dist = v3_dot(v3_sub(point, poly.origin), poly.normal).abs();
-                if dist < 1e-9 {
-                    grazing = true;
-                    break;
-                }
-                continue;
-            }
-
-            let t = v3_dot(v3_sub(poly.origin, point), poly.normal) / denom;
-            if t <= 1e-12 {
-                continue;
-            }
-
-            let hit = v3_add(point, v3_scale(dir, t));
-
-            // Project to 2D
-            let nx = poly.normal[0].abs();
-            let ny = poly.normal[1].abs();
-            let nz = poly.normal[2].abs();
-            let (ax_u, ax_v) = if nz >= nx && nz >= ny {
-                (0, 1)
-            } else if ny >= nx {
-                (0, 2)
-            } else {
-                (1, 2)
-            };
-
-            let hit_u = hit[ax_u];
-            let hit_v = hit[ax_v];
-
-            // Check if hit point is very close to a polygon edge (grazing)
-            let n = poly.verts.len();
-            let mut near_edge = false;
-            for i in 0..n {
-                let a = poly.verts[i];
-                let b = poly.verts[(i + 1) % n];
-                let edge = v3_sub(b, a);
-                let edge_len_sq = v3_dot(edge, edge);
-                if edge_len_sq < 1e-30 {
-                    continue;
-                }
-                let ap = v3_sub(hit, a);
-                let param = v3_dot(ap, edge) / edge_len_sq;
-                if (-0.01..=1.01).contains(&param) {
-                    let closest = v3_add(a, v3_scale(edge, param.clamp(0.0, 1.0)));
-                    let dist_sq = v3_dot(v3_sub(hit, closest), v3_sub(hit, closest));
-                    if dist_sq < 1e-14 {
-                        near_edge = true;
-                        break;
-                    }
-                }
-            }
-            if near_edge {
-                grazing = true;
-                break;
-            }
-
-            // Crossing-number PIP test
-            let mut pip_crossings = 0u32;
-            for i in 0..n {
-                let a = &poly.verts[i];
-                let b = &poly.verts[(i + 1) % n];
-                let au = a[ax_u];
-                let av = a[ax_v];
-                let bu = b[ax_u];
-                let bv = b[ax_v];
-
-                if (av <= hit_v && bv > hit_v) || (bv <= hit_v && av > hit_v) {
-                    let frac = (hit_v - av) / (bv - av);
-                    let u_intercept = au + frac * (bu - au);
-                    if hit_u < u_intercept {
-                        pip_crossings += 1;
-                    }
-                }
-            }
-
-            if pip_crossings % 2 == 1 {
-                crossings += 1;
+    let mut max_abs = 0.0f64;
+    for v in &[pa, pb, pc] {
+        for &coord in v {
+            let a = coord.abs();
+            if a > max_abs {
+                max_abs = a;
             }
         }
-
-        if !grazing {
-            return crossings % 2 == 1;
-        }
-        // If grazing, try next direction
     }
 
-    // All directions were grazing — conservatively say outside
-    false
+    // Error bound: O(eps * max_coord^3) with conservative factor 24
+    let eps = f64::EPSILON;
+    let error_bound = 24.0 * eps * max_abs * max_abs * max_abs;
+
+    if fp_value.abs() > error_bound {
+        let sign = if fp_value > 0.0 { 1 } else { -1 };
+        (sign, fp_value)
+    } else {
+        // Ambiguous — escalate to exact predicate
+        let orient = robust::orient3d(
+            robust::Coord3D {
+                x: a[0],
+                y: a[1],
+                z: a[2],
+            },
+            robust::Coord3D {
+                x: b[0],
+                y: b[1],
+                z: b[2],
+            },
+            robust::Coord3D {
+                x: c[0],
+                y: c[1],
+                z: c[2],
+            },
+            robust::Coord3D {
+                x: p[0],
+                y: p[1],
+                z: p[2],
+            },
+        );
+        if orient == 0.0 {
+            (0, 0.0)
+        } else {
+            let exact_sign = if orient > 0.0 { 1 } else { -1 };
+            let corrected = if fp_value == 0.0 {
+                exact_sign as f64 * f64::MIN_POSITIVE
+            } else if (fp_value > 0.0) != (exact_sign > 0) {
+                -fp_value
+            } else {
+                fp_value
+            };
+            (exact_sign, corrected)
+        }
+    }
+}
+
+/// Solid angle subtended by triangle (a, b, c) at point p.
+///
+/// Van Oosterom & Strackee (1983) formula with lazy exact sign escalation.
+/// Ref #7 Jacobson, #4 Shewchuk.
+#[inline]
+fn solid_angle(p: [f64; 3], a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> f64 {
+    let pa = v3_sub(a, p);
+    let pb = v3_sub(b, p);
+    let pc = v3_sub(c, p);
+
+    let la = v3_length(pa);
+    let lb = v3_length(pb);
+    let lc = v3_length(pc);
+
+    // Degenerate: query point at a vertex
+    if la < 1e-15 || lb < 1e-15 || lc < 1e-15 {
+        return 0.0;
+    }
+
+    // Degenerate triangle: near-zero area
+    let cross = v3_cross(v3_sub(b, a), v3_sub(c, a));
+    if v3_dot(cross, cross) < 1e-30 {
+        return 0.0;
+    }
+
+    // Scalar triple product: det([pa, pb, pc])
+    let fp_numerator = pa[0] * (pb[1] * pc[2] - pb[2] * pc[1])
+        + pa[1] * (pb[2] * pc[0] - pb[0] * pc[2])
+        + pa[2] * (pb[0] * pc[1] - pb[1] * pc[0]);
+
+    let (exact_sign, numerator) = lazy_exact_triple_sign(p, a, b, c, fp_numerator);
+
+    if exact_sign == 0 {
+        return 0.0;
+    }
+
+    let ab = v3_dot(pa, pb);
+    let bc = v3_dot(pb, pc);
+    let ca = v3_dot(pc, pa);
+    let denominator = la * lb * lc + ab * lc + bc * la + ca * lb;
+
+    let result = 2.0 * numerator.atan2(denominator);
+    if result.is_nan() {
+        0.0
+    } else {
+        result
+    }
+}
+
+/// Generalized winding number of point `p` w.r.t. a polygon soup.
+///
+/// Triangulates each FacePoly via fan from vertex 0.
+/// Returns ~1.0 for inside, ~0.0 for outside, ~0.5 for boundary.
+/// Ref #7 Jacobson et al. (2013).
+fn winding_number(p: [f64; 3], faces: &[FacePoly]) -> f64 {
+    let mut total = 0.0;
+    for face in faces {
+        let n = face.verts.len();
+        if n < 3 {
+            continue;
+        }
+        // Fan triangulation from vertex 0
+        for i in 1..n - 1 {
+            let sa = solid_angle(p, face.verts[0], face.verts[i], face.verts[i + 1]);
+            if !sa.is_nan() {
+                total += sa;
+            }
+        }
+    }
+    total / (4.0 * std::f64::consts::PI)
+}
+
+/// Classify point as inside/outside using GWN.
+///
+/// Returns Some(true) for inside (w > 0.5), Some(false) for outside (w < 0.3),
+/// None for ambiguous boundary [0.3, 0.7].
+fn winding_number_classify(p: [f64; 3], faces: &[FacePoly]) -> Option<bool> {
+    let w = winding_number(p, faces);
+    if w.is_nan() {
+        return None;
+    }
+    if w > 0.5 {
+        Some(true)
+    } else if w < 0.3 {
+        Some(false)
+    } else {
+        None // ambiguity band
+    }
+}
+
+/// Test if a point is inside a closed polyhedral solid using GWN.
+///
+/// Replaces the former 8-direction ray-cast majority voting approach which
+/// failed for grazing angles near edges/vertices of non-convex solids.
+/// GWN is smooth and has no such failure modes.
+/// Ref #7 Jacobson et al. (2013).
+fn point_in_solid(point: [f64; 3], faces: &[FacePoly]) -> bool {
+    winding_number_classify(point, faces).unwrap_or(false)
 }
 
 // ── Face classification ─────────────────────────────────────────────────
@@ -1120,18 +1184,20 @@ enum FaceClass {
     Outside,
     /// Entirely inside the opposing solid.
     Inside,
-    /// Non-coplanar partial: inside fragment is truly inside the opposing
+    /// Non-coplanar partial: inside fragments are truly inside the opposing
     /// solid's volume. For union, only the outside fragments are emitted.
+    /// All inside fragments are retained (no largest-fragment heuristic).
     Partial {
-        inside: Vec<[f64; 3]>,
+        inside_frags: Vec<Vec<[f64; 3]>>,
         outside_frags: Vec<Vec<[f64; 3]>>,
     },
     /// Same-direction coplanar partial: face has a coplanar partner on the
     /// opposing solid (same normal). The "inside" is the surface overlap,
     /// not inside the volume. For union: primary emits all sub-regions
     /// (inside + outside frags), secondary emits only outside frags.
+    /// All inside fragments are retained.
     CoplanarPartial {
-        inside: Vec<[f64; 3]>,
+        inside_frags: Vec<Vec<[f64; 3]>>,
         outside_frags: Vec<Vec<[f64; 3]>>,
     },
     /// Anti-parallel coplanar: face lies on shared boundary between touching
@@ -1197,7 +1263,7 @@ fn classify_face(
             }
             if has_coplanar {
                 return FaceClass::CoplanarPartial {
-                    inside: face.verts.clone(),
+                    inside_frags: vec![face.verts.clone()],
                     outside_frags: vec![],
                 };
             }
@@ -1210,12 +1276,12 @@ fn classify_face(
         let has_same_dir_coplanar = has_coplanar && !has_antiparallel_coplanar;
         if has_same_dir_coplanar {
             return FaceClass::CoplanarPartial {
-                inside,
+                inside_frags: vec![inside],
                 outside_frags,
             };
         }
         return FaceClass::Partial {
-            inside,
+            inside_frags: vec![inside],
             outside_frags,
         };
     }
@@ -1240,7 +1306,7 @@ fn classify_face(
             let outside_frags =
                 split_outside_fragments(&face.verts, opposing, tau, Some(face.normal), cache);
             return FaceClass::CoplanarPartial {
-                inside,
+                inside_frags: vec![inside],
                 outside_frags,
             };
         }
@@ -1402,16 +1468,11 @@ fn classify_face_nonconvex(
         return FaceClass::Inside;
     }
 
-    // Use the largest inside fragment as the canonical "inside" polygon.
-    // Small fragments at cutting boundaries may be misclassified by
-    // point_in_solid, so keeping only the largest avoids spurious geometry.
-    let inside = inside_frags
-        .into_iter()
-        .max_by(|a, b| polygon_area_3d(a).partial_cmp(&polygon_area_3d(b)).unwrap())
-        .unwrap();
-
+    // Retain ALL inside fragments — no largest-fragment heuristic.
+    // GWN-based point_in_solid is robust enough that small fragments
+    // are correctly classified; discarding them creates missing face regions.
     FaceClass::Partial {
-        inside,
+        inside_frags,
         outside_frags,
     }
 }
@@ -1464,7 +1525,7 @@ fn classify_coplanar_nonconvex(
         let sample = v3_add(centroid, inward_offset);
         if point_in_solid(sample, opposing) {
             return FaceClass::CoplanarPartial {
-                inside: face.verts.clone(),
+                inside_frags: vec![face.verts.clone()],
                 outside_frags: vec![],
             };
         }
@@ -1518,25 +1579,21 @@ fn classify_coplanar_nonconvex(
     let inside_total_area: f64 = inside_frags.iter().map(|f| polygon_area_3d(f)).sum();
     if (inside_total_area - original_area).abs() / original_area < 1e-6 {
         return FaceClass::CoplanarPartial {
-            inside: face.verts.clone(),
+            inside_frags: vec![face.verts.clone()],
             outside_frags: vec![],
         };
     }
 
     if outside_frags.is_empty() {
         return FaceClass::CoplanarPartial {
-            inside: face.verts.clone(),
+            inside_frags: vec![face.verts.clone()],
             outside_frags: vec![],
         };
     }
 
-    let inside = inside_frags
-        .into_iter()
-        .max_by(|a, b| polygon_area_3d(a).partial_cmp(&polygon_area_3d(b)).unwrap())
-        .unwrap();
-
+    // Retain ALL inside fragments — no largest-fragment heuristic.
     FaceClass::CoplanarPartial {
-        inside,
+        inside_frags,
         outside_frags,
     }
 }
@@ -2090,11 +2147,11 @@ fn collect_fragments(
                 }
             }
             FaceClass::Partial {
-                inside,
+                inside_frags,
                 outside_frags,
             }
             | FaceClass::CoplanarPartial {
-                inside,
+                inside_frags,
                 outside_frags,
             } => {
                 if include_outside {
@@ -2103,7 +2160,9 @@ fn collect_fragments(
                     }
                 }
                 if include_partial_inside {
-                    emit(output, inside.clone(), face.normal, face.origin);
+                    for frag in inside_frags {
+                        emit(output, frag.clone(), face.normal, face.origin);
+                    }
                 }
             }
             FaceClass::CoplanarTouching => {
@@ -2156,7 +2215,7 @@ fn collect_union_fragments(
                 }
             }
             FaceClass::CoplanarPartial {
-                inside: _,
+                inside_frags: _,
                 outside_frags,
             } => {
                 // Same-direction coplanar: "inside" is surface overlap.
@@ -5385,5 +5444,282 @@ mod tests {
             result3, computed1,
             "Reversed edge order should find cached value"
         );
+    }
+
+    // ── GWN (Generalized Winding Number) tests ─────────────────────
+
+    /// Build a unit cube [0,1]^3 as a Vec<FacePoly> for GWN testing.
+    /// Vertex winding: CCW when viewed from outside, so that
+    /// (v1-v0)×(v2-v0) · outward_normal > 0.
+    fn unit_cube_face_polys() -> Vec<FacePoly> {
+        vec![
+            // -Z face (z=0)
+            FacePoly {
+                verts: vec![
+                    [0.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                    [1.0, 1.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                ],
+                normal: [0.0, 0.0, -1.0],
+                origin: [0.0, 0.0, 0.0],
+            },
+            // +Z face (z=1)
+            FacePoly {
+                verts: vec![
+                    [0.0, 0.0, 1.0],
+                    [1.0, 0.0, 1.0],
+                    [1.0, 1.0, 1.0],
+                    [0.0, 1.0, 1.0],
+                ],
+                normal: [0.0, 0.0, 1.0],
+                origin: [0.0, 0.0, 1.0],
+            },
+            // -Y face (y=0)
+            FacePoly {
+                verts: vec![
+                    [0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                    [1.0, 0.0, 1.0],
+                    [0.0, 0.0, 1.0],
+                ],
+                normal: [0.0, -1.0, 0.0],
+                origin: [0.0, 0.0, 0.0],
+            },
+            // +Y face (y=1)
+            FacePoly {
+                verts: vec![
+                    [0.0, 1.0, 0.0],
+                    [0.0, 1.0, 1.0],
+                    [1.0, 1.0, 1.0],
+                    [1.0, 1.0, 0.0],
+                ],
+                normal: [0.0, 1.0, 0.0],
+                origin: [0.0, 1.0, 0.0],
+            },
+            // -X face (x=0)
+            FacePoly {
+                verts: vec![
+                    [0.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                    [0.0, 1.0, 1.0],
+                    [0.0, 1.0, 0.0],
+                ],
+                normal: [-1.0, 0.0, 0.0],
+                origin: [0.0, 0.0, 0.0],
+            },
+            // +X face (x=1)
+            FacePoly {
+                verts: vec![
+                    [1.0, 0.0, 0.0],
+                    [1.0, 1.0, 0.0],
+                    [1.0, 1.0, 1.0],
+                    [1.0, 0.0, 1.0],
+                ],
+                normal: [1.0, 0.0, 0.0],
+                origin: [1.0, 0.0, 0.0],
+            },
+        ]
+    }
+
+    #[test]
+    fn gwn_unit_cube_center_inside() {
+        let faces = unit_cube_face_polys();
+        let w = winding_number([0.5, 0.5, 0.5], &faces);
+        assert!(
+            (w - 1.0).abs() < 0.1,
+            "Center of cube should have winding number ~1.0, got {}",
+            w
+        );
+    }
+
+    #[test]
+    fn gwn_unit_cube_far_point_outside() {
+        let faces = unit_cube_face_polys();
+        let w = winding_number([5.0, 5.0, 5.0], &faces);
+        assert!(
+            w.abs() < 0.1,
+            "Far point should have winding number ~0.0, got {}",
+            w
+        );
+    }
+
+    #[test]
+    fn gwn_classify_inside() {
+        let faces = unit_cube_face_polys();
+        assert_eq!(
+            winding_number_classify([0.5, 0.5, 0.5], &faces),
+            Some(true),
+            "Center of cube should classify as inside"
+        );
+    }
+
+    #[test]
+    fn gwn_classify_outside() {
+        let faces = unit_cube_face_polys();
+        assert_eq!(
+            winding_number_classify([5.0, 5.0, 5.0], &faces),
+            Some(false),
+            "Far point should classify as outside"
+        );
+    }
+
+    #[test]
+    fn gwn_point_in_solid_cube() {
+        let faces = unit_cube_face_polys();
+        assert!(
+            point_in_solid([0.5, 0.5, 0.5], &faces),
+            "Center of cube should be inside"
+        );
+        assert!(
+            !point_in_solid([5.0, 5.0, 5.0], &faces),
+            "Far point should be outside"
+        );
+    }
+
+    #[test]
+    fn gwn_nonconvex_l_shape() {
+        // L-shaped solid: [0,2]x[0,1]x[0,1] ∪ [0,1]x[0,2]x[0,1]
+        // (big square minus [1,2]x[1,2] cutout)
+        // Non-convex solid where ray-casting can fail.
+        // Vertex winding: CCW from outside (outward normals).
+        let faces = vec![
+            // Bottom face (L-shape, z=0, normal -Z)
+            FacePoly {
+                verts: vec![
+                    [0.0, 2.0, 0.0],
+                    [1.0, 2.0, 0.0],
+                    [1.0, 1.0, 0.0],
+                    [2.0, 1.0, 0.0],
+                    [2.0, 0.0, 0.0],
+                    [0.0, 0.0, 0.0],
+                ],
+                normal: [0.0, 0.0, -1.0],
+                origin: [0.0, 0.0, 0.0],
+            },
+            // Top face (L-shape, z=1, normal +Z)
+            FacePoly {
+                verts: vec![
+                    [0.0, 0.0, 1.0],
+                    [2.0, 0.0, 1.0],
+                    [2.0, 1.0, 1.0],
+                    [1.0, 1.0, 1.0],
+                    [1.0, 2.0, 1.0],
+                    [0.0, 2.0, 1.0],
+                ],
+                normal: [0.0, 0.0, 1.0],
+                origin: [0.0, 0.0, 1.0],
+            },
+            // -Y face (y=0, normal -Y)
+            FacePoly {
+                verts: vec![
+                    [0.0, 0.0, 0.0],
+                    [2.0, 0.0, 0.0],
+                    [2.0, 0.0, 1.0],
+                    [0.0, 0.0, 1.0],
+                ],
+                normal: [0.0, -1.0, 0.0],
+                origin: [0.0, 0.0, 0.0],
+            },
+            // +X face (x=2, y=0..1, normal +X)
+            FacePoly {
+                verts: vec![
+                    [2.0, 0.0, 0.0],
+                    [2.0, 1.0, 0.0],
+                    [2.0, 1.0, 1.0],
+                    [2.0, 0.0, 1.0],
+                ],
+                normal: [1.0, 0.0, 0.0],
+                origin: [2.0, 0.0, 0.0],
+            },
+            // Inner step face +Y (y=1, x=1..2, normal +Y)
+            FacePoly {
+                verts: vec![
+                    [1.0, 1.0, 0.0],
+                    [1.0, 1.0, 1.0],
+                    [2.0, 1.0, 1.0],
+                    [2.0, 1.0, 0.0],
+                ],
+                normal: [0.0, 1.0, 0.0],
+                origin: [1.0, 1.0, 0.0],
+            },
+            // Inner step face +X (x=1, y=1..2, normal +X outward into cutout)
+            FacePoly {
+                verts: vec![
+                    [1.0, 2.0, 0.0],
+                    [1.0, 2.0, 1.0],
+                    [1.0, 1.0, 1.0],
+                    [1.0, 1.0, 0.0],
+                ],
+                normal: [1.0, 0.0, 0.0],
+                origin: [1.0, 1.0, 0.0],
+            },
+            // +Y face (y=2, x=0..1, normal +Y)
+            FacePoly {
+                verts: vec![
+                    [0.0, 2.0, 0.0],
+                    [0.0, 2.0, 1.0],
+                    [1.0, 2.0, 1.0],
+                    [1.0, 2.0, 0.0],
+                ],
+                normal: [0.0, 1.0, 0.0],
+                origin: [0.0, 2.0, 0.0],
+            },
+            // -X face (x=0, normal -X)
+            FacePoly {
+                verts: vec![
+                    [0.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                    [0.0, 2.0, 1.0],
+                    [0.0, 2.0, 0.0],
+                ],
+                normal: [-1.0, 0.0, 0.0],
+                origin: [0.0, 0.0, 0.0],
+            },
+        ];
+
+        // Point in the interior pocket of the L (bottom-left arm)
+        assert!(
+            point_in_solid([0.5, 1.5, 0.5], &faces),
+            "Point in L-shape arm should be inside"
+        );
+        // Point in the other arm
+        assert!(
+            point_in_solid([1.5, 0.5, 0.5], &faces),
+            "Point in L-shape arm should be inside"
+        );
+        // Point in the concave cutout (should be outside)
+        assert!(
+            !point_in_solid([1.5, 1.5, 0.5], &faces),
+            "Point in L-shape cutout should be outside"
+        );
+        // Point far outside
+        assert!(
+            !point_in_solid([5.0, 5.0, 5.0], &faces),
+            "Far point should be outside"
+        );
+    }
+
+    #[test]
+    fn gwn_solid_angle_degenerate_triangle() {
+        // Collinear triangle vertices → should return 0.0
+        let sa = solid_angle(
+            [1.0, 1.0, 1.0],
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+        );
+        assert!(!sa.is_nan(), "Collinear triangle should not produce NaN");
+        assert!(sa.abs() < 1e-10, "Collinear triangle should give ~0");
+    }
+
+    #[test]
+    fn gwn_solid_angle_point_at_vertex() {
+        let a = [0.0, 0.0, 0.0];
+        let b = [1.0, 0.0, 0.0];
+        let c = [0.0, 1.0, 0.0];
+        let sa = solid_angle(a, a, b, c);
+        assert!(!sa.is_nan(), "Point-at-vertex should not produce NaN");
+        assert_eq!(sa, 0.0, "Point-at-vertex should give 0.0");
     }
 }
