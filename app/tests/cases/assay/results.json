@@ -1,14 +1,14 @@
 {
-  "errored": 1,
-  "failed": 65,
+  "errored": 4,
+  "failed": 49,
   "generated": "2026-03-10",
-  "passed": 44,
+  "passed": 57,
   "results": [
     {
-      "category": "aabb-collapse",
-      "detail": "aabb_collapse: vertex count dropped 47% from 'Revolve 1' (260) to 'Extrude 2' (137) — body likely collapsed to AABB",
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "R0001",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "pass-boss-only",
@@ -18,7 +18,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 30 unpaired edges out of 447 total",
+      "detail": "watertight_mesh: 132 unpaired edges out of 1885 total (129 boundary, 3 non-manifold)",
       "id": "R0003",
       "status": "fail"
     },
@@ -36,7 +36,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 132 unpaired edges out of 657 total",
+      "detail": "watertight_mesh: 1136 unpaired edges out of 5515 total (1098 boundary, 38 non-manifold)",
       "id": "R0006",
       "status": "fail"
     },
@@ -47,14 +47,14 @@
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 16 unpaired edges out of 3669 total",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0008",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 554 unpaired edges out of 1201 total",
+      "detail": "watertight_mesh: 2335 unpaired edges out of 8940 total (2057 boundary, 278 non-manifold)",
       "id": "R0009",
       "status": "fail"
     },
@@ -72,7 +72,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 31 unpaired edges out of 930 total; consistent_normals: 8 of 618 triangles have reversed normals",
+      "detail": "watertight_mesh: 252 unpaired edges out of 5785 total (158 boundary, 94 non-manifold)",
       "id": "R0012",
       "status": "fail"
     },
@@ -90,15 +90,15 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 90 unpaired edges out of 600 total",
+      "detail": "watertight_mesh: 1059 unpaired edges out of 2451 total",
       "id": "R0015",
       "status": "fail"
     },
     {
-      "category": "aabb-collapse",
-      "detail": "aabb_collapse: vertex count dropped 86% from 'Revolve 1' (4552) to 'Extrude 2' (628) — body likely collapsed to AABB",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0016",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "boolean-watertight",
@@ -107,22 +107,22 @@
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 12 unpaired edges out of 111 total; consistent_normals: 3 of 70 triangles have reversed normals",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0018",
+      "status": "pass"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 280 unpaired edges out of 1397 total",
+      "id": "R0019",
       "status": "fail"
     },
     {
       "category": "pass-genuine",
       "detail": "8 oracles passed",
-      "id": "R0019",
-      "status": "pass"
-    },
-    {
-      "category": "aabb-collapse",
-      "detail": "aabb_collapse: vertex count dropped 96% from 'Revolve 2' (3637) to 'Extrude 3' (136) — body likely collapsed to AABB",
       "id": "R0020",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "pass-boss-only",
@@ -131,10 +131,10 @@
       "status": "pass"
     },
     {
-      "category": "aabb-collapse",
-      "detail": "aabb_collapse: vertex count dropped 57% from 'Extrude 2' (315) to 'Extrude 3' (136) — body likely collapsed to AABB",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0022",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "pass-genuine",
@@ -155,10 +155,10 @@
       "status": "pass"
     },
     {
-      "category": "aabb-collapse",
-      "detail": "aabb_collapse: vertex count dropped 98% from 'Revolve 1' (1952) to 'Extrude 2' (47) — body likely collapsed to AABB",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0026",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "pass-genuine",
@@ -167,10 +167,10 @@
       "status": "pass"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 254 unpaired edges out of 18742 total",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0028",
-      "status": "fail"
+      "status": "error"
     },
     {
       "category": "pass-boss-only",
@@ -179,34 +179,34 @@
       "status": "pass"
     },
     {
-      "category": "aabb-collapse",
-      "detail": "aabb_collapse: vertex count dropped 72% from 'Revolve 2' (493) to 'Extrude 3' (136) — body likely collapsed to AABB",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0030",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "aabb-collapse",
-      "detail": "aabb_collapse: vertex count dropped 43% from 'Extrude 1' (240) to 'Extrude 2' (136) — body likely collapsed to AABB",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0031",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 312 unpaired edges out of 7524 total",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0032",
-      "status": "fail"
+      "status": "error"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 6 unpaired edges out of 1080 total",
+      "detail": "watertight_mesh: 553 unpaired edges out of 3530 total",
       "id": "R0033",
       "status": "fail"
     },
     {
-      "category": "aabb-collapse",
-      "detail": "aabb_collapse: vertex count dropped 100% from 'Extrude 1' (108) to 'Extrude 2' (0) — body likely collapsed to AABB",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0034",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "pass-genuine",
@@ -215,26 +215,26 @@
       "status": "pass"
     },
     {
-      "category": "aabb-collapse",
-      "detail": "aabb_collapse: vertex count dropped 88% from 'Extrude 2' (1138) to 'Extrude 3' (136) — body likely collapsed to AABB",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 2162 unpaired edges out of 15900 total (2111 boundary, 51 non-manifold)",
       "id": "R0036",
       "status": "fail"
     },
     {
-      "category": "aabb-collapse",
-      "detail": "aabb_collapse: vertex count dropped 89% from 'Revolve 1' (4942) to 'Extrude 2' (553) — body likely collapsed to AABB; watertight_mesh: 133 unpaired edges out of 1577 total",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 253 unpaired edges out of 4813 total (251 boundary, 2 non-manifold)",
       "id": "R0037",
       "status": "fail"
     },
     {
-      "category": "aabb-collapse",
-      "detail": "aabb_collapse: vertex count dropped 97% from 'Revolve 1' (260) to 'Revolve 2' (8) — body likely collapsed to AABB; watertight_mesh: 13 unpaired edges out of 2423 total",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 13 unpaired edges out of 2423 total (0 boundary, 13 non-manifold)",
       "id": "R0038",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 274 unpaired edges out of 2690 total",
+      "detail": "watertight_mesh: 460 unpaired edges out of 4244 total",
       "id": "R0039",
       "status": "fail"
     },
@@ -245,20 +245,20 @@
       "status": "pass"
     },
     {
-      "category": "aabb-collapse",
-      "detail": "aabb_collapse: vertex count dropped 48% from 'Extrude 1' (264) to 'Extrude 2' (136) — body likely collapsed to AABB",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0041",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 9 unpaired edges out of 109 total",
+      "detail": "watertight_mesh: 9 unpaired edges out of 109 total (6 boundary, 3 non-manifold)",
       "id": "R0042",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 31 unpaired edges out of 566 total; consistent_normals: 6 of 371 triangles have reversed normals",
+      "detail": "watertight_mesh: 242 unpaired edges out of 3563 total (239 boundary, 3 non-manifold)",
       "id": "R0043",
       "status": "fail"
     },
@@ -270,15 +270,15 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 24 unpaired edges out of 2640 total",
+      "detail": "watertight_mesh: 666 unpaired edges out of 7302 total (665 boundary, 1 non-manifold)",
       "id": "R0045",
       "status": "fail"
     },
     {
-      "category": "aabb-collapse",
-      "detail": "aabb_collapse: vertex count dropped 42% from 'Extrude 1' (130) to 'Extrude 2' (76) — body likely collapsed to AABB; watertight_mesh: 41 unpaired edges out of 424 total",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0046",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "boolean-watertight",
@@ -288,25 +288,25 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 21 unpaired edges out of 762 total; consistent_normals: 61 of 501 triangles have reversed normals; outward_normals: only 404 of 465 triangles (86.9%) have outward normals (need 95%)",
+      "detail": "watertight_mesh: 1762 unpaired edges out of 5786 total (1729 boundary, 33 non-manifold)",
       "id": "R0048",
       "status": "fail"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 132 unpaired edges out of 3858 total",
       "id": "R0049",
-      "status": "pass"
+      "status": "fail"
     },
     {
-      "category": "aabb-collapse",
-      "detail": "aabb_collapse: vertex count dropped 36% from 'Revolve 1' (260) to 'Revolve 2' (166) — body likely collapsed to AABB; watertight_mesh: 59 unpaired edges out of 1455 total; consistent_normals: 23 of 990 triangles have reversed normals",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 107 unpaired edges out of 1335 total (68 boundary, 39 non-manifold)",
       "id": "R0050",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 92 unpaired edges out of 1640 total",
+      "detail": "watertight_mesh: 63 unpaired edges out of 1679 total (59 boundary, 4 non-manifold)",
       "id": "R0051",
       "status": "fail"
     },
@@ -318,15 +318,15 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 91 unpaired edges out of 2857 total; consistent_normals: 36 of 1935 triangles have reversed normals",
+      "detail": "watertight_mesh: 633 unpaired edges out of 9837 total (627 boundary, 6 non-manifold)",
       "id": "R0053",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 240 unpaired edges out of 1494 total",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0054",
-      "status": "fail"
+      "status": "error"
     },
     {
       "category": "pass-genuine",
@@ -336,25 +336,25 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 128 unpaired edges out of 4798 total",
+      "detail": "watertight_mesh: 1905 unpaired edges out of 15559 total (1850 boundary, 55 non-manifold)",
       "id": "R0056",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 161 unpaired edges out of 967 total",
+      "detail": "watertight_mesh: 661 unpaired edges out of 4013 total",
       "id": "R0057",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 21 unpaired edges out of 828 total",
+      "detail": "watertight_mesh: 127 unpaired edges out of 2933 total (120 boundary, 7 non-manifold)",
       "id": "R0058",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 71 unpaired edges out of 2966 total",
+      "detail": "watertight_mesh: 77 unpaired edges out of 2971 total (64 boundary, 13 non-manifold)",
       "id": "R0059",
       "status": "fail"
     },
@@ -372,27 +372,27 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 285 unpaired edges out of 1430 total; no_degenerate_triangles: 1 of 862 triangles are degenerate",
+      "detail": "watertight_mesh: 1123 unpaired edges out of 3493 total (1117 boundary, 6 non-manifold)",
       "id": "R0062",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 39 unpaired edges out of 3658 total",
+      "detail": "watertight_mesh: 751 unpaired edges out of 7570 total (742 boundary, 9 non-manifold)",
       "id": "R0063",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 4 unpaired edges out of 65 total; consistent_normals: 1 of 42 triangles have reversed normals",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0064",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "aabb-collapse",
-      "detail": "aabb_collapse: vertex count dropped 100% from 'Extrude 1' (130) to 'Extrude 2' (0) — body likely collapsed to AABB",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0065",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "pass-boss-only",
@@ -408,7 +408,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 21 unpaired edges out of 77 total; consistent_normals: 4 of 48 triangles have reversed normals; outward_normals: only 44 of 48 triangles (91.7%) have outward normals (need 95%)",
+      "detail": "watertight_mesh: 17 unpaired edges out of 78 total (12 boundary, 5 non-manifold)",
       "id": "R0068",
       "status": "fail"
     },
@@ -419,20 +419,20 @@
       "status": "pass"
     },
     {
-      "category": "aabb-collapse",
-      "detail": "aabb_collapse: vertex count dropped 63% from 'Extrude 2' (1289) to 'Extrude 3' (483) — body likely collapsed to AABB; watertight_mesh: 127 unpaired edges out of 1259 total",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 119 unpaired edges out of 955 total",
       "id": "R0070",
       "status": "fail"
     },
     {
-      "category": "aabb-collapse",
-      "detail": "aabb_collapse: vertex count dropped 97% from 'Revolve 1' (3772) to 'Extrude 2' (132) — body likely collapsed to AABB; watertight_mesh: 208 unpaired edges out of 668 total",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 1147 unpaired edges out of 3208 total (1123 boundary, 24 non-manifold)",
       "id": "R0071",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 900 unpaired edges out of 6815 total",
+      "detail": "watertight_mesh: 3013 unpaired edges out of 15940 total (2968 boundary, 45 non-manifold)",
       "id": "R0072",
       "status": "fail"
     },
@@ -443,22 +443,22 @@
       "status": "pass"
     },
     {
-      "category": "aabb-collapse",
-      "detail": "aabb_collapse: vertex count dropped 51% from 'Extrude 1' (130) to 'Revolve 2' (64) — body likely collapsed to AABB",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0074",
+      "status": "pass"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 186 unpaired edges out of 2640 total (183 boundary, 3 non-manifold)",
+      "id": "R0075",
       "status": "fail"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
-      "id": "R0075",
-      "status": "pass"
-    },
-    {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 82 unpaired edges out of 1378 total (80 boundary, 2 non-manifold)",
       "id": "R0076",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "boolean-watertight",
@@ -468,13 +468,13 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 47 unpaired edges out of 3084 total",
+      "detail": "watertight_mesh: 303 unpaired edges out of 6741 total (291 boundary, 12 non-manifold)",
       "id": "R0078",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 110 unpaired edges out of 2170 total",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 10880 total faces exceeds limit (5000). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
       "id": "R0079",
       "status": "fail"
     },
@@ -486,31 +486,31 @@
     },
     {
       "category": "cascading-failure",
-      "detail": "timeout after 30s",
+      "detail": "timeout after 90s",
       "id": "R0081",
       "status": "error"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 82 unpaired edges out of 1668 total; consistent_normals: 12 of 1123 triangles have reversed normals",
+      "detail": "watertight_mesh: 105 unpaired edges out of 1673 total (65 boundary, 40 non-manifold)",
       "id": "R0082",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 242 unpaired edges out of 1207 total",
+      "detail": "watertight_mesh: 2163 unpaired edges out of 10971 total (2097 boundary, 66 non-manifold)",
       "id": "R0083",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 33 unpaired edges out of 2022 total",
+      "detail": "watertight_mesh: 562 unpaired edges out of 4043 total (546 boundary, 16 non-manifold)",
       "id": "R0084",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 122 unpaired edges out of 4048 total",
+      "detail": "watertight_mesh: 226 unpaired edges out of 7689 total (176 boundary, 50 non-manifold)",
       "id": "R0085",
       "status": "fail"
     },
@@ -522,13 +522,13 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 97 unpaired edges out of 2723 total",
+      "detail": "watertight_mesh: 271 unpaired edges out of 7928 total (258 boundary, 13 non-manifold)",
       "id": "R0087",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 147 unpaired edges out of 2718 total",
+      "detail": "watertight_mesh: 410 unpaired edges out of 7422 total (388 boundary, 22 non-manifold)",
       "id": "R0088",
       "status": "fail"
     },
@@ -546,37 +546,37 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 160 unpaired edges out of 1581 total",
+      "detail": "watertight_mesh: 883 unpaired edges out of 2859 total (881 boundary, 2 non-manifold)",
       "id": "R0091",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 260 unpaired edges out of 2640 total",
+      "detail": "watertight_mesh: 675 unpaired edges out of 5704 total (649 boundary, 26 non-manifold)",
       "id": "R0092",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 11 unpaired edges out of 616 total; consistent_normals: 46 of 407 triangles have reversed normals; outward_normals: only 352 of 398 triangles (88.4%) have outward normals (need 95%)",
+      "detail": "watertight_mesh: 726 unpaired edges out of 2024 total (719 boundary, 7 non-manifold)",
       "id": "R0093",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 89 unpaired edges out of 1000 total; consistent_normals: 29 of 637 triangles have reversed normals",
+      "detail": "watertight_mesh: 1051 unpaired edges out of 5478 total (1049 boundary, 2 non-manifold)",
       "id": "R0094",
       "status": "fail"
     },
     {
-      "category": "aabb-collapse",
-      "detail": "aabb_collapse: vertex count dropped 98% from 'Revolve 1' (1952) to 'Extrude 2' (42) — body likely collapsed to AABB; watertight_mesh: 32 unpaired edges out of 675 total",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 29 unpaired edges out of 677 total (27 boundary, 2 non-manifold)",
       "id": "R0095",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 43 unpaired edges out of 1475 total",
+      "detail": "watertight_mesh: 246 unpaired edges out of 1878 total",
       "id": "R0096",
       "status": "fail"
     },
@@ -587,16 +587,16 @@
       "status": "pass"
     },
     {
-      "category": "aabb-collapse",
-      "detail": "aabb_collapse: vertex count dropped 68% from 'Extrude 2' (756) to 'Extrude 3' (240) — body likely collapsed to AABB",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0098",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "aabb-collapse",
-      "detail": "aabb_collapse: vertex count dropped 50% from 'Extrude 2' (256) to 'Revolve 3' (128) — body likely collapsed to AABB",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0099",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "pass-genuine",

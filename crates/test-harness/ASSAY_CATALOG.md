@@ -1,25 +1,25 @@
 # ASSAY v3 Failure Catalog — WaffleKernel
 
 Generated: 2026-03-10
-Score: **37/110** (37 pass, 73 fail, 0 error)
+Score: **57/110** (57 pass, 49 fail, 4 error)
 
 ## Summary by Root Cause
 
 | Category | Count | Status |
 |---|---|---|
-| boolean-watertight | 59 | failed |
-| pass-boss-only | 23 | passed |
-| pass-genuine | 14 | passed |
-| auto-union-failed | 12 | failed |
-| multiple-failures | 1 | failed |
+| boolean-watertight | 47 | failed |
+| pass-genuine | 32 | passed |
+| pass-boss-only | 25 | passed |
+| cascading-failure | 4 | errored |
 | revolve-normals | 1 | failed |
+| auto-union-failed | 1 | failed |
 
 ## Highest-Leverage Fixes
 
-1. **Fix boolean-watertight** → would address ~59 cases
-2. **Fix auto-union-failed** → would address ~12 cases
-3. **Fix multiple-failures** → would address ~1 cases
-4. **Fix revolve-normals** → would address ~1 cases
+1. **Fix boolean-watertight** → would address ~47 cases
+2. **Fix cascading-failure** → would address ~4 cases
+3. **Fix revolve-normals** → would address ~1 cases
+4. **Fix auto-union-failed** → would address ~1 cases
 
 ## Individual Case Results
 
@@ -42,70 +42,70 @@ Score: **37/110** (37 pass, 73 fail, 0 error)
 - **Operations**: revolve(gear,boss) + extrude(rectangle,cut)
 - **Scale**: 2.16e2 (log: 2.33)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 54 unpaired edges out of 453 total
+- **Detail**: watertight_mesh: 132 unpaired edges out of 1885 total (129 boundary, 3 non-manifold)
 
-### R0004 — FAIL
+### R0004 — PASS
 
 - **Operations**: extrude(gear,boss) + extrude(rectangle,cut)
 - **Scale**: 1.42e0 (log: 0.15)
-- **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 8 unpaired edges out of 808 total
+- **Category**: pass-genuine
+- **Detail**: 8 oracles passed
 
-### R0005 — FAIL
+### R0005 — PASS
 
 - **Operations**: extrude(gear,boss) + extrude(rectangle,boss)
 - **Scale**: 1.70e-1 (log: -0.77)
-- **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 8 unpaired edges out of 922 total
+- **Category**: pass-boss-only
+- **Detail**: 8 oracles passed
 
 ### R0006 — FAIL
 
 - **Operations**: extrude(rectangle,boss) + extrude(gear,boss) + extrude(gear,cut)
 - **Scale**: 5.80e1 (log: 1.76)
 - **Category**: boolean-watertight
-- **Detail**: partial rebuild (1 error(s)): 98a30b16-ef86-47af-9344-a0d469cb4c9f: operation error: kernel error: operation not supported: polygon boolean: 260 total faces exceeds limit (250); watertight_mesh: 7 unpaired edges out of 767 total
+- **Detail**: watertight_mesh: 1136 unpaired edges out of 5515 total (1098 boundary, 38 non-manifold)
 
 ### R0007 — FAIL
 
 - **Operations**: extrude(circle,boss) + extrude(rectangle,cut) + extrude(gear,cut)
 - **Scale**: 1.21e-4 (log: -3.92)
 - **Category**: revolve-normals
-- **Detail**: partial rebuild (1 error(s)): 289b6cfa-14d4-432a-b04b-bdefc761615d: operation error: kernel error: boolean operation failed: one or both solids have no planar faces; consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; expected positive signed volume, got 0.000000e0
+- **Detail**: consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; expected positive signed volume, got 0.000000e0
 
-### R0008 — FAIL
+### R0008 — PASS
 
 - **Operations**: extrude(rectangle,boss) + revolve(circle,cut) + extrude(gear,boss)
 - **Scale**: 1.27e2 (log: 2.10)
-- **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 500 total faces exceeds limit (250). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)
+- **Category**: pass-genuine
+- **Detail**: 8 oracles passed
 
 ### R0009 — FAIL
 
 - **Operations**: extrude(circle,boss) + extrude(gear,boss) + extrude(gear,cut)
 - **Scale**: 1.05e-4 (log: -3.98)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 562 unpaired edges out of 1205 total
+- **Detail**: watertight_mesh: 2335 unpaired edges out of 8940 total (2057 boundary, 278 non-manifold)
 
-### R0010 — FAIL
+### R0010 — PASS
 
 - **Operations**: extrude(rectangle,boss) + extrude(gear,boss)
 - **Scale**: 1.32e2 (log: 2.12)
-- **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 14 unpaired edges out of 1240 total
+- **Category**: pass-boss-only
+- **Detail**: 8 oracles passed
 
-### R0011 — FAIL
+### R0011 — PASS
 
 - **Operations**: extrude(rectangle,boss) + extrude(gear,boss)
 - **Scale**: 7.15e3 (log: 3.85)
-- **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 24 unpaired edges out of 1530 total
+- **Category**: pass-boss-only
+- **Detail**: 8 oracles passed
 
 ### R0012 — FAIL
 
 - **Operations**: revolve(rectangle,boss) + revolve(rectangle,cut) + extrude(gear,boss)
 - **Scale**: 6.95e1 (log: 1.84)
 - **Category**: boolean-watertight
-- **Detail**: partial rebuild (1 error(s)): a4feac21-93fc-4ea0-b4f8-bd4e2943a30f: operation error: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 16 (50.0%); watertight_mesh: 24 unpaired edges out of 807 total
+- **Detail**: watertight_mesh: 252 unpaired edges out of 5785 total (158 boundary, 94 non-manifold)
 
 ### R0013 — PASS
 
@@ -126,7 +126,7 @@ Score: **37/110** (37 pass, 73 fail, 0 error)
 - **Operations**: extrude(gear,boss) + extrude(rectangle,cut) + extrude(circle,boss)
 - **Scale**: 1.12e-4 (log: -3.95)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 121 unpaired edges out of 602 total
+- **Detail**: watertight_mesh: 1059 unpaired edges out of 2451 total
 
 ### R0016 — PASS
 
@@ -140,21 +140,21 @@ Score: **37/110** (37 pass, 73 fail, 0 error)
 - **Operations**: extrude(circle,boss) + revolve(circle,boss) + revolve(rectangle,cut)
 - **Scale**: 4.03e3 (log: 3.61)
 - **Category**: boolean-watertight
-- **Detail**: partial rebuild (1 error(s)): cd841cd7-27a4-49b0-84d4-348ad6f3c8fa: operation error: kernel error: operation not supported: polygon boolean: 514 total faces exceeds limit (250); watertight_mesh: 61 unpaired edges out of 1652 total
+- **Detail**: watertight_mesh: 44 unpaired edges out of 1666 total
 
-### R0018 — FAIL
+### R0018 — PASS
 
 - **Operations**: extrude(circle,boss) + extrude(rectangle,cut) + extrude(rectangle,boss)
 - **Scale**: 4.41e1 (log: 1.64)
-- **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 12 unpaired edges out of 105 total
+- **Category**: pass-genuine
+- **Detail**: 8 oracles passed
 
 ### R0019 — FAIL
 
 - **Operations**: extrude(gear,boss) + extrude(circle,cut)
 - **Scale**: 2.31e-2 (log: -1.64)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 60 unpaired edges out of 297 total
+- **Detail**: watertight_mesh: 280 unpaired edges out of 1397 total
 
 ### R0020 — PASS
 
@@ -177,12 +177,12 @@ Score: **37/110** (37 pass, 73 fail, 0 error)
 - **Category**: pass-genuine
 - **Detail**: 8 oracles passed
 
-### R0023 — FAIL
+### R0023 — PASS
 
 - **Operations**: extrude(circle,boss) + extrude(rectangle,cut) + extrude(rectangle,boss)
 - **Scale**: 1.06e3 (log: 3.03)
-- **Category**: boolean-watertight
-- **Detail**: partial rebuild (1 error(s)): 36ab64d2-b45b-4dd2-a654-eb3c4ecaf6cc: operation error: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 28 (28.6%)
+- **Category**: pass-genuine
+- **Detail**: 8 oracles passed
 
 ### R0024 — PASS
 
@@ -191,19 +191,19 @@ Score: **37/110** (37 pass, 73 fail, 0 error)
 - **Category**: pass-boss-only
 - **Detail**: 8 oracles passed
 
-### R0025 — FAIL
+### R0025 — PASS
 
 - **Operations**: extrude(gear,boss) + extrude(circle,boss) + revolve(circle,cut)
 - **Scale**: 2.22e3 (log: 3.35)
-- **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 17 unpaired edges out of 1549 total
+- **Category**: pass-genuine
+- **Detail**: 8 oracles passed
 
-### R0026 — FAIL
+### R0026 — PASS
 
 - **Operations**: revolve(circle,boss) + extrude(circle,cut) + extrude(rectangle,boss)
 - **Scale**: 1.33e-1 (log: -0.88)
-- **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 19 unpaired edges out of 437 total
+- **Category**: pass-genuine
+- **Detail**: 8 oracles passed
 
 ### R0027 — PASS
 
@@ -212,12 +212,12 @@ Score: **37/110** (37 pass, 73 fail, 0 error)
 - **Category**: pass-genuine
 - **Detail**: 8 oracles passed
 
-### R0028 — FAIL
+### R0028 — ERROR
 
 - **Operations**: revolve(circle,boss) + revolve(gear,boss)
 - **Scale**: 2.36e-2 (log: -1.63)
-- **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 808 unpaired edges out of 18753 total
+- **Category**: cascading-failure
+- **Detail**: timeout after 90s
 
 ### R0029 — PASS
 
@@ -240,61 +240,61 @@ Score: **37/110** (37 pass, 73 fail, 0 error)
 - **Category**: pass-genuine
 - **Detail**: 8 oracles passed
 
-### R0032 — FAIL
+### R0032 — ERROR
 
 - **Operations**: revolve(gear,boss) + extrude(gear,boss)
 - **Scale**: 2.33e2 (log: 2.37)
-- **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 327 unpaired edges out of 7596 total
+- **Category**: cascading-failure
+- **Detail**: timeout after 90s
 
 ### R0033 — FAIL
 
 - **Operations**: extrude(gear,boss) + revolve(gear,boss)
 - **Scale**: 1.98e-2 (log: -1.70)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 67 unpaired edges out of 1040 total
+- **Detail**: watertight_mesh: 553 unpaired edges out of 3530 total
 
-### R0034 — FAIL
+### R0034 — PASS
 
 - **Operations**: extrude(gear,boss) + extrude(circle,cut) + revolve(gear,boss)
 - **Scale**: 9.45e2 (log: 2.98)
-- **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: boolean operation failed: one or both solids have no planar faces. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)
+- **Category**: pass-genuine
+- **Detail**: 8 oracles passed
 
-### R0035 — FAIL
+### R0035 — PASS
 
 - **Operations**: revolve(rectangle,boss) + revolve(rectangle,cut)
 - **Scale**: 1.45e0 (log: 0.16)
-- **Category**: boolean-watertight
-- **Detail**: partial rebuild (1 error(s)): 77817b8e-a014-4428-b934-3c0c1883dc09: operation error: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 16 (50.0%)
+- **Category**: pass-genuine
+- **Detail**: 8 oracles passed
 
-### R0036 — PASS
+### R0036 — FAIL
 
 - **Operations**: extrude(gear,boss) + extrude(gear,boss) + extrude(circle,cut)
 - **Scale**: 7.33e-2 (log: -1.14)
-- **Category**: pass-genuine
-- **Detail**: 8 oracles passed
+- **Category**: boolean-watertight
+- **Detail**: watertight_mesh: 2162 unpaired edges out of 15900 total (2111 boundary, 51 non-manifold)
 
 ### R0037 — FAIL
 
 - **Operations**: revolve(gear,boss) + extrude(circle,cut) + extrude(rectangle,cut)
 - **Scale**: 2.18e-2 (log: -1.66)
 - **Category**: boolean-watertight
-- **Detail**: partial rebuild (1 error(s)): 0f4e1b1a-d6e4-4b97-a886-fd5aa6b263fe: operation error: kernel error: operation not supported: polygon boolean: 387 total faces exceeds limit (250); watertight_mesh: 230 unpaired edges out of 1525 total
+- **Detail**: watertight_mesh: 253 unpaired edges out of 4813 total (251 boundary, 2 non-manifold)
 
 ### R0038 — FAIL
 
 - **Operations**: revolve(rectangle,boss) + revolve(rectangle,cut) + revolve(circle,cut)
 - **Scale**: 1.35e1 (log: 1.13)
 - **Category**: boolean-watertight
-- **Detail**: partial rebuild (1 error(s)): 5a4a10ed-f532-45d7-a830-0d2e4d459dd8: operation error: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 16 (50.0%); watertight_mesh: 99 unpaired edges out of 2349 total
+- **Detail**: watertight_mesh: 13 unpaired edges out of 2423 total (0 boundary, 13 non-manifold)
 
 ### R0039 — FAIL
 
 - **Operations**: extrude(rectangle,boss) + revolve(gear,cut)
 - **Scale**: 2.38e-2 (log: -1.62)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 339 unpaired edges out of 2697 total
+- **Detail**: watertight_mesh: 460 unpaired edges out of 4244 total
 
 ### R0040 — PASS
 
@@ -315,14 +315,14 @@ Score: **37/110** (37 pass, 73 fail, 0 error)
 - **Operations**: extrude(rectangle,boss) + revolve(rectangle,boss)
 - **Scale**: 8.59e2 (log: 2.93)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 23 unpaired edges out of 98 total
+- **Detail**: watertight_mesh: 9 unpaired edges out of 109 total (6 boundary, 3 non-manifold)
 
 ### R0043 — FAIL
 
 - **Operations**: extrude(rectangle,boss) + extrude(rectangle,cut) + extrude(gear,cut)
 - **Scale**: 1.86e-2 (log: -1.73)
 - **Category**: boolean-watertight
-- **Detail**: partial rebuild (1 error(s)): 0744d042-8bd4-4bd5-a9c2-867c8ce73652: operation error: kernel error: boolean operation failed: non-manifold result: 136 half-edges unpaired out of 480 (28.3%); watertight_mesh: 8 unpaired edges out of 49 total
+- **Detail**: watertight_mesh: 242 unpaired edges out of 3563 total (239 boundary, 3 non-manifold)
 
 ### R0044 — PASS
 
@@ -336,14 +336,14 @@ Score: **37/110** (37 pass, 73 fail, 0 error)
 - **Operations**: extrude(circle,boss) + extrude(gear,boss)
 - **Scale**: 4.90e-3 (log: -2.31)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 224 unpaired edges out of 2632 total
+- **Detail**: watertight_mesh: 666 unpaired edges out of 7302 total (665 boundary, 1 non-manifold)
 
-### R0046 — FAIL
+### R0046 — PASS
 
 - **Operations**: extrude(circle,boss) + extrude(rectangle,cut) + revolve(circle,cut)
 - **Scale**: 4.62e-1 (log: -0.34)
-- **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 41 unpaired edges out of 424 total
+- **Category**: pass-genuine
+- **Detail**: 8 oracles passed
 
 ### R0047 — FAIL
 
@@ -357,126 +357,126 @@ Score: **37/110** (37 pass, 73 fail, 0 error)
 - **Operations**: extrude(circle,boss) + extrude(gear,cut)
 - **Scale**: 1.20e-1 (log: -0.92)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 158 unpaired edges out of 637 total
+- **Detail**: watertight_mesh: 1762 unpaired edges out of 5786 total (1729 boundary, 33 non-manifold)
 
-### R0049 — PASS
+### R0049 — FAIL
 
 - **Operations**: extrude(circle,boss) + extrude(gear,boss)
 - **Scale**: 4.31e-3 (log: -2.37)
-- **Category**: pass-boss-only
-- **Detail**: 8 oracles passed
+- **Category**: boolean-watertight
+- **Detail**: watertight_mesh: 132 unpaired edges out of 3858 total
 
 ### R0050 — FAIL
 
 - **Operations**: revolve(rectangle,boss) + revolve(circle,cut) + revolve(circle,boss)
 - **Scale**: 1.15e1 (log: 1.06)
 - **Category**: boolean-watertight
-- **Detail**: partial rebuild (1 error(s)): f8a13e97-18a9-4931-96d4-ab6f305fe383: operation error: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 16 (50.0%); watertight_mesh: 76 unpaired edges out of 842 total
+- **Detail**: watertight_mesh: 107 unpaired edges out of 1335 total (68 boundary, 39 non-manifold)
 
 ### R0051 — FAIL
 
 - **Operations**: extrude(circle,boss) + revolve(circle,cut) + revolve(rectangle,boss)
 - **Scale**: 3.37e-3 (log: -2.47)
-- **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 384 total faces exceeds limit (250). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); consistent_normals: 38 of 516 triangles have reversed normals; outward_normals: only 478 of 516 triangles (92.6%) have outward normals (need 95%)
+- **Category**: boolean-watertight
+- **Detail**: watertight_mesh: 63 unpaired edges out of 1679 total (59 boundary, 4 non-manifold)
 
-### R0052 — FAIL
+### R0052 — PASS
 
 - **Operations**: extrude(gear,boss) + extrude(rectangle,cut)
 - **Scale**: 5.87e1 (log: 1.77)
-- **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 24 unpaired edges out of 558 total
+- **Category**: pass-genuine
+- **Detail**: 8 oracles passed
 
 ### R0053 — FAIL
 
 - **Operations**: revolve(rectangle,boss) + extrude(rectangle,boss) + revolve(gear,boss)
 - **Scale**: 1.49e2 (log: 2.17)
-- **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 16 half-edges unpaired out of 42 (38.1%). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 57 unpaired edges out of 2459 total
+- **Category**: boolean-watertight
+- **Detail**: watertight_mesh: 633 unpaired edges out of 9837 total (627 boundary, 6 non-manifold)
 
-### R0054 — FAIL
+### R0054 — ERROR
 
 - **Operations**: revolve(gear,boss) + revolve(gear,cut) + revolve(gear,boss)
 - **Scale**: 4.83e1 (log: 1.68)
-- **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 689 total faces exceeds limit (250). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 18 unpaired edges out of 24162 total
+- **Category**: cascading-failure
+- **Detail**: timeout after 90s
 
-### R0055 — FAIL
+### R0055 — PASS
 
 - **Operations**: extrude(rectangle,boss) + revolve(rectangle,cut) + extrude(circle,cut)
 - **Scale**: 7.27e1 (log: 1.86)
-- **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 28 unpaired edges out of 626 total
+- **Category**: pass-genuine
+- **Detail**: 8 oracles passed
 
 ### R0056 — FAIL
 
 - **Operations**: extrude(circle,boss) + revolve(gear,cut)
 - **Scale**: 3.81e-3 (log: -2.42)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 247 unpaired edges out of 4697 total
+- **Detail**: watertight_mesh: 1905 unpaired edges out of 15559 total (1850 boundary, 55 non-manifold)
 
 ### R0057 — FAIL
 
 - **Operations**: extrude(rectangle,boss) + revolve(circle,boss) + extrude(gear,boss)
 - **Scale**: 1.04e2 (log: 2.02)
-- **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 254 total faces exceeds limit (250). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)
+- **Category**: boolean-watertight
+- **Detail**: watertight_mesh: 661 unpaired edges out of 4013 total
 
 ### R0058 — FAIL
 
 - **Operations**: extrude(rectangle,boss) + extrude(gear,cut) + extrude(gear,boss)
 - **Scale**: 4.33e-1 (log: -0.36)
 - **Category**: boolean-watertight
-- **Detail**: partial rebuild (1 error(s)): 623d1870-6b99-4ee4-95bd-d4ee1627567c: operation error: kernel error: boolean operation failed: non-manifold result: 58 half-edges unpaired out of 166 (34.9%); watertight_mesh: 20 unpaired edges out of 1333 total
+- **Detail**: watertight_mesh: 127 unpaired edges out of 2933 total (120 boundary, 7 non-manifold)
 
 ### R0059 — FAIL
 
 - **Operations**: extrude(circle,boss) + revolve(circle,boss) + extrude(rectangle,boss)
 - **Scale**: 3.80e2 (log: 2.58)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 93 unpaired edges out of 3011 total
+- **Detail**: watertight_mesh: 77 unpaired edges out of 2971 total (64 boundary, 13 non-manifold)
 
-### R0060 — FAIL
+### R0060 — PASS
 
 - **Operations**: extrude(gear,boss) + revolve(circle,cut)
 - **Scale**: 3.77e1 (log: 1.58)
-- **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 32 unpaired edges out of 811 total
+- **Category**: pass-genuine
+- **Detail**: 8 oracles passed
 
-### R0061 — FAIL
+### R0061 — PASS
 
 - **Operations**: extrude(circle,boss) + extrude(rectangle,cut)
 - **Scale**: 1.23e-1 (log: -0.91)
-- **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 16 unpaired edges out of 164 total
+- **Category**: pass-genuine
+- **Detail**: 8 oracles passed
 
 ### R0062 — FAIL
 
 - **Operations**: extrude(rectangle,boss) + extrude(gear,boss)
 - **Scale**: 1.87e-4 (log: -3.73)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 418 unpaired edges out of 1361 total
+- **Detail**: watertight_mesh: 1123 unpaired edges out of 3493 total (1117 boundary, 6 non-manifold)
 
 ### R0063 — FAIL
 
 - **Operations**: extrude(circle,boss) + extrude(rectangle,cut) + extrude(gear,boss)
 - **Scale**: 1.74e-3 (log: -2.76)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 267 unpaired edges out of 3557 total
+- **Detail**: watertight_mesh: 751 unpaired edges out of 7570 total (742 boundary, 9 non-manifold)
 
-### R0064 — FAIL
+### R0064 — PASS
 
 - **Operations**: extrude(rectangle,boss) + extrude(rectangle,cut)
 - **Scale**: 1.53e3 (log: 3.19)
-- **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 11 unpaired edges out of 64 total
+- **Category**: pass-genuine
+- **Detail**: 8 oracles passed
 
-### R0065 — FAIL
+### R0065 — PASS
 
 - **Operations**: extrude(circle,boss) + extrude(circle,cut) + revolve(circle,boss)
 - **Scale**: 8.72e-3 (log: -2.06)
-- **Category**: boolean-watertight
-- **Detail**: partial rebuild (1 error(s)): 252758d7-bd19-432d-ad05-236b452673e9: operation error: kernel error: boolean operation failed: tool encloses or equals blank (concentric); watertight_mesh: 157 unpaired edges out of 2947 total
+- **Category**: pass-genuine
+- **Detail**: 8 oracles passed
 
 ### R0066 — PASS
 
@@ -496,8 +496,8 @@ Score: **37/110** (37 pass, 73 fail, 0 error)
 
 - **Operations**: extrude(rectangle,boss) + revolve(rectangle,boss)
 - **Scale**: 4.84e-2 (log: -1.31)
-- **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: boolean operation failed: non-manifold result: 20 half-edges unpaired out of 76 (26.3%). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); consistent_normals: 8 of 516 triangles have reversed normals
+- **Category**: boolean-watertight
+- **Detail**: watertight_mesh: 17 unpaired edges out of 78 total (12 boundary, 5 non-manifold)
 
 ### R0069 — PASS
 
@@ -511,21 +511,21 @@ Score: **37/110** (37 pass, 73 fail, 0 error)
 - **Operations**: revolve(rectangle,boss) + extrude(gear,cut) + extrude(circle,cut)
 - **Scale**: 1.74e-2 (log: -1.76)
 - **Category**: boolean-watertight
-- **Detail**: partial rebuild (1 error(s)): 81509434-14b1-44c4-8b64-49662d509751: operation error: kernel error: operation not supported: polygon approx boolean: 1170 total faces exceeds limit; watertight_mesh: 492 unpaired edges out of 3633 total
+- **Detail**: watertight_mesh: 119 unpaired edges out of 955 total
 
 ### R0071 — FAIL
 
 - **Operations**: revolve(gear,boss) + extrude(rectangle,cut) + revolve(circle,boss)
 - **Scale**: 1.86e-4 (log: -3.73)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 257 unpaired edges out of 661 total
+- **Detail**: watertight_mesh: 1147 unpaired edges out of 3208 total (1123 boundary, 24 non-manifold)
 
 ### R0072 — FAIL
 
 - **Operations**: extrude(gear,boss) + extrude(gear,cut) + revolve(gear,cut)
 - **Scale**: 5.55e-4 (log: -3.26)
 - **Category**: boolean-watertight
-- **Detail**: partial rebuild (1 error(s)): cf875bba-ab5e-4ab1-b49e-bbee4e51f1ca: operation error: kernel error: operation not supported: polygon boolean: 882 total faces exceeds limit (250); watertight_mesh: 669 unpaired edges out of 3204 total
+- **Detail**: watertight_mesh: 3013 unpaired edges out of 15940 total (2968 boundary, 45 non-manifold)
 
 ### R0073 — PASS
 
@@ -546,14 +546,14 @@ Score: **37/110** (37 pass, 73 fail, 0 error)
 - **Operations**: revolve(gear,boss) + extrude(gear,cut)
 - **Scale**: 1.89e2 (log: 2.28)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 53 unpaired edges out of 1264 total
+- **Detail**: watertight_mesh: 186 unpaired edges out of 2640 total (183 boundary, 3 non-manifold)
 
 ### R0076 — FAIL
 
 - **Operations**: extrude(rectangle,boss) + extrude(gear,cut) + extrude(circle,boss)
 - **Scale**: 2.31e0 (log: 0.36)
-- **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: polygon approx boolean: 214 total faces exceeds limit. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)
+- **Category**: boolean-watertight
+- **Detail**: watertight_mesh: 82 unpaired edges out of 1378 total (80 boundary, 2 non-manifold)
 
 ### R0077 — FAIL
 
@@ -566,15 +566,15 @@ Score: **37/110** (37 pass, 73 fail, 0 error)
 
 - **Operations**: extrude(circle,boss) + extrude(circle,boss) + revolve(gear,boss)
 - **Scale**: 1.37e-1 (log: -0.86)
-- **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: boolean operation failed: one or both solids have no planar faces. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)
+- **Category**: boolean-watertight
+- **Detail**: watertight_mesh: 303 unpaired edges out of 6741 total (291 boundary, 12 non-manifold)
 
 ### R0079 — FAIL
 
 - **Operations**: revolve(circle,boss) + revolve(gear,cut) + extrude(rectangle,boss)
 - **Scale**: 7.88e-3 (log: -2.10)
 - **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 1236 total faces exceeds limit (250). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)
+- **Detail**: auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 10880 total faces exceeds limit (5000). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)
 
 ### R0080 — PASS
 
@@ -583,40 +583,40 @@ Score: **37/110** (37 pass, 73 fail, 0 error)
 - **Category**: pass-boss-only
 - **Detail**: 8 oracles passed
 
-### R0081 — FAIL
+### R0081 — ERROR
 
 - **Operations**: extrude(gear,boss) + extrude(rectangle,cut) + revolve(gear,boss)
 - **Scale**: 2.24e-1 (log: -0.65)
-- **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 268 total faces exceeds limit (250). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)
+- **Category**: cascading-failure
+- **Detail**: timeout after 90s
 
 ### R0082 — FAIL
 
 - **Operations**: revolve(rectangle,boss) + revolve(circle,cut)
 - **Scale**: 6.40e2 (log: 2.81)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 127 unpaired edges out of 1367 total
+- **Detail**: watertight_mesh: 105 unpaired edges out of 1673 total (65 boundary, 40 non-manifold)
 
 ### R0083 — FAIL
 
 - **Operations**: extrude(gear,boss) + extrude(gear,cut)
 - **Scale**: 1.62e0 (log: 0.21)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 242 unpaired edges out of 1207 total
+- **Detail**: watertight_mesh: 2163 unpaired edges out of 10971 total (2097 boundary, 66 non-manifold)
 
 ### R0084 — FAIL
 
 - **Operations**: revolve(circle,boss) + extrude(gear,boss)
 - **Scale**: 9.59e-4 (log: -3.02)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 99 unpaired edges out of 2019 total
+- **Detail**: watertight_mesh: 562 unpaired edges out of 4043 total (546 boundary, 16 non-manifold)
 
 ### R0085 — FAIL
 
 - **Operations**: revolve(rectangle,boss) + extrude(gear,boss) + extrude(circle,cut)
 - **Scale**: 2.79e0 (log: 0.45)
 - **Category**: boolean-watertight
-- **Detail**: partial rebuild (1 error(s)): 502aad62-b1dc-481f-8481-5eb667ca5e5c: operation error: kernel error: operation not supported: polygon approx boolean: 290 total faces exceeds limit; watertight_mesh: 31 unpaired edges out of 1172 total
+- **Detail**: watertight_mesh: 226 unpaired edges out of 7689 total (176 boundary, 50 non-manifold)
 
 ### R0086 — PASS
 
@@ -629,15 +629,15 @@ Score: **37/110** (37 pass, 73 fail, 0 error)
 
 - **Operations**: revolve(rectangle,boss) + extrude(gear,cut) + extrude(gear,boss)
 - **Scale**: 4.04e1 (log: 1.61)
-- **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 1130 total faces exceeds limit (250). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)
+- **Category**: boolean-watertight
+- **Detail**: watertight_mesh: 271 unpaired edges out of 7928 total (258 boundary, 13 non-manifold)
 
 ### R0088 — FAIL
 
 - **Operations**: revolve(gear,boss) + extrude(rectangle,boss) + extrude(rectangle,cut)
 - **Scale**: 7.56e2 (log: 2.88)
 - **Category**: boolean-watertight
-- **Detail**: partial rebuild (1 error(s)): 6c7cffa7-dbbc-4a80-95f5-2ce9142c1881: operation error: kernel error: operation not supported: polygon boolean: 1216 total faces exceeds limit (250); watertight_mesh: 49 unpaired edges out of 4095 total
+- **Detail**: watertight_mesh: 410 unpaired edges out of 7422 total (388 boundary, 22 non-manifold)
 
 ### R0089 — PASS
 
@@ -658,70 +658,70 @@ Score: **37/110** (37 pass, 73 fail, 0 error)
 - **Operations**: extrude(gear,boss) + revolve(circle,cut) + revolve(rectangle,cut)
 - **Scale**: 1.59e-4 (log: -3.80)
 - **Category**: boolean-watertight
-- **Detail**: partial rebuild (1 error(s)): eb0cee47-6d85-422b-aae7-06a59c784b86: operation error: kernel error: operation not supported: polygon boolean: 396 total faces exceeds limit (250); watertight_mesh: 289 unpaired edges out of 1544 total
+- **Detail**: watertight_mesh: 883 unpaired edges out of 2859 total (881 boundary, 2 non-manifold)
 
 ### R0092 — FAIL
 
 - **Operations**: extrude(circle,boss) + extrude(rectangle,cut) + extrude(gear,boss)
 - **Scale**: 1.56e-2 (log: -1.81)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 591 unpaired edges out of 2465 total
+- **Detail**: watertight_mesh: 675 unpaired edges out of 5704 total (649 boundary, 26 non-manifold)
 
 ### R0093 — FAIL
 
 - **Operations**: extrude(circle,boss) + extrude(gear,cut) + extrude(gear,cut)
 - **Scale**: 7.12e-3 (log: -2.15)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 174 unpaired edges out of 513 total
+- **Detail**: watertight_mesh: 726 unpaired edges out of 2024 total (719 boundary, 7 non-manifold)
 
 ### R0094 — FAIL
 
 - **Operations**: extrude(rectangle,boss) + revolve(rectangle,cut) + extrude(gear,cut)
 - **Scale**: 8.79e2 (log: 2.94)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 168 unpaired edges out of 882 total
+- **Detail**: watertight_mesh: 1051 unpaired edges out of 5478 total (1049 boundary, 2 non-manifold)
 
 ### R0095 — FAIL
 
 - **Operations**: revolve(circle,boss) + extrude(rectangle,cut) + revolve(circle,boss)
 - **Scale**: 1.14e-3 (log: -2.94)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 60 unpaired edges out of 674 total
+- **Detail**: watertight_mesh: 29 unpaired edges out of 677 total (27 boundary, 2 non-manifold)
 
 ### R0096 — FAIL
 
 - **Operations**: extrude(gear,boss) + extrude(rectangle,boss)
 - **Scale**: 8.88e-3 (log: -2.05)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 150 unpaired edges out of 1441 total
+- **Detail**: watertight_mesh: 246 unpaired edges out of 1878 total
 
-### R0097 — FAIL
+### R0097 — PASS
 
 - **Operations**: extrude(rectangle,boss) + revolve(circle,cut)
 - **Scale**: 1.38e1 (log: 1.14)
-- **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 18 unpaired edges out of 510 total
+- **Category**: pass-genuine
+- **Detail**: 8 oracles passed
 
-### R0098 — FAIL
+### R0098 — PASS
 
 - **Operations**: extrude(rectangle,boss) + extrude(circle,cut) + extrude(circle,cut)
 - **Scale**: 2.21e3 (log: 3.34)
-- **Category**: boolean-watertight
-- **Detail**: partial rebuild (1 error(s)): a475deac-8ed0-4250-977a-073489858ce9: operation error: kernel error: operation not supported: polygon approx boolean: 722 total faces exceeds limit; watertight_mesh: 76 unpaired edges out of 2204 total
+- **Category**: pass-genuine
+- **Detail**: 8 oracles passed
 
-### R0099 — FAIL
+### R0099 — PASS
 
 - **Operations**: extrude(circle,boss) + extrude(circle,cut) + revolve(rectangle,cut)
 - **Scale**: 1.09e1 (log: 1.04)
-- **Category**: multiple-failures
-- **Detail**: partial rebuild (1 error(s)): aad1c0ba-a719-4d21-9877-71b4a7f767a0: operation error: kernel error: boolean operation failed: one or both solids have no planar faces
+- **Category**: pass-genuine
+- **Detail**: 8 oracles passed
 
-### R0100 — FAIL
+### R0100 — PASS
 
 - **Operations**: revolve(rectangle,boss) + revolve(rectangle,cut)
 - **Scale**: 2.25e2 (log: 2.35)
-- **Category**: boolean-watertight
-- **Detail**: partial rebuild (1 error(s)): c4d347ab-c0b2-4fa3-ba77-68628ee93a4e: operation error: kernel error: boolean operation failed: non-manifold result: 8 half-edges unpaired out of 16 (50.0%); consistent_normals: 12 of 516 triangles have reversed normals
+- **Category**: pass-genuine
+- **Detail**: 8 oracles passed
 
 ### F0001 — PASS
 

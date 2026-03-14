@@ -608,6 +608,125 @@ fn extract_face_polys_general(solid: &WaffleSolid) -> Vec<FacePoly> {
     }
 }
 
+// ── Intersection cache for cross-face deduplication ──────────────────────
+
+/// Cache for intersection points computed during Sutherland-Hodgman clipping.
+///
+/// When two adjacent faces share a geometric edge (A,B), canonical ordering
+/// (Step 1) ensures identical operand order. But the faces may store slightly
+/// different copies of A and B (from prior operations). The cache ensures the
+/// first computation wins and all subsequent lookups return the exact same
+/// `[f64; 3]`, eliminating unpaired edges in tessellation.
+///
+/// Key: (sorted quantized edge endpoints, quantized plane normal+offset).
+/// Quantization at tau * 1e-3 — coarse enough to match "same" geometric edges,
+/// fine enough to distinguish genuinely different edges.
+///
+/// Ref [#9] Cherchi 2020: indirect predicates — same principle of avoiding
+/// recomputation. Ref [#10] Levy 2025: exact constructions cached per-edge.
+struct IntersectionCache {
+    cache: HashMap<([i64; 6], [i64; 4]), [f64; 3]>,
+    inv_quant: f64,
+}
+
+impl IntersectionCache {
+    fn new(tau: f64) -> Self {
+        let step = (tau * 1e-3).max(1e-15);
+        Self {
+            cache: HashMap::new(),
+            inv_quant: 1.0 / step,
+        }
+    }
+
+    /// Look up or insert an intersection point.
+    ///
+    /// Edge endpoints `a` and `b` are sorted lexicographically, then quantized
+    /// to form a cache key together with the plane definition. Multi-probe
+    /// lookup (floor/ceil in each quantized dimension) catches near-boundary
+    /// cases where the same geometric edge quantizes to adjacent cells.
+    fn get_or_insert(
+        &mut self,
+        a: [f64; 3],
+        b: [f64; 3],
+        plane_pt: [f64; 3],
+        plane_n: [f64; 3],
+        computed: [f64; 3],
+    ) -> [f64; 3] {
+        let iq = self.inv_quant;
+
+        // Sort endpoints lexicographically for canonical key
+        let (lo, hi) = if (a[0], a[1], a[2]) < (b[0], b[1], b[2]) {
+            (a, b)
+        } else {
+            (b, a)
+        };
+
+        let q = |v: f64| -> i64 { (v * iq).round() as i64 };
+
+        let edge_key = [q(lo[0]), q(lo[1]), q(lo[2]), q(hi[0]), q(hi[1]), q(hi[2])];
+
+        // Quantize plane by normal direction + signed distance from origin
+        let plane_d =
+            plane_n[0] * plane_pt[0] + plane_n[1] * plane_pt[1] + plane_n[2] * plane_pt[2];
+        let plane_key = [
+            q(plane_n[0] * 1e3),
+            q(plane_n[1] * 1e3),
+            q(plane_n[2] * 1e3),
+            q(plane_d),
+        ];
+
+        let primary = (edge_key, plane_key);
+
+        // Multi-probe: check floor/ceil variations of the edge key
+        // to handle near-boundary quantization
+        let floor_ceil = |v: f64| -> [i64; 2] {
+            let s = v * iq;
+            [s.floor() as i64, s.ceil() as i64]
+        };
+
+        let lx = floor_ceil(lo[0]);
+        let ly = floor_ceil(lo[1]);
+        let lz = floor_ceil(lo[2]);
+
+        for &cx in &lx {
+            for &cy in &ly {
+                for &cz in &lz {
+                    let probe_key = (
+                        [cx, cy, cz, edge_key[3], edge_key[4], edge_key[5]],
+                        plane_key,
+                    );
+                    if let Some(&cached) = self.cache.get(&probe_key) {
+                        return cached;
+                    }
+                }
+            }
+        }
+
+        // Also probe hi endpoint variations
+        let hx = floor_ceil(hi[0]);
+        let hy = floor_ceil(hi[1]);
+        let hz = floor_ceil(hi[2]);
+
+        for &cx in &hx {
+            for &cy in &hy {
+                for &cz in &hz {
+                    let probe_key = (
+                        [edge_key[0], edge_key[1], edge_key[2], cx, cy, cz],
+                        plane_key,
+                    );
+                    if let Some(&cached) = self.cache.get(&probe_key) {
+                        return cached;
+                    }
+                }
+            }
+        }
+
+        // No match — insert computed value
+        self.cache.insert(primary, computed);
+        computed
+    }
+}
+
 // ── Sutherland-Hodgman polygon clipping ─────────────────────────────────
 
 /// Snap a coordinate to a grid to eliminate floating-point divergence.
@@ -627,11 +746,28 @@ fn snap_to_grid(val: f64, inv_grid: f64) -> f64 {
 /// Intersection points are snapped to a fine grid (tau_weld-scale) to ensure
 /// that adjacent faces sharing a geometric edge get identical intersection
 /// coordinates when clipped by the same plane.
+#[cfg(test)]
 fn clip_polygon_by_plane(
     verts: &[[f64; 3]],
     plane_point: [f64; 3],
     inward_normal: [f64; 3],
     tau: f64,
+) -> Vec<[f64; 3]> {
+    clip_polygon_by_plane_cached(verts, plane_point, inward_normal, tau, None)
+}
+
+/// Clip a polygon by a plane with optional intersection cache.
+///
+/// When `cache` is Some, intersection points are deduplicated across faces:
+/// if the same geometric edge (identified by quantized endpoints) was already
+/// clipped by the same plane, the cached result is returned instead of
+/// recomputing, eliminating floating-point divergence between adjacent faces.
+fn clip_polygon_by_plane_cached(
+    verts: &[[f64; 3]],
+    plane_point: [f64; 3],
+    inward_normal: [f64; 3],
+    tau: f64,
+    cache: Option<&mut IntersectionCache>,
 ) -> Vec<[f64; 3]> {
     if verts.is_empty() {
         return vec![];
@@ -652,7 +788,43 @@ fn clip_polygon_by_plane(
         0.0
     };
 
+    // Canonical intersection computation: sort edge endpoints lexicographically
+    // so that adjacent faces sharing a geometric edge (A,B) vs (B,A) compute
+    // I = Lo + t*(Hi-Lo) with identical operand order, producing bitwise-identical
+    // results. Ref [#4] Shewchuk: deterministic evaluation order.
+    let canonical_intersection = |a: [f64; 3], b: [f64; 3], d_a: f64, d_b: f64| -> [f64; 3] {
+        // Lexicographic comparison: x first, then y, then z
+        let a_is_lo = (a[0], a[1], a[2]) < (b[0], b[1], b[2]);
+        let (lo, hi, d_lo, d_hi) = if a_is_lo {
+            (a, b, d_a, d_b)
+        } else {
+            (b, a, d_b, d_a)
+        };
+        let t = d_lo / (d_lo - d_hi);
+        let mut intersection = v3_add(lo, v3_scale(v3_sub(hi, lo), t));
+        if inv_grid > 0.0 {
+            intersection[0] = snap_to_grid(intersection[0], inv_grid);
+            intersection[1] = snap_to_grid(intersection[1], inv_grid);
+            intersection[2] = snap_to_grid(intersection[2], inv_grid);
+        }
+        intersection
+    };
+
+    // We need to use the cache in both closure captures, so collect
+    // all intersections to cache-process after the loop.
+    // Instead, we avoid the borrow issue by collecting into a separate vec
+    // and caching at the end. Actually, let's just process inline.
     let n = verts.len();
+
+    // Collect raw intersections first, then cache them
+    struct PendingIntersection {
+        insert_pos: usize, // position in output where this goes
+        a: [f64; 3],
+        b: [f64; 3],
+        computed: [f64; 3],
+    }
+    let mut pending: Vec<PendingIntersection> = Vec::new();
+
     for i in 0..n {
         let current = verts[i];
         let next = verts[(i + 1) % n];
@@ -665,26 +837,34 @@ fn clip_polygon_by_plane(
         if current_inside {
             output.push(current);
             if !next_inside {
-                // Crossing from inside to outside: emit intersection
-                let t = d_current / (d_current - d_next);
-                let mut intersection = v3_add(current, v3_scale(v3_sub(next, current), t));
-                if inv_grid > 0.0 {
-                    intersection[0] = snap_to_grid(intersection[0], inv_grid);
-                    intersection[1] = snap_to_grid(intersection[1], inv_grid);
-                    intersection[2] = snap_to_grid(intersection[2], inv_grid);
-                }
-                output.push(intersection);
+                let computed = canonical_intersection(current, next, d_current, d_next);
+                let pos = output.len();
+                output.push(computed);
+                pending.push(PendingIntersection {
+                    insert_pos: pos,
+                    a: current,
+                    b: next,
+                    computed,
+                });
             }
         } else if next_inside {
-            // Crossing from outside to inside: emit intersection then next
-            let t = d_current / (d_current - d_next);
-            let mut intersection = v3_add(current, v3_scale(v3_sub(next, current), t));
-            if inv_grid > 0.0 {
-                intersection[0] = snap_to_grid(intersection[0], inv_grid);
-                intersection[1] = snap_to_grid(intersection[1], inv_grid);
-                intersection[2] = snap_to_grid(intersection[2], inv_grid);
-            }
-            output.push(intersection);
+            let computed = canonical_intersection(current, next, d_current, d_next);
+            let pos = output.len();
+            output.push(computed);
+            pending.push(PendingIntersection {
+                insert_pos: pos,
+                a: current,
+                b: next,
+                computed,
+            });
+        }
+    }
+
+    // Apply cache deduplication: replace computed values with cached ones
+    if let Some(cache) = cache {
+        for p in &pending {
+            let cached = cache.get_or_insert(p.a, p.b, plane_point, inward_normal, p.computed);
+            output[p.insert_pos] = cached;
         }
     }
 
@@ -740,6 +920,7 @@ fn clip_polygon_by_solid(
     opposing_faces: &[FacePoly],
     tau: f64,
     face_normal: Option<[f64; 3]>,
+    cache: &mut Option<IntersectionCache>,
 ) -> Vec<[f64; 3]> {
     let mut current = verts.to_vec();
     for face in opposing_faces {
@@ -756,7 +937,7 @@ fn clip_polygon_by_solid(
 
         // Inward normal = negation of the face's outward normal
         let inward = v3_negate(face.normal);
-        current = clip_polygon_by_plane(&current, face.origin, inward, tau);
+        current = clip_polygon_by_plane_cached(&current, face.origin, inward, tau, cache.as_mut());
     }
     current
 }
@@ -968,7 +1149,12 @@ enum FaceClass {
 /// Ray casting correctly handles both convex and non-convex solids.
 ///
 /// Ref #7 Jacobson: winding number approach (simplified to ray casting).
-fn classify_face(face: &FacePoly, opposing: &[FacePoly], tau: f64) -> FaceClass {
+fn classify_face(
+    face: &FacePoly,
+    opposing: &[FacePoly],
+    tau: f64,
+    cache: &mut Option<IntersectionCache>,
+) -> FaceClass {
     let original_area = polygon_area_3d(&face.verts);
     if original_area < TAU_NORMALIZE {
         return FaceClass::Outside;
@@ -997,7 +1183,7 @@ fn classify_face(face: &FacePoly, opposing: &[FacePoly], tau: f64) -> FaceClass 
 
     if opposing_likely_convex {
         // Convex opposing solid: S-H clipping is authoritative
-        let inside = clip_polygon_by_solid(&face.verts, opposing, tau, Some(face.normal));
+        let inside = clip_polygon_by_solid(&face.verts, opposing, tau, Some(face.normal), cache);
         let inside_area = polygon_area_3d(&inside);
 
         if inside_area < TAU_NORMALIZE {
@@ -1019,7 +1205,8 @@ fn classify_face(face: &FacePoly, opposing: &[FacePoly], tau: f64) -> FaceClass 
         }
 
         // Partial: split face using S-H (correct for convex opposing solid)
-        let outside_frags = split_outside_fragments(&face.verts, opposing, tau, Some(face.normal));
+        let outside_frags =
+            split_outside_fragments(&face.verts, opposing, tau, Some(face.normal), cache);
         let has_same_dir_coplanar = has_coplanar && !has_antiparallel_coplanar;
         if has_same_dir_coplanar {
             return FaceClass::CoplanarPartial {
@@ -1047,11 +1234,11 @@ fn classify_face(face: &FacePoly, opposing: &[FacePoly], tau: f64) -> FaceClass 
         // the clip skips coplanar opposing faces and clips against the
         // opposing solid's bounding planes only (which form a convex set
         // per-coplanar-face). Use S-H for the overlap calculation.
-        let inside = clip_polygon_by_solid(&face.verts, opposing, tau, Some(face.normal));
+        let inside = clip_polygon_by_solid(&face.verts, opposing, tau, Some(face.normal), cache);
         let inside_area = polygon_area_3d(&inside);
         if inside_area > 1e-15 {
             let outside_frags =
-                split_outside_fragments(&face.verts, opposing, tau, Some(face.normal));
+                split_outside_fragments(&face.verts, opposing, tau, Some(face.normal), cache);
             return FaceClass::CoplanarPartial {
                 inside,
                 outside_frags,
@@ -1098,7 +1285,12 @@ fn classify_face(face: &FacePoly, opposing: &[FacePoly], tau: f64) -> FaceClass 
 /// splits because both sides clip against the same face planes.
 ///
 /// Ref #7 Jacobson: winding numbers for inside/outside classification.
-fn classify_face_nonconvex(face: &FacePoly, opposing: &[FacePoly], tau: f64) -> FaceClass {
+fn classify_face_nonconvex(
+    face: &FacePoly,
+    opposing: &[FacePoly],
+    tau: f64,
+    cache: &mut Option<IntersectionCache>,
+) -> FaceClass {
     let original_area = polygon_area_3d(&face.verts);
     if original_area < TAU_NORMALIZE {
         return FaceClass::Outside;
@@ -1116,7 +1308,7 @@ fn classify_face_nonconvex(face: &FacePoly, opposing: &[FacePoly], tau: f64) -> 
         .any(|opp| is_coplanar(face.normal, face.verts[0], opp, tau));
 
     if has_coplanar {
-        return classify_coplanar_nonconvex(face, opposing, tau);
+        return classify_coplanar_nonconvex(face, opposing, tau, cache);
     }
 
     // ── Non-coplanar path: progressive splitting ─────────────────────────
@@ -1175,8 +1367,10 @@ fn classify_face_nonconvex(face: &FacePoly, opposing: &[FacePoly], tau: f64) -> 
         let outward_n = v3_negate(*inward_n);
         let mut new_fragments = Vec::new();
         for frag in &fragments {
-            let half_in = clip_polygon_by_plane(frag, *plane_pt, *inward_n, tau);
-            let half_out = clip_polygon_by_plane(frag, *plane_pt, outward_n, tau);
+            let half_in =
+                clip_polygon_by_plane_cached(frag, *plane_pt, *inward_n, tau, cache.as_mut());
+            let half_out =
+                clip_polygon_by_plane_cached(frag, *plane_pt, outward_n, tau, cache.as_mut());
             if half_in.len() >= 3 && polygon_area_3d(&half_in) > TAU_NORMALIZE {
                 new_fragments.push(half_in);
             }
@@ -1227,7 +1421,12 @@ fn classify_face_nonconvex(face: &FacePoly, opposing: &[FacePoly], tau: f64) -> 
 /// Uses vertex-based classification (same as the non-coplanar path).
 /// Each vertex is classified via `point_in_solid`, and edge crossings
 /// are found analytically or via binary search.
-fn classify_coplanar_nonconvex(face: &FacePoly, opposing: &[FacePoly], tau: f64) -> FaceClass {
+fn classify_coplanar_nonconvex(
+    face: &FacePoly,
+    opposing: &[FacePoly],
+    tau: f64,
+    cache: &mut Option<IntersectionCache>,
+) -> FaceClass {
     // For coplanar faces, use progressive splitting by opposing side face
     // planes (straddle-only check — no face-face intersection needed because
     // all perpendicular planes that straddle the coplanar face are relevant).
@@ -1283,8 +1482,10 @@ fn classify_coplanar_nonconvex(face: &FacePoly, opposing: &[FacePoly], tau: f64)
         let outward_n = v3_negate(*inward_n);
         let mut new_fragments = Vec::new();
         for frag in &fragments {
-            let half_in = clip_polygon_by_plane(frag, *plane_pt, *inward_n, tau);
-            let half_out = clip_polygon_by_plane(frag, *plane_pt, outward_n, tau);
+            let half_in =
+                clip_polygon_by_plane_cached(frag, *plane_pt, *inward_n, tau, cache.as_mut());
+            let half_out =
+                clip_polygon_by_plane_cached(frag, *plane_pt, outward_n, tau, cache.as_mut());
             if half_in.len() >= 3 && polygon_area_3d(&half_in) > TAU_NORMALIZE {
                 new_fragments.push(half_in);
             }
@@ -1363,6 +1564,7 @@ fn split_outside_fragments(
     opposing: &[FacePoly],
     tau: f64,
     face_normal: Option<[f64; 3]>,
+    cache: &mut Option<IntersectionCache>,
 ) -> Vec<Vec<[f64; 3]>> {
     let mut current = face_verts.to_vec();
     let mut outside_frags = Vec::new();
@@ -1383,10 +1585,17 @@ fn split_outside_fragments(
         let inward = v3_negate(opp_face.normal);
 
         // Clip to keep inside portion (for continuing the iteration)
-        let inside_part = clip_polygon_by_plane(&current, opp_face.origin, inward, tau);
+        let inside_part =
+            clip_polygon_by_plane_cached(&current, opp_face.origin, inward, tau, cache.as_mut());
 
         // Clip to keep outside portion (on the outward side of this plane)
-        let outside_part = clip_polygon_by_plane(&current, opp_face.origin, opp_face.normal, tau);
+        let outside_part = clip_polygon_by_plane_cached(
+            &current,
+            opp_face.origin,
+            opp_face.normal,
+            tau,
+            cache.as_mut(),
+        );
 
         if outside_part.len() >= 3 && polygon_area_3d(&outside_part) > TAU_NORMALIZE {
             outside_frags.push(outside_part);
@@ -2594,7 +2803,7 @@ fn polygon_approx_boolean(
     // Cylinder (34 faces) + box (6 faces) = 40 → OK.
     // Cylinder (34) + gear (many faces) = 60+ → can be very slow.
     let total_faces = a_faces.len() + b_faces.len();
-    if total_faces > 5000 {
+    if total_faces > 8000 {
         return Err(KernelError::NotSupported {
             operation: format!(
                 "polygon approx boolean: {} total faces exceeds limit",
@@ -2639,10 +2848,10 @@ fn boolean_op_from_polys_inner(
     // Guard against pathological face counts: O(n*m) classification becomes
     // too expensive when both solids have many faces (e.g., revolve(gear) × gear).
     let total_faces = a_faces.len() + b_faces.len();
-    if total_faces > 5000 {
+    if total_faces > 8000 {
         return Err(KernelError::NotSupported {
             operation: format!(
-                "polygon boolean: {} total faces exceeds limit (5000)",
+                "polygon boolean: {} total faces exceeds limit (8000)",
                 total_faces
             ),
         });
@@ -2686,37 +2895,38 @@ fn boolean_op_from_polys_inner(
         false
     };
 
-    let a_classified: Vec<(FacePoly, FaceClass)> = a_faces
-        .iter()
-        .map(|f| {
-            // AABB early-out
-            if face_outside_aabb(f, &b_min, &b_max) {
-                return (f.clone(), FaceClass::Outside);
-            }
-            let class = if b_convex {
-                classify_face(f, &b_faces, tau)
-            } else {
-                classify_face_nonconvex(f, &b_faces, tau)
-            };
-            (f.clone(), class)
-        })
-        .collect();
+    // Intersection cache: ensures that the same geometric edge clipped by the
+    // same plane produces bitwise-identical intersection points across all faces.
+    // Ref [#9] Cherchi: indirect predicates avoid recomputation.
+    let mut cache: Option<IntersectionCache> = Some(IntersectionCache::new(tau));
 
-    let b_classified: Vec<(FacePoly, FaceClass)> = b_faces
-        .iter()
-        .map(|f| {
-            // AABB early-out
-            if face_outside_aabb(f, &a_min, &a_max) {
-                return (f.clone(), FaceClass::Outside);
-            }
-            let class = if a_convex {
-                classify_face(f, &a_faces, tau)
+    let mut a_classified: Vec<(FacePoly, FaceClass)> = Vec::with_capacity(a_faces.len());
+    for f in &a_faces {
+        if face_outside_aabb(f, &b_min, &b_max) {
+            a_classified.push((f.clone(), FaceClass::Outside));
+        } else {
+            let class = if b_convex {
+                classify_face(f, &b_faces, tau, &mut cache)
             } else {
-                classify_face_nonconvex(f, &a_faces, tau)
+                classify_face_nonconvex(f, &b_faces, tau, &mut cache)
             };
-            (f.clone(), class)
-        })
-        .collect();
+            a_classified.push((f.clone(), class));
+        }
+    }
+
+    let mut b_classified: Vec<(FacePoly, FaceClass)> = Vec::with_capacity(b_faces.len());
+    for f in &b_faces {
+        if face_outside_aabb(f, &a_min, &a_max) {
+            b_classified.push((f.clone(), FaceClass::Outside));
+        } else {
+            let class = if a_convex {
+                classify_face(f, &a_faces, tau, &mut cache)
+            } else {
+                classify_face_nonconvex(f, &a_faces, tau, &mut cache)
+            };
+            b_classified.push((f.clone(), class));
+        }
+    }
 
     let mut result_polys = Vec::new();
     match op {
@@ -5066,5 +5276,114 @@ mod tests {
         // Run the full union
         let result = kernel.boolean_union(&handle_a, &handle_b);
         result.expect("step shape union should succeed");
+    }
+
+    /// Two adjacent faces sharing a geometric edge, clipped by the same plane,
+    /// must produce bitwise-identical intersection points regardless of edge
+    /// traversal direction. Ref [#4] Shewchuk: deterministic evaluation order.
+    #[test]
+    fn canonical_intersection_identical_for_shared_edge() {
+        // Face F1 and F2 share edge from A=(0, 0, 0) to B=(1, 0, 0).
+        // F1 traverses it as A→B, F2 traverses it as B→A.
+        // A y-plane at y=0 with inward normal (0,-1,0) clips through both
+        // faces, producing intersection points on the shared edge.
+        let face1 = vec![
+            [0.0, -1.0, 0.0],
+            [1.0, -1.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ];
+        // F2 shares the bottom edge but reversed + offset in z
+        let face2 = vec![
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, -1.0, 0.0],
+            [1.0, -1.0, 0.0],
+        ];
+
+        let plane_pt = [0.0, 0.3, 0.0];
+        let inward_n = [0.0, -1.0, 0.0]; // keep y <= 0.3
+        let tau = 1e-9;
+
+        let clipped1 = clip_polygon_by_plane(&face1, plane_pt, inward_n, tau);
+        let clipped2 = clip_polygon_by_plane(&face2, plane_pt, inward_n, tau);
+
+        // Both should produce intersection vertices at y≈0.3
+        let find_at_y = |clipped: &[[f64; 3]]| -> Vec<[f64; 3]> {
+            clipped
+                .iter()
+                .filter(|v| (v[1] - 0.3).abs() < 1e-6)
+                .copied()
+                .collect()
+        };
+
+        let isects1 = find_at_y(&clipped1);
+        let isects2 = find_at_y(&clipped2);
+
+        assert!(
+            !isects1.is_empty(),
+            "Face1 should have intersection at y=0.3, got {:?}",
+            clipped1
+        );
+        assert!(
+            !isects2.is_empty(),
+            "Face2 should have intersection at y=0.3, got {:?}",
+            clipped2
+        );
+
+        // Match intersection points by x coordinate
+        for i1 in &isects1 {
+            for i2 in &isects2 {
+                if (i1[0] - i2[0]).abs() < 0.01 {
+                    assert_eq!(
+                        i1[0].to_bits(),
+                        i2[0].to_bits(),
+                        "x must be bitwise identical"
+                    );
+                    assert_eq!(
+                        i1[1].to_bits(),
+                        i2[1].to_bits(),
+                        "y must be bitwise identical"
+                    );
+                    assert_eq!(
+                        i1[2].to_bits(),
+                        i2[2].to_bits(),
+                        "z must be bitwise identical"
+                    );
+                }
+            }
+        }
+    }
+
+    /// IntersectionCache deduplicates intersection points across faces.
+    #[test]
+    fn intersection_cache_deduplicates() {
+        let tau = 1e-7;
+        let mut cache = IntersectionCache::new(tau);
+
+        let a = [0.0, 0.0, 0.0];
+        let b = [1.0, 0.0, 0.0];
+        let plane_pt = [0.5, 0.0, 0.0];
+        let plane_n = [1.0, 0.0, 0.0];
+        let computed1 = [0.5, 0.0, 0.0];
+
+        // First insertion
+        let result1 = cache.get_or_insert(a, b, plane_pt, plane_n, computed1);
+        assert_eq!(result1, computed1);
+
+        // Second lookup with slightly different computed value
+        // (simulating floating-point divergence from reversed operand order)
+        let computed2 = [0.5 + 1e-15, 0.0, 0.0];
+        let result2 = cache.get_or_insert(a, b, plane_pt, plane_n, computed2);
+        // Should return the cached value, not the new computed value
+        assert_eq!(result2, computed1, "Cache should return first value");
+
+        // Reversed edge order should also find the same cached value
+        let computed3 = [0.5 - 1e-15, 0.0, 0.0];
+        let result3 = cache.get_or_insert(b, a, plane_pt, plane_n, computed3);
+        assert_eq!(
+            result3, computed1,
+            "Reversed edge order should find cached value"
+        );
     }
 }
