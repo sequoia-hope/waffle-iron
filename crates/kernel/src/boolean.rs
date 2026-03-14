@@ -643,7 +643,7 @@ fn clip_polygon_by_plane(
 
     // Snap grid for intersection points: fine enough to be geometrically
     // insignificant, coarse enough to collapse ~1e-15 floating-point divergence.
-    // Use tau * 1e-4 — for unit-scale models this is ~1e-13, well below any
+    // Use tau * 1e-4 — for unit-scale models this is ~1e-11, well below any
     // geometric significance but well above machine epsilon (~2.2e-16).
     let snap_grid = tau * 1e-4;
     let inv_grid = if snap_grid > 0.0 {

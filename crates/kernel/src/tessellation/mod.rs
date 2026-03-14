@@ -305,10 +305,17 @@ pub(crate) fn tessellate_solid(
     // resulting closed cycle. This fixes the last few unpaired edges from
     // S-H divergence at face intersection boundaries.
     close_near_boundary_chains(&mut vertices, &normals, &mut indices, &mut face_ranges);
-    // reduce_non_manifold_edges disabled: can remove correct triangles in
-    // small meshes, causing winding regressions (e.g., R0035).
-    // reduce_non_manifold_edges(&vertices, &mut indices, &mut face_ranges);
     remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
+
+    // Final weld + fill pass: close_near_boundary_chains may have introduced
+    // new fill triangles that create additional boundary vertices near other
+    // existing boundary edges. One more weld + fill cycle can close these.
+    weld_boundary_vertices(&mut vertices, &indices);
+    remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
+    fill_boundary_holes(&vertices, &normals, &mut indices, &mut face_ranges);
+    remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
+    // Fix windings on any fill triangles that were created with wrong orientation
+    fix_winding_consistency(&vertices, &normals, &mut indices);
 
     // If the mesh signed volume is negative, the entire solid is inside-out
     // (all face normals point inward). Flip all windings and normals.
