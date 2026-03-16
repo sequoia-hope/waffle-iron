@@ -58,8 +58,24 @@ patches bounded by vertical lines and arcs. Each patch has analytical
 - Revolve solid booleans: returns `NotSupported`
 - Non-axis-aligned orientations: deferred
 
-## References
+## Research Basis
 
-- Patrikalakis Ch.5: SSI algorithms for analytic surfaces
-- Mantyla: Euler operators for B-Rep manipulation
-- Stroud S6.1: Curve-face classification
+- **[#1] Patrikalakis Ch.5** — SSI algorithms for analytic surfaces. Provides the
+  mathematical foundation for exact plane-cylinder and cylinder-cylinder intersection
+  curves used in this implementation.
+- **[#16] Mantyla** — Euler operators for B-Rep manipulation. The topological
+  operations (mev, mef, kemr) used to construct boolean results.
+- **[#33] Stroud §6.1** — Curve-face classification. Sequencing rules for
+  ENTERS/LEAVES at intersection boundaries.
+- **[#25] Yang et al. (2023)** — Topology-guaranteed SSI via Dixon resultant.
+  Ensures correct number of intersection curve branches before tracing.
+- **[#27] Li et al. (2026)** — SSI method survey recommending hybrid architecture:
+  analytical for simple pairs, topology-guaranteed for complex pairs.
+- **[#24] Barton et al. (2025)** — Hybrid B-Rep/mesh boolean pipeline. Bijective
+  re-mapping preserves analytical surfaces through mesh boolean stage.
+
+### Analytical Primacy (A15)
+
+This spec implements exact SSI per invariant A15 (governance/ARCHITECTURAL_INVARIANTS.md).
+All plane-cylinder and cylinder-cylinder intersections use closed-form analytical
+solutions. No mesh/polygon fallback is used for these quadric surface pairs.

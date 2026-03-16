@@ -230,6 +230,37 @@ face), which constrains the meshing algorithm but is well-understood.
 
 ---
 
+## ADR-10: Analytical Primacy — Exact SSI for Quadric Surfaces
+
+**Decision**: All boolean operations on quadric surfaces (plane, cylinder, cone,
+sphere, torus) use exact surface-surface intersection (SSI). The mesh/polygon
+boolean path is reserved for freeform NURBS/BSpline surfaces only.
+
+**Alternatives considered**:
+
+| Approach | Reference | Pros | Cons |
+|----------|-----------|------|------|
+| **Closed-form SSI per quadric pair** | [#1] Patrikalakis Ch.5, [#25] Yang, [#27] Li | Zero discretization error, exact geometry preserved through chains, minimal topology, surface types retained | 15 pair-specific solvers to implement |
+| Unified mesh boolean for all surfaces | [#8] Zhou, [#9] Cherchi | Single code path, no surface detection needed | Geometric drift compounds through chains, surface type information lost, over-tessellated analytical surfaces |
+| Mesh boolean + post-refinement | [#24] Barton | Better accuracy than raw mesh, bijective re-mapping | Still loses exact geometry, refinement adds complexity without eliminating drift |
+| Algebraic implicitization | [#25] Yang (Dixon resultant) | Unified algebraic framework | High algebraic degree for non-quadric pairs, heavy symbolic computation |
+
+**Rationale**: The chained boolean problem (box + cyl1 → result + cyl2) demonstrates
+why mesh fallback fails for quadric surfaces: the first boolean's mesh approximation
+assigns `SurfaceGeom::Planar` to all result faces, destroying analytical geometry.
+The second boolean operates on degraded geometry, compounding error. Patrikalakis [#1]
+documents closed-form SSI for all quadric pairs. Yang [#25] provides
+topology-guaranteed tracing that preserves surface identity. Li [#27] recommends the
+hybrid approach: analytical for quadric pairs, topology-guaranteed for freeform.
+Stroud [#33] Ch.6 describes boolean pipeline integration with analytical SSI.
+Barton [#24] demonstrates that even with bijective re-mapping, mesh intermediates
+introduce unnecessary error for surfaces with known exact intersections.
+
+See ARCHITECTURAL_INVARIANTS.md A15 for the full invariant and implementation
+sequence (15 quadric pairs ordered by CAD frequency).
+
+---
+
 ## Cross-Reference: ADR → Subsystem → Key Files (Current)
 
 | ADR | Subsystem | Current Implementation | Target |
@@ -243,3 +274,4 @@ face), which constrains the meshing algorithm but is well-understood.
 | ADR-7 | Tolerances | Scattered across truck crates | Centralized 6-type policy |
 | ADR-8 | Validation | `crates/test-harness/` (test-time only) | Pre/post-boolean validation layer |
 | ADR-9 | Tessellation | `vendor/truck/truck-meshalgo/` | Curvature-adaptive with flatness bounds |
+| ADR-10 | SSI (quadric pairs) | `crates/kernel/src/boolean.rs` | Exact SSI per A15 |

@@ -146,6 +146,22 @@ Reference entries from REFERENCES.md that inform the design:
 If no published technique exists for the approach taken, state this explicitly
 and justify the custom design.
 
+#### 7a. Analytical vs. Approximate Method Justification
+
+For any operation involving surface-surface intersection, the spec must declare:
+
+- **Method**: Exact (closed-form SSI) or approximate (mesh/polygon).
+- **Justification**: If approximate, explain why exact SSI is infeasible for the
+  surface pair(s) involved. "Not yet implemented" is not a valid justification for
+  a permanent design — it must be flagged as temporary with a reference to the
+  missing solver.
+- **Surface pair coverage**: List all surface pairs the operation encounters and
+  confirm exact SSI is used for quadric pairs per A15.
+
+Mesh approximation for quadric surface pairs (plane, cylinder, cone, sphere, torus)
+is technical debt, not a valid permanent design choice. See
+ARCHITECTURAL_INVARIANTS.md A15 and ENGINEERING_CONSTITUTION.md P8 corollary.
+
 ### 3.3 Exit Criteria for Spec Phase
 
 Spec is complete when:

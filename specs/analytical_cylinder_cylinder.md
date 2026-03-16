@@ -86,6 +86,23 @@ let analytical = try_analytical_plane_cylinder_ic(...)
 5. Polyline refinement preserves point count
 6. Single-ellipse AnalyticalIC behavior unchanged
 
+## Research Basis
+
+- **[#1] Patrikalakis Ch.5** — SSI algorithms for analytic surfaces. Documents the
+  mathematical framework for cylinder-cylinder intersection as a degree-4 algebraic
+  space curve, with special cases for equal-radius and parallel-axis configurations.
+- **[#25] Yang et al. (2023)** — Topology-guaranteed SSI. Provides the Dixon
+  resultant method for determining the correct number of intersection curve branches
+  before numerical tracing, applicable to cylinder-cylinder pairs.
+
+### Analytical Primacy (A15)
+
+This spec is a priority for A15 compliance (governance/ARCHITECTURAL_INVARIANTS.md).
+Cylinder-cylinder is pair #5 in the A15.4 implementation sequence — the highest-
+priority quadric pair not yet completed. Implementing exact SSI for this pair
+eliminates the BSpline fallback noted in the SSI audit (specs/analytical_ssi_audit.md
+Section 2).
+
 ## Test Plan
 
 12 unit tests (CC1-CC12) + 1 integration test (CC_INT1).

@@ -282,6 +282,13 @@ P1 (plane-cone) and P2 (sphere-plane) are now implemented (Sprints 40-41). Remai
    box union producing 10 faces instead of 6). The implementation caused 3
    regressions and was reverted. See Section 8 for details and required research.
 
+7. **"Detected but falling back to BSpline" entries are A15 violations for quadric
+   pairs.** The entries in Section 2 (cylinder-cylinder, plane-curved, curved-curved)
+   that detect a quadric pair but fall back to BSpline represent violations of A15
+   (governance/ARCHITECTURAL_INVARIANTS.md). The correct resolution is to implement
+   exact SSI solvers for these pairs, not to improve the BSpline fallback quality.
+   See A15.4 for the implementation sequence.
+
 ## 7. Correctness Concerns
 
 ### 7.1 No significant bugs found

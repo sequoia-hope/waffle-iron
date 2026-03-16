@@ -381,6 +381,73 @@ Ad-hoc epsilon values in other crates are forbidden.
 
 ---
 
+## A15. Analytical Primacy
+
+### A15.1 Exact SSI for analytical surface pairs
+
+Boolean operations on quadric surfaces (plane, cylinder, cone, sphere, torus) MUST
+use exact surface-surface intersection (SSI) algorithms. The mesh/polygon boolean
+path exists solely for freeform surfaces (NURBS/BSpline) that lack closed-form SSI.
+
+When a solver for a specific quadric pair is missing, implement it. Do not route
+through the mesh/polygon fallback as a substitute.
+
+### A15.2 No mesh fallback for quadric pairs
+
+If a boolean operation encounters a quadric surface pair for which no SSI solver
+exists, the kernel MUST return `KernelError::NotSupported` with a diagnostic
+naming the missing pair (e.g., `"SSI solver missing: torus-cylinder"`). The caller
+can then handle the limitation explicitly.
+
+Adding a "temporary" mesh fallback for quadric pairs is prohibited. Each such
+fallback becomes permanent technical debt that degrades geometric accuracy through
+chained booleans. The correct fix is always to implement the solver.
+
+### A15.3 Rationale
+
+Routing quadric booleans through mesh/polygon approximation causes three
+compounding problems:
+
+1. **Geometric drift**: Tessellation introduces discretization error. Each chained
+   boolean accumulates error, degrading accuracy geometrically. Analytical SSI
+   preserves exact geometry through arbitrary chains. [#1] Patrikalakis Ch.5
+   documents exact SSI algorithms for all quadric pairs.
+
+2. **Surface type loss**: The mesh path assigns `SurfaceGeom::Planar` to all result
+   faces regardless of their original surface type. Cylindrical, conical, spherical,
+   and toroidal faces become faceted approximations. Subsequent operations cannot
+   recover the original analytical geometry. [#25] Yang et al. show topology-guaranteed
+   SSI preserves surface identity through boolean chains.
+
+3. **Topology degradation**: Mesh-based face counts grow with each chained boolean
+   as subdivision artifacts accumulate. Analytical SSI produces the minimal topology
+   dictated by the actual intersection geometry. [#27] Li et al. recommend hybrid
+   architecture: analytical for simple pairs, topology-guaranteed for complex pairs.
+
+### A15.4 Implementation sequence
+
+The 15 quadric surface pairs ordered by CAD frequency, with implementation status:
+
+| # | Pair | SSI Curve Type | Status |
+|---|------|----------------|--------|
+| 1 | Plane–Plane | Line (or overlap) | done |
+| 2 | Plane–Cylinder | Ellipse/circle | done |
+| 3 | Plane–Cone | Conic section | done |
+| 4 | Plane–Sphere | Circle | done |
+| 5 | Cylinder–Cylinder | Degree ≤ 4 curve | in-progress |
+| 6 | Plane–Torus | Degree-4 curve | todo |
+| 7 | Cylinder–Cone | Degree ≤ 4 curve | todo |
+| 8 | Cylinder–Sphere | Degree ≤ 4 curve | todo |
+| 9 | Cone–Cone | Degree ≤ 4 curve | todo |
+| 10 | Cylinder–Torus | Degree ≤ 8 curve | todo |
+| 11 | Cone–Sphere | Degree ≤ 4 curve | todo |
+| 12 | Sphere–Sphere | Circle | todo |
+| 13 | Cone–Torus | Degree ≤ 8 curve | todo |
+| 14 | Sphere–Torus | Degree ≤ 4 curve | todo |
+| 15 | Torus–Torus | Degree ≤ 8 curve | todo |
+
+---
+
 ## A12. Change Control
 
 ### A12.1 Protected invariants

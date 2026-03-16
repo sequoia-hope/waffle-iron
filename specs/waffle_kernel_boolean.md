@@ -47,3 +47,23 @@ face-polygon clipping with Sutherland-Hodgman algorithm.
 - `KernelError::NotSupported` — cylinder operand
 - `KernelError::EntityNotFound` — invalid handle
 - `KernelError::BooleanFailed` — empty result or manifold violation
+
+## Research Basis
+
+- **[#16] Mantyla** — Euler operators for constructing the result B-Rep topology.
+- **[#33] Stroud §6.1** — Boolean pipeline: SSI → classification → assembly.
+
+### Analytical Primacy (A15) — Not Applicable
+
+Box-box booleans use Sutherland-Hodgman polygon clipping on planar face polygons.
+This is NOT a violation of A15 (governance/ARCHITECTURAL_INVARIANTS.md) because:
+
+1. All faces of both operands are **planar** — no quadric surfaces are involved.
+2. Sutherland-Hodgman is **exact** for convex planar polygons (no mesh
+   approximation or tessellation occurs).
+3. No surface geometry is lost — input faces are planar and result faces remain
+   planar with exact `SurfaceGeom::Planar` geometry.
+
+The A15 invariant governs quadric surfaces (cylinder, cone, sphere, torus) where
+mesh approximation destroys analytical geometry. Planar polygon clipping preserves
+exact geometry by construction.

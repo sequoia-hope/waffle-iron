@@ -88,6 +88,17 @@ See `docs/TESTING.md` for tier definitions and how to add tests.
 - **WASM ↔ JS communication** goes through wasm-bridge only. No direct WASM imports in UI components.
 - **Kernel types don't leak.** Use the Kernel/KernelIntrospect traits. Never expose kernel internals to other crates.
 
+## Analytical Primacy (Invariant A15)
+
+- Boolean operations on quadric surfaces (plane, cylinder, cone, sphere, torus)
+  MUST use exact surface-surface intersection (SSI). Do not route these through
+  the mesh/polygon boolean fallback.
+- If an SSI solver for a quadric pair is missing, implement it — do not add a
+  "temporary" mesh fallback. Return KernelError::NotSupported until the solver exists.
+- The mesh/polygon boolean path exists solely for freeform (NURBS/BSpline) surfaces
+  that lack closed-form SSI.
+- See governance/ARCHITECTURAL_INVARIANTS.md A15 for the full invariant and rationale.
+
 ## GUI Test Rules
 
 - **NEVER swallow assertion errors.** No try/catch around expected-state waits.

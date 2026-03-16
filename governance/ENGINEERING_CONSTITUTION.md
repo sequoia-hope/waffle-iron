@@ -90,6 +90,13 @@ Implementation comments must cite reference numbers for non-obvious algorithmic 
 (e.g., `// Ref #4: Shewchuk adaptive predicates for orient3d`).
 Ad-hoc algorithmic invention is not acceptable when a published, peer-reviewed solution exists.
 
+**Analytical primacy corollary**: When a closed-form algorithm exists for a geometric
+computation on analytical surfaces, using a mesh approximation is a violation of P8.
+Closed-form SSI solutions exist for all quadric surface pairs (plane, cylinder, cone,
+sphere, torus) [#1 Patrikalakis Ch.5, #25 Yang et al.]. The kernel must implement
+these solvers rather than routing through tessellation fallbacks. See
+ARCHITECTURAL_INVARIANTS.md A15.
+
 ---
 
 ## 4. Required Workflow for Modeling Features

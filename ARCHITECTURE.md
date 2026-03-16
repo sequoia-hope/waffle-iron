@@ -10,7 +10,7 @@ The system has four layers:
 
 ### Kernel Layer (Rust, compiled to WASM)
 
-**`crates/kernel/`** — Clean-sheet B-Rep geometry kernel informed by published research (see `REFERENCES.md` and `/docs/SYSTEM_DESIGN.md`). Half-edge topology with Euler operators [Ref #16: Mantyla, #33: Stroud Ch.4], analytic and NURBS geometry, hybrid B-Rep/mesh boolean pipeline [Ref #24: Barton et al.], exact adaptive predicates [Ref #4: Shewchuk], generalized winding numbers [Ref #7: Jacobson et al.], and topology-guaranteed SSI [Ref #25]. Exposes `Kernel` and `KernelIntrospect` traits — no kernel internals leak to other layers. Progress tracked via assay score (target: 400/400). The archived truck fork (`archive/truck/`) served as the previous kernel through Sprint 67.
+**`crates/kernel/`** — Clean-sheet B-Rep geometry kernel informed by published research (see `REFERENCES.md` and `/docs/SYSTEM_DESIGN.md`). Half-edge topology with Euler operators [Ref #16: Mantyla, #33: Stroud Ch.4], analytic and NURBS geometry, hybrid B-Rep/mesh boolean pipeline [Ref #24: Barton et al.], exact adaptive predicates [Ref #4: Shewchuk], generalized winding numbers [Ref #7: Jacobson et al.], and topology-guaranteed SSI [Ref #25]. **Analytical primacy**: boolean operations on quadric surfaces (plane, cylinder, cone, sphere, torus) use exact SSI — the mesh/polygon path is reserved for freeform surfaces only (see governance/ARCHITECTURAL_INVARIANTS.md A15). Exposes `Kernel` and `KernelIntrospect` traits — no kernel internals leak to other layers. Progress tracked via assay score (target: 400/400). The archived truck fork (`archive/truck/`) served as the previous kernel through Sprint 67.
 
 ### Engine Layer (Rust, compiled to WASM, runs in Web Worker)
 

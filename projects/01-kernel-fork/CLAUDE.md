@@ -13,6 +13,7 @@ Wrap truck's API behind the `Kernel` and `KernelIntrospect` traits defined in th
 3. **Boolean performance is a known crisis.** If you encounter performance data, document it. Don't spend excessive time optimizing — document findings for future work.
 4. **Tessellation must produce face-range metadata.** three.js needs to map picked triangles back to logical faces.
 5. **Do NOT prioritize fillet/chamfer/shell work. DEFERRED INDEFINITELY.** Experimental implementations exist but depend on boolean reliability. Focus on boolean shapeops, integration tests, and extrude/revolve pipeline instead.
+6. **Analytical Primacy (A15).** Boolean operations on quadric surfaces MUST use exact SSI. Do NOT route quadric booleans through mesh/polygon fallback. If the solver is missing, return `NotSupported` and implement it. Mesh path is for freeform NURBS only. See `governance/ARCHITECTURAL_INVARIANTS.md` A15.
 
 ## Build & Test
 
