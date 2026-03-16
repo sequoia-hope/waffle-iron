@@ -2061,15 +2061,15 @@ fn o1c_revolve_circle_profile() {
 #[test]
 fn o2_ssi_plane_perp_cylinder_circle() {
     use crate::ssi::*;
-    let cyl = CylinderParams {
-        center_bottom: [0.0, 0.0, 0.0],
-        radius: 3.0,
-        x_axis: [1.0, 0.0, 0.0],
-        y_axis: [0.0, 1.0, 0.0],
-        direction: [0.0, 0.0, 1.0],
-        depth: 10.0,
-    };
-    let curves = plane_perp_cylinder_ssi(5.0, &cyl);
+    // General-position API: plane at z=5, Z-aligned cylinder r=3 h=[0,10]
+    let curves = plane_cylinder_ssi(
+        [0.0, 0.0, 5.0],  // plane origin
+        [0.0, 0.0, 1.0],  // plane normal
+        [0.0, 0.0, 0.0],  // cyl origin
+        [0.0, 0.0, 1.0],  // cyl axis
+        3.0,               // radius
+        (0.0, 10.0),       // height range
+    );
     assert_eq!(curves.len(), 1, "Should produce exactly 1 circle");
     if let SSICurve::Circle { center, radius, .. } = &curves[0] {
         assert!((center[0]).abs() < 1e-9, "Circle center x should be 0");
@@ -2084,17 +2084,14 @@ fn o2_ssi_plane_perp_cylinder_circle() {
 #[test]
 fn o3_ssi_plane_parallel_cylinder_lines() {
     use crate::ssi::*;
-    let cyl = CylinderParams {
-        center_bottom: [0.0, 0.0, 0.0],
-        radius: 3.0,
-        x_axis: [1.0, 0.0, 0.0],
-        y_axis: [0.0, 1.0, 0.0],
-        direction: [0.0, 0.0, 1.0],
-        depth: 10.0,
-    };
-    // Plane at x=1, normal=[1,0,0]
-    let curves = plane_parallel_cylinder_ssi(
-        [1.0, 0.0, 0.0], [1.0, 0.0, 0.0], &cyl, 0.0, 10.0
+    // General-position API: vertical plane at x=1, Z-aligned cylinder r=3 h=[0,10]
+    let curves = plane_cylinder_ssi(
+        [1.0, 0.0, 0.0],  // plane origin
+        [1.0, 0.0, 0.0],  // plane normal
+        [0.0, 0.0, 0.0],  // cyl origin
+        [0.0, 0.0, 1.0],  // cyl axis
+        3.0,               // radius
+        (0.0, 10.0),       // height range
     );
     assert_eq!(curves.len(), 2, "Should produce 2 lines");
     // Lines should be at x=1, y=+/-sqrt(9-1)=+/-sqrt(8)
@@ -2114,23 +2111,16 @@ fn o3_ssi_plane_parallel_cylinder_lines() {
 #[test]
 fn o4_ssi_cyl_cyl_parallel_lines() {
     use crate::ssi::*;
-    let cyl_a = CylinderParams {
-        center_bottom: [0.0, 0.0, 0.0],
-        radius: 3.0,
-        x_axis: [1.0, 0.0, 0.0],
-        y_axis: [0.0, 1.0, 0.0],
-        direction: [0.0, 0.0, 1.0],
-        depth: 10.0,
-    };
-    let cyl_b = CylinderParams {
-        center_bottom: [3.0, 0.0, 0.0],
-        radius: 3.0,
-        x_axis: [1.0, 0.0, 0.0],
-        y_axis: [0.0, 1.0, 0.0],
-        direction: [0.0, 0.0, 1.0],
-        depth: 10.0,
-    };
-    let curves = cylinder_cylinder_ssi(&cyl_a, &cyl_b, 0.0, 10.0);
+    // General-position API: two Z-aligned cylinders r=3, centers 3 apart
+    let curves = cylinder_cylinder_ssi(
+        [0.0, 0.0, 0.0],  // cyl_a origin
+        [0.0, 0.0, 1.0],  // cyl_a axis
+        3.0,               // cyl_a radius
+        [3.0, 0.0, 0.0],  // cyl_b origin
+        [0.0, 0.0, 1.0],  // cyl_b axis
+        3.0,               // cyl_b radius
+        (0.0, 10.0),       // height range
+    );
     assert_eq!(curves.len(), 2, "Should produce 2 intersection lines");
     for curve in &curves {
         if let SSICurve::Line { start, end: _ } = curve {
