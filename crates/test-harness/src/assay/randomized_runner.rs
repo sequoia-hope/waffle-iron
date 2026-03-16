@@ -125,6 +125,15 @@ pub fn run_randomized_assay(dir: &Path, use_kernel: bool) -> AssayReport {
     }
 }
 
+/// Run the randomized assay on a single case by ID.
+///
+/// Useful for debugging specific test failures.
+pub fn run_single_case(dir: &Path, case_id: &str, use_kernel: bool) -> Option<AssayResult> {
+    let cases = discover_cases(dir);
+    let case = cases.iter().find(|c| c.id == case_id)?;
+    Some(replay_and_validate(case, use_kernel))
+}
+
 /// Replay a single test case and validate against oracle expectations.
 fn replay_and_validate(case: &DiscoveredCase, use_kernel: bool) -> AssayResult {
     let case_start = Instant::now();

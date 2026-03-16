@@ -5367,3 +5367,279 @@ fn x1_micro_scale_circle_extrude() {
         expected
     );
 }
+
+// ── Group Y: Tilted-geometry regression suite ──────────────────────
+//
+// These tests exercise geometry on oblique (non-axis-aligned) planes,
+// which is the primary failure mode in assay R-series cases.
+
+/// Helper: construct a tilted plane from a given normal vector.
+fn make_plane_from_normal(origin: [f64; 3], normal: [f64; 3]) -> ([f64; 3], [f64; 3], [f64; 3]) {
+    use crate::vecmath::*;
+    let n = v3_normalize(normal);
+    // Pick a reference vector not parallel to normal
+    let ref_vec = if n[0].abs() < 0.9 {
+        [1.0, 0.0, 0.0]
+    } else {
+        [0.0, 1.0, 0.0]
+    };
+    let x = v3_normalize(v3_cross(n, ref_vec));
+    (origin, n, x)
+}
+
+#[test]
+fn y1_tilted_box_extrude_volume() {
+    // Extrude a 1x1 rectangle on a tilted plane, depth=1.
+    // Volume should be ~1.0 regardless of plane orientation.
+    let mut k = WaffleKernel::new();
+    let (origin, normal, x_axis) =
+        make_plane_from_normal([5.0, 3.0, -2.0], [0.6, -0.7, 0.38]);
+    let (profiles, positions) = make_rect_profile(0.0, 0.0, 1.0, 1.0);
+    let faces = k
+        .make_faces_from_profiles(&profiles, origin, normal, x_axis, &positions)
+        .unwrap();
+    let solid = k.extrude_face(faces[0], normal, 1.0).unwrap();
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    assert!(check_watertight(&mesh), "Tilted box extrude must be watertight");
+    let vol = mesh_volume(&mesh);
+    assert!(
+        (vol - 1.0).abs() < 0.05,
+        "Tilted box volume should be ~1.0, got {}",
+        vol
+    );
+}
+
+#[test]
+fn y2_tilted_box_box_union_watertight() {
+    // Two overlapping boxes on the same tilted plane → union should be watertight.
+    let mut k = WaffleKernel::new();
+    let (origin, normal, x_axis) =
+        make_plane_from_normal([0.0, 0.0, 0.0], [-0.52, -0.75, -0.41]);
+
+    let (pa, posa) = make_rect_profile(0.0, 0.0, 2.0, 2.0);
+    let fa = k
+        .make_faces_from_profiles(&pa, origin, normal, x_axis, &posa)
+        .unwrap();
+    let sa = k.extrude_face(fa[0], normal, 2.0).unwrap();
+
+    let (pb, posb) = make_rect_profile(1.0, 0.0, 2.0, 2.0);
+    let fb = k
+        .make_faces_from_profiles(&pb, origin, normal, x_axis, &posb)
+        .unwrap();
+    let sb = k.extrude_face(fb[0], normal, 2.0).unwrap();
+
+    let u = k.boolean_union(&sa, &sb).expect("tilted box-box union");
+    let mesh = k.tessellate(&u, 0.01).unwrap();
+    assert!(check_watertight(&mesh), "Tilted box-box union must be watertight");
+    let vol = mesh_volume(&mesh);
+    // Union of two 2x2x2 boxes overlapping by 1 in x: 2*2*2 + 2*2*2 - 1*2*2 = 12
+    assert!(
+        (vol - 12.0).abs() < 1.0,
+        "Tilted box-box union volume should be ~12.0, got {}",
+        vol
+    );
+}
+
+#[test]
+fn y3_tilted_box_box_subtract_volume() {
+    // Box - smaller box on tilted plane → result volume is deterministic.
+    let mut k = WaffleKernel::new();
+    let (origin, normal, x_axis) =
+        make_plane_from_normal([10.0, -5.0, 3.0], [0.8, -0.2, 0.56]);
+
+    let (pa, posa) = make_rect_profile(0.0, 0.0, 4.0, 4.0);
+    let fa = k
+        .make_faces_from_profiles(&pa, origin, normal, x_axis, &posa)
+        .unwrap();
+    let sa = k.extrude_face(fa[0], normal, 4.0).unwrap();
+
+    let (pb, posb) = make_rect_profile(0.0, 0.0, 2.0, 2.0);
+    let fb = k
+        .make_faces_from_profiles(&pb, origin, normal, x_axis, &posb)
+        .unwrap();
+    let sb = k.extrude_face(fb[0], normal, 4.0).unwrap();
+
+    let s = k.boolean_subtract(&sa, &sb).expect("tilted box subtract");
+    let mesh = k.tessellate(&s, 0.01).unwrap();
+    assert!(check_watertight(&mesh), "Tilted box subtract must be watertight");
+    let vol = mesh_volume(&mesh);
+    // 4*4*4 - 2*2*4 = 64 - 16 = 48
+    assert!(
+        (vol - 48.0).abs() < 2.0,
+        "Tilted box subtract volume should be ~48, got {}",
+        vol
+    );
+}
+
+#[test]
+fn y4_tilted_gear_extrude_watertight() {
+    // Gear extrude on a tilted plane should be watertight.
+    let mut k = WaffleKernel::new();
+    let (origin, normal, x_axis) =
+        make_plane_from_normal([0.0, 0.0, 0.0], [0.08, 0.34, -0.94]);
+    let (profiles, positions) = make_gear_profile(0.0, 0.0, 8, 0.5);
+    let faces = k
+        .make_faces_from_profiles(&profiles, origin, normal, x_axis, &positions)
+        .unwrap();
+    let solid = k.extrude_face(faces[0], normal, 1.0).unwrap();
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    assert!(check_watertight(&mesh), "Tilted gear extrude must be watertight");
+    assert!(
+        mesh.indices.len() / 3 >= 32,
+        "Tilted gear should have at least 32 triangles, got {}",
+        mesh.indices.len() / 3
+    );
+}
+
+#[test]
+fn y5_tilted_cylinder_extrude_watertight() {
+    // Circle extrude on a tilted plane should be watertight.
+    let mut k = WaffleKernel::new();
+    let (origin, normal, x_axis) =
+        make_plane_from_normal([1.0, 2.0, 3.0], [-0.36, 0.42, -0.83]);
+    let (profiles, positions) = make_circle_profile(0.0, 0.0, 1.0);
+    let faces = k
+        .make_faces_from_profiles(&profiles, origin, normal, x_axis, &positions)
+        .unwrap();
+    let solid = k.extrude_face(faces[0], normal, 2.0).unwrap();
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    assert!(check_watertight(&mesh), "Tilted cylinder extrude must be watertight");
+    let vol = mesh_volume(&mesh);
+    let expected = std::f64::consts::PI * 1.0 * 1.0 * 2.0;
+    assert!(
+        (vol - expected).abs() < expected * 0.1,
+        "Tilted cylinder volume should be ~{:.2}, got {}",
+        expected,
+        vol
+    );
+}
+
+#[test]
+fn y6_tilted_gear_rect_union() {
+    // Gear + rectangle union on tilted plane — assay R0005 pattern.
+    let mut k = WaffleKernel::new();
+    let (origin, normal, x_axis) =
+        make_plane_from_normal([0.0, 0.0, 0.0], [0.08, 0.34, -0.94]);
+
+    let (gp, gpos) = make_gear_profile(0.0, 0.0, 8, 0.5);
+    let gf = k
+        .make_faces_from_profiles(&gp, origin, normal, x_axis, &gpos)
+        .unwrap();
+    let gear = k.extrude_face(gf[0], normal, 1.0).unwrap();
+
+    let (rp, rpos) = make_rect_profile(0.3, 0.0, 0.8, 0.8);
+    let rf = k
+        .make_faces_from_profiles(&rp, origin, normal, x_axis, &rpos)
+        .unwrap();
+    let rect = k.extrude_face(rf[0], normal, 1.0).unwrap();
+
+    let u = k.boolean_union(&gear, &rect).expect("tilted gear-rect union");
+    let mesh = k.tessellate(&u, 0.01).unwrap();
+    assert!(check_watertight(&mesh), "Tilted gear-rect union must be watertight");
+    let vol = mesh_volume(&mesh);
+    assert!(vol > 0.1, "Union volume {} should be positive", vol);
+}
+
+// ── Group Z: Additional property tests ──────────────────────
+
+#[test]
+fn z1_subtract_inclusion_property() {
+    // For any A ⊃ B (B fully inside A), A - B volume should be vol(A) - vol(B).
+    let mut k = WaffleKernel::new();
+    // Box A: 10x10x10 centered at origin
+    let (pa, posa) = make_rect_profile(0.0, 0.0, 10.0, 10.0);
+    let fa = k
+        .make_faces_from_profiles(&pa, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posa)
+        .unwrap();
+    let a = k.extrude_face(fa[0], Z_DIR, 10.0).unwrap();
+    // Box B: 4x4x4 centered at origin (fully inside A)
+    let (pb, posb) = make_rect_profile(0.0, 0.0, 4.0, 4.0);
+    let fb = k
+        .make_faces_from_profiles(&pb, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posb)
+        .unwrap();
+    let b = k.extrude_face(fb[0], Z_DIR, 4.0).unwrap();
+
+    let vol_a = mesh_volume(&k.tessellate(&a, 0.01).unwrap());
+    let vol_b = mesh_volume(&k.tessellate(&b, 0.01).unwrap());
+    let s = k.boolean_subtract(&a, &b).expect("subtract");
+    let vol_s = mesh_volume(&k.tessellate(&s, 0.01).unwrap());
+    let expected = vol_a - vol_b;
+    assert!(
+        (vol_s - expected).abs() < expected * 0.05,
+        "A-B vol should be {:.1}, got {:.1} (volA={:.1}, volB={:.1})",
+        expected,
+        vol_s,
+        vol_a,
+        vol_b
+    );
+}
+
+#[test]
+fn z2_union_associativity() {
+    // (A ∪ B) ∪ C ≈ A ∪ (B ∪ C) in volume
+    let mut k1 = WaffleKernel::new();
+    // Three boxes in a row, overlapping pairwise
+    let boxes: Vec<([f64; 4], f64)> = vec![
+        ([0.0, 0.0, 5.0, 5.0], 5.0),
+        ([3.0, 0.0, 5.0, 5.0], 5.0),
+        ([6.0, 0.0, 5.0, 5.0], 5.0),
+    ];
+    let mut solids1 = Vec::new();
+    for (_i, (rect, depth)) in boxes.iter().enumerate() {
+        let (p, pos) = make_rect_profile(rect[0], rect[1], rect[2], rect[3]);
+        let f = k1
+            .make_faces_from_profiles(&p, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos)
+            .unwrap();
+        let s = k1.extrude_face(f[0], Z_DIR, *depth).unwrap();
+        solids1.push(s);
+    }
+    // (A ∪ B) ∪ C
+    let ab = k1
+        .boolean_union(&solids1[0], &solids1[1])
+        .expect("A∪B");
+    let abc_left = k1.boolean_union(&ab, &solids1[2]).expect("(A∪B)∪C");
+    let vol_left = mesh_volume(&k1.tessellate(&abc_left, 0.01).unwrap());
+
+    // A ∪ (B ∪ C)
+    let mut k2 = WaffleKernel::new();
+    let mut solids2 = Vec::new();
+    for (rect, depth) in &boxes {
+        let (p, pos) = make_rect_profile(rect[0], rect[1], rect[2], rect[3]);
+        let f = k2
+            .make_faces_from_profiles(&p, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos)
+            .unwrap();
+        let s = k2.extrude_face(f[0], Z_DIR, *depth).unwrap();
+        solids2.push(s);
+    }
+    let bc = k2
+        .boolean_union(&solids2[1], &solids2[2])
+        .expect("B∪C");
+    let abc_right = k2.boolean_union(&solids2[0], &bc).expect("A∪(B∪C)");
+    let vol_right = mesh_volume(&k2.tessellate(&abc_right, 0.01).unwrap());
+
+    assert!(
+        (vol_left - vol_right).abs() < vol_left.max(vol_right) * 0.05,
+        "Union associativity: (A∪B)∪C vol={:.1} ≈ A∪(B∪C) vol={:.1}",
+        vol_left,
+        vol_right
+    );
+}
+
+#[test]
+fn z3_euler_formula_after_boolean() {
+    // After a box-box union, V - E + F = 2 for genus-0 solid.
+    let (mut k, a, b) = make_overlapping_boxes();
+    let u = k.boolean_union(&a, &b).expect("union");
+    let solid = k.solids.get(&u.id()).expect("solid exists");
+    let arena = &solid.arena;
+
+    let v = arena.vertices.len();
+    let e = arena.edges.len();
+    let f = arena.faces.len();
+    let euler = v as i64 - e as i64 + f as i64;
+    assert_eq!(
+        euler, 2,
+        "Euler formula V-E+F should be 2, got {} (V={}, E={}, F={})",
+        euler, v, e, f
+    );
+}

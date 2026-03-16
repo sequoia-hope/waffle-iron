@@ -10,7 +10,9 @@ mod classify;
 mod clip;
 mod stitch;
 
-pub(crate) use analytical::{build_cyl_result, polygon_approx_boolean, ssi_boolean_op};
+#[cfg(test)]
+pub(crate) use analytical::build_cyl_result;
+pub(crate) use analytical::{polygon_approx_boolean, ssi_boolean_op};
 
 use classify::{classify_face, classify_face_nonconvex, point_in_solid, FaceClass};
 #[cfg(test)]
