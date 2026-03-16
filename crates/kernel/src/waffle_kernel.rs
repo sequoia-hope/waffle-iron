@@ -5,7 +5,7 @@
 
 use crate::geometry::curve::{Arc3D, Circle3D, CurveGeom, Line3D};
 use crate::geometry::point::{Point3, Vector3};
-use crate::geometry::surface::{Cylinder, Plane, SurfaceGeom};
+use crate::geometry::surface::{Cone, Cylinder, Plane, SurfaceGeom};
 use crate::tessellation;
 use crate::topology::arena::TopoArena;
 use crate::topology::euler_ops::{mef, mev, mvfs};
@@ -191,49 +191,9 @@ impl WaffleKernel {
         let n = standalone.vertices.len();
         let tau_model = 1e-7;
 
-        // Validate profile edges: axis-aligned (constant radius OR constant height)
-        // OR short chord edges (circle N-gon approximations).
-        // Compute profile bounding box diagonal for relative tolerance.
-        let profile_bbox = compute_bbox(&standalone.vertices);
-        let profile_diag = v3_length([
-            profile_bbox[3] - profile_bbox[0],
-            profile_bbox[4] - profile_bbox[1],
-            profile_bbox[5] - profile_bbox[2],
-        ]);
-        // Short chord threshold: edges shorter than 50% of profile size
-        // are allowed even if not axis-aligned (circle N-gon edges).
-        let short_chord_threshold = profile_diag * 0.5;
-
-        for i in 0..n {
-            let v_a = standalone.vertices[i];
-            let v_b = standalone.vertices[(i + 1) % n];
-
-            // Allow short chord edges (circle N-gon approximation)
-            let edge_len = v3_length(v3_sub(v_b, v_a));
-            if edge_len < short_chord_threshold {
-                continue;
-            }
-
-            let r_a = {
-                let v = v3_sub(v_a, axis_origin);
-                let proj = v3_scale(axis_dir, v3_dot(v, axis_dir));
-                v3_length(v3_sub(v, proj))
-            };
-            let r_b = {
-                let v = v3_sub(v_b, axis_origin);
-                let proj = v3_scale(axis_dir, v3_dot(v, axis_dir));
-                v3_length(v3_sub(v, proj))
-            };
-            let h_a = v3_dot(v3_sub(v_a, axis_origin), axis_dir);
-            let h_b = v3_dot(v3_sub(v_b, axis_origin), axis_dir);
-            let same_radius = (r_a - r_b).abs() < tau_model;
-            let same_height = (h_a - h_b).abs() < tau_model;
-            if !same_radius && !same_height {
-                return Err(KernelError::NotSupported {
-                    operation: "revolve: profile edge neither radial nor axial".to_string(),
-                });
-            }
-        }
+        // Profile edge validation removed: all edge orientations are now valid.
+        // Axis-aligned edges produce cylindrical/planar faces; tilted edges produce
+        // conical faces; degenerate (near-axis) edges fall back to planar.
 
         // Compute start (angle=0) and end (angle=angle_rad) vertex positions
         let start_verts: Vec<[f64; 3]> = standalone.vertices.clone();
@@ -411,9 +371,8 @@ impl WaffleKernel {
                         normal: Vector3::from_array(normal),
                     }),
                 );
-            } else {
-                // Short chord edge (circle N-gon) — approximate as planar face.
-                // Compute Newell normal from the face loop vertices for outward direction.
+            } else if r_a < tau_model && r_b < tau_model {
+                // Both vertices near the axis — degenerate face, use Newell-normal planar fallback
                 let loop_verts = get_face_loop_verts(&arena, sf);
                 let newell = compute_newell_normal(&loop_verts);
                 let face_center = compute_centroid(&loop_verts);
@@ -428,6 +387,30 @@ impl WaffleKernel {
                     SurfaceGeom::Planar(Plane {
                         origin: Point3::from_array(face_center),
                         normal: Vector3::from_array(normal),
+                    }),
+                );
+            } else {
+                // Different radius AND different height → conical lateral face.
+                // Compute cone apex: where the generatrix line intersects the revolution axis (r=0).
+                // Generatrix: r(t) = r_a + t*(r_b - r_a), h(t) = h_a + t*(h_b - h_a).
+                // Setting r(t)=0: t = -r_a/(r_b - r_a) => h_apex = h_a - r_a*(h_b - h_a)/(r_b - r_a)
+                let dr = r_b - r_a;
+                let dh = h_b - h_a;
+                let h_apex = h_a - r_a * dh / dr;
+                let apex = v3_add(axis_origin, v3_scale(axis_dir, h_apex));
+                let half_angle = (dr.abs() / dh.abs()).atan();
+                // Axis direction: from apex toward the wider end
+                let cone_axis = if r_b > r_a {
+                    axis_dir
+                } else {
+                    v3_negate(axis_dir)
+                };
+                face_geometry.insert(
+                    sf,
+                    SurfaceGeom::Conical(Cone {
+                        apex: Point3::from_array(apex),
+                        axis: Vector3::from_array(cone_axis),
+                        half_angle,
                     }),
                 );
             }
@@ -1545,11 +1528,17 @@ fn compute_face_signature(ws: &WaffleSolid, face_idx: FaceIdx) -> TopoSignature 
     let normal = ws.face_geometry.get(&face_idx).map(|g| match g {
         SurfaceGeom::Planar(p) => [p.normal.x, p.normal.y, p.normal.z],
         SurfaceGeom::Cylindrical(_) => [0.0, 0.0, 0.0],
+        SurfaceGeom::Conical(_) => [0.0, 0.0, 0.0],
+        SurfaceGeom::Spherical(_) => [0.0, 0.0, 0.0],
+        SurfaceGeom::Toroidal(_) => [0.0, 0.0, 0.0],
     });
 
     let surface_type = ws.face_geometry.get(&face_idx).map(|g| match g {
         SurfaceGeom::Planar(_) => "planar".to_string(),
         SurfaceGeom::Cylindrical(_) => "cylindrical".to_string(),
+        SurfaceGeom::Conical(_) => "conical".to_string(),
+        SurfaceGeom::Spherical(_) => "spherical".to_string(),
+        SurfaceGeom::Toroidal(_) => "toroidal".to_string(),
     });
 
     TopoSignature {

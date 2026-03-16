@@ -227,6 +227,20 @@ pub(crate) fn tessellate_solid(
                     }
                 }
             }
+            Some(SurfaceGeom::Conical(_))
+            | Some(SurfaceGeom::Spherical(_))
+            | Some(SurfaceGeom::Toroidal(_)) => {
+                // Analytic tessellation not yet implemented — use polygon fallback
+                tessellate_polygon_face_fallback(
+                    arena,
+                    face_idx,
+                    kid,
+                    &mut vertices,
+                    &mut normals,
+                    &mut indices,
+                    &mut face_ranges,
+                );
+            }
             None => {
                 // No geometry — try polygon fallback
                 tessellate_polygon_face_fallback(

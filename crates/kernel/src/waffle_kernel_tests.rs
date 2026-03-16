@@ -4956,3 +4956,125 @@ fn s3_general_solid_plus_cylinder_uses_polygon_path() {
         vol, box_vol + 1.5 * one_boss
     );
 }
+
+// ── Conical face detection in revolve ─────────────────────────
+
+/// Helper: create a triangle profile and revolve it.
+/// The triangle has vertices at (x1,y1), (x2,y2), (x3,y3) on the XY plane,
+/// revolved around the Y axis by the given angle in degrees.
+fn make_revolve_triangle(
+    x1: f64, y1: f64,
+    x2: f64, y2: f64,
+    x3: f64, y3: f64,
+    angle_deg: f64,
+) -> (WaffleKernel, KernelSolidHandle) {
+    let mut k = WaffleKernel::new();
+    let mut positions = HashMap::new();
+    positions.insert(1, (x1, y1));
+    positions.insert(2, (x2, y2));
+    positions.insert(3, (x3, y3));
+    let profile = ClosedProfile {
+        entity_ids: vec![10, 11, 12],
+        is_outer: true,
+        vertex_ids: vec![],
+        circle: None,
+        spline_segments: vec![],
+    };
+    let faces = k
+        .make_faces_from_profiles(&[profile], XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+        .expect("make_faces should succeed");
+    let solid = k
+        .revolve_face(faces[0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], angle_deg)
+        .expect("revolve should succeed");
+    (k, solid)
+}
+
+#[test]
+fn t1_revolve_triangle_has_conical_face() {
+    // Triangle with vertices at different radii and heights from Y axis:
+    //   (2, 0), (4, 3), (2, 3)
+    // Edge from (2,0) to (4,3): different radius (2 vs 4) AND different height (0 vs 3) → conical
+    // Edge from (4,3) to (2,3): different radius (4 vs 2), same height (3) → planar cap
+    // Edge from (2,3) to (2,0): same radius (2), different height (3 vs 0) → cylindrical
+    let (k, solid) = make_revolve_triangle(2.0, 0.0, 4.0, 3.0, 2.0, 3.0, 180.0);
+    let faces = k.list_faces(&solid);
+    let sigs: Vec<_> = faces
+        .iter()
+        .map(|&fid| k.compute_signature(fid, TopoKind::Face))
+        .collect();
+
+    let conical_count = sigs
+        .iter()
+        .filter(|s| s.surface_type.as_deref() == Some("conical"))
+        .count();
+    let cylindrical_count = sigs
+        .iter()
+        .filter(|s| s.surface_type.as_deref() == Some("cylindrical"))
+        .count();
+    let planar_count = sigs
+        .iter()
+        .filter(|s| s.surface_type.as_deref() == Some("planar"))
+        .count();
+
+    assert!(
+        conical_count >= 1,
+        "Revolve of tilted-edge triangle should have ≥1 conical face, got {} \
+         (types: {:?})",
+        conical_count,
+        sigs.iter().map(|s| s.surface_type.as_deref()).collect::<Vec<_>>()
+    );
+    assert!(
+        cylindrical_count >= 1,
+        "Should have ≥1 cylindrical face, got {}",
+        cylindrical_count
+    );
+    assert!(
+        planar_count >= 1,
+        "Should have ≥1 planar face, got {}",
+        planar_count
+    );
+}
+
+#[test]
+fn t2_conical_face_geometry_consistency() {
+    // Verify the cone apex and half_angle are geometrically consistent.
+    // Triangle: (2, 0), (4, 3), (2, 3) revolved around Y axis.
+    // The conical edge goes from radius=2, height=0 to radius=4, height=3.
+    // Generatrix: r(t)=2+2t, h(t)=3t. At r=0: t=-1 → h_apex=-3.
+    // half_angle = atan(dr/dh) = atan(2/3) ≈ 0.5880 rad
+    let (k, solid) = make_revolve_triangle(2.0, 0.0, 4.0, 3.0, 2.0, 3.0, 180.0);
+
+    // Access kernel internals to check cone geometry
+    let ws = k.solids.get(&solid.0).expect("solid should exist");
+    let mut found_cone = false;
+    for geom in ws.face_geometry.values() {
+        if let SurfaceGeom::Conical(cone) = geom {
+            found_cone = true;
+            let expected_half_angle = (2.0_f64 / 3.0).atan();
+            let angle_err = (cone.half_angle - expected_half_angle).abs();
+            assert!(
+                angle_err < 1e-10,
+                "Cone half_angle should be atan(2/3)≈{:.6}, got {:.6}",
+                expected_half_angle,
+                cone.half_angle
+            );
+            // Apex should be at height -3 on the Y axis (i.e., at [0, -3, 0])
+            assert!(
+                cone.apex.x.abs() < 1e-10,
+                "Cone apex x should be 0 (on axis), got {}",
+                cone.apex.x
+            );
+            assert!(
+                (cone.apex.y - (-3.0)).abs() < 1e-10,
+                "Cone apex y should be -3, got {}",
+                cone.apex.y
+            );
+            assert!(
+                cone.apex.z.abs() < 1e-10,
+                "Cone apex z should be 0 (on axis), got {}",
+                cone.apex.z
+            );
+        }
+    }
+    assert!(found_cone, "Should find at least one Conical face geometry");
+}

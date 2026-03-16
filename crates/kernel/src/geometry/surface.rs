@@ -7,6 +7,9 @@ use super::point::{Point3, Vector3};
 pub enum SurfaceGeom {
     Planar(Plane),
     Cylindrical(Cylinder),
+    Conical(Cone),
+    Spherical(Sphere),
+    Toroidal(Torus),
 }
 
 /// An infinite plane.

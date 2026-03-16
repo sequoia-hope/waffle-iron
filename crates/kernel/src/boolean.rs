@@ -149,6 +149,17 @@ fn rotate_boolean_result(result: &mut BooleanResult, m_inv: &Mat3) {
                 cyl.origin = Point3::from_array(mat3_mul_vec(m_inv, cyl.origin.to_array()));
                 cyl.axis = Vector3::from_array(mat3_mul_vec(m_inv, cyl.axis.to_array()));
             }
+            SurfaceGeom::Conical(cone) => {
+                cone.apex = Point3::from_array(mat3_mul_vec(m_inv, cone.apex.to_array()));
+                cone.axis = Vector3::from_array(mat3_mul_vec(m_inv, cone.axis.to_array()));
+            }
+            SurfaceGeom::Spherical(sphere) => {
+                sphere.center = Point3::from_array(mat3_mul_vec(m_inv, sphere.center.to_array()));
+            }
+            SurfaceGeom::Toroidal(torus) => {
+                torus.center = Point3::from_array(mat3_mul_vec(m_inv, torus.center.to_array()));
+                torus.axis = Vector3::from_array(mat3_mul_vec(m_inv, torus.axis.to_array()));
+            }
         }
     }
 
@@ -213,7 +224,6 @@ fn collect_face_vertices(arena: &TopoArena, face_idx: FaceIdx) -> Vec<[f64; 3]> 
 ///
 /// For cylindrical faces (2 seam vertices defining the Z range), generates N
 /// side quads. For planar caps (1 seam vertex), generates an N-gon circle.
-#[allow(unreachable_patterns)]
 fn generate_analytic_face_polys(
     geom: &SurfaceGeom,
     loop_verts: &[[f64; 3]],
@@ -405,7 +415,9 @@ fn generate_analytic_face_polys(
                 }
             }
         }
-        _ => {} // Conical, spherical, etc. — not yet handled
+        SurfaceGeom::Conical(_) => {} // Analytic poly generation not yet implemented
+        SurfaceGeom::Spherical(_) => {} // Analytic poly generation not yet implemented
+        SurfaceGeom::Toroidal(_) => {} // Analytic poly generation not yet implemented
     }
 }
 
