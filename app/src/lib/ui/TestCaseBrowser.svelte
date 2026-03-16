@@ -7,6 +7,7 @@
 		loadTestCase,
 		removeTestCase
 	} from '$lib/engine/store.svelte.js';
+	import { bottomSheetResize } from './bottomSheetResize.js';
 
 	let state = $derived(getTestCaseBrowserState());
 	let filterOutcome = $state('all');
@@ -45,7 +46,7 @@
 
 {#if state.visible}
 <div class="test-case-browser" data-testid="test-case-browser">
-	<div class="tcb-header">
+	<div class="tcb-header" use:bottomSheetResize>
 		<span class="tcb-title">Test Cases</span>
 		<div class="tcb-header-actions">
 			<button class="tcb-icon-btn" title="Refresh" data-testid="tcb-refresh" onclick={() => refreshTestCases()}>&#x21bb;</button>
@@ -317,6 +318,24 @@
 			border-left: none;
 			border-top: 1px solid var(--border-color);
 			z-index: 150;
+		}
+
+		.tcb-header {
+			flex-wrap: wrap;
+			justify-content: center;
+			cursor: grab;
+		}
+
+		.tcb-header::before {
+			content: '';
+			display: block;
+			width: 32px;
+			height: 4px;
+			background: var(--text-muted);
+			opacity: 0.4;
+			border-radius: 2px;
+			flex-basis: 100%;
+			margin: 2px auto 4px;
 		}
 	}
 </style>

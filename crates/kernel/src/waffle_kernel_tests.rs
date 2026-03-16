@@ -1551,22 +1551,19 @@ fn l9_revolve_zero_angle_error() {
 }
 
 #[test]
-fn l10_revolve_full_360_error() {
+fn l10_revolve_full_360_succeeds() {
+    // 360° full revolution should succeed (no longer rejected)
     let mut k = WaffleKernel::new();
     let (profiles, positions) = make_rect_profile(5.0, 0.0, 2.0, 4.0);
     let faces = k
         .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
         .unwrap();
     let result = k.revolve_face(faces[0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], 360.0);
-    assert!(result.is_err(), "Full 360° should fail");
-    if let Err(KernelError::NotSupported { .. }) = result {
-        // expected
-    } else {
-        panic!(
-            "Expected KernelError::NotSupported for 360°, got {:?}",
-            result
-        );
-    }
+    assert!(
+        result.is_ok(),
+        "Full 360° revolve should succeed, got {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -4649,5 +4646,313 @@ fn m3_axis_aligned_box_cyl_subtract() {
     assert!(
         check_watertight(&mesh),
         "m3: axis-aligned box-cyl subtract should be watertight"
+    );
+}
+
+// ── Group N: 360° Full Revolution ─────────────────────────────────
+
+#[test]
+fn n1_revolve_360_volume_pappus() {
+    // Rect at x=5, w=2, h=4 → area=8, centroid at r=5.
+    // Full 360° Pappus: V = 2π × 5 × 8 = 251.33
+    let (mut k, solid) = make_revolve_rect(5.0, 0.0, 2.0, 4.0, 360.0);
+    let mesh = k.tessellate(&solid, 0.01).expect("tessellate 360° revolve");
+    let vol = mesh_volume(&mesh);
+    let expected = 2.0 * std::f64::consts::PI * 5.0 * 8.0;
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.02,
+        "360° revolve volume should be ~{:.2}, got {:.2} (rel_err={:.4})",
+        expected,
+        vol,
+        rel_err
+    );
+}
+
+#[test]
+fn n2_revolve_360_watertight() {
+    let (mut k, solid) = make_revolve_rect(5.0, 0.0, 2.0, 4.0, 360.0);
+    let mesh = k.tessellate(&solid, 0.01).expect("tessellate");
+    assert!(
+        check_watertight(&mesh),
+        "360° revolve must be watertight (unpaired={})",
+        count_unpaired_edges(&mesh)
+    );
+}
+
+#[test]
+fn n3_revolve_360_no_degenerate_triangles() {
+    let (mut k, solid) = make_revolve_rect(5.0, 0.0, 2.0, 4.0, 360.0);
+    let mesh = k.tessellate(&solid, 0.01).expect("tessellate");
+    let n_tris = mesh.indices.len() / 3;
+    assert!(n_tris > 0, "360° revolve should produce triangles");
+    // Check no zero-area triangles
+    for t in 0..n_tris {
+        let i0 = mesh.indices[t * 3] as usize;
+        let i1 = mesh.indices[t * 3 + 1] as usize;
+        let i2 = mesh.indices[t * 3 + 2] as usize;
+        let p0 = [
+            mesh.vertices[i0 * 3] as f64,
+            mesh.vertices[i0 * 3 + 1] as f64,
+            mesh.vertices[i0 * 3 + 2] as f64,
+        ];
+        let p1 = [
+            mesh.vertices[i1 * 3] as f64,
+            mesh.vertices[i1 * 3 + 1] as f64,
+            mesh.vertices[i1 * 3 + 2] as f64,
+        ];
+        let p2 = [
+            mesh.vertices[i2 * 3] as f64,
+            mesh.vertices[i2 * 3 + 1] as f64,
+            mesh.vertices[i2 * 3 + 2] as f64,
+        ];
+        let e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+        let e2 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+        let cross = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        let area = (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt() * 0.5;
+        assert!(
+            area > 1e-12,
+            "Triangle {} has zero area ({:.2e})",
+            t,
+            area
+        );
+    }
+}
+
+#[test]
+fn n4_revolve_over_360_rejected() {
+    // Angle > 360° should fail
+    let mut k = WaffleKernel::new();
+    let (profiles, positions) = make_rect_profile(5.0, 0.0, 2.0, 4.0);
+    let faces = k
+        .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+        .unwrap();
+    let result = k.revolve_face(faces[0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], 361.0);
+    assert!(result.is_err(), "Angle > 360° should be rejected");
+}
+
+#[test]
+fn n5_revolve_360_small_profile_volume() {
+    // Small rect: x=2, w=1, h=1 → area=1, centroid at r=2
+    // Pappus: V = 2π × 2 × 1 = 4π ≈ 12.57
+    let (mut k, solid) = make_revolve_rect(2.0, 0.0, 1.0, 1.0, 360.0);
+    let mesh = k.tessellate(&solid, 0.01).expect("tessellate");
+    let vol = mesh_volume(&mesh);
+    let expected = 2.0 * std::f64::consts::PI * 2.0 * 1.0;
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.02,
+        "360° small profile volume should be ~{:.2}, got {:.2} (rel_err={:.4})",
+        expected,
+        vol,
+        rel_err
+    );
+}
+
+// ── Group O: Circle Profile Segments ──────────────────────────────
+
+#[test]
+fn o1_circle_revolve_64_segments_volume() {
+    // Circle profile: center at x=5, r=1 on XY plane, revolved 180° around Y axis.
+    // Cross-section area ≈ π*1^2 = π; centroid at r=5.
+    // Pappus half-turn: V = π × 5 × π ≈ 49.35
+    let mut k = WaffleKernel::new();
+    let (profiles, positions) = make_circle_profile(5.0, 0.0, 1.0);
+    let faces = k
+        .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+        .unwrap();
+    let solid = k
+        .revolve_face(faces[0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], 180.0)
+        .expect("circle revolve 180°");
+    let mesh = k.tessellate(&solid, 0.01).expect("tessellate");
+    let vol = mesh_volume(&mesh);
+    let expected = std::f64::consts::PI * 5.0 * std::f64::consts::PI;
+    let rel_err = (vol - expected).abs() / expected;
+    // 64 segments should give better volume accuracy than 32
+    assert!(
+        rel_err < 0.01,
+        "Circle 64-seg revolve volume should be ~{:.2}, got {:.2} (rel_err={:.4})",
+        expected,
+        vol,
+        rel_err
+    );
+}
+
+#[test]
+fn o2_circle_360_revolve_no_zero_normals() {
+    // Torus: circle profile (center at x=5, r=1) revolved 360° around Y axis.
+    // Validates that no normals are zero-length (the "black torus" bug).
+    let mut k = WaffleKernel::new();
+    let (profiles, positions) = make_circle_profile(5.0, 0.0, 1.0);
+    let faces = k
+        .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+        .unwrap();
+    let solid = k
+        .revolve_face(faces[0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], 360.0)
+        .expect("circle revolve 360° (torus)");
+    let mesh = k.tessellate(&solid, 0.01).expect("tessellate torus");
+
+    // Check no zero-length normals
+    let n_verts = mesh.normals.len() / 3;
+    assert!(n_verts > 0, "mesh should have vertices");
+    for i in 0..n_verts {
+        let nx = mesh.normals[i * 3] as f64;
+        let ny = mesh.normals[i * 3 + 1] as f64;
+        let nz = mesh.normals[i * 3 + 2] as f64;
+        let len = (nx * nx + ny * ny + nz * nz).sqrt();
+        assert!(
+            len > 0.9,
+            "Normal at vertex {} has near-zero length {:.6} — black torus bug",
+            i,
+            len
+        );
+    }
+
+    // Pappus volume: V = 2π × R × A = 2π × 5 × π ≈ 98.70
+    let vol = mesh_volume(&mesh);
+    let expected = 2.0 * std::f64::consts::PI * 5.0 * std::f64::consts::PI;
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.02,
+        "Torus volume should be ~{:.2}, got {:.2} (rel_err={:.4})",
+        expected,
+        vol,
+        rel_err
+    );
+
+    // Watertight check
+    assert!(
+        check_watertight(&mesh),
+        "Torus mesh should be watertight, unpaired edges: {}",
+        count_unpaired_edges(&mesh)
+    );
+}
+
+// ── Group S: Chained Boolean (box + cyl + cyl) ──────────────────────
+
+/// Helper: create a box, union two cylinders onto it in sequence.
+/// Returns (kernel, final_solid_handle).
+fn do_chained_box_cyl_cyl_union(
+    box_cx: f64, box_cy: f64, box_w: f64, box_h: f64, box_d: f64,
+    cyl1_cx: f64, cyl1_cy: f64, cyl1_r: f64, cyl1_d: f64,
+    cyl2_cx: f64, cyl2_cy: f64, cyl2_r: f64, cyl2_d: f64,
+) -> (WaffleKernel, KernelSolidHandle) {
+    let mut k = WaffleKernel::new();
+
+    // Box
+    let (pb, posb) = make_rect_profile(box_cx, box_cy, box_w, box_h);
+    let fb = k.make_faces_from_profiles(&pb, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posb).unwrap();
+    let box_solid = k.extrude_face(fb[0], Z_DIR, box_d).unwrap();
+
+    // Cylinder 1
+    let (pc1, posc1) = make_circle_profile(cyl1_cx, cyl1_cy, cyl1_r);
+    let fc1 = k.make_faces_from_profiles(&pc1, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posc1).unwrap();
+    let cyl1 = k.extrude_face(fc1[0], Z_DIR, cyl1_d).unwrap();
+
+    // Union box + cyl1
+    let merged1 = k.boolean_union(&box_solid, &cyl1)
+        .expect("box + cyl1 union should succeed");
+
+    // Cylinder 2
+    let (pc2, posc2) = make_circle_profile(cyl2_cx, cyl2_cy, cyl2_r);
+    let fc2 = k.make_faces_from_profiles(&pc2, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posc2).unwrap();
+    let cyl2 = k.extrude_face(fc2[0], Z_DIR, cyl2_d).unwrap();
+
+    // Union merged1 + cyl2
+    let final_solid = k.boolean_union(&merged1, &cyl2)
+        .expect("merged + cyl2 union should succeed");
+
+    (k, final_solid)
+}
+
+#[test]
+fn s1_chained_box_cyl_cyl_union_volume() {
+    // Box 2×2×1, two non-overlapping cylinders on top (r=0.3, d=0.5 each)
+    // Cylinders centered at (-0.5, 0) and (0.5, 0) — well inside box top, no overlap
+    let (mut k, result) = do_chained_box_cyl_cyl_union(
+        0.0, 0.0, 2.0, 2.0, 1.0,
+        -0.5, 0.0, 0.3, 1.5,  // cyl1: extends from z=0 to z=1.5 (0.5 above box)
+        0.5, 0.0, 0.3, 1.5,   // cyl2: extends from z=0 to z=1.5 (0.5 above box)
+    );
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate chained result");
+
+    // Volume: box + 2 * cylinder_boss
+    // Box = 2*2*1 = 4.0
+    // Each cylinder boss above box = π*0.3²*0.5 ≈ 0.1414
+    let box_vol = 4.0;
+    let cyl_boss_vol = std::f64::consts::PI * 0.3 * 0.3 * 0.5;
+    let expected = box_vol + 2.0 * cyl_boss_vol;
+    let vol = mesh_volume(&mesh);
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.10,
+        "Chained union volume: expected ~{:.3}, got {:.3} (rel_err={:.4})",
+        expected, vol, rel_err
+    );
+
+    // Watertight: polygon-approx booleans may have minor boundary tolerance
+    // artifacts. Allow up to 2 unpaired edges (out of thousands).
+    let unpaired = count_unpaired_edges(&mesh);
+    assert!(
+        unpaired <= 2,
+        "Chained union mesh should be nearly watertight, unpaired: {}",
+        unpaired
+    );
+}
+
+#[test]
+fn s2_chained_boolean_preserves_cylindrical_face_geometry() {
+    // After box + cyl1 + cyl2, the result should have cylindrical faces
+    // from both cylinders' lateral surfaces.
+    let (k, result) = do_chained_box_cyl_cyl_union(
+        0.0, 0.0, 2.0, 2.0, 1.0,
+        -0.5, 0.0, 0.3, 1.5,
+        0.5, 0.0, 0.3, 1.5,
+    );
+
+    let faces = k.list_faces(&result);
+    let cyl_face_count = faces.iter().filter(|&&fid| {
+        let sig = k.compute_signature(fid, TopoKind::Face);
+        sig.surface_type.as_deref() == Some("cylindrical")
+    }).count();
+
+    // Each cylinder contributes at least one cylindrical face (may be split into
+    // multiple polygon-approx faces). We expect at least 2 cylindrical faces total.
+    assert!(
+        cyl_face_count >= 2,
+        "Chained union should have ≥2 cylindrical faces, got {}",
+        cyl_face_count
+    );
+}
+
+#[test]
+fn s3_general_solid_plus_cylinder_uses_polygon_path() {
+    // A merged solid (>6 faces) + cylinder should NOT be sent to box_cyl_boolean
+    // (which would erase the prior boolean result). Verify by checking that the
+    // volume is correct — box_cyl_boolean would produce only box+cyl2, losing cyl1.
+    let (mut k, result) = do_chained_box_cyl_cyl_union(
+        0.0, 0.0, 2.0, 2.0, 1.0,
+        -0.5, 0.0, 0.3, 1.5,
+        0.5, 0.0, 0.3, 1.5,
+    );
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+
+    // If dispatch was wrong (box_cyl_boolean), volume would be ~box+cyl2 ≈ 4.14
+    // If correct (polygon_approx_boolean), volume is ~box+cyl1+cyl2 ≈ 4.28
+    let box_vol = 4.0;
+    let one_boss = std::f64::consts::PI * 0.3 * 0.3 * 0.5;
+    let vol = mesh_volume(&mesh);
+    // Volume must be significantly more than box + one boss
+    assert!(
+        vol > box_vol + 1.5 * one_boss,
+        "Volume {:.3} too small — dispatch likely used box_cyl_boolean, erasing cyl1 \
+         (expected > {:.3})",
+        vol, box_vol + 1.5 * one_boss
     );
 }

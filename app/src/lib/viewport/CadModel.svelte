@@ -110,12 +110,21 @@
 			geo.computeVertexNormals();
 		}
 
-		// Add groups for face ranges (enables per-face materials)
+		// Add groups for face ranges (enables per-face materials).
+		// Three.js only renders indices belonging to a group, so any gap in
+		// coverage would cause invisible triangles.
 		if (meshData.faceRanges && meshData.faceRanges.length > 0) {
 			geo.clearGroups();
+			const totalIndices = meshData.indices ? meshData.indices.length : 0;
+			let maxCovered = 0;
 			for (let i = 0; i < meshData.faceRanges.length; i++) {
 				const range = meshData.faceRanges[i];
 				geo.addGroup(range.start_index, range.end_index - range.start_index, i);
+				if (range.end_index > maxCovered) maxCovered = range.end_index;
+			}
+			// Catch-all for any indices not covered by face ranges
+			if (maxCovered < totalIndices) {
+				geo.addGroup(maxCovered, totalIndices - maxCovered, 0);
 			}
 		}
 
@@ -124,24 +133,35 @@
 
 	/**
 	 * Build materials array for face ranges based on hover/selection/sketch-mode state.
+	 * Uses shared material instances to avoid creating thousands of materials for
+	 * complex geometry (e.g., gear profiles with 1600+ face ranges).
 	 */
 	function buildMaterials(faceRanges, hoveredRef, selectedRefs, inSketchMode) {
 		const projectActive = isProjectToolActive();
 		const transparent = inSketchMode && !projectActive;
 		const opacity = transparent ? 0.2 : (projectActive ? 0.5 : 1.0);
 
-		if (!faceRanges || faceRanges.length === 0) {
-			return [
-				new THREE.MeshStandardMaterial({
-					color: DEFAULT_COLOR,
-					metalness: 0.3,
-					roughness: 0.6,
-					transparent,
-					opacity,
-					depthWrite: !transparent,
+		const makeMat = (color) => {
+			const mat = new THREE.MeshStandardMaterial({
+				color,
+				metalness: 0.3,
+				roughness: 0.6,
+				transparent,
+				opacity,
+				depthWrite: !transparent,
 				side: THREE.DoubleSide
-				})
-			];
+			});
+			mat.onBeforeCompile = (shader) => {
+				if (window.__waffle?.shaderDebug) {
+					console.log('Vertex shader:', shader.vertexShader.substring(0, 500));
+					console.log('Fragment shader:', shader.fragmentShader.substring(0, 500));
+				}
+			};
+			return mat;
+		};
+
+		if (!faceRanges || faceRanges.length === 0) {
+			return [makeMat(DEFAULT_COLOR)];
 		}
 
 		const groupSideFaces = shouldGroupSideFaces(faceRanges);
@@ -152,32 +172,32 @@
 			return geomRefEquals(a, b);
 		};
 
+		// Create shared materials — reuse instances for groups with the same visual state
+		const defaultMat = makeMat(DEFAULT_COLOR);
+		const pickMode = getExtrudeRegionPickMode();
+		let hoverMat = null;
+		let selectedMat = null;
+
 		return faceRanges.map((range) => {
 			const ref = range.geom_ref;
-			let color = DEFAULT_COLOR;
-			const pickMode = getExtrudeRegionPickMode();
 
 			if (pickMode) {
 				if (hoveredRef && compareFn(hoveredRef, ref)) {
-					color = PICK_HOVER_COLOR;
+					if (!hoverMat) hoverMat = makeMat(PICK_HOVER_COLOR);
+					return hoverMat;
 				}
 			} else if (!inSketchMode) {
 				if (selectedRefs.some((r) => compareFn(r, ref))) {
-					color = SELECTED_COLOR;
-				} else if (hoveredRef && compareFn(hoveredRef, ref)) {
-					color = HOVER_COLOR;
+					if (!selectedMat) selectedMat = makeMat(SELECTED_COLOR);
+					return selectedMat;
+				}
+				if (hoveredRef && compareFn(hoveredRef, ref)) {
+					if (!hoverMat) hoverMat = makeMat(HOVER_COLOR);
+					return hoverMat;
 				}
 			}
 
-			return new THREE.MeshStandardMaterial({
-				color,
-				metalness: 0.3,
-				roughness: 0.6,
-				transparent,
-				opacity,
-				depthWrite: !transparent,
-				side: THREE.DoubleSide
-			});
+			return defaultMat;
 		});
 	}
 
@@ -403,12 +423,14 @@
 			<T.Mesh
 				geometry={mesh.geometry}
 				material={meshMaterials[i]?.length > 1 ? meshMaterials[i] : meshMaterials[i]?.[0]}
+				frustumCulled={false}
 				raycast={() => {}}
 			/>
 		{:else}
 			<T.Mesh
 				geometry={mesh.geometry}
 				material={meshMaterials[i]?.length > 1 ? meshMaterials[i] : meshMaterials[i]?.[0]}
+				frustumCulled={false}
 				onpointermove={(e) => handlePointerMove(e, i)}
 				onpointerout={handlePointerOut}
 				onclick={(e) => handleClick(e, i)}

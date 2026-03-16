@@ -5,6 +5,7 @@
 		refreshAssayCases,
 		loadAssayCase
 	} from '$lib/engine/store.svelte.js';
+	import { bottomSheetResize } from './bottomSheetResize.js';
 
 	let state = $derived(getAssayBrowserState());
 
@@ -52,7 +53,7 @@
 
 {#if state.visible}
 <div class="assay-browser" data-testid="assay-browser">
-	<div class="ab-header">
+	<div class="ab-header" use:bottomSheetResize>
 		<span class="ab-title">Assay Browser</span>
 		<span class="ab-count">{state.cases.length} cases</span>
 		{#if totalResults > 0}
@@ -404,6 +405,24 @@
 			border-left: none;
 			border-top: 1px solid var(--border-color);
 			z-index: 150;
+		}
+
+		.ab-header {
+			flex-wrap: wrap;
+			justify-content: center;
+			cursor: grab;
+		}
+
+		.ab-header::before {
+			content: '';
+			display: block;
+			width: 32px;
+			height: 4px;
+			background: var(--text-muted);
+			opacity: 0.4;
+			border-radius: 2px;
+			flex-basis: 100%;
+			margin: 2px auto 4px;
 		}
 	}
 </style>

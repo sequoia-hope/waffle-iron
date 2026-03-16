@@ -56,9 +56,16 @@
 	function close() {
 		visible = false;
 	}
+
+	function handleDismissPointerDown(e) {
+		if (!visible) return;
+		const menuEl = document.querySelector('[data-testid="ctx-menu"]');
+		if (menuEl && menuEl.contains(e.target)) return;
+		visible = false;
+	}
 </script>
 
-<svelte:window onclick={close} />
+<svelte:window onclick={close} onpointerdown={handleDismissPointerDown} />
 
 {#if visible && !inSketch}
 	<div

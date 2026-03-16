@@ -15,23 +15,20 @@
 	let profileIndex = $state(0);
 
 	// Compute plane basis vectors from normal
+	// Matches buildSketchPlane() in sketchCoords.js and tangent_x_from_normal in rebuild.rs
 	function computePlaneBasis(pn) {
-		const absX = Math.abs(pn[0]), absY = Math.abs(pn[1]), absZ = Math.abs(pn[2]);
-		let upHint;
-		if (absZ >= absX && absZ >= absY) {
-			upHint = [0, 1, 0];
-		} else if (absY >= absX) {
-			upHint = [0, 0, 1];
-		} else {
-			upHint = [0, 1, 0];
-		}
+		// ref = |n·Z| < 0.99 ? Z : X
+		const nDotZ = Math.abs(pn[2]);
+		const ref = nDotZ < 0.99 ? [0, 0, 1] : [1, 0, 0];
 
-		const rx = upHint[1] * pn[2] - upHint[2] * pn[1];
-		const ry = upHint[2] * pn[0] - upHint[0] * pn[2];
-		const rz = upHint[0] * pn[1] - upHint[1] * pn[0];
+		// right = normalize(cross(ref, n))
+		const rx = ref[1] * pn[2] - ref[2] * pn[1];
+		const ry = ref[2] * pn[0] - ref[0] * pn[2];
+		const rz = ref[0] * pn[1] - ref[1] * pn[0];
 		const rlen = Math.sqrt(rx*rx + ry*ry + rz*rz);
 		const right = rlen > 1e-10 ? [rx/rlen, ry/rlen, rz/rlen] : [1, 0, 0];
 
+		// up = cross(n, right)
 		const ux = pn[1] * right[2] - pn[2] * right[1];
 		const uy = pn[2] * right[0] - pn[0] * right[2];
 		const uz = pn[0] * right[1] - pn[1] * right[0];
@@ -96,20 +93,47 @@
 	// Reset state and auto-select on dialog open
 	$effect(() => {
 		if (dialogState) {
-			angle = 360;
-			profileIndex = 0;
-			selectedAxisId = null;
-			axisOrigin = [0, 0, 0];
-			axisDir = [0, 1, 0];
+			const ep = dialogState.editParams;
+			if (ep) {
+				angle = ep.angle ?? 360;
+				profileIndex = ep.profile_index ?? 0;
+				axisOrigin = ep.axis_origin ?? [0, 0, 0];
+				axisDir = ep.axis_direction ?? [0, 1, 0];
 
-			// Auto-select: first construction line, then first line, then first circle
-			const entities = dialogState.axisEntities ?? [];
-			const pick =
-				entities.find(e => e.type === 'Line' && e.construction) ??
-				entities.find(e => e.type === 'Line') ??
-				entities.find(e => e.type === 'Circle');
-			if (pick) {
-				selectAxis(pick.id);
+				// Try to match saved axis to an entity button
+				selectedAxisId = null;
+				const entities = dialogState.axisEntities ?? [];
+				for (const entity of entities) {
+					const result = computeAxisFromEntity(entity, dialogState);
+					if (result) {
+						const dirMatch = Math.abs(result.dir[0] - axisDir[0]) < 1e-6
+							&& Math.abs(result.dir[1] - axisDir[1]) < 1e-6
+							&& Math.abs(result.dir[2] - axisDir[2]) < 1e-6;
+						const originMatch = Math.abs(result.origin[0] - axisOrigin[0]) < 1e-6
+							&& Math.abs(result.origin[1] - axisOrigin[1]) < 1e-6
+							&& Math.abs(result.origin[2] - axisOrigin[2]) < 1e-6;
+						if (dirMatch && originMatch) {
+							selectedAxisId = entity.id;
+							break;
+						}
+					}
+				}
+			} else {
+				angle = 360;
+				profileIndex = 0;
+				selectedAxisId = null;
+				axisOrigin = [0, 0, 0];
+				axisDir = [0, 1, 0];
+
+				// Auto-select: first construction line, then first line, then first circle
+				const entities = dialogState.axisEntities ?? [];
+				const pick =
+					entities.find(e => e.type === 'Line' && e.construction) ??
+					entities.find(e => e.type === 'Line') ??
+					entities.find(e => e.type === 'Circle');
+				if (pick) {
+					selectAxis(pick.id);
+				}
 			}
 		}
 	});
@@ -147,7 +171,7 @@
 		return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
 	});
 
-	let hasAxis = $derived(selectedAxisId != null);
+	let hasAxis = $derived(selectedAxisId != null || dialogState?.editParams != null);
 
 	function handleApply() {
 		if (!hasAxis) return;
@@ -172,7 +196,7 @@
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div class="revolve-panel" data-testid="revolve-dialog">
 		<div class="dialog-header">
-			<span class="dialog-title">Revolve</span>
+			<span class="dialog-title">{dialogState.editingFeatureId ? 'Edit Revolve' : 'Revolve'}</span>
 			<button class="close-btn" onclick={handleCancel}>&times;</button>
 		</div>
 		<div class="dialog-body">

@@ -446,6 +446,27 @@ The 15 quadric surface pairs ordered by CAD frequency, with implementation statu
 | 14 | Sphere–Torus | Degree ≤ 4 curve | todo |
 | 15 | Torus–Torus | Degree ≤ 8 curve | todo |
 
+### A15.5 Surface tier preservation
+
+Boolean operations must preserve surface tier for unmodified faces. When a face
+passes through a boolean operation without being split by an intersection curve,
+it retains its original `SurfaceGeom` variant — an analytic face remains analytic,
+a procedural face retains its construction recipe.
+
+New intersection faces (created where two surfaces intersect) take the highest
+tier of the two intersecting surfaces. For example, a plane-cylinder intersection
+produces an analytic intersection curve, and both result faces retain their
+analytic types. A plane-NURBS intersection produces NURBS intersection geometry.
+
+This invariant prevents the "surface type erosion" problem where chained booleans
+progressively degrade analytical geometry to freeform approximations. Parasolid's
+boolean pipeline [#36] implements the same preservation strategy.
+
+**Implementation**: The boolean pipeline's face classification step must carry
+forward the original `SurfaceGeom` when assembling unmodified faces into the
+result solid. Only faces generated from SSI intersection curves receive new
+surface geometry. See `specs/surface_type_taxonomy.md` and ADR-11.
+
 ---
 
 ## A12. Change Control

@@ -46,6 +46,10 @@ pub(crate) struct FacePoly {
     verts: Vec<[f64; 3]>,
     normal: [f64; 3],
     origin: [f64; 3],
+    /// Analytical surface geometry for this face. When `Some`, preserved through
+    /// the boolean pipeline into the result B-Rep (Ref #24 Barton: bijective
+    /// re-mapping of analytical surfaces through mesh booleans).
+    surface_geom: Option<SurfaceGeom>,
 }
 
 /// Compute a rotation matrix that maps unit vector `dir` to [0, 0, 1].
@@ -285,6 +289,7 @@ fn generate_analytic_face_polys(
                     verts: quad,
                     normal,
                     origin: b0,
+                    surface_geom: Some(geom.clone()),
                 });
             }
         }
@@ -348,6 +353,7 @@ fn generate_analytic_face_polys(
                     verts: cap_verts,
                     normal,
                     origin,
+                    surface_geom: None,
                 });
             } else if radii.len() >= 2 {
                 // Annular cap: generate quads between outer and inner circles
@@ -394,6 +400,7 @@ fn generate_analytic_face_polys(
                         verts: vec![outer0, outer1, inner1, inner0],
                         normal,
                         origin: outer0,
+                        surface_geom: None,
                     });
                 }
             }
@@ -410,7 +417,8 @@ fn extract_face_polys(solid: &WaffleSolid) -> Vec<FacePoly> {
         if verts.len() < 3 {
             continue;
         }
-        let (normal, origin) = match solid.face_geometry.get(&face_idx) {
+        let face_sg = solid.face_geometry.get(&face_idx).cloned();
+        let (normal, origin) = match &face_sg {
             Some(SurfaceGeom::Planar(p)) => (
                 [p.normal.x, p.normal.y, p.normal.z],
                 [p.origin.x, p.origin.y, p.origin.z],
@@ -464,6 +472,7 @@ fn extract_face_polys(solid: &WaffleSolid) -> Vec<FacePoly> {
                                 verts: tri,
                                 normal: tri_normal,
                                 origin: tri_origin,
+                                surface_geom: face_sg.clone(),
                             });
                         }
                     }
@@ -476,6 +485,7 @@ fn extract_face_polys(solid: &WaffleSolid) -> Vec<FacePoly> {
             verts,
             normal,
             origin,
+            surface_geom: face_sg,
         });
     }
     // Sort for deterministic order (HashMap iteration is nondeterministic).
@@ -507,6 +517,13 @@ fn cylinder_to_face_polys(cyl: &CylinderParams, n: usize) -> Vec<FacePoly> {
     let mut polys = Vec::with_capacity(n + 2);
     let dir = cyl.direction;
 
+    // Build cylindrical surface geometry for tagging side quads
+    let cyl_surface = SurfaceGeom::Cylindrical(Cylinder {
+        origin: Point3::from_array(cyl.center_bottom),
+        axis: Vector3::from_array(cyl.direction),
+        radius: cyl.radius,
+    });
+
     // Generate N points on bottom and top circles
     let mut bottom_pts = Vec::with_capacity(n);
     let mut top_pts = Vec::with_capacity(n);
@@ -536,6 +553,7 @@ fn cylinder_to_face_polys(cyl: &CylinderParams, n: usize) -> Vec<FacePoly> {
         verts: bottom_verts,
         normal: neg_dir,
         origin: cyl.center_bottom,
+        surface_geom: None,
     });
 
     // Top cap (outward normal = +direction)
@@ -548,6 +566,7 @@ fn cylinder_to_face_polys(cyl: &CylinderParams, n: usize) -> Vec<FacePoly> {
         verts: top_pts.clone(),
         normal: dir,
         origin: center_top,
+        surface_geom: None,
     });
 
     // Side quads: each connects consecutive bottom/top points
@@ -562,6 +581,7 @@ fn cylinder_to_face_polys(cyl: &CylinderParams, n: usize) -> Vec<FacePoly> {
             verts: vec![bottom_pts[i], bottom_pts[j], top_pts[j], top_pts[i]],
             normal,
             origin: bottom_pts[i],
+            surface_geom: Some(cyl_surface.clone()),
         });
     }
 
@@ -1989,6 +2009,7 @@ fn merge_nearby_vertices(polys: &[FacePoly], tau_weld: f64) -> Vec<FacePoly> {
                 verts: deduped,
                 normal: poly.normal,
                 origin: poly.origin,
+                surface_geom: poly.surface_geom.clone(),
             });
         }
     }
@@ -2097,6 +2118,7 @@ fn resolve_t_junctions(polys: &[FacePoly], tau: f64) -> Vec<FacePoly> {
             verts: new_verts,
             normal: poly.normal,
             origin: poly.origin,
+            surface_geom: poly.surface_geom.clone(),
         });
     }
 
@@ -2117,33 +2139,38 @@ fn collect_fragments(
     include_fully_inside: bool,
     include_partial_inside: bool,
 ) {
-    let emit =
-        |output: &mut Vec<FacePoly>, verts: Vec<[f64; 3]>, normal: [f64; 3], origin: [f64; 3]| {
-            if verts.len() < 3 {
-                return;
-            }
-            let mut f = FacePoly {
-                verts,
-                normal,
-                origin,
-            };
-            if flip_normals {
-                f.normal = v3_negate(f.normal);
-                f.verts.reverse();
-            }
-            output.push(f);
+    let emit = |output: &mut Vec<FacePoly>,
+                verts: Vec<[f64; 3]>,
+                normal: [f64; 3],
+                origin: [f64; 3],
+                sg: Option<SurfaceGeom>| {
+        if verts.len() < 3 {
+            return;
+        }
+        let mut f = FacePoly {
+            verts,
+            normal,
+            origin,
+            surface_geom: sg,
         };
+        if flip_normals {
+            f.normal = v3_negate(f.normal);
+            f.verts.reverse();
+        }
+        output.push(f);
+    };
 
     for (face, class) in classified {
+        let sg = face.surface_geom.clone();
         match class {
             FaceClass::Outside => {
                 if include_outside {
-                    emit(output, face.verts.clone(), face.normal, face.origin);
+                    emit(output, face.verts.clone(), face.normal, face.origin, sg);
                 }
             }
             FaceClass::Inside => {
                 if include_fully_inside {
-                    emit(output, face.verts.clone(), face.normal, face.origin);
+                    emit(output, face.verts.clone(), face.normal, face.origin, sg);
                 }
             }
             FaceClass::Partial {
@@ -2156,12 +2183,12 @@ fn collect_fragments(
             } => {
                 if include_outside {
                     for frag in outside_frags {
-                        emit(output, frag.clone(), face.normal, face.origin);
+                        emit(output, frag.clone(), face.normal, face.origin, sg.clone());
                     }
                 }
                 if include_partial_inside {
                     for frag in inside_frags {
-                        emit(output, frag.clone(), face.normal, face.origin);
+                        emit(output, frag.clone(), face.normal, face.origin, sg.clone());
                     }
                 }
             }
@@ -2170,7 +2197,7 @@ fn collect_fragments(
                 // For subtract A: keep (B doesn't cut A at touching boundary).
                 // For subtract B / intersect: discard.
                 if include_outside {
-                    emit(output, face.verts.clone(), face.normal, face.origin);
+                    emit(output, face.verts.clone(), face.normal, face.origin, sg);
                 }
             }
         }
@@ -2195,6 +2222,7 @@ fn collect_union_fragments(
                 verts: verts.clone(),
                 normal: face.normal,
                 origin: face.origin,
+                surface_geom: face.surface_geom.clone(),
             });
         }
     };
@@ -2345,14 +2373,16 @@ fn build_brep_from_polygons_inner(
         let loop_idx = arena.add_loop(face_idx);
         arena.faces[face_idx.0].outer_loop = loop_idx;
 
-        // Assign face geometry
-        face_geometry.insert(
-            face_idx,
-            SurfaceGeom::Planar(Plane {
+        // Assign face geometry: use tagged analytical surface when available,
+        // otherwise default to planar (Ref #24 Barton: bijective re-mapping).
+        let geom = face_poly
+            .surface_geom
+            .clone()
+            .unwrap_or(SurfaceGeom::Planar(Plane {
                 origin: Point3::from_array(face_poly.origin),
                 normal: Vector3::from_array(face_poly.normal),
-            }),
-        );
+            }));
+        face_geometry.insert(face_idx, geom);
 
         // Allocate KernelId for this face
         let fid = id_alloc();
@@ -2800,7 +2830,7 @@ use crate::waffle_kernel::CylinderParams;
 ///
 /// This is a fallback for cylinder-involving booleans that the analytical SSI
 /// pipeline doesn't handle (e.g., cylinder-minus-box, partial overlaps).
-fn polygon_approx_boolean(
+pub(crate) fn polygon_approx_boolean(
     solid_a: &WaffleSolid,
     solid_b: &WaffleSolid,
     op: BoolOp,
@@ -4192,6 +4222,7 @@ fn make_box_face_polys(aabb: &Aabb) -> Vec<FacePoly> {
             ],
             normal: [0.0, 0.0, -1.0],
             origin: mn,
+            surface_geom: None,
         },
         // Top (z=max, normal +Z): CCW from +Z
         FacePoly {
@@ -4203,6 +4234,7 @@ fn make_box_face_polys(aabb: &Aabb) -> Vec<FacePoly> {
             ],
             normal: [0.0, 0.0, 1.0],
             origin: [mn[0], mn[1], mx[2]],
+            surface_geom: None,
         },
         // Front (y=min, normal -Y): CCW from -Y
         FacePoly {
@@ -4214,6 +4246,7 @@ fn make_box_face_polys(aabb: &Aabb) -> Vec<FacePoly> {
             ],
             normal: [0.0, -1.0, 0.0],
             origin: [mn[0], mn[1], mn[2]],
+            surface_geom: None,
         },
         // Back (y=max, normal +Y): CCW from +Y
         FacePoly {
@@ -4225,6 +4258,7 @@ fn make_box_face_polys(aabb: &Aabb) -> Vec<FacePoly> {
             ],
             normal: [0.0, 1.0, 0.0],
             origin: [mn[0], mx[1], mn[2]],
+            surface_geom: None,
         },
         // Right (x=max, normal +X): CCW from +X
         FacePoly {
@@ -4236,6 +4270,7 @@ fn make_box_face_polys(aabb: &Aabb) -> Vec<FacePoly> {
             ],
             normal: [1.0, 0.0, 0.0],
             origin: [mx[0], mn[1], mn[2]],
+            surface_geom: None,
         },
         // Left (x=min, normal -X): CCW from -X
         FacePoly {
@@ -4247,6 +4282,7 @@ fn make_box_face_polys(aabb: &Aabb) -> Vec<FacePoly> {
             ],
             normal: [-1.0, 0.0, 0.0],
             origin: [mn[0], mn[1], mn[2]],
+            surface_geom: None,
         },
     ]
 }
@@ -5463,6 +5499,7 @@ mod tests {
                 ],
                 normal: [0.0, 0.0, -1.0],
                 origin: [0.0, 0.0, 0.0],
+                surface_geom: None,
             },
             // +Z face (z=1)
             FacePoly {
@@ -5474,6 +5511,7 @@ mod tests {
                 ],
                 normal: [0.0, 0.0, 1.0],
                 origin: [0.0, 0.0, 1.0],
+                surface_geom: None,
             },
             // -Y face (y=0)
             FacePoly {
@@ -5485,6 +5523,7 @@ mod tests {
                 ],
                 normal: [0.0, -1.0, 0.0],
                 origin: [0.0, 0.0, 0.0],
+                surface_geom: None,
             },
             // +Y face (y=1)
             FacePoly {
@@ -5496,6 +5535,7 @@ mod tests {
                 ],
                 normal: [0.0, 1.0, 0.0],
                 origin: [0.0, 1.0, 0.0],
+                surface_geom: None,
             },
             // -X face (x=0)
             FacePoly {
@@ -5507,6 +5547,7 @@ mod tests {
                 ],
                 normal: [-1.0, 0.0, 0.0],
                 origin: [0.0, 0.0, 0.0],
+                surface_geom: None,
             },
             // +X face (x=1)
             FacePoly {
@@ -5518,6 +5559,7 @@ mod tests {
                 ],
                 normal: [1.0, 0.0, 0.0],
                 origin: [1.0, 0.0, 0.0],
+                surface_geom: None,
             },
         ]
     }
@@ -5596,6 +5638,7 @@ mod tests {
                 ],
                 normal: [0.0, 0.0, -1.0],
                 origin: [0.0, 0.0, 0.0],
+                surface_geom: None,
             },
             // Top face (L-shape, z=1, normal +Z)
             FacePoly {
@@ -5609,6 +5652,7 @@ mod tests {
                 ],
                 normal: [0.0, 0.0, 1.0],
                 origin: [0.0, 0.0, 1.0],
+                surface_geom: None,
             },
             // -Y face (y=0, normal -Y)
             FacePoly {
@@ -5620,6 +5664,7 @@ mod tests {
                 ],
                 normal: [0.0, -1.0, 0.0],
                 origin: [0.0, 0.0, 0.0],
+                surface_geom: None,
             },
             // +X face (x=2, y=0..1, normal +X)
             FacePoly {
@@ -5631,6 +5676,7 @@ mod tests {
                 ],
                 normal: [1.0, 0.0, 0.0],
                 origin: [2.0, 0.0, 0.0],
+                surface_geom: None,
             },
             // Inner step face +Y (y=1, x=1..2, normal +Y)
             FacePoly {
@@ -5642,6 +5688,7 @@ mod tests {
                 ],
                 normal: [0.0, 1.0, 0.0],
                 origin: [1.0, 1.0, 0.0],
+                surface_geom: None,
             },
             // Inner step face +X (x=1, y=1..2, normal +X outward into cutout)
             FacePoly {
@@ -5653,6 +5700,7 @@ mod tests {
                 ],
                 normal: [1.0, 0.0, 0.0],
                 origin: [1.0, 1.0, 0.0],
+                surface_geom: None,
             },
             // +Y face (y=2, x=0..1, normal +Y)
             FacePoly {
@@ -5664,6 +5712,7 @@ mod tests {
                 ],
                 normal: [0.0, 1.0, 0.0],
                 origin: [0.0, 2.0, 0.0],
+                surface_geom: None,
             },
             // -X face (x=0, normal -X)
             FacePoly {
@@ -5675,6 +5724,7 @@ mod tests {
                 ],
                 normal: [-1.0, 0.0, 0.0],
                 origin: [0.0, 0.0, 0.0],
+                surface_geom: None,
             },
         ];
 

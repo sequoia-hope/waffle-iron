@@ -77,13 +77,16 @@ pub fn process_message(json_input: &str) -> String {
                 tessellate_missing_meshes(&mut engine.state, &mut engine.kernel);
                 let tess_ms = js_sys::Date::now() - t1;
                 if dispatch_ms + tess_ms > 100.0 {
-                    web_sys::console::log_1(&format!(
-                        "[wasm] {} dispatch={:.1}s tess={:.1}s total={:.1}s",
-                        msg_type,
-                        dispatch_ms / 1000.0,
-                        tess_ms / 1000.0,
-                        (dispatch_ms + tess_ms) / 1000.0,
-                    ).into());
+                    web_sys::console::log_1(
+                        &format!(
+                            "[wasm] {} dispatch={:.1}s tess={:.1}s total={:.1}s",
+                            msg_type,
+                            dispatch_ms / 1000.0,
+                            tess_ms / 1000.0,
+                            (dispatch_ms + tess_ms) / 1000.0,
+                        )
+                        .into(),
+                    );
                 }
             }
 
@@ -537,24 +540,26 @@ fn tessellate_missing_meshes(state: &mut EngineState, kernel: &mut impl KernelBu
             for (_key, body) in &mut result.outputs {
                 if body.mesh.is_none() {
                     let handle = body.handle.clone();
-                    let mesh_result = std::panic::catch_unwind(
-                        std::panic::AssertUnwindSafe(|| kernel.tessellate(&handle, 0.0001)),
-                    );
+                    let mesh_result =
+                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            kernel.tessellate(&handle, 0.0001)
+                        }));
                     match mesh_result {
                         Ok(Ok(mesh)) => body.mesh = Some(mesh),
                         Ok(Err(_)) => {} // tessellation error, skip
-                        Err(_) => {} // panic caught, skip
+                        Err(_) => {}     // panic caught, skip
                     }
                 }
                 if body.edges.is_none() {
                     let handle = body.handle.clone();
-                    let edge_result = std::panic::catch_unwind(
-                        std::panic::AssertUnwindSafe(|| kernel.extract_edges(&handle, 0.0001)),
-                    );
+                    let edge_result =
+                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            kernel.extract_edges(&handle, 0.0001)
+                        }));
                     match edge_result {
                         Ok(Ok(edges)) => body.edges = Some(edges),
                         Ok(Err(_)) => {} // edge extraction error, skip
-                        Err(_) => {} // panic caught, skip
+                        Err(_) => {}     // panic caught, skip
                     }
                 }
             }

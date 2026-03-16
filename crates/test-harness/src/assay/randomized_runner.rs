@@ -1008,7 +1008,7 @@ mod tests {
     fn discover_cases_from_corpus() {
         let (_dir, corpus_path) = generate_test_corpus(5);
         let cases = discover_cases(&corpus_path);
-        assert_eq!(cases.len(), 15); // 5 random + 10 featured
+        assert_eq!(cases.len(), 30); // 5 random + 25 featured
         assert_eq!(cases[0].id, "R0001");
         assert!(cases[0].waffle_path.exists());
         assert!(cases[0].meta_path.exists());
@@ -1051,6 +1051,8 @@ mod tests {
                     profile_size: 0.01,
                     depth_or_angle: 0.01,
                     is_cut: false,
+                    plane_origin: None,
+                    plane_normal: None,
                 },
                 OpMeta {
                     kind: "extrude".to_string(),
@@ -1058,6 +1060,8 @@ mod tests {
                     profile_size: 0.01,
                     depth_or_angle: 0.01,
                     is_cut: false,
+                    plane_origin: None,
+                    plane_normal: None,
                 },
             ],
             oracles: OracleExpectations {
@@ -1105,6 +1109,8 @@ mod tests {
                     profile_size: 0.01,
                     depth_or_angle: 0.01,
                     is_cut: false,
+                    plane_origin: None,
+                    plane_normal: None,
                 },
                 OpMeta {
                     kind: "extrude".to_string(),
@@ -1112,6 +1118,8 @@ mod tests {
                     profile_size: 0.01,
                     depth_or_angle: 0.01,
                     is_cut: false,
+                    plane_origin: None,
+                    plane_normal: None,
                 },
             ],
             oracles: OracleExpectations {
@@ -1192,6 +1200,8 @@ mod tests {
                 profile_size: 0.01,
                 depth_or_angle: 0.01,
                 is_cut: false,
+                plane_origin: None,
+                plane_normal: None,
             }],
             oracles: OracleExpectations {
                 euler_target: 2,
@@ -1239,6 +1249,8 @@ mod tests {
                 profile_size: 0.01,
                 depth_or_angle: 90.0,
                 is_cut: true,
+                plane_origin: None,
+                plane_normal: None,
             }],
             oracles: OracleExpectations {
                 euler_target: 2,
@@ -1283,6 +1295,8 @@ mod tests {
                 profile_size: 50.0,
                 depth_or_angle: 30.0,
                 is_cut: false,
+                plane_origin: None,
+                plane_normal: None,
             }],
             oracles: OracleExpectations {
                 euler_target: 2,
@@ -1304,8 +1318,8 @@ mod tests {
     fn run_mock_smoke() {
         let (_dir, corpus_path) = generate_test_corpus(3);
         let report = run_randomized_assay(&corpus_path, false);
-        // 3 random + 10 featured = 13 total
-        assert_eq!(report.total, 13);
+        // 3 random + 25 featured = 28 total
+        assert_eq!(report.total, 28);
         // Mock kernel produces deterministic results — all should complete (pass or fail, not error)
         assert_eq!(
             report.errored,

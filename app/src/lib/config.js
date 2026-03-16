@@ -18,6 +18,10 @@ export const TOAST_DISMISS_MS = {
 	success: 2500,
 };
 
+// Long-press (mobile context menu)
+export const LONG_PRESS_DURATION_MS = 500;
+export const LONG_PRESS_THRESHOLD_PX = 10;
+
 // Gear defaults
 export const DEFAULT_GEAR_MODULE_DISPLAY = {
 	mm: '1', cm: '0.1', m: '0.001', in: '0.04', ft: '0.003',

@@ -25,6 +25,9 @@ Experimental implementations exist (Sprint 18) and MockKernel tests pass, but th
 When asked "what should I work on?", choose from these areas:
 
 1. **Kernel implementation** — Build the clean-sheet kernel in `crates/kernel/`. Track progress via assay score (target: 400/400).
+   - Surface type taxonomy: See `specs/surface_type_taxonomy.md` for planned surface
+     types. Current kernel supports Planar and Cylindrical. Next: Cone/Sphere/Torus
+     enum variants, then BSpline fallback.
 2. **GUI test coverage** — Expand Playwright tests in `app/tests/gui/`. Cover all drawing modes, feature dialogs, and viewport interactions with both click-click and click-drag.
 3. **Cross-crate integration tests** — Expand `crates/test-harness/` with multi-operation scenarios: sketch → extrude → boolean → tessellation → verify.
 4. **Extrude/revolve pipeline polish** — Improve reliability and UX of the working feature creation operations.

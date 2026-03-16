@@ -24,8 +24,8 @@
 		linewidth: 1,
 		depthTest: true,
 		polygonOffset: true,
-		polygonOffsetFactor: -1,
-		polygonOffsetUnits: -1
+		polygonOffsetFactor: -0.5,
+		polygonOffsetUnits: -0.5
 	};
 
 	const fallbackMaterial = new THREE.LineBasicMaterial({
@@ -261,5 +261,6 @@
 	<T.LineSegments
 		geometry={edge.geometry}
 		material={edgeMaterials[i]?.length > 1 ? edgeMaterials[i] : edgeMaterials[i]?.[0]}
+		renderOrder={1}
 	/>
 {/each}

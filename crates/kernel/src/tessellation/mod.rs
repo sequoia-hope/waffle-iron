@@ -10,7 +10,9 @@ use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::*;
 use crate::types::*;
 use crate::units::TAU_NORMALIZE;
-use crate::vecmath::{compute_plane_basis, v3_cross, v3_dot, v3_length, v3_sub};
+use crate::vecmath::{
+    compute_plane_basis, v3_add, v3_cross, v3_dot, v3_length, v3_normalize, v3_scale, v3_sub,
+};
 use crate::waffle_kernel::{CylinderParams, RevolveParams};
 use std::collections::{HashMap, HashSet};
 
@@ -47,6 +49,7 @@ pub(crate) fn tessellate_solid(
                     &rp.axis_origin,
                     &rp.axis_dir,
                     rp.angle_rad,
+                    rp.full_revolution,
                     geom,
                     &mut vertices,
                     &mut normals,
@@ -58,6 +61,10 @@ pub(crate) fn tessellate_solid(
                     start_index,
                     end_index,
                 });
+                continue;
+            }
+            // For full revolution, skip cap faces (they exist in topology but aren't rendered)
+            if rp.full_revolution {
                 continue;
             }
         }
@@ -472,8 +479,8 @@ fn tessellate_cylindrical_face(
 
 /// Tessellate one lateral face of a revolve solid (cylindrical or planar annular).
 ///
-/// Generates a grid of (N+1) x 2 vertices by rotating two profile edge endpoints
-/// through the revolution angle in N steps, producing 2N triangles.
+/// For partial revolves: generates a grid of (N+1) x 2 vertices, producing 2N triangles.
+/// For full revolution: generates N x 2 vertices and wraps the last ring back to the first.
 #[allow(clippy::too_many_arguments)]
 fn tessellate_revolve_lateral(
     start_v0: &[f64; 3],
@@ -481,7 +488,8 @@ fn tessellate_revolve_lateral(
     axis_origin: &[f64; 3],
     axis_dir: &[f64; 3],
     angle_rad: f64,
-    geom: Option<&SurfaceGeom>,
+    full_revolution: bool,
+    _geom: Option<&SurfaceGeom>,
     vertices: &mut Vec<f32>,
     normals: &mut Vec<f32>,
     indices: &mut Vec<u32>,
@@ -489,18 +497,23 @@ fn tessellate_revolve_lateral(
     let n = CIRCLE_SEGMENTS;
     let base_vertex = vertices.len() as u32 / 3;
 
-    // Generate (N+1) x 2 vertex grid
-    for i in 0..=n {
+    // For full revolution, generate N rings (last wraps to first).
+    // For partial, generate N+1 rings (start and end are distinct).
+    let ring_count = if full_revolution { n } else { n + 1 };
+
+    // Generate ring_count x 2 vertex grid
+    for i in 0..ring_count {
         let theta = angle_rad * (i as f64) / (n as f64);
         let cos_t = theta.cos();
         let sin_t = theta.sin();
 
         // Rotate both vertices around axis using Rodrigues
-        for sv in &[start_v0, start_v1] {
+        let mut rotated_pair = [[0.0_f64; 3]; 2];
+        for (si, sv) in [start_v0, start_v1].iter().enumerate() {
             let v = v3_sub(**sv, *axis_origin);
             let k_dot_v = v3_dot(*axis_dir, v);
             let k_cross_v = v3_cross(*axis_dir, v);
-            let rotated = [
+            rotated_pair[si] = [
                 axis_origin[0]
                     + v[0] * cos_t
                     + k_cross_v[0] * sin_t
@@ -514,53 +527,53 @@ fn tessellate_revolve_lateral(
                     + k_cross_v[2] * sin_t
                     + axis_dir[2] * k_dot_v * (1.0 - cos_t),
             ];
+        }
+
+        // Profile tangent direction at this ring (v0 → v1)
+        let profile_dir = v3_normalize(v3_sub(rotated_pair[1], rotated_pair[0]));
+
+        // Emit position + analytic revolve normal for each vertex
+        for rotated in &rotated_pair {
             vertices.push(rotated[0] as f32);
             vertices.push(rotated[1] as f32);
             vertices.push(rotated[2] as f32);
 
-            // Compute normal based on face geometry type
-            match geom {
-                Some(SurfaceGeom::Cylindrical(_)) => {
-                    // Radially outward normal
-                    let proj = [
-                        axis_origin[0] + axis_dir[0] * k_dot_v,
-                        axis_origin[1] + axis_dir[1] * k_dot_v,
-                        axis_origin[2] + axis_dir[2] * k_dot_v,
-                    ];
-                    let radial = v3_sub(rotated, proj);
-                    let len =
-                        (radial[0] * radial[0] + radial[1] * radial[1] + radial[2] * radial[2])
-                            .sqrt();
-                    if len > TAU_NORMALIZE {
-                        normals.push((radial[0] / len) as f32);
-                        normals.push((radial[1] / len) as f32);
-                        normals.push((radial[2] / len) as f32);
-                    } else {
-                        normals.push(0.0);
-                        normals.push(0.0);
-                        normals.push(1.0);
-                    }
-                }
-                Some(SurfaceGeom::Planar(plane)) => {
-                    normals.push(plane.normal.x as f32);
-                    normals.push(plane.normal.y as f32);
-                    normals.push(plane.normal.z as f32);
-                }
-                _ => {
-                    normals.push(0.0);
-                    normals.push(0.0);
-                    normals.push(1.0);
-                }
+            // Analytic surface-of-revolution normal:
+            //   radial = vertex - projection_onto_axis
+            //   circ_tangent = normalize(axis × radial)
+            //   normal = normalize(profile_tangent × circ_tangent)
+            let v_rel = v3_sub(*rotated, *axis_origin);
+            let along_axis = v3_dot(v_rel, *axis_dir);
+            let axis_point = v3_add(*axis_origin, v3_scale(*axis_dir, along_axis));
+            let radial = v3_sub(*rotated, axis_point);
+            let radial_len = v3_length(radial);
+
+            if radial_len > TAU_NORMALIZE {
+                let circ_tangent = v3_normalize(v3_cross(*axis_dir, radial));
+                let normal = v3_normalize(v3_cross(profile_dir, circ_tangent));
+                normals.push(normal[0] as f32);
+                normals.push(normal[1] as f32);
+                normals.push(normal[2] as f32);
+            } else {
+                // Vertex on axis — degenerate, use axis direction
+                normals.push(axis_dir[0] as f32);
+                normals.push(axis_dir[1] as f32);
+                normals.push(axis_dir[2] as f32);
             }
         }
     }
 
-    // Generate quads: each step i produces a quad from vertices [i*2, i*2+1, (i+1)*2, (i+1)*2+1]
+    // Generate quads
     for i in 0..n as u32 {
+        let next = if full_revolution {
+            (i + 1) % (n as u32)
+        } else {
+            i + 1
+        };
         let v00 = base_vertex + i * 2;
         let v01 = base_vertex + i * 2 + 1;
-        let v10 = base_vertex + (i + 1) * 2;
-        let v11 = base_vertex + (i + 1) * 2 + 1;
+        let v10 = base_vertex + next * 2;
+        let v11 = base_vertex + next * 2 + 1;
 
         indices.push(v00);
         indices.push(v01);
@@ -603,7 +616,7 @@ fn tessellate_revolve_lateral(
         ];
         if v3_dot(geo_normal, stored) < 0.0 {
             // Flip all stored normals for this face
-            let n_verts = (n + 1) * 2;
+            let n_verts = ring_count * 2;
             let normals_start = base_vertex as usize * 3;
             for j in 0..n_verts {
                 normals[normals_start + j * 3] = -normals[normals_start + j * 3];

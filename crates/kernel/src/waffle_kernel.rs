@@ -55,6 +55,8 @@ pub(crate) struct RevolveParams {
     pub angle_rad: f64,
     /// Per lateral face: (FaceIdx, start_vertex_3d, end_vertex_3d)
     pub lateral_faces: Vec<(FaceIdx, [f64; 3], [f64; 3])>,
+    /// True for 360° full revolution — tessellation skips caps and wraps last ring to first.
+    pub full_revolution: bool,
 }
 
 /// Circle geometry stored in a standalone face (pre-extrude).
@@ -122,26 +124,38 @@ impl WaffleKernel {
             id
         };
 
-        // Dispatch: use SSI pipeline for cylinders, polygon clipping for box-box.
-        // Try strict stitching first; if non-manifold, fall back to tolerant.
-        let result = if solid_a.cylinder_params.is_some() || solid_b.cylinder_params.is_some() {
-            crate::boolean::ssi_boolean_op(solid_a, solid_b, op, &mut id_alloc)?
-        } else {
-            let strict = crate::boolean::boolean_op(
-                solid_a,
-                solid_b,
-                op,
-                &BooleanOptions::default(),
-                &mut id_alloc,
-            );
-            match strict {
-                ok @ Ok(_) => ok?,
-                Err(KernelError::BooleanFailed { .. }) => {
-                    // Retry with tolerant stitching (accepts more boundary edges)
-                    crate::boolean::boolean_op_tolerant(solid_a, solid_b, op, &mut id_alloc)?
+        // Dispatch: recognized primitives use SSI/polygon-clipping; general solids
+        // (post-boolean results with >6 faces) use polygon_approx_boolean to avoid
+        // AABB-based reconstruction that erases prior boolean results.
+        let a_is_prim_cyl = solid_a.cylinder_params.is_some();
+        let b_is_prim_cyl = solid_b.cylinder_params.is_some();
+        let a_is_simple_box = !a_is_prim_cyl && solid_a.face_map.len() <= 6;
+        let b_is_simple_box = !b_is_prim_cyl && solid_b.face_map.len() <= 6;
+
+        let result = if (a_is_prim_cyl || a_is_simple_box) && (b_is_prim_cyl || b_is_simple_box) {
+            // Both operands are recognized primitives
+            if a_is_prim_cyl || b_is_prim_cyl {
+                crate::boolean::ssi_boolean_op(solid_a, solid_b, op, &mut id_alloc)?
+            } else {
+                // box-box: try strict stitching first, fall back to tolerant
+                let strict = crate::boolean::boolean_op(
+                    solid_a,
+                    solid_b,
+                    op,
+                    &BooleanOptions::default(),
+                    &mut id_alloc,
+                );
+                match strict {
+                    ok @ Ok(_) => ok?,
+                    Err(KernelError::BooleanFailed { .. }) => {
+                        crate::boolean::boolean_op_tolerant(solid_a, solid_b, op, &mut id_alloc)?
+                    }
+                    Err(e) => return Err(e),
                 }
-                Err(e) => return Err(e),
             }
+        } else {
+            // General solid involved → polygon approximation boolean
+            crate::boolean::polygon_approx_boolean(solid_a, solid_b, op, &mut id_alloc)?
         };
         self.next_id = next_id;
 
@@ -488,11 +502,13 @@ impl WaffleKernel {
             vertex_map.insert(vid, VertexIdx(idx));
         }
 
+        let full_revolution = angle_deg >= 360.0;
         let revolve_params = RevolveParams {
             axis_origin,
             axis_dir,
             angle_rad,
             lateral_faces: lateral_face_data,
+            full_revolution,
         };
 
         self.solids.insert(
@@ -1174,9 +1190,9 @@ impl Kernel for WaffleKernel {
                 message: format!("revolve angle must be positive, got {}", angle),
             });
         }
-        if angle >= 360.0 {
-            return Err(KernelError::NotSupported {
-                operation: "revolve: full 360° revolution".to_string(),
+        if angle > 360.0 {
+            return Err(KernelError::Other {
+                message: format!("revolve angle must be <= 360°, got {}", angle),
             });
         }
 
@@ -1187,7 +1203,7 @@ impl Kernel for WaffleKernel {
 
         // For circle profiles, generate N-gon approximation vertices
         if let Some(ref ci) = standalone.circle_info {
-            let n_segs = 32;
+            let n_segs = 64;
             let mut verts = Vec::with_capacity(n_segs);
             for i in 0..n_segs {
                 let theta = 2.0 * std::f64::consts::PI * (i as f64) / (n_segs as f64);

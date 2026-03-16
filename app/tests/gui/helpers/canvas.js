@@ -240,6 +240,83 @@ export async function drawArc(page, cx, cy, sx, sy, ex, ey) {
  * @param {number} ey - arc end y offset from canvas center
  * @param {number} steps - number of intermediate move steps
  */
+/**
+ * Perform a single-finger touch drag via synthetic PointerEvents dispatched
+ * directly on the canvas element. Uses pointerType='touch' so OrbitControls
+ * processes them as touch input.
+ * @param {import('@playwright/test').Page} page
+ * @param {number} startX - absolute screen x
+ * @param {number} startY - absolute screen y
+ * @param {number} endX - absolute screen x
+ * @param {number} endY - absolute screen y
+ * @param {number} steps - number of intermediate move steps
+ */
+export async function touchDrag(page, startX, startY, endX, endY, steps = 5) {
+	// Dispatch synthetic PointerEvents on the canvas with pointerType='touch'.
+	// Events bubble to OrbitControls' domElement (canvas parent / Threlte wrapper).
+	await page.evaluate(({ sx, sy, ex, ey, n }) => {
+		const canvas = document.querySelector('canvas');
+		if (!canvas) throw new Error('Canvas not found');
+
+		const fire = (type, x, y) => {
+			canvas.dispatchEvent(new PointerEvent(type, {
+				bubbles: true,
+				cancelable: true,
+				clientX: x,
+				clientY: y,
+				pointerId: 1,
+				pointerType: 'touch',
+				isPrimary: true,
+				pressure: type === 'pointerup' ? 0 : 0.5,
+			}));
+		};
+
+		fire('pointerdown', sx, sy);
+		for (let i = 1; i <= n; i++) {
+			const t = i / n;
+			fire('pointermove', sx + (ex - sx) * t, sy + (ey - sy) * t);
+		}
+		fire('pointerup', ex, ey);
+	}, { sx: startX, sy: startY, ex: endX, ey: endY, n: steps });
+	// Wait for OrbitControls damping to apply across multiple animation frames
+	await page.waitForTimeout(300);
+}
+
+/**
+ * Simulate a long-press touch gesture (pointerdown, hold, pointerup).
+ * Triggers the long-press context menu if held long enough without moving.
+ * @param {import('@playwright/test').Page} page
+ * @param {number} x - absolute screen x
+ * @param {number} y - absolute screen y
+ * @param {number} holdMs - how long to hold before releasing (default 600ms > 500ms threshold)
+ */
+export async function longPressTouch(page, x, y, holdMs = 600) {
+	await page.evaluate(({ cx, cy }) => {
+		const canvas = document.querySelector('canvas');
+		if (!canvas) throw new Error('Canvas not found');
+		canvas.dispatchEvent(new PointerEvent('pointerdown', {
+			bubbles: true, cancelable: true,
+			clientX: cx, clientY: cy,
+			pointerId: 1, pointerType: 'touch', isPrimary: true, pressure: 0.5,
+		}));
+	}, { cx: x, cy: y });
+
+	await page.waitForTimeout(holdMs);
+
+	await page.evaluate(({ cx, cy }) => {
+		const canvas = document.querySelector('canvas');
+		if (!canvas) throw new Error('Canvas not found');
+		canvas.dispatchEvent(new PointerEvent('pointerup', {
+			bubbles: true, cancelable: true,
+			clientX: cx, clientY: cy,
+			pointerId: 1, pointerType: 'touch', isPrimary: true, pressure: 0,
+		}));
+	}, { cx: x, cy: y });
+
+	// Allow context menu to render
+	await page.waitForTimeout(100);
+}
+
 export async function dragArc(page, cx, cy, sx, sy, ex, ey, steps = 10) {
 	const bounds = await getCanvasBounds(page);
 	if (!bounds) throw new Error('Canvas not visible');

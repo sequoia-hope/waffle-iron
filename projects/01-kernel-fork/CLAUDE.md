@@ -14,6 +14,11 @@ Wrap truck's API behind the `Kernel` and `KernelIntrospect` traits defined in th
 4. **Tessellation must produce face-range metadata.** three.js needs to map picked triangles back to logical faces.
 5. **Do NOT prioritize fillet/chamfer/shell work. DEFERRED INDEFINITELY.** Experimental implementations exist but depend on boolean reliability. Focus on boolean shapeops, integration tests, and extrude/revolve pipeline instead.
 6. **Analytical Primacy (A15).** Boolean operations on quadric surfaces MUST use exact SSI. Do NOT route quadric booleans through mesh/polygon fallback. If the solver is missing, return `NotSupported` and implement it. Mesh path is for freeform NURBS only. See `governance/ARCHITECTURAL_INVARIANTS.md` A15.
+7. **Surface Type Taxonomy (ADR-11).** The kernel uses a 3-tier surface hierarchy:
+   analytic (plane, cylinder, cone, sphere, torus), procedural (swept, spun, ruled,
+   lofted, offset), and NURBS (universal fallback). See `specs/surface_type_taxonomy.md`.
+   Never downgrade a surface from a lower tier (e.g., do not convert a cylinder to NURBS
+   for a boolean operation that has a closed-form SSI solver).
 
 ## Build & Test
 

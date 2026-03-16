@@ -13,7 +13,7 @@
 	} from '$lib/engine/store.svelte.js';
 	import { showToast } from '$lib/ui/toast.svelte.js';
 	import { log } from '$lib/engine/logger.js';
-	import { displayToInternal, internalToDisplay, parseAndConvert, UNITS } from '$lib/units.js';
+	import { displayToInternal, internalToDisplay, parseAndConvert, formatForInput, UNITS } from '$lib/units.js';
 
 	let dialogState = $derived(getExtrudeDialogState());
 	let displayUnit = $derived(getDocumentDisplayUnit());
@@ -34,12 +34,24 @@
 
 	$effect(() => {
 		if (dialogState) {
-			depthInput = '10';
-			cut = false;
-			depthMode = 'Blind';
-			secondDir = 'None';
-			secondDepthInput = '10';
-			flipDirection = false;
+			const ep = dialogState.editParams;
+			if (ep) {
+				depthInput = formatForInput(ep.depth, displayUnit);
+				cut = !!ep.cut;
+				depthMode = ep.depth_mode?.type ?? 'Blind';
+				if (ep.symmetric) secondDir = 'Symmetric';
+				else if (ep.second_direction) secondDir = ep.second_direction.type ?? 'None';
+				else secondDir = 'None';
+				secondDepthInput = ep.second_direction?.depth != null ? formatForInput(ep.second_direction.depth, displayUnit) : '10';
+				flipDirection = ep.direction != null;
+			} else {
+				depthInput = '10';
+				cut = false;
+				depthMode = 'Blind';
+				secondDir = 'None';
+				secondDepthInput = '10';
+				flipDirection = false;
+			}
 		}
 	});
 
@@ -157,7 +169,7 @@
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div class="extrude-panel" onkeydown={handleKeydown} data-testid="extrude-dialog">
 		<div class="dialog-header">
-			<span class="dialog-title">Extrude</span>
+			<span class="dialog-title">{dialogState.editingFeatureId ? 'Edit Extrude' : 'Extrude'}</span>
 			<button class="close-btn" onclick={handleCancel}>&times;</button>
 		</div>
 		<div class="dialog-body">

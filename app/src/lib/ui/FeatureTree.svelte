@@ -26,15 +26,17 @@
 		showAllAxes,
 		hideAllAxes,
 		enterSketchEditMode,
-		getFeatureErrors
+		getFeatureErrors,
+		showEditFeatureDialog
 	} from '$lib/engine/store.svelte.js';
 	import { BUILTIN_PLANES, makePlaneRef } from '$lib/engine/planes.js';
+	import { longPressContextMenu } from './longPressContextMenu.js';
 
 	let tree = $derived(getFeatureTree());
 	let selectedId = $derived(getSelectedFeatureId());
 	let featureErrors = $derived(getFeatureErrors());
 
-	/** @type {{ x: number, y: number, featureId: string, featureName: string, suppressed: boolean, isSketch: boolean } | null} */
+	/** @type {{ x: number, y: number, featureId: string, featureName: string, suppressed: boolean, isSketch: boolean, operationType: string | null } | null} */
 	let contextMenu = $state(null);
 
 	/** @type {{ x: number, y: number, kind: 'plane' | 'axis', id: string, visible: boolean } | null} */
@@ -75,8 +77,11 @@
 	}
 
 	function handleDblClick(feature) {
-		if (feature.operation?.type === 'Sketch') {
+		const opType = feature.operation?.type;
+		if (opType === 'Sketch') {
 			enterSketchEditMode(feature.id);
+		} else if (opType === 'Extrude' || opType === 'Revolve') {
+			showEditFeatureDialog(feature.id);
 		} else {
 			renaming = { featureId: feature.id, value: feature.name };
 		}
@@ -101,7 +106,8 @@
 			featureId: feature.id,
 			featureName: feature.name,
 			suppressed: feature.suppressed,
-			isSketch: feature.operation?.type === 'Sketch'
+			isSketch: feature.operation?.type === 'Sketch',
+			operationType: feature.operation?.type ?? null
 		};
 	}
 
@@ -159,6 +165,13 @@
 	function handleEditSketch() {
 		if (contextMenu && contextMenu.isSketch) {
 			enterSketchEditMode(contextMenu.featureId);
+			closeContextMenu();
+		}
+	}
+
+	function handleEditFeature() {
+		if (contextMenu) {
+			showEditFeatureDialog(contextMenu.featureId);
 			closeContextMenu();
 		}
 	}
@@ -282,7 +295,7 @@
 
 <div class="feature-tree">
 	<div class="panel-header">Features</div>
-	<div class="tree-content">
+	<div class="tree-content" use:longPressContextMenu>
 		<!-- Origin section -->
 		<div class="origin-section">
 			<button
@@ -428,6 +441,9 @@
 	>
 		{#if contextMenu.isSketch}
 			<button class="ctx-item" data-testid="ft-ctx-edit-sketch" onclick={handleEditSketch}>Edit Sketch</button>
+		{/if}
+		{#if contextMenu.operationType === 'Extrude' || contextMenu.operationType === 'Revolve'}
+			<button class="ctx-item" data-testid="ft-ctx-edit-feature" onclick={handleEditFeature}>Edit Feature</button>
 		{/if}
 		<button class="ctx-item" data-testid="ft-ctx-rename" onclick={handleRenameFromMenu}>Rename</button>
 		<button class="ctx-item" data-testid="ft-ctx-suppress" onclick={handleSuppress}>

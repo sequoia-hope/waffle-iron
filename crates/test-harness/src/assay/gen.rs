@@ -88,6 +88,12 @@ pub struct OpMeta {
     pub depth_or_angle: f64,
     /// Whether this is a cut operation.
     pub is_cut: bool,
+    /// Per-operation sketch plane origin (if different from case-level plane).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plane_origin: Option<[f64; 3]>,
+    /// Per-operation sketch plane normal (if different from case-level plane).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plane_normal: Option<[f64; 3]>,
 }
 
 /// Expected oracle outcomes for a test case.
@@ -153,6 +159,49 @@ pub fn derive_seed(master: u64, index: usize) -> u64 {
 pub fn random_scale(rng: &mut impl Rng) -> f64 {
     let exponent: f64 = rng.gen_range(-4.0..4.0);
     10f64.powf(exponent)
+}
+
+/// Generate a random unit normal via rejection sampling on the unit ball.
+pub fn random_unit_normal(rng: &mut impl Rng) -> [f64; 3] {
+    loop {
+        let x: f64 = rng.gen_range(-1.0..1.0);
+        let y: f64 = rng.gen_range(-1.0..1.0);
+        let z: f64 = rng.gen_range(-1.0..1.0);
+        let len_sq = x * x + y * y + z * z;
+        if len_sq < 1e-12 || len_sq > 1.0 {
+            continue;
+        }
+        let len = len_sq.sqrt();
+        return [x / len, y / len, z / len];
+    }
+}
+
+/// Generate N well-separated unit normals with at least `min_angle_rad` between any pair.
+///
+/// Uses rejection sampling: each candidate must satisfy `|dot(candidate, existing)| ≤ cos(min_angle)`
+/// for all existing normals. For N ≤ 4, converges quickly.
+pub fn generate_well_separated_normals(
+    rng: &mut impl Rng,
+    n: usize,
+    min_angle_rad: f64,
+) -> Vec<[f64; 3]> {
+    let max_dot = min_angle_rad.cos();
+    let mut normals: Vec<[f64; 3]> = Vec::with_capacity(n);
+
+    while normals.len() < n {
+        let candidate = random_unit_normal(rng);
+        let well_separated = normals.iter().all(|existing| {
+            let dot = candidate[0] * existing[0]
+                + candidate[1] * existing[1]
+                + candidate[2] * existing[2];
+            dot.abs() <= max_dot
+        });
+        if well_separated {
+            normals.push(candidate);
+        }
+    }
+
+    normals
 }
 
 /// Generate a random sketch plane: origin and normal.
@@ -386,6 +435,8 @@ pub fn generate_case(master_seed: u64, index: usize) -> GeneratedCase {
             profile_size,
             depth_or_angle,
             is_cut,
+            plane_origin: None,
+            plane_normal: None,
         });
 
         volume_monotonicity.push(if is_cut {
@@ -711,6 +762,8 @@ pub fn generate_featured_cases(output_dir: &std::path::Path) -> Vec<ManifestEntr
                     profile_size: spec.w1,
                     depth_or_angle: spec.d1,
                     is_cut: false,
+                    plane_origin: None,
+                    plane_normal: None,
                 },
                 OpMeta {
                     kind: "extrude".to_string(),
@@ -718,6 +771,8 @@ pub fn generate_featured_cases(output_dir: &std::path::Path) -> Vec<ManifestEntr
                     profile_size: spec.w2,
                     depth_or_angle: spec.d2,
                     is_cut: false,
+                    plane_origin: None,
+                    plane_normal: None,
                 },
             ],
             oracles: OracleExpectations {
@@ -747,6 +802,363 @@ pub fn generate_featured_cases(output_dir: &std::path::Path) -> Vec<ManifestEntr
 
         entries.push(ManifestEntry {
             id: spec.id.to_string(),
+            filename: waffle_filename,
+            meta_filename,
+            description,
+            featured: true,
+        });
+    }
+
+    // Append oblique-plane featured cases (F0011-F0015)
+    entries.extend(generate_oblique_plane_cases(output_dir));
+
+    // Append intersecting multi-extrude oblique cases (F0016-F0025)
+    entries.extend(generate_intersecting_oblique_cases(output_dir));
+
+    entries
+}
+
+/// Generate 5 oblique-plane featured cases (F0011-F0015).
+///
+/// Each case has 2 extrude operations on *different* random oblique planes,
+/// testing the kernel's ability to boolean-merge solids along non-aligned directions.
+fn generate_oblique_plane_cases(output_dir: &std::path::Path) -> Vec<ManifestEntry> {
+    let mut entries = Vec::new();
+
+    for i in 0..5u64 {
+        let case_id = format!("F{:04}", 11 + i);
+        let seed = 7001 + i;
+        let mut rng = <rand::rngs::StdRng as rand::SeedableRng>::seed_from_u64(seed);
+
+        let scale = 1.0;
+        let (origin1, normal1) = random_plane(&mut rng, scale);
+        let (origin2, normal2) = random_plane(&mut rng, scale);
+
+        let mut features: Vec<Feature> = Vec::new();
+
+        // Operation 1: extrude(rect, boss) on plane 1
+        let w1 = rng.gen_range(0.2..0.6);
+        let h1 = rng.gen_range(0.2..0.6);
+        let d1 = rng.gen_range(0.1..0.5);
+        let sketch1_id = Uuid::new_v4();
+        let (entities1, positions1, profiles1) = rect_profile(-w1 / 2.0, -h1 / 2.0, w1, h1);
+        features.push(Feature {
+            id: sketch1_id,
+            name: "Sketch 1".to_string(),
+            operation: Operation::Sketch {
+                sketch: Sketch {
+                    id: sketch1_id,
+                    plane: datum_plane_ref(Uuid::new_v4()),
+                    plane_origin: origin1,
+                    plane_normal: normal1,
+                    entities: entities1,
+                    constraints: vec![],
+                    solve_status: SolveStatus::FullyConstrained,
+                    solved_positions: positions1,
+                    solved_profiles: profiles1,
+                },
+            },
+            suppressed: false,
+            references: vec![],
+        });
+        features.push(Feature {
+            id: Uuid::new_v4(),
+            name: "Extrude 1".to_string(),
+            operation: Operation::Extrude {
+                params: ExtrudeParams {
+                    sketch_id: sketch1_id,
+                    profile_index: 0,
+                    depth: d1,
+                    direction: None,
+                    symmetric: false,
+                    cut: false,
+                    merge: true,
+                    target_body: None,
+                    depth_mode: DepthMode::Blind,
+                    second_direction: None,
+                },
+            },
+            suppressed: false,
+            references: vec![],
+        });
+
+        // Operation 2: extrude(rect, boss) on plane 2
+        let w2 = rng.gen_range(0.2..0.6);
+        let h2 = rng.gen_range(0.2..0.6);
+        let d2 = rng.gen_range(0.1..0.5);
+        let sketch2_id = Uuid::new_v4();
+        let (entities2, positions2, profiles2) = rect_profile(-w2 / 2.0, -h2 / 2.0, w2, h2);
+        features.push(Feature {
+            id: sketch2_id,
+            name: "Sketch 2".to_string(),
+            operation: Operation::Sketch {
+                sketch: Sketch {
+                    id: sketch2_id,
+                    plane: datum_plane_ref(Uuid::new_v4()),
+                    plane_origin: origin2,
+                    plane_normal: normal2,
+                    entities: entities2,
+                    constraints: vec![],
+                    solve_status: SolveStatus::FullyConstrained,
+                    solved_positions: positions2,
+                    solved_profiles: profiles2,
+                },
+            },
+            suppressed: false,
+            references: vec![],
+        });
+        features.push(Feature {
+            id: Uuid::new_v4(),
+            name: "Extrude 2".to_string(),
+            operation: Operation::Extrude {
+                params: ExtrudeParams {
+                    sketch_id: sketch2_id,
+                    profile_index: 0,
+                    depth: d2,
+                    direction: None,
+                    symmetric: false,
+                    cut: false,
+                    merge: true,
+                    target_body: None,
+                    depth_mode: DepthMode::Blind,
+                    second_direction: None,
+                },
+            },
+            suppressed: false,
+            references: vec![],
+        });
+
+        let tree = FeatureTree {
+            features,
+            active_index: None,
+        };
+
+        let metadata = ProjectMetadata::new(format!("Assay {}", case_id));
+        let waffle_json = save_project(&tree, &metadata);
+
+        let description = format!(
+            "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — Oblique planes (seed {})",
+            seed
+        );
+
+        let meta = AssayMeta {
+            id: case_id.clone(),
+            description: description.clone(),
+            master_seed: 0,
+            test_seed: seed,
+            scale,
+            log_scale: 0.0,
+            plane_origin: origin1,
+            plane_normal: normal1,
+            operations: vec![
+                OpMeta {
+                    kind: "extrude".to_string(),
+                    profile_type: "rectangle".to_string(),
+                    profile_size: w1,
+                    depth_or_angle: d1,
+                    is_cut: false,
+                    plane_origin: Some(origin1),
+                    plane_normal: Some(normal1),
+                },
+                OpMeta {
+                    kind: "extrude".to_string(),
+                    profile_type: "rectangle".to_string(),
+                    profile_size: w2,
+                    depth_or_angle: d2,
+                    is_cut: false,
+                    plane_origin: Some(origin2),
+                    plane_normal: Some(normal2),
+                },
+            ],
+            oracles: OracleExpectations {
+                euler_target: 2,
+                expect_watertight: true,
+                max_bbox_extent: 3.0,
+                expect_positive_volume: true,
+                volume_monotonicity: vec!["increase".to_string(), "increase".to_string()],
+            },
+            generator_version: GENERATOR_VERSION,
+            featured: true,
+        };
+
+        let waffle_filename = format!("{}.waffle", case_id);
+        let meta_filename = format!("{}.meta.json", case_id);
+
+        let waffle_path = output_dir.join(&waffle_filename);
+        fs::write(&waffle_path, &waffle_json).unwrap_or_else(|e| {
+            panic!("failed to write {}: {}", waffle_path.display(), e);
+        });
+
+        let meta_path = output_dir.join(&meta_filename);
+        let meta_json = serde_json::to_string_pretty(&meta).expect("meta serialization failed");
+        fs::write(&meta_path, meta_json).unwrap_or_else(|e| {
+            panic!("failed to write {}: {}", meta_path.display(), e);
+        });
+
+        entries.push(ManifestEntry {
+            id: case_id,
+            filename: waffle_filename,
+            meta_filename,
+            description,
+            featured: true,
+        });
+    }
+
+    entries
+}
+
+/// Generate 10 intersecting multi-extrude oblique-plane cases (F0016-F0025).
+///
+/// F0016-F0020: 3-extrude chains, F0021-F0025: 4-extrude chains.
+/// All extrudes share origin [0,0,0] with symmetric=true, guaranteeing
+/// pairwise intersection (every solid's interior contains the origin).
+/// Normals have ≥30° angular separation via rejection sampling.
+fn generate_intersecting_oblique_cases(output_dir: &std::path::Path) -> Vec<ManifestEntry> {
+    let mut entries = Vec::new();
+    let min_angle = std::f64::consts::FRAC_PI_6; // 30°
+
+    // (case_index, extrude_count, seed)
+    let specs: [(u64, usize, u64); 10] = [
+        (16, 3, 8001),
+        (17, 3, 8002),
+        (18, 3, 8003),
+        (19, 3, 8004),
+        (20, 3, 8005),
+        (21, 4, 8006),
+        (22, 4, 8007),
+        (23, 4, 8008),
+        (24, 4, 8009),
+        (25, 4, 8010),
+    ];
+
+    for &(case_num, extrude_count, seed) in &specs {
+        let case_id = format!("F{:04}", case_num);
+        let mut rng = <rand::rngs::StdRng as rand::SeedableRng>::seed_from_u64(seed);
+
+        let normals = generate_well_separated_normals(&mut rng, extrude_count, min_angle);
+        let plane_origin = [0.0, 0.0, 0.0];
+
+        let mut features: Vec<Feature> = Vec::new();
+        let mut op_metas: Vec<OpMeta> = Vec::new();
+        let mut volume_monotonicity: Vec<String> = Vec::new();
+
+        for (j, normal) in normals.iter().enumerate() {
+            let w: f64 = rng.gen_range(0.15..0.5);
+            let h: f64 = rng.gen_range(0.15..0.5);
+            let d: f64 = rng.gen_range(0.2..0.6);
+
+            let sketch_id = Uuid::new_v4();
+            let (entities, positions, profiles) = rect_profile(-w / 2.0, -h / 2.0, w, h);
+
+            features.push(Feature {
+                id: sketch_id,
+                name: format!("Sketch {}", j + 1),
+                operation: Operation::Sketch {
+                    sketch: Sketch {
+                        id: sketch_id,
+                        plane: datum_plane_ref(Uuid::new_v4()),
+                        plane_origin,
+                        plane_normal: *normal,
+                        entities,
+                        constraints: vec![],
+                        solve_status: SolveStatus::FullyConstrained,
+                        solved_positions: positions,
+                        solved_profiles: profiles,
+                    },
+                },
+                suppressed: false,
+                references: vec![],
+            });
+
+            features.push(Feature {
+                id: Uuid::new_v4(),
+                name: format!("Extrude {}", j + 1),
+                operation: Operation::Extrude {
+                    params: ExtrudeParams {
+                        sketch_id,
+                        profile_index: 0,
+                        depth: d,
+                        direction: None,
+                        symmetric: true,
+                        cut: false,
+                        merge: true,
+                        target_body: None,
+                        depth_mode: DepthMode::Blind,
+                        second_direction: None,
+                    },
+                },
+                suppressed: false,
+                references: vec![],
+            });
+
+            op_metas.push(OpMeta {
+                kind: "extrude".to_string(),
+                profile_type: "rectangle".to_string(),
+                profile_size: w,
+                depth_or_angle: d,
+                is_cut: false,
+                plane_origin: Some(plane_origin),
+                plane_normal: Some(*normal),
+            });
+
+            volume_monotonicity.push("increase".to_string());
+        }
+
+        let tree = FeatureTree {
+            features,
+            active_index: None,
+        };
+
+        let metadata = ProjectMetadata::new(format!("Assay {}", case_id));
+        let waffle_json = save_project(&tree, &metadata);
+
+        let description = format!(
+            "{} ops, scale=1.00e0, {} — Intersecting oblique (seed {})",
+            extrude_count,
+            (0..extrude_count)
+                .map(|_| "extrude(rectangle,boss)")
+                .collect::<Vec<_>>()
+                .join("+"),
+            seed
+        );
+
+        let meta = AssayMeta {
+            id: case_id.clone(),
+            description: description.clone(),
+            master_seed: 0,
+            test_seed: seed,
+            scale: 1.0,
+            log_scale: 0.0,
+            plane_origin,
+            plane_normal: normals[0],
+            operations: op_metas,
+            oracles: OracleExpectations {
+                euler_target: 2,
+                expect_watertight: true,
+                max_bbox_extent: 4.0,
+                expect_positive_volume: true,
+                volume_monotonicity,
+            },
+            generator_version: GENERATOR_VERSION,
+            featured: true,
+        };
+
+        let waffle_filename = format!("{}.waffle", case_id);
+        let meta_filename = format!("{}.meta.json", case_id);
+
+        let waffle_path = output_dir.join(&waffle_filename);
+        fs::write(&waffle_path, &waffle_json).unwrap_or_else(|e| {
+            panic!("failed to write {}: {}", waffle_path.display(), e);
+        });
+
+        let meta_path = output_dir.join(&meta_filename);
+        let meta_json = serde_json::to_string_pretty(&meta).expect("meta serialization failed");
+        fs::write(&meta_path, meta_json).unwrap_or_else(|e| {
+            panic!("failed to write {}: {}", meta_path.display(), e);
+        });
+
+        entries.push(ManifestEntry {
+            id: case_id,
             filename: waffle_filename,
             meta_filename,
             description,
@@ -826,7 +1238,8 @@ pub fn generate_corpus(config: &CorpusConfig) -> CorpusStats {
 
     CorpusStats {
         count: config.case_count + featured_count,
-        extrude_count: extrude_count + featured_count * 2, // each featured has 2 extrudes
+        // F0001-F0010: 10×2=20, F0011-F0015: 5×2=10, F0016-F0020: 5×3=15, F0021-F0025: 5×4=20 = 65
+        extrude_count: extrude_count + 65,
         revolve_count,
     }
 }

@@ -3,25 +3,25 @@
   "version": 2,
   "project": {
     "name": "Assay R0073",
-    "created": "2026-03-13T01:19:38.637237175Z",
-    "modified": "2026-03-13T01:19:38.637237175Z"
+    "created": "2026-03-16T01:57:20.779925672Z",
+    "modified": "2026-03-16T01:57:20.779925672Z"
   },
   "features": {
     "features": [
       {
-        "id": "3189436a-30ef-459b-a0a6-73aa66c3e25e",
+        "id": "dd4995dd-bf27-4723-bcdb-a1593c39c255",
         "name": "Sketch 1",
         "operation": {
           "type": "Sketch",
           "sketch": {
-            "id": "3189436a-30ef-459b-a0a6-73aa66c3e25e",
+            "id": "dd4995dd-bf27-4723-bcdb-a1593c39c255",
             "plane": {
               "kind": {
                 "type": "Face"
               },
               "anchor": {
                 "type": "Datum",
-                "datum_id": "c08d5273-92c8-41c2-81e0-eb3bb265e8aa"
+                "datum_id": "deeff28c-43cc-4b81-90e9-184a836468d4"
               },
               "selector": {
                 "type": "Role",
@@ -107,9 +107,9 @@
               "type": "FullyConstrained"
             },
             "solved_positions": {
-              "4": [
+              "1": [
                 -44.53266196437383,
-                117.3557472219072
+                -117.3557472219072
               ],
               "2": [
                 44.53266196437383,
@@ -119,9 +119,9 @@
                 44.53266196437383,
                 117.3557472219072
               ],
-              "1": [
+              "4": [
                 -44.53266196437383,
-                -117.3557472219072
+                117.3557472219072
               ]
             },
             "solved_profiles": [
@@ -147,12 +147,12 @@
         "references": []
       },
       {
-        "id": "2488d164-9e80-490f-b119-1b33413dc733",
+        "id": "c9fa7b43-af11-4154-917b-ed7c41bcd0b0",
         "name": "Extrude 1",
         "operation": {
           "type": "Extrude",
           "params": {
-            "sketch_id": "3189436a-30ef-459b-a0a6-73aa66c3e25e",
+            "sketch_id": "dd4995dd-bf27-4723-bcdb-a1593c39c255",
             "profile_index": 0,
             "depth": 138.57275761626147,
             "direction": null,
@@ -170,19 +170,19 @@
         "references": []
       },
       {
-        "id": "33cc1bfc-1152-48de-918b-40255ce7b041",
+        "id": "c0acba32-357c-43aa-b4d0-30db9a5f7d2e",
         "name": "Sketch 2",
         "operation": {
           "type": "Sketch",
           "sketch": {
-            "id": "33cc1bfc-1152-48de-918b-40255ce7b041",
+            "id": "c0acba32-357c-43aa-b4d0-30db9a5f7d2e",
             "plane": {
               "kind": {
                 "type": "Face"
               },
               "anchor": {
                 "type": "Datum",
-                "datum_id": "10108439-0fcc-4ea2-b485-5b4041db61b7"
+                "datum_id": "150ca311-54bf-4ed7-98a5-90b2cfc36dd7"
               },
               "selector": {
                 "type": "Role",
@@ -268,10 +268,6 @@
               "type": "FullyConstrained"
             },
             "solved_positions": {
-              "1": [
-                -51.60670101090928,
-                -68.51049452696937
-              ],
               "3": [
                 51.60670101090928,
                 68.51049452696937
@@ -282,6 +278,10 @@
               ],
               "2": [
                 51.60670101090928,
+                -68.51049452696937
+              ],
+              "1": [
+                -51.60670101090928,
                 -68.51049452696937
               ]
             },
@@ -308,12 +308,12 @@
         "references": []
       },
       {
-        "id": "e618fe64-3772-48eb-a12e-b40f8332783f",
+        "id": "03870e84-2581-42bc-9438-d2a8e2e65239",
         "name": "Extrude 2",
         "operation": {
           "type": "Extrude",
           "params": {
-            "sketch_id": "33cc1bfc-1152-48de-918b-40255ce7b041",
+            "sketch_id": "c0acba32-357c-43aa-b4d0-30db9a5f7d2e",
             "profile_index": 0,
             "depth": 152.83828586747404,
             "direction": null,

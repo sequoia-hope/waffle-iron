@@ -13,6 +13,7 @@ Find references by topic. Numbers refer to reference entries below.
 **CDT / constrained Delaunay** → #10 (optimized CDT), #12 (per-triangle CDT)
 **Chained booleans** → #24 (bijective re-mapping preserves topology across chains)
 **Classification (face/in-out)** → #7 (winding number), #8 (winding number vectors), #12 (radial sort), #17 (set membership), #20 (4-way/8-way), #30 (GWN on trimmed NURBS, no tessellation)
+**Convergent modeling** → #36 (Parasolid v26+, mixed mesh+analytic bodies, boolean on faceted+parametric)
 **Coplanar / overlap regions** → #3 (same-domain analysis), #8 (coplanar CDT clustering), #10 (coplanar-heavy perf), #11 (plane-based repr), #26 (overlap as 2D phenomenon, bilevel optimization), #33 §6.1 (coincident surface imprinting)
 **Curve-face intersection classification** → #33 §6.1.1 (ENTERS/LEAVES/INOSCUL/OUTOSCUL/WIRE/ONEDGE, sequencing rules)
 **CSG / constructive solid geometry** → #14 (hybrid CSG), #17 (CSG→BRep), #2 Ch.3
@@ -39,6 +40,7 @@ Find references by topic. Numbers refer to reference entries below.
 **Morse theory** → #23 Ch.VI
 **Nef polyhedra** → #15 (CGAL Nef 3D, sphere maps, non-manifold)
 **Knot insertion / refinement / degree elevation** → #32 Ch.5 (algorithms A5.1-A5.9)
+**Lofting / skinning** → #33 Ch.13 (multi-section lofting), #32 Ch.10 (surface skinning algorithms)
 **NURBS / parametric surfaces** → #1 Ch.5, #2 Ch.5, #13 (ESOLID), #14 (hybrid), #28 (watertight reparameterization), #32 (comprehensive NURBS algorithms)
 **NURBS evaluation and derivatives** → #32 Ch.2-4 (basis functions, curves, surfaces, rational forms)
 **NURBS implementation** → #32 Ch.13 (data structures, memory, error control, programming concepts)
@@ -64,9 +66,10 @@ Find references by topic. Numbers refer to reference entries below.
 **Spatial indexing / AABB** → #2 Ch.3.7, #12 (AABB-accelerated)
 **SSI topology determination** → #25 (Dixon matrix, characteristic points), #27 (algebraic vs numerical survey), #29 (IATA, interval algebraic analysis in 4D)
 **Surface-surface intersection** → #1 Ch.5 (lattice/marching/subdivision), #3 (FF interference), #25 (topology-guaranteed tracing), #27 (comprehensive survey), #28 (isocurve reparameterization), #29 (IATA hybrid symbolic-numeric)
+**Surface type taxonomy** → #36 (Parasolid 3-tier: analytic/procedural/NURBS), #33 Appendix A (geometry format specs), #32 Ch.2-4 (NURBS evaluation)
 **Tessellation / mesh conversion** → #22 (curvature across discrete/smooth boundary), #34 (curvature-adapted remeshing via R^6 embedding), #35 (conforming NURBS tessellation with anisotropic metrics)
 **Tolerance / fuzzy** → #3 (fuzzy booleans, SetFuzzyValue), #13 (lazy exact vs tolerance), #28 (gap-free via reparameterization), #33 Ch.16 (6 tolerance types, consistency rules)
-**Sweeping / extrude / revolve** → #33 §6.2 (edge-based sweep/swing with Euler ops, movable-edge detection)
+**Sweeping / extrude / revolve** → #33 §6.2 (edge-based sweep/swing with Euler ops, movable-edge detection), #37 (swept volume B-Rep construction: profile + spine + orientation law)
 **Topological validity** → #6 (topology-oriented), #16 (Euler ops), #23 (homology invariants), #33 Ch.4 (Euler ops preserve Euler-Poincaré)
 **Trim testing (2D)** → #30 (2D GWN for parametric trim containment)
 **Watertightness / gap-free geometry** → #28 (isocurve reparameterization), #24 (mesh boolean guarantees watertight), #30 (GWN robust to non-watertight geometry)
@@ -853,6 +856,29 @@ https://www.sciencedirect.com/science/article/abs/pii/S0010448515000032
 
 **Relevance**: Industrial-grade NURBS tessellation framed as mesh generation. Uses anisotropic metric tensors from principal curvatures to drive triangle aspect ratios. Guarantees watertight conformity between adjacent NURBS patches by meshing shared boundary curves once in 3D. Handles NURBS degeneracies (collapsed edges, seam lines, singular poles) common in naval and aerospace CAD. More rigorous than #34 for production tessellation, but requires curvature tensor computation infrastructure.
 
+## Surface Architecture References
+
+### 36. Parasolid — XT Format Reference & Surface Type Architecture
+
+**Access**: Siemens Parasolid documentation (various sources):
+- XT Format Reference (v35): http://www.q-solid.com/Parasolid_Docs_V35/pdf/xt.pdf
+- Format overview: https://cadexchanger.com/blog/3d-formats-overview-parasolid/
+- Faceting API: http://www.q-solid.com/Parasolid_Docs/chapters/fd_chap.55.html
+- Convergent Modeling: https://news.siemens.com/en-us/parasolid-convergent-modeling-mixed-models/
+
+**Citation**: Siemens Digital Industries Software. "Parasolid XT Format Reference." Version 35, 2023.
+
+**Relevance**: Parasolid's 3-tier surface hierarchy is the industry standard that informs our SurfaceGeom design. Tier 1: five analytic surfaces (plane, cylinder, cone, sphere, torus) stored as compact parameter sets. Tier 2: procedural surfaces (swept, spun, offset) stored as construction recipes (profile + spine + orientation law). Tier 3: B-surface (NURBS) as universal fallback. Procedural definitions are preserved natively — never eagerly converted to NURBS — enabling exact reconstruction during editing and maintaining analytical SSI eligibility. Convergent Modeling (v26+) extends the architecture to mixed mesh+analytic bodies, supporting boolean operations between faceted and parametric geometry. The faceting API (PK_TOPOL_facet) provides chordal tolerance, angular tolerance, and surface-type-aware tessellation strategies. This architecture directly validates our ADR-11 decision for lazy upward conversion.
+
+### 37. Mistry, Sarkar & Ranjan — "Swept Volume B-Rep Computation" (2015)
+
+**Access**: Open access (CAD Journal):
+https://www.cad-journal.net/files/vol_12/CAD_12(2)_2015_181-191.pdf
+
+**Citation**: Mistry, J.B., Sarkar, A.K. and Ranjan, R. "Swept Volume B-Rep Computation." Computer-Aided Design and Applications 12(2):181–191, 2015.
+
+**Relevance**: Formalizes swept solid construction as profile + spine + orientation law, producing B-Rep boundaries directly without tessellation intermediate. The construction recipe consists of: a 2D cross-section profile (wire or face), a 3D spine curve, and an orientation law (Frenet, fixed, or user-specified frame propagation). The resulting surface is computed by transporting the profile along the spine, with the orientation law controlling twist. Self-intersection detection at concave spine regions prevents invalid sweeps. Directly applicable to our Tier 2 procedural surface representation — the (profile, spine, orientation) triple is the stored definition for swept surfaces.
+
 ## How to Reference During Development
 
 When working on boolean reliability or kernel improvements:
@@ -883,3 +909,5 @@ When working on boolean reliability or kernel improvements:
 24. **Use Stroud (#33)** for B-rep kernel architecture — datastructure design (Ch.3), Euler operator framework (Ch.4), stepwise boolean with wire-edge sewing (§6.1), sweep/revolve (§6.2), model verification (§14.1), tolerance design (Ch.16). The practitioner's guide to building a modelling system from scratch.
 25. **Use Dassi (#34)** for curvature-adaptive tessellation — R^6 embedding (p, lambda*n) makes uniform meshes automatically curvature-adapted. Simpler than metric tensors, directly applicable to truck's PolygonMesh.
 26. **Use Aubry (#35)** for industrial-grade NURBS tessellation — anisotropic metric tensors from principal curvatures, watertight conformity between adjacent patches, degeneracy handling for production CAD models.
+27. **Use Parasolid (#36)** for surface type taxonomy — the 3-tier hierarchy (analytic, procedural, NURBS) is the industry-standard architecture. Informs SurfaceGeom enum design, lazy conversion strategy, and surface-type-aware tessellation.
+28. **Use Mistry (#37)** for swept volume construction — profile + spine + orientation law formalization. Directly applicable to Tier 2 procedural surface representation.

@@ -261,6 +261,39 @@ sequence (15 quadric pairs ordered by CAD frequency).
 
 ---
 
+## ADR-11: Surface Representation Strategy
+
+**Decision**: Three-tier surface hierarchy (analytic → procedural → NURBS) with
+lazy upward conversion. [#32, #33, #36]
+
+**Alternatives considered**:
+
+| Approach | Reference | Pros | Cons |
+|----------|-----------|------|------|
+| **3-tier hierarchy (lazy conversion)** | [#36] Parasolid, [#33] Stroud Appendix A | Maximum information retention, exact SSI for Tier 1 (A15), procedural recipe editing, surface-type-aware tessellation | Three evaluation paths to maintain |
+| Eager NURBS conversion (OCCT-style) | [#32] Piegl, OCCT docs | Simple downstream — single evaluation path | Loses procedural definitions, loses analytical SSI eligibility, conversion introduces numerical noise |
+| NURBS-only | [#32] Piegl | Simplest implementation — one surface type | Violates A15, uniform high evaluation cost, no closed-form SSI |
+| Full procedural (Parasolid-native) | [#36] Parasolid | Richest model — all construction recipes preserved | Highest complexity — every surface type needs custom eval/SSI/tessellation |
+
+**Rationale**: Invariant A15 mandates that analytical surfaces retain their exact
+representation for closed-form SSI. Eager NURBS conversion (the OCCT approach)
+loses this — a cylinder converted to BSpline can no longer use plane-cylinder
+exact intersection, causing geometric drift in chained booleans. Parasolid [#36]
+validates the 3-tier approach: 5 analytic surfaces (Tier 1) with compact parameter
+storage and O(1) evaluation, procedural surfaces (Tier 2) stored as construction
+recipes (profile + spine + orientation law [#37]), and B-surface NURBS (Tier 3)
+as universal fallback. Lazy conversion means Tier 1/2 surfaces are only promoted
+to Tier 3 when a downstream operation (e.g., SSI with a freeform surface) requires
+it. Stroud [#33] Appendix A provides the data definitions for all surface types.
+Piegl & Tiller [#32] provides the NURBS evaluation algorithms for Tier 3.
+
+**Implementation sequence**:
+1. Complete Tier 1: Add Cone, Sphere, Torus to `SurfaceGeom` enum (currently Planar, Cylindrical)
+2. Add Tier 3: BSpline variant with full NURBS evaluation
+3. Add Tier 2 incrementally: Swept, Spun as procedural types (deferred until needed)
+
+---
+
 ## Cross-Reference: ADR → Subsystem → Key Files (Current)
 
 | ADR | Subsystem | Current Implementation | Target |
@@ -275,3 +308,4 @@ sequence (15 quadric pairs ordered by CAD frequency).
 | ADR-8 | Validation | `crates/test-harness/` (test-time only) | Pre/post-boolean validation layer |
 | ADR-9 | Tessellation | `vendor/truck/truck-meshalgo/` | Curvature-adaptive with flatness bounds |
 | ADR-10 | SSI (quadric pairs) | `crates/kernel/src/boolean.rs` | Exact SSI per A15 |
+| ADR-11 | Surface representation | `crates/kernel/src/geometry/surface.rs` | 3-tier hierarchy [#36] |

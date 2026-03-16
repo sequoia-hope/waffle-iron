@@ -2046,6 +2046,41 @@ export function hideExtrudeDialog() {
 }
 
 /**
+ * Show the extrude dialog pre-populated for editing an existing feature.
+ * @param {string} featureId
+ */
+export function showExtrudeDialogForEdit(featureId) {
+	const tree = featureTree;
+	if (!tree || !tree.features) return;
+
+	const feature = tree.features.find(f => f.id === featureId);
+	if (!feature || feature.operation?.type !== 'Extrude') return;
+
+	const params = feature.operation.params;
+	const sketchId = params.sketch_id;
+	const sketch = tree.features.find(f => f.id === sketchId);
+	if (!sketch) return;
+
+	const profileCount = sketch.operation?.sketch?.solved_profiles?.length ?? 0;
+	const allSketches = tree.features
+		.filter(f => f.operation?.type === 'Sketch')
+		.map(f => ({ id: f.id, name: f.name, profileCount: f.operation?.sketch?.solved_profiles?.length ?? 0 }));
+
+	const regions = [{ type: 'sketchProfile', sketchId, sketchName: sketch.name, profileIndex: params.profile_index ?? 0 }];
+
+	log('ui', 'Show extrude dialog for edit', { featureId, sketchId });
+	extrudeDialogState = {
+		sketchId,
+		sketchName: sketch.name,
+		profileCount,
+		availableSketches: allSketches,
+		regions,
+		editingFeatureId: featureId,
+		editParams: params
+	};
+}
+
+/**
  * Apply an extrude operation from the dialog.
  * @param {number} depth
  * @param {number} profileIndex - Legacy param, overridden by regions[0] if available
@@ -2089,25 +2124,29 @@ export async function applyExtrude(depth, profileIndex, cut = false, opts = {}) 
 		}
 	}
 
-	log('action', 'Apply extrude', { depth, profileIndex: effectiveProfileIndex, cut: !!cut, depthMode, secondDir, flipDirection });
+	const operation = {
+		type: 'Extrude',
+		params: {
+			sketch_id: effectiveSketchId,
+			profile_index: effectiveProfileIndex,
+			depth,
+			direction,
+			symmetric: secondDir === 'Symmetric',
+			cut: !!cut,
+			target_body: null,
+			depth_mode,
+			second_direction
+		}
+	};
+
+	const editingId = extrudeDialogState.editingFeatureId;
+	log('action', editingId ? 'Edit extrude' : 'Apply extrude', { depth, profileIndex: effectiveProfileIndex, cut: !!cut, depthMode, secondDir, flipDirection });
 	try {
-		await sendRebuild({
-			type: 'AddFeature',
-			operation: {
-				type: 'Extrude',
-				params: {
-					sketch_id: effectiveSketchId,
-					profile_index: effectiveProfileIndex,
-					depth,
-					direction,
-					symmetric: secondDir === 'Symmetric',
-					cut: !!cut,
-					target_body: null,
-					depth_mode,
-					second_direction
-				}
-			}
-		});
+		if (editingId) {
+			await editFeature(editingId, operation);
+		} else {
+			await sendRebuild({ type: 'AddFeature', operation });
+		}
 
 		extrudeDialogState = null;
 		extrudePreviewParams = null;
@@ -2198,6 +2237,69 @@ export function hideRevolveDialog() {
 }
 
 /**
+ * Show the revolve dialog pre-populated for editing an existing feature.
+ * @param {string} featureId
+ */
+export function showRevolveDialogForEdit(featureId) {
+	const tree = featureTree;
+	if (!tree || !tree.features) return;
+
+	const feature = tree.features.find(f => f.id === featureId);
+	if (!feature || feature.operation?.type !== 'Revolve') return;
+
+	const params = feature.operation.params;
+	const sketchId = params.sketch_id;
+	const sketch = tree.features.find(f => f.id === sketchId);
+	if (!sketch) return;
+
+	const profileCount = sketch.operation?.sketch?.solved_profiles?.length ?? 0;
+
+	// Build axis entities the same way as showRevolveDialog
+	const axisEntities = [];
+	const sketchData = sketch.operation?.sketch;
+	if (sketchData) {
+		const entities = sketchData.entities ?? [];
+		const positions = sketchData.solved_positions ?? {};
+		for (const entity of entities) {
+			if (entity.type === 'Line') {
+				const startPos = positions[entity.start_id];
+				const endPos = positions[entity.end_id];
+				if (startPos && endPos) {
+					axisEntities.push({
+						type: 'Line', id: entity.id, construction: !!entity.construction,
+						start: [startPos[0], startPos[1]], end: [endPos[0], endPos[1]]
+					});
+				}
+			} else if (entity.type === 'Circle') {
+				const centerPos = positions[entity.center_id];
+				if (centerPos) {
+					axisEntities.push({
+						type: 'Circle', id: entity.id, construction: !!entity.construction,
+						center: [centerPos[0], centerPos[1]], radius: entity.radius
+					});
+				}
+			}
+		}
+	}
+	axisEntities.sort((a, b) => {
+		if (a.construction !== b.construction) return a.construction ? -1 : 1;
+		return a.id - b.id;
+	});
+
+	log('ui', 'Show revolve dialog for edit', { featureId, sketchId });
+	revolveDialogState = {
+		sketchId,
+		sketchName: sketch.name,
+		profileCount,
+		axisEntities,
+		planeOrigin: sketchData?.plane_origin ?? [0, 0, 0],
+		planeNormal: sketchData?.plane_normal ?? [0, 0, 1],
+		editingFeatureId: featureId,
+		editParams: params
+	};
+}
+
+/**
  * Apply a revolve operation from the dialog.
  * @param {number} angleDeg - angle in degrees
  * @param {[number,number,number]} axisOrigin
@@ -2207,22 +2309,26 @@ export function hideRevolveDialog() {
 export async function applyRevolve(angleDeg, axisOrigin, axisDir, profileIndex) {
 	if (!revolveDialogState || !bridge || !engineReady) return;
 
-	log('action', 'Apply revolve', { angle: angleDeg, profileIndex });
+	const operation = {
+		type: 'Revolve',
+		params: {
+			sketch_id: revolveDialogState.sketchId,
+			profile_index: profileIndex,
+			axis_origin: axisOrigin,
+			axis_direction: axisDir,
+			angle: angleDeg
+		}
+	};
+
+	const editingId = revolveDialogState.editingFeatureId;
+	log('action', editingId ? 'Edit revolve' : 'Apply revolve', { angle: angleDeg, profileIndex });
 
 	try {
-		await sendRebuild({
-			type: 'AddFeature',
-			operation: {
-				type: 'Revolve',
-				params: {
-					sketch_id: revolveDialogState.sketchId,
-					profile_index: profileIndex,
-					axis_origin: axisOrigin,
-					axis_direction: axisDir,
-					angle: angleDeg
-				}
-			}
-		});
+		if (editingId) {
+			await editFeature(editingId, operation);
+		} else {
+			await sendRebuild({ type: 'AddFeature', operation });
+		}
 
 		revolveDialogState = null;
 		revolvePreviewParams = null;
@@ -3554,6 +3660,20 @@ export async function setRollbackIndex(index) {
 export async function editFeature(featureId, operation) {
 	if (!bridge || !engineReady) return;
 	await sendRebuild({ type: 'EditFeature', feature_id: featureId, operation });
+}
+
+/**
+ * Open the appropriate edit dialog for a feature (Extrude or Revolve).
+ * @param {string} featureId
+ */
+export function showEditFeatureDialog(featureId) {
+	const tree = featureTree;
+	if (!tree) return;
+	const feature = tree.features?.find(f => f.id === featureId);
+	if (!feature) return;
+	const opType = feature.operation?.type;
+	if (opType === 'Extrude') showExtrudeDialogForEdit(featureId);
+	else if (opType === 'Revolve') showRevolveDialogForEdit(featureId);
 }
 
 /**

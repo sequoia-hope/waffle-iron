@@ -1,0 +1,66 @@
+{
+  "id": "F0014",
+  "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — Oblique planes (seed 7004)",
+  "master_seed": 0,
+  "test_seed": 7004,
+  "scale": 1.0,
+  "log_scale": 0.0,
+  "plane_origin": [
+    -0.42158057235769997,
+    -0.4468571240900334,
+    -0.30732463179071345
+  ],
+  "plane_normal": [
+    -0.356862437952051,
+    0.8365486381086987,
+    -0.41573498344185567
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.36039950131210274,
+      "depth_or_angle": 0.36381412125297086,
+      "is_cut": false,
+      "plane_origin": [
+        -0.42158057235769997,
+        -0.4468571240900334,
+        -0.30732463179071345
+      ],
+      "plane_normal": [
+        -0.356862437952051,
+        0.8365486381086987,
+        -0.41573498344185567
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.3642135298134123,
+      "depth_or_angle": 0.12966532721549895,
+      "is_cut": false,
+      "plane_origin": [
+        0.061710782822526955,
+        0.6478865708124162,
+        -0.4080814136711406
+      ],
+      "plane_normal": [
+        0.3642232373184681,
+        -0.9233238520793791,
+        0.12171482070213041
+      ]
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 3.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [
+      "increase",
+      "increase"
+    ]
+  },
+  "generator_version": 1,
+  "featured": true
+}

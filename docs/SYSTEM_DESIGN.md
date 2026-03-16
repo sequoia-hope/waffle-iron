@@ -52,15 +52,30 @@ All topology mutations go through Euler operators (MEV, MEF, MEKL, etc.),
 which preserve the Euler-Poincare relation V-E+F-2(S-G)=0 by construction.
 This guarantees manifoldness at every intermediate step.
 
-### Geometry: NURBS and Analytic Surfaces
+### Geometry: Three-Tier Surface Hierarchy
 
-**References**: [#32] Piegl & Tiller — comprehensive NURBS algorithms (evaluation,
-derivatives, knot insertion, refinement, degree elevation, point inversion).
-[#1 Ch.5-6] Patrikalakis — surface interrogation and intersection curve properties.
+**References**: [#32] Piegl & Tiller — NURBS evaluation algorithms. [#36] Parasolid
+— 3-tier surface architecture (analytic/procedural/NURBS). [#1 Ch.5-6] Patrikalakis
+— surface interrogation and quadric SSI. [#33 Appendix A] Stroud — surface data
+definitions. [#37] Mistry — swept volume B-Rep construction.
 
-The kernel represents geometry via NURBS curves/surfaces with analytic
-specializations (plane, cylinder, cone, sphere, torus) for exact operations
-where applicable.
+The kernel uses a three-tier surface hierarchy (ADR-11):
+
+- **Tier 1 — Analytic** (plane, cylinder, cone, sphere, torus): Compact parameter
+  storage, O(1) evaluation, exact SSI for all 15 pair combinations (A15). These
+  are the workhorse surfaces for mechanical CAD.
+- **Tier 2 — Procedural** (swept, spun, ruled, lofted, offset, pipe): Stored as
+  construction recipes (profile + spine + orientation law). Converted to NURBS
+  only when needed for SSI with freeform surfaces. Preserves editing capability.
+- **Tier 3 — Freeform** (BSpline/NURBS): Universal fallback for imported geometry
+  and surfaces that don't fit Tier 1/2. Cox-de Boor evaluation [#32]. Numerical
+  SSI via topology-guaranteed tracing (ADR-2).
+
+Conversion is lazy and upward-only (Tier 1 → 2 → 3). Unmodified faces preserve
+their surface tier through boolean operations (A15.5). A unified `SurfaceEval`
+trait provides evaluation, normals, derivatives, and point inversion across all
+tiers. See `specs/surface_type_taxonomy.md` for the full taxonomy and ADR-11 for
+the decision rationale.
 
 ### Surface-Surface Intersection (SSI)
 
