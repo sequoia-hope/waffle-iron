@@ -125,15 +125,6 @@ pub fn run_randomized_assay(dir: &Path, use_kernel: bool) -> AssayReport {
     }
 }
 
-/// Run the randomized assay on a single case by ID.
-///
-/// Useful for debugging specific test failures.
-pub fn run_single_case(dir: &Path, case_id: &str, use_kernel: bool) -> Option<AssayResult> {
-    let cases = discover_cases(dir);
-    let case = cases.iter().find(|c| c.id == case_id)?;
-    Some(replay_and_validate(case, use_kernel))
-}
-
 /// Replay a single test case and validate against oracle expectations.
 fn replay_and_validate(case: &DiscoveredCase, use_kernel: bool) -> AssayResult {
     let case_start = Instant::now();
@@ -475,15 +466,11 @@ fn check_volume_monotonicity(
         }
 
         let direction = &expected[i];
-        // Allow a small relative tolerance for equal-volume cases (e.g., union
-        // of identical or fully-overlapping solids produces the same volume).
-        let rel_tol = 0.01; // 1% relative tolerance
-        let abs_tol = prev_vol * rel_tol;
         match direction.as_str() {
             "increase" => {
-                if vol < prev_vol - abs_tol {
+                if vol <= prev_vol {
                     violations.push(format!(
-                        "step {}: expected increase, vol {:.6e} < prev {:.6e}",
+                        "step {}: expected increase, vol {:.6e} <= prev {:.6e}",
                         i + 1,
                         vol,
                         prev_vol
@@ -491,9 +478,9 @@ fn check_volume_monotonicity(
                 }
             }
             "decrease" => {
-                if vol > prev_vol + abs_tol {
+                if vol >= prev_vol {
                     violations.push(format!(
-                        "step {}: expected decrease, vol {:.6e} > prev {:.6e}",
+                        "step {}: expected decrease, vol {:.6e} >= prev {:.6e}",
                         i + 1,
                         vol,
                         prev_vol

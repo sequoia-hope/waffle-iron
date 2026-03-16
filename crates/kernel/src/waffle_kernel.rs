@@ -163,34 +163,8 @@ impl WaffleKernel {
             (b_is_simple_box || b_is_prim_cyl) && a_is_prim_cyl || b_is_prim_cyl && a_is_simple_box;
 
         let result = if use_ssi {
-            // Both operands are primitives — try SSI pipeline first.
-            // If SSI returns NotSupported (e.g. cylinder-minus-box), fall back
-            // to the polygon clipping path which can handle any quadric pair.
-            match crate::boolean::ssi_boolean_op(solid_a, solid_b, op, &mut id_alloc) {
-                Ok(r) => r,
-                Err(KernelError::NotSupported { .. }) => {
-                    let strict = crate::boolean::boolean_op(
-                        solid_a,
-                        solid_b,
-                        op,
-                        &BooleanOptions::default(),
-                        &mut id_alloc,
-                    );
-                    match strict {
-                        ok @ Ok(_) => ok?,
-                        Err(KernelError::BooleanFailed { .. }) => {
-                            crate::boolean::boolean_op_tolerant(
-                                solid_a,
-                                solid_b,
-                                op,
-                                &mut id_alloc,
-                            )?
-                        }
-                        Err(e) => return Err(e),
-                    }
-                }
-                Err(e) => return Err(e),
-            }
+            // Both operands are primitives — use SSI pipeline
+            crate::boolean::ssi_boolean_op(solid_a, solid_b, op, &mut id_alloc)?
         } else if a_all_quadric && b_all_quadric {
             // Both operands have only quadric faces (includes simple box-box,
             // post-boolean results with preserved surface types, and chained

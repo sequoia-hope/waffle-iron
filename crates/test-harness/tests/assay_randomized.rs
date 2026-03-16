@@ -2,7 +2,7 @@ use std::path::Path;
 
 use test_harness::assay::randomized_runner::{
     build_catalog, catalog_summary, discover_cases, generate_catalog_markdown,
-    run_randomized_assay, run_single_case, write_results_json,
+    run_randomized_assay, write_results_json,
 };
 use test_harness::assay::scoring::AssayStatus;
 
@@ -256,104 +256,4 @@ fn generate_catalog() {
 
     println!("\nWrote ASSAY_CATALOG.md + results.json");
     println!("{}", catalog_summary(&report, &catalog));
-}
-
-// ── Batch tests for specific categories ──────────────────────────────
-
-/// Helper: run a batch of cases and print results.
-fn run_batch(ids: &[&str], use_kernel: bool) -> (usize, usize, usize) {
-    let dir = Path::new(ASSAY_DIR);
-    if !dir.exists() {
-        eprintln!("Assay corpus not generated yet");
-        return (0, 0, 0);
-    }
-    let mut passed = 0;
-    let mut failed = 0;
-    let mut errored = 0;
-    for id in ids {
-        let result = run_single_case(dir, id, use_kernel);
-        match result {
-            Some(r) => {
-                let status = r.status;
-                if status != AssayStatus::Passed {
-                    println!("  {} {:?}: {}", r.id, status, r.detail);
-                }
-                match status {
-                    AssayStatus::Passed => passed += 1,
-                    AssayStatus::Failed => failed += 1,
-                    AssayStatus::Errored => errored += 1,
-                }
-            }
-            None => {
-                println!("  {} not found in corpus", id);
-                errored += 1;
-            }
-        }
-    }
-    println!(
-        "\nBatch: {}/{} passed, {} failed, {} errored",
-        passed,
-        ids.len(),
-        failed,
-        errored
-    );
-    (passed, failed, errored)
-}
-
-/// Test the first 10 R-series cases (quick smoke test for real kernel).
-///
-/// Run with: cargo test -p test-harness --test assay_randomized -- batch_r_first10 --ignored --nocapture
-#[test]
-#[ignore]
-fn batch_r_first10() {
-    let ids: Vec<&str> = (1..=10)
-        .map(|i| {
-            // Use static strings via leak (test-only, fine for test process)
-            Box::leak(format!("R{:04}", i).into_boxed_str()) as &str
-        })
-        .collect();
-    let (passed, _, _) = run_batch(&ids, true);
-    assert!(
-        passed >= 3,
-        "Expected at least 3/10 R-series to pass, got {}",
-        passed
-    );
-}
-
-/// Test the F-series cases (all box-box union variations).
-///
-/// Run with: cargo test -p test-harness --test assay_randomized -- batch_f_series --ignored --nocapture
-#[test]
-#[ignore]
-fn batch_f_series() {
-    let ids: Vec<&str> = (1..=25)
-        .map(|i| Box::leak(format!("F{:04}", i).into_boxed_str()) as &str)
-        .collect();
-    let (passed, _, _) = run_batch(&ids, true);
-    println!("F-series: {}/25 passed", passed);
-}
-
-/// Test known revolve-geometry failure cases.
-///
-/// Run with: cargo test -p test-harness --test assay_randomized -- batch_revolve_failures --ignored --nocapture
-#[test]
-#[ignore]
-fn batch_revolve_failures() {
-    let ids = &["R0035", "R0070", "R0090", "R0100"];
-    let (passed, _, _) = run_batch(ids, true);
-    println!("Revolve failures: {}/4 passed", passed);
-}
-
-/// Test 2-op extrude-only cases (simplest multi-op).
-///
-/// Run with: cargo test -p test-harness --test assay_randomized -- batch_2op_extrude --ignored --nocapture
-#[test]
-#[ignore]
-fn batch_2op_extrude() {
-    // R-series 2-op extrude-only cases (no revolve)
-    let ids = &[
-        "R0002", "R0004", "R0005", "R0010", "R0013", "R0019", "R0023", "R0029", "R0032", "R0038",
-    ];
-    let (passed, _, _) = run_batch(ids, true);
-    println!("2-op extrude: {}/{} passed", passed, ids.len());
 }
