@@ -199,8 +199,11 @@ fn replay_and_validate(case: &DiscoveredCase, use_kernel: bool) -> AssayResult {
         None
     };
 
-    // 5. Tessellate last feature
-    let mesh = match builder.tessellate_last() {
+    // 5. Tessellate last feature with scale-adaptive tolerance.
+    // At micro scales (1e-4), a fixed 0.1 tolerance is larger than the
+    // features themselves. Use scale * 0.01 (clamped to [1e-9, 0.1]).
+    let tess_tol = (meta.scale * 0.01).clamp(1e-9, 0.1);
+    let mesh = match builder.tessellate_last_with_tol(tess_tol) {
         Ok(m) => m,
         Err(_e) => {
             // Enrich "no solid" with actual engine errors

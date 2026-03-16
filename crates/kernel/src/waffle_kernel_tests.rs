@@ -5240,3 +5240,130 @@ fn v6_subtract_enclosed() {
         "Enclosed subtract must be watertight"
     );
 }
+
+// ── Group W: Property-Based Boolean Tests ───────────────────────────
+
+#[test]
+fn w1_union_commutativity() {
+    // Union(A,B) volume ≈ Union(B,A) volume
+    let mut k1 = WaffleKernel::new();
+    let (pa, posa) = make_rect_profile(5.0, 5.0, 10.0, 10.0);
+    let fa = k1
+        .make_faces_from_profiles(&pa, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posa)
+        .unwrap();
+    let sa = k1.extrude_face(fa[0], Z_DIR, 10.0).unwrap();
+    let (pb, posb) = make_rect_profile(10.0, 5.0, 10.0, 10.0);
+    let fb = k1
+        .make_faces_from_profiles(&pb, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posb)
+        .unwrap();
+    let sb = k1.extrude_face(fb[0], Z_DIR, 10.0).unwrap();
+
+    let ab = k1.boolean_union(&sa, &sb).expect("union A,B");
+    let vol_ab = mesh_volume(&k1.tessellate(&ab, 0.01).unwrap());
+
+    let mut k2 = WaffleKernel::new();
+    let fa2 = k2
+        .make_faces_from_profiles(&pa, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posa)
+        .unwrap();
+    let sa2 = k2.extrude_face(fa2[0], Z_DIR, 10.0).unwrap();
+    let fb2 = k2
+        .make_faces_from_profiles(&pb, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posb)
+        .unwrap();
+    let sb2 = k2.extrude_face(fb2[0], Z_DIR, 10.0).unwrap();
+
+    let ba = k2.boolean_union(&sb2, &sa2).expect("union B,A");
+    let vol_ba = mesh_volume(&k2.tessellate(&ba, 0.01).unwrap());
+
+    assert!(
+        (vol_ab - vol_ba).abs() < 5.0,
+        "Union commutativity: vol(A∪B)={} ≈ vol(B∪A)={}",
+        vol_ab,
+        vol_ba
+    );
+}
+
+#[test]
+fn w2_union_volume_monotonicity() {
+    // Union(A,B) volume ≥ max(vol_A, vol_B)
+    let (mut k, a, b) = make_overlapping_boxes();
+    let vol_a = mesh_volume(&k.tessellate(&a, 0.01).unwrap());
+    let vol_b = mesh_volume(&k.tessellate(&b, 0.01).unwrap());
+    let u = k.boolean_union(&a, &b).expect("union");
+    let vol_u = mesh_volume(&k.tessellate(&u, 0.01).unwrap());
+    let max_ab = vol_a.max(vol_b);
+    assert!(
+        vol_u >= max_ab - 5.0,
+        "Union volume {} must be ≥ max(A={}, B={}) = {}",
+        vol_u,
+        vol_a,
+        vol_b,
+        max_ab
+    );
+}
+
+#[test]
+fn w3_intersect_volume_monotonicity() {
+    // Intersect(A,B) volume ≤ min(vol_A, vol_B)
+    let (mut k, a, b) = make_overlapping_boxes();
+    let vol_a = mesh_volume(&k.tessellate(&a, 0.01).unwrap());
+    let vol_b = mesh_volume(&k.tessellate(&b, 0.01).unwrap());
+    let i = k.boolean_intersect(&a, &b).expect("intersect");
+    let vol_i = mesh_volume(&k.tessellate(&i, 0.01).unwrap());
+    let min_ab = vol_a.min(vol_b);
+    assert!(
+        vol_i <= min_ab + 5.0,
+        "Intersect volume {} must be ≤ min(A={}, B={}) = {}",
+        vol_i,
+        vol_a,
+        vol_b,
+        min_ab
+    );
+}
+
+#[test]
+fn w4_subtract_volume_bound() {
+    // Subtract(A,B) volume ≤ vol_A
+    let (mut k, a, b) = make_overlapping_boxes();
+    let vol_a = mesh_volume(&k.tessellate(&a, 0.01).unwrap());
+    let s = k.boolean_subtract(&a, &b).expect("subtract");
+    let vol_s = mesh_volume(&k.tessellate(&s, 0.01).unwrap());
+    assert!(
+        vol_s <= vol_a + 5.0,
+        "Subtract volume {} must be ≤ vol(A) = {}",
+        vol_s,
+        vol_a
+    );
+}
+
+// ── Group X: Micro-scale tests (assay R0007 investigation) ──────────
+
+#[test]
+fn x1_micro_scale_circle_extrude() {
+    // R0007 setup: circle extrude at micro scale (1.21e-4)
+    // The assay reports empty mesh. Verify tessellation produces triangles.
+    let mut k = WaffleKernel::new();
+    let scale = 0.00012092599730406035;
+    let profile_size = 0.000022521973394520305;
+    let depth = 0.000037213804810033366;
+    let r = profile_size / 2.0;
+
+    let (profiles, positions) = make_circle_profile(0.0, 0.0, r);
+    let face = k
+        .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+        .unwrap();
+    let solid = k.extrude_face(face[0], Z_DIR, depth).unwrap();
+    let mesh = k.tessellate(&solid, scale * 0.01).unwrap();
+    assert!(
+        !mesh.indices.is_empty(),
+        "Micro-scale circle extrude must produce triangles, got 0 (scale={})",
+        scale
+    );
+    let vol = mesh_volume(&mesh);
+    let expected = std::f64::consts::PI * r * r * depth;
+    assert!(
+        vol > expected * 0.5,
+        "Micro-scale circle volume {} should be at least 50% of expected {}",
+        vol,
+        expected
+    );
+}

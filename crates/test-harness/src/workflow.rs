@@ -1292,6 +1292,13 @@ impl ModelBuilder {
     ///
     /// Useful after `load()` when feature names aren't known in advance.
     pub fn tessellate_last(&mut self) -> Result<RenderMesh, HarnessError> {
+        self.tessellate_last_with_tol(0.1)
+    }
+
+    /// Tessellate the last non-suppressed feature with explicit tolerance.
+    ///
+    /// Use this for scale-adaptive tessellation (e.g., `scale * 0.01`).
+    pub fn tessellate_last_with_tol(&mut self, tol: f64) -> Result<RenderMesh, HarnessError> {
         let tree = &self.state.engine.tree;
         let limit = tree.active_index.unwrap_or(tree.features.len());
         for feature in tree.features[..limit].iter().rev() {
@@ -1303,7 +1310,7 @@ impl ModelBuilder {
                     let handle = result.outputs[0].1.handle.clone();
                     return self
                         .kernel
-                        .tessellate(&handle, 0.1)
+                        .tessellate(&handle, tol)
                         .map_err(|e| HarnessError::Engine(e.to_string()));
                 }
             }
