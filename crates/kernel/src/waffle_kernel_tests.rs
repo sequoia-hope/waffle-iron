@@ -5053,3 +5053,190 @@ fn t2_conical_face_geometry_consistency() {
     }
     assert!(found_cone, "Should find at least one Conical face geometry");
 }
+
+// ── Group V: Boolean Subtract Surface Geometry Diagnostics ──────────
+
+/// Compute Newell normal for a polygon given as a slice of 3D positions.
+fn newell_normal(verts: &[[f64; 3]]) -> [f64; 3] {
+    let mut n = [0.0, 0.0, 0.0];
+    let len = verts.len();
+    for i in 0..len {
+        let cur = verts[i];
+        let nxt = verts[(i + 1) % len];
+        n[0] += (cur[1] - nxt[1]) * (cur[2] + nxt[2]);
+        n[1] += (cur[2] - nxt[2]) * (cur[0] + nxt[0]);
+        n[2] += (cur[0] - nxt[0]) * (cur[1] + nxt[1]);
+    }
+    let mag = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+    if mag > 1e-15 {
+        [n[0] / mag, n[1] / mag, n[2] / mag]
+    } else {
+        [0.0, 0.0, 0.0]
+    }
+}
+
+/// Collect vertex positions around a face's outer loop from the arena.
+fn face_loop_positions(arena: &TopoArena, face_idx: FaceIdx) -> Vec<[f64; 3]> {
+    let loop_idx = arena.faces[face_idx.0].outer_loop;
+    let start_he = arena.loops[loop_idx.0].half_edge;
+    let mut verts = Vec::new();
+    let mut he = start_he;
+    loop {
+        let v = arena.half_edges[he.0].origin;
+        verts.push(arena.vertices[v.0].position);
+        he = arena.half_edges[he.0].next;
+        if he == start_he {
+            break;
+        }
+    }
+    verts
+}
+
+/// Extract the representative normal direction from a SurfaceGeom.
+/// For Planar: the plane normal. For others: the axis direction.
+fn surface_geom_normal(sg: &SurfaceGeom) -> [f64; 3] {
+    match sg {
+        SurfaceGeom::Planar(p) => [p.normal.x, p.normal.y, p.normal.z],
+        SurfaceGeom::Cylindrical(c) => [c.axis.x, c.axis.y, c.axis.z],
+        SurfaceGeom::Conical(c) => [c.axis.x, c.axis.y, c.axis.z],
+        SurfaceGeom::Spherical(_) => [0.0, 0.0, 0.0], // no axis, skip
+        SurfaceGeom::Toroidal(t) => [t.axis.x, t.axis.y, t.axis.z],
+    }
+}
+
+fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+#[test]
+fn v1_subtract_surface_geom_normal_agrees() {
+    // After boolean subtract, every face's surface_geom normal should agree
+    // in sign with the face loop's Newell normal (for planar faces).
+    let (mut k, a, b) = make_overlapping_boxes();
+    let result = k.boolean_subtract(&a, &b).expect("subtract should succeed");
+
+    let ws = k.solids.get(&result.0).expect("solid should exist");
+    let mut checked = 0;
+    for (&face_idx, geom) in &ws.face_geometry {
+        if let SurfaceGeom::Planar(_) = geom {
+            let verts = face_loop_positions(&ws.arena, face_idx);
+            if verts.len() < 3 {
+                continue;
+            }
+            let nw = newell_normal(&verts);
+            let sg_n = surface_geom_normal(geom);
+            let d = dot3(nw, sg_n);
+            assert!(
+                d > 0.0,
+                "Face {:?}: surface_geom normal {:?} disagrees with Newell normal {:?} (dot={})",
+                face_idx, sg_n, nw, d
+            );
+            checked += 1;
+        }
+    }
+    assert!(
+        checked >= 6,
+        "Should check at least 6 planar faces, only checked {}",
+        checked
+    );
+}
+
+#[test]
+fn v4_subtract_asymmetric_overlap() {
+    // 1/4 overlap: box A at [0..10,0..10,0..10], box B offset so only 25% overlap.
+    let mut k = WaffleKernel::new();
+
+    // Box A: 10x10x10 centered at (5,5)
+    let (pa, posa) = make_rect_profile(5.0, 5.0, 10.0, 10.0);
+    let fa = k
+        .make_faces_from_profiles(&pa, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posa)
+        .unwrap();
+    let sa = k.extrude_face(fa[0], Z_DIR, 10.0).unwrap();
+
+    // Box B: 10x10x10 centered at (12.5, 5.0) → overlap region is [7.5..10, 0..10, 0..10]
+    let (pb, posb) = make_rect_profile(12.5, 5.0, 10.0, 10.0);
+    let fb = k
+        .make_faces_from_profiles(&pb, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posb)
+        .unwrap();
+    let sb = k.extrude_face(fb[0], Z_DIR, 10.0).unwrap();
+
+    let result = k.boolean_subtract(&sa, &sb).expect("subtract should succeed");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+    let vol = mesh_volume(&mesh);
+    // A is 1000, overlap is 2.5*10*10 = 250, result should be 750
+    assert!(
+        (vol - 750.0).abs() < 10.0,
+        "Asymmetric subtract volume should be ~750, got {}",
+        vol
+    );
+    assert!(
+        check_watertight(&mesh),
+        "Asymmetric subtract must be watertight"
+    );
+}
+
+#[test]
+fn v5_subtract_flush_face() {
+    // Coplanar shared face: B shares an entire face with A.
+    // A = [0..10, 0..10, 0..10], B = [10..20, 0..10, 0..10]
+    // They share the face at x=10. Subtract should yield A unchanged.
+    let mut k = WaffleKernel::new();
+
+    let (pa, posa) = make_rect_profile(5.0, 5.0, 10.0, 10.0);
+    let fa = k
+        .make_faces_from_profiles(&pa, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posa)
+        .unwrap();
+    let sa = k.extrude_face(fa[0], Z_DIR, 10.0).unwrap();
+
+    let (pb, posb) = make_rect_profile(15.0, 5.0, 10.0, 10.0);
+    let fb = k
+        .make_faces_from_profiles(&pb, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posb)
+        .unwrap();
+    let sb = k.extrude_face(fb[0], Z_DIR, 10.0).unwrap();
+
+    let result = k.boolean_subtract(&sa, &sb).expect("subtract flush face");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+    let vol = mesh_volume(&mesh);
+    // No overlap volume, so result ≈ A = 1000
+    assert!(
+        (vol - 1000.0).abs() < 10.0,
+        "Flush-face subtract volume should be ~1000, got {}",
+        vol
+    );
+    assert!(
+        check_watertight(&mesh),
+        "Flush-face subtract must be watertight"
+    );
+}
+
+#[test]
+fn v6_subtract_enclosed() {
+    // B fully inside A: A = [0..20, 0..20, 0..20], B = [5..15, 5..15, 5..15]
+    let mut k = WaffleKernel::new();
+
+    let (pa, posa) = make_rect_profile(10.0, 10.0, 20.0, 20.0);
+    let fa = k
+        .make_faces_from_profiles(&pa, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posa)
+        .unwrap();
+    let sa = k.extrude_face(fa[0], Z_DIR, 20.0).unwrap();
+
+    let (pb, posb) = make_rect_profile(10.0, 10.0, 10.0, 10.0);
+    let fb = k
+        .make_faces_from_profiles(&pb, [0.0, 0.0, 5.0], XY_NORMAL, XY_X_AXIS, &posb)
+        .unwrap();
+    let sb = k.extrude_face(fb[0], Z_DIR, 10.0).unwrap();
+
+    let result = k.boolean_subtract(&sa, &sb).expect("subtract enclosed");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+    let vol = mesh_volume(&mesh);
+    // A=8000, B=1000, result should be 7000
+    assert!(
+        (vol - 7000.0).abs() < 100.0,
+        "Enclosed subtract volume should be ~7000, got {}",
+        vol
+    );
+    assert!(
+        check_watertight(&mesh),
+        "Enclosed subtract must be watertight"
+    );
+}
