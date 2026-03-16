@@ -1,5 +1,7 @@
 //! Basic 3D point and vector types.
 
+use crate::units::TAU_NORMALIZE;
+
 /// A point in 3D space (meters).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Point3 {
@@ -52,7 +54,7 @@ impl Vector3 {
 
     pub fn normalized(self) -> Self {
         let len = self.length();
-        if len < 1e-15 {
+        if len < TAU_NORMALIZE {
             self
         } else {
             Self::new(self.x / len, self.y / len, self.z / len)

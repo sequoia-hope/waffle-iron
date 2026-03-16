@@ -9,7 +9,10 @@ use crate::geometry::surface::SurfaceGeom;
 use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::*;
 use crate::types::*;
-use crate::units::TAU_NORMALIZE;
+use crate::units::{
+    MIN_FEATURE_SIZE, TAU_NORMALIZE, TAU_ORACLE_FACTOR, TAU_ORACLE_MIN, TAU_TESS_GRID_FACTOR,
+    TAU_TESS_GRID_MIN, TAU_TESS_WELD_MAX, TAU_TESS_WELD_MIN, TAU_WORK,
+};
 use crate::vecmath::{
     compute_plane_basis, v3_add, v3_cross, v3_dot, v3_length, v3_normalize, v3_scale, v3_sub,
 };
@@ -738,7 +741,7 @@ fn tessellate_polygon_face(
                 let e1 = v3_sub(loop_verts[a], loop_verts[j]);
                 let e2 = v3_sub(loop_verts[b], loop_verts[j]);
                 let cr = v3_cross(e1, e2);
-                v3_dot(cr, cr) > 1e-20
+                v3_dot(cr, cr) > TAU_TESS_GRID_MIN * TAU_TESS_GRID_MIN
             })
         });
         if let Some(fc) = fan_center {
@@ -809,7 +812,7 @@ fn tessellate_polygon_face(
         let e1 = v3_sub(v1, v0);
         let e2 = v3_sub(v2, v0);
         let tri_normal = v3_cross(e1, e2);
-        if v3_length(tri_normal) > 1e-12 {
+        if v3_length(tri_normal) > TAU_WORK {
             bulk_flip = v3_dot(tri_normal, stored_normal) < 0.0;
             break;
         }
@@ -825,7 +828,7 @@ fn tessellate_polygon_face(
         let e1 = v3_sub(v1, v0);
         let e2 = v3_sub(v2, v0);
         let tri_normal = v3_cross(e1, e2);
-        let should_flip = if v3_length(tri_normal) > 1e-12 {
+        let should_flip = if v3_length(tri_normal) > TAU_WORK {
             v3_dot(tri_normal, stored_normal) < 0.0
         } else {
             bulk_flip
@@ -938,7 +941,7 @@ fn tessellate_polygon_face_fallback(
                 let e1 = v3_sub(loop_verts[a], loop_verts[j]);
                 let e2 = v3_sub(loop_verts[b], loop_verts[j]);
                 let cr = v3_cross(e1, e2);
-                v3_dot(cr, cr) > 1e-20
+                v3_dot(cr, cr) > TAU_TESS_GRID_MIN * TAU_TESS_GRID_MIN
             })
         });
         if let Some(fc) = fan_center {
@@ -1020,7 +1023,7 @@ fn tessellate_polygon_face_fallback(
         let e1 = v3_sub(loop_verts[li1], loop_verts[li0]);
         let e2 = v3_sub(loop_verts[li2], loop_verts[li0]);
         let tri_normal = v3_cross(e1, e2);
-        if v3_length(tri_normal) > 1e-12 {
+        if v3_length(tri_normal) > TAU_WORK {
             bulk_flip = v3_dot(tri_normal, face_n) < 0.0;
             break;
         }
@@ -1033,7 +1036,7 @@ fn tessellate_polygon_face_fallback(
         let e1 = v3_sub(loop_verts[li1], loop_verts[li0]);
         let e2 = v3_sub(loop_verts[li2], loop_verts[li0]);
         let tri_normal = v3_cross(e1, e2);
-        let should_flip = if v3_length(tri_normal) > 1e-12 {
+        let should_flip = if v3_length(tri_normal) > TAU_WORK {
             v3_dot(tri_normal, face_n) < 0.0
         } else {
             bulk_flip
@@ -1608,7 +1611,7 @@ fn tessellate_planar_face_with_hole(
         let ac = v3_sub(pc, pa);
         let cr = v3_cross(ab, ac);
         let cr_len = v3_length(cr);
-        if cr_len > 1e-12 {
+        if cr_len > TAU_WORK {
             let dot = cr[0] * stored_n[0] + cr[1] * stored_n[1] + cr[2] * stored_n[2];
             bulk_reverse = dot < 0.0;
             break;
@@ -1624,7 +1627,7 @@ fn tessellate_planar_face_with_hole(
         let cr = v3_cross(ab, ac);
         let cr_len = v3_length(cr);
         // For degenerate triangles (near-zero cross product), use bulk winding
-        let should_reverse = if cr_len > 1e-12 {
+        let should_reverse = if cr_len > TAU_WORK {
             let dot = cr[0] * stored_n[0] + cr[1] * stored_n[1] + cr[2] * stored_n[2];
             dot < 0.0
         } else {
@@ -1727,7 +1730,7 @@ fn tessellate_arc_bounded_cap(
                 let arc_start_pt = [arc.start_point.x, arc.start_point.y, arc.start_point.z];
 
                 // Check if origin matches arc start
-                let origin_is_start = dist_sq_3d(&origin_pos, &arc_start_pt) < 1e-6;
+                let origin_is_start = dist_sq_3d(&origin_pos, &arc_start_pt) < MIN_FEATURE_SIZE;
                 let sweep = arc.sweep_angle;
                 let r = arc.radius;
 
@@ -1884,7 +1887,7 @@ fn fix_winding_consistency(vertices: &[f32], normals: &[f32], indices: &mut [u32
 
         // Skip degenerate triangles
         let geo_len = v3_length(geo_normal);
-        if geo_len < 1e-12 {
+        if geo_len < TAU_WORK {
             continue;
         }
 
@@ -1918,7 +1921,7 @@ fn weld_boundary_vertices(vertices: &mut [f32], indices: &[u32]) {
     let n_tris = indices.len() / 3;
 
     let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
-    let grid = (max_abs as f64 * 1e-5).max(1e-10);
+    let grid = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
     let inv_grid = 1.0 / grid;
 
     // Quantize helper
@@ -2127,7 +2130,7 @@ fn reduce_non_manifold_edges(
     }
 
     let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
-    let grid = (max_abs as f64 * 1e-5).max(1e-10);
+    let grid = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
     let inv_grid = 1.0 / grid;
 
     type QPos = (i64, i64, i64);
@@ -2279,7 +2282,7 @@ fn remove_degenerate_triangles(
             let area = (cx * cx + cy * cy + cz * cz).sqrt() / 2.0;
 
             // Keep non-degenerate triangles (matches oracle threshold)
-            if area >= 1e-12_f32 {
+            if area >= TAU_WORK as f32 {
                 new_indices.push(indices[base]);
                 new_indices.push(indices[base + 1]);
                 new_indices.push(indices[base + 2]);
@@ -2317,7 +2320,7 @@ fn remove_duplicate_triangles(
     }
 
     let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
-    let grid = (max_abs as f64 * 1e-5).max(1e-10);
+    let grid = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
     let inv_grid = 1.0 / grid;
 
     type QPos = (i64, i64, i64);
@@ -2406,7 +2409,7 @@ fn resolve_mesh_t_junctions(
 
     // Compute oracle-compatible quantization grid
     let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
-    let grid = (max_abs as f64 * 1e-5).max(1e-10);
+    let grid = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
     let inv_grid = 1.0 / grid;
 
     type QPos = (i64, i64, i64);
@@ -2508,7 +2511,7 @@ fn resolve_mesh_t_junctions(
             let dy = by - ay;
             let dz = bz - az;
             let edge_len_sq = dx * dx + dy * dy + dz * dz;
-            if edge_len_sq < 1e-20 {
+            if edge_len_sq < TAU_TESS_GRID_MIN * TAU_TESS_GRID_MIN {
                 continue;
             }
 
@@ -2578,7 +2581,7 @@ fn resolve_mesh_t_junctions(
                     let area2 = (c2x * c2x + c2y * c2y + c2z * c2z).sqrt() / 2.0;
 
                     // Only split if both triangles are non-degenerate
-                    if area1 > 1e-11 && area2 > 1e-11 {
+                    if area1 > TAU_TESS_GRID_MIN * 0.1 && area2 > TAU_TESS_GRID_MIN * 0.1 {
                         splits.entry(t).or_default().push((local_e, split_v));
                     }
                 }
@@ -2676,7 +2679,7 @@ fn fill_boundary_holes(
 
     // Compute oracle-compatible quantization grid
     let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
-    let grid = (max_abs as f64 * 1e-5).max(1e-10);
+    let grid = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
     let inv_grid = 1.0 / grid;
 
     type QPos = (i64, i64, i64);
@@ -2810,7 +2813,7 @@ fn fill_boundary_holes(
             let cy = az * bx - ax * bz;
             let cz = ax * by - ay * bx;
             let area = (cx * cx + cy * cy + cz * cz).sqrt() / 2.0;
-            if area >= 1e-12 {
+            if area >= TAU_WORK as f32 {
                 fill_triangles.push([cycle_indices[0], cycle_indices[i], cycle_indices[i + 1]]);
             }
         }
@@ -2868,7 +2871,7 @@ fn close_near_boundary_chains(
     }
 
     let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
-    let grid = (max_abs as f64 * 1e-5).max(1e-10);
+    let grid = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
     let inv_grid = 1.0 / grid;
 
     type QPos = (i64, i64, i64);
@@ -3006,7 +3009,7 @@ fn close_near_boundary_chains(
                     let cy_n = az * bx - ax * bz;
                     let cz_n = ax * by - ay * bx;
                     let area = (cx_n * cx_n + cy_n * cy_n + cz_n * cz_n).sqrt() / 2.0;
-                    if area >= 1e-12 {
+                    if area >= TAU_WORK as f32 {
                         // Also consider stored vertex normals: the geometric
                         // normal of the fill triangle should agree with the
                         // average stored normal at its vertices.
@@ -3146,7 +3149,7 @@ fn remove_isolated_triangles(
 
     // Compute oracle-compatible quantization grid for edge matching
     let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
-    let grid = (max_abs as f64 * 1e-5).max(1e-10);
+    let grid = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
     let inv_grid = 1.0 / grid;
     let quantize = |idx: u32| -> (i64, i64, i64) {
         let i = idx as usize * 3;
@@ -3266,7 +3269,7 @@ fn remove_isolated_triangles(
 
 /// Snap all vertex positions to the oracle's quantization grid.
 ///
-/// The oracle uses grid = max(1e-4, max_abs * 2e-6) to quantize vertex positions
+/// The oracle uses grid = max(TAU_ORACLE_MIN, max_abs * TAU_ORACLE_FACTOR) to quantize vertex positions
 /// for edge matching. Two vertices at positions P1 and P2 with |P1-P2| < grid/2
 /// can still fall in adjacent grid cells, causing the oracle to see them as
 /// different positions. By snapping all vertices to grid centers, we guarantee
@@ -3285,7 +3288,7 @@ fn snap_boundary_to_oracle_grid(vertices: &mut [f32], indices: &[u32]) {
     let n_tris = indices.len() / 3;
 
     let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
-    let grid = (max_abs as f64 * 1e-5).max(1e-10);
+    let grid = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
     let inv_grid = 1.0 / grid;
 
     let quantize = |idx: u32| -> (i64, i64, i64) {
@@ -3373,7 +3376,7 @@ fn heal_boundary_edges(vertices: &mut [f32], indices: &[u32]) {
 
     // Compute scale-adaptive grid (same as oracle)
     let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
-    let grid = (1e-4_f32).max(max_abs * 2e-6);
+    let grid = TAU_ORACLE_MIN.max(max_abs * TAU_ORACLE_FACTOR);
     let inv_grid = 1.0 / grid;
 
     // Quantize vertex positions (same as oracle)
@@ -3602,12 +3605,12 @@ fn snap_close_positions(vertices: &mut [f32]) {
         + (bbox_max[2] - bbox_min[2]).powi(2))
     .sqrt();
 
-    if diag < 1e-12 {
+    if diag < TAU_WORK as f32 {
         return;
     }
 
     // Oracle-safe tolerance: 1% of the oracle's quantization grid.
-    // Oracle grid = max(1e-4, max_abs * 2e-6). We snap at 1% of this
+    // Oracle grid = max(TAU_ORACLE_MIN, max_abs * TAU_ORACLE_FACTOR). We snap at 1% of this
     // to ensure vertices never move across oracle grid boundaries.
     let max_abs = bbox_max[0]
         .abs()
@@ -3616,7 +3619,7 @@ fn snap_close_positions(vertices: &mut [f32]) {
         .max(bbox_min[0].abs())
         .max(bbox_min[1].abs())
         .max(bbox_min[2].abs());
-    let oracle_grid = (1e-4_f32).max(max_abs * 2e-6);
+    let oracle_grid = TAU_ORACLE_MIN.max(max_abs * TAU_ORACLE_FACTOR);
     let tolerance = oracle_grid * 0.01;
     let tol_sq = tolerance * tolerance;
     let inv_cell = 1.0 / tolerance;
@@ -3726,9 +3729,9 @@ fn weld_mesh_vertices(
         + (bbox_max[2] - bbox_min[2]).powi(2))
     .sqrt();
 
-    // Use 1e-5 relative to diagonal, clamped for safety.
+    // Use TAU_TESS_GRID_FACTOR relative to diagonal, clamped for safety.
     // f32 has ~7 digits precision, so 1e-5 relative is well above noise floor.
-    let tau = (diag * 1e-5).clamp(1e-8, 1e-2);
+    let tau = (diag * TAU_TESS_GRID_FACTOR).clamp(TAU_TESS_WELD_MIN, TAU_TESS_WELD_MAX);
     let inv_tau = 1.0 / tau;
 
     // Build vertex welding map: quantize (position + normal) → canonical vertex index.

@@ -11,7 +11,11 @@ use crate::geometry::surface::{Plane, SurfaceGeom};
 use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::*;
 use crate::types::*;
-use crate::units::{TAU_NORMALIZE, TAU_PARALLEL};
+use crate::units::{
+    MIN_FEATURE_SIZE, TAU_CACHE_STEP_FACTOR, TAU_COINCIDENT, TAU_MODEL, TAU_NORMALIZE,
+    TAU_PARALLEL, TAU_SNAP_FACTOR, TAU_TESS_GRID_FACTOR, TAU_TESS_GRID_MIN, TAU_WELD_FACTOR,
+    TAU_WELD_MAX, TAU_WELD_MIN, TAU_WORK,
+};
 use crate::vecmath::*;
 use crate::waffle_kernel::WaffleSolid;
 use std::collections::HashMap;
@@ -60,12 +64,12 @@ fn rotation_to_z(dir: [f64; 3]) -> Mat3 {
     let cos_theta = v3_dot(dir, z); // dir · Z = dz
 
     // Already Z-aligned (within tolerance)
-    if cos_theta > 1.0 - 1e-12 {
+    if cos_theta > 1.0 - TAU_WORK {
         return MAT3_IDENTITY;
     }
 
     // Anti-parallel to Z: rotate 180° around X
-    if cos_theta < -1.0 + 1e-12 {
+    if cos_theta < -1.0 + TAU_WORK {
         return [[1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, -1.0]];
     }
 
@@ -239,7 +243,7 @@ fn generate_analytic_face_polys(
             let radius = cyl.radius.abs();
             let inward = cyl.radius < 0.0;
 
-            if radius < 1e-15 {
+            if radius < TAU_NORMALIZE {
                 return;
             }
 
@@ -250,7 +254,7 @@ fn generate_analytic_face_polys(
                 .collect();
             let z_min = heights.iter().copied().fold(f64::INFINITY, f64::min);
             let z_max = heights.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-            if (z_max - z_min).abs() < 1e-15 {
+            if (z_max - z_min).abs() < TAU_NORMALIZE {
                 return;
             }
 
@@ -315,7 +319,7 @@ fn generate_analytic_face_polys(
             // Outer loop radius
             if let Some(v) = loop_verts.first() {
                 let r = v3_length(v3_sub(*v, origin));
-                if r > 1e-15 {
+                if r > TAU_NORMALIZE {
                     radii.push(r);
                 }
             }
@@ -326,7 +330,7 @@ fn generate_analytic_face_polys(
                 let v_idx = arena.half_edges[start_he.0].origin;
                 let v_pos = arena.vertices[v_idx.0].position;
                 let r = v3_length(v3_sub(v_pos, origin));
-                if r > 1e-15 {
+                if r > TAU_NORMALIZE {
                     radii.push(r);
                 }
             }
@@ -442,7 +446,7 @@ fn extract_face_polys(solid: &WaffleSolid) -> Vec<FacePoly> {
                 // planar (all vertices within 5% of face size from the plane).
                 let newell = compute_newell_normal(&verts);
                 let nl = v3_dot(newell, newell).sqrt();
-                if nl < 1e-15 {
+                if nl < TAU_NORMALIZE {
                     continue; // Degenerate face
                 }
                 let n = [newell[0] / nl, newell[1] / nl, newell[2] / nl];
@@ -458,7 +462,7 @@ fn extract_face_polys(solid: &WaffleSolid) -> Vec<FacePoly> {
                     .skip(1)
                     .map(|v| v3_length(v3_sub(*v, verts[0])))
                     .fold(0.0_f64, f64::max);
-                if face_size > 1e-15 && max_dist > face_size * 0.05 {
+                if face_size > TAU_NORMALIZE && max_dist > face_size * 0.05 {
                     // Too curved: subdivide into triangles (each triangle is
                     // exactly planar). This handles revolve lateral faces.
                     if verts.len() >= 3 {
@@ -468,7 +472,7 @@ fn extract_face_polys(solid: &WaffleSolid) -> Vec<FacePoly> {
                             let e2 = v3_sub(tri[2], tri[0]);
                             let tri_n = v3_cross(e1, e2);
                             let tri_nl = v3_length(tri_n);
-                            if tri_nl < 1e-15 {
+                            if tri_nl < TAU_NORMALIZE {
                                 continue;
                             }
                             let tri_normal =
@@ -663,7 +667,7 @@ struct IntersectionCache {
 
 impl IntersectionCache {
     fn new(tau: f64) -> Self {
-        let step = (tau * 1e-3).max(1e-15);
+        let step = (tau * TAU_CACHE_STEP_FACTOR).max(TAU_NORMALIZE);
         Self {
             cache: HashMap::new(),
             inv_quant: 1.0 / step,
@@ -813,7 +817,7 @@ fn clip_polygon_by_plane_cached(
     // insignificant, coarse enough to collapse ~1e-15 floating-point divergence.
     // Use tau * 1e-4 — for unit-scale models this is ~1e-11, well below any
     // geometric significance but well above machine epsilon (~2.2e-16).
-    let snap_grid = tau * 1e-4;
+    let snap_grid = tau * TAU_SNAP_FACTOR;
     let inv_grid = if snap_grid > 0.0 {
         1.0 / snap_grid
     } else {
@@ -1122,13 +1126,13 @@ fn solid_angle(p: [f64; 3], a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> f64 {
     let lc = v3_length(pc);
 
     // Degenerate: query point at a vertex
-    if la < 1e-15 || lb < 1e-15 || lc < 1e-15 {
+    if la < TAU_NORMALIZE || lb < TAU_NORMALIZE || lc < TAU_NORMALIZE {
         return 0.0;
     }
 
     // Degenerate triangle: near-zero area
     let cross = v3_cross(v3_sub(b, a), v3_sub(c, a));
-    if v3_dot(cross, cross) < 1e-30 {
+    if v3_dot(cross, cross) < TAU_NORMALIZE * TAU_NORMALIZE {
         return 0.0;
     }
 
@@ -1334,7 +1338,7 @@ fn classify_face(
         // per-coplanar-face). Use S-H for the overlap calculation.
         let inside = clip_polygon_by_solid(&face.verts, opposing, tau, Some(face.normal), cache);
         let inside_area = polygon_area_3d(&inside);
-        if inside_area > 1e-15 {
+        if inside_area > TAU_NORMALIZE {
             let outside_frags =
                 split_outside_fragments(&face.verts, opposing, tau, Some(face.normal), cache);
             return FaceClass::CoplanarPartial {
@@ -1609,7 +1613,7 @@ fn classify_coplanar_nonconvex(
 
     let original_area = polygon_area_3d(&face.verts);
     let inside_total_area: f64 = inside_frags.iter().map(|f| polygon_area_3d(f)).sum();
-    if (inside_total_area - original_area).abs() / original_area < 1e-6 {
+    if (inside_total_area - original_area).abs() / original_area < MIN_FEATURE_SIZE {
         return FaceClass::CoplanarPartial {
             inside_frags: vec![face.verts.clone()],
             outside_frags: vec![],
@@ -1721,9 +1725,9 @@ fn compute_adaptive_tau_weld(a_faces: &[FacePoly], b_faces: &[FacePoly]) -> (f64
     }
     let diag =
         ((max[0] - min[0]).powi(2) + (max[1] - min[1]).powi(2) + (max[2] - min[2]).powi(2)).sqrt();
-    // Use 1e-7 relative to the model diagonal, clamped to [1e-12, 1e-4].
-    // This matches the pre-existing 1e-7 for unit-scale models.
-    let tau_weld = (diag * 1e-7).clamp(1e-12, 1e-4);
+    // Use TAU_WELD_FACTOR relative to the model diagonal, clamped to [TAU_WELD_MIN, TAU_WELD_MAX].
+    // This matches TAU_MODEL for unit-scale models.
+    let tau_weld = (diag * TAU_WELD_FACTOR).clamp(TAU_WELD_MIN, TAU_WELD_MAX);
     let tau = tau_weld * 0.01;
     (tau, tau_weld)
 }
@@ -1751,7 +1755,7 @@ pub(crate) fn boolean_op(
     // Subtract from empty returns empty, Intersect with empty returns empty.
     if a_faces.is_empty() {
         return match op {
-            BoolOp::Union => build_brep_from_polygons_inner(&b_faces, 1e-7, false, id_alloc),
+            BoolOp::Union => build_brep_from_polygons_inner(&b_faces, TAU_MODEL, false, id_alloc),
             _ => {
                 // Subtract from nothing or intersect with nothing = empty
                 let mut arena = TopoArena::new();
@@ -1774,9 +1778,9 @@ pub(crate) fn boolean_op(
         return match op {
             BoolOp::Subtract => {
                 // A minus nothing = A
-                build_brep_from_polygons_inner(&a_faces, 1e-7, false, id_alloc)
+                build_brep_from_polygons_inner(&a_faces, TAU_MODEL, false, id_alloc)
             }
-            BoolOp::Union => build_brep_from_polygons_inner(&a_faces, 1e-7, false, id_alloc),
+            BoolOp::Union => build_brep_from_polygons_inner(&a_faces, TAU_MODEL, false, id_alloc),
             BoolOp::Intersect => {
                 let mut arena = TopoArena::new();
                 let solid_idx = arena.add_solid();
@@ -1818,7 +1822,7 @@ pub(crate) fn boolean_op_tolerant(
     }
     if a_faces.is_empty() {
         return match op {
-            BoolOp::Union => build_brep_from_polygons_inner(&b_faces, 1e-7, true, id_alloc),
+            BoolOp::Union => build_brep_from_polygons_inner(&b_faces, TAU_MODEL, true, id_alloc),
             _ => {
                 let mut arena = TopoArena::new();
                 let solid_idx = arena.add_solid();
@@ -1839,7 +1843,7 @@ pub(crate) fn boolean_op_tolerant(
     if b_faces.is_empty() {
         return match op {
             BoolOp::Subtract | BoolOp::Union => {
-                build_brep_from_polygons_inner(&a_faces, 1e-7, true, id_alloc)
+                build_brep_from_polygons_inner(&a_faces, TAU_MODEL, true, id_alloc)
             }
             BoolOp::Intersect => {
                 let mut arena = TopoArena::new();
@@ -1959,7 +1963,7 @@ fn merge_nearby_vertices(polys: &[FacePoly], tau_weld: f64) -> Vec<FacePoly> {
         .flat_map(|v| v.iter())
         .map(|c| c.abs())
         .fold(0.0_f64, f64::max);
-    let oracle_grid = (max_coord * 1e-5).max(1e-10);
+    let oracle_grid = (max_coord * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
     let merge_tol = (oracle_grid * 2.0).max(tau_weld * 10.0);
     let inv_tau = 1.0 / merge_tol;
     let weld_dist_sq = merge_tol * merge_tol;
@@ -2111,7 +2115,7 @@ fn resolve_t_junctions(polys: &[FacePoly], tau: f64) -> Vec<FacePoly> {
                 let diff = v3_sub(v, proj);
                 let dist_sq = v3_dot(diff, diff);
                 let abs_tol = tau * 1000.0; // ~tau_weld for S-H divergence
-                let rel_tol_sq = edge_len_sq * 1e-8; // 0.01% of edge length
+                let rel_tol_sq = edge_len_sq * TAU_SNAP_FACTOR * TAU_SNAP_FACTOR;
                 if dist_sq < abs_tol * abs_tol || dist_sq < rel_tol_sq {
                     // Use the original vertex position (not projection) to
                     // maintain consistency with the face that owns this vertex.
@@ -2859,7 +2863,7 @@ pub(crate) fn polygon_approx_boolean(
     // Handle empty solids: pass through to the non-empty one
     if a_faces.is_empty() {
         return match op {
-            BoolOp::Union => build_brep_from_polygons_inner(&b_faces, 1e-7, true, id_alloc),
+            BoolOp::Union => build_brep_from_polygons_inner(&b_faces, TAU_MODEL, true, id_alloc),
             _ => {
                 let mut arena = TopoArena::new();
                 let solid_idx = arena.add_solid();
@@ -2880,7 +2884,7 @@ pub(crate) fn polygon_approx_boolean(
     if b_faces.is_empty() {
         return match op {
             BoolOp::Subtract | BoolOp::Union => {
-                build_brep_from_polygons_inner(&a_faces, 1e-7, true, id_alloc)
+                build_brep_from_polygons_inner(&a_faces, TAU_MODEL, true, id_alloc)
             }
             BoolOp::Intersect => {
                 let mut arena = TopoArena::new();
@@ -3118,13 +3122,11 @@ pub(crate) fn ssi_boolean_op(
         })
     };
 
-    // Fall back to polygon approximation for NotSupported errors
-    match analytical_result {
-        Err(KernelError::NotSupported { .. }) => {
-            polygon_approx_boolean(solid_a, solid_b, op, id_alloc)
-        }
-        other => other,
-    }
+    // A15.2: Do NOT fall back to polygon approximation for quadric pairs.
+    // If the SSI solver returns NotSupported, propagate it so callers know
+    // the analytical path is incomplete. The polygon fallback is only for
+    // freeform (NURBS/BSpline) surfaces via the general-solid dispatch path.
+    analytical_result
 }
 
 /// Box-cylinder boolean dispatch with frame rotation for axis-generic support.
@@ -3181,14 +3183,15 @@ fn box_cyl_boolean(
 
     // Check full 3D enclosure: XY-enclosed AND Z range within box
     let (cyl_z_min, cyl_z_max) = ssi::cyl_z_range(&cyl_z);
-    let z_enclosed = cyl_z_min >= box_aabb.min[2] - 1e-9 && cyl_z_max <= box_aabb.max[2] + 1e-9;
+    let z_enclosed = cyl_z_min >= box_aabb.min[2] - TAU_COINCIDENT
+        && cyl_z_max <= box_aabb.max[2] + TAU_COINCIDENT;
     let fully_enclosed = xy_enclosed && z_enclosed;
 
     // Detect boss: cylinder XY-enclosed and extends beyond box on top and/or bottom.
     // Covers both the "sits on top/bottom" case (z_touches) and the "passes through"
     // case (cylinder starts inside box but extends beyond a face).
-    let extends_above = cyl_z_max > box_aabb.max[2] + 1e-9;
-    let extends_below = cyl_z_min < box_aabb.min[2] - 1e-9;
+    let extends_above = cyl_z_max > box_aabb.max[2] + TAU_COINCIDENT;
+    let extends_below = cyl_z_min < box_aabb.min[2] - TAU_COINCIDENT;
     let is_boss_top = xy_enclosed && !fully_enclosed && extends_above && !extends_below;
     let is_boss_bot = xy_enclosed && !fully_enclosed && extends_below && !extends_above;
 
@@ -3304,7 +3307,7 @@ fn cyl_cyl_boolean_z_aligned(
         let (bz_min, bz_max) = ssi::cyl_z_range(cyl_b);
         let z_min = az_min.max(bz_min);
         let z_max = az_max.min(bz_max);
-        if z_max <= z_min + 1e-9 {
+        if z_max <= z_min + TAU_COINCIDENT {
             return Err(KernelError::BooleanFailed {
                 reason: "no Z overlap".to_string(),
             });
@@ -3320,10 +3323,10 @@ fn cyl_cyl_boolean_z_aligned(
         let d = (dx * dx + dy * dy).sqrt();
 
         // Concentric cylinders: d ≈ 0, avoid division by zero
-        if d < 1e-9 {
+        if d < TAU_COINCIDENT {
             return match op {
                 BoolOp::Subtract => {
-                    if r2 >= r1 - 1e-9 {
+                    if r2 >= r1 - TAU_COINCIDENT {
                         // Tool completely encloses blank: result is empty solid
                         let mut arena = TopoArena::new();
                         let solid_idx = arena.add_solid();
@@ -3873,7 +3876,7 @@ fn build_box_minus_enclosed_cyl(
 
     // Step 1: Build box using build_brep_from_polygons (correct shared edges)
     let box_faces = make_box_face_polys(aabb);
-    let tau_weld = 1e-7;
+    let tau_weld = TAU_MODEL;
     let mut result = build_brep_from_polygons(&box_faces, tau_weld, id_alloc)?;
 
     // Step 2: Find bottom and top face indices by normal direction
@@ -4019,7 +4022,7 @@ fn build_disjoint_box_cyl_union(
 ) -> Result<BooleanResult, KernelError> {
     // Build box as polygon faces
     let box_faces = make_box_face_polys(aabb);
-    let tau_weld = 1e-7;
+    let tau_weld = TAU_MODEL;
     let mut result = build_brep_from_polygons(&box_faces, tau_weld, id_alloc)?;
 
     // Build cylinder and merge into the same arena
@@ -4050,7 +4053,7 @@ fn build_box_with_cyl_boss(
 
     // Build box as polygon faces
     let box_faces = make_box_face_polys(aabb);
-    let tau_weld = 1e-7;
+    let tau_weld = TAU_MODEL;
     let mut result = build_brep_from_polygons(&box_faces, tau_weld, id_alloc)?;
 
     // Find the face to punch the hole in (top or bottom)

@@ -2069,7 +2069,7 @@ fn o2_ssi_plane_perp_cylinder_circle() {
         [0.0, 0.0, 1.0],  // cyl axis
         3.0,               // radius
         (0.0, 10.0),       // height range
-    );
+    ).unwrap();
     assert_eq!(curves.len(), 1, "Should produce exactly 1 circle");
     if let SSICurve::Circle { center, radius, .. } = &curves[0] {
         assert!((center[0]).abs() < 1e-9, "Circle center x should be 0");
@@ -2092,7 +2092,7 @@ fn o3_ssi_plane_parallel_cylinder_lines() {
         [0.0, 0.0, 1.0],  // cyl axis
         3.0,               // radius
         (0.0, 10.0),       // height range
-    );
+    ).unwrap();
     assert_eq!(curves.len(), 2, "Should produce 2 lines");
     // Lines should be at x=1, y=+/-sqrt(9-1)=+/-sqrt(8)
     let sqrt8 = 8.0_f64.sqrt();
@@ -2120,7 +2120,7 @@ fn o4_ssi_cyl_cyl_parallel_lines() {
         [0.0, 0.0, 1.0],  // cyl_b axis
         3.0,               // cyl_b radius
         (0.0, 10.0),       // height range
-    );
+    ).unwrap();
     assert_eq!(curves.len(), 2, "Should produce 2 intersection lines");
     for curve in &curves {
         if let SSICurve::Line { start, end: _ } = curve {
@@ -4181,36 +4181,24 @@ fn r_cyl_minus_enclosed_box() {
         .unwrap();
     let box_solid = k.extrude_face(box_faces[0], Z_DIR, 2.0).unwrap();
 
-    // Cylinder minus box (previously errored as "cylinder minus box not supported")
+    // Cylinder minus enclosed box: SSI solver doesn't handle oblique
+    // plane-cylinder pairs yet, so this correctly returns NotSupported (A15.2).
+    // Once the SSI solver supports all plane-cylinder orientations, this test
+    // should be updated to verify the result mesh.
     let result = k.do_boolean(&cyl, &box_solid, crate::boolean::BoolOp::Subtract);
-    assert!(result.is_ok(), "cylinder minus box should succeed via polygon approx: {:?}", result.err());
-
-    let handle = result.unwrap();
-    let mesh = k.tessellate(&handle, 0.1).unwrap();
-    let n_tris = mesh.indices.len() / 3;
-    assert!(n_tris > 0, "Result should have triangles");
-
-    // Check watertight
-    let unpaired = count_unpaired_edges(&mesh);
-    eprintln!("Cyl minus enclosed box: {} tris, {} unpaired", n_tris, unpaired);
-    assert_eq!(unpaired, 0, "Cylinder minus box must be watertight");
-
-    // Volume check: cyl vol = pi*1^2*2 ≈ 6.28, box vol = 0.5*0.5*2 = 0.5
-    // Result ≈ 5.78
-    let vol = mesh_volume(&mesh);
-    let expected = std::f64::consts::PI * 1.0 * 1.0 * 2.0 - 0.5 * 0.5 * 2.0;
     assert!(
-        (vol - expected).abs() < 0.5,
-        "Volume should be ~{:.2}, got {:.2}",
-        expected, vol
+        matches!(result, Err(KernelError::NotSupported { .. })),
+        "cylinder minus enclosed box should return NotSupported until SSI handles oblique plane-cylinder: {:?}",
+        result
     );
 }
 
-/// Cylinder minus partially-overlapping box — exercises the polygon
-/// approximation fallback path. Result quality depends on stitching
-/// robustness (may produce non-manifold for complex partial overlaps).
+/// Cylinder minus partially-overlapping box — per A15.2, this correctly
+/// returns NotSupported until the SSI solver handles oblique plane-cylinder
+/// intersections. Previously fell through to polygon_approx (which was an
+/// A15 violation).
 #[test]
-fn r_cyl_minus_partial_box_no_not_supported() {
+fn r_cyl_minus_partial_box_returns_not_supported() {
     let mut k = WaffleKernel::new();
 
     // Create cylinder at origin, radius 1.0, depth 2.0
@@ -4227,19 +4215,20 @@ fn r_cyl_minus_partial_box_no_not_supported() {
         .unwrap();
     let box_solid = k.extrude_face(box_faces[0], Z_DIR, 1.0).unwrap();
 
-    // Should NOT return NotSupported anymore (falls through to polygon approx)
+    // Per A15.2: return NotSupported for missing SSI solvers, don't fall back to mesh
     let result = k.do_boolean(&cyl, &box_solid, crate::boolean::BoolOp::Subtract);
-    match &result {
-        Err(KernelError::NotSupported { .. }) => {
-            panic!("cylinder minus box should not be NotSupported anymore");
-        }
-        _ => {} // BooleanFailed (non-manifold) is acceptable for partial overlap
-    }
+    assert!(
+        matches!(result, Err(KernelError::NotSupported { .. })),
+        "partial cyl minus box should return NotSupported: {:?}",
+        result
+    );
 }
 
-/// Partial box-cylinder union (previously errored as "partial box-cylinder union").
+/// Partial box-cylinder union — per A15.2, returns NotSupported until the
+/// SSI solver handles oblique plane-cylinder intersections (the cylinder's
+/// lateral face intersects the box's planar faces at non-axis-aligned angles).
 #[test]
-fn r_partial_box_cyl_union_fallback() {
+fn r_partial_box_cyl_union_returns_not_supported() {
     let mut k = WaffleKernel::new();
 
     // Create box
@@ -4256,16 +4245,13 @@ fn r_partial_box_cyl_union_fallback() {
         .unwrap();
     let cyl_solid = k.extrude_face(cyl_faces[0], Z_DIR, 2.0).unwrap();
 
-    // Partial box-cyl union — should succeed via polygon approx fallback
+    // Per A15.2: return NotSupported for missing SSI solvers, don't fall back to mesh
     let result = k.boolean_union(&box_solid, &cyl_solid);
-    assert!(result.is_ok(), "partial box-cyl union should succeed: {:?}", result.err());
-
-    let handle = result.unwrap();
-    let mesh = k.tessellate(&handle, 0.1).unwrap();
-    let n_tris = mesh.indices.len() / 3;
-    assert!(n_tris > 0, "Result should have triangles");
-    let vol = mesh_volume(&mesh);
-    assert!(vol > 0.0, "Union volume should be positive, got {}", vol);
+    assert!(
+        matches!(result, Err(KernelError::NotSupported { .. })),
+        "partial box-cyl union should return NotSupported: {:?}",
+        result
+    );
 }
 
 // ── Group BW7: R0073 reproducer — two overlapping rects on tilted plane ─────
@@ -4360,7 +4346,6 @@ fn bw7_r0073_tilted_rect_rect_union() {
             );
         }
         // Look for near-matches: edges at nearby positions that might pair with these
-        use std::collections::HashMap as Map;
         let max_abs = mesh.vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
         eprintln!("  max_abs={:.2}, oracle_grid={:.6}", max_abs, max_abs as f64 * 1e-5);
         // Check all edges for near-matches to unpaired edge vertices

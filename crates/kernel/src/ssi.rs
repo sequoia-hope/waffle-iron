@@ -9,6 +9,8 @@
 //!
 //! Reference: Patrikalakis Ch.5 — SSI algorithms for analytic surfaces.
 
+use crate::types::KernelError;
+use crate::units::TAU_COINCIDENT;
 use crate::vecmath::{mat3_mul_vec, v3_add, v3_cross, v3_dot, v3_length, v3_scale, v3_sub, Mat3};
 use crate::waffle_kernel::{CylinderParams, WaffleSolid};
 
@@ -35,8 +37,9 @@ pub(crate) struct Aabb {
 }
 
 // ── Tolerance ─────────────────────────────────────────────────────────────
+// All SSI tolerances derive from units.rs (A14.3).
 
-const TOL: f64 = 1e-9;
+const TOL: f64 = TAU_COINCIDENT;
 
 // ── Z range helper ─────────────────────────────────────────────────────────
 
@@ -81,32 +84,34 @@ pub(crate) fn plane_cylinder_ssi(
     cyl_axis: [f64; 3],
     cyl_radius: f64,
     cyl_height_range: (f64, f64),
-) -> Vec<SSICurve> {
+) -> Result<Vec<SSICurve>, KernelError> {
     let cos_angle = v3_dot(plane_normal, cyl_axis).abs();
 
     if cos_angle > 1.0 - TOL {
         // Perpendicular to axis: plane cuts a circle
-        plane_cylinder_perp(
+        Ok(plane_cylinder_perp(
             plane_origin,
             plane_normal,
             cyl_origin,
             cyl_axis,
             cyl_radius,
             cyl_height_range,
-        )
+        ))
     } else if cos_angle < TOL {
         // Parallel to axis: plane cuts 0 or 2 line segments
-        plane_cylinder_parallel(
+        Ok(plane_cylinder_parallel(
             plane_origin,
             plane_normal,
             cyl_origin,
             cyl_axis,
             cyl_radius,
             cyl_height_range,
-        )
+        ))
     } else {
-        // Oblique: produces an ellipse — not yet supported
-        vec![]
+        // Oblique: produces an ellipse — requires Ellipse SSICurve variant (A15.4)
+        Err(KernelError::NotSupported {
+            operation: "plane-cylinder SSI: oblique cut produces ellipse".to_string(),
+        })
     }
 }
 
@@ -212,11 +217,14 @@ pub(crate) fn cylinder_cylinder_ssi(
     cyl_b_axis: [f64; 3],
     cyl_b_radius: f64,
     height_range: (f64, f64),
-) -> Vec<SSICurve> {
+) -> Result<Vec<SSICurve>, KernelError> {
     // Check axes are parallel
     let dot = v3_dot(cyl_a_axis, cyl_b_axis).abs();
     if dot < 1.0 - TOL {
-        return vec![]; // Non-parallel: not supported
+        return Err(KernelError::NotSupported {
+            operation: "cylinder-cylinder SSI: non-parallel axes produce degree-4 curve"
+                .to_string(),
+        });
     }
 
     // Project both origins into the plane perpendicular to cyl_a_axis
@@ -231,18 +239,18 @@ pub(crate) fn cylinder_cylinder_ssi(
     let r2 = cyl_b_radius;
 
     if d >= r1 + r2 - TOL || d <= (r1 - r2).abs() + TOL {
-        return vec![];
+        return Ok(vec![]);
     }
 
     if d < TOL {
-        return vec![]; // Coaxial
+        return Ok(vec![]); // Coaxial
     }
 
     // 2D circle-circle intersection in the perpendicular plane
     let a = (r1 * r1 - r2 * r2 + d * d) / (2.0 * d);
     let h_sq = r1 * r1 - a * a;
     if h_sq < 0.0 {
-        return vec![];
+        return Ok(vec![]);
     }
     let h = h_sq.sqrt();
 
@@ -258,7 +266,7 @@ pub(crate) fn cylinder_cylinder_ssi(
     let h_min = height_range.0;
     let h_max = height_range.1;
 
-    vec![
+    Ok(vec![
         SSICurve::Line {
             start: v3_add(p1, v3_scale(cyl_a_axis, h_min)),
             end: v3_add(p1, v3_scale(cyl_a_axis, h_max)),
@@ -267,7 +275,7 @@ pub(crate) fn cylinder_cylinder_ssi(
             start: v3_add(p2, v3_scale(cyl_a_axis, h_min)),
             end: v3_add(p2, v3_scale(cyl_a_axis, h_max)),
         },
-    ]
+    ])
 }
 
 /// Compute SSI between a plane and a sphere.
@@ -279,22 +287,22 @@ pub(crate) fn plane_sphere_ssi(
     plane_normal: [f64; 3],
     sphere_center: [f64; 3],
     sphere_radius: f64,
-) -> Vec<SSICurve> {
+) -> Result<Vec<SSICurve>, KernelError> {
     // Signed distance from sphere center to plane
     let d = v3_dot(v3_sub(sphere_center, plane_origin), plane_normal);
 
     if d.abs() >= sphere_radius - TOL {
-        return vec![]; // Disjoint or tangent (within tolerance)
+        return Ok(vec![]); // Disjoint or tangent (within tolerance)
     }
 
     let circle_radius = (sphere_radius * sphere_radius - d * d).sqrt();
     let circle_center = v3_sub(sphere_center, v3_scale(plane_normal, d));
 
-    vec![SSICurve::Circle {
+    Ok(vec![SSICurve::Circle {
         center: circle_center,
         normal: plane_normal,
         radius: circle_radius,
-    }]
+    }])
 }
 
 /// Compute SSI between a plane and a cone.
@@ -312,35 +320,90 @@ pub(crate) fn plane_cone_ssi(
     cone_axis: [f64; 3],
     half_angle: f64,
     max_height: f64,
-) -> Vec<SSICurve> {
+) -> Result<Vec<SSICurve>, KernelError> {
     let cos_angle = v3_dot(plane_normal, cone_axis).abs();
 
     if cos_angle > 1.0 - TOL {
         // Plane perpendicular to cone axis
         let denom = v3_dot(cone_axis, plane_normal);
         if denom.abs() < TOL {
-            return vec![];
+            return Ok(vec![]);
         }
         // Height along axis where the plane intersects
         let h = v3_dot(v3_sub(plane_origin, cone_apex), plane_normal) / denom;
 
         if h < TOL || h > max_height + TOL {
-            return vec![];
+            return Ok(vec![]);
         }
 
         let circle_radius = h * half_angle.tan();
         let circle_center = v3_add(cone_apex, v3_scale(cone_axis, h));
 
-        vec![SSICurve::Circle {
+        Ok(vec![SSICurve::Circle {
             center: circle_center,
             normal: cone_axis,
             radius: circle_radius,
-        }]
+        }])
     } else {
         // Oblique: produces conic sections (ellipse/parabola/hyperbola)
-        // Not yet supported — requires Ellipse/Conic curve type (A15.4)
-        vec![]
+        // Requires Ellipse/Conic SSICurve variant (A15.4)
+        Err(KernelError::NotSupported {
+            operation: "plane-cone SSI: oblique cut produces conic section".to_string(),
+        })
     }
+}
+
+/// Compute SSI between two spheres.
+///
+/// The intersection of two spheres is a circle (if they overlap) or empty.
+/// The circle lies in a plane perpendicular to the line connecting the centers.
+///
+/// Ref: Patrikalakis Ch.5 — sphere-sphere intersection.
+pub(crate) fn sphere_sphere_ssi(
+    center_a: [f64; 3],
+    radius_a: f64,
+    center_b: [f64; 3],
+    radius_b: f64,
+) -> Result<Vec<SSICurve>, KernelError> {
+    let diff = v3_sub(center_b, center_a);
+    let d = v3_length(diff);
+
+    // Disjoint: centers too far apart
+    if d >= radius_a + radius_b - TOL {
+        return Ok(vec![]);
+    }
+
+    // One sphere enclosed in the other
+    if d <= (radius_a - radius_b).abs() + TOL {
+        return Ok(vec![]);
+    }
+
+    // Degenerate: coincident centers with same radius (infinite intersection)
+    if d < TOL {
+        return Ok(vec![]);
+    }
+
+    // Distance from center_a to the intersection plane along the axis
+    let a = (radius_a * radius_a - radius_b * radius_b + d * d) / (2.0 * d);
+
+    // Radius of the intersection circle
+    let h_sq = radius_a * radius_a - a * a;
+    if h_sq < 0.0 {
+        return Ok(vec![]);
+    }
+    let circle_radius = h_sq.sqrt();
+
+    // Unit vector from A to B
+    let axis = v3_scale(diff, 1.0 / d);
+
+    // Center of the intersection circle
+    let circle_center = v3_add(center_a, v3_scale(axis, a));
+
+    Ok(vec![SSICurve::Circle {
+        center: circle_center,
+        normal: axis,
+        radius: circle_radius,
+    }])
 }
 
 // ── Point-in-solid classification ──────────────────────────────────────────
@@ -496,7 +559,8 @@ mod tests {
             [0.0, 0.0, 1.0], // cyl axis
             3.0,             // radius
             (0.0, 10.0),     // height range
-        );
+        )
+        .unwrap();
         assert_eq!(curves.len(), 1);
         if let SSICurve::Circle { center, radius, .. } = &curves[0] {
             assert!(center[0].abs() < EPS);
@@ -518,7 +582,8 @@ mod tests {
             [0.0, 0.0, 1.0], // cyl axis
             3.0,             // radius
             (0.0, 10.0),     // height range
-        );
+        )
+        .unwrap();
         assert_eq!(curves.len(), 2);
         let sqrt8 = 8.0_f64.sqrt();
         for curve in &curves {
@@ -545,7 +610,8 @@ mod tests {
             [0.0, 0.0, 1.0],
             3.0,
             (0.0, 10.0),
-        );
+        )
+        .unwrap();
         assert!(curves.is_empty());
     }
 
@@ -560,7 +626,8 @@ mod tests {
             axis,            // cyl axis
             2.0,             // radius
             (0.0, 10.0),     // height range (t ∈ [0, 10])
-        );
+        )
+        .unwrap();
         assert_eq!(curves.len(), 1);
         if let SSICurve::Circle { center, radius, .. } = &curves[0] {
             // t = ((3,3,0) - (0,0,0)) · axis / (axis · axis) = (3/√2 + 3/√2) = 3√2 ≈ 4.24
@@ -584,15 +651,16 @@ mod tests {
             [0.0, 0.0, 1.0],
             3.0,
             (0.0, 10.0),
-        );
+        )
+        .unwrap();
         assert!(curves.is_empty());
     }
 
     #[test]
     fn test_plane_cylinder_oblique_empty() {
-        // Oblique plane (45°) → not supported yet → empty
+        // Oblique plane (45°) → not supported → Err(NotSupported)
         let normal = [FRAC_1_SQRT_2, 0.0, FRAC_1_SQRT_2];
-        let curves = plane_cylinder_ssi(
+        let result = plane_cylinder_ssi(
             [0.0, 0.0, 0.0],
             normal,
             [0.0, 0.0, 0.0],
@@ -600,7 +668,7 @@ mod tests {
             3.0,
             (0.0, 10.0),
         );
-        assert!(curves.is_empty());
+        assert!(matches!(result, Err(KernelError::NotSupported { .. })));
     }
 
     // ── Cylinder-Cylinder SSI ─────────────────────────────────────────
@@ -616,7 +684,8 @@ mod tests {
             [0.0, 0.0, 1.0],
             3.0,
             (0.0, 10.0),
-        );
+        )
+        .unwrap();
         assert_eq!(curves.len(), 2);
         for curve in &curves {
             if let SSICurve::Line { start, .. } = curve {
@@ -640,14 +709,15 @@ mod tests {
             [0.0, 0.0, 1.0],
             1.0,
             (0.0, 10.0),
-        );
+        )
+        .unwrap();
         assert!(curves.is_empty());
     }
 
     #[test]
     fn test_cylinder_cylinder_non_parallel() {
-        // Skew axes → not supported → empty
-        let curves = cylinder_cylinder_ssi(
+        // Skew axes → not supported → Err(NotSupported)
+        let result = cylinder_cylinder_ssi(
             [0.0, 0.0, 0.0],
             [0.0, 0.0, 1.0],
             3.0,
@@ -656,7 +726,7 @@ mod tests {
             3.0,
             (0.0, 10.0),
         );
-        assert!(curves.is_empty());
+        assert!(matches!(result, Err(KernelError::NotSupported { .. })));
     }
 
     // ── Plane-Sphere SSI ──────────────────────────────────────────────
@@ -669,7 +739,8 @@ mod tests {
             [0.0, 0.0, 1.0], // plane normal
             [0.0, 0.0, 0.0], // sphere center
             5.0,             // sphere radius
-        );
+        )
+        .unwrap();
         assert_eq!(curves.len(), 1);
         if let SSICurve::Circle { center, radius, .. } = &curves[0] {
             assert!(center[0].abs() < EPS);
@@ -684,7 +755,8 @@ mod tests {
     #[test]
     fn test_plane_sphere_offset() {
         // Plane at z=3, sphere at origin r=5 → circle at z=3, r=sqrt(25-9)=4
-        let curves = plane_sphere_ssi([0.0, 0.0, 3.0], [0.0, 0.0, 1.0], [0.0, 0.0, 0.0], 5.0);
+        let curves =
+            plane_sphere_ssi([0.0, 0.0, 3.0], [0.0, 0.0, 1.0], [0.0, 0.0, 0.0], 5.0).unwrap();
         assert_eq!(curves.len(), 1);
         if let SSICurve::Circle { center, radius, .. } = &curves[0] {
             assert!(center[0].abs() < EPS);
@@ -699,14 +771,16 @@ mod tests {
     #[test]
     fn test_plane_sphere_tangent() {
         // Plane at z=5 (tangent) → within tolerance → empty
-        let curves = plane_sphere_ssi([0.0, 0.0, 5.0], [0.0, 0.0, 1.0], [0.0, 0.0, 0.0], 5.0);
+        let curves =
+            plane_sphere_ssi([0.0, 0.0, 5.0], [0.0, 0.0, 1.0], [0.0, 0.0, 0.0], 5.0).unwrap();
         assert!(curves.is_empty());
     }
 
     #[test]
     fn test_plane_sphere_disjoint() {
         // Plane at z=10, sphere r=5 → d=10 > 5 → empty
-        let curves = plane_sphere_ssi([0.0, 0.0, 10.0], [0.0, 0.0, 1.0], [0.0, 0.0, 0.0], 5.0);
+        let curves =
+            plane_sphere_ssi([0.0, 0.0, 10.0], [0.0, 0.0, 1.0], [0.0, 0.0, 0.0], 5.0).unwrap();
         assert!(curves.is_empty());
     }
 
@@ -718,7 +792,8 @@ mod tests {
             [1.0, 0.0, 0.0], // normal
             [1.0, 2.0, 3.0], // sphere center (x=1, on the plane)
             5.0,
-        );
+        )
+        .unwrap();
         assert_eq!(curves.len(), 1);
         if let SSICurve::Circle { center, radius, .. } = &curves[0] {
             // d = (1-1)*1 = 0 → circle at sphere center with full radius
@@ -745,7 +820,8 @@ mod tests {
             [0.0, 0.0, 1.0], // axis
             FRAC_PI_4,       // 45°
             10.0,
-        );
+        )
+        .unwrap();
         assert_eq!(curves.len(), 1);
         if let SSICurve::Circle { center, radius, .. } = &curves[0] {
             assert!(center[0].abs() < EPS);
@@ -768,7 +844,8 @@ mod tests {
             [0.0, 0.0, 1.0],
             FRAC_PI_4,
             10.0,
-        );
+        )
+        .unwrap();
         assert!(curves.is_empty());
     }
 
@@ -783,7 +860,8 @@ mod tests {
             [0.0, 0.0, 1.0],
             FRAC_PI_4,
             10.0,
-        );
+        )
+        .unwrap();
         assert!(curves.is_empty());
     }
 
@@ -798,7 +876,8 @@ mod tests {
             [0.0, 0.0, 1.0],
             FRAC_PI_4,
             10.0,
-        );
+        )
+        .unwrap();
         assert!(curves.is_empty());
     }
 
@@ -813,7 +892,8 @@ mod tests {
             [0.0, 0.0, 1.0],
             half,
             10.0,
-        );
+        )
+        .unwrap();
         assert_eq!(curves.len(), 1);
         if let SSICurve::Circle { radius, .. } = &curves[0] {
             let expected = 4.0 * half.tan();
@@ -831,9 +911,9 @@ mod tests {
     #[test]
     fn test_plane_cone_oblique_empty() {
         use std::f64::consts::FRAC_PI_4;
-        // Oblique plane → not supported → empty
+        // Oblique plane → not supported → Err(NotSupported)
         let normal = [FRAC_1_SQRT_2, 0.0, FRAC_1_SQRT_2];
-        let curves = plane_cone_ssi(
+        let result = plane_cone_ssi(
             [0.0, 0.0, 5.0],
             normal,
             [0.0, 0.0, 0.0],
@@ -841,7 +921,7 @@ mod tests {
             FRAC_PI_4,
             10.0,
         );
-        assert!(curves.is_empty());
+        assert!(matches!(result, Err(KernelError::NotSupported { .. })));
     }
 
     // ── Point-in-Sphere ───────────────────────────────────────────────
@@ -928,5 +1008,121 @@ mod tests {
             FRAC_PI_4,
             10.0,
         ));
+    }
+
+    // ── Sphere-Sphere SSI ─────────────────────────────────────────────
+
+    #[test]
+    fn test_sphere_sphere_overlapping() {
+        // Two spheres, r=5 each, centers 6 apart along X
+        let curves = sphere_sphere_ssi([0.0, 0.0, 0.0], 5.0, [6.0, 0.0, 0.0], 5.0).unwrap();
+        assert_eq!(curves.len(), 1);
+        if let SSICurve::Circle {
+            center,
+            normal,
+            radius,
+        } = &curves[0]
+        {
+            // a = (25 - 25 + 36) / 12 = 3, so center at (3, 0, 0)
+            assert!((center[0] - 3.0).abs() < EPS, "cx={}", center[0]);
+            assert!(center[1].abs() < EPS);
+            assert!(center[2].abs() < EPS);
+            // h = sqrt(25 - 9) = 4
+            assert!((radius - 4.0).abs() < EPS, "r={}", radius);
+            // Normal should be along X (connecting centers)
+            assert!((normal[0] - 1.0).abs() < EPS, "nx={}", normal[0]);
+        } else {
+            panic!("Expected Circle");
+        }
+    }
+
+    #[test]
+    fn test_sphere_sphere_equal_radii_touching() {
+        // Two spheres, r=3 each, centers 6 apart → tangent → empty
+        let curves = sphere_sphere_ssi([0.0, 0.0, 0.0], 3.0, [6.0, 0.0, 0.0], 3.0).unwrap();
+        assert!(curves.is_empty());
+    }
+
+    #[test]
+    fn test_sphere_sphere_disjoint() {
+        // Two spheres, r=1 each, centers 10 apart → disjoint
+        let curves = sphere_sphere_ssi([0.0, 0.0, 0.0], 1.0, [10.0, 0.0, 0.0], 1.0).unwrap();
+        assert!(curves.is_empty());
+    }
+
+    #[test]
+    fn test_sphere_sphere_enclosed() {
+        // Small sphere inside a large one → no intersection circle
+        let curves = sphere_sphere_ssi([0.0, 0.0, 0.0], 10.0, [1.0, 0.0, 0.0], 2.0).unwrap();
+        assert!(curves.is_empty());
+    }
+
+    #[test]
+    fn test_sphere_sphere_concentric() {
+        // Same center, different radii → enclosed → empty
+        let curves = sphere_sphere_ssi([0.0, 0.0, 0.0], 5.0, [0.0, 0.0, 0.0], 3.0).unwrap();
+        assert!(curves.is_empty());
+    }
+
+    #[test]
+    fn test_sphere_sphere_same_radius() {
+        // Equal radii, centers 4 apart → symmetric intersection
+        let curves = sphere_sphere_ssi([0.0, 0.0, 0.0], 5.0, [4.0, 0.0, 0.0], 5.0).unwrap();
+        assert_eq!(curves.len(), 1);
+        if let SSICurve::Circle { center, radius, .. } = &curves[0] {
+            // a = (25 - 25 + 16) / 8 = 2, center at (2, 0, 0)
+            assert!((center[0] - 2.0).abs() < EPS);
+            // h = sqrt(25 - 4) = sqrt(21) ≈ 4.583
+            let expected_r = 21.0_f64.sqrt();
+            assert!((radius - expected_r).abs() < EPS);
+        } else {
+            panic!("Expected Circle");
+        }
+    }
+
+    #[test]
+    fn test_sphere_sphere_different_radii() {
+        // r1=3, r2=5, centers 4 apart along Y
+        let curves = sphere_sphere_ssi([0.0, 0.0, 0.0], 3.0, [0.0, 4.0, 0.0], 5.0).unwrap();
+        assert_eq!(curves.len(), 1);
+        if let SSICurve::Circle {
+            center,
+            normal,
+            radius,
+        } = &curves[0]
+        {
+            // a = (9 - 25 + 16) / 8 = 0 → center at origin!
+            assert!(center[0].abs() < EPS);
+            assert!(center[1].abs() < EPS);
+            assert!(center[2].abs() < EPS);
+            // h = sqrt(9 - 0) = 3
+            assert!((radius - 3.0).abs() < EPS);
+            // Normal along Y
+            assert!((normal[1] - 1.0).abs() < EPS);
+        } else {
+            panic!("Expected Circle");
+        }
+    }
+
+    #[test]
+    fn test_sphere_sphere_tilted() {
+        // Two spheres with centers along a tilted direction
+        let sqrt3_inv = 1.0 / 3.0_f64.sqrt();
+        let d = 6.0; // distance between centers
+        let center_b = [d * sqrt3_inv, d * sqrt3_inv, d * sqrt3_inv];
+        let curves = sphere_sphere_ssi([0.0, 0.0, 0.0], 5.0, center_b, 5.0).unwrap();
+        assert_eq!(curves.len(), 1);
+        if let SSICurve::Circle { center, radius, .. } = &curves[0] {
+            // a = (25 - 25 + 36) / 12 = 3
+            // center = [0,0,0] + 3 * [1/√3, 1/√3, 1/√3] = [3/√3, 3/√3, 3/√3] = [√3, √3, √3]
+            let expected = 3.0 * sqrt3_inv;
+            assert!((center[0] - expected).abs() < EPS, "cx={}", center[0]);
+            assert!((center[1] - expected).abs() < EPS, "cy={}", center[1]);
+            assert!((center[2] - expected).abs() < EPS, "cz={}", center[2]);
+            // h = sqrt(25 - 9) = 4
+            assert!((radius - 4.0).abs() < EPS, "r={}", radius);
+        } else {
+            panic!("Expected Circle");
+        }
     }
 }

@@ -12,7 +12,7 @@ use crate::topology::euler_ops::{mef, mev, mvfs};
 use crate::topology::half_edge::*;
 use crate::traits::{Kernel, KernelIntrospect};
 use crate::types::*;
-use crate::units::TAU_NORMALIZE;
+use crate::units::{TAU_MODEL, TAU_NORMALIZE};
 use crate::vecmath::*;
 use std::collections::HashMap;
 
@@ -97,6 +97,26 @@ impl WaffleKernel {
         h
     }
 
+    /// Check if all faces in a solid have quadric surface geometry (A15 dispatch).
+    ///
+    /// Returns true if every face has a SurfaceGeom that is Planar, Cylindrical,
+    /// Conical, Spherical, or Toroidal. Returns false for empty solids or solids
+    /// with faces that lack geometry (e.g., post-boolean results that lost type info).
+    fn all_faces_quadric(solid: &WaffleSolid) -> bool {
+        if solid.face_map.is_empty() {
+            return false;
+        }
+        // Check that every face in the map has geometry assigned
+        for face_idx in solid.face_map.values() {
+            if !solid.face_geometry.contains_key(face_idx) {
+                return false;
+            }
+            // All current SurfaceGeom variants are quadric, so if geometry exists it's quadric.
+            // When BSpline/NURBS is added, this will need to check is_quadric().
+        }
+        true
+    }
+
     /// Execute a boolean operation on two box solids.
     fn do_boolean(
         &mut self,
@@ -124,37 +144,48 @@ impl WaffleKernel {
             id
         };
 
-        // Dispatch: recognized primitives use SSI/polygon-clipping; general solids
-        // (post-boolean results with >6 faces) use polygon_approx_boolean to avoid
-        // AABB-based reconstruction that erases prior boolean results.
+        // Dispatch: classify operands by surface types (A15 compliance).
+        //
+        // ssi_boolean_op is designed for primitive box + primitive cylinder pairs only.
+        // For chained booleans (where one operand is a post-boolean complex solid),
+        // use polygon clipping which handles arbitrary face counts and geometries.
         let a_is_prim_cyl = solid_a.cylinder_params.is_some();
         let b_is_prim_cyl = solid_b.cylinder_params.is_some();
+        let a_all_quadric = Self::all_faces_quadric(solid_a);
+        let b_all_quadric = Self::all_faces_quadric(solid_b);
         let a_is_simple_box = !a_is_prim_cyl && solid_a.face_map.len() <= 6;
         let b_is_simple_box = !b_is_prim_cyl && solid_b.face_map.len() <= 6;
 
-        let result = if (a_is_prim_cyl || a_is_simple_box) && (b_is_prim_cyl || b_is_simple_box) {
-            // Both operands are recognized primitives
-            if a_is_prim_cyl || b_is_prim_cyl {
-                crate::boolean::ssi_boolean_op(solid_a, solid_b, op, &mut id_alloc)?
-            } else {
-                // box-box: try strict stitching first, fall back to tolerant
-                let strict = crate::boolean::boolean_op(
-                    solid_a,
-                    solid_b,
-                    op,
-                    &BooleanOptions::default(),
-                    &mut id_alloc,
-                );
-                match strict {
-                    ok @ Ok(_) => ok?,
-                    Err(KernelError::BooleanFailed { .. }) => {
-                        crate::boolean::boolean_op_tolerant(solid_a, solid_b, op, &mut id_alloc)?
-                    }
-                    Err(e) => return Err(e),
+        // SSI pipeline: only when BOTH operands are primitives (one cyl + one box,
+        // or two cyls). A complex post-boolean solid should NOT be sent to
+        // ssi_boolean_op, which assumes simple primitive geometry.
+        let use_ssi =
+            (b_is_simple_box || b_is_prim_cyl) && a_is_prim_cyl || b_is_prim_cyl && a_is_simple_box;
+
+        let result = if use_ssi {
+            // Both operands are primitives — use SSI pipeline
+            crate::boolean::ssi_boolean_op(solid_a, solid_b, op, &mut id_alloc)?
+        } else if a_all_quadric && b_all_quadric {
+            // Both operands have only quadric faces (includes simple box-box,
+            // post-boolean results with preserved surface types, and chained
+            // booleans like merged_solid + new_cylinder). Use polygon clipping
+            // with tolerant fallback.
+            let strict = crate::boolean::boolean_op(
+                solid_a,
+                solid_b,
+                op,
+                &BooleanOptions::default(),
+                &mut id_alloc,
+            );
+            match strict {
+                ok @ Ok(_) => ok?,
+                Err(KernelError::BooleanFailed { .. }) => {
+                    crate::boolean::boolean_op_tolerant(solid_a, solid_b, op, &mut id_alloc)?
                 }
+                Err(e) => return Err(e),
             }
         } else {
-            // General solid involved → polygon approximation boolean
+            // General solid with non-quadric faces → polygon approximation
             crate::boolean::polygon_approx_boolean(solid_a, solid_b, op, &mut id_alloc)?
         };
         self.next_id = next_id;
@@ -189,7 +220,7 @@ impl WaffleKernel {
         let angle_rad = angle_deg.to_radians();
         let axis_dir = v3_normalize(axis_direction);
         let n = standalone.vertices.len();
-        let tau_model = 1e-7;
+        let tau_model = TAU_MODEL;
 
         // Profile edge validation removed: all edge orientations are now valid.
         // Axis-aligned edges produce cylindrical/planar faces; tilted edges produce
