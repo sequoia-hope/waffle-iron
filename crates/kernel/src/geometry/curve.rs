@@ -14,6 +14,7 @@ pub enum CurveGeom {
     Linear(Line3D),
     Circular(Circle3D),
     Arc(Arc3D),
+    Elliptical(Ellipse3D),
 }
 
 /// A line in 3D space.
@@ -41,6 +42,19 @@ pub struct Arc3D {
     pub sweep_angle: f64,
 }
 
+/// An ellipse in 3D space.
+///
+/// Parametrization: evaluate(t) = center + semi_major·cos(t)·major_axis + semi_minor·sin(t)·minor_axis
+/// where minor_axis = normal × major_axis, t ∈ [0, 2π).
+#[derive(Debug, Clone)]
+pub struct Ellipse3D {
+    pub center: Point3,
+    pub normal: Vector3,
+    pub major_axis: Vector3, // unit direction of semi-major axis
+    pub semi_major: f64,     // >= semi_minor
+    pub semi_minor: f64,
+}
+
 /// Given a unit normal, return (x_axis, y_axis) forming a right-handed frame.
 fn make_frame(normal: Vector3) -> (Vector3, Vector3) {
     let hint = if normal.x.abs() < 0.9 {
@@ -62,6 +76,7 @@ impl CurveGeom {
             CurveGeom::Linear(l) => l.evaluate(t),
             CurveGeom::Circular(c) => c.evaluate(t),
             CurveGeom::Arc(a) => a.evaluate(t),
+            CurveGeom::Elliptical(e) => e.evaluate(t),
         }
     }
 
@@ -71,6 +86,7 @@ impl CurveGeom {
             CurveGeom::Linear(l) => l.tangent(t),
             CurveGeom::Circular(c) => c.tangent(t),
             CurveGeom::Arc(a) => a.tangent(t),
+            CurveGeom::Elliptical(e) => e.tangent(t),
         }
     }
 }
@@ -148,6 +164,36 @@ impl Arc3D {
         let x_axis = Vector3::new(dx / len, dy / len, dz / len);
         let y_axis = self.normal.cross(x_axis);
         (x_axis, y_axis)
+    }
+}
+
+// ── Ellipse3D evaluation ───────────────────────────────────────────────
+
+impl Ellipse3D {
+    pub fn evaluate(&self, t: f64) -> Point3 {
+        let minor_axis = self.normal.cross(self.major_axis);
+        Point3::new(
+            self.center.x
+                + self.semi_major * t.cos() * self.major_axis.x
+                + self.semi_minor * t.sin() * minor_axis.x,
+            self.center.y
+                + self.semi_major * t.cos() * self.major_axis.y
+                + self.semi_minor * t.sin() * minor_axis.y,
+            self.center.z
+                + self.semi_major * t.cos() * self.major_axis.z
+                + self.semi_minor * t.sin() * minor_axis.z,
+        )
+    }
+
+    pub fn tangent(&self, t: f64) -> Vector3 {
+        let minor_axis = self.normal.cross(self.major_axis);
+        let dx = -self.semi_major * t.sin() * self.major_axis.x
+            + self.semi_minor * t.cos() * minor_axis.x;
+        let dy = -self.semi_major * t.sin() * self.major_axis.y
+            + self.semi_minor * t.cos() * minor_axis.y;
+        let dz = -self.semi_major * t.sin() * self.major_axis.z
+            + self.semi_minor * t.cos() * minor_axis.z;
+        Vector3::new(dx, dy, dz).normalized()
     }
 }
 
@@ -234,5 +280,56 @@ mod tests {
         assert!((pt.x - 5.0).abs() < EPS);
         let t = cg.tangent(0.0);
         assert!((t.x - 1.0).abs() < EPS);
+    }
+
+    #[test]
+    fn ellipse3d_evaluate() {
+        // Ellipse in XY plane: center=(0,0,0), normal=Z, major_axis=X
+        // semi_major=5, semi_minor=3
+        let e = Ellipse3D {
+            center: Point3::origin(),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            major_axis: Vector3::new(1.0, 0.0, 0.0),
+            semi_major: 5.0,
+            semi_minor: 3.0,
+        };
+        // At t=0: point = (5, 0, 0)
+        let pt0 = e.evaluate(0.0);
+        assert!((pt0.x - 5.0).abs() < EPS);
+        assert!(pt0.y.abs() < EPS);
+        assert!(pt0.z.abs() < EPS);
+
+        // At t=PI/2: point = (0, 3, 0)
+        let pt90 = e.evaluate(FRAC_PI_2);
+        assert!(pt90.x.abs() < EPS, "x={}", pt90.x);
+        assert!((pt90.y - 3.0).abs() < EPS, "y={}", pt90.y);
+        assert!(pt90.z.abs() < EPS);
+
+        // At t=PI: point = (-5, 0, 0)
+        let pt180 = e.evaluate(std::f64::consts::PI);
+        assert!((pt180.x + 5.0).abs() < EPS, "x={}", pt180.x);
+        assert!(pt180.y.abs() < EPS, "y={}", pt180.y);
+    }
+
+    #[test]
+    fn ellipse3d_tangent() {
+        let e = Ellipse3D {
+            center: Point3::origin(),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            major_axis: Vector3::new(1.0, 0.0, 0.0),
+            semi_major: 5.0,
+            semi_minor: 3.0,
+        };
+        // At t=0: tangent direction is (0, semi_minor, 0), normalized = (0, 1, 0)
+        let t0 = e.tangent(0.0);
+        assert!(t0.x.abs() < EPS, "tx={}", t0.x);
+        assert!((t0.y - 1.0).abs() < EPS, "ty={}", t0.y);
+        assert!(t0.z.abs() < EPS);
+
+        // Tangent should be perpendicular to the radius vector at t=0
+        let pt0 = e.evaluate(0.0);
+        let radius_vec = Vector3::new(pt0.x, pt0.y, pt0.z);
+        let dot = radius_vec.dot(t0);
+        assert!(dot.abs() < EPS, "tangent not perp to radius: dot={}", dot);
     }
 }

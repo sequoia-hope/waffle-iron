@@ -5643,3 +5643,122 @@ fn z3_euler_formula_after_boolean() {
         euler, v, e, f
     );
 }
+
+// ── Sprint G: Timeout guard tests ───────────────────────────
+
+#[test]
+fn g1_product_guard_rejects_large_nonconvex() {
+    use crate::boolean::{boolean_op_from_polys, BoolOp, FacePoly};
+
+    // Create two large non-convex solids (100 faces each, product = 10000 > 5000)
+    let make_faces = |n: usize| -> Vec<FacePoly> {
+        (0..n)
+            .map(|i| {
+                let z = i as f64 * 0.1;
+                FacePoly {
+                    verts: vec![[0.0, 0.0, z], [1.0, 0.0, z], [1.0, 1.0, z]],
+                    normal: [0.0, 0.0, 1.0],
+                    origin: [0.0, 0.0, 0.0],
+                    surface_geom: None,
+                }
+            })
+            .collect()
+    };
+
+    let a_faces = make_faces(100);
+    let b_faces = make_faces(100);
+    let mut next_id = 1000u64;
+    let result = boolean_op_from_polys(a_faces, b_faces, BoolOp::Union, &mut || {
+        next_id += 1;
+        next_id
+    });
+    assert!(
+        matches!(result, Err(KernelError::NotSupported { .. })),
+        "Expected NotSupported for 100x100 non-convex product, got Ok or other error",
+    );
+}
+
+#[test]
+fn g1_product_guard_allows_convex_pair() {
+    use crate::boolean::{boolean_op_from_polys, BoolOp, FacePoly};
+
+    // Create one convex solid (6 faces = box) and one large solid (200 faces)
+    // Product = 1200 > 5000? No. But even with 200 faces, one is convex (<=12)
+    // so it should NOT be rejected.
+    let box_faces: Vec<FacePoly> = (0..6)
+        .map(|i| {
+            let z = i as f64;
+            FacePoly {
+                verts: vec![[0.0, 0.0, z], [1.0, 0.0, z], [1.0, 1.0, z]],
+                normal: [0.0, 0.0, 1.0],
+                origin: [0.0, 0.0, 0.0],
+                    surface_geom: None,
+            }
+        })
+        .collect();
+
+    let large_faces: Vec<FacePoly> = (0..200)
+        .map(|i| {
+            let z = i as f64 * 0.01;
+            FacePoly {
+                verts: vec![[2.0, 0.0, z], [3.0, 0.0, z], [3.0, 1.0, z]],
+                normal: [0.0, 0.0, 1.0],
+                origin: [0.0, 0.0, 0.0],
+                    surface_geom: None,
+            }
+        })
+        .collect();
+
+    // Product = 6*200 = 1200 > 5000? No. So it passes.
+    // Even if product were > 5000, one solid is convex (6 <= 12) so it should pass.
+    let mut next_id = 1000u64;
+    let result = boolean_op_from_polys(box_faces, large_faces, BoolOp::Union, &mut || {
+        next_id += 1;
+        next_id
+    });
+    // Should NOT be rejected by product guard (one operand is convex).
+    // It may fail for other reasons (e.g., geometry), but not with the product guard error.
+    if let Err(KernelError::NotSupported { operation }) = &result {
+        assert!(
+            !operation.contains("face product"),
+            "Convex + large should NOT be rejected by product guard: {}",
+            operation
+        );
+    }
+}
+
+// ── Sprint G: Ellipse to polygon test ───────────────────────
+
+#[test]
+fn test_ellipse_to_polygon_points_on_ellipse() {
+    use crate::boolean::analytical::ellipse_to_polygon;
+
+    let center = [1.0, 2.0, 3.0];
+    let normal = [0.0, 0.0, 1.0];
+    let major_axis = [1.0, 0.0, 0.0];
+    let semi_major = 5.0;
+    let semi_minor = 3.0;
+
+    let pts = ellipse_to_polygon(center, normal, major_axis, semi_major, semi_minor, 64);
+    assert_eq!(pts.len(), 64);
+
+    // Every point should satisfy the ellipse equation:
+    // ((p - center) · major_axis)² / semi_major² + ((p - center) · minor_axis)² / semi_minor² = 1
+    let minor_axis = [0.0, 1.0, 0.0]; // normal × major_axis for Z-up
+    for pt in &pts {
+        let dx = pt[0] - center[0];
+        let dy = pt[1] - center[1];
+        let dz = pt[2] - center[2];
+        let u = dx * major_axis[0] + dy * major_axis[1] + dz * major_axis[2];
+        let v = dx * minor_axis[0] + dy * minor_axis[1] + dz * minor_axis[2];
+        let val = (u / semi_major).powi(2) + (v / semi_minor).powi(2);
+        assert!(
+            (val - 1.0).abs() < 1e-10,
+            "Point not on ellipse: val={}, pt={:?}",
+            val,
+            pt
+        );
+        // Z should be unchanged (ellipse is in XY plane)
+        assert!((dz).abs() < 1e-10);
+    }
+}

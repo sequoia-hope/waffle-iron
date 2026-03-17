@@ -27,6 +27,14 @@ pub(crate) enum SSICurve {
         normal: [f64; 3],
         radius: f64,
     },
+    /// A full ellipse in 3D (oblique plane-cylinder intersection).
+    Ellipse {
+        center: [f64; 3],
+        normal: [f64; 3],
+        major_axis: [f64; 3],
+        semi_major: f64,
+        semi_minor: f64,
+    },
 }
 
 /// Axis-aligned bounding box.
@@ -108,10 +116,15 @@ pub(crate) fn plane_cylinder_ssi(
             cyl_height_range,
         ))
     } else {
-        // Oblique: produces an ellipse — requires Ellipse SSICurve variant (A15.4)
-        Err(KernelError::NotSupported {
-            operation: "plane-cylinder SSI: oblique cut produces ellipse".to_string(),
-        })
+        // Oblique: produces an ellipse (Patrikalakis Ch.5)
+        Ok(plane_cylinder_oblique(
+            plane_origin,
+            plane_normal,
+            cyl_origin,
+            cyl_axis,
+            cyl_radius,
+            cyl_height_range,
+        ))
     }
 }
 
@@ -202,6 +215,70 @@ fn plane_cylinder_parallel(
             end: v3_add(p2, v3_scale(line_dir, h_max)),
         },
     ]
+}
+
+/// Plane oblique to cylinder axis → ellipse intersection.
+///
+/// The intersection of a plane that is neither perpendicular nor parallel to a
+/// cylinder axis is an ellipse with:
+/// - semi_minor = cylinder radius
+/// - semi_major = radius / sin(gamma), where gamma is the angle between the
+///   plane and the axis
+/// - major axis direction = projection of cylinder axis onto the cutting plane
+///
+/// Ref: Patrikalakis Ch.5 — oblique plane-cylinder intersection.
+fn plane_cylinder_oblique(
+    plane_origin: [f64; 3],
+    plane_normal: [f64; 3],
+    cyl_origin: [f64; 3],
+    cyl_axis: [f64; 3],
+    cyl_radius: f64,
+    cyl_height_range: (f64, f64),
+) -> Vec<SSICurve> {
+    let dot_wn = v3_dot(cyl_axis, plane_normal);
+
+    // sin_gamma = sqrt(1 - cos²(angle between axis and normal))
+    let cos_angle = dot_wn.abs();
+    let sin_gamma = (1.0 - cos_angle * cos_angle).max(0.0).sqrt();
+
+    if sin_gamma < TOL {
+        // Near-parallel: degenerate ellipse (infinite semi_major) → empty
+        return vec![];
+    }
+
+    // Find where the axis pierces the plane:
+    // t = ((plane_origin - cyl_origin) · plane_normal) / (cyl_axis · plane_normal)
+    if dot_wn.abs() < TOL {
+        return vec![];
+    }
+    let t = v3_dot(v3_sub(plane_origin, cyl_origin), plane_normal) / dot_wn;
+
+    // Check height range
+    if t < cyl_height_range.0 - TOL || t > cyl_height_range.1 + TOL {
+        return vec![];
+    }
+
+    let center = v3_add(cyl_origin, v3_scale(cyl_axis, t));
+
+    let semi_minor = cyl_radius;
+    let semi_major = cyl_radius / sin_gamma;
+
+    // Major axis direction: projection of cylinder axis onto cutting plane
+    // major = normalize(W - (W·N)*N)
+    let proj = v3_sub(cyl_axis, v3_scale(plane_normal, dot_wn));
+    let proj_len = v3_length(proj);
+    if proj_len < TOL {
+        return vec![];
+    }
+    let major_axis = v3_scale(proj, 1.0 / proj_len);
+
+    vec![SSICurve::Ellipse {
+        center,
+        normal: plane_normal,
+        major_axis,
+        semi_major,
+        semi_minor,
+    }]
 }
 
 /// Compute SSI between two cylinders with parallel axes.
@@ -657,18 +734,190 @@ mod tests {
     }
 
     #[test]
-    fn test_plane_cylinder_oblique_empty() {
-        // Oblique plane (45°) → not supported → Err(NotSupported)
+    fn test_plane_cylinder_oblique_45deg() {
+        // 45° plane → ellipse with semi_major = r*sqrt(2), semi_minor = r
         let normal = [FRAC_1_SQRT_2, 0.0, FRAC_1_SQRT_2];
-        let result = plane_cylinder_ssi(
-            [0.0, 0.0, 0.0],
+        let curves = plane_cylinder_ssi(
+            [0.0, 0.0, 5.0], // plane origin at z=5
+            normal,
+            [0.0, 0.0, 0.0], // cyl origin
+            [0.0, 0.0, 1.0], // cyl axis
+            3.0,             // radius
+            (0.0, 10.0),     // height range
+        )
+        .unwrap();
+        assert_eq!(curves.len(), 1);
+        if let SSICurve::Ellipse {
+            center,
+            semi_major,
+            semi_minor,
+            major_axis,
+            ..
+        } = &curves[0]
+        {
+            // sin(45°) = 1/√2, so semi_major = 3 / (1/√2) = 3√2
+            let expected_major = 3.0 * std::f64::consts::SQRT_2;
+            assert!(
+                (semi_major - expected_major).abs() < EPS,
+                "a={}",
+                semi_major
+            );
+            assert!((semi_minor - 3.0).abs() < EPS, "b={}", semi_minor);
+            // Center should be on the axis at the plane intersection
+            assert!(center[0].abs() < EPS);
+            assert!(center[1].abs() < EPS);
+            assert!((center[2] - 5.0).abs() < EPS, "cz={}", center[2]);
+            // Major axis should be projection of Z onto plane → along Z component in plane
+            // W=[0,0,1], N=[1/√2,0,1/√2], proj = [0,0,1] - (1/√2)*[1/√2,0,1/√2]
+            //   = [0,0,1] - [0.5, 0, 0.5] = [-0.5, 0, 0.5], normalized: [-1/√2, 0, 1/√2]
+            assert!(
+                (major_axis[0] - (-FRAC_1_SQRT_2)).abs() < EPS,
+                "mx={}",
+                major_axis[0]
+            );
+            assert!(major_axis[1].abs() < EPS, "my={}", major_axis[1]);
+            assert!(
+                (major_axis[2] - FRAC_1_SQRT_2).abs() < EPS,
+                "mz={}",
+                major_axis[2]
+            );
+        } else {
+            panic!("Expected Ellipse, got {:?}", curves[0]);
+        }
+    }
+
+    #[test]
+    fn test_plane_cylinder_oblique_30deg() {
+        // Plane normal at 30° from Z: cos_angle = cos(30°) = √3/2
+        // sin_gamma = sin(30°) = 0.5 → semi_major = r / 0.5 = 2r
+        let cos30 = (3.0_f64).sqrt() / 2.0;
+        let sin30 = 0.5_f64;
+        let normal = [sin30, 0.0, cos30]; // 30° tilt from Z in XZ plane
+        let curves = plane_cylinder_ssi(
+            [0.0, 0.0, 5.0],
             normal,
             [0.0, 0.0, 0.0],
             [0.0, 0.0, 1.0],
             3.0,
             (0.0, 10.0),
-        );
-        assert!(matches!(result, Err(KernelError::NotSupported { .. })));
+        )
+        .unwrap();
+        assert_eq!(curves.len(), 1);
+        if let SSICurve::Ellipse {
+            semi_major,
+            semi_minor,
+            ..
+        } = &curves[0]
+        {
+            // sin_gamma = sin(30°) = 0.5, semi_major = 3 / 0.5 = 6
+            assert!((semi_major - 6.0).abs() < EPS, "a={}", semi_major);
+            assert!((semi_minor - 3.0).abs() < EPS, "b={}", semi_minor);
+        } else {
+            panic!("Expected Ellipse");
+        }
+    }
+
+    #[test]
+    fn test_plane_cylinder_oblique_near_perp() {
+        // Nearly perpendicular (89°) → cos_angle ≈ cos(1°) ≈ 0.9998
+        // sin_gamma ≈ sin(1°) ≈ 0.01745 — nearly circular ellipse
+        // This should still be handled as oblique (not perp, which requires cos > 1 - TOL)
+        let angle = 89.0_f64.to_radians(); // angle between plane normal and axis
+        let normal = [angle.sin(), 0.0, angle.cos()];
+        let curves = plane_cylinder_ssi(
+            [0.0, 0.0, 5.0],
+            normal,
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            3.0,
+            (0.0, 10.0),
+        )
+        .unwrap();
+        assert_eq!(curves.len(), 1);
+        if let SSICurve::Ellipse {
+            semi_major,
+            semi_minor,
+            ..
+        } = &curves[0]
+        {
+            // Nearly circular: semi_major ≈ semi_minor * (1/sin(1°))
+            assert!((semi_minor - 3.0).abs() < EPS);
+            // semi_major should be slightly larger than semi_minor
+            assert!(*semi_major > *semi_minor);
+            // sin(1°) ≈ 0.01745 → semi_major ≈ 3/0.01745 ≈ 171.9
+            let sin_gamma = angle.sin();
+            let expected = 3.0 / sin_gamma;
+            assert!(
+                (semi_major - expected).abs() < 0.1,
+                "a={} expected={}",
+                semi_major,
+                expected
+            );
+        } else {
+            panic!("Expected Ellipse");
+        }
+    }
+
+    #[test]
+    fn test_plane_cylinder_oblique_tilted_axis() {
+        // Non-Z-aligned cylinder: axis = [1,0,0] (along X), radius 2
+        // Plane normal = [0,0,1] (XY plane at z=0)
+        // cos_angle = |[1,0,0]·[0,0,1]| = 0 → parallel case (sin_gamma = 1)
+        // Actually need oblique: use normal = [FRAC_1_SQRT_2, 0, FRAC_1_SQRT_2]
+        let cyl_axis = [1.0, 0.0, 0.0];
+        let normal = [FRAC_1_SQRT_2, 0.0, FRAC_1_SQRT_2];
+        let curves = plane_cylinder_ssi(
+            [5.0, 0.0, 0.0], // plane at x=5
+            normal,
+            [0.0, 0.0, 0.0], // cyl origin
+            cyl_axis,
+            2.0,         // radius
+            (0.0, 10.0), // height range
+        )
+        .unwrap();
+        assert_eq!(curves.len(), 1);
+        if let SSICurve::Ellipse {
+            center,
+            semi_major,
+            semi_minor,
+            ..
+        } = &curves[0]
+        {
+            // cos_angle = |[1,0,0]·[1/√2,0,1/√2]| = 1/√2
+            // sin_gamma = 1/√2 → semi_major = 2/sin(45°) = 2√2
+            let expected_major = 2.0 * std::f64::consts::SQRT_2;
+            assert!(
+                (semi_major - expected_major).abs() < EPS,
+                "a={}",
+                semi_major
+            );
+            assert!((semi_minor - 2.0).abs() < EPS, "b={}", semi_minor);
+            // Center: axis line intersects plane
+            // t = ((5,0,0)-(0,0,0))·[1/√2,0,1/√2] / ([1,0,0]·[1/√2,0,1/√2])
+            //   = (5/√2) / (1/√2) = 5
+            // center = (0,0,0) + 5*(1,0,0) = (5,0,0)
+            assert!((center[0] - 5.0).abs() < EPS, "cx={}", center[0]);
+            assert!(center[1].abs() < EPS, "cy={}", center[1]);
+            assert!(center[2].abs() < EPS, "cz={}", center[2]);
+        } else {
+            panic!("Expected Ellipse");
+        }
+    }
+
+    #[test]
+    fn test_plane_cylinder_oblique_out_of_range() {
+        // Plane at z=15, cylinder height 0..10 → center at t=15, outside range → empty
+        let normal = [FRAC_1_SQRT_2, 0.0, FRAC_1_SQRT_2];
+        let curves = plane_cylinder_ssi(
+            [0.0, 0.0, 15.0],
+            normal,
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            3.0,
+            (0.0, 10.0),
+        )
+        .unwrap();
+        assert!(curves.is_empty());
     }
 
     // ── Cylinder-Cylinder SSI ─────────────────────────────────────────

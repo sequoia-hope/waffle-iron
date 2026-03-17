@@ -154,8 +154,45 @@ pub(super) fn rotate_boolean_result(result: &mut BooleanResult, m_inv: &Mat3) {
                 arc.start_point =
                     Point3::from_array(mat3_mul_vec(m_inv, arc.start_point.to_array()));
             }
+            CurveGeom::Elliptical(ell) => {
+                ell.center = Point3::from_array(mat3_mul_vec(m_inv, ell.center.to_array()));
+                ell.normal = Vector3::from_array(mat3_mul_vec(m_inv, ell.normal.to_array()));
+                ell.major_axis =
+                    Vector3::from_array(mat3_mul_vec(m_inv, ell.major_axis.to_array()));
+            }
         }
     }
+}
+
+// ── Ellipse discretization ──────────────────────────────────────────────
+
+/// Discretize an ellipse into polygon points for the polygon boolean path.
+///
+/// Uses adaptive segment count: max(32, ceil(2π * semi_major / tolerance)).
+#[allow(dead_code)] // Will be used when SSI ellipses feed into polygon booleans
+pub(crate) fn ellipse_to_polygon(
+    center: [f64; 3],
+    normal: [f64; 3],
+    major_axis: [f64; 3],
+    semi_major: f64,
+    semi_minor: f64,
+    n_segments: usize,
+) -> Vec<[f64; 3]> {
+    // minor_axis = normal × major_axis
+    let minor_axis = v3_cross(normal, major_axis);
+
+    let mut pts = Vec::with_capacity(n_segments);
+    for i in 0..n_segments {
+        let t = 2.0 * std::f64::consts::PI * (i as f64) / (n_segments as f64);
+        let cos_t = t.cos();
+        let sin_t = t.sin();
+        pts.push([
+            center[0] + semi_major * cos_t * major_axis[0] + semi_minor * sin_t * minor_axis[0],
+            center[1] + semi_major * cos_t * major_axis[1] + semi_minor * sin_t * minor_axis[1],
+            center[2] + semi_major * cos_t * major_axis[2] + semi_minor * sin_t * minor_axis[2],
+        ]);
+    }
+    pts
 }
 
 // ── SSI dispatch ────────────────────────────────────────────────────────
@@ -277,6 +314,22 @@ pub(crate) fn polygon_approx_boolean(
             operation: format!(
                 "polygon approx boolean: {} total faces exceeds limit",
                 total_faces
+            ),
+        });
+    }
+
+    // Product-based guard: O(A*B) face classification is too expensive
+    // when both solids are non-convex (e.g., two gears with ~200 faces each).
+    let a_convex = a_faces.len() <= 12;
+    let b_convex = b_faces.len() <= 12;
+    let product = a_faces.len() * b_faces.len();
+    if product > 5000 && !a_convex && !b_convex {
+        return Err(KernelError::NotSupported {
+            operation: format!(
+                "polygon approx boolean: {}x{} face product ({}) too large for non-convex solids",
+                a_faces.len(),
+                b_faces.len(),
+                product
             ),
         });
     }

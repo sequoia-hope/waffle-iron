@@ -5,7 +5,7 @@
 //! polygon clipping against convex half-spaces to classify face fragments
 //! as inside, outside, or partial with respect to the opposing solid.
 
-mod analytical;
+pub(crate) mod analytical;
 mod classify;
 mod clip;
 mod stitch;
@@ -63,13 +63,13 @@ pub(crate) struct BooleanResult {
 /// A planar polygon with its face normal and a representative origin point.
 #[derive(Debug, Clone)]
 pub(crate) struct FacePoly {
-    verts: Vec<[f64; 3]>,
-    normal: [f64; 3],
-    origin: [f64; 3],
+    pub(crate) verts: Vec<[f64; 3]>,
+    pub(crate) normal: [f64; 3],
+    pub(crate) origin: [f64; 3],
     /// Analytical surface geometry for this face. When `Some`, preserved through
     /// the boolean pipeline into the result B-Rep (Ref #24 Barton: bijective
     /// re-mapping of analytical surfaces through mesh booleans).
-    surface_geom: Option<SurfaceGeom>,
+    pub(crate) surface_geom: Option<SurfaceGeom>,
 }
 
 /// Compute polygon area using cross-product accumulation (works in 3D).
@@ -911,10 +911,24 @@ fn boolean_op_from_polys_inner(
         });
     }
 
-    let (tau, tau_weld) = compute_adaptive_tau_weld(&a_faces, &b_faces);
-
-    let b_convex = b_faces.len() <= 12;
     let a_convex = a_faces.len() <= 12;
+    let b_convex = b_faces.len() <= 12;
+
+    // Product-based guard: O(A*B) face classification is too expensive
+    // when both solids are non-convex (e.g., two gears with ~200 faces each).
+    let product = a_faces.len() * b_faces.len();
+    if product > 5000 && !a_convex && !b_convex {
+        return Err(KernelError::NotSupported {
+            operation: format!(
+                "polygon boolean: {}x{} face product ({}) too large for non-convex solids",
+                a_faces.len(),
+                b_faces.len(),
+                product
+            ),
+        });
+    }
+
+    let (tau, tau_weld) = compute_adaptive_tau_weld(&a_faces, &b_faces);
 
     // Compute AABBs for early-out: faces entirely outside the opposing
     // solid's bounding box are classified as Outside without expensive
