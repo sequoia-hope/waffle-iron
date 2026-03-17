@@ -1,0 +1,66 @@
+{
+  "id": "F0046",
+  "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,boss) — Mixed cross-plane (seed 9021)",
+  "master_seed": 0,
+  "test_seed": 9021,
+  "scale": 1.0,
+  "log_scale": 0.0,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.7719623278821468,
+    0.6301307894714634,
+    -0.08372187582016417
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.37417906359015946,
+      "depth_or_angle": 0.4461861697676063,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.7719623278821468,
+        0.6301307894714634,
+        -0.08372187582016417
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "circle",
+      "profile_size": 0.10957956491396664,
+      "depth_or_angle": 0.335864718930466,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.3602527897667138,
+        0.8739557571356535,
+        0.32621965304798306
+      ]
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 3.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [
+      "increase",
+      "increase"
+    ]
+  },
+  "generator_version": 2,
+  "featured": true
+}

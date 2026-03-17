@@ -1,6 +1,6 @@
 {
   "id": "R0034",
-  "description": "3 ops, scale=9.45e2, extrude(gear,boss)+extrude(circle,cut)+revolve(gear,boss)",
+  "description": "3 ops, scale=9.45e2, extrude(rectangle,boss)+extrude(circle,cut)+revolve(gear,boss)",
   "master_seed": 42,
   "test_seed": 9039304369631583619,
   "scale": 944.6420610073422,
@@ -18,8 +18,8 @@
   "operations": [
     {
       "kind": "extrude",
-      "profile_type": "gear",
-      "profile_size": 212.54446372665203,
+      "profile_type": "rectangle",
+      "profile_size": 209.47576574064232,
       "depth_or_angle": 308.9846527802323,
       "is_cut": false
     },
@@ -49,6 +49,6 @@
       "increase"
     ]
   },
-  "generator_version": 1,
+  "generator_version": 2,
   "featured": false
 }

@@ -1,6 +1,6 @@
 {
   "id": "R0030",
-  "description": "3 ops, scale=1.78e-4, extrude(circle,boss)+revolve(gear,cut)+extrude(circle,cut)",
+  "description": "3 ops, scale=1.78e-4, extrude(rectangle,boss)+extrude(circle,boss)+extrude(circle,boss)",
   "master_seed": 42,
   "test_seed": 9039304369631583615,
   "scale": 0.00017801290027043507,
@@ -18,24 +18,44 @@
   "operations": [
     {
       "kind": "extrude",
-      "profile_type": "circle",
-      "profile_size": 0.000039681956795000076,
-      "depth_or_angle": 0.00007445601293070983,
+      "profile_type": "rectangle",
+      "profile_size": 0.00004642944757670792,
+      "depth_or_angle": 0.00006731741303004637,
       "is_cut": false
-    },
-    {
-      "kind": "revolve",
-      "profile_type": "gear",
-      "profile_size": 0.00004895354757436964,
-      "depth_or_angle": 349.54206410049056,
-      "is_cut": true
     },
     {
       "kind": "extrude",
       "profile_type": "circle",
-      "profile_size": 0.000026844927960333123,
-      "depth_or_angle": 0.000028282395220082445,
-      "is_cut": true
+      "profile_size": 0.00003465920714065196,
+      "depth_or_angle": 0.000095541363539735,
+      "is_cut": false,
+      "plane_origin": [
+        -0.000026241863474773408,
+        -0.00012628888074752678,
+        0.000019706555275139295
+      ],
+      "plane_normal": [
+        0.8688368626839532,
+        0.24016146995534723,
+        -0.4329491591288662
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "circle",
+      "profile_size": 0.0000709663578035586,
+      "depth_or_angle": 0.00003130915032716445,
+      "is_cut": false,
+      "plane_origin": [
+        -0.00011772198071517096,
+        -0.00008688607239091301,
+        0.00013878843675061252
+      ],
+      "plane_normal": [
+        0.26691750767584976,
+        0.7439937497241467,
+        -0.6125588497993613
+      ]
     }
   ],
   "oracles": {
@@ -45,10 +65,10 @@
     "expect_positive_volume": true,
     "volume_monotonicity": [
       "increase",
-      "decrease",
-      "decrease"
+      "increase",
+      "increase"
     ]
   },
-  "generator_version": 1,
+  "generator_version": 2,
   "featured": false
 }

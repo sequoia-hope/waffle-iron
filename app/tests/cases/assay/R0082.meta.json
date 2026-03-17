@@ -1,6 +1,6 @@
 {
   "id": "R0082",
-  "description": "2 ops, scale=6.40e2, revolve(rectangle,boss)+revolve(circle,cut)",
+  "description": "2 ops, scale=6.40e2, extrude(circle,boss)+extrude(gear,boss)",
   "master_seed": 42,
   "test_seed": 9039304369631583667,
   "scale": 640.1942286776073,
@@ -17,18 +17,28 @@
   ],
   "operations": [
     {
-      "kind": "revolve",
-      "profile_type": "rectangle",
-      "profile_size": 433.9450115510696,
-      "depth_or_angle": 39.89670791156438,
+      "kind": "extrude",
+      "profile_type": "circle",
+      "profile_size": 185.68101574581786,
+      "depth_or_angle": 81.98056199032091,
       "is_cut": false
     },
     {
-      "kind": "revolve",
-      "profile_type": "circle",
-      "profile_size": 230.3775290244568,
-      "depth_or_angle": 151.7616969315743,
-      "is_cut": true
+      "kind": "extrude",
+      "profile_type": "gear",
+      "profile_size": 288.08740290492324,
+      "depth_or_angle": 405.7293313272415,
+      "is_cut": false,
+      "plane_origin": [
+        195.7795471054792,
+        68.71340332487398,
+        -121.99073459603392
+      ],
+      "plane_normal": [
+        0.9281933933672741,
+        0.19685059558944729,
+        0.3157639427252969
+      ]
     }
   ],
   "oracles": {
@@ -38,9 +48,9 @@
     "expect_positive_volume": true,
     "volume_monotonicity": [
       "increase",
-      "decrease"
+      "increase"
     ]
   },
-  "generator_version": 1,
+  "generator_version": 2,
   "featured": false
 }

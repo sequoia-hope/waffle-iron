@@ -1,6 +1,6 @@
 {
   "id": "R0074",
-  "description": "3 ops, scale=3.40e-1, extrude(circle,boss)+revolve(rectangle,cut)+extrude(circle,boss)",
+  "description": "3 ops, scale=3.40e-1, extrude(gear,boss)+revolve(circle,boss)+extrude(circle,boss)",
   "master_seed": 42,
   "test_seed": 9039304369631583659,
   "scale": 0.3400812281895391,
@@ -18,24 +18,44 @@
   "operations": [
     {
       "kind": "extrude",
-      "profile_type": "circle",
-      "profile_size": 0.0490616946191251,
-      "depth_or_angle": 0.14120846713935678,
+      "profile_type": "gear",
+      "profile_size": 0.17854264479950804,
+      "depth_or_angle": 0.258514688842315,
       "is_cut": false
     },
     {
       "kind": "revolve",
-      "profile_type": "rectangle",
-      "profile_size": 0.16600786681675275,
-      "depth_or_angle": 251.37692318290235,
-      "is_cut": true
+      "profile_type": "circle",
+      "profile_size": 0.11712079665256674,
+      "depth_or_angle": 115.85661113788503,
+      "is_cut": false,
+      "plane_origin": [
+        0.013576797830084253,
+        -0.1389060102397368,
+        0.2680950021911409
+      ],
+      "plane_normal": [
+        -0.17080749304070467,
+        -0.7406738931394943,
+        0.6497899540180155
+      ]
     },
     {
       "kind": "extrude",
       "profile_type": "circle",
-      "profile_size": 0.08705682672189743,
-      "depth_or_angle": 0.15854347077573144,
-      "is_cut": false
+      "profile_size": 0.11619219834456636,
+      "depth_or_angle": 0.12716616135465492,
+      "is_cut": false,
+      "plane_origin": [
+        -0.10609399798327768,
+        -0.21525967023543918,
+        -0.3374897855609784
+      ],
+      "plane_normal": [
+        -0.9619357532405388,
+        -0.07410495893140162,
+        -0.263036236475761
+      ]
     }
   ],
   "oracles": {
@@ -45,10 +65,10 @@
     "expect_positive_volume": true,
     "volume_monotonicity": [
       "increase",
-      "decrease",
+      "increase",
       "increase"
     ]
   },
-  "generator_version": 1,
+  "generator_version": 2,
   "featured": false
 }

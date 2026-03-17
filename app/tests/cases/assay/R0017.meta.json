@@ -1,6 +1,6 @@
 {
   "id": "R0017",
-  "description": "3 ops, scale=4.03e3, extrude(circle,boss)+revolve(circle,boss)+revolve(rectangle,cut)",
+  "description": "3 ops, scale=4.03e3, revolve(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,cut)",
   "master_seed": 42,
   "test_seed": 9039304369631583602,
   "scale": 4033.4667367247152,
@@ -17,25 +17,45 @@
   ],
   "operations": [
     {
-      "kind": "extrude",
-      "profile_type": "circle",
-      "profile_size": 558.0190391237591,
-      "depth_or_angle": 1641.4091587033554,
-      "is_cut": false
-    },
-    {
-      "kind": "revolve",
-      "profile_type": "circle",
-      "profile_size": 841.7128263188614,
-      "depth_or_angle": 54.9439504672056,
-      "is_cut": false
-    },
-    {
       "kind": "revolve",
       "profile_type": "rectangle",
-      "profile_size": 2704.683153082348,
-      "depth_or_angle": 304.94365895915473,
-      "is_cut": true
+      "profile_size": 1707.0064729022463,
+      "depth_or_angle": 219.20304552523805,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 1783.0149282952539,
+      "depth_or_angle": 2494.776512594044,
+      "is_cut": false,
+      "plane_origin": [
+        1885.8844104186978,
+        1509.1963855385943,
+        3904.42182928966
+      ],
+      "plane_normal": [
+        -0.39564192191037,
+        -0.3267554609281852,
+        -0.8583113295190026
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 1749.7360920245446,
+      "depth_or_angle": 3198.367608113699,
+      "is_cut": true,
+      "plane_origin": [
+        341.5305239017821,
+        -3232.8083006434795,
+        306.63020760445715
+      ],
+      "plane_normal": [
+        0.039347186309050895,
+        0.5170777133024702,
+        -0.8550335884253023
+      ]
     }
   ],
   "oracles": {
@@ -49,6 +69,6 @@
       "decrease"
     ]
   },
-  "generator_version": 1,
+  "generator_version": 2,
   "featured": false
 }

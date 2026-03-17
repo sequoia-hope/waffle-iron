@@ -1,6 +1,6 @@
 {
   "id": "R0092",
-  "description": "3 ops, scale=1.56e-2, extrude(circle,boss)+extrude(rectangle,cut)+extrude(gear,boss)",
+  "description": "2 ops, scale=1.56e-2, extrude(circle,boss)+extrude(circle,cut)",
   "master_seed": 42,
   "test_seed": 9039304369631583677,
   "scale": 0.015594195647157605,
@@ -19,23 +19,16 @@
     {
       "kind": "extrude",
       "profile_type": "circle",
-      "profile_size": 0.004187250226333047,
-      "depth_or_angle": 0.00745233913705907,
+      "profile_size": 0.004054351381038178,
+      "depth_or_angle": 0.008063370257105199,
       "is_cut": false
     },
     {
       "kind": "extrude",
-      "profile_type": "rectangle",
-      "profile_size": 0.008442316726926687,
+      "profile_type": "circle",
+      "profile_size": 0.0051919507577885896,
       "depth_or_angle": 0.0061072266797926175,
       "is_cut": true
-    },
-    {
-      "kind": "extrude",
-      "profile_type": "gear",
-      "profile_size": 0.0046782586941472816,
-      "depth_or_angle": 0.010004607309226452,
-      "is_cut": false
     }
   ],
   "oracles": {
@@ -45,10 +38,9 @@
     "expect_positive_volume": true,
     "volume_monotonicity": [
       "increase",
-      "decrease",
-      "increase"
+      "decrease"
     ]
   },
-  "generator_version": 1,
+  "generator_version": 2,
   "featured": false
 }

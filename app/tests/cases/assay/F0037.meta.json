@@ -1,0 +1,46 @@
+{
+  "id": "F0037",
+  "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(rectangle,cut) — Cyl-minus-box (seed 9012)",
+  "master_seed": 0,
+  "test_seed": 9012,
+  "scale": 1.0,
+  "log_scale": 0.0,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "circle",
+      "profile_size": 0.48980857187159,
+      "depth_or_angle": 0.3925732772556119,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.30467807814834463,
+      "depth_or_angle": 0.33470338075980954,
+      "is_cut": true
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 3.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [
+      "increase",
+      "decrease"
+    ]
+  },
+  "generator_version": 2,
+  "featured": true
+}

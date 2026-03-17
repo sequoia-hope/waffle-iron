@@ -1,6 +1,6 @@
 {
   "id": "R0027",
-  "description": "3 ops, scale=7.82e3, revolve(gear,boss)+revolve(rectangle,cut)+revolve(rectangle,cut)",
+  "description": "3 ops, scale=7.82e3, extrude(rectangle,boss)+extrude(gear,cut)+revolve(circle,cut)",
   "master_seed": 42,
   "test_seed": 9039304369631583612,
   "scale": 7815.594445725564,
@@ -17,23 +17,23 @@
   ],
   "operations": [
     {
-      "kind": "revolve",
-      "profile_type": "gear",
-      "profile_size": 2344.6783337176694,
-      "depth_or_angle": 36.3343685131229,
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 2482.1625618922762,
+      "depth_or_angle": 794.2645315349355,
       "is_cut": false
     },
     {
-      "kind": "revolve",
-      "profile_type": "rectangle",
-      "profile_size": 2083.5128533151324,
-      "depth_or_angle": 314.1714427419036,
+      "kind": "extrude",
+      "profile_type": "gear",
+      "profile_size": 4493.966806292199,
+      "depth_or_angle": 3528.904275388337,
       "is_cut": true
     },
     {
       "kind": "revolve",
-      "profile_type": "rectangle",
-      "profile_size": 3636.3549568725853,
+      "profile_type": "circle",
+      "profile_size": 2137.715522861295,
       "depth_or_angle": 330.72357275429266,
       "is_cut": true
     }
@@ -49,6 +49,6 @@
       "decrease"
     ]
   },
-  "generator_version": 1,
+  "generator_version": 2,
   "featured": false
 }

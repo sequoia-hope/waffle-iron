@@ -1,6 +1,6 @@
 {
   "id": "R0009",
-  "description": "3 ops, scale=1.05e-4, extrude(circle,boss)+extrude(gear,boss)+extrude(gear,cut)",
+  "description": "3 ops, scale=1.05e-4, extrude(circle,boss)+extrude(rectangle,cut)+extrude(rectangle,cut)",
   "master_seed": 42,
   "test_seed": 9039304369631583594,
   "scale": 0.00010541480464026497,
@@ -19,23 +19,43 @@
     {
       "kind": "extrude",
       "profile_type": "circle",
-      "profile_size": 0.000025729395967320602,
-      "depth_or_angle": 0.000025075298016879393,
+      "profile_size": 0.000014221168345116853,
+      "depth_or_angle": 0.0000723124495374988,
       "is_cut": false
     },
     {
       "kind": "extrude",
-      "profile_type": "gear",
-      "profile_size": 0.00004216592185610599,
-      "depth_or_angle": 0.000054528084634187764,
-      "is_cut": false
+      "profile_type": "rectangle",
+      "profile_size": 0.00005745954536312841,
+      "depth_or_angle": 0.00004997974236303948,
+      "is_cut": true,
+      "plane_origin": [
+        0.00006512776971430597,
+        0.00008709502863700881,
+        -0.00005416445652674191
+      ],
+      "plane_normal": [
+        0.5982471241843081,
+        0.4949930774005929,
+        -0.6301446117604242
+      ]
     },
     {
       "kind": "extrude",
-      "profile_type": "gear",
-      "profile_size": 0.000063248882784159,
-      "depth_or_angle": 0.000030850409184857294,
-      "is_cut": true
+      "profile_type": "rectangle",
+      "profile_size": 0.000026642756488021724,
+      "depth_or_angle": 0.00002166220355939576,
+      "is_cut": true,
+      "plane_origin": [
+        -0.00006388975565353622,
+        0.00001769897692407998,
+        0.00005998796653592815
+      ],
+      "plane_normal": [
+        -0.681241858659207,
+        0.1548712766658502,
+        0.7154889360950585
+      ]
     }
   ],
   "oracles": {
@@ -45,10 +65,10 @@
     "expect_positive_volume": true,
     "volume_monotonicity": [
       "increase",
-      "increase",
+      "decrease",
       "decrease"
     ]
   },
-  "generator_version": 1,
+  "generator_version": 2,
   "featured": false
 }
