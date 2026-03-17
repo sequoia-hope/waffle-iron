@@ -8,7 +8,7 @@
 pub(crate) mod analytical;
 mod classify;
 mod clip;
-mod stitch;
+pub(crate) mod stitch;
 
 #[cfg(test)]
 pub(crate) use analytical::build_cyl_result;
@@ -540,6 +540,49 @@ pub(super) fn polygon_centroid(verts: &[[f64; 3]]) -> [f64; 3] {
     }
     [cx / n, cy / n, cz / n]
 }
+// ── AABB-aware face product guard ───────────────────────────────────────
+
+/// Per-face axis-aligned bounding box.
+struct FaceAabb {
+    min: [f64; 3],
+    max: [f64; 3],
+}
+
+/// Compute a tight AABB from a face polygon's vertices.
+fn face_aabb(face: &FacePoly) -> FaceAabb {
+    let mut mn = [f64::INFINITY; 3];
+    let mut mx = [f64::NEG_INFINITY; 3];
+    for v in &face.verts {
+        for j in 0..3 {
+            mn[j] = mn[j].min(v[j]);
+            mx[j] = mx[j].max(v[j]);
+        }
+    }
+    FaceAabb { min: mn, max: mx }
+}
+
+/// Count face pairs whose per-face AABBs overlap (with tau padding).
+/// Used to compute "effective product" for the face product guard.
+pub(crate) fn count_aabb_overlapping_pairs(
+    a_faces: &[FacePoly],
+    b_faces: &[FacePoly],
+    tau: f64,
+) -> usize {
+    let a_aabbs: Vec<FaceAabb> = a_faces.iter().map(face_aabb).collect();
+    let b_aabbs: Vec<FaceAabb> = b_faces.iter().map(face_aabb).collect();
+
+    let mut count = 0;
+    for a in &a_aabbs {
+        for b in &b_aabbs {
+            let overlaps = (0..3).all(|j| a.min[j] - tau <= b.max[j] && b.min[j] - tau <= a.max[j]);
+            if overlaps {
+                count += 1;
+            }
+        }
+    }
+    count
+}
+
 // ── Boolean operation dispatch ──────────────────────────────────────────
 
 /// Compute scale-adaptive weld tolerance from face polygon bounding boxes.
@@ -914,21 +957,27 @@ fn boolean_op_from_polys_inner(
     let a_convex = a_faces.len() <= 12;
     let b_convex = b_faces.len() <= 12;
 
+    // Compute tau early so AABB overlap can use it for padding.
+    let (tau, tau_weld) = compute_adaptive_tau_weld(&a_faces, &b_faces);
+
     // Product-based guard: O(A*B) face classification is too expensive
     // when both solids are non-convex (e.g., two gears with ~200 faces each).
+    // Use AABB-filtered effective product: most face pairs are spatially disjoint
+    // in multi-step operations, so the raw product vastly overestimates cost.
     let product = a_faces.len() * b_faces.len();
     if product > 5000 && !a_convex && !b_convex {
-        return Err(KernelError::NotSupported {
-            operation: format!(
-                "polygon boolean: {}x{} face product ({}) too large for non-convex solids",
-                a_faces.len(),
-                b_faces.len(),
-                product
-            ),
-        });
+        let effective = count_aabb_overlapping_pairs(&a_faces, &b_faces, tau);
+        if effective > 5000 {
+            return Err(KernelError::NotSupported {
+                operation: format!(
+                    "polygon boolean: {}x{} effective face product ({}) too large for non-convex solids",
+                    a_faces.len(),
+                    b_faces.len(),
+                    effective
+                ),
+            });
+        }
     }
-
-    let (tau, tau_weld) = compute_adaptive_tau_weld(&a_faces, &b_faces);
 
     // Compute AABBs for early-out: faces entirely outside the opposing
     // solid's bounding box are classified as Outside without expensive

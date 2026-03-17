@@ -33,18 +33,20 @@ pub(crate) fn tessellate_solid(
     _edge_geometry: &HashMap<EdgeIdx, CurveGeom>,
     cylinder_params: Option<&CylinderParams>,
     revolve_params: Option<&RevolveParams>,
+    is_polygon_soup: bool,
 ) -> Result<RenderMesh, KernelError> {
     // Boolean results have no CylinderParams/RevolveParams. Use edge-first
     // tessellation for watertight-by-construction output when we have proper
     // circular edge geometry to discretize.
     // Requirements for bounded path:
     //   1. Must have circular edges (ensures proper 64-pt discretization).
-    //      Polygon-boolean results (stitch.rs) mark ALL edges as Linear,
-    //      even circular ones — bounded path would use 2 verts instead of 64.
     //   2. Must NOT have arc edges. Cyl-cyl results have arcs where the old
     //      tessellate_cylindrical_patch + tessellate_arc_bounded_cap pair
     //      handles partial patches correctly with matching vertex placement.
-    if cylinder_params.is_none() && revolve_params.is_none() {
+    //   3. Must NOT be from polygon-soup stitching. Polygon-soup B-Rep topology
+    //      (many small faces from S-H clipping) is incompatible with the bounded
+    //      tessellation path, which expects clean analytical B-Rep faces.
+    if cylinder_params.is_none() && revolve_params.is_none() && !is_polygon_soup {
         let has_circles = _edge_geometry
             .values()
             .any(|e| matches!(e, CurveGeom::Circular(_)));

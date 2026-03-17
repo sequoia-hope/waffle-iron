@@ -1173,6 +1173,7 @@ impl Kernel for WaffleKernel {
             &ws.edge_geometry,
             ws.cylinder_params.as_ref(),
             ws.revolve_params.as_ref(),
+            ws.cached_face_polys.is_some(),
         )
     }
 

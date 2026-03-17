@@ -4,12 +4,13 @@
 //! vertex welding, face/loop/half-edge creation, twin pairing with
 //! tolerance escalation, and KernelId allocation.
 
-use crate::geometry::curve::{CurveGeom, Line3D};
+use crate::geometry::curve::{Circle3D, CurveGeom, Line3D};
 use crate::geometry::point::{Point3, Vector3};
 use crate::geometry::surface::{Plane, SurfaceGeom};
 use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::*;
 use crate::types::*;
+use crate::units::TAU_COINCIDENT;
 use crate::vecmath::*;
 use std::collections::HashMap;
 
@@ -559,6 +560,10 @@ pub(super) fn build_brep_from_polygons_inner(
         edge_map.insert(eid, edge_idx);
     }
 
+    // Step 4b: Reconstruct edge geometry from adjacent face surfaces.
+    // Cylinder×Plane perpendicular → Circular edges (Patrikalakis Ch.5).
+    reconstruct_edge_geometry(&arena, &face_geometry, &mut edge_geometry);
+
     // Step 5: Build vertex map
     for (idx, _) in arena.vertices.iter().enumerate() {
         let vid = id_alloc();
@@ -573,5 +578,118 @@ pub(super) fn build_brep_from_polygons_inner(
         face_geometry,
         edge_geometry,
         cached_face_polys: None,
+    })
+}
+
+/// Post-stitch pass: reconstruct edge geometry from adjacent face surfaces.
+///
+/// For each edge, examines surface geometry of two adjacent faces.
+/// Cylinder×Plane (perpendicular) → CurveGeom::Circular(Circle3D).
+/// All other pairs: left as Linear.
+///
+/// Ref: Patrikalakis Ch.5 — plane-cylinder perpendicular SSI is a circle.
+pub(crate) fn reconstruct_edge_geometry(
+    arena: &TopoArena,
+    face_geometry: &HashMap<FaceIdx, SurfaceGeom>,
+    edge_geometry: &mut HashMap<EdgeIdx, CurveGeom>,
+) {
+    let edge_indices: Vec<EdgeIdx> = edge_geometry.keys().copied().collect();
+
+    for edge_idx in edge_indices {
+        // Edge → HalfEdge
+        if edge_idx.0 >= arena.edges.len() {
+            continue;
+        }
+        let he_a = arena.edges[edge_idx.0].half_edge;
+        if he_a.0 >= arena.half_edges.len() {
+            continue;
+        }
+        let he_b = arena.half_edges[he_a.0].twin;
+
+        // Skip self-twin boundary edges (only one adjacent face)
+        if he_a == he_b {
+            continue;
+        }
+        if he_b.0 >= arena.half_edges.len() {
+            continue;
+        }
+
+        // HalfEdge → Loop → Face
+        let loop_a = arena.half_edges[he_a.0].loop_;
+        let loop_b = arena.half_edges[he_b.0].loop_;
+        if loop_a.0 >= arena.loops.len() || loop_b.0 >= arena.loops.len() {
+            continue;
+        }
+        let face_a = arena.loops[loop_a.0].face;
+        let face_b = arena.loops[loop_b.0].face;
+
+        let (geom_a, geom_b) = match (face_geometry.get(&face_a), face_geometry.get(&face_b)) {
+            (Some(a), Some(b)) => (a, b),
+            _ => continue,
+        };
+
+        // Try to reconstruct a circular edge from Cylinder×Plane pair
+        if let Some(circle) = try_cyl_plane_circle(geom_a, geom_b) {
+            // Validate: check edge endpoints lie on the circle
+            let origin_v = arena.half_edges[he_a.0].origin;
+            let next_he = arena.half_edges[he_a.0].next;
+            let dest_v = if next_he.0 < arena.half_edges.len() {
+                arena.half_edges[next_he.0].origin
+            } else {
+                continue;
+            };
+
+            let p0 = arena.vertices[origin_v.0].position;
+            let p1 = arena.vertices[dest_v.0].position;
+            let center = circle.center.to_array();
+
+            let dist0 = ((p0[0] - center[0]).powi(2)
+                + (p0[1] - center[1]).powi(2)
+                + (p0[2] - center[2]).powi(2))
+            .sqrt();
+            let dist1 = ((p1[0] - center[0]).powi(2)
+                + (p1[1] - center[1]).powi(2)
+                + (p1[2] - center[2]).powi(2))
+            .sqrt();
+
+            // Both endpoints must be within tolerance of the circle radius
+            if (dist0 - circle.radius).abs() < TAU_COINCIDENT
+                && (dist1 - circle.radius).abs() < TAU_COINCIDENT
+            {
+                edge_geometry.insert(edge_idx, CurveGeom::Circular(circle));
+            }
+        }
+    }
+}
+
+/// Try to construct a Circle3D from a Cylinder×Plane perpendicular intersection.
+///
+/// Returns `Some(Circle3D)` if one surface is cylindrical and the other planar,
+/// and the plane normal is parallel to the cylinder axis (perpendicular cut).
+fn try_cyl_plane_circle(a: &SurfaceGeom, b: &SurfaceGeom) -> Option<Circle3D> {
+    let (plane, cyl) = match (a, b) {
+        (SurfaceGeom::Cylindrical(c), SurfaceGeom::Planar(p)) => (p, c),
+        (SurfaceGeom::Planar(p), SurfaceGeom::Cylindrical(c)) => (p, c),
+        _ => return None,
+    };
+
+    // Check perpendicularity: plane normal parallel to cylinder axis
+    let n = plane.normal.to_array();
+    let ax = cyl.axis.to_array();
+    let dot = n[0] * ax[0] + n[1] * ax[1] + n[2] * ax[2];
+    if dot.abs() < 1.0 - 1e-6 {
+        return None; // Oblique — intersection is an ellipse
+    }
+
+    // Project cylinder origin onto the plane to get circle center
+    let co = cyl.origin.to_array();
+    let po = plane.origin.to_array();
+    let d = (co[0] - po[0]) * n[0] + (co[1] - po[1]) * n[1] + (co[2] - po[2]) * n[2];
+    let center = Point3::new(co[0] - d * n[0], co[1] - d * n[1], co[2] - d * n[2]);
+
+    Some(Circle3D {
+        center,
+        normal: plane.normal,
+        radius: cyl.radius,
     })
 }

@@ -320,18 +320,23 @@ pub(crate) fn polygon_approx_boolean(
 
     // Product-based guard: O(A*B) face classification is too expensive
     // when both solids are non-convex (e.g., two gears with ~200 faces each).
+    // Use AABB-filtered effective product: most face pairs are spatially disjoint
+    // in multi-step operations, so the raw product vastly overestimates cost.
     let a_convex = a_faces.len() <= 12;
     let b_convex = b_faces.len() <= 12;
     let product = a_faces.len() * b_faces.len();
     if product > 5000 && !a_convex && !b_convex {
-        return Err(KernelError::NotSupported {
-            operation: format!(
-                "polygon approx boolean: {}x{} face product ({}) too large for non-convex solids",
-                a_faces.len(),
-                b_faces.len(),
-                product
-            ),
-        });
+        let effective = super::count_aabb_overlapping_pairs(&a_faces, &b_faces, TAU_MODEL);
+        if effective > 5000 {
+            return Err(KernelError::NotSupported {
+                operation: format!(
+                    "polygon approx boolean: {}x{} effective face product ({}) too large for non-convex solids",
+                    a_faces.len(),
+                    b_faces.len(),
+                    effective
+                ),
+            });
+        }
     }
 
     boolean_op_from_polys(a_faces, b_faces, op, id_alloc)

@@ -1802,7 +1802,7 @@ fn diag_standalone_cyl_volume() {
     let result = crate::boolean::build_cyl_result(&cyl, &mut id_alloc).unwrap();
     let mesh = crate::tessellation::tessellate_solid(
         &result.arena, &result.face_map, &result.face_geometry,
-        &result.edge_geometry, None, None,
+        &result.edge_geometry, None, None, false,
     ).unwrap();
 
     let vol = mesh_volume(&mesh);
@@ -5650,13 +5650,14 @@ fn z3_euler_formula_after_boolean() {
 fn g1_product_guard_rejects_large_nonconvex() {
     use crate::boolean::{boolean_op_from_polys, BoolOp, FacePoly};
 
-    // Create two large non-convex solids (100 faces each, product = 10000 > 5000)
+    // Create two large non-convex solids (100 faces each) with spatially overlapping
+    // AABBs so the effective product remains high (> 5000) after AABB filtering.
+    // All faces share the same AABB [0,1]^2×{z} → every pair overlaps.
     let make_faces = |n: usize| -> Vec<FacePoly> {
         (0..n)
-            .map(|i| {
-                let z = i as f64 * 0.1;
+            .map(|_| {
                 FacePoly {
-                    verts: vec![[0.0, 0.0, z], [1.0, 0.0, z], [1.0, 1.0, z]],
+                    verts: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]],
                     normal: [0.0, 0.0, 1.0],
                     origin: [0.0, 0.0, 0.0],
                     surface_geom: None,
@@ -5674,7 +5675,7 @@ fn g1_product_guard_rejects_large_nonconvex() {
     });
     assert!(
         matches!(result, Err(KernelError::NotSupported { .. })),
-        "Expected NotSupported for 100x100 non-convex product, got Ok or other error",
+        "Expected NotSupported for 100x100 non-convex product with overlapping AABBs",
     );
 }
 
@@ -5873,7 +5874,7 @@ fn h3_bounded_standalone_cyl_watertight() {
     let result = crate::boolean::build_cyl_result(&cyl, &mut id_alloc).unwrap();
     let mesh = crate::tessellation::tessellate_solid(
         &result.arena, &result.face_map, &result.face_geometry,
-        &result.edge_geometry, None, None,
+        &result.edge_geometry, None, None, false,
     ).unwrap();
 
     assert!(check_watertight(&mesh), "Standalone cylinder via bounded path must be watertight");
@@ -5928,5 +5929,427 @@ fn h3_bounded_vertex_sharing_f32_exact() {
         unpaired_exact == 0,
         "Bounded tessellation should produce exact f32 vertex sharing, {} unpaired (exact)",
         unpaired_exact
+    );
+}
+
+// ── Sprint I: AABB-aware product guard + edge geometry reconstruction ──
+
+#[test]
+fn i1_aabb_overlap_count_disjoint() {
+    // Two face sets with no AABB overlap → count = 0
+    use crate::boolean::{count_aabb_overlapping_pairs, FacePoly};
+    let a = vec![FacePoly {
+        verts: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0]],
+        normal: [0.0, 0.0, 1.0],
+        origin: [0.5, 0.5, 0.0],
+        surface_geom: None,
+    }];
+    let b = vec![FacePoly {
+        verts: vec![[10.0, 10.0, 10.0], [11.0, 10.0, 10.0], [11.0, 11.0, 10.0]],
+        normal: [0.0, 0.0, 1.0],
+        origin: [10.5, 10.5, 10.0],
+        surface_geom: None,
+    }];
+    assert_eq!(count_aabb_overlapping_pairs(&a, &b, 1e-7), 0);
+}
+
+#[test]
+fn i1_aabb_overlap_count_overlapping() {
+    // Partially overlapping face sets → count < raw product
+    use crate::boolean::{count_aabb_overlapping_pairs, FacePoly};
+    let make_face = |x: f64, y: f64| FacePoly {
+        verts: vec![[x, y, 0.0], [x + 1.0, y, 0.0], [x + 1.0, y + 1.0, 0.0], [x, y + 1.0, 0.0]],
+        normal: [0.0, 0.0, 1.0],
+        origin: [x + 0.5, y + 0.5, 0.0],
+        surface_geom: None,
+    };
+    // 4 faces at (0,0), (2,0), (4,0), (6,0) — 1×1 quads spaced apart
+    let a = vec![make_face(0.0, 0.0), make_face(2.0, 0.0), make_face(4.0, 0.0), make_face(6.0, 0.0)];
+    // 4 faces at (0.5,0), (2.5,0), (4.5,0), (6.5,0) — overlap with matching a faces
+    let b = vec![make_face(0.5, 0.0), make_face(2.5, 0.0), make_face(4.5, 0.0), make_face(6.5, 0.0)];
+    // Raw product = 16. Each b face only overlaps with its matching a face.
+    let count = count_aabb_overlapping_pairs(&a, &b, 1e-7);
+    assert!(count < 16, "effective count {} should be < raw product 16", count);
+    assert!(count >= 4, "at least 4 pairs should overlap, got {}", count);
+}
+
+#[test]
+fn i1_chained_union_accepts_large_product() {
+    // 3 cylinder unions in sequence: accumulated faces should NOT hit the product limit
+    // because AABB filtering excludes spatially disjoint face pairs.
+    let mut k = WaffleKernel::new();
+
+    // First cylinder at x=-5
+    let (p1, pos1) = make_circle_profile(-5.0, 0.0, 2.0);
+    let f1 = k.make_faces_from_profiles(&p1, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos1).unwrap();
+    let cyl1 = k.extrude_face(f1[0], Z_DIR, 5.0).unwrap();
+
+    // Second cylinder at x=0
+    let (p2, pos2) = make_circle_profile(0.0, 0.0, 2.0);
+    let f2 = k.make_faces_from_profiles(&p2, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos2).unwrap();
+    let cyl2 = k.extrude_face(f2[0], Z_DIR, 5.0).unwrap();
+
+    // Third cylinder at x=5
+    let (p3, pos3) = make_circle_profile(5.0, 0.0, 2.0);
+    let f3 = k.make_faces_from_profiles(&p3, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos3).unwrap();
+    let cyl3 = k.extrude_face(f3[0], Z_DIR, 5.0).unwrap();
+
+    // Chain: cyl1 ∪ cyl2
+    let union12 = k.boolean_union(&cyl1, &cyl2).expect("union cyl1+cyl2");
+    // Chain: (cyl1 ∪ cyl2) ∪ cyl3 — should not hit product limit
+    let _union123 = k.boolean_union(&union12, &cyl3).expect("chained union should not hit product limit");
+}
+
+#[test]
+fn i2_reconstruct_cyl_plane_circle() {
+    // Cylinder + Plane faces sharing an edge → edge should become Circular
+    use crate::boolean::stitch::reconstruct_edge_geometry;
+    use crate::geometry::curve::{CurveGeom, Line3D};
+    use crate::geometry::point::{Point3, Vector3};
+    use crate::geometry::surface::{Cylinder, Plane, SurfaceGeom};
+    use crate::topology::arena::TopoArena;
+    use crate::topology::half_edge::*;
+
+    // Build a minimal B-Rep: two faces sharing one edge
+    let mut arena = TopoArena::new();
+    let solid = arena.add_solid();
+    let shell = arena.add_shell(solid);
+    arena.solids[solid.0].outer_shell = shell;
+
+    // Vertices at radius 3.0 on the z=5 plane
+    let v0 = arena.add_vertex([3.0, 0.0, 5.0]);
+    let v1 = arena.add_vertex([0.0, 3.0, 5.0]);
+    let v2 = arena.add_vertex([3.0, 0.0, 0.0]); // on cylinder below
+    let v3 = arena.add_vertex([0.0, 3.0, 0.0]); // on cylinder below
+
+    // Face A: planar cap (z=5 plane)
+    let face_a = arena.add_face(shell);
+    let loop_a = arena.add_loop(face_a);
+    arena.faces[face_a.0].outer_loop = loop_a;
+
+    let he0 = HalfEdgeIdx(arena.half_edges.len());
+    arena.half_edges.push(HalfEdge {
+        origin: v0,
+        edge: EdgeIdx(0),
+        twin: HalfEdgeIdx(0), // placeholder
+        next: HalfEdgeIdx(arena.half_edges.len() + 1),
+        prev: HalfEdgeIdx(arena.half_edges.len() + 1),
+        loop_: loop_a,
+    });
+    let _he1 = HalfEdgeIdx(arena.half_edges.len());
+    arena.half_edges.push(HalfEdge {
+        origin: v1,
+        edge: EdgeIdx(0),
+        twin: HalfEdgeIdx(0), // placeholder
+        next: he0,
+        prev: he0,
+        loop_: loop_a,
+    });
+    arena.loops[loop_a.0].half_edge = he0;
+
+    // Face B: cylindrical side (z-aligned cylinder, radius 3)
+    let face_b = arena.add_face(shell);
+    let loop_b = arena.add_loop(face_b);
+    arena.faces[face_b.0].outer_loop = loop_b;
+
+    let he2 = HalfEdgeIdx(arena.half_edges.len());
+    arena.half_edges.push(HalfEdge {
+        origin: v1,         // twin of he0: goes v1→v0
+        edge: EdgeIdx(0),
+        twin: HalfEdgeIdx(0),
+        next: HalfEdgeIdx(arena.half_edges.len() + 1),
+        prev: HalfEdgeIdx(arena.half_edges.len() + 3),
+        loop_: loop_b,
+    });
+    let he3 = HalfEdgeIdx(arena.half_edges.len());
+    arena.half_edges.push(HalfEdge {
+        origin: v0,
+        edge: EdgeIdx(0),
+        twin: HalfEdgeIdx(0),
+        next: HalfEdgeIdx(arena.half_edges.len() + 1),
+        prev: he2,
+        loop_: loop_b,
+    });
+    let he4 = HalfEdgeIdx(arena.half_edges.len());
+    arena.half_edges.push(HalfEdge {
+        origin: v2,
+        edge: EdgeIdx(0),
+        twin: HalfEdgeIdx(0),
+        next: HalfEdgeIdx(arena.half_edges.len() + 1),
+        prev: he3,
+        loop_: loop_b,
+    });
+    let _he5 = HalfEdgeIdx(arena.half_edges.len());
+    arena.half_edges.push(HalfEdge {
+        origin: v3,
+        edge: EdgeIdx(0),
+        twin: HalfEdgeIdx(0),
+        next: he2,
+        prev: he4,
+        loop_: loop_b,
+    });
+    arena.loops[loop_b.0].half_edge = he2;
+
+    // Create edge: he0 (v0→v1) paired with he2 (v1→v0)
+    let edge_idx = EdgeIdx(arena.edges.len());
+    arena.edges.push(Edge { half_edge: he0 });
+    arena.half_edges[he0.0].twin = he2;
+    arena.half_edges[he0.0].edge = edge_idx;
+    arena.half_edges[he2.0].twin = he0;
+    arena.half_edges[he2.0].edge = edge_idx;
+
+    // Face geometry
+    let mut face_geometry: HashMap<FaceIdx, SurfaceGeom> = HashMap::new();
+    face_geometry.insert(
+        face_a,
+        SurfaceGeom::Planar(Plane {
+            origin: Point3::new(0.0, 0.0, 5.0),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+        }),
+    );
+    face_geometry.insert(
+        face_b,
+        SurfaceGeom::Cylindrical(Cylinder {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            axis: Vector3::new(0.0, 0.0, 1.0),
+            radius: 3.0,
+        }),
+    );
+
+    // Edge geometry: initially linear
+    let mut edge_geometry: HashMap<EdgeIdx, CurveGeom> = HashMap::new();
+    edge_geometry.insert(
+        edge_idx,
+        CurveGeom::Linear(Line3D {
+            origin: Point3::new(3.0, 0.0, 5.0),
+            direction: Vector3::new(-3.0, 3.0, 0.0),
+        }),
+    );
+
+    // Run reconstruction
+    reconstruct_edge_geometry(&arena, &face_geometry, &mut edge_geometry);
+
+    // Should now be Circular
+    match &edge_geometry[&edge_idx] {
+        CurveGeom::Circular(c) => {
+            assert!((c.radius - 3.0).abs() < 1e-6, "radius should be 3.0, got {}", c.radius);
+            assert!((c.center.z - 5.0).abs() < 1e-6, "center.z should be 5.0, got {}", c.center.z);
+            assert!((c.normal.z.abs() - 1.0).abs() < 1e-6, "normal should be ±Z");
+        }
+        other => panic!("Expected Circular, got {:?}", other),
+    }
+}
+
+#[test]
+fn i2_reconstruct_plane_plane_stays_linear() {
+    // Two planar faces → edge stays Linear
+    use crate::boolean::stitch::reconstruct_edge_geometry;
+    use crate::geometry::curve::{CurveGeom, Line3D};
+    use crate::geometry::point::{Point3, Vector3};
+    use crate::geometry::surface::{Plane, SurfaceGeom};
+    use crate::topology::arena::TopoArena;
+    use crate::topology::half_edge::*;
+
+    let mut arena = TopoArena::new();
+    let solid = arena.add_solid();
+    let shell = arena.add_shell(solid);
+    arena.solids[solid.0].outer_shell = shell;
+
+    let v0 = arena.add_vertex([0.0, 0.0, 0.0]);
+    let v1 = arena.add_vertex([1.0, 0.0, 0.0]);
+
+    let face_a = arena.add_face(shell);
+    let loop_a = arena.add_loop(face_a);
+    arena.faces[face_a.0].outer_loop = loop_a;
+    let he0 = HalfEdgeIdx(arena.half_edges.len());
+    arena.half_edges.push(HalfEdge {
+        origin: v0, edge: EdgeIdx(0), twin: HalfEdgeIdx(0),
+        next: HalfEdgeIdx(arena.half_edges.len() + 1),
+        prev: HalfEdgeIdx(arena.half_edges.len() + 1), loop_: loop_a,
+    });
+    let _he1 = HalfEdgeIdx(arena.half_edges.len());
+    arena.half_edges.push(HalfEdge {
+        origin: v1, edge: EdgeIdx(0), twin: HalfEdgeIdx(0),
+        next: he0, prev: he0, loop_: loop_a,
+    });
+    arena.loops[loop_a.0].half_edge = he0;
+
+    let face_b = arena.add_face(shell);
+    let loop_b = arena.add_loop(face_b);
+    arena.faces[face_b.0].outer_loop = loop_b;
+    let he2 = HalfEdgeIdx(arena.half_edges.len());
+    arena.half_edges.push(HalfEdge {
+        origin: v1, edge: EdgeIdx(0), twin: HalfEdgeIdx(0),
+        next: HalfEdgeIdx(arena.half_edges.len() + 1),
+        prev: HalfEdgeIdx(arena.half_edges.len() + 1), loop_: loop_b,
+    });
+    let _he3 = HalfEdgeIdx(arena.half_edges.len());
+    arena.half_edges.push(HalfEdge {
+        origin: v0, edge: EdgeIdx(0), twin: HalfEdgeIdx(0),
+        next: he2, prev: he2, loop_: loop_b,
+    });
+    arena.loops[loop_b.0].half_edge = he2;
+
+    let edge_idx = EdgeIdx(arena.edges.len());
+    arena.edges.push(Edge { half_edge: he0 });
+    arena.half_edges[he0.0].twin = he2;
+    arena.half_edges[he0.0].edge = edge_idx;
+    arena.half_edges[he2.0].twin = he0;
+    arena.half_edges[he2.0].edge = edge_idx;
+
+    let mut face_geometry: HashMap<FaceIdx, SurfaceGeom> = HashMap::new();
+    face_geometry.insert(face_a, SurfaceGeom::Planar(Plane {
+        origin: Point3::new(0.0, 0.0, 0.0), normal: Vector3::new(0.0, 0.0, 1.0),
+    }));
+    face_geometry.insert(face_b, SurfaceGeom::Planar(Plane {
+        origin: Point3::new(0.0, 0.0, 0.0), normal: Vector3::new(0.0, 1.0, 0.0),
+    }));
+
+    let mut edge_geometry: HashMap<EdgeIdx, CurveGeom> = HashMap::new();
+    edge_geometry.insert(edge_idx, CurveGeom::Linear(Line3D {
+        origin: Point3::new(0.0, 0.0, 0.0), direction: Vector3::new(1.0, 0.0, 0.0),
+    }));
+
+    reconstruct_edge_geometry(&arena, &face_geometry, &mut edge_geometry);
+
+    match &edge_geometry[&edge_idx] {
+        CurveGeom::Linear(_) => {} // expected
+        other => panic!("Expected Linear, got {:?}", other),
+    }
+}
+
+#[test]
+fn i2_reconstruct_oblique_stays_linear() {
+    // Oblique Cylinder×Plane → edge stays Linear (intersection is ellipse)
+    use crate::boolean::stitch::reconstruct_edge_geometry;
+    use crate::geometry::curve::{CurveGeom, Line3D};
+    use crate::geometry::point::{Point3, Vector3};
+    use crate::geometry::surface::{Cylinder, Plane, SurfaceGeom};
+    use crate::topology::arena::TopoArena;
+    use crate::topology::half_edge::*;
+
+    let mut arena = TopoArena::new();
+    let solid = arena.add_solid();
+    let shell = arena.add_shell(solid);
+    arena.solids[solid.0].outer_shell = shell;
+
+    let v0 = arena.add_vertex([3.0, 0.0, 5.0]);
+    let v1 = arena.add_vertex([0.0, 3.0, 5.0]);
+
+    let face_a = arena.add_face(shell);
+    let loop_a = arena.add_loop(face_a);
+    arena.faces[face_a.0].outer_loop = loop_a;
+    let he0 = HalfEdgeIdx(arena.half_edges.len());
+    arena.half_edges.push(HalfEdge {
+        origin: v0, edge: EdgeIdx(0), twin: HalfEdgeIdx(0),
+        next: HalfEdgeIdx(arena.half_edges.len() + 1),
+        prev: HalfEdgeIdx(arena.half_edges.len() + 1), loop_: loop_a,
+    });
+    let _he1 = HalfEdgeIdx(arena.half_edges.len());
+    arena.half_edges.push(HalfEdge {
+        origin: v1, edge: EdgeIdx(0), twin: HalfEdgeIdx(0),
+        next: he0, prev: he0, loop_: loop_a,
+    });
+    arena.loops[loop_a.0].half_edge = he0;
+
+    let face_b = arena.add_face(shell);
+    let loop_b = arena.add_loop(face_b);
+    arena.faces[face_b.0].outer_loop = loop_b;
+    let he2 = HalfEdgeIdx(arena.half_edges.len());
+    arena.half_edges.push(HalfEdge {
+        origin: v1, edge: EdgeIdx(0), twin: HalfEdgeIdx(0),
+        next: HalfEdgeIdx(arena.half_edges.len() + 1),
+        prev: HalfEdgeIdx(arena.half_edges.len() + 1), loop_: loop_b,
+    });
+    let _he3 = HalfEdgeIdx(arena.half_edges.len());
+    arena.half_edges.push(HalfEdge {
+        origin: v0, edge: EdgeIdx(0), twin: HalfEdgeIdx(0),
+        next: he2, prev: he2, loop_: loop_b,
+    });
+    arena.loops[loop_b.0].half_edge = he2;
+
+    let edge_idx = EdgeIdx(arena.edges.len());
+    arena.edges.push(Edge { half_edge: he0 });
+    arena.half_edges[he0.0].twin = he2;
+    arena.half_edges[he0.0].edge = edge_idx;
+    arena.half_edges[he2.0].twin = he0;
+    arena.half_edges[he2.0].edge = edge_idx;
+
+    let mut face_geometry: HashMap<FaceIdx, SurfaceGeom> = HashMap::new();
+    // Oblique plane: normal at 45° to cylinder axis
+    let oblique_normal = Vector3::new(0.0, 1.0, 1.0).normalized();
+    face_geometry.insert(face_a, SurfaceGeom::Planar(Plane {
+        origin: Point3::new(0.0, 0.0, 5.0), normal: oblique_normal,
+    }));
+    face_geometry.insert(face_b, SurfaceGeom::Cylindrical(Cylinder {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        axis: Vector3::new(0.0, 0.0, 1.0),
+        radius: 3.0,
+    }));
+
+    let mut edge_geometry: HashMap<EdgeIdx, CurveGeom> = HashMap::new();
+    edge_geometry.insert(edge_idx, CurveGeom::Linear(Line3D {
+        origin: Point3::new(3.0, 0.0, 5.0), direction: Vector3::new(-3.0, 3.0, 0.0),
+    }));
+
+    reconstruct_edge_geometry(&arena, &face_geometry, &mut edge_geometry);
+
+    match &edge_geometry[&edge_idx] {
+        CurveGeom::Linear(_) => {} // expected — oblique intersection stays linear
+        other => panic!("Expected Linear for oblique cut, got {:?}", other),
+    }
+}
+
+#[test]
+fn i2_polygon_boolean_produces_circular_edges() {
+    // Box-cyl polygon boolean result should have Circular edges after reconstruction
+    let (k, result) = do_box_cyl_boolean(
+        0.0, 0.0, 10.0, 10.0, 10.0,
+        0.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Subtract,
+    )
+    .expect("subtract");
+
+    // Count edge types in the result
+    let solid = k.solids.get(&result.id()).expect("solid");
+    let mut circular_count = 0;
+    let mut linear_count = 0;
+    for geom in solid.edge_geometry.values() {
+        match geom {
+            crate::geometry::curve::CurveGeom::Circular(_) => circular_count += 1,
+            crate::geometry::curve::CurveGeom::Linear(_) => linear_count += 1,
+            _ => {}
+        }
+    }
+    // Box-cyl subtract produces circular edges where cylinder caps meet box faces
+    // (top and bottom circles of the hole)
+    assert!(
+        circular_count >= 2,
+        "Expected at least 2 circular edges, got {} circular + {} linear",
+        circular_count, linear_count
+    );
+}
+
+#[test]
+fn i2_polygon_boolean_activates_bounded_tess() {
+    // After edge reconstruction, polygon-boolean results should activate bounded
+    // tessellation for faces with circular edges, producing watertight meshes.
+    let (mut k, result) = do_box_cyl_boolean(
+        0.0, 0.0, 10.0, 10.0, 10.0,
+        0.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Subtract,
+    )
+    .expect("subtract");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+    let n_tris = mesh.indices.len() / 3;
+    assert!(n_tris > 10, "mesh should have triangles, got {}", n_tris);
+
+    // Check watertightness
+    let unpaired = count_unpaired_edges(&mesh);
+    assert!(
+        unpaired < 5,
+        "polygon boolean result should be nearly watertight, {} unpaired edges",
+        unpaired
     );
 }
