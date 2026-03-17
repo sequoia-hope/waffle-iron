@@ -6353,3 +6353,214 @@ fn i2_polygon_boolean_activates_bounded_tess() {
         unpaired
     );
 }
+
+// ── Sprint J: Watertight Bounded Tessellation for All Non-Arc Results ─────
+
+/// Create two boxes and perform a boolean op.
+fn do_box_box_boolean(
+    cx_a: f64, cy_a: f64, w_a: f64, h_a: f64, d_a: f64,
+    cx_b: f64, cy_b: f64, w_b: f64, h_b: f64, d_b: f64,
+    op: crate::boolean::BoolOp,
+) -> Result<(WaffleKernel, KernelSolidHandle), KernelError> {
+    let mut k = WaffleKernel::new();
+    let (pa, posa) = make_rect_profile(cx_a, cy_a, w_a, h_a);
+    let fa = k.make_faces_from_profiles(&pa, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posa).unwrap();
+    let box_a = k.extrude_face(fa[0], Z_DIR, d_a).unwrap();
+    let (pb, posb) = make_rect_profile(cx_b, cy_b, w_b, h_b);
+    let fb = k.make_faces_from_profiles(&pb, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posb).unwrap();
+    let box_b = k.extrude_face(fb[0], Z_DIR, d_b).unwrap();
+    let result = match op {
+        crate::boolean::BoolOp::Union => k.boolean_union(&box_a, &box_b)?,
+        crate::boolean::BoolOp::Subtract => k.boolean_subtract(&box_a, &box_b)?,
+        crate::boolean::BoolOp::Intersect => k.boolean_intersect(&box_a, &box_b)?,
+    };
+    Ok((k, result))
+}
+
+// ── J1: Box-box boolean mesh quality ──────────────────────────────────
+
+#[test]
+fn j1_box_box_subtract_produces_mesh() {
+    // Box-box subtract (polygon-soup path, fan tessellation) should produce
+    // a valid mesh with correct topology.
+    // 10x10x10 box at origin minus 6x6x10 box at (2,2)
+    let (mut k, result) = do_box_box_boolean(
+        0.0, 0.0, 10.0, 10.0, 10.0,
+        2.0, 2.0, 6.0, 6.0, 10.0,
+        crate::boolean::BoolOp::Subtract,
+    )
+    .expect("box-box subtract should succeed");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+    let n_tris = mesh.indices.len() / 3;
+    assert!(n_tris >= 12, "mesh should have triangles, got {}", n_tris);
+
+    // Fan tessellation may have small gaps; allow up to 5 unpaired edges
+    let unpaired = count_unpaired_edges(&mesh);
+    assert!(
+        unpaired <= 5,
+        "box-box subtract should be nearly watertight, got {} unpaired edges",
+        unpaired
+    );
+}
+
+#[test]
+fn j1_box_box_union_mesh_valid() {
+    // Two overlapping boxes union should produce a valid mesh.
+    // 10x10x10 box at origin union 8x8x10 box at (3,3)
+    let (mut k, result) = do_box_box_boolean(
+        0.0, 0.0, 10.0, 10.0, 10.0,
+        3.0, 3.0, 8.0, 8.0, 10.0,
+        crate::boolean::BoolOp::Union,
+    )
+    .expect("box-box union should succeed");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+    let n_tris = mesh.indices.len() / 3;
+    assert!(n_tris >= 12, "mesh should have triangles, got {}", n_tris);
+
+    let unpaired = count_unpaired_edges(&mesh);
+    assert!(
+        unpaired <= 5,
+        "box-box union should be nearly watertight, got {} unpaired edges",
+        unpaired
+    );
+}
+
+// ── J2: Box-cyl SSI boolean watertight (bounded tessellation) ─────────
+
+#[test]
+fn j2_box_cyl_subtract_watertight() {
+    // Box-cyl subtract (SSI path, bounded tessellation) should produce
+    // watertight mesh.
+    let (mut k, result) = do_box_cyl_boolean(
+        0.0, 0.0, 12.0, 12.0, 10.0,
+        0.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Subtract,
+    )
+    .expect("box-cyl subtract should succeed");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+    let unpaired = count_unpaired_edges(&mesh);
+    assert_eq!(
+        unpaired, 0,
+        "box-cyl subtract must be watertight, got {} unpaired edges",
+        unpaired
+    );
+}
+
+#[test]
+fn j2_box_cyl_union_watertight() {
+    // Box-cyl union (SSI path, bounded tessellation) should produce
+    // watertight mesh.
+    let (mut k, result) = do_box_cyl_boolean(
+        0.0, 0.0, 12.0, 12.0, 10.0,
+        0.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Union,
+    )
+    .expect("box-cyl union should succeed");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+    let unpaired = count_unpaired_edges(&mesh);
+    assert_eq!(
+        unpaired, 0,
+        "box-cyl union must be watertight, got {} unpaired edges",
+        unpaired
+    );
+}
+
+// ── J3: No regression for existing paths ──────────────────────────────
+
+#[test]
+fn j3_box_primitive_bounded_tess() {
+    // Box primitive (no boolean, all-linear) should still tessellate correctly
+    // via bounded path and produce watertight mesh.
+    let mut k = WaffleKernel::new();
+    let (profiles, positions) = make_rect_profile(0.0, 0.0, 4.0, 3.0);
+    let face_ids = k
+        .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+        .unwrap();
+    let solid = k.extrude_face(face_ids[0], Z_DIR, 2.0).unwrap();
+
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    let n_tris = mesh.indices.len() / 3;
+    // Box has 6 faces, each gets 2 triangles from earcut = 12 triangles
+    assert_eq!(n_tris, 12, "Box should have 12 triangles, got {}", n_tris);
+
+    let unpaired = count_unpaired_edges(&mesh);
+    assert_eq!(unpaired, 0, "Box primitive must be watertight");
+
+    let vol = mesh_volume(&mesh);
+    let expected = 4.0 * 3.0 * 2.0;
+    assert!(
+        (vol - expected).abs() < 0.1,
+        "Box volume should be {}, got {:.2}",
+        expected, vol
+    );
+}
+
+#[test]
+fn j3_cyl_cyl_still_uses_arc_path() {
+    // Cyl-cyl boolean (has arc edges) should NOT use bounded path.
+    // It should still use the specialized arc tessellation and succeed.
+    let (mut k, result) = do_cyl_cyl_boolean(
+        0.0, 0.0, 5.0, 10.0,
+        3.0, 0.0, 5.0, 10.0,
+        crate::boolean::BoolOp::Subtract,
+    )
+    .expect("cyl-cyl subtract should succeed");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+    let n_tris = mesh.indices.len() / 3;
+    assert!(n_tris > 10, "cyl-cyl result should have triangles, got {}", n_tris);
+}
+
+// ── J4: Volume consistency ────────────────────────────────────────────
+
+#[test]
+fn j4_subtract_volume_decreases() {
+    // Box-cyl subtract volume should be less than original box volume.
+    let (mut k, result) = do_box_cyl_boolean(
+        0.0, 0.0, 12.0, 12.0, 10.0,
+        0.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Subtract,
+    )
+    .expect("subtract");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+    let vol = mesh_volume(&mesh);
+    let box_vol = 12.0 * 12.0 * 10.0;
+    assert!(
+        vol < box_vol,
+        "Subtract volume ({:.2}) must be less than box volume ({:.2})",
+        vol, box_vol
+    );
+    // Also verify it's not zero or tiny
+    assert!(
+        vol > box_vol * 0.5,
+        "Subtract volume ({:.2}) should be substantial (> {:.2})",
+        vol, box_vol * 0.5
+    );
+}
+
+#[test]
+fn j4_union_volume_enclosed() {
+    // Box-cyl union where cylinder is fully enclosed by box.
+    // Union volume should equal box volume (cylinder adds nothing).
+    let (mut k, result) = do_box_cyl_boolean(
+        0.0, 0.0, 12.0, 12.0, 10.0,
+        0.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Union,
+    )
+    .expect("union");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+    let vol = mesh_volume(&mesh);
+    let box_vol: f64 = 12.0 * 12.0 * 10.0;
+    assert!(
+        (vol - box_vol).abs() < 10.0,
+        "Enclosed union volume ({:.2}) should be ~box volume ({:.2})",
+        vol, box_vol
+    );
+}
+

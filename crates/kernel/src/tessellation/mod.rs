@@ -36,24 +36,21 @@ pub(crate) fn tessellate_solid(
     is_polygon_soup: bool,
 ) -> Result<RenderMesh, KernelError> {
     // Boolean results have no CylinderParams/RevolveParams. Use edge-first
-    // tessellation for watertight-by-construction output when we have proper
-    // circular edge geometry to discretize.
+    // bounded tessellation for watertight-by-construction output.
     // Requirements for bounded path:
-    //   1. Must have circular edges (ensures proper 64-pt discretization).
-    //   2. Must NOT have arc edges. Cyl-cyl results have arcs where the old
+    //   1. Must NOT have arc edges. Cyl-cyl results have arcs where the
     //      tessellate_cylindrical_patch + tessellate_arc_bounded_cap pair
     //      handles partial patches correctly with matching vertex placement.
-    //   3. Must NOT be from polygon-soup stitching. Polygon-soup B-Rep topology
-    //      (many small faces from S-H clipping) is incompatible with the bounded
-    //      tessellation path, which expects clean analytical B-Rep faces.
+    //   2. Must NOT be polygon-soup. Polygon-soup B-Rep from S-H clipping may
+    //      contain internal faces; bounded tessellation's shared vertices make
+    //      these indistinguishable from external faces, preventing removal.
+    //      The fan path's per-face vertices allow `remove_isolated_triangles`
+    //      to identify and remove internal face fragments.
     if cylinder_params.is_none() && revolve_params.is_none() && !is_polygon_soup {
-        let has_circles = _edge_geometry
-            .values()
-            .any(|e| matches!(e, CurveGeom::Circular(_)));
         let has_arcs = _edge_geometry
             .values()
             .any(|e| matches!(e, CurveGeom::Arc(_)));
-        if has_circles && !has_arcs {
+        if !has_arcs {
             return tessellate_solid_bounded(arena, face_map, face_geometry, _edge_geometry);
         }
     }
@@ -2518,6 +2515,9 @@ fn tessellate_cylindrical_face_bounded(
 
 /// Tessellate a solid using boundary-constrained (edge-first) tessellation.
 /// Used for boolean results where CylinderParams/RevolveParams are unavailable.
+///
+/// For analytical B-Rep: watertight by construction (shared vertices from
+/// discretized edges). Minimal post-processing.
 fn tessellate_solid_bounded(
     arena: &TopoArena,
     face_map: &HashMap<u64, FaceIdx>,
