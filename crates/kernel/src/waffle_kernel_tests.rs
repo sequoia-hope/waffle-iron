@@ -5762,3 +5762,171 @@ fn test_ellipse_to_polygon_points_on_ellipse() {
         assert!((dz).abs() < 1e-10);
     }
 }
+
+// ── Group H: Bounded Tessellation (Sprint H) ──────────────────────────────
+
+#[test]
+fn h1_edge_discretize_linear_and_circular() {
+    // Use build_cyl_result which creates a proper B-Rep with 3 edges:
+    //   edge 0: bottom circle (Circular), edge 1: top circle (Circular),
+    //   edge 2: seam (Linear)
+    // Verify: linear → 2 verts, circular → 64 verts
+    use crate::tessellation::discretize_edges;
+    use crate::geometry::curve::CurveGeom;
+
+    let cyl = CylinderParams {
+        center_bottom: [0.0, 0.0, 0.0],
+        radius: 3.0,
+        depth: 10.0,
+        direction: [0.0, 0.0, 1.0],
+        x_axis: [1.0, 0.0, 0.0],
+        y_axis: [0.0, 1.0, 0.0],
+    };
+    let mut next_id = 1000u64;
+    let mut id_alloc = || { let id = next_id; next_id += 1; id };
+    let result = crate::boolean::build_cyl_result(&cyl, &mut id_alloc).unwrap();
+
+    let disc = discretize_edges(&result.arena, &result.edge_geometry);
+
+    let mut linear_count = 0;
+    let mut circular_count = 0;
+    for (edge_idx, geom) in &result.edge_geometry {
+        let verts = disc.edge_verts.get(edge_idx).expect("every edge should be discretized");
+        match geom {
+            CurveGeom::Linear(_) => {
+                assert_eq!(verts.len(), 2, "Linear edge should produce 2 vertices");
+                linear_count += 1;
+            }
+            CurveGeom::Circular(_) => {
+                assert_eq!(verts.len(), 64, "Circular edge should produce 64 vertices");
+                // All circle vertices should be at distance 3 from axis
+                for &vi in verts {
+                    let p = disc.positions[vi];
+                    let dist = (p[0] * p[0] + p[1] * p[1]).sqrt();
+                    assert!(
+                        (dist - 3.0).abs() < 1e-6,
+                        "Circle vertex at distance {}, expected 3.0",
+                        dist
+                    );
+                }
+                circular_count += 1;
+            }
+            _ => {}
+        }
+    }
+    assert!(linear_count >= 1, "Should have at least 1 linear (seam) edge");
+    assert!(circular_count >= 2, "Should have at least 2 circular edges");
+}
+
+#[test]
+fn h3_bounded_box_cyl_union_watertight() {
+    // Box + inscribed cylinder union → bounded tessellation → watertight
+    let (mut k, result) = do_box_cyl_boolean(
+        0.0, 0.0, 10.0, 10.0, 10.0,
+        0.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Union,
+    )
+    .expect("inscribed union should succeed");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+
+    let unpaired = count_unpaired_edges(&mesh);
+    assert!(
+        check_watertight(&mesh),
+        "Box-cyl union via bounded tessellation must be watertight ({} unpaired)",
+        unpaired
+    );
+}
+
+#[test]
+fn h3_bounded_box_cyl_subtract_watertight() {
+    // Box - inscribed cylinder → bounded tessellation → watertight
+    let (mut k, result) = do_box_cyl_boolean(
+        0.0, 0.0, 12.0, 12.0, 10.0,
+        0.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Subtract,
+    )
+    .expect("inscribed subtract should succeed");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+
+    let unpaired = count_unpaired_edges(&mesh);
+    assert!(
+        check_watertight(&mesh),
+        "Box-cyl subtract via bounded tessellation must be watertight ({} unpaired)",
+        unpaired
+    );
+}
+
+#[test]
+fn h3_bounded_standalone_cyl_watertight() {
+    // Standalone cylinder (built via build_cyl_result) uses bounded path
+    // because cylinder_params=None and edge geometry has circles.
+    let cyl = CylinderParams {
+        center_bottom: [0.0, 0.0, 0.0],
+        radius: 2.0,
+        depth: 6.0,
+        direction: [0.0, 0.0, 1.0],
+        x_axis: [1.0, 0.0, 0.0],
+        y_axis: [0.0, 1.0, 0.0],
+    };
+    let mut next_id = 1000u64;
+    let mut id_alloc = || { let id = next_id; next_id += 1; id };
+    let result = crate::boolean::build_cyl_result(&cyl, &mut id_alloc).unwrap();
+    let mesh = crate::tessellation::tessellate_solid(
+        &result.arena, &result.face_map, &result.face_geometry,
+        &result.edge_geometry, None, None,
+    ).unwrap();
+
+    assert!(check_watertight(&mesh), "Standalone cylinder via bounded path must be watertight");
+    // Volume should be π*r²*h = π*4*6 ≈ 75.4
+    let vol = mesh_volume(&mesh);
+    let expected = std::f64::consts::PI * 4.0 * 6.0;
+    assert!(
+        (vol - expected).abs() < 5.0,
+        "Volume should be ~{:.2}, got {:.2}",
+        expected, vol
+    );
+}
+
+#[test]
+fn h3_bounded_vertex_sharing_f32_exact() {
+    // Adjacent faces sharing a B-Rep edge must produce bitwise-identical f32
+    // vertex positions when using the bounded tessellation path.
+    // We verify this by checking that the box-cyl union mesh has 0 unpaired
+    // edges at the tightest possible tolerance (f32 exact match).
+    let (mut k, result) = do_box_cyl_boolean(
+        0.0, 0.0, 10.0, 10.0, 10.0,
+        0.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Union,
+    )
+    .expect("union");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+
+    // Use exact f32 comparison (no tolerance) to verify vertex sharing
+    let n_tris = mesh.indices.len() / 3;
+    let mut edge_counts: HashMap<([u32; 3], [u32; 3]), u32> = HashMap::new();
+    for t in 0..n_tris {
+        for e in 0..3 {
+            let i0 = mesh.indices[t * 3 + e] as usize;
+            let i1 = mesh.indices[t * 3 + (e + 1) % 3] as usize;
+            let v0 = [
+                mesh.vertices[i0 * 3].to_bits(),
+                mesh.vertices[i0 * 3 + 1].to_bits(),
+                mesh.vertices[i0 * 3 + 2].to_bits(),
+            ];
+            let v1 = [
+                mesh.vertices[i1 * 3].to_bits(),
+                mesh.vertices[i1 * 3 + 1].to_bits(),
+                mesh.vertices[i1 * 3 + 2].to_bits(),
+            ];
+            let key = if v0 < v1 { (v0, v1) } else { (v1, v0) };
+            *edge_counts.entry(key).or_insert(0) += 1;
+        }
+    }
+
+    let unpaired_exact = edge_counts.values().filter(|&&c| c == 1).count();
+    assert!(
+        unpaired_exact == 0,
+        "Bounded tessellation should produce exact f32 vertex sharing, {} unpaired (exact)",
+        unpaired_exact
+    );
+}

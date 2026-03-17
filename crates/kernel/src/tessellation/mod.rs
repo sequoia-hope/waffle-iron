@@ -34,6 +34,28 @@ pub(crate) fn tessellate_solid(
     cylinder_params: Option<&CylinderParams>,
     revolve_params: Option<&RevolveParams>,
 ) -> Result<RenderMesh, KernelError> {
+    // Boolean results have no CylinderParams/RevolveParams. Use edge-first
+    // tessellation for watertight-by-construction output when we have proper
+    // circular edge geometry to discretize.
+    // Requirements for bounded path:
+    //   1. Must have circular edges (ensures proper 64-pt discretization).
+    //      Polygon-boolean results (stitch.rs) mark ALL edges as Linear,
+    //      even circular ones — bounded path would use 2 verts instead of 64.
+    //   2. Must NOT have arc edges. Cyl-cyl results have arcs where the old
+    //      tessellate_cylindrical_patch + tessellate_arc_bounded_cap pair
+    //      handles partial patches correctly with matching vertex placement.
+    if cylinder_params.is_none() && revolve_params.is_none() {
+        let has_circles = _edge_geometry
+            .values()
+            .any(|e| matches!(e, CurveGeom::Circular(_)));
+        let has_arcs = _edge_geometry
+            .values()
+            .any(|e| matches!(e, CurveGeom::Arc(_)));
+        if has_circles && !has_arcs {
+            return tessellate_solid_bounded(arena, face_map, face_geometry, _edge_geometry);
+        }
+    }
+
     let mut vertices: Vec<f32> = Vec::new();
     let mut normals: Vec<f32> = Vec::new();
     let mut indices: Vec<u32> = Vec::new();
@@ -1832,6 +1854,788 @@ fn tessellate_arc_bounded_cap(
             }
         }
     }
+}
+
+// ── Boundary-constrained tessellation (Sprint H) ────────────────────────
+//
+// Edge-first tessellation for boolean results. Discretizes B-Rep edges into a
+// shared f64 vertex pool, then tessellates each face using those shared boundary
+// vertices. Watertight by construction: adjacent faces reference identical
+// vertex positions from the same pool.
+
+/// Shared vertex pool from edge discretization.
+pub(crate) struct EdgeDiscretization {
+    /// Vertex positions in f64 (converted to f32 once during face tessellation).
+    pub(crate) positions: Vec<[f64; 3]>,
+    /// Ordered vertex indices per edge (from origin to destination).
+    pub(crate) edge_verts: HashMap<EdgeIdx, Vec<usize>>,
+}
+
+/// Discretize all edges in a solid into a shared vertex pool.
+pub(crate) fn discretize_edges(
+    arena: &TopoArena,
+    edge_geometry: &HashMap<EdgeIdx, CurveGeom>,
+) -> EdgeDiscretization {
+    let mut positions: Vec<[f64; 3]> = Vec::new();
+    let mut edge_verts: HashMap<EdgeIdx, Vec<usize>> = HashMap::new();
+
+    for (i, edge) in arena.edges.iter().enumerate() {
+        let edge_idx = EdgeIdx(i);
+        let he_a = edge.half_edge;
+        let he_b = arena.half_edges[he_a.0].twin;
+        let origin_v = arena.half_edges[he_a.0].origin;
+        let dest_v = arena.half_edges[he_b.0].origin;
+
+        match edge_geometry.get(&edge_idx) {
+            Some(CurveGeom::Circular(circle)) => {
+                // Full circle: CIRCLE_SEGMENTS points
+                let n = CIRCLE_SEGMENTS;
+                let normal = [circle.normal.x, circle.normal.y, circle.normal.z];
+                let (cx, cy) = make_circle_axes(&normal);
+                let mut verts = Vec::with_capacity(n);
+                for j in 0..n {
+                    let theta = std::f64::consts::TAU * (j as f64) / (n as f64);
+                    let cos_t = theta.cos();
+                    let sin_t = theta.sin();
+                    let px = circle.center.x + circle.radius * (cos_t * cx[0] + sin_t * cy[0]);
+                    let py = circle.center.y + circle.radius * (cos_t * cx[1] + sin_t * cy[1]);
+                    let pz = circle.center.z + circle.radius * (cos_t * cx[2] + sin_t * cy[2]);
+                    let idx = positions.len();
+                    positions.push([px, py, pz]);
+                    verts.push(idx);
+                }
+                edge_verts.insert(edge_idx, verts);
+            }
+            Some(CurveGeom::Arc(arc)) => {
+                // Proportional segments based on sweep angle
+                let n = ((CIRCLE_SEGMENTS as f64) * arc.sweep_angle.abs() / std::f64::consts::TAU)
+                    .ceil()
+                    .max(4.0) as usize;
+                let mut verts = Vec::with_capacity(n + 1);
+                for j in 0..=n {
+                    let t = arc.sweep_angle * (j as f64) / (n as f64);
+                    let pt = arc.evaluate(t);
+                    let idx = positions.len();
+                    positions.push([pt.x, pt.y, pt.z]);
+                    verts.push(idx);
+                }
+                edge_verts.insert(edge_idx, verts);
+            }
+            Some(CurveGeom::Elliptical(ellipse)) => {
+                // Full ellipse: CIRCLE_SEGMENTS points
+                let n = CIRCLE_SEGMENTS;
+                let mut verts = Vec::with_capacity(n);
+                for j in 0..n {
+                    let t = std::f64::consts::TAU * (j as f64) / (n as f64);
+                    let pt = ellipse.evaluate(t);
+                    let idx = positions.len();
+                    positions.push([pt.x, pt.y, pt.z]);
+                    verts.push(idx);
+                }
+                edge_verts.insert(edge_idx, verts);
+            }
+            Some(CurveGeom::Linear(_)) | None => {
+                // Linear edge or no geometry: 2 points from arena vertex positions
+                let p0 = arena.vertices[origin_v.0].position;
+                let p1 = arena.vertices[dest_v.0].position;
+                let idx0 = positions.len();
+                positions.push(p0);
+                let idx1 = positions.len();
+                positions.push(p1);
+                edge_verts.insert(edge_idx, vec![idx0, idx1]);
+            }
+        }
+    }
+
+    EdgeDiscretization {
+        positions,
+        edge_verts,
+    }
+}
+
+/// Collect boundary vertex indices for a loop by walking half-edges.
+/// Returns indices into the EdgeDiscretization.positions pool.
+fn collect_loop_boundary(
+    arena: &TopoArena,
+    loop_idx: LoopIdx,
+    disc: &EdgeDiscretization,
+) -> Vec<usize> {
+    let start_he = arena.loops[loop_idx.0].half_edge;
+    let mut boundary = Vec::new();
+    let mut he = start_he;
+
+    loop {
+        let edge_idx = arena.half_edges[he.0].edge;
+        let edge = &arena.edges[edge_idx.0];
+
+        if let Some(verts) = disc.edge_verts.get(&edge_idx) {
+            // Determine direction: if this half-edge is the "primary" one
+            // (same as edge.half_edge), use forward order; otherwise reverse.
+            let is_primary = edge.half_edge == he;
+
+            // For self-loop edges (circular caps), the half-edge loops back
+            // to itself. Include all vertices.
+            let is_self_loop = arena.half_edges[he.0].next == he;
+
+            if is_self_loop {
+                // Full circle: include all vertices in appropriate order
+                if is_primary {
+                    boundary.extend_from_slice(verts);
+                } else {
+                    boundary.extend(verts.iter().rev());
+                }
+            } else if verts.len() <= 2 {
+                // Linear edge: include only the origin vertex (destination is
+                // the next half-edge's origin)
+                if is_primary {
+                    boundary.push(verts[0]);
+                } else {
+                    boundary.push(verts[verts.len() - 1]);
+                }
+            } else {
+                // Curved edge (arc or full circle used as part of a multi-edge loop).
+                // For full circles (64 pts covering 0°..354.375°), include ALL vertices
+                // since none duplicate — the next edge starts at the seam vertex which
+                // coincides with verts[0] but the linear edge contributes that separately.
+                // For arcs, the last vertex IS the arc endpoint which coincides with the
+                // next edge's start, so drop it to avoid duplication.
+                let is_full_circle = verts.len() == CIRCLE_SEGMENTS;
+                if is_full_circle {
+                    // Include all vertices (no overlap with next edge)
+                    if is_primary {
+                        boundary.extend_from_slice(verts);
+                    } else {
+                        boundary.extend(verts.iter().rev());
+                    }
+                } else if is_primary {
+                    boundary.extend_from_slice(&verts[..verts.len() - 1]);
+                } else {
+                    for &v in verts.iter().rev().skip(1) {
+                        boundary.push(v);
+                    }
+                }
+            }
+        }
+
+        he = arena.half_edges[he.0].next;
+        if he == start_he {
+            break;
+        }
+    }
+
+    boundary
+}
+
+/// Tessellate a planar face using shared boundary vertices.
+fn tessellate_planar_face_bounded(
+    boundary: &[usize],
+    positions: &[[f64; 3]],
+    normal: [f32; 3],
+    out_verts: &mut Vec<f32>,
+    out_normals: &mut Vec<f32>,
+    out_indices: &mut Vec<u32>,
+    inner_boundaries: &[Vec<usize>],
+) {
+    if boundary.len() < 3 {
+        return;
+    }
+
+    let base_vertex = out_verts.len() as u32 / 3;
+
+    // Collect loop vertices in f64
+    let loop_verts: Vec<[f64; 3]> = boundary.iter().map(|&i| positions[i]).collect();
+
+    // Check winding against stored normal using Newell method
+    let stored_normal = [normal[0] as f64, normal[1] as f64, normal[2] as f64];
+    let n = loop_verts.len();
+    let mut newell = [0.0f64; 3];
+    for i in 0..n {
+        let curr = loop_verts[i];
+        let next = loop_verts[(i + 1) % n];
+        newell[0] += (curr[1] - next[1]) * (curr[2] + next[2]);
+        newell[1] += (curr[2] - next[2]) * (curr[0] + next[0]);
+        newell[2] += (curr[0] - next[0]) * (curr[1] + next[1]);
+    }
+    let dot = v3_dot(newell, stored_normal);
+    let reverse_outer = dot < 0.0;
+
+    // Emit outer boundary vertices from shared pool
+    let ordered_verts: Vec<[f64; 3]> = if reverse_outer {
+        loop_verts.iter().rev().copied().collect()
+    } else {
+        loop_verts.clone()
+    };
+
+    for v in &ordered_verts {
+        out_verts.push(v[0] as f32);
+        out_verts.push(v[1] as f32);
+        out_verts.push(v[2] as f32);
+        out_normals.push(normal[0]);
+        out_normals.push(normal[1]);
+        out_normals.push(normal[2]);
+    }
+
+    if inner_boundaries.is_empty() {
+        // No holes: use fan or earclip
+        let is_convex = {
+            let mut convex = true;
+            for i in 0..n {
+                let a = ordered_verts[i];
+                let b = ordered_verts[(i + 1) % n];
+                let c = ordered_verts[(i + 2) % n];
+                let ab = v3_sub(b, a);
+                let bc = v3_sub(c, b);
+                let cross = v3_cross(ab, bc);
+                if v3_dot(cross, stored_normal) < 0.0 {
+                    convex = false;
+                    break;
+                }
+            }
+            convex
+        };
+
+        if is_convex && n <= 8 {
+            // Fan triangulation for simple convex faces
+            for i in 1..n - 1 {
+                out_indices.push(base_vertex);
+                out_indices.push(base_vertex + i as u32);
+                out_indices.push(base_vertex + (i + 1) as u32);
+            }
+        } else {
+            // Ear-clip triangulation
+            let (u_axis, v_axis) = compute_plane_basis(stored_normal);
+            let coords_2d: Vec<f64> = ordered_verts
+                .iter()
+                .flat_map(|v| {
+                    let d = v3_sub(*v, ordered_verts[0]);
+                    vec![v3_dot(d, u_axis), v3_dot(d, v_axis)]
+                })
+                .collect();
+            if let Ok(tri_indices) = earcutr::earcut(&coords_2d, &[], 2) {
+                for chunk in tri_indices.chunks(3) {
+                    out_indices.push(base_vertex + chunk[0] as u32);
+                    out_indices.push(base_vertex + chunk[1] as u32);
+                    out_indices.push(base_vertex + chunk[2] as u32);
+                }
+            }
+        }
+    } else {
+        // Face with holes: collect inner boundaries and use earclip with holes
+        let (u_axis, v_axis) = compute_plane_basis(stored_normal);
+        let mut all_verts_2d: Vec<f64> = Vec::new();
+        let mut hole_indices_1d: Vec<usize> = Vec::new();
+
+        // Outer ring
+        for v in &ordered_verts {
+            let d = v3_sub(*v, ordered_verts[0]);
+            all_verts_2d.push(v3_dot(d, u_axis));
+            all_verts_2d.push(v3_dot(d, v_axis));
+        }
+
+        // Inner rings (holes)
+        for inner_b in inner_boundaries {
+            hole_indices_1d.push(all_verts_2d.len() / 2);
+            let inner_verts: Vec<[f64; 3]> = inner_b.iter().map(|&i| positions[i]).collect();
+            for v in &inner_verts {
+                out_verts.push(v[0] as f32);
+                out_verts.push(v[1] as f32);
+                out_verts.push(v[2] as f32);
+                out_normals.push(normal[0]);
+                out_normals.push(normal[1]);
+                out_normals.push(normal[2]);
+                let d = v3_sub(*v, ordered_verts[0]);
+                all_verts_2d.push(v3_dot(d, u_axis));
+                all_verts_2d.push(v3_dot(d, v_axis));
+            }
+        }
+
+        if let Ok(tri_indices) = earcutr::earcut(&all_verts_2d, &hole_indices_1d, 2) {
+            for chunk in tri_indices.chunks(3) {
+                out_indices.push(base_vertex + chunk[0] as u32);
+                out_indices.push(base_vertex + chunk[1] as u32);
+                out_indices.push(base_vertex + chunk[2] as u32);
+            }
+        }
+    }
+}
+
+/// Tessellate a cylindrical face using shared boundary vertices.
+///
+/// For full cylinders (self-loop edge): builds a quad strip tube.
+/// For partial patches: uses earclip triangulation of the boundary polygon
+/// with cylinder-derived normals, guaranteeing edge-matching with adjacent faces.
+#[allow(clippy::too_many_arguments)]
+fn tessellate_cylindrical_face_bounded(
+    arena: &TopoArena,
+    face_idx: FaceIdx,
+    cyl: &crate::geometry::surface::Cylinder,
+    disc: &EdgeDiscretization,
+    _edge_geometry: &HashMap<EdgeIdx, CurveGeom>,
+    out_verts: &mut Vec<f32>,
+    out_normals: &mut Vec<f32>,
+    out_indices: &mut Vec<u32>,
+) {
+    let axis = [cyl.axis.x, cyl.axis.y, cyl.axis.z];
+    let origin = [cyl.origin.x, cyl.origin.y, cyl.origin.z];
+    let inward = cyl.radius < 0.0;
+    let normal_sign = if inward { -1.0_f64 } else { 1.0_f64 };
+
+    // Collect boundary
+    let boundary = collect_loop_boundary(arena, arena.faces[face_idx.0].outer_loop, disc);
+    if boundary.len() < 3 {
+        return;
+    }
+
+    let project_axial = |pos: [f64; 3]| -> f64 {
+        let dp = v3_sub(pos, origin);
+        v3_dot(dp, axis)
+    };
+
+    // Find axial range
+    let mut t_min = f64::INFINITY;
+    let mut t_max = f64::NEG_INFINITY;
+    for &vi in &boundary {
+        let t = project_axial(disc.positions[vi]);
+        t_min = t_min.min(t);
+        t_max = t_max.max(t);
+    }
+
+    // Check if this is a full cylinder (self-loop edge)
+    let loop_idx = arena.faces[face_idx.0].outer_loop;
+    let start_he = arena.loops[loop_idx.0].half_edge;
+    let is_self_loop = arena.half_edges[start_he.0].next == start_he;
+
+    if is_self_loop && boundary.len() >= CIRCLE_SEGMENTS {
+        // Full cylinder tube — build quad strip from two copies of the ring
+        let ring = &boundary;
+        let n = ring.len();
+        let base_vertex = out_verts.len() as u32 / 3;
+        let (cx_axis, cy_axis) = make_circle_axes(&axis);
+
+        // Sort ring by angle for consistent winding
+        let mut ring_sorted: Vec<usize> = ring.clone();
+        ring_sorted.sort_by(|a, b| {
+            let da = v3_sub(disc.positions[*a], origin);
+            let db = v3_sub(disc.positions[*b], origin);
+            let aa = v3_dot(da, cy_axis).atan2(v3_dot(da, cx_axis));
+            let ab = v3_dot(db, cy_axis).atan2(v3_dot(db, cx_axis));
+            aa.partial_cmp(&ab).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        // Helper: emit vertex at given axial position with radial from shared pool
+        let emit_ring =
+            |ring: &[usize], t_axial: f64, verts: &mut Vec<f32>, norms: &mut Vec<f32>| {
+                for &vi in ring {
+                    let orig_pos = disc.positions[vi];
+                    let dp = v3_sub(orig_pos, origin);
+                    let radial = [
+                        dp[0] - v3_dot(dp, axis) * axis[0],
+                        dp[1] - v3_dot(dp, axis) * axis[1],
+                        dp[2] - v3_dot(dp, axis) * axis[2],
+                    ];
+                    let pos = [
+                        origin[0] + t_axial * axis[0] + radial[0],
+                        origin[1] + t_axial * axis[1] + radial[1],
+                        origin[2] + t_axial * axis[2] + radial[2],
+                    ];
+                    verts.push(pos[0] as f32);
+                    verts.push(pos[1] as f32);
+                    verts.push(pos[2] as f32);
+                    let rlen = v3_length(radial);
+                    if rlen > TAU_NORMALIZE {
+                        norms.push((normal_sign * radial[0] / rlen) as f32);
+                        norms.push((normal_sign * radial[1] / rlen) as f32);
+                        norms.push((normal_sign * radial[2] / rlen) as f32);
+                    } else {
+                        norms.push(0.0);
+                        norms.push(0.0);
+                        norms.push(1.0);
+                    }
+                }
+            };
+
+        emit_ring(&ring_sorted, t_min, out_verts, out_normals);
+        emit_ring(&ring_sorted, t_max, out_verts, out_normals);
+
+        let n32 = n as u32;
+        for i in 0..n32 {
+            let next = (i + 1) % n32;
+            let bot = base_vertex + i;
+            let bot_next = base_vertex + next;
+            let top = base_vertex + n32 + i;
+            let top_next = base_vertex + n32 + next;
+            if inward {
+                out_indices.push(bot);
+                out_indices.push(top);
+                out_indices.push(bot_next);
+                out_indices.push(top);
+                out_indices.push(top_next);
+                out_indices.push(bot_next);
+            } else {
+                out_indices.push(bot);
+                out_indices.push(bot_next);
+                out_indices.push(top);
+                out_indices.push(top);
+                out_indices.push(bot_next);
+                out_indices.push(top_next);
+            }
+        }
+        return;
+    }
+
+    // Partial cylindrical patch: extract top/bottom rings from curved edges,
+    // then either quad strip (equal rings) or cylindrical-coordinate earcut (unequal).
+    let t_range = t_max - t_min;
+    let mut top_ring: Vec<usize> = Vec::new();
+    let mut bottom_ring: Vec<usize> = Vec::new();
+
+    // Walk half-edges and extract curved edge vertices into rings
+    let mut he2 = start_he;
+    loop {
+        let edge_idx = arena.half_edges[he2.0].edge;
+        let is_primary = arena.edges[edge_idx.0].half_edge == he2;
+
+        if let Some(verts) = disc.edge_verts.get(&edge_idx) {
+            let is_curved = matches!(
+                _edge_geometry.get(&edge_idx),
+                Some(CurveGeom::Circular(_))
+                    | Some(CurveGeom::Arc(_))
+                    | Some(CurveGeom::Elliptical(_))
+            );
+
+            if is_curved && verts.len() > 2 {
+                let sample_pos = disc.positions[verts[0]];
+                let t = project_axial(sample_pos);
+                let target = if t_range > TAU_NORMALIZE && (t - t_min) / t_range < 0.5 {
+                    &mut bottom_ring
+                } else {
+                    &mut top_ring
+                };
+
+                let is_full_circle = verts.len() == CIRCLE_SEGMENTS;
+                if is_full_circle {
+                    if is_primary {
+                        target.extend_from_slice(verts);
+                    } else {
+                        target.extend(verts.iter().rev());
+                    }
+                } else if is_primary {
+                    target.extend_from_slice(&verts[..verts.len() - 1]);
+                } else {
+                    for &v in verts.iter().rev().skip(1) {
+                        target.push(v);
+                    }
+                }
+            }
+        }
+
+        he2 = arena.half_edges[he2.0].next;
+        if he2 == start_he {
+            break;
+        }
+    }
+
+    // Fall back to axial midpoint split if edge-walk didn't find curved edges
+    if top_ring.is_empty() || bottom_ring.is_empty() {
+        top_ring.clear();
+        bottom_ring.clear();
+        for &vi in &boundary {
+            let t = project_axial(disc.positions[vi]);
+            if t_range > TAU_NORMALIZE && (t - t_min) / t_range < 0.5 {
+                bottom_ring.push(vi);
+            } else {
+                top_ring.push(vi);
+            }
+        }
+    }
+
+    if top_ring.is_empty() || bottom_ring.is_empty() || top_ring.len() < 3 || bottom_ring.len() < 3
+    {
+        // Can't form rings — fall back to polygon
+        let approx_normal = [
+            (normal_sign * axis[0]) as f32,
+            (normal_sign * axis[1]) as f32,
+            (normal_sign * axis[2]) as f32,
+        ];
+        tessellate_planar_face_bounded(
+            &boundary,
+            &disc.positions,
+            approx_normal,
+            out_verts,
+            out_normals,
+            out_indices,
+            &[],
+        );
+        return;
+    }
+
+    // Sort rings by angle around the cylinder axis for consistent winding
+    let (cx_axis, cy_axis) = make_circle_axes(&axis);
+    let angle_of = |pos: [f64; 3]| -> f64 {
+        let dp = v3_sub(pos, origin);
+        v3_dot(dp, cy_axis).atan2(v3_dot(dp, cx_axis))
+    };
+
+    top_ring.sort_by(|a, b| {
+        angle_of(disc.positions[*a])
+            .partial_cmp(&angle_of(disc.positions[*b]))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    bottom_ring.sort_by(|a, b| {
+        angle_of(disc.positions[*a])
+            .partial_cmp(&angle_of(disc.positions[*b]))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    if top_ring.len() == bottom_ring.len() {
+        // Equal rings → quad strip (full circles or matching arcs)
+        let ring_len = top_ring.len();
+        let base_vertex = out_verts.len() as u32 / 3;
+
+        for &vi in bottom_ring.iter().chain(top_ring.iter()) {
+            let pos = disc.positions[vi];
+            out_verts.push(pos[0] as f32);
+            out_verts.push(pos[1] as f32);
+            out_verts.push(pos[2] as f32);
+            let dp = v3_sub(pos, origin);
+            let along = v3_dot(dp, axis);
+            let rad = [
+                dp[0] - along * axis[0],
+                dp[1] - along * axis[1],
+                dp[2] - along * axis[2],
+            ];
+            let rlen = v3_length(rad);
+            if rlen > TAU_NORMALIZE {
+                out_normals.push((normal_sign * rad[0] / rlen) as f32);
+                out_normals.push((normal_sign * rad[1] / rlen) as f32);
+                out_normals.push((normal_sign * rad[2] / rlen) as f32);
+            } else {
+                out_normals.push(0.0);
+                out_normals.push(0.0);
+                out_normals.push(1.0);
+            }
+        }
+
+        let n = ring_len as u32;
+        let is_full = {
+            let a0 = angle_of(disc.positions[bottom_ring[0]]);
+            let an = angle_of(disc.positions[bottom_ring[ring_len - 1]]);
+            (an - a0).abs() > std::f64::consts::TAU - 0.3
+        };
+
+        for i in 0..n {
+            let next = if is_full {
+                (i + 1) % n
+            } else if i + 1 < n {
+                i + 1
+            } else {
+                continue;
+            };
+            let bot = base_vertex + i;
+            let bot_next = base_vertex + next;
+            let top = base_vertex + n + i;
+            let top_next = base_vertex + n + next;
+
+            if inward {
+                out_indices.push(bot);
+                out_indices.push(top);
+                out_indices.push(bot_next);
+                out_indices.push(top);
+                out_indices.push(top_next);
+                out_indices.push(bot_next);
+            } else {
+                out_indices.push(bot);
+                out_indices.push(bot_next);
+                out_indices.push(top);
+                out_indices.push(top);
+                out_indices.push(bot_next);
+                out_indices.push(top_next);
+            }
+        }
+    } else {
+        // Unequal rings (cyl-cyl arc patches): use cylindrical-coordinate earcut
+        // on the full boundary. This preserves all shared-pool vertices for watertightness.
+        let mut thetas: Vec<f64> = Vec::with_capacity(boundary.len());
+        let mut axials: Vec<f64> = Vec::with_capacity(boundary.len());
+        for &vi in &boundary {
+            let dp = v3_sub(disc.positions[vi], origin);
+            thetas.push(v3_dot(dp, cy_axis).atan2(v3_dot(dp, cx_axis)));
+            axials.push(v3_dot(dp, axis));
+        }
+        // Unwrap theta to avoid atan2 discontinuity
+        for i in 1..thetas.len() {
+            while thetas[i] - thetas[i - 1] > std::f64::consts::PI {
+                thetas[i] -= std::f64::consts::TAU;
+            }
+            while thetas[i] - thetas[i - 1] < -std::f64::consts::PI {
+                thetas[i] += std::f64::consts::TAU;
+            }
+        }
+
+        let mut coords_2d: Vec<f64> = Vec::with_capacity(boundary.len() * 2);
+        for i in 0..boundary.len() {
+            coords_2d.push(thetas[i]);
+            coords_2d.push(axials[i]);
+        }
+
+        let tri_indices = earcutr::earcut(&coords_2d, &[], 2).unwrap_or_default();
+        if tri_indices.is_empty() {
+            return;
+        }
+
+        let base_vertex = out_verts.len() as u32 / 3;
+        for &vi in &boundary {
+            let pos = disc.positions[vi];
+            out_verts.push(pos[0] as f32);
+            out_verts.push(pos[1] as f32);
+            out_verts.push(pos[2] as f32);
+            let dp = v3_sub(pos, origin);
+            let along = v3_dot(dp, axis);
+            let rad = [
+                dp[0] - along * axis[0],
+                dp[1] - along * axis[1],
+                dp[2] - along * axis[2],
+            ];
+            let rlen = v3_length(rad);
+            if rlen > TAU_NORMALIZE {
+                out_normals.push((normal_sign * rad[0] / rlen) as f32);
+                out_normals.push((normal_sign * rad[1] / rlen) as f32);
+                out_normals.push((normal_sign * rad[2] / rlen) as f32);
+            } else {
+                out_normals.push(0.0);
+                out_normals.push(0.0);
+                out_normals.push(1.0);
+            }
+        }
+
+        for &ti in &tri_indices {
+            out_indices.push(base_vertex + ti as u32);
+        }
+    }
+}
+
+/// Tessellate a solid using boundary-constrained (edge-first) tessellation.
+/// Used for boolean results where CylinderParams/RevolveParams are unavailable.
+fn tessellate_solid_bounded(
+    arena: &TopoArena,
+    face_map: &HashMap<u64, FaceIdx>,
+    face_geometry: &HashMap<FaceIdx, SurfaceGeom>,
+    edge_geometry: &HashMap<EdgeIdx, CurveGeom>,
+) -> Result<RenderMesh, KernelError> {
+    let disc = discretize_edges(arena, edge_geometry);
+
+    let mut vertices: Vec<f32> = Vec::new();
+    let mut normals: Vec<f32> = Vec::new();
+    let mut indices: Vec<u32> = Vec::new();
+    let mut face_ranges: Vec<FaceRange> = Vec::new();
+
+    for (&kid, &face_idx) in face_map {
+        let start_index = indices.len() as u32;
+        let geom = face_geometry.get(&face_idx);
+
+        match geom {
+            Some(SurfaceGeom::Cylindrical(cyl)) => {
+                tessellate_cylindrical_face_bounded(
+                    arena,
+                    face_idx,
+                    cyl,
+                    &disc,
+                    edge_geometry,
+                    &mut vertices,
+                    &mut normals,
+                    &mut indices,
+                );
+            }
+            Some(SurfaceGeom::Planar(plane)) => {
+                let normal = [
+                    plane.normal.x as f32,
+                    plane.normal.y as f32,
+                    plane.normal.z as f32,
+                ];
+                let outer_boundary =
+                    collect_loop_boundary(arena, arena.faces[face_idx.0].outer_loop, &disc);
+
+                // Collect inner loop boundaries (holes)
+                let inner_boundaries: Vec<Vec<usize>> = arena.faces[face_idx.0]
+                    .inner_loops
+                    .iter()
+                    .map(|&inner_loop| collect_loop_boundary(arena, inner_loop, &disc))
+                    .filter(|b| b.len() >= 3)
+                    .collect();
+
+                tessellate_planar_face_bounded(
+                    &outer_boundary,
+                    &disc.positions,
+                    normal,
+                    &mut vertices,
+                    &mut normals,
+                    &mut indices,
+                    &inner_boundaries,
+                );
+            }
+            _ => {
+                // Fallback for other surface types: collect boundary as polygon
+                let boundary =
+                    collect_loop_boundary(arena, arena.faces[face_idx.0].outer_loop, &disc);
+                if boundary.len() >= 3 {
+                    // Compute an approximate normal from the boundary polygon
+                    let loop_verts: Vec<[f64; 3]> =
+                        boundary.iter().map(|&i| disc.positions[i]).collect();
+                    let bn = boundary.len();
+                    let mut newell = [0.0f64; 3];
+                    for i in 0..bn {
+                        let curr = loop_verts[i];
+                        let next = loop_verts[(i + 1) % bn];
+                        newell[0] += (curr[1] - next[1]) * (curr[2] + next[2]);
+                        newell[1] += (curr[2] - next[2]) * (curr[0] + next[0]);
+                        newell[2] += (curr[0] - next[0]) * (curr[1] + next[1]);
+                    }
+                    let nlen = v3_length(newell);
+                    let normal_f32 = if nlen > TAU_NORMALIZE {
+                        [
+                            (newell[0] / nlen) as f32,
+                            (newell[1] / nlen) as f32,
+                            (newell[2] / nlen) as f32,
+                        ]
+                    } else {
+                        [0.0, 0.0, 1.0]
+                    };
+                    tessellate_planar_face_bounded(
+                        &boundary,
+                        &disc.positions,
+                        normal_f32,
+                        &mut vertices,
+                        &mut normals,
+                        &mut indices,
+                        &[],
+                    );
+                }
+            }
+        }
+
+        let end_index = indices.len() as u32;
+        if end_index > start_index {
+            face_ranges.push(FaceRange {
+                face_id: KernelId(kid),
+                start_index,
+                end_index,
+            });
+        }
+    }
+
+    // Minimal post-processing (no welding/filling — watertight by construction).
+    // NOTE: Do NOT call remove_degenerate_triangles here. Degenerate triangles
+    // from earcut (zero-area, collinear vertices) are invisible but their edges
+    // pair with adjacent face edges. Removing them creates unpaired boundary edges.
+    fix_winding_consistency(&vertices, &normals, &mut indices);
+    fix_global_orientation(&mut vertices, &mut normals, &mut indices);
+
+    Ok(RenderMesh {
+        vertices,
+        normals,
+        indices,
+        face_ranges,
+    })
 }
 
 // ── Geometry helpers ─────────────────────────────────────────────────────
