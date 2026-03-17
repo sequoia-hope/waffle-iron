@@ -4181,15 +4181,22 @@ fn r_cyl_minus_enclosed_box() {
         .unwrap();
     let box_solid = k.extrude_face(box_faces[0], Z_DIR, 2.0).unwrap();
 
-    // Cylinder minus enclosed box: SSI solver doesn't handle oblique
-    // plane-cylinder pairs yet, so this correctly returns NotSupported (A15.2).
-    // Once the SSI solver supports all plane-cylinder orientations, this test
-    // should be updated to verify the result mesh.
-    let result = k.do_boolean(&cyl, &box_solid, crate::boolean::BoolOp::Subtract);
+    // Cylinder minus enclosed box: analytical SSI path produces a cylinder with rectangular hole
+    let result = k
+        .do_boolean(&cyl, &box_solid, crate::boolean::BoolOp::Subtract)
+        .expect("cyl minus enclosed box should succeed");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+    assert!(mesh.vertices.len() > 0, "mesh should have vertices");
+    assert!(mesh.indices.len() > 0, "mesh should have triangles");
+
+    let vol = mesh_volume(&mesh);
+    let expected = std::f64::consts::PI * 1.0 * 1.0 * 2.0 - 0.5 * 0.5 * 2.0;
     assert!(
-        matches!(result, Err(KernelError::NotSupported { .. })),
-        "cylinder minus enclosed box should return NotSupported until SSI handles oblique plane-cylinder: {:?}",
-        result
+        (vol - expected).abs() / expected < 0.15,
+        "volume ({:.3}) should be ~{:.3}",
+        vol,
+        expected
     );
 }
 
@@ -6561,6 +6568,211 @@ fn j4_union_volume_enclosed() {
         (vol - box_vol).abs() < 10.0,
         "Enclosed union volume ({:.2}) should be ~box volume ({:.2})",
         vol, box_vol
+    );
+}
+
+// ── Sprint K: Cylinder-minus-box boolean tests ──────────
+
+/// K1: Enclosed cylinder-minus-box produces watertight mesh.
+#[test]
+fn k1_cyl_minus_enclosed_box_watertight() {
+    let mut k = WaffleKernel::new();
+
+    let (cyl_profiles, cyl_pos) = make_circle_profile(0.0, 0.0, 1.0);
+    let cyl_faces = k
+        .make_faces_from_profiles(&cyl_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &cyl_pos)
+        .unwrap();
+    let cyl = k.extrude_face(cyl_faces[0], Z_DIR, 2.0).unwrap();
+
+    let (box_profiles, box_pos) = make_rect_profile(0.0, 0.0, 0.5, 0.5);
+    let box_faces = k
+        .make_faces_from_profiles(&box_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &box_pos)
+        .unwrap();
+    let box_solid = k.extrude_face(box_faces[0], Z_DIR, 2.0).unwrap();
+
+    let result = k
+        .do_boolean(&cyl, &box_solid, crate::boolean::BoolOp::Subtract)
+        .expect("cyl minus enclosed box should succeed");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+    let unpaired = count_unpaired_edges(&mesh);
+    assert_eq!(
+        unpaired, 0,
+        "cyl minus enclosed box mesh should be watertight (got {} unpaired edges)",
+        unpaired
+    );
+}
+
+/// K1: Enclosed cylinder-minus-box volume check.
+#[test]
+fn k1_cyl_minus_enclosed_box_volume() {
+    let mut k = WaffleKernel::new();
+
+    let (cyl_profiles, cyl_pos) = make_circle_profile(0.0, 0.0, 1.0);
+    let cyl_faces = k
+        .make_faces_from_profiles(&cyl_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &cyl_pos)
+        .unwrap();
+    let cyl = k.extrude_face(cyl_faces[0], Z_DIR, 2.0).unwrap();
+
+    let (box_profiles, box_pos) = make_rect_profile(0.0, 0.0, 0.5, 0.5);
+    let box_faces = k
+        .make_faces_from_profiles(&box_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &box_pos)
+        .unwrap();
+    let box_solid = k.extrude_face(box_faces[0], Z_DIR, 2.0).unwrap();
+
+    let result = k
+        .do_boolean(&cyl, &box_solid, crate::boolean::BoolOp::Subtract)
+        .expect("cyl minus enclosed box should succeed");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+    let vol = mesh_volume(&mesh);
+    // Expected: π×1²×2 - 0.5×0.5×2 = 6.283 - 0.5 = 5.783
+    let expected = std::f64::consts::PI * 1.0 * 1.0 * 2.0 - 0.5 * 0.5 * 2.0;
+    assert!(
+        (vol - expected).abs() / expected < 0.10,
+        "volume ({:.3}) should be ~{:.3} (within 10%)",
+        vol,
+        expected
+    );
+}
+
+/// K2: Disjoint cylinder-minus-box returns cylinder.
+#[test]
+fn k2_cyl_minus_disjoint_box() {
+    let mut k = WaffleKernel::new();
+
+    let (cyl_profiles, cyl_pos) = make_circle_profile(0.0, 0.0, 1.0);
+    let cyl_faces = k
+        .make_faces_from_profiles(&cyl_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &cyl_pos)
+        .unwrap();
+    let cyl = k.extrude_face(cyl_faces[0], Z_DIR, 2.0).unwrap();
+
+    // Box far away at (10,10,0)
+    let (box_profiles, box_pos) = make_rect_profile(10.0, 10.0, 1.0, 1.0);
+    let box_faces = k
+        .make_faces_from_profiles(&box_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &box_pos)
+        .unwrap();
+    let box_solid = k.extrude_face(box_faces[0], Z_DIR, 2.0).unwrap();
+
+    let result = k
+        .do_boolean(&cyl, &box_solid, crate::boolean::BoolOp::Subtract)
+        .expect("disjoint cyl minus box should succeed");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+    let vol = mesh_volume(&mesh);
+    let cyl_vol = std::f64::consts::PI * 1.0 * 1.0 * 2.0;
+    assert!(
+        (vol - cyl_vol).abs() / cyl_vol < 0.10,
+        "disjoint subtract volume ({:.3}) should be ~cylinder ({:.3})",
+        vol,
+        cyl_vol
+    );
+}
+
+/// K3: Cylinder-minus-box Euler check (V-E+F=2).
+#[test]
+fn k3_cyl_minus_box_euler() {
+    let mut k = WaffleKernel::new();
+
+    let (cyl_profiles, cyl_pos) = make_circle_profile(0.0, 0.0, 1.0);
+    let cyl_faces = k
+        .make_faces_from_profiles(&cyl_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &cyl_pos)
+        .unwrap();
+    let cyl = k.extrude_face(cyl_faces[0], Z_DIR, 2.0).unwrap();
+
+    let (box_profiles, box_pos) = make_rect_profile(0.0, 0.0, 0.5, 0.5);
+    let box_faces = k
+        .make_faces_from_profiles(&box_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &box_pos)
+        .unwrap();
+    let box_solid = k.extrude_face(box_faces[0], Z_DIR, 2.0).unwrap();
+
+    let result = k
+        .do_boolean(&cyl, &box_solid, crate::boolean::BoolOp::Subtract)
+        .expect("cyl minus enclosed box should succeed");
+
+    let v = k.list_vertices(&result).len() as i64;
+    let e = k.list_edges(&result).len() as i64;
+    let f = k.list_faces(&result).len() as i64;
+    assert_eq!(
+        v - e + f,
+        2,
+        "Euler formula: V({}) - E({}) + F({}) = {} (expected 2)",
+        v,
+        e,
+        f,
+        v - e + f
+    );
+}
+
+/// K3: Cylinder-minus-box has 7 faces.
+#[test]
+fn k3_cyl_minus_box_face_count() {
+    let mut k = WaffleKernel::new();
+
+    let (cyl_profiles, cyl_pos) = make_circle_profile(0.0, 0.0, 1.0);
+    let cyl_faces = k
+        .make_faces_from_profiles(&cyl_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &cyl_pos)
+        .unwrap();
+    let cyl = k.extrude_face(cyl_faces[0], Z_DIR, 2.0).unwrap();
+
+    let (box_profiles, box_pos) = make_rect_profile(0.0, 0.0, 0.5, 0.5);
+    let box_faces = k
+        .make_faces_from_profiles(&box_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &box_pos)
+        .unwrap();
+    let box_solid = k.extrude_face(box_faces[0], Z_DIR, 2.0).unwrap();
+
+    let result = k
+        .do_boolean(&cyl, &box_solid, crate::boolean::BoolOp::Subtract)
+        .expect("cyl minus enclosed box should succeed");
+
+    let faces = k.list_faces(&result);
+    // 1 outer cyl wall + 2 annular caps + 4 inner rect walls = 7
+    assert_eq!(
+        faces.len(),
+        7,
+        "expected 7 faces (1 cyl wall + 2 annular caps + 4 inner walls), got {}",
+        faces.len()
+    );
+}
+
+/// K4: Cylinder-minus-box with non-Z-aligned axis (Y-aligned).
+#[test]
+fn k4_cyl_minus_box_tilted() {
+    let mut k = WaffleKernel::new();
+
+    // Y-aligned cylinder
+    let y_dir = [0.0, 1.0, 0.0];
+    let xz_origin = [0.0, 0.0, 0.0];
+    let xz_normal = [0.0, -1.0, 0.0]; // sketch plane normal = -Y for CCW winding in XZ
+    let xz_x_axis = [1.0, 0.0, 0.0];
+
+    let (cyl_profiles, cyl_pos) = make_circle_profile(0.0, 0.0, 1.0);
+    let cyl_faces = k
+        .make_faces_from_profiles(&cyl_profiles, xz_origin, xz_normal, xz_x_axis, &cyl_pos)
+        .unwrap();
+    let cyl = k.extrude_face(cyl_faces[0], y_dir, 2.0).unwrap();
+
+    // Small box fully enclosed within Y-aligned cylinder
+    let (box_profiles, box_pos) = make_rect_profile(0.0, 0.0, 0.5, 0.5);
+    let box_faces = k
+        .make_faces_from_profiles(&box_profiles, xz_origin, xz_normal, xz_x_axis, &box_pos)
+        .unwrap();
+    let box_solid = k.extrude_face(box_faces[0], y_dir, 2.0).unwrap();
+
+    let result = k
+        .do_boolean(&cyl, &box_solid, crate::boolean::BoolOp::Subtract)
+        .expect("tilted cyl minus box should succeed");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+    assert!(mesh.vertices.len() > 0, "mesh should have vertices");
+
+    let vol = mesh_volume(&mesh);
+    let expected = std::f64::consts::PI * 1.0 * 1.0 * 2.0 - 0.5 * 0.5 * 2.0;
+    assert!(
+        (vol - expected).abs() / expected < 0.15,
+        "tilted volume ({:.3}) should be ~{:.3}",
+        vol,
+        expected
     );
 }
 

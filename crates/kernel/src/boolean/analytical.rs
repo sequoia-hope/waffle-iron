@@ -225,9 +225,7 @@ pub(crate) fn ssi_boolean_op(
             BoolOp::Intersect => {
                 box_cyl_boolean(&box_aabb, solid_b, cyl, BoolOp::Intersect, id_alloc)
             }
-            BoolOp::Subtract => Err(KernelError::NotSupported {
-                operation: "cylinder minus box".to_string(),
-            }),
+            BoolOp::Subtract => cyl_minus_box_boolean(&box_aabb, solid_b, cyl, id_alloc),
         }
     } else {
         Err(KernelError::NotSupported {
@@ -1200,6 +1198,461 @@ fn build_box_minus_enclosed_cyl(
     result.edge_map.insert(id_alloc(), e_seam);
     result.vertex_map.insert(id_alloc(), v_bot_seam);
     result.vertex_map.insert(id_alloc(), v_top_seam);
+
+    Ok(result)
+}
+
+// ── Cylinder-minus-box boolean ──────────────────────────────────────
+
+/// Cylinder-minus-box boolean dispatch with frame rotation.
+///
+/// Handles the case where cylinder is operand A and box is operand B in a
+/// subtract operation. Mirrors `box_cyl_boolean` but for the inverted operand order.
+fn cyl_minus_box_boolean(
+    _box_aabb: &Aabb,
+    box_solid: &WaffleSolid,
+    cyl: &CylinderParams,
+    id_alloc: &mut dyn FnMut() -> u64,
+) -> Result<BooleanResult, KernelError> {
+    let m = rotation_to_z(cyl.direction);
+    let m_inv = mat3_transpose(&m);
+    let cyl_z = rotate_cyl_params(cyl, &m);
+    let box_aabb_z = ssi::compute_rotated_box_aabb(box_solid, &m);
+
+    let xy_enclosed = ssi::box_enclosed_in_cyl(&box_aabb_z, &cyl_z);
+    let disjoint = ssi::box_cyl_disjoint(&box_aabb_z, &cyl_z);
+
+    let (cyl_z_min, cyl_z_max) = ssi::cyl_z_range(&cyl_z);
+    let z_enclosed = box_aabb_z.min[2] >= cyl_z_min - TAU_COINCIDENT
+        && box_aabb_z.max[2] <= cyl_z_max + TAU_COINCIDENT;
+    let fully_enclosed = xy_enclosed && z_enclosed;
+
+    if fully_enclosed {
+        let mut result = build_cyl_minus_enclosed_box(&box_aabb_z, &cyl_z, id_alloc)?;
+        rotate_boolean_result(&mut result, &m_inv);
+        Ok(result)
+    } else if disjoint {
+        // cyl - disjoint box = cyl unchanged
+        let mut result = build_cyl_result(&cyl_z, id_alloc)?;
+        rotate_boolean_result(&mut result, &m_inv);
+        Ok(result)
+    } else {
+        Err(KernelError::NotSupported {
+            operation: "partial cylinder-minus-box subtract".to_string(),
+        })
+    }
+}
+
+/// Build B-Rep for cylinder with a rectangular through-hole (cylinder minus enclosed box).
+///
+/// Topology: 7 faces:
+/// - 1 outer cylinder wall (with seam edge)
+/// - 2 annular end caps (outer circle + inner rectangle hole)
+/// - 4 inner rectangular wall faces (planar)
+///
+/// V=10, E=15, F=7 → V-E+F = 10-15+7 = 2 ✓ (Euler)
+fn build_cyl_minus_enclosed_box(
+    aabb: &Aabb,
+    cyl: &CylinderParams,
+    id_alloc: &mut dyn FnMut() -> u64,
+) -> Result<BooleanResult, KernelError> {
+    let (cyl_z_min, cyl_z_max) = ssi::cyl_z_range(cyl);
+
+    // Step 1: Build standalone cylinder as base
+    let mut result = build_cyl_result(cyl, id_alloc)?;
+
+    // Step 2: Find bottom and top cap faces by normal direction
+    let mut face_bot = None;
+    let mut face_top = None;
+    for (&fi, geom) in &result.face_geometry {
+        if let SurfaceGeom::Planar(plane) = geom {
+            if plane.normal.z < -0.5 {
+                face_bot = Some(fi);
+            } else if plane.normal.z > 0.5 {
+                face_top = Some(fi);
+            }
+        }
+    }
+    let face_bot = face_bot.ok_or(KernelError::BooleanFailed {
+        reason: "cannot find bottom face of cylinder".to_string(),
+    })?;
+    let face_top = face_top.ok_or(KernelError::BooleanFailed {
+        reason: "cannot find top face of cylinder".to_string(),
+    })?;
+
+    // Step 3: Box corner positions (4 corners × 2 Z-levels = 8 vertices)
+    let bx0 = aabb.min[0];
+    let bx1 = aabb.max[0];
+    let by0 = aabb.min[1];
+    let by1 = aabb.max[1];
+
+    let v_b0 = result.arena.add_vertex([bx0, by0, cyl_z_min]); // bottom-left, bottom
+    let v_b1 = result.arena.add_vertex([bx1, by0, cyl_z_min]); // bottom-right, bottom
+    let v_b2 = result.arena.add_vertex([bx1, by1, cyl_z_min]); // top-right, bottom
+    let v_b3 = result.arena.add_vertex([bx0, by1, cyl_z_min]); // top-left, bottom
+    let v_t0 = result.arena.add_vertex([bx0, by0, cyl_z_max]); // bottom-left, top
+    let v_t1 = result.arena.add_vertex([bx1, by0, cyl_z_max]); // bottom-right, top
+    let v_t2 = result.arena.add_vertex([bx1, by1, cyl_z_max]); // top-right, top
+    let v_t3 = result.arena.add_vertex([bx0, by1, cyl_z_max]); // top-left, top
+
+    // Step 4: Inner rectangular loops on bottom and top cap faces
+    // Bottom cap inner loop: rectangle winding CW from outside (= CCW from -Z = CW from +Z)
+    // For a hole in a face with outward normal -Z, the inner loop winds CW when viewed from -Z,
+    // which is CCW when viewed from +Z. The ordering is: b0 → b3 → b2 → b1
+    let inner_loop_bot = result.arena.add_loop(face_bot);
+    result.arena.faces[face_bot.0]
+        .inner_loops
+        .push(inner_loop_bot);
+
+    let (e_br0, he_br0_a, he_br0_b) = result.arena.add_edge(); // b0→b3
+    let (e_br1, he_br1_a, he_br1_b) = result.arena.add_edge(); // b3→b2
+    let (e_br2, he_br2_a, he_br2_b) = result.arena.add_edge(); // b2→b1
+    let (e_br3, he_br3_a, he_br3_b) = result.arena.add_edge(); // b1→b0
+
+    // Bottom inner loop: b0 → b3 → b2 → b1 → b0
+    result.arena.half_edges[he_br0_a.0].origin = v_b0;
+    result.arena.half_edges[he_br0_a.0].next = he_br1_a;
+    result.arena.half_edges[he_br0_a.0].prev = he_br3_a;
+    result.arena.half_edges[he_br0_a.0].loop_ = inner_loop_bot;
+
+    result.arena.half_edges[he_br1_a.0].origin = v_b3;
+    result.arena.half_edges[he_br1_a.0].next = he_br2_a;
+    result.arena.half_edges[he_br1_a.0].prev = he_br0_a;
+    result.arena.half_edges[he_br1_a.0].loop_ = inner_loop_bot;
+
+    result.arena.half_edges[he_br2_a.0].origin = v_b2;
+    result.arena.half_edges[he_br2_a.0].next = he_br3_a;
+    result.arena.half_edges[he_br2_a.0].prev = he_br1_a;
+    result.arena.half_edges[he_br2_a.0].loop_ = inner_loop_bot;
+
+    result.arena.half_edges[he_br3_a.0].origin = v_b1;
+    result.arena.half_edges[he_br3_a.0].next = he_br0_a;
+    result.arena.half_edges[he_br3_a.0].prev = he_br2_a;
+    result.arena.half_edges[he_br3_a.0].loop_ = inner_loop_bot;
+
+    result.arena.loops[inner_loop_bot.0].half_edge = he_br0_a;
+
+    // Top cap inner loop: rectangle winding CW from outside (= CW from +Z)
+    // For a hole in a face with outward normal +Z, the inner loop winds CW from +Z.
+    // Ordering: t0 → t1 → t2 → t3
+    let inner_loop_top = result.arena.add_loop(face_top);
+    result.arena.faces[face_top.0]
+        .inner_loops
+        .push(inner_loop_top);
+
+    let (e_tr0, he_tr0_a, he_tr0_b) = result.arena.add_edge(); // t0→t1
+    let (e_tr1, he_tr1_a, he_tr1_b) = result.arena.add_edge(); // t1→t2
+    let (e_tr2, he_tr2_a, he_tr2_b) = result.arena.add_edge(); // t2→t3
+    let (e_tr3, he_tr3_a, he_tr3_b) = result.arena.add_edge(); // t3→t0
+
+    // Top inner loop: t0 → t1 → t2 → t3 → t0
+    result.arena.half_edges[he_tr0_a.0].origin = v_t0;
+    result.arena.half_edges[he_tr0_a.0].next = he_tr1_a;
+    result.arena.half_edges[he_tr0_a.0].prev = he_tr3_a;
+    result.arena.half_edges[he_tr0_a.0].loop_ = inner_loop_top;
+
+    result.arena.half_edges[he_tr1_a.0].origin = v_t1;
+    result.arena.half_edges[he_tr1_a.0].next = he_tr2_a;
+    result.arena.half_edges[he_tr1_a.0].prev = he_tr0_a;
+    result.arena.half_edges[he_tr1_a.0].loop_ = inner_loop_top;
+
+    result.arena.half_edges[he_tr2_a.0].origin = v_t2;
+    result.arena.half_edges[he_tr2_a.0].next = he_tr3_a;
+    result.arena.half_edges[he_tr2_a.0].prev = he_tr1_a;
+    result.arena.half_edges[he_tr2_a.0].loop_ = inner_loop_top;
+
+    result.arena.half_edges[he_tr3_a.0].origin = v_t3;
+    result.arena.half_edges[he_tr3_a.0].next = he_tr0_a;
+    result.arena.half_edges[he_tr3_a.0].prev = he_tr2_a;
+    result.arena.half_edges[he_tr3_a.0].loop_ = inner_loop_top;
+
+    result.arena.loops[inner_loop_top.0].half_edge = he_tr0_a;
+
+    // Step 5: 4 inner rectangular wall faces (inward-facing normals)
+    // Each wall connects a bottom edge to a top edge via 2 vertical edges.
+    // Wall 0: front (y=by0, normal +Y inward) — b0→b1 bottom, t1→t0 top
+    // Wall 1: right (x=bx1, normal -X inward) — b1→b2 bottom, t2→t1 top
+    // Wall 2: back  (y=by1, normal -Y inward) — b2→b3 bottom, t3→t2 top
+    // Wall 3: left  (x=bx0, normal +X inward) — b3→b0 bottom, t0→t3 top
+    let shell_idx = ShellIdx(0);
+
+    // 4 vertical edges connecting bottom to top corners
+    let (e_v0, he_v0_a, he_v0_b) = result.arena.add_edge(); // b0↔t0
+    let (e_v1, he_v1_a, he_v1_b) = result.arena.add_edge(); // b1↔t1
+    let (e_v2, he_v2_a, he_v2_b) = result.arena.add_edge(); // b2↔t2
+    let (e_v3, he_v3_a, he_v3_b) = result.arena.add_edge(); // b3↔t3
+
+    // Wall 0: front face (y=by0), normal pointing inward (+Y)
+    // Loop: b1→t1 (v1_a) → t1→t0 (tr0_b) → t0→b0 (v0_b) → b0→b1 (br3_b)
+    let face_w0 = result.arena.add_face(shell_idx);
+    let loop_w0 = result.arena.add_loop(face_w0);
+    result.arena.faces[face_w0.0].outer_loop = loop_w0;
+
+    result.arena.half_edges[he_v1_a.0].origin = v_b1;
+    result.arena.half_edges[he_v1_a.0].next = he_tr0_b;
+    result.arena.half_edges[he_v1_a.0].prev = he_br3_b;
+    result.arena.half_edges[he_v1_a.0].loop_ = loop_w0;
+
+    result.arena.half_edges[he_tr0_b.0].origin = v_t1;
+    result.arena.half_edges[he_tr0_b.0].next = he_v0_b;
+    result.arena.half_edges[he_tr0_b.0].prev = he_v1_a;
+    result.arena.half_edges[he_tr0_b.0].loop_ = loop_w0;
+
+    result.arena.half_edges[he_v0_b.0].origin = v_t0;
+    result.arena.half_edges[he_v0_b.0].next = he_br3_b;
+    result.arena.half_edges[he_v0_b.0].prev = he_tr0_b;
+    result.arena.half_edges[he_v0_b.0].loop_ = loop_w0;
+
+    result.arena.half_edges[he_br3_b.0].origin = v_b0;
+    result.arena.half_edges[he_br3_b.0].next = he_v1_a;
+    result.arena.half_edges[he_br3_b.0].prev = he_v0_b;
+    result.arena.half_edges[he_br3_b.0].loop_ = loop_w0;
+
+    result.arena.loops[loop_w0.0].half_edge = he_v1_a;
+
+    // Wall 1: right face (x=bx1), normal pointing inward (-X)
+    // Loop: b2→t2 (v2_a) → t2→t1 (tr1_b) → t1→b1 (v1_b) → b1→b2 (br2_b)
+    let face_w1 = result.arena.add_face(shell_idx);
+    let loop_w1 = result.arena.add_loop(face_w1);
+    result.arena.faces[face_w1.0].outer_loop = loop_w1;
+
+    result.arena.half_edges[he_v2_a.0].origin = v_b2;
+    result.arena.half_edges[he_v2_a.0].next = he_tr1_b;
+    result.arena.half_edges[he_v2_a.0].prev = he_br2_b;
+    result.arena.half_edges[he_v2_a.0].loop_ = loop_w1;
+
+    result.arena.half_edges[he_tr1_b.0].origin = v_t2;
+    result.arena.half_edges[he_tr1_b.0].next = he_v1_b;
+    result.arena.half_edges[he_tr1_b.0].prev = he_v2_a;
+    result.arena.half_edges[he_tr1_b.0].loop_ = loop_w1;
+
+    result.arena.half_edges[he_v1_b.0].origin = v_t1;
+    result.arena.half_edges[he_v1_b.0].next = he_br2_b;
+    result.arena.half_edges[he_v1_b.0].prev = he_tr1_b;
+    result.arena.half_edges[he_v1_b.0].loop_ = loop_w1;
+
+    result.arena.half_edges[he_br2_b.0].origin = v_b1;
+    result.arena.half_edges[he_br2_b.0].next = he_v2_a;
+    result.arena.half_edges[he_br2_b.0].prev = he_v1_b;
+    result.arena.half_edges[he_br2_b.0].loop_ = loop_w1;
+
+    result.arena.loops[loop_w1.0].half_edge = he_v2_a;
+
+    // Wall 2: back face (y=by1), normal pointing inward (-Y)
+    // Loop: b3→t3 (v3_a) → t3→t2 (tr2_b) → t2→b2 (v2_b) → b2→b3 (br1_b)
+    let face_w2 = result.arena.add_face(shell_idx);
+    let loop_w2 = result.arena.add_loop(face_w2);
+    result.arena.faces[face_w2.0].outer_loop = loop_w2;
+
+    result.arena.half_edges[he_v3_a.0].origin = v_b3;
+    result.arena.half_edges[he_v3_a.0].next = he_tr2_b;
+    result.arena.half_edges[he_v3_a.0].prev = he_br1_b;
+    result.arena.half_edges[he_v3_a.0].loop_ = loop_w2;
+
+    result.arena.half_edges[he_tr2_b.0].origin = v_t3;
+    result.arena.half_edges[he_tr2_b.0].next = he_v2_b;
+    result.arena.half_edges[he_tr2_b.0].prev = he_v3_a;
+    result.arena.half_edges[he_tr2_b.0].loop_ = loop_w2;
+
+    result.arena.half_edges[he_v2_b.0].origin = v_t2;
+    result.arena.half_edges[he_v2_b.0].next = he_br1_b;
+    result.arena.half_edges[he_v2_b.0].prev = he_tr2_b;
+    result.arena.half_edges[he_v2_b.0].loop_ = loop_w2;
+
+    result.arena.half_edges[he_br1_b.0].origin = v_b2;
+    result.arena.half_edges[he_br1_b.0].next = he_v3_a;
+    result.arena.half_edges[he_br1_b.0].prev = he_v2_b;
+    result.arena.half_edges[he_br1_b.0].loop_ = loop_w2;
+
+    result.arena.loops[loop_w2.0].half_edge = he_v3_a;
+
+    // Wall 3: left face (x=bx0), normal pointing inward (+X)
+    // Loop: b0→t0 (v0_a) → t0→t3 (tr3_b) → t3→b3 (v3_b) → b3→b0 (br0_b)
+    let face_w3 = result.arena.add_face(shell_idx);
+    let loop_w3 = result.arena.add_loop(face_w3);
+    result.arena.faces[face_w3.0].outer_loop = loop_w3;
+
+    result.arena.half_edges[he_v0_a.0].origin = v_b0;
+    result.arena.half_edges[he_v0_a.0].next = he_tr3_b;
+    result.arena.half_edges[he_v0_a.0].prev = he_br0_b;
+    result.arena.half_edges[he_v0_a.0].loop_ = loop_w3;
+
+    result.arena.half_edges[he_tr3_b.0].origin = v_t0;
+    result.arena.half_edges[he_tr3_b.0].next = he_v3_b;
+    result.arena.half_edges[he_tr3_b.0].prev = he_v0_a;
+    result.arena.half_edges[he_tr3_b.0].loop_ = loop_w3;
+
+    result.arena.half_edges[he_v3_b.0].origin = v_t3;
+    result.arena.half_edges[he_v3_b.0].next = he_br0_b;
+    result.arena.half_edges[he_v3_b.0].prev = he_tr3_b;
+    result.arena.half_edges[he_v3_b.0].loop_ = loop_w3;
+
+    result.arena.half_edges[he_br0_b.0].origin = v_b3;
+    result.arena.half_edges[he_br0_b.0].next = he_v0_a;
+    result.arena.half_edges[he_br0_b.0].prev = he_v3_b;
+    result.arena.half_edges[he_br0_b.0].loop_ = loop_w3;
+
+    result.arena.loops[loop_w3.0].half_edge = he_v0_a;
+
+    // Step 6: Vertex half-edge references
+    result.arena.vertices[v_b0.0].half_edge = Some(he_br0_a);
+    result.arena.vertices[v_b1.0].half_edge = Some(he_br3_a);
+    result.arena.vertices[v_b2.0].half_edge = Some(he_br2_a);
+    result.arena.vertices[v_b3.0].half_edge = Some(he_br1_a);
+    result.arena.vertices[v_t0.0].half_edge = Some(he_tr0_a);
+    result.arena.vertices[v_t1.0].half_edge = Some(he_tr1_a);
+    result.arena.vertices[v_t2.0].half_edge = Some(he_tr2_a);
+    result.arena.vertices[v_t3.0].half_edge = Some(he_tr3_a);
+
+    // Step 7: Face geometry for inner walls (inward-facing normals)
+    result.face_geometry.insert(
+        face_w0,
+        SurfaceGeom::Planar(Plane {
+            origin: Point3::from_array([bx0, by0, cyl_z_min]),
+            normal: Vector3::new(0.0, 1.0, 0.0),
+        }),
+    );
+    result.face_geometry.insert(
+        face_w1,
+        SurfaceGeom::Planar(Plane {
+            origin: Point3::from_array([bx1, by0, cyl_z_min]),
+            normal: Vector3::new(-1.0, 0.0, 0.0),
+        }),
+    );
+    result.face_geometry.insert(
+        face_w2,
+        SurfaceGeom::Planar(Plane {
+            origin: Point3::from_array([bx1, by1, cyl_z_min]),
+            normal: Vector3::new(0.0, -1.0, 0.0),
+        }),
+    );
+    result.face_geometry.insert(
+        face_w3,
+        SurfaceGeom::Planar(Plane {
+            origin: Point3::from_array([bx0, by0, cyl_z_min]),
+            normal: Vector3::new(1.0, 0.0, 0.0),
+        }),
+    );
+
+    // Step 8: Edge geometry
+    // Bottom rect edges (linear)
+    let h = cyl_z_max - cyl_z_min;
+    result.edge_geometry.insert(
+        e_br0,
+        CurveGeom::Linear(Line3D {
+            origin: Point3::from_array([bx0, by0, cyl_z_min]),
+            direction: Vector3::new(0.0, by1 - by0, 0.0),
+        }),
+    );
+    result.edge_geometry.insert(
+        e_br1,
+        CurveGeom::Linear(Line3D {
+            origin: Point3::from_array([bx0, by1, cyl_z_min]),
+            direction: Vector3::new(bx1 - bx0, 0.0, 0.0),
+        }),
+    );
+    result.edge_geometry.insert(
+        e_br2,
+        CurveGeom::Linear(Line3D {
+            origin: Point3::from_array([bx1, by1, cyl_z_min]),
+            direction: Vector3::new(0.0, by0 - by1, 0.0),
+        }),
+    );
+    result.edge_geometry.insert(
+        e_br3,
+        CurveGeom::Linear(Line3D {
+            origin: Point3::from_array([bx1, by0, cyl_z_min]),
+            direction: Vector3::new(bx0 - bx1, 0.0, 0.0),
+        }),
+    );
+
+    // Top rect edges (linear)
+    result.edge_geometry.insert(
+        e_tr0,
+        CurveGeom::Linear(Line3D {
+            origin: Point3::from_array([bx0, by0, cyl_z_max]),
+            direction: Vector3::new(bx1 - bx0, 0.0, 0.0),
+        }),
+    );
+    result.edge_geometry.insert(
+        e_tr1,
+        CurveGeom::Linear(Line3D {
+            origin: Point3::from_array([bx1, by0, cyl_z_max]),
+            direction: Vector3::new(0.0, by1 - by0, 0.0),
+        }),
+    );
+    result.edge_geometry.insert(
+        e_tr2,
+        CurveGeom::Linear(Line3D {
+            origin: Point3::from_array([bx1, by1, cyl_z_max]),
+            direction: Vector3::new(bx0 - bx1, 0.0, 0.0),
+        }),
+    );
+    result.edge_geometry.insert(
+        e_tr3,
+        CurveGeom::Linear(Line3D {
+            origin: Point3::from_array([bx0, by1, cyl_z_max]),
+            direction: Vector3::new(0.0, by0 - by1, 0.0),
+        }),
+    );
+
+    // Vertical edges (linear)
+    result.edge_geometry.insert(
+        e_v0,
+        CurveGeom::Linear(Line3D {
+            origin: Point3::from_array([bx0, by0, cyl_z_min]),
+            direction: Vector3::new(0.0, 0.0, h),
+        }),
+    );
+    result.edge_geometry.insert(
+        e_v1,
+        CurveGeom::Linear(Line3D {
+            origin: Point3::from_array([bx1, by0, cyl_z_min]),
+            direction: Vector3::new(0.0, 0.0, h),
+        }),
+    );
+    result.edge_geometry.insert(
+        e_v2,
+        CurveGeom::Linear(Line3D {
+            origin: Point3::from_array([bx1, by1, cyl_z_min]),
+            direction: Vector3::new(0.0, 0.0, h),
+        }),
+    );
+    result.edge_geometry.insert(
+        e_v3,
+        CurveGeom::Linear(Line3D {
+            origin: Point3::from_array([bx0, by1, cyl_z_min]),
+            direction: Vector3::new(0.0, 0.0, h),
+        }),
+    );
+
+    // Step 9: ID maps for new entities
+    result.face_map.insert(id_alloc(), face_w0);
+    result.face_map.insert(id_alloc(), face_w1);
+    result.face_map.insert(id_alloc(), face_w2);
+    result.face_map.insert(id_alloc(), face_w3);
+
+    result.edge_map.insert(id_alloc(), e_br0);
+    result.edge_map.insert(id_alloc(), e_br1);
+    result.edge_map.insert(id_alloc(), e_br2);
+    result.edge_map.insert(id_alloc(), e_br3);
+    result.edge_map.insert(id_alloc(), e_tr0);
+    result.edge_map.insert(id_alloc(), e_tr1);
+    result.edge_map.insert(id_alloc(), e_tr2);
+    result.edge_map.insert(id_alloc(), e_tr3);
+    result.edge_map.insert(id_alloc(), e_v0);
+    result.edge_map.insert(id_alloc(), e_v1);
+    result.edge_map.insert(id_alloc(), e_v2);
+    result.edge_map.insert(id_alloc(), e_v3);
+
+    result.vertex_map.insert(id_alloc(), v_b0);
+    result.vertex_map.insert(id_alloc(), v_b1);
+    result.vertex_map.insert(id_alloc(), v_b2);
+    result.vertex_map.insert(id_alloc(), v_b3);
+    result.vertex_map.insert(id_alloc(), v_t0);
+    result.vertex_map.insert(id_alloc(), v_t1);
+    result.vertex_map.insert(id_alloc(), v_t2);
+    result.vertex_map.insert(id_alloc(), v_t3);
 
     Ok(result)
 }

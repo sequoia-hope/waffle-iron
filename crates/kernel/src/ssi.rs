@@ -583,6 +583,24 @@ pub(crate) fn cyl_enclosed_in_box(cyl: &CylinderParams, aabb: &Aabb) -> bool {
         && cy + r <= aabb.max[1] + TOL
 }
 
+/// Check if a box AABB is fully enclosed within a cylinder (in XY plane).
+/// All 4 corners of the AABB must be inside the cylinder circle.
+pub(crate) fn box_enclosed_in_cyl(aabb: &Aabb, cyl: &CylinderParams) -> bool {
+    let cx = cyl.center_bottom[0];
+    let cy = cyl.center_bottom[1];
+    let r = cyl.radius;
+    for &x in &[aabb.min[0], aabb.max[0]] {
+        for &y in &[aabb.min[1], aabb.max[1]] {
+            let dx = x - cx;
+            let dy = y - cy;
+            if dx * dx + dy * dy > r * r + TOL {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 /// Check if box and cylinder are fully disjoint (no overlap in XY or Z).
 pub(crate) fn box_cyl_disjoint(aabb: &Aabb, cyl: &CylinderParams) -> bool {
     let cx = cyl.center_bottom[0];
