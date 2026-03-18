@@ -1363,10 +1363,11 @@ fn generate_circle_boss_cases(output_dir: &std::path::Path) -> Vec<ManifestEntry
             false,
         );
         features.extend(box_feats);
+        let boss_origin = [origin[0], origin[1], origin[2] + box_d];
         let (_, cyl_feats) = build_sketch_extrude(
             "Sketch 2",
             "Extrude 2",
-            origin,
+            boss_origin,
             normal,
             true_circle_profile(0.0, 0.0, cyl_r),
             cyl_d,
@@ -1445,8 +1446,8 @@ fn generate_box_minus_cyl_cases(output_dir: &std::path::Path) -> Vec<ManifestEnt
         let box_d: f64 = rng.gen_range(0.3..0.6);
         let max_radius = box_w.min(box_h) / 2.0 * 0.7;
         let cyl_r: f64 = rng.gen_range(0.05..max_radius);
-        // Symmetric extrude depth > box_d/2 so cylinder passes fully through
-        let cyl_d: f64 = box_d * rng.gen_range(0.6..1.0);
+        // Cylinder must be fully enclosed in box Z-range for build_box_minus_enclosed_cyl
+        let cyl_d: f64 = box_d * rng.gen_range(0.5..0.9);
 
         let mut features = Vec::new();
         let (_, box_feats) = build_sketch_extrude(
@@ -1460,15 +1461,18 @@ fn generate_box_minus_cyl_cases(output_dir: &std::path::Path) -> Vec<ManifestEnt
             false,
         );
         features.extend(box_feats);
+        // Center cylinder in box Z-range so it's fully enclosed
+        let z_offset = (box_d - cyl_d) / 2.0;
+        let cut_origin = [origin[0], origin[1], origin[2] + z_offset];
         let (_, cyl_feats) = build_sketch_extrude(
             "Sketch 2",
             "Extrude 2",
-            origin,
+            cut_origin,
             normal,
             true_circle_profile(0.0, 0.0, cyl_r),
             cyl_d,
             true,
-            true,
+            false,
         );
         features.extend(cyl_feats);
 
@@ -1545,6 +1549,7 @@ fn generate_cyl_minus_box_cases(output_dir: &std::path::Path) -> Vec<ManifestEnt
         let box_max = cyl_r * 0.8;
         let box_w: f64 = rng.gen_range(box_max * 0.4..box_max);
         let box_h: f64 = rng.gen_range(box_max * 0.4..box_max);
+        // Box must be fully enclosed in cylinder Z-range for build_cyl_minus_enclosed_box
         let box_d: f64 = cyl_d * rng.gen_range(0.5..0.9);
 
         let mut features = Vec::new();
@@ -1559,15 +1564,18 @@ fn generate_cyl_minus_box_cases(output_dir: &std::path::Path) -> Vec<ManifestEnt
             false,
         );
         features.extend(cyl_feats);
+        // Center box in cylinder Z-range so it's fully enclosed
+        let z_offset = (cyl_d - box_d) / 2.0;
+        let cut_origin = [origin[0], origin[1], origin[2] + z_offset];
         let (_, box_feats) = build_sketch_extrude(
             "Sketch 2",
             "Extrude 2",
-            origin,
+            cut_origin,
             normal,
             rect_profile(-box_w / 2.0, -box_h / 2.0, box_w, box_h),
             box_d,
             true,
-            true,
+            false,
         );
         features.extend(box_feats);
 
@@ -1658,15 +1666,24 @@ fn generate_cyl_cyl_parallel_cases(output_dir: &std::path::Path) -> Vec<Manifest
             false,
         );
         features.extend(cyl1_feats);
+        let (cyl2_origin, cyl2_d, cyl2_symmetric) = if is_cut_2 {
+            // Cut: place second cylinder centered in first's Z-range, fully enclosed
+            let cd = d1 * rng.gen_range(0.5..0.9);
+            let z_off = (d1 - cd) / 2.0;
+            ([origin[0], origin[1], origin[2] + z_off], cd, false)
+        } else {
+            // Boss: overlap by 20% so boolean detects Z overlap
+            ([origin[0], origin[1], origin[2] + d1 * 0.8], d2, false)
+        };
         let (_, cyl2_feats) = build_sketch_extrude(
             "Sketch 2",
             "Extrude 2",
-            origin,
+            cyl2_origin,
             normal,
             true_circle_profile(offset_x, offset_y, r2),
-            d2,
+            cyl2_d,
             is_cut_2,
-            false,
+            cyl2_symmetric,
         );
         features.extend(cyl2_feats);
 
