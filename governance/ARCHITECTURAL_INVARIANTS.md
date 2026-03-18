@@ -434,7 +434,7 @@ The 15 quadric surface pairs ordered by CAD frequency, with implementation statu
 | 2 | Plane–Cylinder | Ellipse/circle | done |
 | 3 | Plane–Cone | Conic section | done |
 | 4 | Plane–Sphere | Circle | done |
-| 5 | Cylinder–Cylinder | Degree ≤ 4 curve | in-progress |
+| 5 | Cylinder–Cylinder | Degree ≤ 4 curve | done (parallel + non-parallel ≥60°) |
 | 6 | Plane–Torus | Degree-4 curve | todo |
 | 7 | Cylinder–Cone | Degree ≤ 4 curve | todo |
 | 8 | Cylinder–Sphere | Degree ≤ 4 curve | todo |

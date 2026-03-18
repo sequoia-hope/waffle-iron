@@ -355,6 +355,169 @@ pub(crate) fn cylinder_cylinder_ssi(
     ])
 }
 
+/// Compute SSI curves for two non-parallel equal-radius cylinders with intersecting axes.
+///
+/// Returns two `SSICurve::Ellipse` for the intersection curves of equal-radius
+/// cylinders at angle α > 60°. The curves have semi-axes R/sin(α/2) and R/cos(α/2).
+///
+/// Guard conditions:
+/// - Parallel axes (|cos| > 1-1e-6) → Ok(vec![]) (handled by existing parallel path)
+/// - Near-parallel (|cos| >= 0.5, angle < 60°) → NotSupported
+/// - Unequal radii (>1% relative) → NotSupported
+/// - Skew axes (closest distance >= 0.05×R) → NotSupported
+///
+/// Ref: Patrikalakis Ch.5 — SSI algorithms for analytic surfaces.
+/// Ref: Yang et al. (2023) — topology-guaranteed SSI.
+pub(crate) fn cylinder_cylinder_ssi_non_parallel(
+    cyl_a_origin: [f64; 3],
+    cyl_a_axis: [f64; 3],
+    cyl_a_radius: f64,
+    cyl_b_origin: [f64; 3],
+    cyl_b_axis: [f64; 3],
+    cyl_b_radius: f64,
+) -> Result<Vec<SSICurve>, KernelError> {
+    let cos_angle = v3_dot(cyl_a_axis, cyl_b_axis).abs();
+
+    // Parallel → handled by existing parallel SSI path
+    if cos_angle > 1.0 - 1e-6 {
+        return Ok(vec![]);
+    }
+
+    // Near-parallel (angle < 60°) → not supported
+    // Use > 0.5 + epsilon so exactly 60° is supported
+    if cos_angle > 0.5 + 1e-9 {
+        return Err(KernelError::NotSupported {
+            operation: "cylinder-cylinder SSI: near-parallel axes (angle < 60°)".to_string(),
+        });
+    }
+
+    // Unequal radii check (>1% relative difference)
+    let r_max = cyl_a_radius.max(cyl_b_radius);
+    let r_min = cyl_a_radius.min(cyl_b_radius);
+    if r_max < 1e-15 {
+        return Err(KernelError::NotSupported {
+            operation: "cylinder-cylinder SSI: zero radius".to_string(),
+        });
+    }
+    if (r_max - r_min) / r_max >= 0.01 {
+        return Err(KernelError::NotSupported {
+            operation: "cylinder-cylinder SSI: unequal radii".to_string(),
+        });
+    }
+
+    // Use average radius for nearly-equal radii
+    let r = (cyl_a_radius + cyl_b_radius) / 2.0;
+
+    // Compute closest points between the two axis lines to find intersection.
+    // Line 1: P1 + t*d1, Line 2: P2 + s*d2
+    let d1 = cyl_a_axis;
+    let d2 = cyl_b_axis;
+    let w = v3_sub(cyl_a_origin, cyl_b_origin);
+    let a = v3_dot(d1, d1); // = 1 for unit vectors
+    let b = v3_dot(d1, d2);
+    let c = v3_dot(d2, d2); // = 1 for unit vectors
+    let d = v3_dot(d1, w);
+    let e = v3_dot(d2, w);
+    let denom = a * c - b * b;
+
+    if denom.abs() < 1e-12 {
+        // Degenerate (parallel) — should have been caught above
+        return Ok(vec![]);
+    }
+
+    let t_closest = (b * e - c * d) / denom;
+    let s_closest = (a * e - b * d) / denom;
+
+    let p1_closest = v3_add(cyl_a_origin, v3_scale(d1, t_closest));
+    let p2_closest = v3_add(cyl_b_origin, v3_scale(d2, s_closest));
+    let closest_dist = v3_length(v3_sub(p1_closest, p2_closest));
+
+    // Skew axes check
+    if closest_dist >= 0.05 * r {
+        return Err(KernelError::NotSupported {
+            operation: "cylinder-cylinder SSI: skew (non-intersecting) axes".to_string(),
+        });
+    }
+
+    // Center = midpoint of closest approach
+    let center = v3_scale(v3_add(p1_closest, p2_closest), 0.5);
+
+    // Compute angle between axes
+    // cos_angle already computed above (absolute value)
+    // We need the actual angle α between the axes (0..π)
+    let raw_cos = v3_dot(cyl_a_axis, cyl_b_axis);
+    let alpha = raw_cos.abs().acos(); // angle in [0, π/2]
+
+    let half_alpha = alpha / 2.0;
+    let sin_half = half_alpha.sin();
+    let cos_half = half_alpha.cos();
+
+    // Local frame: e1 = a1, e2 = component of a2 perpendicular to a1, e3 = e1 × e2
+    let e1 = cyl_a_axis;
+    // Make sure a2 points "same direction" as the positive dot product
+    let a2 = if raw_cos >= 0.0 {
+        cyl_b_axis
+    } else {
+        [-cyl_b_axis[0], -cyl_b_axis[1], -cyl_b_axis[2]]
+    };
+    let a2_par = v3_scale(e1, v3_dot(a2, e1));
+    let a2_perp = v3_sub(a2, a2_par);
+    let a2_perp_len = v3_length(a2_perp);
+    if a2_perp_len < 1e-12 {
+        return Ok(vec![]); // Degenerate
+    }
+    let e2 = v3_scale(a2_perp, 1.0 / a2_perp_len);
+    let e3 = v3_cross(e1, e2);
+
+    // Curve 1: major direction = cot(α/2)*e1 + e2, semi_u = R/sin(α/2)
+    let cot_half = cos_half / sin_half;
+    let major_dir_1 = v3_add(v3_scale(e1, cot_half), e2);
+    let major_dir_1_len = v3_length(major_dir_1);
+    let major_axis_1 = v3_scale(major_dir_1, 1.0 / major_dir_1_len);
+    let semi_major_1 = r / sin_half;
+    let semi_minor_1 = r;
+    // Normal = major_axis × e3 (normalized)
+    let normal_1 = v3_cross(major_axis_1, v3_scale(e3, 1.0 / v3_length(e3)));
+    let normal_1_len = v3_length(normal_1);
+    let normal_1 = if normal_1_len > 1e-12 {
+        v3_scale(normal_1, 1.0 / normal_1_len)
+    } else {
+        e1
+    };
+
+    // Curve 2: major direction = -tan(α/2)*e1 + e2, semi_u = R/cos(α/2)
+    let tan_half = sin_half / cos_half;
+    let major_dir_2 = v3_add(v3_scale(e1, -tan_half), e2);
+    let major_dir_2_len = v3_length(major_dir_2);
+    let major_axis_2 = v3_scale(major_dir_2, 1.0 / major_dir_2_len);
+    let semi_major_2 = r / cos_half;
+    let semi_minor_2 = r;
+    let normal_2 = v3_cross(major_axis_2, v3_scale(e3, 1.0 / v3_length(e3)));
+    let normal_2_len = v3_length(normal_2);
+    let normal_2 = if normal_2_len > 1e-12 {
+        v3_scale(normal_2, 1.0 / normal_2_len)
+    } else {
+        e1
+    };
+
+    Ok(vec![
+        SSICurve::Ellipse {
+            center,
+            normal: normal_1,
+            major_axis: major_axis_1,
+            semi_major: semi_major_1,
+            semi_minor: semi_minor_1,
+        },
+        SSICurve::Ellipse {
+            center,
+            normal: normal_2,
+            major_axis: major_axis_2,
+            semi_major: semi_major_2,
+            semi_minor: semi_minor_2,
+        },
+    ])
+}
+
 /// Compute SSI between a plane and a sphere.
 ///
 /// The intersection of a plane and a sphere is a circle (or empty/point).
@@ -1390,6 +1553,367 @@ mod tests {
             assert!((radius - 4.0).abs() < EPS, "r={}", radius);
         } else {
             panic!("Expected Circle");
+        }
+    }
+
+    // ── Cylinder-Cylinder Non-Parallel SSI (CC1-CC12) ────────────────
+
+    /// Helper: compute distance from a point to a line (origin + t*direction).
+    fn dist_to_line(point: [f64; 3], line_origin: [f64; 3], line_dir: [f64; 3]) -> f64 {
+        let dp = v3_sub(point, line_origin);
+        let along = v3_dot(dp, line_dir);
+        let proj = v3_scale(line_dir, along);
+        v3_length(v3_sub(dp, proj))
+    }
+
+    /// Helper: evaluate an SSICurve::Ellipse at parameter t.
+    fn eval_ellipse(curve: &SSICurve, t: f64) -> [f64; 3] {
+        if let SSICurve::Ellipse {
+            center,
+            normal,
+            major_axis,
+            semi_major,
+            semi_minor,
+        } = curve
+        {
+            let minor_axis = v3_cross(*normal, *major_axis);
+            v3_add(
+                *center,
+                v3_add(
+                    v3_scale(*major_axis, *semi_major * t.cos()),
+                    v3_scale(minor_axis, *semi_minor * t.sin()),
+                ),
+            )
+        } else {
+            panic!("Expected Ellipse");
+        }
+    }
+
+    #[test]
+    fn cc1_perpendicular_90deg() {
+        let curves = cylinder_cylinder_ssi_non_parallel(
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            1.0,
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            1.0,
+        )
+        .unwrap();
+        assert_eq!(curves.len(), 2);
+        let sqrt2 = std::f64::consts::SQRT_2;
+        for curve in &curves {
+            if let SSICurve::Ellipse {
+                semi_major,
+                semi_minor,
+                ..
+            } = curve
+            {
+                // For 90°, both curves have semi_major = R√2, semi_minor = R
+                assert!(
+                    (*semi_major - sqrt2).abs() < 0.01,
+                    "semi_major={}, expected {}",
+                    semi_major,
+                    sqrt2
+                );
+                assert!((*semi_minor - 1.0).abs() < EPS, "semi_minor={}", semi_minor);
+            } else {
+                panic!("Expected Ellipse");
+            }
+        }
+    }
+
+    #[test]
+    fn cc2_60deg_angle() {
+        // 60° angle between axes
+        let cos60 = 0.5_f64;
+        let sin60 = (1.0 - cos60 * cos60).sqrt();
+        let axis_b = [sin60, 0.0, cos60]; // 60° from Z
+        let r = 2.0;
+        let curves = cylinder_cylinder_ssi_non_parallel(
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            r,
+            [0.0, 0.0, 0.0],
+            axis_b,
+            r,
+        )
+        .unwrap();
+        assert_eq!(curves.len(), 2);
+        // alpha = 60°, half = 30°
+        let expected_1 = r / (30.0_f64.to_radians().sin()); // R/sin(30°) = 2R = 4
+        let expected_2 = r / (30.0_f64.to_radians().cos()); // R/cos(30°) ≈ 2.309
+        let mut majors: Vec<f64> = curves
+            .iter()
+            .map(|c| {
+                if let SSICurve::Ellipse { semi_major, .. } = c {
+                    *semi_major
+                } else {
+                    panic!()
+                }
+            })
+            .collect();
+        majors.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert!(
+            (majors[0] - expected_2).abs() < 0.01,
+            "smaller={}, expected {}",
+            majors[0],
+            expected_2
+        );
+        assert!(
+            (majors[1] - expected_1).abs() < 0.01,
+            "larger={}, expected {}",
+            majors[1],
+            expected_1
+        );
+    }
+
+    #[test]
+    fn cc3_unequal_radii() {
+        let result = cylinder_cylinder_ssi_non_parallel(
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            1.0,
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            2.0,
+        );
+        assert!(matches!(result, Err(KernelError::NotSupported { .. })));
+    }
+
+    #[test]
+    fn cc4_parallel_axes() {
+        let curves = cylinder_cylinder_ssi_non_parallel(
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            1.0,
+            [2.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            1.0,
+        )
+        .unwrap();
+        assert!(curves.is_empty());
+    }
+
+    #[test]
+    fn cc5_skew_axes() {
+        // Axes don't intersect (offset by 10 in Y)
+        let result = cylinder_cylinder_ssi_non_parallel(
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            1.0,
+            [0.0, 10.0, 0.0],
+            [1.0, 0.0, 0.0],
+            1.0,
+        );
+        assert!(matches!(result, Err(KernelError::NotSupported { .. })));
+    }
+
+    #[test]
+    fn cc6_near_parallel_30deg() {
+        let cos30 = (std::f64::consts::FRAC_PI_6).cos();
+        let sin30 = (std::f64::consts::FRAC_PI_6).sin();
+        let result = cylinder_cylinder_ssi_non_parallel(
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            1.0,
+            [0.0, 0.0, 0.0],
+            [sin30, 0.0, cos30],
+            1.0,
+        );
+        assert!(matches!(result, Err(KernelError::NotSupported { .. })));
+    }
+
+    #[test]
+    fn cc7_shared_center() {
+        let curves = cylinder_cylinder_ssi_non_parallel(
+            [1.0, 2.0, 3.0],
+            [0.0, 0.0, 1.0],
+            1.0,
+            [1.0, 2.0, 3.0],
+            [1.0, 0.0, 0.0],
+            1.0,
+        )
+        .unwrap();
+        assert_eq!(curves.len(), 2);
+        // Both should share center at (1,2,3)
+        for curve in &curves {
+            if let SSICurve::Ellipse { center, .. } = curve {
+                assert!((center[0] - 1.0).abs() < EPS);
+                assert!((center[1] - 2.0).abs() < EPS);
+                assert!((center[2] - 3.0).abs() < EPS);
+            }
+        }
+    }
+
+    #[test]
+    fn cc8_oracle_points_on_both_cylinders() {
+        let axis_a = [0.0, 0.0, 1.0];
+        let axis_b = [1.0, 0.0, 0.0];
+        let origin = [0.0, 0.0, 0.0];
+        let r = 1.0;
+        let curves =
+            cylinder_cylinder_ssi_non_parallel(origin, axis_a, r, origin, axis_b, r).unwrap();
+        assert_eq!(curves.len(), 2);
+
+        for curve in &curves {
+            for i in 0..100 {
+                let t = std::f64::consts::TAU * (i as f64) / 100.0;
+                let pt = eval_ellipse(curve, t);
+                let da = dist_to_line(pt, origin, axis_a);
+                let db = dist_to_line(pt, origin, axis_b);
+                assert!(
+                    (da - r).abs() < 1e-5,
+                    "point {:?} dist to axis_a = {}, expected {}",
+                    pt,
+                    da,
+                    r
+                );
+                assert!(
+                    (db - r).abs() < 1e-5,
+                    "point {:?} dist to axis_b = {}, expected {}",
+                    pt,
+                    db,
+                    r
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn cc9_offset_origins_intersecting_axes() {
+        // Axes intersect at (5, 0, 5)
+        let curves = cylinder_cylinder_ssi_non_parallel(
+            [5.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            1.0,
+            [0.0, 0.0, 5.0],
+            [1.0, 0.0, 0.0],
+            1.0,
+        )
+        .unwrap();
+        assert_eq!(curves.len(), 2);
+        for curve in &curves {
+            if let SSICurve::Ellipse { center, .. } = curve {
+                assert!(
+                    (center[0] - 5.0).abs() < 0.01,
+                    "cx={}, expected 5.0",
+                    center[0]
+                );
+                assert!(
+                    (center[2] - 5.0).abs() < 0.01,
+                    "cz={}, expected 5.0",
+                    center[2]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn cc10_75deg_angle() {
+        let alpha = 75.0_f64.to_radians();
+        let axis_b = [alpha.sin(), 0.0, alpha.cos()];
+        let r = 1.5;
+        let curves = cylinder_cylinder_ssi_non_parallel(
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            r,
+            [0.0, 0.0, 0.0],
+            axis_b,
+            r,
+        )
+        .unwrap();
+        assert_eq!(curves.len(), 2);
+        let expected_1 = r / (alpha / 2.0).sin();
+        let expected_2 = r / (alpha / 2.0).cos();
+        let mut majors: Vec<f64> = curves
+            .iter()
+            .map(|c| {
+                if let SSICurve::Ellipse { semi_major, .. } = c {
+                    *semi_major
+                } else {
+                    panic!()
+                }
+            })
+            .collect();
+        majors.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let mut expecteds = [expected_1, expected_2];
+        expecteds.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert!(
+            (majors[0] - expecteds[0]).abs() < 0.01,
+            "got {}, expected {}",
+            majors[0],
+            expecteds[0]
+        );
+        assert!(
+            (majors[1] - expecteds[1]).abs() < 0.01,
+            "got {}, expected {}",
+            majors[1],
+            expecteds[1]
+        );
+    }
+
+    #[test]
+    fn cc11_nearly_equal_radii() {
+        // R1=1.0, R2=1.005 — within 1%, should use average
+        let curves = cylinder_cylinder_ssi_non_parallel(
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            1.0,
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            1.005,
+        )
+        .unwrap();
+        assert_eq!(curves.len(), 2);
+        let avg_r = (1.0 + 1.005) / 2.0;
+        for curve in &curves {
+            if let SSICurve::Ellipse { semi_minor, .. } = curve {
+                assert!(
+                    (*semi_minor - avg_r).abs() < 0.01,
+                    "semi_minor={}, expected {}",
+                    semi_minor,
+                    avg_r
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn cc12_general_position_oracle() {
+        // Arbitrary position and orientation
+        let origin_a = [3.0, -2.0, 1.0];
+        let axis_a = v3_scale([1.0, 1.0, 0.0], FRAC_1_SQRT_2);
+        let origin_b = [3.0, -2.0, 1.0]; // Same origin so axes intersect
+        let axis_b = [0.0, 0.0, 1.0];
+        let r = 2.0;
+
+        let curves =
+            cylinder_cylinder_ssi_non_parallel(origin_a, axis_a, r, origin_b, axis_b, r).unwrap();
+        assert_eq!(curves.len(), 2);
+
+        // Oracle: every point on both ellipses lies on both cylinders
+        for curve in &curves {
+            for i in 0..100 {
+                let t = std::f64::consts::TAU * (i as f64) / 100.0;
+                let pt = eval_ellipse(curve, t);
+                let da = dist_to_line(pt, origin_a, axis_a);
+                let db = dist_to_line(pt, origin_b, axis_b);
+                assert!(
+                    (da - r).abs() < 1e-4,
+                    "point {:?} dist to axis_a = {}, expected {}",
+                    pt,
+                    da,
+                    r
+                );
+                assert!(
+                    (db - r).abs() < 1e-4,
+                    "point {:?} dist to axis_b = {}, expected {}",
+                    pt,
+                    db,
+                    r
+                );
+            }
         }
     }
 }

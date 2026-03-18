@@ -872,13 +872,14 @@ pub fn generate_featured_cases(output_dir: &std::path::Path) -> Vec<ManifestEntr
     // Append intersecting multi-extrude oblique cases (F0016-F0025)
     entries.extend(generate_intersecting_oblique_cases(output_dir));
 
-    // Append boolean-path-targeting cases (F0026-F0055)
+    // Append boolean-path-targeting cases (F0026-F0060)
     entries.extend(generate_circle_boss_cases(output_dir));
     entries.extend(generate_box_minus_cyl_cases(output_dir));
     entries.extend(generate_cyl_minus_box_cases(output_dir));
     entries.extend(generate_cyl_cyl_parallel_cases(output_dir));
     entries.extend(generate_mixed_cross_plane_cases(output_dir));
     entries.extend(generate_scale_extreme_cases(output_dir));
+    entries.extend(generate_cyl_cyl_angled_cases(output_dir));
 
     entries
 }
@@ -1960,6 +1961,105 @@ fn generate_scale_extreme_cases(output_dir: &std::path::Path) -> Vec<ManifestEnt
     entries
 }
 
+/// F0056-F0060: Perpendicular cylinder-cylinder booleans (non-parallel axes).
+///
+/// Tests the analytical SSI solver for equal-radius cylinders at 90°.
+/// Two cylinders extruded along different axis-aligned directions.
+#[allow(clippy::type_complexity)]
+fn generate_cyl_cyl_angled_cases(output_dir: &std::path::Path) -> Vec<ManifestEntry> {
+    let mut entries = Vec::new();
+
+    // Each case: two circles on perpendicular planes → cyl-cyl boolean at 90°.
+    // (case_id_offset, plane1_normal, plane2_normal, r, d, is_cut)
+    let specs: [(u64, [f64; 3], [f64; 3], f64, f64, bool); 5] = [
+        (56, [0.0, 0.0, 1.0], [1.0, 0.0, 0.0], 0.3, 0.4, false), // XZ perp, boss+boss
+        (57, [0.0, 0.0, 1.0], [0.0, 1.0, 0.0], 0.25, 0.35, false), // YZ perp, boss+boss
+        (58, [0.0, 0.0, 1.0], [1.0, 0.0, 0.0], 0.2, 0.3, true),  // XZ perp, boss+cut
+        (59, [0.0, 1.0, 0.0], [1.0, 0.0, 0.0], 0.35, 0.25, false), // XY perp, boss+boss
+        (60, [0.0, 0.0, 1.0], [0.0, 1.0, 0.0], 0.3, 0.3, true),  // YZ perp, boss+cut
+    ];
+
+    for &(case_num, n1, n2, r, d, is_cut_2) in &specs {
+        let case_id = format!("F{:04}", case_num);
+        let origin = [0.0, 0.0, 0.0];
+
+        let mut features = Vec::new();
+        let (_, feats1) = build_sketch_extrude(
+            "Sketch 1",
+            "Extrude 1",
+            origin,
+            n1,
+            true_circle_profile(0.0, 0.0, r),
+            d,
+            false,
+            true, // symmetric so both cyls pass through origin
+        );
+        features.extend(feats1);
+        let (_, feats2) = build_sketch_extrude(
+            "Sketch 2",
+            "Extrude 2",
+            origin,
+            n2,
+            true_circle_profile(0.0, 0.0, r),
+            d,
+            is_cut_2,
+            true,
+        );
+        features.extend(feats2);
+
+        let cut_label = if is_cut_2 { "cut" } else { "boss" };
+        let mono_2 = if is_cut_2 { "decrease" } else { "increase" };
+        let description = format!(
+            "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,{}) — Cyl-cyl angled 90° (F{})",
+            cut_label, case_num
+        );
+
+        let meta = AssayMeta {
+            id: case_id.clone(),
+            description: description.clone(),
+            master_seed: 0,
+            test_seed: 0,
+            scale: 1.0,
+            log_scale: 0.0,
+            plane_origin: origin,
+            plane_normal: n1,
+            operations: vec![
+                OpMeta {
+                    kind: "extrude".to_string(),
+                    profile_type: "circle".to_string(),
+                    profile_size: r,
+                    depth_or_angle: d,
+                    is_cut: false,
+                    plane_origin: Some(origin),
+                    plane_normal: Some(n1),
+                },
+                OpMeta {
+                    kind: "extrude".to_string(),
+                    profile_type: "circle".to_string(),
+                    profile_size: r,
+                    depth_or_angle: d,
+                    is_cut: is_cut_2,
+                    plane_origin: Some(origin),
+                    plane_normal: Some(n2),
+                },
+            ],
+            oracles: OracleExpectations {
+                euler_target: 2,
+                expect_watertight: true,
+                max_bbox_extent: 3.0,
+                expect_positive_volume: true,
+                volume_monotonicity: vec!["increase".to_string(), mono_2.to_string()],
+            },
+            generator_version: GENERATOR_VERSION,
+            featured: true,
+        };
+
+        entries.push(write_featured_case(output_dir, &case_id, features, meta));
+    }
+
+    entries
+}
+
 // ── Corpus Generation ──────────────────────────────────────────────────────
 
 /// Generate a full corpus of test cases and write them to disk.
@@ -2031,8 +2131,8 @@ pub fn generate_corpus(config: &CorpusConfig) -> CorpusStats {
         count: config.case_count + featured_count,
         // F0001-F0010: 10×2=20, F0011-F0015: 5×2=10, F0016-F0020: 5×3=15, F0021-F0025: 5×4=20,
         // F0026-F0030: 5×2=10, F0031-F0035: 5×2=10, F0036-F0040: 5×2=10,
-        // F0041-F0045: 5×2=10, F0046-F0050: 5×2=10, F0051-F0055: 5×2=10 = 125
-        extrude_count: extrude_count + 125,
+        // F0041-F0045: 5×2=10, F0046-F0050: 5×2=10, F0051-F0055: 5×2=10, F0056-F0060: 5×2=10 = 135
+        extrude_count: extrude_count + 135,
         revolve_count,
     }
 }
@@ -2200,12 +2300,12 @@ mod tests {
     }
 
     #[test]
-    fn featured_case_ids_f0026_to_f0055() {
+    fn featured_case_ids_f0026_to_f0060() {
         let dir = tempfile::tempdir().unwrap();
         let entries = generate_featured_cases(dir.path());
         let ids: Vec<&str> = entries.iter().map(|e| e.id.as_str()).collect();
-        // Check that F0026-F0055 are all present
-        for n in 26..=55 {
+        // Check that F0026-F0060 are all present
+        for n in 26..=60 {
             let expected = format!("F{:04}", n);
             assert!(
                 ids.contains(&expected.as_str()),
@@ -2213,8 +2313,8 @@ mod tests {
                 expected
             );
         }
-        // Total: F0001-F0010 (10) + F0011-F0015 (5) + F0016-F0025 (10) + F0026-F0055 (30) = 55
-        assert_eq!(entries.len(), 55, "expected 55 featured cases");
+        // Total: F0001-F0010 (10) + F0011-F0015 (5) + F0016-F0025 (10) + F0026-F0060 (35) = 60
+        assert_eq!(entries.len(), 60, "expected 60 featured cases");
     }
 
     #[test]

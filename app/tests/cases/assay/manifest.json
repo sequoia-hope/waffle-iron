@@ -1,6 +1,6 @@
 {
   "master_seed": 42,
-  "count": 155,
+  "count": 160,
   "generator_version": 2,
   "cases": [
     {
@@ -1086,6 +1086,41 @@
       "filename": "F0055.waffle",
       "meta_filename": "F0055.meta.json",
       "description": "2 ops, scale=1.00e4, extrude(rectangle,boss)+extrude(circle,cut) — Scale extreme",
+      "featured": true
+    },
+    {
+      "id": "F0056",
+      "filename": "F0056.waffle",
+      "meta_filename": "F0056.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,boss) — Cyl-cyl angled 90° (F56)",
+      "featured": true
+    },
+    {
+      "id": "F0057",
+      "filename": "F0057.waffle",
+      "meta_filename": "F0057.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,boss) — Cyl-cyl angled 90° (F57)",
+      "featured": true
+    },
+    {
+      "id": "F0058",
+      "filename": "F0058.waffle",
+      "meta_filename": "F0058.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,cut) — Cyl-cyl angled 90° (F58)",
+      "featured": true
+    },
+    {
+      "id": "F0059",
+      "filename": "F0059.waffle",
+      "meta_filename": "F0059.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,boss) — Cyl-cyl angled 90° (F59)",
+      "featured": true
+    },
+    {
+      "id": "F0060",
+      "filename": "F0060.waffle",
+      "meta_filename": "F0060.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,cut) — Cyl-cyl angled 90° (F60)",
       "featured": true
     }
   ]

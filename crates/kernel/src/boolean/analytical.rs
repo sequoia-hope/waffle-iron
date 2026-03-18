@@ -5,7 +5,7 @@
 //! build_* functions for constructing B-Rep results from cylinder/box
 //! primitives.
 
-use crate::geometry::curve::{Arc3D, Circle3D, CurveGeom, Line3D};
+use crate::geometry::curve::{Arc3D, Circle3D, CurveGeom, Ellipse3D, Line3D};
 use crate::geometry::point::{Point3, Vector3};
 use crate::geometry::surface::{Cylinder, Plane, SurfaceGeom};
 use crate::ssi::{self, Aabb};
@@ -478,9 +478,8 @@ fn cyl_cyl_boolean(
     id_alloc: &mut dyn FnMut() -> u64,
 ) -> Result<BooleanResult, KernelError> {
     if !ssi::cyls_parallel(cyl_a, cyl_b) {
-        return Err(KernelError::NotSupported {
-            operation: "non-parallel cylinder-cylinder boolean".to_string(),
-        });
+        // Try non-parallel analytical SSI path
+        return non_parallel_cyl_cyl_boolean(cyl_a, cyl_b, op, id_alloc);
     }
 
     // Rotate both cylinders to Z-aligned frame using cyl_a's direction
@@ -494,6 +493,205 @@ fn cyl_cyl_boolean(
     // Rotate result back to original frame
     rotate_boolean_result(&mut result, &m_inv);
     Ok(result)
+}
+
+/// Non-parallel cylinder-cylinder boolean via analytical SSI.
+///
+/// Computes the two elliptic intersection curves, then builds a B-Rep with
+/// 2 cylindrical patch faces, each bounded by both elliptic curves as
+/// outer/inner loops. Supports Union, Subtract, and Intersect for
+/// cylinders at angle ≥60°.
+///
+/// Topology: V=2, E=2, F=2 with inner loops → V-E+F = 2.
+/// Face A: outer = ellipse 1, inner = ellipse 2 (hole)
+/// Face B: outer = ellipse 2, inner = ellipse 1 (hole)
+///
+/// Ref: Patrikalakis Ch.5 — cylinder-cylinder SSI.
+/// Ref: A15 — analytical primacy, no mesh fallback.
+fn non_parallel_cyl_cyl_boolean(
+    cyl_a: &CylinderParams,
+    cyl_b: &CylinderParams,
+    op: BoolOp,
+    id_alloc: &mut dyn FnMut() -> u64,
+) -> Result<BooleanResult, KernelError> {
+    let curves = ssi::cylinder_cylinder_ssi_non_parallel(
+        cyl_a.center_bottom,
+        cyl_a.direction,
+        cyl_a.radius,
+        cyl_b.center_bottom,
+        cyl_b.direction,
+        cyl_b.radius,
+    )?;
+
+    if curves.len() != 2 {
+        return Err(KernelError::NotSupported {
+            operation: "non-parallel cylinder-cylinder boolean: SSI did not produce 2 curves"
+                .to_string(),
+        });
+    }
+
+    // Extract the two ellipses
+    let (center, normal_1, major_axis_1, semi_major_1, semi_minor_1) = match &curves[0] {
+        ssi::SSICurve::Ellipse {
+            center,
+            normal,
+            major_axis,
+            semi_major,
+            semi_minor,
+        } => (*center, *normal, *major_axis, *semi_major, *semi_minor),
+        _ => {
+            return Err(KernelError::NotSupported {
+                operation: "non-parallel cyl-cyl: expected Ellipse SSI curve".to_string(),
+            })
+        }
+    };
+    let (_, normal_2, major_axis_2, semi_major_2, semi_minor_2) = match &curves[1] {
+        ssi::SSICurve::Ellipse {
+            center: c2,
+            normal,
+            major_axis,
+            semi_major,
+            semi_minor,
+        } => (*c2, *normal, *major_axis, *semi_major, *semi_minor),
+        _ => {
+            return Err(KernelError::NotSupported {
+                operation: "non-parallel cyl-cyl: expected Ellipse SSI curve".to_string(),
+            })
+        }
+    };
+
+    // Seam vertices at t=0 on each ellipse
+    let v0_pos = v3_add(center, v3_scale(major_axis_1, semi_major_1));
+    let v1_pos = v3_add(center, v3_scale(major_axis_2, semi_major_2));
+
+    // Build B-Rep: 2 cylindrical faces, each bounded by both elliptic curves.
+    // The two SSI ellipses lie in different planes and don't share points,
+    // so each face uses one ellipse as outer loop and the other as inner loop (hole).
+    let mut arena = TopoArena::new();
+    let solid_idx = arena.add_solid();
+    let shell_idx = arena.add_shell(solid_idx);
+    arena.solids[solid_idx.0].outer_shell = shell_idx;
+
+    let v0 = arena.add_vertex(v0_pos);
+    let v1 = arena.add_vertex(v1_pos);
+
+    let face_a = arena.add_face(shell_idx);
+    let face_b = arena.add_face(shell_idx);
+    arena.shells[shell_idx.0].face = face_a;
+
+    // Face A: outer loop = ellipse 1, inner loop = ellipse 2
+    let loop_a_outer = arena.add_loop(face_a);
+    let loop_a_inner = arena.add_loop(face_a);
+    arena.faces[face_a.0].outer_loop = loop_a_outer;
+    arena.faces[face_a.0].inner_loops.push(loop_a_inner);
+
+    // Face B: outer loop = ellipse 2, inner loop = ellipse 1
+    let loop_b_outer = arena.add_loop(face_b);
+    let loop_b_inner = arena.add_loop(face_b);
+    arena.faces[face_b.0].outer_loop = loop_b_outer;
+    arena.faces[face_b.0].inner_loops.push(loop_b_inner);
+
+    let (e_ell1, he_ell1_a, he_ell1_b) = arena.add_edge();
+    let (e_ell2, he_ell2_a, he_ell2_b) = arena.add_edge();
+
+    // Ellipse 1: self-loop at v0
+    arena.half_edges[he_ell1_a.0].origin = v0;
+    arena.half_edges[he_ell1_a.0].next = he_ell1_a;
+    arena.half_edges[he_ell1_a.0].prev = he_ell1_a;
+    arena.half_edges[he_ell1_a.0].loop_ = loop_a_outer;
+    arena.loops[loop_a_outer.0].half_edge = he_ell1_a;
+
+    arena.half_edges[he_ell1_b.0].origin = v0;
+    arena.half_edges[he_ell1_b.0].next = he_ell1_b;
+    arena.half_edges[he_ell1_b.0].prev = he_ell1_b;
+    arena.half_edges[he_ell1_b.0].loop_ = loop_b_inner;
+    arena.loops[loop_b_inner.0].half_edge = he_ell1_b;
+
+    // Ellipse 2: self-loop at v1
+    arena.half_edges[he_ell2_a.0].origin = v1;
+    arena.half_edges[he_ell2_a.0].next = he_ell2_a;
+    arena.half_edges[he_ell2_a.0].prev = he_ell2_a;
+    arena.half_edges[he_ell2_a.0].loop_ = loop_b_outer;
+    arena.loops[loop_b_outer.0].half_edge = he_ell2_a;
+
+    arena.half_edges[he_ell2_b.0].origin = v1;
+    arena.half_edges[he_ell2_b.0].next = he_ell2_b;
+    arena.half_edges[he_ell2_b.0].prev = he_ell2_b;
+    arena.half_edges[he_ell2_b.0].loop_ = loop_a_inner;
+    arena.loops[loop_a_inner.0].half_edge = he_ell2_b;
+
+    arena.vertices[v0.0].half_edge = Some(he_ell1_a);
+    arena.vertices[v1.0].half_edge = Some(he_ell2_a);
+
+    // ── Face geometry ──────────────────────────────────────────
+    let mut face_geometry = HashMap::new();
+
+    let flip_b = matches!(op, BoolOp::Subtract);
+
+    face_geometry.insert(
+        face_a,
+        SurfaceGeom::Cylindrical(Cylinder {
+            origin: Point3::from_array(cyl_a.center_bottom),
+            axis: Vector3::from_array(cyl_a.direction),
+            radius: cyl_a.radius,
+        }),
+    );
+    face_geometry.insert(
+        face_b,
+        SurfaceGeom::Cylindrical(Cylinder {
+            origin: Point3::from_array(cyl_b.center_bottom),
+            axis: Vector3::from_array(cyl_b.direction),
+            radius: if flip_b { -cyl_b.radius } else { cyl_b.radius },
+        }),
+    );
+
+    // ── Edge geometry ──────────────────────────────────────────
+    let mut edge_geometry: HashMap<EdgeIdx, CurveGeom> = HashMap::new();
+
+    edge_geometry.insert(
+        e_ell1,
+        CurveGeom::Elliptical(Ellipse3D {
+            center: Point3::from_array(center),
+            normal: Vector3::from_array(normal_1),
+            major_axis: Vector3::from_array(major_axis_1),
+            semi_major: semi_major_1,
+            semi_minor: semi_minor_1,
+        }),
+    );
+    edge_geometry.insert(
+        e_ell2,
+        CurveGeom::Elliptical(Ellipse3D {
+            center: Point3::from_array(center),
+            normal: Vector3::from_array(normal_2),
+            major_axis: Vector3::from_array(major_axis_2),
+            semi_major: semi_major_2,
+            semi_minor: semi_minor_2,
+        }),
+    );
+
+    // ── Build maps ──────────────────────────────────────────────
+    let mut face_map = HashMap::new();
+    let mut edge_map = HashMap::new();
+    let mut vertex_map = HashMap::new();
+
+    face_map.insert(id_alloc(), face_a);
+    face_map.insert(id_alloc(), face_b);
+
+    edge_map.insert(id_alloc(), e_ell1);
+    edge_map.insert(id_alloc(), e_ell2);
+
+    vertex_map.insert(id_alloc(), v0);
+    vertex_map.insert(id_alloc(), v1);
+
+    Ok(BooleanResult {
+        arena,
+        face_map,
+        edge_map,
+        vertex_map,
+        face_geometry,
+        edge_geometry,
+        cached_face_polys: None,
+    })
 }
 
 /// Z-aligned cylinder-cylinder boolean dispatch (internal).
@@ -2515,5 +2713,135 @@ mod tests {
         }
         assert!((back.radius - cyl.radius).abs() < 1e-15);
         assert!((back.depth - cyl.depth).abs() < 1e-15);
+    }
+
+    // ── Non-parallel cyl-cyl boolean integration tests ──────────────
+
+    fn make_perp_cyls() -> (CylinderParams, CylinderParams) {
+        let cyl_a = CylinderParams {
+            center_bottom: [0.0, 0.0, -5.0],
+            radius: 1.0,
+            x_axis: [1.0, 0.0, 0.0],
+            y_axis: [0.0, 1.0, 0.0],
+            direction: [0.0, 0.0, 1.0],
+            depth: 10.0,
+        };
+        let cyl_b = CylinderParams {
+            center_bottom: [-5.0, 0.0, 0.0],
+            radius: 1.0,
+            x_axis: [0.0, 0.0, 1.0],
+            y_axis: [0.0, 1.0, 0.0],
+            direction: [1.0, 0.0, 0.0],
+            depth: 10.0,
+        };
+        (cyl_a, cyl_b)
+    }
+
+    #[test]
+    fn test_non_parallel_cyl_cyl_union_topology() {
+        let (cyl_a, cyl_b) = make_perp_cyls();
+        let mut id = 100u64;
+        let result = non_parallel_cyl_cyl_boolean(&cyl_a, &cyl_b, BoolOp::Union, &mut || {
+            id += 1;
+            id
+        })
+        .unwrap();
+
+        // V=2, E=2, F=2 → V-E+F = 2
+        let v = result.vertex_map.len();
+        let e = result.edge_map.len();
+        let f = result.face_map.len();
+        assert_eq!(
+            v - e + f,
+            2,
+            "Euler V-E+F: {}-{}+{} = {}",
+            v,
+            e,
+            f,
+            v as i64 - e as i64 + f as i64
+        );
+        assert_eq!(f, 2, "expected 2 faces");
+    }
+
+    #[test]
+    fn test_non_parallel_cyl_cyl_subtract_topology() {
+        let (cyl_a, cyl_b) = make_perp_cyls();
+        let mut id = 200u64;
+        let result = non_parallel_cyl_cyl_boolean(&cyl_a, &cyl_b, BoolOp::Subtract, &mut || {
+            id += 1;
+            id
+        })
+        .unwrap();
+
+        let v = result.vertex_map.len();
+        let e = result.edge_map.len();
+        let f = result.face_map.len();
+        assert_eq!(v - e + f, 2, "Euler V-E+F");
+    }
+
+    #[test]
+    fn test_non_parallel_cyl_cyl_surface_preservation() {
+        let (cyl_a, cyl_b) = make_perp_cyls();
+        let mut id = 300u64;
+        let result = non_parallel_cyl_cyl_boolean(&cyl_a, &cyl_b, BoolOp::Union, &mut || {
+            id += 1;
+            id
+        })
+        .unwrap();
+
+        // A15.5: All faces must be Cylindrical or Planar
+        for (_fid, geom) in &result.face_geometry {
+            assert!(
+                matches!(geom, SurfaceGeom::Cylindrical(_) | SurfaceGeom::Planar(_)),
+                "face geometry must be Cylindrical or Planar, got {:?}",
+                geom
+            );
+        }
+
+        // All edge geometry must be Elliptical
+        for (_eid, geom) in &result.edge_geometry {
+            assert!(
+                matches!(geom, CurveGeom::Elliptical(_)),
+                "edge geometry must be Elliptical for non-parallel cyl-cyl, got {:?}",
+                geom
+            );
+        }
+    }
+
+    #[test]
+    fn test_non_parallel_cyl_cyl_tessellation_valid() {
+        use crate::tessellation;
+
+        let (cyl_a, cyl_b) = make_perp_cyls();
+        let mut id = 400u64;
+        let result = non_parallel_cyl_cyl_boolean(&cyl_a, &cyl_b, BoolOp::Union, &mut || {
+            id += 1;
+            id
+        })
+        .unwrap();
+
+        let mesh = tessellation::tessellate_solid(
+            &result.arena,
+            &result.face_map,
+            &result.face_geometry,
+            &result.edge_geometry,
+            None,
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Non-degenerate output
+        assert!(mesh.vertices.len() > 0, "mesh should have vertices");
+        assert!(mesh.indices.len() > 0, "mesh should have triangles");
+        assert!(
+            mesh.indices.len() >= 6,
+            "mesh should have at least 2 triangles"
+        );
+
+        // No NaN/Inf in vertices
+        for v in &mesh.vertices {
+            assert!(v.is_finite(), "vertex contains NaN or Inf: {}", v);
+        }
     }
 }

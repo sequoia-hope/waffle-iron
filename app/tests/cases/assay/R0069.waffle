@@ -3,25 +3,25 @@
   "version": 2,
   "project": {
     "name": "Assay R0069",
-    "created": "2026-03-18T06:55:18.312836706Z",
-    "modified": "2026-03-18T06:55:18.312836706Z"
+    "created": "2026-03-18T07:46:17.143868159Z",
+    "modified": "2026-03-18T07:46:17.143868159Z"
   },
   "features": {
     "features": [
       {
-        "id": "d5485f81-e9ee-448c-b833-870f07f02ecf",
+        "id": "3ca2ad8b-d580-450e-b56b-a5f8ee92f024",
         "name": "Sketch 1",
         "operation": {
           "type": "Sketch",
           "sketch": {
-            "id": "d5485f81-e9ee-448c-b833-870f07f02ecf",
+            "id": "3ca2ad8b-d580-450e-b56b-a5f8ee92f024",
             "plane": {
               "kind": {
                 "type": "Face"
               },
               "anchor": {
                 "type": "Datum",
-                "datum_id": "3d0709ae-e3d2-4b9d-806b-43bc981b6ecd"
+                "datum_id": "2f2f2c23-0548-41fc-a10d-86506bc2b7b7"
               },
               "selector": {
                 "type": "Role",
@@ -111,6 +111,10 @@
                 0.00006333557495811157,
                 -0.00003390600943618678
               ],
+              "4": [
+                -0.00006333557495811157,
+                0.00003390600943618678
+              ],
               "3": [
                 0.00006333557495811157,
                 0.00003390600943618678
@@ -118,10 +122,6 @@
               "1": [
                 -0.00006333557495811157,
                 -0.00003390600943618678
-              ],
-              "4": [
-                -0.00006333557495811157,
-                0.00003390600943618678
               ]
             },
             "solved_profiles": [
@@ -147,12 +147,12 @@
         "references": []
       },
       {
-        "id": "a8a69d15-7a35-4539-91d5-ddcf633963f6",
+        "id": "28814fb6-0b52-432c-9063-63647d7f826c",
         "name": "Revolve 1",
         "operation": {
           "type": "Revolve",
           "params": {
-            "sketch_id": "d5485f81-e9ee-448c-b833-870f07f02ecf",
+            "sketch_id": "3ca2ad8b-d580-450e-b56b-a5f8ee92f024",
             "profile_index": 0,
             "axis_origin": [
               0.00004642689097998529,
@@ -173,19 +173,19 @@
         "references": []
       },
       {
-        "id": "a86579a5-2d12-44de-a88d-ec4a619682ad",
+        "id": "b796306f-77e1-4b90-b2b1-026e0fefdfa3",
         "name": "Sketch 2",
         "operation": {
           "type": "Sketch",
           "sketch": {
-            "id": "a86579a5-2d12-44de-a88d-ec4a619682ad",
+            "id": "b796306f-77e1-4b90-b2b1-026e0fefdfa3",
             "plane": {
               "kind": {
                 "type": "Face"
               },
               "anchor": {
                 "type": "Datum",
-                "datum_id": "e9afcc7e-2636-4bac-a770-3335172510de"
+                "datum_id": "f8ad04f7-04d8-4b06-9ae1-e6937246910a"
               },
               "selector": {
                 "type": "Role",
@@ -271,16 +271,16 @@
               "type": "FullyConstrained"
             },
             "solved_positions": {
-              "3": [
-                0.00006284597973917499,
+              "4": [
+                -0.00006284597973917499,
                 0.00003082939851829126
               ],
               "1": [
                 -0.00006284597973917499,
                 -0.00003082939851829126
               ],
-              "4": [
-                -0.00006284597973917499,
+              "3": [
+                0.00006284597973917499,
                 0.00003082939851829126
               ],
               "2": [
@@ -311,12 +311,12 @@
         "references": []
       },
       {
-        "id": "2cc9abc0-0e0c-460a-b068-22eb55d94e78",
+        "id": "fcd87ee3-5d3c-4fec-a100-dbdfc6639f99",
         "name": "Extrude 2",
         "operation": {
           "type": "Extrude",
           "params": {
-            "sketch_id": "a86579a5-2d12-44de-a88d-ec4a619682ad",
+            "sketch_id": "b796306f-77e1-4b90-b2b1-026e0fefdfa3",
             "profile_index": 0,
             "depth": 0.00008243361695370054,
             "direction": null,

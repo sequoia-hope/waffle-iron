@@ -38,9 +38,10 @@ pub(crate) fn tessellate_solid(
     // Boolean results have no CylinderParams/RevolveParams. Use edge-first
     // bounded tessellation for watertight-by-construction output.
     // Requirements for bounded path:
-    //   1. Must NOT have arc edges. Cyl-cyl results have arcs where the
-    //      tessellate_cylindrical_patch + tessellate_arc_bounded_cap pair
-    //      handles partial patches correctly with matching vertex placement.
+    //   1. Must NOT have arc edges. Arc-containing boolean results (cyl-cyl,
+    //      box-minus-cyl) use per-face tessellation via tessellate_cylindrical_patch
+    //      + annular cap tessellation, which produces watertight vertex placement
+    //      that the bounded path currently cannot match.
     //   2. Must NOT be polygon-soup. Polygon-soup B-Rep from S-H clipping may
     //      contain internal faces; bounded tessellation's shared vertices make
     //      these indistinguishable from external faces, preventing removal.
@@ -4778,5 +4779,159 @@ mod tests {
         remove_duplicate_triangles(&vertices, &mut indices, &mut face_ranges);
 
         assert_eq!(indices.len(), 6, "distinct triangles should be preserved");
+    }
+
+    // ── AABB-collapse regression tests ──────────────────────────────
+
+    use crate::traits::Kernel;
+    use crate::waffle_kernel::WaffleKernel;
+
+    /// Helper: create a cylinder solid in the given kernel.
+    fn make_test_cylinder(
+        kernel: &mut WaffleKernel,
+        cx: f64,
+        cy: f64,
+        r: f64,
+        depth: f64,
+    ) -> crate::KernelSolidHandle {
+        use crate::types::{CircleProfile, ClosedProfile};
+        let mut positions = std::collections::HashMap::new();
+        positions.insert(1, (cx, cy));
+        let profile = ClosedProfile {
+            entity_ids: vec![1],
+            is_outer: true,
+            vertex_ids: vec![],
+            circle: Some(CircleProfile {
+                center_u: cx,
+                center_v: cy,
+                radius: r,
+            }),
+            spline_segments: vec![],
+        };
+        let face_ids = kernel
+            .make_faces_from_profiles(
+                &[profile],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0],
+                &positions,
+            )
+            .expect("make_faces_from_profiles for cylinder");
+        kernel
+            .extrude_face(face_ids[0], [0.0, 0.0, 1.0], depth)
+            .expect("extrude_face for cylinder")
+    }
+
+    /// Helper: create a box solid in the given kernel.
+    fn make_test_box(
+        kernel: &mut WaffleKernel,
+        cx: f64,
+        cy: f64,
+        w: f64,
+        h: f64,
+        depth: f64,
+    ) -> crate::KernelSolidHandle {
+        use crate::types::ClosedProfile;
+        let mut positions = std::collections::HashMap::new();
+        positions.insert(1, (cx - w / 2.0, cy - h / 2.0));
+        positions.insert(2, (cx + w / 2.0, cy - h / 2.0));
+        positions.insert(3, (cx + w / 2.0, cy + h / 2.0));
+        positions.insert(4, (cx - w / 2.0, cy + h / 2.0));
+        let profile = ClosedProfile {
+            entity_ids: vec![10, 11, 12, 13],
+            is_outer: true,
+            vertex_ids: vec![1, 2, 3, 4],
+            circle: None,
+            spline_segments: vec![],
+        };
+        let face_ids = kernel
+            .make_faces_from_profiles(
+                &[profile],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0],
+                &positions,
+            )
+            .expect("make_faces_from_profiles for box");
+        kernel
+            .extrude_face(face_ids[0], [0.0, 0.0, 1.0], depth)
+            .expect("extrude_face for box")
+    }
+
+    /// Check whether all XY coordinates collapse to the AABB boundary.
+    /// For extruded solids, z always matches a face (top/bottom), so we only
+    /// check XY — a proper cylinder mesh should have interior XY points.
+    fn is_xy_aabb_collapsed(vertices: &[f32]) -> bool {
+        if vertices.len() < 3 {
+            return true;
+        }
+        let (mut min_x, mut min_y) = (f32::MAX, f32::MAX);
+        let (mut max_x, mut max_y) = (f32::MIN, f32::MIN);
+        for chunk in vertices.chunks(3) {
+            min_x = min_x.min(chunk[0]);
+            min_y = min_y.min(chunk[1]);
+            max_x = max_x.max(chunk[0]);
+            max_y = max_y.max(chunk[1]);
+        }
+        let tol = 1e-4;
+        // Check if every vertex's x and y are on AABB boundary
+        for chunk in vertices.chunks(3) {
+            let x_on_boundary = (chunk[0] - min_x).abs() < tol || (chunk[0] - max_x).abs() < tol;
+            let y_on_boundary = (chunk[1] - min_y).abs() < tol || (chunk[1] - max_y).abs() < tol;
+            // A vertex is NOT on the XY AABB boundary if neither x nor y is extreme
+            if !x_on_boundary && !y_on_boundary {
+                return false;
+            }
+        }
+        true
+    }
+
+    #[test]
+    fn test_cyl_cyl_union_tessellation_not_aabb_collapsed() {
+        let mut kernel = WaffleKernel::new();
+        // Two parallel cylinders, overlapping
+        let cyl_a = make_test_cylinder(&mut kernel, 0.0, 0.0, 5.0, 10.0);
+        let cyl_b = make_test_cylinder(&mut kernel, 4.0, 0.0, 5.0, 10.0);
+        let union_handle = kernel
+            .boolean_union(&cyl_a, &cyl_b)
+            .expect("cyl-cyl union should succeed");
+        let mesh = kernel
+            .tessellate(&union_handle, 0.1)
+            .expect("tessellation should succeed");
+        assert!(
+            mesh.vertices.len() >= 3 * 3,
+            "mesh should have at least 3 vertices, got {}",
+            mesh.vertices.len() / 3
+        );
+        assert!(
+            !is_xy_aabb_collapsed(&mesh.vertices),
+            "cyl-cyl union XY coords should NOT all collapse to AABB faces ({} verts)",
+            mesh.vertices.len() / 3
+        );
+    }
+
+    #[test]
+    fn test_box_minus_enclosed_cyl_tessellation_not_aabb_collapsed() {
+        let mut kernel = WaffleKernel::new();
+        // Box 20x20x10 centered at (10,10), cylinder r=3 at center, fully enclosed
+        let box_handle = make_test_box(&mut kernel, 10.0, 10.0, 20.0, 20.0, 10.0);
+        let cyl_handle = make_test_cylinder(&mut kernel, 10.0, 10.0, 3.0, 10.0);
+        let sub_handle = kernel
+            .boolean_subtract(&box_handle, &cyl_handle)
+            .expect("box-minus-cyl should succeed");
+        let mesh = kernel
+            .tessellate(&sub_handle, 0.1)
+            .expect("tessellation should succeed");
+        let vertex_count = mesh.vertices.len() / 3;
+        assert!(
+            vertex_count > 24,
+            "box-minus-cyl should have more than 24 vertices (a plain box), got {}",
+            vertex_count
+        );
+        assert!(
+            !is_xy_aabb_collapsed(&mesh.vertices),
+            "box-minus-cyl XY coords should NOT all collapse to AABB faces ({} verts)",
+            vertex_count
+        );
     }
 }
