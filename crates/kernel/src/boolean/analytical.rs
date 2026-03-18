@@ -1255,12 +1255,20 @@ fn build_box_minus_enclosed_cyl(
     cyl: &CylinderParams,
     id_alloc: &mut dyn FnMut() -> u64,
 ) -> Result<BooleanResult, KernelError> {
-    let z_min = aabb.min[2];
-    let z_max = aabb.max[2];
+    let box_z_min = aabb.min[2];
+    let box_z_max = aabb.max[2];
     let cx = cyl.center_bottom[0];
     let cy = cyl.center_bottom[1];
     let r = cyl.radius;
     let dir = cyl.direction;
+
+    // Cylinder's actual z-range
+    let cyl_z_min = cyl.center_bottom[2];
+    let cyl_z_max = cyl_z_min + cyl.depth;
+
+    // Determine if cylinder touches box caps (through-hole vs blind pocket)
+    let touches_bot = (cyl_z_min - box_z_min).abs() < TAU_COINCIDENT;
+    let touches_top = (cyl_z_max - box_z_max).abs() < TAU_COINCIDENT;
 
     // Step 1: Build box using build_brep_from_polygons (correct shared edges)
     let box_faces = make_box_face_polys(aabb);
@@ -1286,39 +1294,89 @@ fn build_box_minus_enclosed_cyl(
         reason: "cannot find top face".to_string(),
     })?;
 
-    // Step 3: Add cylinder seam vertices
-    let bot_seam = [cx + r, cy, z_min];
-    let top_seam = [cx + r, cy, z_max];
+    // Step 3: Add cylinder seam vertices at the CYLINDER's z-range
+    let bot_seam = [cx + r, cy, cyl_z_min];
+    let top_seam = [cx + r, cy, cyl_z_max];
     let v_bot_seam = result.arena.add_vertex(bot_seam);
     let v_top_seam = result.arena.add_vertex(top_seam);
 
-    // Step 4: Add inner circle loops for bottom and top caps
-    let inner_loop_bot = result.arena.add_loop(face_bot);
-    let inner_loop_top = result.arena.add_loop(face_top);
-    result.arena.faces[face_bot.0]
-        .inner_loops
-        .push(inner_loop_bot);
-    result.arena.faces[face_top.0]
-        .inner_loops
-        .push(inner_loop_top);
+    let shell_idx = ShellIdx(0);
 
-    // Inner circle self-loops
+    // Step 4: Add inner circle loops for box caps that the cylinder touches,
+    // and add cap faces for the blind pocket ends where it doesn't touch.
+
+    // Bottom circle edge
     let (e_bot_circle, he_ibot_a, he_ibot_b) = result.arena.add_edge();
-    result.arena.half_edges[he_ibot_a.0].origin = v_bot_seam;
-    result.arena.half_edges[he_ibot_a.0].next = he_ibot_a;
-    result.arena.half_edges[he_ibot_a.0].prev = he_ibot_a;
-    result.arena.half_edges[he_ibot_a.0].loop_ = inner_loop_bot;
-    result.arena.loops[inner_loop_bot.0].half_edge = he_ibot_a;
 
+    if touches_bot {
+        // Cylinder touches bottom box face → add circular hole to box cap
+        let inner_loop_bot = result.arena.add_loop(face_bot);
+        result.arena.faces[face_bot.0]
+            .inner_loops
+            .push(inner_loop_bot);
+        result.arena.half_edges[he_ibot_a.0].origin = v_bot_seam;
+        result.arena.half_edges[he_ibot_a.0].next = he_ibot_a;
+        result.arena.half_edges[he_ibot_a.0].prev = he_ibot_a;
+        result.arena.half_edges[he_ibot_a.0].loop_ = inner_loop_bot;
+        result.arena.loops[inner_loop_bot.0].half_edge = he_ibot_a;
+    } else {
+        // Cylinder doesn't touch bottom → add circular cap face (pocket floor)
+        let face_cap_bot = result.arena.add_face(shell_idx);
+        let loop_cap_bot = result.arena.add_loop(face_cap_bot);
+        result.arena.faces[face_cap_bot.0].outer_loop = loop_cap_bot;
+        // Self-loop: circle edge bounds the cap face
+        result.arena.half_edges[he_ibot_a.0].origin = v_bot_seam;
+        result.arena.half_edges[he_ibot_a.0].next = he_ibot_a;
+        result.arena.half_edges[he_ibot_a.0].prev = he_ibot_a;
+        result.arena.half_edges[he_ibot_a.0].loop_ = loop_cap_bot;
+        result.arena.loops[loop_cap_bot.0].half_edge = he_ibot_a;
+        // Cap geometry: downward-facing normal (closing the pocket from below)
+        result.face_geometry.insert(
+            face_cap_bot,
+            SurfaceGeom::Planar(Plane {
+                origin: Point3::new(cx, cy, cyl_z_min),
+                normal: Vector3::new(0.0, 0.0, -1.0),
+            }),
+        );
+        result.face_map.insert(id_alloc(), face_cap_bot);
+    }
+
+    // Top circle edge
     let (e_top_circle, he_itop_a, he_itop_b) = result.arena.add_edge();
-    result.arena.half_edges[he_itop_a.0].origin = v_top_seam;
-    result.arena.half_edges[he_itop_a.0].next = he_itop_a;
-    result.arena.half_edges[he_itop_a.0].prev = he_itop_a;
-    result.arena.half_edges[he_itop_a.0].loop_ = inner_loop_top;
-    result.arena.loops[inner_loop_top.0].half_edge = he_itop_a;
+
+    if touches_top {
+        // Cylinder touches top box face → add circular hole to box cap
+        let inner_loop_top = result.arena.add_loop(face_top);
+        result.arena.faces[face_top.0]
+            .inner_loops
+            .push(inner_loop_top);
+        result.arena.half_edges[he_itop_a.0].origin = v_top_seam;
+        result.arena.half_edges[he_itop_a.0].next = he_itop_a;
+        result.arena.half_edges[he_itop_a.0].prev = he_itop_a;
+        result.arena.half_edges[he_itop_a.0].loop_ = inner_loop_top;
+        result.arena.loops[inner_loop_top.0].half_edge = he_itop_a;
+    } else {
+        // Cylinder doesn't touch top → add circular cap face (pocket ceiling)
+        let face_cap_top = result.arena.add_face(shell_idx);
+        let loop_cap_top = result.arena.add_loop(face_cap_top);
+        result.arena.faces[face_cap_top.0].outer_loop = loop_cap_top;
+        result.arena.half_edges[he_itop_a.0].origin = v_top_seam;
+        result.arena.half_edges[he_itop_a.0].next = he_itop_a;
+        result.arena.half_edges[he_itop_a.0].prev = he_itop_a;
+        result.arena.half_edges[he_itop_a.0].loop_ = loop_cap_top;
+        result.arena.loops[loop_cap_top.0].half_edge = he_itop_a;
+        // Cap geometry: upward-facing normal (closing the pocket from above)
+        result.face_geometry.insert(
+            face_cap_top,
+            SurfaceGeom::Planar(Plane {
+                origin: Point3::new(cx, cy, cyl_z_max),
+                normal: Vector3::new(0.0, 0.0, 1.0),
+            }),
+        );
+        result.face_map.insert(id_alloc(), face_cap_top);
+    }
 
     // Step 5: Add cylinder side face
-    let shell_idx = ShellIdx(0);
     let face_cyl = result.arena.add_face(shell_idx);
     let loop_cyl = result.arena.add_loop(face_cyl);
     result.arena.faces[face_cyl.0].outer_loop = loop_cyl;
@@ -1368,7 +1426,7 @@ fn build_box_minus_enclosed_cyl(
     result.edge_geometry.insert(
         e_bot_circle,
         CurveGeom::Circular(Circle3D {
-            center: Point3::from_array([cx, cy, z_min]),
+            center: Point3::from_array([cx, cy, cyl_z_min]),
             normal: Vector3::new(0.0, 0.0, 1.0),
             radius: r,
         }),
@@ -1376,7 +1434,7 @@ fn build_box_minus_enclosed_cyl(
     result.edge_geometry.insert(
         e_top_circle,
         CurveGeom::Circular(Circle3D {
-            center: Point3::from_array([cx, cy, z_max]),
+            center: Point3::from_array([cx, cy, cyl_z_max]),
             normal: Vector3::new(0.0, 0.0, 1.0),
             radius: r,
         }),
@@ -1385,7 +1443,7 @@ fn build_box_minus_enclosed_cyl(
         e_seam,
         CurveGeom::Linear(Line3D {
             origin: Point3::from_array(bot_seam),
-            direction: Vector3::from_array([0.0, 0.0, z_max - z_min]),
+            direction: Vector3::from_array([0.0, 0.0, cyl_z_max - cyl_z_min]),
         }),
     );
 
@@ -2843,5 +2901,181 @@ mod tests {
         for v in &mesh.vertices {
             assert!(v.is_finite(), "vertex contains NaN or Inf: {}", v);
         }
+
+        // Verify non-degenerate AABB (not collapsed to a flat plane)
+        let vert_count = mesh.vertices.len() / 3;
+        assert!(
+            vert_count > 100,
+            "expected >100 vertices for cyl-cyl union, got {}",
+            vert_count
+        );
+        let (mut min_x, mut min_y, mut min_z) = (f32::MAX, f32::MAX, f32::MAX);
+        let (mut max_x, mut max_y, mut max_z) = (f32::MIN, f32::MIN, f32::MIN);
+        for i in 0..vert_count {
+            let x = mesh.vertices[i * 3];
+            let y = mesh.vertices[i * 3 + 1];
+            let z = mesh.vertices[i * 3 + 2];
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            min_z = min_z.min(z);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+            max_z = max_z.max(z);
+        }
+        let dx = max_x - min_x;
+        let dy = max_y - min_y;
+        let dz = max_z - min_z;
+        let volume = dx as f64 * dy as f64 * dz as f64;
+        assert!(
+            volume > 1e-6,
+            "AABB volume too small (collapsed): {:.2e} (dims {:.4} x {:.4} x {:.4})",
+            volume,
+            dx,
+            dy,
+            dz
+        );
+    }
+
+    #[test]
+    fn test_cyl_cyl_inner_loop_produces_annular_mesh() {
+        // Verify that the inner loop (hole) on each cylindrical face is tessellated,
+        // producing an annular mesh between two elliptic rings rather than a simple tube.
+        use crate::tessellation;
+
+        let (cyl_a, cyl_b) = make_perp_cyls();
+        let mut id = 500u64;
+        let result = non_parallel_cyl_cyl_boolean(&cyl_a, &cyl_b, BoolOp::Union, &mut || {
+            id += 1;
+            id
+        })
+        .unwrap();
+
+        // Verify B-Rep has inner loops
+        for (_kid, &face_idx) in &result.face_map {
+            let face = &result.arena.faces[face_idx.0];
+            assert!(
+                !face.inner_loops.is_empty(),
+                "cyl-cyl face should have inner loops"
+            );
+        }
+
+        let mesh = tessellation::tessellate_solid(
+            &result.arena,
+            &result.face_map,
+            &result.face_geometry,
+            &result.edge_geometry,
+            None,
+            None,
+            false,
+        )
+        .unwrap();
+
+        let tri_count = mesh.indices.len() / 3;
+        // 2 faces with earcut annulus: expect at least 50 triangles total
+        assert!(
+            tri_count >= 50,
+            "annular mesh should have >=50 triangles, got {}",
+            tri_count
+        );
+
+        // Verify non-degenerate AABB (mesh spans 3D, not collapsed to a plane)
+        let vert_count = mesh.vertices.len() / 3;
+        let (mut min_x, mut min_y, mut min_z) = (f32::MAX, f32::MAX, f32::MAX);
+        let (mut max_x, mut max_y, mut max_z) = (f32::MIN, f32::MIN, f32::MIN);
+        for i in 0..vert_count {
+            let (x, y, z) = (
+                mesh.vertices[i * 3],
+                mesh.vertices[i * 3 + 1],
+                mesh.vertices[i * 3 + 2],
+            );
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            min_z = min_z.min(z);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+            max_z = max_z.max(z);
+        }
+        let dx = max_x - min_x;
+        let dy = max_y - min_y;
+        let dz = max_z - min_z;
+        let aabb_vol = dx as f64 * dy as f64 * dz as f64;
+        assert!(
+            aabb_vol > 1e-6,
+            "annular mesh AABB collapsed: vol={:.2e} (dims {:.4} x {:.4} x {:.4})",
+            aabb_vol,
+            dx,
+            dy,
+            dz
+        );
+    }
+
+    #[test]
+    fn test_box_minus_enclosed_cyl_uses_cylinder_z_range() {
+        // Box: [−0.5, −0.5, 0] × [0.5, 0.5, 1.0]
+        // Cylinder: centered at origin, r=0.2, z from 0.2 to 0.7 (shorter than box)
+        use crate::tessellation;
+
+        let box_aabb = Aabb {
+            min: [-0.5, -0.5, 0.0],
+            max: [0.5, 0.5, 1.0],
+        };
+        let cyl = CylinderParams {
+            center_bottom: [0.0, 0.0, 0.2],
+            radius: 0.2,
+            x_axis: [1.0, 0.0, 0.0],
+            y_axis: [0.0, 1.0, 0.0],
+            direction: [0.0, 0.0, 1.0],
+            depth: 0.5,
+        };
+        let mut id = 1000u64;
+        let result = build_box_minus_enclosed_cyl(&box_aabb, &cyl, &mut || {
+            id += 1;
+            id
+        })
+        .unwrap();
+
+        let mesh = tessellation::tessellate_solid(
+            &result.arena,
+            &result.face_map,
+            &result.face_geometry,
+            &result.edge_geometry,
+            None,
+            None,
+            false,
+        )
+        .unwrap();
+
+        let vert_count = mesh.vertices.len() / 3;
+        assert!(vert_count > 24, "expected >24 vertices, got {}", vert_count);
+
+        // AABB collapse check: not all vertices should be on AABB faces
+        let (mut bmin, mut bmax) = ([f32::MAX; 3], [f32::MIN; 3]);
+        for i in 0..vert_count {
+            for d in 0..3 {
+                bmin[d] = bmin[d].min(mesh.vertices[i * 3 + d]);
+                bmax[d] = bmax[d].max(mesh.vertices[i * 3 + d]);
+            }
+        }
+        let tol = 1e-4_f32;
+        let mut non_aabb = 0;
+        for i in 0..vert_count {
+            let x = mesh.vertices[i * 3];
+            let y = mesh.vertices[i * 3 + 1];
+            let z = mesh.vertices[i * 3 + 2];
+            let on_face = (x - bmin[0]).abs() < tol
+                || (x - bmax[0]).abs() < tol
+                || (y - bmin[1]).abs() < tol
+                || (y - bmax[1]).abs() < tol
+                || (z - bmin[2]).abs() < tol
+                || (z - bmax[2]).abs() < tol;
+            if !on_face {
+                non_aabb += 1;
+            }
+        }
+        assert!(
+            non_aabb > 0,
+            "all {} vertices on AABB faces — cylinder z-range not used",
+            vert_count
+        );
     }
 }

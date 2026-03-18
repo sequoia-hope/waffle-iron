@@ -38,10 +38,10 @@ pub(crate) fn tessellate_solid(
     // Boolean results have no CylinderParams/RevolveParams. Use edge-first
     // bounded tessellation for watertight-by-construction output.
     // Requirements for bounded path:
-    //   1. Must NOT have arc edges. Arc-containing boolean results (cyl-cyl,
-    //      box-minus-cyl) use per-face tessellation via tessellate_cylindrical_patch
-    //      + annular cap tessellation, which produces watertight vertex placement
-    //      that the bounded path currently cannot match.
+    //   1. Must NOT have arc edges. Parallel cyl-cyl booleans produce arc edges
+    //      whose ring topology the bounded path doesn't yet handle correctly.
+    //      Non-parallel cyl-cyl (elliptical edges), box-minus-cyl (circular edges),
+    //      and box-only booleans use the bounded path successfully.
     //   2. Must NOT be polygon-soup. Polygon-soup B-Rep from S-H clipping may
     //      contain internal faces; bounded tessellation's shared vertices make
     //      these indistinguishable from external faces, preventing removal.
@@ -2275,11 +2275,135 @@ fn tessellate_cylindrical_face_bounded(
     let is_self_loop = arena.half_edges[start_he.0].next == start_he;
 
     if is_self_loop && boundary.len() >= CIRCLE_SEGMENTS {
-        // Full cylinder tube — build quad strip from two copies of the ring
+        let (cx_axis, cy_axis) = make_circle_axes(&axis);
+
+        // Check for inner loops (e.g., cyl-cyl boolean: outer ellipse + inner ellipse hole)
+        let inner_loops = &arena.faces[face_idx.0].inner_loops;
+        if !inner_loops.is_empty() {
+            // Annular mesh between outer and inner rings on the cylinder surface.
+            // Both rings are closed self-loop ellipses. We cut each ring at the
+            // angle closest to 0, creating two open arcs, then stitch them into
+            // an annular strip in cylindrical (θ,z) coordinates using earcut.
+            let outer_ring = &boundary;
+
+            let inner_boundary = collect_loop_boundary(arena, inner_loops[0], disc);
+            if inner_boundary.len() >= 3 {
+                let angle_of = |vi: usize| -> f64 {
+                    let dp = v3_sub(disc.positions[vi], origin);
+                    v3_dot(dp, cy_axis).atan2(v3_dot(dp, cx_axis))
+                };
+
+                // Sort both rings by angle for consistent ordering
+                let mut outer_sorted: Vec<usize> = outer_ring.clone();
+                outer_sorted.sort_by(|a, b| {
+                    angle_of(*a)
+                        .partial_cmp(&angle_of(*b))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+                let mut inner_sorted: Vec<usize> = inner_boundary;
+                inner_sorted.sort_by(|a, b| {
+                    angle_of(*a)
+                        .partial_cmp(&angle_of(*b))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+
+                // Build an annular polygon in (θ,z) space by cutting both rings
+                // and forming a single non-self-intersecting polygon:
+                //   outer[0] → outer[1] → ... → outer[N-1] → outer[0] (close outer)
+                //   bridge to inner[0]
+                //   inner[0] → inner[N-1] → ... → inner[1] → inner[0] (reverse inner)
+                //   bridge back to outer[0]
+                // This creates a "strip" polygon that earcut can triangulate.
+                let mut strip_verts: Vec<usize> = Vec::new();
+                let mut strip_2d: Vec<f64> = Vec::new();
+
+                // Add outer ring (forward order) — repeat first point at end to close
+                for &vi in outer_sorted.iter() {
+                    strip_verts.push(vi);
+                }
+                strip_verts.push(outer_sorted[0]); // close outer ring
+
+                // Bridge: add inner[0]
+                strip_verts.push(inner_sorted[0]);
+
+                // Add inner ring (reverse order) — repeat first point at end to close
+                for &vi in inner_sorted.iter().rev() {
+                    strip_verts.push(vi);
+                }
+                strip_verts.push(inner_sorted[0]); // close inner ring
+
+                // Bridge back: add outer[0]
+                strip_verts.push(outer_sorted[0]);
+
+                // Build 2D cylindrical coordinates
+                for &vi in &strip_verts {
+                    let dp = v3_sub(disc.positions[vi], origin);
+                    strip_2d.push(v3_dot(dp, cy_axis).atan2(v3_dot(dp, cx_axis)));
+                    strip_2d.push(v3_dot(dp, axis));
+                }
+
+                // Unwrap theta
+                for i in 1..strip_verts.len() {
+                    let idx = i * 2;
+                    while strip_2d[idx] - strip_2d[idx - 2] > std::f64::consts::PI {
+                        strip_2d[idx] -= std::f64::consts::TAU;
+                    }
+                    while strip_2d[idx] - strip_2d[idx - 2] < -std::f64::consts::PI {
+                        strip_2d[idx] += std::f64::consts::TAU;
+                    }
+                }
+
+                // Emit vertices with cylindrical normals (deduplicated via index map)
+                let base_vertex = out_verts.len() as u32 / 3;
+                let mut vi_to_local: HashMap<usize, u32> = HashMap::new();
+                let mut next_local: u32 = 0;
+                let mut local_indices: Vec<u32> = Vec::with_capacity(strip_verts.len());
+
+                for &vi in &strip_verts {
+                    let local = *vi_to_local.entry(vi).or_insert_with(|| {
+                        let idx = next_local;
+                        next_local += 1;
+                        let pos = disc.positions[vi];
+                        out_verts.push(pos[0] as f32);
+                        out_verts.push(pos[1] as f32);
+                        out_verts.push(pos[2] as f32);
+                        let dp = v3_sub(pos, origin);
+                        let along = v3_dot(dp, axis);
+                        let rad = [
+                            dp[0] - along * axis[0],
+                            dp[1] - along * axis[1],
+                            dp[2] - along * axis[2],
+                        ];
+                        let rlen = v3_length(rad);
+                        if rlen > TAU_NORMALIZE {
+                            out_normals.push((normal_sign * rad[0] / rlen) as f32);
+                            out_normals.push((normal_sign * rad[1] / rlen) as f32);
+                            out_normals.push((normal_sign * rad[2] / rlen) as f32);
+                        } else {
+                            out_normals.push(0.0);
+                            out_normals.push(0.0);
+                            out_normals.push(1.0);
+                        }
+                        idx
+                    });
+                    local_indices.push(local);
+                }
+
+                // Earcut the strip polygon (no holes — the strip IS the annulus)
+                if let Ok(tri_indices) = earcutr::earcut(&strip_2d, &[], 2) {
+                    for &ti in &tri_indices {
+                        let local = local_indices[ti];
+                        out_indices.push(base_vertex + local);
+                    }
+                }
+                return;
+            }
+        }
+
+        // No inner loops: full cylinder tube — build quad strip from two copies of the ring
         let ring = &boundary;
         let n = ring.len();
         let base_vertex = out_verts.len() as u32 / 3;
-        let (cx_axis, cy_axis) = make_circle_axes(&axis);
 
         // Sort ring by angle for consistent winding
         let mut ring_sorted: Vec<usize> = ring.clone();
