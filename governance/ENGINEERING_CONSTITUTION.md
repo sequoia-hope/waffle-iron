@@ -178,7 +178,44 @@ If a feature “kind of works” but breaks obvious branches or invariants, it i
 
 ---
 
-## 10. Amendments and Protected Files
+## 10. No Hack-to-Green (Regression and Correctness Discipline)
+
+### P9 — Never add workarounds to make tests pass
+
+When a test fails, the fix must address the **root cause** in the layer where the defect lives.
+The following are **prohibited**:
+
+- Adding special-case branches, tolerances, or clamps to make a specific test pass without understanding why it fails.
+- Weakening assertions (widening tolerances, removing checks, catching errors) to accommodate incorrect output.
+- Routing around a broken code path with a “temporary” fallback that produces superficially correct output for wrong reasons.
+- Duplicating geometry (e.g., emitting extra vertices, adding redundant faces) to satisfy a structural oracle without fixing the underlying topology.
+
+**If you cannot explain why a test fails, you may not change code to make it pass.**
+Document the failure in PLAN.md and move to the next task.
+
+### P10 — Assay regressions require justification
+
+A change that reduces the assay score is acceptable **only** when all of the following hold:
+
+1. **The old output was accidentally correct.** A test can demonstrate that the previous code produced right answers for wrong reasons (e.g., degenerate geometry that happened to pass an oracle, duplicate vertices masking unpaired edges).
+2. **The new code is provably more correct.** A unit test exists showing the new code handles the root cause properly, even if the end-to-end oracle doesn't see it yet.
+3. **Recovery is scoped.** The commit message or PLAN.md identifies which cases regressed, why, and what specific follow-up will recover them.
+
+If you cannot satisfy all three, **do not ship the regression.** Revert and find an approach that moves the score monotonically upward.
+
+### P11 — Correctness direction over score magnitude
+
+The assay score measures end-to-end correctness across the full pipeline. A fix to an upstream layer (boolean builder, B-Rep topology) may not immediately improve the score if a downstream layer (tessellation, post-processing) hasn't caught up. This is acceptable when:
+
+- The upstream fix has its own passing unit test proving correctness at that layer.
+- The downstream gap is documented as a follow-up task.
+- No previously-correct cases are broken.
+
+Conversely, a score increase achieved by adding hacks in a downstream layer (e.g., snapping vertices, special-casing face counts, loosening watertight checks) that masks upstream incorrectness is a **P9 violation** and must be reverted.
+
+---
+
+## 11. Amendments and Protected Files
 
 The following are **protected** and may only be changed with explicit human approval:
 
@@ -194,7 +231,7 @@ Amending this Constitution requires:
 
 ---
 
-## 11. Enforcement Roadmap (v1)
+## 12. Enforcement Roadmap (v1)
 
 This Constitution is intended to be enforced mechanically over time.
 
@@ -212,7 +249,7 @@ Planned enforcement additions (may be introduced incrementally):
 
 ---
 
-## 12. Interpretation Rule
+## 13. Interpretation Rule
 
 When ambiguity exists, choose the interpretation that is **more testable** and **more robust**.
 
@@ -220,7 +257,7 @@ If a requirement cannot be tested, it must be rewritten until it can.
 
 ---
 
-## 13. Quick Checklist (for humans and agents)
+## 14. Quick Checklist (for humans and agents)
 
 A feature is not “done” unless:
 
@@ -230,6 +267,8 @@ A feature is not “done” unless:
 - [ ] Tests assert numeric/structural oracles (not only “no error”)
 - [ ] Parameters are normalized early to reduce branching
 - [ ] Architecture boundaries remain intact
+- [ ] No workarounds added to make tests pass (P9) — root cause addressed
+- [ ] No assay regressions without documented justification (P10)
 
 ---
 

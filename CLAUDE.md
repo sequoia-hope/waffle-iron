@@ -91,6 +91,20 @@ See `docs/TESTING.md` for tier definitions and how to add tests.
 - **WASM ↔ JS communication** goes through wasm-bridge only. No direct WASM imports in UI components.
 - **Kernel types don't leak.** Use the Kernel/KernelIntrospect traits. Never expose kernel internals to other crates.
 
+## No Hack-to-Green (Constitution P9–P11)
+
+- **Never add workarounds to make a test pass.** Fix the root cause in the layer where
+  the defect lives. No special-case branches, no tolerance widening, no fallback paths
+  that produce right answers for wrong reasons.
+- **If you can't explain why a test fails, don't change code to make it pass.**
+  Document the failure in PLAN.md and move on.
+- **Assay regressions require justification.** A score decrease is only acceptable when:
+  (1) the old output was accidentally correct, (2) a unit test proves the new code is
+  more correct, and (3) recovery is scoped with specific follow-up tasks identified.
+- **Score increases via downstream hacks are P9 violations.** Snapping vertices,
+  loosening checks, or special-casing face counts to mask upstream bugs must be reverted.
+- See governance/ENGINEERING_CONSTITUTION.md §10 for the full rules.
+
 ## Analytical Primacy (Invariant A15)
 
 - Boolean operations on quadric surfaces (plane, cylinder, cone, sphere, torus)
