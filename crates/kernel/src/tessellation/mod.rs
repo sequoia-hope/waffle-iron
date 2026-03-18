@@ -4687,3 +4687,96 @@ fn weld_mesh_vertices(
         face_ranges: new_face_ranges,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper: build a minimal vertex + index buffer for dedup testing.
+    /// Each vertex is [x, y, z] in f32. Returns (vertices_flat, indices).
+    fn make_mesh(verts: &[[f32; 3]], tris: &[[u32; 3]]) -> (Vec<f32>, Vec<u32>) {
+        let vertices: Vec<f32> = verts.iter().flat_map(|v| v.iter().copied()).collect();
+        let indices: Vec<u32> = tris.iter().flat_map(|t| t.iter().copied()).collect();
+        (vertices, indices)
+    }
+
+    #[test]
+    fn dedup_preserves_opposite_winding() {
+        // Winding-preserving dedup treats [0,1,2] and [0,2,1] as distinct keys.
+        // Opposite-winding removal requires a different mechanism (e.g., position-based
+        // twin pairing per boolean_vertex_welding_fix.md).
+        let (vertices, mut indices) = make_mesh(
+            &[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            &[[0, 1, 2], [0, 2, 1]],
+        );
+        let mut face_ranges = vec![FaceRange {
+            face_id: KernelId(1),
+            start_index: 0,
+            end_index: 6,
+        }];
+
+        remove_duplicate_triangles(&vertices, &mut indices, &mut face_ranges);
+
+        // Both survive — they have different winding keys
+        assert_eq!(indices.len(), 6, "opposite-winding tris are distinct");
+    }
+
+    #[test]
+    fn dedup_removes_same_winding_duplicate() {
+        // Two identical triangles (same winding) — should dedup
+        let (vertices, mut indices) = make_mesh(
+            &[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            &[[0, 1, 2], [0, 1, 2]],
+        );
+        let mut face_ranges = vec![FaceRange {
+            face_id: KernelId(1),
+            start_index: 0,
+            end_index: 6,
+        }];
+
+        remove_duplicate_triangles(&vertices, &mut indices, &mut face_ranges);
+
+        assert_eq!(indices.len(), 3, "expected 1 triangle after dedup");
+    }
+
+    #[test]
+    fn dedup_removes_same_winding_rotated() {
+        // Same winding, rotated indices: [0,1,2] and [1,2,0] are the same triangle
+        let (vertices, mut indices) = make_mesh(
+            &[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            &[[0, 1, 2], [1, 2, 0]],
+        );
+        let mut face_ranges = vec![FaceRange {
+            face_id: KernelId(1),
+            start_index: 0,
+            end_index: 6,
+        }];
+
+        remove_duplicate_triangles(&vertices, &mut indices, &mut face_ranges);
+
+        assert_eq!(indices.len(), 3, "rotated same-winding duplicate removed");
+    }
+
+    #[test]
+    fn dedup_preserves_distinct_triangles() {
+        // Two distinct triangles sharing an edge — should NOT be deduped
+        let (vertices, mut indices) = make_mesh(
+            &[
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [1.0, 1.0, 0.0],
+            ],
+            &[[0, 1, 2], [1, 3, 2]],
+        );
+        let mut face_ranges = vec![FaceRange {
+            face_id: KernelId(1),
+            start_index: 0,
+            end_index: 6,
+        }];
+
+        remove_duplicate_triangles(&vertices, &mut indices, &mut face_ranges);
+
+        assert_eq!(indices.len(), 6, "distinct triangles should be preserved");
+    }
+}

@@ -6879,3 +6879,113 @@ fn k4_cyl_minus_box_tilted() {
     );
 }
 
+/// Phase N: Verify that partial-overlap box+cylinder union produces more
+/// than just box triangles (cylindrical faces must contribute).
+#[test]
+fn n1_partial_box_cyl_union_has_cylindrical_tris() {
+    let mut k = WaffleKernel::new();
+
+    // Box centered at origin, 1×1, extruded 1.0
+    let (box_profiles, box_pos) = make_rect_profile(0.0, 0.0, 1.0, 1.0);
+    let box_faces = k
+        .make_faces_from_profiles(&box_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &box_pos)
+        .unwrap();
+    let box_solid = k.extrude_face(box_faces[0], Z_DIR, 1.0).unwrap();
+
+    // Small cylinder that partially overlaps — offset X so it sticks out the side
+    let (cyl_profiles, cyl_pos) = make_circle_profile(0.4, 0.0, 0.2);
+    let cyl_faces = k
+        .make_faces_from_profiles(&cyl_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &cyl_pos)
+        .unwrap();
+    let cyl_solid = k.extrude_face(cyl_faces[0], Z_DIR, 1.0).unwrap();
+
+    let handle = k.boolean_union(&box_solid, &cyl_solid).expect("union");
+    let mesh = k.tessellate(&handle, 0.01).expect("tessellate");
+    let tri_count = mesh.indices.len() / 3;
+
+    // Box alone = 12 tris. Union with cylinder must add at least some.
+    assert!(
+        tri_count > 12,
+        "box+cyl union produced only {} tris (box alone = 12) — cylindrical faces missing",
+        tri_count
+    );
+}
+
+/// Phase N: Box + cylinder boss (cylinder enclosed in XY, extends above)
+/// should produce more than 12 tris.
+#[test]
+fn n1b_box_cyl_boss_union_has_cylindrical_tris() {
+    let mut k = WaffleKernel::new();
+
+    // Box: 1×1 at origin, depth 0.5
+    let (box_profiles, box_pos) = make_rect_profile(0.0, 0.0, 1.0, 1.0);
+    let box_faces = k
+        .make_faces_from_profiles(&box_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &box_pos)
+        .unwrap();
+    let box_solid = k.extrude_face(box_faces[0], Z_DIR, 0.5).unwrap();
+
+    // Cylinder: small, centered, extends above box top (boss)
+    let (cyl_profiles, cyl_pos) = make_circle_profile(0.0, 0.0, 0.1);
+    let cyl_faces = k
+        .make_faces_from_profiles(&cyl_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &cyl_pos)
+        .unwrap();
+    let cyl_solid = k.extrude_face(cyl_faces[0], Z_DIR, 1.0).unwrap();
+
+    let handle = k.boolean_union(&box_solid, &cyl_solid).expect("union");
+    let mesh = k.tessellate(&handle, 0.01).expect("tessellate");
+    let tri_count = mesh.indices.len() / 3;
+
+    // Boss adds: cylindrical side (128 tris) + end cap (62+ tris) + annular top face.
+    // Must be more than box alone (12 tris).
+    assert!(
+        tri_count > 20,
+        "box+cyl boss union produced only {} tris — cylindrical faces missing",
+        tri_count
+    );
+}
+
+/// Phase N: Opposite-winding duplicate dedup eliminates non-manifold edges.
+#[test]
+fn n2_partial_box_cyl_union_no_non_manifold() {
+    let mut k = WaffleKernel::new();
+
+    let (box_profiles, box_pos) = make_rect_profile(0.0, 0.0, 2.0, 2.0);
+    let box_faces = k
+        .make_faces_from_profiles(&box_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &box_pos)
+        .unwrap();
+    let box_solid = k.extrude_face(box_faces[0], Z_DIR, 2.0).unwrap();
+
+    let (cyl_profiles, cyl_pos) = make_circle_profile(1.5, 0.0, 1.0);
+    let cyl_faces = k
+        .make_faces_from_profiles(&cyl_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &cyl_pos)
+        .unwrap();
+    let cyl_solid = k.extrude_face(cyl_faces[0], Z_DIR, 2.0).unwrap();
+
+    let handle = k.boolean_union(&box_solid, &cyl_solid).expect("union");
+    let mesh = k.tessellate(&handle, 0.01).expect("tessellate");
+
+    // Count non-manifold edges (shared by >2 triangles)
+    let mut edge_counts: std::collections::HashMap<(u32, u32), u32> =
+        std::collections::HashMap::new();
+    for t in 0..mesh.indices.len() / 3 {
+        let base = t * 3;
+        let vs = [
+            mesh.indices[base],
+            mesh.indices[base + 1],
+            mesh.indices[base + 2],
+        ];
+        for e in 0..3 {
+            let a = vs[e];
+            let b = vs[(e + 1) % 3];
+            let key = (a.min(b), a.max(b));
+            *edge_counts.entry(key).or_insert(0) += 1;
+        }
+    }
+    let non_manifold = edge_counts.values().filter(|&&c| c > 2).count();
+    assert_eq!(
+        non_manifold, 0,
+        "mesh has {} non-manifold edges (shared by >2 tris)",
+        non_manifold
+    );
+}
+
