@@ -628,7 +628,7 @@ pub(crate) fn reconstruct_edge_geometry(
             _ => continue,
         };
 
-        // Try to reconstruct a circular edge from Cylinder×Plane pair
+        // Try to reconstruct a circular or elliptical edge from Cylinder×Plane pair
         if let Some(circle) = try_cyl_plane_circle(geom_a, geom_b) {
             // Validate: check edge endpoints lie on the circle
             let origin_v = arena.half_edges[he_a.0].origin;
@@ -658,8 +658,114 @@ pub(crate) fn reconstruct_edge_geometry(
             {
                 edge_geometry.insert(edge_idx, CurveGeom::Circular(circle));
             }
+        } else if let Some(ellipse) = try_cyl_plane_ellipse(geom_a, geom_b) {
+            // Oblique plane-cylinder: validate endpoints lie on the ellipse
+            let origin_v = arena.half_edges[he_a.0].origin;
+            let next_he = arena.half_edges[he_a.0].next;
+            let dest_v = if next_he.0 < arena.half_edges.len() {
+                arena.half_edges[next_he.0].origin
+            } else {
+                continue;
+            };
+
+            let p0 = arena.vertices[origin_v.0].position;
+            let p1 = arena.vertices[dest_v.0].position;
+            let center = [ellipse.center.x, ellipse.center.y, ellipse.center.z];
+            let major = [
+                ellipse.major_axis.x,
+                ellipse.major_axis.y,
+                ellipse.major_axis.z,
+            ];
+            let normal = [ellipse.normal.x, ellipse.normal.y, ellipse.normal.z];
+            let minor = v3_cross(
+                [normal[0], normal[1], normal[2]],
+                [major[0], major[1], major[2]],
+            );
+
+            // Check that both endpoints are approximately on the ellipse
+            let on_ellipse = |pt: [f64; 3]| -> bool {
+                let d = v3_sub(pt, center);
+                let u = v3_dot(d, major) / ellipse.semi_major;
+                let v = v3_dot(d, minor) / ellipse.semi_minor;
+                let r2 = u * u + v * v;
+                (r2 - 1.0).abs() < 0.1 // generous tolerance for polygon-clipping results
+            };
+
+            if on_ellipse(p0) && on_ellipse(p1) {
+                edge_geometry.insert(
+                    edge_idx,
+                    CurveGeom::Elliptical(crate::geometry::curve::Ellipse3D {
+                        center: ellipse.center,
+                        normal: ellipse.normal,
+                        major_axis: ellipse.major_axis,
+                        semi_major: ellipse.semi_major,
+                        semi_minor: ellipse.semi_minor,
+                    }),
+                );
+            }
         }
     }
+}
+
+/// Intermediate type for oblique plane-cylinder ellipse data.
+struct EllipseData {
+    center: Point3,
+    normal: Vector3,
+    major_axis: Vector3,
+    semi_major: f64,
+    semi_minor: f64,
+}
+
+/// Try to construct an ellipse from a Cylinder×Plane oblique intersection.
+///
+/// Returns `Some(EllipseData)` if one surface is cylindrical and the other planar,
+/// and the plane is oblique (neither perpendicular nor parallel) to the cylinder axis.
+fn try_cyl_plane_ellipse(a: &SurfaceGeom, b: &SurfaceGeom) -> Option<EllipseData> {
+    let (plane, cyl) = match (a, b) {
+        (SurfaceGeom::Cylindrical(c), SurfaceGeom::Planar(p)) => (p, c),
+        (SurfaceGeom::Planar(p), SurfaceGeom::Cylindrical(c)) => (p, c),
+        _ => return None,
+    };
+
+    let n = plane.normal.to_array();
+    let ax = cyl.axis.to_array();
+    let dot_wn = n[0] * ax[0] + n[1] * ax[1] + n[2] * ax[2];
+
+    // Must be oblique: not perpendicular (dot ≈ ±1) and not parallel (dot ≈ 0)
+    let cos_angle = dot_wn.abs();
+    if !(1e-6..=1.0 - 1e-6).contains(&cos_angle) {
+        return None;
+    }
+
+    let sin_gamma = (1.0 - cos_angle * cos_angle).max(0.0).sqrt();
+    let r = cyl.radius.abs();
+    let semi_minor = r;
+    let semi_major = r / sin_gamma;
+
+    // Major axis: projection of cylinder axis onto cutting plane
+    let proj = v3_sub(ax, v3_scale(n, dot_wn));
+    let proj_len = v3_length(proj);
+    if proj_len < 1e-10 {
+        return None;
+    }
+    let major_axis = v3_scale(proj, 1.0 / proj_len);
+
+    // Center: where cylinder axis pierces the plane
+    let co = cyl.origin.to_array();
+    let po = plane.origin.to_array();
+    if dot_wn.abs() < 1e-10 {
+        return None;
+    }
+    let t = v3_dot(v3_sub(po, co), n) / dot_wn;
+    let center = v3_add(co, v3_scale(ax, t));
+
+    Some(EllipseData {
+        center: Point3::from_array(center),
+        normal: plane.normal,
+        major_axis: Vector3::from_array(major_axis),
+        semi_major,
+        semi_minor,
+    })
 }
 
 /// Try to construct a Circle3D from a Cylinder×Plane perpendicular intersection.

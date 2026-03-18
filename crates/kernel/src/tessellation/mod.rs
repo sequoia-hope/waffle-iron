@@ -2185,6 +2185,75 @@ fn tessellate_cylindrical_face_bounded(
         return;
     }
 
+    // Check if this face has any curved edges. Polygon-clipping boolean results
+    // tag faces with SurfaceGeom::Cylindrical but have only linear edge geometry
+    // (polygon approximation vertices). For these faces, use planar tessellation
+    // with cylindrical normals — the ring-building logic below assumes curved edges.
+    let has_curved_edges = {
+        let mut found = false;
+        let start_he = arena.loops[arena.faces[face_idx.0].outer_loop.0].half_edge;
+        let mut he = start_he;
+        loop {
+            let edge_idx = arena.half_edges[he.0].edge;
+            if matches!(
+                _edge_geometry.get(&edge_idx),
+                Some(CurveGeom::Circular(_))
+                    | Some(CurveGeom::Arc(_))
+                    | Some(CurveGeom::Elliptical(_))
+            ) {
+                found = true;
+                break;
+            }
+            he = arena.half_edges[he.0].next;
+            if he == start_he {
+                break;
+            }
+        }
+        found
+    };
+
+    if !has_curved_edges {
+        // Polygon-approximation face: tessellate as planar polygon with cylindrical normals
+        let base_vertex = out_verts.len() as u32 / 3;
+        for &vi in &boundary {
+            let pos = disc.positions[vi];
+            out_verts.push(pos[0] as f32);
+            out_verts.push(pos[1] as f32);
+            out_verts.push(pos[2] as f32);
+            let dp = v3_sub(pos, origin);
+            let along = v3_dot(dp, axis);
+            let rad = [
+                dp[0] - along * axis[0],
+                dp[1] - along * axis[1],
+                dp[2] - along * axis[2],
+            ];
+            let rlen = v3_length(rad);
+            if rlen > TAU_NORMALIZE {
+                out_normals.push((normal_sign * rad[0] / rlen) as f32);
+                out_normals.push((normal_sign * rad[1] / rlen) as f32);
+                out_normals.push((normal_sign * rad[2] / rlen) as f32);
+            } else {
+                out_normals.push(0.0);
+                out_normals.push(0.0);
+                out_normals.push(1.0);
+            }
+        }
+        // Fan triangulation
+        let n = boundary.len() as u32;
+        for i in 1..n - 1 {
+            if inward {
+                out_indices.push(base_vertex);
+                out_indices.push(base_vertex + i + 1);
+                out_indices.push(base_vertex + i);
+            } else {
+                out_indices.push(base_vertex);
+                out_indices.push(base_vertex + i);
+                out_indices.push(base_vertex + i + 1);
+            }
+        }
+        return;
+    }
+
     let project_axial = |pos: [f64; 3]| -> f64 {
         let dp = v3_sub(pos, origin);
         v3_dot(dp, axis)

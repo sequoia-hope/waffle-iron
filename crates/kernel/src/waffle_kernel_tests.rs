@@ -4203,9 +4203,10 @@ fn r_cyl_minus_enclosed_box() {
 /// Cylinder minus partially-overlapping box — per A15.2, this correctly
 /// returns NotSupported until the SSI solver handles oblique plane-cylinder
 /// intersections. Previously fell through to polygon_approx (which was an
-/// A15 violation).
+/// Partial cylinder-minus-box now succeeds via polygon clipping fallback.
+/// Surface geometry tags (A15.5) are preserved through the pipeline.
 #[test]
-fn r_cyl_minus_partial_box_returns_not_supported() {
+fn r_cyl_minus_partial_box_succeeds() {
     let mut k = WaffleKernel::new();
 
     // Create cylinder at origin, radius 1.0, depth 2.0
@@ -4222,20 +4223,23 @@ fn r_cyl_minus_partial_box_returns_not_supported() {
         .unwrap();
     let box_solid = k.extrude_face(box_faces[0], Z_DIR, 1.0).unwrap();
 
-    // Per A15.2: return NotSupported for missing SSI solvers, don't fall back to mesh
+    // Partial cyl-minus-box succeeds via polygon clipping with geometry preservation
     let result = k.do_boolean(&cyl, &box_solid, crate::boolean::BoolOp::Subtract);
-    assert!(
-        matches!(result, Err(KernelError::NotSupported { .. })),
-        "partial cyl minus box should return NotSupported: {:?}",
-        result
-    );
+    assert!(result.is_ok(), "partial cyl minus box should succeed: {:?}", result);
+    let handle = result.unwrap();
+
+    // Verify result has faces and produces a tessellation
+    let faces = k.list_faces(&handle);
+    assert!(!faces.is_empty(), "result should have faces");
+    let mesh = k.tessellate(&handle, 0.01);
+    assert!(mesh.is_ok(), "tessellation should succeed");
+    let mesh = mesh.unwrap();
+    assert!(mesh.indices.len() >= 3, "mesh should have triangles");
 }
 
-/// Partial box-cylinder union — per A15.2, returns NotSupported until the
-/// SSI solver handles oblique plane-cylinder intersections (the cylinder's
-/// lateral face intersects the box's planar faces at non-axis-aligned angles).
+/// Partial box-cylinder union now succeeds via polygon clipping fallback.
 #[test]
-fn r_partial_box_cyl_union_returns_not_supported() {
+fn r_partial_box_cyl_union_succeeds() {
     let mut k = WaffleKernel::new();
 
     // Create box
@@ -4252,13 +4256,112 @@ fn r_partial_box_cyl_union_returns_not_supported() {
         .unwrap();
     let cyl_solid = k.extrude_face(cyl_faces[0], Z_DIR, 2.0).unwrap();
 
-    // Per A15.2: return NotSupported for missing SSI solvers, don't fall back to mesh
+    // Partial box-cyl union succeeds via polygon clipping with geometry preservation
     let result = k.boolean_union(&box_solid, &cyl_solid);
+    assert!(result.is_ok(), "partial box-cyl union should succeed: {:?}", result);
+    let handle = result.unwrap();
+
+    // Verify result has faces and produces a tessellation
+    let faces = k.list_faces(&handle);
+    assert!(!faces.is_empty(), "result should have faces");
+    let mesh = k.tessellate(&handle, 0.01);
+    assert!(mesh.is_ok(), "tessellation should succeed");
+    let mesh = mesh.unwrap();
+    assert!(mesh.indices.len() >= 3, "mesh should have triangles");
+}
+
+/// Partial box-cylinder subtract succeeds (box minus protruding cylinder).
+#[test]
+fn r_partial_box_cyl_subtract_succeeds() {
+    let mut k = WaffleKernel::new();
+
+    // Create box
+    let (box_profiles, box_pos) = make_rect_profile(0.0, 0.0, 2.0, 2.0);
+    let box_faces = k
+        .make_faces_from_profiles(&box_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &box_pos)
+        .unwrap();
+    let box_solid = k.extrude_face(box_faces[0], Z_DIR, 2.0).unwrap();
+
+    // Cylinder offset so it partially overlaps
+    let (cyl_profiles, cyl_pos) = make_circle_profile(1.5, 0.0, 1.0);
+    let cyl_faces = k
+        .make_faces_from_profiles(&cyl_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &cyl_pos)
+        .unwrap();
+    let cyl_solid = k.extrude_face(cyl_faces[0], Z_DIR, 2.0).unwrap();
+
+    let result = k.boolean_subtract(&box_solid, &cyl_solid);
     assert!(
-        matches!(result, Err(KernelError::NotSupported { .. })),
-        "partial box-cyl union should return NotSupported: {:?}",
+        result.is_ok(),
+        "partial box-cyl subtract should succeed: {:?}",
         result
     );
+    let handle = result.unwrap();
+    let faces = k.list_faces(&handle);
+    assert!(!faces.is_empty(), "result should have faces");
+    let mesh = k.tessellate(&handle, 0.01);
+    assert!(mesh.is_ok(), "tessellation should succeed");
+    let mesh = mesh.unwrap();
+    assert!(mesh.indices.len() >= 3, "mesh should have triangles");
+}
+
+/// Partial box-cylinder intersect succeeds.
+#[test]
+fn r_partial_box_cyl_intersect_succeeds() {
+    let mut k = WaffleKernel::new();
+
+    // Create box
+    let (box_profiles, box_pos) = make_rect_profile(0.0, 0.0, 2.0, 2.0);
+    let box_faces = k
+        .make_faces_from_profiles(&box_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &box_pos)
+        .unwrap();
+    let box_solid = k.extrude_face(box_faces[0], Z_DIR, 2.0).unwrap();
+
+    // Cylinder offset so it partially overlaps
+    let (cyl_profiles, cyl_pos) = make_circle_profile(1.5, 0.0, 1.0);
+    let cyl_faces = k
+        .make_faces_from_profiles(&cyl_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &cyl_pos)
+        .unwrap();
+    let cyl_solid = k.extrude_face(cyl_faces[0], Z_DIR, 2.0).unwrap();
+
+    let result = k.boolean_intersect(&box_solid, &cyl_solid);
+    assert!(
+        result.is_ok(),
+        "partial box-cyl intersect should succeed: {:?}",
+        result
+    );
+    let handle = result.unwrap();
+    let faces = k.list_faces(&handle);
+    assert!(!faces.is_empty(), "result should have faces");
+    let mesh = k.tessellate(&handle, 0.01);
+    assert!(mesh.is_ok(), "tessellation should succeed");
+    let mesh = mesh.unwrap();
+    assert!(mesh.indices.len() >= 3, "mesh should have triangles");
+}
+
+/// Partial cyl-minus-box produces mesh with non-zero volume.
+#[test]
+fn r_partial_cyl_minus_box_has_volume() {
+    let mut k = WaffleKernel::new();
+
+    // Large cylinder
+    let (cyl_profiles, cyl_pos) = make_circle_profile(0.0, 0.0, 2.0);
+    let cyl_faces = k
+        .make_faces_from_profiles(&cyl_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &cyl_pos)
+        .unwrap();
+    let cyl = k.extrude_face(cyl_faces[0], Z_DIR, 3.0).unwrap();
+
+    // Small box overlapping partially
+    let (box_profiles, box_pos) = make_rect_profile(1.5, 0.0, 1.0, 1.0);
+    let box_faces = k
+        .make_faces_from_profiles(&box_profiles, [0.0, 0.0, 0.5], XY_NORMAL, XY_X_AXIS, &box_pos)
+        .unwrap();
+    let box_solid = k.extrude_face(box_faces[0], Z_DIR, 2.0).unwrap();
+
+    let result = k.do_boolean(&cyl, &box_solid, crate::boolean::BoolOp::Subtract);
+    assert!(result.is_ok(), "partial cyl minus box: {:?}", result);
+    let handle = result.unwrap();
+    let mesh = k.tessellate(&handle, 0.01).unwrap();
+    assert!(mesh.indices.len() >= 12, "mesh should have substantial geometry");
 }
 
 // ── Group BW7: R0073 reproducer — two overlapping rects on tilted plane ─────

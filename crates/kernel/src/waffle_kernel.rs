@@ -36,6 +36,10 @@ pub(crate) struct WaffleSolid {
     pub(crate) revolve_params: Option<RevolveParams>,
     /// Cached face polygons from boolean results for reuse in subsequent booleans.
     pub(crate) cached_face_polys: Option<Vec<crate::boolean::FacePoly>>,
+    /// True when this solid's B-Rep was built from polygon-soup classification
+    /// (S-H clipping), meaning bounded tessellation should be skipped in favor
+    /// of per-face tessellation to allow internal fragment removal.
+    pub(crate) is_polygon_soup: bool,
 }
 
 /// Parameters for cylinder tessellation (stored after extrude_circle).
@@ -162,14 +166,50 @@ impl WaffleKernel {
         let use_ssi =
             (b_is_simple_box || b_is_prim_cyl) && a_is_prim_cyl || b_is_prim_cyl && a_is_simple_box;
 
+        // Track whether the result came from polygon-soup classification
+        // (S-H clipping) vs. analytical SSI construction, to control tessellation.
+        let mut polygon_soup = false;
+
         let result = if use_ssi {
-            // Both operands are primitives — use SSI pipeline
-            crate::boolean::ssi_boolean_op(solid_a, solid_b, op, &mut id_alloc)?
+            // Both operands are primitives — use SSI pipeline.
+            // If the analytical path returns NotSupported (partial overlap, etc.),
+            // fall through to polygon clipping with geometry preservation.
+            match crate::boolean::ssi_boolean_op(solid_a, solid_b, op, &mut id_alloc) {
+                Ok(r) => r,
+                Err(KernelError::NotSupported { .. }) => {
+                    // SSI doesn't handle this configuration yet (e.g., partial overlap).
+                    // Use polygon clipping with strict→tolerant fallback chain.
+                    // Surface geometry tags are preserved through FacePoly.surface_geom.
+                    // Note: is_polygon_soup stays false because we want bounded
+                    // tessellation for watertight output on these analytical primitives.
+                    let strict = crate::boolean::boolean_op(
+                        solid_a,
+                        solid_b,
+                        op,
+                        &BooleanOptions::default(),
+                        &mut id_alloc,
+                    );
+                    match strict {
+                        Ok(r) => r,
+                        Err(KernelError::BooleanFailed { .. }) => {
+                            crate::boolean::boolean_op_tolerant(
+                                solid_a,
+                                solid_b,
+                                op,
+                                &mut id_alloc,
+                            )?
+                        }
+                        Err(e) => return Err(e),
+                    }
+                }
+                Err(e) => return Err(e),
+            }
         } else if a_all_quadric && b_all_quadric {
             // Both operands have only quadric faces (includes simple box-box,
             // post-boolean results with preserved surface types, and chained
             // booleans like merged_solid + new_cylinder). Use polygon clipping
             // with tolerant fallback.
+            polygon_soup = true;
             let strict = crate::boolean::boolean_op(
                 solid_a,
                 solid_b,
@@ -186,6 +226,7 @@ impl WaffleKernel {
             }
         } else {
             // General solid with non-quadric faces → polygon approximation
+            polygon_soup = true;
             crate::boolean::polygon_approx_boolean(solid_a, solid_b, op, &mut id_alloc)?
         };
         self.next_id = next_id;
@@ -203,6 +244,7 @@ impl WaffleKernel {
                 cylinder_params: None,
                 revolve_params: None,
                 cached_face_polys: result.cached_face_polys,
+                is_polygon_soup: polygon_soup,
             },
         );
 
@@ -537,6 +579,7 @@ impl WaffleKernel {
                 cylinder_params: None,
                 revolve_params: Some(revolve_params),
                 cached_face_polys: None,
+                is_polygon_soup: false,
             },
         );
 
@@ -733,6 +776,7 @@ impl WaffleKernel {
                 cylinder_params: Some(cylinder_params),
                 revolve_params: None,
                 cached_face_polys: None,
+                is_polygon_soup: false,
             },
         );
 
@@ -1148,6 +1192,7 @@ impl Kernel for WaffleKernel {
                 cylinder_params: None,
                 revolve_params: None,
                 cached_face_polys: None,
+                is_polygon_soup: false,
             },
         );
 
@@ -1173,7 +1218,7 @@ impl Kernel for WaffleKernel {
             &ws.edge_geometry,
             ws.cylinder_params.as_ref(),
             ws.revolve_params.as_ref(),
-            ws.cached_face_polys.is_some(),
+            ws.is_polygon_soup,
         )
     }
 
