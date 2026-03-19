@@ -5,23 +5,29 @@
 	let { previewMesh = null, width = 240, height = 180 } = $props();
 
 	let canvasEl;
+	let hovered = $state(false);
+	let renderer, scene, camera, meshObj, geometry, material, frameId;
+	let angle = 0;
+	let center = new THREE.Vector3();
+	let radius = 1;
 
 	onMount(() => {
 		if (!previewMesh || !canvasEl) return;
 
-		const renderer = new THREE.WebGLRenderer({
+		renderer = new THREE.WebGLRenderer({
 			canvas: canvasEl,
 			antialias: true,
-			alpha: true
+			alpha: true,
+			powerPreference: 'low-power'
 		});
 		renderer.setSize(width, height);
 		renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-		const scene = new THREE.Scene();
+		scene = new THREE.Scene();
 		scene.background = new THREE.Color(0x1e1e2e);
 
 		// Build mesh from preview data
-		const geometry = new THREE.BufferGeometry();
+		geometry = new THREE.BufferGeometry();
 		const vertices = new Float32Array(previewMesh.vertices);
 		const normals = new Float32Array(previewMesh.normals);
 		const indices = new Uint32Array(previewMesh.indices);
@@ -33,44 +39,93 @@
 			geometry.computeVertexNormals();
 		}
 		geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-
-		const material = new THREE.MeshStandardMaterial({
-			color: 0x6c9bd4,
-			metalness: 0.1,
-			roughness: 0.6
-		});
-		const mesh = new THREE.Mesh(geometry, material);
-		scene.add(mesh);
-
-		// Compute bounding sphere for camera positioning
 		geometry.computeBoundingSphere();
-		const center = geometry.boundingSphere.center;
-		const radius = geometry.boundingSphere.radius || 1;
 
-		// Camera along [1,1,1] direction, distance = 2x bounding sphere
-		const dir = new THREE.Vector3(1, 1, 1).normalize();
-		const camera = new THREE.PerspectiveCamera(45, width / height, 0.01, radius * 20);
-		camera.position.copy(center).addScaledVector(dir, radius * 2.5);
-		camera.lookAt(center);
+		center = geometry.boundingSphere.center.clone();
+		radius = geometry.boundingSphere.radius || 1;
+
+		material = new THREE.MeshStandardMaterial({
+			color: 0x6c9bd4,
+			metalness: 0.15,
+			roughness: 0.5
+		});
+		meshObj = new THREE.Mesh(geometry, material);
+		scene.add(meshObj);
+
+		// Wireframe edges for CAD look
+		const edges = new THREE.EdgesGeometry(geometry, 30);
+		const edgeMat = new THREE.LineBasicMaterial({ color: 0x3a4a6b, opacity: 0.5, transparent: true });
+		const edgeMesh = new THREE.LineSegments(edges, edgeMat);
+		scene.add(edgeMesh);
+
+		// Camera
+		camera = new THREE.PerspectiveCamera(40, width / height, 0.01, radius * 40);
 
 		// Lighting
-		const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+		const ambient = new THREE.AmbientLight(0xffffff, 0.6);
 		scene.add(ambient);
-		const directional = new THREE.DirectionalLight(0xffffff, 0.8);
-		directional.position.copy(camera.position);
-		scene.add(directional);
+		const key = new THREE.DirectionalLight(0xffffff, 0.8);
+		key.position.set(1, 2, 1.5).normalize().multiplyScalar(radius * 5);
+		scene.add(key);
+		const fill = new THREE.DirectionalLight(0x8899cc, 0.3);
+		fill.position.set(-1, 0.5, -1).normalize().multiplyScalar(radius * 5);
+		scene.add(fill);
 
+		// Initial render at angle 0
+		updateCamera();
 		renderer.render(scene, camera);
 
 		return () => {
+			if (frameId) cancelAnimationFrame(frameId);
+			edges.dispose();
+			edgeMat.dispose();
 			geometry.dispose();
 			material.dispose();
 			renderer.dispose();
 		};
 	});
+
+	function updateCamera() {
+		if (!camera) return;
+		const dist = radius * 2.8;
+		camera.position.set(
+			center.x + dist * Math.cos(angle) * Math.cos(0.5),
+			center.y + dist * Math.sin(0.5),
+			center.z + dist * Math.sin(angle) * Math.cos(0.5)
+		);
+		camera.lookAt(center);
+	}
+
+	function animate() {
+		if (!hovered) {
+			frameId = null;
+			return;
+		}
+		angle += 0.012;
+		updateCamera();
+		renderer.render(scene, camera);
+		frameId = requestAnimationFrame(animate);
+	}
+
+	function handleEnter() {
+		hovered = true;
+		if (!frameId && renderer) {
+			frameId = requestAnimationFrame(animate);
+		}
+	}
+
+	function handleLeave() {
+		hovered = false;
+	}
 </script>
 
-<div class="thumbnail-viewport" style="width: {width}px; height: {height}px;">
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+	class="thumbnail-viewport"
+	style="width: {width}px; height: {height}px;"
+	onmouseenter={handleEnter}
+	onmouseleave={handleLeave}
+>
 	{#if previewMesh}
 		<canvas bind:this={canvasEl} {width} {height}></canvas>
 	{:else}
