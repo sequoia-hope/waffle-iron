@@ -1874,6 +1874,201 @@ pub(crate) fn cone_cone_ssi(
     }
 }
 
+/// Signed distance from a point to a torus surface.
+/// Positive outside, negative inside the tube.
+fn torus_signed_distance(
+    pt: [f64; 3],
+    torus_center: [f64; 3],
+    torus_axis: [f64; 3],
+    big_r: f64,
+    small_r: f64,
+) -> f64 {
+    let diff = v3_sub(pt, torus_center);
+    let h = v3_dot(diff, torus_axis); // axial offset from torus midplane
+    let proj = v3_add(torus_center, v3_scale(torus_axis, h));
+    let radial_vec = v3_sub(pt, proj);
+    let rho = v3_length(radial_vec); // distance from axis in midplane
+    let dist_to_tube_center = ((rho - big_r) * (rho - big_r) + h * h).sqrt();
+    dist_to_tube_center - small_r
+}
+
+/// Cylinder-Torus surface-surface intersection (A15 pair #10).
+///
+/// Computes intersection curves between a cylinder and a torus in general position.
+/// Coaxial case yields circles; general position yields Line approximations.
+///
+/// Ref #1: Patrikalakis Ch.5
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn cylinder_torus_ssi(
+    cyl_origin: [f64; 3],
+    cyl_axis: [f64; 3],
+    cyl_radius: f64,
+    cyl_z_min: f64,
+    cyl_z_max: f64,
+    torus_center: [f64; 3],
+    torus_axis: [f64; 3],
+    torus_major_radius: f64,
+    torus_minor_radius: f64,
+) -> Result<Vec<SSICurve>, KernelError> {
+    let big_r = torus_major_radius;
+    let small_r = torus_minor_radius;
+    let r_cyl = cyl_radius;
+    let cyl_ax = v3_normalize(cyl_axis);
+    let tor_ax = v3_normalize(torus_axis);
+
+    // ── 1. Coaxial case: axes parallel AND torus center on cylinder axis ──
+    let axes_dot = v3_dot(cyl_ax, tor_ax).abs();
+    if axes_dot > 1.0 - TOL {
+        // Check if torus center lies on the cylinder axis line
+        let diff = v3_sub(torus_center, cyl_origin);
+        let along = v3_dot(diff, cyl_ax);
+        let proj = v3_add(cyl_origin, v3_scale(cyl_ax, along));
+        let perp_dist = v3_length(v3_sub(torus_center, proj));
+
+        if perp_dist < TOL {
+            // Coaxial: shared axis.
+            // Torus in cylindrical coords about axis: (ρ - R)² + z² = r²
+            // Cylinder: ρ = R_cyl
+            // Substituting: (R_cyl - R)² + z² = r²
+            // z² = r² - (R_cyl - R)²
+            let delta = (r_cyl - big_r).abs();
+
+            if delta > small_r + TOL {
+                // No intersection
+                return Ok(vec![]);
+            }
+            if (delta - small_r).abs() < TOL {
+                // Tangent — below feature size
+                return Ok(vec![]);
+            }
+
+            // Two circles at z = ±sqrt(r² - delta²) relative to torus center
+            let z_sq = small_r * small_r - delta * delta;
+            if z_sq < 0.0 {
+                return Ok(vec![]);
+            }
+            let z_val = z_sq.sqrt();
+
+            let mut curves = Vec::new();
+
+            // Use the shared axis direction (use cyl_ax as canonical)
+            // The torus center's axial coordinate in cylinder frame
+            let torus_center_axial = v3_dot(v3_sub(torus_center, cyl_origin), cyl_ax);
+
+            for &z_sign in &[-1.0, 1.0] {
+                let z_world = z_sign * z_val;
+                // z_world is relative to torus center along axis
+                // Convert to cylinder axial coordinate
+                let z_cyl = torus_center_axial + z_world;
+
+                // Check cylinder z-range
+                if z_cyl < cyl_z_min - TOL || z_cyl > cyl_z_max + TOL {
+                    continue;
+                }
+
+                let center = v3_add(torus_center, v3_scale(cyl_ax, z_world));
+                curves.push(SSICurve::Circle {
+                    center,
+                    normal: cyl_ax,
+                    radius: r_cyl,
+                });
+            }
+
+            return Ok(curves);
+        }
+    }
+
+    // ── 2. General case (non-coaxial) ──
+
+    // Bounding sphere disjoint check
+    let cyl_half_h = (cyl_z_max - cyl_z_min) / 2.0;
+    let cyl_mid_z = (cyl_z_max + cyl_z_min) / 2.0;
+    let cyl_mid = v3_add(cyl_origin, v3_scale(cyl_ax, cyl_mid_z));
+    let cyl_bound_r = (r_cyl * r_cyl + cyl_half_h * cyl_half_h).sqrt();
+    let torus_bound_r = big_r + small_r;
+    let center_dist = v3_length(v3_sub(cyl_mid, torus_center));
+    if center_dist > cyl_bound_r + torus_bound_r + TOL {
+        return Ok(vec![]);
+    }
+
+    // Numerical scanning: sample cylinder surface at (theta, z) grid
+    // For each sample point, compute signed distance to torus surface.
+    // Collect zero-crossing points.
+    let (cyl_u, cyl_v) = compute_plane_basis(cyl_ax);
+
+    let n_theta: usize = 360;
+    let n_z: usize = 200;
+    let mut found_pts: Vec<[f64; 3]> = Vec::new();
+
+    for i in 0..n_theta {
+        let theta = 2.0 * std::f64::consts::PI * (i as f64) / (n_theta as f64);
+        let cos_t = theta.cos();
+        let sin_t = theta.sin();
+
+        // Direction on cylinder cross-section
+        let radial = v3_add(v3_scale(cyl_u, cos_t), v3_scale(cyl_v, sin_t));
+
+        let mut prev_sd = f64::NAN;
+
+        for j in 0..=n_z {
+            let t = j as f64 / n_z as f64;
+            let z = cyl_z_min + t * (cyl_z_max - cyl_z_min);
+
+            // Point on cylinder surface
+            let pt = v3_add(
+                v3_add(cyl_origin, v3_scale(cyl_ax, z)),
+                v3_scale(radial, r_cyl),
+            );
+
+            // Signed distance from pt to torus surface
+            let sd = torus_signed_distance(pt, torus_center, tor_ax, big_r, small_r);
+
+            // Check for sign change (zero crossing)
+            if !prev_sd.is_nan() && prev_sd * sd < 0.0 {
+                // Linear interpolation to find approximate crossing
+                let frac = prev_sd.abs() / (prev_sd.abs() + sd.abs());
+                let z_prev = cyl_z_min + ((j as f64 - 1.0) / n_z as f64) * (cyl_z_max - cyl_z_min);
+                let z_cross = z_prev + frac * (z - z_prev);
+                let cross_pt = v3_add(
+                    v3_add(cyl_origin, v3_scale(cyl_ax, z_cross)),
+                    v3_scale(radial, r_cyl),
+                );
+                found_pts.push(cross_pt);
+            }
+
+            prev_sd = sd;
+        }
+    }
+
+    if found_pts.is_empty() {
+        return Ok(vec![]);
+    }
+
+    // Find maximum-extent pair for Line segment
+    let mut max_dist = 0.0_f64;
+    let mut p_start = found_pts[0];
+    let mut p_end = found_pts[0];
+    for i in 0..found_pts.len() {
+        for j in (i + 1)..found_pts.len() {
+            let dd = v3_length(v3_sub(found_pts[i], found_pts[j]));
+            if dd > max_dist {
+                max_dist = dd;
+                p_start = found_pts[i];
+                p_end = found_pts[j];
+            }
+        }
+    }
+
+    if max_dist < crate::units::MIN_FEATURE_SIZE {
+        return Ok(vec![]);
+    }
+
+    Ok(vec![SSICurve::Line {
+        start: p_start,
+        end: p_end,
+    }])
+}
+
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -6739,5 +6934,424 @@ mod tests {
             "Zero-length cone height range should produce no curves, got {}",
             curves.len()
         );
+    }
+
+    // ── Cylinder-Torus SSI (A15 pair #10) ────────────────────────────────
+
+    #[test]
+    fn cyl_torus_ssi_disjoint() {
+        // Cylinder at origin along Z, radius 1, height [0,5].
+        // Torus centered at [100, 0, 0] along Z, R=3, r=1.
+        // Far apart — no intersection.
+        let result = cylinder_torus_ssi(
+            [0.0, 0.0, 0.0],   // cyl_origin
+            [0.0, 0.0, 1.0],   // cyl_axis
+            1.0,               // cyl_radius
+            0.0,               // cyl_z_min
+            5.0,               // cyl_z_max
+            [100.0, 0.0, 0.0], // torus_center
+            [0.0, 0.0, 1.0],   // torus_axis
+            3.0,               // torus_major_radius
+            1.0,               // torus_minor_radius
+        );
+        match result {
+            Ok(curves) => assert!(
+                curves.is_empty(),
+                "Disjoint cylinder and torus should produce no curves, got {}",
+                curves.len()
+            ),
+            Err(KernelError::NotSupported { .. }) => {} // stub not yet implemented
+            Err(e) => panic!("Unexpected error: {:?}", e),
+        }
+    }
+
+    #[test]
+    fn cyl_torus_ssi_coaxial_two_circles() {
+        // Coaxial: both on Z-axis.
+        // Torus: center=[0,0,0], axis=[0,0,1], R=5 (major), r=2 (minor).
+        // Cylinder: origin=[0,0,0], axis=[0,0,1], radius=4.
+        // |R_cyl - R_major| = |4 - 5| = 1 < r = 2.
+        // Intersection circles at z = ±sqrt(r^2 - (R_cyl - R)^2) = ±sqrt(4 - 1) = ±sqrt(3) ≈ ±1.732.
+        // Circle radius = R_cyl = 4.
+        let result = cylinder_torus_ssi(
+            [0.0, 0.0, 0.0], // cyl_origin
+            [0.0, 0.0, 1.0], // cyl_axis
+            4.0,             // cyl_radius
+            -5.0,            // cyl_z_min
+            5.0,             // cyl_z_max
+            [0.0, 0.0, 0.0], // torus_center
+            [0.0, 0.0, 1.0], // torus_axis
+            5.0,             // torus_major_radius
+            2.0,             // torus_minor_radius
+        );
+        match result {
+            Ok(curves) => {
+                assert_eq!(
+                    curves.len(),
+                    2,
+                    "Coaxial cylinder-torus with |R_cyl-R|<r should produce 2 circles, got {}",
+                    curves.len()
+                );
+                let expected_z = (3.0_f64).sqrt(); // sqrt(r^2 - (R_cyl - R)^2)
+                let mut z_values: Vec<f64> = Vec::new();
+                for curve in &curves {
+                    if let SSICurve::Circle {
+                        center,
+                        radius,
+                        normal,
+                    } = curve
+                    {
+                        // Center should be on the axis (x=0, y=0)
+                        assert!(center[0].abs() < EPS, "Circle center x should be ~0");
+                        assert!(center[1].abs() < EPS, "Circle center y should be ~0");
+                        // Radius should be R_cyl = 4
+                        assert!(
+                            (radius - 4.0).abs() < 0.01,
+                            "Circle radius should be ~4, got {}",
+                            radius
+                        );
+                        // Normal should be along the axis
+                        let dot = v3_dot(*normal, [0.0, 0.0, 1.0]).abs();
+                        assert!((dot - 1.0).abs() < EPS, "Normal should be along Z axis");
+                        z_values.push(center[2]);
+                    } else {
+                        panic!("Expected Circle curves, got {:?}", curve);
+                    }
+                }
+                z_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                assert!(
+                    (z_values[0] - (-expected_z)).abs() < 0.01,
+                    "First circle z should be ~{}, got {}",
+                    -expected_z,
+                    z_values[0]
+                );
+                assert!(
+                    (z_values[1] - expected_z).abs() < 0.01,
+                    "Second circle z should be ~{}, got {}",
+                    expected_z,
+                    z_values[1]
+                );
+            }
+            Err(KernelError::NotSupported { .. }) => {} // stub not yet implemented
+            Err(e) => panic!("Unexpected error: {:?}", e),
+        }
+    }
+
+    #[test]
+    fn cyl_torus_ssi_coaxial_exact_match() {
+        // Coaxial: both on Z-axis.
+        // Torus: center=[0,0,0], axis=[0,0,1], R=5, r=2.
+        // Cylinder: origin=[0,0,0], axis=[0,0,1], radius=5 (matches major radius).
+        // |R_cyl - R| = |5 - 5| = 0 < r = 2.
+        // Intersection circles at z = ±sqrt(r^2 - 0) = ±2.
+        let result = cylinder_torus_ssi(
+            [0.0, 0.0, 0.0], // cyl_origin
+            [0.0, 0.0, 1.0], // cyl_axis
+            5.0,             // cyl_radius
+            -5.0,            // cyl_z_min
+            5.0,             // cyl_z_max
+            [0.0, 0.0, 0.0], // torus_center
+            [0.0, 0.0, 1.0], // torus_axis
+            5.0,             // torus_major_radius
+            2.0,             // torus_minor_radius
+        );
+        match result {
+            Ok(curves) => {
+                assert_eq!(
+                    curves.len(),
+                    2,
+                    "Coaxial cylinder (R_cyl=R) should produce 2 circles, got {}",
+                    curves.len()
+                );
+                let mut z_values: Vec<f64> = Vec::new();
+                for curve in &curves {
+                    if let SSICurve::Circle {
+                        center,
+                        radius,
+                        normal,
+                    } = curve
+                    {
+                        assert!(center[0].abs() < EPS, "Circle center x should be ~0");
+                        assert!(center[1].abs() < EPS, "Circle center y should be ~0");
+                        assert!(
+                            (radius - 5.0).abs() < 0.01,
+                            "Circle radius should be ~5, got {}",
+                            radius
+                        );
+                        let dot = v3_dot(*normal, [0.0, 0.0, 1.0]).abs();
+                        assert!((dot - 1.0).abs() < EPS, "Normal should be along Z axis");
+                        z_values.push(center[2]);
+                    } else {
+                        panic!("Expected Circle curves, got {:?}", curve);
+                    }
+                }
+                z_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                assert!(
+                    (z_values[0] - (-2.0)).abs() < 0.01,
+                    "First circle z should be ~-2, got {}",
+                    z_values[0]
+                );
+                assert!(
+                    (z_values[1] - 2.0).abs() < 0.01,
+                    "Second circle z should be ~2, got {}",
+                    z_values[1]
+                );
+            }
+            Err(KernelError::NotSupported { .. }) => {} // stub not yet implemented
+            Err(e) => panic!("Unexpected error: {:?}", e),
+        }
+    }
+
+    #[test]
+    fn cyl_torus_ssi_coaxial_no_intersection() {
+        // Coaxial: both on Z-axis.
+        // Torus: center=[0,0,0], axis=[0,0,1], R=5, r=1.
+        // Cylinder: origin=[0,0,0], axis=[0,0,1], radius=10.
+        // |R_cyl - R| = |10 - 5| = 5 > r = 1 → no intersection.
+        let result = cylinder_torus_ssi(
+            [0.0, 0.0, 0.0], // cyl_origin
+            [0.0, 0.0, 1.0], // cyl_axis
+            10.0,            // cyl_radius
+            -5.0,            // cyl_z_min
+            5.0,             // cyl_z_max
+            [0.0, 0.0, 0.0], // torus_center
+            [0.0, 0.0, 1.0], // torus_axis
+            5.0,             // torus_major_radius
+            1.0,             // torus_minor_radius
+        );
+        match result {
+            Ok(curves) => assert!(
+                curves.is_empty(),
+                "Coaxial with |R_cyl-R|>r should produce no curves, got {}",
+                curves.len()
+            ),
+            Err(KernelError::NotSupported { .. }) => {} // stub not yet implemented
+            Err(e) => panic!("Unexpected error: {:?}", e),
+        }
+    }
+
+    #[test]
+    fn cyl_torus_ssi_coaxial_tangent() {
+        // Coaxial: both on Z-axis.
+        // Torus: center=[0,0,0], axis=[0,0,1], R=5, r=2.
+        // Cylinder: origin=[0,0,0], axis=[0,0,1], radius=7.
+        // |R_cyl - R| = |7 - 5| = 2 = r → tangent (single point of contact at z=0).
+        // Tangent case should produce empty (degenerate, no curve).
+        let result = cylinder_torus_ssi(
+            [0.0, 0.0, 0.0], // cyl_origin
+            [0.0, 0.0, 1.0], // cyl_axis
+            7.0,             // cyl_radius
+            -5.0,            // cyl_z_min
+            5.0,             // cyl_z_max
+            [0.0, 0.0, 0.0], // torus_center
+            [0.0, 0.0, 1.0], // torus_axis
+            5.0,             // torus_major_radius
+            2.0,             // torus_minor_radius
+        );
+        match result {
+            Ok(curves) => assert!(
+                curves.is_empty(),
+                "Coaxial tangent (|R_cyl-R|=r) should produce no curves, got {}",
+                curves.len()
+            ),
+            Err(KernelError::NotSupported { .. }) => {} // stub not yet implemented
+            Err(e) => panic!("Unexpected error: {:?}", e),
+        }
+    }
+
+    #[test]
+    fn cyl_torus_ssi_general_position() {
+        // Cylinder along Z, radius 3, height [-10,10].
+        // Torus centered at [2, 0, 0] with axis along Z, R=4, r=1.5.
+        // The torus tube extends from x=2.5 to x=5.5 on the far side,
+        // and from x=-2.5 to x=0.5 on the near side.
+        // The cylinder at r=3 overlaps the torus tube → non-empty intersection.
+        let result = cylinder_torus_ssi(
+            [0.0, 0.0, 0.0], // cyl_origin
+            [0.0, 0.0, 1.0], // cyl_axis
+            3.0,             // cyl_radius
+            -10.0,           // cyl_z_min
+            10.0,            // cyl_z_max
+            [2.0, 0.0, 0.0], // torus_center (offset)
+            [0.0, 0.0, 1.0], // torus_axis
+            4.0,             // torus_major_radius
+            1.5,             // torus_minor_radius
+        );
+        match result {
+            Ok(curves) => {
+                assert!(
+                    !curves.is_empty(),
+                    "Overlapping cylinder and offset torus should produce curves"
+                );
+                // Verify curves have valid (non-NaN) geometry
+                for curve in &curves {
+                    match curve {
+                        SSICurve::Line { start, end } => {
+                            for i in 0..3 {
+                                assert!(!start[i].is_nan(), "Line start has NaN");
+                                assert!(!end[i].is_nan(), "Line end has NaN");
+                            }
+                            let len = v3_length(v3_sub(*end, *start));
+                            assert!(len > EPS, "Line should be non-degenerate, length={}", len);
+                        }
+                        SSICurve::Circle {
+                            center,
+                            radius,
+                            normal,
+                        } => {
+                            for i in 0..3 {
+                                assert!(!center[i].is_nan(), "Circle center has NaN");
+                                assert!(!normal[i].is_nan(), "Circle normal has NaN");
+                            }
+                            assert!(!radius.is_nan(), "Circle radius is NaN");
+                            assert!(*radius > EPS, "Circle radius should be positive");
+                        }
+                        SSICurve::Ellipse {
+                            center,
+                            semi_major,
+                            semi_minor,
+                            ..
+                        } => {
+                            for i in 0..3 {
+                                assert!(!center[i].is_nan(), "Ellipse center has NaN");
+                            }
+                            assert!(*semi_major > EPS, "Ellipse semi_major should be positive");
+                            assert!(*semi_minor > EPS, "Ellipse semi_minor should be positive");
+                        }
+                    }
+                }
+            }
+            Err(KernelError::NotSupported { .. }) => {} // stub not yet implemented
+            Err(e) => panic!("Unexpected error: {:?}", e),
+        }
+    }
+
+    #[test]
+    fn cyl_torus_ssi_perpendicular() {
+        // Cylinder along Z, radius 2, height [-10,10].
+        // Torus at origin with axis along X (perpendicular), R=5, r=1.
+        // The torus tube sweeps around X axis at distance 5 from it with
+        // tube radius 1. The cylinder at r=2 intersects the tube.
+        let result = cylinder_torus_ssi(
+            [0.0, 0.0, 0.0], // cyl_origin
+            [0.0, 0.0, 1.0], // cyl_axis
+            2.0,             // cyl_radius
+            -10.0,           // cyl_z_min
+            10.0,            // cyl_z_max
+            [0.0, 0.0, 0.0], // torus_center
+            [1.0, 0.0, 0.0], // torus_axis (along X — perpendicular to cylinder)
+            5.0,             // torus_major_radius
+            1.0,             // torus_minor_radius
+        );
+        match result {
+            Ok(curves) => {
+                assert!(
+                    !curves.is_empty(),
+                    "Perpendicular cylinder and torus should produce curves"
+                );
+                // Verify non-NaN and non-degenerate
+                for curve in &curves {
+                    match curve {
+                        SSICurve::Line { start, end } => {
+                            for i in 0..3 {
+                                assert!(!start[i].is_nan(), "Line start has NaN");
+                                assert!(!end[i].is_nan(), "Line end has NaN");
+                            }
+                            let len = v3_length(v3_sub(*end, *start));
+                            assert!(len > EPS, "Line should be non-degenerate, length={}", len);
+                        }
+                        SSICurve::Circle {
+                            center,
+                            radius,
+                            normal,
+                        } => {
+                            for i in 0..3 {
+                                assert!(!center[i].is_nan(), "Circle center has NaN");
+                                assert!(!normal[i].is_nan(), "Circle normal has NaN");
+                            }
+                            assert!(*radius > EPS, "Circle radius should be positive");
+                        }
+                        SSICurve::Ellipse {
+                            center,
+                            semi_major,
+                            semi_minor,
+                            ..
+                        } => {
+                            for i in 0..3 {
+                                assert!(!center[i].is_nan(), "Ellipse center has NaN");
+                            }
+                            assert!(*semi_major > EPS);
+                            assert!(*semi_minor > EPS);
+                        }
+                    }
+                }
+            }
+            Err(KernelError::NotSupported { .. }) => {} // stub not yet implemented
+            Err(e) => panic!("Unexpected error: {:?}", e),
+        }
+    }
+
+    #[test]
+    fn cyl_torus_ssi_tilted() {
+        // Cylinder along Z, radius 3, height [-10,10].
+        // Torus at origin with axis tilted 45° in XZ plane, R=5, r=1.5.
+        let torus_axis = v3_normalize([1.0, 0.0, 1.0]);
+        let result = cylinder_torus_ssi(
+            [0.0, 0.0, 0.0], // cyl_origin
+            [0.0, 0.0, 1.0], // cyl_axis
+            3.0,             // cyl_radius
+            -10.0,           // cyl_z_min
+            10.0,            // cyl_z_max
+            [0.0, 0.0, 0.0], // torus_center
+            torus_axis,      // torus_axis (tilted 45°)
+            5.0,             // torus_major_radius
+            1.5,             // torus_minor_radius
+        );
+        match result {
+            Ok(curves) => {
+                assert!(
+                    !curves.is_empty(),
+                    "Tilted torus overlapping cylinder should produce curves"
+                );
+                // Verify non-NaN and non-degenerate
+                for curve in &curves {
+                    match curve {
+                        SSICurve::Line { start, end } => {
+                            for i in 0..3 {
+                                assert!(!start[i].is_nan(), "Line start has NaN");
+                                assert!(!end[i].is_nan(), "Line end has NaN");
+                            }
+                            let len = v3_length(v3_sub(*end, *start));
+                            assert!(len > EPS, "Line should be non-degenerate, length={}", len);
+                        }
+                        SSICurve::Circle {
+                            center,
+                            radius,
+                            normal,
+                        } => {
+                            for i in 0..3 {
+                                assert!(!center[i].is_nan(), "Circle center has NaN");
+                                assert!(!normal[i].is_nan(), "Circle normal has NaN");
+                            }
+                            assert!(*radius > EPS, "Circle radius should be positive");
+                        }
+                        SSICurve::Ellipse {
+                            center,
+                            semi_major,
+                            semi_minor,
+                            ..
+                        } => {
+                            for i in 0..3 {
+                                assert!(!center[i].is_nan(), "Ellipse center has NaN");
+                            }
+                            assert!(*semi_major > EPS);
+                            assert!(*semi_minor > EPS);
+                        }
+                    }
+                }
+            }
+            Err(KernelError::NotSupported { .. }) => {} // stub not yet implemented
+            Err(e) => panic!("Unexpected error: {:?}", e),
+        }
     }
 }
