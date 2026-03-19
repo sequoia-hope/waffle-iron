@@ -3404,8 +3404,15 @@ export async function loadPendingDocument() {
 		initDocumentState(pendingDocId, parsed);
 		// Load the active tab's features into the engine
 		const activeTab = documentTabs.find(t => t.id === activeTabId);
-		if (activeTab?.kind?.features?.features?.length > 0) {
+		const tabFeatures = activeTab?.kind?.features;
+		if (tabFeatures?.features?.length > 0) {
 			await loadProject(pendingJson);
+		} else if (bridge && engineReady) {
+			// Empty document — clear the engine's stale model
+			await sendRebuild({
+				type: 'SwitchTab',
+				features: { features: [], active_index: null }
+			});
 		}
 		log('system', `Loaded document ${pendingDocId}`);
 	} catch (err) {
