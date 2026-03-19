@@ -3,7 +3,7 @@
  * Uses a Cloudflare Worker proxy to avoid CORS issues with GitHub's OAuth endpoints.
  */
 
-const CLIENT_ID = '3133712';
+const CLIENT_ID = 'Iv23li9ESWnQ4cDauvL8';
 
 /**
  * Cloudflare Worker proxy URL for GitHub OAuth endpoints.
