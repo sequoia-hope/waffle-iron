@@ -19,10 +19,12 @@ Wave 1: Scaffold (sequential, Opus)
 Wave 2: Parallel Implementation (3 forks)
    │
    │  Fork A: All 21 constraint residual/jacobian implementations
-   │  Fork B: Newton-Raphson + QR rank analysis + status classification
+   │  Fork B: LM solver + SVD rank analysis + status classification
    │  Fork C: SVG render pipeline (feature-gated, independent)
    │
    │  A and B must merge before Wave 3. C is independent.
+   │  Fork B uses Levenberg-Marquardt as PRIMARY solver (not NR + fallback).
+   │  See research/r2_results.md for rationale.
    │
    ▼
 Wave 3: Integration (sequential, Opus)
@@ -32,13 +34,13 @@ Wave 3: Integration (sequential, Opus)
    │  This is the "it works" gate
    │
    ▼
-Wave 4: Parallel Hardening (3 forks)
+Wave 4: Parallel Hardening (2 forks)
    │
    │  Fork D: Proptest suite + new per-constraint tests
-   │  Fork E: Levenberg-Marquardt fallback (spec Phase 4)
+   │  Fork E: COLLAPSED into Fork B (LM is primary, not fallback)
    │  Fork F: Eliminate JS solver + feature gate (spec Phase 2)
    │
-   │  All independent. E is optional (spec says "optional").
+   │  D and F are independent.
    │
    ▼
 Wave 5: WASM Verification (sequential, Opus)
@@ -72,7 +74,7 @@ specs/sketch_solver_rewrite_plan/
 │   ├── fork_a_constraints/
 │   │   └── plan.md                    ← 21 constraint implementations
 │   ├── fork_b_numerics/
-│   │   └── plan.md                    ← Newton-Raphson, QR, status
+│   │   └── plan.md                    ← LM solver, SVD rank, status
 │   └── fork_c_render/
 │       └── plan.md                    ← SVG/PNG pipeline
 ├── wave3_integration/
@@ -81,7 +83,7 @@ specs/sketch_solver_rewrite_plan/
 │   ├── fork_d_proptest/
 │   │   └── plan.md                    ← Property-based testing
 │   ├── fork_e_lm_fallback/
-│   │   └── plan.md                    ← Levenberg-Marquardt
+│   │   └── plan.md                    ← COLLAPSED into Fork B
 │   └── fork_f_js_elimination/
 │       └── plan.md                    ← Remove JS solver + feature gate
 └── wave5_wasm_verification/
