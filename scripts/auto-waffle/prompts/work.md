@@ -13,5 +13,4 @@ Key rules:
 - Follow the Feature Implementation Protocol (full FIP cycle)
 - Use agent teams to maintain role separation (P5) — you are the Manager
 - No hack-to-green (P9-P10) — if you can't explain a failure, stop and document it
-- Fillet, chamfer, and shell are DEFERRED INDEFINITELY — do not work on them
 - Commit your work when done, but do NOT push to remote
