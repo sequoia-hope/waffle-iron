@@ -266,11 +266,25 @@ pub fn random_sketch_primitive(rng: &mut impl Rng, scale: f64) -> (ProfileData, 
             (data, "circle".to_string(), radius)
         }
         _ => {
-            // Gear: 8-24 teeth
+            // Gear: 8-24 teeth — stored as compact GearParams, expanded on demand
             let teeth: u32 = rng.gen_range(8..=24);
             let module_val = scale * 0.05; // makes pitch_radius ~ teeth * module / 2
-            let data = gear_profile(teeth, module_val, 20.0);
             let pitch_radius = (teeth as f64) * module_val / 2.0;
+            let params = waffle_types::GearParams {
+                tooth_count: teeth,
+                module: module_val,
+                pressure_angle_deg: 20.0,
+                ..Default::default()
+            };
+            let data = (
+                vec![waffle_types::SketchEntity::Gear {
+                    id: 1,
+                    params,
+                    construction: false,
+                }],
+                std::collections::HashMap::new(),
+                vec![],
+            );
             (data, "gear".to_string(), pitch_radius)
         }
     }

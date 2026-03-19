@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
+use crate::gear::{generate_gear_profile, GearParams};
 use crate::geom_ref::GeomRef;
 
 /// Serde helper for HashMap<u32, (f64, f64)>.
@@ -56,11 +57,44 @@ pub struct Sketch {
     /// Current solve status (updated after each solve).
     pub solve_status: SolveStatus,
     /// Solved positions for all points. Key is point entity ID.
-    #[serde(default, with = "u32_key_map")]
+    /// Derived data — not serialized, recomputed on load.
+    #[serde(default, with = "u32_key_map", skip_serializing)]
     pub solved_positions: HashMap<u32, (f64, f64)>,
     /// Closed profiles extracted from the solved geometry.
-    #[serde(default)]
+    /// Derived data — not serialized, recomputed on load.
+    #[serde(default, skip_serializing)]
     pub solved_profiles: Vec<ClosedProfile>,
+}
+
+impl Sketch {
+    /// Expand all `Gear` entities into their primitive equivalents (Points, Lines, Arcs, Splines).
+    /// Populates `solved_positions` and `solved_profiles` from the gear profile results.
+    /// This is a no-op if the sketch has no Gear entities.
+    pub fn expand_gears(&mut self) {
+        let has_gears = self
+            .entities
+            .iter()
+            .any(|e| matches!(e, SketchEntity::Gear { .. }));
+        if !has_gears {
+            return;
+        }
+
+        let mut expanded_entities = Vec::new();
+        for entity in &self.entities {
+            match entity {
+                SketchEntity::Gear { params, .. } => {
+                    let result = generate_gear_profile(params);
+                    expanded_entities.extend(result.entities);
+                    self.solved_positions.extend(result.positions);
+                    self.solved_profiles.extend(result.profiles);
+                }
+                other => {
+                    expanded_entities.push(other.clone());
+                }
+            }
+        }
+        self.entities = expanded_entities;
+    }
 }
 
 fn default_origin() -> [f64; 3] {
@@ -105,6 +139,13 @@ pub enum SketchEntity {
         point_ids: Vec<u32>,
         construction: bool,
     },
+    /// A parametric gear profile. Stored compactly; expanded to primitives on demand.
+    Gear {
+        id: u32,
+        params: GearParams,
+        #[serde(default)]
+        construction: bool,
+    },
 }
 
 impl SketchEntity {
@@ -114,7 +155,8 @@ impl SketchEntity {
             | SketchEntity::Line { id, .. }
             | SketchEntity::Circle { id, .. }
             | SketchEntity::Arc { id, .. }
-            | SketchEntity::Spline { id, .. } => *id,
+            | SketchEntity::Spline { id, .. }
+            | SketchEntity::Gear { id, .. } => *id,
         }
     }
 
@@ -124,7 +166,8 @@ impl SketchEntity {
             | SketchEntity::Line { construction, .. }
             | SketchEntity::Circle { construction, .. }
             | SketchEntity::Arc { construction, .. }
-            | SketchEntity::Spline { construction, .. } => *construction,
+            | SketchEntity::Spline { construction, .. }
+            | SketchEntity::Gear { construction, .. } => *construction,
         }
     }
 }
@@ -753,13 +796,88 @@ mod tests {
             solved_profiles: vec![],
         };
 
+        // solved_positions are skip_serializing (derived data), so they don't round-trip
         let json = serde_json::to_string(&sketch).unwrap();
+        assert!(!json.contains("solved_positions"));
         let d: Sketch = serde_json::from_str(&json).unwrap();
+        assert_eq!(d.solved_positions.len(), 0);
 
-        assert_eq!(d.solved_positions.len(), 3);
-        assert_eq!(d.solved_positions[&1], (0.0, 0.0));
-        assert_eq!(d.solved_positions[&2], (3.14, -2.7));
-        assert_eq!(d.solved_positions[&100], (999.0, 0.5));
+        // But old files with solved_positions still deserialize correctly (backward compat)
+        // Inject solved_positions back into the serialized JSON for this test
+        let mut val: serde_json::Value = serde_json::from_str(&json).unwrap();
+        val["solved_positions"] =
+            serde_json::json!({"1":[0.0,0.0],"2":[3.14,-2.7],"100":[999.0,0.5]});
+        let old_json = serde_json::to_string(&val).unwrap();
+        let d2: Sketch = serde_json::from_str(&old_json).unwrap();
+        assert_eq!(d2.solved_positions.len(), 3);
+        assert_eq!(d2.solved_positions[&1], (0.0, 0.0));
+    }
+
+    #[test]
+    fn gear_entity_serde_roundtrip() {
+        use crate::gear::GearParams;
+        let entity = SketchEntity::Gear {
+            id: 1,
+            params: GearParams {
+                tooth_count: 20,
+                module: 0.002,
+                ..Default::default()
+            },
+            construction: false,
+        };
+        let json = serde_json::to_string(&entity).unwrap();
+        assert!(json.contains(r#""type":"Gear""#));
+        let d: SketchEntity = serde_json::from_str(&json).unwrap();
+        assert_eq!(d.id(), 1);
+        assert!(!d.is_construction());
+    }
+
+    #[test]
+    fn expand_gears_produces_entities() {
+        use crate::gear::GearParams;
+        let mut sketch = Sketch {
+            id: Uuid::nil(),
+            plane: GeomRef {
+                kind: crate::topo::TopoKind::Face,
+                anchor: crate::geom_ref::Anchor::Datum {
+                    datum_id: Uuid::nil(),
+                },
+                selector: crate::geom_ref::Selector::Role {
+                    role: crate::Role::EndCapPositive,
+                    index: 0,
+                },
+                policy: crate::geom_ref::ResolvePolicy::Strict,
+            },
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
+            entities: vec![SketchEntity::Gear {
+                id: 1,
+                params: GearParams {
+                    tooth_count: 8,
+                    module: 0.01,
+                    ..Default::default()
+                },
+                construction: false,
+            }],
+            constraints: vec![],
+            solve_status: SolveStatus::FullyConstrained,
+            solved_positions: HashMap::new(),
+            solved_profiles: vec![],
+        };
+
+        sketch.expand_gears();
+
+        // After expansion: no Gear entities remain
+        assert!(!sketch
+            .entities
+            .iter()
+            .any(|e| matches!(e, SketchEntity::Gear { .. })));
+        // Should have many primitives (8-tooth gear: ~8*3 + overhead entities)
+        assert!(sketch.entities.len() > 50);
+        // Should have solved_positions for all points
+        assert!(!sketch.solved_positions.is_empty());
+        // Should have at least one profile
+        assert!(!sketch.solved_profiles.is_empty());
     }
 
     // ── default_origin / default_normal ───────────────────────────────

@@ -156,7 +156,10 @@ fn execute_feature(
 
         Operation::Extrude { params } => {
             let _sketch_result = find_sketch_result(params.sketch_id, feature_results)?;
-            let sketch = find_sketch_in_tree(params.sketch_id, tree)?;
+            let sketch_ref = find_sketch_in_tree(params.sketch_id, tree)?;
+            let mut sketch_expanded = sketch_ref.clone();
+            sketch_expanded.expand_gears();
+            let sketch = &sketch_expanded;
 
             let direction = params.direction.unwrap_or(sketch.plane_normal);
 
@@ -413,7 +416,10 @@ fn execute_feature(
 
         Operation::Revolve { params } => {
             let _sketch_result = find_sketch_result(params.sketch_id, feature_results)?;
-            let sketch = find_sketch_in_tree(params.sketch_id, tree)?;
+            let sketch_ref = find_sketch_in_tree(params.sketch_id, tree)?;
+            let mut sketch_expanded = sketch_ref.clone();
+            sketch_expanded.expand_gears();
+            let sketch = &sketch_expanded;
 
             if sketch.solved_profiles.is_empty() {
                 return Err(EngineError::ProfileOutOfRange {

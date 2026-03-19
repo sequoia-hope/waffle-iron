@@ -96,8 +96,11 @@ fn migrate_sketch(sketch: &mut Sketch) {
             SketchEntity::Circle { radius, .. } => {
                 *radius *= MM_TO_METERS;
             }
-            SketchEntity::Line { .. } | SketchEntity::Arc { .. } | SketchEntity::Spline { .. } => {
-                // No direct length fields (positions come from solved_positions)
+            SketchEntity::Line { .. }
+            | SketchEntity::Arc { .. }
+            | SketchEntity::Spline { .. }
+            | SketchEntity::Gear { .. } => {
+                // No direct length fields (positions come from solved_positions / expansion)
             }
         }
     }

@@ -162,8 +162,9 @@ impl SketchToSlvs {
                     self.arc_handles.insert(*id, handle);
                     self.entity_types.insert(*id, EntityKind::Arc);
                 }
-                SketchEntity::Point { .. } => {} // already handled
+                SketchEntity::Point { .. } => {}  // already handled
                 SketchEntity::Spline { .. } => {} // splines not mapped to slvs
+                SketchEntity::Gear { .. } => {}   // gears expanded before reaching solver
             }
         }
     }
