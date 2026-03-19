@@ -168,6 +168,7 @@ fn serde_roundtrip_model_updated() {
         edges: Vec::new(),
         errors: Vec::new(),
         warnings: Vec::new(),
+        preview_mesh: None,
     };
     let json = serde_json::to_string(&msg).unwrap();
     let deserialized: EngineToUi = serde_json::from_str(&json).unwrap();
@@ -1325,6 +1326,7 @@ fn serde_roundtrip_model_updated_with_errors() {
         edges: Vec::new(),
         errors: vec![(Uuid::new_v4(), "rebuild failed".to_string())],
         warnings: Vec::new(),
+        preview_mesh: None,
     };
     let json = serde_json::to_string(&msg).unwrap();
     assert!(json.contains("rebuild failed"));
@@ -1345,6 +1347,7 @@ fn serde_model_updated_empty_errors_skipped() {
         edges: Vec::new(),
         errors: Vec::new(),
         warnings: Vec::new(),
+        preview_mesh: None,
     };
     let json = serde_json::to_string(&msg).unwrap();
     // skip_serializing_if = "Vec::is_empty" should omit the errors field

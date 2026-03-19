@@ -182,6 +182,9 @@ pub enum EngineToUi {
         /// Non-fatal warnings from rebuild (e.g., auto-union fallback).
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         warnings: Vec<String>,
+        /// Decimated preview mesh for thumbnail rendering (optional).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        preview_mesh: Option<feature_engine::preview_mesh::PreviewMesh>,
     },
 
     /// Sketch constraint solver completed.

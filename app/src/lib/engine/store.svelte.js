@@ -297,6 +297,15 @@ export async function initEngine() {
 		}
 		lastError = null;
 		statusMessage = `Model updated (${meshes.length} ${meshes.length === 1 ? 'body' : 'bodies'})`;
+
+		// Store preview mesh in active tab metadata for thumbnail/save
+		if (msg.preview_mesh && activeTabId) {
+			const tab = documentTabs.find(t => t.id === activeTabId);
+			if (tab) {
+				tab.kind.preview_mesh = msg.preview_mesh;
+			}
+		}
+
 		scheduleAutoSave();
 		log('engine', 'Model updated', { meshCount: meshes.length, featureCount: featureTree?.features?.length ?? 0 });
 
@@ -3554,7 +3563,7 @@ export async function buildDocumentJson() {
 		return {
 			id: t.id,
 			name: t.name,
-			kind: { type: t.kind?.type || 'Part', features }
+			kind: { type: t.kind?.type || 'Part', features, preview_mesh: t.kind?.preview_mesh || null }
 		};
 	});
 

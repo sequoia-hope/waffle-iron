@@ -250,12 +250,31 @@ fn handle_message(
 
 /// Build a ModelUpdated response from the current engine state.
 fn model_updated_response(state: &EngineState) -> EngineToUi {
+    // Generate preview mesh from the last active mesh (if any)
+    let preview_mesh = find_last_mesh(state).and_then(|mesh| {
+        if mesh.vertices.is_empty() || mesh.indices.is_empty() {
+            return None;
+        }
+        let decimated = feature_engine::preview_mesh::decimate_mesh(
+            &mesh.vertices,
+            &mesh.normals,
+            &mesh.indices,
+            500, // max triangles for preview
+        );
+        if decimated.indices.is_empty() {
+            None
+        } else {
+            Some(decimated)
+        }
+    });
+
     EngineToUi::ModelUpdated {
         feature_tree: state.engine.tree.clone(),
         meshes: Vec::new(),
         edges: Vec::new(),
         errors: state.engine.errors.clone(),
         warnings: state.engine.warnings.clone(),
+        preview_mesh,
     }
 }
 
