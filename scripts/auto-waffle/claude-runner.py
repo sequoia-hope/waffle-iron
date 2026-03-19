@@ -67,6 +67,8 @@ def run_claude_print(prompt, output_file, timeout_secs=0, env_extra=None,
         preexec_fn=os.setsid,
     )
 
+    # Use raw fd for select+read to avoid buffering issues
+    stdout_fd = proc.stdout.fileno()
     start_time = time.time()
 
     with open(output_file, 'wb') as f:
@@ -83,17 +85,19 @@ def run_claude_print(prompt, output_file, timeout_secs=0, env_extra=None,
                 # Drain remaining output with escalating force
                 drain_start = time.time()
                 while proc.poll() is None:
-                    ready, _, _ = select.select([proc.stdout], [], [], 1.0)
+                    ready, _, _ = select.select([stdout_fd], [], [], 1.0)
                     if ready:
-                        chunk = proc.stdout.read1(4096)
-                        if chunk:
-                            f.write(chunk)
-                            f.flush()
-                            if verbose:
-                                sys.stdout.buffer.write(chunk)
-                                sys.stdout.buffer.flush()
-                            # Check for session_id in chunk
-                            _extract_session_id_from_chunk(chunk, session_id_box=[session_id])
+                        try:
+                            chunk = os.read(stdout_fd, 4096)
+                            if chunk:
+                                f.write(chunk)
+                                f.flush()
+                                if verbose:
+                                    sys.stdout.buffer.write(chunk)
+                                    sys.stdout.buffer.flush()
+                                _scan_for_session_id(chunk, lambda sid: None)
+                        except OSError:
+                            break
 
                     elapsed_drain = time.time() - drain_start
                     if elapsed_drain > 30 and proc.poll() is None:
@@ -108,10 +112,13 @@ def run_claude_print(prompt, output_file, timeout_secs=0, env_extra=None,
                         break
                 break
 
-            # Normal streaming: read available output
-            ready, _, _ = select.select([proc.stdout], [], [], 1.0)
+            # Normal streaming: read available output via raw fd
+            ready, _, _ = select.select([stdout_fd], [], [], 1.0)
             if ready:
-                chunk = proc.stdout.read1(4096)
+                try:
+                    chunk = os.read(stdout_fd, 4096)
+                except OSError:
+                    break
                 if not chunk:
                     # EOF — process finished
                     break
@@ -122,30 +129,35 @@ def run_claude_print(prompt, output_file, timeout_secs=0, env_extra=None,
                     sys.stdout.buffer.flush()
 
                 # Try to extract session_id from streaming data
-                try:
-                    text = chunk.decode('utf-8', errors='replace')
-                    for line in text.split('\n'):
-                        line = line.strip()
-                        if line.startswith('{') and 'session_id' in line:
-                            try:
-                                data = json.loads(line)
-                                if 'session_id' in data:
-                                    session_id = data['session_id']
-                            except json.JSONDecodeError:
-                                pass
-                except Exception:
-                    pass
+                text = chunk.decode('utf-8', errors='replace')
+                for line in text.split('\n'):
+                    line = line.strip()
+                    if line.startswith('{') and 'session_id' in line:
+                        try:
+                            data = json.loads(line)
+                            if 'session_id' in data:
+                                session_id = data['session_id']
+                        except (json.JSONDecodeError, Exception):
+                            pass
 
-            # Check if process has exited
+            # Check if process has exited (and no more data)
             if proc.poll() is not None:
-                # Read any remaining buffered output
-                remaining = proc.stdout.read()
-                if remaining:
-                    f.write(remaining)
-                    f.flush()
-                    if verbose:
-                        sys.stdout.buffer.write(remaining)
-                        sys.stdout.buffer.flush()
+                # Drain any remaining data
+                while True:
+                    ready, _, _ = select.select([stdout_fd], [], [], 0.1)
+                    if not ready:
+                        break
+                    try:
+                        chunk = os.read(stdout_fd, 4096)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        f.flush()
+                        if verbose:
+                            sys.stdout.buffer.write(chunk)
+                            sys.stdout.buffer.flush()
+                    except OSError:
+                        break
                 break
 
     proc.wait()
@@ -169,19 +181,16 @@ def run_claude_print(prompt, output_file, timeout_secs=0, env_extra=None,
     return session_id, timed_out, proc.returncode
 
 
-def _extract_session_id_from_chunk(chunk, session_id_box):
-    """Try to find session_id in a raw chunk. Updates session_id_box[0]."""
+def _scan_for_session_id(chunk, callback):
+    """Try to find session_id in a raw chunk."""
     try:
         text = chunk.decode('utf-8', errors='replace')
         for line in text.split('\n'):
             line = line.strip()
             if line.startswith('{') and 'session_id' in line:
-                try:
-                    data = json.loads(line)
-                    if 'session_id' in data:
-                        session_id_box[0] = data['session_id']
-                except json.JSONDecodeError:
-                    pass
+                data = json.loads(line)
+                if 'session_id' in data:
+                    callback(data['session_id'])
     except Exception:
         pass
 
