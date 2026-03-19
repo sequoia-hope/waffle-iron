@@ -1,5 +1,5 @@
 use nalgebra::{DMatrix, DVector};
-use sketch_solver::core::rank::{analyze_rank};
+use sketch_solver::core::rank::analyze_rank;
 
 #[test]
 fn test_full_rank_2x2() {
@@ -21,11 +21,7 @@ fn test_rank_deficient_3x2() {
     // [ 1.0, 0.0 ]
     // [ 1.0, 0.0 ]
     // [ 0.0, 1.0 ]
-    let jacobian = DMatrix::from_row_slice(3, 2, &[
-        1.0, 0.0,
-        1.0, 0.0,
-        0.0, 1.0,
-    ]);
+    let jacobian = DMatrix::from_row_slice(3, 2, &[1.0, 0.0, 1.0, 0.0, 0.0, 1.0]);
     // Consistent residual (duplicate row has same residual)
     let residual = DVector::from_row_slice(&[0.5, 0.5, 1.0]);
     let tolerance = 1e-7;
@@ -34,7 +30,10 @@ fn test_rank_deficient_3x2() {
 
     assert_eq!(analysis.rank, 2);
     assert_eq!(analysis.dof, 0);
-    assert!(analysis.conflicting_rows.is_empty(), "Consistent duplicate row should not be conflicting");
+    assert!(
+        analysis.conflicting_rows.is_empty(),
+        "Consistent duplicate row should not be conflicting"
+    );
 }
 
 #[test]
@@ -57,11 +56,7 @@ fn test_over_constrained_conflicting_3x2() {
     // [ 1.0, 0.0 ] -> x = 1.0
     // [ 0.0, 1.0 ] -> y = 1.0
     // [ 1.0, 1.0 ] -> x + y = 3.0 (Conflicting!)
-    let jacobian = DMatrix::from_row_slice(3, 2, &[
-        1.0, 0.0,
-        0.0, 1.0,
-        1.0, 1.0,
-    ]);
+    let jacobian = DMatrix::from_row_slice(3, 2, &[1.0, 0.0, 0.0, 1.0, 1.0, 1.0]);
     let residual = DVector::from_row_slice(&[1.0, 1.0, 3.0]);
     let tolerance = 1e-7;
 
@@ -90,10 +85,13 @@ fn test_empty_matrix() {
 #[test]
 fn test_near_zero_singular_value() {
     // Near-zero singular value should be treated as zero based on eps threshold
-    let jacobian = DMatrix::from_row_slice(2, 2, &[
-        1.0, 0.0,
-        0.0, 1e-18, // Much smaller than f64::EPSILON * 1.0
-    ]);
+    let jacobian = DMatrix::from_row_slice(
+        2,
+        2,
+        &[
+            1.0, 0.0, 0.0, 1e-18, // Much smaller than f64::EPSILON * 1.0
+        ],
+    );
     let residual = DVector::from_element(2, 0.0);
     let tolerance = 1e-7;
 

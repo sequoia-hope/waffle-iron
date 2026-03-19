@@ -1,5 +1,5 @@
-use sketch_solver::core::lm::lm_solve;
 use sketch_solver::core::constraint::ConstraintEq;
+use sketch_solver::core::lm::lm_solve;
 use sketch_solver::core::types::{PointIdx, ScaleType, SolveOptions};
 
 struct TestPinPoint {
@@ -8,8 +8,12 @@ struct TestPinPoint {
 }
 
 impl ConstraintEq for TestPinPoint {
-    fn num_equations(&self) -> usize { 2 }
-    fn scale_types(&self) -> &[ScaleType] { &[ScaleType::Distance, ScaleType::Distance] }
+    fn num_equations(&self) -> usize {
+        2
+    }
+    fn scale_types(&self) -> &[ScaleType] {
+        &[ScaleType::Distance, ScaleType::Distance]
+    }
     fn residuals(&self, params: &[f64], out: &mut [f64]) {
         let p = self.idx.read(params);
         out[0] = p.x - self.target.0;
@@ -28,8 +32,12 @@ struct TestDistancePP {
 }
 
 impl ConstraintEq for TestDistancePP {
-    fn num_equations(&self) -> usize { 1 }
-    fn scale_types(&self) -> &[ScaleType] { &[ScaleType::Distance] }
+    fn num_equations(&self) -> usize {
+        1
+    }
+    fn scale_types(&self) -> &[ScaleType] {
+        &[ScaleType::Distance]
+    }
     fn residuals(&self, params: &[f64], out: &mut [f64]) {
         let p1 = self.p1.read(params);
         let p2 = self.p2.read(params);
@@ -121,7 +129,11 @@ fn two_points_distance() {
             d: 5.0,
         }),
     ];
-    let eq_scale_types = vec![ScaleType::Distance, ScaleType::Distance, ScaleType::Distance];
+    let eq_scale_types = vec![
+        ScaleType::Distance,
+        ScaleType::Distance,
+        ScaleType::Distance,
+    ];
     let options = SolveOptions {
         spring_mu: 1e-10,
         ..Default::default()
@@ -138,11 +150,18 @@ fn under_constrained_stabilized_by_springs() {
     // 1 point horizontal pin only. y should stay at x0.y=2.0 due to springs.
     let x0 = vec![1.0, 2.0];
     let x_anchor = vec![1.0, 2.0];
-    
-    struct HorizPin { idx: PointIdx, target_x: f64 }
+
+    struct HorizPin {
+        idx: PointIdx,
+        target_x: f64,
+    }
     impl ConstraintEq for HorizPin {
-        fn num_equations(&self) -> usize { 1 }
-        fn scale_types(&self) -> &[ScaleType] { &[ScaleType::Distance] }
+        fn num_equations(&self) -> usize {
+            1
+        }
+        fn scale_types(&self) -> &[ScaleType] {
+            &[ScaleType::Distance]
+        }
         fn residuals(&self, params: &[f64], out: &mut [f64]) {
             out[0] = params[self.idx.x()] - self.target_x;
         }
@@ -150,8 +169,11 @@ fn under_constrained_stabilized_by_springs() {
             out.push((eq_offset, self.idx.x(), 1.0));
         }
     }
-    
-    let constraints = vec![HorizPin { idx: PointIdx(0), target_x: 3.0 }];
+
+    let constraints = vec![HorizPin {
+        idx: PointIdx(0),
+        target_x: 3.0,
+    }];
     let eq_scale_types = vec![ScaleType::Distance];
     let options = SolveOptions {
         spring_mu: 1e-4, // strong enough to notice in few iters

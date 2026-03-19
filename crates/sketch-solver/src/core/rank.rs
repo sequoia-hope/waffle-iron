@@ -43,7 +43,9 @@ pub fn analyze_rank(
     // We force a full U by padding J to be square if necessary.
     let svd = if nrows > ncols {
         let mut j_square = DMatrix::zeros(nrows, nrows);
-        j_square.view_mut((0, 0), (nrows, ncols)).copy_from(jacobian_scaled);
+        j_square
+            .view_mut((0, 0), (nrows, ncols))
+            .copy_from(jacobian_scaled);
         j_square.svd(true, false)
     } else {
         jacobian_scaled.clone().svd(true, false)

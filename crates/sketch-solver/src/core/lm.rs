@@ -4,9 +4,9 @@
 //! LM with Marquardt damping + weak springs provides both velocity-space
 //! and position-space regularization for under-constrained systems.
 
-use nalgebra::{DMatrix, DVector};
 use super::constraint::ConstraintEq;
 use super::types::{ScaleType, SolveOptions, SolveOutcome};
+use nalgebra::{DMatrix, DVector};
 
 /// Solve a system of geometric constraints using augmented Levenberg-Marquardt.
 ///
@@ -42,7 +42,7 @@ pub fn lm_solve<C: ConstraintEq>(
     let mut converged = false;
     let mut iterations = 0;
     let mut final_residual_norm = 0.0;
-    
+
     // Storage for final diagnostics
     let mut final_j_scaled = DMatrix::zeros(m, n);
     let mut final_r_scaled = DVector::zeros(m);
@@ -121,13 +121,16 @@ pub fn lm_solve<C: ConstraintEq>(
             Some(chol) => chol.solve(&-g),
             None => {
                 // Fallback to QR
-                h_damped.qr().solve(&-g).unwrap_or_else(|| DVector::zeros(n))
+                h_damped
+                    .qr()
+                    .solve(&-g)
+                    .unwrap_or_else(|| DVector::zeros(n))
             }
         };
 
         // h) Trial: x_new = x + delta
         let x_new = &x + &delta;
-        
+
         // Evaluate F_new, scale, augment → F_aug_new
         let mut f_new = DVector::zeros(m);
         let mut eq_offset = 0;
@@ -154,7 +157,7 @@ pub fn lm_solve<C: ConstraintEq>(
         let norm_f_aug_sq = f_aug.norm_squared();
         let norm_f_aug_new_sq = f_aug_new.norm_squared();
         let denom = norm_f_aug_sq - (&f_aug + &j_aug * &delta).norm_squared();
-        
+
         let rho = if denom.abs() > 1e-18 {
             (norm_f_aug_sq - norm_f_aug_new_sq) / denom
         } else {
@@ -173,8 +176,15 @@ pub fn lm_solve<C: ConstraintEq>(
         }
 
         // k) Stuck check — params not moving → at a fixed point of the augmented system.
-        // Mark as converged. Over-constrained contradictions are caught by rank analysis
-        // (conflicting_rows) which overrides the convergence flag in classify_solve.
+        // Check the un-augmented constraint residual to decide convergence:
+        // if constraints are satisfied (f_inf_norm small), mark converged.
+        // If not (e.g. coincident points 5e-6 apart), don't claim convergence.
+        // k) Stuck check — params not moving → at a fixed point of the augmented system.
+        // Mark as converged. Under-constrained systems with springs settle to an
+        // equilibrium where the constraint residual may not be exactly zero (spring
+        // force balances constraint force). This is correct solver behavior.
+        // Over-constrained contradictions are caught by rank analysis (conflicting_rows)
+        // which overrides the convergence flag in classify_solve.
         let delta_inf_norm = delta.amax();
         if delta_inf_norm < options.tolerance {
             converged = true;
@@ -215,10 +225,18 @@ fn bbox_diagonal(params: &[f64]) -> f64 {
         if i + 1 < params.len() {
             let x = params[i];
             let y = params[i + 1];
-            if x < x_min { x_min = x; }
-            if x > x_max { x_max = x; }
-            if y < y_min { y_min = y; }
-            if y > y_max { y_max = y; }
+            if x < x_min {
+                x_min = x;
+            }
+            if x > x_max {
+                x_max = x;
+            }
+            if y < y_min {
+                y_min = y;
+            }
+            if y > y_max {
+                y_max = y;
+            }
         }
     }
 

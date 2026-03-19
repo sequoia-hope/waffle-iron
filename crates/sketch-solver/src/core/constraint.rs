@@ -325,12 +325,15 @@ impl ConstraintEq for ConstraintImpl {
 
             // ── Group 3: Point-on-entity ─────────────────────────────
             Self::OnLine { point, line } => {
-                // Cross product of (point - line_start) × line_direction = 0
+                // Normalized cross product: cross(vp, ld) / ||ld|| = 0
+                // (signed distance from point to line — zero means on the line)
                 let p = point.read(params);
                 let s = line.start.read(params);
                 let d = line.delta(params);
                 let vp = p - s;
-                out[0] = vp.x * d.y - vp.y * d.x;
+                let cross = vp.x * d.y - vp.y * d.x;
+                let line_len = d.norm().max(EPSILON);
+                out[0] = cross / line_len;
             }
             Self::OnCircle {
                 point,
@@ -352,7 +355,8 @@ impl ConstraintEq for ConstraintImpl {
                 let vp = p - ls;
                 let cross = vp.x * ld.y - vp.y * ld.x;
                 let line_len = ld.norm().max(EPSILON);
-                out[0] = cross / line_len - d;
+                // Absolute distance — slvs PtLineDistance uses unsigned distance
+                out[0] = cross.abs() / line_len - d;
             }
 
             // ── Group 5: Tangent ─────────────────────────────────────
@@ -369,7 +373,8 @@ impl ConstraintEq for ConstraintImpl {
                 let cross = vc.x * ld.y - vc.y * ld.x;
                 let line_len = ld.norm().max(EPSILON);
                 let r = radius.read(params, *center);
-                out[0] = cross / line_len - r;
+                // Absolute distance — tangency is unsigned
+                out[0] = cross.abs() / line_len - r;
             }
             Self::TangentArcArc {
                 c1,
@@ -601,26 +606,36 @@ impl ConstraintEq for ConstraintImpl {
 
             // ── Group 3: Point-on-entity ─────────────────────────────
             Self::OnLine { point, line } => {
-                // f = (px-sx)*dy - (py-sy)*dx (unnormalized cross product)
-                let d = line.delta(params);
+                // f = cross(vp, ld) / D  where D = ||ld||
+                // Same quotient rule as DistancePL (signed, no absolute value)
+                let ld = line.delta(params);
                 let p = point.read(params);
                 let s = line.start.read(params);
                 let vp = p - s;
-                // ∂f/∂px = dy, ∂f/∂py = -dx
-                out.push((row, point.x(), d.y));
-                out.push((row, point.y(), -d.x));
-                // ∂f/∂sx: ∂vp.x/∂sx = -1, ∂dx/∂sx = -1
-                // ∂f/∂sx = (-1)*dy - 0*dx + vp.x*0 - vp.y*(-1) = -dy + vp.y
-                out.push((row, line.start.x(), -d.y + vp.y));
-                // ∂f/∂sy = vp.x*(-1) - (-1)*dx = -vp.x + dx
-                out.push((row, line.start.y(), d.x - vp.x));
-                // ∂f/∂ex = 0 - vp.y*1 = -vp.y (∂dy/∂ex = 0, ∂dx/∂ex = 1)
-                // Wait: dx = ex - sx, dy = ey - sy
-                // f = vp.x * dy - vp.y * dx
-                // ∂f/∂ex = vp.x*0 - vp.y*1 = -vp.y
-                out.push((row, line.end.x(), -vp.y));
-                // ∂f/∂ey = vp.x*1 - vp.y*0 = vp.x
-                out.push((row, line.end.y(), vp.x));
+                let cross = vp.x * ld.y - vp.y * ld.x;
+                let d_sq = ld.norm_squared().max(EPSILON * EPSILON);
+                let d_len = d_sq.sqrt();
+                let d_cubed = d_sq * d_len;
+
+                // ∂f/∂px = dy/D, ∂f/∂py = -dx/D
+                out.push((row, point.x(), ld.y / d_len));
+                out.push((row, point.y(), -ld.x / d_len));
+
+                // Line start: quotient rule
+                out.push((
+                    row,
+                    line.start.x(),
+                    (-ld.y + vp.y) / d_len + cross * ld.x / d_cubed,
+                ));
+                out.push((
+                    row,
+                    line.start.y(),
+                    (ld.x - vp.x) / d_len + cross * ld.y / d_cubed,
+                ));
+
+                // Line end: quotient rule
+                out.push((row, line.end.x(), -vp.y / d_len - cross * ld.x / d_cubed));
+                out.push((row, line.end.y(), vp.x / d_len - cross * ld.y / d_cubed));
             }
             Self::OnCircle {
                 point,
@@ -667,41 +682,46 @@ impl ConstraintEq for ConstraintImpl {
 
             // ── Group 4: Normalized point-line distance ──────────────
             Self::DistancePL { point, line, .. } => {
-                // f = cross(vp, ld) / D - d
-                // where vp = point - line_start, ld = line_end - line_start, D = ||ld||
+                // f = |cross(vp, ld)| / D - d  (unsigned distance)
+                // ∂|cross|/∂x = sign(cross) · ∂cross/∂x
                 let p = point.read(params);
                 let ls = line.start.read(params);
                 let ld = line.delta(params);
                 let vp = p - ls;
                 let cross = vp.x * ld.y - vp.y * ld.x;
+                let s = if cross >= 0.0 { 1.0 } else { -1.0 };
                 let d_sq = ld.norm_squared().max(EPSILON * EPSILON);
                 let d_len = d_sq.sqrt();
                 let d_cubed = d_sq * d_len;
 
-                // ∂f/∂px = dy/D
-                out.push((row, point.x(), ld.y / d_len));
-                // ∂f/∂py = -dx/D
-                out.push((row, point.y(), -ld.x / d_len));
+                // ∂f/∂px = s * dy/D
+                out.push((row, point.x(), s * ld.y / d_len));
+                // ∂f/∂py = s * -dx/D
+                out.push((row, point.y(), s * -ld.x / d_len));
 
-                // Line start: quotient rule
-                // ∂f/∂lsx = (-dy + vp.y)/D + cross*dx/D³
+                // Line start: quotient rule, scaled by s
                 out.push((
                     row,
                     line.start.x(),
-                    (-ld.y + vp.y) / d_len + cross * ld.x / d_cubed,
+                    s * ((-ld.y + vp.y) / d_len + cross * ld.x / d_cubed),
                 ));
-                // ∂f/∂lsy = (dx - vp.x)/D + cross*dy/D³
                 out.push((
                     row,
                     line.start.y(),
-                    (ld.x - vp.x) / d_len + cross * ld.y / d_cubed,
+                    s * ((ld.x - vp.x) / d_len + cross * ld.y / d_cubed),
                 ));
 
-                // Line end: quotient rule
-                // ∂f/∂lex = -vp.y/D - cross*dx/D³
-                out.push((row, line.end.x(), -vp.y / d_len - cross * ld.x / d_cubed));
-                // ∂f/∂ley = vp.x/D - cross*dy/D³
-                out.push((row, line.end.y(), vp.x / d_len - cross * ld.y / d_cubed));
+                // Line end: quotient rule, scaled by s
+                out.push((
+                    row,
+                    line.end.x(),
+                    s * (-vp.y / d_len - cross * ld.x / d_cubed),
+                ));
+                out.push((
+                    row,
+                    line.end.y(),
+                    s * (vp.x / d_len - cross * ld.y / d_cubed),
+                ));
             }
 
             // ── Group 5: Tangent ─────────────────────────────────────
@@ -710,36 +730,45 @@ impl ConstraintEq for ConstraintImpl {
                 center,
                 radius,
             } => {
-                // f = cross(vc, ld) / D - r
-                // Same as DistancePL for the spatial part, minus radius derivatives
+                // f = |cross(vc, ld)| / D - r  (unsigned distance)
+                // ∂|cross|/∂x = sign(cross) · ∂cross/∂x
                 let c = center.read(params);
                 let ls = line.start.read(params);
                 let ld = line.delta(params);
                 let vc = c - ls;
                 let cross = vc.x * ld.y - vc.y * ld.x;
+                let s = if cross >= 0.0 { 1.0 } else { -1.0 };
                 let d_sq = ld.norm_squared().max(EPSILON * EPSILON);
                 let d_len = d_sq.sqrt();
                 let d_cubed = d_sq * d_len;
 
-                // ∂f/∂center (same role as ∂f/∂point in DistancePL)
-                out.push((row, center.x(), ld.y / d_len));
-                out.push((row, center.y(), -ld.x / d_len));
+                // ∂f/∂center — spatial part scaled by sign(cross)
+                out.push((row, center.x(), s * ld.y / d_len));
+                out.push((row, center.y(), s * -ld.x / d_len));
 
-                // ∂f/∂line.start
+                // ∂f/∂line.start — spatial part scaled by sign(cross)
                 out.push((
                     row,
                     line.start.x(),
-                    (-ld.y + vc.y) / d_len + cross * ld.x / d_cubed,
+                    s * ((-ld.y + vc.y) / d_len + cross * ld.x / d_cubed),
                 ));
                 out.push((
                     row,
                     line.start.y(),
-                    (ld.x - vc.x) / d_len + cross * ld.y / d_cubed,
+                    s * ((ld.x - vc.x) / d_len + cross * ld.y / d_cubed),
                 ));
 
-                // ∂f/∂line.end
-                out.push((row, line.end.x(), -vc.y / d_len - cross * ld.x / d_cubed));
-                out.push((row, line.end.y(), vc.x / d_len - cross * ld.y / d_cubed));
+                // ∂f/∂line.end — spatial part scaled by sign(cross)
+                out.push((
+                    row,
+                    line.end.x(),
+                    s * (-vc.y / d_len - cross * ld.x / d_cubed),
+                ));
+                out.push((
+                    row,
+                    line.end.y(),
+                    s * (vc.x / d_len - cross * ld.y / d_cubed),
+                ));
 
                 // Radius derivatives: ∂f/∂r = -1 (or through implicit chain)
                 match radius {

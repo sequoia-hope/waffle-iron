@@ -102,7 +102,7 @@ impl Default for SolveOptions {
             max_iterations: 50,
             tolerance: 1e-7,
             lambda_init: 1e-3,
-            spring_mu: 1e-6,
+            spring_mu: 1e-10,
         }
     }
 }

@@ -72,7 +72,11 @@ mod tests {
     #[test]
     fn fully_constrained() {
         let outcome = make_outcome(true, 5, 1e-10);
-        let rank = RankAnalysis { rank: 4, dof: 0, conflicting_rows: vec![] };
+        let rank = RankAnalysis {
+            rank: 4,
+            dof: 0,
+            conflicting_rows: vec![],
+        };
         let result = classify_solve(&outcome, &rank, &[], 4);
         assert!(matches!(result, SolveStatus::FullyConstrained));
     }
@@ -80,7 +84,11 @@ mod tests {
     #[test]
     fn under_constrained() {
         let outcome = make_outcome(true, 3, 1e-10);
-        let rank = RankAnalysis { rank: 2, dof: 2, conflicting_rows: vec![] };
+        let rank = RankAnalysis {
+            rank: 2,
+            dof: 2,
+            conflicting_rows: vec![],
+        };
         let result = classify_solve(&outcome, &rank, &[], 4);
         assert!(matches!(result, SolveStatus::UnderConstrained { dof: 2 }));
     }
@@ -89,7 +97,11 @@ mod tests {
     fn over_constrained_overrides_convergence() {
         // Conflicts override convergence — even if converged=true, conflicts win
         let outcome = make_outcome(true, 10, 1e-10);
-        let rank = RankAnalysis { rank: 3, dof: 0, conflicting_rows: vec![0, 2] };
+        let rank = RankAnalysis {
+            rank: 3,
+            dof: 0,
+            conflicting_rows: vec![0, 2],
+        };
         // eq_to_constraint: eq0 → constraint 0, eq1 → constraint 0, eq2 → constraint 1
         let eq_map = vec![0, 0, 1];
         let result = classify_solve(&outcome, &rank, &eq_map, 3);
@@ -103,7 +115,11 @@ mod tests {
     #[test]
     fn solve_failed() {
         let outcome = make_outcome(false, 50, 0.5);
-        let rank = RankAnalysis { rank: 2, dof: 0, conflicting_rows: vec![] };
+        let rank = RankAnalysis {
+            rank: 2,
+            dof: 0,
+            conflicting_rows: vec![],
+        };
         let result = classify_solve(&outcome, &rank, &[], 2);
         assert!(matches!(result, SolveStatus::SolveFailed { .. }));
     }
