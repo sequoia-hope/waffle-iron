@@ -43,7 +43,7 @@ def run_claude_print(prompt, output_file, timeout_secs=0, env_extra=None,
     """
     cmd = [
         'claude', '-p', prompt,
-        '--output-format', 'json',
+        '--output-format', 'stream-json',
         '--dangerously-skip-permissions',
         '--verbose',
     ]
