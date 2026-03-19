@@ -16,7 +16,7 @@ use crate::units::{
 use crate::vecmath::{
     compute_plane_basis, v3_add, v3_cross, v3_dot, v3_length, v3_normalize, v3_scale, v3_sub,
 };
-use crate::waffle_kernel::{CylinderParams, RevolveParams, SphereParams};
+use crate::waffle_kernel::{ConeParams, CylinderParams, RevolveParams, SphereParams};
 use std::collections::{HashMap, HashSet};
 
 /// Number of segments for circular/cylindrical tessellation.
@@ -44,6 +44,7 @@ pub(crate) fn tessellate_solid(
         cylinder_params,
         revolve_params,
         None,
+        None,
         is_polygon_soup,
     )
 }
@@ -58,6 +59,7 @@ pub(crate) fn tessellate_solid_ext(
     cylinder_params: Option<&CylinderParams>,
     revolve_params: Option<&RevolveParams>,
     sphere_params: Option<&SphereParams>,
+    cone_params: Option<&ConeParams>,
     is_polygon_soup: bool,
 ) -> Result<RenderMesh, KernelError> {
     // Boolean results have no CylinderParams/RevolveParams. Use edge-first
@@ -75,6 +77,7 @@ pub(crate) fn tessellate_solid_ext(
     if cylinder_params.is_none()
         && revolve_params.is_none()
         && sphere_params.is_none()
+        && cone_params.is_none()
         && !is_polygon_soup
     {
         let has_arcs = _edge_geometry
@@ -90,6 +93,10 @@ pub(crate) fn tessellate_solid_ext(
     // remove_isolated_triangles stripping at small radii.
     if let Some(sp) = sphere_params {
         return tessellate_sphere_solid(arena, face_map, sp);
+    }
+
+    if let Some(cp) = cone_params {
+        return tessellate_cone_solid(arena, face_map, face_geometry, cp);
     }
 
     let mut vertices: Vec<f32> = Vec::new();
@@ -5139,6 +5146,222 @@ fn tessellate_sphere_face(
             }
         }
     }
+}
+
+/// Tessellate a complete cone solid with shared vertices.
+///
+/// Generates the cone mesh directly from ConeParams (not per-B-Rep-face),
+/// ensuring all shared edges have identical vertex positions for watertightness.
+/// The base is a fan from center, lateral surface is rings from apex to base.
+fn tessellate_cone_solid(
+    _arena: &TopoArena,
+    face_map: &HashMap<u64, FaceIdx>,
+    face_geometry: &HashMap<FaceIdx, SurfaceGeom>,
+    cp: &ConeParams,
+) -> Result<RenderMesh, KernelError> {
+    let base_center = cp.base_center;
+    let apex = cp.apex;
+    let axis = cp.axis;
+    let radius = cp.radius;
+    let height = cp.height;
+    let nseg = CIRCLE_SEGMENTS; // segments around full circle
+
+    let mut vertices: Vec<f32> = Vec::new();
+    let mut normals: Vec<f32> = Vec::new();
+    let mut indices: Vec<u32> = Vec::new();
+    let mut face_ranges: Vec<FaceRange> = Vec::new();
+
+    // Build orthonormal basis for base circle
+    let u_axis = {
+        let trial = if axis[0].abs() < 0.9 {
+            [1.0, 0.0, 0.0]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+        let cross = v3_cross(axis, trial);
+        v3_normalize(cross)
+    };
+    let v_axis = v3_cross(axis, u_axis);
+
+    let half_angle = radius.atan2(height);
+    let sin_ha = half_angle.sin();
+    let cos_ha = half_angle.cos();
+
+    // Precompute base circle positions
+    let mut base_pts: Vec<[f64; 3]> = Vec::with_capacity(nseg);
+    let mut base_norms_lateral: Vec<[f64; 3]> = Vec::with_capacity(nseg);
+    for i in 0..nseg {
+        let theta = 2.0 * std::f64::consts::PI * i as f64 / nseg as f64;
+        let ct = theta.cos();
+        let st = theta.sin();
+        base_pts.push([
+            base_center[0] + u_axis[0] * radius * ct + v_axis[0] * radius * st,
+            base_center[1] + u_axis[1] * radius * ct + v_axis[1] * radius * st,
+            base_center[2] + u_axis[2] * radius * ct + v_axis[2] * radius * st,
+        ]);
+        // Outward normal on cone surface
+        let radial = [
+            u_axis[0] * ct + v_axis[0] * st,
+            u_axis[1] * ct + v_axis[1] * st,
+            u_axis[2] * ct + v_axis[2] * st,
+        ];
+        base_norms_lateral.push([
+            radial[0] * cos_ha + axis[0] * sin_ha,
+            radial[1] * cos_ha + axis[1] * sin_ha,
+            radial[2] * cos_ha + axis[2] * sin_ha,
+        ]);
+    }
+
+    let push_vert =
+        |pos: [f64; 3], norm: [f64; 3], verts: &mut Vec<f32>, norms: &mut Vec<f32>| -> u32 {
+            let idx = verts.len() as u32 / 3;
+            verts.push(pos[0] as f32);
+            verts.push(pos[1] as f32);
+            verts.push(pos[2] as f32);
+            norms.push(norm[0] as f32);
+            norms.push(norm[1] as f32);
+            norms.push(norm[2] as f32);
+            idx
+        };
+
+    // Find the face IDs for base (planar) and lateral (conical) faces
+    let mut base_face_kid: Option<u64> = None;
+    let mut lateral_face_kids: Vec<u64> = Vec::new();
+    for (&kid, &face_idx) in face_map {
+        let geom = face_geometry.get(&face_idx);
+        if matches!(geom, Some(SurfaceGeom::Planar(_))) {
+            base_face_kid = Some(kid);
+        } else {
+            lateral_face_kids.push(kid);
+        }
+    }
+
+    // === Lateral surface: ring strips from apex to base ===
+    // Use shared vertices between lateral faces (all part of the same cone surface).
+    // Assign triangles to lateral face_ids by quadrant.
+    {
+        // Apex vertex (single shared vertex with averaged normal = axis direction)
+        let apex_idx = push_vert(apex, axis, &mut vertices, &mut normals);
+
+        // Ring vertices at multiple heights
+        let nrings = CIRCLE_SEGMENTS / 4; // subdivision rings from apex to base
+        let mut rings: Vec<Vec<u32>> = Vec::with_capacity(nrings);
+
+        for ring in 1..=nrings {
+            let t = ring as f64 / nrings as f64; // 0 = apex, 1 = base
+            let r = radius * t;
+            let h = height * (1.0 - t);
+            let mut ring_verts = Vec::with_capacity(nseg);
+
+            for (i, norm) in base_norms_lateral.iter().enumerate() {
+                let theta = 2.0 * std::f64::consts::PI * i as f64 / nseg as f64;
+                let ct = theta.cos();
+                let st = theta.sin();
+                let pos = [
+                    base_center[0] + u_axis[0] * r * ct + v_axis[0] * r * st + axis[0] * h,
+                    base_center[1] + u_axis[1] * r * ct + v_axis[1] * r * st + axis[1] * h,
+                    base_center[2] + u_axis[2] * r * ct + v_axis[2] * r * st + axis[2] * h,
+                ];
+                let idx = push_vert(pos, *norm, &mut vertices, &mut normals);
+                ring_verts.push(idx);
+            }
+            rings.push(ring_verts);
+        }
+
+        // Track triangles per quadrant for face_ranges
+        let segs_per_quad = nseg / 4;
+        let mut quad_starts = [indices.len() as u32; 4];
+
+        // First ring: fan from apex
+        for i in 0..nseg {
+            let j = (i + 1) % nseg;
+            let quad = i / segs_per_quad;
+            if quad < 4 && indices.len() as u32 > quad_starts[quad] {
+                // Already started
+            } else if quad < 4 {
+                quad_starts[quad] = indices.len() as u32;
+            }
+            indices.push(apex_idx);
+            indices.push(rings[0][i]);
+            indices.push(rings[0][j]);
+        }
+
+        // Subsequent rings: quad strips
+        for ring in 1..nrings {
+            for i in 0..nseg {
+                let j = (i + 1) % nseg;
+                // Two triangles per quad
+                indices.push(rings[ring - 1][i]);
+                indices.push(rings[ring][i]);
+                indices.push(rings[ring][j]);
+
+                indices.push(rings[ring - 1][i]);
+                indices.push(rings[ring][j]);
+                indices.push(rings[ring - 1][j]);
+            }
+        }
+
+        // Assign all lateral triangles to the lateral face IDs (distribute by quadrant)
+        let total_lateral_indices = indices.len() as u32;
+        if !lateral_face_kids.is_empty() {
+            // Simple: assign all lateral triangles to the first lateral face
+            // (face_ranges just need valid mappings for picking)
+            let tris_per_face = (total_lateral_indices / 3) / lateral_face_kids.len() as u32;
+            let mut start = 0u32;
+            for (fi, &kid) in lateral_face_kids.iter().enumerate() {
+                let end = if fi == lateral_face_kids.len() - 1 {
+                    total_lateral_indices
+                } else {
+                    // Round to triangle boundary
+                    ((fi as u32 + 1) * tris_per_face) * 3
+                };
+                face_ranges.push(FaceRange {
+                    face_id: KernelId(kid),
+                    start_index: start,
+                    end_index: end,
+                });
+                start = end;
+            }
+        }
+    }
+
+    // === Base face: fan from center ===
+    if let Some(base_kid) = base_face_kid {
+        let base_norm = [-axis[0], -axis[1], -axis[2]]; // outward (away from interior)
+        let center_idx = push_vert(base_center, base_norm, &mut vertices, &mut normals);
+
+        let base_start = indices.len() as u32;
+
+        // Create base circle vertices (separate from lateral for correct normals)
+        let mut base_ring: Vec<u32> = Vec::with_capacity(nseg);
+        for pt in &base_pts {
+            let idx = push_vert(*pt, base_norm, &mut vertices, &mut normals);
+            base_ring.push(idx);
+        }
+
+        for i in 0..nseg {
+            let j = (i + 1) % nseg;
+            // Winding: center → i → j gives outward normal matching base_norm
+            // when base_norm = -axis (pointing down for axis=+Z)
+            indices.push(center_idx);
+            indices.push(base_ring[j]);
+            indices.push(base_ring[i]);
+        }
+
+        let base_end = indices.len() as u32;
+        face_ranges.push(FaceRange {
+            face_id: KernelId(base_kid),
+            start_index: base_start,
+            end_index: base_end,
+        });
+    }
+
+    Ok(RenderMesh {
+        vertices,
+        normals,
+        indices,
+        face_ranges,
+    })
 }
 
 #[cfg(test)]

@@ -35,6 +35,7 @@ pub(crate) struct WaffleSolid {
     pub(crate) cylinder_params: Option<CylinderParams>,
     pub(crate) revolve_params: Option<RevolveParams>,
     pub(crate) sphere_params: Option<SphereParams>,
+    pub(crate) cone_params: Option<ConeParams>,
     /// Cached face polygons from boolean results for reuse in subsequent booleans.
     pub(crate) cached_face_polys: Option<Vec<crate::boolean::FacePoly>>,
     /// True when this solid's B-Rep was built from polygon-soup classification
@@ -68,6 +69,15 @@ pub(crate) struct RevolveParams {
 pub(crate) struct SphereParams {
     pub center: [f64; 3],
     pub radius: f64,
+}
+
+/// Parameters for cone tessellation (stored after make_cone).
+pub(crate) struct ConeParams {
+    pub base_center: [f64; 3],
+    pub apex: [f64; 3],
+    pub axis: [f64; 3],
+    pub radius: f64,
+    pub height: f64,
 }
 
 /// Circle geometry stored in a standalone face (pre-extrude).
@@ -317,6 +327,257 @@ impl WaffleKernel {
                 cylinder_params: None,
                 revolve_params: None,
                 sphere_params: Some(SphereParams { center, radius }),
+                cone_params: None,
+                cached_face_polys: None,
+                is_polygon_soup: false,
+            },
+        );
+
+        Ok(KernelSolidHandle(handle_id))
+    }
+
+    /// Create a right circular cone primitive.
+    ///
+    /// Topology: 5 vertices (1 apex + 4 base), 8 edges (4 lateral + 4 base), 5 faces (4 lateral + 1 base).
+    /// Lateral faces tagged `SurfaceGeom::Conical`, base face tagged `SurfaceGeom::Planar`.
+    pub fn make_cone(
+        &mut self,
+        center: [f64; 3],
+        axis: [f64; 3],
+        radius: f64,
+        height: f64,
+    ) -> Result<KernelSolidHandle, KernelError> {
+        // Validate inputs
+        if !radius.is_finite() || radius <= 0.0 {
+            return Err(KernelError::Other {
+                message: format!("Cone radius must be finite and positive, got {}", radius),
+            });
+        }
+        if !height.is_finite() || height <= 0.0 {
+            return Err(KernelError::Other {
+                message: format!("Cone height must be finite and positive, got {}", height),
+            });
+        }
+        if radius < MIN_FEATURE_SIZE {
+            return Err(KernelError::Other {
+                message: format!(
+                    "Cone radius {} is below MIN_FEATURE_SIZE ({})",
+                    radius, MIN_FEATURE_SIZE
+                ),
+            });
+        }
+        if height < MIN_FEATURE_SIZE {
+            return Err(KernelError::Other {
+                message: format!(
+                    "Cone height {} is below MIN_FEATURE_SIZE ({})",
+                    height, MIN_FEATURE_SIZE
+                ),
+            });
+        }
+        for (i, &c) in center.iter().enumerate() {
+            if !c.is_finite() {
+                return Err(KernelError::Other {
+                    message: format!("Cone center component [{}] must be finite, got {}", i, c),
+                });
+            }
+        }
+
+        // Normalize axis
+        let axis_len = (axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]).sqrt();
+        if axis_len < TAU_NORMALIZE {
+            return Err(KernelError::Other {
+                message: "Cone axis must be non-zero".to_string(),
+            });
+        }
+        let ax = [axis[0] / axis_len, axis[1] / axis_len, axis[2] / axis_len];
+
+        // Build orthonormal basis: ax is the cone axis (base → apex)
+        // u_axis and v_axis are perpendicular to ax, used for base circle
+        let u_axis = {
+            let trial = if ax[0].abs() < 0.9 {
+                [1.0, 0.0, 0.0]
+            } else {
+                [0.0, 1.0, 0.0]
+            };
+            let cross = v3_cross(ax, trial);
+            v3_normalize(cross)
+        };
+        let v_axis = v3_cross(ax, u_axis);
+
+        // Apex = center + axis * height
+        let apex = [
+            center[0] + ax[0] * height,
+            center[1] + ax[1] * height,
+            center[2] + ax[2] * height,
+        ];
+
+        // Base vertices at 90° intervals: +U, +V, -U, -V
+        let base_positions: [[f64; 3]; 4] = [
+            [
+                center[0] + u_axis[0] * radius,
+                center[1] + u_axis[1] * radius,
+                center[2] + u_axis[2] * radius,
+            ],
+            [
+                center[0] + v_axis[0] * radius,
+                center[1] + v_axis[1] * radius,
+                center[2] + v_axis[2] * radius,
+            ],
+            [
+                center[0] - u_axis[0] * radius,
+                center[1] - u_axis[1] * radius,
+                center[2] - u_axis[2] * radius,
+            ],
+            [
+                center[0] - v_axis[0] * radius,
+                center[1] - v_axis[1] * radius,
+                center[2] - v_axis[2] * radius,
+            ],
+        ];
+
+        let mut arena = TopoArena::new();
+
+        // Phase 1: Build base quad from 4 base vertices
+        // mvfs creates the initial solid with v_b0
+        let (_solid, _shell, face0, v_b0) = mvfs(&mut arena, base_positions[0]);
+        let loop0 = arena.faces[face0.0].outer_loop;
+
+        let (_, v_b1) = mev(&mut arena, v_b0, loop0, base_positions[1]);
+        let (_, v_b2) = mev(&mut arena, v_b1, loop0, base_positions[2]);
+        let (_, v_b3) = mev(&mut arena, v_b2, loop0, base_positions[3]);
+
+        // Close the base quad: v_b3 back to v_b0
+        let (_, base_face) = mef(&mut arena, v_b3, v_b0, loop0);
+        // V=4, E=4, F=2
+
+        // Fix vertex half-edge pointers after mef
+        {
+            let start_he = arena.loops[loop0.0].half_edge;
+            let mut he = start_he;
+            loop {
+                let v = arena.half_edges[he.0].origin;
+                arena.vertices[v.0].half_edge = Some(he);
+                he = arena.half_edges[he.0].next;
+                if he == start_he {
+                    break;
+                }
+            }
+        }
+
+        // Phase 2: Add apex vertex and triangulate face0 (which has the base quad in reverse)
+        // mev from v_b0 into loop0 creates a spur to apex
+        let (_, v_apex) = mev(&mut arena, v_b0, loop0, apex);
+
+        // Triangulate: 3 mef calls split the quad+spur into 4 triangular faces
+        let (_, _f_lat1) = mef(&mut arena, v_apex, v_b1, loop0);
+        let (_, _f_lat2) = mef(&mut arena, v_apex, v_b2, loop0);
+        let (_, _f_lat3) = mef(&mut arena, v_apex, v_b3, loop0);
+        // face0 (loop0) is the 4th lateral triangle (apex-b3-b0)
+
+        // Verify topology: V=5, E=8, F=5
+        debug_assert_eq!(arena.vertex_count(), 5, "Cone: expected 5 vertices");
+        debug_assert_eq!(arena.edge_count(), 8, "Cone: expected 8 edges");
+        debug_assert_eq!(arena.face_count(), 5, "Cone: expected 5 faces");
+
+        // Build geometry and ID maps
+        let handle_id = self.alloc_handle();
+        let mut face_map = HashMap::new();
+        let mut edge_map = HashMap::new();
+        let mut vertex_map = HashMap::new();
+        let mut face_geometry = HashMap::new();
+        let mut edge_geometry = HashMap::new();
+
+        let half_angle = radius.atan2(height);
+        let conical_geom = SurfaceGeom::Conical(Cone {
+            apex: Point3::from_array(apex),
+            axis: Vector3::from_array([-ax[0], -ax[1], -ax[2]]), // axis points from apex toward base
+            half_angle,
+        });
+
+        let base_normal = [-ax[0], -ax[1], -ax[2]]; // outward normal of base face
+        let planar_geom = SurfaceGeom::Planar(Plane {
+            origin: Point3::from_array(center),
+            normal: Vector3::from_array(base_normal),
+        });
+
+        // Assign geometry to faces
+        // base_face gets planar; all others get conical
+        for (idx, _face) in arena.faces.iter().enumerate() {
+            let fid = self.alloc_id();
+            let fi = FaceIdx(idx);
+            face_map.insert(fid, fi);
+            if fi == base_face {
+                face_geometry.insert(fi, planar_geom.clone());
+            } else {
+                face_geometry.insert(fi, conical_geom.clone());
+            }
+        }
+
+        // Assign edge geometry
+        for (idx, _edge) in arena.edges.iter().enumerate() {
+            let eid = self.alloc_id();
+            edge_map.insert(eid, EdgeIdx(idx));
+
+            let he_a = arena.edges[idx].half_edge;
+            let v_start = arena.half_edges[he_a.0].origin;
+            let v_end = arena.half_edges[arena.half_edges[he_a.0].twin.0].origin;
+            let p0 = arena.vertices[v_start.0].position;
+            let p1 = arena.vertices[v_end.0].position;
+
+            // Determine if this is a base edge (both endpoints on base circle)
+            // or a lateral edge (one endpoint is the apex)
+            let is_apex_0 = v3_length(v3_sub(p0, apex)) < TAU_MODEL;
+            let is_apex_1 = v3_length(v3_sub(p1, apex)) < TAU_MODEL;
+
+            if is_apex_0 || is_apex_1 {
+                // Lateral edge: straight line from apex to base vertex
+                edge_geometry.insert(
+                    EdgeIdx(idx),
+                    CurveGeom::Linear(Line3D {
+                        origin: Point3::from_array(p0),
+                        direction: Vector3::from_array(v3_normalize(v3_sub(p1, p0))),
+                    }),
+                );
+            } else {
+                // Base edge: quarter-circle arc on the base plane
+                edge_geometry.insert(
+                    EdgeIdx(idx),
+                    CurveGeom::Arc(Arc3D {
+                        center: Point3::from_array(center),
+                        normal: Vector3::from_array(base_normal),
+                        radius,
+                        start_point: Point3::from_array(p0),
+                        sweep_angle: std::f64::consts::FRAC_PI_2,
+                    }),
+                );
+            }
+        }
+
+        // Map all vertices
+        for (idx, _) in arena.vertices.iter().enumerate() {
+            let vid = self.alloc_id();
+            vertex_map.insert(vid, VertexIdx(idx));
+        }
+
+        self.solids.insert(
+            handle_id,
+            WaffleSolid {
+                arena,
+                face_map,
+                edge_map,
+                vertex_map,
+                face_geometry,
+                edge_geometry,
+                cylinder_params: None,
+                revolve_params: None,
+                sphere_params: None,
+                cone_params: Some(ConeParams {
+                    base_center: center,
+                    apex,
+                    axis: ax,
+                    radius,
+                    height,
+                }),
                 cached_face_polys: None,
                 is_polygon_soup: false,
             },
@@ -468,6 +729,7 @@ impl WaffleKernel {
                 cylinder_params: None,
                 revolve_params: None,
                 sphere_params: None,
+                cone_params: None,
                 cached_face_polys: result.cached_face_polys,
                 is_polygon_soup: polygon_soup,
             },
@@ -804,6 +1066,7 @@ impl WaffleKernel {
                 cylinder_params: None,
                 revolve_params: Some(revolve_params),
                 sphere_params: None,
+                cone_params: None,
                 cached_face_polys: None,
                 is_polygon_soup: false,
             },
@@ -1002,6 +1265,7 @@ impl WaffleKernel {
                 cylinder_params: Some(cylinder_params),
                 revolve_params: None,
                 sphere_params: None,
+                cone_params: None,
                 cached_face_polys: None,
                 is_polygon_soup: false,
             },
@@ -1419,6 +1683,7 @@ impl Kernel for WaffleKernel {
                 cylinder_params: None,
                 revolve_params: None,
                 sphere_params: None,
+                cone_params: None,
                 cached_face_polys: None,
                 is_polygon_soup: false,
             },
@@ -1447,6 +1712,7 @@ impl Kernel for WaffleKernel {
             ws.cylinder_params.as_ref(),
             ws.revolve_params.as_ref(),
             ws.sphere_params.as_ref(),
+            ws.cone_params.as_ref(),
             ws.is_polygon_soup,
         )
     }

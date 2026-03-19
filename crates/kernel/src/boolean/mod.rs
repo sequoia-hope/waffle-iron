@@ -565,7 +565,7 @@ fn cylinder_to_face_polys(cyl: &CylinderParams, n: usize) -> Vec<FacePoly> {
 pub(super) fn extract_face_polys_general(solid: &WaffleSolid) -> Vec<FacePoly> {
     if let Some(ref cyl) = solid.cylinder_params {
         cylinder_to_face_polys(cyl, 32)
-    } else if solid.sphere_params.is_some() {
+    } else if solid.sphere_params.is_some() || solid.cone_params.is_some() {
         // Sphere faces need analytic subdivision (the B-Rep has only flat
         // octahedral triangles; generate_analytic_face_polys produces curved
         // polygon approximations projected onto the sphere surface).

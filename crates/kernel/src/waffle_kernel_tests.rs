@@ -7732,3 +7732,305 @@ fn spa7_multiple_spheres_independent() {
     assert!(check_watertight(&m3), "Sphere 3 mesh must be watertight");
 }
 
+// ══════════════════════════════════════════════════════════════════
+// Group CN: make_cone primitive (FIP Phase 2 — tests written before implementation)
+// ══════════════════════════════════════════════════════════════════
+
+/// Helper: create a cone at the given center with axis, radius, and height.
+fn make_cone_helper(
+    center: [f64; 3],
+    axis: [f64; 3],
+    radius: f64,
+    height: f64,
+) -> (WaffleKernel, KernelSolidHandle) {
+    let mut k = WaffleKernel::new();
+    let solid = k
+        .make_cone(center, axis, radius, height)
+        .expect("make_cone should succeed");
+    (k, solid)
+}
+
+// ── CN1: Topology ───────────────────────────────────────────────
+
+#[test]
+fn cn1_make_cone_topology() {
+    // Spec: 5 vertices (1 apex + 4 base), 8 edges (4 base + 4 lateral), 5 faces (4 lateral + 1 base)
+    let (k, solid) = make_cone_helper([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 2.0);
+    let verts = k.list_vertices(&solid);
+    let edges = k.list_edges(&solid);
+    let faces = k.list_faces(&solid);
+    assert_eq!(verts.len(), 5, "Cone must have 5 vertices (1 apex + 4 base), got {}", verts.len());
+    assert_eq!(edges.len(), 8, "Cone must have 8 edges (4 base + 4 lateral), got {}", edges.len());
+    assert_eq!(faces.len(), 5, "Cone must have 5 faces (4 lateral + 1 base), got {}", faces.len());
+
+    // Euler formula: V - E + F = 2
+    let v = verts.len() as i64;
+    let e = edges.len() as i64;
+    let f = faces.len() as i64;
+    assert_eq!(
+        v - e + f,
+        2,
+        "Euler formula V-E+F must equal 2 for cone (got V={}, E={}, F={})",
+        v, e, f
+    );
+}
+
+// ── CN2: Volume ─────────────────────────────────────────────────
+
+#[test]
+fn cn2_make_cone_volume() {
+    let r = 1.0;
+    let h = 2.0;
+    let (mut k, solid) = make_cone_helper([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], r, h);
+    let mesh = k
+        .tessellate(&solid, 0.01)
+        .expect("tessellate should succeed for cone");
+    let vol = mesh_volume(&mesh);
+    let expected = PI * r * r * h / 3.0; // (1/3) π r² h
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.05,
+        "Cone volume should be ~(1/3)πr²h = {:.6}, got {:.6} (rel_err={:.4})",
+        expected, vol, rel_err
+    );
+}
+
+// ── CN3: Surface types ──────────────────────────────────────────
+
+#[test]
+fn cn3_make_cone_surface_types() {
+    let (k, solid) = make_cone_helper([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 2.0);
+    let faces = k.list_faces(&solid);
+    assert_eq!(faces.len(), 5, "Cone should have 5 faces");
+
+    let mut conical_count = 0;
+    let mut planar_count = 0;
+    for face_id in &faces {
+        let sig = k.compute_signature(*face_id, TopoKind::Face);
+        match sig.surface_type.as_deref() {
+            Some("conical") => conical_count += 1,
+            Some("planar") => planar_count += 1,
+            other => panic!("Unexpected surface type on cone face: {:?}", other),
+        }
+    }
+    assert_eq!(
+        conical_count, 4,
+        "Cone should have 4 conical lateral faces, got {}",
+        conical_count
+    );
+    assert_eq!(
+        planar_count, 1,
+        "Cone should have 1 planar base face, got {}",
+        planar_count
+    );
+}
+
+// ── CN4: Tessellation watertight ────────────────────────────────
+
+#[test]
+fn cn4_make_cone_tessellation_watertight() {
+    let (mut k, solid) = make_cone_helper([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 2.0);
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    assert!(
+        check_watertight(&mesh),
+        "Cone mesh must be watertight (every edge shared by exactly 2 triangles)"
+    );
+}
+
+// ── CN5–CN8: Error cases ────────────────────────────────────────
+
+#[test]
+fn cn5_make_cone_invalid_radius() {
+    let mut k = WaffleKernel::new();
+    // Zero radius
+    let result = k.make_cone([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.0, 1.0);
+    assert!(result.is_err(), "Zero radius cone should produce an error");
+    // Negative radius
+    let result = k.make_cone([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], -1.0, 1.0);
+    assert!(result.is_err(), "Negative radius cone should produce an error");
+}
+
+#[test]
+fn cn6_make_cone_invalid_height() {
+    let mut k = WaffleKernel::new();
+    // Zero height
+    let result = k.make_cone([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 0.0);
+    assert!(result.is_err(), "Zero height cone should produce an error");
+    // Negative height
+    let result = k.make_cone([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, -1.0);
+    assert!(result.is_err(), "Negative height cone should produce an error");
+}
+
+#[test]
+fn cn7_make_cone_below_min_feature() {
+    let mut k = WaffleKernel::new();
+    // Radius below MIN_FEATURE_SIZE (1e-6)
+    let result = k.make_cone([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1e-7, 1.0);
+    assert!(result.is_err(), "Radius below MIN_FEATURE_SIZE should produce an error");
+    // Height below MIN_FEATURE_SIZE
+    let result = k.make_cone([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 1e-7);
+    assert!(result.is_err(), "Height below MIN_FEATURE_SIZE should produce an error");
+}
+
+#[test]
+fn cn8_make_cone_nonfinite_center() {
+    let mut k = WaffleKernel::new();
+    // NaN in center
+    let result = k.make_cone([f64::NAN, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 1.0);
+    assert!(result.is_err(), "NaN center component should produce an error");
+    // Infinity in center
+    let result = k.make_cone([0.0, f64::INFINITY, 0.0], [0.0, 0.0, 1.0], 1.0, 1.0);
+    assert!(result.is_err(), "Infinite center component should produce an error");
+}
+
+// ── CN9–CN13: Adversarial / edge-case validation (FIP Phase 4) ──
+
+#[test]
+fn cn9_make_cone_extreme_aspect_ratio_tall() {
+    // Tall, thin cone (1:100 aspect ratio) — stress numerical stability
+    let r = 0.01;
+    let h = 1.0;
+    let (mut k, solid) = make_cone_helper([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], r, h);
+
+    // Topology must still be valid
+    let verts = k.list_vertices(&solid);
+    let edges = k.list_edges(&solid);
+    let faces = k.list_faces(&solid);
+    assert_eq!(verts.len(), 5, "Tall thin cone must have 5 vertices");
+    assert_eq!(edges.len(), 8, "Tall thin cone must have 8 edges");
+    assert_eq!(faces.len(), 5, "Tall thin cone must have 5 faces");
+
+    let v = verts.len() as i64;
+    let e = edges.len() as i64;
+    let f = faces.len() as i64;
+    assert_eq!(v - e + f, 2, "Euler formula must hold for tall thin cone");
+
+    // Watertight mesh
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    assert!(
+        check_watertight(&mesh),
+        "Tall thin cone mesh must be watertight"
+    );
+
+    // Volume sanity check: (1/3) π r² h
+    let vol = mesh_volume(&mesh);
+    let expected = PI * r * r * h / 3.0;
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.10,
+        "Tall thin cone volume should be ~{:.8}, got {:.8} (rel_err={:.4})",
+        expected, vol, rel_err
+    );
+}
+
+#[test]
+fn cn10_make_cone_extreme_aspect_ratio_flat() {
+    // Very flat cone — stress base-dominated geometry
+    let r = 100.0;
+    let h = 0.001;
+    let (mut k, solid) = make_cone_helper([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], r, h);
+
+    // Topology must still be valid
+    let verts = k.list_vertices(&solid);
+    let edges = k.list_edges(&solid);
+    let faces = k.list_faces(&solid);
+    assert_eq!(verts.len(), 5, "Flat cone must have 5 vertices");
+    assert_eq!(edges.len(), 8, "Flat cone must have 8 edges");
+    assert_eq!(faces.len(), 5, "Flat cone must have 5 faces");
+
+    let v = verts.len() as i64;
+    let e = edges.len() as i64;
+    let f = faces.len() as i64;
+    assert_eq!(v - e + f, 2, "Euler formula must hold for flat cone");
+
+    // Watertight mesh
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    assert!(
+        check_watertight(&mesh),
+        "Flat cone mesh must be watertight"
+    );
+
+    // Volume sanity check
+    let vol = mesh_volume(&mesh);
+    let expected = PI * r * r * h / 3.0;
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.10,
+        "Flat cone volume should be ~{:.6}, got {:.6} (rel_err={:.4})",
+        expected, vol, rel_err
+    );
+}
+
+#[test]
+fn cn11_make_cone_nonstandard_axis() {
+    // Cone along diagonal axis [1,1,1] — tests axis normalization and rotation
+    let (mut k, solid) = make_cone_helper([0.0, 0.0, 0.0], [1.0, 1.0, 1.0], 1.0, 2.0);
+
+    // Topology invariants must hold regardless of axis
+    let verts = k.list_vertices(&solid);
+    let edges = k.list_edges(&solid);
+    let faces = k.list_faces(&solid);
+    assert_eq!(verts.len(), 5, "Diagonal-axis cone must have 5 vertices");
+    assert_eq!(edges.len(), 8, "Diagonal-axis cone must have 8 edges");
+    assert_eq!(faces.len(), 5, "Diagonal-axis cone must have 5 faces");
+
+    let v = verts.len() as i64;
+    let e = edges.len() as i64;
+    let f = faces.len() as i64;
+    assert_eq!(v - e + f, 2, "Euler formula must hold for diagonal-axis cone");
+
+    // Watertight mesh
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    assert!(
+        check_watertight(&mesh),
+        "Diagonal-axis cone mesh must be watertight"
+    );
+
+    // Volume should be the same as Z-axis cone: orientation doesn't change volume
+    let vol = mesh_volume(&mesh);
+    let expected = PI * 1.0 * 1.0 * 2.0 / 3.0;
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.05,
+        "Diagonal-axis cone volume should be ~{:.6}, got {:.6} (rel_err={:.4})",
+        expected, vol, rel_err
+    );
+}
+
+#[test]
+fn cn12_make_cone_offset_center() {
+    // Cone at non-origin center — translation must not affect volume
+    let r = 1.5;
+    let h = 3.0;
+    let (mut k, solid) = make_cone_helper([10.0, 20.0, 30.0], [0.0, 0.0, 1.0], r, h);
+
+    // Topology
+    let verts = k.list_vertices(&solid);
+    let edges = k.list_edges(&solid);
+    let faces = k.list_faces(&solid);
+    assert_eq!(verts.len(), 5, "Offset cone must have 5 vertices");
+    assert_eq!(edges.len(), 8, "Offset cone must have 8 edges");
+    assert_eq!(faces.len(), 5, "Offset cone must have 5 faces");
+
+    // Volume must match formula regardless of center position
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    let vol = mesh_volume(&mesh);
+    let expected = PI * r * r * h / 3.0;
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.05,
+        "Offset cone volume should be ~{:.6}, got {:.6} (rel_err={:.4})",
+        expected, vol, rel_err
+    );
+}
+
+#[test]
+fn cn13_make_cone_zero_axis() {
+    // Zero-length axis vector cannot define a direction — must error
+    let mut k = WaffleKernel::new();
+    let result = k.make_cone([0.0, 0.0, 0.0], [0.0, 0.0, 0.0], 1.0, 2.0);
+    assert!(
+        result.is_err(),
+        "Zero axis vector should produce an error (no direction defined)"
+    );
+}
