@@ -1,4 +1,5 @@
 pub mod constraint_mapping;
+pub mod core;
 pub mod entity_mapping;
 pub mod profiles;
 pub mod solver;
