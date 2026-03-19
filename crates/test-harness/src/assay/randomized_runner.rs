@@ -475,11 +475,16 @@ fn check_volume_monotonicity(
         }
 
         let direction = &expected[i];
+        // Use relative tolerance: volume can stay the same (e.g., overlapping
+        // boss or non-overlapping cut) but should never move in the WRONG direction.
+        // A boss that decreases volume or a cut that increases volume is a real bug.
+        let rel_tol = 1e-6;
         match direction.as_str() {
             "increase" => {
-                if vol <= prev_vol {
+                // Boss/union: volume must not DECREASE (but can stay same)
+                if vol < prev_vol * (1.0 - rel_tol) {
                     violations.push(format!(
-                        "step {}: expected increase, vol {:.6e} <= prev {:.6e}",
+                        "step {}: expected non-decrease, vol {:.6e} < prev {:.6e}",
                         i + 1,
                         vol,
                         prev_vol
@@ -487,9 +492,10 @@ fn check_volume_monotonicity(
                 }
             }
             "decrease" => {
-                if vol >= prev_vol {
+                // Cut/subtract: volume must not INCREASE (but can stay same)
+                if vol > prev_vol * (1.0 + rel_tol) {
                     violations.push(format!(
-                        "step {}: expected decrease, vol {:.6e} >= prev {:.6e}",
+                        "step {}: expected non-increase, vol {:.6e} > prev {:.6e}",
                         i + 1,
                         vol,
                         prev_vol

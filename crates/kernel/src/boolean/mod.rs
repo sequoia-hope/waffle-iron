@@ -1997,4 +1997,13 @@ mod tests {
         assert!(!sa.is_nan(), "Point-at-vertex should not produce NaN");
         assert_eq!(sa, 0.0, "Point-at-vertex should give 0.0");
     }
+
+    // NOTE: AABB collapse in partial cyl-box boolean tessellation is a known issue.
+    // See specs/boolean_tessellation_routing.md for root cause analysis.
+    // The bounded tessellation path generates cylindrical face vertices only at
+    // z_min/z_max (2 rows), so all vertices lie on AABB end-cap planes.
+    // Fixing this requires either:
+    // 1. Axial subdivision in tessellate_cylindrical_face_bounded (complex vertex sharing)
+    // 2. Setting polygon_soup = true for SSI fallback (causes non-manifold regression)
+    // Deferred to a future session.
 }
