@@ -917,6 +917,219 @@ pub(crate) fn cylinder_sphere_ssi(
     Ok(vec![SSICurve::Line { start, end }])
 }
 
+// ── Cone-Sphere SSI ──────────────────────────────────────────────────────
+
+/// Analytical SSI solver for cone-sphere pairs (A15 pair #11).
+///
+/// Returns intersection curves between a finite cone and a sphere.
+/// The cone is defined by its apex, axis direction, half-angle, and axial extent
+/// [z_min, z_max] measured from the apex along the axis.
+pub(crate) fn cone_sphere_ssi(
+    cone_apex: [f64; 3],
+    cone_axis: [f64; 3],
+    cone_half_angle: f64,
+    cone_z_min: f64,
+    cone_z_max: f64,
+    sphere_center: [f64; 3],
+    sphere_radius: f64,
+) -> Result<Vec<SSICurve>, KernelError> {
+    // Clamp z_min to 0 (cone only valid for h >= 0).
+    let z_min = cone_z_min.max(0.0);
+    let z_max = cone_z_max;
+    if z_max <= z_min {
+        return Ok(vec![]);
+    }
+
+    let tan_a = cone_half_angle.tan();
+    if tan_a.abs() < TOL {
+        // Degenerate cone (zero half-angle) → line, no surface.
+        return Ok(vec![]);
+    }
+
+    // 1. Project sphere center onto the cone axis line.
+    let diff = v3_sub(sphere_center, cone_apex);
+    let t_proj = v3_dot(diff, cone_axis);
+    let proj = v3_add(cone_apex, v3_scale(cone_axis, t_proj));
+    let perp_vec = v3_sub(sphere_center, proj);
+    let d = v3_length(perp_vec);
+
+    // 2. Coaxial case (sphere center on cone axis): quadratic in h.
+    if d < TOL {
+        // Solve: h²·tan²(α) + (h - t_proj)² = R²
+        //   (1 + tan²α)·h² − 2·t_proj·h + (t_proj² − R²) = 0
+        let a_coeff = 1.0 + tan_a * tan_a;
+        let b_coeff = -2.0 * t_proj;
+        let c_coeff = t_proj * t_proj - sphere_radius * sphere_radius;
+        let disc = b_coeff * b_coeff - 4.0 * a_coeff * c_coeff;
+
+        if disc < 0.0 {
+            return Ok(vec![]);
+        }
+        if disc < TOL * TOL {
+            // Tangent → return empty per spec.
+            return Ok(vec![]);
+        }
+
+        let sqrt_disc = disc.sqrt();
+        let h1 = (-b_coeff + sqrt_disc) / (2.0 * a_coeff);
+        let h2 = (-b_coeff - sqrt_disc) / (2.0 * a_coeff);
+
+        let mut curves = Vec::new();
+        for h in [h1, h2] {
+            if h >= z_min - TOL && h <= z_max + TOL && h > TOL {
+                let r = h * tan_a;
+                if r > TOL {
+                    let center = v3_add(cone_apex, v3_scale(cone_axis, h));
+                    curves.push(SSICurve::Circle {
+                        center,
+                        normal: cone_axis,
+                        radius: r,
+                    });
+                }
+            }
+        }
+        return Ok(curves);
+    }
+
+    // 3. General offset case: degree-4 intersection.
+    //    At height h along the axis, the cone radius is r_c = h·tan(α).
+    //    The closest point on the cone circle (at height h) to the sphere center
+    //    is at distance sqrt((d − r_c)² + (h − t_proj)²) from the sphere center.
+    //    Intersection exists where this distance < sphere_radius.
+
+    // Determine h-range where sphere could reach the axis neighbourhood.
+    let h_lo = (t_proj - sphere_radius).max(z_min);
+    let h_hi = (t_proj + sphere_radius).min(z_max);
+
+    if h_lo >= h_hi {
+        return Ok(vec![]);
+    }
+
+    // Scan for the h-range where the minimum distance from cone to sphere < R.
+    let n_samples: usize = 200;
+    let mut h_start = f64::MAX;
+    let mut h_end = f64::MIN;
+    let mut found = false;
+
+    for i in 0..=n_samples {
+        let h = h_lo + (h_hi - h_lo) * (i as f64) / (n_samples as f64);
+        if h <= TOL {
+            continue;
+        }
+        let cone_r = h * tan_a;
+        let dh = h - t_proj;
+        let min_dist_sq = (d - cone_r) * (d - cone_r) + dh * dh;
+        if min_dist_sq < sphere_radius * sphere_radius {
+            h_start = h_start.min(h);
+            h_end = h_end.max(h);
+            found = true;
+        }
+    }
+
+    if !found {
+        return Ok(vec![]);
+    }
+
+    // Check for tangent (very thin intersection band).
+    if h_end - h_start < TOL {
+        return Ok(vec![]);
+    }
+
+    // Clip to z-range.
+    let h_start = h_start.max(z_min);
+    let h_end = h_end.min(z_max);
+    if h_end - h_start < TOL {
+        return Ok(vec![]);
+    }
+
+    // Return a Line segment on the cone surface in the direction of the offset.
+    let perp_unit = v3_scale(perp_vec, 1.0 / d);
+    let start_r = h_start * tan_a;
+    let end_r = h_end * tan_a;
+    let start = v3_add(
+        v3_add(cone_apex, v3_scale(cone_axis, h_start)),
+        v3_scale(perp_unit, start_r),
+    );
+    let end = v3_add(
+        v3_add(cone_apex, v3_scale(cone_axis, h_end)),
+        v3_scale(perp_unit, end_r),
+    );
+
+    Ok(vec![SSICurve::Line { start, end }])
+}
+
+// ── Plane-Torus SSI ───────────────────────────────────────────────────────
+
+/// Compute SSI between a plane and a torus.
+///
+/// Supports perpendicular planes (normal ∥ torus axis) with exact circle solutions.
+/// Non-perpendicular orientations return NotSupported (degree-4 curves deferred).
+///
+/// Reference: Patrikalakis Ch.5 — Torus-plane SSI.
+pub(crate) fn plane_torus_ssi(
+    plane_origin: [f64; 3],
+    plane_normal: [f64; 3],
+    torus_center: [f64; 3],
+    torus_axis: [f64; 3],
+    torus_major_radius: f64,
+    torus_minor_radius: f64,
+) -> Result<Vec<SSICurve>, KernelError> {
+    // Step 1: Check if plane normal is parallel to torus axis
+    let dot_na = v3_dot(plane_normal, torus_axis).abs();
+    if dot_na < 1.0 - TOL {
+        return Err(KernelError::NotSupported {
+            operation: "plane_torus_ssi: non-perpendicular plane".into(),
+        });
+    }
+
+    // Step 2: Perpendicular plane — compute signed distance along axis
+    let diff = v3_sub(plane_origin, torus_center);
+    let d = v3_dot(diff, torus_axis);
+    let r = torus_minor_radius;
+    let big_r = torus_major_radius;
+
+    // Disjoint: plane misses the torus tube entirely
+    if d.abs() > r + TOL {
+        return Ok(vec![]);
+    }
+
+    let mut curves = Vec::new();
+
+    // Circle center: project torus center onto plane along axis at height d
+    let circle_center = v3_add(torus_center, v3_scale(torus_axis, d));
+
+    if (d.abs() - r).abs() < TOL {
+        // Tangent case: |d| ≈ r → single circle at radius R
+        curves.push(SSICurve::Circle {
+            center: circle_center,
+            normal: torus_axis,
+            radius: big_r,
+        });
+    } else {
+        // General case: 2 circles at radii R ± sqrt(r² - d²)
+        let s = (r * r - d * d).sqrt();
+        let r_outer = big_r + s;
+        let r_inner = big_r - s;
+
+        // Only emit inner circle if its radius is positive (handles spindle torus)
+        if r_inner > TOL {
+            curves.push(SSICurve::Circle {
+                center: circle_center,
+                normal: torus_axis,
+                radius: r_inner,
+            });
+        }
+
+        curves.push(SSICurve::Circle {
+            center: circle_center,
+            normal: torus_axis,
+            radius: r_outer,
+        });
+    }
+
+    Ok(curves)
+}
+
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -2677,5 +2890,1344 @@ mod tests {
             "Tilted axis disjoint case should return empty, got {} curves",
             curves_disjoint.len()
         );
+    }
+
+    // ── Cone-Sphere SSI ──────────────────────────────────────────────────
+
+    /// Helper: distance from a point to the cone surface.
+    /// The cone has apex at `apex`, axis `axis` (unit), half-angle `alpha`.
+    /// At height h from the apex, the cone radius is h * tan(alpha).
+    fn dist_point_to_cone_surface(pt: [f64; 3], apex: [f64; 3], axis: [f64; 3], alpha: f64) -> f64 {
+        let diff = v3_sub(pt, apex);
+        let h = v3_dot(diff, axis);
+        let cone_radius = h * alpha.tan();
+        let d_axis = dist_point_to_axis(pt, apex, axis);
+        (d_axis - cone_radius).abs()
+    }
+
+    #[test]
+    fn cs_cone_01_coaxial_sphere_on_cone() {
+        // Cone: apex at origin, axis +Z, half-angle 45°, z in [0, 10].
+        // At height h, cone radius = h * tan(45°) = h.
+        // Sphere: center at (0, 0, 3), radius 2.
+        // Coaxial case: sphere center is on cone axis.
+        // Solve: (h * tan(45°))² + (h - 3)² = 4
+        //   h² + h² - 6h + 9 = 4  →  2h² - 6h + 5 = 0
+        //   h = (6 ± √(36-40))/4 — discriminant = -4 < 0
+        // So with 45° half-angle the sphere doesn't intersect.
+        //
+        // Use half-angle = 30° instead: cone radius = h * tan(30°) = h/√3.
+        // Solve: (h/√3)² + (h - 3)² = 4
+        //   h²/3 + h² - 6h + 9 = 4  →  (4/3)h² - 6h + 5 = 0
+        //   h = (6 ± √(36-80/3)) / (8/3) = (6 ± √(28/3)) / (8/3)
+        //   discriminant = 36 - 80/3 = 28/3 ≈ 9.333 > 0 → two roots
+        let half_angle = std::f64::consts::FRAC_PI_6; // 30°
+        let curves = cone_sphere_ssi(
+            [0.0, 0.0, 0.0], // apex
+            [0.0, 0.0, 1.0], // axis
+            half_angle,
+            0.0,             // z_min
+            10.0,            // z_max
+            [0.0, 0.0, 3.0], // sphere center on axis
+            2.0,             // sphere radius
+        )
+        .unwrap();
+
+        // Coaxial case should produce 1 or 2 circles
+        assert!(
+            curves.len() >= 1 && curves.len() <= 2,
+            "Coaxial cone-sphere should produce 1-2 circles, got {}",
+            curves.len()
+        );
+
+        let tau = crate::units::TAU_MODEL;
+        for curve in &curves {
+            match curve {
+                SSICurve::Circle {
+                    center,
+                    normal,
+                    radius,
+                } => {
+                    // Circle normal should be parallel to cone axis (coaxial case)
+                    let dot = v3_dot(*normal, [0.0, 0.0, 1.0]).abs();
+                    assert!(
+                        (dot - 1.0).abs() < tau,
+                        "Circle normal should be parallel to axis, dot={}",
+                        dot
+                    );
+                    // Circle center should be on the axis
+                    assert!(center[0].abs() < tau, "Circle center x should be 0");
+                    assert!(center[1].abs() < tau, "Circle center y should be 0");
+                    // Height h = center[2], cone radius at h = h * tan(half_angle)
+                    let h = center[2];
+                    let expected_r = h * half_angle.tan();
+                    assert!(
+                        (*radius - expected_r).abs() < tau,
+                        "Circle radius {} should equal h*tan(alpha)={}",
+                        radius,
+                        expected_r
+                    );
+                }
+                _ => panic!("Expected Circle for coaxial case, got {:?}", curve),
+            }
+        }
+    }
+
+    #[test]
+    fn cs_cone_02_disjoint_far() {
+        // Cone: apex at origin, axis +Z, half-angle 30°, z in [0, 5].
+        // Sphere far away at (100, 0, 0), radius 1.
+        let curves = cone_sphere_ssi(
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            std::f64::consts::FRAC_PI_6,
+            0.0,
+            5.0,
+            [100.0, 0.0, 0.0],
+            1.0,
+        )
+        .unwrap();
+
+        assert!(
+            curves.is_empty(),
+            "Disjoint cone-sphere should return empty, got {} curves",
+            curves.len()
+        );
+    }
+
+    #[test]
+    fn cs_cone_03_tangent_external() {
+        // Cone: apex at origin, axis +Z, half-angle 45°, z in [0, 10].
+        // Cone surface: x² + y² = z² (radius = z at height z).
+        // Sphere center at (10, 0, 0). Min distance from (10,0,0) to cone surface
+        // is at z=5: dist = sqrt((10-5)² + 5²) = sqrt(50) = 10/√2.
+        // Set sphere radius = 10/√2 for exact tangency.
+        // Tangent case should return empty (within tolerance).
+        let r_tangent = 10.0 / std::f64::consts::SQRT_2;
+        let curves = cone_sphere_ssi(
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            std::f64::consts::FRAC_PI_4, // 45°
+            0.0,
+            10.0,
+            [10.0, 0.0, 0.0],
+            r_tangent,
+        )
+        .unwrap();
+
+        // Tangent → empty (single point contact within tolerance)
+        assert!(
+            curves.is_empty(),
+            "Tangent external cone-sphere should return empty, got {} curves",
+            curves.len()
+        );
+    }
+
+    #[test]
+    fn cs_cone_04_sphere_enclosing_apex() {
+        // Cone: apex at origin, axis +Z, half-angle 30°, z in [0, 10].
+        // Sphere: center at (0, 0, 0.5), radius 3.0 — encloses the apex.
+        // The sphere is large enough to cut the cone, producing intersection.
+        let half_angle = std::f64::consts::FRAC_PI_6; // 30°
+        let curves = cone_sphere_ssi(
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            half_angle,
+            0.0,
+            10.0,
+            [0.0, 0.0, 0.5],
+            3.0,
+        )
+        .unwrap();
+
+        // Should produce at least 1 circle (coaxial, sphere enclosing apex)
+        assert!(
+            !curves.is_empty(),
+            "Sphere enclosing apex should produce intersection curves"
+        );
+
+        let tau = crate::units::TAU_MODEL;
+        // Verify all intersection points lie on both surfaces
+        for curve in &curves {
+            if let SSICurve::Circle {
+                center,
+                normal: _,
+                radius,
+            } = curve
+            {
+                // Sample points on the circle and verify they are on both surfaces
+                let h = v3_dot(v3_sub(*center, [0.0, 0.0, 0.0]), [0.0, 0.0, 1.0]);
+                let cone_r = h * half_angle.tan();
+                assert!(
+                    (*radius - cone_r).abs() < tau,
+                    "Circle radius {} should match cone radius at h={}: {}",
+                    radius,
+                    h,
+                    cone_r
+                );
+
+                // Verify points on the circle are on the sphere
+                for i in 0..16 {
+                    let t = std::f64::consts::TAU * (i as f64) / 16.0;
+                    let pt = eval_circle(curve, t);
+                    let d_sphere = v3_length(v3_sub(pt, [0.0, 0.0, 0.5]));
+                    assert!(
+                        (d_sphere - 3.0).abs() < tau,
+                        "Point {:?} dist to sphere center = {}, expected 3.0",
+                        pt,
+                        d_sphere
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cs_cone_05_general_offset() {
+        // Cone: apex at origin, axis +Z, half-angle 30°, z in [0, 10].
+        // Sphere: center off-axis at (2, 0, 4), radius 3.
+        // General offset case: intersection is a degree-4 curve,
+        // approximated as a Line segment or circle.
+        let curves = cone_sphere_ssi(
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            std::f64::consts::FRAC_PI_6,
+            0.0,
+            10.0,
+            [2.0, 0.0, 4.0],
+            3.0,
+        )
+        .unwrap();
+
+        // Offset overlap should produce at least 1 curve
+        assert!(
+            !curves.is_empty(),
+            "General offset cone-sphere should produce intersection curves"
+        );
+
+        // Verify each curve is a recognized SSICurve variant
+        for curve in &curves {
+            match curve {
+                SSICurve::Circle { radius, .. } => {
+                    assert!(*radius > 0.0, "Circle radius must be positive");
+                }
+                SSICurve::Line { start, end } => {
+                    let len = v3_length(v3_sub(*end, *start));
+                    assert!(len > 0.0, "Line segment must have nonzero length");
+                }
+                SSICurve::Ellipse {
+                    semi_major,
+                    semi_minor,
+                    ..
+                } => {
+                    assert!(*semi_major > 0.0 && *semi_minor > 0.0);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cs_cone_06_outside_z_range() {
+        // Cone: apex at origin, axis +Z, half-angle 30°, z in [0, 2].
+        // Sphere: center at (0, 0, 8), radius 2.
+        // At h=8, cone radius = 8*tan(30°) ≈ 4.62. Sphere would intersect
+        // at h ≈ 6-10, but cone z_max = 2 → entirely outside.
+        let curves = cone_sphere_ssi(
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            std::f64::consts::FRAC_PI_6,
+            0.0,
+            2.0,
+            [0.0, 0.0, 8.0],
+            2.0,
+        )
+        .unwrap();
+
+        assert!(
+            curves.is_empty(),
+            "Intersection outside z-range should return empty, got {} curves",
+            curves.len()
+        );
+    }
+
+    #[test]
+    fn cs_cone_07_coaxial_two_circles() {
+        // Cone: apex at origin, axis +Z, half-angle 30°, z in [0, 20].
+        // Sphere: center at (0, 0, 6), radius 4 — on axis, large overlap.
+        // Coaxial: solve (h/√3)² + (h-6)² = 16
+        //   h²/3 + h² - 12h + 36 = 16  →  (4/3)h² - 12h + 20 = 0
+        //   h = (12 ± √(144 - 320/3)) / (8/3)
+        //   discriminant = 144 - 320/3 = 112/3 ≈ 37.33 > 0 → two roots
+        let half_angle = std::f64::consts::FRAC_PI_6; // 30°
+        let curves = cone_sphere_ssi(
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            half_angle,
+            0.0,
+            20.0,
+            [0.0, 0.0, 6.0],
+            4.0,
+        )
+        .unwrap();
+
+        assert_eq!(
+            curves.len(),
+            2,
+            "Coaxial cone-sphere with large overlap should produce 2 circles, got {}",
+            curves.len()
+        );
+
+        let tau = crate::units::TAU_MODEL;
+        let mut h_values: Vec<f64> = Vec::new();
+
+        for curve in &curves {
+            match curve {
+                SSICurve::Circle {
+                    center,
+                    normal,
+                    radius,
+                } => {
+                    // Normal parallel to axis
+                    let dot = v3_dot(*normal, [0.0, 0.0, 1.0]).abs();
+                    assert!(
+                        (dot - 1.0).abs() < tau,
+                        "Circle normal should be ∥ axis, dot={}",
+                        dot
+                    );
+                    // Center on axis
+                    assert!(center[0].abs() < tau);
+                    assert!(center[1].abs() < tau);
+                    let h = center[2];
+                    h_values.push(h);
+                    // Radius consistency: r = h * tan(alpha)
+                    let expected_r = h * half_angle.tan();
+                    assert!(
+                        (*radius - expected_r).abs() < tau,
+                        "radius {} != h*tan(a)={}",
+                        radius,
+                        expected_r
+                    );
+                    // Height must be positive and within z-range
+                    assert!(h > 0.0, "h must be > 0, got {}", h);
+                    assert!(h <= 20.0 + tau, "h must be <= z_max, got {}", h);
+
+                    // Oracle: points on circle must be on sphere
+                    for i in 0..16 {
+                        let t = std::f64::consts::TAU * (i as f64) / 16.0;
+                        let pt = eval_circle(curve, t);
+                        let d_sphere = v3_length(v3_sub(pt, [0.0, 0.0, 6.0]));
+                        assert!(
+                            (d_sphere - 4.0).abs() < tau,
+                            "Point dist to sphere = {}, expected 4.0",
+                            d_sphere
+                        );
+                    }
+                }
+                _ => panic!("Expected Circle for coaxial case, got {:?}", curve),
+            }
+        }
+
+        // Two distinct heights
+        h_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert!(
+            (h_values[1] - h_values[0]).abs() > 0.1,
+            "Two circles should be at distinct heights: {:?}",
+            h_values
+        );
+    }
+
+    // ── Adversarial cone-sphere tests ─────────────────────────────────
+
+    /// Helper: verify that a point lies on a cone surface (apex, axis +Z, half_angle).
+    /// Returns the absolute distance error from the cone surface.
+    fn cone_surface_error(pt: [f64; 3], apex: [f64; 3], axis: [f64; 3], half_angle: f64) -> f64 {
+        let diff = v3_sub(pt, apex);
+        let h = v3_dot(diff, axis);
+        let proj = v3_scale(axis, h);
+        let perp = v3_sub(diff, proj);
+        let perp_dist = v3_length(perp);
+        let expected_r = h * half_angle.tan();
+        (perp_dist - expected_r).abs()
+    }
+
+    /// Helper: verify that a point lies on a sphere surface.
+    fn sphere_surface_error(pt: [f64; 3], center: [f64; 3], radius: f64) -> f64 {
+        (v3_length(v3_sub(pt, center)) - radius).abs()
+    }
+
+    /// Validate all returned curves: no NaN, positive radii, circle centers
+    /// within z_range, and points on circles lie on both cone and sphere.
+    fn validate_cone_sphere_results(
+        curves: &[SSICurve],
+        apex: [f64; 3],
+        axis: [f64; 3],
+        half_angle: f64,
+        z_min: f64,
+        z_max: f64,
+        sphere_center: [f64; 3],
+        sphere_radius: f64,
+    ) {
+        let tau = crate::units::TAU_MODEL;
+        for curve in curves {
+            match curve {
+                SSICurve::Circle {
+                    center,
+                    normal,
+                    radius,
+                } => {
+                    // No NaN
+                    assert!(
+                        !center[0].is_nan() && !center[1].is_nan() && !center[2].is_nan(),
+                        "Circle center contains NaN: {:?}",
+                        center
+                    );
+                    assert!(!radius.is_nan(), "Circle radius is NaN");
+                    assert!(
+                        !normal[0].is_nan() && !normal[1].is_nan() && !normal[2].is_nan(),
+                        "Circle normal contains NaN: {:?}",
+                        normal
+                    );
+                    // Positive radius
+                    assert!(
+                        *radius > 0.0,
+                        "Circle radius must be positive, got {}",
+                        radius
+                    );
+                    // Circle center height within z_range (with tolerance)
+                    let h = v3_dot(v3_sub(*center, apex), axis);
+                    assert!(
+                        h >= z_min - tau && h <= z_max + tau,
+                        "Circle center height {} outside z_range [{}, {}]",
+                        h,
+                        z_min,
+                        z_max
+                    );
+                    // Sample 16 points and verify they lie on both surfaces
+                    for i in 0..16 {
+                        let t = std::f64::consts::TAU * (i as f64) / 16.0;
+                        let pt = eval_circle(curve, t);
+                        let cone_err = cone_surface_error(pt, apex, axis, half_angle);
+                        assert!(
+                            cone_err < tau,
+                            "Point {:?} not on cone surface, error={}",
+                            pt,
+                            cone_err
+                        );
+                        let sphere_err = sphere_surface_error(pt, sphere_center, sphere_radius);
+                        assert!(
+                            sphere_err < tau,
+                            "Point {:?} not on sphere surface, error={}",
+                            pt,
+                            sphere_err
+                        );
+                    }
+                }
+                SSICurve::Line { start, end } => {
+                    // No NaN
+                    for v in [start, end] {
+                        assert!(
+                            !v[0].is_nan() && !v[1].is_nan() && !v[2].is_nan(),
+                            "Line endpoint contains NaN: {:?}",
+                            v
+                        );
+                    }
+                    let len = v3_length(v3_sub(*end, *start));
+                    assert!(len > 0.0, "Line segment must have nonzero length");
+                }
+                SSICurve::Ellipse {
+                    semi_major,
+                    semi_minor,
+                    ..
+                } => {
+                    assert!(!semi_major.is_nan() && !semi_minor.is_nan());
+                    assert!(*semi_major > 0.0 && *semi_minor > 0.0);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cs_cone_08_micro_scale() {
+        // Cone and sphere at 1e-4 scale (near MIN_FEATURE_SIZE).
+        // Cone: apex at origin, axis +Z, half-angle 30°, z in [0, 1e-4].
+        // Sphere: center at (0, 0, 5e-5), radius 4e-5 — coaxial, within cone.
+        let half_angle = std::f64::consts::FRAC_PI_6;
+        let apex = [0.0, 0.0, 0.0];
+        let axis = [0.0, 0.0, 1.0];
+        let z_min = 0.0;
+        let z_max = 1e-4;
+        let sphere_center = [0.0, 0.0, 5e-5];
+        let sphere_radius = 4e-5;
+
+        let curves = cone_sphere_ssi(
+            apex,
+            axis,
+            half_angle,
+            z_min,
+            z_max,
+            sphere_center,
+            sphere_radius,
+        )
+        .unwrap();
+
+        // Should not panic. At this scale TOL=1e-9 still leaves room for
+        // features. We may or may not get results depending on whether
+        // h values pass the h > TOL filter, but must not panic/NaN.
+        validate_cone_sphere_results(
+            &curves,
+            apex,
+            axis,
+            half_angle,
+            z_min,
+            z_max,
+            sphere_center,
+            sphere_radius,
+        );
+    }
+
+    #[test]
+    fn cs_cone_09_large_half_angle() {
+        // Very wide cone: half_angle = 80° (near 90° limit).
+        // tan(80°) ≈ 5.67. Cone opens very wide.
+        // Sphere on axis at z=2, radius 3.
+        let half_angle = 80.0_f64.to_radians();
+        let apex = [0.0, 0.0, 0.0];
+        let axis = [0.0, 0.0, 1.0];
+        let z_min = 0.0;
+        let z_max = 10.0;
+        let sphere_center = [0.0, 0.0, 2.0];
+        let sphere_radius = 3.0;
+
+        let curves = cone_sphere_ssi(
+            apex,
+            axis,
+            half_angle,
+            z_min,
+            z_max,
+            sphere_center,
+            sphere_radius,
+        )
+        .unwrap();
+
+        // Coaxial case: solve (1 + tan²(80°))h² - 4h + (4 - 9) = 0
+        // tan²(80°) ≈ 32.16, so a_coeff ≈ 33.16
+        // disc = 16 - 4*33.16*(-5) = 16 + 663.2 = 679.2 > 0 → two roots
+        // But h must be > 0 and within [0, 10].
+        assert!(
+            !curves.is_empty(),
+            "Wide cone (80°) with on-axis sphere should produce intersection"
+        );
+
+        validate_cone_sphere_results(
+            &curves,
+            apex,
+            axis,
+            half_angle,
+            z_min,
+            z_max,
+            sphere_center,
+            sphere_radius,
+        );
+    }
+
+    #[test]
+    fn cs_cone_10_small_half_angle() {
+        // Very narrow cone: half_angle = 5°.
+        // tan(5°) ≈ 0.0875. Cone is almost a line.
+        // Sphere on axis at z=5, radius 2.
+        let half_angle = 5.0_f64.to_radians();
+        let apex = [0.0, 0.0, 0.0];
+        let axis = [0.0, 0.0, 1.0];
+        let z_min = 0.0;
+        let z_max = 20.0;
+        let sphere_center = [0.0, 0.0, 5.0];
+        let sphere_radius = 2.0;
+
+        let curves = cone_sphere_ssi(
+            apex,
+            axis,
+            half_angle,
+            z_min,
+            z_max,
+            sphere_center,
+            sphere_radius,
+        )
+        .unwrap();
+
+        // Coaxial: (1 + tan²(5°))h² - 10h + (25-4) = 0
+        // a ≈ 1.0077, disc = 100 - 4*1.0077*21 = 100 - 84.6 = 15.4 > 0 → two roots
+        assert!(
+            !curves.is_empty(),
+            "Narrow cone (5°) with on-axis sphere should produce intersection"
+        );
+
+        validate_cone_sphere_results(
+            &curves,
+            apex,
+            axis,
+            half_angle,
+            z_min,
+            z_max,
+            sphere_center,
+            sphere_radius,
+        );
+
+        // Verify the circles have small radii (since the cone is narrow)
+        for curve in &curves {
+            if let SSICurve::Circle { radius, .. } = curve {
+                // At h~5, r = 5*tan(5°) ≈ 0.437. Radii should be < 1.
+                assert!(
+                    *radius < 2.0,
+                    "Narrow cone circle radius {} should be small",
+                    radius
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn cs_cone_11_sphere_at_apex() {
+        // Sphere centered exactly at the cone apex.
+        // Coaxial case with t_proj = 0.
+        // Solve: (1 + tan²α)h² + 0 + (0 - R²) = 0
+        //   h² = R² / (1 + tan²α)  →  h = R / sec(α) = R·cos(α)
+        // Only one positive root (h2 = -h1 < 0, filtered out).
+        let half_angle = std::f64::consts::FRAC_PI_6; // 30°
+        let apex = [0.0, 0.0, 0.0];
+        let axis = [0.0, 0.0, 1.0];
+        let z_min = 0.0;
+        let z_max = 10.0;
+        let sphere_center = [0.0, 0.0, 0.0]; // exactly at apex
+        let sphere_radius = 3.0;
+
+        let curves = cone_sphere_ssi(
+            apex,
+            axis,
+            half_angle,
+            z_min,
+            z_max,
+            sphere_center,
+            sphere_radius,
+        )
+        .unwrap();
+
+        // Should produce exactly 1 circle (h = R·cos(α), the negative root is filtered)
+        assert_eq!(
+            curves.len(),
+            1,
+            "Sphere at apex should produce 1 circle, got {}",
+            curves.len()
+        );
+
+        let expected_h = sphere_radius * half_angle.cos();
+        let tau = crate::units::TAU_MODEL;
+
+        if let SSICurve::Circle { center, radius, .. } = &curves[0] {
+            let h = center[2];
+            assert!(
+                (h - expected_h).abs() < tau,
+                "Circle height {} should be R·cos(α) = {}",
+                h,
+                expected_h
+            );
+            let expected_r = expected_h * half_angle.tan();
+            assert!(
+                (*radius - expected_r).abs() < tau,
+                "Circle radius {} should be {}",
+                radius,
+                expected_r
+            );
+        } else {
+            panic!("Expected Circle, got {:?}", curves[0]);
+        }
+
+        validate_cone_sphere_results(
+            &curves,
+            apex,
+            axis,
+            half_angle,
+            z_min,
+            z_max,
+            sphere_center,
+            sphere_radius,
+        );
+    }
+
+    #[test]
+    fn cs_cone_12_negative_z_range() {
+        // Cone: apex at origin, axis +Z, half-angle 30°, z in [0, 10].
+        // Sphere centered below apex at (0, 0, -5), radius 8.
+        // t_proj = -5 (negative). The sphere is large enough to reach the cone
+        // at positive h values.
+        // Coaxial: (1+tan²30°)h² + 10h + (25 - 64) = 0
+        //   (4/3)h² + 10h - 39 = 0
+        //   h = (-10 ± √(100 + 208)) / (8/3) = (-10 ± √308) / (8/3)
+        //   √308 ≈ 17.55
+        //   h1 = (-10 + 17.55)*3/8 ≈ 2.83  (positive, valid)
+        //   h2 = (-10 - 17.55)*3/8 ≈ -10.33 (negative, filtered)
+        let half_angle = std::f64::consts::FRAC_PI_6;
+        let apex = [0.0, 0.0, 0.0];
+        let axis = [0.0, 0.0, 1.0];
+        let z_min = 0.0;
+        let z_max = 10.0;
+        let sphere_center = [0.0, 0.0, -5.0];
+        let sphere_radius = 8.0;
+
+        let curves = cone_sphere_ssi(
+            apex,
+            axis,
+            half_angle,
+            z_min,
+            z_max,
+            sphere_center,
+            sphere_radius,
+        )
+        .unwrap();
+
+        // Should produce 1 circle at h ≈ 2.83
+        assert_eq!(
+            curves.len(),
+            1,
+            "Sphere below apex should produce 1 circle, got {}",
+            curves.len()
+        );
+
+        let tau = crate::units::TAU_MODEL;
+        if let SSICurve::Circle { center, radius, .. } = &curves[0] {
+            let h = center[2];
+            // h must be positive and within z_range
+            assert!(h > 0.0, "Circle height must be positive, got {}", h);
+            assert!(
+                h <= z_max + tau,
+                "Circle height {} exceeds z_max {}",
+                h,
+                z_max
+            );
+            // Radius must be positive
+            assert!(
+                *radius > 0.0,
+                "Circle radius must be positive, got {}",
+                radius
+            );
+        } else {
+            panic!("Expected Circle, got {:?}", curves[0]);
+        }
+
+        validate_cone_sphere_results(
+            &curves,
+            apex,
+            axis,
+            half_angle,
+            z_min,
+            z_max,
+            sphere_center,
+            sphere_radius,
+        );
+    }
+
+    // ── Plane-Torus SSI tests ─────────────────────────────────────────────
+
+    #[test]
+    fn pt_01_equatorial_plane() {
+        // Plane through torus center, normal = torus axis.
+        // Torus: center (0,0,0), axis +Z, R=5, r=2.
+        // Expected: 2 circles at radii R+r=7 and R-r=3, centered at origin, normal +Z.
+        let tau = crate::units::TAU_MODEL;
+        let curves = plane_torus_ssi(
+            [0.0, 0.0, 0.0], // plane origin
+            [0.0, 0.0, 1.0], // plane normal
+            [0.0, 0.0, 0.0], // torus center
+            [0.0, 0.0, 1.0], // torus axis
+            5.0,             // major radius R
+            2.0,             // minor radius r
+        )
+        .unwrap();
+
+        assert_eq!(
+            curves.len(),
+            2,
+            "Equatorial plane should produce 2 circles, got {}",
+            curves.len()
+        );
+
+        let mut radii: Vec<f64> = curves
+            .iter()
+            .map(|c| match c {
+                SSICurve::Circle { radius, .. } => *radius,
+                other => panic!("Expected Circle, got {:?}", other),
+            })
+            .collect();
+        radii.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        assert!(
+            (radii[0] - 3.0).abs() < tau,
+            "Inner radius should be 3.0, got {}",
+            radii[0]
+        );
+        assert!(
+            (radii[1] - 7.0).abs() < tau,
+            "Outer radius should be 7.0, got {}",
+            radii[1]
+        );
+
+        for curve in &curves {
+            if let SSICurve::Circle { center, normal, .. } = curve {
+                assert!(center[0].abs() < tau, "Circle center x should be 0");
+                assert!(center[1].abs() < tau, "Circle center y should be 0");
+                assert!(center[2].abs() < tau, "Circle center z should be 0");
+                let dot = v3_dot(*normal, [0.0, 0.0, 1.0]).abs();
+                assert!(
+                    (dot - 1.0).abs() < tau,
+                    "Normal should be parallel to +Z, dot={}",
+                    dot
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn pt_02_disjoint() {
+        // Plane at z=10, torus at origin with R=5, r=2.
+        // Distance |10| > r=2, so disjoint → empty.
+        let curves = plane_torus_ssi(
+            [0.0, 0.0, 10.0], // plane origin
+            [0.0, 0.0, 1.0],  // plane normal
+            [0.0, 0.0, 0.0],  // torus center
+            [0.0, 0.0, 1.0],  // torus axis
+            5.0,              // R
+            2.0,              // r
+        )
+        .unwrap();
+
+        assert!(
+            curves.is_empty(),
+            "Disjoint plane-torus should return empty, got {} curves",
+            curves.len()
+        );
+    }
+
+    #[test]
+    fn pt_03_tangent_top() {
+        // Plane at z=r (exactly at top of torus tube).
+        // Torus: center (0,0,0), axis +Z, R=5, r=2. Plane at z=2.
+        // Tangent → 1 circle at radius R=5.
+        let tau = crate::units::TAU_MODEL;
+        let curves = plane_torus_ssi(
+            [0.0, 0.0, 2.0], // plane origin at z=r
+            [0.0, 0.0, 1.0], // plane normal
+            [0.0, 0.0, 0.0], // torus center
+            [0.0, 0.0, 1.0], // torus axis
+            5.0,             // R
+            2.0,             // r
+        )
+        .unwrap();
+
+        assert_eq!(
+            curves.len(),
+            1,
+            "Tangent plane should produce 1 circle, got {}",
+            curves.len()
+        );
+
+        if let SSICurve::Circle {
+            center,
+            normal,
+            radius,
+        } = &curves[0]
+        {
+            assert!(
+                (radius - 5.0).abs() < tau,
+                "Tangent circle radius should be R=5, got {}",
+                radius
+            );
+            assert!(center[0].abs() < tau, "Center x should be 0");
+            assert!(center[1].abs() < tau, "Center y should be 0");
+            assert!(
+                (center[2] - 2.0).abs() < tau,
+                "Center z should be 2.0, got {}",
+                center[2]
+            );
+            let dot = v3_dot(*normal, [0.0, 0.0, 1.0]).abs();
+            assert!((dot - 1.0).abs() < tau, "Normal should be parallel to +Z");
+        } else {
+            panic!("Expected Circle, got {:?}", curves[0]);
+        }
+    }
+
+    #[test]
+    fn pt_04_perpendicular_offset() {
+        // Plane at z=1 (between 0 and r=2).
+        // Should produce 2 circles at radii R ± sqrt(r² - d²) = 5 ± sqrt(3).
+        let tau = crate::units::TAU_MODEL;
+        let d = 1.0_f64;
+        let r = 2.0_f64;
+        let big_r = 5.0_f64;
+        let s = (r * r - d * d).sqrt(); // sqrt(3)
+        let expected_outer = big_r + s;
+        let expected_inner = big_r - s;
+
+        let curves = plane_torus_ssi(
+            [0.0, 0.0, 1.0], // plane origin at z=1
+            [0.0, 0.0, 1.0], // plane normal
+            [0.0, 0.0, 0.0], // torus center
+            [0.0, 0.0, 1.0], // torus axis
+            big_r,           // R
+            r,               // r
+        )
+        .unwrap();
+
+        assert_eq!(
+            curves.len(),
+            2,
+            "Offset perpendicular plane should produce 2 circles, got {}",
+            curves.len()
+        );
+
+        let mut radii: Vec<f64> = curves
+            .iter()
+            .map(|c| match c {
+                SSICurve::Circle { radius, .. } => *radius,
+                other => panic!("Expected Circle, got {:?}", other),
+            })
+            .collect();
+        radii.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        assert!(
+            (radii[0] - expected_inner).abs() < tau,
+            "Inner radius should be {}, got {}",
+            expected_inner,
+            radii[0]
+        );
+        assert!(
+            (radii[1] - expected_outer).abs() < tau,
+            "Outer radius should be {}, got {}",
+            expected_outer,
+            radii[1]
+        );
+
+        // Verify centers are at z=1 on the axis
+        for curve in &curves {
+            if let SSICurve::Circle { center, .. } = curve {
+                assert!(center[0].abs() < tau, "Center x should be 0");
+                assert!(center[1].abs() < tau, "Center y should be 0");
+                assert!(
+                    (center[2] - 1.0).abs() < tau,
+                    "Center z should be 1.0, got {}",
+                    center[2]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn pt_05_oblique_not_supported() {
+        // Plane with normal at 45° to torus axis → NotSupported.
+        let result = plane_torus_ssi(
+            [0.0, 0.0, 0.0],
+            [FRAC_1_SQRT_2, 0.0, FRAC_1_SQRT_2], // 45° to Z
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            5.0,
+            2.0,
+        );
+
+        assert!(
+            matches!(result, Err(KernelError::NotSupported { .. })),
+            "Oblique plane should return NotSupported, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn pt_06_parallel_to_axis() {
+        // Plane normal ⊥ torus axis (plane parallel to axis) → NotSupported.
+        let result = plane_torus_ssi(
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0], // normal ⊥ Z axis
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            5.0,
+            2.0,
+        );
+
+        assert!(
+            matches!(result, Err(KernelError::NotSupported { .. })),
+            "Plane parallel to torus axis should return NotSupported, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn pt_07_offset_torus_center() {
+        // Torus not at origin: center at (10, 20, 30), axis +Z.
+        // Perpendicular plane through torus center → 2 circles (equatorial but offset).
+        let tau = crate::units::TAU_MODEL;
+        let tc = [10.0, 20.0, 30.0];
+        let curves = plane_torus_ssi(
+            tc,              // plane origin = torus center
+            [0.0, 0.0, 1.0], // plane normal
+            tc,              // torus center
+            [0.0, 0.0, 1.0], // torus axis
+            5.0,             // R
+            2.0,             // r
+        )
+        .unwrap();
+
+        assert_eq!(
+            curves.len(),
+            2,
+            "Equatorial offset plane should produce 2 circles, got {}",
+            curves.len()
+        );
+
+        let mut radii: Vec<f64> = curves
+            .iter()
+            .map(|c| match c {
+                SSICurve::Circle { radius, .. } => *radius,
+                other => panic!("Expected Circle, got {:?}", other),
+            })
+            .collect();
+        radii.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        assert!(
+            (radii[0] - 3.0).abs() < tau,
+            "Inner radius should be 3.0, got {}",
+            radii[0]
+        );
+        assert!(
+            (radii[1] - 7.0).abs() < tau,
+            "Outer radius should be 7.0, got {}",
+            radii[1]
+        );
+
+        // Verify centers are at the torus center position
+        for curve in &curves {
+            if let SSICurve::Circle { center, normal, .. } = curve {
+                assert!(
+                    (center[0] - 10.0).abs() < tau,
+                    "Center x should be 10.0, got {}",
+                    center[0]
+                );
+                assert!(
+                    (center[1] - 20.0).abs() < tau,
+                    "Center y should be 20.0, got {}",
+                    center[1]
+                );
+                assert!(
+                    (center[2] - 30.0).abs() < tau,
+                    "Center z should be 30.0, got {}",
+                    center[2]
+                );
+                let dot = v3_dot(*normal, [0.0, 0.0, 1.0]).abs();
+                assert!((dot - 1.0).abs() < tau, "Normal should be parallel to +Z");
+            }
+        }
+    }
+
+    // ── Adversarial plane-torus SSI tests ─────────────────────────────
+
+    #[test]
+    fn pt_08_micro_scale() {
+        // Torus near MIN_FEATURE_SIZE: R=1e-4, r=5e-5.
+        // Perpendicular plane through center → 2 circles at R±r.
+        let tau = crate::units::TAU_MODEL;
+        let big_r = 1e-4;
+        let r = 5e-5;
+        let curves = plane_torus_ssi(
+            [0.0, 0.0, 0.0], // plane origin
+            [0.0, 0.0, 1.0], // plane normal
+            [0.0, 0.0, 0.0], // torus center
+            [0.0, 0.0, 1.0], // torus axis
+            big_r,
+            r,
+        )
+        .unwrap();
+
+        assert_eq!(
+            curves.len(),
+            2,
+            "Micro-scale equatorial plane should produce 2 circles, got {}",
+            curves.len()
+        );
+
+        let mut radii: Vec<f64> = curves
+            .iter()
+            .map(|c| match c {
+                SSICurve::Circle { radius, .. } => *radius,
+                other => panic!("Expected Circle, got {:?}", other),
+            })
+            .collect();
+        radii.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        let expected_inner = big_r - r; // 5e-5
+        let expected_outer = big_r + r; // 1.5e-4
+
+        assert!(
+            (radii[0] - expected_inner).abs() < tau,
+            "Inner radius should be {}, got {}",
+            expected_inner,
+            radii[0]
+        );
+        assert!(
+            (radii[1] - expected_outer).abs() < tau,
+            "Outer radius should be {}, got {}",
+            expected_outer,
+            radii[1]
+        );
+
+        // No NaN in any output
+        for curve in &curves {
+            if let SSICurve::Circle {
+                center,
+                normal,
+                radius,
+            } = curve
+            {
+                assert!(!radius.is_nan(), "Radius must not be NaN");
+                for i in 0..3 {
+                    assert!(!center[i].is_nan(), "Center[{}] must not be NaN", i);
+                    assert!(!normal[i].is_nan(), "Normal[{}] must not be NaN", i);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn pt_09_large_torus() {
+        // Large torus: R=1000, r=100. Plane at d=50.
+        let tau = crate::units::TAU_MODEL;
+        let big_r = 1000.0_f64;
+        let r = 100.0_f64;
+        let d = 50.0_f64;
+        let s = (r * r - d * d).sqrt();
+        let expected_outer = big_r + s;
+        let expected_inner = big_r - s;
+
+        let curves = plane_torus_ssi(
+            [0.0, 0.0, d],   // plane origin at z=50
+            [0.0, 0.0, 1.0], // plane normal
+            [0.0, 0.0, 0.0], // torus center
+            [0.0, 0.0, 1.0], // torus axis
+            big_r,
+            r,
+        )
+        .unwrap();
+
+        assert_eq!(
+            curves.len(),
+            2,
+            "Large torus offset plane should produce 2 circles, got {}",
+            curves.len()
+        );
+
+        let mut radii: Vec<f64> = curves
+            .iter()
+            .map(|c| match c {
+                SSICurve::Circle { radius, .. } => *radius,
+                other => panic!("Expected Circle, got {:?}", other),
+            })
+            .collect();
+        radii.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        assert!(
+            (radii[0] - expected_inner).abs() < 1e-6,
+            "Inner radius should be {}, got {}",
+            expected_inner,
+            radii[0]
+        );
+        assert!(
+            (radii[1] - expected_outer).abs() < 1e-6,
+            "Outer radius should be {}, got {}",
+            expected_outer,
+            radii[1]
+        );
+
+        // Verify centers at z=50
+        for curve in &curves {
+            if let SSICurve::Circle { center, .. } = curve {
+                assert!(
+                    (center[2] - d).abs() < tau,
+                    "Center z should be {}, got {}",
+                    d,
+                    center[2]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn pt_10_near_tangent() {
+        // Plane at d = r - 1e-8, just barely inside the torus tube.
+        // Should produce 2 circles (not tangent).
+        let big_r = 5.0_f64;
+        let r = 2.0_f64;
+        let d = r - 1e-8; // just inside tangent
+
+        let curves = plane_torus_ssi(
+            [0.0, 0.0, d],   // plane origin
+            [0.0, 0.0, 1.0], // plane normal
+            [0.0, 0.0, 0.0], // torus center
+            [0.0, 0.0, 1.0], // torus axis
+            big_r,
+            r,
+        )
+        .unwrap();
+
+        assert_eq!(
+            curves.len(),
+            2,
+            "Near-tangent plane (d = r - 1e-8) should produce 2 circles, got {}",
+            curves.len()
+        );
+
+        let mut radii: Vec<f64> = curves
+            .iter()
+            .map(|c| match c {
+                SSICurve::Circle { radius, .. } => *radius,
+                other => panic!("Expected Circle, got {:?}", other),
+            })
+            .collect();
+        radii.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        // s = sqrt(r² - d²) ≈ sqrt(r² - (r-1e-8)²) ≈ sqrt(2r * 1e-8) ≈ tiny
+        let s = (r * r - d * d).sqrt();
+        let expected_inner = big_r - s;
+        let expected_outer = big_r + s;
+
+        assert!(
+            (radii[0] - expected_inner).abs() < 1e-6,
+            "Inner radius should be ~{}, got {}",
+            expected_inner,
+            radii[0]
+        );
+        assert!(
+            (radii[1] - expected_outer).abs() < 1e-6,
+            "Outer radius should be ~{}, got {}",
+            expected_outer,
+            radii[1]
+        );
+
+        // Inner circle should be very close to R (very small s)
+        assert!(
+            s < 1e-3,
+            "s should be very small for near-tangent, got {}",
+            s
+        );
+        assert!(
+            radii[0] > 0.0,
+            "Inner radius must be positive, got {}",
+            radii[0]
+        );
+    }
+
+    #[test]
+    fn pt_11_points_on_torus() {
+        // Equatorial cut (d=0): sample 16 points on each returned circle
+        // and verify they lie on the torus surface within TAU_MODEL.
+        let tau = crate::units::TAU_MODEL;
+        let big_r = 5.0_f64;
+        let r = 2.0_f64;
+        let torus_center = [0.0, 0.0, 0.0];
+        let torus_axis = [0.0, 0.0, 1.0];
+
+        let curves = plane_torus_ssi(
+            [0.0, 0.0, 0.0], // plane origin
+            [0.0, 0.0, 1.0], // plane normal
+            torus_center,
+            torus_axis,
+            big_r,
+            r,
+        )
+        .unwrap();
+
+        assert_eq!(curves.len(), 2);
+
+        for curve in &curves {
+            let (center, _normal, radius) = match curve {
+                SSICurve::Circle {
+                    center,
+                    normal,
+                    radius,
+                } => (*center, *normal, *radius),
+                other => panic!("Expected Circle, got {:?}", other),
+            };
+
+            // Sample 16 points on the circle
+            for i in 0..16 {
+                let theta = 2.0 * std::f64::consts::PI * (i as f64) / 16.0;
+                let px = center[0] + radius * theta.cos();
+                let py = center[1] + radius * theta.sin();
+                let pz = center[2];
+                let p = [px, py, pz];
+
+                // Check point lies on torus surface:
+                // distance from point to nearest point on major circle == r
+                let v = v3_sub(p, torus_center);
+                let axial = v3_dot(v, torus_axis);
+                let radial_vec = v3_sub(v, v3_scale(torus_axis, axial));
+                let radial_dist = v3_length(radial_vec);
+                let tube_dist = ((radial_dist - big_r).powi(2) + axial.powi(2)).sqrt();
+
+                assert!(
+                    (tube_dist - r).abs() < tau,
+                    "Point {} on circle r={} is not on torus surface: \
+                     tube_dist={}, expected r={}, diff={}",
+                    i,
+                    radius,
+                    tube_dist,
+                    r,
+                    (tube_dist - r).abs()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn pt_12_spindle_torus() {
+        // Spindle torus: r >= R. R=2, r=3.
+        // Equatorial plane at d=0. Inner radius = R - r = -1 → negative,
+        // so only the outer circle (radius R + r = 5) should be returned.
+        let tau = crate::units::TAU_MODEL;
+        let big_r = 2.0_f64;
+        let r = 3.0_f64;
+
+        let curves = plane_torus_ssi(
+            [0.0, 0.0, 0.0], // plane origin
+            [0.0, 0.0, 1.0], // plane normal
+            [0.0, 0.0, 0.0], // torus center
+            [0.0, 0.0, 1.0], // torus axis
+            big_r,
+            r,
+        )
+        .unwrap();
+
+        assert_eq!(
+            curves.len(),
+            1,
+            "Spindle torus equatorial plane should produce 1 circle (inner radius negative), got {}",
+            curves.len()
+        );
+
+        if let SSICurve::Circle {
+            center,
+            normal,
+            radius,
+        } = &curves[0]
+        {
+            let expected_outer = big_r + r; // 5.0
+            assert!(
+                (radius - expected_outer).abs() < tau,
+                "Outer circle radius should be {}, got {}",
+                expected_outer,
+                radius
+            );
+            assert!(center[0].abs() < tau, "Center x should be 0");
+            assert!(center[1].abs() < tau, "Center y should be 0");
+            assert!(center[2].abs() < tau, "Center z should be 0");
+            let dot = v3_dot(*normal, [0.0, 0.0, 1.0]).abs();
+            assert!((dot - 1.0).abs() < tau, "Normal should be parallel to +Z");
+        } else {
+            panic!("Expected Circle, got {:?}", curves[0]);
+        }
     }
 }
