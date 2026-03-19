@@ -58,31 +58,45 @@ pub fn newton_solve(
 - QR via `nalgebra::linalg::QR`
 - Sparse → dense conversion: iterate triplets, set entries in DMatrix
 
-### Worker B2: QR rank analysis (`core/rank.rs`)
+### Worker B2: SVD rank analysis (`core/rank.rs`)
 
-Per spec §Rank analysis:
+Per R3 research results — use SVD (not QR) for all diagnostics.
+See `research/r3_results.md` for full nalgebra API reference.
 
 ```rust
 pub struct RankAnalysis {
     pub rank: usize,
-    pub dof: usize,                    // num_params - rank
-    pub dependent_equations: Vec<usize>, // Which constraint equations are redundant
+    pub dof: usize,                        // num_params - rank
+    pub dependent_constraints: Vec<DepInfo>, // Which constraints are dependent
+    pub free_params: Vec<FreeParam>,        // Which params are free and in which direction
+}
+
+pub enum DepInfo {
+    Redundant { constraint_ids: Vec<usize> },
+    Conflicting { constraint_ids: Vec<usize>, magnitude: f64 },
 }
 
 pub fn analyze_rank(
     jacobian: &DMatrix<f64>,
+    residual: &DVector<f64>,
     num_params: usize,
     num_equations: usize,
-    tolerance: f64,
+    eq_to_constraint: &[usize],  // equation row → constraint index
 ) -> RankAnalysis;
 ```
 
-**Algorithm:**
-- Column-pivoted QR of the Jacobian (`nalgebra` ColPivQR)
-- Rank = number of diagonal R entries with |r_ii| > tolerance
-- DOF = num_params - rank
-- Dependent equations: rows that map to zero-magnitude R diagonals
-  (these correspond to redundant or conflicting constraints)
+**Algorithm (from R3 research):**
+1. SVD of J^T: `J^T = U Σ V^T`
+2. Rank threshold: `ε = max(m,n) · f64::EPSILON · σ₁` (relative)
+3. rank = count of σ_i > ε
+4. DOF = num_params - rank
+5. For each null vector `v_k = vt.row(i)` where `i >= rank`:
+   - Project residual: `r_k = v_k · F(x*)`
+   - `|r_k| ≤ TAU_MODEL` → redundant
+   - `|r_k| > TAU_MODEL` → conflicting
+   - Involved constraints: indices where `|v_k[j]| > 0.01`, mapped through eq_to_constraint
+6. Free params: SVD of J directly, last columns of V for null space directions
+   - Classify per-point FreeAxis from null vector components (simplified heuristic)
 
 ### Worker B3: Status classification (`core/status.rs`)
 
