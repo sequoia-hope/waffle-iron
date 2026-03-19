@@ -11,7 +11,7 @@
 	import {
 		getMobileLayout, setMobileLayout, getMobileActivePanel, toggleMobilePanel,
 		getDocumentTabs, getActiveTabId, switchTab, addTab, closeTab, renameTab,
-		saveToStorage
+		saveToStorage, loadPendingDocument
 	} from '$lib/engine/store.svelte.js';
 	import TestCaseBrowser from '$lib/ui/TestCaseBrowser.svelte';
 	import SaveTestCaseDialog from '$lib/ui/SaveTestCaseDialog.svelte';
@@ -33,6 +33,9 @@
 	let resizing = $state(null);
 
 	onMount(() => {
+		// Load pending document from /doc/[id] route if one exists in sessionStorage
+		loadPendingDocument();
+
 		// Responsive layout listener
 		const mql = window.matchMedia('(max-width: 768px)');
 		setMobileLayout(mql.matches);

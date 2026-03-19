@@ -379,30 +379,8 @@ export async function initEngine() {
 		log('system', 'Engine ready (WASM loaded)');
 		initLoggerToasts();
 
-		// Check for pending document from /doc/[id] route
-		if (typeof sessionStorage !== 'undefined') {
-			const pendingDocId = sessionStorage.getItem('waffle-active-doc');
-			const pendingJson = sessionStorage.getItem('waffle-active-json');
-			if (pendingDocId && pendingJson) {
-				sessionStorage.removeItem('waffle-active-doc');
-				sessionStorage.removeItem('waffle-active-json');
-				try {
-					const parsed = JSON.parse(pendingJson);
-					initDocumentState(pendingDocId, parsed);
-					// Load the active tab's features into the engine
-					const activeTab = documentTabs.find(t => t.id === activeTabId);
-					if (activeTab?.kind?.features?.features?.length > 0) {
-						await loadProject(pendingJson);
-					}
-					log('system', `Loaded document ${pendingDocId}`);
-				} catch (err) {
-					log('error', `Failed to load pending document: ${err}`);
-				}
-			}
-		}
-
-		// Check for auto-save data (legacy localStorage, only if no doc loaded)
-		if (!activeDocId && typeof localStorage !== 'undefined') {
+		// Check for auto-save data (legacy localStorage)
+		if (typeof localStorage !== 'undefined') {
 			const saved = localStorage.getItem(AUTOSAVE_KEY);
 			const savedTime = localStorage.getItem(AUTOSAVE_TIME_KEY);
 			if (saved && savedTime) {
@@ -3380,6 +3358,44 @@ export function getDocumentName() { return documentName; }
 export function setDocumentName(name) { documentName = name; projectName = name; }
 
 /**
+ * Check sessionStorage for a pending document (set by /doc/[id] route) and load it.
+ * Called from +page.svelte onMount — separate from initEngine because SvelteKit
+ * client-side navigation means the layout onMount (which calls initEngine) doesn't re-fire.
+ */
+export async function loadPendingDocument() {
+	if (typeof sessionStorage === 'undefined') return;
+	const pendingDocId = sessionStorage.getItem('waffle-active-doc');
+	const pendingJson = sessionStorage.getItem('waffle-active-json');
+	if (!pendingDocId || !pendingJson) return;
+
+	sessionStorage.removeItem('waffle-active-doc');
+	sessionStorage.removeItem('waffle-active-json');
+
+	// Wait for engine if not ready yet
+	if (!engineReady) {
+		await new Promise((resolve) => {
+			const check = setInterval(() => {
+				if (engineReady) { clearInterval(check); resolve(); }
+			}, 100);
+			setTimeout(() => { clearInterval(check); resolve(); }, 10000);
+		});
+	}
+
+	try {
+		const parsed = JSON.parse(pendingJson);
+		initDocumentState(pendingDocId, parsed);
+		// Load the active tab's features into the engine
+		const activeTab = documentTabs.find(t => t.id === activeTabId);
+		if (activeTab?.kind?.features?.features?.length > 0) {
+			await loadProject(pendingJson);
+		}
+		log('system', `Loaded document ${pendingDocId}`);
+	} catch (err) {
+		log('error', `Failed to load pending document: ${err}`);
+	}
+}
+
+/**
  * Switch to a different tab. Saves current tab's feature tree, then loads the target tab.
  * @param {string} tabId
  */
@@ -3406,9 +3422,11 @@ export async function switchTab(tabId) {
 	activeTabId = tabId;
 
 	if (bridge && engineReady && targetTab?.kind?.features) {
+		// Deep-clone to unwrap Svelte 5 proxies (they can't be postMessage'd)
+		const features = JSON.parse(JSON.stringify(targetTab.kind.features));
 		await sendRebuild({
 			type: 'SwitchTab',
-			features: targetTab.kind.features
+			features
 		});
 	}
 
