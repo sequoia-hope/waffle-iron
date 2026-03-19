@@ -131,6 +131,22 @@ impl ParamLayout {
         self.num_params
     }
 
+    /// Get the (center_id, start_id) for an arc entity.
+    pub fn arc_center_start(&self, arc_id: u32) -> (PointIdx, PointIdx) {
+        let (center_id, start_id) = self.arc_points[&arc_id];
+        (self.point(center_id), self.point(start_id))
+    }
+
+    /// Check if an entity has arc data.
+    pub fn is_arc(&self, entity_id: u32) -> bool {
+        self.arc_points.contains_key(&entity_id)
+    }
+
+    /// Check if an entity has a radius parameter (circle).
+    pub fn has_radius(&self, entity_id: u32) -> bool {
+        self.radius_indices.contains_key(&entity_id)
+    }
+
     pub fn extract_positions(&self, params: &[f64]) -> HashMap<u32, (f64, f64)> {
         let mut positions = HashMap::new();
         for (id, idx) in &self.point_indices {
@@ -146,11 +162,36 @@ mod tests {
 
     fn sample_entities() -> Vec<SketchEntity> {
         vec![
-            SketchEntity::Point { id: 1, x: 0.0, y: 0.0, construction: false },
-            SketchEntity::Point { id: 2, x: 1.0, y: 0.0, construction: false },
-            SketchEntity::Point { id: 3, x: 1.0, y: 1.0, construction: false },
-            SketchEntity::Line { id: 10, start_id: 1, end_id: 2, construction: false },
-            SketchEntity::Circle { id: 20, center_id: 3, radius: 0.5, construction: false },
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 1.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 1.0,
+                y: 1.0,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 10,
+                start_id: 1,
+                end_id: 2,
+                construction: false,
+            },
+            SketchEntity::Circle {
+                id: 20,
+                center_id: 3,
+                radius: 0.5,
+                construction: false,
+            },
         ]
     }
 
@@ -189,10 +230,31 @@ mod tests {
     #[test]
     fn layout_radius_def_arc() {
         let entities = vec![
-            SketchEntity::Point { id: 1, x: 0.0, y: 0.0, construction: false },
-            SketchEntity::Point { id: 2, x: 1.0, y: 0.0, construction: false },
-            SketchEntity::Point { id: 3, x: 0.0, y: 1.0, construction: false },
-            SketchEntity::Arc { id: 30, center_id: 1, start_id: 2, end_id: 3, construction: false },
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 1.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 0.0,
+                y: 1.0,
+                construction: false,
+            },
+            SketchEntity::Arc {
+                id: 30,
+                center_id: 1,
+                start_id: 2,
+                end_id: 3,
+                construction: false,
+            },
         ];
         let layout = ParamLayout::from_entities(&entities);
         assert!(matches!(layout.radius_def(30), RadiusDef::Implicit(_)));
