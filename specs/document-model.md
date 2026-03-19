@@ -3,7 +3,7 @@
 **Status**: Draft
 **Author**: Human + Claude
 **Date**: 2026-03-19
-**Research Basis**: Onshape document model (multi-tab Part Studios + Assemblies), Fusion 360 hub/project/document hierarchy, SolidWorks part/assembly/drawing paradigm.
+**Research Basis**: Onshape document model (multi-tab Part Studios + Assemblies), Fusion 360 hub/project/document hierarchy, SolidWorks part/assembly/drawing paradigm. remoteStorage open protocol. AT Protocol (Bluesky) personal data stores.
 
 ---
 
@@ -161,18 +161,47 @@ The thumbnail viewport is interactive: orbit on drag, scroll to zoom. This is a 
 
 ---
 
-## 5. Home Page
+## 5. Routing and URLs
 
-### Route
+### Routes
 
 ```
-/           → Home (document browser)
-/edit       → Document editor (current app, with tab bar added)
+/                              → Home (document browser)
+/doc/:id                       → Open document (redirects to active tab)
+/doc/:id/:slug                 → Same, slug is cosmetic (ignored by router)
+/doc/:id/:slug/tab/:tabIndex   → Deep link to specific tab
 ```
 
-The current single-page app at `+page.svelte` moves to `/edit`. The new `/` route is the home page.
+Document IDs are 8-character base62 strings derived from the document's UUID (e.g., `k7Tm4xQ2`). The optional `:slug` is a URL-safe version of the document name, included for readability but not used for resolution (GitHub-style). The router strips the slug and resolves by ID alone.
 
-### Layout
+The current single-page app at `+page.svelte` becomes the `/doc/:id` route. The new `/` route is the home page.
+
+### Shareable URLs
+
+Document URLs are designed to be shareable even before cloud storage exists. The sharing contract:
+
+```
+https://waffle.app/doc/k7Tm4xQ2/gearbox-housing?src=<encoded-url-to-waffle-json>
+```
+
+| Parameter | Purpose |
+|-----------|---------|
+| `/doc/:id` | Local document ID (used if document exists in local IndexedDB) |
+| `/:slug` | Human-readable name (cosmetic, ignored by router) |
+| `?src=` | URL to the raw `.waffle` JSON (Google Drive direct link, GitHub raw URL, AT Protocol record URL, etc.) |
+
+**Resolution order** when opening a shared URL:
+1. Check IndexedDB for a document with matching ID. If found, open it.
+2. If not found but `?src=` is present, fetch the JSON, parse as WaffleFile, store locally, open.
+3. If neither, show "Document not found" with option to browse home.
+
+This means sharing works across storage providers. A GitHub user can share a link with someone who uses Google Drive — the recipient's app fetches the JSON from the `src` URL regardless of provider.
+
+### Future: provider-native resolution
+
+When a user has connected a storage provider, the app can resolve document IDs through that provider without the `?src=` parameter. The provider's `DocumentStore.load(id)` handles resolution. This enables clean URLs like `https://waffle.app/doc/k7Tm4xQ2/gearbox-housing` that resolve through the user's connected GitHub repo or AT Protocol PDS.
+
+### Home Page Layout
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -203,11 +232,12 @@ Each card shows:
 
 | Action | Behavior |
 |--------|----------|
-| Click card | Navigate to `/edit` with that document loaded |
-| "New Document" button | Create document with one empty PartTab, navigate to `/edit` |
-| Import button | File picker for `.waffle` files, add to home, open |
+| Click card | Navigate to `/doc/:id/:slug` |
+| "New Document" button | Create document with one empty PartTab, navigate to `/doc/:id/untitled` |
+| Import button | File picker for `.waffle` files, add to storage, open |
 | Delete | Confirm dialog, remove from storage |
-| Duplicate | Deep-copy document, append "(copy)" to name |
+| Duplicate | Deep-copy document with new ID, append "(copy)" to name |
+| Share | Copy shareable URL to clipboard (provider-dependent, see §7) |
 
 ### Empty state
 
@@ -270,38 +300,169 @@ Each tab has its own undo stack. Switching tabs does not carry undo history. Thi
 
 ---
 
-## 7. Storage (Phase 1: Browser-Local)
+## 7. Storage
 
-Initial implementation uses browser storage only. No cloud, no OAuth.
+### Design principle
 
-### IndexedDB
+Storage is a pluggable adapter. The document model is storage-agnostic — `WaffleFile` serializes to JSON, which can go to IndexedDB, a file download, a GitHub repo, Google Drive, or an AT Protocol PDS. Users can use multiple providers simultaneously (e.g., local + GitHub). The home page aggregates documents from all connected providers.
 
-Documents are stored in IndexedDB (not localStorage — too small for multiple documents with preview meshes). Schema:
+### Storage adapter interface
+
+```typescript
+interface DocumentStore {
+  readonly id: string              // "local", "github", "gdrive", "atproto"
+  readonly label: string           // "This Browser", "GitHub", etc.
+  readonly canShare: boolean       // whether getShareUrl is meaningful
+
+  list(): Promise<DocumentSummary[]>
+  load(docId: string): Promise<WaffleFile>
+  save(docId: string, doc: WaffleFile): Promise<void>
+  delete(docId: string): Promise<void>
+  getShareUrl(docId: string): Promise<string | null>
+}
+
+interface DocumentSummary {
+  id: string                       // 8-char base62
+  name: string
+  modified: number                 // epoch ms
+  provider: string                 // which store this came from
+  previewMesh: PreviewMesh | null
+}
+```
+
+### Provider roadmap
+
+| Phase | Provider | Auth | Sharing | Notes |
+|-------|----------|------|---------|-------|
+| **0** | **IndexedDB** (local) | None | Export `.waffle` file | Zero setup. User opens URL, starts modeling. Default for all users. |
+| **0** | **File export/import** | None | Send the file | Download `.waffle`, drag-and-drop import. Always available. |
+| **1** | **GitHub** | OAuth | Public repo URL | Documents as files in a user repo. Commits = version history. Natural fit for open-source CAD community. |
+| **2** | **Google Drive** | OAuth | Drive sharing link | Broadest user base. Familiar sharing model. |
+| **3** | **AT Protocol** | OAuth (DID) | AT URI → public record | Long-term bet. Documents as signed records in user's PDS. Public-by-default, forkable, decentralized identity. See §7.5. |
+
+### 7.1 IndexedDB (Phase 0)
+
+Default provider. Zero-setup, always available, offline-first.
 
 ```
 Database: "waffle-iron"
   ObjectStore: "documents"
-    key: Uuid (document id)
+    key: string (8-char base62 document id)
     value: {
-      id: Uuid,
+      id: string,
       json: string,        // full WaffleFile JSON
       name: string,         // denormalized for listing
       modified: number,     // epoch ms, denormalized for sorting
-      thumbnail: string?,   // data URL of a 2D snapshot (fallback if no preview mesh)
     }
 ```
 
-### Autosave migration
+Limitations: tied to one browser on one device. Clearing browser data deletes everything. This is the motivation for connecting a cloud provider — the app should gently surface this ("Your documents are only saved in this browser. Connect GitHub to back them up.").
 
-The current localStorage autosave (`waffle-autosave` key) migrates to IndexedDB on first load:
-1. Check for `waffle-autosave` in localStorage.
-2. If found, parse as v2 WaffleFile, migrate to v3, store in IndexedDB as a new document.
-3. Clear localStorage keys.
-4. Show the home page with the migrated document.
+**Autosave migration**: The current localStorage autosave (`waffle-autosave` key) migrates to IndexedDB on first load. Check for key, parse as v2, migrate to v3, store in IndexedDB, clear localStorage.
 
-### Storage budget
+### 7.2 GitHub (Phase 1)
 
-IndexedDB has no hard limit in most browsers (uses available disk). A reasonable soft limit: warn the user when total stored data exceeds 100MB. Each document is typically 10KB–500KB (features) + 0–150KB (preview mesh).
+Documents stored as `.waffle` files in a user's GitHub repo.
+
+**Setup**: "Connect GitHub" → OAuth popup → authorize Waffle Iron → app creates or selects a repo (default: `waffle-iron-documents`).
+
+**Storage mapping**:
+```
+github.com/username/waffle-iron-documents/
+  ├── gearbox-housing.waffle      (slug derived from doc name)
+  ├── bracket-v2.waffle
+  └── .waffle-index.json          (id→filename mapping, metadata cache)
+```
+
+**Save**: Commit the `.waffle` JSON to the repo via GitHub API. Each save = one commit. Users get version history, diff, rollback for free.
+
+**Share**: For public repos, the share URL is:
+```
+https://waffle.app/doc/k7Tm4xQ2/gearbox-housing?src=https://raw.githubusercontent.com/user/repo/main/gearbox-housing.waffle
+```
+
+Anyone can open this link — the app fetches the raw JSON from GitHub.
+
+**Why GitHub first**: The Waffle Iron audience (open-source CAD, makers, engineers who code) overlaps heavily with GitHub users. Version history via git commits is a genuine feature, not just a storage hack.
+
+### 7.3 Google Drive (Phase 2)
+
+Documents stored in a `Waffle Iron/` folder in the user's Google Drive.
+
+**Setup**: "Connect Google Drive" → standard Google OAuth consent screen → app gets `drive.file` scope (can only access files it created).
+
+**Storage mapping**: Each document is a file in the `Waffle Iron/` folder. File metadata includes the document ID in `appProperties`.
+
+**Share**: Google Drive's native sharing. The share URL uses the Drive direct-download link as `?src=`.
+
+### 7.4 AT Protocol (Phase 3 — future)
+
+Documents as records in the user's Personal Data Store (PDS).
+
+**Why AT Protocol**: It's the most philosophically aligned option for an open-source, user-first project. The user owns their data (it lives in their PDS, not on Waffle Iron's servers). Documents are public by default, discoverable, and forkable — like code on GitHub but for physical objects. The user's identity is decentralized (a DID, like a Bluesky handle).
+
+**Lexicon** (AT Protocol schema for Waffle Iron documents):
+```json
+{
+  "lexicon": 1,
+  "id": "app.waffle.document",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["name", "version", "data"],
+        "properties": {
+          "name": { "type": "string", "maxLength": 256 },
+          "version": { "type": "integer" },
+          "data": { "type": "blob", "accept": ["application/json"], "maxSize": 10485760 },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}
+```
+
+**Setup**: "Sign in with Bluesky" (or any AT Protocol identity provider) → OAuth with granular permissions (read/write `app.waffle.document` records only).
+
+**Share**: AT URIs are natively resolvable across the network:
+```
+at://did:plc:abc123/app.waffle.document/3k7tm4xq2
+→ https://waffle.app/doc/k7Tm4xQ2/gearbox-housing?src=at://did:plc:abc123/app.waffle.document/3k7tm4xq2
+```
+
+**Discovery**: Because AT Protocol records are public and indexable, a future "Explore" page could show public documents from across the network — a social feed of CAD models. Users could fork (copy) any public document into their own PDS.
+
+### 7.5 Provider UX in the home page
+
+The home page shows a provider selector in the sidebar or header:
+
+```
+┌─────────────────────────────────────────────────┐
+│  Waffle Iron    [This Browser ▾]  [New Document]│
+├─────────────────────────────────────────────────┤
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐      │
+│  │          │  │          │  │          │      │
+│  ...                                            │
+```
+
+The dropdown shows connected providers:
+- **This Browser** (always present)
+- **GitHub** (if connected) — shows repo name
+- **Google Drive** (if connected)
+- **All** — merged view across providers
+
+"Connect a provider" link at the bottom of the dropdown opens a settings/connections panel.
+
+### 7.6 Conflict resolution
+
+When the same document exists locally and in a cloud provider (e.g., user connected GitHub after working locally):
+
+- **First sync**: User chooses "Upload local documents to GitHub" or "Keep separate".
+- **Ongoing**: Cloud provider is the source of truth. Local IndexedDB is a cache. Saves go to both. If offline, save locally and sync when online.
+- **Conflicts** (same doc edited on two devices): Last-write-wins for Phase 1. Merge is a non-goal (CAD parametric trees don't merge well).
 
 ---
 
@@ -309,18 +470,25 @@ IndexedDB has no hard limit in most browsers (uses available disk). A reasonable
 
 | Branch | Condition | Behavior |
 |--------|-----------|----------|
-| Open app, no documents | IndexedDB empty, no localStorage autosave | Home page with empty state |
-| Open app, has documents | IndexedDB has entries | Home page with document cards |
-| Open app, has localStorage autosave | Legacy autosave key exists | Migrate to IndexedDB, show home |
-| Click document card | — | Navigate to `/edit`, load document |
-| New document | — | Create 1-tab document, navigate to `/edit` |
+| Open `/` , no documents | IndexedDB empty, no localStorage autosave | Home page with empty state |
+| Open `/`, has documents | IndexedDB has entries | Home page with document cards |
+| Open `/`, has localStorage autosave | Legacy autosave key exists | Migrate to IndexedDB, show home |
+| Open `/doc/:id` , doc exists locally | ID found in IndexedDB | Load document, show editor |
+| Open `/doc/:id?src=...`, doc not local | ID not in IndexedDB, `src` present | Fetch from `src` URL, store locally, show editor |
+| Open `/doc/:id`, doc not found, no `src` | — | "Document not found" page with link to home |
+| Click document card | — | Navigate to `/doc/:id/:slug` |
+| New document | — | Create 1-tab document, navigate to `/doc/:id/untitled` |
 | Switch tab | Tabs exist | Save current tab state, load new tab, full rebuild |
 | Close last tab | Only 1 tab remains | Confirm dialog; if confirmed, delete tab and navigate to home |
 | Add tab | — | Append new PartTab, switch to it |
-| Save (Ctrl+S) | — | Serialize full document (all tabs) to IndexedDB + trigger download |
+| Save (Ctrl+S) | — | Serialize full document to active provider(s) |
 | Load (.waffle file) | File picker | Parse, migrate if needed, store in IndexedDB, open |
 | File version = 2 | v2 file loaded | Migrate v2→v3 (wrap in single tab) |
 | File version = 1 | v1 file loaded | Migrate v1→v2→v3 (chain) |
+| Share button | Provider supports sharing | Copy shareable URL to clipboard |
+| Share button | Provider doesn't support sharing (local-only) | Prompt to export `.waffle` file or connect a provider |
+| Connect GitHub | OAuth flow | Create/select repo, sync documents |
+| Disconnect provider | Settings | Remove OAuth tokens, keep local copies |
 
 ---
 
@@ -344,33 +512,61 @@ IndexedDB has no hard limit in most browsers (uses available disk). A reasonable
 | Document always has ≥1 tab | Assert on save, load, and tab delete |
 | `active_tab` references valid tab id | Assert on save, load, and tab switch |
 | Tab ids are unique within document | Assert on tab create and load |
+| Document IDs are 8-char base62 | Assert on document create and URL generation |
 | Preview mesh triangle count ≤ 2000 | Assert after decimation |
 | v2 files load correctly as v3 | Round-trip test: save v2, load, assert single tab with correct features |
 | Tab switch preserves inactive tab state | Test: create 2 tabs with features, switch between them, assert both feature trees intact |
 | Autosave migrates to IndexedDB | Test: populate localStorage keys, init app, assert IndexedDB entry exists and localStorage cleared |
+| `/doc/:id` resolves from local store | Test: save document, navigate to URL, assert document loads |
+| `/doc/:id?src=url` fetches and stores | Test: serve JSON at URL, navigate with `?src=`, assert document appears in local store |
+| Slug in URL is cosmetic | Test: `/doc/:id/wrong-slug` loads same document as `/doc/:id/correct-slug` |
+| All providers implement DocumentStore | Type-check: each provider satisfies the interface |
+| Save round-trips through every provider | Test per provider: save → list → load → assert equality |
 
 ---
 
 ## 11. Non-Goals (Explicit Exclusions)
 
-- **Cloud storage / OAuth**: Deferred to a future spec. The document model is storage-agnostic — `WaffleFile` serializes to JSON, which can go to IndexedDB, a file, or an API.
 - **Assemblies**: Deferred with sub-project 10. The `TabKind::Assembly` variant is not implemented.
-- **Multi-user / collaboration**: Not in scope. One user, one browser, one session.
-- **Version history / undo across saves**: Not in scope. Each save is a full snapshot.
+- **Multi-user / real-time collaboration**: Not in scope. One user, one session. Sharing is read-only (recipient gets a copy).
+- **Merge / conflict resolution beyond last-write-wins**: CAD parametric trees don't merge well. Not in scope.
+- **Version history UI**: GitHub provides this implicitly via commits. No in-app version browser.
 - **Document linking** (one document referencing another): Not in scope.
 - **Fillet/chamfer/shell in tabs**: Still deferred per CLAUDE.md.
+- **AT Protocol social features** (feed, likes, comments on documents): Deferred. The lexicon is designed for it, but the UX is not specified here.
 
 ---
 
 ## 12. Implementation Sequence
 
+### Phase 0: Document model + local storage
+
 1. **File format v3** (`crates/file-format/`): New types, v2→v3 migration, round-trip tests.
-2. **Engine tab support** (`crates/wasm-bridge/`): `SwitchTab` message, tab-aware save/load.
-3. **Tab bar UI** (`app/src/lib/ui/`): Tab bar component, tab switching, add/remove/rename.
-4. **Routing** (`app/src/routes/`): Split into `/` (home) and `/edit` (editor).
-5. **IndexedDB storage** (`app/src/lib/storage/`): Document persistence layer.
-6. **Home page** (`app/src/routes/+page.svelte`): Document cards, create/delete/open.
+2. **Storage adapter** (`app/src/lib/storage/`): `DocumentStore` interface + IndexedDB implementation.
+3. **Engine tab support** (`crates/wasm-bridge/`): `SwitchTab` message, tab-aware save/load.
+4. **Routing** (`app/src/routes/`): Split into `/` (home) and `/doc/:id` (editor). URL scheme with ID + slug.
+5. **Tab bar UI** (`app/src/lib/ui/`): Tab bar component, tab switching, add/remove/rename/reorder.
+6. **Home page** (`app/src/routes/+page.svelte`): Document cards, create/delete/open, provider dropdown (local only initially).
 7. **Preview mesh** (`crates/kernel/` or `crates/feature-engine/`): Decimation, storage in tab.
 8. **3D thumbnail viewports** (`app/src/lib/ui/`): Minimal Threlte scene for document cards.
+9. **Shareable URL resolution**: `?src=` parameter fetching, "document not found" page.
 
-Steps 1–3 can be developed and tested independently. Steps 4–6 form the home page. Steps 7–8 add the preview thumbnails.
+Steps 1–3 can be developed in parallel. Steps 4–6 form the home page. Steps 7–8 add thumbnails. Step 9 enables sharing via any direct URL.
+
+### Phase 1: GitHub storage
+
+10. **GitHub OAuth** (`app/src/lib/storage/github.ts`): OAuth flow, token management.
+11. **GitHub DocumentStore** implementation: List/load/save/delete via GitHub API. Commit-per-save.
+12. **Share via GitHub**: Generate `?src=` URLs pointing to raw GitHub content.
+13. **Provider UI**: Connect/disconnect GitHub in settings. Provider dropdown in home page.
+
+### Phase 2: Google Drive storage
+
+14. **Google Drive OAuth + DocumentStore**: Same adapter pattern as GitHub.
+
+### Phase 3: AT Protocol
+
+15. **AT Protocol OAuth** (DID-based auth).
+16. **Lexicon registration**: `app.waffle.document` record type.
+17. **AT Protocol DocumentStore**: CRUD via PDS API.
+18. **AT URI resolution**: Resolve `at://` URIs in `?src=` parameter.
