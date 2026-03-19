@@ -27,6 +27,10 @@ function openDB() {
  * @implements {import('./types.js').DocumentStore}
  */
 export class IndexedDBStore {
+	id = 'local';
+	label = 'This Browser';
+	canShare = false;
+
 	/** @type {Promise<IDBDatabase>|null} */
 	#dbPromise = null;
 
@@ -83,7 +87,8 @@ export class IndexedDBStore {
 						modified: doc.modified,
 						displayUnit,
 						tabCount,
-						previewMesh
+						previewMesh,
+						provider: 'local'
 					};
 				});
 				// Sort by modified descending
@@ -140,5 +145,14 @@ export class IndexedDBStore {
 			request.onsuccess = () => resolve();
 			request.onerror = () => reject(request.error);
 		});
+	}
+
+	/**
+	 * Get a shareable URL for a document (not supported for local storage).
+	 * @param {string} _id
+	 * @returns {Promise<string|null>}
+	 */
+	async getShareUrl(_id) {
+		return null;
 	}
 }

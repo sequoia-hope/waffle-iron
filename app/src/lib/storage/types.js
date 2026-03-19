@@ -6,6 +6,8 @@
  * @property {number} modified - Unix timestamp ms
  * @property {string|null} displayUnit - Display unit preference
  * @property {number} tabCount - Number of tabs
+ * @property {string} provider - Provider ID ("local", "github")
+ * @property {object|null} [previewMesh] - Preview mesh for thumbnail
  */
 
 /**
@@ -34,8 +36,12 @@ export function generateDocId() {
 
 /**
  * @typedef {Object} DocumentStore
+ * @property {string} id - Provider identifier ("local", "github")
+ * @property {string} label - Display name ("This Browser", "GitHub")
+ * @property {boolean} canShare - Whether getShareUrl() is meaningful
  * @property {() => Promise<DocumentSummary[]>} list - List all documents, sorted by modified desc
  * @property {(id: string) => Promise<StoredDocument|null>} get - Get a document by ID
  * @property {(doc: StoredDocument) => Promise<void>} put - Create or update a document
  * @property {(id: string) => Promise<void>} delete - Delete a document by ID
+ * @property {(id: string) => Promise<string|null>} getShareUrl - Get a shareable URL for a document
  */

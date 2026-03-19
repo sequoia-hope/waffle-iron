@@ -3710,7 +3710,7 @@ function scheduleAutoSave() {
 	autoSaveTimer = setTimeout(async () => {
 		autoSaveTimer = null;
 		try {
-			await saveToIndexedDB();
+			await saveToProvider();
 		} catch (err) {
 			// Fall back to localStorage if IndexedDB fails
 			try {
@@ -3728,16 +3728,16 @@ function scheduleAutoSave() {
 }
 
 /**
- * Save current document state to IndexedDB.
+ * Save current document state to the active storage provider.
  * Builds full v3 JSON including all tabs.
  */
-async function saveToIndexedDB() {
+async function saveToProvider() {
 	if (!activeDocId) return;
 	const jsonData = await buildDocumentJson();
 	if (!jsonData) return;
 
-	const { getStore } = await import('$lib/storage/index.js');
-	const store = getStore();
+	const { getActiveProvider } = await import('$lib/storage/index.js');
+	const store = getActiveProvider();
 	const existing = await store.get(activeDocId);
 	await store.put({
 		id: activeDocId,
@@ -3748,7 +3748,7 @@ async function saveToIndexedDB() {
 }
 
 /**
- * Save immediately to IndexedDB (for Ctrl+S).
+ * Save immediately to the active storage provider (for Ctrl+S).
  * @returns {Promise<boolean>}
  */
 export async function saveToStorage() {
@@ -3757,9 +3757,9 @@ export async function saveToStorage() {
 		return !!(await saveProject());
 	}
 	try {
-		await saveToIndexedDB();
+		await saveToProvider();
 		showToast('success', 'Saved');
-		log('action', 'Document saved to IndexedDB');
+		log('action', 'Document saved');
 		return true;
 	} catch (err) {
 		showToast('error', `Save failed: ${err.message || err}`);

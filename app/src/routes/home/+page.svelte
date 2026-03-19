@@ -1,7 +1,7 @@
 <script>
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
-	import { getStore, migrateLocalStorage, generateDocId } from '$lib/storage/index.js';
+	import { getActiveProvider, migrateLocalStorage, generateDocId, getStore, registerProvider, unregisterProvider, setActiveProvider } from '$lib/storage/index.js';
 	import { onMount } from 'svelte';
 	import HomeHeader from '$lib/ui/HomeHeader.svelte';
 	import DocumentGrid from '$lib/ui/DocumentGrid.svelte';
@@ -10,14 +10,25 @@
 	let loading = $state(true);
 
 	onMount(async () => {
-		const store = getStore();
-		await migrateLocalStorage(store);
-		documents = await store.list();
-		loading = false;
+		// Migrate legacy localStorage autosave (always to local provider)
+		await migrateLocalStorage(getStore());
+		await refreshDocuments();
 	});
 
+	async function refreshDocuments() {
+		loading = true;
+		try {
+			const provider = getActiveProvider();
+			documents = await provider.list();
+		} catch (err) {
+			console.warn('Failed to list documents:', err);
+			documents = [];
+		}
+		loading = false;
+	}
+
 	async function handleNewDocument() {
-		const store = getStore();
+		const provider = getActiveProvider();
 		const id = generateDocId();
 		const now = Date.now();
 		const tabId = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
@@ -44,7 +55,7 @@
 			created: now,
 			modified: now
 		};
-		await store.put(doc);
+		await provider.put(doc);
 		goto(`${base}/doc/${id}`);
 	}
 
@@ -53,8 +64,8 @@
 	}
 
 	async function handleRename(doc, newName) {
-		const store = getStore();
-		const stored = await store.get(doc.id);
+		const provider = getActiveProvider();
+		const stored = await provider.get(doc.id);
 		if (!stored) return;
 		try {
 			const parsed = JSON.parse(stored.json);
@@ -65,21 +76,25 @@
 			}
 			stored.json = JSON.stringify(parsed);
 			stored.modified = Date.now();
-			await store.put(stored);
-			documents = await store.list();
+			await provider.put(stored);
+			documents = await provider.list();
 		} catch { /* ignore */ }
 	}
 
 	async function handleDelete(doc) {
 		if (!confirm(`Delete "${doc.name}"? This cannot be undone.`)) return;
-		const store = getStore();
-		await store.delete(doc.id);
-		documents = await store.list();
+		const provider = getActiveProvider();
+		await provider.delete(doc.id);
+		documents = await provider.list();
+	}
+
+	function handleProviderChange() {
+		refreshDocuments();
 	}
 </script>
 
 <div class="home-page" data-testid="home-page">
-	<HomeHeader oncreate={handleNewDocument} />
+	<HomeHeader oncreate={handleNewDocument} onproviderchange={handleProviderChange} />
 
 	{#if loading}
 		<div class="loading-area">
