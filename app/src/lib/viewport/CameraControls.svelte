@@ -138,6 +138,10 @@
 	let sketchActive = $derived(getSketchMode()?.active ?? false);
 	let projection = $derived(getCameraProjection());
 
+	// Save/restore camera when entering/exiting sketch mode
+	let preSketchCamera = null;
+	let wasSketchActive = false;
+
 	// Ortho frustum state
 	let frustumHalf = $state(0.03);
 	let aspect = $state(1);
@@ -251,9 +255,19 @@
 			updateOrthoFrustum();
 
 			_raycaster.setFromCamera(_mouse, cameraRef);
-			const cameraDir = new THREE.Vector3();
-			cameraRef.getWorldDirection(cameraDir);
-			_plane.setFromNormalAndCoplanarPoint(cameraDir, controlsRef.target);
+
+			// In sketch mode, use the sketch plane for zoom-toward-cursor
+			const smOrtho = getSketchMode();
+			if (smOrtho?.active) {
+				const sketchNormal = new THREE.Vector3(smOrtho.normal[0], smOrtho.normal[1], smOrtho.normal[2]).normalize();
+				const sketchOrigin = new THREE.Vector3(smOrtho.origin[0], smOrtho.origin[1], smOrtho.origin[2]);
+				_plane.setFromNormalAndCoplanarPoint(sketchNormal, sketchOrigin);
+			} else {
+				const cameraDir = new THREE.Vector3();
+				cameraRef.getWorldDirection(cameraDir);
+				_plane.setFromNormalAndCoplanarPoint(cameraDir, controlsRef.target);
+			}
+
 			const ray = _raycaster.ray;
 			if (ray.intersectPlane(_plane, _planeIntersect)) {
 				const fraction = 1 - (1 / zoomFactor);
@@ -275,19 +289,75 @@
 		// Perspective: raycast to find zoom target point
 		_raycaster.setFromCamera(_mouse, cameraRef);
 
-		/** @type {THREE.Mesh[]} */
-		const meshes = [];
-		scene.traverse((obj) => {
-			if (/** @type {any} */ (obj).isMesh && obj.visible) {
-				meshes.push(/** @type {THREE.Mesh} */ (obj));
-			}
-		});
-
 		let hitPoint = null;
-		if (meshes.length > 0) {
-			const intersections = _raycaster.intersectObjects(meshes, false);
-			if (intersections.length > 0) {
-				hitPoint = intersections[0].point;
+
+		// In sketch mode, zoom toward the cursor's projection on the sketch plane.
+		// Wireframe lines aren't meshes so normal raycasting misses them.
+		// The camera must never get too close to the sketch plane or everything
+		// gets clipped by the near plane and disappears.
+		const sm = getSketchMode();
+		if (sm?.active) {
+			const sketchNormal = new THREE.Vector3(sm.normal[0], sm.normal[1], sm.normal[2]).normalize();
+			const sketchOrigin = new THREE.Vector3(sm.origin[0], sm.origin[1], sm.origin[2]);
+			_plane.setFromNormalAndCoplanarPoint(sketchNormal, sketchOrigin);
+			if (_raycaster.ray.intersectPlane(_plane, _planeIntersect)) {
+				const distToPlane = Math.abs(_plane.distanceToPoint(cameraRef.position));
+
+				// Minimum distance camera can be from sketch plane (must exceed near plane)
+				const MIN_SKETCH_DIST = 0.001;
+
+				if (zoomFactor > 1) {
+					// Zooming in: check if we'd breach minimum distance
+					const newDistToPlane = distToPlane / zoomFactor;
+					if (newDistToPlane < MIN_SKETCH_DIST) {
+						// Clamp: only zoom as much as we can without breaching
+						if (distToPlane <= MIN_SKETCH_DIST) {
+							// Already at limit — just pan toward cursor, no zoom
+							const panFraction = 0.1;
+							controlsRef.target.lerp(_planeIntersect, panFraction);
+							const viewDir = new THREE.Vector3()
+								.subVectors(cameraRef.position, controlsRef.target)
+								.normalize();
+							cameraRef.position.copy(controlsRef.target).addScaledVector(viewDir, distToPlane);
+							cameraRef.updateProjectionMatrix();
+							controlsRef.update();
+							return;
+						}
+						// Reduce zoomFactor so we stop at the limit
+						zoomFactor = distToPlane / MIN_SKETCH_DIST;
+					}
+				}
+
+				// Pan toward cursor, scale camera distance
+				const fraction = 1 - (1 / zoomFactor);
+				controlsRef.target.lerp(_planeIntersect, fraction);
+
+				const currentDist = distToPlane;
+				const newDist = Math.max(MIN_SKETCH_DIST, currentDist / zoomFactor);
+				const viewDir = new THREE.Vector3()
+					.subVectors(cameraRef.position, controlsRef.target)
+					.normalize();
+				cameraRef.position.copy(controlsRef.target).addScaledVector(viewDir, newDist);
+			}
+			cameraRef.updateProjectionMatrix();
+			controlsRef.update();
+			return;
+		}
+
+		if (!hitPoint) {
+			/** @type {THREE.Mesh[]} */
+			const meshes = [];
+			scene.traverse((obj) => {
+				if (/** @type {any} */ (obj).isMesh && obj.visible) {
+					meshes.push(/** @type {THREE.Mesh} */ (obj));
+				}
+			});
+
+			if (meshes.length > 0) {
+				const intersections = _raycaster.intersectObjects(meshes, false);
+				if (intersections.length > 0) {
+					hitPoint = intersections[0].point;
+				}
 			}
 		}
 
@@ -770,7 +840,18 @@
 			handleProjectionChanged();
 		}
 
+		function onSaveCamera() {
+			if (cameraRef && controlsRef) {
+				preSketchCamera = {
+					position: cameraRef.position.clone(),
+					up: cameraRef.up.clone(),
+					target: controlsRef.target.clone()
+				};
+			}
+		}
+
 		window.addEventListener('keydown', onKeyDown);
+		window.addEventListener('waffle-save-camera', onSaveCamera);
 		window.addEventListener('waffle-snap-view', /** @type {EventListener} */ (onSnapView));
 		window.addEventListener('waffle-snap-view-and-fit', /** @type {EventListener} */ (onSnapViewAndFit));
 		window.addEventListener('waffle-align-to-plane', /** @type {EventListener} */ (onAlignToPlane));
@@ -798,6 +879,7 @@
 			window.removeEventListener('pointercancel', onTouchPointerUp);
 			ro.disconnect();
 			window.removeEventListener('keydown', onKeyDown);
+			window.removeEventListener('waffle-save-camera', onSaveCamera);
 			window.removeEventListener('waffle-snap-view', /** @type {EventListener} */ (onSnapView));
 			window.removeEventListener('waffle-snap-view-and-fit', /** @type {EventListener} */ (onSnapViewAndFit));
 			window.removeEventListener('waffle-align-to-plane', /** @type {EventListener} */ (onAlignToPlane));
@@ -865,6 +947,21 @@
 		}
 		// Force OrbitControls to sync internal state after button remapping
 		controlsRef.update();
+	});
+
+	// Restore camera when leaving sketch mode
+	$effect(() => {
+		if (!sketchActive && wasSketchActive) {
+			if (preSketchCamera && cameraRef && controlsRef) {
+				cameraRef.position.copy(preSketchCamera.position);
+				cameraRef.up.copy(preSketchCamera.up);
+				controlsRef.target.copy(preSketchCamera.target);
+				cameraRef.lookAt(preSketchCamera.target);
+				controlsRef.update();
+				preSketchCamera = null;
+			}
+		}
+		wasSketchActive = sketchActive;
 	});
 
 	// Auto-fit camera when sketch grows beyond visible area (first sketch only)

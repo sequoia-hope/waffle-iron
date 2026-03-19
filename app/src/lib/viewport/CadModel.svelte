@@ -14,7 +14,7 @@
 		isSelected,
 		getSelectOtherState,
 		setSelectOtherState,
-		getExtrudeRegionPickMode,
+		getProfilePickMode,
 		isProjectToolActive
 	} from '$lib/engine/store.svelte.js';
 	import { SIDE_FACE_GROUP_THRESHOLD } from '$lib/config.js';
@@ -174,7 +174,7 @@
 
 		// Create shared materials — reuse instances for groups with the same visual state
 		const defaultMat = makeMat(DEFAULT_COLOR);
-		const pickMode = getExtrudeRegionPickMode();
+		const pickMode = getProfilePickMode()?.target === 'extrude';
 		let hoverMat = null;
 		let selectedMat = null;
 

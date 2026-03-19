@@ -13,8 +13,15 @@
 		getCameraObject,
 		getHoveredRef,
 		getReferenceSnapPoints,
-		setReferenceSnapPoints
+		setReferenceSnapPoints,
+		getProfilePickMode,
+		getAxisPickMode,
+		addProfileRegion,
+		setRevolveAxis,
+		getExtrudeDialogState,
+		getRevolveDialogState
 	} from '$lib/engine/store.svelte.js';
+	import { computeAxisFromSketchLine, computeAxisFromSketchCircle } from './axisUtils.js';
 	import { buildSketchPlane, sketchToWorld } from './sketchCoords.js';
 	import { extractProfiles, profileToPolygon, pointInPolygon } from './profiles.js';
 	import { sampleBSpline } from './bspline.js';
@@ -24,8 +31,14 @@
 	const COLOR_INACTIVE = 0x888888;
 	const COLOR_SELECTED = 0xff8800;
 	const COLOR_PROFILE_HOVER = 0x4488ff;
+	const COLOR_PROFILE_SELECTED = 0x2266dd;
+	const COLOR_ENTITY_HOVER = 0x44ddff;
 	const COLOR_INACTIVE_POINT = 0x666688;
 	const PICK_THRESHOLD_PX = 15;
+	const ENTITY_PICK_THRESHOLD_2D = 0.002; // threshold in sketch 2D coords for entity picking
+
+	/** @type {{ featureId: string, entityId: number } | null} */
+	let hoveredAxisEntity = $state(null);
 
 	let tree = $derived(getFeatureTree());
 	let sm = $derived(getSketchMode());
@@ -78,8 +91,11 @@
 	/**
 	 * Build wireframe geometry for each inactive sketch.
 	 */
+	let axisMode = $derived(getAxisPickMode());
+
 	let sketchWireframes = $derived.by(() => {
 		const result = [];
+		const showConstruction = axisMode; // Show construction lines when picking axis
 		for (const data of sketchData) {
 			const { featureId, plane, positions, entities } = data;
 			const isSelected = selectedId === featureId;
@@ -87,7 +103,7 @@
 			const geometries = [];
 
 			for (const entity of entities) {
-				if (entity.construction) continue;
+				if (entity.construction && !showConstruction) continue;
 
 				if (entity.type === 'Line') {
 					const p1 = positions.get(entity.start_id);
@@ -97,6 +113,8 @@
 					const w2 = sketchToWorld(p2.x, p2.y, plane);
 					geometries.push({
 						type: 'line',
+						entityId: entity.id,
+						construction: !!entity.construction,
 						geometry: new THREE.BufferGeometry().setFromPoints([w1, w2])
 					});
 				} else if (entity.type === 'Circle') {
@@ -112,6 +130,8 @@
 					}
 					geometries.push({
 						type: 'line',
+						entityId: entity.id,
+						construction: !!entity.construction,
 						geometry: new THREE.BufferGeometry().setFromPoints(points)
 					});
 				} else if (entity.type === 'Arc') {
@@ -136,6 +156,8 @@
 					}
 					geometries.push({
 						type: 'line',
+						entityId: entity.id,
+						construction: !!entity.construction,
 						geometry: new THREE.BufferGeometry().setFromPoints(points)
 					});
 				} else if (entity.type === 'Spline' && entity.point_ids?.length >= 2) {
@@ -147,6 +169,8 @@
 						const worldPts = sampled.map(p => sketchToWorld(p.x, p.y, plane));
 						geometries.push({
 							type: 'line',
+							entityId: entity.id,
+							construction: !!entity.construction,
 							geometry: new THREE.BufferGeometry().setFromPoints(worldPts)
 						});
 					}
@@ -178,40 +202,158 @@
 	/**
 	 * Build profile fill geometry for hovered inactive sketch profile.
 	 */
-	let profileFills = $derived.by(() => {
-		if (sm?.active) return []; // No profile hover during sketch mode
+	/**
+	 * Collect all profiles that should be filled: hovered + selected (from dialog state).
+	 */
+	let profileFillTargets = $derived.by(() => {
+		if (sm?.active) return [];
+		const targets = [];
+
+		// Hovered profile
 		const hovered = getInactiveHoveredProfile();
-		if (!hovered) return [];
+		if (hovered) {
+			targets.push({ featureId: hovered.featureId, profileIndex: hovered.profileIndex, color: 'hover' });
+		}
+
+		// Selected profiles from extrude dialog regions
+		const extrudeState = getExtrudeDialogState();
+		if (extrudeState?.regions) {
+			for (const r of extrudeState.regions) {
+				if (r.type === 'sketchProfile' && r.sketchId) {
+					const alreadyHovered = hovered && hovered.featureId === r.sketchId && hovered.profileIndex === (r.profileIndex ?? 0);
+					if (!alreadyHovered) {
+						targets.push({ featureId: r.sketchId, profileIndex: r.profileIndex ?? 0, color: 'selected' });
+					}
+				}
+			}
+		}
+
+		// Selected profile from revolve dialog
+		const revolveState = getRevolveDialogState();
+		if (revolveState?.selectedProfile) {
+			const sp = revolveState.selectedProfile;
+			const sid = sp.sketchId ?? revolveState.sketchId;
+			const alreadyHovered = hovered && hovered.featureId === sid && hovered.profileIndex === (sp.profileIndex ?? 0);
+			if (!alreadyHovered) {
+				targets.push({ featureId: sid, profileIndex: sp.profileIndex ?? 0, color: 'selected' });
+			}
+		}
+
+		return targets;
+	});
+
+	let profileFills = $derived.by(() => {
+		if (profileFillTargets.length === 0) return [];
 		const fills = [];
 
-		for (const data of sketchData) {
-			if (data.featureId !== hovered.featureId) continue;
-			const profile = data.profiles[hovered.profileIndex];
-			if (!profile) continue;
+		for (const target of profileFillTargets) {
+			for (const data of sketchData) {
+				if (data.featureId !== target.featureId) continue;
+				const profile = data.profiles[target.profileIndex];
+				if (!profile) continue;
 
-			const poly = profileToPolygon(profile, data.entities, data.positions);
-			if (poly.length < 3) continue;
+				const poly = profileToPolygon(profile, data.entities, data.positions);
+				if (poly.length < 3) continue;
 
-			const shape = new THREE.Shape();
-			shape.moveTo(poly[0].x, poly[0].y);
-			for (let j = 1; j < poly.length; j++) {
-				shape.lineTo(poly[j].x, poly[j].y);
+				const shape = new THREE.Shape();
+				shape.moveTo(poly[0].x, poly[0].y);
+				for (let j = 1; j < poly.length; j++) {
+					shape.lineTo(poly[j].x, poly[j].y);
+				}
+				shape.closePath();
+
+				const shapeGeo = new THREE.ShapeGeometry(shape);
+				const posAttr = shapeGeo.getAttribute('position');
+				for (let v = 0; v < posAttr.count; v++) {
+					const sx = posAttr.getX(v);
+					const sy = posAttr.getY(v);
+					const w = sketchToWorld(sx, sy, data.plane);
+					posAttr.setXYZ(v, w.x, w.y, w.z);
+				}
+				posAttr.needsUpdate = true;
+
+				fills.push({
+					key: `${data.featureId}-${target.profileIndex}-${target.color}`,
+					geometry: shapeGeo,
+					color: target.color === 'selected' ? COLOR_PROFILE_SELECTED : COLOR_PROFILE_HOVER,
+					opacity: target.color === 'selected' ? 0.2 : 0.12
+				});
 			}
-			shape.closePath();
-
-			const shapeGeo = new THREE.ShapeGeometry(shape);
-			const posAttr = shapeGeo.getAttribute('position');
-			for (let v = 0; v < posAttr.count; v++) {
-				const sx = posAttr.getX(v);
-				const sy = posAttr.getY(v);
-				const w = sketchToWorld(sx, sy, data.plane);
-				posAttr.setXYZ(v, w.x, w.y, w.z);
-			}
-			posAttr.needsUpdate = true;
-
-			fills.push({ key: `${data.featureId}-${hovered.profileIndex}`, geometry: shapeGeo });
 		}
 		return fills;
+	});
+
+	/**
+	 * Build tube geometry for the hovered axis entity to create a visible "bold" effect.
+	 * WebGL linewidth > 1 doesn't work, so we use TubeGeometry for thickness.
+	 */
+	let hoveredEntityTubes = $derived.by(() => {
+		if (!hoveredAxisEntity) return [];
+		const tubes = [];
+		for (const data of sketchData) {
+			if (data.featureId !== hoveredAxisEntity.featureId) continue;
+			const entity = data.entities.find(e => e.id === hoveredAxisEntity.entityId);
+			if (!entity) continue;
+
+			const { plane, positions } = data;
+			const TUBE_RADIUS = 0.00008;
+			const TUBE_SEGMENTS = 4;
+
+			if (entity.type === 'Line') {
+				const p1 = positions.get(entity.start_id);
+				const p2 = positions.get(entity.end_id);
+				if (!p1 || !p2) continue;
+				const w1 = sketchToWorld(p1.x, p1.y, plane);
+				const w2 = sketchToWorld(p2.x, p2.y, plane);
+				const path = new THREE.LineCurve3(w1, w2);
+				tubes.push({
+					key: `tube-${data.featureId}-${entity.id}`,
+					geometry: new THREE.TubeGeometry(path, 1, TUBE_RADIUS, TUBE_SEGMENTS, false)
+				});
+			} else if (entity.type === 'Circle') {
+				const center = positions.get(entity.center_id);
+				if (!center) continue;
+				const pts = [];
+				const segments = 48;
+				for (let i = 0; i <= segments; i++) {
+					const angle = (i / segments) * Math.PI * 2;
+					const x = center.x + Math.cos(angle) * entity.radius;
+					const y = center.y + Math.sin(angle) * entity.radius;
+					pts.push(sketchToWorld(x, y, plane));
+				}
+				const path = new THREE.CatmullRomCurve3(pts, true);
+				tubes.push({
+					key: `tube-${data.featureId}-${entity.id}`,
+					geometry: new THREE.TubeGeometry(path, segments, TUBE_RADIUS, TUBE_SEGMENTS, true)
+				});
+			} else if (entity.type === 'Arc') {
+				const center = positions.get(entity.center_id);
+				const startPt = positions.get(entity.start_id);
+				const endPt = positions.get(entity.end_id);
+				if (!center || !startPt || !endPt) continue;
+				const dx = startPt.x - center.x;
+				const dy = startPt.y - center.y;
+				const radius = Math.sqrt(dx * dx + dy * dy);
+				let startAngle = Math.atan2(startPt.y - center.y, startPt.x - center.x);
+				let endAngle = Math.atan2(endPt.y - center.y, endPt.x - center.x);
+				if (endAngle <= startAngle) endAngle += Math.PI * 2;
+				const pts = [];
+				const segments = 32;
+				for (let i = 0; i <= segments; i++) {
+					const t = i / segments;
+					const angle = startAngle + t * (endAngle - startAngle);
+					const x = center.x + Math.cos(angle) * radius;
+					const y = center.y + Math.sin(angle) * radius;
+					pts.push(sketchToWorld(x, y, plane));
+				}
+				const path = new THREE.CatmullRomCurve3(pts, false);
+				tubes.push({
+					key: `tube-${data.featureId}-${entity.id}`,
+					geometry: new THREE.TubeGeometry(path, segments, TUBE_RADIUS, TUBE_SEGMENTS, false)
+				});
+			}
+		}
+		return tubes;
 	});
 
 	// Reusable objects for raycasting to sketch plane
@@ -289,19 +431,24 @@
 		if (sm?.active) {
 			// In sketch mode: pick inactive sketch points for cross-plane snap
 			if (getInactiveHoveredProfile()) setInactiveHoveredProfile(null);
+			if (hoveredAxisEntity) hoveredAxisEntity = null;
 			handleSketchModePointPick(e);
 			return;
 		}
 
-		// Don't hover profiles when a face or edge is under the cursor
-		if (getHoveredRef()) {
+		// Don't hover profiles when a face or edge is under the cursor,
+		// UNLESS a pick mode is active (profile or axis picking needs priority)
+		const hasPickMode = getProfilePickMode() || getAxisPickMode();
+		if (getHoveredRef() && !hasPickMode) {
 			if (getInactiveHoveredProfile()) setInactiveHoveredProfile(null);
+			if (hoveredAxisEntity) hoveredAxisEntity = null;
 			return;
 		}
 
 		const camera = getCameraObject();
 		if (!camera || !renderer) {
 			if (getInactiveHoveredProfile()) setInactiveHoveredProfile(null);
+			if (hoveredAxisEntity) hoveredAxisEntity = null;
 			return;
 		}
 
@@ -310,6 +457,54 @@
 		_mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
 		_mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 		_raycaster.setFromCamera(_mouse, camera);
+
+		// Entity hover for axis pick mode
+		let foundEntity = false;
+		if (getAxisPickMode()) {
+			for (const data of sketchData) {
+				const origin = data.sketch.plane_origin || [0, 0, 0];
+				const normal = data.sketch.plane_normal || [0, 0, 1];
+				const n = new THREE.Vector3(normal[0], normal[1], normal[2]).normalize();
+				const o = new THREE.Vector3(origin[0], origin[1], origin[2]);
+				_planeObj.setFromNormalAndCoplanarPoint(n, o);
+
+				if (!_raycaster.ray.intersectPlane(_planeObj, _intersection)) continue;
+
+				const rel = _intersection.clone().sub(o);
+				const sx = rel.dot(data.plane.xAxis);
+				const sy = rel.dot(data.plane.yAxis);
+
+				let bestDist = ENTITY_PICK_THRESHOLD_2D;
+				let bestEntity = null;
+
+				for (const entity of data.entities) {
+					if (entity.type === 'Line') {
+						const p1 = data.positions.get(entity.start_id);
+						const p2 = data.positions.get(entity.end_id);
+						if (!p1 || !p2) continue;
+						const dist = pointToSegmentDist2D(sx, sy, p1.x, p1.y, p2.x, p2.y);
+						if (dist < bestDist) { bestDist = dist; bestEntity = entity; }
+					} else if (entity.type === 'Circle') {
+						const center = data.positions.get(entity.center_id);
+						if (!center) continue;
+						const dx = sx - center.x;
+						const dy = sy - center.y;
+						const distToCenter = Math.sqrt(dx * dx + dy * dy);
+						const dist = Math.abs(distToCenter - entity.radius);
+						if (dist < bestDist) { bestDist = dist; bestEntity = entity; }
+					}
+				}
+
+				if (bestEntity) {
+					hoveredAxisEntity = { featureId: data.featureId, entityId: bestEntity.id };
+					foundEntity = true;
+					break;
+				}
+			}
+		}
+		if (!foundEntity && hoveredAxisEntity) {
+			hoveredAxisEntity = null;
+		}
 
 		// Check each sketch's profiles
 		for (const data of sketchData) {
@@ -350,27 +545,164 @@
 		opacity: 0.5
 	});
 
+	/**
+	 * Handle click for profile picking (extrude/revolve) and axis picking (revolve).
+	 * Uses window listener like SketchInteraction does.
+	 * @param {PointerEvent} e
+	 */
+	function handlePointerDown(e) {
+		if (e.button !== 0) return; // Left click only
+		if (sm?.active) return;
+
+		const pickMode = getProfilePickMode();
+		const axisMode = getAxisPickMode();
+		if (!pickMode && !axisMode) return;
+
+		const camera = getCameraObject();
+		if (!camera || !renderer) return;
+
+		const canvas = renderer.domElement;
+		const rect = canvas.getBoundingClientRect();
+		_mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+		_mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+		_raycaster.setFromCamera(_mouse, camera);
+
+		// Profile picking: check if cursor is over a profile
+		if (pickMode) {
+			const hovered = getInactiveHoveredProfile();
+			if (hovered) {
+				addProfileRegion(hovered.featureId, hovered.profileIndex);
+				return;
+			}
+		}
+
+		// Axis picking from sketch entities: raycast to each sketch plane and find nearest entity
+		if (axisMode) {
+			for (const data of sketchData) {
+				const origin = data.sketch.plane_origin || [0, 0, 0];
+				const normal = data.sketch.plane_normal || [0, 0, 1];
+				const n = new THREE.Vector3(normal[0], normal[1], normal[2]).normalize();
+				const o = new THREE.Vector3(origin[0], origin[1], origin[2]);
+				_planeObj.setFromNormalAndCoplanarPoint(n, o);
+
+				if (!_raycaster.ray.intersectPlane(_planeObj, _intersection)) continue;
+
+				// Transform to sketch 2D
+				const rel = _intersection.clone().sub(o);
+				const sx = rel.dot(data.plane.xAxis);
+				const sy = rel.dot(data.plane.yAxis);
+
+				// Find nearest line or circle entity (including construction)
+				let bestDist = ENTITY_PICK_THRESHOLD_2D;
+				let bestEntity = null;
+
+				for (const entity of data.entities) {
+					if (entity.type === 'Line') {
+						const p1 = data.positions.get(entity.start_id);
+						const p2 = data.positions.get(entity.end_id);
+						if (!p1 || !p2) continue;
+						const dist = pointToSegmentDist2D(sx, sy, p1.x, p1.y, p2.x, p2.y);
+						if (dist < bestDist) {
+							bestDist = dist;
+							bestEntity = entity;
+						}
+					} else if (entity.type === 'Circle') {
+						const center = data.positions.get(entity.center_id);
+						if (!center) continue;
+						const dx = sx - center.x;
+						const dy = sy - center.y;
+						const distToCenter = Math.sqrt(dx * dx + dy * dy);
+						const dist = Math.abs(distToCenter - entity.radius);
+						if (dist < bestDist) {
+							bestDist = dist;
+							bestEntity = entity;
+						}
+					}
+				}
+
+				if (bestEntity) {
+					let axis = null;
+					let label = '';
+					if (bestEntity.type === 'Line') {
+						const p1 = data.positions.get(bestEntity.start_id);
+						const p2 = data.positions.get(bestEntity.end_id);
+						if (p1 && p2) {
+							axis = computeAxisFromSketchLine(
+								{ start: [p1.x, p1.y], end: [p2.x, p2.y] },
+								origin, normal
+							);
+							label = bestEntity.construction ? `Line ${bestEntity.id} (constr.)` : `Line ${bestEntity.id}`;
+						}
+					} else if (bestEntity.type === 'Circle') {
+						const center = data.positions.get(bestEntity.center_id);
+						if (center) {
+							axis = computeAxisFromSketchCircle(
+								{ center: [center.x, center.y] },
+								origin, normal
+							);
+							label = `Circle ${bestEntity.id}`;
+						}
+					}
+					if (axis) {
+						setRevolveAxis(axis.origin, axis.direction, label);
+						return;
+					}
+				}
+			}
+		}
+	}
+
+	/**
+	 * Point-to-segment distance in 2D.
+	 */
+	function pointToSegmentDist2D(px, py, x1, y1, x2, y2) {
+		const dx = x2 - x1;
+		const dy = y2 - y1;
+		const lenSq = dx * dx + dy * dy;
+		if (lenSq < 1e-20) return Math.sqrt((px - x1) ** 2 + (py - y1) ** 2);
+		let t = ((px - x1) * dx + (py - y1) * dy) / lenSq;
+		t = Math.max(0, Math.min(1, t));
+		const projX = x1 + t * dx;
+		const projY = y1 + t * dy;
+		return Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
+	}
+
 	onMount(() => {
 		const canvas = renderer?.domElement;
 		if (!canvas) return;
 		canvas.addEventListener('pointermove', handlePointerMove);
+		window.addEventListener('pointerdown', handlePointerDown);
 		return () => {
 			canvas.removeEventListener('pointermove', handlePointerMove);
+			window.removeEventListener('pointerdown', handlePointerDown);
 		};
 	});
 </script>
 
 {#each sketchWireframes as wireframe (wireframe.featureId)}
 	{#each wireframe.geometries as geo, i}
+		{@const isHovered = hoveredAxisEntity && hoveredAxisEntity.featureId === wireframe.featureId && hoveredAxisEntity.entityId === geo.entityId}
 		<T.Line geometry={geo.geometry} renderOrder={3}>
 			<T.LineBasicMaterial
-				color={wireframe.color}
+				color={isHovered ? COLOR_ENTITY_HOVER : (geo.construction ? 0x666688 : wireframe.color)}
 				depthTest={true}
 				transparent
-				opacity={sm?.active ? 0.3 : 0.6}
+				opacity={isHovered ? 1.0 : (geo.construction ? 0.35 : (sm?.active ? 0.3 : 0.6))}
 			/>
 		</T.Line>
 	{/each}
+{/each}
+
+<!-- Bold tube overlay for hovered axis entity -->
+{#each hoveredEntityTubes as tube (tube.key)}
+	<T.Mesh geometry={tube.geometry} renderOrder={4}>
+		<T.MeshBasicMaterial
+			color={COLOR_ENTITY_HOVER}
+			transparent
+			opacity={0.6}
+			depthTest={true}
+		/>
+	</T.Mesh>
 {/each}
 
 <!-- Inactive sketch points (shown during sketch mode) -->
@@ -383,9 +715,9 @@
 {#each profileFills as fill (fill.key)}
 	<T.Mesh geometry={fill.geometry} renderOrder={2}>
 		<T.MeshBasicMaterial
-			color={COLOR_PROFILE_HOVER}
+			color={fill.color}
 			transparent
-			opacity={0.12}
+			opacity={fill.opacity}
 			side={THREE.DoubleSide}
 			depthTest={true}
 		/>

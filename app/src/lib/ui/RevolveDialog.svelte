@@ -3,150 +3,53 @@
 		getRevolveDialogState,
 		hideRevolveDialog,
 		applyRevolve,
-		setRevolvePreviewParams
+		setRevolvePreviewParams,
+		setProfilePickMode,
+		getProfilePickMode,
+		setAxisPickMode,
+		getAxisPickMode
 	} from '$lib/engine/store.svelte.js';
 	import { log } from '$lib/engine/logger.js';
 
 	let dialogState = $derived(getRevolveDialogState());
 	let angle = $state(360);
-	let selectedAxisId = $state(null);
-	let axisOrigin = $state([0, 0, 0]);
-	let axisDir = $state([0, 1, 0]);
-	let profileIndex = $state(0);
 
-	// Compute plane basis vectors from normal
-	// Matches buildSketchPlane() in sketchCoords.js and tangent_x_from_normal in rebuild.rs
-	function computePlaneBasis(pn) {
-		// ref = |n·Z| < 0.99 ? Z : X
-		const nDotZ = Math.abs(pn[2]);
-		const ref = nDotZ < 0.99 ? [0, 0, 1] : [1, 0, 0];
+	let selectedAxis = $derived(dialogState?.selectedAxis);
+	let selectedProfile = $derived(dialogState?.selectedProfile);
 
-		// right = normalize(cross(ref, n))
-		const rx = ref[1] * pn[2] - ref[2] * pn[1];
-		const ry = ref[2] * pn[0] - ref[0] * pn[2];
-		const rz = ref[0] * pn[1] - ref[1] * pn[0];
-		const rlen = Math.sqrt(rx*rx + ry*ry + rz*rz);
-		const right = rlen > 1e-10 ? [rx/rlen, ry/rlen, rz/rlen] : [1, 0, 0];
+	let profilePickActive = $derived(getProfilePickMode()?.target === 'revolve');
+	let axisPickActive = $derived(getAxisPickMode());
 
-		// up = cross(n, right)
-		const ux = pn[1] * right[2] - pn[2] * right[1];
-		const uy = pn[2] * right[0] - pn[0] * right[2];
-		const uz = pn[0] * right[1] - pn[1] * right[0];
-		const up = [ux, uy, uz];
-
-		return { right, up };
-	}
-
-	// Compute 3D axis from a selected entity
-	function computeAxisFromEntity(entity, state) {
-		const pn = state.planeNormal ?? [0, 0, 1];
-		const po = state.planeOrigin ?? [0, 0, 0];
-		const { right, up } = computePlaneBasis(pn);
-
-		if (entity.type === 'Line') {
-			const dx2d = entity.end[0] - entity.start[0];
-			const dy2d = entity.end[1] - entity.start[1];
-			const len = Math.sqrt(dx2d * dx2d + dy2d * dy2d);
-			if (len < 1e-10) return null;
-
-			const nx = dx2d / len;
-			const ny = dy2d / len;
-
-			return {
-				dir: [
-					right[0] * nx + up[0] * ny,
-					right[1] * nx + up[1] * ny,
-					right[2] * nx + up[2] * ny
-				],
-				origin: [
-					po[0] + right[0] * entity.start[0] + up[0] * entity.start[1],
-					po[1] + right[1] * entity.start[0] + up[1] * entity.start[1],
-					po[2] + right[2] * entity.start[0] + up[2] * entity.start[1]
-				]
-			};
-		} else if (entity.type === 'Circle') {
-			return {
-				dir: [pn[0], pn[1], pn[2]],
-				origin: [
-					po[0] + right[0] * entity.center[0] + up[0] * entity.center[1],
-					po[1] + right[1] * entity.center[0] + up[1] * entity.center[1],
-					po[2] + right[2] * entity.center[0] + up[2] * entity.center[1]
-				]
-			};
-		}
-		return null;
-	}
-
-	function selectAxis(entityId) {
-		if (!dialogState) return;
-		const entity = dialogState.axisEntities?.find(e => e.id === entityId);
-		if (!entity) return;
-
-		selectedAxisId = entityId;
-		const result = computeAxisFromEntity(entity, dialogState);
-		if (result) {
-			axisDir = result.dir;
-			axisOrigin = result.origin;
-		}
-	}
-
-	// Reset state and auto-select on dialog open
+	// Track dialog open/close to auto-enter pick modes only on open
+	let prevDialogOpen = false;
 	$effect(() => {
-		if (dialogState) {
+		const isOpen = !!dialogState;
+		if (isOpen && !prevDialogOpen) {
+			// Dialog just opened
 			const ep = dialogState.editParams;
 			if (ep) {
 				angle = ep.angle ?? 360;
-				profileIndex = ep.profile_index ?? 0;
-				axisOrigin = ep.axis_origin ?? [0, 0, 0];
-				axisDir = ep.axis_direction ?? [0, 1, 0];
-
-				// Try to match saved axis to an entity button
-				selectedAxisId = null;
-				const entities = dialogState.axisEntities ?? [];
-				for (const entity of entities) {
-					const result = computeAxisFromEntity(entity, dialogState);
-					if (result) {
-						const dirMatch = Math.abs(result.dir[0] - axisDir[0]) < 1e-6
-							&& Math.abs(result.dir[1] - axisDir[1]) < 1e-6
-							&& Math.abs(result.dir[2] - axisDir[2]) < 1e-6;
-						const originMatch = Math.abs(result.origin[0] - axisOrigin[0]) < 1e-6
-							&& Math.abs(result.origin[1] - axisOrigin[1]) < 1e-6
-							&& Math.abs(result.origin[2] - axisOrigin[2]) < 1e-6;
-						if (dirMatch && originMatch) {
-							selectedAxisId = entity.id;
-							break;
-						}
-					}
-				}
 			} else {
 				angle = 360;
-				profileIndex = 0;
-				selectedAxisId = null;
-				axisOrigin = [0, 0, 0];
-				axisDir = [0, 1, 0];
-
-				// Auto-select: first construction line, then first line, then first circle
-				const entities = dialogState.axisEntities ?? [];
-				const pick =
-					entities.find(e => e.type === 'Line' && e.construction) ??
-					entities.find(e => e.type === 'Line') ??
-					entities.find(e => e.type === 'Circle');
-				if (pick) {
-					selectAxis(pick.id);
-				}
 			}
+			setAxisPickMode(true);
+		} else if (!isOpen && prevDialogOpen) {
+			// Dialog closed
+			setProfilePickMode(null);
+			setAxisPickMode(false);
 		}
+		prevDialogOpen = isOpen;
 	});
 
 	// Send preview params whenever axis/angle/profile changes
 	$effect(() => {
-		if (dialogState) {
+		if (dialogState && selectedAxis && selectedProfile) {
 			setRevolvePreviewParams({
-				sketchId: dialogState.sketchId,
-				profileIndex,
+				sketchId: selectedProfile.sketchId ?? dialogState.sketchId,
+				profileIndex: selectedProfile.profileIndex ?? 0,
 				angle,
-				axisOrigin: [...axisOrigin],
-				axisDir: [...axisDir]
+				axisOrigin: [...selectedAxis.origin],
+				axisDir: [...selectedAxis.direction]
 			});
 		} else {
 			setRevolvePreviewParams(null);
@@ -171,11 +74,12 @@
 		return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
 	});
 
-	let hasAxis = $derived(selectedAxisId != null || dialogState?.editParams != null);
+	let hasAxis = $derived(selectedAxis != null);
 
 	function handleApply() {
-		if (!hasAxis) return;
-		applyRevolve(angle, [...axisOrigin], [...axisDir], profileIndex)
+		if (!hasAxis || !selectedAxis) return;
+		const profileIndex = selectedProfile?.profileIndex ?? 0;
+		applyRevolve(angle, [...selectedAxis.origin], [...selectedAxis.direction], profileIndex)
 			.catch(err => log('error', `Revolve dialog apply failed: ${err}`));
 	}
 
@@ -184,11 +88,16 @@
 		hideRevolveDialog();
 	}
 
-	function entityLabel(entity) {
-		const label = entity.type === 'Circle'
-			? `Circle ${entity.id}`
-			: `Line ${entity.id}`;
-		return entity.construction ? label + ' (constr.)' : label;
+	function toggleProfilePick() {
+		if (profilePickActive) {
+			setProfilePickMode(null);
+		} else {
+			setProfilePickMode({ target: 'revolve' });
+		}
+	}
+
+	function toggleAxisPick() {
+		setAxisPickMode(!axisPickActive);
 	}
 </script>
 
@@ -215,34 +124,50 @@
 					max="360"
 				/>
 			</div>
-			<div class="field-group">
-				<span class="group-label">Axis</span>
-				{#if dialogState.axisEntities?.length > 0}
-					<div class="axis-entity-list" data-testid="revolve-axis-list">
-						{#each dialogState.axisEntities as entity (entity.id)}
-							<button
-								class="btn-axis-entity"
-								class:active={selectedAxisId === entity.id}
-								class:construction={entity.construction}
-								data-testid="revolve-axis-entity-{entity.id}"
-								onclick={() => selectAxis(entity.id)}
-							>{entityLabel(entity)}</button>
-						{/each}
+			<div
+				class="pick-box"
+				class:active={axisPickActive}
+				role="button"
+				tabindex="0"
+				onclick={toggleAxisPick}
+				data-testid="revolve-axis-box"
+			>
+				<div class="pick-box-header">
+					<span class="pick-box-label">Axis</span>
+					<span class="pick-hint">
+						{axisPickActive ? 'Click a line or edge...' : 'Click to pick'}
+					</span>
+				</div>
+				{#if selectedAxis}
+					<div class="pick-item" data-testid="revolve-axis-item">
+						<span class="pick-item-label">{selectedAxis.label}</span>
 					</div>
 				{:else}
-					<span class="no-entities">No lines or circles in sketch</span>
+					<div class="pick-empty">No axis selected</div>
 				{/if}
 			</div>
-			{#if dialogState.profileCount > 1}
-				<div class="field">
-					<label for="revolve-profile">Profile</label>
-					<select id="revolve-profile" bind:value={profileIndex}>
-						{#each Array(dialogState.profileCount) as _, i}
-							<option value={i}>Profile {i + 1}</option>
-						{/each}
-					</select>
+			<div
+				class="pick-box"
+				class:active={profilePickActive}
+				role="button"
+				tabindex="0"
+				onclick={toggleProfilePick}
+				data-testid="revolve-profile-box"
+			>
+				<div class="pick-box-header">
+					<span class="pick-box-label">Profile</span>
+					<span class="pick-hint">
+						{profilePickActive ? 'Click a sketch profile...' : 'Click to pick'}
+					</span>
 				</div>
-			{/if}
+				{#if selectedProfile}
+					<div class="pick-item" data-testid="revolve-profile-item">
+						<span class="pick-item-label">{selectedProfile.label}</span>
+					</div>
+				{:else}
+					<div class="pick-empty">No profile selected</div>
+				{/if}
+			</div>
 		</div>
 		<div class="dialog-footer">
 			<button class="btn btn-cancel" data-testid="revolve-cancel" onclick={handleCancel}>Cancel</button>
@@ -356,13 +281,35 @@
 		border-color: var(--accent, #0078d4);
 	}
 
-	.field-group {
+	.pick-box {
+		border: 2px solid var(--border-color, #444);
+		border-radius: 4px;
+		padding: 8px;
+		cursor: pointer;
+		transition: border-color 0.15s, background 0.15s;
 		display: flex;
 		flex-direction: column;
 		gap: 4px;
 	}
+	.pick-box:hover { border-color: var(--accent, #0078d4); }
+	.pick-box.active {
+		border-color: var(--accent, #0078d4);
+		background: rgba(0, 120, 212, 0.1);
+		animation: pulse-border 1.5s ease-in-out infinite;
+	}
 
-	.group-label {
+	@keyframes pulse-border {
+		0%, 100% { border-color: var(--accent, #0078d4); }
+		50% { border-color: rgba(0, 120, 212, 0.4); }
+	}
+
+	.pick-box-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+	}
+
+	.pick-box-label {
 		font-size: 11px;
 		color: var(--text-secondary, #aaa);
 		font-weight: 600;
@@ -370,38 +317,30 @@
 		letter-spacing: 0.5px;
 	}
 
-	.axis-entity-list {
-		display: flex;
-		flex-direction: column;
-		gap: 3px;
-	}
-
-	.btn-axis-entity {
-		padding: 4px 8px;
-		background: var(--bg-primary, #1e1e1e);
-		border: 1px solid var(--border-color, #444);
-		color: var(--text-primary, #eee);
-		border-radius: 3px;
-		font-size: 12px;
-		cursor: pointer;
-		text-align: left;
-	}
-
-	.btn-axis-entity:hover {
-		border-color: var(--accent, #0078d4);
-	}
-
-	.btn-axis-entity.active {
-		background: var(--accent, #0078d4);
-		border-color: var(--accent, #0078d4);
-		color: #fff;
-	}
-
-	.btn-axis-entity.construction {
+	.pick-hint {
+		font-size: 10px;
+		color: var(--text-muted, #888);
 		font-style: italic;
 	}
 
-	.no-entities {
+	.pick-item {
+		display: flex;
+		align-items: center;
+		padding: 4px 8px;
+		background: var(--bg-primary, #1e1e1e);
+		border: 1px solid var(--border-color, #444);
+		border-radius: 3px;
+		font-size: 12px;
+		color: var(--text-primary, #eee);
+	}
+
+	.pick-item-label {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.pick-empty {
 		font-size: 11px;
 		color: var(--text-muted, #888);
 		font-style: italic;

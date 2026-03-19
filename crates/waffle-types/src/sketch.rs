@@ -67,6 +67,32 @@ pub struct Sketch {
 }
 
 impl Sketch {
+    /// Recompute derived data (`solved_positions` and `solved_profiles`) from entities.
+    ///
+    /// This must be called after deserialization, since these fields are not persisted.
+    /// Reconstructs positions from Point entity x/y values, expands Gear entities,
+    /// and extracts closed profiles from the entity graph.
+    pub fn recompute_derived(&mut self) {
+        // Step 1: Reconstruct solved_positions from Point entities' x/y values.
+        // Only populate if empty (don't overwrite live session data).
+        if self.solved_positions.is_empty() {
+            for entity in &self.entities {
+                if let SketchEntity::Point { id, x, y, .. } = entity {
+                    self.solved_positions.insert(*id, (*x, *y));
+                }
+            }
+        }
+
+        // Step 2: Expand gear entities (populates positions + profiles from gear generator)
+        self.expand_gears();
+
+        // Step 3: Extract profiles from remaining entities if still empty
+        if self.solved_profiles.is_empty() {
+            self.solved_profiles =
+                crate::profiles::extract_profiles(&self.entities, &self.solved_positions);
+        }
+    }
+
     /// Expand all `Gear` entities into their primitive equivalents (Points, Lines, Arcs, Splines).
     /// Populates `solved_positions` and `solved_profiles` from the gear profile results.
     /// This is a no-op if the sketch has no Gear entities.

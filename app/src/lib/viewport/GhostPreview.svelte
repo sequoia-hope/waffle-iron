@@ -250,10 +250,11 @@
 		const firstRadial = firstPt.clone().addScaledVector(axisDir, -firstHeight);
 		if (firstRadial.lengthSq() > 1e-10) {
 			firstRadial.normalize();
-			// The lathe starts at +X in local space. We need the +X direction (after yUp->axisDir rotation)
-			// to align with firstRadial.
-			const localX = new THREE.Vector3(1, 0, 0).applyQuaternion(quaternion);
-			const correctionQuat = new THREE.Quaternion().setFromUnitVectors(localX, firstRadial);
+			// LatheGeometry at phi=0 places the profile along +Z in local space
+			// (sin(0)=0, cos(0)=1 → vertex.z = radius). We need the +Z direction
+			// (after yUp→axisDir rotation) to align with firstRadial.
+			const localZ = new THREE.Vector3(0, 0, 1).applyQuaternion(quaternion);
+			const correctionQuat = new THREE.Quaternion().setFromUnitVectors(localZ, firstRadial);
 			quaternion.premultiply(correctionQuat);
 		}
 

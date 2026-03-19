@@ -127,9 +127,13 @@ let extrudeDialogState = $state(null);
 /** @type {{ sketchId: string, profileIndex: number, depth: number, flipDirection: boolean, symmetric: boolean, cut: boolean } | null} */
 let extrudePreviewParams = $state(null);
 
-let extrudeRegionPickMode = $state(false);
+/** @type {{ target: 'extrude' | 'revolve' } | null} */
+let profilePickMode = $state(null);
 
-/** @type {{ sketchId: string, sketchName: string, profileCount: number } | null} */
+/** @type {boolean} */
+let axisPickMode = $state(false);
+
+/** @type {{ sketchId: string, sketchName: string, profileCount: number, selectedProfile?: any, selectedAxis?: any } | null} */
 let revolveDialogState = $state(null);
 
 /** @type {{ sketchId: string, profileIndex: number, angle: number, axisOrigin: [number,number,number], axisDir: [number,number,number] } | null} */
@@ -505,8 +509,10 @@ export async function initEngine() {
 			getExtrudeDialogState: () => extrudeDialogState,
 			getExtrudePreviewParams: () => extrudePreviewParams,
 			setExtrudePreviewParams: (params) => setExtrudePreviewParams(params),
-			getExtrudeRegionPickMode: () => getExtrudeRegionPickMode(),
-			setExtrudeRegionPickMode: (active) => setExtrudeRegionPickMode(active),
+			getProfilePickMode: () => getProfilePickMode(),
+			setProfilePickMode: (mode) => setProfilePickMode(mode),
+			getAxisPickMode: () => getAxisPickMode(),
+			setAxisPickMode: (active) => setAxisPickMode(active),
 			getExtrudeRegions: () => getExtrudeRegions(),
 			addExtrudeRegion: (sketchId, sketchName, profileIndex) => addExtrudeRegion(sketchId, sketchName, profileIndex),
 			removeExtrudeRegion: (index) => removeExtrudeRegion(index),
@@ -838,9 +844,18 @@ export function setHoveredRef(ref) {
  * @param {boolean} additive - If true, toggle selection; if false, replace selection
  */
 export function selectRef(ref, additive = false) {
-	// Intercept face clicks when in region pick mode
-	if (extrudeRegionPickMode && ref?.kind?.type === 'Face') {
+	// Intercept face clicks when in profile pick mode (extrude)
+	if (profilePickMode?.target === 'extrude' && ref?.kind?.type === 'Face') {
 		addExtrudeRegionFromRef(ref);
+		return;
+	}
+
+	// Intercept edge clicks when in axis pick mode (revolve)
+	if (axisPickMode && ref?.kind?.type === 'Edge') {
+		const axis = extractAxisFromEdgeRef(ref);
+		if (axis) {
+			setRevolveAxis(axis.origin, axis.direction, axis.label);
+		}
 		return;
 	}
 
@@ -1039,8 +1054,9 @@ export async function enterSketchMode(origin = [0, 0, 0], normal = [0, 0, 1], fa
 	// Collect reference snap points from inactive sketches on the same/parallel plane
 	referenceSnapPoints = collectSamePlaneSketchPoints(origin, normal, editingSketchFeatureId);
 
-	// Dispatch event so CameraControls aligns to the sketch plane
+	// Save camera state before aligning, so it can be restored on sketch exit
 	if (typeof window !== 'undefined') {
+		window.dispatchEvent(new Event('waffle-save-camera'));
 		if (faceGeomRef) {
 			const bounds = computeFaceBounds(faceGeomRef);
 			if (bounds) {
@@ -1947,8 +1963,11 @@ export function getExtrudeDialogState() { return extrudeDialogState; }
 export function getExtrudePreviewParams() { return extrudePreviewParams; }
 export function setExtrudePreviewParams(params) { extrudePreviewParams = params; }
 
-export function getExtrudeRegionPickMode() { return extrudeRegionPickMode; }
-export function setExtrudeRegionPickMode(active) { extrudeRegionPickMode = active; }
+export function getProfilePickMode() { return profilePickMode; }
+export function setProfilePickMode(mode) { profilePickMode = mode; }
+
+export function getAxisPickMode() { return axisPickMode; }
+export function setAxisPickMode(active) { axisPickMode = active; }
 
 export function getRevolvePreviewParams() { return revolvePreviewParams; }
 export function setRevolvePreviewParams(params) { revolvePreviewParams = params; }
@@ -2106,7 +2125,7 @@ function describeFaceRef(ref) {
 export function hideExtrudeDialog() {
 	extrudeDialogState = null;
 	extrudePreviewParams = null;
-	extrudeRegionPickMode = false;
+	profilePickMode = null;
 }
 
 /**
@@ -2243,61 +2262,25 @@ export function showRevolveDialog() {
 	if (!lastSketch) return;
 
 	const profileCount = lastSketch.operation?.sketch?.solved_profiles?.length ?? 0;
-
-	// Extract sketch entities for axis selection (lines and circles, including construction)
-	const axisEntities = [];
 	const sketchData = lastSketch.operation?.sketch;
-	if (sketchData) {
-		const entities = sketchData.entities ?? [];
-		const positions = sketchData.solved_positions ?? {};
-		for (const entity of entities) {
-			if (entity.type === 'Line') {
-				const startPos = positions[entity.start_id];
-				const endPos = positions[entity.end_id];
-				if (startPos && endPos) {
-					axisEntities.push({
-						type: 'Line',
-						id: entity.id,
-						construction: !!entity.construction,
-						start: [startPos[0], startPos[1]],
-						end: [endPos[0], endPos[1]]
-					});
-				}
-			} else if (entity.type === 'Circle') {
-				const centerPos = positions[entity.center_id];
-				if (centerPos) {
-					axisEntities.push({
-						type: 'Circle',
-						id: entity.id,
-						construction: !!entity.construction,
-						center: [centerPos[0], centerPos[1]],
-						radius: entity.radius
-					});
-				}
-			}
-		}
-	}
 
-	// Sort: construction entities first (most likely axis), then by id
-	axisEntities.sort((a, b) => {
-		if (a.construction !== b.construction) return a.construction ? -1 : 1;
-		return a.id - b.id;
-	});
-
-	log('ui', 'Show revolve dialog', { sketchId: lastSketch.id, profileCount, axisEntityCount: axisEntities.length });
+	log('ui', 'Show revolve dialog', { sketchId: lastSketch.id, profileCount });
 	revolveDialogState = {
 		sketchId: lastSketch.id,
 		sketchName: lastSketch.name,
 		profileCount,
-		axisEntities,
 		planeOrigin: sketchData?.plane_origin ?? [0, 0, 0],
-		planeNormal: sketchData?.plane_normal ?? [0, 0, 1]
+		planeNormal: sketchData?.plane_normal ?? [0, 0, 1],
+		selectedProfile: { sketchId: lastSketch.id, profileIndex: 0, label: `${lastSketch.name} / Profile 1` },
+		selectedAxis: null
 	};
 }
 
 export function hideRevolveDialog() {
 	revolveDialogState = null;
 	revolvePreviewParams = null;
+	profilePickMode = null;
+	axisPickMode = false;
 }
 
 /**
@@ -2317,47 +2300,19 @@ export function showRevolveDialogForEdit(featureId) {
 	if (!sketch) return;
 
 	const profileCount = sketch.operation?.sketch?.solved_profiles?.length ?? 0;
-
-	// Build axis entities the same way as showRevolveDialog
-	const axisEntities = [];
 	const sketchData = sketch.operation?.sketch;
-	if (sketchData) {
-		const entities = sketchData.entities ?? [];
-		const positions = sketchData.solved_positions ?? {};
-		for (const entity of entities) {
-			if (entity.type === 'Line') {
-				const startPos = positions[entity.start_id];
-				const endPos = positions[entity.end_id];
-				if (startPos && endPos) {
-					axisEntities.push({
-						type: 'Line', id: entity.id, construction: !!entity.construction,
-						start: [startPos[0], startPos[1]], end: [endPos[0], endPos[1]]
-					});
-				}
-			} else if (entity.type === 'Circle') {
-				const centerPos = positions[entity.center_id];
-				if (centerPos) {
-					axisEntities.push({
-						type: 'Circle', id: entity.id, construction: !!entity.construction,
-						center: [centerPos[0], centerPos[1]], radius: entity.radius
-					});
-				}
-			}
-		}
-	}
-	axisEntities.sort((a, b) => {
-		if (a.construction !== b.construction) return a.construction ? -1 : 1;
-		return a.id - b.id;
-	});
 
 	log('ui', 'Show revolve dialog for edit', { featureId, sketchId });
 	revolveDialogState = {
 		sketchId,
 		sketchName: sketch.name,
 		profileCount,
-		axisEntities,
 		planeOrigin: sketchData?.plane_origin ?? [0, 0, 0],
 		planeNormal: sketchData?.plane_normal ?? [0, 0, 1],
+		selectedProfile: { sketchId, profileIndex: params.profile_index ?? 0, label: `${sketch.name} / Profile ${(params.profile_index ?? 0) + 1}` },
+		selectedAxis: params.axis_origin && params.axis_direction
+			? { origin: params.axis_origin, direction: params.axis_direction, label: 'Saved axis' }
+			: null,
 		editingFeatureId: featureId,
 		editParams: params
 	};
@@ -2400,6 +2355,109 @@ export async function applyRevolve(angleDeg, axisOrigin, axisDir, profileIndex) 
 		log('error', `Revolve failed: ${err.message}`);
 		showToast('error', `Revolve failed: ${err.message}`);
 	}
+}
+
+// -- Viewport pick mode helpers --
+
+/**
+ * Add a profile region from viewport click, dispatching to the appropriate dialog.
+ * @param {string} featureId - sketch feature id
+ * @param {number} profileIndex
+ */
+export function addProfileRegion(featureId, profileIndex) {
+	if (!profilePickMode) return;
+
+	// Find sketch name from feature tree
+	const feature = featureTree?.features?.find(f => f.id === featureId);
+	const sketchName = feature?.name || 'Sketch';
+
+	if (profilePickMode.target === 'extrude') {
+		addExtrudeRegion(featureId, sketchName, profileIndex);
+	} else if (profilePickMode.target === 'revolve') {
+		if (!revolveDialogState) return;
+		revolveDialogState = {
+			...revolveDialogState,
+			selectedProfile: { sketchId: featureId, profileIndex, label: `${sketchName} / Profile ${profileIndex + 1}` }
+		};
+	}
+}
+
+/**
+ * Set the revolve axis from a viewport pick.
+ * @param {number[]} origin - [x, y, z]
+ * @param {number[]} direction - [x, y, z]
+ * @param {string} label
+ */
+export function setRevolveAxis(origin, direction, label) {
+	if (!revolveDialogState) return;
+	revolveDialogState = {
+		...revolveDialogState,
+		selectedAxis: { origin, direction, label }
+	};
+}
+
+/**
+ * Extract axis info from an edge GeomRef by finding matching edge vertices in mesh data.
+ * @param {any} ref - GeomRef with kind.type === 'Edge'
+ * @returns {{ origin: number[], direction: number[], label: string } | null}
+ */
+function extractAxisFromEdgeRef(ref) {
+	for (const mesh of meshes) {
+		if (!mesh.edges || !mesh.edges.ranges) continue;
+		for (const range of mesh.edges.ranges) {
+			if (!range.geom_ref || !geomRefEquals(range.geom_ref, ref)) continue;
+
+			const verts = mesh.edges.vertices;
+			const startIdx = range.start_index;
+			const endIdx = range.end_index;
+			if (startIdx >= endIdx || !verts || verts.length === 0) continue;
+
+			const start = [verts[startIdx * 3], verts[startIdx * 3 + 1], verts[startIdx * 3 + 2]];
+			const lastVert = endIdx - 1;
+			const end = [verts[lastVert * 3], verts[lastVert * 3 + 1], verts[lastVert * 3 + 2]];
+
+			// Check if edge is straight (only 2 unique positions means straight)
+			const uniquePositions = new Set();
+			for (let i = startIdx; i < endIdx; i++) {
+				const key = `${verts[i*3].toFixed(8)},${verts[i*3+1].toFixed(8)},${verts[i*3+2].toFixed(8)}`;
+				uniquePositions.add(key);
+				if (uniquePositions.size > 2) {
+					showToast('warning', 'Only straight edges can be used as revolve axis');
+					return null;
+				}
+			}
+
+			const { computeAxisFromEdgeVertices } = await_import_axisUtils();
+			const axis = computeAxisFromEdgeVertices(start, end);
+			if (!axis) return null;
+
+			const featureId = ref?.anchor?.feature_id;
+			const feature = featureId ? featureTree?.features?.find(f => f.id === featureId) : null;
+			const label = feature ? `${feature.name} edge` : 'Model edge';
+
+			return { origin: axis.origin, direction: axis.direction, label };
+		}
+	}
+	return null;
+}
+
+// Inline import to avoid top-level dynamic import issues
+function await_import_axisUtils() {
+	// These are pure math functions, import them synchronously via the module system
+	// We re-export them here since store.svelte.js can't use top-level await
+	return {
+		computeAxisFromEdgeVertices(startPos, endPos) {
+			const dx = endPos[0] - startPos[0];
+			const dy = endPos[1] - startPos[1];
+			const dz = endPos[2] - startPos[2];
+			const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+			if (len < 1e-10) return null;
+			return {
+				origin: [...startPos],
+				direction: [dx / len, dy / len, dz / len]
+			};
+		}
+	};
 }
 
 // -- Chamfer dialog --
@@ -3332,8 +3390,9 @@ export async function enterSketchEditMode(featureId) {
 
 	triggerSolve();
 
-	// Dispatch camera alignment event
+	// Save camera and align to sketch plane
 	if (typeof window !== 'undefined') {
+		window.dispatchEvent(new Event('waffle-save-camera'));
 		window.dispatchEvent(new CustomEvent('waffle-align-to-plane', { detail: { origin, normal } }));
 	}
 }

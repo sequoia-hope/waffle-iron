@@ -8,7 +8,8 @@
 		setExtrudePreviewParams,
 		changeExtrudeSketch,
 		addExtrudeRegion,
-		setExtrudeRegionPickMode,
+		setProfilePickMode,
+		getProfilePickMode,
 		getDocumentDisplayUnit
 	} from '$lib/engine/store.svelte.js';
 	import { showToast } from '$lib/ui/toast.svelte.js';
@@ -136,15 +137,15 @@
 		removeExtrudeRegion(index);
 	}
 
-	let regionPickActive = $state(false);
+	let regionPickActive = $derived(getProfilePickMode()?.target === 'extrude');
 
 	function toggleRegionPick() {
-		regionPickActive = !regionPickActive;
 		if (regionPickActive) {
-			// Clear existing regions when entering pick mode (replace, not append)
+			setProfilePickMode(null);
+		} else {
 			clearExtrudeRegions();
+			setProfilePickMode({ target: 'extrude' });
 		}
-		setExtrudeRegionPickMode(regionPickActive);
 	}
 
 	function regionLabel(region) {
@@ -156,12 +157,18 @@
 		return `${region.sketchName || '?'} / Profile ${(region.profileIndex ?? 0) + 1}`;
 	}
 
-	// Deactivate pick mode when dialog closes
+	// Track dialog open/close to auto-enter pick mode only on open
+	let prevDialogOpen = false;
 	$effect(() => {
-		if (!dialogState) {
-			regionPickActive = false;
-			setExtrudeRegionPickMode(false);
+		const isOpen = !!dialogState;
+		if (isOpen && !prevDialogOpen) {
+			// Dialog just opened — auto-enter pick mode
+			setProfilePickMode({ target: 'extrude' });
+		} else if (!isOpen && prevDialogOpen) {
+			// Dialog closed — deactivate pick mode
+			setProfilePickMode(null);
 		}
+		prevDialogOpen = isOpen;
 	});
 </script>
 
@@ -199,7 +206,7 @@
 				<div class="region-box-header">
 					<span class="region-header">Regions ({regions.length})</span>
 					<span class="pick-hint">
-						{regionPickActive ? 'Click faces to add...' : 'Click to pick'}
+						{regionPickActive ? 'Click sketch profiles or faces...' : 'Click to pick'}
 					</span>
 				</div>
 				{#each regions as region, i}
@@ -212,7 +219,7 @@
 					</div>
 				{/each}
 				{#if regions.length === 0}
-					<div class="region-empty">No regions — click to pick faces</div>
+					<div class="region-empty">No regions — click sketch profiles or faces</div>
 				{/if}
 			</div>
 			<div class="field">
@@ -373,6 +380,12 @@
 	.region-box.active {
 		border-color: var(--accent, #0078d4);
 		background: rgba(0, 120, 212, 0.1);
+		animation: pulse-border 1.5s ease-in-out infinite;
+	}
+
+	@keyframes pulse-border {
+		0%, 100% { border-color: var(--accent, #0078d4); }
+		50% { border-color: rgba(0, 120, 212, 0.4); }
 	}
 	.region-box-header {
 		display: flex;

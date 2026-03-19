@@ -247,50 +247,31 @@ test.describe('revolve dialog fields', () => {
 		expect(name.length).toBeGreaterThan(0);
 	});
 
-	test('revolve dialog has axis entity list with auto-selected axis', async ({ waffle }) => {
+	test('revolve dialog has axis pick box', async ({ waffle }) => {
 		await createFinishedSketch(waffle);
 		await clickRevolve(waffle.page);
 
-		// Should have axis entity buttons (rectangle has 4 lines)
-		const axisList = waffle.page.locator('[data-testid="revolve-axis-list"]');
-		await expect(axisList).toBeVisible();
-		const buttons = axisList.locator('.btn-axis-entity');
-		const count = await buttons.count();
-		expect(count).toBeGreaterThanOrEqual(1);
+		// Should have axis pick box (viewport-based picking)
+		const axisBox = waffle.page.locator('[data-testid="revolve-axis-box"]');
+		await expect(axisBox).toBeVisible();
 
-		// One should be auto-selected (active)
-		const activeBtn = axisList.locator('.btn-axis-entity.active');
-		expect(await activeBtn.count()).toBe(1);
+		// Axis pick mode should be active by default
+		const isAxisActive = await waffle.page.evaluate(
+			() => window.__waffle?.getAxisPickMode?.()
+		);
+		expect(isAxisActive).toBe(true);
 	});
 
-	test('clicking different axis entity changes selection', async ({ waffle }) => {
+	test('revolve dialog has profile pick box', async ({ waffle }) => {
 		await createFinishedSketch(waffle);
 		await clickRevolve(waffle.page);
 
-		const axisList = waffle.page.locator('[data-testid="revolve-axis-list"]');
-		const buttons = axisList.locator('.btn-axis-entity');
-		const count = await buttons.count();
+		// Should have profile pick box
+		const profileBox = waffle.page.locator('[data-testid="revolve-profile-box"]');
+		await expect(profileBox).toBeVisible();
 
-		// Rectangle has 4 lines — need at least 2 to test switching
-		if (count >= 2) {
-			// Get currently active button
-			const initialActive = axisList.locator('.btn-axis-entity.active');
-			const initialText = await initialActive.textContent();
-
-			// Click the second button (not the active one)
-			const activeIndex = 0;
-			const otherIndex = activeIndex === 0 ? 1 : 0;
-			await buttons.nth(otherIndex).click();
-			await waffle.page.waitForTimeout(200);
-
-			// The clicked button should now be active
-			const newActive = axisList.locator('.btn-axis-entity.active');
-			expect(await newActive.count()).toBe(1);
-			const newText = await newActive.textContent();
-
-			// If they selected different axes, the text should differ
-			// (for a rectangle, the 4 lines have different IDs)
-			expect(newText).toBeTruthy();
-		}
+		// Default profile should be selected
+		const profileItem = waffle.page.locator('[data-testid="revolve-profile-item"]');
+		await expect(profileItem).toBeVisible();
 	});
 });

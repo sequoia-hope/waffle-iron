@@ -71,7 +71,7 @@ test.describe('extrude region re-selection', () => {
 		expect(state.regions.length).toBe(0);
 	});
 
-	test('toggling region pick mode clears existing regions', async ({ waffle }) => {
+	test('toggling region pick mode off and on clears existing regions', async ({ waffle }) => {
 		const page = waffle.page;
 
 		await clickSketch(page);
@@ -87,26 +87,40 @@ test.describe('extrude region re-selection', () => {
 
 		await clickExtrude(page);
 
-		// Verify 1 region auto-populated
+		// Verify 1 region auto-populated and pick mode auto-active
 		let state = await getExtrudeDialogState(page);
 		expect(state.regions.length).toBe(1);
+		let pickActive = await page.evaluate(
+			() => window.__waffle?.getProfilePickMode?.()?.target === 'extrude'
+		);
+		expect(pickActive).toBe(true);
 
-		// Click the region box to toggle pick mode ON
+		// Click the region box to toggle pick mode OFF
 		await page.locator('[data-testid="extrude-region-box"]').click();
 		await page.waitForTimeout(200);
 
-		// When pick mode is toggled ON, existing regions should be cleared
+		// Pick mode should be off, regions still present
+		pickActive = await page.evaluate(
+			() => window.__waffle?.getProfilePickMode?.()?.target === 'extrude'
+		);
+		expect(pickActive).toBeFalsy();
+		state = await getExtrudeDialogState(page);
+		expect(state.regions.length).toBe(1);
+
+		// Click again to toggle pick mode ON — clears regions
+		await page.locator('[data-testid="extrude-region-box"]').click();
+		await page.waitForTimeout(200);
+
 		state = await getExtrudeDialogState(page);
 		expect(state.regions.length).toBe(0);
 
-		// Verify pick mode is active
-		const pickActive = await page.evaluate(
-			() => window.__waffle?.getExtrudeRegionPickMode?.() === true
+		pickActive = await page.evaluate(
+			() => window.__waffle?.getProfilePickMode?.()?.target === 'extrude'
 		);
 		expect(pickActive).toBe(true);
 	});
 
-	test('region pick mode hint text changes', async ({ waffle }) => {
+	test('region pick mode hint text changes on toggle', async ({ waffle }) => {
 		const page = waffle.page;
 
 		await clickSketch(page);
@@ -122,16 +136,16 @@ test.describe('extrude region re-selection', () => {
 
 		await clickExtrude(page);
 
-		// Initially should show "Click to pick"
+		// Initially auto-enters pick mode, should show active hint
 		const hintBefore = await page.locator('.pick-hint').textContent();
-		expect(hintBefore.trim()).toBe('Click to pick');
+		expect(hintBefore.trim()).toBe('Click sketch profiles or faces...');
 
-		// Click region box to toggle pick mode
+		// Click region box to toggle pick mode OFF
 		await page.locator('[data-testid="extrude-region-box"]').click();
 		await page.waitForTimeout(200);
 
-		// Should now show "Click faces to add..."
+		// Should now show inactive hint
 		const hintAfter = await page.locator('.pick-hint').textContent();
-		expect(hintAfter.trim()).toBe('Click faces to add...');
+		expect(hintAfter.trim()).toBe('Click to pick');
 	});
 });

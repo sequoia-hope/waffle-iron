@@ -158,8 +158,7 @@ fn execute_feature(
             let _sketch_result = find_sketch_result(params.sketch_id, feature_results)?;
             let sketch_ref = find_sketch_in_tree(params.sketch_id, tree)?;
             let mut sketch_expanded = sketch_ref.clone();
-            sketch_expanded.expand_gears();
-            sketch_expanded.recompute_derived_data();
+            sketch_expanded.recompute_derived();
             let sketch = &sketch_expanded;
 
             let direction = params.direction.unwrap_or(sketch.plane_normal);
@@ -419,8 +418,7 @@ fn execute_feature(
             let _sketch_result = find_sketch_result(params.sketch_id, feature_results)?;
             let sketch_ref = find_sketch_in_tree(params.sketch_id, tree)?;
             let mut sketch_expanded = sketch_ref.clone();
-            sketch_expanded.expand_gears();
-            sketch_expanded.recompute_derived_data();
+            sketch_expanded.recompute_derived();
             let sketch = &sketch_expanded;
 
             if sketch.solved_profiles.is_empty() {
@@ -1448,6 +1446,244 @@ mod tests {
             err.contains("not found"),
             "Error should mention not found: {}",
             err
+        );
+    }
+
+    // -- Deserialized sketch (empty solved_profiles/solved_positions) tests --
+    // These simulate loading a .waffle file where solved_profiles and solved_positions
+    // are empty because they are #[serde(default, skip_serializing)].
+
+    /// Helper: create a Sketch with empty derived data (simulating deserialization).
+    fn make_deserialized_sketch(id: Uuid, entities: Vec<waffle_types::SketchEntity>) -> Sketch {
+        Sketch {
+            id,
+            plane: waffle_types::GeomRef {
+                kind: waffle_types::TopoKind::Face,
+                anchor: waffle_types::Anchor::Datum {
+                    datum_id: FRONT_PLANE_ID.parse().unwrap(),
+                },
+                selector: waffle_types::Selector::Role {
+                    role: waffle_types::Role::EndCapPositive,
+                    index: 0,
+                },
+                policy: waffle_types::ResolvePolicy::Strict,
+            },
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
+            entities,
+            constraints: vec![],
+            solve_status: waffle_types::SolveStatus::FullyConstrained,
+            // Simulating deserialization: these are empty because skip_serializing
+            solved_positions: HashMap::new(),
+            solved_profiles: vec![],
+        }
+    }
+
+    /// Helper: create a sketch Feature + extrude Feature pair for testing.
+    fn make_sketch_extrude_tree(sketch: Sketch) -> (FeatureTree, Uuid) {
+        let sketch_id = sketch.id;
+        let extrude_id = Uuid::new_v4();
+        let tree = FeatureTree {
+            features: vec![
+                Feature {
+                    id: sketch_id,
+                    name: "Sketch1".to_string(),
+                    operation: Operation::Sketch { sketch },
+                    suppressed: false,
+                    references: vec![],
+                },
+                Feature {
+                    id: extrude_id,
+                    name: "Extrude1".to_string(),
+                    operation: Operation::Extrude {
+                        params: crate::types::ExtrudeParams {
+                            sketch_id,
+                            profile_index: 0,
+                            depth: 0.01,
+                            direction: None,
+                            symmetric: false,
+                            cut: false,
+                            merge: false,
+                            target_body: None,
+                            depth_mode: crate::types::DepthMode::Blind,
+                            second_direction: None,
+                        },
+                    },
+                    suppressed: false,
+                    references: vec![],
+                },
+            ],
+            active_index: None,
+        };
+        (tree, extrude_id)
+    }
+
+    #[test]
+    fn rebuild_recomputes_profiles_for_circle_sketch() {
+        // A circle sketch loaded from a .waffle file has empty solved_profiles
+        // and solved_positions (they are skip_serializing). Rebuild must
+        // recompute them before attempting to extrude.
+        use waffle_types::SketchEntity;
+
+        let sketch_id = Uuid::new_v4();
+        let sketch = make_deserialized_sketch(
+            sketch_id,
+            vec![
+                SketchEntity::Point {
+                    id: 1,
+                    x: 0.0,
+                    y: 0.0,
+                    construction: false,
+                },
+                SketchEntity::Circle {
+                    id: 2,
+                    center_id: 1,
+                    radius: 0.005, // 5mm in meters
+                    construction: false,
+                },
+            ],
+        );
+
+        let (tree, extrude_id) = make_sketch_extrude_tree(sketch);
+
+        let mut kb = kernel::MockKernel::new();
+        let existing = HashMap::new();
+        let state = rebuild(&tree, &mut kb, 0, &existing);
+
+        // The extrude should succeed — profiles should have been recomputed from entities.
+        // Currently this fails because solved_profiles is empty after deserialization.
+        let extrude_failed = state.errors.iter().any(|(id, _)| *id == extrude_id);
+        assert!(
+            !extrude_failed,
+            "Extrude should succeed after profile recomputation, but got errors: {:?}",
+            state.errors
+        );
+        assert!(
+            state.feature_results.contains_key(&extrude_id),
+            "Extrude feature should have a result"
+        );
+    }
+
+    #[test]
+    fn rebuild_recomputes_profiles_for_rectangle_sketch() {
+        // A rectangle sketch (4 points, 4 lines) loaded from a .waffle file.
+        // solved_profiles and solved_positions are empty after deserialization.
+        use waffle_types::SketchEntity;
+
+        let sketch_id = Uuid::new_v4();
+        let sketch = make_deserialized_sketch(
+            sketch_id,
+            vec![
+                // Four corner points of a 10mm x 5mm rectangle
+                SketchEntity::Point {
+                    id: 1,
+                    x: 0.0,
+                    y: 0.0,
+                    construction: false,
+                },
+                SketchEntity::Point {
+                    id: 2,
+                    x: 0.01,
+                    y: 0.0,
+                    construction: false,
+                },
+                SketchEntity::Point {
+                    id: 3,
+                    x: 0.01,
+                    y: 0.005,
+                    construction: false,
+                },
+                SketchEntity::Point {
+                    id: 4,
+                    x: 0.0,
+                    y: 0.005,
+                    construction: false,
+                },
+                // Four lines forming the rectangle
+                SketchEntity::Line {
+                    id: 5,
+                    start_id: 1,
+                    end_id: 2,
+                    construction: false,
+                },
+                SketchEntity::Line {
+                    id: 6,
+                    start_id: 2,
+                    end_id: 3,
+                    construction: false,
+                },
+                SketchEntity::Line {
+                    id: 7,
+                    start_id: 3,
+                    end_id: 4,
+                    construction: false,
+                },
+                SketchEntity::Line {
+                    id: 8,
+                    start_id: 4,
+                    end_id: 1,
+                    construction: false,
+                },
+            ],
+        );
+
+        let (tree, extrude_id) = make_sketch_extrude_tree(sketch);
+
+        let mut kb = kernel::MockKernel::new();
+        let existing = HashMap::new();
+        let state = rebuild(&tree, &mut kb, 0, &existing);
+
+        // The extrude should succeed — profiles should have been recomputed.
+        // Currently this fails because solved_profiles is empty after deserialization.
+        let extrude_failed = state.errors.iter().any(|(id, _)| *id == extrude_id);
+        assert!(
+            !extrude_failed,
+            "Extrude should succeed after profile recomputation, but got errors: {:?}",
+            state.errors
+        );
+        assert!(
+            state.feature_results.contains_key(&extrude_id),
+            "Extrude feature should have a result"
+        );
+    }
+
+    #[test]
+    fn rebuild_gear_sketch_works_without_precomputed_profiles() {
+        // Gear sketches get expand_gears() called during rebuild, which populates
+        // solved_profiles and solved_positions. This test confirms that baseline
+        // behavior still works even when starting from empty derived data.
+        use waffle_types::SketchEntity;
+
+        let sketch_id = Uuid::new_v4();
+        let sketch = make_deserialized_sketch(
+            sketch_id,
+            vec![SketchEntity::Gear {
+                id: 1,
+                params: waffle_types::GearParams {
+                    tooth_count: 8,
+                    module: 0.01,
+                    ..Default::default()
+                },
+                construction: false,
+            }],
+        );
+
+        let (tree, extrude_id) = make_sketch_extrude_tree(sketch);
+
+        let mut kb = kernel::MockKernel::new();
+        let existing = HashMap::new();
+        let state = rebuild(&tree, &mut kb, 0, &existing);
+
+        // Gear sketches should work because expand_gears() populates profiles.
+        let extrude_failed = state.errors.iter().any(|(id, _)| *id == extrude_id);
+        assert!(
+            !extrude_failed,
+            "Gear extrude should succeed via expand_gears(), but got errors: {:?}",
+            state.errors
+        );
+        assert!(
+            state.feature_results.contains_key(&extrude_id),
+            "Gear extrude feature should have a result"
         );
     }
 

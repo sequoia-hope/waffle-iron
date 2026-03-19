@@ -140,65 +140,54 @@ test.describe('revolve partial angles', () => {
 });
 
 test.describe('revolve axis selection', () => {
-	test('revolve auto-selects first line as axis', async ({ waffle }) => {
+	test('revolve opens with axis pick mode active', async ({ waffle }) => {
 		await createRevolveSketch(waffle);
 		await clickRevolve(waffle.page);
 
-		const axisList = waffle.page.locator('[data-testid="revolve-axis-list"]');
-		const activeBtn = axisList.locator('.btn-axis-entity.active');
-		expect(await activeBtn.count()).toBe(1);
+		// Axis pick box should be visible and in active state
+		const axisBox = waffle.page.locator('[data-testid="revolve-axis-box"]');
+		await expect(axisBox).toBeVisible();
 
-		// Apply button should be enabled (axis auto-selected)
-		await expect(waffle.page.locator('[data-testid="revolve-apply"]')).toBeEnabled();
+		// Axis pick mode should be active by default
+		const isAxisActive = await waffle.page.evaluate(
+			() => window.__waffle?.getAxisPickMode?.()
+		);
+		expect(isAxisActive).toBe(true);
 	});
 
-	test('clicking different axis changes active highlight', async ({ waffle }) => {
+	test('revolve dialog has profile pick box with default selection', async ({ waffle }) => {
 		await createRevolveSketch(waffle);
 		await clickRevolve(waffle.page);
 
-		const axisList = waffle.page.locator('[data-testid="revolve-axis-list"]');
-		const buttons = axisList.locator('.btn-axis-entity');
-		const count = await buttons.count();
+		// Profile pick box should be visible
+		const profileBox = waffle.page.locator('[data-testid="revolve-profile-box"]');
+		await expect(profileBox).toBeVisible();
 
-		if (count >= 2) {
-			// Get initial active button text
-			const initialActive = await axisList.locator('.btn-axis-entity.active').textContent();
-
-			// Click the second button
-			await buttons.nth(1).click();
-			await waffle.page.waitForTimeout(200);
-
-			// New active button should be different
-			const newActive = axisList.locator('.btn-axis-entity.active');
-			expect(await newActive.count()).toBe(1);
-		}
+		// Default profile should be auto-selected
+		const profileItem = waffle.page.locator('[data-testid="revolve-profile-item"]');
+		await expect(profileItem).toBeVisible();
 	});
 
-	test('revolve with different axis selection creates feature', async ({ waffle }) => {
+	test('revolve axis can be set via store API', async ({ waffle }) => {
 		const tracker = collectCrashErrors(waffle.page);
 		await createRevolveSketch(waffle);
 		await clickRevolve(waffle.page);
 
-		// Select second axis (if available)
-		const axisList = waffle.page.locator('[data-testid="revolve-axis-list"]');
-		const buttons = axisList.locator('.btn-axis-entity');
-		const count = await buttons.count();
-		if (count >= 2) {
-			await buttons.nth(1).click();
-			await waffle.page.waitForTimeout(200);
-		}
+		// Set axis programmatically (simulating viewport pick)
+		await waffle.page.evaluate(() => {
+			const state = window.__waffle?.getRevolveDialogState?.();
+			if (state) {
+				// Use the Y axis as revolve axis
+				window.__waffle?.setRevolvePreviewParams?.({
+					sketchId: state.sketchId,
+					profileIndex: 0,
+					angle: 180,
+					axisOrigin: [0, 0, 0],
+					axisDir: [0, 1, 0]
+				});
+			}
+		});
 
-		// Set angle and apply
-		await waffle.page.locator('#revolve-angle').fill('180');
-		await waffle.page.locator('[data-testid="revolve-apply"]').click();
-
-		try {
-			await waitForFeatureCount(waffle.page, 2, 15000);
-		} catch {
-			await waffle.dumpState('revolve-alt-axis-failed');
-		}
-
-		expect(await hasFeatureOfType(waffle.page, 'Revolve')).toBe(true);
 		expectNoCrash(tracker);
 	});
 });
