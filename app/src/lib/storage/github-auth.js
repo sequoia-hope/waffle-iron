@@ -1,9 +1,15 @@
 /**
  * GitHub Device Flow authentication for Waffle Iron.
- * Uses GitHub Apps OAuth device flow (no server needed).
+ * Uses a Cloudflare Worker proxy to avoid CORS issues with GitHub's OAuth endpoints.
  */
 
 const CLIENT_ID = 'REPLACE_WITH_GITHUB_APP_CLIENT_ID';
+
+/**
+ * Cloudflare Worker proxy URL for GitHub OAuth endpoints.
+ * Deploy worker/github-oauth-proxy/ and set this to its URL.
+ */
+const OAUTH_PROXY = 'REPLACE_WITH_WORKER_URL';
 
 const LS_TOKEN = 'waffle-github-token';
 const LS_USER = 'waffle-github-user';
@@ -28,11 +34,11 @@ export function getClientId() {
 }
 
 /**
- * Start the GitHub device flow.
+ * Start the GitHub device flow via the CORS proxy.
  * @returns {Promise<{device_code: string, user_code: string, verification_uri: string, expires_in: number, interval: number}>}
  */
 export async function startDeviceFlow() {
-	const res = await fetch('https://github.com/login/device/code', {
+	const res = await fetch(`${OAUTH_PROXY}/login/device/code`, {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
@@ -56,7 +62,7 @@ export async function startDeviceFlow() {
 }
 
 /**
- * Poll GitHub for an access token after the user authorizes the device.
+ * Poll for an access token via the CORS proxy.
  * @param {string} deviceCode
  * @param {number} interval - Polling interval in seconds
  * @returns {Promise<string>} Access token
@@ -67,7 +73,7 @@ export async function pollForToken(deviceCode, interval) {
 	while (true) {
 		await new Promise((resolve) => setTimeout(resolve, pollInterval * 1000));
 
-		const res = await fetch('https://github.com/login/oauth/access_token', {
+		const res = await fetch(`${OAUTH_PROXY}/login/oauth/access_token`, {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
@@ -92,10 +98,8 @@ export async function pollForToken(deviceCode, interval) {
 
 		switch (data.error) {
 			case 'authorization_pending':
-				// User hasn't authorized yet, keep polling
 				break;
 			case 'slow_down':
-				// Back off by 5 seconds as required by spec
 				pollInterval += 5;
 				break;
 			case 'expired_token':
@@ -113,6 +117,7 @@ export async function pollForToken(deviceCode, interval) {
 
 /**
  * Fetch the authenticated user's profile.
+ * This goes direct to api.github.com (CORS supported).
  * @param {string} token
  * @returns {Promise<{login: string, avatarUrl: string}>}
  */

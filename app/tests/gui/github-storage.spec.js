@@ -7,8 +7,8 @@ import { test as rawTest, expect } from '@playwright/test';
 async function mockGitHubAPI(page, opts = {}) {
 	const { hasIndex = false, indexDocs = {} } = opts;
 
-	// Mock device code request
-	await page.route('https://github.com/login/device/code', async (route) => {
+	// Mock device code request (via proxy)
+	await page.route('**/login/device/code', async (route) => {
 		await route.fulfill({
 			status: 200,
 			contentType: 'application/json',
@@ -22,9 +22,9 @@ async function mockGitHubAPI(page, opts = {}) {
 		});
 	});
 
-	// Mock token poll — pending once, then success
+	// Mock token poll via proxy — pending once, then success
 	let pollCount = 0;
-	await page.route('https://github.com/login/oauth/access_token', async (route) => {
+	await page.route('**/login/oauth/access_token', async (route) => {
 		pollCount++;
 		if (pollCount <= 1) {
 			await route.fulfill({
