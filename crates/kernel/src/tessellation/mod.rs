@@ -16,7 +16,7 @@ use crate::units::{
 use crate::vecmath::{
     compute_plane_basis, v3_add, v3_cross, v3_dot, v3_length, v3_normalize, v3_scale, v3_sub,
 };
-use crate::waffle_kernel::{CylinderParams, RevolveParams};
+use crate::waffle_kernel::{CylinderParams, RevolveParams, SphereParams};
 use std::collections::{HashMap, HashSet};
 
 /// Number of segments for circular/cylindrical tessellation.
@@ -26,6 +26,7 @@ const CIRCLE_SEGMENTS: usize = 64;
 ///
 /// For polygon (box) solids: uses fan triangulation (same as before).
 /// For cylinder solids: uses geometry-driven circular cap + cylindrical side tessellation.
+#[allow(dead_code)]
 pub(crate) fn tessellate_solid(
     arena: &TopoArena,
     face_map: &HashMap<u64, FaceIdx>,
@@ -33,6 +34,30 @@ pub(crate) fn tessellate_solid(
     _edge_geometry: &HashMap<EdgeIdx, CurveGeom>,
     cylinder_params: Option<&CylinderParams>,
     revolve_params: Option<&RevolveParams>,
+    is_polygon_soup: bool,
+) -> Result<RenderMesh, KernelError> {
+    tessellate_solid_ext(
+        arena,
+        face_map,
+        face_geometry,
+        _edge_geometry,
+        cylinder_params,
+        revolve_params,
+        None,
+        is_polygon_soup,
+    )
+}
+
+/// Extended tessellation function with sphere params support.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn tessellate_solid_ext(
+    arena: &TopoArena,
+    face_map: &HashMap<u64, FaceIdx>,
+    face_geometry: &HashMap<FaceIdx, SurfaceGeom>,
+    _edge_geometry: &HashMap<EdgeIdx, CurveGeom>,
+    cylinder_params: Option<&CylinderParams>,
+    revolve_params: Option<&RevolveParams>,
+    sphere_params: Option<&SphereParams>,
     is_polygon_soup: bool,
 ) -> Result<RenderMesh, KernelError> {
     // Boolean results have no CylinderParams/RevolveParams. Use edge-first
@@ -47,13 +72,24 @@ pub(crate) fn tessellate_solid(
     //      these indistinguishable from external faces, preventing removal.
     //      The fan path's per-face vertices allow `remove_isolated_triangles`
     //      to identify and remove internal face fragments.
-    if cylinder_params.is_none() && revolve_params.is_none() && !is_polygon_soup {
+    if cylinder_params.is_none()
+        && revolve_params.is_none()
+        && sphere_params.is_none()
+        && !is_polygon_soup
+    {
         let has_arcs = _edge_geometry
             .values()
             .any(|e| matches!(e, CurveGeom::Arc(_)));
         if !has_arcs {
             return tessellate_solid_bounded(arena, face_map, face_geometry, _edge_geometry);
         }
+    }
+
+    // Sphere solids: tessellate all faces as a single shared-vertex mesh.
+    // This ensures vertices on shared edges match exactly, avoiding
+    // remove_isolated_triangles stripping at small radii.
+    if let Some(sp) = sphere_params {
+        return tessellate_sphere_solid(arena, face_map, sp);
     }
 
     let mut vertices: Vec<f32> = Vec::new();
@@ -252,9 +288,37 @@ pub(crate) fn tessellate_solid(
                     }
                 }
             }
-            Some(SurfaceGeom::Conical(_))
-            | Some(SurfaceGeom::Spherical(_))
-            | Some(SurfaceGeom::Toroidal(_)) => {
+            Some(SurfaceGeom::Spherical(_)) => {
+                if let Some(sp) = sphere_params {
+                    let start_index = indices.len() as u32;
+                    tessellate_sphere_face(
+                        arena,
+                        face_idx,
+                        sp,
+                        &mut vertices,
+                        &mut normals,
+                        &mut indices,
+                    );
+                    let end_index = indices.len() as u32;
+                    face_ranges.push(FaceRange {
+                        face_id: KernelId(kid),
+                        start_index,
+                        end_index,
+                    });
+                } else {
+                    // Boolean result — use polygon fallback
+                    tessellate_polygon_face_fallback(
+                        arena,
+                        face_idx,
+                        kid,
+                        &mut vertices,
+                        &mut normals,
+                        &mut indices,
+                        &mut face_ranges,
+                    );
+                }
+            }
+            Some(SurfaceGeom::Conical(_)) | Some(SurfaceGeom::Toroidal(_)) => {
                 // Analytic tessellation not yet implemented — use polygon fallback
                 tessellate_polygon_face_fallback(
                     arena,
@@ -4810,6 +4874,270 @@ fn weld_mesh_vertices(
         normals: new_normals,
         indices: final_indices,
         face_ranges: new_face_ranges,
+    }
+}
+
+/// Tessellate a complete sphere solid with shared vertices.
+///
+/// Builds an icosphere-style mesh from the octahedral B-Rep: each of the 8
+/// octahedral triangles is subdivided, all vertices are projected onto the sphere,
+/// and shared vertices on edges/corners are welded for watertightness.
+fn tessellate_sphere_solid(
+    arena: &TopoArena,
+    face_map: &HashMap<u64, FaceIdx>,
+    sp: &SphereParams,
+) -> Result<RenderMesh, KernelError> {
+    let center = sp.center;
+    let radius = sp.radius;
+    let n = CIRCLE_SEGMENTS / 4; // subdivision level per edge
+
+    let mut vertices: Vec<f32> = Vec::new();
+    let mut normals: Vec<f32> = Vec::new();
+    let mut indices: Vec<u32> = Vec::new();
+    let mut face_ranges: Vec<FaceRange> = Vec::new();
+
+    // Use a position-based vertex map for sharing: round positions to avoid
+    // floating-point mismatch on shared edges.
+    let mut vertex_cache: HashMap<[i64; 3], u32> = HashMap::new();
+
+    // Quantization: snap sphere-surface positions to a grid fine enough for
+    // the subdivision but coarse enough for f32 fidelity.
+    // Use relative precision: grid step = radius * 1e-9
+    let quant = radius * 1e-9;
+    let quant_inv = 1.0 / quant;
+
+    let quantize = |pos: [f64; 3]| -> [i64; 3] {
+        [
+            (pos[0] * quant_inv).round() as i64,
+            (pos[1] * quant_inv).round() as i64,
+            (pos[2] * quant_inv).round() as i64,
+        ]
+    };
+
+    let add_vertex = |pos: [f64; 3],
+                      vertex_cache: &mut HashMap<[i64; 3], u32>,
+                      vertices: &mut Vec<f32>,
+                      normals: &mut Vec<f32>|
+     -> u32 {
+        let key = quantize(pos);
+        if let Some(&idx) = vertex_cache.get(&key) {
+            return idx;
+        }
+        let idx = vertices.len() as u32 / 3;
+
+        // Project onto sphere
+        let dx = pos[0] - center[0];
+        let dy = pos[1] - center[1];
+        let dz = pos[2] - center[2];
+        let len = (dx * dx + dy * dy + dz * dz).sqrt();
+        let scale = radius / len;
+
+        let sx = center[0] + dx * scale;
+        let sy = center[1] + dy * scale;
+        let sz = center[2] + dz * scale;
+
+        let nx = dx / len;
+        let ny = dy / len;
+        let nz = dz / len;
+
+        vertices.push(sx as f32);
+        vertices.push(sy as f32);
+        vertices.push(sz as f32);
+        normals.push(nx as f32);
+        normals.push(ny as f32);
+        normals.push(nz as f32);
+
+        vertex_cache.insert(key, idx);
+        idx
+    };
+
+    for (&kid, &face_idx) in face_map {
+        // Collect the 3 vertices of this triangular face
+        let loop_idx = arena.faces[face_idx.0].outer_loop;
+        let start_he = arena.loops[loop_idx.0].half_edge;
+        let mut face_verts = Vec::new();
+        let mut he = start_he;
+        loop {
+            let v = arena.half_edges[he.0].origin;
+            face_verts.push(arena.vertices[v.0].position);
+            he = arena.half_edges[he.0].next;
+            if he == start_he {
+                break;
+            }
+        }
+
+        if face_verts.len() != 3 {
+            continue;
+        }
+
+        let p0 = face_verts[0];
+        let p1 = face_verts[1];
+        let p2 = face_verts[2];
+
+        let start_index = indices.len() as u32;
+
+        // Build vertex grid for this face using barycentric subdivision
+        // Row i (0..=n) has (n-i+1) vertices.
+        // We store vertex indices in a flat array for indexing.
+        let mut grid: Vec<Vec<u32>> = Vec::with_capacity(n + 1);
+        for i in 0..=n {
+            let mut row = Vec::with_capacity(n - i + 1);
+            for j in 0..=(n - i) {
+                let k = n - i - j;
+                let u = k as f64 / n as f64;
+                let v_bc = j as f64 / n as f64;
+                let w = i as f64 / n as f64;
+
+                let px = u * p0[0] + v_bc * p1[0] + w * p2[0];
+                let py = u * p0[1] + v_bc * p1[1] + w * p2[1];
+                let pz = u * p0[2] + v_bc * p1[2] + w * p2[2];
+
+                let idx = add_vertex([px, py, pz], &mut vertex_cache, &mut vertices, &mut normals);
+                row.push(idx);
+            }
+            grid.push(row);
+        }
+
+        // Generate triangle indices
+        for i in 0..n {
+            let row_len = grid[i].len();
+            for j in 0..(row_len - 1) {
+                // Upper triangle
+                indices.push(grid[i][j]);
+                indices.push(grid[i][j + 1]);
+                indices.push(grid[i + 1][j]);
+
+                // Lower triangle (if exists)
+                if j + 1 < grid[i + 1].len() {
+                    indices.push(grid[i][j + 1]);
+                    indices.push(grid[i + 1][j + 1]);
+                    indices.push(grid[i + 1][j]);
+                }
+            }
+        }
+
+        let end_index = indices.len() as u32;
+        face_ranges.push(FaceRange {
+            face_id: KernelId(kid),
+            start_index,
+            end_index,
+        });
+    }
+
+    Ok(RenderMesh {
+        vertices,
+        normals,
+        indices,
+        face_ranges,
+    })
+}
+
+/// Tessellate a single spherical face of an octahedral sphere decomposition.
+///
+/// Each face is a triangular patch on the sphere (3 octahedral vertices).
+/// We subdivide the triangle using barycentric coordinates, project each
+/// point onto the sphere surface, and generate a triangle mesh.
+fn tessellate_sphere_face(
+    arena: &TopoArena,
+    face_idx: FaceIdx,
+    sp: &SphereParams,
+    vertices: &mut Vec<f32>,
+    normals: &mut Vec<f32>,
+    indices: &mut Vec<u32>,
+) {
+    // Collect the 3 vertices of this triangular face
+    let loop_idx = arena.faces[face_idx.0].outer_loop;
+    let start_he = arena.loops[loop_idx.0].half_edge;
+    let mut face_verts = Vec::new();
+    let mut he = start_he;
+    loop {
+        let v = arena.half_edges[he.0].origin;
+        face_verts.push(arena.vertices[v.0].position);
+        he = arena.half_edges[he.0].next;
+        if he == start_he {
+            break;
+        }
+    }
+
+    if face_verts.len() != 3 {
+        return; // Should not happen for octahedral sphere
+    }
+
+    let p0 = face_verts[0];
+    let p1 = face_verts[1];
+    let p2 = face_verts[2];
+    let center = sp.center;
+    let radius = sp.radius;
+
+    // Subdivision level: CIRCLE_SEGMENTS / 4
+    let n = CIRCLE_SEGMENTS / 4;
+
+    // Generate (n+1)*(n+2)/2 vertices on the sphere by barycentric subdivision
+    // For row i (0..=n), we have (n-i+1) points.
+    // Barycentric coords: (1 - i/n - j/n, j/n, i/n) for j in 0..=(n-i)
+    let base_vertex = vertices.len() as u32 / 3;
+    for i in 0..=n {
+        for j in 0..=(n - i) {
+            let k = n - i - j;
+            let u = k as f64 / n as f64;
+            let v_bc = j as f64 / n as f64;
+            let w = i as f64 / n as f64;
+
+            // Interpolate in 3D
+            let px = u * p0[0] + v_bc * p1[0] + w * p2[0];
+            let py = u * p0[1] + v_bc * p1[1] + w * p2[1];
+            let pz = u * p0[2] + v_bc * p1[2] + w * p2[2];
+
+            // Project onto sphere: v' = center + r * normalize(v - center)
+            let dx = px - center[0];
+            let dy = py - center[1];
+            let dz = pz - center[2];
+            let len = (dx * dx + dy * dy + dz * dz).sqrt();
+            let scale = radius / len;
+
+            let sx = center[0] + dx * scale;
+            let sy = center[1] + dy * scale;
+            let sz = center[2] + dz * scale;
+
+            // Normal = normalize(v - center) = (dx, dy, dz) / len
+            let nx = dx / len;
+            let ny = dy / len;
+            let nz = dz / len;
+
+            vertices.push(sx as f32);
+            vertices.push(sy as f32);
+            vertices.push(sz as f32);
+            normals.push(nx as f32);
+            normals.push(ny as f32);
+            normals.push(nz as f32);
+        }
+    }
+
+    // Generate triangle indices.
+    // Row i has (n-i+1) vertices. Vertex (i,j) index = sum of row lengths before i, plus j.
+    let vertex_index = |i: usize, j: usize| -> u32 {
+        let mut idx = 0usize;
+        for r in 0..i {
+            idx += n - r + 1;
+        }
+        base_vertex + (idx + j) as u32
+    };
+
+    for i in 0..n {
+        let row_len = n - i + 1;
+        for j in 0..(row_len - 1) {
+            // Upper triangle: (i,j), (i,j+1), (i+1,j)
+            indices.push(vertex_index(i, j));
+            indices.push(vertex_index(i, j + 1));
+            indices.push(vertex_index(i + 1, j));
+
+            // Lower triangle (if it exists): (i,j+1), (i+1,j+1), (i+1,j)
+            if j + 1 < row_len - 1 {
+                indices.push(vertex_index(i, j + 1));
+                indices.push(vertex_index(i + 1, j + 1));
+                indices.push(vertex_index(i + 1, j));
+            }
+        }
     }
 }
 

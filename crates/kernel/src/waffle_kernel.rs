@@ -5,14 +5,14 @@
 
 use crate::geometry::curve::{Arc3D, Circle3D, CurveGeom, Line3D};
 use crate::geometry::point::{Point3, Vector3};
-use crate::geometry::surface::{Cone, Cylinder, Plane, SurfaceGeom};
+use crate::geometry::surface::{Cone, Cylinder, Plane, Sphere, SurfaceGeom};
 use crate::tessellation;
 use crate::topology::arena::TopoArena;
 use crate::topology::euler_ops::{mef, mev, mvfs};
 use crate::topology::half_edge::*;
 use crate::traits::{Kernel, KernelIntrospect};
 use crate::types::*;
-use crate::units::{TAU_MODEL, TAU_NORMALIZE};
+use crate::units::{MIN_FEATURE_SIZE, TAU_MODEL, TAU_NORMALIZE};
 use crate::vecmath::*;
 use std::collections::HashMap;
 
@@ -34,6 +34,7 @@ pub(crate) struct WaffleSolid {
     pub(crate) edge_geometry: HashMap<EdgeIdx, CurveGeom>,
     pub(crate) cylinder_params: Option<CylinderParams>,
     pub(crate) revolve_params: Option<RevolveParams>,
+    pub(crate) sphere_params: Option<SphereParams>,
     /// Cached face polygons from boolean results for reuse in subsequent booleans.
     pub(crate) cached_face_polys: Option<Vec<crate::boolean::FacePoly>>,
     /// True when this solid's B-Rep was built from polygon-soup classification
@@ -61,6 +62,12 @@ pub(crate) struct RevolveParams {
     pub lateral_faces: Vec<(FaceIdx, [f64; 3], [f64; 3])>,
     /// True for 360° full revolution — tessellation skips caps and wraps last ring to first.
     pub full_revolution: bool,
+}
+
+/// Parameters for sphere tessellation (stored after make_sphere).
+pub(crate) struct SphereParams {
+    pub center: [f64; 3],
+    pub radius: f64,
 }
 
 /// Circle geometry stored in a standalone face (pre-extrude).
@@ -99,6 +106,223 @@ impl WaffleKernel {
         let h = self.next_handle;
         self.next_handle += 1;
         h
+    }
+
+    /// Create a sphere primitive with octahedral B-Rep decomposition.
+    ///
+    /// Topology: 6 vertices, 12 edges, 8 triangular faces.
+    /// All faces tagged `SurfaceGeom::Spherical`.
+    /// All edges are great-circle arcs (pi/2 sweep).
+    pub fn make_sphere(
+        &mut self,
+        center: [f64; 3],
+        radius: f64,
+    ) -> Result<KernelSolidHandle, KernelError> {
+        // Validate inputs
+        if !radius.is_finite() || radius <= 0.0 {
+            return Err(KernelError::Other {
+                message: format!("Sphere radius must be finite and positive, got {}", radius),
+            });
+        }
+        if radius < MIN_FEATURE_SIZE {
+            return Err(KernelError::Other {
+                message: format!(
+                    "Sphere radius {} is below MIN_FEATURE_SIZE ({})",
+                    radius, MIN_FEATURE_SIZE
+                ),
+            });
+        }
+        for (i, &c) in center.iter().enumerate() {
+            if !c.is_finite() {
+                return Err(KernelError::Other {
+                    message: format!("Sphere center component [{}] must be finite, got {}", i, c),
+                });
+            }
+        }
+
+        let r = radius;
+        let cx = center[0];
+        let cy = center[1];
+        let cz = center[2];
+
+        // Octahedral vertices:
+        // v0: +X, v1: +Y, v2: +Z, v3: -X, v4: -Y, v5: -Z
+        let positions: [[f64; 3]; 6] = [
+            [cx + r, cy, cz], // v0: +X
+            [cx, cy + r, cz], // v1: +Y
+            [cx, cy, cz + r], // v2: +Z
+            [cx - r, cy, cz], // v3: -X
+            [cx, cy - r, cz], // v4: -Y
+            [cx, cy, cz - r], // v5: -Z
+        ];
+
+        let mut arena = TopoArena::new();
+
+        // Build octahedron using Euler operators.
+        //
+        // Strategy (same as extrude_polygon):
+        // Phase 1: Build equatorial quad v0-v1-v3-v4 with mev chain + mef close
+        // Phase 2: Add top pole v2 via mev, triangulate upper 4 faces with mef
+        // Phase 3: Add bottom pole v5 via mev, triangulate lower 4 faces with mef
+        //
+        // After mev chain v0->v1->v3->v4, the loop has spur structure.
+        // After mef(v4, v0, loop0), we get 2 quad faces (E=4, F=2, V=4).
+        // Adding v2 via mev creates a spur in one quad, then mef calls triangulate.
+        // Same for v5 in the other quad face.
+
+        // Phase 1: Equatorial quad
+        let (_solid, _shell, face0, v0) = mvfs(&mut arena, positions[0]);
+        let loop0 = arena.faces[face0.0].outer_loop;
+
+        let (_, v1) = mev(&mut arena, v0, loop0, positions[1]);
+        let (_, v3) = mev(&mut arena, v1, loop0, positions[3]);
+        let (_, v4) = mev(&mut arena, v3, loop0, positions[4]);
+
+        // Close the equatorial quad: v4 back to v0
+        let (_, eq_face) = mef(&mut arena, v4, v0, loop0);
+        // V=4, E=4, F=2. face0 keeps one quad, eq_face gets the other.
+
+        // Fix vertex half-edge pointers after mef (same pattern as extrude_polygon)
+        {
+            let start_he = arena.loops[loop0.0].half_edge;
+            let mut he = start_he;
+            loop {
+                let v = arena.half_edges[he.0].origin;
+                arena.vertices[v.0].half_edge = Some(he);
+                he = arena.half_edges[he.0].next;
+                if he == start_he {
+                    break;
+                }
+            }
+        }
+
+        // Phase 2: Add top pole v2 (+Z) to face0's quad, then triangulate.
+        // mev from v0 into loop0 creates a spur. Then 3 mef calls split
+        // the 6-he loop into 4 triangular faces.
+        let (_, v2) = mev(&mut arena, v0, loop0, positions[2]);
+
+        // Triangulate upper hemisphere: 3 mef calls create 3 new faces
+        let (_, _f_upper1) = mef(&mut arena, v2, v1, loop0);
+        let (_, _f_upper2) = mef(&mut arena, v2, v3, loop0);
+        let (_, _f_upper3) = mef(&mut arena, v2, v4, loop0);
+        // face0 (loop0) is now the 4th upper triangle.
+
+        // Phase 3: Add bottom pole v5 (-Z) to eq_face's quad, then triangulate.
+        let eq_loop = arena.faces[eq_face.0].outer_loop;
+
+        // Fix vertex half-edge pointers for eq_loop
+        {
+            let start_he = arena.loops[eq_loop.0].half_edge;
+            let mut he = start_he;
+            loop {
+                let v = arena.half_edges[he.0].origin;
+                arena.vertices[v.0].half_edge = Some(he);
+                he = arena.half_edges[he.0].next;
+                if he == start_he {
+                    break;
+                }
+            }
+        }
+
+        let (_, v5) = mev(&mut arena, v0, eq_loop, positions[5]);
+
+        // Triangulate lower hemisphere: 3 mef calls
+        let (_, _f_lower1) = mef(&mut arena, v5, v4, eq_loop);
+        let (_, _f_lower2) = mef(&mut arena, v5, v3, eq_loop);
+        let (_, _f_lower3) = mef(&mut arena, v5, v1, eq_loop);
+        // eq_face (eq_loop) is now the 4th lower triangle.
+
+        // Verify Euler formula: V=6, E=12, F=8
+        debug_assert_eq!(
+            arena.vertex_count(),
+            6,
+            "Sphere: expected 6 vertices, got {}",
+            arena.vertex_count()
+        );
+        debug_assert_eq!(
+            arena.edge_count(),
+            12,
+            "Sphere: expected 12 edges, got {}",
+            arena.edge_count()
+        );
+        debug_assert_eq!(
+            arena.face_count(),
+            8,
+            "Sphere: expected 8 faces, got {}",
+            arena.face_count()
+        );
+
+        // Build geometry and ID maps
+        let handle_id = self.alloc_handle();
+        let mut face_map = HashMap::new();
+        let mut edge_map = HashMap::new();
+        let mut vertex_map = HashMap::new();
+        let mut face_geometry = HashMap::new();
+        let mut edge_geometry = HashMap::new();
+
+        let sphere_geom = SurfaceGeom::Spherical(Sphere {
+            center: Point3::from_array(center),
+            radius,
+        });
+
+        // Map all faces with Spherical geometry
+        for (idx, _face) in arena.faces.iter().enumerate() {
+            let fid = self.alloc_id();
+            face_map.insert(fid, FaceIdx(idx));
+            face_geometry.insert(FaceIdx(idx), sphere_geom.clone());
+        }
+
+        // Map all edges with Arc geometry (great circle arcs, pi/2 sweep)
+        for (idx, _edge) in arena.edges.iter().enumerate() {
+            let eid = self.alloc_id();
+            edge_map.insert(eid, EdgeIdx(idx));
+
+            let he_a = arena.edges[idx].half_edge;
+            let v_start = arena.half_edges[he_a.0].origin;
+            let v_end = arena.half_edges[arena.half_edges[he_a.0].twin.0].origin;
+            let p0 = arena.vertices[v_start.0].position;
+            let p1 = arena.vertices[v_end.0].position;
+
+            let d0 = v3_sub(p0, center);
+            let d1 = v3_sub(p1, center);
+            let arc_normal = v3_normalize(v3_cross(d0, d1));
+
+            edge_geometry.insert(
+                EdgeIdx(idx),
+                CurveGeom::Arc(Arc3D {
+                    center: Point3::from_array(center),
+                    normal: Vector3::from_array(arc_normal),
+                    radius,
+                    start_point: Point3::from_array(p0),
+                    sweep_angle: std::f64::consts::FRAC_PI_2,
+                }),
+            );
+        }
+
+        // Map all vertices
+        for (idx, _) in arena.vertices.iter().enumerate() {
+            let vid = self.alloc_id();
+            vertex_map.insert(vid, VertexIdx(idx));
+        }
+
+        self.solids.insert(
+            handle_id,
+            WaffleSolid {
+                arena,
+                face_map,
+                edge_map,
+                vertex_map,
+                face_geometry,
+                edge_geometry,
+                cylinder_params: None,
+                revolve_params: None,
+                sphere_params: Some(SphereParams { center, radius }),
+                cached_face_polys: None,
+                is_polygon_soup: false,
+            },
+        );
+
+        Ok(KernelSolidHandle(handle_id))
     }
 
     /// Check if all faces in a solid have quadric surface geometry (A15 dispatch).
@@ -243,6 +467,7 @@ impl WaffleKernel {
                 edge_geometry: result.edge_geometry,
                 cylinder_params: None,
                 revolve_params: None,
+                sphere_params: None,
                 cached_face_polys: result.cached_face_polys,
                 is_polygon_soup: polygon_soup,
             },
@@ -578,6 +803,7 @@ impl WaffleKernel {
                 edge_geometry,
                 cylinder_params: None,
                 revolve_params: Some(revolve_params),
+                sphere_params: None,
                 cached_face_polys: None,
                 is_polygon_soup: false,
             },
@@ -775,6 +1001,7 @@ impl WaffleKernel {
                 edge_geometry,
                 cylinder_params: Some(cylinder_params),
                 revolve_params: None,
+                sphere_params: None,
                 cached_face_polys: None,
                 is_polygon_soup: false,
             },
@@ -1191,6 +1418,7 @@ impl Kernel for WaffleKernel {
                 edge_geometry,
                 cylinder_params: None,
                 revolve_params: None,
+                sphere_params: None,
                 cached_face_polys: None,
                 is_polygon_soup: false,
             },
@@ -1211,13 +1439,14 @@ impl Kernel for WaffleKernel {
                 id: KernelId(solid.id()),
             })?;
 
-        tessellation::tessellate_solid(
+        tessellation::tessellate_solid_ext(
             &ws.arena,
             &ws.face_map,
             &ws.face_geometry,
             &ws.edge_geometry,
             ws.cylinder_params.as_ref(),
             ws.revolve_params.as_ref(),
+            ws.sphere_params.as_ref(),
             ws.is_polygon_soup,
         )
     }

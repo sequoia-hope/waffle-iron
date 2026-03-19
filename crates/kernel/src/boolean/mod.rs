@@ -303,7 +303,77 @@ fn generate_analytic_face_polys(
             }
         }
         SurfaceGeom::Conical(_) => {} // Analytic poly generation not yet implemented
-        SurfaceGeom::Spherical(_) => {} // Analytic poly generation not yet implemented
+        SurfaceGeom::Spherical(sphere) => {
+            // Sphere face: triangular patch on the octahedral decomposition.
+            // The face's loop vertices define a flat triangle; subdivide and project
+            // onto the sphere surface to create a polygon grid, then emit quads/tris.
+            let center_arr = [sphere.center.x, sphere.center.y, sphere.center.z];
+            let r = sphere.radius;
+            if loop_verts.len() < 3 {
+                return;
+            }
+            let p0 = loop_verts[0];
+            let p1 = loop_verts[1];
+            let p2 = loop_verts[2];
+
+            // Subdivide and project onto sphere
+            let n_sub = 8; // subdivision level for boolean polygons
+            for i in 0..n_sub {
+                for j in 0..(n_sub - i) {
+                    // Barycentric coords for the 4 corners of this sub-quad/tri
+                    let bary = |ii: usize, jj: usize| -> [f64; 3] {
+                        let u = (n_sub - ii - jj) as f64 / n_sub as f64;
+                        let v = jj as f64 / n_sub as f64;
+                        let w = ii as f64 / n_sub as f64;
+                        let px = u * p0[0] + v * p1[0] + w * p2[0];
+                        let py = u * p0[1] + v * p1[1] + w * p2[1];
+                        let pz = u * p0[2] + v * p1[2] + w * p2[2];
+                        // Project onto sphere
+                        let dx = px - center_arr[0];
+                        let dy = py - center_arr[1];
+                        let dz = pz - center_arr[2];
+                        let len = (dx * dx + dy * dy + dz * dz).sqrt();
+                        let s = r / len;
+                        [
+                            center_arr[0] + dx * s,
+                            center_arr[1] + dy * s,
+                            center_arr[2] + dz * s,
+                        ]
+                    };
+
+                    // Upper triangle: (i,j), (i,j+1), (i+1,j)
+                    let v0 = bary(i, j);
+                    let v1 = bary(i, j + 1);
+                    let v2 = bary(i + 1, j);
+
+                    let e1 = v3_sub(v1, v0);
+                    let e2 = v3_sub(v2, v0);
+                    let n_vec = v3_normalize(v3_cross(e1, e2));
+
+                    polys.push(FacePoly {
+                        verts: vec![v0, v1, v2],
+                        normal: n_vec,
+                        origin: v0,
+                        surface_geom: Some(geom.clone()),
+                    });
+
+                    // Lower triangle: (i,j+1), (i+1,j+1), (i+1,j)
+                    if j + 1 < n_sub - i {
+                        let v3 = bary(i + 1, j + 1);
+                        let e1b = v3_sub(v3, v1);
+                        let e2b = v3_sub(v2, v1);
+                        let n_vec_b = v3_normalize(v3_cross(e1b, e2b));
+
+                        polys.push(FacePoly {
+                            verts: vec![v1, v3, v2],
+                            normal: n_vec_b,
+                            origin: v1,
+                            surface_geom: Some(geom.clone()),
+                        });
+                    }
+                }
+            }
+        }
         SurfaceGeom::Toroidal(_) => {} // Analytic poly generation not yet implemented
     }
 }
@@ -495,6 +565,24 @@ fn cylinder_to_face_polys(cyl: &CylinderParams, n: usize) -> Vec<FacePoly> {
 pub(super) fn extract_face_polys_general(solid: &WaffleSolid) -> Vec<FacePoly> {
     if let Some(ref cyl) = solid.cylinder_params {
         cylinder_to_face_polys(cyl, 32)
+    } else if solid.sphere_params.is_some() {
+        // Sphere faces need analytic subdivision (the B-Rep has only flat
+        // octahedral triangles; generate_analytic_face_polys produces curved
+        // polygon approximations projected onto the sphere surface).
+        let mut analytic_polys = Vec::new();
+        for (&_kid, &face_idx) in &solid.face_map {
+            if let Some(geom) = solid.face_geometry.get(&face_idx) {
+                let verts = collect_face_vertices(&solid.arena, face_idx);
+                generate_analytic_face_polys(
+                    geom,
+                    &verts,
+                    &solid.arena,
+                    face_idx,
+                    &mut analytic_polys,
+                );
+            }
+        }
+        analytic_polys
     } else {
         let polys = extract_face_polys(solid);
         if !polys.is_empty() {

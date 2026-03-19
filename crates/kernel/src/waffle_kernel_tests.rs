@@ -6989,3 +6989,746 @@ fn n2_partial_box_cyl_union_no_non_manifold() {
     );
 }
 
+// ══════════════════════════════════════════════════════════════════
+// Group SP: make_sphere primitive
+// ══════════════════════════════════════════════════════════════════
+
+/// Helper: create a sphere at origin with given radius.
+fn make_sphere(center: [f64; 3], radius: f64) -> (WaffleKernel, KernelSolidHandle) {
+    let mut k = WaffleKernel::new();
+    let solid = k
+        .make_sphere(center, radius)
+        .expect("make_sphere should succeed");
+    (k, solid)
+}
+
+// ── SP1: Canonical tests ────────────────────────────────────────
+
+#[test]
+fn sp1_make_sphere_topology() {
+    let (k, solid) = make_sphere([0.0, 0.0, 0.0], 1.0);
+    let verts = k.list_vertices(&solid);
+    let edges = k.list_edges(&solid);
+    let faces = k.list_faces(&solid);
+    assert_eq!(verts.len(), 6, "Sphere must have 6 vertices (octahedral), got {}", verts.len());
+    assert_eq!(edges.len(), 12, "Sphere must have 12 edges, got {}", edges.len());
+    assert_eq!(faces.len(), 8, "Sphere must have 8 faces, got {}", faces.len());
+}
+
+#[test]
+fn sp2_make_sphere_euler() {
+    let (k, solid) = make_sphere([0.0, 0.0, 0.0], 1.0);
+    let v = k.list_vertices(&solid).len() as i64;
+    let e = k.list_edges(&solid).len() as i64;
+    let f = k.list_faces(&solid).len() as i64;
+    assert_eq!(
+        v - e + f,
+        2,
+        "Euler formula V-E+F must equal 2 for sphere (got V={}, E={}, F={})",
+        v, e, f
+    );
+}
+
+#[test]
+fn sp3_make_sphere_tessellation_volume() {
+    let (mut k, solid) = make_sphere([0.0, 0.0, 0.0], 1.0);
+    let mesh = k
+        .tessellate(&solid, 0.01)
+        .expect("tessellate should succeed for unit sphere");
+    let vol = mesh_volume(&mesh);
+    let expected = 4.0 / 3.0 * PI; // 4/3 π r³ with r=1
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.02,
+        "Unit sphere volume should be ~4/3π ({:.6}), got {:.6} (rel_err={:.4})",
+        expected, vol, rel_err
+    );
+}
+
+#[test]
+fn sp4_make_sphere_bounding_box() {
+    let r = 5.0;
+    let center = [0.0, 0.0, 0.0];
+    let (mut k, solid) = make_sphere(center, r);
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    let (min, max) = mesh_bbox(&mesh);
+    let tol = 0.1; // tessellation may not hit exact bbox corners
+    assert!((min[0] - (-r)).abs() < tol, "bbox min x ~ -{}, got {}", r, min[0]);
+    assert!((min[1] - (-r)).abs() < tol, "bbox min y ~ -{}, got {}", r, min[1]);
+    assert!((min[2] - (-r)).abs() < tol, "bbox min z ~ -{}, got {}", r, min[2]);
+    assert!((max[0] - r).abs() < tol, "bbox max x ~ {}, got {}", r, max[0]);
+    assert!((max[1] - r).abs() < tol, "bbox max y ~ {}, got {}", r, max[1]);
+    assert!((max[2] - r).abs() < tol, "bbox max z ~ {}, got {}", r, max[2]);
+}
+
+#[test]
+fn sp5_make_sphere_watertight() {
+    let (mut k, solid) = make_sphere([0.0, 0.0, 0.0], 1.0);
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    assert!(
+        check_watertight(&mesh),
+        "Sphere mesh must be watertight (every edge shared by exactly 2 triangles)"
+    );
+}
+
+#[test]
+fn sp6_make_sphere_normals_outward() {
+    let center = [0.0, 0.0, 0.0];
+    let (mut k, solid) = make_sphere(center, 1.0);
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+
+    let n_tris = mesh.indices.len() / 3;
+    assert!(n_tris > 0, "Sphere mesh should have triangles");
+
+    let mut inward_count = 0;
+    for i in 0..n_tris {
+        let i0 = mesh.indices[i * 3] as usize;
+        let i1 = mesh.indices[i * 3 + 1] as usize;
+        let i2 = mesh.indices[i * 3 + 2] as usize;
+
+        let v0 = [
+            mesh.vertices[i0 * 3] as f64,
+            mesh.vertices[i0 * 3 + 1] as f64,
+            mesh.vertices[i0 * 3 + 2] as f64,
+        ];
+        let v1 = [
+            mesh.vertices[i1 * 3] as f64,
+            mesh.vertices[i1 * 3 + 1] as f64,
+            mesh.vertices[i1 * 3 + 2] as f64,
+        ];
+        let v2 = [
+            mesh.vertices[i2 * 3] as f64,
+            mesh.vertices[i2 * 3 + 1] as f64,
+            mesh.vertices[i2 * 3 + 2] as f64,
+        ];
+
+        // Face centroid
+        let centroid = [
+            (v0[0] + v1[0] + v2[0]) / 3.0,
+            (v0[1] + v1[1] + v2[1]) / 3.0,
+            (v0[2] + v1[2] + v2[2]) / 3.0,
+        ];
+
+        // Face normal via cross product
+        let e1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
+        let e2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
+        let normal = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+
+        // Centroid - center direction
+        let to_centroid = [
+            centroid[0] - center[0],
+            centroid[1] - center[1],
+            centroid[2] - center[2],
+        ];
+
+        // dot(normal, to_centroid) should be positive (outward)
+        let dot = normal[0] * to_centroid[0]
+            + normal[1] * to_centroid[1]
+            + normal[2] * to_centroid[2];
+        if dot < 0.0 {
+            inward_count += 1;
+        }
+    }
+
+    assert_eq!(
+        inward_count, 0,
+        "All {} face normals must point outward, but {} point inward",
+        n_tris, inward_count
+    );
+}
+
+#[test]
+fn sp7_make_sphere_surface_geometry() {
+    let (k, solid) = make_sphere([0.0, 0.0, 0.0], 1.0);
+    let faces = k.list_faces(&solid);
+    assert_eq!(faces.len(), 8, "Sphere should have 8 faces");
+
+    // Access the internal solid's face_geometry to verify all faces are Spherical
+    // This tests that the B-Rep correctly tags each face with SurfaceGeom::Spherical
+    for face_id in &faces {
+        let sig = k.compute_signature(*face_id, TopoKind::Face);
+        // The surface type string in the signature should indicate spherical
+        assert_eq!(
+            sig.surface_type,
+            Some("spherical".to_string()),
+            "All sphere faces should be tagged Spherical, got {:?}",
+            sig.surface_type
+        );
+    }
+}
+
+#[test]
+fn sp8_make_sphere_vertices_on_surface() {
+    let center = [0.0, 0.0, 0.0];
+    let r = 1.0;
+    let (mut k, solid) = make_sphere(center, r);
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+
+    let n_verts = mesh.vertices.len() / 3;
+    assert!(n_verts > 0, "Sphere mesh should have vertices");
+
+    let tau = 1e-7; // TAU_MODEL
+    let mut off_surface = 0;
+    for i in 0..n_verts {
+        let vx = mesh.vertices[i * 3] as f64 - center[0];
+        let vy = mesh.vertices[i * 3 + 1] as f64 - center[1];
+        let vz = mesh.vertices[i * 3 + 2] as f64 - center[2];
+        let dist = (vx * vx + vy * vy + vz * vz).sqrt();
+        if (dist - r).abs() > tau {
+            off_surface += 1;
+        }
+    }
+
+    assert_eq!(
+        off_surface, 0,
+        "All {} mesh vertices should lie on sphere surface (r={}), but {} are off-surface",
+        n_verts, r, off_surface
+    );
+}
+
+// ── SP2: Offset center and small radius ─────────────────────────
+
+#[test]
+fn sp9_make_sphere_offset_center() {
+    let center = [10.0, -5.0, 3.0];
+    let r = 2.0;
+    let (mut k, solid) = make_sphere(center, r);
+
+    // Topology check
+    let verts = k.list_vertices(&solid);
+    let edges = k.list_edges(&solid);
+    let faces = k.list_faces(&solid);
+    assert_eq!(verts.len(), 6, "Offset sphere must have 6 vertices");
+    assert_eq!(edges.len(), 12, "Offset sphere must have 12 edges");
+    assert_eq!(faces.len(), 8, "Offset sphere must have 8 faces");
+
+    // Volume check
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    let vol = mesh_volume(&mesh);
+    let expected = 4.0 / 3.0 * PI * r * r * r;
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.02,
+        "Offset sphere volume should be ~{:.4}, got {:.4} (rel_err={:.4})",
+        expected, vol, rel_err
+    );
+
+    // Bounding box check
+    let (min, max) = mesh_bbox(&mesh);
+    let tol = 0.1;
+    for axis in 0..3 {
+        assert!(
+            (min[axis] - (center[axis] - r)).abs() < tol,
+            "bbox min[{}] ~ {}, got {}",
+            axis, center[axis] - r, min[axis]
+        );
+        assert!(
+            (max[axis] - (center[axis] + r)).abs() < tol,
+            "bbox max[{}] ~ {}, got {}",
+            axis, center[axis] + r, max[axis]
+        );
+    }
+}
+
+#[test]
+fn sp10_make_sphere_small_radius() {
+    let r = 1e-5; // 10× MIN_FEATURE_SIZE — should succeed
+    let (mut k, solid) = make_sphere([0.0, 0.0, 0.0], r);
+
+    let verts = k.list_vertices(&solid);
+    let edges = k.list_edges(&solid);
+    let faces = k.list_faces(&solid);
+    assert_eq!(verts.len(), 6);
+    assert_eq!(edges.len(), 12);
+    assert_eq!(faces.len(), 8);
+
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    let vol = mesh_volume(&mesh);
+    let expected = 4.0 / 3.0 * PI * r * r * r;
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.02,
+        "Small sphere volume should be ~{:.2e}, got {:.2e} (rel_err={:.4})",
+        expected, vol, rel_err
+    );
+}
+
+// ── SP3: Error cases ────────────────────────────────────────────
+
+#[test]
+fn sp11_make_sphere_zero_radius() {
+    let mut k = WaffleKernel::new();
+    let result = k.make_sphere([0.0, 0.0, 0.0], 0.0);
+    assert!(result.is_err(), "Zero radius sphere should produce an error");
+}
+
+#[test]
+fn sp12_make_sphere_negative_radius() {
+    let mut k = WaffleKernel::new();
+    let result = k.make_sphere([0.0, 0.0, 0.0], -1.0);
+    assert!(result.is_err(), "Negative radius sphere should produce an error");
+}
+
+#[test]
+fn sp13_make_sphere_nan_radius() {
+    let mut k = WaffleKernel::new();
+    let result = k.make_sphere([0.0, 0.0, 0.0], f64::NAN);
+    assert!(result.is_err(), "NaN radius sphere should produce an error");
+}
+
+#[test]
+fn sp14_make_sphere_inf_radius() {
+    let mut k = WaffleKernel::new();
+    let result = k.make_sphere([0.0, 0.0, 0.0], f64::INFINITY);
+    assert!(result.is_err(), "Infinite radius sphere should produce an error");
+}
+
+#[test]
+fn sp15_make_sphere_tiny_radius() {
+    let mut k = WaffleKernel::new();
+    // Below MIN_FEATURE_SIZE (1e-6) — should be rejected
+    let result = k.make_sphere([0.0, 0.0, 0.0], 1e-7);
+    assert!(result.is_err(), "Radius below MIN_FEATURE_SIZE should produce an error");
+}
+
+#[test]
+fn sp16_make_sphere_nan_center() {
+    let mut k = WaffleKernel::new();
+    let result = k.make_sphere([f64::NAN, 0.0, 0.0], 1.0);
+    assert!(result.is_err(), "NaN center component should produce an error");
+}
+
+#[test]
+fn sp17_make_sphere_inf_center() {
+    let mut k = WaffleKernel::new();
+    let result = k.make_sphere([0.0, f64::INFINITY, 0.0], 1.0);
+    assert!(result.is_err(), "Infinite center component should produce an error");
+}
+
+// ── SP4: Boolean integration ────────────────────────────────────
+
+#[test]
+fn sp18_sphere_box_boolean_subtract() {
+    let mut k = WaffleKernel::new();
+
+    // Create a box: 10×10×10 centered at (5,5,5) → x=[0,10], y=[0,10], z=[0,10]
+    let (profiles, positions) = make_rect_profile(5.0, 5.0, 10.0, 10.0);
+    let face_ids = k
+        .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+        .expect("make_faces_from_profiles should succeed");
+    let box_solid = k
+        .extrude_face(face_ids[0], Z_DIR, 10.0)
+        .expect("extrude should succeed");
+
+    // Create a sphere at center of box, radius 3
+    let sphere_solid = k
+        .make_sphere([5.0, 5.0, 5.0], 3.0)
+        .expect("make_sphere should succeed");
+
+    // Subtract sphere from box
+    let result = k
+        .boolean_subtract(&box_solid, &sphere_solid)
+        .expect("boolean_subtract should succeed");
+
+    // Generalized Euler formula: V-E+F = 2S where S = number of shells.
+    // A box with a fully-contained spherical cavity has 2 shells (outer + void),
+    // so V-E+F = 4. Ref [#33] Stroud: multi-shell Euler formula.
+    let v = k.list_vertices(&result).len() as i64;
+    let e = k.list_edges(&result).len() as i64;
+    let f = k.list_faces(&result).len() as i64;
+    assert!(
+        v - e + f == 2 || v - e + f == 4,
+        "Euler formula V-E+F must equal 2 (single shell) or 4 (two shells) for box-minus-sphere (got V={}, E={}, F={})",
+        v, e, f
+    );
+
+    // Resulting mesh should be watertight
+    let mesh = k.tessellate(&result, 0.01).unwrap();
+    assert!(
+        check_watertight(&mesh),
+        "Box-minus-sphere mesh must be watertight"
+    );
+
+    // Volume should be box_vol - sphere_vol = 1000 - 4/3 π 27 ≈ 886.9
+    let vol = mesh_volume(&mesh);
+    let expected = 1000.0 - 4.0 / 3.0 * PI * 27.0;
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.05,
+        "Box-minus-sphere volume should be ~{:.2}, got {:.2} (rel_err={:.4})",
+        expected, vol, rel_err
+    );
+}
+
+// Group SPA: make_sphere adversarial
+// ══════════════════════════════════════════════════════════════════
+
+#[test]
+fn spa1_large_radius_topology_and_volume() {
+    let r = 1000.0;
+    let (mut k, solid) = make_sphere([0.0, 0.0, 0.0], r);
+
+    // Topology must be identical regardless of radius
+    let verts = k.list_vertices(&solid);
+    let edges = k.list_edges(&solid);
+    let faces = k.list_faces(&solid);
+    assert_eq!(verts.len(), 6, "Large sphere must have 6 vertices, got {}", verts.len());
+    assert_eq!(edges.len(), 12, "Large sphere must have 12 edges, got {}", edges.len());
+    assert_eq!(faces.len(), 8, "Large sphere must have 8 faces, got {}", faces.len());
+
+    // Euler invariant
+    let v = verts.len() as i64;
+    let e = edges.len() as i64;
+    let f = faces.len() as i64;
+    assert_eq!(v - e + f, 2, "Euler V-E+F must equal 2 for large sphere");
+
+    // Volume: 4/3 π (1000)³ ≈ 4.189e9
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    let vol = mesh_volume(&mesh);
+    let expected = 4.0 / 3.0 * PI * r * r * r;
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.02,
+        "Large sphere volume should be ~{:.2e}, got {:.2e} (rel_err={:.4})",
+        expected, vol, rel_err
+    );
+}
+
+#[test]
+fn spa2_very_small_valid_radius() {
+    // 2e-6 is just above MIN_FEATURE_SIZE (1e-6) — must succeed
+    let r = 2e-6;
+    let (mut k, solid) = make_sphere([0.0, 0.0, 0.0], r);
+
+    let verts = k.list_vertices(&solid);
+    let edges = k.list_edges(&solid);
+    let faces = k.list_faces(&solid);
+    assert_eq!(verts.len(), 6, "Tiny valid sphere must have 6 vertices");
+    assert_eq!(edges.len(), 12, "Tiny valid sphere must have 12 edges");
+    assert_eq!(faces.len(), 8, "Tiny valid sphere must have 8 faces");
+
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    let vol = mesh_volume(&mesh);
+    let expected = 4.0 / 3.0 * PI * r * r * r;
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.02,
+        "Tiny sphere (r=2e-6) volume should be ~{:.2e}, got {:.2e} (rel_err={:.4})",
+        expected, vol, rel_err
+    );
+
+    // Mesh must still be watertight at this scale
+    assert!(
+        check_watertight(&mesh),
+        "Tiny sphere mesh must be watertight"
+    );
+}
+
+#[test]
+fn spa3_large_center_offset() {
+    let center = [1e6, 1e6, 1e6];
+    let r = 1.0;
+    let (mut k, solid) = make_sphere(center, r);
+
+    // Topology invariant under translation
+    let verts = k.list_vertices(&solid);
+    let edges = k.list_edges(&solid);
+    let faces = k.list_faces(&solid);
+    assert_eq!(verts.len(), 6);
+    assert_eq!(edges.len(), 12);
+    assert_eq!(faces.len(), 8);
+
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+
+    // Bounding box must be centered at [1e6, 1e6, 1e6]
+    let (bb_min, bb_max) = mesh_bbox(&mesh);
+    let tol = 0.1;
+    for axis in 0..3 {
+        assert!(
+            (bb_min[axis] - (center[axis] - r)).abs() < tol,
+            "Far-offset bbox min[{}] should be ~{}, got {}",
+            axis, center[axis] - r, bb_min[axis]
+        );
+        assert!(
+            (bb_max[axis] - (center[axis] + r)).abs() < tol,
+            "Far-offset bbox max[{}] should be ~{}, got {}",
+            axis, center[axis] + r, bb_max[axis]
+        );
+    }
+
+    // Volume must still be correct despite large coordinates
+    let vol = mesh_volume(&mesh);
+    let expected = 4.0 / 3.0 * PI * r * r * r;
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.02,
+        "Far-offset sphere volume should be ~{:.6}, got {:.6} (rel_err={:.4})",
+        expected, vol, rel_err
+    );
+
+    // All mesh vertices must lie on the sphere surface
+    let n_verts = mesh.vertices.len() / 3;
+    let mut off_surface = 0;
+    for i in 0..n_verts {
+        let dx = mesh.vertices[i * 3] as f64 - center[0];
+        let dy = mesh.vertices[i * 3 + 1] as f64 - center[1];
+        let dz = mesh.vertices[i * 3 + 2] as f64 - center[2];
+        let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+        // Wider tolerance at large offsets due to f32 precision in RenderMesh
+        if (dist - r).abs() > 0.1 {
+            off_surface += 1;
+        }
+    }
+    assert_eq!(
+        off_surface, 0,
+        "All vertices of far-offset sphere must lie on surface, but {} are off",
+        off_surface
+    );
+}
+
+#[test]
+fn spa4_no_degenerate_triangles() {
+    let (mut k, solid) = make_sphere([0.0, 0.0, 0.0], 1.0);
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+
+    let n_tris = mesh.indices.len() / 3;
+    assert!(n_tris > 0, "Sphere mesh must have triangles");
+
+    let mut degenerate_count = 0;
+    for i in 0..n_tris {
+        let i0 = mesh.indices[i * 3] as usize;
+        let i1 = mesh.indices[i * 3 + 1] as usize;
+        let i2 = mesh.indices[i * 3 + 2] as usize;
+
+        let v0 = [
+            mesh.vertices[i0 * 3] as f64,
+            mesh.vertices[i0 * 3 + 1] as f64,
+            mesh.vertices[i0 * 3 + 2] as f64,
+        ];
+        let v1 = [
+            mesh.vertices[i1 * 3] as f64,
+            mesh.vertices[i1 * 3 + 1] as f64,
+            mesh.vertices[i1 * 3 + 2] as f64,
+        ];
+        let v2 = [
+            mesh.vertices[i2 * 3] as f64,
+            mesh.vertices[i2 * 3 + 1] as f64,
+            mesh.vertices[i2 * 3 + 2] as f64,
+        ];
+
+        // Cross product to get twice the triangle area
+        let e1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
+        let e2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
+        let cross = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        let area = 0.5 * (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt();
+
+        if area <= 0.0 {
+            degenerate_count += 1;
+        }
+    }
+
+    assert_eq!(
+        degenerate_count, 0,
+        "All {} triangles must have positive area, but {} are degenerate",
+        n_tris, degenerate_count
+    );
+}
+
+#[test]
+fn spa5_no_nan_in_mesh() {
+    let (mut k, solid) = make_sphere([0.0, 0.0, 0.0], 1.0);
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+
+    // Check positions
+    let nan_positions: Vec<usize> = mesh
+        .vertices
+        .iter()
+        .enumerate()
+        .filter(|(_, v)| v.is_nan())
+        .map(|(i, _)| i)
+        .collect();
+    assert!(
+        nan_positions.is_empty(),
+        "No NaN values allowed in vertex positions, found {} at indices {:?}",
+        nan_positions.len(),
+        &nan_positions[..nan_positions.len().min(10)]
+    );
+
+    // Check normals
+    let nan_normals: Vec<usize> = mesh
+        .normals
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| n.is_nan())
+        .map(|(i, _)| i)
+        .collect();
+    assert!(
+        nan_normals.is_empty(),
+        "No NaN values allowed in normals, found {} at indices {:?}",
+        nan_normals.len(),
+        &nan_normals[..nan_normals.len().min(10)]
+    );
+
+    // Check indices are in bounds
+    let n_verts = mesh.vertices.len() / 3;
+    let oob_indices: Vec<usize> = mesh
+        .indices
+        .iter()
+        .enumerate()
+        .filter(|(_, idx)| (**idx as usize) >= n_verts)
+        .map(|(i, _)| i)
+        .collect();
+    assert!(
+        oob_indices.is_empty(),
+        "No out-of-bounds indices allowed (n_verts={}), found {} at positions {:?}",
+        n_verts,
+        oob_indices.len(),
+        &oob_indices[..oob_indices.len().min(10)]
+    );
+}
+
+#[test]
+fn spa6_normal_consistency_outward() {
+    // Use an offset center to stress-test that normals point away from center,
+    // not just away from origin
+    let center = [7.0, -3.0, 11.0];
+    let r = 2.5;
+    let (mut k, solid) = make_sphere(center, r);
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+
+    let n_tris = mesh.indices.len() / 3;
+    assert!(n_tris > 0, "Mesh must have triangles");
+
+    let mut inward_count = 0;
+    for i in 0..n_tris {
+        let i0 = mesh.indices[i * 3] as usize;
+        let i1 = mesh.indices[i * 3 + 1] as usize;
+        let i2 = mesh.indices[i * 3 + 2] as usize;
+
+        let v0 = [
+            mesh.vertices[i0 * 3] as f64,
+            mesh.vertices[i0 * 3 + 1] as f64,
+            mesh.vertices[i0 * 3 + 2] as f64,
+        ];
+        let v1 = [
+            mesh.vertices[i1 * 3] as f64,
+            mesh.vertices[i1 * 3 + 1] as f64,
+            mesh.vertices[i1 * 3 + 2] as f64,
+        ];
+        let v2 = [
+            mesh.vertices[i2 * 3] as f64,
+            mesh.vertices[i2 * 3 + 1] as f64,
+            mesh.vertices[i2 * 3 + 2] as f64,
+        ];
+
+        // Triangle centroid
+        let tri_center = [
+            (v0[0] + v1[0] + v2[0]) / 3.0,
+            (v0[1] + v1[1] + v2[1]) / 3.0,
+            (v0[2] + v1[2] + v2[2]) / 3.0,
+        ];
+
+        // Face normal via cross product (winding order)
+        let e1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
+        let e2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
+        let normal = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+
+        // Vector from sphere center to triangle centroid (should be outward)
+        let outward = [
+            tri_center[0] - center[0],
+            tri_center[1] - center[1],
+            tri_center[2] - center[2],
+        ];
+
+        let dot = normal[0] * outward[0] + normal[1] * outward[1] + normal[2] * outward[2];
+        if dot < 0.0 {
+            inward_count += 1;
+        }
+    }
+
+    assert_eq!(
+        inward_count, 0,
+        "All {} triangle normals must point outward from center {:?}, but {} point inward",
+        n_tris, center, inward_count
+    );
+}
+
+#[test]
+fn spa7_multiple_spheres_independent() {
+    let mut k = WaffleKernel::new();
+
+    let s1 = k.make_sphere([0.0, 0.0, 0.0], 1.0).expect("sphere 1");
+    let s2 = k.make_sphere([10.0, 0.0, 0.0], 2.0).expect("sphere 2");
+    let s3 = k.make_sphere([0.0, 10.0, 0.0], 3.0).expect("sphere 3");
+
+    // Each sphere must have independent topology
+    assert_eq!(k.list_vertices(&s1).len(), 6, "Sphere 1 must have 6 vertices");
+    assert_eq!(k.list_vertices(&s2).len(), 6, "Sphere 2 must have 6 vertices");
+    assert_eq!(k.list_vertices(&s3).len(), 6, "Sphere 3 must have 6 vertices");
+
+    assert_eq!(k.list_edges(&s1).len(), 12, "Sphere 1 must have 12 edges");
+    assert_eq!(k.list_edges(&s2).len(), 12, "Sphere 2 must have 12 edges");
+    assert_eq!(k.list_edges(&s3).len(), 12, "Sphere 3 must have 12 edges");
+
+    assert_eq!(k.list_faces(&s1).len(), 8, "Sphere 1 must have 8 faces");
+    assert_eq!(k.list_faces(&s2).len(), 8, "Sphere 2 must have 8 faces");
+    assert_eq!(k.list_faces(&s3).len(), 8, "Sphere 3 must have 8 faces");
+
+    // Each sphere must have the correct volume
+    let m1 = k.tessellate(&s1, 0.01).expect("tessellate sphere 1");
+    let m2 = k.tessellate(&s2, 0.01).expect("tessellate sphere 2");
+    let m3 = k.tessellate(&s3, 0.01).expect("tessellate sphere 3");
+
+    let vol1 = mesh_volume(&m1);
+    let vol2 = mesh_volume(&m2);
+    let vol3 = mesh_volume(&m3);
+
+    let expected1 = 4.0 / 3.0 * PI; // r=1
+    let expected2 = 4.0 / 3.0 * PI * 8.0; // r=2, r^3=8
+    let expected3 = 4.0 / 3.0 * PI * 27.0; // r=3, r^3=27
+
+    let rel1 = (vol1 - expected1).abs() / expected1;
+    let rel2 = (vol2 - expected2).abs() / expected2;
+    let rel3 = (vol3 - expected3).abs() / expected3;
+
+    assert!(rel1 < 0.02, "Sphere 1 volume ~{:.4}, got {:.4} (err={:.4})", expected1, vol1, rel1);
+    assert!(rel2 < 0.02, "Sphere 2 volume ~{:.4}, got {:.4} (err={:.4})", expected2, vol2, rel2);
+    assert!(rel3 < 0.02, "Sphere 3 volume ~{:.4}, got {:.4} (err={:.4})", expected3, vol3, rel3);
+
+    // Bounding boxes must not overlap (spheres are well-separated)
+    let (_, max1) = mesh_bbox(&m1);
+    let (min2, _) = mesh_bbox(&m2);
+    let (min3, _) = mesh_bbox(&m3);
+
+    // Sphere 1 at origin r=1: max x ~ 1, Sphere 2 at x=10 r=2: min x ~ 8
+    assert!(
+        max1[0] < min2[0],
+        "Sphere 1 and 2 bboxes must not overlap in x: s1 max_x={}, s2 min_x={}",
+        max1[0], min2[0]
+    );
+
+    // Sphere 1 at origin r=1: max y ~ 1, Sphere 3 at y=10 r=3: min y ~ 7
+    assert!(
+        max1[1] < min3[1],
+        "Sphere 1 and 3 bboxes must not overlap in y: s1 max_y={}, s3 min_y={}",
+        max1[1], min3[1]
+    );
+
+    // All three meshes must be individually watertight
+    assert!(check_watertight(&m1), "Sphere 1 mesh must be watertight");
+    assert!(check_watertight(&m2), "Sphere 2 mesh must be watertight");
+    assert!(check_watertight(&m3), "Sphere 3 mesh must be watertight");
+}
+
