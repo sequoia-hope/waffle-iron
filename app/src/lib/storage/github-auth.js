@@ -3,13 +3,13 @@
  * Uses a Cloudflare Worker proxy to avoid CORS issues with GitHub's OAuth endpoints.
  */
 
-const CLIENT_ID = 'REPLACE_WITH_GITHUB_APP_CLIENT_ID';
+const CLIENT_ID = '3133712';
 
 /**
  * Cloudflare Worker proxy URL for GitHub OAuth endpoints.
  * Deploy worker/github-oauth-proxy/ and set this to its URL.
  */
-const OAUTH_PROXY = 'REPLACE_WITH_WORKER_URL';
+const OAUTH_PROXY = 'https://waffle-iron-github-oauth.tlalexander.workers.dev';
 
 const LS_TOKEN = 'waffle-github-token';
 const LS_USER = 'waffle-github-user';
