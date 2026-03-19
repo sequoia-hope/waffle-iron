@@ -785,7 +785,7 @@
 			// Convert pixel delta to radians (scale factor tuned for 60px cube)
 			const speed = 0.015;
 			controlsRef._rotateLeft(dx * speed);
-			controlsRef._rotateUp(dy * speed);
+			controlsRef._rotateUp(-dy * speed);
 			controlsRef.update();
 		}
 		window.addEventListener('waffle-viewcube-orbit', /** @type {EventListener} */ (onViewcubeOrbit));
