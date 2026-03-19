@@ -12,6 +12,10 @@
 	let dragging = $state(false);
 	let dragStartX = 0;
 	let dragStartY = 0;
+	let pointerDownX = 0;
+	let pointerDownY = 0;
+	let didDrag = false;
+	const DRAG_THRESHOLD = 4;
 
 	/**
 	 * Dispatch a snap-view-and-fit event for the given view name.
@@ -40,13 +44,17 @@
 		dropdownOpen = false;
 	}
 
+	/** @type {HTMLElement|null} */
+	let cubeSceneEl = null;
+
 	function handlePointerDown(e) {
-		// Only start drag on left button, and not on face buttons
 		if (e.button !== 0) return;
-		if (e.target.closest('.face')) return;
 		dragging = true;
+		didDrag = false;
 		dragStartX = e.clientX;
 		dragStartY = e.clientY;
+		pointerDownX = e.clientX;
+		pointerDownY = e.clientY;
 		e.currentTarget.setPointerCapture(e.pointerId);
 		e.preventDefault();
 	}
@@ -58,15 +66,31 @@
 		dragStartX = e.clientX;
 		dragStartY = e.clientY;
 
-		// Dispatch orbit event — CameraControls listens for this
-		window.dispatchEvent(new CustomEvent('waffle-viewcube-orbit', {
-			detail: { dx, dy }
-		}));
+		const totalDx = e.clientX - pointerDownX;
+		const totalDy = e.clientY - pointerDownY;
+		if (Math.abs(totalDx) > DRAG_THRESHOLD || Math.abs(totalDy) > DRAG_THRESHOLD) {
+			didDrag = true;
+		}
+
+		if (didDrag) {
+			window.dispatchEvent(new CustomEvent('waffle-viewcube-orbit', {
+				detail: { dx, dy }
+			}));
+		}
 	}
 
 	function handlePointerUp(e) {
 		if (!dragging) return;
 		dragging = false;
+		if (!didDrag) {
+			// Pointer capture redirects target to cube-scene, so use elementFromPoint
+			// to find the actual face under the cursor
+			const el = document.elementFromPoint(pointerDownX, pointerDownY);
+			const face = el?.closest?.('[data-view]');
+			if (face) {
+				snapToView(face.dataset.view);
+			}
+		}
 	}
 </script>
 
@@ -84,12 +108,14 @@
 		onpointercancel={handlePointerUp}
 	>
 		<div class="cube" style:transform={cubeTransform}>
-			<button class="face front" class:active={currentView === 'front'} data-testid="viewcube-btn-front" onclick={() => snapToView('front')}>FRONT</button>
-			<button class="face back" class:active={currentView === 'back'} data-testid="viewcube-btn-back" onclick={() => snapToView('back')}>BACK</button>
-			<button class="face top" class:active={currentView === 'top'} data-testid="viewcube-btn-top" onclick={() => snapToView('top')}>TOP</button>
-			<button class="face bottom" class:active={currentView === 'bottom'} data-testid="viewcube-btn-bottom" onclick={() => snapToView('bottom')}>BOTTOM</button>
-			<button class="face left" class:active={currentView === 'left'} data-testid="viewcube-btn-left" onclick={() => snapToView('left')}>LEFT</button>
-			<button class="face right" class:active={currentView === 'right'} data-testid="viewcube-btn-right" onclick={() => snapToView('right')}>RIGHT</button>
+			{#each ['front', 'back', 'top', 'bottom', 'left', 'right'] as view}
+				<div
+					class="face {view}"
+					class:active={currentView === view}
+					data-testid="viewcube-btn-{view}"
+					data-view={view}
+				>{view.toUpperCase()}</div>
+			{/each}
 		</div>
 	</div>
 	<div class="cube-controls">
@@ -103,7 +129,7 @@
 			<div class="dropdown-sep"></div>
 			<label class="dropdown-label">
 				<input type="checkbox" checked={isOrtho} onchange={handleToggleProjection} data-testid="viewcube-ortho-toggle" />
-				Orthographic
+				Ortho
 			</label>
 		</div>
 	{/if}
@@ -235,7 +261,7 @@
 		padding: 4px 0;
 		backdrop-filter: blur(8px);
 		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
-		min-width: 140px;
+		white-space: nowrap;
 	}
 
 	.dropdown-item {
