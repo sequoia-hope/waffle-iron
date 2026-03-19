@@ -17,6 +17,20 @@ import { buildSketchPlane, sketchToScreen } from '$lib/sketch/sketchCoords.js';
 import { isDatumPlaneRef, getPlaneIdFromRef, getPlaneById, resolvePlane, BUILTIN_PLANES } from './planes.js';
 import { fetchTestCases, fetchTestCase, createTestCase as apiCreateTestCase, deleteTestCase as apiDeleteTestCase } from './testCaseApi.js';
 
+/**
+ * Generate a UUID, with fallback for non-secure contexts (e.g. HTTP without localhost).
+ * crypto.randomUUID() requires HTTPS or localhost; crypto.getRandomValues() works everywhere.
+ * @returns {string}
+ */
+function generateUUID() {
+	if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+		return crypto.randomUUID();
+	}
+	// Fallback: RFC 4122 v4 UUID via getRandomValues
+	return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+		(c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));
+}
+
 /** @type {{ features: Array<any>, active_index: number | null }} */
 let featureTree = $state({ features: [], active_index: null });
 
@@ -978,12 +992,7 @@ export async function enterSketchMode(origin = [0, 0, 0], normal = [0, 0, 1], fa
 
 	// Notify the engine about the new sketch session
 	if (bridge && engineReady) {
-		// crypto.randomUUID() requires secure context (HTTPS/localhost).
-		// Fall back to crypto.getRandomValues() which works everywhere.
-		const datumId = typeof crypto.randomUUID === 'function'
-			? crypto.randomUUID()
-			: ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
-				(c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));
+		const datumId = generateUUID();
 		try {
 			await bridge.send({
 				type: 'BeginSketch',
@@ -3438,7 +3447,7 @@ export async function switchTab(tabId) {
  * @returns {string} The new tab's ID
  */
 export function addTab() {
-	const id = crypto.randomUUID();
+	const id = generateUUID();
 	const name = `Part ${documentTabs.length + 1}`;
 	documentTabs = [...documentTabs, {
 		id,
@@ -3501,7 +3510,7 @@ export function initDocumentState(docId, parsed) {
 		activeTabId = parsed.active_tab || parsed.tabs[0].id;
 	} else {
 		// Legacy v1/v2 — single implicit tab
-		const tabId = crypto.randomUUID();
+		const tabId = generateUUID();
 		documentTabs = [{ id: tabId, name: 'Part 1', kind: { type: 'Part', features: { features: [], active_index: null } } }];
 		activeTabId = tabId;
 	}
