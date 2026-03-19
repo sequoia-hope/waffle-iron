@@ -71,8 +71,25 @@ def run_claude_print(prompt, output_file, timeout_secs=0, env_extra=None,
     stdout_fd = proc.stdout.fileno()
     start_time = time.time()
 
+    # Touch file to extend timeout while running:
+    #   echo 30 > <output_dir>/extend   (adds 30 minutes)
+    extend_file = os.path.join(os.path.dirname(output_file), 'extend')
+
     with open(output_file, 'wb') as f:
         while True:
+            # Check for live timeout extension
+            if os.path.exists(extend_file):
+                try:
+                    with open(extend_file, 'r') as ef:
+                        extra_mins = int(ef.read().strip())
+                    os.remove(extend_file)
+                    timeout_secs += extra_mins * 60
+                    remaining = timeout_secs - (time.time() - start_time)
+                    print(f"\n[claude-runner] Timeout extended by {extra_mins}m "
+                          f"({remaining/60:.0f}m remaining)")
+                except (ValueError, OSError):
+                    pass
+
             # Check timeout
             if timeout_secs > 0 and (time.time() - start_time) >= timeout_secs:
                 timed_out = True
