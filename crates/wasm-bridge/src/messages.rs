@@ -141,6 +141,15 @@ pub enum UiToEngine {
     ExportStep,
     ExportStl,
 
+    // -- Tab / document management --
+    /// Switch to a different tab, saving current features and loading new ones.
+    SwitchTab {
+        /// Features of the tab being switched TO.
+        features: FeatureTree,
+    },
+    /// Reset engine to a clean state (new document).
+    NewDocument,
+
     // -- Settings --
     /// Set the document display unit (mm, cm, m, in, ft).
     SetDisplayUnit {

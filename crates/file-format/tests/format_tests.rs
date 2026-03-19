@@ -1,9 +1,11 @@
+use chrono::Utc;
 use feature_engine::types::{
     BooleanOp, BooleanParams, ChamferParams, ExtrudeParams, Feature, FeatureTree, FilletParams,
     Operation, RevolveParams, ShellParams,
 };
 use file_format::{
-    export_step, load_project, save_project, LoadError, ProjectMetadata, FORMAT_VERSION,
+    export_step, load_document, load_project, save_document, save_project, DocumentMetadata,
+    LoadError, PreviewMesh, ProjectMetadata, Tab, TabKind, FORMAT_VERSION,
 };
 use uuid::Uuid;
 use waffle_types::{
@@ -192,9 +194,9 @@ fn save_includes_project_metadata() {
     let json = save_project(&tree, &meta);
 
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-    assert_eq!(parsed["project"]["name"], "My Box Part");
-    assert!(parsed["project"]["created"].is_string());
-    assert!(parsed["project"]["modified"].is_string());
+    assert_eq!(parsed["document"]["name"], "My Box Part");
+    assert!(parsed["document"]["created"].is_string());
+    assert!(parsed["document"]["modified"].is_string());
 }
 
 #[test]
@@ -204,7 +206,7 @@ fn save_includes_features_array() {
     let json = save_project(&tree, &meta);
 
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-    let features = &parsed["features"]["features"];
+    let features = &parsed["tabs"][0]["kind"]["features"]["features"];
     assert!(features.is_array());
     assert_eq!(features.as_array().unwrap().len(), 2);
 }
@@ -216,7 +218,9 @@ fn save_serializes_operation_type_tags() {
     let json = save_project(&tree, &meta);
 
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-    let features = parsed["features"]["features"].as_array().unwrap();
+    let features = parsed["tabs"][0]["kind"]["features"]["features"]
+        .as_array()
+        .unwrap();
 
     assert_eq!(features[0]["operation"]["type"], "Sketch");
     assert_eq!(features[1]["operation"]["type"], "Extrude");
@@ -229,7 +233,9 @@ fn save_serializes_geom_refs() {
     let json = save_project(&tree, &meta);
 
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-    let features = parsed["features"]["features"].as_array().unwrap();
+    let features = parsed["tabs"][0]["kind"]["features"]["features"]
+        .as_array()
+        .unwrap();
 
     let refs = &features[1]["references"];
     assert!(refs.is_array());
@@ -245,7 +251,13 @@ fn save_empty_tree() {
     let json = save_project(&tree, &meta);
 
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-    assert_eq!(parsed["features"]["features"].as_array().unwrap().len(), 0);
+    assert_eq!(
+        parsed["tabs"][0]["kind"]["features"]["features"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
 }
 
 #[test]
@@ -367,7 +379,9 @@ fn save_all_operation_types() {
     let json = save_project(&tree, &meta);
 
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-    let features = parsed["features"]["features"].as_array().unwrap();
+    let features = parsed["tabs"][0]["kind"]["features"]["features"]
+        .as_array()
+        .unwrap();
     assert_eq!(features.len(), 7);
 
     let types: Vec<&str> = features
@@ -397,7 +411,9 @@ fn save_preserves_suppressed_flag() {
     let json = save_project(&tree, &meta);
 
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-    let features = parsed["features"]["features"].as_array().unwrap();
+    let features = parsed["tabs"][0]["kind"]["features"]["features"]
+        .as_array()
+        .unwrap();
     assert_eq!(features[0]["suppressed"], false);
     assert_eq!(features[1]["suppressed"], true);
 }
@@ -1309,5 +1325,248 @@ fn round_trip_preserves_all_constraint_types() {
             }
         ),
         "Equal constraint should roundtrip"
+    );
+}
+
+// ── V3 Document Model Tests ──────────────────────────────────────────
+
+#[test]
+fn v3_round_trip_single_tab() {
+    let tree = make_simple_tree();
+    let meta = ProjectMetadata::new("V3 Test");
+    let json = save_project(&tree, &meta);
+
+    // Verify it's v3 format
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["version"], 3);
+    assert!(parsed.get("document").is_some());
+    assert!(parsed.get("tabs").is_some());
+
+    // Load back
+    let (loaded_tree, loaded_meta) = load_project(&json).unwrap();
+    assert_eq!(loaded_tree.features.len(), tree.features.len());
+    assert_eq!(loaded_meta.name, "V3 Test");
+}
+
+#[test]
+fn v3_save_document_two_tabs() {
+    let tree1 = make_simple_tree();
+    let tree2 = FeatureTree::new();
+    let tab1_id = Uuid::new_v4();
+    let tab2_id = Uuid::new_v4();
+
+    let doc = DocumentMetadata {
+        name: "Two Tabs".to_string(),
+        created: Utc::now(),
+        modified: Utc::now(),
+        display_unit: Some("mm".to_string()),
+    };
+
+    let tabs = vec![
+        Tab {
+            id: tab1_id,
+            name: "Part 1".to_string(),
+            kind: TabKind::Part {
+                features: tree1.clone(),
+                preview_mesh: None,
+            },
+        },
+        Tab {
+            id: tab2_id,
+            name: "Part 2".to_string(),
+            kind: TabKind::Part {
+                features: tree2,
+                preview_mesh: None,
+            },
+        },
+    ];
+
+    let json = save_document(&doc, &tabs, tab1_id);
+    let (loaded_doc, loaded_tabs, loaded_active) = load_document(&json).unwrap();
+
+    assert_eq!(loaded_doc.name, "Two Tabs");
+    assert_eq!(loaded_tabs.len(), 2);
+    assert_eq!(loaded_active, tab1_id);
+    assert_eq!(loaded_tabs[0].name, "Part 1");
+    assert_eq!(loaded_tabs[1].name, "Part 2");
+
+    // Verify first tab has features
+    match &loaded_tabs[0].kind {
+        TabKind::Part { features, .. } => assert_eq!(features.features.len(), 2),
+    }
+}
+
+#[test]
+fn v2_to_v3_migration_via_load_document() {
+    // Create a v2 file manually (flat format with "project" and "features")
+    let tree = make_simple_tree();
+    let v2_json = serde_json::json!({
+        "format": "waffle-iron",
+        "version": 2,
+        "project": {
+            "name": "V2 File",
+            "created": "2025-01-01T00:00:00Z",
+            "modified": "2025-01-01T00:00:00Z",
+            "display_unit": "mm"
+        },
+        "features": serde_json::to_value(&tree).unwrap()
+    });
+    let json = serde_json::to_string(&v2_json).unwrap();
+
+    let (doc, tabs, _active) = load_document(&json).unwrap();
+    assert_eq!(doc.name, "V2 File");
+    assert_eq!(tabs.len(), 1);
+    assert_eq!(tabs[0].name, "Part 1");
+    match &tabs[0].kind {
+        TabKind::Part { features, .. } => assert_eq!(features.features.len(), 2),
+    }
+}
+
+#[test]
+fn v1_to_v3_chain_via_load_document() {
+    // v1 file with mm-scale coordinates
+    let v1_json = serde_json::json!({
+        "format": "waffle-iron",
+        "version": 1,
+        "project": {
+            "name": "V1 File",
+            "created": "2025-01-01T00:00:00Z",
+            "modified": "2025-01-01T00:00:00Z"
+        },
+        "features": {
+            "features": [],
+            "active_index": null
+        }
+    });
+    let json = serde_json::to_string(&v1_json).unwrap();
+
+    let (doc, tabs, _active) = load_document(&json).unwrap();
+    assert_eq!(doc.name, "V1 File");
+    assert_eq!(tabs.len(), 1);
+}
+
+#[test]
+fn v3_active_tab_validity() {
+    let doc = DocumentMetadata {
+        name: "Test".to_string(),
+        created: Utc::now(),
+        modified: Utc::now(),
+        display_unit: None,
+    };
+    let tab_id = Uuid::new_v4();
+    let tabs = vec![Tab {
+        id: tab_id,
+        name: "Part".to_string(),
+        kind: TabKind::Part {
+            features: FeatureTree::new(),
+            preview_mesh: None,
+        },
+    }];
+
+    // Save with valid active_tab
+    let json = save_document(&doc, &tabs, tab_id);
+    let result = load_document(&json);
+    assert!(result.is_ok());
+
+    // Manually create invalid active_tab reference
+    let bad_id = Uuid::new_v4();
+    let _bad_json = json.replace(&tab_id.to_string(), &bad_id.to_string());
+    // Both tab id and active_tab got replaced, so they still match — construct truly invalid JSON
+    let mut parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    parsed["active_tab"] = serde_json::Value::String(Uuid::new_v4().to_string());
+    let bad_json2 = serde_json::to_string(&parsed).unwrap();
+    let result2 = load_document(&bad_json2);
+    assert!(
+        result2.is_err(),
+        "Invalid active_tab should produce an error"
+    );
+}
+
+#[test]
+fn v3_preview_mesh_serde() {
+    let doc = DocumentMetadata {
+        name: "Mesh Test".to_string(),
+        created: Utc::now(),
+        modified: Utc::now(),
+        display_unit: None,
+    };
+    let tab_id = Uuid::new_v4();
+    let mesh = PreviewMesh {
+        vertices: vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+        normals: vec![0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0],
+        indices: vec![0, 1, 2],
+    };
+    let tabs = vec![Tab {
+        id: tab_id,
+        name: "Part".to_string(),
+        kind: TabKind::Part {
+            features: FeatureTree::new(),
+            preview_mesh: Some(mesh),
+        },
+    }];
+
+    let json = save_document(&doc, &tabs, tab_id);
+    let (_, loaded_tabs, _) = load_document(&json).unwrap();
+
+    match &loaded_tabs[0].kind {
+        TabKind::Part { preview_mesh, .. } => {
+            let mesh = preview_mesh.as_ref().expect("should have preview mesh");
+            assert_eq!(mesh.vertices.len(), 9);
+            assert_eq!(mesh.normals.len(), 9);
+            assert_eq!(mesh.indices.len(), 3);
+        }
+    }
+}
+
+#[test]
+fn v3_load_project_returns_active_tab_features() {
+    let tree1 = make_simple_tree();
+    let tree2 = FeatureTree::new();
+    let tab1_id = Uuid::new_v4();
+    let tab2_id = Uuid::new_v4();
+
+    let doc = DocumentMetadata {
+        name: "Multi Tab".to_string(),
+        created: Utc::now(),
+        modified: Utc::now(),
+        display_unit: None,
+    };
+
+    let tabs = vec![
+        Tab {
+            id: tab1_id,
+            name: "Part 1".to_string(),
+            kind: TabKind::Part {
+                features: tree1.clone(),
+                preview_mesh: None,
+            },
+        },
+        Tab {
+            id: tab2_id,
+            name: "Part 2".to_string(),
+            kind: TabKind::Part {
+                features: tree2,
+                preview_mesh: None,
+            },
+        },
+    ];
+
+    // Active tab is tab2 (empty tree)
+    let json = save_document(&doc, &tabs, tab2_id);
+    let (loaded_tree, loaded_meta) = load_project(&json).unwrap();
+    assert_eq!(loaded_meta.name, "Multi Tab");
+    assert_eq!(
+        loaded_tree.features.len(),
+        0,
+        "Should return active tab's (empty) features"
+    );
+
+    // Active tab is tab1 (2 features)
+    let json = save_document(&doc, &tabs, tab1_id);
+    let (loaded_tree, _) = load_project(&json).unwrap();
+    assert_eq!(
+        loaded_tree.features.len(),
+        2,
+        "Should return active tab's features"
     );
 }

@@ -1,5 +1,7 @@
 use chrono::{DateTime, Utc};
+use feature_engine::types::FeatureTree;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 /// Project metadata stored alongside the feature tree.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,4 +34,41 @@ impl ProjectMetadata {
         self.display_unit = Some(unit.into());
         self
     }
+}
+
+/// Document-level metadata (v3+).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocumentMetadata {
+    pub name: String,
+    pub created: DateTime<Utc>,
+    pub modified: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_unit: Option<String>,
+}
+
+/// A single tab in a document.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Tab {
+    pub id: Uuid,
+    pub name: String,
+    pub kind: TabKind,
+}
+
+/// The kind/content of a tab.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum TabKind {
+    Part {
+        features: FeatureTree,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        preview_mesh: Option<PreviewMesh>,
+    },
+}
+
+/// A lightweight mesh for 3D thumbnail previews.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreviewMesh {
+    pub vertices: Vec<f32>,
+    pub normals: Vec<f32>,
+    pub indices: Vec<u32>,
 }

@@ -181,6 +181,21 @@ fn handle_message(
             Ok(model_updated_response(state))
         }
 
+        // -- Tab / document management --
+        UiToEngine::SwitchTab { features } => {
+            state.active_sketch = None;
+            state.selection.clear();
+            state.hover = None;
+            state.engine.tree = features;
+            state.engine.rebuild_from_scratch(kb);
+            Ok(model_updated_response(state))
+        }
+
+        UiToEngine::NewDocument => {
+            state.reset();
+            Ok(model_updated_response(state))
+        }
+
         // -- Settings --
         UiToEngine::SetDisplayUnit { unit } => {
             state.display_unit = unit;

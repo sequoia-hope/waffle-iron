@@ -8,10 +8,14 @@
 	import RevolveDialog from '$lib/ui/RevolveDialog.svelte';
 	import SketchPlaneDialog from '$lib/ui/SketchPlaneDialog.svelte';
 	import ToastContainer from '$lib/ui/ToastContainer.svelte';
-	import { initEngine, getMobileLayout, setMobileLayout, getMobileActivePanel, toggleMobilePanel } from '$lib/engine/store.svelte.js';
+	import { getMobileLayout, setMobileLayout, getMobileActivePanel, toggleMobilePanel } from '$lib/engine/store.svelte.js';
 	import TestCaseBrowser from '$lib/ui/TestCaseBrowser.svelte';
 	import SaveTestCaseDialog from '$lib/ui/SaveTestCaseDialog.svelte';
 	import AssayBrowser from '$lib/ui/AssayBrowser.svelte';
+	import TabBar from '$lib/ui/TabBar.svelte';
+
+	let tabs = $state([{ id: 'default', name: 'Part 1' }]);
+	let activeTabId = $state('default');
 
 	let leftWidth = $state(200);
 	let rightWidth = $state(250);
@@ -22,8 +26,6 @@
 	let resizing = $state(null);
 
 	onMount(() => {
-		initEngine();
-
 		// Responsive layout listener
 		const mql = window.matchMedia('(max-width: 768px)');
 		setMobileLayout(mql.matches);
@@ -71,6 +73,16 @@
 	<div class="toolbar-area">
 		<Toolbar />
 	</div>
+	<div class="tabbar-area">
+		<TabBar
+			{tabs}
+			{activeTabId}
+			onswitch={(id) => activeTabId = id}
+			onclose={(id) => { tabs = tabs.filter(t => t.id !== id); }}
+			onadd={() => { const id = crypto.randomUUID(); tabs = [...tabs, { id, name: `Part ${tabs.length + 1}` }]; activeTabId = id; }}
+			onrename={(id, name) => { tabs = tabs.map(t => t.id === id ? { ...t, name } : t); }}
+		/>
+	</div>
 	<div class="viewport-area">
 		<Viewport />
 		<button class="fab fab-left" data-testid="mobile-toggle-tree" onclick={() => toggleMobilePanel('left')} title="Feature Tree">&#x2630;</button>
@@ -97,6 +109,16 @@
 >
 	<div class="toolbar-area">
 		<Toolbar />
+	</div>
+	<div class="tabbar-area">
+		<TabBar
+			{tabs}
+			{activeTabId}
+			onswitch={(id) => activeTabId = id}
+			onclose={(id) => { tabs = tabs.filter(t => t.id !== id); }}
+			onadd={() => { const id = crypto.randomUUID(); tabs = [...tabs, { id, name: `Part ${tabs.length + 1}` }]; activeTabId = id; }}
+			onrename={(id, name) => { tabs = tabs.map(t => t.id === id ? { ...t, name } : t); }}
+		/>
 	</div>
 	<div class="left-panel">
 		<FeatureTree />
@@ -139,7 +161,7 @@
 <style>
 	.app-shell {
 		display: grid;
-		grid-template-rows: var(--toolbar-height) 1fr var(--statusbar-height);
+		grid-template-rows: var(--toolbar-height) auto 1fr var(--statusbar-height);
 		/* columns set inline via style binding */
 		height: 100vh;
 		height: 100dvh;
@@ -151,14 +173,19 @@
 		grid-row: 1;
 	}
 
+	.tabbar-area {
+		grid-column: 1 / -1;
+		grid-row: 2;
+	}
+
 	.left-panel {
 		grid-column: 1;
-		grid-row: 2;
+		grid-row: 3;
 		overflow-y: auto;
 	}
 
 	.divider {
-		grid-row: 2;
+		grid-row: 3;
 		width: 4px;
 		cursor: col-resize;
 		background: var(--border-color);
@@ -171,20 +198,20 @@
 	}
 
 	.viewport-area {
-		grid-row: 2;
+		grid-row: 3;
 		overflow: hidden;
 		position: relative;
 	}
 
 	.right-panel {
 		grid-column: 5;
-		grid-row: 2;
+		grid-row: 3;
 		overflow-y: auto;
 	}
 
 	.statusbar-area {
 		grid-column: 1 / -1;
-		grid-row: 3;
+		grid-row: 4;
 	}
 
 	/* Mobile layout */

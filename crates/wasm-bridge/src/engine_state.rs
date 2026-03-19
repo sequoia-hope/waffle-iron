@@ -127,6 +127,16 @@ impl EngineState {
         self.active_sketch = None;
         Ok(sketch)
     }
+
+    /// Reset to a clean state (new document).
+    pub fn reset(&mut self) {
+        self.engine = Engine::new();
+        self.active_sketch = None;
+        self.selection.clear();
+        self.hover = None;
+        self.project_name = "Untitled".to_string();
+        self.display_unit = "mm".to_string();
+    }
 }
 
 impl Default for EngineState {

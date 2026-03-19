@@ -20,6 +20,7 @@ pub fn migrate(
     while current < to_version {
         tree = match current {
             1 => migrate_v1_to_v2(tree),
+            2 => tree, // v2→v3: feature tree format unchanged (structural change only)
             _ => {
                 return Err(LoadError::MigrationFailed {
                     from: current,
@@ -257,8 +258,14 @@ mod tests {
         if let Operation::Sketch { sketch } = &feature.operation {
             // Point coordinates scaled
             if let SketchEntity::Point { x, y, .. } = &sketch.entities[0] {
-                assert!((x - 0.005).abs() < 1e-10, "Point x: expected 0.005, got {x}");
-                assert!((y - 0.010).abs() < 1e-10, "Point y: expected 0.010, got {y}");
+                assert!(
+                    (x - 0.005).abs() < 1e-10,
+                    "Point x: expected 0.005, got {x}"
+                );
+                assert!(
+                    (y - 0.010).abs() < 1e-10,
+                    "Point y: expected 0.010, got {y}"
+                );
             }
 
             // Circle radius scaled

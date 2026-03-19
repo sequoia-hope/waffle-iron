@@ -41,6 +41,7 @@
 		removeSketchEntities,
 		getSketchSolveStatus
 	} from '$lib/engine/store.svelte.js';
+	import { goto } from '$app/navigation';
 	import { showToast } from '$lib/ui/toast.svelte.js';
 	import { getApplicableConstraints } from '$lib/sketch/constraintLogic.js';
 	import { resetTool } from '$lib/sketch/tools.js';
@@ -317,6 +318,13 @@
 
 <div class="toolbar" data-testid="toolbar">
 	<div class="toolbar-brand">Waffle Iron</div>
+
+	<button
+		class="toolbar-btn home-btn"
+		data-testid="toolbar-btn-home"
+		title="Home"
+		onclick={() => goto('/home')}
+	>Home</button>
 
 	<div class="project-name" data-testid="project-name">
 		{#if editingName}
@@ -686,6 +694,10 @@
 		color: var(--text-primary);
 		padding-right: 12px;
 		border-right: 1px solid var(--border-color);
+		margin-right: 4px;
+	}
+
+	.home-btn {
 		margin-right: 4px;
 	}
 

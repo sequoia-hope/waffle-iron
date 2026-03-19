@@ -6,7 +6,7 @@ pub mod save;
 pub mod step_export;
 
 pub use errors::{ExportError, LoadError};
-pub use load::load_project;
-pub use metadata::ProjectMetadata;
-pub use save::{save_project, FORMAT_VERSION};
+pub use load::{load_document, load_project};
+pub use metadata::{DocumentMetadata, PreviewMesh, ProjectMetadata, Tab, TabKind};
+pub use save::{save_document, save_project, FORMAT_VERSION};
 pub use step_export::export_step;
