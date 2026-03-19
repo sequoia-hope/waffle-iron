@@ -1,0 +1,46 @@
+{
+  "id": "F0044",
+  "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,cut) — Cyl-cyl parallel (seed 9019)",
+  "master_seed": 0,
+  "test_seed": 9019,
+  "scale": 1.0,
+  "log_scale": 0.0,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "circle",
+      "profile_size": 0.4332616211343831,
+      "depth_or_angle": 0.41936422375756266,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "circle",
+      "profile_size": 0.13101348435799912,
+      "depth_or_angle": 0.3146301643368442,
+      "is_cut": true
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 3.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [
+      "increase",
+      "decrease"
+    ]
+  },
+  "generator_version": 2,
+  "featured": true
+}

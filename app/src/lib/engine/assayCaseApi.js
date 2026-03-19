@@ -1,16 +1,33 @@
 /**
  * Client API for assay test case browsing.
- * Communicates with the Vite dev server plugin at /api/assay-cases.
+ * Tries the Vite dev server plugin first (/api/assay-cases),
+ * falls back to static files (/assay/) for production builds.
  */
 
-const BASE = '/api/assay-cases';
+import { base } from '$app/paths';
+
+const DEV_BASE = '/api/assay-cases';
+const STATIC_BASE = `${base}/assay`;
+
+/**
+ * Fetch with dev-server-first fallback to static files.
+ * @param {string} devPath - Path under /api/assay-cases
+ * @param {string} staticPath - Path under /assay/
+ * @returns {Promise<Response>}
+ */
+async function fetchWithFallback(devPath, staticPath) {
+	const devRes = await fetch(devPath);
+	if (devRes.ok) return devRes;
+	// Dev server not available — try static
+	const staticRes = await fetch(staticPath);
+	return staticRes;
+}
 
 /**
  * Fetch the assay manifest (list of all generated cases).
- * @returns {Promise<{ master_seed: number, count: number, generator_version: number, cases: Array<{ id: string, filename: string, meta_filename: string, description: string }> }>}
  */
 export async function fetchAssayManifest() {
-	const res = await fetch(BASE);
+	const res = await fetchWithFallback(DEV_BASE, `${STATIC_BASE}/manifest.json`);
 	if (!res.ok) throw new Error(`Failed to fetch assay manifest: ${res.status}`);
 	return res.json();
 }
@@ -21,7 +38,7 @@ export async function fetchAssayManifest() {
  * @returns {Promise<string>} Raw JSON string
  */
 export async function fetchAssayCase(id) {
-	const res = await fetch(`${BASE}/${id}`);
+	const res = await fetchWithFallback(`${DEV_BASE}/${id}`, `${STATIC_BASE}/${id}.waffle`);
 	if (!res.ok) throw new Error(`Failed to fetch assay case ${id}: ${res.status}`);
 	return res.text();
 }
@@ -29,10 +46,10 @@ export async function fetchAssayCase(id) {
 /**
  * Fetch a single assay case's oracle metadata.
  * @param {string} id
- * @returns {Promise<object>} Meta JSON with oracles, operations, scale, etc.
+ * @returns {Promise<object>}
  */
 export async function fetchAssayMeta(id) {
-	const res = await fetch(`${BASE}/${id}/meta`);
+	const res = await fetchWithFallback(`${DEV_BASE}/${id}/meta`, `${STATIC_BASE}/${id}.meta.json`);
 	if (!res.ok) throw new Error(`Failed to fetch assay meta ${id}: ${res.status}`);
 	return res.json();
 }
@@ -40,11 +57,10 @@ export async function fetchAssayMeta(id) {
 /**
  * Fetch assay results (pass/fail/error status for each case).
  * Returns null if results.json doesn't exist yet.
- * @returns {Promise<{ total: number, passed: number, failed: number, errored: number, results: Array<{ id: string, status: string, category: string, detail: string }> } | null>}
  */
 export async function fetchAssayResults() {
 	try {
-		const res = await fetch(`${BASE}/results`);
+		const res = await fetchWithFallback(`${DEV_BASE}/results`, `${STATIC_BASE}/results.json`);
 		if (!res.ok) return null;
 		const data = await res.json();
 		if (!data.results || data.results.length === 0) return null;

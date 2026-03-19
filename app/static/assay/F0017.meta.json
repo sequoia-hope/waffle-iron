@@ -1,0 +1,84 @@
+{
+  "id": "F0017",
+  "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) — Intersecting oblique (seed 8002)",
+  "master_seed": 0,
+  "test_seed": 8002,
+  "scale": 1.0,
+  "log_scale": 0.0,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    -0.5190050990285081,
+    -0.7165974210691115,
+    0.4659633497384821
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.29207140131220655,
+      "depth_or_angle": 0.4151792069738187,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        -0.5190050990285081,
+        -0.7165974210691115,
+        0.4659633497384821
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.22083715061161951,
+      "depth_or_angle": 0.5796231804937815,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.35882375868704564,
+        0.3779027989781994,
+        0.8534840272237925
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.45377505551970787,
+      "depth_or_angle": 0.24871842153143167,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.8881791457867758,
+        -0.38933043297550896,
+        0.24404839468551295
+      ]
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 4.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [
+      "increase",
+      "increase",
+      "increase"
+    ]
+  },
+  "generator_version": 2,
+  "featured": true
+}

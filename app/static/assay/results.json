@@ -1,0 +1,969 @@
+{
+  "errored": 4,
+  "failed": 98,
+  "generated": "2026-03-19",
+  "passed": 58,
+  "results": [
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 3 unpaired edges out of 4205 total (2 boundary, 1 non-manifold)",
+      "id": "R0001",
+      "status": "fail"
+    },
+    {
+      "category": "mesh-too-simple",
+      "detail": "minimum_triangle_count: 260 triangles < expected minimum 288 for operations [(\"revolve\", \"rectangle\"), (\"revolve\", \"gear\")]; volume_monotonicity: step 2: expected non-increase, vol 2.186802e0 > prev 1.077160e0",
+      "id": "R0002",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 140 unpaired edges out of 1882 total",
+      "id": "R0003",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 3 unpaired edges out of 777 total (0 boundary, 3 non-manifold)",
+      "id": "R0004",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 16 unpaired edges out of 3525 total (11 boundary, 5 non-manifold); volume_monotonicity: step 3: expected non-increase, vol 3.011337e-3 > prev 3.011191e-3",
+      "id": "R0005",
+      "status": "fail"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "R0006",
+      "status": "pass"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 96 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"gear\")]",
+      "id": "R0007",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 5 unpaired edges out of 432 total (3 boundary, 2 non-manifold)",
+      "id": "R0008",
+      "status": "fail"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "R0009",
+      "status": "pass"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 4 unpaired edges out of 2566 total (2 boundary, 2 non-manifold); volume_monotonicity: step 2: expected non-decrease, vol 3.351400e4 < prev 6.465942e4",
+      "id": "R0010",
+      "status": "fail"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "R0011",
+      "status": "pass"
+    },
+    {
+      "category": "multiple-failures",
+      "detail": "partial rebuild (1 error(s)): 5fd03a4f-4aad-40be-a26b-9d0dfa3786f0: operation error: kernel error: operation not supported: polygon boolean: 310x590 effective face product (5790) too large for non-convex solids",
+      "id": "R0012",
+      "status": "fail"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "R0013",
+      "status": "pass"
+    },
+    {
+      "category": "volume-monotonicity",
+      "detail": "volume_monotonicity: step 2: expected non-increase, vol 1.164928e9 > prev 1.070232e9",
+      "id": "R0014",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 385 unpaired edges out of 1289 total (375 boundary, 10 non-manifold); volume_monotonicity: step 3: expected non-decrease, vol 7.250753e-14 < prev 1.613477e-13",
+      "id": "R0015",
+      "status": "fail"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "R0016",
+      "status": "error"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 6 unpaired edges out of 415 total (4 boundary, 2 non-manifold)",
+      "id": "R0017",
+      "status": "fail"
+    },
+    {
+      "category": "mesh-too-simple",
+      "detail": "minimum_triangle_count: 12 triangles < expected minimum 288 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"gear\"), (\"revolve\", \"gear\")]",
+      "id": "R0018",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 2 unpaired edges out of 178 total (0 boundary, 2 non-manifold); minimum_triangle_count: 120 triangles < expected minimum 288 for operations [(\"extrude\", \"circle\"), (\"revolve\", \"gear\")]",
+      "id": "R0019",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 2 unpaired edges out of 388 total (0 boundary, 2 non-manifold); volume_monotonicity: step 2: expected non-increase, vol 2.402755e4 > prev 4.704852e-5",
+      "id": "R0020",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 1 unpaired edges out of 1331 total (0 boundary, 1 non-manifold); volume_monotonicity: step 3: expected non-decrease, vol 8.122726e-4 < prev 1.069757e-3",
+      "id": "R0021",
+      "status": "fail"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "R0022",
+      "status": "pass"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 10 unpaired edges out of 59 total",
+      "id": "R0023",
+      "status": "fail"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "R0024",
+      "status": "pass"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 3 unpaired edges out of 1858 total (1 boundary, 2 non-manifold); volume_monotonicity: step 3: expected non-increase, vol 1.398509e9 > prev 1.327769e9",
+      "id": "R0025",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 62 unpaired edges out of 1764 total (61 boundary, 1 non-manifold); volume_monotonicity: step 2: expected non-decrease, vol 1.421289e-4 < prev 2.082514e-4",
+      "id": "R0026",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 96 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"gear\"), (\"revolve\", \"circle\")]",
+      "id": "R0027",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 2 unpaired edges out of 568 total (0 boundary, 2 non-manifold)",
+      "id": "R0028",
+      "status": "fail"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "R0029",
+      "status": "pass"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 6 unpaired edges out of 196 total (4 boundary, 2 non-manifold); volume_monotonicity: step 3: expected non-decrease, vol 2.127765e-12 < prev 2.161894e-12",
+      "id": "R0030",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 783 unpaired edges out of 6142 total (771 boundary, 12 non-manifold)",
+      "id": "R0031",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 2 unpaired edges out of 550 total (0 boundary, 2 non-manifold)",
+      "id": "R0032",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 1 unpaired edges out of 389 total (0 boundary, 1 non-manifold); minimum_triangle_count: 260 triangles < expected minimum 288 for operations [(\"revolve\", \"rectangle\"), (\"revolve\", \"gear\")]; volume_monotonicity: step 2: expected non-increase, vol 3.437468e-7 > prev 4.084217e-8",
+      "id": "R0033",
+      "status": "fail"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "R0034",
+      "status": "pass"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 4 unpaired edges out of 2282 total (0 boundary, 4 non-manifold); volume_monotonicity: step 3: expected non-decrease, vol 8.972559e-2 < prev 2.154414e-1",
+      "id": "R0035",
+      "status": "fail"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "R0036",
+      "status": "pass"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "R0037",
+      "status": "pass"
+    },
+    {
+      "category": "volume-monotonicity",
+      "detail": "volume_monotonicity: step 2: expected non-increase, vol 3.706494e2 > prev 2.735622e2, step 3: expected non-increase, vol 3.756003e2 > prev 3.706494e2",
+      "id": "R0038",
+      "status": "fail"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "R0039",
+      "status": "pass"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 24 unpaired edges out of 1152 total (21 boundary, 3 non-manifold); volume_monotonicity: step 3: expected non-decrease, vol 8.667679e3 < prev 6.396689e4",
+      "id": "R0040",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 611 unpaired edges out of 809 total (86 boundary, 525 non-manifold); volume_monotonicity: step 2: expected non-increase, vol 4.337083e0 > prev 2.141247e-1",
+      "id": "R0041",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 4 unpaired edges out of 178 total (2 boundary, 2 non-manifold)",
+      "id": "R0042",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 2 unpaired edges out of 2356 total (0 boundary, 2 non-manifold)",
+      "id": "R0043",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 231 unpaired edges out of 3246 total (230 boundary, 1 non-manifold)",
+      "id": "R0044",
+      "status": "fail"
+    },
+    {
+      "category": "volume-magnitude",
+      "detail": "volume_magnitude: volume 5.519793e-17 outside [1.174499e-15, 1.174499e1] for scale 4.897234e-3; volume_monotonicity: step 2: expected non-increase, vol 5.519792e-17 > prev 4.389923e-17",
+      "id": "R0045",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 14 unpaired edges out of 146 total (4 boundary, 10 non-manifold); volume_monotonicity: step 2: expected non-increase, vol 4.443336e-1 > prev 1.673978e-2",
+      "id": "R0046",
+      "status": "fail"
+    },
+    {
+      "category": "mesh-too-simple",
+      "detail": "minimum_triangle_count: 12 triangles < expected minimum 288 for operations [(\"extrude\", \"rectangle\"), (\"revolve\", \"gear\"), (\"revolve\", \"circle\")]",
+      "id": "R0047",
+      "status": "fail"
+    },
+    {
+      "category": "mesh-too-simple",
+      "detail": "minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"gear\")]",
+      "id": "R0048",
+      "status": "fail"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "R0049",
+      "status": "pass"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 242 unpaired edges out of 2644 total (236 boundary, 6 non-manifold); volume_monotonicity: step 2: expected non-increase, vol 2.785771e2 > prev 8.729887e1, step 3: expected non-decrease, vol 2.305954e2 < prev 2.785771e2",
+      "id": "R0050",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 389 unpaired edges out of 14527 total (194 boundary, 195 non-manifold); consistent_normals: 258 of 10005 triangles have reversed normals",
+      "id": "R0051",
+      "status": "fail"
+    },
+    {
+      "category": "volume-monotonicity",
+      "detail": "volume_monotonicity: step 2: expected non-decrease, vol 2.611734e4 < prev 7.413632e4",
+      "id": "R0052",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 532 unpaired edges out of 7594 total (531 boundary, 1 non-manifold)",
+      "id": "R0053",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 577 unpaired edges out of 9432 total (411 boundary, 166 non-manifold); volume_monotonicity: step 2: expected non-decrease, vol 1.880765e4 < prev 2.187751e4",
+      "id": "R0054",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 28 unpaired edges out of 626 total",
+      "id": "R0055",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 126 unpaired edges out of 3690 total; volume_monotonicity: step 2: expected non-increase, vol 2.123798e-8 > prev 2.123778e-8",
+      "id": "R0056",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 4 unpaired edges out of 1526 total (1 boundary, 3 non-manifold); volume_monotonicity: step 2: expected non-decrease, vol 3.117555e4 < prev 5.173694e4",
+      "id": "R0057",
+      "status": "fail"
+    },
+    {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 366x394 effective face product (15224) too large for non-convex solids. Body created as standalone.; partial rebuild (1 error(s)): 8b05aaf8-72c1-4550-928c-b2c32f361362: operation error: kernel error: operation not supported: polygon boolean: 366x506 effective face product (9145) too large for non-convex solids; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
+      "id": "R0058",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 90 unpaired edges out of 3801 total; volume_monotonicity: step 2: expected non-decrease, vol 2.637786e6 < prev 5.367833e6",
+      "id": "R0059",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 538 unpaired edges out of 949 total (36 boundary, 502 non-manifold); no_degenerate_triangles: 2 of 7744 triangles are degenerate",
+      "id": "R0060",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 2 unpaired edges out of 196 total (0 boundary, 2 non-manifold)",
+      "id": "R0061",
+      "status": "fail"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "R0062",
+      "status": "pass"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 349 unpaired edges out of 5326 total (348 boundary, 1 non-manifold); volume_monotonicity: step 2: expected non-increase, vol 7.432191e-10 > prev 6.042849e-10",
+      "id": "R0063",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 6 unpaired edges out of 4018 total (4 boundary, 2 non-manifold)",
+      "id": "R0064",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 2 unpaired edges out of 3700 total (0 boundary, 2 non-manifold); bbox diagonal 2.763e-2 exceeds max 2.617e-2",
+      "id": "R0065",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 4 unpaired edges out of 356 total (0 boundary, 4 non-manifold)",
+      "id": "R0066",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 382 unpaired edges out of 382 total (2 boundary, 380 non-manifold); no_degenerate_triangles: 2 of 8010 triangles are degenerate",
+      "id": "R0067",
+      "status": "fail"
+    },
+    {
+      "category": "multiple-failures",
+      "detail": "bbox diagonal 1.814e-1 exceeds max 1.453e-1",
+      "id": "R0068",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 13 unpaired edges out of 407 total (12 boundary, 1 non-manifold)",
+      "id": "R0069",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 8 unpaired edges out of 16 total; minimum_triangle_count: 8 triangles < expected minimum 96 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"gear\"), (\"extrude\", \"circle\")]; volume_monotonicity: step 2: expected non-increase, vol 1.054091e-6 > prev 4.517246e-7",
+      "id": "R0070",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 1371 unpaired edges out of 4842 total (1363 boundary, 8 non-manifold)",
+      "id": "R0071",
+      "status": "fail"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "R0072",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "R0073",
+      "status": "pass"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 2 unpaired edges out of 4072 total (0 boundary, 2 non-manifold); bbox diagonal 1.185e0 exceeds max 1.020e0",
+      "id": "R0074",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): 127a341e-7327-475c-9925-6d304fb1ce0f: operation error: kernel error: operation not supported: polygon boolean: 680x674 effective face product (12657) too large for non-convex solids; watertight_mesh: 29 unpaired edges out of 4009 total (0 boundary, 29 non-manifold)",
+      "id": "R0075",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 32 unpaired edges out of 1520 total (28 boundary, 4 non-manifold)",
+      "id": "R0076",
+      "status": "fail"
+    },
+    {
+      "category": "volume-monotonicity",
+      "detail": "volume_monotonicity: step 2: expected non-decrease, vol 8.189772e8 < prev 8.012765e9",
+      "id": "R0077",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 44 unpaired edges out of 706 total",
+      "id": "R0078",
+      "status": "fail"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "R0079",
+      "status": "pass"
+    },
+    {
+      "category": "mesh-too-simple",
+      "detail": "minimum_triangle_count: 12 triangles < expected minimum 288 for operations [(\"extrude\", \"rectangle\"), (\"revolve\", \"gear\")]",
+      "id": "R0080",
+      "status": "fail"
+    },
+    {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 602x588 effective face product (41828) too large for non-convex solids. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); volume_magnitude: volume 1.483910e-11 outside [1.128408e-10, 1.128408e6] for scale 2.242963e-1; volume_monotonicity: step 2: expected non-increase, vol 9.940189e-3 > prev 6.686011e-3, step 3: expected non-decrease, vol 1.483911e-11 < prev 9.940189e-3",
+      "id": "R0081",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 2 unpaired edges out of 3196 total (0 boundary, 2 non-manifold); bbox diagonal 1.972e3 exceeds max 1.921e3",
+      "id": "R0082",
+      "status": "fail"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "R0083",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "R0084",
+      "status": "pass"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "R0085",
+      "status": "error"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 525 unpaired edges out of 722 total (31 boundary, 494 non-manifold); no_degenerate_triangles: 2 of 7533 triangles are degenerate",
+      "id": "R0086",
+      "status": "fail"
+    },
+    {
+      "category": "volume-monotonicity",
+      "detail": "volume_monotonicity: step 2: expected non-decrease, vol 4.756013e3 < prev 1.634804e4",
+      "id": "R0087",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 96 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\"), (\"extrude\", \"rectangle\")]",
+      "id": "R0088",
+      "status": "fail"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "R0089",
+      "status": "pass"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "R0090",
+      "status": "error"
+    },
+    {
+      "category": "multiple-failures",
+      "detail": "bbox diagonal 4.946e-4 exceeds max 4.771e-4",
+      "id": "R0091",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\")]",
+      "id": "R0092",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 4 unpaired edges out of 2221 total (3 boundary, 1 non-manifold); volume_monotonicity: step 2: expected non-increase, vol 2.696426e-10 > prev 2.868166e-16, step 3: expected non-increase, vol 3.964653e-10 > prev 2.696426e-10",
+      "id": "R0093",
+      "status": "fail"
+    },
+    {
+      "category": "volume-monotonicity",
+      "detail": "volume_monotonicity: step 3: expected non-increase, vol 2.746980e7 > prev 2.679190e7",
+      "id": "R0094",
+      "status": "fail"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "R0095",
+      "status": "error"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "R0096",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "R0097",
+      "status": "pass"
+    },
+    {
+      "category": "volume-monotonicity",
+      "detail": "volume_monotonicity: step 2: expected non-increase, vol 3.335707e9 > prev 2.647011e9",
+      "id": "R0098",
+      "status": "fail"
+    },
+    {
+      "category": "volume-monotonicity",
+      "detail": "volume_monotonicity: step 3: expected non-increase, vol 3.954356e1 > prev 2.899106e1",
+      "id": "R0099",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 1 unpaired edges out of 779 total (0 boundary, 1 non-manifold); volume_monotonicity: step 2: expected non-increase, vol 2.195940e6 > prev 4.362316e-2",
+      "id": "R0100",
+      "status": "fail"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0001",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0002",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0003",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0004",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0005",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0006",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0007",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0008",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0009",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0010",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0011",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0012",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0013",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0014",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0015",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0016",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0017",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0018",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0019",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0020",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0021",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0022",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0023",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0024",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0025",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0026",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0027",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0028",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0029",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0030",
+      "status": "pass"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "F0031",
+      "status": "pass"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "F0032",
+      "status": "pass"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "F0033",
+      "status": "pass"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "F0034",
+      "status": "pass"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "F0035",
+      "status": "pass"
+    },
+    {
+      "category": "aabb-collapse",
+      "detail": "aabb_collapse: all 136 unique vertices lie on AABB faces — mesh collapsed to bounding box",
+      "id": "F0036",
+      "status": "fail"
+    },
+    {
+      "category": "aabb-collapse",
+      "detail": "aabb_collapse: all 136 unique vertices lie on AABB faces — mesh collapsed to bounding box",
+      "id": "F0037",
+      "status": "fail"
+    },
+    {
+      "category": "aabb-collapse",
+      "detail": "aabb_collapse: all 136 unique vertices lie on AABB faces — mesh collapsed to bounding box",
+      "id": "F0038",
+      "status": "fail"
+    },
+    {
+      "category": "aabb-collapse",
+      "detail": "aabb_collapse: all 136 unique vertices lie on AABB faces — mesh collapsed to bounding box",
+      "id": "F0039",
+      "status": "fail"
+    },
+    {
+      "category": "aabb-collapse",
+      "detail": "aabb_collapse: all 136 unique vertices lie on AABB faces — mesh collapsed to bounding box",
+      "id": "F0040",
+      "status": "fail"
+    },
+    {
+      "category": "aabb-collapse",
+      "detail": "aabb_collapse: all 154 unique vertices lie on AABB faces — mesh collapsed to bounding box; volume_monotonicity: step 2: expected non-decrease, vol 1.118814e-2 < prev 5.469728e-2",
+      "id": "F0041",
+      "status": "fail"
+    },
+    {
+      "category": "aabb-collapse",
+      "detail": "aabb_collapse: all 148 unique vertices lie on AABB faces — mesh collapsed to bounding box",
+      "id": "F0042",
+      "status": "fail"
+    },
+    {
+      "category": "aabb-collapse",
+      "detail": "aabb_collapse: all 164 unique vertices lie on AABB faces — mesh collapsed to bounding box; volume_monotonicity: step 2: expected non-decrease, vol 1.447086e-2 < prev 5.130765e-2",
+      "id": "F0043",
+      "status": "fail"
+    },
+    {
+      "category": "mesh-too-simple",
+      "detail": "minimum_triangle_count: 4 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\")]; volume_magnitude: volume 3.140986e-11 outside [1.000000e-8, 1.000000e8] for scale 1.000000e0",
+      "id": "F0044",
+      "status": "fail"
+    },
+    {
+      "category": "aabb-collapse",
+      "detail": "aabb_collapse: all 146 unique vertices lie on AABB faces — mesh collapsed to bounding box; volume_monotonicity: step 2: expected non-decrease, vol 2.739889e-2 < prev 1.347547e-1",
+      "id": "F0045",
+      "status": "fail"
+    },
+    {
+      "category": "mesh-too-simple",
+      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
+      "id": "F0046",
+      "status": "fail"
+    },
+    {
+      "category": "mesh-too-simple",
+      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
+      "id": "F0047",
+      "status": "fail"
+    },
+    {
+      "category": "mesh-too-simple",
+      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
+      "id": "F0048",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 1365 unpaired edges out of 4127 total (358 boundary, 1007 non-manifold); no_degenerate_triangles: 3 of 10603 triangles are degenerate",
+      "id": "F0049",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 1476 unpaired edges out of 3772 total (367 boundary, 1109 non-manifold); no_degenerate_triangles: 1 of 10024 triangles are degenerate",
+      "id": "F0050",
+      "status": "fail"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0051",
+      "status": "pass"
+    },
+    {
+      "category": "aabb-collapse",
+      "detail": "aabb_collapse: all 128 unique vertices lie on AABB faces — mesh collapsed to bounding box; no_degenerate_triangles: 64 of 252 triangles are degenerate",
+      "id": "F0052",
+      "status": "fail"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0053",
+      "status": "pass"
+    },
+    {
+      "category": "aabb-collapse",
+      "detail": "aabb_collapse: all 136 unique vertices lie on AABB faces — mesh collapsed to bounding box",
+      "id": "F0054",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 12 unpaired edges out of 402 total",
+      "id": "F0055",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 90 unpaired edges out of 273 total (80 boundary, 10 non-manifold); volume_monotonicity: step 2: expected non-decrease, vol 3.059068e-2 < prev 2.258315e-1",
+      "id": "F0056",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 33 unpaired edges out of 328 total (30 boundary, 3 non-manifold); consistent_normals: 3 of 210 triangles have reversed normals; volume_monotonicity: step 2: expected non-decrease, vol 4.938312e-2 < prev 1.372240e-1",
+      "id": "F0057",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 58 unpaired edges out of 283 total (42 boundary, 16 non-manifold)",
+      "id": "F0058",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 60 unpaired edges out of 317 total (57 boundary, 3 non-manifold); consistent_normals: 2 of 194 triangles have reversed normals; volume_monotonicity: step 2: expected non-decrease, vol 2.118028e-3 < prev 1.921136e-1",
+      "id": "F0059",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 13 unpaired edges out of 371 total (8 boundary, 5 non-manifold); no_degenerate_triangles: 2 of 248 triangles are degenerate; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); volume_magnitude: volume 0.000000e0 outside [1.000000e-8, 1.000000e8] for scale 1.000000e0",
+      "id": "F0060",
+      "status": "fail"
+    }
+  ],
+  "total": 160
+}

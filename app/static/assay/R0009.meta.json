@@ -1,0 +1,74 @@
+{
+  "id": "R0009",
+  "description": "3 ops, scale=1.05e-4, extrude(circle,boss)+extrude(rectangle,cut)+extrude(rectangle,cut)",
+  "master_seed": 42,
+  "test_seed": 9039304369631583594,
+  "scale": 0.00010541480464026497,
+  "log_scale": -3.977098391760453,
+  "plane_origin": [
+    -0.00010535871309383206,
+    -0.000017015815117695074,
+    0.00007070077298637701
+  ],
+  "plane_normal": [
+    0.5333419515122243,
+    -0.22309877336111694,
+    0.8159493244570383
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "circle",
+      "profile_size": 0.000014221168345116853,
+      "depth_or_angle": 0.0000723124495374988,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.00005745954536312841,
+      "depth_or_angle": 0.00004997974236303948,
+      "is_cut": true,
+      "plane_origin": [
+        0.00006512776971430597,
+        0.00008709502863700881,
+        -0.00005416445652674191
+      ],
+      "plane_normal": [
+        0.5982471241843081,
+        0.4949930774005929,
+        -0.6301446117604242
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.000026642756488021724,
+      "depth_or_angle": 0.00002166220355939576,
+      "is_cut": true,
+      "plane_origin": [
+        -0.00006388975565353622,
+        0.00001769897692407998,
+        0.00005998796653592815
+      ],
+      "plane_normal": [
+        -0.681241858659207,
+        0.1548712766658502,
+        0.7154889360950585
+      ]
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 0.0003162444139207949,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [
+      "increase",
+      "decrease",
+      "decrease"
+    ]
+  },
+  "generator_version": 2,
+  "featured": false
+}

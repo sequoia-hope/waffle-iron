@@ -1,0 +1,226 @@
+{
+  "format": "waffle-iron",
+  "version": 2,
+  "project": {
+    "name": "Assay R0096",
+    "created": "2026-03-18T07:46:17.272248187Z",
+    "modified": "2026-03-18T07:46:17.272248187Z"
+  },
+  "features": {
+    "features": [
+      {
+        "id": "9b176016-4dd6-41be-b668-05da83282d30",
+        "name": "Sketch 1",
+        "operation": {
+          "type": "Sketch",
+          "sketch": {
+            "id": "9b176016-4dd6-41be-b668-05da83282d30",
+            "plane": {
+              "kind": {
+                "type": "Face"
+              },
+              "anchor": {
+                "type": "Datum",
+                "datum_id": "6a35ff6d-54fc-4edc-aa37-3e68a4347dec"
+              },
+              "selector": {
+                "type": "Role",
+                "role": {
+                  "type": "EndCapPositive"
+                },
+                "index": 0
+              },
+              "policy": {
+                "type": "Strict"
+              }
+            },
+            "plane_origin": [
+              -0.0014853869867279415,
+              0.006948588597717133,
+              -0.004165343708935198
+            ],
+            "plane_normal": [
+              0.6026490889883158,
+              -0.2888192186225698,
+              0.743906939405596
+            ],
+            "entities": [
+              {
+                "type": "Point",
+                "id": 1,
+                "x": 0.0,
+                "y": 0.0,
+                "construction": true
+              },
+              {
+                "type": "Circle",
+                "id": 2,
+                "center_id": 1,
+                "radius": 0.0023918127337279093,
+                "construction": false
+              }
+            ],
+            "constraints": [],
+            "solve_status": {
+              "type": "FullyConstrained"
+            },
+            "solved_positions": {
+              "1": [
+                0.0,
+                0.0
+              ]
+            },
+            "solved_profiles": [
+              {
+                "entity_ids": [
+                  2
+                ],
+                "is_outer": true,
+                "circle": {
+                  "center_u": 0.0,
+                  "center_v": 0.0,
+                  "radius": 0.0023918127337279093
+                }
+              }
+            ]
+          }
+        },
+        "suppressed": false,
+        "references": []
+      },
+      {
+        "id": "40ca898e-9c75-44a8-a408-683560d7d784",
+        "name": "Revolve 1",
+        "operation": {
+          "type": "Revolve",
+          "params": {
+            "sketch_id": "9b176016-4dd6-41be-b668-05da83282d30",
+            "profile_index": 0,
+            "axis_origin": [
+              -0.002521589213998153,
+              0.004786452950199466,
+              -0.004165343708935198
+            ],
+            "axis_direction": [
+              -0.2888192186225698,
+              -0.6026490889883158,
+              0.0
+            ],
+            "angle": 281.06828648575544,
+            "cut": false,
+            "merge": true
+          }
+        },
+        "suppressed": false,
+        "references": []
+      },
+      {
+        "id": "dd494b8e-5b1c-4ea5-9aa2-e8ab17d1a678",
+        "name": "Sketch 2",
+        "operation": {
+          "type": "Sketch",
+          "sketch": {
+            "id": "dd494b8e-5b1c-4ea5-9aa2-e8ab17d1a678",
+            "plane": {
+              "kind": {
+                "type": "Face"
+              },
+              "anchor": {
+                "type": "Datum",
+                "datum_id": "aaa576dd-a2a9-472d-a5ee-3eca3596620f"
+              },
+              "selector": {
+                "type": "Role",
+                "role": {
+                  "type": "EndCapPositive"
+                },
+                "index": 0
+              },
+              "policy": {
+                "type": "Strict"
+              }
+            },
+            "plane_origin": [
+              0.0018591049995214728,
+              0.004482592261805706,
+              0.004876311074131846
+            ],
+            "plane_normal": [
+              -0.787543176152435,
+              0.6162210629838605,
+              0.006880932405977414
+            ],
+            "entities": [
+              {
+                "type": "Point",
+                "id": 1,
+                "x": 0.0,
+                "y": 0.0,
+                "construction": true
+              },
+              {
+                "type": "Circle",
+                "id": 2,
+                "center_id": 1,
+                "radius": 0.00342307570206815,
+                "construction": false
+              }
+            ],
+            "constraints": [],
+            "solve_status": {
+              "type": "FullyConstrained"
+            },
+            "solved_positions": {
+              "1": [
+                0.0,
+                0.0
+              ]
+            },
+            "solved_profiles": [
+              {
+                "entity_ids": [
+                  2
+                ],
+                "is_outer": true,
+                "circle": {
+                  "center_u": 0.0,
+                  "center_v": 0.0,
+                  "radius": 0.00342307570206815
+                }
+              }
+            ]
+          }
+        },
+        "suppressed": false,
+        "references": []
+      },
+      {
+        "id": "750ebb8a-d9d0-430b-a34f-1d47ded7e4d5",
+        "name": "Revolve 2",
+        "operation": {
+          "type": "Revolve",
+          "params": {
+            "sketch_id": "dd494b8e-5b1c-4ea5-9aa2-e8ab17d1a678",
+            "profile_index": 0,
+            "axis_origin": [
+              0.005023162021225463,
+              0.008526322127731172,
+              0.004876311074131846
+            ],
+            "axis_direction": [
+              0.6162210629838605,
+              0.787543176152435,
+              0.0
+            ],
+            "angle": 271.10982091136196,
+            "cut": true,
+            "merge": true
+          }
+        },
+        "suppressed": false,
+        "references": []
+      }
+    ],
+    "active_index": null
+  }
+}

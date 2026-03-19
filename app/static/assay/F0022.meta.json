@@ -1,0 +1,102 @@
+{
+  "id": "F0022",
+  "description": "4 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) — Intersecting oblique (seed 8007)",
+  "master_seed": 0,
+  "test_seed": 8007,
+  "scale": 1.0,
+  "log_scale": 0.0,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.39724351669289554,
+    -0.8909384264308358,
+    -0.22005978450050218
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.43230791209830055,
+      "depth_or_angle": 0.4717496217798544,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.39724351669289554,
+        -0.8909384264308358,
+        -0.22005978450050218
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.4734907576077476,
+      "depth_or_angle": 0.47696400572568015,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        -0.16525745077916504,
+        0.9504280681104199,
+        -0.2633941197328954
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.23568453264380784,
+      "depth_or_angle": 0.4322956085022138,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.07510923767606177,
+        0.6772348941084866,
+        -0.7319231521256777
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.4573925219923768,
+      "depth_or_angle": 0.5224913942647661,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        -0.7105842817998028,
+        -0.045525769770423635,
+        -0.702137723488682
+      ]
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 4.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [
+      "increase",
+      "increase",
+      "increase",
+      "increase"
+    ]
+  },
+  "generator_version": 2,
+  "featured": true
+}
