@@ -20,6 +20,7 @@
 		showShellDialog,
 		showBooleanDialog,
 		saveProject,
+		saveToStorage,
 		loadProject,
 		exportStl,
 		exportStep,
@@ -261,7 +262,7 @@
 			if (!ready) return;
 
 			if (e.ctrlKey || e.metaKey) {
-				if (e.key === 's') { e.preventDefault(); saveProject(); return; }
+				if (e.key === 's') { e.preventDefault(); saveToStorage(); return; }
 				if (e.key === 'o') { e.preventDefault(); loadProject(); return; }
 				if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
 				if (e.key === 'z' && e.shiftKey) { e.preventDefault(); redo(); }
@@ -567,8 +568,13 @@
 			<div class="overflow-menu overflow-fixed" style="top: {overflowPos.top}px; right: {overflowPos.right}px;" data-testid="toolbar-overflow-menu">
 					<button class="overflow-item" disabled={!ready || saving}
 						data-testid="toolbar-btn-save"
-						onclick={async () => { closeOverflow(); saving = true; try { await saveProject(); } finally { saving = false; } }}>
+						onclick={async () => { closeOverflow(); saving = true; try { await saveToStorage(); } finally { saving = false; } }}>
 						{saving ? 'Saving...' : 'Save'}
+					</button>
+					<button class="overflow-item" disabled={!ready}
+						data-testid="toolbar-btn-export-waffle"
+						onclick={async () => { closeOverflow(); await saveProject(); }}>
+						Export .waffle
 					</button>
 					<button class="overflow-item" disabled={!ready}
 						data-testid="toolbar-btn-open"
@@ -621,7 +627,7 @@
 		<div class="toolbar-group">
 			<button class="toolbar-btn" disabled={!ready || saving} title="Save (Ctrl+S)"
 				data-testid="toolbar-btn-save"
-				onclick={async () => { saving = true; try { await saveProject(); } finally { saving = false; } }}>
+				onclick={async () => { saving = true; try { await saveToStorage(); } finally { saving = false; } }}>
 				{saving ? 'Saving...' : 'Save'}
 			</button>
 			<button class="toolbar-btn" disabled={!ready} title="Open (Ctrl+O)"

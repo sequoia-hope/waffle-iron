@@ -53,6 +53,7 @@ export class IndexedDBStore {
 					let name = 'Untitled';
 					let tabCount = 1;
 					let displayUnit = null;
+					let previewMesh = null;
 					try {
 						const parsed = JSON.parse(doc.json);
 						if (parsed.document) {
@@ -64,6 +65,13 @@ export class IndexedDBStore {
 						}
 						if (parsed.tabs) {
 							tabCount = parsed.tabs.length;
+							// Extract preview mesh from first tab with one
+							for (const tab of parsed.tabs) {
+								if (tab.kind?.preview_mesh) {
+									previewMesh = tab.kind.preview_mesh;
+									break;
+								}
+							}
 						}
 					} catch {
 						// ignore parse errors for listing
@@ -74,7 +82,8 @@ export class IndexedDBStore {
 						created: doc.created,
 						modified: doc.modified,
 						displayUnit,
-						tabCount
+						tabCount,
+						previewMesh
 					};
 				});
 				// Sort by modified descending

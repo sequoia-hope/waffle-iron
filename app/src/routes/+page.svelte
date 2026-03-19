@@ -8,14 +8,21 @@
 	import RevolveDialog from '$lib/ui/RevolveDialog.svelte';
 	import SketchPlaneDialog from '$lib/ui/SketchPlaneDialog.svelte';
 	import ToastContainer from '$lib/ui/ToastContainer.svelte';
-	import { getMobileLayout, setMobileLayout, getMobileActivePanel, toggleMobilePanel } from '$lib/engine/store.svelte.js';
+	import {
+		getMobileLayout, setMobileLayout, getMobileActivePanel, toggleMobilePanel,
+		getDocumentTabs, getActiveTabId, switchTab, addTab, closeTab, renameTab,
+		saveToStorage
+	} from '$lib/engine/store.svelte.js';
 	import TestCaseBrowser from '$lib/ui/TestCaseBrowser.svelte';
 	import SaveTestCaseDialog from '$lib/ui/SaveTestCaseDialog.svelte';
 	import AssayBrowser from '$lib/ui/AssayBrowser.svelte';
 	import TabBar from '$lib/ui/TabBar.svelte';
 
-	let tabs = $state([{ id: 'default', name: 'Part 1' }]);
-	let activeTabId = $state('default');
+	let tabs = $derived(getDocumentTabs().length > 0
+		? getDocumentTabs()
+		: [{ id: 'default', name: 'Part 1' }]
+	);
+	let activeTab = $derived(getActiveTabId() || tabs[0]?.id);
 
 	let leftWidth = $state(200);
 	let rightWidth = $state(250);
@@ -47,12 +54,21 @@
 			document.body.style.userSelect = '';
 		}
 
+		function onKeyDown(e) {
+			if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+				e.preventDefault();
+				saveToStorage();
+			}
+		}
+
 		window.addEventListener('mousemove', onMouseMove);
 		window.addEventListener('mouseup', onMouseUp);
+		window.addEventListener('keydown', onKeyDown);
 		return () => {
 			mql.removeEventListener('change', onMediaChange);
 			window.removeEventListener('mousemove', onMouseMove);
 			window.removeEventListener('mouseup', onMouseUp);
+			window.removeEventListener('keydown', onKeyDown);
 		};
 	});
 
@@ -76,11 +92,11 @@
 	<div class="tabbar-area">
 		<TabBar
 			{tabs}
-			{activeTabId}
-			onswitch={(id) => activeTabId = id}
-			onclose={(id) => { tabs = tabs.filter(t => t.id !== id); }}
-			onadd={() => { const id = crypto.randomUUID(); tabs = [...tabs, { id, name: `Part ${tabs.length + 1}` }]; activeTabId = id; }}
-			onrename={(id, name) => { tabs = tabs.map(t => t.id === id ? { ...t, name } : t); }}
+			activeTabId={activeTab}
+			onswitch={(id) => switchTab(id)}
+			onclose={(id) => closeTab(id)}
+			onadd={() => { const id = addTab(); switchTab(id); }}
+			onrename={(id, name) => renameTab(id, name)}
 		/>
 	</div>
 	<div class="viewport-area">
@@ -113,11 +129,11 @@
 	<div class="tabbar-area">
 		<TabBar
 			{tabs}
-			{activeTabId}
-			onswitch={(id) => activeTabId = id}
-			onclose={(id) => { tabs = tabs.filter(t => t.id !== id); }}
-			onadd={() => { const id = crypto.randomUUID(); tabs = [...tabs, { id, name: `Part ${tabs.length + 1}` }]; activeTabId = id; }}
-			onrename={(id, name) => { tabs = tabs.map(t => t.id === id ? { ...t, name } : t); }}
+			activeTabId={activeTab}
+			onswitch={(id) => switchTab(id)}
+			onclose={(id) => closeTab(id)}
+			onadd={() => { const id = addTab(); switchTab(id); }}
+			onrename={(id, name) => renameTab(id, name)}
 		/>
 	</div>
 	<div class="left-panel">

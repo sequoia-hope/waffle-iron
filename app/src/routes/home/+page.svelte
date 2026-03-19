@@ -41,7 +41,7 @@
 			modified: now
 		};
 		await store.put(doc);
-		goto('/');
+		goto(`/doc/${id}`);
 	}
 
 	function handleSelect(doc) {

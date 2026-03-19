@@ -1,3 +1,4 @@
+pub mod preview_mesh;
 pub mod rebuild;
 pub mod resolve;
 pub mod tree;

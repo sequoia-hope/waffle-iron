@@ -1,13 +1,15 @@
+import { IndexedDBStore } from './indexeddb.js';
+
 export { generateDocId } from './types.js';
 export { IndexedDBStore } from './indexeddb.js';
 export { migrateLocalStorage } from './migration.js';
 
-/** @type {import('./indexeddb.js').IndexedDBStore|null} */
+/** @type {IndexedDBStore|null} */
 let _store = null;
 
 /**
  * Get the singleton IndexedDB store instance.
- * @returns {import('./indexeddb.js').IndexedDBStore}
+ * @returns {IndexedDBStore}
  */
 export function getStore() {
 	if (!_store) {

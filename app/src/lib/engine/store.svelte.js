@@ -222,6 +222,24 @@ let projectName = $state('Untitled');
 /** @type {string} Document display unit (mm, cm, m, in, ft) */
 let documentDisplayUnit = $state('mm');
 
+// -- Document model state --
+
+/** @type {string | null} Active document ID (from IndexedDB) */
+let activeDocId = $state(null);
+
+/** @type {string | null} Active tab ID within the document */
+let activeTabId = $state(null);
+
+/**
+ * Metadata for all tabs in the current document.
+ * Each tab stores its own feature tree snapshot for save/restore on switch.
+ * @type {Array<{ id: string, name: string, kind: { type: string, features: object } }>}
+ */
+let documentTabs = $state([]);
+
+/** @type {string} Human-readable document name */
+let documentName = $state('Untitled');
+
 // -- Gear state --
 
 /** @type {Map<number, object>} gearId -> GearParams */
@@ -361,13 +379,42 @@ export async function initEngine() {
 		log('system', 'Engine ready (WASM loaded)');
 		initLoggerToasts();
 
-		// Check for auto-save data
-		if (typeof localStorage !== 'undefined') {
+		// Check for pending document from /doc/[id] route
+		if (typeof sessionStorage !== 'undefined') {
+			const pendingDocId = sessionStorage.getItem('waffle-active-doc');
+			const pendingJson = sessionStorage.getItem('waffle-active-json');
+			if (pendingDocId && pendingJson) {
+				sessionStorage.removeItem('waffle-active-doc');
+				sessionStorage.removeItem('waffle-active-json');
+				try {
+					const parsed = JSON.parse(pendingJson);
+					initDocumentState(pendingDocId, parsed);
+					// Load the active tab's features into the engine
+					const activeTab = documentTabs.find(t => t.id === activeTabId);
+					if (activeTab?.kind?.features?.features?.length > 0) {
+						await loadProject(pendingJson);
+					}
+					log('system', `Loaded document ${pendingDocId}`);
+				} catch (err) {
+					log('error', `Failed to load pending document: ${err}`);
+				}
+			}
+		}
+
+		// Check for auto-save data (legacy localStorage, only if no doc loaded)
+		if (!activeDocId && typeof localStorage !== 'undefined') {
 			const saved = localStorage.getItem(AUTOSAVE_KEY);
 			const savedTime = localStorage.getItem(AUTOSAVE_TIME_KEY);
 			if (saved && savedTime) {
 				autoRestoreState = { available: true, timestamp: parseInt(savedTime, 10) };
 			}
+		}
+
+		// Initialize default tab state if no document was loaded
+		if (documentTabs.length === 0) {
+			const tabId = 'default';
+			documentTabs = [{ id: tabId, name: 'Part 1', kind: { type: 'Part', features: { features: [], active_index: null } } }];
+			activeTabId = tabId;
 		}
 	} catch (err) {
 		lastError = /** @type {Error} */ (err).message;
@@ -674,6 +721,12 @@ export async function initEngine() {
 				return toggled;
 			},
 			shaderDebug: false,
+			getDocumentState: () => ({
+				activeDocId,
+				activeTabId,
+				documentTabs: documentTabs.map(t => ({ id: t.id, name: t.name, kind: t.kind?.type })),
+				documentName,
+			}),
 		};
 	}
 }
@@ -3318,6 +3371,168 @@ export function setDocumentDisplayUnit(unit) {
 	}
 }
 
+// -- Document model --
+
+export function getActiveDocId() { return activeDocId; }
+export function getActiveTabId() { return activeTabId; }
+export function getDocumentTabs() { return documentTabs; }
+export function getDocumentName() { return documentName; }
+export function setDocumentName(name) { documentName = name; projectName = name; }
+
+/**
+ * Switch to a different tab. Saves current tab's feature tree, then loads the target tab.
+ * @param {string} tabId
+ */
+export async function switchTab(tabId) {
+	if (tabId === activeTabId) return;
+	if (!documentTabs.find(t => t.id === tabId)) return;
+
+	// Cancel pending autosave to prevent stale state capture
+	if (autoSaveTimer) {
+		clearTimeout(autoSaveTimer);
+		autoSaveTimer = null;
+	}
+
+	// Save current tab's features before switching
+	if (activeTabId) {
+		const currentTab = documentTabs.find(t => t.id === activeTabId);
+		if (currentTab) {
+			currentTab.kind.features = JSON.parse(JSON.stringify(featureTree));
+		}
+	}
+
+	// Load target tab's features
+	const targetTab = documentTabs.find(t => t.id === tabId);
+	activeTabId = tabId;
+
+	if (bridge && engineReady && targetTab?.kind?.features) {
+		await sendRebuild({
+			type: 'SwitchTab',
+			features: targetTab.kind.features
+		});
+	}
+
+	scheduleAutoSave();
+}
+
+/**
+ * Add a new tab to the document.
+ * @returns {string} The new tab's ID
+ */
+export function addTab() {
+	const id = crypto.randomUUID();
+	const name = `Part ${documentTabs.length + 1}`;
+	documentTabs = [...documentTabs, {
+		id,
+		name,
+		kind: { type: 'Part', features: { features: [], active_index: null } }
+	}];
+	return id;
+}
+
+/**
+ * Close a tab by ID. If the active tab is closed, switch to an adjacent tab.
+ * @param {string} tabId
+ */
+export async function closeTab(tabId) {
+	if (documentTabs.length <= 1) return; // Don't close the last tab
+
+	const idx = documentTabs.findIndex(t => t.id === tabId);
+	if (idx === -1) return;
+
+	documentTabs = documentTabs.filter(t => t.id !== tabId);
+
+	if (activeTabId === tabId) {
+		// Switch to adjacent tab (prefer left neighbor, else right)
+		const newIdx = Math.min(idx, documentTabs.length - 1);
+		await switchTab(documentTabs[newIdx].id);
+	}
+
+	scheduleAutoSave();
+}
+
+/**
+ * Rename a tab.
+ * @param {string} tabId
+ * @param {string} name
+ */
+export function renameTab(tabId, name) {
+	documentTabs = documentTabs.map(t =>
+		t.id === tabId ? { ...t, name } : t
+	);
+	scheduleAutoSave();
+}
+
+/**
+ * Initialize document state from a v3 document JSON.
+ * Called when loading a document from IndexedDB or creating a new one.
+ * @param {string} docId
+ * @param {object} parsed - Parsed v3 JSON
+ */
+export function initDocumentState(docId, parsed) {
+	activeDocId = docId;
+	documentName = parsed.document?.name || 'Untitled';
+	projectName = documentName;
+
+	if (parsed.tabs && parsed.tabs.length > 0) {
+		documentTabs = parsed.tabs.map(t => ({
+			id: t.id,
+			name: t.name,
+			kind: t.kind || { type: 'Part', features: { features: [], active_index: null } }
+		}));
+		activeTabId = parsed.active_tab || parsed.tabs[0].id;
+	} else {
+		// Legacy v1/v2 — single implicit tab
+		const tabId = crypto.randomUUID();
+		documentTabs = [{ id: tabId, name: 'Part 1', kind: { type: 'Part', features: { features: [], active_index: null } } }];
+		activeTabId = tabId;
+	}
+}
+
+/**
+ * Build full v3 JSON from current document state for saving.
+ * Includes all tabs (inactive ones from documentTabs, active one from live engine state).
+ * @returns {Promise<string | null>}
+ */
+export async function buildDocumentJson() {
+	// Get current active tab's features from engine
+	const liveJson = await saveProjectToString();
+	let liveFeatures = null;
+	if (liveJson) {
+		try {
+			const parsed = JSON.parse(liveJson);
+			liveFeatures = parsed.features || parsed.project?.features || { features: parsed.feature_tree?.features || [], active_index: parsed.feature_tree?.active_index ?? null };
+		} catch { /* ignore */ }
+	}
+
+	const now = new Date().toISOString();
+	const tabs = documentTabs.map(t => {
+		const features = (t.id === activeTabId && liveFeatures)
+			? liveFeatures
+			: (t.kind?.features || { features: [], active_index: null });
+		return {
+			id: t.id,
+			name: t.name,
+			kind: { type: t.kind?.type || 'Part', features }
+		};
+	});
+
+	const doc = {
+		format: 'waffle-iron',
+		version: 3,
+		document: {
+			name: documentName,
+			created: now,
+			modified: now,
+			display_unit: documentDisplayUnit
+		},
+		tabs,
+		active_tab: activeTabId
+	};
+
+	return JSON.stringify(doc);
+}
+
 // -- Visibility toggles (toolbar compat — delegates to per-item visibility) --
 
 /**
@@ -3419,21 +3634,65 @@ const AUTOSAVE_NAME_KEY = 'waffle-autosave-name';
 const AUTOSAVE_DELAY_MS = 3000;
 
 function scheduleAutoSave() {
-	if (typeof localStorage === 'undefined') return;
 	if (autoSaveTimer) clearTimeout(autoSaveTimer);
 	autoSaveTimer = setTimeout(async () => {
 		autoSaveTimer = null;
 		try {
-			const jsonData = await saveProjectToString();
-			if (!jsonData) return;
-			localStorage.setItem(AUTOSAVE_KEY, jsonData);
-			localStorage.setItem(AUTOSAVE_TIME_KEY, String(Date.now()));
-			localStorage.setItem(AUTOSAVE_NAME_KEY, projectName);
+			await saveToIndexedDB();
 		} catch (err) {
-			// Silently fail (e.g. localStorage quota exceeded)
-			console.warn('Auto-save failed:', err);
+			// Fall back to localStorage if IndexedDB fails
+			try {
+				const jsonData = await saveProjectToString();
+				if (jsonData && typeof localStorage !== 'undefined') {
+					localStorage.setItem(AUTOSAVE_KEY, jsonData);
+					localStorage.setItem(AUTOSAVE_TIME_KEY, String(Date.now()));
+					localStorage.setItem(AUTOSAVE_NAME_KEY, projectName);
+				}
+			} catch {
+				console.warn('Auto-save failed:', err);
+			}
 		}
 	}, AUTOSAVE_DELAY_MS);
+}
+
+/**
+ * Save current document state to IndexedDB.
+ * Builds full v3 JSON including all tabs.
+ */
+async function saveToIndexedDB() {
+	if (!activeDocId) return;
+	const jsonData = await buildDocumentJson();
+	if (!jsonData) return;
+
+	const { getStore } = await import('$lib/storage/index.js');
+	const store = getStore();
+	const existing = await store.get(activeDocId);
+	await store.put({
+		id: activeDocId,
+		json: jsonData,
+		created: existing?.created || Date.now(),
+		modified: Date.now()
+	});
+}
+
+/**
+ * Save immediately to IndexedDB (for Ctrl+S).
+ * @returns {Promise<boolean>}
+ */
+export async function saveToStorage() {
+	if (!activeDocId) {
+		// No active doc — fall back to file download
+		return !!(await saveProject());
+	}
+	try {
+		await saveToIndexedDB();
+		showToast('success', 'Saved');
+		log('action', 'Document saved to IndexedDB');
+		return true;
+	} catch (err) {
+		showToast('error', `Save failed: ${err.message || err}`);
+		return false;
+	}
 }
 
 /**
