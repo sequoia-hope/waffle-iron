@@ -1,11 +1,12 @@
-pub mod constraint_mapping;
+// slvs modules disabled — slvs C build broken on GCC 15 / nix (ATOMIC_VAR_INIT + missing libclang)
+// pub mod constraint_mapping;
 pub mod core;
-pub mod entity_mapping;
+// pub mod entity_mapping;
 pub mod profiles;
-pub mod solver;
-pub mod status;
+// pub mod solver;
+// pub mod status;
 pub mod types;
 
 pub use profiles::extract_profiles;
-pub use solver::solve_sketch;
+// pub use solver::solve_sketch;
 pub use types::*;
