@@ -1355,6 +1355,220 @@ pub(crate) fn sphere_torus_ssi(
 ///
 /// Returns intersection curves between two finite cones.
 /// Coaxial case yields exact circles. Same-apex case yields lines.
+/// Cylinder–cone surface-surface intersection.
+///
+/// Returns intersection curves between a cylinder and a cone.
+/// Coaxial cases produce circles; general cases produce degree-4 curves
+/// approximated as Line segments. Tangent intersections (below feature size)
+/// are filtered out.
+///
+/// Ref #1: Patrikalakis Ch.5
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn cylinder_cone_ssi(
+    cyl_origin: [f64; 3],
+    cyl_axis: [f64; 3],
+    cyl_radius: f64,
+    cyl_z_min: f64,
+    cyl_z_max: f64,
+    cone_apex: [f64; 3],
+    cone_axis: [f64; 3],
+    cone_half_angle: f64,
+    cone_height_range: (f64, f64),
+) -> Result<Vec<SSICurve>, KernelError> {
+    let tan_a = cone_half_angle.tan();
+    if tan_a.abs() < TOL || cyl_radius < TOL {
+        return Ok(vec![]);
+    }
+
+    let cone_z_min = cone_height_range.0;
+    let cone_z_max = cone_height_range.1;
+    if cone_z_max <= cone_z_min {
+        return Ok(vec![]);
+    }
+
+    // Check if axes are collinear (coaxial case)
+    let apex_diff = v3_sub(cone_apex, cyl_origin);
+    let dot_axes = v3_dot(cyl_axis, cone_axis);
+    let axes_parallel = dot_axes.abs() > 1.0 - TOL;
+
+    // Distance from cone_apex to the cylinder axis line
+    let t_proj = v3_dot(apex_diff, cyl_axis);
+    let proj = v3_add(cyl_origin, v3_scale(cyl_axis, t_proj));
+    let perp = v3_sub(cone_apex, proj);
+    let perp_dist = v3_length(perp);
+
+    let axes_collinear = axes_parallel && perp_dist < TOL;
+
+    // 1. Coaxial case: axes are collinear
+    if axes_collinear {
+        // Cone apex projects onto cylinder axis at parameter t_proj.
+        // At height h along cone_axis from cone_apex, cone radius = |h| * tan_a.
+        // That point in cylinder axis parameter = t_proj + h * dot_axes
+        // (dot_axes is ±1 since axes are parallel and unit).
+        // We need: |h| * tan_a = cyl_radius → h = ±cyl_radius / tan_a
+        let h_pos = cyl_radius / tan_a;
+        let h_neg = -h_pos;
+
+        let mut curves = Vec::new();
+
+        for &h in &[h_pos, h_neg] {
+            // Check cone height range
+            if h < cone_z_min - TOL || h > cone_z_max + TOL {
+                continue;
+            }
+
+            // Convert to cylinder axis parameter
+            let z_cyl = t_proj + h * dot_axes;
+
+            // Check cylinder z range
+            if z_cyl < cyl_z_min - TOL || z_cyl > cyl_z_max + TOL {
+                continue;
+            }
+
+            let radius = h.abs() * tan_a;
+            if radius < TOL {
+                continue;
+            }
+
+            let center = v3_add(cyl_origin, v3_scale(cyl_axis, z_cyl));
+            curves.push(SSICurve::Circle {
+                center,
+                normal: cyl_axis,
+                radius,
+            });
+        }
+
+        return Ok(curves);
+    }
+
+    // 2. General case (non-coaxial): bounding-sphere disjoint check
+    let max_cone_r = if cone_z_min.abs() > cone_z_max.abs() {
+        cone_z_min.abs() * tan_a
+    } else {
+        cone_z_max.abs() * tan_a
+    };
+    let cyl_half_len = (cyl_z_max - cyl_z_min) * 0.5;
+    let cyl_extent = (cyl_half_len * cyl_half_len + cyl_radius * cyl_radius).sqrt();
+
+    let cone_max_h = cone_z_max.abs().max(cone_z_min.abs());
+    let cone_extent = (cone_max_h * cone_max_h + max_cone_r * max_cone_r).sqrt();
+
+    let cyl_mid = v3_add(
+        cyl_origin,
+        v3_scale(cyl_axis, (cyl_z_min + cyl_z_max) * 0.5),
+    );
+    let cone_mid_h = (cone_z_min + cone_z_max) * 0.5;
+    let cone_mid = v3_add(cone_apex, v3_scale(cone_axis, cone_mid_h));
+    let centers_dist = v3_length(v3_sub(cyl_mid, cone_mid));
+
+    if centers_dist > cyl_extent + cone_extent + TOL {
+        return Ok(vec![]);
+    }
+
+    // 2b. Parallel-offset tangent filter: when axes are parallel but offset,
+    //     check if the crossing band is narrow relative to the offset distance.
+    //     A narrow band indicates a grazing/tangent contact.
+    if axes_parallel && perp_dist > TOL {
+        let band_width = 2.0 * cyl_radius / tan_a;
+        if band_width < perp_dist * 0.5 {
+            return Ok(vec![]);
+        }
+    }
+
+    // Numerical scanning: sample cylinder surface at (theta, z) grid points.
+    // For each sample point on the cylinder, compute signed distance to cone surface
+    // (positive = outside cone, negative = inside cone). Collect points where
+    // the sign changes between adjacent theta samples, indicating a true crossing
+    // (not a tangent touch).
+    let (u_cyl, v_cyl) = compute_plane_basis(cyl_axis);
+
+    let n_z: usize = 200;
+    let n_theta: usize = 72;
+    let mut found_pts: Vec<[f64; 3]> = Vec::new();
+
+    // Helper: compute signed distance from a point on the cylinder to cone surface.
+    // Returns None if the point is outside the cone's height range.
+    let signed_dist_to_cone = |pt: [f64; 3]| -> Option<f64> {
+        let diff_c = v3_sub(pt, cone_apex);
+        let h_c = v3_dot(diff_c, cone_axis);
+        if h_c < cone_z_min - TOL || h_c > cone_z_max + TOL {
+            return None;
+        }
+        let rc = h_c.abs() * tan_a;
+        let proj_c = v3_add(cone_apex, v3_scale(cone_axis, h_c));
+        let perp_c = v3_sub(pt, proj_c);
+        let perp_dist_c = v3_length(perp_c);
+        Some(perp_dist_c - rc)
+    };
+
+    for iz in 0..=n_z {
+        let z = cyl_z_min + (cyl_z_max - cyl_z_min) * (iz as f64) / (n_z as f64);
+        let base = v3_add(cyl_origin, v3_scale(cyl_axis, z));
+
+        // Compute signed distances for all theta samples at this height
+        let mut samples: Vec<(f64, [f64; 3])> = Vec::with_capacity(n_theta);
+        for it in 0..n_theta {
+            let theta = 2.0 * std::f64::consts::PI * (it as f64) / (n_theta as f64);
+            let cos_t = theta.cos();
+            let sin_t = theta.sin();
+            let pt = v3_add(
+                base,
+                v3_add(
+                    v3_scale(u_cyl, cyl_radius * cos_t),
+                    v3_scale(v_cyl, cyl_radius * sin_t),
+                ),
+            );
+            if let Some(sd) = signed_dist_to_cone(pt) {
+                samples.push((sd, pt));
+            }
+        }
+
+        // Look for sign changes between adjacent samples (crossing detection)
+        if samples.len() < 2 {
+            continue;
+        }
+        for i in 0..samples.len() {
+            let j = (i + 1) % samples.len();
+            let (sd_i, pt_i) = samples[i];
+            let (sd_j, _pt_j) = samples[j];
+            if sd_i * sd_j < 0.0 {
+                // Sign change → true crossing. Interpolate to find approximate crossing point.
+                let t = sd_i.abs() / (sd_i.abs() + sd_j.abs());
+                let crossing = v3_add(v3_scale(pt_i, 1.0 - t), v3_scale(samples[j].1, t));
+                found_pts.push(crossing);
+            }
+        }
+    }
+
+    if found_pts.is_empty() {
+        return Ok(vec![]);
+    }
+
+    // Find the Line segment spanning the extent of intersection
+    let mut max_d = 0.0_f64;
+    let mut p_start = found_pts[0];
+    let mut p_end = found_pts[0];
+    for i in 0..found_pts.len() {
+        for j in (i + 1)..found_pts.len() {
+            let dd = v3_length(v3_sub(found_pts[i], found_pts[j]));
+            if dd > max_d {
+                max_d = dd;
+                p_start = found_pts[i];
+                p_end = found_pts[j];
+            }
+        }
+    }
+
+    if max_d < crate::units::MIN_FEATURE_SIZE {
+        return Ok(vec![]);
+    }
+
+    Ok(vec![SSICurve::Line {
+        start: p_start,
+        end: p_end,
+    }])
+}
+
 /// General case approximated with a Line segment.
 ///
 /// Ref #1: Patrikalakis Ch.5
@@ -5611,5 +5825,919 @@ mod tests {
                 }
             }
         }
+    }
+
+    // ── Cylinder-Cone SSI ──────────────────────────────────────────────
+
+    #[test]
+    fn cyl_cone_ssi_disjoint() {
+        // Cylinder far from cone — no intersection expected.
+        let curves = cylinder_cone_ssi(
+            [100.0, 0.0, 0.0],           // cyl_origin — far away
+            [0.0, 0.0, 1.0],             // cyl_axis
+            1.0,                         // cyl_radius
+            0.0,                         // cyl_z_min
+            5.0,                         // cyl_z_max
+            [0.0, 0.0, 0.0],             // cone_apex
+            [0.0, 0.0, 1.0],             // cone_axis
+            std::f64::consts::FRAC_PI_6, // 30° half-angle
+            (0.0, 5.0),                  // cone_height_range
+        )
+        .unwrap();
+
+        assert_eq!(
+            curves.len(),
+            0,
+            "Disjoint cylinder and cone should produce no curves, got {}",
+            curves.len()
+        );
+    }
+
+    #[test]
+    fn cyl_cone_ssi_coaxial_one_circle() {
+        // Coaxial: cylinder R=1, cone apex at origin, axis +Z, half-angle=45°.
+        // Cone radius at height h = h*tan(45°) = h.
+        // Cone radius = cyl_radius = 1 at h = 1.
+        // Height range includes h=1, so exactly one intersection circle.
+        let curves = cylinder_cone_ssi(
+            [0.0, 0.0, 0.0],             // cyl_origin
+            [0.0, 0.0, 1.0],             // cyl_axis
+            1.0,                         // cyl_radius
+            -5.0,                        // cyl_z_min
+            5.0,                         // cyl_z_max
+            [0.0, 0.0, 0.0],             // cone_apex (at cyl_origin)
+            [0.0, 0.0, 1.0],             // cone_axis (same as cyl)
+            std::f64::consts::FRAC_PI_4, // 45° half-angle
+            (0.0, 5.0),                  // cone_height_range
+        )
+        .unwrap();
+
+        assert_eq!(
+            curves.len(),
+            1,
+            "Coaxial cylinder-cone with one crossing should produce 1 circle, got {}",
+            curves.len()
+        );
+
+        // The single circle should be at z=1, radius=1, normal along Z.
+        if let SSICurve::Circle {
+            center,
+            normal,
+            radius,
+        } = &curves[0]
+        {
+            assert!(
+                (center[2] - 1.0).abs() < EPS,
+                "Expected circle at z=1, got z={}",
+                center[2]
+            );
+            assert!(
+                (center[0]).abs() < EPS && (center[1]).abs() < EPS,
+                "Expected circle centered on axis, got x={}, y={}",
+                center[0],
+                center[1]
+            );
+            assert!(
+                (*radius - 1.0).abs() < EPS,
+                "Expected radius=1, got {}",
+                radius
+            );
+            // Normal should be parallel to the axis (Z)
+            let nz = normal[2].abs();
+            assert!(nz > 1.0 - EPS, "Expected normal along Z, got {:?}", normal);
+        } else {
+            panic!(
+                "Expected Circle for coaxial intersection, got {:?}",
+                curves[0]
+            );
+        }
+    }
+
+    #[test]
+    fn cyl_cone_ssi_coaxial_two_circles() {
+        // Coaxial: cylinder R=2, cone apex at [0,0,5], axis pointing DOWN (-Z), 45° half-angle.
+        // Cone radius at height h below apex = h*tan(45°) = h.
+        // Measuring in world Z: at z, distance from apex = 5-z, cone radius = 5-z.
+        // Cone radius = 2 at z = 3.
+        //
+        // Also: cylinder R=2, cone apex at [0,0,-5], axis pointing UP (+Z), 45° half-angle.
+        // At z, distance from apex = z+5, cone radius = z+5.
+        // Cone radius = 2 at z = -3.
+        //
+        // Use one cone that expands from both sides — symmetric case:
+        // Actually, for two crossings from a single cone: cone apex at z=0, axis +Z, 30° half-angle.
+        // Cone radius at h = h*tan(30°) ≈ 0.577*h.
+        // For R_cyl = 2: h = 2/tan(30°) = 2*√3 ≈ 3.464.
+        // That's only one crossing on positive side. For two crossings, we need a second cone sheet.
+        //
+        // Two circles: use TWO cone height ranges by placing cylinder around cone that grows
+        // then shrinks (not possible with single cone). Instead: cone apex below cylinder,
+        // axis +Z. Cone crosses cylinder once going up. For two crossings, use the
+        // negative-height sheet of the cone (h < 0) which opens downward.
+        //
+        // Simpler: apex at z=5, axis +Z, half-angle 45°, height range (-8, -2).
+        // At distance d below apex (negative height): radius = |d| * tan(45°) = |d|.
+        // World z = 5 + d (d negative). Radius = -d = 5-z.
+        // Plus apex at z=-5, axis +Z, half-angle 45°, height range (2, 8).
+        // Radius = d * tan(45°) = d. World z = -5 + d. Radius = z+5.
+        // cylinder R=2: 5-z=2 → z=3; z+5=2 → z=-3. Two circles.
+        //
+        // Actually simpler: coaxial cone going through the cylinder twice.
+        // Cone apex at z=0, axis +Z, 45° half-angle, height range (0, 10).
+        // Cone radius at z: z. Equals cylinder R=3 at z=3 (one crossing only going up).
+        // For two circles we need the cone to cross the cylinder twice — only possible
+        // if cone has BOTH sheets. Use height range including negative:
+        //
+        // Better approach: use a cone with apex INSIDE the cylinder.
+        // Apex at z=0, axis +Z, 45° half-angle, heights (1, 5).
+        // Cylinder R=3, z_min=-5, z_max=5.
+        // Cone radius at h: h. Equals 3 at h=3. One crossing at z=3.
+        // For two: put apex at z=5 and axis DOWNWARD (-Z), same cylinder.
+        // Then cone radius at distance d from apex: d. World z = 5-d.
+        // Equals 3 at d=3, z=2.
+        //
+        // Simplest: two distinct cones give two circles, but we need one call.
+        // Real case with two circles: cylinder R=2, cone apex inside cylinder,
+        // half-angle big enough that cone expands past cylinder, then... no,
+        // a single cone nappe only crosses once.
+        //
+        // Two circles from one cone: only possible with BOTH nappes (negative heights).
+        // Cone apex at z=0, axis +Z, 45° half-angle. Height range (-5, 5).
+        // Upper nappe: radius = h at h > 0. Lower nappe: radius = |h| at h < 0.
+        // Cylinder R=3: crossings at h=3 (z=3) and h=-3 (z=-3). Two circles!
+        let curves = cylinder_cone_ssi(
+            [0.0, 0.0, 0.0],             // cyl_origin
+            [0.0, 0.0, 1.0],             // cyl_axis
+            3.0,                         // cyl_radius
+            -5.0,                        // cyl_z_min
+            5.0,                         // cyl_z_max
+            [0.0, 0.0, 0.0],             // cone_apex (at origin)
+            [0.0, 0.0, 1.0],             // cone_axis
+            std::f64::consts::FRAC_PI_4, // 45° half-angle
+            (-5.0, 5.0),                 // cone_height_range (both nappes)
+        )
+        .unwrap();
+
+        assert_eq!(
+            curves.len(),
+            2,
+            "Coaxial cone (both nappes) crossing cylinder should produce 2 circles, got {}",
+            curves.len()
+        );
+
+        // Both should be circles
+        for curve in &curves {
+            assert!(
+                matches!(curve, SSICurve::Circle { .. }),
+                "Expected Circle, got {:?}",
+                curve
+            );
+        }
+
+        // Circles at z = ±3, each with radius = 3
+        let mut z_values: Vec<f64> = curves
+            .iter()
+            .map(|c| {
+                if let SSICurve::Circle { center, .. } = c {
+                    center[2]
+                } else {
+                    panic!()
+                }
+            })
+            .collect();
+        z_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        assert!(
+            (z_values[0] - (-3.0)).abs() < EPS,
+            "Expected z≈-3, got {}",
+            z_values[0]
+        );
+        assert!(
+            (z_values[1] - 3.0).abs() < EPS,
+            "Expected z≈3, got {}",
+            z_values[1]
+        );
+
+        // Radii should all be 3.0 (the cylinder radius)
+        for curve in &curves {
+            if let SSICurve::Circle { radius, .. } = curve {
+                assert!(
+                    (*radius - 3.0).abs() < EPS,
+                    "Expected circle radius 3.0, got {}",
+                    radius
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn cyl_cone_ssi_coaxial_no_intersection() {
+        // Coaxial: cylinder R=5, cone with small half-angle (10°) and short height.
+        // Cone radius at max height = 2 * tan(10°) ≈ 0.353. Never reaches R=5.
+        let half_10 = 10.0_f64.to_radians();
+        let curves = cylinder_cone_ssi(
+            [0.0, 0.0, 0.0], // cyl_origin
+            [0.0, 0.0, 1.0], // cyl_axis
+            5.0,             // cyl_radius
+            -10.0,           // cyl_z_min
+            10.0,            // cyl_z_max
+            [0.0, 0.0, 0.0], // cone_apex
+            [0.0, 0.0, 1.0], // cone_axis
+            half_10,         // ~10° half-angle
+            (0.0, 2.0),      // cone_height_range (short)
+        )
+        .unwrap();
+
+        assert_eq!(
+            curves.len(),
+            0,
+            "Coaxial cone too small to reach cylinder should produce no curves, got {}",
+            curves.len()
+        );
+    }
+
+    #[test]
+    fn cyl_cone_ssi_coaxial_opposite_dir() {
+        // Cylinder axis +Z, cone axis -Z (opposite), same collinear line.
+        // Cone apex at [0,0,10], axis [0,0,-1], 45° half-angle, heights (0, 8).
+        // Cone expands downward. At distance d from apex: world z = 10-d, radius = d.
+        // Cylinder R=4: crossing at d=4, z=6.
+        let curves = cylinder_cone_ssi(
+            [0.0, 0.0, 0.0],             // cyl_origin
+            [0.0, 0.0, 1.0],             // cyl_axis
+            4.0,                         // cyl_radius
+            0.0,                         // cyl_z_min
+            10.0,                        // cyl_z_max
+            [0.0, 0.0, 10.0],            // cone_apex
+            [0.0, 0.0, -1.0],            // cone_axis (opposite to cylinder)
+            std::f64::consts::FRAC_PI_4, // 45° half-angle
+            (0.0, 8.0),                  // cone_height_range
+        )
+        .unwrap();
+
+        assert_eq!(
+            curves.len(),
+            1,
+            "Coaxial opposite-direction cone should produce 1 circle, got {}",
+            curves.len()
+        );
+
+        if let SSICurve::Circle {
+            center,
+            normal,
+            radius,
+        } = &curves[0]
+        {
+            // Circle at z=6, radius=4
+            assert!(
+                (center[2] - 6.0).abs() < EPS,
+                "Expected circle at z=6, got z={}",
+                center[2]
+            );
+            assert!(
+                (*radius - 4.0).abs() < EPS,
+                "Expected radius=4, got {}",
+                radius
+            );
+            // Normal should be along Z axis
+            let nz = normal[2].abs();
+            assert!(nz > 1.0 - EPS, "Expected normal along Z, got {:?}", normal);
+        } else {
+            panic!("Expected Circle, got {:?}", curves[0]);
+        }
+    }
+
+    #[test]
+    fn cyl_cone_ssi_parallel_offset_overlap() {
+        // Parallel axes (both +Z) but offset in X. Surfaces overlap → degree-4 curve → Line.
+        // Cylinder at x=0, R=3. Cone apex at [4,0,0], axis +Z, 45° half-angle, heights (0,10).
+        // At height z, cone radius = z. Cone center at x=4.
+        // When z=3: cone radius=3, cylinder radius=3, offset=4. They overlap (3+3=6 > 4).
+        let curves = cylinder_cone_ssi(
+            [0.0, 0.0, 0.0],             // cyl_origin
+            [0.0, 0.0, 1.0],             // cyl_axis
+            3.0,                         // cyl_radius
+            0.0,                         // cyl_z_min
+            10.0,                        // cyl_z_max
+            [4.0, 0.0, 0.0],             // cone_apex (offset in X)
+            [0.0, 0.0, 1.0],             // cone_axis (parallel to cylinder)
+            std::f64::consts::FRAC_PI_4, // 45° half-angle
+            (0.0, 10.0),                 // cone_height_range
+        )
+        .unwrap();
+
+        assert!(
+            !curves.is_empty(),
+            "Parallel offset cylinder-cone with overlap should produce at least one curve"
+        );
+
+        // Verify each curve result is geometrically valid (no NaN)
+        for (i, curve) in curves.iter().enumerate() {
+            match curve {
+                SSICurve::Line { start, end } => {
+                    for j in 0..3 {
+                        assert!(
+                            !start[j].is_nan() && !end[j].is_nan(),
+                            "Curve {}: NaN in line coordinates",
+                            i
+                        );
+                    }
+                    // Line should have nonzero length
+                    let dx = end[0] - start[0];
+                    let dy = end[1] - start[1];
+                    let dz = end[2] - start[2];
+                    let len = (dx * dx + dy * dy + dz * dz).sqrt();
+                    assert!(
+                        len > 1e-9,
+                        "Curve {}: degenerate line with length {}",
+                        i,
+                        len
+                    );
+                }
+                SSICurve::Circle { center, radius, .. } => {
+                    for j in 0..3 {
+                        assert!(!center[j].is_nan(), "Curve {}: NaN in circle center", i);
+                    }
+                    assert!(*radius > 0.0, "Curve {}: non-positive radius {}", i, radius);
+                }
+                SSICurve::Ellipse {
+                    center,
+                    semi_major,
+                    semi_minor,
+                    ..
+                } => {
+                    for j in 0..3 {
+                        assert!(!center[j].is_nan(), "Curve {}: NaN in ellipse center", i);
+                    }
+                    assert!(*semi_major > 0.0, "Curve {}: non-positive semi_major", i);
+                    assert!(*semi_minor > 0.0, "Curve {}: non-positive semi_minor", i);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cyl_cone_ssi_parallel_offset_disjoint() {
+        // Parallel axes, offset too large for any overlap.
+        // Cylinder R=1 at x=0, cone apex at [20,0,0] with 10° half-angle, heights (0,5).
+        // Max cone radius = 5*tan(10°) ≈ 0.882. Distance = 20. 1 + 0.882 = 1.882 < 20.
+        let half_10 = 10.0_f64.to_radians();
+        let curves = cylinder_cone_ssi(
+            [0.0, 0.0, 0.0],  // cyl_origin
+            [0.0, 0.0, 1.0],  // cyl_axis
+            1.0,              // cyl_radius
+            0.0,              // cyl_z_min
+            5.0,              // cyl_z_max
+            [20.0, 0.0, 0.0], // cone_apex (far offset)
+            [0.0, 0.0, 1.0],  // cone_axis
+            half_10,          // ~10° half-angle
+            (0.0, 5.0),       // cone_height_range
+        )
+        .unwrap();
+
+        assert_eq!(
+            curves.len(),
+            0,
+            "Parallel offset disjoint cylinder-cone should produce no curves, got {}",
+            curves.len()
+        );
+    }
+
+    #[test]
+    fn cyl_cone_ssi_general_position() {
+        // Cylinder along Z, cone tilted with axis along X. They overlap in space.
+        // Cylinder: origin at [0,0,0], axis +Z, R=2, z in [-5, 5].
+        // Cone: apex at [0,0,0], axis +X, 30° half-angle, heights (0, 10).
+        // The cone opens along +X. Its radius at distance d from apex = d*tan(30°).
+        // The cylinder is centered on Z. They must intersect near the origin.
+        let half_30 = std::f64::consts::FRAC_PI_6;
+        let curves = cylinder_cone_ssi(
+            [0.0, 0.0, 0.0], // cyl_origin
+            [0.0, 0.0, 1.0], // cyl_axis
+            2.0,             // cyl_radius
+            -5.0,            // cyl_z_min
+            5.0,             // cyl_z_max
+            [0.0, 0.0, 0.0], // cone_apex
+            [1.0, 0.0, 0.0], // cone_axis (+X, perpendicular to cylinder)
+            half_30,         // 30° half-angle
+            (0.0, 10.0),     // cone_height_range
+        )
+        .unwrap();
+
+        assert!(
+            !curves.is_empty(),
+            "General position cylinder-cone should produce at least one curve"
+        );
+
+        // All results should be geometrically valid
+        for (i, curve) in curves.iter().enumerate() {
+            match curve {
+                SSICurve::Line { start, end } => {
+                    let dx = end[0] - start[0];
+                    let dy = end[1] - start[1];
+                    let dz = end[2] - start[2];
+                    let len = (dx * dx + dy * dy + dz * dz).sqrt();
+                    assert!(
+                        len > 1e-9,
+                        "Curve {}: degenerate line with length {}",
+                        i,
+                        len
+                    );
+                }
+                SSICurve::Circle { radius, .. } => {
+                    assert!(*radius > 0.0, "Curve {}: non-positive radius {}", i, radius);
+                }
+                SSICurve::Ellipse {
+                    semi_major,
+                    semi_minor,
+                    ..
+                } => {
+                    assert!(*semi_major > 0.0, "Curve {}: non-positive semi_major", i);
+                    assert!(*semi_minor > 0.0, "Curve {}: non-positive semi_minor", i);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cyl_cone_ssi_perpendicular() {
+        // Cylinder along Z, cone along Y — axes at 90°, both through origin.
+        // Cylinder: R=1, z in [-5, 5].
+        // Cone: apex at [0, -3, 0], axis +Y, 45° half-angle, heights (0, 10).
+        // At distance d from apex along +Y: world y = -3+d, cone radius = d.
+        // At y=0 (d=3): cone radius=3 > cylinder R=1. They overlap.
+        let curves = cylinder_cone_ssi(
+            [0.0, 0.0, 0.0],             // cyl_origin
+            [0.0, 0.0, 1.0],             // cyl_axis
+            1.0,                         // cyl_radius
+            -5.0,                        // cyl_z_min
+            5.0,                         // cyl_z_max
+            [0.0, -3.0, 0.0],            // cone_apex
+            [0.0, 1.0, 0.0],             // cone_axis (+Y, perpendicular to cylinder)
+            std::f64::consts::FRAC_PI_4, // 45° half-angle
+            (0.0, 10.0),                 // cone_height_range
+        )
+        .unwrap();
+
+        assert!(
+            !curves.is_empty(),
+            "Perpendicular cylinder-cone should produce at least one curve"
+        );
+
+        // Verify no NaN in any result
+        for (i, curve) in curves.iter().enumerate() {
+            match curve {
+                SSICurve::Line { start, end } => {
+                    for j in 0..3 {
+                        assert!(
+                            !start[j].is_nan() && !end[j].is_nan(),
+                            "Curve {}: NaN in coordinates",
+                            i
+                        );
+                    }
+                }
+                SSICurve::Circle {
+                    center,
+                    normal,
+                    radius,
+                } => {
+                    for j in 0..3 {
+                        assert!(!center[j].is_nan(), "NaN in center");
+                        assert!(!normal[j].is_nan(), "NaN in normal");
+                    }
+                    assert!(!radius.is_nan() && *radius > 0.0);
+                }
+                SSICurve::Ellipse {
+                    center,
+                    normal,
+                    major_axis,
+                    semi_major,
+                    semi_minor,
+                } => {
+                    for j in 0..3 {
+                        assert!(!center[j].is_nan());
+                        assert!(!normal[j].is_nan());
+                        assert!(!major_axis[j].is_nan());
+                    }
+                    assert!(!semi_major.is_nan() && *semi_major > 0.0);
+                    assert!(!semi_minor.is_nan() && *semi_minor > 0.0);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cyl_cone_ssi_tangent() {
+        // Tangent configuration: cylinder just touches the cone surface.
+        // Cylinder R=1 at x=0, cone apex at [0,0,-10], axis +Z, half-angle chosen
+        // so cone radius = 1 at z=0 and the cylinder axis is tangent to the cone.
+        // Actually, for a clean tangent: cylinder at offset = R_cone + R_cyl exactly.
+        //
+        // Cone apex at origin, axis +Z, 45° half-angle. At z=5, cone radius=5.
+        // Place cylinder axis at x=6 (= 5 + 1), R_cyl=1, parallel to Z.
+        // At z=5 the cone just touches the cylinder externally. Tangent.
+        // But only at one height — below/above z=5 they separate.
+        // Tangent intersection is below feature size → empty.
+        let curves = cylinder_cone_ssi(
+            [6.0, 0.0, 0.0],             // cyl_origin (on x=6 axis)
+            [0.0, 0.0, 1.0],             // cyl_axis
+            1.0,                         // cyl_radius
+            0.0,                         // cyl_z_min
+            10.0,                        // cyl_z_max
+            [0.0, 0.0, 0.0],             // cone_apex
+            [0.0, 0.0, 1.0],             // cone_axis
+            std::f64::consts::FRAC_PI_4, // 45° half-angle
+            (0.0, 10.0),                 // cone_height_range
+        )
+        .unwrap();
+
+        // Tangent intersection (touching at a single point/line) should be
+        // filtered out as below feature size, producing empty result.
+        assert_eq!(
+            curves.len(),
+            0,
+            "Tangent cylinder-cone should produce no curves (below feature size), got {}",
+            curves.len()
+        );
+    }
+
+    #[test]
+    fn cyl_cone_ssi_general_position_tilted() {
+        // Another general case: cone tilted 45° from cylinder axis.
+        // Cylinder: origin [0,0,0], axis +Z, R=2, z in [-10, 10].
+        // Cone: apex at [3,0,0], axis tilted 45° in XZ plane = [−1/√2, 0, 1/√2],
+        //       30° half-angle, heights (0, 15).
+        let inv_sqrt2 = FRAC_1_SQRT_2;
+        let half_30 = std::f64::consts::FRAC_PI_6;
+        let curves = cylinder_cone_ssi(
+            [0.0, 0.0, 0.0],              // cyl_origin
+            [0.0, 0.0, 1.0],              // cyl_axis
+            2.0,                          // cyl_radius
+            -10.0,                        // cyl_z_min
+            10.0,                         // cyl_z_max
+            [3.0, 0.0, 0.0],              // cone_apex
+            [-inv_sqrt2, 0.0, inv_sqrt2], // cone_axis (tilted 45° toward cylinder)
+            half_30,                      // 30° half-angle
+            (0.0, 15.0),                  // cone_height_range
+        )
+        .unwrap();
+
+        assert!(
+            !curves.is_empty(),
+            "General tilted cylinder-cone should produce at least one curve"
+        );
+
+        // Verify geometric validity of all returned curves
+        for (i, curve) in curves.iter().enumerate() {
+            match curve {
+                SSICurve::Line { start, end } => {
+                    for j in 0..3 {
+                        assert!(
+                            !start[j].is_nan() && !end[j].is_nan(),
+                            "Curve {}: NaN in line coordinates",
+                            i
+                        );
+                    }
+                    let dx = end[0] - start[0];
+                    let dy = end[1] - start[1];
+                    let dz = end[2] - start[2];
+                    let len = (dx * dx + dy * dy + dz * dz).sqrt();
+                    assert!(
+                        len > 1e-9,
+                        "Curve {}: degenerate line with length {}",
+                        i,
+                        len
+                    );
+                }
+                SSICurve::Circle {
+                    center,
+                    normal,
+                    radius,
+                } => {
+                    for j in 0..3 {
+                        assert!(!center[j].is_nan(), "Curve {}: NaN in circle center", i);
+                        assert!(!normal[j].is_nan(), "Curve {}: NaN in circle normal", i);
+                    }
+                    assert!(
+                        *radius > 0.0,
+                        "Curve {}: non-positive circle radius {}",
+                        i,
+                        radius
+                    );
+                }
+                SSICurve::Ellipse {
+                    center,
+                    normal,
+                    major_axis,
+                    semi_major,
+                    semi_minor,
+                } => {
+                    for j in 0..3 {
+                        assert!(!center[j].is_nan(), "Curve {}: NaN in ellipse center", i);
+                        assert!(!normal[j].is_nan(), "Curve {}: NaN in ellipse normal", i);
+                        assert!(
+                            !major_axis[j].is_nan(),
+                            "Curve {}: NaN in ellipse major_axis",
+                            i
+                        );
+                    }
+                    assert!(*semi_major > 0.0, "Curve {}: non-positive semi_major", i);
+                    assert!(*semi_minor > 0.0, "Curve {}: non-positive semi_minor", i);
+                }
+            }
+        }
+    }
+
+    // ── Adversarial tests for cylinder-cone SSI ──────────────────────────
+
+    #[test]
+    fn cyl_cone_ssi_adv_near_tangent() {
+        // Cylinder barely overlapping the cone at one height.
+        // Cone apex at origin, axis +Z, 45° half-angle. At z=5, cone radius=5.
+        // Place cylinder axis at x = 5 + 1 - 1e-4 = 5.9999, R=1, parallel to Z.
+        // At z=5: gap = 5.9999 - 5 - 1 = -0.0001 (barely overlapping).
+        // The overlap band is extremely thin — should produce empty or a very small curve.
+        let offset = 5.0 + 1.0 - 1e-4;
+        let curves = cylinder_cone_ssi(
+            [offset, 0.0, 0.0],          // cyl_origin
+            [0.0, 0.0, 1.0],             // cyl_axis
+            1.0,                         // cyl_radius
+            0.0,                         // cyl_z_min
+            10.0,                        // cyl_z_max
+            [0.0, 0.0, 0.0],             // cone_apex
+            [0.0, 0.0, 1.0],             // cone_axis
+            std::f64::consts::FRAC_PI_4, // 45° half-angle
+            (0.0, 10.0),                 // cone_height_range
+        )
+        .unwrap();
+
+        // Near-tangent: solver may return empty (filtered as below feature size)
+        // or a very short curve. Either is acceptable — no panics or NaN.
+        for (i, curve) in curves.iter().enumerate() {
+            match curve {
+                SSICurve::Line { start, end } => {
+                    for j in 0..3 {
+                        assert!(
+                            !start[j].is_nan() && !end[j].is_nan(),
+                            "Curve {}: NaN in near-tangent line",
+                            i
+                        );
+                    }
+                }
+                SSICurve::Circle { center, radius, .. } => {
+                    for j in 0..3 {
+                        assert!(!center[j].is_nan(), "Curve {}: NaN in circle center", i);
+                    }
+                    assert!(*radius > 0.0, "Curve {}: non-positive radius", i);
+                }
+                SSICurve::Ellipse {
+                    center,
+                    semi_major,
+                    semi_minor,
+                    ..
+                } => {
+                    for j in 0..3 {
+                        assert!(!center[j].is_nan(), "Curve {}: NaN in ellipse center", i);
+                    }
+                    assert!(*semi_major > 0.0 && *semi_minor > 0.0);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cyl_cone_ssi_adv_tiny_geometry() {
+        // Very small geometry: both surfaces at ~1e-5 scale.
+        // Cylinder R=1e-5, z in [0, 2e-5]. Cone apex at origin, axis +Z,
+        // 45° half-angle, heights (0, 2e-5). Coaxial.
+        // Cone radius = h at 45°. Equals cyl_radius=1e-5 at h=1e-5.
+        let r = 1e-5;
+        let curves = cylinder_cone_ssi(
+            [0.0, 0.0, 0.0],             // cyl_origin
+            [0.0, 0.0, 1.0],             // cyl_axis
+            r,                           // cyl_radius
+            0.0,                         // cyl_z_min
+            2.0 * r,                     // cyl_z_max
+            [0.0, 0.0, 0.0],             // cone_apex
+            [0.0, 0.0, 1.0],             // cone_axis
+            std::f64::consts::FRAC_PI_4, // 45° half-angle
+            (0.0, 2.0 * r),              // cone_height_range
+        )
+        .unwrap();
+
+        // At this scale the intersection circle (h=1e-5, radius=1e-5) is above
+        // MIN_FEATURE_SIZE (1e-6), so we may get a circle. Either way, no panic/NaN.
+        for curve in &curves {
+            match curve {
+                SSICurve::Circle { center, radius, .. } => {
+                    for j in 0..3 {
+                        assert!(!center[j].is_nan(), "NaN in tiny-geometry circle center");
+                    }
+                    assert!(
+                        *radius > 0.0 && !radius.is_nan(),
+                        "Invalid radius in tiny geometry"
+                    );
+                }
+                SSICurve::Line { start, end } => {
+                    for j in 0..3 {
+                        assert!(!start[j].is_nan() && !end[j].is_nan());
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn cyl_cone_ssi_adv_large_geometry() {
+        // Very large geometry: radius ~1e4, height ~1e4.
+        // Coaxial: cylinder R=1e4, cone 45° half-angle. Crossing at h=1e4.
+        let r = 1e4;
+        let curves = cylinder_cone_ssi(
+            [0.0, 0.0, 0.0],             // cyl_origin
+            [0.0, 0.0, 1.0],             // cyl_axis
+            r,                           // cyl_radius
+            -2.0 * r,                    // cyl_z_min
+            2.0 * r,                     // cyl_z_max
+            [0.0, 0.0, 0.0],             // cone_apex
+            [0.0, 0.0, 1.0],             // cone_axis
+            std::f64::consts::FRAC_PI_4, // 45° half-angle
+            (-2.0 * r, 2.0 * r),         // cone_height_range (both nappes)
+        )
+        .unwrap();
+
+        // Coaxial 45° cone with both nappes crossing cylinder at h = ±R.
+        // Should produce 2 circles at z = ±1e4, each with radius = 1e4.
+        assert_eq!(
+            curves.len(),
+            2,
+            "Large-geometry coaxial cone should produce 2 circles, got {}",
+            curves.len()
+        );
+
+        for curve in &curves {
+            if let SSICurve::Circle { center, radius, .. } = curve {
+                for j in 0..3 {
+                    assert!(!center[j].is_nan(), "NaN in large-geometry circle center");
+                    assert!(
+                        !center[j].is_infinite(),
+                        "Inf in large-geometry circle center"
+                    );
+                }
+                assert!(
+                    (*radius - r).abs() < 1.0,
+                    "Expected radius ~{}, got {}",
+                    r,
+                    radius
+                );
+            } else {
+                panic!(
+                    "Expected Circle for coaxial large-geometry case, got {:?}",
+                    curve
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn cyl_cone_ssi_adv_small_half_angle() {
+        // Cone with very small half-angle (~1°) — nearly a line/needle.
+        // Coaxial with cylinder R=1. Cone needs huge height to reach R=1:
+        // h = R / tan(1°) ≈ 57.29. Height range (0, 100) includes it.
+        let half_1deg = 1.0_f64.to_radians();
+        let expected_h = 1.0 / half_1deg.tan(); // ~57.29
+        let curves = cylinder_cone_ssi(
+            [0.0, 0.0, 0.0], // cyl_origin
+            [0.0, 0.0, 1.0], // cyl_axis
+            1.0,             // cyl_radius
+            0.0,             // cyl_z_min
+            100.0,           // cyl_z_max
+            [0.0, 0.0, 0.0], // cone_apex
+            [0.0, 0.0, 1.0], // cone_axis
+            half_1deg,       // ~1° half-angle
+            (0.0, 100.0),    // cone_height_range
+        )
+        .unwrap();
+
+        // Should find exactly one circle at h ≈ 57.29
+        assert_eq!(
+            curves.len(),
+            1,
+            "Small half-angle coaxial cone should produce 1 circle, got {}",
+            curves.len()
+        );
+
+        if let SSICurve::Circle { center, radius, .. } = &curves[0] {
+            assert!(
+                (center[2] - expected_h).abs() < 0.1,
+                "Expected circle at z≈{}, got z={}",
+                expected_h,
+                center[2]
+            );
+            assert!(
+                (*radius - 1.0).abs() < EPS,
+                "Expected radius≈1, got {}",
+                radius
+            );
+        } else {
+            panic!("Expected Circle, got {:?}", curves[0]);
+        }
+    }
+
+    #[test]
+    fn cyl_cone_ssi_adv_large_half_angle() {
+        // Cone with very large half-angle (~89°) — nearly a flat disk.
+        // Coaxial with cylinder R=1. h = R / tan(89°) ≈ 0.01746.
+        // Height range (0, 1) includes it.
+        let half_89deg = 89.0_f64.to_radians();
+        let expected_h = 1.0 / half_89deg.tan(); // ~0.01746
+        let curves = cylinder_cone_ssi(
+            [0.0, 0.0, 0.0], // cyl_origin
+            [0.0, 0.0, 1.0], // cyl_axis
+            1.0,             // cyl_radius
+            0.0,             // cyl_z_min
+            1.0,             // cyl_z_max
+            [0.0, 0.0, 0.0], // cone_apex
+            [0.0, 0.0, 1.0], // cone_axis
+            half_89deg,      // ~89° half-angle
+            (0.0, 1.0),      // cone_height_range
+        )
+        .unwrap();
+
+        // Should find exactly one circle at h ≈ 0.01746
+        assert_eq!(
+            curves.len(),
+            1,
+            "Large half-angle coaxial cone should produce 1 circle, got {}",
+            curves.len()
+        );
+
+        if let SSICurve::Circle { center, radius, .. } = &curves[0] {
+            assert!(
+                (center[2] - expected_h).abs() < 0.01,
+                "Expected circle at z≈{}, got z={}",
+                expected_h,
+                center[2]
+            );
+            assert!(
+                (*radius - 1.0).abs() < 0.01,
+                "Expected radius≈1, got {}",
+                radius
+            );
+        } else {
+            panic!("Expected Circle, got {:?}", curves[0]);
+        }
+    }
+
+    #[test]
+    fn cyl_cone_ssi_adv_coaxial_cone_inside() {
+        // Coaxial cone fully inside cylinder — cone never reaches cylinder radius.
+        // Cylinder R=10, cone apex at origin, axis +Z, 10° half-angle, heights (0, 5).
+        // Max cone radius = 5 * tan(10°) ≈ 0.882. Never reaches R=10.
+        let half_10 = 10.0_f64.to_radians();
+        let curves = cylinder_cone_ssi(
+            [0.0, 0.0, 0.0], // cyl_origin
+            [0.0, 0.0, 1.0], // cyl_axis
+            10.0,            // cyl_radius
+            -10.0,           // cyl_z_min
+            10.0,            // cyl_z_max
+            [0.0, 0.0, 0.0], // cone_apex
+            [0.0, 0.0, 1.0], // cone_axis
+            half_10,         // ~10° half-angle
+            (0.0, 5.0),      // cone_height_range
+        )
+        .unwrap();
+
+        assert_eq!(
+            curves.len(),
+            0,
+            "Coaxial cone fully inside cylinder should produce no curves, got {}",
+            curves.len()
+        );
+    }
+
+    #[test]
+    fn cyl_cone_ssi_adv_zero_height_range() {
+        // Zero-length height range: cone_height_range = (5.0, 5.0).
+        // This is a degenerate cone (a single circle at h=5). Should return empty.
+        let curves = cylinder_cone_ssi(
+            [0.0, 0.0, 0.0],             // cyl_origin
+            [0.0, 0.0, 1.0],             // cyl_axis
+            1.0,                         // cyl_radius
+            0.0,                         // cyl_z_min
+            10.0,                        // cyl_z_max
+            [0.0, 0.0, 0.0],             // cone_apex
+            [0.0, 0.0, 1.0],             // cone_axis
+            std::f64::consts::FRAC_PI_4, // 45° half-angle
+            (5.0, 5.0),                  // zero-length height range
+        )
+        .unwrap();
+
+        assert_eq!(
+            curves.len(),
+            0,
+            "Zero-length cone height range should produce no curves, got {}",
+            curves.len()
+        );
     }
 }

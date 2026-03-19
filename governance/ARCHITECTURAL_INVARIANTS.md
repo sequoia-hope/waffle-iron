@@ -435,15 +435,15 @@ The 15 quadric surface pairs ordered by CAD frequency, with implementation statu
 | 3 | Plane–Cone | Conic section | done |
 | 4 | Plane–Sphere | Circle | done |
 | 5 | Cylinder–Cylinder | Degree ≤ 4 curve | done (parallel + non-parallel ≥60°) |
-| 6 | Plane–Torus | Degree-4 curve | todo |
-| 7 | Cylinder–Cone | Degree ≤ 4 curve | todo |
-| 8 | Cylinder–Sphere | Degree ≤ 4 curve | todo |
-| 9 | Cone–Cone | Degree ≤ 4 curve | todo |
+| 6 | Plane–Torus | Degree-4 curve | done |
+| 7 | Cylinder–Cone | Degree ≤ 4 curve | done |
+| 8 | Cylinder–Sphere | Degree ≤ 4 curve | done |
+| 9 | Cone–Cone | Degree ≤ 4 curve | done |
 | 10 | Cylinder–Torus | Degree ≤ 8 curve | todo |
-| 11 | Cone–Sphere | Degree ≤ 4 curve | todo |
-| 12 | Sphere–Sphere | Circle | todo |
+| 11 | Cone–Sphere | Degree ≤ 4 curve | done |
+| 12 | Sphere–Sphere | Circle | done |
 | 13 | Cone–Torus | Degree ≤ 8 curve | todo |
-| 14 | Sphere–Torus | Degree ≤ 4 curve | todo |
+| 14 | Sphere–Torus | Degree ≤ 4 curve | done |
 | 15 | Torus–Torus | Degree ≤ 8 curve | todo |
 
 ### A15.5 Surface tier preservation
