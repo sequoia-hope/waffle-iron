@@ -213,6 +213,16 @@ The assay score measures end-to-end correctness across the full pipeline. A fix 
 
 Conversely, a score increase achieved by adding hacks in a downstream layer (e.g., snapping vertices, special-casing face counts, loosening watertight checks) that masks upstream incorrectness is a **P9 violation** and must be reverted.
 
+### P12 — Plans are the authority; agents must not improvise fixes
+
+The plan is where architectural reasoning, governance compliance, and root-cause analysis happen. When executing a plan:
+
+- **If the plan's diagnosis is wrong** (e.g., the root cause is in a different layer than predicted, the proposed fix doesn't address the actual failure), the agent **must stop, skip that phase, and report the discrepancy** in the end-of-session summary. It must not invent an alternative fix on the spot.
+- **If a fix requires touching files or layers not identified in the plan**, the agent must abort that fix. Unplanned cross-layer changes bypass the architectural review that planning provides.
+- **Improvised fixes violate P2 and P8.** Without the foresight of planning, fixes tend to be hacks that don't properly account for invariants, tolerance policy, surface type taxonomy, or research-grounded algorithm selection. The cost of an improvised fix that must be reverted exceeds the cost of aborting and replanning.
+
+The correct response to "the plan was wrong" is: document what was learned, abort the fix, and let the next planning cycle incorporate that knowledge. Plans are cheap; reverting hacks is expensive.
+
 ---
 
 ## 11. Amendments and Protected Files

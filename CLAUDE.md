@@ -103,6 +103,11 @@ See `docs/TESTING.md` for tier definitions and how to add tests.
   more correct, and (3) recovery is scoped with specific follow-up tasks identified.
 - **Score increases via downstream hacks are P9 violations.** Snapping vertices,
   loosening checks, or special-casing face counts to mask upstream bugs must be reverted.
+- **Plans are the authority (P12).** If a plan's diagnosis turns out to be wrong,
+  **stop and report** — do not improvise an alternative fix. Unplanned fixes bypass
+  the architectural reasoning that planning provides and tend to produce hacks that
+  must be reverted. Abort the fix, document what was learned, and let the next
+  planning cycle incorporate it.
 - See governance/ENGINEERING_CONSTITUTION.md §10 for the full rules.
 
 ## Analytical Primacy (Invariant A15)
