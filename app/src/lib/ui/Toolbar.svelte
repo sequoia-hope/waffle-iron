@@ -333,8 +333,8 @@
 			<input
 				class="name-input"
 				bind:value={nameInputValue}
-				onblur={() => { if (nameInputValue.trim()) setProjectName(nameInputValue.trim()); editingName = false; }}
-				onkeydown={(e) => { if (e.key === 'Enter') { if (nameInputValue.trim()) setProjectName(nameInputValue.trim()); editingName = false; } else if (e.key === 'Escape') { editingName = false; } }}
+				onblur={() => { if (nameInputValue.trim()) { setProjectName(nameInputValue.trim()); saveToStorage(); } editingName = false; }}
+				onkeydown={(e) => { if (e.key === 'Enter') { if (nameInputValue.trim()) { setProjectName(nameInputValue.trim()); saveToStorage(); } editingName = false; } else if (e.key === 'Escape') { editingName = false; } }}
 			/>
 		{:else}
 			<button class="name-btn" ondblclick={() => { nameInputValue = name; editingName = true; }} title="Double-click to rename">
