@@ -95,6 +95,34 @@ impl Sketch {
         }
         self.entities = expanded_entities;
     }
+
+    /// Recompute derived data (`solved_positions` and `solved_profiles`) from
+    /// the sketch's entities. Called during rebuild after deserialization, since
+    /// these fields are not serialized.
+    ///
+    /// If `solved_profiles` is already non-empty, this is a no-op (preserves
+    /// profiles set by interactive solving or gear expansion).
+    pub fn recompute_derived_data(&mut self) {
+        // B8: If profiles already exist (e.g., from interactive session), preserve them
+        if !self.solved_profiles.is_empty() {
+            return;
+        }
+
+        // Build solved_positions from Point entity coordinates
+        if self.solved_positions.is_empty() {
+            for entity in &self.entities {
+                if let SketchEntity::Point { id, x, y, .. } = entity {
+                    self.solved_positions.insert(*id, (*x, *y));
+                }
+            }
+        }
+
+        // Extract profiles from entities + positions
+        if !self.entities.is_empty() {
+            self.solved_profiles =
+                crate::profiles::extract_profiles(&self.entities, &self.solved_positions);
+        }
+    }
 }
 
 fn default_origin() -> [f64; 3] {
@@ -959,5 +987,664 @@ mod tests {
         assert_eq!(d.profiles.len(), 1);
         assert!(!d.profiles[0].is_outer);
         assert!(matches!(d.status, SolveStatus::UnderConstrained { dof: 1 }));
+    }
+
+    // ── recompute_derived_data tests ─────────────────────────────────
+
+    /// Helper to build a Sketch with the standard plane boilerplate.
+    fn make_sketch(entities: Vec<SketchEntity>) -> Sketch {
+        Sketch {
+            id: Uuid::nil(),
+            plane: GeomRef {
+                kind: crate::topo::TopoKind::Face,
+                anchor: crate::geom_ref::Anchor::Datum {
+                    datum_id: Uuid::nil(),
+                },
+                selector: crate::geom_ref::Selector::Role {
+                    role: crate::Role::EndCapPositive,
+                    index: 0,
+                },
+                policy: crate::geom_ref::ResolvePolicy::Strict,
+            },
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
+            entities,
+            constraints: vec![],
+            solve_status: SolveStatus::FullyConstrained,
+            solved_positions: HashMap::new(),
+            solved_profiles: vec![],
+        }
+    }
+
+    /// B1: Rectangle sketch (4 Points + 4 Lines) produces 1 profile with 4 entity_ids.
+    #[test]
+    fn recompute_rectangle_produces_one_profile() {
+        let mut sketch = make_sketch(vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 10.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 10.0,
+                y: 5.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 4,
+                x: 0.0,
+                y: 5.0,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 10,
+                start_id: 1,
+                end_id: 2,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 11,
+                start_id: 2,
+                end_id: 3,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 12,
+                start_id: 3,
+                end_id: 4,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 13,
+                start_id: 4,
+                end_id: 1,
+                construction: false,
+            },
+        ]);
+
+        sketch.recompute_derived_data();
+
+        // Positions populated from Point entities
+        assert_eq!(sketch.solved_positions.len(), 4);
+        assert_eq!(sketch.solved_positions[&1], (0.0, 0.0));
+        assert_eq!(sketch.solved_positions[&2], (10.0, 0.0));
+        assert_eq!(sketch.solved_positions[&3], (10.0, 5.0));
+        assert_eq!(sketch.solved_positions[&4], (0.0, 5.0));
+
+        // One closed profile with 4 line entity IDs
+        assert_eq!(sketch.solved_profiles.len(), 1);
+        assert_eq!(sketch.solved_profiles[0].entity_ids.len(), 4);
+    }
+
+    /// B2: Circle sketch produces 1 profile with 1 entity_id.
+    #[test]
+    fn recompute_circle_produces_one_profile() {
+        let mut sketch = make_sketch(vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 5.0,
+                y: 5.0,
+                construction: false,
+            },
+            SketchEntity::Circle {
+                id: 10,
+                center_id: 1,
+                radius: 3.0,
+                construction: false,
+            },
+        ]);
+
+        sketch.recompute_derived_data();
+
+        assert_eq!(sketch.solved_positions.len(), 1);
+        assert_eq!(sketch.solved_positions[&1], (5.0, 5.0));
+        assert_eq!(sketch.solved_profiles.len(), 1);
+        assert_eq!(sketch.solved_profiles[0].entity_ids.len(), 1);
+        assert_eq!(sketch.solved_profiles[0].entity_ids[0], 10);
+    }
+
+    /// B3: Only construction entities produces 0 profiles.
+    #[test]
+    fn recompute_construction_only_produces_no_profiles() {
+        let mut sketch = make_sketch(vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: true,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 10.0,
+                y: 0.0,
+                construction: true,
+            },
+            SketchEntity::Line {
+                id: 10,
+                start_id: 1,
+                end_id: 2,
+                construction: true,
+            },
+        ]);
+
+        sketch.recompute_derived_data();
+
+        assert_eq!(sketch.solved_profiles.len(), 0);
+    }
+
+    /// B4: Empty sketch produces 0 profiles and does not crash.
+    #[test]
+    fn recompute_empty_sketch_no_crash() {
+        let mut sketch = make_sketch(vec![]);
+
+        sketch.recompute_derived_data();
+
+        assert_eq!(sketch.solved_positions.len(), 0);
+        assert_eq!(sketch.solved_profiles.len(), 0);
+    }
+
+    /// B6: Arc entities in profile are extracted.
+    #[test]
+    fn recompute_arc_profile_extracted() {
+        // Triangle-ish shape: two lines and one arc connecting endpoints
+        let mut sketch = make_sketch(vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 10.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 5.0,
+                y: 5.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 4,
+                x: 5.0,
+                y: 2.0,
+                construction: false,
+            }, // arc center
+            SketchEntity::Line {
+                id: 10,
+                start_id: 1,
+                end_id: 2,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 11,
+                start_id: 2,
+                end_id: 3,
+                construction: false,
+            },
+            SketchEntity::Arc {
+                id: 12,
+                center_id: 4,
+                start_id: 3,
+                end_id: 1,
+                construction: false,
+            },
+        ]);
+
+        sketch.recompute_derived_data();
+
+        assert_eq!(sketch.solved_positions.len(), 4);
+        assert!(
+            !sketch.solved_profiles.is_empty(),
+            "arc profile should be extracted"
+        );
+        // The profile should reference the arc entity
+        let all_entity_ids: Vec<u32> = sketch
+            .solved_profiles
+            .iter()
+            .flat_map(|p| p.entity_ids.iter().copied())
+            .collect();
+        assert!(
+            all_entity_ids.contains(&12),
+            "profile must include the arc entity"
+        );
+    }
+
+    /// B7: Multiple closed loops produce multiple profiles.
+    #[test]
+    fn recompute_multiple_loops_multiple_profiles() {
+        let mut sketch = make_sketch(vec![
+            // First triangle: points 1-3, lines 10-12
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 5.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 2.5,
+                y: 4.0,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 10,
+                start_id: 1,
+                end_id: 2,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 11,
+                start_id: 2,
+                end_id: 3,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 12,
+                start_id: 3,
+                end_id: 1,
+                construction: false,
+            },
+            // Second triangle: points 4-6, lines 13-15 (disjoint from first)
+            SketchEntity::Point {
+                id: 4,
+                x: 20.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 5,
+                x: 25.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 6,
+                x: 22.5,
+                y: 4.0,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 13,
+                start_id: 4,
+                end_id: 5,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 14,
+                start_id: 5,
+                end_id: 6,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 15,
+                start_id: 6,
+                end_id: 4,
+                construction: false,
+            },
+        ]);
+
+        sketch.recompute_derived_data();
+
+        assert_eq!(sketch.solved_positions.len(), 6);
+        assert!(
+            sketch.solved_profiles.len() >= 2,
+            "expected at least 2 profiles, got {}",
+            sketch.solved_profiles.len()
+        );
+    }
+
+    /// B8: Sketch that already has solved_profiles preserves them.
+    #[test]
+    fn recompute_preserves_existing_profiles() {
+        let existing_profile = ClosedProfile {
+            entity_ids: vec![99, 100, 101],
+            is_outer: true,
+            vertex_ids: vec![],
+            circle: None,
+            spline_segments: vec![],
+        };
+        let mut sketch = make_sketch(vec![SketchEntity::Point {
+            id: 1,
+            x: 0.0,
+            y: 0.0,
+            construction: false,
+        }]);
+        sketch.solved_profiles = vec![existing_profile.clone()];
+
+        sketch.recompute_derived_data();
+
+        // Existing profiles must be preserved, not overwritten
+        assert_eq!(sketch.solved_profiles.len(), 1);
+        assert_eq!(sketch.solved_profiles[0].entity_ids, vec![99, 100, 101]);
+    }
+
+    // ── Adversarial / edge-case recompute tests ─────────────────────
+
+    /// Degenerate triangle: three collinear points produce 0 profiles (zero area).
+    #[test]
+    fn recompute_degenerate_zero_area_triangle() {
+        let mut sketch = make_sketch(vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 5.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 10.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 10,
+                start_id: 1,
+                end_id: 2,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 11,
+                start_id: 2,
+                end_id: 3,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 12,
+                start_id: 3,
+                end_id: 1,
+                construction: false,
+            },
+        ]);
+
+        sketch.recompute_derived_data();
+
+        assert_eq!(sketch.solved_positions.len(), 3);
+        // All profiles (if any) should have near-zero area
+        for profile in &sketch.solved_profiles {
+            let area: f64 = {
+                let verts = &profile.vertex_ids;
+                if verts.len() < 3 {
+                    0.0
+                } else {
+                    let n = verts.len();
+                    let mut a = 0.0;
+                    for i in 0..n {
+                        let j = (i + 1) % n;
+                        let (x1, y1) = sketch.solved_positions[&verts[i]];
+                        let (x2, y2) = sketch.solved_positions[&verts[j]];
+                        a += x1 * y2 - x2 * y1;
+                    }
+                    (a / 2.0).abs()
+                }
+            };
+            assert!(
+                area < 1e-10,
+                "degenerate triangle area should be ~0, got {area}"
+            );
+        }
+    }
+
+    /// Circle entity whose center Point is absent from positions. Should not panic.
+    #[test]
+    fn recompute_circle_no_center_position() {
+        let mut sketch = make_sketch(vec![
+            // No Point entity for center_id 99 — it's missing
+            SketchEntity::Circle {
+                id: 10,
+                center_id: 99,
+                radius: 3.0,
+                construction: false,
+            },
+        ]);
+
+        sketch.recompute_derived_data();
+
+        // Should still produce a profile for the circle
+        assert_eq!(sketch.solved_profiles.len(), 1);
+        assert_eq!(sketch.solved_profiles[0].entity_ids, vec![10]);
+        // CircleProfile data should be None since center position is missing
+        assert!(sketch.solved_profiles[0].circle.is_none());
+    }
+
+    /// Points with NaN coordinates. Should not panic; may or may not produce profiles.
+    #[test]
+    fn recompute_nan_coordinates() {
+        let mut sketch = make_sketch(vec![
+            SketchEntity::Point {
+                id: 1,
+                x: f64::NAN,
+                y: f64::NAN,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 10.0,
+                y: f64::NAN,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: f64::NAN,
+                y: 5.0,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 10,
+                start_id: 1,
+                end_id: 2,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 11,
+                start_id: 2,
+                end_id: 3,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 12,
+                start_id: 3,
+                end_id: 1,
+                construction: false,
+            },
+        ]);
+
+        // Must not panic
+        sketch.recompute_derived_data();
+
+        // Positions should still be populated (even if NaN)
+        assert_eq!(sketch.solved_positions.len(), 3);
+    }
+
+    /// Rectangle at near-MIN_FEATURE_SIZE scale should still extract 1 profile.
+    #[test]
+    fn recompute_very_small_features() {
+        let s = 1e-6; // MIN_FEATURE_SIZE
+        let mut sketch = make_sketch(vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: s,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: s,
+                y: s,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 4,
+                x: 0.0,
+                y: s,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 10,
+                start_id: 1,
+                end_id: 2,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 11,
+                start_id: 2,
+                end_id: 3,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 12,
+                start_id: 3,
+                end_id: 4,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 13,
+                start_id: 4,
+                end_id: 1,
+                construction: false,
+            },
+        ]);
+
+        sketch.recompute_derived_data();
+
+        assert_eq!(sketch.solved_positions.len(), 4);
+        assert_eq!(
+            sketch.solved_profiles.len(),
+            1,
+            "tiny rectangle should still produce 1 profile"
+        );
+        assert_eq!(sketch.solved_profiles[0].entity_ids.len(), 4);
+    }
+
+    /// Calling recompute_derived_data() twice is idempotent.
+    #[test]
+    fn recompute_idempotent() {
+        let mut sketch = make_sketch(vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 10.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 10.0,
+                y: 5.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 4,
+                x: 0.0,
+                y: 5.0,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 10,
+                start_id: 1,
+                end_id: 2,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 11,
+                start_id: 2,
+                end_id: 3,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 12,
+                start_id: 3,
+                end_id: 4,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 13,
+                start_id: 4,
+                end_id: 1,
+                construction: false,
+            },
+        ]);
+
+        sketch.recompute_derived_data();
+        let profiles_after_first = sketch.solved_profiles.clone();
+        let positions_after_first = sketch.solved_positions.clone();
+
+        sketch.recompute_derived_data();
+
+        assert_eq!(sketch.solved_positions, positions_after_first);
+        assert_eq!(sketch.solved_profiles.len(), profiles_after_first.len());
+        for (a, b) in sketch
+            .solved_profiles
+            .iter()
+            .zip(profiles_after_first.iter())
+        {
+            assert_eq!(a.entity_ids, b.entity_ids);
+            assert_eq!(a.is_outer, b.is_outer);
+            assert_eq!(a.vertex_ids, b.vertex_ids);
+            assert_eq!(a.circle, b.circle);
+        }
+    }
+
+    /// Circle with a valid center position populates CircleProfile data.
+    #[test]
+    fn recompute_circle_with_center_populates_circle_data() {
+        let mut sketch = make_sketch(vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 5.0,
+                y: 7.0,
+                construction: false,
+            },
+            SketchEntity::Circle {
+                id: 10,
+                center_id: 1,
+                radius: 3.5,
+                construction: false,
+            },
+        ]);
+
+        sketch.recompute_derived_data();
+
+        assert_eq!(sketch.solved_profiles.len(), 1);
+        let circle = sketch.solved_profiles[0]
+            .circle
+            .as_ref()
+            .expect("CircleProfile must be Some when center position exists");
+        assert!((circle.center_u - 5.0).abs() < 1e-12);
+        assert!((circle.center_v - 7.0).abs() < 1e-12);
+        assert!((circle.radius - 3.5).abs() < 1e-12);
     }
 }
