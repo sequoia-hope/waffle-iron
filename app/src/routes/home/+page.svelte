@@ -50,6 +50,31 @@
 	function handleSelect(doc) {
 		goto(`/doc/${doc.id}`);
 	}
+
+	async function handleRename(doc, newName) {
+		const store = getStore();
+		const stored = await store.get(doc.id);
+		if (!stored) return;
+		try {
+			const parsed = JSON.parse(stored.json);
+			if (parsed.document) {
+				parsed.document.name = newName;
+			} else if (parsed.project) {
+				parsed.project.name = newName;
+			}
+			stored.json = JSON.stringify(parsed);
+			stored.modified = Date.now();
+			await store.put(stored);
+			documents = await store.list();
+		} catch { /* ignore */ }
+	}
+
+	async function handleDelete(doc) {
+		if (!confirm(`Delete "${doc.name}"? This cannot be undone.`)) return;
+		const store = getStore();
+		await store.delete(doc.id);
+		documents = await store.list();
+	}
 </script>
 
 <div class="home-page" data-testid="home-page">
@@ -60,7 +85,7 @@
 			<p>Loading documents...</p>
 		</div>
 	{:else}
-		<DocumentGrid {documents} onselect={handleSelect} />
+		<DocumentGrid {documents} onselect={handleSelect} onrename={handleRename} ondelete={handleDelete} />
 	{/if}
 </div>
 
