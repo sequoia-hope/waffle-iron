@@ -355,7 +355,6 @@ pub(super) fn clip_polygon_by_solid(
 /// A solid is convex if every vertex of every face lies on or behind (inside)
 /// every face plane. Uses signed distance: positive = outside, negative = inside.
 /// Capped at 200 faces to avoid O(V*F) blowup for large face sets.
-#[allow(dead_code)]
 pub(super) fn is_face_set_convex(faces: &[FacePoly], tau: f64) -> bool {
     // Quick heuristic: very small or very large face sets
     if faces.len() <= 6 {
