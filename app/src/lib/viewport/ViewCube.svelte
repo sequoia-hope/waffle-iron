@@ -8,6 +8,11 @@
 	let dropdownOpen = $state(false);
 	let currentView = $state('iso');
 
+	// Drag-to-orbit state
+	let dragging = $state(false);
+	let dragStartX = 0;
+	let dragStartY = 0;
+
 	/**
 	 * Dispatch a snap-view-and-fit event for the given view name.
 	 * @param {string} name
@@ -34,12 +39,50 @@
 	function closeDropdown() {
 		dropdownOpen = false;
 	}
+
+	function handlePointerDown(e) {
+		// Only start drag on left button, and not on face buttons
+		if (e.button !== 0) return;
+		if (e.target.closest('.face')) return;
+		dragging = true;
+		dragStartX = e.clientX;
+		dragStartY = e.clientY;
+		e.currentTarget.setPointerCapture(e.pointerId);
+		e.preventDefault();
+	}
+
+	function handlePointerMove(e) {
+		if (!dragging) return;
+		const dx = e.clientX - dragStartX;
+		const dy = e.clientY - dragStartY;
+		dragStartX = e.clientX;
+		dragStartY = e.clientY;
+
+		// Dispatch orbit event — CameraControls listens for this
+		window.dispatchEvent(new CustomEvent('waffle-viewcube-orbit', {
+			detail: { dx, dy }
+		}));
+	}
+
+	function handlePointerUp(e) {
+		if (!dragging) return;
+		dragging = false;
+	}
 </script>
 
 <svelte:window onclick={closeDropdown} />
 
 <div class="viewcube-container" data-testid="viewcube-overlay">
-	<div class="cube-scene">
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		class="cube-scene"
+		class:ortho={isOrtho}
+		class:dragging
+		onpointerdown={handlePointerDown}
+		onpointermove={handlePointerMove}
+		onpointerup={handlePointerUp}
+		onpointercancel={handlePointerUp}
+	>
 		<div class="cube" style:transform={cubeTransform}>
 			<button class="face front" class:active={currentView === 'front'} data-testid="viewcube-btn-front" onclick={() => snapToView('front')}>FRONT</button>
 			<button class="face back" class:active={currentView === 'back'} data-testid="viewcube-btn-back" onclick={() => snapToView('back')}>BACK</button>
@@ -80,14 +123,23 @@
 	}
 
 	.cube-scene {
-		width: 80px;
-		height: 80px;
-		perspective: 300px;
+		width: 60px;
+		height: 60px;
+		perspective: 200px;
+		cursor: grab;
+	}
+
+	.cube-scene.ortho {
+		perspective: none;
+	}
+
+	.cube-scene.dragging {
+		cursor: grabbing;
 	}
 
 	.cube {
-		width: 80px;
-		height: 80px;
+		width: 60px;
+		height: 60px;
 		position: relative;
 		transform-style: preserve-3d;
 		transition: transform 0.05s linear;
@@ -95,15 +147,15 @@
 
 	.face {
 		position: absolute;
-		width: 80px;
-		height: 80px;
+		width: 60px;
+		height: 60px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		background: rgba(45, 45, 55, 0.85);
 		border: 1px solid rgba(100, 100, 120, 0.4);
 		color: rgba(200, 200, 210, 0.9);
-		font-size: 9px;
+		font-size: 8px;
 		font-weight: 700;
 		letter-spacing: 0.5px;
 		cursor: pointer;
@@ -123,12 +175,12 @@
 		border-color: rgba(0, 120, 212, 0.5);
 	}
 
-	.front  { transform: rotateY(0deg) translateZ(40px); }
-	.back   { transform: rotateY(180deg) translateZ(40px); }
-	.top    { transform: rotateX(90deg) translateZ(40px); }
-	.bottom { transform: rotateX(-90deg) translateZ(40px); }
-	.left   { transform: rotateY(-90deg) translateZ(40px); }
-	.right  { transform: rotateY(90deg) translateZ(40px); }
+	.front  { transform: rotateY(0deg) translateZ(30px); }
+	.back   { transform: rotateY(180deg) translateZ(30px); }
+	.top    { transform: rotateX(90deg) translateZ(30px); }
+	.bottom { transform: rotateX(-90deg) translateZ(30px); }
+	.left   { transform: rotateY(-90deg) translateZ(30px); }
+	.right  { transform: rotateY(90deg) translateZ(30px); }
 
 	.cube-controls {
 		display: flex;

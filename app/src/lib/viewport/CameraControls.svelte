@@ -777,6 +777,19 @@
 		window.addEventListener('waffle-zoom-to-face', /** @type {EventListener} */ (onZoomToFace));
 		window.addEventListener('waffle-fit-all', onFitAll);
 		window.addEventListener('waffle-camera-projection-changed', /** @type {EventListener} */ (onProjectionChanged));
+
+		/** @param {CustomEvent} e */
+		function onViewcubeOrbit(e) {
+			if (!controlsRef) return;
+			const { dx, dy } = e.detail;
+			// Convert pixel delta to radians (scale factor tuned for 60px cube)
+			const speed = 0.015;
+			controlsRef._rotateLeft(-dx * speed);
+			controlsRef._rotateUp(-dy * speed);
+			controlsRef.update();
+		}
+		window.addEventListener('waffle-viewcube-orbit', /** @type {EventListener} */ (onViewcubeOrbit));
+
 		return () => {
 			canvas.removeEventListener('wheel', onWheel);
 			window.removeEventListener('pointerdown', onTouchPointerDown);
@@ -791,6 +804,7 @@
 			window.removeEventListener('waffle-zoom-to-face', /** @type {EventListener} */ (onZoomToFace));
 			window.removeEventListener('waffle-fit-all', onFitAll);
 			window.removeEventListener('waffle-camera-projection-changed', /** @type {EventListener} */ (onProjectionChanged));
+			window.removeEventListener('waffle-viewcube-orbit', /** @type {EventListener} */ (onViewcubeOrbit));
 		};
 	});
 
