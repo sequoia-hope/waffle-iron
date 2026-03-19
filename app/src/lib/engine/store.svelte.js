@@ -3344,7 +3344,7 @@ export function setTwoFingerActive(v) { twoFingerActive = v; }
 
 export function getProjectName() { return projectName; }
 /** @param {string} name */
-export function setProjectName(name) { projectName = name; }
+export function setProjectName(name) { projectName = name; documentName = name; }
 
 // -- Document display unit --
 
@@ -3522,18 +3522,32 @@ export function initDocumentState(docId, parsed) {
  * @returns {Promise<string | null>}
  */
 export async function buildDocumentJson() {
-	// Get current active tab's features from engine
+	// Get current active tab's features from the engine via SaveProject.
+	// The engine returns v3 JSON with features inside tabs[0].kind.features.
 	const liveJson = await saveProjectToString();
 	let liveFeatures = null;
 	if (liveJson) {
 		try {
 			const parsed = JSON.parse(liveJson);
-			liveFeatures = parsed.features || parsed.project?.features || { features: parsed.feature_tree?.features || [], active_index: parsed.feature_tree?.active_index ?? null };
+			// v3 format: features are in tabs[0].kind.features
+			if (parsed.tabs?.[0]?.kind?.features) {
+				liveFeatures = parsed.tabs[0].kind.features;
+			}
+			// v2 fallback: features at project.features
+			else if (parsed.project?.features) {
+				liveFeatures = parsed.project.features;
+			}
+			// v1 fallback: feature_tree at top level
+			else if (parsed.feature_tree) {
+				liveFeatures = { features: parsed.feature_tree.features || [], active_index: parsed.feature_tree.active_index ?? null };
+			}
 		} catch { /* ignore */ }
 	}
 
 	const now = new Date().toISOString();
-	const tabs = documentTabs.map(t => {
+	// Deep-clone documentTabs to unwrap Svelte 5 proxies
+	const tabSnapshot = JSON.parse(JSON.stringify(documentTabs));
+	const tabs = tabSnapshot.map(t => {
 		const features = (t.id === activeTabId && liveFeatures)
 			? liveFeatures
 			: (t.kind?.features || { features: [], active_index: null });
