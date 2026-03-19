@@ -38,3 +38,9 @@ app/tests/*.png
 
 # auto-waffle session logs (large, ephemeral)
 scripts/auto-waffle/logs/
+# ExoMonad - track config and source, ignore runtime artifacts
+.exo/*
+!.exo/config.toml
+!.exo/roles/
+!.exo/lib/
+!.exo/rules/
