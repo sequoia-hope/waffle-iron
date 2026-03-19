@@ -12,15 +12,21 @@ This is Layer 2 of the spec's three-layer architecture.
 
 ## Worker Breakdown
 
-### Worker B1: Newton-Raphson (`core/newton.rs`)
+### Worker B1: Levenberg-Marquardt solver (`core/lm.rs`)
 
-The core solve loop, per spec §Layer 2:
+LM is the primary solver (not a fallback). Per R2 research, pure NR with
+ad-hoc damping is a hack. LM elegantly handles warm starts (small λ),
+cold starts (large λ), and near-singular Jacobians in one algorithm.
+
+See `research/r2_results.md` for full rationale.
 
 ```rust
 pub struct SolveOptions {
     pub max_iterations: usize,     // 50 (spec)
     pub tolerance: f64,            // TAU_MODEL = 1e-7 (A14)
-    pub spring_mu: f64,            // 1e-6 (spec: under-constrained penalty)
+    pub lambda_init: f64,          // 1e-3 (warm start) or 1.0 (cold start)
+    pub lambda_up: f64,            // 10.0 (increase on divergent step)
+    pub lambda_down: f64,          // 0.1 (decrease on successful step)
 }
 
 pub struct SolveOutcome {
@@ -28,9 +34,10 @@ pub struct SolveOutcome {
     pub converged: bool,
     pub iterations: usize,
     pub final_residual_norm: f64,
+    pub jacobian: DMatrix<f64>,    // Final Jacobian (for diagnostics)
 }
 
-pub fn newton_solve(
+pub fn lm_solve(
     x0: &[f64],
     constraints: &[ConstraintImpl],
     num_equations: usize,
@@ -39,24 +46,25 @@ pub fn newton_solve(
 ```
 
 **Algorithm:**
-1. `x = x0.clone()`
+1. `x = x0.clone()`, `λ = lambda_init`
 2. Loop up to `max_iterations`:
-   a. Build residual vector `F` (length = num_equations)
-   b. Build Jacobian as sparse triplets, convert to dense `nalgebra::DMatrix`
-   c. If under-constrained (more params than equations), augment system:
-      - Append `sqrt(μ) * (x_i - x0_i)` to residuals
-      - Append `sqrt(μ) * I` rows to Jacobian
-   d. QR decomposition of (augmented) Jacobian
-   e. Solve `J * δ = -F` via QR
-   f. `x += δ`
-   g. If `‖F‖ < tolerance`: converged, break
-3. Return SolveOutcome
+   a. Build residual vector F and Jacobian J [un-augmented, dense DMatrix]
+   b. Check convergence: `‖F‖∞ < tolerance` → done
+   c. Compute LM step: `(J^T J + λI) δ = -J^T F`
+      - For under-constrained (m < n): use SVD minimum-norm with λ regularization
+   d. Trial: `x_new = x + δ`, compute `F_new`
+   e. If `‖F_new‖ < ‖F‖` (actual reduction):
+      - Accept: `x = x_new`, `λ *= lambda_down`
+   f. Else:
+      - Reject step, `λ *= lambda_up`
+   g. Also check: `‖δ‖∞ < tolerance` (params not moving → stuck or converged)
+3. Return SolveOutcome with final Jacobian for diagnostics
 
 **Key implementation details:**
-- Dense matrices via `nalgebra::DMatrix<f64>` — spec says this is fine for
-  <200 params, and typical sketches are well under that
-- QR via `nalgebra::linalg::QR`
-- Sparse → dense conversion: iterate triplets, set entries in DMatrix
+- Dense `nalgebra::DMatrix<f64>` throughout (≤200 params)
+- SVD for under-constrained minimum-norm (nalgebra QR doesn't handle wide matrices)
+- Jacobian scaling: `D_row * J * D_col` for mixed-unit conditioning
+- λ naturally handles warm/cold starts — no separate codepaths
 
 ### Worker B2: SVD rank analysis (`core/rank.rs`)
 
