@@ -35,3 +35,6 @@ app/tests/*.png
 # Vim swap files (dot-prefix variants)
 .*.swp
 .*.swo
+
+# auto-waffle session logs (large, ephemeral)
+scripts/auto-waffle/logs/

@@ -22,7 +22,7 @@ Quickly verify:
 If everything passes:
 - Stage all relevant changes
 - Commit with a descriptive message following the repo's commit style
-- Push to remote
+- Do NOT push to remote — the human operator will push when ready
 
 If something fails:
 - Diagnose which changes are broken
