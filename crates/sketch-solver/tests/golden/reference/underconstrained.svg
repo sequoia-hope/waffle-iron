@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-10.00 -60.00 70.00 70.00" width="140" height="140">
+<rect x="-10" y="-60" width="70" height="70" fill="white"/>
+<g class="grid-minor" stroke="#e0e0e0" stroke-width="0.3">
+<line x1="-10.00" y1="-60.00" x2="-10.00" y2="10.00"/>
+<line x1="0.00" y1="-60.00" x2="0.00" y2="10.00"/>
+<line x1="10.00" y1="-60.00" x2="10.00" y2="10.00"/>
+<line x1="20.00" y1="-60.00" x2="20.00" y2="10.00"/>
+<line x1="30.00" y1="-60.00" x2="30.00" y2="10.00"/>
+<line x1="40.00" y1="-60.00" x2="40.00" y2="10.00"/>
+<line x1="50.00" y1="-60.00" x2="50.00" y2="10.00"/>
+<line x1="60.00" y1="-60.00" x2="60.00" y2="10.00"/>
+<line x1="-10.00" y1="-60.00" x2="60.00" y2="-60.00"/>
+<line x1="-10.00" y1="-50.00" x2="60.00" y2="-50.00"/>
+<line x1="-10.00" y1="-40.00" x2="60.00" y2="-40.00"/>
+<line x1="-10.00" y1="-30.00" x2="60.00" y2="-30.00"/>
+<line x1="-10.00" y1="-20.00" x2="60.00" y2="-20.00"/>
+<line x1="-10.00" y1="-10.00" x2="60.00" y2="-10.00"/>
+<line x1="-10.00" y1="0.00" x2="60.00" y2="0.00"/>
+<line x1="-10.00" y1="10.00" x2="60.00" y2="10.00"/>
+</g>
+<g class="grid-major" stroke="#c0c0c0" stroke-width="0.6">
+<line x1="-100.00" y1="-60.00" x2="-100.00" y2="10.00"/>
+<line x1="0.00" y1="-60.00" x2="0.00" y2="10.00"/>
+<line x1="-10.00" y1="-100.00" x2="60.00" y2="-100.00"/>
+<line x1="-10.00" y1="0.00" x2="60.00" y2="0.00"/>
+</g>
+<g class="entities">
+<circle cx="0.0000" cy="-0.0000" r="2" fill="#FF9800"/>
+<circle cx="50.0000" cy="-0.0000" r="2" fill="#FF9800"/>
+<circle cx="25.0000" cy="-40.0000" r="2" fill="#FF9800"/>
+<line x1="0.0000" y1="-0.0000" x2="50.0000" y2="-0.0000" stroke="#2196F3" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="50.0000" y1="-0.0000" x2="25.0000" y2="-40.0000" stroke="#2196F3" stroke-width="1.5" stroke-linecap="round"/>
+</g>
+<g class="badges" font-family="sans-serif" font-size="4">
+<rect x="22.10" y="-6.00" width="5.8" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="25.00" y="-2.00" text-anchor="middle" fill="#333333">H</text>
+</g>
+<rect x="0.30" y="-53.00" width="39.4" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="20.00" y="-49.00" text-anchor="middle" fill="#333333">Under (5 DOF)</text>
+</svg>
