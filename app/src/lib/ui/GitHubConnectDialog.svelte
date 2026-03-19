@@ -1,5 +1,7 @@
 <script>
-	import { startDeviceFlow, pollForToken, fetchUser, saveAuth, disconnect, getClientId } from '$lib/storage/github-auth.js';
+	import { startDeviceFlow, pollForToken, fetchUser, saveAuth, disconnect as disconnectAuth, getClientId } from '$lib/storage/github-auth.js';
+	import { GitHubStore } from '$lib/storage/github.js';
+	import { registerProvider, unregisterProvider, setActiveProvider } from '$lib/storage/index.js';
 
 	let { visible = false, onclose, onconnect, ondisconnect } = $props();
 
@@ -44,6 +46,11 @@
 			const user = await fetchUser(accessToken);
 			saveAuth(accessToken, user.login, repoName);
 
+			// Register and activate the GitHub provider
+			const store = new GitHubStore(accessToken, user.login, repoName);
+			registerProvider(store);
+			setActiveProvider('github');
+
 			connectedUser = user.login;
 			connectedRepo = repoName;
 			state = 'connected';
@@ -64,7 +71,9 @@
 	}
 
 	async function handleDisconnect() {
-		disconnect();
+		disconnectAuth();
+		unregisterProvider('github');
+		setActiveProvider('local');
 		ondisconnect?.();
 		onclose?.();
 	}
