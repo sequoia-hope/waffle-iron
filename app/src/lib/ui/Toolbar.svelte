@@ -43,6 +43,7 @@
 		getSketchSolveStatus
 	} from '$lib/engine/store.svelte.js';
 	import { goto } from '$app/navigation';
+	import { base } from '$app/paths';
 	import { showToast } from '$lib/ui/toast.svelte.js';
 	import { getApplicableConstraints } from '$lib/sketch/constraintLogic.js';
 	import { resetTool } from '$lib/sketch/tools.js';
@@ -324,7 +325,7 @@
 		class="toolbar-btn home-btn"
 		data-testid="toolbar-btn-home"
 		title="Home"
-		onclick={() => goto('/home')}
+		onclick={() => goto(`${base}/home`)}
 	>Home</button>
 
 	<div class="project-name" data-testid="project-name">

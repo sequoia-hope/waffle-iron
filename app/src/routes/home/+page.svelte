@@ -1,5 +1,6 @@
 <script>
 	import { goto } from '$app/navigation';
+	import { base } from '$app/paths';
 	import { getStore, migrateLocalStorage, generateDocId } from '$lib/storage/index.js';
 	import { onMount } from 'svelte';
 	import HomeHeader from '$lib/ui/HomeHeader.svelte';
@@ -44,11 +45,11 @@
 			modified: now
 		};
 		await store.put(doc);
-		goto(`/doc/${id}`);
+		goto(`${base}/doc/${id}`);
 	}
 
 	function handleSelect(doc) {
-		goto(`/doc/${doc.id}`);
+		goto(`${base}/doc/${doc.id}`);
 	}
 
 	async function handleRename(doc, newName) {

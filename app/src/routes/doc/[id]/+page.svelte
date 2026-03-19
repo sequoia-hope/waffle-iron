@@ -1,5 +1,6 @@
 <script>
 	import { goto } from '$app/navigation';
+	import { base } from '$app/paths';
 	import { page } from '$app/stores';
 	import { getStore } from '$lib/storage/index.js';
 	import { onMount } from 'svelte';
@@ -10,11 +11,10 @@
 		const store = getStore();
 		const doc = await store.get(id);
 		if (doc) {
-			// Store active doc ID for the editor to pick up
 			sessionStorage.setItem('waffle-active-doc', doc.id);
 			sessionStorage.setItem('waffle-active-json', doc.json);
 		}
-		goto('/', { replaceState: true });
+		goto(`${base}/`, { replaceState: true });
 	});
 </script>
 
