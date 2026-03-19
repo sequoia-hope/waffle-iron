@@ -1,8 +1,8 @@
 {
   "errored": 4,
-  "failed": 100,
+  "failed": 99,
   "generated": "2026-03-19",
-  "passed": 56,
+  "passed": 57,
   "results": [
     {
       "category": "boolean-watertight",
@@ -24,13 +24,13 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1 unpaired edges out of 779 total (0 boundary, 1 non-manifold)",
+      "detail": "watertight_mesh: 3 unpaired edges out of 777 total (0 boundary, 3 non-manifold)",
       "id": "R0004",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 16 unpaired edges out of 3525 total (11 boundary, 5 non-manifold); volume_monotonicity: step 2: expected non-increase, vol 3.011343e-3 > prev 3.011196e-3, step 3: expected non-increase, vol 3.011966e-3 > prev 3.011343e-3",
+      "detail": "watertight_mesh: 16 unpaired edges out of 3525 total (11 boundary, 5 non-manifold); volume_monotonicity: step 2: expected non-increase, vol 3.011343e-3 > prev 3.011196e-3, step 3: expected non-increase, vol 3.012285e-3 > prev 3.011343e-3",
       "id": "R0005",
       "status": "fail"
     },
@@ -60,7 +60,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 4 unpaired edges out of 2566 total (2 boundary, 2 non-manifold); volume_monotonicity: step 2: expected non-decrease, vol 2.547647e4 < prev 6.465942e4",
+      "detail": "watertight_mesh: 4 unpaired edges out of 2566 total (2 boundary, 2 non-manifold); volume_monotonicity: step 2: expected non-decrease, vol 4.389475e4 < prev 6.465942e4",
       "id": "R0010",
       "status": "fail"
     },
@@ -90,7 +90,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 381 unpaired edges out of 1290 total (371 boundary, 10 non-manifold); volume_monotonicity: step 3: expected non-decrease, vol 7.259818e-14 < prev 1.613477e-13",
+      "detail": "watertight_mesh: 381 unpaired edges out of 1290 total (371 boundary, 10 non-manifold); volume_monotonicity: step 3: expected non-decrease, vol 7.255041e-14 < prev 1.613477e-13",
       "id": "R0015",
       "status": "fail"
     },
@@ -120,7 +120,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1 unpaired edges out of 389 total (0 boundary, 1 non-manifold); volume_monotonicity: step 2: expected non-increase, vol 2.402755e4 > prev 4.704851e-5",
+      "detail": "watertight_mesh: 1 unpaired edges out of 389 total (0 boundary, 1 non-manifold); volume_monotonicity: step 2: expected non-increase, vol 2.402755e4 > prev 4.704852e-5",
       "id": "R0020",
       "status": "fail"
     },
@@ -186,7 +186,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 787 unpaired edges out of 6143 total (773 boundary, 14 non-manifold)",
+      "detail": "watertight_mesh: 789 unpaired edges out of 6145 total (777 boundary, 12 non-manifold)",
       "id": "R0031",
       "status": "fail"
     },
@@ -210,7 +210,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 3 unpaired edges out of 2283 total (0 boundary, 3 non-manifold); volume_monotonicity: step 3: expected non-decrease, vol 8.352318e-2 < prev 2.091821e-1",
+      "detail": "watertight_mesh: 3 unpaired edges out of 2283 total (0 boundary, 3 non-manifold); volume_monotonicity: step 3: expected non-decrease, vol 8.332491e-2 < prev 1.997732e-1",
       "id": "R0035",
       "status": "fail"
     },
@@ -228,7 +228,7 @@
     },
     {
       "category": "volume-monotonicity",
-      "detail": "volume_monotonicity: step 2: expected non-increase, vol 3.706494e2 > prev 2.735622e2, step 3: expected non-increase, vol 3.756003e2 > prev 3.706494e2",
+      "detail": "volume_monotonicity: step 2: expected non-increase, vol 3.706494e2 > prev 2.735622e2, step 3: expected non-increase, vol 3.756002e2 > prev 3.706494e2",
       "id": "R0038",
       "status": "fail"
     },
@@ -240,7 +240,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 24 unpaired edges out of 1152 total (21 boundary, 3 non-manifold); volume_monotonicity: step 3: expected non-decrease, vol 8.667678e3 < prev 6.396689e4",
+      "detail": "watertight_mesh: 24 unpaired edges out of 1152 total (21 boundary, 3 non-manifold); volume_monotonicity: step 3: expected non-decrease, vol 8.667679e3 < prev 6.396689e4",
       "id": "R0040",
       "status": "fail"
     },
@@ -264,13 +264,13 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 230 unpaired edges out of 3247 total; volume_monotonicity: step 3: expected non-increase, vol 1.182629e10 > prev 1.181071e10",
+      "detail": "watertight_mesh: 231 unpaired edges out of 3246 total (230 boundary, 1 non-manifold); volume_monotonicity: step 3: expected non-increase, vol 1.181250e10 > prev 1.179773e10",
       "id": "R0044",
       "status": "fail"
     },
     {
       "category": "volume-magnitude",
-      "detail": "volume_magnitude: volume 5.519793e-17 outside [1.174499e-15, 1.174499e1] for scale 4.897234e-3; volume_monotonicity: step 2: expected non-increase, vol 5.519793e-17 > prev 4.389923e-17",
+      "detail": "volume_magnitude: volume 5.519793e-17 outside [1.174499e-15, 1.174499e1] for scale 4.897234e-3; volume_monotonicity: step 2: expected non-increase, vol 5.519793e-17 > prev 4.389926e-17",
       "id": "R0045",
       "status": "fail"
     },
@@ -300,31 +300,31 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 271 unpaired edges out of 2534 total; volume_monotonicity: step 2: expected non-increase, vol 1.781644e2 > prev 8.729887e1",
+      "detail": "watertight_mesh: 271 unpaired edges out of 2534 total; volume_monotonicity: step 2: expected non-increase, vol 2.785771e2 > prev 8.729887e1, step 3: expected non-decrease, vol 2.307334e2 < prev 2.785771e2",
       "id": "R0050",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 386 unpaired edges out of 14527 total (191 boundary, 195 non-manifold); consistent_normals: 258 of 10006 triangles have reversed normals",
+      "detail": "watertight_mesh: 389 unpaired edges out of 14527 total (194 boundary, 195 non-manifold); consistent_normals: 258 of 10005 triangles have reversed normals",
       "id": "R0051",
       "status": "fail"
     },
     {
       "category": "volume-monotonicity",
-      "detail": "volume_monotonicity: step 2: expected non-decrease, vol 2.716594e4 < prev 7.413632e4",
+      "detail": "volume_monotonicity: step 2: expected non-decrease, vol 2.802154e4 < prev 7.413632e4",
       "id": "R0052",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 532 unpaired edges out of 7594 total (531 boundary, 1 non-manifold)",
+      "detail": "watertight_mesh: 532 unpaired edges out of 7594 total (531 boundary, 1 non-manifold); volume_monotonicity: step 3: expected non-decrease, vol 1.075521e6 < prev 1.082371e6",
       "id": "R0053",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 577 unpaired edges out of 9432 total (411 boundary, 166 non-manifold); volume_monotonicity: step 2: expected non-decrease, vol 1.880023e4 < prev 2.187751e4",
+      "detail": "watertight_mesh: 577 unpaired edges out of 9432 total (411 boundary, 166 non-manifold); volume_monotonicity: step 2: expected non-decrease, vol 1.887895e4 < prev 2.187751e4",
       "id": "R0054",
       "status": "fail"
     },
@@ -378,7 +378,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 352 unpaired edges out of 5326 total (351 boundary, 1 non-manifold); volume_monotonicity: step 2: expected non-increase, vol 7.432191e-10 > prev 6.042849e-10",
+      "detail": "watertight_mesh: 348 unpaired edges out of 5327 total (347 boundary, 1 non-manifold); volume_monotonicity: step 2: expected non-increase, vol 7.432191e-10 > prev 6.042849e-10",
       "id": "R0063",
       "status": "fail"
     },
@@ -414,19 +414,19 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 12 unpaired edges out of 408 total",
+      "detail": "watertight_mesh: 13 unpaired edges out of 407 total (12 boundary, 1 non-manifold)",
       "id": "R0069",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 8 unpaired edges out of 16 total; minimum_triangle_count: 8 triangles < expected minimum 96 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"gear\"), (\"extrude\", \"circle\")]; volume_monotonicity: step 2: expected non-increase, vol 1.054091e-6 > prev 4.517246e-7",
+      "detail": "watertight_mesh: 8 unpaired edges out of 16 total; minimum_triangle_count: 8 triangles < expected minimum 96 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"gear\"), (\"extrude\", \"circle\")]; volume_monotonicity: step 2: expected non-increase, vol 1.054089e-6 > prev 4.517246e-7",
       "id": "R0070",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1379 unpaired edges out of 4838 total (1373 boundary, 6 non-manifold)",
+      "detail": "watertight_mesh: 1376 unpaired edges out of 4840 total (1370 boundary, 6 non-manifold)",
       "id": "R0071",
       "status": "fail"
     },
@@ -486,7 +486,7 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 602x588 effective face product (41828) too large for non-convex solids. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); volume_magnitude: volume 1.483912e-11 outside [1.128408e-10, 1.128408e6] for scale 2.242963e-1; volume_monotonicity: step 2: expected non-increase, vol 1.050573e-2 > prev 6.686011e-3, step 3: expected non-decrease, vol 1.483910e-11 < prev 1.050573e-2",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 602x588 effective face product (41828) too large for non-convex solids. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); volume_magnitude: volume 1.483912e-11 outside [1.128408e-10, 1.128408e6] for scale 2.242963e-1; volume_monotonicity: step 2: expected non-increase, vol 1.096427e-2 > prev 6.686011e-3, step 3: expected non-decrease, vol 1.483910e-11 < prev 1.096427e-2",
       "id": "R0081",
       "status": "fail"
     },
@@ -558,15 +558,15 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 4 unpaired edges out of 2221 total (3 boundary, 1 non-manifold); volume_monotonicity: step 2: expected non-increase, vol 2.482526e-10 > prev 2.868167e-16, step 3: expected non-increase, vol 3.656813e-10 > prev 2.482526e-10",
+      "detail": "watertight_mesh: 4 unpaired edges out of 2221 total (3 boundary, 1 non-manifold); volume_monotonicity: step 2: expected non-increase, vol 2.676459e-10 > prev 2.868166e-16",
       "id": "R0093",
       "status": "fail"
     },
     {
-      "category": "volume-monotonicity",
-      "detail": "volume_monotonicity: step 3: expected non-increase, vol 2.712195e7 > prev 2.671613e7",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0094",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "cascading-failure",
@@ -588,7 +588,7 @@
     },
     {
       "category": "volume-monotonicity",
-      "detail": "volume_monotonicity: step 2: expected non-increase, vol 3.494789e9 > prev 2.647011e9",
+      "detail": "volume_monotonicity: step 2: expected non-increase, vol 3.153656e9 > prev 2.647011e9",
       "id": "R0098",
       "status": "fail"
     },
