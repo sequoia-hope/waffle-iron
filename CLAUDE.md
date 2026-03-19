@@ -91,24 +91,13 @@ See `docs/TESTING.md` for tier definitions and how to add tests.
 - **WASM ↔ JS communication** goes through wasm-bridge only. No direct WASM imports in UI components.
 - **Kernel types don't leak.** Use the Kernel/KernelIntrospect traits. Never expose kernel internals to other crates.
 
-## No Hack-to-Green (Constitution P9–P11)
+## Fix It Right or Don't Fix It (P9–P10)
 
-- **Never add workarounds to make a test pass.** Fix the root cause in the layer where
-  the defect lives. No special-case branches, no tolerance widening, no fallback paths
-  that produce right answers for wrong reasons.
 - **If you can't explain why a test fails, don't change code to make it pass.**
-  Document the failure in PLAN.md and move on.
-- **Assay regressions require justification.** A score decrease is only acceptable when:
-  (1) the old output was accidentally correct, (2) a unit test proves the new code is
-  more correct, and (3) recovery is scoped with specific follow-up tasks identified.
-- **Score increases via downstream hacks are P9 violations.** Snapping vertices,
-  loosening checks, or special-casing face counts to mask upstream bugs must be reverted.
-- **Plans are the authority (P12).** If a plan's diagnosis turns out to be wrong,
-  **stop and report** — do not improvise an alternative fix. Unplanned fixes bypass
-  the architectural reasoning that planning provides and tend to produce hacks that
-  must be reverted. Abort the fix, document what was learned, and let the next
-  planning cycle incorporate it.
-- See governance/ENGINEERING_CONSTITUTION.md §10 for the full rules.
+  No tolerance widening, no special-case branches, no fallback paths that produce
+  right answers for wrong reasons. Document in PLAN.md and move on.
+- **If the plan's diagnosis is wrong, abort the fix and report what you learned.**
+  Do not improvise an alternative. Plans are cheap; reverting hacks is expensive.
 
 ## Analytical Primacy (Invariant A15)
 

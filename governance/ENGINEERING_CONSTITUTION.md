@@ -178,50 +178,17 @@ If a feature “kind of works” but breaks obvious branches or invariants, it i
 
 ---
 
-## 10. No Hack-to-Green (Regression and Correctness Discipline)
+## 10. Fix It Right or Don't Fix It
 
-### P9 — Never add workarounds to make tests pass
+### P9 — No hack-to-green
 
-When a test fails, the fix must address the **root cause** in the layer where the defect lives.
-The following are **prohibited**:
+**If you cannot explain why a test fails, you may not change code to make it pass.** Document the failure in PLAN.md and move to the next task.
 
-- Adding special-case branches, tolerances, or clamps to make a specific test pass without understanding why it fails.
-- Weakening assertions (widening tolerances, removing checks, catching errors) to accommodate incorrect output.
-- Routing around a broken code path with a “temporary” fallback that produces superficially correct output for wrong reasons.
-- Duplicating geometry (e.g., emitting extra vertices, adding redundant faces) to satisfy a structural oracle without fixing the underlying topology.
+Fixes must address the root cause in the layer where the defect lives. Workarounds that make tests pass without fixing the underlying problem — tolerance widening, special-case branches, fallback paths that produce right answers for wrong reasons — are prohibited and will be reverted. An assay regression is acceptable only when a unit test proves the new code is more correct and recovery is scoped in PLAN.md.
 
-**If you cannot explain why a test fails, you may not change code to make it pass.**
-Document the failure in PLAN.md and move to the next task.
+### P10 — Plan says what to fix; agent says when to stop
 
-### P10 — Assay regressions require justification
-
-A change that reduces the assay score is acceptable **only** when all of the following hold:
-
-1. **The old output was accidentally correct.** A test can demonstrate that the previous code produced right answers for wrong reasons (e.g., degenerate geometry that happened to pass an oracle, duplicate vertices masking unpaired edges).
-2. **The new code is provably more correct.** A unit test exists showing the new code handles the root cause properly, even if the end-to-end oracle doesn't see it yet.
-3. **Recovery is scoped.** The commit message or PLAN.md identifies which cases regressed, why, and what specific follow-up will recover them.
-
-If you cannot satisfy all three, **do not ship the regression.** Revert and find an approach that moves the score monotonically upward.
-
-### P11 — Correctness direction over score magnitude
-
-The assay score measures end-to-end correctness across the full pipeline. A fix to an upstream layer (boolean builder, B-Rep topology) may not immediately improve the score if a downstream layer (tessellation, post-processing) hasn't caught up. This is acceptable when:
-
-- The upstream fix has its own passing unit test proving correctness at that layer.
-- The downstream gap is documented as a follow-up task.
-- No previously-correct cases are broken.
-
-Conversely, a score increase achieved by adding hacks in a downstream layer (e.g., snapping vertices, special-casing face counts, loosening watertight checks) that masks upstream incorrectness is a **P9 violation** and must be reverted.
-
-### P12 — Plans are the authority; agents must not improvise fixes
-
-The plan is where architectural reasoning, governance compliance, and root-cause analysis happen. When executing a plan:
-
-- **If the plan's diagnosis is wrong** (e.g., the root cause is in a different layer than predicted, the proposed fix doesn't address the actual failure), the agent **must stop, skip that phase, and report the discrepancy** in the end-of-session summary. It must not invent an alternative fix on the spot.
-- **If a fix requires touching files or layers not identified in the plan**, the agent must abort that fix. Unplanned cross-layer changes bypass the architectural review that planning provides.
-- **Improvised fixes violate P2 and P8.** Without the foresight of planning, fixes tend to be hacks that don't properly account for invariants, tolerance policy, surface type taxonomy, or research-grounded algorithm selection. The cost of an improvised fix that must be reverted exceeds the cost of aborting and replanning.
-
-The correct response to "the plan was wrong" is: document what was learned, abort the fix, and let the next planning cycle incorporate that knowledge. Plans are cheap; reverting hacks is expensive.
+The plan is where root-cause analysis and architectural reasoning happen. If a plan's diagnosis turns out to be wrong, the agent **must abort that fix and report what it learned** — not improvise an alternative. Unplanned fixes bypass the review that planning provides and tend to produce hacks. Plans are cheap; reverting hacks is expensive.
 
 ---
 
@@ -277,8 +244,7 @@ A feature is not “done” unless:
 - [ ] Tests assert numeric/structural oracles (not only “no error”)
 - [ ] Parameters are normalized early to reduce branching
 - [ ] Architecture boundaries remain intact
-- [ ] No workarounds added to make tests pass (P9) — root cause addressed
-- [ ] No assay regressions without documented justification (P10)
+- [ ] No workarounds to make tests pass — root cause addressed or fix aborted (P9–P10)
 
 ---
 
