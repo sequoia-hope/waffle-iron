@@ -3712,16 +3712,25 @@ function scheduleAutoSave() {
 		try {
 			await saveToProvider();
 		} catch (err) {
-			// Fall back to localStorage if IndexedDB fails
+			// If remote provider fails, fall back to local IndexedDB
+			console.warn('Auto-save to provider failed, falling back to local:', err.message || err);
 			try {
-				const jsonData = await saveProjectToString();
-				if (jsonData && typeof localStorage !== 'undefined') {
-					localStorage.setItem(AUTOSAVE_KEY, jsonData);
-					localStorage.setItem(AUTOSAVE_TIME_KEY, String(Date.now()));
-					localStorage.setItem(AUTOSAVE_NAME_KEY, projectName);
+				const { getStore } = await import('$lib/storage/index.js');
+				const local = getStore();
+				if (activeDocId) {
+					const jsonData = await buildDocumentJson();
+					if (jsonData) {
+						const existing = await local.get(activeDocId);
+						await local.put({
+							id: activeDocId,
+							json: jsonData,
+							created: existing?.created || Date.now(),
+							modified: Date.now()
+						});
+					}
 				}
 			} catch {
-				console.warn('Auto-save failed:', err);
+				console.warn('Local fallback auto-save also failed');
 			}
 		}
 	}, AUTOSAVE_DELAY_MS);

@@ -85,7 +85,7 @@ export class GitHubStore {
 	 */
 	async put(doc) {
 		const parsed = JSON.parse(doc.json);
-		const name = parsed.name || 'Untitled';
+		const name = parsed.document?.name || parsed.project?.name || parsed.name || 'Untitled';
 		const filename = buildSlug(name) + '.waffle';
 
 		const index = await this.#loadIndex();
@@ -176,21 +176,13 @@ export class GitHubStore {
 		try {
 			await this.#apiCall(`/repos/${this.#owner}/${this.#repo}`);
 		} catch (err) {
-			if (err instanceof GitHubStorageError && err.code === 'not_found') {
-				await this.#apiCall('/user/repos', {
-					method: 'POST',
-					body: JSON.stringify({
-						name: this.#repo,
-						description: 'Waffle Iron CAD documents',
-						private: false,
-						auto_init: true
-					})
-				});
-				// Clear index cache since repo is fresh
-				this.#indexCache = null;
-			} else {
-				throw err;
+			if (err instanceof GitHubStorageError && (err.code === 'not_found' || err.code === 'permission_denied')) {
+				throw new GitHubStorageError(
+					`Repository "${this.#owner}/${this.#repo}" not found. Please create it on GitHub first, then install the Waffle Iron app on it.`,
+					'repo_not_found'
+				);
 			}
+			throw err;
 		}
 	}
 
@@ -221,10 +213,18 @@ export class GitHubStore {
 			throw new GitHubStorageError('Authentication failed', 'auth_failed');
 		}
 		if (res.status === 403) {
+			const remaining = res.headers.get('X-RateLimit-Remaining');
 			const resetHeader = res.headers.get('X-RateLimit-Reset');
+			if (remaining === '0' && resetHeader) {
+				throw new GitHubStorageError(
+					`Rate limited (resets at ${new Date(resetHeader * 1000).toLocaleTimeString()})`,
+					'rate_limit'
+				);
+			}
+			const body = await res.json().catch(() => ({}));
 			throw new GitHubStorageError(
-				`Rate limited${resetHeader ? ` (resets at ${resetHeader})` : ''}`,
-				'rate_limit'
+				body.message || 'Permission denied',
+				'permission_denied'
 			);
 		}
 		if (res.status === 404) {
