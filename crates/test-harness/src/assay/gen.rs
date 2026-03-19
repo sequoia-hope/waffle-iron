@@ -2209,8 +2209,12 @@ mod tests {
         let parsed: serde_json::Value =
             serde_json::from_str(&case.waffle_json).expect("waffle should be valid JSON");
         assert_eq!(parsed["format"], "waffle-iron");
-        assert_eq!(parsed["version"], 2);
-        assert!(parsed["features"]["features"].is_array());
+        assert_eq!(parsed["version"], 3);
+        // v3 uses tabs instead of top-level features
+        assert!(parsed["tabs"].is_array());
+        let tab = &parsed["tabs"][0];
+        assert_eq!(tab["kind"]["type"], "Part");
+        assert!(tab["kind"]["features"]["features"].is_array());
     }
 
     #[test]
