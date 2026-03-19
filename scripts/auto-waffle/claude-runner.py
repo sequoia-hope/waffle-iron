@@ -6,6 +6,9 @@ Uses `claude -p` for reliable headless execution. On timeout, sends SIGINT
 (the signal equivalent of Ctrl-C / escape) for graceful interruption.
 Follow-up prompts use `--resume` with the captured session ID.
 
+Streams output to log files in real-time so progress can be monitored
+with `tail -f`.
+
 Usage:
     python3 claude-runner.py \
         --work-prompt prompts/work.md \
@@ -24,6 +27,7 @@ Exit codes:
 import argparse
 import json
 import os
+import select
 import signal
 import subprocess
 import sys
@@ -33,7 +37,7 @@ import time
 def run_claude_print(prompt, output_file, timeout_secs=0, env_extra=None,
                      resume_session=None, verbose=False):
     """
-    Run `claude -p` with optional timeout.
+    Run `claude -p` with optional timeout. Streams output to file in real-time.
 
     Returns: (session_id, timed_out, exit_code)
     """
@@ -52,6 +56,8 @@ def run_claude_print(prompt, output_file, timeout_secs=0, env_extra=None,
         env.update(env_extra)
 
     timed_out = False
+    session_id = None
+
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -61,60 +67,123 @@ def run_claude_print(prompt, output_file, timeout_secs=0, env_extra=None,
         preexec_fn=os.setsid,
     )
 
-    try:
-        if timeout_secs > 0:
-            stdout, _ = proc.communicate(timeout=timeout_secs)
-        else:
-            stdout, _ = proc.communicate()
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        # Send SIGINT to the process group — graceful "escape" equivalent
-        print(f"[claude-runner] Timeout reached. Sending SIGINT for graceful stop...")
+    start_time = time.time()
+
+    with open(output_file, 'wb') as f:
+        while True:
+            # Check timeout
+            if timeout_secs > 0 and (time.time() - start_time) >= timeout_secs:
+                timed_out = True
+                print(f"\n[claude-runner] Timeout reached. Sending SIGINT for graceful stop...")
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGINT)
+                except ProcessLookupError:
+                    pass
+
+                # Drain remaining output with escalating force
+                drain_start = time.time()
+                while proc.poll() is None:
+                    ready, _, _ = select.select([proc.stdout], [], [], 1.0)
+                    if ready:
+                        chunk = proc.stdout.read1(4096)
+                        if chunk:
+                            f.write(chunk)
+                            f.flush()
+                            if verbose:
+                                sys.stdout.buffer.write(chunk)
+                                sys.stdout.buffer.flush()
+                            # Check for session_id in chunk
+                            _extract_session_id_from_chunk(chunk, session_id_box=[session_id])
+
+                    elapsed_drain = time.time() - drain_start
+                    if elapsed_drain > 30 and proc.poll() is None:
+                        print(f"[claude-runner] SIGINT didn't stop it. Sending SIGTERM...")
+                        try:
+                            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                        except ProcessLookupError:
+                            pass
+                    if elapsed_drain > 40 and proc.poll() is None:
+                        print(f"[claude-runner] Escalating to SIGKILL...")
+                        proc.kill()
+                        break
+                break
+
+            # Normal streaming: read available output
+            ready, _, _ = select.select([proc.stdout], [], [], 1.0)
+            if ready:
+                chunk = proc.stdout.read1(4096)
+                if not chunk:
+                    # EOF — process finished
+                    break
+                f.write(chunk)
+                f.flush()
+                if verbose:
+                    sys.stdout.buffer.write(chunk)
+                    sys.stdout.buffer.flush()
+
+                # Try to extract session_id from streaming data
+                try:
+                    text = chunk.decode('utf-8', errors='replace')
+                    for line in text.split('\n'):
+                        line = line.strip()
+                        if line.startswith('{') and 'session_id' in line:
+                            try:
+                                data = json.loads(line)
+                                if 'session_id' in data:
+                                    session_id = data['session_id']
+                            except json.JSONDecodeError:
+                                pass
+                except Exception:
+                    pass
+
+            # Check if process has exited
+            if proc.poll() is not None:
+                # Read any remaining buffered output
+                remaining = proc.stdout.read()
+                if remaining:
+                    f.write(remaining)
+                    f.flush()
+                    if verbose:
+                        sys.stdout.buffer.write(remaining)
+                        sys.stdout.buffer.flush()
+                break
+
+    proc.wait()
+
+    # If we didn't find session_id during streaming, scan the output file
+    if not session_id:
         try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGINT)
-        except ProcessLookupError:
+            with open(output_file, 'r', errors='replace') as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith('{') and 'session_id' in line:
+                        try:
+                            data = json.loads(line)
+                            if 'session_id' in data:
+                                session_id = data['session_id']
+                        except json.JSONDecodeError:
+                            pass
+        except Exception:
             pass
 
-        # Give it time to clean up (save session, etc.)
-        try:
-            stdout, _ = proc.communicate(timeout=30)
-        except subprocess.TimeoutExpired:
-            # If it still hasn't exited, escalate to SIGTERM
-            print(f"[claude-runner] SIGINT didn't stop it. Sending SIGTERM...")
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            try:
-                stdout, _ = proc.communicate(timeout=10)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                stdout, _ = proc.communicate()
+    return session_id, timed_out, proc.returncode
 
-    # Write output
-    with open(output_file, 'wb') as f:
-        f.write(stdout or b'')
 
-    if verbose and stdout:
-        sys.stdout.buffer.write(stdout)
-        sys.stdout.buffer.flush()
-
-    # Extract session_id from JSON output
-    session_id = None
-    if stdout:
-        # The JSON output may be on the last line or mixed with verbose output
-        # Try to parse each line as JSON
-        for line in stdout.decode('utf-8', errors='replace').strip().split('\n'):
+def _extract_session_id_from_chunk(chunk, session_id_box):
+    """Try to find session_id in a raw chunk. Updates session_id_box[0]."""
+    try:
+        text = chunk.decode('utf-8', errors='replace')
+        for line in text.split('\n'):
             line = line.strip()
             if line.startswith('{') and 'session_id' in line:
                 try:
                     data = json.loads(line)
                     if 'session_id' in data:
-                        session_id = data['session_id']
+                        session_id_box[0] = data['session_id']
                 except json.JSONDecodeError:
                     pass
-
-    return session_id, timed_out, proc.returncode
+    except Exception:
+        pass
 
 
 def run_session(args):
