@@ -19,3 +19,15 @@ thiserror = "1"
 resvg = { version = "0.44", optional = true }
 usvg = { version = "0.44", optional = true }
 tiny-skia = { version = "0.11", optional = true }
+
+[dev-dependencies]
+proptest = "1.6"
+rand = "0.8"
+
+[[example]]
+name = "render_sketch"
+required-features = ["render"]
+
+[[example]]
+name = "regenerate_golden"
+required-features = ["render"]
