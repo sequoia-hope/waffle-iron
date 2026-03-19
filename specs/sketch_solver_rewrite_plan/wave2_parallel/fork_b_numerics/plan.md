@@ -91,6 +91,35 @@ Phase 2: LM loop
 - Static row scaling freezes L_c before the loop (no per-iteration recompute)
 - Spring anchor x_anchor is FIXED throughout the solve (not the evolving x)
 
+**Warm start vs spring anchor protocol (from R4):**
+
+| Scenario | LM starting guess (x0) | Spring anchor (x_anchor) |
+|----------|------------------------|--------------------------|
+| Static edit (dimension change) | x_prev (last solved positions) | x_init (pre-edit state) |
+| Drag frame | x_prev (previous frame result) | x_init (mouse-down snapshot) |
+| Cold start (file load) | Entity positions from file | Same as x0 |
+
+The starting guess and spring anchor serve different purposes:
+- Starting guess → convergence speed (close to solution)
+- Spring anchor → prevents drift (fixed reference point, never updated mid-solve)
+
+**Scale type classification (from R4, reference for D_row construction):**
+
+| Constraint | Scale type | D_row entry |
+|-----------|-----------|-------------|
+| Coincident, Horizontal, Vertical | Distance | 1.0 |
+| Midpoint, SymmetricH, SymmetricV | Distance | 1.0 |
+| Dragged, Radius, Diameter | Distance | 1.0 |
+| Distance (P-P), Distance (P-L) | Distance | 1.0 |
+| OnEntity, Tangent, Equal, Ratio | Distance | 1.0 |
+| EqualPointToLine | Distance | 1.0 |
+| Parallel, Perpendicular | **Angle** | L_c |
+| Angle, EqualAngle, SameOrientation | **Angle** | L_c |
+| Symmetric (perpendicularity eq) | **Angle** | L_c |
+| Symmetric (midpoint-on-line eq) | Distance | 1.0 |
+
+Note: Symmetric(arbitrary line) has 2 equations with DIFFERENT scale types.
+
 ### Worker B2: SVD rank analysis (`core/rank.rs`)
 
 Per R3 research — use SVD (not QR) for all diagnostics.

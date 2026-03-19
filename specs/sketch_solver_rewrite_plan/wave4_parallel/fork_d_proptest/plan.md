@@ -2,7 +2,7 @@
 
 **Executor**: Claude fork (worktree), with Gemini workers
 **Depends on**: Wave 3 (working solver)
-**Parallel with**: Fork E (LM fallback), Fork F (JS elimination)
+**Parallel with**: Fork F (JS elimination)
 **Estimated scope**: ~600 lines of test code
 
 ## Goal
@@ -61,6 +61,11 @@ The core strategy from the spec's testing section:
 - structural DOF = 2 * num_points + num_circles - total_constraint_equations
 - Verify this holds before and after solve
 
+**Test: `proptest_dof_matches_svd_rank`**
+- For any sketch, solve, then verify: `rank(J_scaled) + dof == num_params`
+- Validates that SVD rank analysis (R3) agrees with structural DOF formula
+- This catches bugs in rank threshold selection or D_row construction
+
 **Test: `proptest_idempotent_solve`**
 - Solve a sketch, take the solved positions, re-solve → same result
 
@@ -71,6 +76,44 @@ The core strategy from the spec's testing section:
 **Test: `proptest_fully_constrained_unique_solution`**
 - For a fully constrained sketch, solve from 10 different random perturbations
 - All should converge to the same solution (within tolerance)
+
+### Worker D3b: Mathematical correctness tests
+
+These verify the solver's numerical machinery, not just its geometric outputs.
+
+**Test: `proptest_jacobian_finite_difference_verification`** (CRITICAL)
+- Generate random sketch with random param perturbations
+- For EVERY constraint in the system, compute analytic Jacobian row
+- Compare against central finite differences: `(f(x+h) - f(x-h)) / 2h`, h=1e-5
+- Assert agreement within 1e-7 for every non-zero entry
+- Must test at 3+ random configurations per sketch (not just the solved state)
+- This is the single most important property test — catches sign errors,
+  missing terms, and wrong chain-rule applications in constraint implementations
+
+**Test: `proptest_condition_number_with_scaling`**
+- Generate sketches with MIXED distance + angle constraints
+- Compute condition number of J_raw vs J_scaled
+- Assert: cond(J_scaled) < cond(J_raw) when angle constraints are present
+- Assert: cond(J_scaled) < 1e8 for reasonable sketches (heuristic bound)
+- Validates that D_row construction is correct per R4 scale classification table
+
+**Test: `proptest_convergence_iterations_bounded`**
+- Warm start (perturb solved positions by ±1%): converges in ≤ 15 iterations
+- Cold start (perturb by ±50%): converges in ≤ 40 iterations
+- These bounds are generous (R2 estimates: warm 3-5, cold 10-20)
+- Violation indicates a bug in LM loop, not just slow convergence
+
+**Test: `proptest_weak_spring_no_drift`**
+- Under-constrained sketch (DOF > 0)
+- Solve 50 times sequentially, each time using previous solution as warm start
+- Assert: free parameters stay within 1e-6 of their initial position
+- Validates R4 claim: weak springs prevent manifold drift over sequential solves
+
+**Test: `proptest_spring_anchor_independence`**
+- Fully constrained sketch: solution should be identical regardless of
+  spring anchor position (springs have zero effect when DOF=0)
+- Under-constrained sketch: solution should depend on spring anchor
+  (springs guide the null-space selection)
 
 ### Worker D4: Edge case and adversarial tests
 
@@ -98,9 +141,11 @@ If `render` feature is enabled:
 - `tests/proptest_strategies.rs`: reusable strategies
 - `tests/proptest_solve.rs`: seed-and-measure tests
 - `tests/proptest_invariants.rs`: structural property tests
+- `tests/proptest_numerics.rs`: mathematical correctness tests (Jacobian FD, condition number, convergence, drift)
 - `tests/proptest_adversarial.rs`: edge case tests
 
 ## Verification
 
 - `cargo test -p sketch-solver -- proptest` — all pass with 256+ cases each
 - `PROPTEST_CASES=1000 cargo test -p sketch-solver -- proptest` — stress test
+- Zero Jacobian FD failures across 1000 random sketches (the canary test)

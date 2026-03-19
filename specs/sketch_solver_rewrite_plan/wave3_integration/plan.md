@@ -17,7 +17,7 @@ Wire the new solver core into the existing `solve_sketch()` API and pass all
 Replace the slvs-based implementation with:
 
 ```rust
-use crate::core::{ParamLayout, build_constraints, newton_solve, analyze_rank, classify_solve};
+use crate::core::{ParamLayout, build_constraints, lm_solve, analyze_rank, classify_solve};
 use crate::profiles::extract_profiles;
 
 pub fn solve_sketch(sketch: &Sketch) -> SolvedSketch {
@@ -30,19 +30,26 @@ pub fn solve_sketch(sketch: &Sketch) -> SolvedSketch {
     let layout = ParamLayout::from_entities(entities);
     let x0 = layout.initial_params(entities);
 
-    // Build constraint equations
+    // Build constraint equations with scale type annotations
     let constraint_impls = build_constraints(constraints, entities, &layout);
+    let scale_types = build_scale_types(&constraint_impls);
     let num_equations: usize = constraint_impls.iter().map(|c| c.num_equations()).sum();
 
-    // Solve
-    let options = SolveOptions::default(); // TAU_MODEL, 50 iters, μ=1e-6
-    let outcome = newton_solve(&x0, &constraint_impls, num_equations, &options);
+    // Solve with LM (x0 serves as both starting guess and spring anchor
+    // for initial solve — they diverge only during drag operations)
+    let options = SolveOptions::default(); // TAU_MODEL, 50 iters, λ=1e-3, μ=1e-6
+    let outcome = lm_solve(&x0, &x0, &constraint_impls, &scale_types, num_equations, &options);
 
-    // Rank analysis for status
-    // (rebuild Jacobian at solved point for rank determination)
-    let jacobian = build_dense_jacobian(&outcome.params, &constraint_impls, num_equations, layout.num_params);
-    let rank = analyze_rank(&jacobian, layout.num_params, num_equations, options.tolerance);
-    let status = classify_solve(&outcome, &rank, layout.num_params);
+    // Rank analysis on SCALED, UN-AUGMENTED Jacobian (from SolveOutcome)
+    let eq_to_constraint = build_eq_to_constraint_map(&constraint_impls);
+    let rank = analyze_rank(
+        &outcome.jacobian_scaled,
+        &outcome.residual_scaled,
+        layout.num_params(),
+        num_equations,
+        &eq_to_constraint,
+    );
+    let status = classify_solve(&outcome, &rank, layout.num_params());
 
     // Extract positions
     let positions = layout.extract_positions(&outcome.params);
@@ -57,6 +64,19 @@ pub fn solve_sketch(sketch: &Sketch) -> SolvedSketch {
     SolvedSketch { positions, profiles, status }
 }
 ```
+
+**Drag operation protocol (from R4):**
+
+When the UI sends a `Dragged { point }` constraint, the solver must:
+1. Use the point's current position (from the sketch entities) as the drag target
+2. `x0` = previous solved positions (warm start for fast convergence)
+3. `x_anchor` = positions captured at mouse-down (prevents null-space drift)
+4. The `Dragged` constraint creates a hard anchor: `x_p - tx = 0, y_p - ty = 0`
+5. Weak springs on all OTHER params pull toward `x_anchor`
+
+For the initial Wave 3 implementation, `x0 == x_anchor == initial_params` (no
+distinction needed until drag is wired through the UI with frame-by-frame state).
+The `x_anchor` parameter exists in `lm_solve` to support drag in the future.
 
 ### 3.2 Delete slvs-specific modules
 
