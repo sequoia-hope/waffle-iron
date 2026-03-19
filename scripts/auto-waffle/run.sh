@@ -27,7 +27,6 @@ REVIEW_EVERY=0          # 0 = never
 PLAN_ONLY=false
 DRY_RUN=false
 VERBOSE=false
-CONTINUE_MODE=false
 
 usage() {
     cat <<'USAGE'
@@ -42,7 +41,6 @@ Options:
   --plan-only                Generate a plan for the next task and exit (no execution)
   --dry-run                  Print prompts that would be sent without executing
   --log-dir DIR              Override log directory
-  --continue                 Resume from last iteration count
   -v, --verbose              Stream claude output to terminal in addition to logs
   -h, --help                 Show this help
 USAGE
@@ -88,8 +86,6 @@ while [[ $# -gt 0 ]]; do
             DRY_RUN=true; shift ;;
         --log-dir)
             LOG_DIR="$2"; shift 2 ;;
-        --continue)
-            CONTINUE_MODE=true; shift ;;
         -v|--verbose)
             VERBOSE=true; shift ;;
         -h|--help)
@@ -101,17 +97,7 @@ done
 
 mkdir -p "$LOG_DIR"
 
-# Determine starting iteration
 ITERATION=1
-if $CONTINUE_MODE; then
-    # Find highest existing iteration number
-    last=$(find "$LOG_DIR" -maxdepth 1 -name 'meta.json' -path '*/*/meta.json' 2>/dev/null \
-        | xargs -r grep -l '"iteration"' | sed 's|.*/\([0-9]*\)-.*|\1|' | sort -n | tail -1)
-    if [[ -n "$last" ]]; then
-        ITERATION=$(( last + 1 ))
-        echo "Continuing from iteration $ITERATION"
-    fi
-fi
 
 LOOP_START=$(date +%s)
 
