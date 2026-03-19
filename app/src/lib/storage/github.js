@@ -177,12 +177,19 @@ export class GitHubStore {
 			await this.#apiCall(`/repos/${this.#owner}/${this.#repo}`);
 		} catch (err) {
 			if (err instanceof GitHubStorageError && (err.code === 'not_found' || err.code === 'permission_denied')) {
-				throw new GitHubStorageError(
-					`Repository "${this.#owner}/${this.#repo}" not found. Please create it on GitHub first, then install the Waffle Iron app on it.`,
-					'repo_not_found'
-				);
+				await this.#apiCall('/user/repos', {
+					method: 'POST',
+					body: JSON.stringify({
+						name: this.#repo,
+						description: 'Waffle Iron CAD documents',
+						private: false,
+						auto_init: true
+					})
+				});
+				this.#indexCache = null;
+			} else {
+				throw err;
 			}
-			throw err;
 		}
 	}
 
