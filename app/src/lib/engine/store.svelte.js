@@ -298,11 +298,26 @@ export async function initEngine() {
 		lastError = null;
 		statusMessage = `Model updated (${meshes.length} ${meshes.length === 1 ? 'body' : 'bodies'})`;
 
-		// Store preview mesh in active tab metadata for thumbnail/save
-		if (msg.preview_mesh && activeTabId) {
+		// Generate preview mesh from the last mesh for thumbnail/save.
+		// Prefer Rust-side preview_mesh if available, otherwise build from JS meshes.
+		if (activeTabId) {
 			const tab = documentTabs.find(t => t.id === activeTabId);
 			if (tab) {
-				tab.kind.preview_mesh = msg.preview_mesh;
+				if (msg.preview_mesh) {
+					tab.kind.preview_mesh = msg.preview_mesh;
+				} else if (meshes.length > 0) {
+					// Build preview from the last JS-side mesh (typed arrays)
+					const last = meshes[meshes.length - 1];
+					if (last.vertices?.length > 0 && last.indices?.length > 0) {
+						tab.kind.preview_mesh = {
+							vertices: Array.from(last.vertices),
+							normals: Array.from(last.normals || []),
+							indices: Array.from(last.indices)
+						};
+					}
+				} else {
+					tab.kind.preview_mesh = null;
+				}
 			}
 		}
 
