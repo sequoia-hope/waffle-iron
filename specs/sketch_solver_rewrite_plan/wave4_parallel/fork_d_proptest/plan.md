@@ -129,6 +129,13 @@ Per spec §Numerical Stability Tests:
 **Test: `proptest_zero_length_line`**
 - Line with coincident endpoints + length constraint → should handle gracefully
 
+**Test: `proptest_tangent_arc_arc`**
+- Two circles with random centers and radii
+- External tangent: verify solver finds configuration where dist(c1,c2) = r1+r2
+- Internal tangent: verify dist(c1,c2) = |r1-r2|
+- Exercises TangentArcArc variant directly (bypassing constraint builder,
+  since waffle-types doesn't have the variant yet)
+
 ### Worker D5: Visual proptest integration
 
 If `render` feature is enabled:

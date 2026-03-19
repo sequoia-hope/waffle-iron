@@ -11,6 +11,10 @@ Implement the Levenberg-Marquardt solver with weak spring augmentation,
 row-scaled Jacobian, SVD rank analysis, and status classification.
 This is Layer 2 of the spec's three-layer architecture.
 
+Uses `nalgebra::DMatrix<f64>` / `DVector<f64>` throughout. Constraints
+provide sparse triplets via `ConstraintEq::jacobian()`; the solver
+assembles these into dense matrices for the LM loop.
+
 **Primary references**:
 - `research/r2_results.md` — LM as primary solver
 - `research/r3_results.md` — SVD rank analysis

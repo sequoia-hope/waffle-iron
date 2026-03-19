@@ -18,8 +18,10 @@ solved sketches. This enables:
 
 ```toml
 [features]
-render = ["dep:svg", "dep:resvg", "dep:tiny-skia"]
+render = ["dep:svg", "dep:resvg"]
 ```
+
+(resvg bundles tiny-skia internally as of v0.44)
 
 All render code behind `#[cfg(feature = "render")]`. The solver crate compiles
 and works without rendering — rendering is a dev/test/debug tool.
