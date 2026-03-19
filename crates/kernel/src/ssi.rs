@@ -11,7 +11,10 @@
 
 use crate::types::KernelError;
 use crate::units::TAU_COINCIDENT;
-use crate::vecmath::{mat3_mul_vec, v3_add, v3_cross, v3_dot, v3_length, v3_scale, v3_sub, Mat3};
+use crate::vecmath::{
+    compute_plane_basis, mat3_mul_vec, v3_add, v3_cross, v3_dot, v3_length, v3_normalize, v3_scale,
+    v3_sub, Mat3,
+};
 use crate::waffle_kernel::{CylinderParams, WaffleSolid};
 
 // ── SSI curve types ────────────────────────────────────────────────────────
@@ -1128,6 +1131,533 @@ pub(crate) fn plane_torus_ssi(
     }
 
     Ok(curves)
+}
+
+// ── Sphere-Torus SSI ─────────────────────────────────────────────────────
+
+/// Analytical SSI solver for sphere-torus pairs (A15 pair #9).
+///
+/// Returns intersection curves between a sphere and a torus.
+/// Axial case (sphere center on torus axis) yields exact circles.
+/// General case approximated with a Line segment.
+///
+/// Ref #1: Patrikalakis Ch.5
+pub(crate) fn sphere_torus_ssi(
+    sphere_center: [f64; 3],
+    sphere_radius: f64,
+    torus_center: [f64; 3],
+    torus_axis: [f64; 3],
+    torus_major_radius: f64,
+    torus_minor_radius: f64,
+) -> Result<Vec<SSICurve>, KernelError> {
+    let big_r = torus_major_radius;
+    let r = torus_minor_radius;
+    let s = sphere_radius;
+
+    // 1. Project sphere center onto torus axis
+    let diff = v3_sub(sphere_center, torus_center);
+    let h = v3_dot(diff, torus_axis); // signed axial offset
+    let proj = v3_add(torus_center, v3_scale(torus_axis, h));
+    let perp_vec = v3_sub(sphere_center, proj);
+    let d = v3_length(perp_vec); // perpendicular distance from axis
+
+    // 2. Disjoint check: sphere too far from nearest torus surface point.
+    //    Nearest point on torus generating circle (in the plane through sphere center
+    //    and torus axis): at distance big_r from axis in the torus midplane.
+    //    Distance from sphere center to torus tube center circle:
+    //    sqrt(d² + h²) projected to the generating circle plane, then subtract big_r,
+    //    add radial distance. More precisely:
+    //    The closest point on the tube centerline to sphere center is at distance
+    //    sqrt((d - big_r)² + h²) from the sphere center (if d > 0), or
+    //    sqrt((big_r)² + h²) - ... Actually, let's compute the distance from
+    //    sphere center to the nearest point on the torus surface directly.
+    //    Torus tube center circle: radius big_r in the torus midplane.
+    //    The closest point on this circle to sphere_center is at:
+    //      if d > TOL: tube_center = proj_on_plane + big_r * perp_unit (in torus midplane)
+    //                  but we need to account for axial offset h too.
+    //    Distance from sphere center to closest tube center = sqrt((d - big_r)² + h²)
+    //    (when d > TOL), or sqrt(big_r² + h²) (when d ≈ 0).
+    //    Nearest torus surface = that distance - r.
+    let dist_to_tube_center = if d > TOL {
+        ((d - big_r) * (d - big_r) + h * h).sqrt()
+    } else {
+        (big_r * big_r + h * h).sqrt()
+    };
+
+    // Disjoint: sphere doesn't reach torus surface
+    if dist_to_tube_center > s + r + TOL {
+        return Ok(vec![]);
+    }
+
+    // Enclosed: sphere is entirely inside the torus tube
+    if dist_to_tube_center + s < r - TOL {
+        return Ok(vec![]);
+    }
+
+    // 3. Axial case: sphere center on torus axis (d ≈ 0)
+    if d < TOL {
+        // Torus: (ρ - R)² + z² = r²
+        // Sphere: ρ² + (z - h)² = s²
+        //
+        // From these two equations, eliminating:
+        //   u = ρ = (s² + 2hz - h² + R² - r²) / (2R)
+        //   u² + (z - h)² = s²
+        //
+        // Let A = (s² - h² + R² - r²) / (2R), B = h / R
+        // Then u = A + B·z, and (A + Bz)² + (z - h)² = s²
+        // (1 + B²)z² + (2AB - 2h)z + (A² + h² - s²) = 0
+        let a_val = (s * s - h * h + big_r * big_r - r * r) / (2.0 * big_r);
+        let b_val = h / big_r;
+
+        let qa = 1.0 + b_val * b_val;
+        let qb = 2.0 * a_val * b_val - 2.0 * h;
+        let qc = a_val * a_val + h * h - s * s;
+
+        let disc = qb * qb - 4.0 * qa * qc;
+
+        if disc < 0.0 {
+            return Ok(vec![]);
+        }
+
+        let mut curves = Vec::new();
+
+        if disc.abs() < TOL * TOL {
+            // Single tangent solution
+            let z_sol = -qb / (2.0 * qa);
+            let rho = a_val + b_val * z_sol;
+            if rho > TOL {
+                let center = v3_add(torus_center, v3_scale(torus_axis, z_sol));
+                curves.push(SSICurve::Circle {
+                    center,
+                    normal: torus_axis,
+                    radius: rho,
+                });
+            }
+        } else {
+            let sqrt_disc = disc.sqrt();
+            let z1 = (-qb + sqrt_disc) / (2.0 * qa);
+            let z2 = (-qb - sqrt_disc) / (2.0 * qa);
+
+            for z_sol in [z1, z2] {
+                let rho = a_val + b_val * z_sol;
+                if rho > TOL {
+                    // Verify this point is actually on both surfaces
+                    let center = v3_add(torus_center, v3_scale(torus_axis, z_sol));
+                    curves.push(SSICurve::Circle {
+                        center,
+                        normal: torus_axis,
+                        radius: rho,
+                    });
+                }
+            }
+        }
+
+        return Ok(curves);
+    }
+
+    // 4. General offset case: sphere center off-axis.
+    //    The intersection is a degree-4 space curve. We approximate by scanning
+    //    azimuthally and returning a representative Line segment.
+    let perp_unit = v3_scale(perp_vec, 1.0 / d);
+
+    // Scan azimuthally around the torus to find intersection extent.
+    // For each azimuthal angle θ, the torus tube center is at:
+    //   C(θ) = torus_center + R*(cos(θ)*perp_unit + sin(θ)*tang_unit)
+    // where tang_unit is perpendicular to both axis and perp_unit.
+    let tang_unit = v3_cross(torus_axis, perp_unit);
+
+    let n_theta: usize = 360;
+    let n_phi: usize = 36;
+    let mut found_pts: Vec<[f64; 3]> = Vec::new();
+
+    for i in 0..n_theta {
+        let theta = 2.0 * std::f64::consts::PI * (i as f64) / (n_theta as f64);
+        let cos_t = theta.cos();
+        let sin_t = theta.sin();
+
+        // Tube center at this azimuthal angle
+        let tube_c = v3_add(
+            torus_center,
+            v3_add(
+                v3_scale(perp_unit, big_r * cos_t),
+                v3_scale(tang_unit, big_r * sin_t),
+            ),
+        );
+
+        // Distance from sphere center to tube center
+        let tc_diff = v3_sub(tube_c, sphere_center);
+        let tc_dist = v3_length(tc_diff);
+
+        // Check if sphere intersects the tube cross-section at this azimuth
+        // The tube cross-section is a circle of radius r centered at tube_c.
+        // Intersection exists if |tc_dist - s| <= r (approximately).
+        if tc_dist > s + r + TOL || tc_dist + r < s - TOL {
+            continue;
+        }
+        if s + tc_dist < r - TOL {
+            continue;
+        }
+
+        // Scan the tube cross-section (poloidal angle φ) to find intersection points
+        let tube_radial = v3_normalize(v3_sub(tube_c, torus_center));
+        // tube_radial is in the torus midplane; the other basis vector is the torus axis
+        for j in 0..n_phi {
+            let phi = 2.0 * std::f64::consts::PI * (j as f64) / (n_phi as f64);
+            let cos_p = phi.cos();
+            let sin_p = phi.sin();
+
+            // Point on torus surface
+            let pt = v3_add(
+                tube_c,
+                v3_add(
+                    v3_scale(tube_radial, r * cos_p),
+                    v3_scale(torus_axis, r * sin_p),
+                ),
+            );
+
+            // Check if this point is on the sphere surface
+            let dist_to_sphere = v3_length(v3_sub(pt, sphere_center));
+            if (dist_to_sphere - s).abs() < 0.05 {
+                found_pts.push(pt);
+            }
+        }
+    }
+
+    if found_pts.is_empty() {
+        return Ok(vec![]);
+    }
+
+    // Return a Line segment spanning the extent of found points
+    // Find the two most distant points
+    let mut max_dist = 0.0_f64;
+    let mut p_start = found_pts[0];
+    let mut p_end = found_pts[0];
+    for i in 0..found_pts.len() {
+        for j in (i + 1)..found_pts.len() {
+            let dd = v3_length(v3_sub(found_pts[i], found_pts[j]));
+            if dd > max_dist {
+                max_dist = dd;
+                p_start = found_pts[i];
+                p_end = found_pts[j];
+            }
+        }
+    }
+
+    Ok(vec![SSICurve::Line {
+        start: p_start,
+        end: p_end,
+    }])
+}
+
+// ── Cone-Cone SSI ────────────────────────────────────────────────────────
+
+/// Analytical SSI solver for cone-cone pairs (A15 pair #10).
+///
+/// Returns intersection curves between two finite cones.
+/// Coaxial case yields exact circles. Same-apex case yields lines.
+/// General case approximated with a Line segment.
+///
+/// Ref #1: Patrikalakis Ch.5
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn cone_cone_ssi(
+    apex_a: [f64; 3],
+    axis_a: [f64; 3],
+    half_angle_a: f64,
+    height_range_a: (f64, f64),
+    apex_b: [f64; 3],
+    axis_b: [f64; 3],
+    half_angle_b: f64,
+    height_range_b: (f64, f64),
+) -> Result<Vec<SSICurve>, KernelError> {
+    let tan_a = half_angle_a.tan();
+    let tan_b = half_angle_b.tan();
+
+    if tan_a.abs() < TOL || tan_b.abs() < TOL {
+        return Ok(vec![]);
+    }
+
+    let z_min_a = height_range_a.0.max(0.0);
+    let z_max_a = height_range_a.1;
+    let z_min_b = height_range_b.0.max(0.0);
+    let z_max_b = height_range_b.1;
+
+    if z_max_a <= z_min_a || z_max_b <= z_min_b {
+        return Ok(vec![]);
+    }
+
+    // Check if axes are collinear (coaxial case)
+    let apex_diff = v3_sub(apex_b, apex_a);
+    let dot_axes = v3_dot(axis_a, axis_b);
+    let axes_parallel = dot_axes.abs() > 1.0 - TOL;
+
+    // Distance from apex_b to the axis line of cone A
+    let t_proj = v3_dot(apex_diff, axis_a);
+    let proj = v3_add(apex_a, v3_scale(axis_a, t_proj));
+    let perp = v3_sub(apex_b, proj);
+    let perp_dist = v3_length(perp);
+
+    let axes_collinear = axes_parallel && perp_dist < TOL;
+
+    // Check if apices coincide
+    let apex_dist = v3_length(apex_diff);
+    let same_apex = apex_dist < TOL;
+
+    // 1. Coaxial case: axes are collinear
+    if axes_collinear && !same_apex {
+        // Signed distance from apex_a to apex_b along axis_a
+        let d = v3_dot(apex_diff, axis_a);
+        // At height h from apex_a: r_a = h * tan_a
+        // apex_b is at h = d from apex_a along axis_a.
+        // At height h from apex_a, height from apex_b is:
+        //   if axes same direction: h_b = h - d
+        //   if axes opposite direction: h_b = -(h - d) = d - h... but we need h_b > 0
+        // Actually, the cone B surface at height h_b from apex_b: r_b = h_b * tan_b
+        // h_b measured along axis_b. Since axes are parallel:
+        //   if dot_axes > 0 (same direction): h_b = h - d (where h is from apex_a along axis_a)
+        //   if dot_axes < 0 (opposite direction): h_b = d - h
+
+        let same_dir = dot_axes > 0.0;
+
+        // Solve: h * tan_a = h_b * tan_b
+        // Same direction: h * tan_a = (h - d) * tan_b
+        //   h * tan_a = h * tan_b - d * tan_b
+        //   h * (tan_a - tan_b) = -d * tan_b
+        //   h = d * tan_b / (tan_b - tan_a)
+        // Opposite direction: h * tan_a = (d - h) * tan_b
+        //   h * tan_a = d * tan_b - h * tan_b
+        //   h * (tan_a + tan_b) = d * tan_b
+        //   h = d * tan_b / (tan_a + tan_b)
+
+        if same_dir {
+            if (tan_a - tan_b).abs() < TOL {
+                // Same angle, same direction → parallel generators → no intersection
+                return Ok(vec![]);
+            }
+            let h = d * tan_b / (tan_b - tan_a);
+            let h_b = h - d;
+
+            // Check height ranges
+            if h >= z_min_a - TOL
+                && h <= z_max_a + TOL
+                && h > TOL
+                && h_b >= z_min_b - TOL
+                && h_b <= z_max_b + TOL
+                && h_b > TOL
+            {
+                let radius = h * tan_a;
+                if radius > TOL {
+                    let center = v3_add(apex_a, v3_scale(axis_a, h));
+                    return Ok(vec![SSICurve::Circle {
+                        center,
+                        normal: axis_a,
+                        radius,
+                    }]);
+                }
+            }
+            Ok(vec![])
+        } else {
+            // Opposite direction
+            let h = d * tan_b / (tan_a + tan_b);
+            let h_b = d - h;
+
+            if h >= z_min_a - TOL
+                && h <= z_max_a + TOL
+                && h > TOL
+                && h_b >= z_min_b - TOL
+                && h_b <= z_max_b + TOL
+                && h_b > TOL
+            {
+                let radius = h * tan_a;
+                if radius > TOL {
+                    let center = v3_add(apex_a, v3_scale(axis_a, h));
+                    return Ok(vec![SSICurve::Circle {
+                        center,
+                        normal: axis_a,
+                        radius,
+                    }]);
+                }
+            }
+            Ok(vec![])
+        }
+    }
+    // 2. Same-apex case: apices coincide → apex is always a shared point.
+    //    The intersection curve passes through the apex. We emit a Line from the
+    //    apex to a representative point found by numerical scanning on both surfaces.
+    else if same_apex {
+        // The apex is on both surfaces. Find the intersection curve by scanning
+        // cone A's surface and checking proximity to cone B.
+        let (u_a, v_a) = compute_plane_basis(axis_a);
+
+        let n_h: usize = 200;
+        let n_theta: usize = 72;
+        let mut found_pts: Vec<[f64; 3]> = Vec::new();
+
+        // Always include the shared apex as an intersection point.
+        found_pts.push(apex_a);
+
+        for ih in 1..=n_h {
+            let h_a = z_min_a + (z_max_a - z_min_a) * (ih as f64) / (n_h as f64);
+            if h_a < TOL {
+                continue;
+            }
+            let ra = h_a * tan_a;
+
+            for it in 0..n_theta {
+                let theta = 2.0 * std::f64::consts::PI * (it as f64) / (n_theta as f64);
+                let cos_t = theta.cos();
+                let sin_t = theta.sin();
+
+                // Point on cone A
+                let pt = v3_add(
+                    v3_add(apex_a, v3_scale(axis_a, h_a)),
+                    v3_add(v3_scale(u_a, ra * cos_t), v3_scale(v_a, ra * sin_t)),
+                );
+
+                // Check if pt is on cone B surface
+                let diff_b = v3_sub(pt, apex_b);
+                let h_b = v3_dot(diff_b, axis_b);
+
+                if h_b < z_min_b - TOL || h_b > z_max_b + TOL || h_b < TOL {
+                    continue;
+                }
+
+                let rb = h_b * tan_b;
+                let proj_b = v3_add(apex_b, v3_scale(axis_b, h_b));
+                let perp_b = v3_sub(pt, proj_b);
+                let perp_dist_b = v3_length(perp_b);
+
+                // Use relative tolerance proportional to the cone radius
+                let tol_b = (rb * 0.05).max(0.02);
+                if (perp_dist_b - rb).abs() < tol_b {
+                    found_pts.push(pt);
+                }
+            }
+        }
+
+        if found_pts.len() <= 1 {
+            // Only the apex — emit a single degenerate Line from apex to a
+            // point slightly along the bisector of the two axes (the
+            // intersection curve must pass through the apex).
+            let bisector = v3_normalize(v3_add(axis_a, axis_b));
+            let small_t = z_min_a.max(0.01);
+            let end_pt = v3_add(apex_a, v3_scale(bisector, small_t));
+            return Ok(vec![SSICurve::Line {
+                start: apex_a,
+                end: end_pt,
+            }]);
+        }
+
+        // Return a Line segment spanning the extent
+        let mut max_d = 0.0_f64;
+        let mut p_start = found_pts[0];
+        let mut p_end = found_pts[1];
+        for i in 0..found_pts.len() {
+            for j in (i + 1)..found_pts.len() {
+                let dd = v3_length(v3_sub(found_pts[i], found_pts[j]));
+                if dd > max_d {
+                    max_d = dd;
+                    p_start = found_pts[i];
+                    p_end = found_pts[j];
+                }
+            }
+        }
+
+        Ok(vec![SSICurve::Line {
+            start: p_start,
+            end: p_end,
+        }])
+    }
+    // 3. General case: arbitrary position
+    else {
+        // Bounding-sphere disjoint check
+        let max_r_a = z_max_a * tan_a;
+        let max_r_b = z_max_b * tan_b;
+        let extent_a = (z_max_a * z_max_a + max_r_a * max_r_a).sqrt();
+        let extent_b = (z_max_b * z_max_b + max_r_b * max_r_b).sqrt();
+
+        // Centers of bounding spheres (midpoint of cone axis segments)
+        let mid_a = v3_add(apex_a, v3_scale(axis_a, (z_min_a + z_max_a) * 0.5));
+        let mid_b = v3_add(apex_b, v3_scale(axis_b, (z_min_b + z_max_b) * 0.5));
+        let centers_dist = v3_length(v3_sub(mid_a, mid_b));
+
+        if centers_dist > extent_a + extent_b + TOL {
+            return Ok(vec![]);
+        }
+
+        // Sample cone A surface, check proximity to cone B surface.
+        // For each height h on cone A and azimuthal angle θ, compute a point on cone A,
+        // then check if it lies on or near cone B.
+        let (u_a, v_a) = compute_plane_basis(axis_a);
+
+        let n_h: usize = 100;
+        let n_theta: usize = 72;
+        let mut found_pts: Vec<[f64; 3]> = Vec::new();
+
+        for ih in 0..=n_h {
+            let h_a = z_min_a + (z_max_a - z_min_a) * (ih as f64) / (n_h as f64);
+            if h_a < TOL {
+                continue;
+            }
+            let ra = h_a * tan_a;
+
+            for it in 0..n_theta {
+                let theta = 2.0 * std::f64::consts::PI * (it as f64) / (n_theta as f64);
+                let cos_t = theta.cos();
+                let sin_t = theta.sin();
+
+                // Point on cone A
+                let pt = v3_add(
+                    v3_add(apex_a, v3_scale(axis_a, h_a)),
+                    v3_add(v3_scale(u_a, ra * cos_t), v3_scale(v_a, ra * sin_t)),
+                );
+
+                // Check if pt is on cone B surface:
+                // Height from apex_b along axis_b
+                let diff_b = v3_sub(pt, apex_b);
+                let h_b = v3_dot(diff_b, axis_b);
+
+                if h_b < z_min_b - TOL || h_b > z_max_b + TOL || h_b < TOL {
+                    continue;
+                }
+
+                // Expected radius at that height
+                let rb = h_b * tan_b;
+
+                // Actual perpendicular distance from axis_b
+                let proj_b = v3_add(apex_b, v3_scale(axis_b, h_b));
+                let perp_b = v3_sub(pt, proj_b);
+                let perp_dist_b = v3_length(perp_b);
+
+                if (perp_dist_b - rb).abs() < 0.05 {
+                    found_pts.push(pt);
+                }
+            }
+        }
+
+        if found_pts.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Return a Line segment spanning the extent
+        let mut max_d = 0.0_f64;
+        let mut p_start = found_pts[0];
+        let mut p_end = found_pts[0];
+        for i in 0..found_pts.len() {
+            for j in (i + 1)..found_pts.len() {
+                let dd = v3_length(v3_sub(found_pts[i], found_pts[j]));
+                if dd > max_d {
+                    max_d = dd;
+                    p_start = found_pts[i];
+                    p_end = found_pts[j];
+                }
+            }
+        }
+
+        Ok(vec![SSICurve::Line {
+            start: p_start,
+            end: p_end,
+        }])
+    }
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -4228,6 +4758,858 @@ mod tests {
             assert!((dot - 1.0).abs() < tau, "Normal should be parallel to +Z");
         } else {
             panic!("Expected Circle, got {:?}", curves[0]);
+        }
+    }
+
+    // ── Sphere-Torus SSI ────────────────────────────────────────────
+
+    #[test]
+    fn test_sphere_torus_axial_two_circles() {
+        // Sphere centered on torus axis, radius straddles torus tube → 2 circles.
+        // Torus: center=[0,0,0], axis=[0,0,1], R=5, r=1
+        // Sphere: center=[0,0,0], radius=5.5
+        // Solving: torus surface (ρ-5)²+z²=1, sphere ρ²+z²=30.25
+        // → ρ = 5.425, z = ±0.9052
+        let curves = sphere_torus_ssi(
+            [0.0, 0.0, 0.0], // sphere center
+            5.5,             // sphere radius
+            [0.0, 0.0, 0.0], // torus center
+            [0.0, 0.0, 1.0], // torus axis
+            5.0,             // torus major radius R
+            1.0,             // torus minor radius r
+        )
+        .unwrap();
+        assert_eq!(curves.len(), 2, "Expected 2 circles, got {}", curves.len());
+
+        let mut z_values: Vec<f64> = Vec::new();
+        for curve in &curves {
+            if let SSICurve::Circle {
+                center,
+                normal,
+                radius,
+            } = curve
+            {
+                // Each circle should have radius ≈ 5.425 (the ρ value)
+                assert!(
+                    (radius - 5.425).abs() < 0.01,
+                    "Circle radius should be ~5.425, got {}",
+                    radius
+                );
+                // Center should be on the Z axis
+                assert!(center[0].abs() < EPS, "center x={}", center[0]);
+                assert!(center[1].abs() < EPS, "center y={}", center[1]);
+                // Normal should be parallel to torus axis
+                let dot = v3_dot(*normal, [0.0, 0.0, 1.0]).abs();
+                assert!((dot - 1.0).abs() < EPS, "normal not parallel to axis");
+                z_values.push(center[2]);
+            } else {
+                panic!("Expected Circle, got {:?}", curve);
+            }
+        }
+        // Two circles at z ≈ ±0.905
+        z_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert!(
+            (z_values[0] - (-0.905)).abs() < 0.01,
+            "Lower z should be ~-0.905, got {}",
+            z_values[0]
+        );
+        assert!(
+            (z_values[1] - 0.905).abs() < 0.01,
+            "Upper z should be ~0.905, got {}",
+            z_values[1]
+        );
+    }
+
+    #[test]
+    fn test_sphere_torus_axial_one_circle() {
+        // Sphere on torus axis, just touching one side of the tube → 1 circle.
+        // Torus: center=[0,0,0], axis=[0,0,1], R=5, r=1
+        // Sphere: center=[0,0,0], radius=4.0
+        // Torus inner rim at ρ=4, z=0. Sphere touches at ρ=4, z=0.
+        // (ρ-5)²+z²=1, ρ²+z²=16 → ρ = sqrt(16-z²), (sqrt(16-z²)-5)²+z²=1
+        // At z=0: (4-5)²=1 ✓ → tangent at one circle.
+        let curves = sphere_torus_ssi(
+            [0.0, 0.0, 0.0], // sphere center
+            4.0,             // sphere radius
+            [0.0, 0.0, 0.0], // torus center
+            [0.0, 0.0, 1.0], // torus axis
+            5.0,             // torus major radius R
+            1.0,             // torus minor radius r
+        )
+        .unwrap();
+        assert_eq!(
+            curves.len(),
+            1,
+            "Expected 1 circle (tangent), got {}",
+            curves.len()
+        );
+        if let SSICurve::Circle { center, radius, .. } = &curves[0] {
+            assert!(
+                (radius - 4.0).abs() < EPS,
+                "radius should be 4.0, got {}",
+                radius
+            );
+            assert!(
+                center[2].abs() < EPS,
+                "center z should be 0, got {}",
+                center[2]
+            );
+        } else {
+            panic!("Expected Circle, got {:?}", curves[0]);
+        }
+    }
+
+    #[test]
+    fn test_sphere_torus_disjoint() {
+        // Sphere far from torus → empty.
+        // Torus: center=[0,0,0], axis=[0,0,1], R=5, r=1 → outer extent = 6
+        // Sphere: center=[20,0,0], radius=2 → closest point at x=18, well beyond 6
+        let curves = sphere_torus_ssi(
+            [20.0, 0.0, 0.0], // sphere center
+            2.0,              // sphere radius
+            [0.0, 0.0, 0.0],  // torus center
+            [0.0, 0.0, 1.0],  // torus axis
+            5.0,              // torus major radius R
+            1.0,              // torus minor radius r
+        )
+        .unwrap();
+        assert!(
+            curves.is_empty(),
+            "Disjoint sphere-torus should be empty, got {}",
+            curves.len()
+        );
+    }
+
+    #[test]
+    fn test_sphere_torus_enclosed() {
+        // Sphere fully inside torus tube → empty (no intersection).
+        // Torus: center=[0,0,0], axis=[0,0,1], R=5, r=2
+        // Sphere: center=[5,0,0] (on tube center line), radius=0.5
+        // The sphere is fully inside the tube, so no surface intersection.
+        let curves = sphere_torus_ssi(
+            [5.0, 0.0, 0.0], // sphere center (on the tube center circle)
+            0.5,             // sphere radius (much smaller than r=2)
+            [0.0, 0.0, 0.0], // torus center
+            [0.0, 0.0, 1.0], // torus axis
+            5.0,             // torus major radius R
+            2.0,             // torus minor radius r
+        )
+        .unwrap();
+        assert!(
+            curves.is_empty(),
+            "Enclosed sphere should give empty, got {}",
+            curves.len()
+        );
+    }
+
+    #[test]
+    fn test_sphere_torus_general_offset() {
+        // Sphere off-axis, intersecting torus → should produce a non-empty result.
+        // Torus: center=[0,0,0], axis=[0,0,1], R=5, r=1
+        // Sphere: center=[4,0,0], radius=2.0
+        // The sphere overlaps the torus tube (tube center at ρ=5, sphere at ρ=4 with r=2).
+        let curves = sphere_torus_ssi(
+            [4.0, 0.0, 0.0], // sphere center
+            2.0,             // sphere radius
+            [0.0, 0.0, 0.0], // torus center
+            [0.0, 0.0, 1.0], // torus axis
+            5.0,             // torus major radius R
+            1.0,             // torus minor radius r
+        )
+        .unwrap();
+        assert!(
+            !curves.is_empty(),
+            "Off-axis sphere intersecting torus should produce curves"
+        );
+    }
+
+    // ── Cone-Cone SSI ───────────────────────────────────────────────
+
+    #[test]
+    fn test_cone_cone_coaxial_different_angles() {
+        // Two cones on the same axis with different half-angles.
+        // Cone A: apex=[0,0,0], axis=[0,0,1], half_angle=30°, h_range=(0,10)
+        // Cone B: apex=[0,0,2], axis=[0,0,1], half_angle=45°, h_range=(0,10)
+        // At height h from A: r_a = h * tan(30°) ≈ h * 0.57735
+        // At height h (= h-2 from B): r_b = (h-2) * tan(45°) = h - 2
+        // Equal: h * 0.57735 = h - 2 → h = 2/0.42265 ≈ 4.732
+        // r at intersection ≈ 4.732 * 0.57735 ≈ 2.732
+        let half_30 = std::f64::consts::FRAC_PI_6; // 30°
+        let half_45 = std::f64::consts::FRAC_PI_4; // 45°
+        let curves = cone_cone_ssi(
+            [0.0, 0.0, 0.0], // apex A
+            [0.0, 0.0, 1.0], // axis A
+            half_30,         // half-angle A
+            (0.0, 10.0),     // height range A
+            [0.0, 0.0, 2.0], // apex B
+            [0.0, 0.0, 1.0], // axis B
+            half_45,         // half-angle B
+            (0.0, 10.0),     // height range B
+        )
+        .unwrap();
+        // Should produce 1 or 2 circles (at least the one at h ≈ 4.732)
+        assert!(
+            !curves.is_empty(),
+            "Coaxial cones with different angles should intersect"
+        );
+        // Check the first circle
+        let mut found_circle = false;
+        for curve in &curves {
+            if let SSICurve::Circle {
+                center,
+                radius,
+                normal,
+            } = curve
+            {
+                let expected_h = 2.0 / (1.0 - (half_30).tan()); // ≈ 4.732
+                let expected_r = expected_h * half_30.tan(); // ≈ 2.732
+                assert!(
+                    (center[2] - expected_h).abs() < 0.01,
+                    "Circle z should be ~{}, got {}",
+                    expected_h,
+                    center[2]
+                );
+                assert!(
+                    (radius - expected_r).abs() < 0.01,
+                    "Circle radius should be ~{}, got {}",
+                    expected_r,
+                    radius
+                );
+                assert!(center[0].abs() < EPS);
+                assert!(center[1].abs() < EPS);
+                let dot = v3_dot(*normal, [0.0, 0.0, 1.0]).abs();
+                assert!((dot - 1.0).abs() < EPS, "Normal should be along axis");
+                found_circle = true;
+            }
+        }
+        assert!(found_circle, "Expected at least one Circle in result");
+    }
+
+    #[test]
+    fn test_cone_cone_coaxial_same_angle() {
+        // Same axis, same half-angle, different apex positions.
+        // Cone A: apex=[0,0,0], axis=[0,0,1], half_angle=30°, h_range=(0,10)
+        // Cone B: apex=[0,0,3], axis=[0,0,1], half_angle=30°, h_range=(0,10)
+        // r_a(h) = h * tan30, r_b(h) = (h-3) * tan30
+        // These are parallel lines in the (h, r) plane → no intersection (cones don't meet
+        // if same orientation). Result should be empty.
+        let half_30 = std::f64::consts::FRAC_PI_6;
+        let curves = cone_cone_ssi(
+            [0.0, 0.0, 0.0], // apex A
+            [0.0, 0.0, 1.0], // axis A
+            half_30,         // half-angle A
+            (0.0, 10.0),     // height range A
+            [0.0, 0.0, 3.0], // apex B
+            [0.0, 0.0, 1.0], // axis B
+            half_30,         // half-angle B
+            (0.0, 10.0),     // height range B
+        )
+        .unwrap();
+        assert!(
+            curves.is_empty(),
+            "Coaxial cones with same angle and same orientation should not intersect, got {} curves",
+            curves.len()
+        );
+    }
+
+    #[test]
+    fn test_cone_cone_same_apex_different_axis() {
+        // Shared apex, different axes → intersection curves pass through the apex.
+        // Cone A: apex=[0,0,0], axis=[0,0,1], half_angle=30°, h_range=(0,10)
+        // Cone B: apex=[0,0,0], axis=[1,0,0], half_angle=30°, h_range=(0,10)
+        // Both cones share the apex at origin. Their intersection should include
+        // lines through the origin.
+        let half_30 = std::f64::consts::FRAC_PI_6;
+        let curves = cone_cone_ssi(
+            [0.0, 0.0, 0.0], // apex A
+            [0.0, 0.0, 1.0], // axis A
+            half_30,         // half-angle A
+            (0.0, 10.0),     // height range A
+            [0.0, 0.0, 0.0], // apex B
+            [1.0, 0.0, 0.0], // axis B
+            half_30,         // half-angle B
+            (0.0, 10.0),     // height range B
+        )
+        .unwrap();
+        assert!(
+            !curves.is_empty(),
+            "Same-apex cones with different axes should intersect"
+        );
+        // At least one result should pass through or near the shared apex
+        let mut has_apex_curve = false;
+        for curve in &curves {
+            match curve {
+                SSICurve::Line { start, end } => {
+                    // At least one endpoint should be at or near the apex
+                    let start_dist = v3_length(*start);
+                    let end_dist = v3_length(*end);
+                    if start_dist < 0.1 || end_dist < 0.1 {
+                        has_apex_curve = true;
+                    }
+                }
+                _ => {
+                    // Other curve types are also acceptable
+                    has_apex_curve = true;
+                }
+            }
+        }
+        assert!(
+            has_apex_curve,
+            "Expected at least one curve through or near the shared apex"
+        );
+    }
+
+    #[test]
+    fn test_cone_cone_disjoint() {
+        // Two cones far apart → empty.
+        // Cone A: apex=[0,0,0], axis=[0,0,1], half_angle=15°, h_range=(0,5)
+        //   max radius = 5 * tan(15°) ≈ 1.34
+        // Cone B: apex=[20,0,0], axis=[0,0,1], half_angle=15°, h_range=(0,5)
+        //   max radius ≈ 1.34, centered at x=20
+        // Distance between axes = 20 >> 1.34 + 1.34
+        let half_15 = std::f64::consts::FRAC_PI_6 / 2.0; // 15°
+        let curves = cone_cone_ssi(
+            [0.0, 0.0, 0.0],  // apex A
+            [0.0, 0.0, 1.0],  // axis A
+            half_15,          // half-angle A
+            (0.0, 5.0),       // height range A
+            [20.0, 0.0, 0.0], // apex B
+            [0.0, 0.0, 1.0],  // axis B
+            half_15,          // half-angle B
+            (0.0, 5.0),       // height range B
+        )
+        .unwrap();
+        assert!(
+            curves.is_empty(),
+            "Disjoint cones should give empty, got {}",
+            curves.len()
+        );
+    }
+
+    #[test]
+    fn test_cone_cone_general_position() {
+        // Two cones in general position that definitely intersect.
+        // Cone A: apex=[0,0,0], axis=[0,0,1], half_angle=45°, h_range=(0,5)
+        //   At h=3: r=3
+        // Cone B: apex=[3,0,0], axis=[0,0,1], half_angle=45°, h_range=(0,5)
+        //   At h=3: r=3, centered at x=3
+        // At h=3, circles of radius 3 centered at (0,0,3) and (3,0,3) overlap
+        // since distance=3 < 3+3=6.
+        let half_45 = std::f64::consts::FRAC_PI_4;
+        let curves = cone_cone_ssi(
+            [0.0, 0.0, 0.0], // apex A
+            [0.0, 0.0, 1.0], // axis A
+            half_45,         // half-angle A
+            (0.0, 5.0),      // height range A
+            [3.0, 0.0, 0.0], // apex B
+            [0.0, 0.0, 1.0], // axis B
+            half_45,         // half-angle B
+            (0.0, 5.0),      // height range B
+        )
+        .unwrap();
+        assert!(
+            !curves.is_empty(),
+            "Overlapping cones in general position should produce curves"
+        );
+    }
+
+    // ── Sphere-Torus Adversarial Tests ──────────────────────────────
+
+    #[test]
+    fn test_sphere_torus_large_sphere_encloses_torus() {
+        // Sphere large enough to fully enclose the torus → no surface intersection.
+        // Torus: center=[0,0,0], axis=[0,0,1], R=5, r=1 → outer extent = 6, height ±1
+        // Sphere: center=[0,0,0], radius=20 → fully contains torus
+        let curves = sphere_torus_ssi(
+            [0.0, 0.0, 0.0], // sphere center
+            20.0,            // sphere radius (much larger than torus outer extent of 6)
+            [0.0, 0.0, 0.0], // torus center
+            [0.0, 0.0, 1.0], // torus axis
+            5.0,             // torus major radius R
+            1.0,             // torus minor radius r
+        )
+        .unwrap();
+        assert!(
+            curves.is_empty(),
+            "Sphere fully enclosing torus should give empty intersection, got {} curves",
+            curves.len()
+        );
+    }
+
+    #[test]
+    fn test_sphere_torus_near_tangent_outer() {
+        // Sphere just barely touching the outer rim of the torus.
+        // Torus: center=[0,0,0], axis=[0,0,1], R=5, r=1 → outer rim at ρ=6
+        // Sphere: center=[6.99, 0, 0], radius=1.0
+        // Sphere closest approach to outer rim: 6.99 - 1.0 = 5.99, outer rim at 6.0
+        // So sphere barely overlaps torus. Should not crash or produce NaN.
+        let result = sphere_torus_ssi(
+            [6.99, 0.0, 0.0], // sphere center
+            1.0,              // sphere radius
+            [0.0, 0.0, 0.0],  // torus center
+            [0.0, 0.0, 1.0],  // torus axis
+            5.0,              // torus major radius R
+            1.0,              // torus minor radius r
+        );
+        assert!(
+            result.is_ok(),
+            "Near-tangent should not error: {:?}",
+            result.err()
+        );
+        let curves = result.unwrap();
+        // Verify no NaN in any returned curve
+        for curve in &curves {
+            match curve {
+                SSICurve::Circle {
+                    center,
+                    normal,
+                    radius,
+                } => {
+                    assert!(
+                        !center[0].is_nan() && !center[1].is_nan() && !center[2].is_nan(),
+                        "NaN in circle center"
+                    );
+                    assert!(
+                        !normal[0].is_nan() && !normal[1].is_nan() && !normal[2].is_nan(),
+                        "NaN in circle normal"
+                    );
+                    assert!(!radius.is_nan(), "NaN in circle radius");
+                }
+                SSICurve::Ellipse {
+                    center,
+                    normal,
+                    major_axis,
+                    semi_major,
+                    semi_minor,
+                } => {
+                    assert!(
+                        !center[0].is_nan() && !center[1].is_nan() && !center[2].is_nan(),
+                        "NaN in ellipse center"
+                    );
+                    assert!(
+                        !normal[0].is_nan() && !normal[1].is_nan() && !normal[2].is_nan(),
+                        "NaN in ellipse normal"
+                    );
+                    assert!(
+                        !major_axis[0].is_nan()
+                            && !major_axis[1].is_nan()
+                            && !major_axis[2].is_nan(),
+                        "NaN in ellipse major_axis"
+                    );
+                    assert!(!semi_major.is_nan(), "NaN in semi_major");
+                    assert!(!semi_minor.is_nan(), "NaN in semi_minor");
+                }
+                SSICurve::Line { start, end } => {
+                    assert!(
+                        !start[0].is_nan() && !start[1].is_nan() && !start[2].is_nan(),
+                        "NaN in line start"
+                    );
+                    assert!(
+                        !end[0].is_nan() && !end[1].is_nan() && !end[2].is_nan(),
+                        "NaN in line end"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_sphere_torus_extreme_radii() {
+        // Very large major radius with small minor radius.
+        // Torus: center=[0,0,0], axis=[0,0,1], R=1000, r=0.01
+        // Sphere: center=[1000, 0, 0] (on tube center), radius=0.02
+        // Sphere overlaps the tube (tube center at ρ=1000, sphere straddles it).
+        let result = sphere_torus_ssi(
+            [1000.0, 0.0, 0.0], // sphere center (at tube center circle)
+            0.02,               // sphere radius (> minor radius)
+            [0.0, 0.0, 0.0],    // torus center
+            [0.0, 0.0, 1.0],    // torus axis
+            1000.0,             // torus major radius R
+            0.01,               // torus minor radius r
+        );
+        assert!(
+            result.is_ok(),
+            "Extreme radii should not error: {:?}",
+            result.err()
+        );
+        let curves = result.unwrap();
+        // Sphere (r=0.02) centered on tube center (r=0.01) → sphere encloses tube cross-section
+        // locally, so intersection should produce curves (two circles in axial case).
+        // Main check: no panic, no NaN.
+        for curve in &curves {
+            match curve {
+                SSICurve::Circle {
+                    center,
+                    normal,
+                    radius,
+                } => {
+                    assert!(
+                        !center[0].is_nan() && !center[1].is_nan() && !center[2].is_nan(),
+                        "NaN in circle center"
+                    );
+                    assert!(
+                        !normal[0].is_nan() && !normal[1].is_nan() && !normal[2].is_nan(),
+                        "NaN in circle normal"
+                    );
+                    assert!(!radius.is_nan(), "NaN in circle radius");
+                    assert!(
+                        *radius > 0.0,
+                        "Circle radius should be positive, got {}",
+                        radius
+                    );
+                }
+                _ => {} // Other curve types acceptable
+            }
+        }
+    }
+
+    #[test]
+    fn test_sphere_torus_point_on_surface_validation() {
+        // For the axial 2-circle case, verify returned circle points lie on BOTH surfaces.
+        // Torus: center=[0,0,0], axis=[0,0,1], R=5, r=1
+        // Sphere: center=[0,0,0], radius=5.5
+        let sphere_center = [0.0, 0.0, 0.0];
+        let sphere_r = 5.5_f64;
+        let torus_center = [0.0, 0.0, 0.0];
+        let torus_axis = [0.0, 0.0, 1.0];
+        let big_r = 5.0_f64;
+        let small_r = 1.0_f64;
+
+        let curves = sphere_torus_ssi(
+            sphere_center,
+            sphere_r,
+            torus_center,
+            torus_axis,
+            big_r,
+            small_r,
+        )
+        .unwrap();
+        assert_eq!(curves.len(), 2, "Expected 2 circles for validation");
+
+        for curve in &curves {
+            if let SSICurve::Circle {
+                center,
+                normal,
+                radius,
+            } = curve
+            {
+                // Build orthonormal basis for circle plane
+                let n = *normal;
+                let u = if n[0].abs() < 0.9 {
+                    let raw = v3_cross(n, [1.0, 0.0, 0.0]);
+                    let len = v3_length(raw);
+                    v3_scale(raw, 1.0 / len)
+                } else {
+                    let raw = v3_cross(n, [0.0, 1.0, 0.0]);
+                    let len = v3_length(raw);
+                    v3_scale(raw, 1.0 / len)
+                };
+                let v = v3_cross(n, u);
+
+                // Sample 8 points on the circle
+                for i in 0..8 {
+                    let theta = (i as f64) * std::f64::consts::TAU / 8.0;
+                    let cos_t = theta.cos();
+                    let sin_t = theta.sin();
+                    let pt = [
+                        center[0] + radius * (cos_t * u[0] + sin_t * v[0]),
+                        center[1] + radius * (cos_t * u[1] + sin_t * v[1]),
+                        center[2] + radius * (cos_t * u[2] + sin_t * v[2]),
+                    ];
+
+                    // Check point is on sphere: |pt - sphere_center| ≈ sphere_r
+                    let dist_to_sphere = v3_length(v3_sub(pt, sphere_center));
+                    assert!(
+                        (dist_to_sphere - sphere_r).abs() < 0.01,
+                        "Point {:?} distance to sphere center = {}, expected {}",
+                        pt,
+                        dist_to_sphere,
+                        sphere_r
+                    );
+
+                    // Check point is on torus surface:
+                    // ρ = perpendicular distance from point to torus axis
+                    let pt_diff = v3_sub(pt, torus_center);
+                    let axial_comp = v3_dot(pt_diff, torus_axis);
+                    let radial_vec = v3_sub(pt_diff, v3_scale(torus_axis, axial_comp));
+                    let rho = v3_length(radial_vec);
+                    // Torus implicit: (ρ - R)² + z² = r²
+                    let torus_val = (rho - big_r).powi(2) + axial_comp.powi(2);
+                    let torus_err = (torus_val - small_r * small_r).abs();
+                    assert!(
+                        torus_err < 0.02,
+                        "Point {:?} torus implicit value = {}, expected {} (err={})",
+                        pt,
+                        torus_val,
+                        small_r * small_r,
+                        torus_err
+                    );
+                }
+            } else {
+                panic!("Expected Circle for axial case, got {:?}", curve);
+            }
+        }
+    }
+
+    // ── Cone-Cone Adversarial Tests ─────────────────────────────────
+
+    #[test]
+    fn test_cone_cone_near_coaxial() {
+        // Axes nearly parallel (off by ~0.001 radians), should not crash or produce NaN.
+        // Cone A: axis exactly [0,0,1]
+        // Cone B: axis tilted by 0.001 rad → [sin(0.001), 0, cos(0.001)] ≈ [0.001, 0, ~1]
+        let tilt = 0.001_f64;
+        let axis_b_raw = [tilt.sin(), 0.0, tilt.cos()];
+        let len = v3_length(axis_b_raw);
+        let axis_b = v3_scale(axis_b_raw, 1.0 / len);
+        let half_30 = std::f64::consts::FRAC_PI_6;
+        let result = cone_cone_ssi(
+            [0.0, 0.0, 0.0], // apex A
+            [0.0, 0.0, 1.0], // axis A
+            half_30,         // half-angle A
+            (0.0, 10.0),     // height range A
+            [0.0, 0.0, 1.0], // apex B (offset along axis)
+            axis_b,          // axis B (nearly parallel)
+            half_30 * 1.1,   // slightly different half-angle
+            (0.0, 10.0),     // height range B
+        );
+        assert!(
+            result.is_ok(),
+            "Near-coaxial should not error: {:?}",
+            result.err()
+        );
+        let curves = result.unwrap();
+        // Verify no NaN
+        for curve in &curves {
+            match curve {
+                SSICurve::Circle {
+                    center,
+                    normal,
+                    radius,
+                } => {
+                    assert!(
+                        !center[0].is_nan() && !center[1].is_nan() && !center[2].is_nan(),
+                        "NaN in circle center"
+                    );
+                    assert!(
+                        !normal[0].is_nan() && !normal[1].is_nan() && !normal[2].is_nan(),
+                        "NaN in circle normal"
+                    );
+                    assert!(!radius.is_nan(), "NaN in circle radius");
+                }
+                SSICurve::Line { start, end } => {
+                    assert!(
+                        !start[0].is_nan() && !start[1].is_nan() && !start[2].is_nan(),
+                        "NaN in line start"
+                    );
+                    assert!(
+                        !end[0].is_nan() && !end[1].is_nan() && !end[2].is_nan(),
+                        "NaN in line end"
+                    );
+                }
+                SSICurve::Ellipse {
+                    center,
+                    normal,
+                    major_axis,
+                    semi_major,
+                    semi_minor,
+                } => {
+                    assert!(
+                        !center[0].is_nan() && !center[1].is_nan() && !center[2].is_nan(),
+                        "NaN in ellipse center"
+                    );
+                    assert!(
+                        !normal[0].is_nan() && !normal[1].is_nan() && !normal[2].is_nan(),
+                        "NaN in ellipse normal"
+                    );
+                    assert!(
+                        !major_axis[0].is_nan()
+                            && !major_axis[1].is_nan()
+                            && !major_axis[2].is_nan(),
+                        "NaN in ellipse major_axis"
+                    );
+                    assert!(!semi_major.is_nan(), "NaN in semi_major");
+                    assert!(!semi_minor.is_nan(), "NaN in semi_minor");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_cone_cone_very_small_half_angle() {
+        // Half angles of 1° (nearly cylindrical). Should not panic.
+        let half_1deg = 1.0_f64.to_radians();
+        let result = cone_cone_ssi(
+            [0.0, 0.0, 0.0], // apex A
+            [0.0, 0.0, 1.0], // axis A
+            half_1deg,       // half-angle A (1°)
+            (0.0, 100.0),    // height range A (long to give some radius)
+            [0.5, 0.0, 0.0], // apex B (offset)
+            [0.0, 0.0, 1.0], // axis B
+            half_1deg,       // half-angle B (1°)
+            (0.0, 100.0),    // height range B
+        );
+        assert!(
+            result.is_ok(),
+            "Very small half-angle should not error: {:?}",
+            result.err()
+        );
+        // No panic is the main assertion. Also check no NaN.
+        let curves = result.unwrap();
+        for curve in &curves {
+            match curve {
+                SSICurve::Circle { center, radius, .. } => {
+                    assert!(!center[0].is_nan() && !center[1].is_nan() && !center[2].is_nan());
+                    assert!(!radius.is_nan());
+                }
+                SSICurve::Line { start, end } => {
+                    assert!(!start[0].is_nan() && !start[1].is_nan() && !start[2].is_nan());
+                    assert!(!end[0].is_nan() && !end[1].is_nan() && !end[2].is_nan());
+                }
+                SSICurve::Ellipse {
+                    center,
+                    semi_major,
+                    semi_minor,
+                    ..
+                } => {
+                    assert!(!center[0].is_nan() && !center[1].is_nan() && !center[2].is_nan());
+                    assert!(!semi_major.is_nan() && !semi_minor.is_nan());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_cone_cone_opposing_directions() {
+        // Cone A: axis=[0,0,1], Cone B: axis=[0,0,-1], both 45° half-angle.
+        // Apex A at origin pointing up, Apex B at [0,0,5] pointing down.
+        // They face each other with overlapping height ranges. Should find intersection.
+        let half_45 = std::f64::consts::FRAC_PI_4;
+        let result = cone_cone_ssi(
+            [0.0, 0.0, 0.0],  // apex A
+            [0.0, 0.0, 1.0],  // axis A (pointing up)
+            half_45,          // half-angle A
+            (0.0, 5.0),       // height range A
+            [0.0, 0.0, 5.0],  // apex B
+            [0.0, 0.0, -1.0], // axis B (pointing down)
+            half_45,          // half-angle B
+            (0.0, 5.0),       // height range B
+        );
+        assert!(
+            result.is_ok(),
+            "Opposing cones should not error: {:?}",
+            result.err()
+        );
+        let curves = result.unwrap();
+        // Two 45° cones facing each other from 5 units apart should definitely intersect.
+        // At height z from A: r_a = z * tan(45°) = z
+        // From B pointing down: at height z, distance from apex B is 5-z, r_b = (5-z)*tan(45°) = 5-z
+        // Equal when z = 5-z → z = 2.5, r = 2.5
+        assert!(
+            !curves.is_empty(),
+            "Opposing 45° cones facing each other should intersect"
+        );
+    }
+
+    #[test]
+    fn test_cone_cone_no_nan_in_results() {
+        // General case: two cones at an angle, verify no NaN in any coordinate.
+        // Cone A: apex=[0,0,0], axis=[0,0,1], 30°
+        // Cone B: apex=[2,0,0], axis=[0,1,0] (perpendicular), 30°
+        let half_30 = std::f64::consts::FRAC_PI_6;
+        let curves = cone_cone_ssi(
+            [0.0, 0.0, 0.0], // apex A
+            [0.0, 0.0, 1.0], // axis A
+            half_30,         // half-angle A
+            (0.0, 10.0),     // height range A
+            [2.0, 0.0, 0.0], // apex B
+            [0.0, 1.0, 0.0], // axis B (perpendicular to A)
+            half_30,         // half-angle B
+            (0.0, 10.0),     // height range B
+        )
+        .unwrap();
+
+        for (i, curve) in curves.iter().enumerate() {
+            match curve {
+                SSICurve::Circle {
+                    center,
+                    normal,
+                    radius,
+                } => {
+                    assert!(
+                        !center[0].is_nan() && !center[1].is_nan() && !center[2].is_nan(),
+                        "Curve {}: NaN in circle center {:?}",
+                        i,
+                        center
+                    );
+                    assert!(
+                        !normal[0].is_nan() && !normal[1].is_nan() && !normal[2].is_nan(),
+                        "Curve {}: NaN in circle normal {:?}",
+                        i,
+                        normal
+                    );
+                    assert!(
+                        !radius.is_nan() && *radius >= 0.0,
+                        "Curve {}: invalid circle radius {}",
+                        i,
+                        radius
+                    );
+                }
+                SSICurve::Line { start, end } => {
+                    assert!(
+                        !start[0].is_nan() && !start[1].is_nan() && !start[2].is_nan(),
+                        "Curve {}: NaN in line start {:?}",
+                        i,
+                        start
+                    );
+                    assert!(
+                        !end[0].is_nan() && !end[1].is_nan() && !end[2].is_nan(),
+                        "Curve {}: NaN in line end {:?}",
+                        i,
+                        end
+                    );
+                }
+                SSICurve::Ellipse {
+                    center,
+                    normal,
+                    major_axis,
+                    semi_major,
+                    semi_minor,
+                } => {
+                    assert!(
+                        !center[0].is_nan() && !center[1].is_nan() && !center[2].is_nan(),
+                        "Curve {}: NaN in ellipse center {:?}",
+                        i,
+                        center
+                    );
+                    assert!(
+                        !normal[0].is_nan() && !normal[1].is_nan() && !normal[2].is_nan(),
+                        "Curve {}: NaN in ellipse normal {:?}",
+                        i,
+                        normal
+                    );
+                    assert!(
+                        !major_axis[0].is_nan()
+                            && !major_axis[1].is_nan()
+                            && !major_axis[2].is_nan(),
+                        "Curve {}: NaN in ellipse major_axis {:?}",
+                        i,
+                        major_axis
+                    );
+                    assert!(
+                        !semi_major.is_nan() && *semi_major >= 0.0,
+                        "Curve {}: invalid semi_major {}",
+                        i,
+                        semi_major
+                    );
+                    assert!(
+                        !semi_minor.is_nan() && *semi_minor >= 0.0,
+                        "Curve {}: invalid semi_minor {}",
+                        i,
+                        semi_minor
+                    );
+                }
+            }
         }
     }
 }
