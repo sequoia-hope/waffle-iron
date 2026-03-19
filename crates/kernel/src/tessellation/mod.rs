@@ -16,7 +16,7 @@ use crate::units::{
 use crate::vecmath::{
     compute_plane_basis, v3_add, v3_cross, v3_dot, v3_length, v3_normalize, v3_scale, v3_sub,
 };
-use crate::waffle_kernel::{ConeParams, CylinderParams, RevolveParams, SphereParams};
+use crate::waffle_kernel::{ConeParams, CylinderParams, RevolveParams, SphereParams, TorusParams};
 use std::collections::{HashMap, HashSet};
 
 /// Number of segments for circular/cylindrical tessellation.
@@ -45,6 +45,7 @@ pub(crate) fn tessellate_solid(
         revolve_params,
         None,
         None,
+        None,
         is_polygon_soup,
     )
 }
@@ -60,6 +61,7 @@ pub(crate) fn tessellate_solid_ext(
     revolve_params: Option<&RevolveParams>,
     sphere_params: Option<&SphereParams>,
     cone_params: Option<&ConeParams>,
+    torus_params: Option<&TorusParams>,
     is_polygon_soup: bool,
 ) -> Result<RenderMesh, KernelError> {
     // Boolean results have no CylinderParams/RevolveParams. Use edge-first
@@ -78,6 +80,7 @@ pub(crate) fn tessellate_solid_ext(
         && revolve_params.is_none()
         && sphere_params.is_none()
         && cone_params.is_none()
+        && torus_params.is_none()
         && !is_polygon_soup
     {
         let has_arcs = _edge_geometry
@@ -97,6 +100,10 @@ pub(crate) fn tessellate_solid_ext(
 
     if let Some(cp) = cone_params {
         return tessellate_cone_solid(arena, face_map, face_geometry, cp);
+    }
+
+    if let Some(tp) = torus_params {
+        return tessellate_torus_solid(face_map, tp);
     }
 
     let mut vertices: Vec<f32> = Vec::new();
@@ -5353,6 +5360,148 @@ fn tessellate_cone_solid(
             face_id: KernelId(base_kid),
             start_index: base_start,
             end_index: base_end,
+        });
+    }
+
+    Ok(RenderMesh {
+        vertices,
+        normals,
+        indices,
+        face_ranges,
+    })
+}
+
+/// Tessellate a torus solid using parametric (u,v) grid evaluation.
+///
+/// Generates a shared-vertex mesh with `n_u × n_v` quads (each split into 2 triangles).
+/// Normals point outward from the tube surface.
+fn tessellate_torus_solid(
+    face_map: &HashMap<u64, FaceIdx>,
+    tp: &TorusParams,
+) -> Result<RenderMesh, KernelError> {
+    let center = tp.center;
+    let axis = tp.axis;
+    let big_r = tp.major_radius;
+    let small_r = tp.minor_radius;
+
+    // Resolution: use CIRCLE_SEGMENTS for major, CIRCLE_SEGMENTS/2 for minor
+    let n_u = CIRCLE_SEGMENTS; // major (around the ring)
+    let n_v = CIRCLE_SEGMENTS / 2; // minor (around the tube cross-section)
+
+    // Build orthonormal basis
+    let e1 = {
+        let trial = if axis[0].abs() < 0.9 {
+            [1.0, 0.0, 0.0]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+        let cross = v3_cross(axis, trial);
+        v3_normalize(cross)
+    };
+    let e2 = v3_cross(axis, e1);
+
+    let mut vertices: Vec<f32> = Vec::with_capacity(n_u * n_v * 3);
+    let mut normals: Vec<f32> = Vec::with_capacity(n_u * n_v * 3);
+    let mut indices: Vec<u32> = Vec::new();
+    let mut face_ranges: Vec<FaceRange> = Vec::new();
+
+    // Generate vertices on the torus surface
+    // Vertex (i, j) is at parameter (u, v) where u = 2π*i/n_u, v = 2π*j/n_v
+    for i in 0..n_u {
+        let u = 2.0 * std::f64::consts::PI * i as f64 / n_u as f64;
+        let cos_u = u.cos();
+        let sin_u = u.sin();
+        for j in 0..n_v {
+            let v = 2.0 * std::f64::consts::PI * j as f64 / n_v as f64;
+            let cos_v = v.cos();
+            let sin_v = v.sin();
+
+            let r = big_r + small_r * cos_v;
+
+            // Position on torus
+            let px = center[0] + r * (cos_u * e1[0] + sin_u * e2[0]) + small_r * sin_v * axis[0];
+            let py = center[1] + r * (cos_u * e1[1] + sin_u * e2[1]) + small_r * sin_v * axis[1];
+            let pz = center[2] + r * (cos_u * e1[2] + sin_u * e2[2]) + small_r * sin_v * axis[2];
+
+            // Normal: direction from tube center circle to surface point
+            // Tube center at this u: center + R*(cos(u)*e1 + sin(u)*e2)
+            let tube_cx = center[0] + big_r * (cos_u * e1[0] + sin_u * e2[0]);
+            let tube_cy = center[1] + big_r * (cos_u * e1[1] + sin_u * e2[1]);
+            let tube_cz = center[2] + big_r * (cos_u * e1[2] + sin_u * e2[2]);
+
+            let nx = px - tube_cx;
+            let ny = py - tube_cy;
+            let nz = pz - tube_cz;
+            let nlen = (nx * nx + ny * ny + nz * nz).sqrt();
+
+            vertices.push(px as f32);
+            vertices.push(py as f32);
+            vertices.push(pz as f32);
+            normals.push((nx / nlen) as f32);
+            normals.push((ny / nlen) as f32);
+            normals.push((nz / nlen) as f32);
+        }
+    }
+
+    // Generate indices: quads split into 2 triangles each
+    // Distribute triangles across face IDs for face_ranges
+    let face_kids: Vec<u64> = face_map.keys().copied().collect();
+    let total_quads = n_u * n_v;
+    let quads_per_face = if face_kids.is_empty() {
+        total_quads
+    } else {
+        total_quads / face_kids.len()
+    };
+
+    let mut quad_count = 0_usize;
+    let mut current_face_idx = 0_usize;
+    let mut current_start = 0u32;
+
+    for i in 0..n_u {
+        let i_next = (i + 1) % n_u;
+        for j in 0..n_v {
+            let j_next = (j + 1) % n_v;
+
+            let v00 = (i * n_v + j) as u32;
+            let v01 = (i * n_v + j_next) as u32;
+            let v10 = (i_next * n_v + j) as u32;
+            let v11 = (i_next * n_v + j_next) as u32;
+
+            // Two triangles per quad, wound CCW when viewed from outside
+            indices.push(v00);
+            indices.push(v10);
+            indices.push(v11);
+
+            indices.push(v00);
+            indices.push(v11);
+            indices.push(v01);
+
+            quad_count += 1;
+
+            // Check if we should close the current face range
+            if !face_kids.is_empty()
+                && current_face_idx < face_kids.len() - 1
+                && quad_count >= quads_per_face * (current_face_idx + 1)
+            {
+                let end = indices.len() as u32;
+                face_ranges.push(FaceRange {
+                    face_id: KernelId(face_kids[current_face_idx]),
+                    start_index: current_start,
+                    end_index: end,
+                });
+                current_start = end;
+                current_face_idx += 1;
+            }
+        }
+    }
+
+    // Close last face range
+    if !face_kids.is_empty() {
+        let end = indices.len() as u32;
+        face_ranges.push(FaceRange {
+            face_id: KernelId(face_kids[current_face_idx]),
+            start_index: current_start,
+            end_index: end,
         });
     }
 

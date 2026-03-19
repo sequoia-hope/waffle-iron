@@ -5,7 +5,7 @@
 
 use crate::geometry::curve::{Arc3D, Circle3D, CurveGeom, Line3D};
 use crate::geometry::point::{Point3, Vector3};
-use crate::geometry::surface::{Cone, Cylinder, Plane, Sphere, SurfaceGeom};
+use crate::geometry::surface::{Cone, Cylinder, Plane, Sphere, SurfaceGeom, Torus};
 use crate::tessellation;
 use crate::topology::arena::TopoArena;
 use crate::topology::euler_ops::{mef, mev, mvfs};
@@ -36,6 +36,7 @@ pub(crate) struct WaffleSolid {
     pub(crate) revolve_params: Option<RevolveParams>,
     pub(crate) sphere_params: Option<SphereParams>,
     pub(crate) cone_params: Option<ConeParams>,
+    pub(crate) torus_params: Option<TorusParams>,
     /// Cached face polygons from boolean results for reuse in subsequent booleans.
     pub(crate) cached_face_polys: Option<Vec<crate::boolean::FacePoly>>,
     /// True when this solid's B-Rep was built from polygon-soup classification
@@ -78,6 +79,14 @@ pub(crate) struct ConeParams {
     pub axis: [f64; 3],
     pub radius: f64,
     pub height: f64,
+}
+
+/// Parameters for torus tessellation (stored after make_torus).
+pub(crate) struct TorusParams {
+    pub center: [f64; 3],
+    pub axis: [f64; 3],
+    pub major_radius: f64,
+    pub minor_radius: f64,
 }
 
 /// Circle geometry stored in a standalone face (pre-extrude).
@@ -328,6 +337,7 @@ impl WaffleKernel {
                 revolve_params: None,
                 sphere_params: Some(SphereParams { center, radius }),
                 cone_params: None,
+                torus_params: None,
                 cached_face_polys: None,
                 is_polygon_soup: false,
             },
@@ -578,6 +588,301 @@ impl WaffleKernel {
                     radius,
                     height,
                 }),
+                torus_params: None,
+                cached_face_polys: None,
+                is_polygon_soup: false,
+            },
+        );
+
+        Ok(KernelSolidHandle(handle_id))
+    }
+
+    /// Create a torus primitive with quad-grid B-Rep decomposition.
+    ///
+    /// Parameters:
+    /// - center: center point of the torus
+    /// - axis: orientation axis (will be normalized; must be non-zero)
+    /// - major_radius: distance from center to tube center (R)
+    /// - minor_radius: tube radius (r); must be less than major_radius
+    ///
+    /// Topology: N_major × N_minor quad grid (16 faces, 16 vertices, 32 edges for 4×4).
+    /// Euler characteristic: V - E + F = 0 (genus-1 surface).
+    /// All faces tagged `SurfaceGeom::Toroidal`.
+    pub fn make_torus(
+        &mut self,
+        center: [f64; 3],
+        axis: [f64; 3],
+        major_radius: f64,
+        minor_radius: f64,
+    ) -> Result<KernelSolidHandle, KernelError> {
+        // Validate inputs
+        for (i, &c) in center.iter().enumerate() {
+            if !c.is_finite() {
+                return Err(KernelError::Other {
+                    message: format!("Torus center component [{}] must be finite, got {}", i, c),
+                });
+            }
+        }
+
+        // Normalize axis
+        let axis_len = (axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]).sqrt();
+        if axis_len < TAU_NORMALIZE {
+            return Err(KernelError::Other {
+                message: "Torus axis must be non-zero".to_string(),
+            });
+        }
+        let ax = [axis[0] / axis_len, axis[1] / axis_len, axis[2] / axis_len];
+
+        if !major_radius.is_finite() || major_radius <= 0.0 {
+            return Err(KernelError::Other {
+                message: format!(
+                    "Torus major_radius must be finite and positive, got {}",
+                    major_radius
+                ),
+            });
+        }
+        if !minor_radius.is_finite() || minor_radius <= 0.0 {
+            return Err(KernelError::Other {
+                message: format!(
+                    "Torus minor_radius must be finite and positive, got {}",
+                    minor_radius
+                ),
+            });
+        }
+        if minor_radius >= major_radius {
+            return Err(KernelError::Other {
+                message: format!(
+                    "Torus minor_radius ({}) must be less than major_radius ({})",
+                    minor_radius, major_radius
+                ),
+            });
+        }
+
+        // Build orthonormal basis: ax is the torus axis
+        let e1 = {
+            let trial = if ax[0].abs() < 0.9 {
+                [1.0, 0.0, 0.0]
+            } else {
+                [0.0, 1.0, 0.0]
+            };
+            let cross = v3_cross(ax, trial);
+            v3_normalize(cross)
+        };
+        let e2 = v3_cross(ax, e1);
+
+        // Grid dimensions for the quad mesh
+        let n_major = 4_usize; // subdivisions around the major circle
+        let n_minor = 4_usize; // subdivisions around the minor circle
+
+        // Compute vertex positions on the torus surface
+        // p(u, v) = center + (R + r*cos(v))*(cos(u)*e1 + sin(u)*e2) + r*sin(v)*ax
+        let torus_point = |i: usize, j: usize| -> [f64; 3] {
+            let u = 2.0 * std::f64::consts::PI * i as f64 / n_major as f64;
+            let v = 2.0 * std::f64::consts::PI * j as f64 / n_minor as f64;
+            let cos_u = u.cos();
+            let sin_u = u.sin();
+            let cos_v = v.cos();
+            let sin_v = v.sin();
+            let r = major_radius + minor_radius * cos_v;
+            [
+                center[0] + r * (cos_u * e1[0] + sin_u * e2[0]) + minor_radius * sin_v * ax[0],
+                center[1] + r * (cos_u * e1[1] + sin_u * e2[1]) + minor_radius * sin_v * ax[1],
+                center[2] + r * (cos_u * e1[2] + sin_u * e2[2]) + minor_radius * sin_v * ax[2],
+            ]
+        };
+
+        // Build torus B-Rep directly (genus-1 topology cannot be built with
+        // standard Euler operators mvfs/mev/mef alone since V-E+F=0, not 2).
+        //
+        // For a 4x4 quad grid on a torus: V=16, E=32, F=16.
+        // Each quad face has 4 half-edges forming a loop.
+        // Total half-edges: 4*16 = 64 = 2*32 = 2*E. Correct.
+
+        let mut arena = TopoArena::new();
+
+        // Add solid and shell (required for face construction)
+        let solid_idx = arena.add_solid();
+        let shell_idx = arena.add_shell(solid_idx);
+        arena.solids[solid_idx.0].outer_shell = shell_idx;
+
+        // Add vertices
+        let mut vert_grid: Vec<Vec<VertexIdx>> = Vec::with_capacity(n_major);
+        for i in 0..n_major {
+            let mut row = Vec::with_capacity(n_minor);
+            for j in 0..n_minor {
+                row.push(arena.add_vertex(torus_point(i, j)));
+            }
+            vert_grid.push(row);
+        }
+
+        // For each quad (i,j), we create 4 half-edges in a loop.
+        // he0: v(i,j)→v(i,j+1)       (along minor direction)
+        // he1: v(i,j+1)→v(i+1,j+1)   (along major direction)
+        // he2: v(i+1,j+1)→v(i+1,j)   (along minor direction, reverse)
+        // he3: v(i+1,j)→v(i,j)       (along major direction, reverse)
+        //
+        // Shared edges:
+        // - "minor" edge v(i,j)→v(i,j+1): he0[i][j] is twin of he2[i_prev][j]
+        // - "major" edge v(i,j+1)→v(i+1,j+1): he1[i][j] is twin of he3[i][j_next]
+
+        // Phase 1: Create all faces, loops, and half-edges
+        let mut he_grid: Vec<Vec<[HalfEdgeIdx; 4]>> = Vec::with_capacity(n_major);
+        for i in 0..n_major {
+            let i_next = (i + 1) % n_major;
+            let mut he_row = Vec::with_capacity(n_minor);
+            for j in 0..n_minor {
+                let j_next = (j + 1) % n_minor;
+
+                let face = arena.add_face(shell_idx);
+                let lp = arena.add_loop(face);
+                arena.faces[face.0].outer_loop = lp;
+
+                // Allocate 4 half-edges by pushing directly to arena
+                let base_he = arena.half_edges.len();
+                for _ in 0..4 {
+                    arena.half_edges.push(HalfEdge {
+                        origin: VertexIdx(0), // placeholder
+                        edge: EdgeIdx(0),     // placeholder
+                        twin: HalfEdgeIdx(0), // placeholder
+                        next: HalfEdgeIdx(0),
+                        prev: HalfEdgeIdx(0),
+                        loop_: lp,
+                    });
+                }
+                let he0 = HalfEdgeIdx(base_he);
+                let he1 = HalfEdgeIdx(base_he + 1);
+                let he2 = HalfEdgeIdx(base_he + 2);
+                let he3 = HalfEdgeIdx(base_he + 3);
+
+                // Set next/prev chain
+                arena.half_edges[he0.0].next = he1;
+                arena.half_edges[he1.0].next = he2;
+                arena.half_edges[he2.0].next = he3;
+                arena.half_edges[he3.0].next = he0;
+                arena.half_edges[he0.0].prev = he3;
+                arena.half_edges[he1.0].prev = he0;
+                arena.half_edges[he2.0].prev = he1;
+                arena.half_edges[he3.0].prev = he2;
+
+                // Set origins
+                arena.half_edges[he0.0].origin = vert_grid[i][j];
+                arena.half_edges[he1.0].origin = vert_grid[i][j_next];
+                arena.half_edges[he2.0].origin = vert_grid[i_next][j_next];
+                arena.half_edges[he3.0].origin = vert_grid[i_next][j];
+
+                // Set vertex half-edge pointers
+                arena.vertices[vert_grid[i][j].0].half_edge = Some(he0);
+
+                // Set loop half_edge
+                arena.loops[lp.0].half_edge = he0;
+                // Set shell face
+                arena.shells[shell_idx.0].face = face;
+
+                he_row.push([he0, he1, he2, he3]);
+            }
+            he_grid.push(he_row);
+        }
+
+        // Phase 2: Create edges and link twins
+        // Minor-direction edges: he0[i][j] (v(i,j)→v(i,j+1)) twins with he2[i_prev][j] (v(i,j+1)→v(i,j))
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..n_major {
+            let i_prev = (i + n_major - 1) % n_major;
+            for j in 0..n_minor {
+                let he_a = he_grid[i][j][0];
+                let he_b = he_grid[i_prev][j][2];
+
+                arena.half_edges[he_a.0].twin = he_b;
+                arena.half_edges[he_b.0].twin = he_a;
+
+                let edge_idx = EdgeIdx(arena.edges.len());
+                arena.edges.push(Edge { half_edge: he_a });
+                arena.half_edges[he_a.0].edge = edge_idx;
+                arena.half_edges[he_b.0].edge = edge_idx;
+            }
+        }
+
+        // Major-direction edges: he1[i][j] (v(i,j+1)→v(i+1,j+1)) twins with he3[i][j_next] (v(i+1,j+1)→v(i,j+1))
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..n_major {
+            for j in 0..n_minor {
+                let j_next = (j + 1) % n_minor;
+                let he_a = he_grid[i][j][1];
+                let he_b = he_grid[i][j_next][3];
+
+                arena.half_edges[he_a.0].twin = he_b;
+                arena.half_edges[he_b.0].twin = he_a;
+
+                let edge_idx = EdgeIdx(arena.edges.len());
+                arena.edges.push(Edge { half_edge: he_a });
+                arena.half_edges[he_a.0].edge = edge_idx;
+                arena.half_edges[he_b.0].edge = edge_idx;
+            }
+        }
+
+        // Verify topology
+        let nv = arena.vertex_count();
+        let ne = arena.edge_count();
+        let nf = arena.face_count();
+        debug_assert_eq!(nv, n_major * n_minor, "Torus: V count");
+        debug_assert_eq!(ne, 2 * n_major * n_minor, "Torus: E count");
+        debug_assert_eq!(nf, n_major * n_minor, "Torus: F count");
+        debug_assert_eq!(
+            nv as i64 - ne as i64 + nf as i64,
+            0,
+            "Torus: V-E+F must be 0"
+        );
+
+        // Build geometry and ID maps
+        let handle_id = self.alloc_handle();
+        let mut face_map = HashMap::new();
+        let mut edge_map = HashMap::new();
+        let mut vertex_map = HashMap::new();
+        let mut face_geometry = HashMap::new();
+        let edge_geometry = HashMap::new();
+
+        let torus_geom = SurfaceGeom::Toroidal(Torus {
+            center: Point3::from_array(center),
+            axis: Vector3::from_array(ax),
+            major_radius,
+            minor_radius,
+        });
+
+        for (idx, _face) in arena.faces.iter().enumerate() {
+            let fid = self.alloc_id();
+            face_map.insert(fid, FaceIdx(idx));
+            face_geometry.insert(FaceIdx(idx), torus_geom.clone());
+        }
+
+        for (idx, _edge) in arena.edges.iter().enumerate() {
+            let eid = self.alloc_id();
+            edge_map.insert(eid, EdgeIdx(idx));
+        }
+
+        for (idx, _) in arena.vertices.iter().enumerate() {
+            let vid = self.alloc_id();
+            vertex_map.insert(vid, VertexIdx(idx));
+        }
+
+        self.solids.insert(
+            handle_id,
+            WaffleSolid {
+                arena,
+                face_map,
+                edge_map,
+                vertex_map,
+                face_geometry,
+                edge_geometry,
+                cylinder_params: None,
+                revolve_params: None,
+                sphere_params: None,
+                cone_params: None,
+                torus_params: Some(TorusParams {
+                    center,
+                    axis: ax,
+                    major_radius,
+                    minor_radius,
+                }),
                 cached_face_polys: None,
                 is_polygon_soup: false,
             },
@@ -730,6 +1035,7 @@ impl WaffleKernel {
                 revolve_params: None,
                 sphere_params: None,
                 cone_params: None,
+                torus_params: None,
                 cached_face_polys: result.cached_face_polys,
                 is_polygon_soup: polygon_soup,
             },
@@ -1067,6 +1373,7 @@ impl WaffleKernel {
                 revolve_params: Some(revolve_params),
                 sphere_params: None,
                 cone_params: None,
+                torus_params: None,
                 cached_face_polys: None,
                 is_polygon_soup: false,
             },
@@ -1266,6 +1573,7 @@ impl WaffleKernel {
                 revolve_params: None,
                 sphere_params: None,
                 cone_params: None,
+                torus_params: None,
                 cached_face_polys: None,
                 is_polygon_soup: false,
             },
@@ -1684,6 +1992,7 @@ impl Kernel for WaffleKernel {
                 revolve_params: None,
                 sphere_params: None,
                 cone_params: None,
+                torus_params: None,
                 cached_face_polys: None,
                 is_polygon_soup: false,
             },
@@ -1713,6 +2022,7 @@ impl Kernel for WaffleKernel {
             ws.revolve_params.as_ref(),
             ws.sphere_params.as_ref(),
             ws.cone_params.as_ref(),
+            ws.torus_params.as_ref(),
             ws.is_polygon_soup,
         )
     }

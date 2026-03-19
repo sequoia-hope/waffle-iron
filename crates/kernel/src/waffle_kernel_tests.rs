@@ -8034,3 +8034,660 @@ fn cn13_make_cone_zero_axis() {
         "Zero axis vector should produce an error (no direction defined)"
     );
 }
+
+// ══════════════════════════════════════════════════════════════════
+// Group TR: make_torus primitive (FIP Phase 2 — tests written before implementation)
+// ══════════════════════════════════════════════════════════════════
+
+/// Helper: create a torus with given parameters.
+fn make_torus_helper(
+    center: [f64; 3],
+    axis: [f64; 3],
+    major_radius: f64,
+    minor_radius: f64,
+) -> (WaffleKernel, KernelSolidHandle) {
+    let mut k = WaffleKernel::new();
+    let solid = k
+        .make_torus(center, axis, major_radius, minor_radius)
+        .expect("make_torus should succeed");
+    (k, solid)
+}
+
+// ── TR01: Topology ──────────────────────────────────────────────
+
+#[test]
+fn tr01_make_torus_topology() {
+    // Spec: quad grid decomposition — at least 4 faces, 4 vertices, 4 edges
+    // For a 4×4 grid: 16 faces, 16 vertices, 32 edges
+    let (k, solid) = make_torus_helper([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 0.3);
+    let verts = k.list_vertices(&solid);
+    let edges = k.list_edges(&solid);
+    let faces = k.list_faces(&solid);
+    assert!(
+        faces.len() >= 4,
+        "Torus must have at least 4 faces, got {}",
+        faces.len()
+    );
+    assert!(
+        verts.len() >= 4,
+        "Torus must have at least 4 vertices, got {}",
+        verts.len()
+    );
+    assert!(
+        edges.len() >= 4,
+        "Torus must have at least 4 edges, got {}",
+        edges.len()
+    );
+
+    // Euler formula for genus-1 surface: V - E + F = 0
+    let v = verts.len() as i64;
+    let e = edges.len() as i64;
+    let f = faces.len() as i64;
+    assert_eq!(
+        v - e + f,
+        0,
+        "Euler formula V-E+F must equal 0 for torus (genus 1) (got V={}, E={}, F={})",
+        v, e, f
+    );
+}
+
+// ── TR02: Volume ────────────────────────────────────────────────
+
+#[test]
+fn tr02_make_torus_volume() {
+    let big_r = 1.0;
+    let small_r = 0.3;
+    let (mut k, solid) = make_torus_helper([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], big_r, small_r);
+    let mesh = k
+        .tessellate(&solid, 0.01)
+        .expect("tessellate should succeed for torus");
+    let vol = mesh_volume(&mesh);
+    // V = 2π²Rr²
+    let expected = 2.0 * PI * PI * big_r * small_r * small_r;
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.05,
+        "Torus volume should be ~2π²Rr² = {:.6}, got {:.6} (rel_err={:.4})",
+        expected, vol, rel_err
+    );
+}
+
+// ── TR03: Bounding box ─────────────────────────────────────────
+
+#[test]
+fn tr03_make_torus_bbox() {
+    let big_r = 1.0;
+    let small_r = 0.3;
+    let (mut k, solid) = make_torus_helper([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], big_r, small_r);
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    let (min, max) = mesh_bbox(&mesh);
+
+    let outer = big_r + small_r; // 1.3
+    let tol = 0.1; // tessellation tolerance
+
+    // X and Y extents: [-(R+r), (R+r)]
+    assert!(
+        (min[0] - (-outer)).abs() < tol,
+        "bbox min x ~ -{}, got {}",
+        outer, min[0]
+    );
+    assert!(
+        (min[1] - (-outer)).abs() < tol,
+        "bbox min y ~ -{}, got {}",
+        outer, min[1]
+    );
+    assert!(
+        (max[0] - outer).abs() < tol,
+        "bbox max x ~ {}, got {}",
+        outer, max[0]
+    );
+    assert!(
+        (max[1] - outer).abs() < tol,
+        "bbox max y ~ {}, got {}",
+        outer, max[1]
+    );
+
+    // Z extents: [-r, r]
+    assert!(
+        (min[2] - (-small_r)).abs() < tol,
+        "bbox min z ~ -{}, got {}",
+        small_r, min[2]
+    );
+    assert!(
+        (max[2] - small_r).abs() < tol,
+        "bbox max z ~ {}, got {}",
+        small_r, max[2]
+    );
+}
+
+// ── TR04: Watertight ────────────────────────────────────────────
+
+#[test]
+fn tr04_make_torus_watertight() {
+    let (mut k, solid) = make_torus_helper([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 0.3);
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    assert!(
+        check_watertight(&mesh),
+        "Torus mesh must be watertight (every edge shared by exactly 2 triangles)"
+    );
+}
+
+// ── TR05: Normals outward ───────────────────────────────────────
+
+#[test]
+fn tr05_make_torus_normals_outward() {
+    let center = [0.0, 0.0, 0.0];
+    let big_r = 1.0;
+    let small_r = 0.3;
+    let (mut k, solid) = make_torus_helper(center, [0.0, 0.0, 1.0], big_r, small_r);
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+
+    let n_tris = mesh.indices.len() / 3;
+    assert!(n_tris > 0, "Torus mesh should have triangles");
+
+    let mut inward_count = 0;
+    for i in 0..n_tris {
+        let i0 = mesh.indices[i * 3] as usize;
+        let i1 = mesh.indices[i * 3 + 1] as usize;
+        let i2 = mesh.indices[i * 3 + 2] as usize;
+
+        let v0 = [
+            mesh.vertices[i0 * 3] as f64,
+            mesh.vertices[i0 * 3 + 1] as f64,
+            mesh.vertices[i0 * 3 + 2] as f64,
+        ];
+        let v1 = [
+            mesh.vertices[i1 * 3] as f64,
+            mesh.vertices[i1 * 3 + 1] as f64,
+            mesh.vertices[i1 * 3 + 2] as f64,
+        ];
+        let v2 = [
+            mesh.vertices[i2 * 3] as f64,
+            mesh.vertices[i2 * 3 + 1] as f64,
+            mesh.vertices[i2 * 3 + 2] as f64,
+        ];
+
+        // Face centroid
+        let centroid = [
+            (v0[0] + v1[0] + v2[0]) / 3.0,
+            (v0[1] + v1[1] + v2[1]) / 3.0,
+            (v0[2] + v1[2] + v2[2]) / 3.0,
+        ];
+
+        // Face normal via cross product
+        let e1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
+        let e2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
+        let normal = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+
+        // For a torus, "outward" means away from the nearest point on the tube center circle.
+        // The tube center circle lies at distance R from origin in the XY plane (for Z-axis torus).
+        // Project centroid onto XY plane, normalize to get direction, scale by R to get
+        // nearest point on the center circle.
+        let cx_proj = centroid[0] - center[0];
+        let cy_proj = centroid[1] - center[1];
+        let dist_xy = (cx_proj * cx_proj + cy_proj * cy_proj).sqrt();
+        let tube_center = if dist_xy > 1e-12 {
+            [
+                center[0] + cx_proj / dist_xy * big_r,
+                center[1] + cy_proj / dist_xy * big_r,
+                center[2], // on the equatorial plane
+            ]
+        } else {
+            // Degenerate: centroid on axis — shouldn't happen for ring torus
+            [center[0] + big_r, center[1], center[2]]
+        };
+
+        // Vector from tube center to face centroid — should align with face normal
+        let to_centroid = [
+            centroid[0] - tube_center[0],
+            centroid[1] - tube_center[1],
+            centroid[2] - tube_center[2],
+        ];
+
+        let dot = normal[0] * to_centroid[0]
+            + normal[1] * to_centroid[1]
+            + normal[2] * to_centroid[2];
+        if dot < 0.0 {
+            inward_count += 1;
+        }
+    }
+
+    assert_eq!(
+        inward_count, 0,
+        "All {} face normals must point outward from torus surface, but {} point inward",
+        n_tris, inward_count
+    );
+}
+
+// ── TR06: Surface geometry ──────────────────────────────────────
+
+#[test]
+fn tr06_make_torus_surface_geometry() {
+    let (k, solid) = make_torus_helper([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 0.3);
+    let faces = k.list_faces(&solid);
+    assert!(faces.len() >= 4, "Torus should have at least 4 faces");
+
+    for face_id in &faces {
+        let sig = k.compute_signature(*face_id, TopoKind::Face);
+        assert_eq!(
+            sig.surface_type,
+            Some("toroidal".to_string()),
+            "All torus faces should be tagged Toroidal, got {:?}",
+            sig.surface_type
+        );
+    }
+}
+
+// ── TR07: Invalid zero axis ─────────────────────────────────────
+
+#[test]
+fn tr07_make_torus_invalid_zero_axis() {
+    let mut k = WaffleKernel::new();
+    let result = k.make_torus([0.0, 0.0, 0.0], [0.0, 0.0, 0.0], 1.0, 0.3);
+    assert!(
+        result.is_err(),
+        "Zero axis vector should produce an error"
+    );
+}
+
+// ── TR08: Invalid minor >= major ────────────────────────────────
+
+#[test]
+fn tr08_make_torus_invalid_minor_ge_major() {
+    let mut k = WaffleKernel::new();
+
+    // minor == major
+    let result = k.make_torus([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 1.0);
+    assert!(
+        result.is_err(),
+        "minor_radius == major_radius should produce an error"
+    );
+
+    // minor > major
+    let result = k.make_torus([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 1.5);
+    assert!(
+        result.is_err(),
+        "minor_radius > major_radius should produce an error"
+    );
+}
+
+// ── TR09: Invalid negative radius ───────────────────────────────
+
+#[test]
+fn tr09_make_torus_invalid_negative_radius() {
+    let mut k = WaffleKernel::new();
+
+    // Negative major radius
+    let result = k.make_torus([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], -1.0, 0.3);
+    assert!(
+        result.is_err(),
+        "Negative major_radius should produce an error"
+    );
+
+    // Negative minor radius
+    let result = k.make_torus([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, -0.3);
+    assert!(
+        result.is_err(),
+        "Negative minor_radius should produce an error"
+    );
+
+    // Zero major radius
+    let result = k.make_torus([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.0, 0.3);
+    assert!(
+        result.is_err(),
+        "Zero major_radius should produce an error"
+    );
+
+    // Zero minor radius
+    let result = k.make_torus([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 0.0);
+    assert!(
+        result.is_err(),
+        "Zero minor_radius should produce an error"
+    );
+}
+
+// ── TR10: Tilted axis ───────────────────────────────────────────
+
+#[test]
+fn tr10_make_torus_tilted_axis() {
+    // Torus with axis=[1,1,1] — tests axis normalization and rotation
+    let big_r = 1.0;
+    let small_r = 0.3;
+    let (mut k, solid) = make_torus_helper([0.0, 0.0, 0.0], [1.0, 1.0, 1.0], big_r, small_r);
+
+    // Topology invariants must hold regardless of axis
+    let verts = k.list_vertices(&solid);
+    let edges = k.list_edges(&solid);
+    let faces = k.list_faces(&solid);
+    assert!(faces.len() >= 4, "Tilted torus must have at least 4 faces");
+    assert!(verts.len() >= 4, "Tilted torus must have at least 4 vertices");
+    assert!(edges.len() >= 4, "Tilted torus must have at least 4 edges");
+
+    let v = verts.len() as i64;
+    let e = edges.len() as i64;
+    let f = faces.len() as i64;
+    assert_eq!(
+        v - e + f,
+        0,
+        "Euler formula V-E+F must equal 0 for tilted torus (got V={}, E={}, F={})",
+        v, e, f
+    );
+
+    // Volume must still be correct — rotation doesn't change volume
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    let vol = mesh_volume(&mesh);
+    let expected = 2.0 * PI * PI * big_r * small_r * small_r;
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.05,
+        "Tilted torus volume should be ~{:.6}, got {:.6} (rel_err={:.4})",
+        expected, vol, rel_err
+    );
+}
+
+// ── TR11: Centroid ──────────────────────────────────────────────
+
+#[test]
+fn tr11_make_torus_centroid() {
+    let center = [0.0, 0.0, 0.0];
+    let small_r = 0.3;
+    let (mut k, solid) = make_torus_helper(center, [0.0, 0.0, 1.0], 1.0, small_r);
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+
+    let n_verts = mesh.vertices.len() / 3;
+    assert!(n_verts > 0, "Torus mesh should have vertices");
+
+    let mut sum = [0.0_f64; 3];
+    for i in 0..n_verts {
+        sum[0] += mesh.vertices[i * 3] as f64;
+        sum[1] += mesh.vertices[i * 3 + 1] as f64;
+        sum[2] += mesh.vertices[i * 3 + 2] as f64;
+    }
+    let avg = [
+        sum[0] / n_verts as f64,
+        sum[1] / n_verts as f64,
+        sum[2] / n_verts as f64,
+    ];
+
+    let tol = 0.1 * small_r; // within 10% of minor radius
+    for axis in 0..3 {
+        assert!(
+            (avg[axis] - center[axis]).abs() < tol,
+            "Torus centroid[{}] should be ~{}, got {} (tol={})",
+            axis, center[axis], avg[axis], tol
+        );
+    }
+}
+
+// ── TR12: Off-origin ────────────────────────────────────────────
+
+#[test]
+fn tr12_make_torus_off_origin() {
+    let center = [5.0, 3.0, 2.0];
+    let big_r = 1.0;
+    let small_r = 0.3;
+    let (mut k, solid) = make_torus_helper(center, [0.0, 0.0, 1.0], big_r, small_r);
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    let (min, max) = mesh_bbox(&mesh);
+
+    let outer = big_r + small_r;
+    let tol = 0.1;
+
+    // X: [center[0] - (R+r), center[0] + (R+r)]
+    assert!(
+        (min[0] - (center[0] - outer)).abs() < tol,
+        "bbox min x ~ {}, got {}",
+        center[0] - outer, min[0]
+    );
+    assert!(
+        (max[0] - (center[0] + outer)).abs() < tol,
+        "bbox max x ~ {}, got {}",
+        center[0] + outer, max[0]
+    );
+
+    // Y: [center[1] - (R+r), center[1] + (R+r)]
+    assert!(
+        (min[1] - (center[1] - outer)).abs() < tol,
+        "bbox min y ~ {}, got {}",
+        center[1] - outer, min[1]
+    );
+    assert!(
+        (max[1] - (center[1] + outer)).abs() < tol,
+        "bbox max y ~ {}, got {}",
+        center[1] + outer, max[1]
+    );
+
+    // Z: [center[2] - r, center[2] + r]
+    assert!(
+        (min[2] - (center[2] - small_r)).abs() < tol,
+        "bbox min z ~ {}, got {}",
+        center[2] - small_r, min[2]
+    );
+    assert!(
+        (max[2] - (center[2] + small_r)).abs() < tol,
+        "bbox max z ~ {}, got {}",
+        center[2] + small_r, max[2]
+    );
+}
+
+// ── TR13: Small minor radius (thin torus) ──────────────────────
+
+#[test]
+fn tr13_make_torus_small_minor_radius() {
+    // Adversarial: very thin torus (r/R = 0.001). Tests that the quad mesh
+    // doesn't collapse or produce degenerate triangles at extreme aspect ratios.
+    let big_r = 1.0;
+    let small_r = 0.001;
+    let (mut k, solid) = make_torus_helper([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], big_r, small_r);
+
+    // Topology: genus-1 invariant must hold
+    let verts = k.list_vertices(&solid);
+    let edges = k.list_edges(&solid);
+    let faces = k.list_faces(&solid);
+    let v = verts.len() as i64;
+    let e = edges.len() as i64;
+    let f = faces.len() as i64;
+    assert_eq!(v - e + f, 0, "Euler V-E+F=0 for thin torus (V={}, E={}, F={})", v, e, f);
+
+    // Volume: V = 2 * pi^2 * R * r^2
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    let vol = mesh_volume(&mesh);
+    let expected = 2.0 * PI * PI * big_r * small_r * small_r;
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.05,
+        "Thin torus volume should be ~{:.9}, got {:.9} (rel_err={:.4})",
+        expected, vol, rel_err
+    );
+
+    // Watertight check
+    assert!(
+        check_watertight(&mesh),
+        "Thin torus mesh must be watertight"
+    );
+}
+
+// ── TR14: Large ratio (R:r = 100:1) ────────────────────────────
+
+#[test]
+fn tr14_make_torus_large_ratio() {
+    // Adversarial: R/r = 100. The major circle is huge relative to the tube.
+    let big_r = 10.0;
+    let small_r = 0.1;
+    let (mut k, solid) = make_torus_helper([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], big_r, small_r);
+
+    // Topology
+    let verts = k.list_vertices(&solid);
+    let edges = k.list_edges(&solid);
+    let faces = k.list_faces(&solid);
+    let v = verts.len() as i64;
+    let e = edges.len() as i64;
+    let f = faces.len() as i64;
+    assert_eq!(v - e + f, 0, "Euler V-E+F=0 for large-ratio torus (V={}, E={}, F={})", v, e, f);
+
+    // Volume
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    let vol = mesh_volume(&mesh);
+    let expected = 2.0 * PI * PI * big_r * small_r * small_r;
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.05,
+        "Large-ratio torus volume should be ~{:.6}, got {:.6} (rel_err={:.4})",
+        expected, vol, rel_err
+    );
+
+    // Watertight
+    assert!(
+        check_watertight(&mesh),
+        "Large-ratio torus mesh must be watertight"
+    );
+}
+
+// ── TR15: Near-degenerate ratio (minor barely less than major) ──
+
+#[test]
+fn tr15_make_torus_near_degenerate_ratio() {
+    // Adversarial: r/R ~ 0.9, the tube nearly touches itself at the center.
+    // This is a "fat" torus that approaches a self-intersecting horn torus.
+    let big_r = 0.01;
+    let small_r = 0.009;
+    let (mut k, solid) = make_torus_helper([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], big_r, small_r);
+
+    // Topology
+    let verts = k.list_vertices(&solid);
+    let edges = k.list_edges(&solid);
+    let faces = k.list_faces(&solid);
+    let v = verts.len() as i64;
+    let e = edges.len() as i64;
+    let f = faces.len() as i64;
+    assert_eq!(v - e + f, 0, "Euler V-E+F=0 for near-degenerate torus (V={}, E={}, F={})", v, e, f);
+
+    // Volume
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    let vol = mesh_volume(&mesh);
+    let expected = 2.0 * PI * PI * big_r * small_r * small_r;
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.05,
+        "Near-degenerate torus volume should be ~{:.12}, got {:.12} (rel_err={:.4})",
+        expected, vol, rel_err
+    );
+}
+
+// ── TR16: NaN center ────────────────────────────────────────────
+
+#[test]
+fn tr16_make_torus_nan_center() {
+    let mut k = WaffleKernel::new();
+
+    // NaN in x component
+    let result = k.make_torus([f64::NAN, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 0.3);
+    assert!(
+        result.is_err(),
+        "NaN center[0] should produce an error"
+    );
+
+    // NaN in y component
+    let result = k.make_torus([0.0, f64::NAN, 0.0], [0.0, 0.0, 1.0], 1.0, 0.3);
+    assert!(
+        result.is_err(),
+        "NaN center[1] should produce an error"
+    );
+
+    // NaN in z component
+    let result = k.make_torus([0.0, 0.0, f64::NAN], [0.0, 0.0, 1.0], 1.0, 0.3);
+    assert!(
+        result.is_err(),
+        "NaN center[2] should produce an error"
+    );
+
+    // Infinity in center
+    let result = k.make_torus([f64::INFINITY, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 0.3);
+    assert!(
+        result.is_err(),
+        "Infinity center[0] should produce an error"
+    );
+}
+
+// ── TR17: NaN radius ────────────────────────────────────────────
+
+#[test]
+fn tr17_make_torus_nan_radius() {
+    let mut k = WaffleKernel::new();
+
+    // NaN major radius
+    let result = k.make_torus([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], f64::NAN, 0.3);
+    assert!(
+        result.is_err(),
+        "NaN major_radius should produce an error"
+    );
+
+    // NaN minor radius
+    let result = k.make_torus([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, f64::NAN);
+    assert!(
+        result.is_err(),
+        "NaN minor_radius should produce an error"
+    );
+
+    // Infinity major radius
+    let result = k.make_torus([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], f64::INFINITY, 0.3);
+    assert!(
+        result.is_err(),
+        "Infinity major_radius should produce an error"
+    );
+
+    // Infinity minor radius
+    let result = k.make_torus([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, f64::INFINITY);
+    assert!(
+        result.is_err(),
+        "Infinity minor_radius should produce an error"
+    );
+}
+
+// ── TR18: Negative axis direction ───────────────────────────────
+
+#[test]
+fn tr18_make_torus_negative_axis_direction() {
+    // Flipping the axis should produce a torus with the same volume.
+    // The shape is symmetric so the mesh volume (unsigned) must match.
+    let big_r = 1.0;
+    let small_r = 0.3;
+
+    let (mut k_pos, solid_pos) =
+        make_torus_helper([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], big_r, small_r);
+    let mesh_pos = k_pos.tessellate(&solid_pos, 0.01).unwrap();
+    let vol_pos = mesh_volume(&mesh_pos);
+
+    let (mut k_neg, solid_neg) =
+        make_torus_helper([0.0, 0.0, 0.0], [0.0, 0.0, -1.0], big_r, small_r);
+    let mesh_neg = k_neg.tessellate(&solid_neg, 0.01).unwrap();
+    let vol_neg = mesh_volume(&mesh_neg);
+
+    let expected = 2.0 * PI * PI * big_r * small_r * small_r;
+
+    // Both should be close to the analytic volume
+    let rel_err_pos = (vol_pos - expected).abs() / expected;
+    let rel_err_neg = (vol_neg - expected).abs() / expected;
+    assert!(
+        rel_err_pos < 0.05,
+        "Positive-axis torus volume should be ~{:.6}, got {:.6} (rel_err={:.4})",
+        expected, vol_pos, rel_err_pos
+    );
+    assert!(
+        rel_err_neg < 0.05,
+        "Negative-axis torus volume should be ~{:.6}, got {:.6} (rel_err={:.4})",
+        expected, vol_neg, rel_err_neg
+    );
+
+    // Volumes should be very close to each other (same shape, different orientation)
+    let rel_diff = (vol_pos - vol_neg).abs() / expected;
+    assert!(
+        rel_diff < 0.01,
+        "Positive and negative axis torus volumes should match: pos={:.6}, neg={:.6} (rel_diff={:.4})",
+        vol_pos, vol_neg, rel_diff
+    );
+}
