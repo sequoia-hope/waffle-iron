@@ -48,6 +48,7 @@
 
 			// Register and activate the GitHub provider
 			const store = new GitHubStore(accessToken, user.login, repoName);
+			await store.ensureRepo();
 			registerProvider(store);
 			setActiveProvider('github');
 

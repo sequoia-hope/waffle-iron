@@ -316,7 +316,22 @@ export class GitHubStore {
 			this.#indexCache = JSON.parse(content);
 			return this.#indexCache;
 		} catch (err) {
-			if (err instanceof GitHubStorageError && err.code === 'not_found') {
+			if (err instanceof GitHubStorageError && (err.code === 'not_found' || err.code === 'permission_denied')) {
+				// Repo may not exist yet — ensure it, then retry once
+				if (err.code === 'permission_denied') {
+					await this.ensureRepo();
+					try {
+						const { content } = await this.#getFile('.waffle-index.json');
+						this.#indexCache = JSON.parse(content);
+						return this.#indexCache;
+					} catch (retryErr) {
+						if (retryErr instanceof GitHubStorageError && retryErr.code === 'not_found') {
+							this.#indexCache = [];
+							return this.#indexCache;
+						}
+						throw retryErr;
+					}
+				}
 				this.#indexCache = [];
 				return this.#indexCache;
 			}
