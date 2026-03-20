@@ -36,6 +36,9 @@ jobs:
         env:
           BASE_PATH: /waffle-iron
 
+      - name: Add SPA fallback for GitHub Pages
+        run: cp app/build/index.html app/build/404.html
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
