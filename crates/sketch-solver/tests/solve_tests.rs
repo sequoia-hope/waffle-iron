@@ -4748,3 +4748,92 @@ fn two_tangent_arcs_opposite_sides() {
         "lower arc center should be at y=-10, got y={y6:.3}"
     );
 }
+
+// ── Slotted plate regression test ──────────────────────────────────────────
+
+#[test]
+fn slotted_plate_full_constraint() {
+    // Full slotted plate: plate outline + stadium slot with tangent arcs.
+    // This is the primary regression test for the Jacobian += fix and
+    // Hessian DOF refinement — previously reported 4 DOF, should be 0.
+    let r = 5.0; // slot cap radius
+    let hw = 15.0; // slot half-width (center to arc center)
+
+    let entities = vec![
+        // Slot line endpoints
+        SketchEntity::Point { id: PointId(1), x: -hw, y: r, construction: false },   // TL
+        SketchEntity::Point { id: PointId(2), x: hw, y: r, construction: false },     // TR
+        SketchEntity::Point { id: PointId(3), x: hw, y: -r, construction: false },    // BR
+        SketchEntity::Point { id: PointId(4), x: -hw, y: -r, construction: false },   // BL
+        // Arc centers
+        SketchEntity::Point { id: PointId(5), x: hw, y: 0.0, construction: false },   // right
+        SketchEntity::Point { id: PointId(6), x: -hw, y: 0.0, construction: false },  // left
+        // Slot lines
+        SketchEntity::Line { id: LineId(10), start_id: PointId(1), end_id: PointId(2), construction: false },
+        SketchEntity::Line { id: LineId(11), start_id: PointId(3), end_id: PointId(4), construction: false },
+        // Arcs
+        SketchEntity::Arc { id: ArcId(12), center_id: PointId(5), start_id: PointId(2), end_id: PointId(3), construction: false },
+        SketchEntity::Arc { id: ArcId(13), center_id: PointId(6), start_id: PointId(4), end_id: PointId(1), construction: false },
+    ];
+
+    let constraints = vec![
+        SketchConstraint::Dragged { point: PointId(5) },
+        SketchConstraint::Dragged { point: PointId(6) },
+        SketchConstraint::Horizontal { entity: EntityId(10) },
+        SketchConstraint::Horizontal { entity: EntityId(11) },
+        SketchConstraint::Radius { entity: EntityId(12), value: r },
+        SketchConstraint::Radius { entity: EntityId(13), value: r },
+        // Arc end points on their arcs
+        SketchConstraint::OnEntity { point: PointId(3), entity: EntityId(12) },
+        SketchConstraint::OnEntity { point: PointId(1), entity: EntityId(13) },
+        // Tangent at junctions
+        SketchConstraint::Tangent { line: EntityId(10), curve: EntityId(12) },
+        SketchConstraint::Tangent { line: EntityId(11), curve: EntityId(13) },
+        SketchConstraint::Tangent { line: EntityId(10), curve: EntityId(13) },
+        SketchConstraint::Tangent { line: EntityId(11), curve: EntityId(12) },
+    ];
+
+    let sketch = make_sketch(entities, constraints);
+    let result = solve_sketch(&sketch);
+
+    let dof = get_dof(&result.status);
+    assert_eq!(
+        dof, 0,
+        "slotted plate should be fully constrained, got DOF={dof}, status={:?}",
+        result.status
+    );
+
+    // Verify geometry
+    let tol = 0.1;
+    assert_point_near(&result.positions, PointId(1), (-hw, r), tol);
+    assert_point_near(&result.positions, PointId(2), (hw, r), tol);
+    assert_point_near(&result.positions, PointId(3), (hw, -r), tol);
+    assert_point_near(&result.positions, PointId(4), (-hw, -r), tol);
+}
+
+#[test]
+fn equal_radius_circle_overconstrained() {
+    // Two circles with Equal radius + individual radius constraints that conflict.
+    // Circle 1: r=10, Circle 2: r=20, Equal(C1, C2) → contradiction.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: PointId(1), x: 0.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(2), x: 50.0, y: 0.0, construction: false },
+            SketchEntity::Circle { id: CircleId(10), center_id: PointId(1), radius: 10.0, construction: false },
+            SketchEntity::Circle { id: CircleId(11), center_id: PointId(2), radius: 20.0, construction: false },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: PointId(1) },
+            SketchConstraint::Dragged { point: PointId(2) },
+            SketchConstraint::Radius { entity: EntityId(10), value: 10.0 },
+            SketchConstraint::Radius { entity: EntityId(11), value: 20.0 },
+            SketchConstraint::Equal { entity_a: EntityId(10), entity_b: EntityId(11) },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    assert!(
+        matches!(result.status, SolveStatus::OverConstrained { .. } | SolveStatus::SolveFailed { .. }),
+        "conflicting radii + equal should be over-constrained, got {:?}",
+        result.status
+    );
+}
