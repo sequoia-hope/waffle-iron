@@ -102,6 +102,7 @@ done
 mkdir -p "$LOG_DIR"
 
 ITERATION=1
+LAST_WORKTREE_BRANCH=""  # tracks previous iteration's branch for chaining
 
 LOOP_START=$(date +%s)
 
@@ -116,17 +117,21 @@ build_prompt() {
 }
 
 # Create a worktree for an iteration, returns path via WORKTREE_PATH
+# Chains off the previous iteration's branch if available, otherwise HEAD.
 setup_worktree() {
     local ts="$1"
     local branch_name="auto-waffle/${ts}"
     WORKTREE_PATH="/tmp/auto-waffle-${ts}"
 
-    log "Creating worktree at $WORKTREE_PATH (branch: $branch_name)"
-    cd "$REPO_ROOT"
-    git worktree add "$WORKTREE_PATH" -b "$branch_name" HEAD 2>/dev/null
+    local base_ref="HEAD"
+    if [[ -n "$LAST_WORKTREE_BRANCH" ]] && git rev-parse --verify "$LAST_WORKTREE_BRANCH" &>/dev/null; then
+        base_ref="$LAST_WORKTREE_BRANCH"
+        log "Chaining worktree off previous branch: $LAST_WORKTREE_BRANCH"
+    fi
 
-    # Copy CLAUDE.md files so the session has project context
-    # (worktree shares .git but claude may need these in the working dir)
+    log "Creating worktree at $WORKTREE_PATH (branch: $branch_name, base: $base_ref)"
+    cd "$REPO_ROOT"
+    git worktree add "$WORKTREE_PATH" -b "$branch_name" "$base_ref" 2>/dev/null
 }
 
 # Clean up a worktree. If it has commits ahead of where it branched,
@@ -148,9 +153,11 @@ cleanup_worktree() {
 
     if [[ "$commits_ahead" -gt 0 ]]; then
         log "Worktree branch $branch_name has $commits_ahead commit(s) — keeping for merge"
+        LAST_WORKTREE_BRANCH="$branch_name"
         git worktree remove "$worktree_path" 2>/dev/null || true
     else
         log "Worktree has no new commits — cleaning up"
+        # No new commits — don't chain off this branch, keep previous
         git worktree remove --force "$worktree_path" 2>/dev/null || true
         git branch -D "$branch_name" 2>/dev/null || true
     fi
@@ -389,3 +396,8 @@ while true; do
 done
 
 log "auto-waffle finished after $((ITERATION - 1)) iterations"
+if $USE_WORKTREE && [[ -n "$LAST_WORKTREE_BRANCH" ]]; then
+    log ""
+    log "All iterations chained. Merge with:"
+    log "  git merge $LAST_WORKTREE_BRANCH"
+fi
