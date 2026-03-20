@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="-20.00 -72.00 140.00 84.00" width="280" height="168">
-<rect x="-19.999926448225906" y="-72.0000179439239" width="139.99995319781914" height="84.00012560746724" fill="white"/>
+<rect x="-19.99992689900792" y="-72.0000108665728" width="139.9999147099104" height="84.00007606600958" fill="white"/>
 <g class="grid-minor" stroke="#e0e0e0" stroke-width="0.3">
 <line x1="-20.00" y1="-72.00" x2="-20.00" y2="12.00"/>
 <line x1="-10.00" y1="-72.00" x2="-10.00" y2="12.00"/>
@@ -15,7 +15,6 @@
 <line x1="90.00" y1="-72.00" x2="90.00" y2="12.00"/>
 <line x1="100.00" y1="-72.00" x2="100.00" y2="12.00"/>
 <line x1="110.00" y1="-72.00" x2="110.00" y2="12.00"/>
-<line x1="120.00" y1="-72.00" x2="120.00" y2="12.00"/>
 <line x1="-20.00" y1="-80.00" x2="120.00" y2="-80.00"/>
 <line x1="-20.00" y1="-70.00" x2="120.00" y2="-70.00"/>
 <line x1="-20.00" y1="-60.00" x2="120.00" y2="-60.00"/>
@@ -37,23 +36,25 @@
 <g class="entities">
 <circle cx="0.0001" cy="0.0001" r="2" fill="#F44336"/>
 <circle cx="50.0000" cy="-60.0000" r="2" fill="#F44336"/>
-<circle cx="100.0000" cy="0.0000" r="2" fill="#F44336"/>
-<circle cx="35.4267" cy="-39.5733" r="2" fill="#F44336"/>
-<circle cx="64.1908" cy="-39.0890" r="2" fill="#F44336"/>
-<circle cx="49.5733" cy="-25.4267" r="2" fill="#F44336"/>
-<line x1="0.0001" y1="0.0001" x2="35.4267" y2="-39.5733" stroke="#2196F3" stroke-width="1.5" stroke-linecap="round"/>
-<line x1="64.1908" y1="-39.0890" x2="100.0000" y2="0.0000" stroke="#2196F3" stroke-width="1.5" stroke-linecap="round"/>
-<path d="M35.4267,-39.5733 A20.0064,20.0064 0 0,1 64.1908,-39.0890" stroke="#2196F3" stroke-width="1.5" fill="none"/>
+<circle cx="100.0000" cy="-0.0000" r="2" fill="#F44336"/>
+<circle cx="35.3837" cy="-39.6504" r="2" fill="#F44336"/>
+<circle cx="64.0973" cy="-39.1811" r="2" fill="#F44336"/>
+<circle cx="49.5112" cy="-25.4884" r="2" fill="#F44336"/>
+<line x1="0.0001" y1="0.0001" x2="35.3837" y2="-39.6504" stroke="#2196F3" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="64.0973" y1="-39.1811" x2="100.0000" y2="-0.0000" stroke="#2196F3" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M35.3837,-39.6504 A20.0037,20.0037 0 0,1 64.0973,-39.1811" stroke="#2196F3" stroke-width="1.5" fill="none"/>
 </g>
 <g class="badges" font-family="sans-serif" font-size="4">
-<rect x="30.74" y="-28.61" width="5.8" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
-<text x="33.64" y="-24.61" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">T</text>
-<rect x="62.93" y="-28.49" width="5.8" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
-<text x="65.83" y="-24.49" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">T</text>
-<rect x="41.50" y="-6.00" width="17.0" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
-<text x="50.00" y="-2.00" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">100.0</text>
-<rect x="44.07" y="-31.43" width="17.0" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
-<text x="52.57" y="-27.43" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">R20.0</text>
+<rect x="30.70" y="-28.66" width="5.8" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="33.60" y="-24.66" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">T</text>
+<rect x="62.88" y="-28.54" width="5.8" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="65.78" y="-24.54" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">T</text>
+<rect x="44.01" y="-31.49" width="17.0" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="52.51" y="-27.49" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">R20.0</text>
+<rect x="14.79" y="-25.83" width="5.8" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="17.69" y="-21.83" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">=</text>
+<rect x="79.15" y="-25.59" width="5.8" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="82.05" y="-21.59" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">=</text>
 </g>
 <rect x="-3.90" y="-65.00" width="47.8" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
 <text x="20.00" y="-61.00" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">Over Constrained</text>

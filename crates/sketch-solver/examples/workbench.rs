@@ -629,25 +629,24 @@ fn scenario_tangent_arc() {
     ]);
     wb.snapshot("bases_pinned", "Base points of both lines pinned. Shape position fixed, arc geometry adjusting to tangency.");
 
-    // Step 5: Horizontal base line (implicit via constraining both base points)
-    wb.add_constraint(SketchConstraint::Distance {
-        entity_a: EntityId(1),
-        entity_b: EntityId(3),
-        value: 100.0,
-    });
-    wb.snapshot(
-        "base_distance",
-        "Base span constrained to 100mm. Shape taking final form.",
-    );
-
-    // Step 6: Arc radius
+    // Step 5: Arc radius
     wb.add_constraint(SketchConstraint::Radius {
         entity: EntityId(20),
         value: 20.0,
     });
     wb.snapshot(
         "arc_radius_set",
-        "Arc radius constrained to 20mm. Tangent arc transition fully defined.",
+        "Arc radius constrained to 20mm. Shape position and arc size fixed.",
+    );
+
+    // Step 6: Symmetric V-shape (equal line lengths)
+    wb.add_constraint(SketchConstraint::Equal {
+        entity_a: EntityId(10),
+        entity_b: EntityId(11),
+    });
+    wb.snapshot(
+        "symmetric_v",
+        "Equal line lengths make V-shape symmetric. Tangent arc transition fully defined.",
     );
 
     wb.finish();
@@ -1102,117 +1101,219 @@ fn scenario_slotted_plate() {
     ]);
     wb.snapshot(
         "plate_constrained",
-        "Outer rectangle fully constrained: 120x60mm at origin. Now adding the slot cutout.",
+        "Outer rectangle fully constrained: 120x60mm at origin. Now adding the stadium slot.",
     );
 
-    // Step 3: Rectangular slot points — a simple rectangular cutout
-    // Slot centered at (60, 30), 60mm long x 12mm wide
+    // Step 3: Slot geometry — stadium shape (two lines + two semicircular caps)
+    // Slot runs horizontally, centered at y=30, from x=30 to x=90, R=6mm caps
+    // Points: 4 arc endpoints (shared with lines) + 2 arc centers
     wb.add_entities(vec![
+        // Left cap: top, bottom, center
         SketchEntity::Point {
             id: PointId(20),
             x: 30.0,
-            y: 24.0,
+            y: 36.0,
             construction: false,
         },
         SketchEntity::Point {
             id: PointId(21),
-            x: 90.0,
+            x: 30.0,
             y: 24.0,
             construction: false,
         },
         SketchEntity::Point {
             id: PointId(22),
+            x: 30.0,
+            y: 30.0,
+            construction: false,
+        },
+        // Right cap: top, bottom, center
+        SketchEntity::Point {
+            id: PointId(23),
             x: 90.0,
             y: 36.0,
             construction: false,
         },
         SketchEntity::Point {
-            id: PointId(23),
-            x: 30.0,
-            y: 36.0,
+            id: PointId(24),
+            x: 90.0,
+            y: 24.0,
+            construction: false,
+        },
+        SketchEntity::Point {
+            id: PointId(25),
+            x: 90.0,
+            y: 30.0,
             construction: false,
         },
     ]);
     wb.snapshot(
         "slot_points",
-        "Four points for a rectangular slot cutout, roughly centered in the plate.",
+        "Six points for the stadium slot: left cap (top P20, bottom P21, center P22) and right cap (top P23, bottom P24, center P25).",
     );
 
-    // Step 4: Slot lines forming closed rectangle
+    // Step 4: Slot edges — two horizontal lines + two semicircular arcs
     wb.add_entities(vec![
+        // Top straight edge: left-top → right-top
         SketchEntity::Line {
             id: LineId(30),
             start_id: PointId(20),
-            end_id: PointId(21),
-            construction: false,
-        },
-        SketchEntity::Line {
-            id: LineId(31),
-            start_id: PointId(21),
-            end_id: PointId(22),
-            construction: false,
-        },
-        SketchEntity::Line {
-            id: LineId(32),
-            start_id: PointId(22),
             end_id: PointId(23),
             construction: false,
         },
+        // Bottom straight edge: right-bottom → left-bottom
         SketchEntity::Line {
-            id: LineId(33),
-            start_id: PointId(23),
+            id: LineId(31),
+            start_id: PointId(24),
+            end_id: PointId(21),
+            construction: false,
+        },
+        // Left semicircular cap: bottom → top (counterclockwise, center on left)
+        SketchEntity::Arc {
+            id: ArcId(40),
+            center_id: PointId(22),
+            start_id: PointId(21),
             end_id: PointId(20),
+            construction: false,
+        },
+        // Right semicircular cap: top → bottom (counterclockwise, center on right)
+        SketchEntity::Arc {
+            id: ArcId(41),
+            center_id: PointId(25),
+            start_id: PointId(23),
+            end_id: PointId(24),
             construction: false,
         },
     ]);
     wb.snapshot(
-        "slot_outline",
-        "Rectangular slot outline added inside the plate. Two closed profiles now visible.",
+        "slot_shape",
+        "Stadium slot: two horizontal lines + two semicircular end caps. Closed loop: P20→P23 (top line) → arc right → P24→P21 (bottom line) → arc left → back to P20.",
     );
 
-    // Step 5: H/V constraints on slot
+    // Step 5: Constrain slot lines horizontal
     wb.add_constraints(vec![
         SketchConstraint::Horizontal {
             entity: EntityId(30),
         },
         SketchConstraint::Horizontal {
-            entity: EntityId(32),
-        },
-        SketchConstraint::Vertical {
             entity: EntityId(31),
-        },
-        SketchConstraint::Vertical {
-            entity: EntityId(33),
         },
     ]);
     wb.snapshot(
-        "slot_aligned",
-        "Slot sides constrained horizontal/vertical. Slot axis-aligned within the plate.",
+        "slot_horizontal",
+        "Slot sides constrained horizontal. Slot is level within the plate.",
     );
 
-    // Step 6: Slot dimensions — width and height
+    // Step 6: Arc radii — both caps R=6mm
     wb.add_constraints(vec![
+        SketchConstraint::Radius {
+            entity: EntityId(40),
+            value: 6.0,
+        },
+        SketchConstraint::Radius {
+            entity: EntityId(41),
+            value: 6.0,
+        },
+    ]);
+    wb.snapshot(
+        "slot_radii",
+        "Both arc caps constrained to R=6mm. Slot width is now 12mm. Position and length still free.",
+    );
+
+    // Step 7: Construction line at plate center for Symmetric constraint
+    wb.add_entities(vec![
+        SketchEntity::Point {
+            id: PointId(50),
+            x: 60.0,
+            y: 0.0,
+            construction: true,
+        },
+        SketchEntity::Point {
+            id: PointId(51),
+            x: 60.0,
+            y: 60.0,
+            construction: true,
+        },
+        SketchEntity::Line {
+            id: LineId(60),
+            start_id: PointId(50),
+            end_id: PointId(51),
+            construction: true,
+        },
+    ]);
+    wb.add_constraints(vec![
+        SketchConstraint::Vertical {
+            entity: EntityId(60),
+        },
+        // Pin construction line on the plate midpoints
+        SketchConstraint::Midpoint {
+            point: PointId(50),
+            line: EntityId(10),
+        },
+        SketchConstraint::Midpoint {
+            point: PointId(51),
+            line: EntityId(12),
+        },
+    ]);
+    wb.snapshot(
+        "centerline",
+        "Construction line at plate center (x=60) via midpoint constraints on top/bottom plate edges. Will serve as symmetry axis for the slot.",
+    );
+
+    // Step 8: Symmetric constraint — slot centers mirrored about plate centerline
+    wb.add_constraint(SketchConstraint::Symmetric {
+        entity_a: PointId(22),
+        entity_b: PointId(25),
+        symmetry_line: EntityId(60),
+    });
+    wb.snapshot(
+        "slot_symmetric",
+        "Slot centers constrained symmetric about the plate centerline. Slot is horizontally centered in the plate.",
+    );
+
+    // Step 9: Fix arc END points to lie on their circles.
+    //
+    // SOLVER GAP FOUND: Arc radius is RadiusDef::Implicit(start_point), derived
+    // from dist(center, start). The END point has no implicit binding — it's a
+    // free point that can drift off the arc circle. We must add explicit OnEntity
+    // constraints for end points. Start points are already implicitly on the circle.
+    wb.add_constraints(vec![
+        // Left arc end point P20 onto arc 40
+        SketchConstraint::OnEntity {
+            point: PointId(20),
+            entity: EntityId(40),
+        },
+        // Right arc end point P24 onto arc 41
+        SketchConstraint::OnEntity {
+            point: PointId(24),
+            entity: EntityId(41),
+        },
+    ]);
+    wb.snapshot(
+        "end_points_on_arcs",
+        "OnEntity constraints bind arc END points to their circles. (Start points are implicitly on-circle via RadiusDef::Implicit — but end points are free. This is a solver gap.)",
+    );
+
+    // Step 10: Pin slot position and fix endpoint angular positions.
+    // Centers are fixed (Dragged + Symmetric). Radii are fixed. End points are
+    // now on-circle. But endpoints can still rotate around the circle.
+    // Constrain the vertical span of each cap: dist(top, bottom) = 2R = 12mm.
+    wb.add_constraints(vec![
+        SketchConstraint::Dragged { point: PointId(22) },
         SketchConstraint::Distance {
             entity_a: EntityId(20),
             entity_b: EntityId(21),
-            value: 60.0,
+            value: 12.0,
         },
         SketchConstraint::Distance {
-            entity_a: EntityId(21),
-            entity_b: EntityId(22),
+            entity_a: EntityId(23),
+            entity_b: EntityId(24),
             value: 12.0,
         },
     ]);
     wb.snapshot(
-        "slot_sized",
-        "Slot dimensions set: 60mm long x 12mm wide. Position still free within the plate.",
-    );
-
-    // Step 7: Pin slot position — center it
-    wb.add_constraint(SketchConstraint::Dragged { point: PointId(20) });
-    wb.snapshot(
         "slot_positioned",
-        "Slot bottom-left pinned at (30, 24). Fully constrained compound plate with rectangular slot.",
+        "Left center pinned, endpoint spacing = 2R locks semicircular cap orientation. Compound plate with stadium slot.",
     );
 
     wb.finish();

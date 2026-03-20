@@ -34,16 +34,16 @@
 </g>
 <path d="M-40.0000,-0.0000 L0.0000,-0.0000 L40.0000,-0.0000 L40.0000,-20.0000 L15.0000,-20.0000 L15.0000,-60.0000 L0.0000,-60.0000 L-15.0000,-60.0000 L-15.0000,-20.0000 L-40.0000,-20.0000 Z" fill="#E3F2FD" fill-opacity="0.5" fill-rule="evenodd" stroke="none"/>
 <g class="entities">
-<circle cx="0.0000" cy="-0.0000" r="2" fill="#FF9800"/>
-<circle cx="-40.0000" cy="-0.0000" r="2" fill="#FF9800"/>
-<circle cx="-40.0000" cy="-20.0000" r="2" fill="#FF9800"/>
-<circle cx="-15.0000" cy="-20.0000" r="2" fill="#FF9800"/>
-<circle cx="-15.0000" cy="-60.0000" r="2" fill="#FF9800"/>
-<circle cx="0.0000" cy="-60.0000" r="2" fill="#FF9800"/>
-<circle cx="40.0000" cy="-0.0000" r="2" fill="#FF9800"/>
-<circle cx="40.0000" cy="-20.0000" r="2" fill="#FF9800"/>
-<circle cx="15.0000" cy="-20.0000" r="2" fill="#FF9800"/>
-<circle cx="15.0000" cy="-60.0000" r="2" fill="#FF9800"/>
+<circle cx="0.0000" cy="-0.0000" r="2" fill="#4CAF50"/>
+<circle cx="-40.0000" cy="-0.0000" r="2" fill="#4CAF50"/>
+<circle cx="-40.0000" cy="-20.0000" r="2" fill="#4CAF50"/>
+<circle cx="-15.0000" cy="-20.0000" r="2" fill="#4CAF50"/>
+<circle cx="-15.0000" cy="-60.0000" r="2" fill="#4CAF50"/>
+<circle cx="0.0000" cy="-60.0000" r="2" fill="#4CAF50"/>
+<circle cx="40.0000" cy="-0.0000" r="2" fill="#4CAF50"/>
+<circle cx="40.0000" cy="-20.0000" r="2" fill="#4CAF50"/>
+<circle cx="15.0000" cy="-20.0000" r="2" fill="#4CAF50"/>
+<circle cx="15.0000" cy="-60.0000" r="2" fill="#4CAF50"/>
 <line x1="0.0000" y1="-0.0000" x2="-40.0000" y2="-0.0000" stroke="#2196F3" stroke-width="1.5" stroke-linecap="round"/>
 <line x1="-40.0000" y1="-0.0000" x2="-40.0000" y2="-20.0000" stroke="#2196F3" stroke-width="1.5" stroke-linecap="round"/>
 <line x1="-40.0000" y1="-20.0000" x2="-15.0000" y2="-20.0000" stroke="#2196F3" stroke-width="1.5" stroke-linecap="round"/>
@@ -100,6 +100,6 @@
 <rect x="-7.10" y="-42.50" width="14.2" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
 <text x="0.00" y="-38.50" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">60.0</text>
 </g>
-<rect x="-39.70" y="-79.00" width="39.4" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
-<text x="-20.00" y="-75.00" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">Under (1 DOF)</text>
+<rect x="-45.30" y="-79.00" width="50.6" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="-20.00" y="-75.00" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">Fully Constrained</text>
 </svg>

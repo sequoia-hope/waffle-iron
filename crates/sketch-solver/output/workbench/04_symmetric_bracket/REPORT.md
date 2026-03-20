@@ -153,7 +153,7 @@
 ---
 
 ## Step 5: Dimensioned
-**Status**: Under-constrained (1 DOF) | **Entities**: 12 pt, 11 ln | **Constraints**: 23
+**Status**: Fully constrained (0 DOF) | **Entities**: 12 pt, 11 ln | **Constraints**: 23
 > Origin pinned, construction line fixed, all dimensions set (width 80mm, base 20mm, arm 40mm, arm width 15mm, total height 60mm). Near-fully constrained — remaining DOF from redundant symmetry interactions.
 
 **Active constraints**:
