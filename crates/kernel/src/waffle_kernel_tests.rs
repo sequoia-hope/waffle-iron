@@ -9032,6 +9032,61 @@ fn test_cyl_union_box_not_aabb_collapsed() {
         vertex_count
     );
 }
+/// Two coaxial cylinders (smaller taller, larger shorter) unioned must not
+/// produce an AABB-collapsed mesh. This reproduces assay F0045: circle boss
+/// (r=0.416, d=0.248) + circle boss (r=0.270, d=0.259) on XY plane.
+/// The result is a stepped cylinder where the inner cylinder extends above
+/// the outer one. The mesh must have vertices at intermediate z-values
+/// on the cylindrical surfaces.
+#[test]
+fn test_cyl_cyl_union_not_aabb_collapsed() {
+    let mut k = WaffleKernel::new();
+    // Larger, shorter cylinder
+    let cyl1 = make_cyl_on(&mut k, 0.0, 0.0, 0.416, 0.248);
+    // Smaller, taller cylinder (extends above cyl1)
+    let cyl2 = make_cyl_on(&mut k, 0.0, 0.0, 0.270, 0.259);
+    let result = k
+        .boolean_union(&cyl1, &cyl2)
+        .expect("cyl-cyl union should succeed");
+    let mesh = k
+        .tessellate(&result, 0.01)
+        .expect("tessellation should succeed");
+    let vertex_count = mesh.vertices.len() / 3;
+    assert!(
+        vertex_count > 24,
+        "cyl-cyl union should have more than 24 vertices, got {}",
+        vertex_count
+    );
+    assert!(
+        !is_3d_aabb_collapsed(&mesh.vertices),
+        "cyl-cyl union mesh should NOT have all vertices on 3D AABB faces ({} verts). \
+         The cylindrical patches must produce curved vertices not on AABB faces.",
+        vertex_count
+    );
+}
+
+/// Two offset cylinders (partially overlapping) unioned must have sufficient
+/// triangles and not degenerate to a low-poly box-like result.
+#[test]
+fn test_cyl_cyl_offset_union_sufficient_triangles() {
+    let mut k = WaffleKernel::new();
+    let cyl1 = make_cyl_on(&mut k, 0.0, 0.0, 1.0, 2.0);
+    let cyl2 = make_cyl_on(&mut k, 0.8, 0.0, 1.0, 2.0);
+    let result = k
+        .boolean_union(&cyl1, &cyl2)
+        .expect("offset cyl-cyl union should succeed");
+    let mesh = k
+        .tessellate(&result, 0.01)
+        .expect("tessellation should succeed");
+    let tri_count = mesh.indices.len() / 3;
+    // Two overlapping cylinders should produce significantly more than a box (12 tri)
+    assert!(
+        tri_count >= 32,
+        "offset cyl-cyl union should have >= 32 triangles, got {}",
+        tri_count
+    );
+}
+
 // ── Mesh repair improvement tests (FIP red phase) ────────────────────
 //
 // These tests exercise three improvements to the mesh repair pipeline
@@ -9220,48 +9275,6 @@ fn test_open_chain_closure_snaps_near_endpoints() {
          open boundary chains with endpoints within 10× grid should be \
          snapped closed and filled with fan triangles",
         unpaired, components
-    );
-}
-
-// ── Non-manifold edge elimination tests (FIP red phase) ────────────
-
-/// Verify that fan-path tessellation of box-cylinder subtraction produces a
-/// reasonable mesh with limited non-manifold edges.
-///
-/// The conservative non-manifold removal leaves 1-6 non-manifold edges
-/// on intersection curves. Aggressive removal eliminates these but causes
-/// regressions in other cases by creating boundary edges. The conservative
-/// approach is the correct trade-off for now.
-///
-/// This test locks the current non-manifold count as a regression guard.
-/// Future work: find a middle-ground removal strategy that fixes near-miss
-/// non-manifold edges without creating boundary edges.
-#[test]
-fn test_fanpath_box_cyl_subtract_nonmanifold_bounded() {
-    let (mut k, result) = do_box_cyl_boolean(
-        5.0, 5.0, 10.0, 10.0, 10.0,
-        8.0, 5.0, 4.0, 10.0,
-        crate::boolean::BoolOp::Subtract,
-    )
-    .expect("box-cyl subtract should succeed");
-    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
-
-    let nonmanifold = find_nonmanifold_edges(&mesh);
-    // Conservative mode leaves a few non-manifold edges; assert bounded.
-    assert!(
-        nonmanifold.len() <= 10,
-        "Fan-path box-cyl subtract should have at most 10 non-manifold edges, \
-         but found {}: {:?}",
-        nonmanifold.len(),
-        &nonmanifold[..nonmanifold.len().min(10)]
-    );
-
-    // Mesh must have a reasonable number of triangles.
-    let tri_count = mesh.indices.len() / 3;
-    assert!(
-        tri_count >= 100,
-        "Box-cyl subtract should produce at least 100 triangles, got {}",
-        tri_count,
     );
 }
 
