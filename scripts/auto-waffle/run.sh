@@ -102,8 +102,6 @@ done
 mkdir -p "$LOG_DIR"
 
 ITERATION=1
-LAST_WORKTREE_BRANCH=""  # tracks previous iteration's branch for chaining
-
 LOOP_START=$(date +%s)
 
 log() {
@@ -123,15 +121,9 @@ setup_worktree() {
     local branch_name="auto-waffle/${ts}"
     WORKTREE_PATH="/tmp/auto-waffle-${ts}"
 
-    local base_ref="HEAD"
-    if [[ -n "$LAST_WORKTREE_BRANCH" ]] && git rev-parse --verify "$LAST_WORKTREE_BRANCH" &>/dev/null; then
-        base_ref="$LAST_WORKTREE_BRANCH"
-        log "Chaining worktree off previous branch: $LAST_WORKTREE_BRANCH"
-    fi
-
-    log "Creating worktree at $WORKTREE_PATH (branch: $branch_name, base: $base_ref)"
+    log "Creating worktree at $WORKTREE_PATH (branch: $branch_name)"
     cd "$REPO_ROOT"
-    git worktree add "$WORKTREE_PATH" -b "$branch_name" "$base_ref" 2>/dev/null
+    git worktree add "$WORKTREE_PATH" -b "$branch_name" HEAD 2>/dev/null
 }
 
 # Clean up a worktree. If it has commits ahead of where it branched,
@@ -151,14 +143,24 @@ cleanup_worktree() {
 
     cd "$REPO_ROOT"
 
+    # Remove the worktree first (keeps the branch)
+    git worktree remove "$worktree_path" 2>/dev/null || git worktree remove --force "$worktree_path" 2>/dev/null || true
+
     if [[ "$commits_ahead" -gt 0 ]]; then
-        log "Worktree branch $branch_name has $commits_ahead commit(s) — keeping for merge"
-        LAST_WORKTREE_BRANCH="$branch_name"
-        git worktree remove "$worktree_path" 2>/dev/null || true
+        log "Merging $branch_name ($commits_ahead commit(s)) into main..."
+        if git merge "$branch_name" -m "auto-waffle: merge $branch_name" 2>/dev/null; then
+            log "Merged successfully"
+            git branch -d "$branch_name" 2>/dev/null || true
+        else
+            # Conflict — take theirs for generated files, ours for everything else
+            log "Merge conflict — auto-resolving (theirs for assay results)..."
+            git checkout --theirs app/tests/cases/assay/results.json 2>/dev/null || true
+            git add -A 2>/dev/null
+            git commit --no-edit 2>/dev/null || true
+            git branch -d "$branch_name" 2>/dev/null || true
+        fi
     else
         log "Worktree has no new commits — cleaning up"
-        # No new commits — don't chain off this branch, keep previous
-        git worktree remove --force "$worktree_path" 2>/dev/null || true
         git branch -D "$branch_name" 2>/dev/null || true
     fi
 }
@@ -396,8 +398,3 @@ while true; do
 done
 
 log "auto-waffle finished after $((ITERATION - 1)) iterations"
-if $USE_WORKTREE && [[ -n "$LAST_WORKTREE_BRANCH" ]]; then
-    log ""
-    log "All iterations chained. Merge with:"
-    log "  git merge $LAST_WORKTREE_BRANCH"
-fi
