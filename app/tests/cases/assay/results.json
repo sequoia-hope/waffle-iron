@@ -1,12 +1,12 @@
 {
-  "errored": 32,
-  "failed": 93,
-  "generated": "2026-03-19",
-  "passed": 35,
+  "errored": 3,
+  "failed": 91,
+  "generated": "2026-03-20",
+  "passed": 66,
   "results": [
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 9f753923-d2d4-44aa-928b-394746d3283d: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 3 unpaired edges out of 4205 total (2 boundary, 1 non-manifold)",
       "id": "R0001",
       "status": "fail"
     },
@@ -24,27 +24,27 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 2 unpaired edges out of 778 total (0 boundary, 2 non-manifold)",
+      "detail": "watertight_mesh: 1 unpaired edges out of 779 total (0 boundary, 1 non-manifold)",
       "id": "R0004",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 1c0eff66-04a7-4636-b762-02e6714872f1: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; watertight_mesh: 16 unpaired edges out of 3525 total (11 boundary, 5 non-manifold)",
+      "detail": "watertight_mesh: 16 unpaired edges out of 3525 total (11 boundary, 5 non-manifold)",
       "id": "R0005",
       "status": "fail"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (2 error(s)): 7a581ff5-ba10-4d91-aad9-6ba25cf35ff5: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 1d45833d-8c95-4214-a99a-98fb1e30b9d8: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\")]",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0006",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "cascading-failure",
-      "detail": "no solid — 3 engine error(s): 284f44ec-672a-4d52-9b3b-958fc3a68207: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; b45d8e37-ea75-4687-b294-8938f93161e5: GeomRef resolution failed: Cut extrude requires an existing body to subtract from; 633f2cf5-127f-48c6-aff9-3dfa40b8aef4: GeomRef resolution failed: Cut extrude requires an existing body to subtract from",
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 96 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"gear\")]",
       "id": "R0007",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "boolean-watertight",
@@ -53,14 +53,14 @@
       "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "no solid — 3 engine error(s): 3dd1ac8d-fea3-4e1f-8941-3bb014866f50: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 16545414-f288-4e87-aab2-02374e858ce5: GeomRef resolution failed: Cut extrude requires an existing body to subtract from; 59ce4859-a45a-4eb5-a1ba-a1c714ac1c29: GeomRef resolution failed: Cut extrude requires an existing body to subtract from",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0009",
-      "status": "error"
+      "status": "pass"
     },
     {
-      "category": "volume-magnitude",
-      "detail": "partial rebuild (1 error(s)): 518e1a3f-d724-4b7d-8e45-ce79a6b0553c: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; volume_magnitude: volume 2.548968e-3 outside [2.281929e-2, 2.281929e14] for scale 1.316540e2",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 4 unpaired edges out of 2566 total (2 boundary, 2 non-manifold)",
       "id": "R0010",
       "status": "fail"
     },
@@ -71,16 +71,16 @@
       "status": "pass"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): bc9220a7-b035-4902-9842-67f2cecad33c: operation error: kernel error: operation not supported: polygon boolean: 310x590 effective face product (5790) too large for non-convex solids",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 2144 unpaired edges out of 10747 total",
       "id": "R0012",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): f5ad1d43-9e8a-432c-909e-a4e2074f22d4: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "R0013",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "pass-genuine",
@@ -89,16 +89,16 @@
       "status": "pass"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (2 error(s)): 218e8f25-fd1e-42c0-ae71-cdf8d67af6fa: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 031ac248-deac-4c64-bc98-0975a7d3c3b0: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 384 unpaired edges out of 1290 total (374 boundary, 10 non-manifold)",
       "id": "R0015",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): f8474247-16ea-431e-a647-2efd6c1605fc: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0016",
-      "status": "fail"
+      "status": "error"
     },
     {
       "category": "boolean-watertight",
@@ -113,62 +113,62 @@
       "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "no solid — 2 engine error(s): c35ff54c-4fb2-4bb2-bc42-83b802a3df6a: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 4abaa468-b8c1-4c2e-866c-e93c31e36cbb: GeomRef resolution failed: Cut revolve requires an existing body to subtract from",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 2 unpaired edges out of 178 total (0 boundary, 2 non-manifold); minimum_triangle_count: 120 triangles < expected minimum 288 for operations [(\"extrude\", \"circle\"), (\"revolve\", \"gear\")]",
       "id": "R0019",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "volume-magnitude",
-      "detail": "partial rebuild (2 error(s)): e5fe07d0-bb12-4133-9f9c-0e92c4429192: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 0a769474-e3ff-45be-989e-23b4c606536e: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; volume_magnitude: volume 4.704854e-5 outside [1.198368e-3, 1.198368e13] for scale 4.930187e1",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 2 unpaired edges out of 388 total (0 boundary, 2 non-manifold)",
       "id": "R0020",
       "status": "fail"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (2 error(s)): 785c56fc-032e-4862-aa3a-e1df9f525d72: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 6b23d67e-d360-4142-b3c4-71d770393d49: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\")]",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 1 unpaired edges out of 1331 total (0 boundary, 1 non-manifold)",
       "id": "R0021",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): f9ef06f4-9612-44a4-908b-584441aa0a6c: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0022",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (2 error(s)): 63ecd575-896e-4cd2-82fb-08cbad9114c6: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 1114397e-8498-4d3d-857e-0a2b3e3141fd: GeomRef resolution failed: Cut extrude requires an existing body to subtract from; minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"rectangle\")]",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 10 unpaired edges out of 59 total",
       "id": "R0023",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): e458550d-5738-4602-9d77-79ff3c41d3e0: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "R0024",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (2 error(s)): 6a9adfa2-f5c0-4d35-88b8-31ba45737d1c: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 3eb5de42-cc8f-4783-988a-6fab6a6ce765: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 3 unpaired edges out of 1858 total (1 boundary, 2 non-manifold)",
       "id": "R0025",
       "status": "fail"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (2 error(s)): 34374b0b-121d-478b-bd08-754150e02649: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 64cdee21-dbe2-4d26-ad68-375d2115683a: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"extrude\", \"circle\"), (\"revolve\", \"circle\"), (\"extrude\", \"rectangle\")]",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 62 unpaired edges out of 1764 total (61 boundary, 1 non-manifold)",
       "id": "R0026",
       "status": "fail"
     },
     {
       "category": "revolve-normals",
-      "detail": "partial rebuild (1 error(s)): 6a5e3179-9dfd-4472-956c-66d632fbfb4c: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 96 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"gear\"), (\"revolve\", \"circle\")]",
+      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 96 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"gear\"), (\"revolve\", \"circle\")]",
       "id": "R0027",
       "status": "fail"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (2 error(s)): b2dff0cc-c77e-49b4-ab7a-3eedf5aa8018: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; e06f9947-b61a-4204-8c97-dfe06c03a2da: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"extrude\", \"rectangle\"), (\"revolve\", \"circle\"), (\"extrude\", \"circle\")]",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 2 unpaired edges out of 568 total (0 boundary, 2 non-manifold)",
       "id": "R0028",
       "status": "fail"
     },
@@ -179,58 +179,58 @@
       "status": "pass"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (2 error(s)): 3b4aafb4-2b90-40c9-920b-510bbb7c61e7: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 7fea6e36-87cd-4f47-9697-61a6dd4e522f: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\")]",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 6 unpaired edges out of 196 total (4 boundary, 2 non-manifold)",
       "id": "R0030",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 791 unpaired edges out of 6149 total (779 boundary, 12 non-manifold)",
+      "detail": "watertight_mesh: 786 unpaired edges out of 6148 total (773 boundary, 13 non-manifold)",
       "id": "R0031",
       "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "no solid — 3 engine error(s): d292383e-29ad-4a45-b06a-9550e868dde5: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; a0fc7c89-1e56-4f38-87cf-b404ce5f4646: GeomRef resolution failed: Cut revolve requires an existing body to subtract from; 80cc6a8c-a635-4e4d-9324-4cf20461f32f: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 2 unpaired edges out of 550 total (0 boundary, 2 non-manifold)",
       "id": "R0032",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1 unpaired edges out of 389 total (0 boundary, 1 non-manifold); minimum_triangle_count: 260 triangles < expected minimum 288 for operations [(\"revolve\", \"rectangle\"), (\"revolve\", \"gear\")]",
+      "category": "mesh-too-simple",
+      "detail": "minimum_triangle_count: 260 triangles < expected minimum 288 for operations [(\"revolve\", \"rectangle\"), (\"revolve\", \"gear\")]",
       "id": "R0033",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 1bf87fe5-a96d-4479-b54f-0fac753b39dd: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; watertight_mesh: 156 unpaired edges out of 4749 total (56 boundary, 100 non-manifold)",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0034",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 0529ae38-142a-4bca-8f7a-45cccd2f0021: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; watertight_mesh: 1 unpaired edges out of 2105 total (0 boundary, 1 non-manifold)",
+      "detail": "watertight_mesh: 2 unpaired edges out of 2284 total (0 boundary, 2 non-manifold)",
       "id": "R0035",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 41f81957-0784-47e1-8f6b-c735dfdc7932: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0036",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): f9fface7-24e1-47bd-b6f5-b9332a7c6479: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0037",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): c6b760f4-5e78-4008-ac1d-d9b13f0375ed: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0038",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "pass-genuine",
@@ -239,50 +239,50 @@
       "status": "pass"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (2 error(s)): 7586a4a4-6716-4969-a4be-f7323d972e76: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 27df7e97-3243-42de-a122-824ac5084e81: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 24 unpaired edges out of 1152 total (21 boundary, 3 non-manifold)",
       "id": "R0040",
       "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "no solid — 2 engine error(s): b6dec8c9-f707-4364-94a9-0d428822af4b: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 45e7e2b6-f9ca-4f1d-97f4-30d01bb197d5: GeomRef resolution failed: Cut extrude requires an existing body to subtract from",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 277 unpaired edges out of 734 total; consistent_normals: 5 of 397 triangles have reversed normals",
       "id": "R0041",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "no solid — 2 engine error(s): b0ea7641-67c2-4262-adc3-9e284aebbf5e: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 1cc77025-33ae-49cf-a1d3-be933c39990b: GeomRef resolution failed: Cut extrude requires an existing body to subtract from",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 4 unpaired edges out of 178 total (2 boundary, 2 non-manifold)",
       "id": "R0042",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (2 error(s)): 254ce032-b157-4b29-8b77-23e355ad8f4c: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; c8bd51ad-beea-467b-bc48-62862a1239e0: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 2 unpaired edges out of 2356 total (0 boundary, 2 non-manifold)",
       "id": "R0043",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 7d9848ef-fd3f-4a78-b791-d351e9fe3153: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; watertight_mesh: 230 unpaired edges out of 3247 total",
+      "detail": "watertight_mesh: 230 unpaired edges out of 3247 total",
       "id": "R0044",
       "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "no solid — 2 engine error(s): 6168f91c-23f4-4650-bbf0-be5f25c496cc: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 0c04221f-943f-43b2-804c-3d3a0408f51e: GeomRef resolution failed: Cut revolve requires an existing body to subtract from",
+      "category": "volume-magnitude",
+      "detail": "volume_magnitude: volume 5.519793e-17 outside [1.174499e-15, 1.174499e1] for scale 4.897234e-3",
       "id": "R0045",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "no solid — 3 engine error(s): 80e9429a-5b0b-404b-9c51-4a7e5207f19b: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; ac1169b9-4457-4283-a45a-d1d3b5f07480: GeomRef resolution failed: Cut extrude requires an existing body to subtract from; a06309c7-0498-4304-bd15-7760f43448fc: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 14 unpaired edges out of 146 total (4 boundary, 10 non-manifold)",
       "id": "R0046",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "mesh-too-simple",
-      "detail": "partial rebuild (1 error(s)): 27841a24-ff10-40d1-b0b2-3335c6bafb54: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 288 for operations [(\"extrude\", \"rectangle\"), (\"revolve\", \"gear\"), (\"revolve\", \"circle\")]",
+      "detail": "minimum_triangle_count: 12 triangles < expected minimum 288 for operations [(\"extrude\", \"rectangle\"), (\"revolve\", \"gear\"), (\"revolve\", \"circle\")]",
       "id": "R0047",
       "status": "fail"
     },
@@ -293,20 +293,20 @@
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1 unpaired edges out of 389 total (0 boundary, 1 non-manifold)",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0049",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (2 error(s)): cce05460-8fec-4e28-b375-a9d8675b14e2: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; a40e4236-0d2c-449a-a79f-35a4d577ecc9: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 271 unpaired edges out of 2534 total",
       "id": "R0050",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (2 error(s)): 2e3673d6-9bf6-474a-88d9-da7749966534: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; b1d7e49d-278a-4e98-879e-29d2968ea023: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 389 unpaired edges out of 14524 total (194 boundary, 195 non-manifold); consistent_normals: 258 of 10003 triangles have reversed normals",
       "id": "R0051",
       "status": "fail"
     },
@@ -329,56 +329,56 @@
       "status": "fail"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (1 error(s)): 9dcf23ca-5708-432c-9103-5a5a9b42dc3b: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 36 for operations [(\"extrude\", \"rectangle\"), (\"revolve\", \"rectangle\"), (\"extrude\", \"circle\")]",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 28 unpaired edges out of 626 total",
       "id": "R0055",
       "status": "fail"
     },
     {
-      "category": "tessellation-degenerate",
-      "detail": "partial rebuild (1 error(s)): a3268ef9-69cc-4acf-a274-b736521515cf: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; no_degenerate_triangles: 42 of 2460 triangles are degenerate",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 126 unpaired edges out of 3690 total",
       "id": "R0056",
       "status": "fail"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (1 error(s)): f4bf358a-49da-4d4b-907d-3dad24fee1e0: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"extrude\", \"rectangle\"), (\"revolve\", \"circle\")]",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 4 unpaired edges out of 1526 total (1 boundary, 3 non-manifold)",
       "id": "R0057",
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 366x394 effective face product (15224) too large for non-convex solids. Body created as standalone.; partial rebuild (1 error(s)): 2d4513b2-1d7e-4018-ae1d-6bc19a9c035a: operation error: kernel error: operation not supported: polygon boolean: 366x506 effective face product (9145) too large for non-convex solids; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0058",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (2 error(s)): 2e2a3575-d979-4dab-b8c7-32b8299eb7f8: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; d73536bd-2c3c-49c5-bc46-64073b60282c: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"extrude\", \"circle\"), (\"revolve\", \"circle\"), (\"extrude\", \"rectangle\")]",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 90 unpaired edges out of 3801 total",
       "id": "R0059",
       "status": "fail"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (1 error(s)): 3d9c0961-28ae-46a4-bc07-1dfa5dbfda06: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 36 for operations [(\"extrude\", \"rectangle\"), (\"revolve\", \"rectangle\"), (\"extrude\", \"circle\")]",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 201 unpaired edges out of 909 total; no_degenerate_triangles: 1 of 539 triangles are degenerate",
       "id": "R0060",
       "status": "fail"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (2 error(s)): e9bb0554-098c-4238-a47e-86f1aa9a4e36: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; b3836ade-6edc-4117-bb74-a51027c46eae: GeomRef resolution failed: Cut extrude requires an existing body to subtract from; minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\"), (\"extrude\", \"rectangle\")]",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 2 unpaired edges out of 196 total (0 boundary, 2 non-manifold)",
       "id": "R0061",
       "status": "fail"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (1 error(s)): f09ce2b4-1196-4d34-9cd8-eba9da2645c9: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"revolve\", \"circle\"), (\"extrude\", \"rectangle\")]",
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "R0062",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "tessellation-degenerate",
-      "detail": "partial rebuild (2 error(s)): f46cae2f-8c46-4ebf-81e4-fc3c0db34887: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; a2a0f3b8-7a76-49c2-af45-16b258d9556c: GeomRef resolution failed: Cut extrude requires an existing body to subtract from; no_degenerate_triangles: 132 of 2460 triangles are degenerate",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 350 unpaired edges out of 5319 total (348 boundary, 2 non-manifold)",
       "id": "R0063",
       "status": "fail"
     },
@@ -389,52 +389,52 @@
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (2 error(s)): 540137d7-1e4a-4db4-81ee-4ca41a608fbb: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; befd021d-3541-4ce5-8989-be4ffa3b3928: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 2 unpaired edges out of 3700 total (0 boundary, 2 non-manifold); bbox diagonal 2.763e-2 exceeds max 2.617e-2",
       "id": "R0065",
       "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "no solid — 3 engine error(s): 0eadbb0c-6a65-48df-8ecf-63f9aeb75cfd: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 1ccea5f2-b9b0-487d-836c-40aaef7f820d: GeomRef resolution failed: Cut extrude requires an existing body to subtract from; d31712c0-9daa-4b42-93f0-fb2e4d5f6a82: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 4 unpaired edges out of 356 total (0 boundary, 4 non-manifold)",
       "id": "R0066",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (1 error(s)): 03f0b4be-0202-470d-bbef-e6bcdd55d86f: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\")]",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 16 unpaired edges out of 380 total",
       "id": "R0067",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 188a789c-0ddd-4bce-ad01-1adafc0bb7f5: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "detail": "bbox diagonal 1.814e-1 exceeds max 1.453e-1",
       "id": "R0068",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 13 unpaired edges out of 407 total (12 boundary, 1 non-manifold)",
+      "detail": "watertight_mesh: 12 unpaired edges out of 408 total",
       "id": "R0069",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 84925bb1-a75c-4230-992a-6e67b324f52d: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; watertight_mesh: 1 unpaired edges out of 389 total (0 boundary, 1 non-manifold)",
+      "detail": "watertight_mesh: 8 unpaired edges out of 16 total; minimum_triangle_count: 8 triangles < expected minimum 96 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"gear\"), (\"extrude\", \"circle\")]",
       "id": "R0070",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1379 unpaired edges out of 4838 total (1373 boundary, 6 non-manifold)",
+      "detail": "watertight_mesh: 1376 unpaired edges out of 4838 total (1370 boundary, 6 non-manifold)",
       "id": "R0071",
       "status": "fail"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (1 error(s)): 5779222f-5283-4e1e-ab10-6b8b52976f1c: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\")]",
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "R0072",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "pass-boss-only",
@@ -443,40 +443,40 @@
       "status": "pass"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (2 error(s)): 2a67dad0-35cb-4126-b239-2382890ed3cc: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 11f9f06c-7fd6-48ae-a4bb-52f1eb0911e4: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 2 unpaired edges out of 4072 total (0 boundary, 2 non-manifold); bbox diagonal 1.185e0 exceeds max 1.020e0",
       "id": "R0074",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (2 error(s)): 1ccb0e58-a9c5-4c05-8111-e99448c07561: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; bf39bb13-caea-4782-a987-73d7310c7c75: operation error: kernel error: operation not supported: polygon boolean: 646x674 effective face product (12657) too large for non-convex solids",
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): bf39bb13-caea-4782-a987-73d7310c7c75: operation error: kernel error: operation not supported: polygon boolean: 680x674 effective face product (12657) too large for non-convex solids; watertight_mesh: 29 unpaired edges out of 4009 total (0 boundary, 29 non-manifold)",
       "id": "R0075",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 47644801-6dfa-489e-bbe9-ecc63a925a49: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; watertight_mesh: 30 unpaired edges out of 1342 total (28 boundary, 2 non-manifold)",
+      "detail": "watertight_mesh: 32 unpaired edges out of 1520 total (28 boundary, 4 non-manifold)",
       "id": "R0076",
       "status": "fail"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (1 error(s)): 9cb109fe-c31c-498f-980d-92a8c461311f: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"revolve\", \"circle\"), (\"extrude\", \"rectangle\")]",
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "R0077",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (1 error(s)): e76f9117-188a-4ecc-9d57-fc0b46f02082: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 44 unpaired edges out of 706 total",
       "id": "R0078",
       "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "no solid — 3 engine error(s): 980e4a85-74b8-4bfe-85b7-ce4953af472b: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 87c7d186-9617-4a2c-ab88-54a4148584e7: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; e642aebf-e7d4-4ca5-88a8-ec0072c2698d: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0079",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "mesh-too-simple",
@@ -486,75 +486,75 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 602x588 effective face product (41828) too large for non-convex solids. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); volume_magnitude: volume 1.483912e-11 outside [1.128408e-10, 1.128408e6] for scale 2.242963e-1",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 602x588 effective face product (41828) too large for non-convex solids. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); volume_magnitude: volume 1.483907e-11 outside [1.128408e-10, 1.128408e6] for scale 2.242963e-1",
       "id": "R0081",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): c2e5cfab-c97c-451f-8e6b-793c63932f16: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 2 unpaired edges out of 3196 total (0 boundary, 2 non-manifold); bbox diagonal 1.972e3 exceeds max 1.921e3",
       "id": "R0082",
       "status": "fail"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (1 error(s)): b28baa13-3487-43e5-abed-b0bdfffccd5e: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\")]",
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "R0083",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 171fd789-6e20-484c-8e9f-a4d807978018: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "R0084",
-      "status": "fail"
+      "status": "pass"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "R0085",
+      "status": "error"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 692c21a8-b1b9-4fbc-85a8-a819071ae232: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; watertight_mesh: 344 unpaired edges out of 4198 total",
-      "id": "R0085",
-      "status": "fail"
-    },
-    {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (1 error(s)): 50df3488-8db6-4366-b4e4-fb74d1e371f1: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
+      "detail": "watertight_mesh: 205 unpaired edges out of 653 total",
       "id": "R0086",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 353fbec3-7590-4495-8725-a9f59ea51266: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0087",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "cascading-failure",
-      "detail": "no solid — 3 engine error(s): 3386c85b-1062-4aa3-9608-8e5342b9cf75: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 731a3e41-bcca-495d-ac66-b974fe309fc3: GeomRef resolution failed: Cut extrude requires an existing body to subtract from; caaa6fe6-a64e-4a1e-aa34-6a53b1e100ad: GeomRef resolution failed: Cut extrude requires an existing body to subtract from",
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 96 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\"), (\"extrude\", \"rectangle\")]",
       "id": "R0088",
-      "status": "error"
-    },
-    {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): d2290ba0-839c-479a-9e33-43fe46fd255c: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
-      "id": "R0089",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (2 error(s)): 8083e0de-b3f7-471e-9185-2401bf2ee845: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 45e8ec1e-96d8-4761-808a-612e77fdd147: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "R0089",
+      "status": "pass"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 989 unpaired edges out of 127711 total (316 boundary, 673 non-manifold)",
       "id": "R0090",
       "status": "fail"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (2 error(s)): fa0fe16d-deba-4572-b93e-a48d27109c39: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 57b08973-6e92-4b72-b631-968b4310914a: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"revolve\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
+      "category": "multiple-failures",
+      "detail": "bbox diagonal 4.946e-4 exceeds max 4.771e-4",
       "id": "R0091",
       "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "no solid — 2 engine error(s): 4ace9de3-18e8-400e-81b3-da67106aad62: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 7a707bc4-92fc-4f5b-a8f0-d27b377b0b7a: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\")]",
       "id": "R0092",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "boolean-watertight",
@@ -563,22 +563,22 @@
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 56c54fc9-e4e4-4562-bd0d-edd43e80761b: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0094",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "cascading-failure",
-      "detail": "no solid — 3 engine error(s): 7bf03fc0-7128-445f-93f2-f23491db9b2d: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; e7aef3cd-194d-4fc3-8a86-39702201f093: GeomRef resolution failed: Cut extrude requires an existing body to subtract from; 01a8afd0-ebc4-4bed-b31b-048db31a2024: GeomRef resolution failed: Cut extrude requires an existing body to subtract from",
+      "detail": "timeout after 90s",
       "id": "R0095",
       "status": "error"
     },
     {
-      "category": "cascading-failure",
-      "detail": "no solid — 2 engine error(s): 298853c1-c479-48fa-864b-f01cbf43e4fe: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 62cd085f-c706-484b-99f7-17392cd646f7: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0096",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "pass-boss-only",
@@ -593,10 +593,10 @@
       "status": "pass"
     },
     {
-      "category": "cascading-failure",
-      "detail": "no solid — 3 engine error(s): a539c97c-0f92-4191-956d-7d83e872345d: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 6aa8de23-743e-4785-a5c3-41a116b2c07e: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 53d48ac8-f6c7-41e1-8fe6-6de5d408e61e: GeomRef resolution failed: Cut revolve requires an existing body to subtract from",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0099",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "boolean-watertight",
@@ -737,10 +737,10 @@
       "status": "pass"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 1 unpaired edges out of 563 total (0 boundary, 1 non-manifold)",
       "id": "F0023",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "pass-boss-only",
@@ -755,152 +755,152 @@
       "status": "pass"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (1 error(s)): 2c610b1f-f9c4-44cd-a255-e61243c9e3e8: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "F0026",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (1 error(s)): 8645830e-6dc2-409c-960b-12811f199e28: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "F0027",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (1 error(s)): b2f5b30a-57e4-4d4a-b833-0b960f063aa8: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "F0028",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (1 error(s)): 73f9a016-c4c6-4185-8bab-b5d4e88b8805: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "F0029",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (1 error(s)): a161dc31-7d2a-4696-948c-057f68ef9347: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "F0030",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (1 error(s)): b0da61d1-08c2-44ea-8393-abca17ded3ac: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "F0031",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (1 error(s)): 4a96e348-de9d-458b-a15e-4d4cfe625059: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "F0032",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (1 error(s)): fc043f9e-c539-4024-9026-072c67e15f1b: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "F0033",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (1 error(s)): 54976706-1755-4246-b34d-8f0bf5482591: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "F0034",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (1 error(s)): 0d39bfc3-6df9-45ec-8874-6691862780c5: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "F0035",
+      "status": "pass"
+    },
+    {
+      "category": "aabb-collapse",
+      "detail": "aabb_collapse: all 136 unique vertices lie on AABB faces — mesh collapsed to bounding box",
+      "id": "F0036",
       "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "no solid — 2 engine error(s): a191fcfd-d887-4658-84bd-dfa9bc2678e0: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 7f57659d-83d7-40db-ac2d-43e8d61d2a28: GeomRef resolution failed: Cut extrude requires an existing body to subtract from",
-      "id": "F0036",
-      "status": "error"
-    },
-    {
-      "category": "cascading-failure",
-      "detail": "no solid — 2 engine error(s): 41fe91c3-3fd9-44bf-9a1b-3a83c83cb4d0: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 3429977b-7f37-4f1e-ac8c-3382e3faa2f6: GeomRef resolution failed: Cut extrude requires an existing body to subtract from",
+      "category": "aabb-collapse",
+      "detail": "aabb_collapse: all 136 unique vertices lie on AABB faces — mesh collapsed to bounding box",
       "id": "F0037",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "no solid — 2 engine error(s): 93d1b01e-ee48-477c-811b-6f9875352232: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 61cb0508-7bc8-43c0-8d47-6affb3b3c3af: GeomRef resolution failed: Cut extrude requires an existing body to subtract from",
+      "category": "aabb-collapse",
+      "detail": "aabb_collapse: all 136 unique vertices lie on AABB faces — mesh collapsed to bounding box",
       "id": "F0038",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "no solid — 2 engine error(s): 9ada6f3c-00dc-4aa7-b69a-ee08626a921b: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 33da04f7-7e43-4333-a970-fcc397e6b7c3: GeomRef resolution failed: Cut extrude requires an existing body to subtract from",
+      "category": "aabb-collapse",
+      "detail": "aabb_collapse: all 136 unique vertices lie on AABB faces — mesh collapsed to bounding box",
       "id": "F0039",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "no solid — 2 engine error(s): 58b5e9ef-59a3-4f25-aa24-502506761283: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 1d3ed56f-4a39-4e50-bf37-d4315f62ca2a: GeomRef resolution failed: Cut extrude requires an existing body to subtract from",
+      "category": "aabb-collapse",
+      "detail": "aabb_collapse: all 136 unique vertices lie on AABB faces — mesh collapsed to bounding box",
       "id": "F0040",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "no solid — 2 engine error(s): 5bb9e0e7-a947-42e0-9e19-324ba41fa77e: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 30366144-fb85-4764-8e3f-1b6bcfd1cda0: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "aabb-collapse",
+      "detail": "aabb_collapse: all 154 unique vertices lie on AABB faces — mesh collapsed to bounding box",
       "id": "F0041",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "no solid — 2 engine error(s): 0bf53d6e-a507-4350-b9f0-6d5f10855659: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; ca69322c-5ec7-4850-9275-be3b2a4c4ce6: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "aabb-collapse",
+      "detail": "aabb_collapse: all 148 unique vertices lie on AABB faces — mesh collapsed to bounding box",
       "id": "F0042",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "no solid — 2 engine error(s): bc06f836-a702-4104-b48a-178dd079fc25: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 562aee4c-b781-4f24-93fc-699e913a027e: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "aabb-collapse",
+      "detail": "aabb_collapse: all 164 unique vertices lie on AABB faces — mesh collapsed to bounding box",
       "id": "F0043",
-      "status": "error"
-    },
-    {
-      "category": "cascading-failure",
-      "detail": "no solid — 2 engine error(s): dd3be96e-28c8-43fe-b672-fef6ad4fbda0: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; c0147899-7b77-4fb2-bdcc-16a10c1c7ef4: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
-      "id": "F0044",
-      "status": "error"
-    },
-    {
-      "category": "cascading-failure",
-      "detail": "no solid — 2 engine error(s): f43cf403-38dd-446a-8f4b-ccbae4e58dcf: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 140b36a4-5a80-42e5-b5e6-de5020a400e4: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
-      "id": "F0045",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "mesh-too-simple",
-      "detail": "partial rebuild (1 error(s)): 15a15ade-8011-47bf-8765-f7d0bf25f312: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
+      "detail": "minimum_triangle_count: 4 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\")]; volume_magnitude: volume 3.140986e-11 outside [1.000000e-8, 1.000000e8] for scale 1.000000e0",
+      "id": "F0044",
+      "status": "fail"
+    },
+    {
+      "category": "aabb-collapse",
+      "detail": "aabb_collapse: all 146 unique vertices lie on AABB faces — mesh collapsed to bounding box",
+      "id": "F0045",
+      "status": "fail"
+    },
+    {
+      "category": "mesh-too-simple",
+      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
       "id": "F0046",
       "status": "fail"
     },
     {
       "category": "mesh-too-simple",
-      "detail": "partial rebuild (1 error(s)): e1fc68f0-be4a-4d26-8eb8-dfaf39fada17: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
+      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
       "id": "F0047",
       "status": "fail"
     },
     {
       "category": "mesh-too-simple",
-      "detail": "partial rebuild (1 error(s)): 767a1412-0ec7-4b27-8436-51d7337498f7: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
+      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
       "id": "F0048",
       "status": "fail"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (1 error(s)): b7fa8055-a5ab-4387-8025-88ababafddd9: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 681 unpaired edges out of 3759 total; no_degenerate_triangles: 2 of 2279 triangles are degenerate",
       "id": "F0049",
       "status": "fail"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (1 error(s)): e8f6e982-16c9-4c2f-831f-ad89ac8d83a9: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 688 unpaired edges out of 3326 total; consistent_normals: 23 of 1988 triangles have reversed normals",
       "id": "F0050",
       "status": "fail"
     },
@@ -911,10 +911,10 @@
       "status": "pass"
     },
     {
-      "category": "cascading-failure",
-      "detail": "no solid — 2 engine error(s): ff3c4027-4ac1-4b94-9af2-fa4bdcb3cd38: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 7b053b86-c3a0-4a08-a332-04b3212691b5: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "aabb-collapse",
+      "detail": "aabb_collapse: all 128 unique vertices lie on AABB faces — mesh collapsed to bounding box; no_degenerate_triangles: 64 of 252 triangles are degenerate",
       "id": "F0052",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "pass-boss-only",
@@ -923,46 +923,46 @@
       "status": "pass"
     },
     {
-      "category": "cascading-failure",
-      "detail": "no solid — 2 engine error(s): 0c02b865-23f3-4f87-b3b4-895ad76bf768: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 79735117-12a4-4cff-af75-1040fd82f5cc: GeomRef resolution failed: Cut extrude requires an existing body to subtract from",
+      "category": "aabb-collapse",
+      "detail": "aabb_collapse: all 136 unique vertices lie on AABB faces — mesh collapsed to bounding box",
       "id": "F0054",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "partial rebuild (1 error(s)): 35aa3be8-9177-4d47-b1d5-28f749f7c176: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 12 unpaired edges out of 402 total",
       "id": "F0055",
       "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "no solid — 2 engine error(s): c5ff8d80-52cf-47b7-aa44-4bea29d359ab: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; ccba0e41-c8ef-467b-81aa-ceb47cc779e1: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 96 unpaired edges out of 273 total",
       "id": "F0056",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "no solid — 2 engine error(s): e23c0546-5722-474e-ab41-c522bd72a55f: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 078d5ec7-e99a-47b3-be61-bdcf4fe1cdef: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 33 unpaired edges out of 327 total; consistent_normals: 3 of 207 triangles have reversed normals",
       "id": "F0057",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "no solid — 2 engine error(s): 0a9c492f-0c3d-47f8-925e-d00f53f84469: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 2782500d-861a-4334-956e-0f7a15fcc2a7: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 43 unpaired edges out of 254 total",
       "id": "F0058",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "no solid — 2 engine error(s): 00818263-9190-4b9f-b25a-c96e98d47913: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; bb68b3bb-80ac-4e58-8d97-4bfa1213b56e: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 63 unpaired edges out of 315 total",
       "id": "F0059",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "no solid — 2 engine error(s): 6c6d8230-95c8-48ea-85b3-aa5faeae797e: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1; 9cc63e95-4791-4b7c-8aa6-eed1e3b4837d: kernel error: kernel error: Need at least 3 vertices for a polygon, got 1",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 15 unpaired edges out of 369 total; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); volume_magnitude: volume 0.000000e0 outside [1.000000e-8, 1.000000e8] for scale 1.000000e0",
       "id": "F0060",
-      "status": "error"
+      "status": "fail"
     }
   ],
   "total": 160
