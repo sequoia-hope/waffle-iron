@@ -686,6 +686,7 @@
 
 <style>
 	.toolbar {
+		position: relative;
 		display: flex;
 		align-items: center;
 		height: 100%;
@@ -1011,7 +1012,17 @@
 		}
 
 		.project-name {
-			display: none;
+			max-width: 80px;
+			overflow: hidden;
+		}
+
+		.project-name .name-btn {
+			font-size: 10px;
+			padding: 2px 4px;
+			white-space: nowrap;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			max-width: 80px;
 		}
 
 		.toolbar-btn {
