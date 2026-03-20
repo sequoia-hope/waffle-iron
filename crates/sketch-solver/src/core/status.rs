@@ -21,10 +21,21 @@ pub fn classify_solve(
     eq_to_constraint: &[usize],
     _num_params: usize,
 ) -> SolveStatus {
-    // Conflicts are only trusted when the solver has converged (or stagnated).
-    // A non-converged system may have nonzero residual projections that look like
-    // conflicts but are just unconverged residuals. True over-constrained systems
-    // converge to the augmented equilibrium (delta → 0) before rank analysis runs.
+    // Stagnation or gradient-based convergence may fire far from the solution.
+    // Only trust convergence (including conflicts) if the residual is small enough.
+    // Threshold 0.1 is generous: true solutions have residual < 1e-7,
+    // LICQ fixed points have residual ~ 1e-5 to 1e-2.
+    if outcome.converged && outcome.final_residual_norm >= 0.1 {
+        return SolveStatus::SolveFailed {
+            reason: format!(
+                "stagnated with large residual ({:.2e}) after {} iterations",
+                outcome.final_residual_norm, outcome.iterations
+            ),
+        };
+    }
+    // Conflicts are trusted only when well-converged (residual < 0.1).
+    // True over-constrained systems converge to the augmented equilibrium
+    // with small residual. Large residual + "conflicts" = unconverged residuals.
     if outcome.converged && !rank.conflicting_rows.is_empty() {
         let mut conflict_ids: Vec<u32> = rank
             .conflicting_rows
@@ -37,19 +48,6 @@ pub fn classify_solve(
             conflicts: conflict_ids,
         }
     } else if outcome.converged {
-        // Stagnation or gradient-based convergence may fire far from the solution.
-        // Only trust convergence if the residual is reasonably small.
-        // Threshold 0.1 is generous: true solutions have residual < 1e-7,
-        // LICQ fixed points have residual ~ 1e-5 to 1e-2.
-        let well_converged = outcome.final_residual_norm < 0.1;
-        if !well_converged {
-            return SolveStatus::SolveFailed {
-                reason: format!(
-                    "stagnated with large residual ({:.2e}) after {} iterations",
-                    outcome.final_residual_norm, outcome.iterations
-                ),
-            };
-        }
         if rank.dof == 0 {
             SolveStatus::FullyConstrained
         } else {

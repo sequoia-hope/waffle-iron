@@ -43,11 +43,13 @@ pub fn lm_solve<C: ConstraintEq>(
     let mut iterations = 0;
     let mut final_residual_norm = 0.0;
 
-    // Stagnation detection: track residual plateau
+    // Stagnation detection: track residual plateau across accepted steps
     let mut prev_f_inf_norm = f64::INFINITY;
     let mut stagnation_count = 0_usize;
     const STAGNATION_LIMIT: usize = 5;
     const STAGNATION_RATIO: f64 = 0.999;
+    let mut reject_count = 0_usize;
+    const REJECT_LIMIT: usize = 15;
 
     // Storage for final diagnostics
     let mut final_j_scaled = DMatrix::zeros(m, n);
@@ -76,7 +78,7 @@ pub fn lm_solve<C: ConstraintEq>(
 
         let mut j = DMatrix::zeros(m, n);
         for (row, col, val) in triplets {
-            j[(row, col)] = val;
+            j[(row, col)] += val;
         }
 
         // b) Apply row scaling
@@ -177,9 +179,18 @@ pub fn lm_solve<C: ConstraintEq>(
             let factor = 1.0 - (2.0 * rho - 1.0).powi(3);
             lambda *= factor.max(1.0 / 3.0);
             nu = 2.0;
+            reject_count = 0;
         } else {
             lambda *= nu;
             nu *= 2.0;
+            reject_count += 1;
+            // Too many consecutive rejections: trust region collapsed.
+            if reject_count >= REJECT_LIMIT {
+                final_residual_norm = f_inf_norm;
+                final_j_scaled = j_s;
+                final_r_scaled = f_s;
+                break;
+            }
         }
 
         // k) Stuck check — params not moving → at a fixed point of the augmented system.
@@ -204,23 +215,24 @@ pub fn lm_solve<C: ConstraintEq>(
             break;
         }
 
-        // l) Stagnation detection: residual not improving over several iterations.
-        // At a genuine fixed point (e.g., LICQ failure, contradiction equilibrium),
-        // the solver stalls with constant residual. Mark as converged and let
-        // rank analysis determine the status (UnderConstrained vs OverConstrained).
-        if f_inf_norm >= prev_f_inf_norm * STAGNATION_RATIO {
-            stagnation_count += 1;
-            if stagnation_count >= STAGNATION_LIMIT {
-                converged = true;
-                final_residual_norm = f_inf_norm;
-                final_j_scaled = j_s;
-                final_r_scaled = f_s;
-                break;
+        // l) Stagnation detection: residual not improving over several accepted steps.
+        // Only count accepted steps (rho > 0) — rejected steps don't change x,
+        // so constant residual is expected while the trust region shrinks.
+        if rho > 0.0 {
+            if f_inf_norm >= prev_f_inf_norm * STAGNATION_RATIO {
+                stagnation_count += 1;
+                if stagnation_count >= STAGNATION_LIMIT {
+                    converged = true;
+                    final_residual_norm = f_inf_norm;
+                    final_j_scaled = j_s;
+                    final_r_scaled = f_s;
+                    break;
+                }
+            } else {
+                stagnation_count = 0;
             }
-        } else {
-            stagnation_count = 0;
+            prev_f_inf_norm = f_inf_norm;
         }
-        prev_f_inf_norm = f_inf_norm;
 
         // Final values for this iteration (in case we stop next)
         final_residual_norm = f_inf_norm;

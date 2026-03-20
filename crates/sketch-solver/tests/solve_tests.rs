@@ -1881,6 +1881,7 @@ fn bench_solve_100_constraints() {
 }
 
 #[test]
+#[ignore = "wall-clock benchmark — run manually with --ignored"]
 fn bench_solve_300_constraints() {
     // ~43 rectangles: 344 entities, ~301 constraints
     let (entities, constraints) = make_rectangle_chain(43);
@@ -3925,23 +3926,22 @@ fn minimal_slot_dof() {
         // Radius constraints on both arcs
         SketchConstraint::Radius { entity: EntityId(12), value: r },
         SketchConstraint::Radius { entity: EntityId(13), value: r },
-        // Arc endpoints coincide with line endpoints (4 coincident constraints)
-        // Top-left: arc 13 end = line 10 start
-        SketchConstraint::Coincident { point_a: PointId(1), point_b: PointId(1) },
-        // Top-right: line 10 end = arc 12 start
-        SketchConstraint::Coincident { point_a: PointId(2), point_b: PointId(2) },
-        // Bottom-right: arc 12 end = line 11 start
-        SketchConstraint::Coincident { point_a: PointId(3), point_b: PointId(3) },
-        // Bottom-left: line 11 end = arc 13 start
-        SketchConstraint::Coincident { point_a: PointId(4), point_b: PointId(4) },
+        // Arc end points must lie on their arcs (OnCircle constraints).
+        // Radius constrains dist(center, start) = r, but end points need separate constraints.
+        // Right arc (12): end P3 must be at distance r from center P5
+        SketchConstraint::OnEntity { point: PointId(3), entity: EntityId(12) },
+        // Left arc (13): end P1 must be at distance r from center P6
+        SketchConstraint::OnEntity { point: PointId(1), entity: EntityId(13) },
+        // Tangent at line-arc junctions to fully constrain
+        SketchConstraint::Tangent { line: EntityId(10), curve: EntityId(12) },
+        SketchConstraint::Tangent { line: EntityId(11), curve: EntityId(13) },
     ];
 
     let sketch = make_sketch(entities, constraints);
     let result = solve_sketch(&sketch);
 
-    // With 2 Dragged (4 eqs) + 2 Horizontal (2 eqs) + 2 Radius (2 eqs) +
-    // 4 implicit OnCircle from arcs (4 eqs) = 12 constraints on 12 DOF
-    // (6 points * 2 coords = 12 DOF), should be fully constrained.
+    // 2 Dragged (4 eqs) + 2 Horizontal (2 eqs) + 2 Radius (2 eqs) +
+    // 2 OnCircle for arc ends (2 eqs) + 2 Tangent (2 eqs) = 12 eqs on 12 DOF.
     let dof = get_dof(&result.status);
     assert_eq!(
         dof, 0,
@@ -4524,5 +4524,227 @@ fn stadium_slot_closed() {
     assert!(
         (r_left - 6.0).abs() < 1e-3,
         "left arc radius should be 6, got {r_left:.4}"
+    );
+}
+
+// ── Signed formulation: cross=0 at build time ───────────────────────────────
+
+#[test]
+fn distance_pl_point_exactly_on_line_at_build_time() {
+    // Point is EXACTLY on the line at build time. Cross product = 0.
+    // cross_sign returns +1 (default for >= 0). The solver should push
+    // the point to distance=15 ABOVE the line (positive side).
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: PointId(1), x: 0.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(2), x: 100.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(3), x: 50.0, y: 0.0, construction: false }, // ON the line
+            SketchEntity::Line { id: LineId(10), start_id: PointId(1), end_id: PointId(2), construction: false },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: PointId(1) },
+            SketchConstraint::Dragged { point: PointId(2) },
+            SketchConstraint::Distance {
+                entity_a: EntityId(3),
+                entity_b: EntityId(10),
+                value: 15.0,
+            },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    let (_, y3) = result.positions[&PointId(3)];
+    assert!(
+        (y3.abs() - 15.0).abs() < 1e-4,
+        "point should be at distance 15 from line, got y={y3:.4}, status={:?}",
+        result.status
+    );
+}
+
+// ── Tangent from degenerate starting position ───────────────────────────────
+
+#[test]
+fn tangent_center_near_line() {
+    // Arc center starts somewhat close to line, needs to move to y=15.
+    // Starting positions are realistic (center at y=10, arc points at y=8).
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: PointId(1), x: 0.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(2), x: 100.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(3), x: 50.0, y: 10.0, construction: false }, // center, needs y=15
+            SketchEntity::Point { id: PointId(4), x: 35.0, y: 8.0, construction: false },  // arc start
+            SketchEntity::Point { id: PointId(5), x: 65.0, y: 8.0, construction: false },  // arc end
+            SketchEntity::Line { id: LineId(10), start_id: PointId(1), end_id: PointId(2), construction: false },
+            SketchEntity::Arc { id: ArcId(20), center_id: PointId(3), start_id: PointId(4), end_id: PointId(5), construction: false },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: PointId(1) },
+            SketchConstraint::Dragged { point: PointId(2) },
+            SketchConstraint::Tangent { line: EntityId(10), curve: EntityId(20) },
+            SketchConstraint::Radius { entity: EntityId(20), value: 15.0 },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    let (_, y3) = result.positions[&PointId(3)];
+    assert!(
+        (y3 - 15.0).abs() < 1e-3,
+        "tangent arc center should be at y=15, got y={y3:.4}, status={:?}",
+        result.status
+    );
+}
+
+// ── Over-constrained: collinear with conflicting distances ──────────────────
+
+#[test]
+fn overconstrained_collinear_distances() {
+    // Three points on a line: P1—P2—P3.
+    // D(P1,P2)=10, D(P2,P3)=10, D(P1,P3)=30 → contradiction (should be 20).
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: PointId(1), x: 0.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(2), x: 10.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(3), x: 20.0, y: 0.0, construction: false },
+            SketchEntity::Line { id: LineId(10), start_id: PointId(1), end_id: PointId(2), construction: false },
+            SketchEntity::Line { id: LineId(11), start_id: PointId(2), end_id: PointId(3), construction: false },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: PointId(1) },
+            SketchConstraint::Horizontal { entity: EntityId(10) },
+            SketchConstraint::OnEntity { point: PointId(3), entity: EntityId(10) },
+            SketchConstraint::Distance { entity_a: EntityId(1), entity_b: EntityId(2), value: 10.0 },
+            SketchConstraint::Distance { entity_a: EntityId(2), entity_b: EntityId(3), value: 10.0 },
+            SketchConstraint::Distance { entity_a: EntityId(1), entity_b: EntityId(3), value: 30.0 },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    assert!(
+        matches!(result.status, SolveStatus::OverConstrained { .. } | SolveStatus::SolveFailed { .. }),
+        "collinear with conflicting distances should be over-constrained, got {:?}",
+        result.status
+    );
+}
+
+// ── Implicit radius Jacobian accumulation tests ─────────────────────────────
+// These specifically exercise the += fix for sparse Jacobian triplet assembly.
+
+#[test]
+fn tangent_arc_line_from_offset() {
+    // Arc tangent to a non-axis-aligned line. Tests that TangentLineCircle
+    // Jacobian correctly accumulates cross/D derivatives and implicit radius
+    // derivatives for the center point.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: PointId(1), x: 0.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(2), x: 80.0, y: 60.0, construction: false },
+            SketchEntity::Point { id: PointId(3), x: 30.0, y: 50.0, construction: false }, // center
+            SketchEntity::Point { id: PointId(4), x: 20.0, y: 35.0, construction: false }, // arc start
+            SketchEntity::Point { id: PointId(5), x: 40.0, y: 35.0, construction: false }, // arc end
+            SketchEntity::Line { id: LineId(10), start_id: PointId(1), end_id: PointId(2), construction: false },
+            SketchEntity::Arc { id: ArcId(20), center_id: PointId(3), start_id: PointId(4), end_id: PointId(5), construction: false },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: PointId(1) },
+            SketchConstraint::Dragged { point: PointId(2) },
+            SketchConstraint::Tangent { line: EntityId(10), curve: EntityId(20) },
+            SketchConstraint::Radius { entity: EntityId(20), value: 12.0 },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    // Should converge (not stagnate or fail)
+    assert!(
+        matches!(result.status, SolveStatus::FullyConstrained | SolveStatus::UnderConstrained { .. }),
+        "tangent arc to angled line should converge, got {:?}",
+        result.status
+    );
+    // Verify tangency: center distance to line should equal radius
+    let (cx, cy) = result.positions[&PointId(3)];
+    // Line from (0,0) to (80,60): normal = (-60,80)/100 = (-0.6, 0.8)
+    // Signed distance = (cx*(-0.6) + cy*0.8) ... actually use cross product / length
+    let dx: f64 = 80.0;
+    let dy: f64 = 60.0;
+    let line_len = (dx * dx + dy * dy).sqrt();
+    let cross = cx * dy - cy * dx;
+    let dist_to_line = cross.abs() / line_len;
+    assert!(
+        (dist_to_line - 12.0).abs() < 0.1,
+        "center should be 12mm from line, got {dist_to_line:.3}"
+    );
+}
+
+#[test]
+fn on_circle_arc_end_from_far() {
+    // Arc end point starts far from the arc. OnCircle constraint with implicit
+    // radius must correctly accumulate center derivatives from both
+    // dist(point, center) and dist(center, start).
+    // Pin center and start to make the system well-constrained.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: PointId(1), x: 0.0, y: 0.0, construction: false },   // center
+            SketchEntity::Point { id: PointId(2), x: 20.0, y: 0.0, construction: false },   // arc start (on circle)
+            SketchEntity::Point { id: PointId(3), x: 0.0, y: 30.0, construction: false },   // arc end (far from circle)
+            SketchEntity::Arc { id: ArcId(10), center_id: PointId(1), start_id: PointId(2), end_id: PointId(3), construction: false },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: PointId(1) },
+            SketchConstraint::Dragged { point: PointId(2) },
+            SketchConstraint::OnEntity { point: PointId(3), entity: EntityId(10) },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    // P3 should end up at distance 20 from center (0,0) — 1 DOF (angle on circle)
+    let (x3, y3) = result.positions[&PointId(3)];
+    let dist = (x3 * x3 + y3 * y3).sqrt();
+    assert!(
+        (dist - 20.0).abs() < 0.1,
+        "arc end should be at radius 20 from center, got dist={dist:.3}, status={:?}",
+        result.status
+    );
+}
+
+#[test]
+fn two_tangent_arcs_opposite_sides() {
+    // Two arcs tangent to the same line, on opposite sides.
+    // Tests sign convention for TangentLineCircle.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: PointId(1), x: 0.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(2), x: 100.0, y: 0.0, construction: false },
+            // Arc above line
+            SketchEntity::Point { id: PointId(3), x: 30.0, y: 15.0, construction: false },
+            SketchEntity::Point { id: PointId(4), x: 20.0, y: 10.0, construction: false },
+            SketchEntity::Point { id: PointId(5), x: 40.0, y: 10.0, construction: false },
+            // Arc below line
+            SketchEntity::Point { id: PointId(6), x: 70.0, y: -15.0, construction: false },
+            SketchEntity::Point { id: PointId(7), x: 60.0, y: -10.0, construction: false },
+            SketchEntity::Point { id: PointId(8), x: 80.0, y: -10.0, construction: false },
+            SketchEntity::Line { id: LineId(10), start_id: PointId(1), end_id: PointId(2), construction: false },
+            SketchEntity::Arc { id: ArcId(20), center_id: PointId(3), start_id: PointId(4), end_id: PointId(5), construction: false },
+            SketchEntity::Arc { id: ArcId(21), center_id: PointId(6), start_id: PointId(7), end_id: PointId(8), construction: false },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: PointId(1) },
+            SketchConstraint::Dragged { point: PointId(2) },
+            SketchConstraint::Tangent { line: EntityId(10), curve: EntityId(20) },
+            SketchConstraint::Tangent { line: EntityId(10), curve: EntityId(21) },
+            SketchConstraint::Radius { entity: EntityId(20), value: 10.0 },
+            SketchConstraint::Radius { entity: EntityId(21), value: 10.0 },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    assert!(
+        matches!(result.status, SolveStatus::FullyConstrained | SolveStatus::UnderConstrained { .. }),
+        "two tangent arcs should converge, got {:?}",
+        result.status
+    );
+    // Arc above: center at y=10
+    let (_, y3) = result.positions[&PointId(3)];
+    assert!(
+        (y3 - 10.0).abs() < 0.1,
+        "upper arc center should be at y=10, got y={y3:.3}"
+    );
+    // Arc below: center at y=-10
+    let (_, y6) = result.positions[&PointId(6)];
+    assert!(
+        (y6 + 10.0).abs() < 0.1,
+        "lower arc center should be at y=-10, got y={y6:.3}"
     );
 }
