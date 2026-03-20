@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-render = ["dep:resvg", "dep:usvg", "dep:tiny-skia"]
+render = ["dep:resvg", "dep:usvg", "dep:tiny-skia", "dep:rand"]
 
 [dependencies]
 waffle-types = { path = "../waffle-types" }
@@ -19,6 +19,7 @@ thiserror = "1"
 resvg = { version = "0.44", optional = true }
 usvg = { version = "0.44", optional = true }
 tiny-skia = { version = "0.11", optional = true }
+rand = { version = "0.8", optional = true }
 
 [dev-dependencies]
 proptest = "1.6"
@@ -26,6 +27,10 @@ rand = "0.8"
 
 [[example]]
 name = "render_sketch"
+required-features = ["render"]
+
+[[example]]
+name = "render_all"
 required-features = ["render"]
 
 [[example]]

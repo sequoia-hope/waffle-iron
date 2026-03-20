@@ -11,8 +11,9 @@ use std::io::Read;
 
 fn main() {
     let json = match std::env::args().nth(1) {
-        Some(path) => std::fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("Failed to read {path}: {e}")),
+        Some(path) => {
+            std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("Failed to read {path}: {e}"))
+        }
         None => {
             let mut buf = String::new();
             std::io::stdin()

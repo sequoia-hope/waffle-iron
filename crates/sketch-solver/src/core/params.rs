@@ -154,6 +154,26 @@ impl ParamLayout {
         }
         positions
     }
+
+    /// Extract solved radii for all circles and arcs.
+    ///
+    /// - Circles: read from the optimized radius parameter.
+    /// - Arcs: compute distance(center, start) from solved positions.
+    pub fn extract_radii(&self, params: &[f64]) -> HashMap<u32, f64> {
+        let mut radii = HashMap::new();
+        for (id, idx) in &self.radius_indices {
+            radii.insert(*id, params[idx.0]);
+        }
+        for (id, (center_id, start_id)) in &self.arc_points {
+            let cx = params[self.point(*center_id).x()];
+            let cy = params[self.point(*center_id).y()];
+            let sx = params[self.point(*start_id).x()];
+            let sy = params[self.point(*start_id).y()];
+            let r = ((sx - cx).powi(2) + (sy - cy).powi(2)).sqrt();
+            radii.insert(*id, r);
+        }
+        radii
+    }
 }
 
 #[cfg(test)]

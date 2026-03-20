@@ -53,8 +53,9 @@ pub fn solve_sketch(sketch: &Sketch) -> SolvedSketch {
     );
     let status = classify_solve(&outcome, &rank, &eq_to_constraint, layout.num_params());
 
-    // Extract positions
+    // Extract positions and radii
     let positions = layout.extract_positions(&outcome.params);
+    let radii = layout.extract_radii(&outcome.params);
 
     // Extract profiles (existing algorithm, unchanged)
     let profiles = if matches!(
@@ -68,6 +69,7 @@ pub fn solve_sketch(sketch: &Sketch) -> SolvedSketch {
 
     SolvedSketch {
         positions,
+        radii,
         profiles,
         status,
     }

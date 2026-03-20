@@ -27,8 +27,7 @@
 <line x1="-12.00" y1="-100.00" x2="72.00" y2="-100.00"/>
 <line x1="-12.00" y1="0.00" x2="72.00" y2="0.00"/>
 </g>
-<path d="M0.0000,0.0000 L60.0000,0.0000 L30.0000,-51.9615 Z" fill="#E3F2FD" fill-opacity="0.5" stroke="none"/>
-<path d="M60.0000,0.0000 L0.0000,0.0000 L30.0000,-51.9615 Z" fill="#E3F2FD" fill-opacity="0.5" stroke="none"/>
+<path d="M0.0000,0.0000 L60.0000,0.0000 L30.0000,-51.9615 Z M60.0000,0.0000 L0.0000,0.0000 L30.0000,-51.9615 Z" fill="#E3F2FD" fill-opacity="0.5" fill-rule="evenodd" stroke="none"/>
 <g class="entities">
 <circle cx="0.0000" cy="0.0000" r="2" fill="#4CAF50"/>
 <circle cx="60.0000" cy="0.0000" r="2" fill="#4CAF50"/>
@@ -39,14 +38,14 @@
 </g>
 <g class="badges" font-family="sans-serif" font-size="4">
 <rect x="27.10" y="-6.00" width="5.8" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
-<text x="30.00" y="-2.00" text-anchor="middle" fill="#333333">H</text>
-<rect x="22.90" y="-6.00" width="14.2" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
-<text x="30.00" y="-2.00" text-anchor="middle" fill="#333333">60.0</text>
+<text x="30.00" y="-2.00" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">H</text>
+<rect x="22.90" y="-12.50" width="14.2" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="30.00" y="-8.50" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">60.0</text>
 <rect x="37.90" y="-31.98" width="14.2" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
-<text x="45.00" y="-27.98" text-anchor="middle" fill="#333333">60.0</text>
+<text x="45.00" y="-27.98" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">60.0</text>
 <rect x="7.90" y="-31.98" width="14.2" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
-<text x="15.00" y="-27.98" text-anchor="middle" fill="#333333">60.0</text>
+<text x="15.00" y="-27.98" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">60.0</text>
 </g>
 <rect x="-5.30" y="-55.35" width="50.6" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
-<text x="20.00" y="-51.35" text-anchor="middle" fill="#333333">Fully Constrained</text>
+<text x="20.00" y="-51.35" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">Fully Constrained</text>
 </svg>

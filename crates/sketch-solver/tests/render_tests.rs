@@ -155,9 +155,6 @@ fn all_fixtures_render_without_panic() {
     for (name, sketch) in fixtures::all_fixtures() {
         let solved = solve_sketch(&sketch);
         let svg = render_sketch_svg(&sketch, &solved);
-        assert!(
-            !svg.is_empty(),
-            "Fixture '{name}' produced empty SVG"
-        );
+        assert!(!svg.is_empty(), "Fixture '{name}' produced empty SVG");
     }
 }

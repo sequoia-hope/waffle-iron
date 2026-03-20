@@ -18,8 +18,7 @@ pub fn render_sketch_png(svg_content: &str, width: u32, height: u32) -> Vec<u8> 
 
     let tree = usvg::Tree::from_str(svg_content, &options).expect("Failed to parse SVG");
 
-    let mut pixmap =
-        tiny_skia::Pixmap::new(width, height).expect("Failed to create pixmap");
+    let mut pixmap = tiny_skia::Pixmap::new(width, height).expect("Failed to create pixmap");
     pixmap.fill(tiny_skia::Color::WHITE);
 
     let tree_size = tree.size();

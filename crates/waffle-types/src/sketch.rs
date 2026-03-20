@@ -339,6 +339,9 @@ pub enum SolveStatus {
 pub struct SolvedSketch {
     /// Solved positions for all points. Key is point entity ID.
     pub positions: HashMap<u32, (f64, f64)>,
+    /// Solved radii for circles and arcs. Key is circle/arc entity ID.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub radii: HashMap<u32, f64>,
     /// Closed profiles extracted from the solved geometry.
     pub profiles: Vec<ClosedProfile>,
     /// Solve status.
@@ -998,6 +1001,7 @@ mod tests {
 
         let ss = SolvedSketch {
             positions,
+            radii: HashMap::new(),
             profiles: vec![ClosedProfile {
                 entity_ids: vec![1, 2],
                 is_outer: false,

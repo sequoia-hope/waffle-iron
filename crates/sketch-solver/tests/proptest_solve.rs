@@ -104,7 +104,7 @@ proptest! {
     ) {
         let result = solve_sketch(&sketch);
         // Only verify distances if the solver converged to FullyConstrained.
-        // Some configurations might still be too hard for the solver even with 
+        // Some configurations might still be too hard for the solver even with
         // the improved strategy.
         prop_assume!(matches!(result.status, SolveStatus::FullyConstrained));
 
