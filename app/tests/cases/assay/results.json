@@ -1,8 +1,8 @@
 {
   "errored": 3,
-  "failed": 92,
+  "failed": 90,
   "generated": "2026-03-20",
-  "passed": 65,
+  "passed": 67,
   "results": [
     {
       "category": "boolean-watertight",
@@ -18,13 +18,13 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 140 unpaired edges out of 1882 total",
+      "detail": "watertight_mesh: 127 unpaired edges out of 1892 total",
       "id": "R0003",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 2 unpaired edges out of 778 total (0 boundary, 2 non-manifold)",
+      "detail": "watertight_mesh: 1 unpaired edges out of 779 total (0 boundary, 1 non-manifold)",
       "id": "R0004",
       "status": "fail"
     },
@@ -48,7 +48,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 5 unpaired edges out of 432 total (3 boundary, 2 non-manifold)",
+      "detail": "watertight_mesh: 6 unpaired edges out of 449 total (5 boundary, 1 non-manifold)",
       "id": "R0008",
       "status": "fail"
     },
@@ -126,7 +126,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1 unpaired edges out of 1331 total (0 boundary, 1 non-manifold)",
+      "detail": "watertight_mesh: 1 unpaired edges out of 107 total (0 boundary, 1 non-manifold)",
       "id": "R0021",
       "status": "fail"
     },
@@ -137,10 +137,10 @@
       "status": "pass"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 10 unpaired edges out of 59 total",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0023",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "pass-boss-only",
@@ -186,7 +186,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 788 unpaired edges out of 6146 total (776 boundary, 12 non-manifold)",
+      "detail": "watertight_mesh: 771 unpaired edges out of 6117 total (759 boundary, 12 non-manifold)",
       "id": "R0031",
       "status": "fail"
     },
@@ -227,10 +227,10 @@
       "status": "pass"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 2 unpaired edges out of 412 total (0 boundary, 2 non-manifold)",
       "id": "R0038",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "pass-genuine",
@@ -240,13 +240,13 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 24 unpaired edges out of 1152 total (21 boundary, 3 non-manifold)",
+      "detail": "watertight_mesh: 12 unpaired edges out of 1161 total (4 boundary, 8 non-manifold)",
       "id": "R0040",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 611 unpaired edges out of 809 total (86 boundary, 525 non-manifold)",
+      "detail": "watertight_mesh: 131 unpaired edges out of 3983 total (2 boundary, 129 non-manifold); consistent_normals: 36 of 2847 triangles have reversed normals",
       "id": "R0041",
       "status": "fail"
     },
@@ -264,19 +264,19 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 230 unpaired edges out of 3247 total",
+      "detail": "watertight_mesh: 18 unpaired edges out of 3616 total (16 boundary, 2 non-manifold)",
       "id": "R0044",
       "status": "fail"
     },
     {
       "category": "volume-magnitude",
-      "detail": "volume_magnitude: volume 5.519792e-17 outside [1.174499e-15, 1.174499e1] for scale 4.897234e-3",
+      "detail": "volume_magnitude: volume 5.519793e-17 outside [1.174499e-15, 1.174499e1] for scale 4.897234e-3",
       "id": "R0045",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 14 unpaired edges out of 146 total (4 boundary, 10 non-manifold)",
+      "detail": "watertight_mesh: 165 unpaired edges out of 3210 total (162 boundary, 3 non-manifold)",
       "id": "R0046",
       "status": "fail"
     },
@@ -293,20 +293,20 @@
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1 unpaired edges out of 389 total (0 boundary, 1 non-manifold)",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0049",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 242 unpaired edges out of 2644 total (236 boundary, 6 non-manifold)",
+      "detail": "watertight_mesh: 271 unpaired edges out of 2534 total",
       "id": "R0050",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 389 unpaired edges out of 14524 total (194 boundary, 195 non-manifold); consistent_normals: 258 of 10003 triangles have reversed normals",
+      "detail": "watertight_mesh: 386 unpaired edges out of 14527 total (191 boundary, 195 non-manifold); consistent_normals: 258 of 10006 triangles have reversed normals",
       "id": "R0051",
       "status": "fail"
     },
@@ -318,19 +318,19 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 532 unpaired edges out of 7594 total (531 boundary, 1 non-manifold)",
+      "detail": "watertight_mesh: 772 unpaired edges out of 7922 total",
       "id": "R0053",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 577 unpaired edges out of 9432 total (411 boundary, 166 non-manifold)",
+      "detail": "watertight_mesh: 571 unpaired edges out of 9419 total (408 boundary, 163 non-manifold)",
       "id": "R0054",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 28 unpaired edges out of 626 total",
+      "detail": "watertight_mesh: 3 unpaired edges out of 136 total (1 boundary, 2 non-manifold)",
       "id": "R0055",
       "status": "fail"
     },
@@ -360,7 +360,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 538 unpaired edges out of 949 total (36 boundary, 502 non-manifold); no_degenerate_triangles: 2 of 7744 triangles are degenerate",
+      "detail": "watertight_mesh: 11 unpaired edges out of 229 total (7 boundary, 4 non-manifold)",
       "id": "R0060",
       "status": "fail"
     },
@@ -378,13 +378,13 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 353 unpaired edges out of 5319 total (351 boundary, 2 non-manifold)",
+      "detail": "watertight_mesh: 1228 unpaired edges out of 9653 total (1138 boundary, 90 non-manifold)",
       "id": "R0063",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 6 unpaired edges out of 4018 total (4 boundary, 2 non-manifold)",
+      "detail": "watertight_mesh: 3 unpaired edges out of 4013 total (2 boundary, 1 non-manifold)",
       "id": "R0064",
       "status": "fail"
     },
@@ -402,7 +402,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 382 unpaired edges out of 382 total (2 boundary, 380 non-manifold); no_degenerate_triangles: 2 of 8010 triangles are degenerate",
+      "detail": "watertight_mesh: 2 unpaired edges out of 178 total (0 boundary, 2 non-manifold)",
       "id": "R0067",
       "status": "fail"
     },
@@ -414,19 +414,19 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 13 unpaired edges out of 407 total (12 boundary, 1 non-manifold)",
+      "detail": "watertight_mesh: 12 unpaired edges out of 408 total",
       "id": "R0069",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 8 unpaired edges out of 16 total; minimum_triangle_count: 8 triangles < expected minimum 96 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"gear\"), (\"extrude\", \"circle\")]",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0070",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1368 unpaired edges out of 4845 total (1361 boundary, 7 non-manifold)",
+      "detail": "watertight_mesh: 1381 unpaired edges out of 4839 total (1376 boundary, 5 non-manifold)",
       "id": "R0071",
       "status": "fail"
     },
@@ -450,7 +450,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): bf39bb13-caea-4782-a987-73d7310c7c75: operation error: kernel error: operation not supported: polygon boolean: 680x674 effective face product (12657) too large for non-convex solids; watertight_mesh: 29 unpaired edges out of 4009 total (0 boundary, 29 non-manifold)",
+      "detail": "partial rebuild (1 error(s)): bf39bb13-caea-4782-a987-73d7310c7c75: operation error: kernel error: operation not supported: polygon boolean: 680x674 effective face product (12657) too large for non-convex solids; watertight_mesh: 1 unpaired edges out of 4037 total (0 boundary, 1 non-manifold)",
       "id": "R0075",
       "status": "fail"
     },
@@ -467,10 +467,10 @@
       "status": "pass"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 44 unpaired edges out of 706 total",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0078",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "pass-genuine",
@@ -516,7 +516,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 525 unpaired edges out of 722 total (31 boundary, 494 non-manifold); no_degenerate_triangles: 2 of 7533 triangles are degenerate",
+      "detail": "watertight_mesh: 3 unpaired edges out of 203 total (2 boundary, 1 non-manifold)",
       "id": "R0086",
       "status": "fail"
     },
@@ -540,7 +540,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 989 unpaired edges out of 127711 total (316 boundary, 673 non-manifold)",
+      "detail": "watertight_mesh: 952 unpaired edges out of 127594 total (316 boundary, 636 non-manifold)",
       "id": "R0090",
       "status": "fail"
     },
@@ -593,16 +593,16 @@
       "status": "pass"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 321 unpaired edges out of 6172 total (1 boundary, 320 non-manifold); consistent_normals: 49 of 4391 triangles have reversed normals",
       "id": "R0099",
-      "status": "pass"
+      "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1 unpaired edges out of 779 total (0 boundary, 1 non-manifold)",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0100",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "pass-boss-only",
@@ -737,10 +737,10 @@
       "status": "pass"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 1 unpaired edges out of 563 total (0 boundary, 1 non-manifold)",
       "id": "F0023",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "pass-boss-only",
@@ -894,13 +894,13 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1365 unpaired edges out of 4127 total (358 boundary, 1007 non-manifold); no_degenerate_triangles: 3 of 10603 triangles are degenerate",
+      "detail": "watertight_mesh: 268 unpaired edges out of 18442 total (6 boundary, 262 non-manifold); consistent_normals: 635 of 13577 triangles have reversed normals",
       "id": "F0049",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1476 unpaired edges out of 3772 total (367 boundary, 1109 non-manifold); no_degenerate_triangles: 1 of 10024 triangles are degenerate",
+      "detail": "watertight_mesh: 318 unpaired edges out of 19864 total (2 boundary, 316 non-manifold); consistent_normals: 899 of 14607 triangles have reversed normals; outward_normals: only 13708 of 14607 triangles (93.8%) have outward normals (need 95%)",
       "id": "F0050",
       "status": "fail"
     },
@@ -936,31 +936,31 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 90 unpaired edges out of 273 total (80 boundary, 10 non-manifold)",
+      "detail": "watertight_mesh: 96 unpaired edges out of 273 total",
       "id": "F0056",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 33 unpaired edges out of 328 total (30 boundary, 3 non-manifold); consistent_normals: 3 of 210 triangles have reversed normals",
+      "detail": "watertight_mesh: 33 unpaired edges out of 327 total; consistent_normals: 3 of 207 triangles have reversed normals",
       "id": "F0057",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 58 unpaired edges out of 283 total (42 boundary, 16 non-manifold)",
+      "detail": "watertight_mesh: 43 unpaired edges out of 254 total",
       "id": "F0058",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 60 unpaired edges out of 317 total (57 boundary, 3 non-manifold); consistent_normals: 2 of 194 triangles have reversed normals",
+      "detail": "watertight_mesh: 63 unpaired edges out of 315 total",
       "id": "F0059",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 13 unpaired edges out of 371 total (8 boundary, 5 non-manifold); no_degenerate_triangles: 2 of 248 triangles are degenerate; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); volume_magnitude: volume 0.000000e0 outside [1.000000e-8, 1.000000e8] for scale 1.000000e0",
+      "detail": "watertight_mesh: 15 unpaired edges out of 369 total; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); volume_magnitude: volume 0.000000e0 outside [1.000000e-8, 1.000000e8] for scale 1.000000e0",
       "id": "F0060",
       "status": "fail"
     }

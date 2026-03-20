@@ -3103,7 +3103,10 @@ fn weld_boundary_vertices(vertices: &mut [f32], indices: &[u32]) {
     }
 
     // Weld threshold: 2.5x oracle grid — catches vertices in adjacent cells
-    let weld_dist_sq = (grid * 2.5) * (grid * 2.5);
+    // Weld threshold widened to 5.0× grid to capture near-miss seam vertices
+    // that diverge by ~3-4× grid due to Sutherland-Hodgman clipping at
+    // cylinder-box intersection boundaries.
+    let weld_dist_sq = (grid * 5.0) * (grid * 5.0);
 
     // O(N²) pairwise check — N is small (boundary vertices only)
     for (i, &bv_i) in boundary_verts.iter().enumerate() {
@@ -4395,8 +4398,10 @@ fn close_near_boundary_chains(
             }
         }
 
-        // Only handle small components (3-8 vertices)
-        if component.len() < 3 || component.len() > 8 {
+        // Handle boundary components up to 32 vertices (raised from 8 to fill
+        // medium-sized boundary holes at cylinder-box corner intersections
+        // where S-H clipping creates multi-face tessellation mismatches).
+        if component.len() < 3 || component.len() > 32 {
             continue;
         }
 
@@ -4490,7 +4495,8 @@ fn close_near_boundary_chains(
 
         // For a polygon hole (4+ edges, same number of vertices): trace the
         // boundary loop, determine winding, and fan-triangulate.
-        if component.len() >= 4 && component.len() <= 16 && comp_edges.len() == component.len() {
+        // Upper bound raised to 32 to match the component limit above.
+        if component.len() >= 4 && component.len() <= 32 && comp_edges.len() == component.len() {
             // Order vertices by tracing through the boundary edges (undirected)
             let target_len = component.len();
             let mut ordered: Vec<QPos> = vec![component[0]];
@@ -4540,6 +4546,112 @@ fn close_near_boundary_chains(
                             fill_triangles.push([vidx[0], vidx[j + 1], vidx[j]]);
                         } else {
                             fill_triangles.push([vidx[0], vidx[j], vidx[j + 1]]);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Open chain closure: when boundary edges form an open chain (not a
+        // complete cycle), check if the chain endpoints are within 10× grid.
+        // If so, snap them together and fill with fan triangles.
+        // This handles S-H clipping divergence at cylinder-box intersection
+        // boundaries where the tessellation produces almost-closed chains.
+        // Only for chains up to 32 vertices to avoid filling large boundaries.
+        if component.len() >= 3
+            && component.len() <= 32
+            && !comp_edges.is_empty()
+            && comp_edges.len() < component.len()
+        {
+            // Build directed adjacency from boundary edges within this component
+            let mut fwd: HashMap<QPos, QPos> = HashMap::new();
+            let mut rev_map: HashMap<QPos, QPos> = HashMap::new();
+            for &(a, b) in &comp_edges {
+                fwd.insert(a, b);
+                rev_map.insert(b, a);
+            }
+
+            // Find chain start: a vertex that has an outgoing boundary edge
+            // but no incoming boundary edge within this component
+            let chain_starts: Vec<QPos> = comp_edges
+                .iter()
+                .map(|&(a, _)| a)
+                .filter(|a| !rev_map.contains_key(a))
+                .collect();
+
+            // We need exactly one chain start for a single open chain
+            if chain_starts.len() == 1 {
+                let chain_start = chain_starts[0];
+                let mut chain: Vec<QPos> = vec![chain_start];
+                let mut cur = chain_start;
+                while let Some(&next) = fwd.get(&cur) {
+                    chain.push(next);
+                    cur = next;
+                    if chain.len() > component.len() + 1 {
+                        break; // safety valve
+                    }
+                }
+
+                // Check if chain endpoints are within 10× grid distance
+                let chain_end = *chain.last().unwrap();
+                if chain.len() >= 3 && chain_start != chain_end {
+                    if let (Some(&start_idx), Some(&end_idx)) =
+                        (pos_to_idx.get(&chain_start), pos_to_idx.get(&chain_end))
+                    {
+                        let si = start_idx as usize * 3;
+                        let ei = end_idx as usize * 3;
+                        if si + 2 < vertices.len() && ei + 2 < vertices.len() {
+                            let dx = (vertices[si] - vertices[ei]) as f64;
+                            let dy = (vertices[si + 1] - vertices[ei + 1]) as f64;
+                            let dz = (vertices[si + 2] - vertices[ei + 2]) as f64;
+                            let dist_sq = dx * dx + dy * dy + dz * dz;
+                            let snap_threshold = grid * 10.0;
+                            let snap_threshold_sq = snap_threshold * snap_threshold;
+
+                            if dist_sq <= snap_threshold_sq {
+                                // Snap chain end to chain start position
+                                vertices[ei] = vertices[si];
+                                vertices[ei + 1] = vertices[si + 1];
+                                vertices[ei + 2] = vertices[si + 2];
+
+                                // Now the chain forms a closed loop — fill with fan triangles.
+                                // Determine winding from boundary edges.
+                                let fwd_matches: usize = (0..chain.len() - 1)
+                                    .filter(|&i| {
+                                        let a = chain[i];
+                                        let b = chain[i + 1];
+                                        boundary_edge_set.contains(&(b, a))
+                                    })
+                                    .count();
+                                let rev_matches: usize = (0..chain.len() - 1)
+                                    .filter(|&i| {
+                                        let a = chain[i];
+                                        let b = chain[i + 1];
+                                        boundary_edge_set.contains(&(a, b))
+                                    })
+                                    .count();
+
+                                let reverse_winding = rev_matches > fwd_matches;
+
+                                // Use chain without duplicate end (it's snapped to start)
+                                let loop_verts = &chain[..chain.len() - 1];
+                                let vert_indices: Vec<Option<u32>> = loop_verts
+                                    .iter()
+                                    .map(|q| pos_to_idx.get(q).copied())
+                                    .collect();
+                                if vert_indices.iter().all(|v| v.is_some()) {
+                                    let vidx: Vec<u32> =
+                                        vert_indices.into_iter().map(|v| v.unwrap()).collect();
+                                    let n = vidx.len();
+                                    for j in 1..(n - 1) {
+                                        if reverse_winding {
+                                            fill_triangles.push([vidx[0], vidx[j + 1], vidx[j]]);
+                                        } else {
+                                            fill_triangles.push([vidx[0], vidx[j], vidx[j + 1]]);
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
