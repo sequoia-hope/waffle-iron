@@ -111,7 +111,11 @@ pub(crate) fn tessellate_solid_ext(
     let mut indices: Vec<u32> = Vec::new();
     let mut face_ranges: Vec<FaceRange> = Vec::new();
 
-    for (&kid, &face_idx) in face_map {
+    // Sort face_map entries for deterministic tessellation order.
+    let mut sorted_faces: Vec<(u64, FaceIdx)> = face_map.iter().map(|(&k, &v)| (k, v)).collect();
+    sorted_faces.sort_by_key(|(k, _)| *k);
+
+    for &(kid, face_idx) in &sorted_faces {
         let geom = face_geometry.get(&face_idx);
 
         // Check if this face is a revolve lateral face
@@ -416,6 +420,16 @@ pub(crate) fn tessellate_solid_ext(
         }
     }
 
+    // Second T-junction resolution pass: fill_boundary_holes may create triangles
+    // with long edges that straddle existing vertices, producing new T-junctions.
+    for _ in 0..3 {
+        let prev_len = indices.len();
+        resolve_mesh_t_junctions(&vertices, &normals, &mut indices, &mut face_ranges);
+        if indices.len() == prev_len {
+            break;
+        }
+    }
+
     // Snap boundary vertex positions to the oracle's f32 quantization grid.
     // Only snap vertices on unpaired edges to avoid collapsing interior features.
     snap_boundary_to_oracle_grid(&mut vertices, &indices);
@@ -428,9 +442,14 @@ pub(crate) fn tessellate_solid_ext(
     // that can cause non-manifold edges.
     remove_duplicate_triangles(&vertices, &mut indices, &mut face_ranges);
 
+<<<<<<< HEAD
     // Remove opposite-winding duplicates: two triangles with the same 3 vertices
     // but opposite winding cancel each other out and create non-manifold edges.
     // Removing both (keeping first occurrence) resolves these cases.
+=======
+    // Remove winding-insensitive duplicates: fill triangles may have opposite
+    // winding from real face triangles at the same quantized positions.
+>>>>>>> auto-waffle/2026-03-20T16-20-23
     remove_winding_insensitive_duplicates(&vertices, &mut indices, &mut face_ranges);
 
     // Close near-miss boundary chains: when an open chain of boundary edges
@@ -457,6 +476,7 @@ pub(crate) fn tessellate_solid_ext(
     // triangles over synthetic fill triangles.
     remove_nonmanifold_duplicates(&vertices, &mut indices, &mut face_ranges);
 
+<<<<<<< HEAD
     // Post-nonmanifold convergence: removal can create new boundary edges.
     // Fill those and iterate until stable. Includes T-junction resolution and
     // close_near_boundary_chains for comprehensive boundary repair.
@@ -478,6 +498,35 @@ pub(crate) fn tessellate_solid_ext(
         if new_unpaired >= prev_unpaired {
             break;
         }
+=======
+    // After conservative pass, if no boundary edges exist but non-manifold
+    // edges persist, apply aggressive removal. Starting from zero boundary
+    // means we're only dealing with overlapping triangles (not missing faces),
+    // so aggressive removal is safe.
+    if count_boundary_edges(&vertices, &indices) == 0
+        && count_nonmanifold_edges(&vertices, &indices) > 0
+    {
+        remove_nonmanifold_duplicates_aggressive(&vertices, &mut indices, &mut face_ranges);
+    }
+
+    // Post-conservative repair: aggressive removal may have created boundary
+    // edges. One T-junction + fill + dedup cycle can repair these.
+    if count_boundary_edges(&vertices, &indices) > 0 {
+        for _ in 0..3 {
+            let prev_len = indices.len();
+            resolve_mesh_t_junctions(&vertices, &normals, &mut indices, &mut face_ranges);
+            if indices.len() == prev_len {
+                break;
+            }
+        }
+        weld_boundary_vertices(&mut vertices, &indices);
+        remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
+        fill_boundary_holes(&vertices, &normals, &mut indices, &mut face_ranges);
+        remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
+        fix_winding_consistency(&vertices, &normals, &mut indices);
+        remove_winding_insensitive_duplicates(&vertices, &mut indices, &mut face_ranges);
+        remove_nonmanifold_duplicates(&vertices, &mut indices, &mut face_ranges);
+>>>>>>> auto-waffle/2026-03-20T16-20-23
     }
 
     // If the mesh signed volume is negative, the entire solid is inside-out
@@ -2939,7 +2988,11 @@ fn tessellate_solid_bounded(
     let mut indices: Vec<u32> = Vec::new();
     let mut face_ranges: Vec<FaceRange> = Vec::new();
 
-    for (&kid, &face_idx) in face_map {
+    // Sort face_map entries for deterministic tessellation order.
+    let mut sorted_faces: Vec<(u64, FaceIdx)> = face_map.iter().map(|(&k, &v)| (k, v)).collect();
+    sorted_faces.sort_by_key(|(k, _)| *k);
+
+    for &(kid, face_idx) in &sorted_faces {
         let start_index = indices.len() as u32;
         let geom = face_geometry.get(&face_idx);
 
@@ -4228,6 +4281,333 @@ fn remove_nonmanifold_duplicates_aggressive(
     remove_nonmanifold_duplicates_inner(vertices, indices, face_ranges, false);
 }
 
+/// Count boundary edges (edges shared by exactly 1 triangle) in the mesh.
+/// Uses the same quantization grid as the watertightness oracle.
+fn count_boundary_edges(vertices: &[f32], indices: &[u32]) -> usize {
+    let n_tris = indices.len() / 3;
+    if n_tris == 0 {
+        return 0;
+    }
+
+    let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
+    let grid = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
+    let inv_grid = 1.0 / grid;
+
+    type QPos = (i64, i64, i64);
+    let quantize = |idx: u32| -> QPos {
+        let i = idx as usize * 3;
+        if i + 2 >= vertices.len() {
+            return (0, 0, 0);
+        }
+        (
+            (vertices[i] as f64 * inv_grid).round() as i64,
+            (vertices[i + 1] as f64 * inv_grid).round() as i64,
+            (vertices[i + 2] as f64 * inv_grid).round() as i64,
+        )
+    };
+
+    let mut edge_counts: HashMap<(QPos, QPos), u32> = HashMap::new();
+    for t in 0..n_tris {
+        let base = t * 3;
+        let tri = [indices[base], indices[base + 1], indices[base + 2]];
+        for j in 0..3 {
+            let pa = quantize(tri[j]);
+            let pb = quantize(tri[(j + 1) % 3]);
+            let key = if pa <= pb { (pa, pb) } else { (pb, pa) };
+            *edge_counts.entry(key).or_insert(0) += 1;
+        }
+    }
+
+    edge_counts.values().filter(|&&c| c == 1).count()
+}
+
+/// Count non-manifold edges (edges shared by 3+ triangles).
+fn count_nonmanifold_edges(vertices: &[f32], indices: &[u32]) -> usize {
+    let n_tris = indices.len() / 3;
+    if n_tris == 0 {
+        return 0;
+    }
+
+    let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
+    let grid = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
+    let inv_grid = 1.0 / grid;
+
+    type QPos = (i64, i64, i64);
+    let quantize = |idx: u32| -> QPos {
+        let i = idx as usize * 3;
+        if i + 2 >= vertices.len() {
+            return (0, 0, 0);
+        }
+        (
+            (vertices[i] as f64 * inv_grid).round() as i64,
+            (vertices[i + 1] as f64 * inv_grid).round() as i64,
+            (vertices[i + 2] as f64 * inv_grid).round() as i64,
+        )
+    };
+
+    let mut edge_counts: HashMap<(QPos, QPos), u32> = HashMap::new();
+    for t in 0..n_tris {
+        let base = t * 3;
+        let tri = [indices[base], indices[base + 1], indices[base + 2]];
+        for j in 0..3 {
+            let pa = quantize(tri[j]);
+            let pb = quantize(tri[(j + 1) % 3]);
+            let key = if pa <= pb { (pa, pb) } else { (pb, pa) };
+            *edge_counts.entry(key).or_insert(0) += 1;
+        }
+    }
+
+    edge_counts.values().filter(|&&c| c >= 3).count()
+}
+
+/// Split "chord" triangles on non-manifold edges where a boundary chain
+/// connects the same two endpoints through intermediate vertices.
+///
+/// When face tessellation creates a straight chord edge A→D while the
+/// adjacent face tessellates through intermediate boundary vertices A→B→C→D,
+/// the chord edge becomes non-manifold (count 3+) and the chain edges become
+/// boundary (count 1). Fix by replacing the chord triangle with fan triangles
+/// that follow the boundary chain.
+#[allow(dead_code)]
+fn split_nonmanifold_chord_triangles(
+    vertices: &[f32],
+    indices: &mut Vec<u32>,
+    face_ranges: &mut Vec<FaceRange>,
+) {
+    let n_tris = indices.len() / 3;
+    if n_tris < 2 {
+        return;
+    }
+
+    let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
+    let grid = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
+    let inv_grid = 1.0 / grid;
+
+    type QPos = (i64, i64, i64);
+    let quantize = |idx: u32| -> QPos {
+        let i = idx as usize * 3;
+        if i + 2 >= vertices.len() {
+            return (0, 0, 0);
+        }
+        (
+            (vertices[i] as f64 * inv_grid).round() as i64,
+            (vertices[i + 1] as f64 * inv_grid).round() as i64,
+            (vertices[i + 2] as f64 * inv_grid).round() as i64,
+        )
+    };
+
+    type UEdge = (QPos, QPos);
+    let make_edge = |a: QPos, b: QPos| -> UEdge {
+        if a <= b {
+            (a, b)
+        } else {
+            (b, a)
+        }
+    };
+
+    // Build edge counts
+    let mut edge_counts: HashMap<UEdge, u32> = HashMap::new();
+    for t in 0..n_tris {
+        let base = t * 3;
+        let tri = [indices[base], indices[base + 1], indices[base + 2]];
+        for j in 0..3 {
+            let pa = quantize(tri[j]);
+            let pb = quantize(tri[(j + 1) % 3]);
+            let key = make_edge(pa, pb);
+            *edge_counts.entry(key).or_insert(0) += 1;
+        }
+    }
+
+    // Find non-manifold edges (count >= 3)
+    let nm_edges: Vec<UEdge> = edge_counts
+        .iter()
+        .filter(|(_, &c)| c >= 3)
+        .map(|(&e, _)| e)
+        .collect();
+
+    if nm_edges.is_empty() {
+        return;
+    }
+
+    // Build boundary adjacency: directed boundary edges (count 1 with no reverse)
+    let mut directed_counts: HashMap<(QPos, QPos), u32> = HashMap::new();
+    let mut pos_to_idx: HashMap<QPos, u32> = HashMap::new();
+    for t in 0..n_tris {
+        let base = t * 3;
+        let tri = [indices[base], indices[base + 1], indices[base + 2]];
+        for j in 0..3 {
+            let pa = quantize(tri[j]);
+            let pb = quantize(tri[(j + 1) % 3]);
+            *directed_counts.entry((pa, pb)).or_insert(0) += 1;
+            pos_to_idx.entry(pa).or_insert(tri[j]);
+        }
+    }
+
+    let mut boundary_next: HashMap<QPos, Vec<QPos>> = HashMap::new();
+    for (&(a, b), &count) in &directed_counts {
+        if count == 1 && directed_counts.get(&(b, a)).copied().unwrap_or(0) == 0 {
+            boundary_next.entry(a).or_default().push(b);
+        }
+    }
+
+    // For each non-manifold edge, find chord triangles and boundary chains.
+    let mut replacements: HashMap<usize, Vec<[u32; 3]>> = HashMap::new();
+
+    for &(ea, eb) in &nm_edges {
+        // Find triangles on this edge where the OTHER 2 edges have count == 2.
+        // These are "chord" triangles.
+        for t in 0..n_tris {
+            if replacements.contains_key(&t) {
+                continue;
+            }
+            let base = t * 3;
+            let tri = [indices[base], indices[base + 1], indices[base + 2]];
+            let qt = [quantize(tri[0]), quantize(tri[1]), quantize(tri[2])];
+
+            // Find which local edge matches the nm edge
+            let mut nm_local_edge: Option<usize> = None;
+            for j in 0..3 {
+                let key = make_edge(qt[j], qt[(j + 1) % 3]);
+                if key == (ea, eb) || key == (eb, ea) {
+                    nm_local_edge = Some(j);
+                    break;
+                }
+            }
+            let nm_local = match nm_local_edge {
+                Some(e) => e,
+                None => continue,
+            };
+
+            // Check other 2 edges have count == 2
+            let e1 = make_edge(qt[(nm_local + 1) % 3], qt[(nm_local + 2) % 3]);
+            let e2 = make_edge(qt[(nm_local + 2) % 3], qt[nm_local]);
+            let c1 = edge_counts.get(&e1).copied().unwrap_or(0);
+            let c2 = edge_counts.get(&e2).copied().unwrap_or(0);
+            if c1 != 2 || c2 != 2 {
+                continue;
+            }
+
+            // This is a chord triangle. The nm edge goes from qt[nm_local]
+            // to qt[(nm_local+1)%3]. The opposite vertex is qt[(nm_local+2)%3].
+            let start_q = qt[nm_local];
+            let end_q = qt[(nm_local + 1) % 3];
+            let opp_idx = tri[(nm_local + 2) % 3];
+
+            // Try both directions for the boundary chain.
+            let directions = [(start_q, end_q), (end_q, start_q)];
+            let mut best_chain: Option<Vec<QPos>> = None;
+            for &(chain_start, chain_end) in &directions {
+                let mut chain: Vec<QPos> = vec![chain_start];
+                let mut current = chain_start;
+                let mut found = false;
+                for _ in 0..16 {
+                    if let Some(nexts) = boundary_next.get(&current) {
+                        let next = nexts.iter().copied().find(|&n| {
+                            n == chain_end
+                                || (!chain.contains(&n) && boundary_next.contains_key(&n))
+                        });
+                        match next {
+                            Some(n) => {
+                                chain.push(n);
+                                if n == chain_end {
+                                    found = true;
+                                    break;
+                                }
+                                current = n;
+                            }
+                            None => break,
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                if found && chain.len() >= 3 {
+                    best_chain = Some(chain);
+                    break;
+                }
+            }
+
+            let chain = match best_chain {
+                Some(c) => c,
+                None => continue,
+            };
+
+            // Replace the chord triangle with fan triangles following the
+            // boundary chain. The fan vertex is the opposite vertex (opp_idx).
+            // Chain vertices are mapped to actual vertex indices via pos_to_idx.
+            //
+            // The chord triangle has directed edge start_q → end_q.
+            // If chain goes start→end, fan triangles are (chain[i], chain[i+1], opp).
+            // If chain goes end→start, fan triangles are (chain[i+1], chain[i], opp)
+            // to preserve the original winding direction.
+            // The boundary chain edges are directed. The fan triangles need
+            // to produce the REVERSE directed edges to pair with them.
+            // If chain goes start→end (same as nm directed edge), fan edges
+            // should go end→start direction, so use (chain[i+1], chain[i], opp).
+            // If chain goes end→start (reversed), fan edges should go
+            // start→end direction, so use (chain[i], chain[i+1], opp).
+            let chain_follows_original = chain[0] == start_q;
+            let mut new_tris = Vec::new();
+            for i in 0..chain.len() - 1 {
+                let p1 = chain[i];
+                let p2 = chain[i + 1];
+                if let (Some(&i1), Some(&i2)) = (pos_to_idx.get(&p1), pos_to_idx.get(&p2)) {
+                    if chain_follows_original {
+                        // Chain follows nm edge direction → fan must reverse
+                        new_tris.push([i2, i1, opp_idx]);
+                    } else {
+                        // Chain reversed → fan follows original direction
+                        new_tris.push([i1, i2, opp_idx]);
+                    }
+                }
+            }
+
+            if !new_tris.is_empty() {
+                replacements.insert(t, new_tris);
+            }
+        }
+    }
+
+    if replacements.is_empty() {
+        return;
+    }
+
+    // Rebuild indices with replacements.
+    let mut new_indices = Vec::with_capacity(indices.len() + replacements.len() * 6);
+    let mut new_ranges = Vec::new();
+
+    for range in face_ranges.iter() {
+        let range_start = new_indices.len() as u32;
+        let tri_start = range.start_index as usize / 3;
+        let tri_end = range.end_index as usize / 3;
+
+        for t in tri_start..tri_end.min(n_tris) {
+            let base = t * 3;
+            if let Some(new_tris) = replacements.get(&t) {
+                for tri in new_tris {
+                    new_indices.extend_from_slice(&[tri[0], tri[1], tri[2]]);
+                }
+            } else {
+                new_indices.push(indices[base]);
+                new_indices.push(indices[base + 1]);
+                new_indices.push(indices[base + 2]);
+            }
+        }
+
+        let range_end = new_indices.len() as u32;
+        if range_end > range_start {
+            new_ranges.push(FaceRange {
+                face_id: range.face_id,
+                start_index: range_start,
+                end_index: range_end,
+            });
+        }
+    }
+
+    *indices = new_indices;
+    *face_ranges = new_ranges;
+}
+
 /// Resolve mesh-level T-junctions.
 ///
 /// A T-junction occurs when triangle T1 has an edge A→B, while adjacent
@@ -4286,12 +4666,15 @@ fn resolve_mesh_t_junctions(
         *edge_counts.entry(make_edge(qc, qa)).or_insert(0) += 1;
     }
 
-    // Collect boundary edges (undirected count != 2)
-    let boundary_edges: std::collections::HashSet<(QPos, QPos)> = edge_counts
+    // Collect boundary edges (undirected count != 2), sorted for determinism.
+    let mut boundary_edges_vec: Vec<(QPos, QPos)> = edge_counts
         .iter()
         .filter(|(_, &c)| c != 2)
         .map(|(&e, _)| e)
         .collect();
+    boundary_edges_vec.sort();
+    let boundary_edges: std::collections::HashSet<(QPos, QPos)> =
+        boundary_edges_vec.iter().copied().collect();
 
     if boundary_edges.is_empty() {
         return;
@@ -4300,7 +4683,7 @@ fn resolve_mesh_t_junctions(
     // Collect ONLY vertices that are endpoints of boundary edges (T-junction
     // candidates must themselves be on the boundary manifold).
     let mut boundary_verts: HashMap<QPos, u32> = HashMap::new();
-    for &(qa, qb) in &boundary_edges {
+    for &(qa, qb) in &boundary_edges_vec {
         // Find a vertex index for each quantized position
         for t in 0..n_tris {
             let base = t * 3;
@@ -4358,7 +4741,11 @@ fn resolve_mesh_t_junctions(
 
             // Only check boundary vertices (not all mesh vertices)
             let mut best: Option<(f64, u32)> = None;
-            for (&qp, &vidx) in &boundary_verts {
+            // Sort boundary vertex candidates for deterministic tiebreaking.
+            let mut bv_sorted: Vec<(QPos, u32)> =
+                boundary_verts.iter().map(|(&k, &v)| (k, v)).collect();
+            bv_sorted.sort();
+            for &(qp, vidx) in &bv_sorted {
                 if qp == qa || qp == qb {
                     continue;
                 }
@@ -4385,7 +4772,7 @@ fn resolve_mesh_t_junctions(
                 // Tight tolerance: slightly more than half oracle grid cell
                 let tol = grid * 0.6;
                 if dist_sq < tol * tol {
-                    // Pick the closest candidate
+                    // Pick the closest candidate (lowest dist_sq, tiebreak by QPos order)
                     if best.is_none() || dist_sq < best.unwrap().0 {
                         best = Some((dist_sq, vidx));
                     }
@@ -4757,6 +5144,9 @@ fn close_near_boundary_chains(
         return;
     }
 
+    // Sort for deterministic processing.
+    boundary_edges.sort();
+
     // Collect boundary vertex adjacency (undirected) using union-find-like component detection
     let mut boundary_verts: HashSet<QPos> = HashSet::new();
     let mut vert_adj: HashMap<QPos, HashSet<QPos>> = HashMap::new();
@@ -4772,12 +5162,16 @@ fn close_near_boundary_chains(
     let mut fill_triangles: Vec<[u32; 3]> = Vec::new();
     let boundary_edge_set: HashSet<(QPos, QPos)> = boundary_edges.iter().copied().collect();
 
-    for &start in &boundary_verts {
+    // Sort boundary vertices for deterministic component discovery.
+    let mut sorted_boundary_verts: Vec<QPos> = boundary_verts.iter().copied().collect();
+    sorted_boundary_verts.sort();
+
+    for &start in &sorted_boundary_verts {
         if visited.contains(&start) {
             continue;
         }
 
-        // BFS to find connected component
+        // BFS to find connected component (sort neighbors for determinism)
         let mut component: Vec<QPos> = Vec::new();
         let mut queue = vec![start];
         while let Some(v) = queue.pop() {
@@ -4787,7 +5181,9 @@ fn close_near_boundary_chains(
             visited.insert(v);
             component.push(v);
             if let Some(neighbors) = vert_adj.get(&v) {
-                for &n in neighbors {
+                let mut sorted_neighbors: Vec<QPos> = neighbors.iter().copied().collect();
+                sorted_neighbors.sort();
+                for &n in &sorted_neighbors {
                     if !visited.contains(&n) {
                         queue.push(n);
                     }
@@ -4897,14 +5293,14 @@ fn close_near_boundary_chains(
             // Order vertices by tracing through the boundary edges (undirected)
             let target_len = component.len();
             let mut ordered: Vec<QPos> = vec![component[0]];
-            let mut remaining: HashSet<QPos> = component[1..].iter().copied().collect();
+            let mut remaining: Vec<QPos> = component[1..].to_vec();
+            remaining.sort();
             while !remaining.is_empty() && ordered.len() < target_len {
                 let last = *ordered.last().unwrap();
-                if let Some(&next) = remaining.iter().find(|&&v| {
+                if let Some(pos) = remaining.iter().position(|&v| {
                     boundary_edge_set.contains(&(last, v)) || boundary_edge_set.contains(&(v, last))
                 }) {
-                    ordered.push(next);
-                    remaining.remove(&next);
+                    ordered.push(remaining.remove(pos));
                 } else {
                     break;
                 }
@@ -5837,7 +6233,11 @@ fn tessellate_sphere_solid(
         idx
     };
 
-    for (&kid, &face_idx) in face_map {
+    // Sort face_map entries for deterministic tessellation order.
+    let mut sorted_faces: Vec<(u64, FaceIdx)> = face_map.iter().map(|(&k, &v)| (k, v)).collect();
+    sorted_faces.sort_by_key(|(k, _)| *k);
+
+    for &(kid, face_idx) in &sorted_faces {
         // Collect the 3 vertices of this triangular face
         let loop_idx = arena.faces[face_idx.0].outer_loop;
         let start_he = arena.loops[loop_idx.0].half_edge;
@@ -6106,7 +6506,12 @@ fn tessellate_cone_solid(
     // Find the face IDs for base (planar) and lateral (conical) faces
     let mut base_face_kid: Option<u64> = None;
     let mut lateral_face_kids: Vec<u64> = Vec::new();
-    for (&kid, &face_idx) in face_map {
+    // Sort face_map entries for deterministic iteration.
+    let mut sorted_faces_pre: Vec<(u64, FaceIdx)> =
+        face_map.iter().map(|(&k, &v)| (k, v)).collect();
+    sorted_faces_pre.sort_by_key(|(k, _)| *k);
+
+    for &(kid, face_idx) in &sorted_faces_pre {
         let geom = face_geometry.get(&face_idx);
         if matches!(geom, Some(SurfaceGeom::Planar(_))) {
             base_face_kid = Some(kid);
