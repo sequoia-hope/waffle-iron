@@ -442,14 +442,9 @@ pub(crate) fn tessellate_solid_ext(
     // that can cause non-manifold edges.
     remove_duplicate_triangles(&vertices, &mut indices, &mut face_ranges);
 
-<<<<<<< HEAD
     // Remove opposite-winding duplicates: two triangles with the same 3 vertices
     // but opposite winding cancel each other out and create non-manifold edges.
     // Removing both (keeping first occurrence) resolves these cases.
-=======
-    // Remove winding-insensitive duplicates: fill triangles may have opposite
-    // winding from real face triangles at the same quantized positions.
->>>>>>> auto-waffle/2026-03-20T16-20-23
     remove_winding_insensitive_duplicates(&vertices, &mut indices, &mut face_ranges);
 
     // Close near-miss boundary chains: when an open chain of boundary edges
@@ -476,7 +471,16 @@ pub(crate) fn tessellate_solid_ext(
     // triangles over synthetic fill triangles.
     remove_nonmanifold_duplicates(&vertices, &mut indices, &mut face_ranges);
 
-<<<<<<< HEAD
+    // After conservative pass, if no boundary edges exist but non-manifold
+    // edges persist, apply aggressive removal. Starting from zero boundary
+    // means we're only dealing with overlapping triangles (not missing faces),
+    // so aggressive removal is safe.
+    if count_boundary_edges(&vertices, &indices) == 0
+        && count_nonmanifold_edges(&vertices, &indices) > 0
+    {
+        remove_nonmanifold_duplicates_aggressive(&vertices, &mut indices, &mut face_ranges);
+    }
+
     // Post-nonmanifold convergence: removal can create new boundary edges.
     // Fill those and iterate until stable. Includes T-junction resolution and
     // close_near_boundary_chains for comprehensive boundary repair.
@@ -498,35 +502,6 @@ pub(crate) fn tessellate_solid_ext(
         if new_unpaired >= prev_unpaired {
             break;
         }
-=======
-    // After conservative pass, if no boundary edges exist but non-manifold
-    // edges persist, apply aggressive removal. Starting from zero boundary
-    // means we're only dealing with overlapping triangles (not missing faces),
-    // so aggressive removal is safe.
-    if count_boundary_edges(&vertices, &indices) == 0
-        && count_nonmanifold_edges(&vertices, &indices) > 0
-    {
-        remove_nonmanifold_duplicates_aggressive(&vertices, &mut indices, &mut face_ranges);
-    }
-
-    // Post-conservative repair: aggressive removal may have created boundary
-    // edges. One T-junction + fill + dedup cycle can repair these.
-    if count_boundary_edges(&vertices, &indices) > 0 {
-        for _ in 0..3 {
-            let prev_len = indices.len();
-            resolve_mesh_t_junctions(&vertices, &normals, &mut indices, &mut face_ranges);
-            if indices.len() == prev_len {
-                break;
-            }
-        }
-        weld_boundary_vertices(&mut vertices, &indices);
-        remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
-        fill_boundary_holes(&vertices, &normals, &mut indices, &mut face_ranges);
-        remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
-        fix_winding_consistency(&vertices, &normals, &mut indices);
-        remove_winding_insensitive_duplicates(&vertices, &mut indices, &mut face_ranges);
-        remove_nonmanifold_duplicates(&vertices, &mut indices, &mut face_ranges);
->>>>>>> auto-waffle/2026-03-20T16-20-23
     }
 
     // If the mesh signed volume is negative, the entire solid is inside-out

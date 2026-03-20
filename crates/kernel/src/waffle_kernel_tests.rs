@@ -9224,7 +9224,6 @@ fn test_open_chain_closure_snaps_near_endpoints() {
     );
 }
 
-<<<<<<< HEAD
 // ── Mesh Repair Convergence Tests (Red Phase) ───────────────────────────
 
 /// Gear + circle union mesh repair convergence test.
@@ -9350,7 +9349,8 @@ fn test_mesh_repair_convergence_no_regression_simple_box_union() {
         "Box-box union should have fewer than 100 triangles, got {}",
         tri_count
     );
-=======
+}
+
 // ── Diagnostic: box+circle union triangle count ───────────────────────
 
 /// Box + circle (cylinder) union must produce enough triangles for both
@@ -9537,6 +9537,299 @@ fn test_nonmanifold_repair_box_two_cyl_cross_union() {
          (known chord-vs-curve limitation), got {}",
         unpaired
     );
->>>>>>> auto-waffle/2026-03-20T16-20-23
+}
+
+/// When the SSI boolean path fails (NotSupported) and falls back to polygon
+/// clipping (Sutherland-Hodgman), the result's `is_polygon_soup` flag must be
+/// set to `true`. Otherwise the tessellator assumes clean analytical B-Rep and
+/// uses bounded tessellation, which produces non-manifold edges.
+///
+/// Geometry: box 10x10 centered at (5,5), cylinder r=4 centered at (9,5).
+/// The cylinder straddles the box's right face (x=10), which causes SSI to
+/// return NotSupported and fall through to polygon clipping.
+#[test]
+fn test_ssi_fallback_marks_polygon_soup() {
+    let mut k = WaffleKernel::new();
+    let box_h = make_box_on(&mut k, 5.0, 5.0, 10.0, 10.0, 10.0);
+    let cyl_h = make_cyl_on(&mut k, 9.0, 5.0, 4.0, 10.0);
+
+    let result = k
+        .boolean_union(&box_h, &cyl_h)
+        .expect("box + straddling-cyl union should succeed");
+
+    let mesh = k.tessellate(&result, 0.05).expect("tessellate");
+    let unpaired = count_unpaired_edges(&mesh);
+
+    eprintln!(
+        "ssi_fallback_marks_polygon_soup: {} tris, {} unpaired edges",
+        mesh.indices.len() / 3,
+        unpaired
+    );
+
+    // If is_polygon_soup is correctly set, the tessellator uses polygon-soup
+    // tessellation and produces a watertight mesh (0 unpaired edges).
+    // If is_polygon_soup stays false, bounded tessellation produces non-manifold
+    // edges from AABB collapse.
+    assert_eq!(
+        unpaired, 0,
+        "SSI fallback to polygon clipping should produce 0 unpaired edges \
+         (is_polygon_soup must be true), got {}",
+        unpaired
+    );
+}
+
+/// When the SSI boolean path fails and falls back to polygon clipping, the
+/// cylindrical protrusion must be properly tessellated — not collapsed to the
+/// box AABB. This verifies the mesh has vertices outside the box bounding faces
+/// and enough triangles for the cylindrical surface.
+///
+/// Same geometry as test_ssi_fallback_marks_polygon_soup: box 10x10 at (5,5),
+/// cylinder r=4 at (9,5), depth 10. The cylinder protrudes past x=10 (up to
+/// x=13), so vertices beyond x=10 must exist.
+#[test]
+fn test_ssi_fallback_no_aabb_collapse() {
+    let mut k = WaffleKernel::new();
+    let box_h = make_box_on(&mut k, 5.0, 5.0, 10.0, 10.0, 10.0);
+    let cyl_h = make_cyl_on(&mut k, 9.0, 5.0, 4.0, 10.0);
+
+    let result = k
+        .boolean_union(&box_h, &cyl_h)
+        .expect("box + straddling-cyl union should succeed");
+
+    let mesh = k.tessellate(&result, 0.05).expect("tessellate");
+    let tri_count = mesh.indices.len() / 3;
+
+    eprintln!(
+        "ssi_fallback_no_aabb_collapse: {} tris, {} verts",
+        tri_count,
+        mesh.vertices.len() / 3
+    );
+
+    // The cylinder protrudes past the box's right face (x=10) up to x=13.
+    // Vertices beyond x=10 must exist in the mesh.
+    let max_x = mesh
+        .vertices
+        .chunks(3)
+        .map(|c| c[0])
+        .fold(f32::MIN, f32::max);
+    assert!(
+        max_x > 10.5,
+        "Mesh should have vertices beyond x=10 (cylindrical protrusion), \
+         but max x = {:.4}. AABB collapse detected.",
+        max_x
+    );
+
+    // The mesh should NOT be AABB-collapsed (all vertices on bounding box faces).
+    assert!(
+        !is_3d_aabb_collapsed(&mesh.vertices),
+        "Box + straddling cylinder mesh should NOT be AABB-collapsed. \
+         The cylindrical surface must produce off-AABB vertices."
+    );
+
+    // A box-cylinder union with a protruding cylinder should have significantly
+    // more triangles than a plain box (12 tris). The cylindrical surface alone
+    // needs ~20+ triangles at tolerance 0.05.
+    assert!(
+        tri_count >= 30,
+        "Expected at least 30 triangles for box + protruding cylinder, got {}. \
+         Too few triangles suggests the cylinder was not properly tessellated.",
+        tri_count
+    );
+
+    // The mesh must also be watertight. When is_polygon_soup is incorrectly
+    // false, bounded tessellation produces non-manifold edges even though the
+    // geometry looks correct in extent. Zero unpaired edges is the definitive
+    // sign that the tessellation path was appropriate.
+    let unpaired = count_unpaired_edges(&mesh);
+    assert!(
+        unpaired == 0,
+        "Box + straddling cylinder mesh should be watertight (0 unpaired edges), \
+         got {}. Non-manifold edges indicate bounded tessellation was used on a \
+         polygon-soup result (is_polygon_soup not set on SSI fallback).",
+        unpaired
+    );
+}
+
+/// Adversarial: very small geometry near tolerance boundaries.
+/// Box 0.01x0.01, cylinder r=0.003 straddling box edge.
+/// At this scale, vertex welding quantization is stressed because
+/// the grid cell size approaches the geometry feature size.
+#[test]
+fn test_ssi_fallback_small_cylinder_straddling() {
+    let mut k = WaffleKernel::new();
+    // Tiny box centered at (0.005, 0.005), 0.01 x 0.01, depth 0.01
+    let box_h = make_box_on(&mut k, 0.005, 0.005, 0.01, 0.01, 0.01);
+    // Tiny cylinder r=0.003 at x=0.009, straddling the right face (x=0.01)
+    let cyl_h = make_cyl_on(&mut k, 0.009, 0.005, 0.003, 0.01);
+
+    let result = k
+        .boolean_union(&box_h, &cyl_h)
+        .expect("small box + straddling-cyl union should succeed");
+
+    let mesh = k.tessellate(&result, 0.001).expect("tessellate small geometry");
+    let unpaired = count_unpaired_edges(&mesh);
+    let tri_count = mesh.indices.len() / 3;
+
+    eprintln!(
+        "ssi_fallback_small_cylinder_straddling: {} tris, {} unpaired edges",
+        tri_count, unpaired
+    );
+
+    // The mesh must be watertight. Near-tolerance geometry is the hardest case
+    // for vertex welding — if is_polygon_soup is not set, bounded tessellation
+    // will produce non-manifold edges from AABB collapse at this scale.
+    assert_eq!(
+        unpaired, 0,
+        "Small-geometry SSI fallback should produce 0 unpaired edges, got {}. \
+         Vertex welding at near-tolerance scale may be broken.",
+        unpaired
+    );
+
+    // Sanity: the cylinder protrudes past x=0.01 (up to x=0.012), so vertices
+    // beyond x=0.01 must exist.
+    let max_x = mesh
+        .vertices
+        .chunks(3)
+        .map(|c| c[0])
+        .fold(f32::MIN, f32::max);
+    assert!(
+        max_x > 0.0105,
+        "Small mesh should have vertices beyond x=0.01 (cylindrical protrusion), \
+         but max x = {:.6}",
+        max_x
+    );
+}
+
+/// Adversarial: SUBTRACT with straddling cylinder (same geometry as union tests).
+/// Ensures the is_polygon_soup fix applies to all boolean ops, not just union.
+/// Box 10x10 centered at (5,5), cylinder r=4 at (9,5) — cylinder straddles
+/// the box's right face. Subtracting cuts a cylindrical notch into the box.
+#[test]
+fn test_ssi_fallback_subtract_straddling() {
+    let mut k = WaffleKernel::new();
+    let box_h = make_box_on(&mut k, 5.0, 5.0, 10.0, 10.0, 10.0);
+    let cyl_h = make_cyl_on(&mut k, 9.0, 5.0, 4.0, 10.0);
+
+    let result = k
+        .boolean_subtract(&box_h, &cyl_h)
+        .expect("box - straddling-cyl subtract should succeed");
+
+    let mesh = k.tessellate(&result, 0.05).expect("tessellate");
+    let unpaired = count_unpaired_edges(&mesh);
+    let tri_count = mesh.indices.len() / 3;
+
+    eprintln!(
+        "ssi_fallback_subtract_straddling: {} tris, {} unpaired edges",
+        tri_count, unpaired
+    );
+
+    // Subtract must also produce a watertight mesh when SSI falls back.
+    // The polygon-soup flag must be propagated for subtract, not just union.
+    assert_eq!(
+        unpaired, 0,
+        "SSI fallback SUBTRACT should produce 0 unpaired edges, got {}. \
+         The is_polygon_soup flag may not be set for subtract operations.",
+        unpaired
+    );
+
+    // After subtracting the straddling cylinder, the box should lose its
+    // right-side material. The max x should be less than the original box
+    // right face (x=10) because the cylinder cuts into it.
+    let max_x = mesh
+        .vertices
+        .chunks(3)
+        .map(|c| c[0])
+        .fold(f32::MIN, f32::max);
+    // The cylinder center is at x=9, radius 4, so the leftmost cut edge is
+    // at roughly x=5. The box right face at x=10 should still exist where the
+    // cylinder doesn't reach, so max_x should be ~10.
+    assert!(
+        max_x >= 9.5,
+        "Subtract result should still have vertices near x=10 \
+         (box material outside cylinder), but max x = {:.4}",
+        max_x
+    );
+}
+
+/// Adversarial: chained booleans — two sequential unions where both cylinders
+/// straddle different box faces. The second boolean operates on an
+/// already-polygon-soup result, testing that the flag propagates correctly
+/// through multiple boolean operations.
+///
+/// Geometry: box 10x10 at (5,5), cyl_A r=4 at (9,5) straddles right face,
+/// cyl_B r=4 at (5,9) straddles top face.
+#[test]
+fn test_ssi_fallback_chained_boolean() {
+    let mut k = WaffleKernel::new();
+    let box_h = make_box_on(&mut k, 5.0, 5.0, 10.0, 10.0, 10.0);
+    let cyl_a = make_cyl_on(&mut k, 9.0, 5.0, 4.0, 10.0); // straddles right face
+    let cyl_b = make_cyl_on(&mut k, 5.0, 9.0, 4.0, 10.0); // straddles top face
+
+    // First boolean: box + cyl_A (straddles right face)
+    let intermediate = k
+        .boolean_union(&box_h, &cyl_a)
+        .expect("first union (box + cyl_A) should succeed");
+
+    // Second boolean: (box + cyl_A) + cyl_B (straddles top face)
+    let result = k
+        .boolean_union(&intermediate, &cyl_b)
+        .expect("second union ((box+cyl_A) + cyl_B) should succeed");
+
+    let mesh = k.tessellate(&result, 0.05).expect("tessellate chained result");
+    let unpaired = count_unpaired_edges(&mesh);
+    let tri_count = mesh.indices.len() / 3;
+
+    eprintln!(
+        "ssi_fallback_chained_boolean: {} tris, {} unpaired edges",
+        tri_count, unpaired
+    );
+
+    // Chained booleans on polygon-soup results are inherently harder:
+    // the second boolean operates on fan-tessellated geometry, which can
+    // produce a small number of T-junction edges at cylinder-cylinder
+    // intersection seams. 4 unpaired edges is the current baseline for this
+    // geometry; 0 is ideal but not yet achieved for chained operations.
+    // NOTE: if this regresses above 4, the is_polygon_soup flag may not be
+    // propagating through successive booleans.
+    assert!(
+        unpaired <= 4,
+        "Chained SSI fallback booleans should produce <= 4 unpaired edges, got {}. \
+         The is_polygon_soup flag may not propagate through successive booleans.",
+        unpaired
+    );
+
+    // Both cylinders protrude: cyl_A past x=10 (up to x=13),
+    // cyl_B past y=10 (up to y=13). Verify both protrusions exist.
+    let max_x = mesh
+        .vertices
+        .chunks(3)
+        .map(|c| c[0])
+        .fold(f32::MIN, f32::max);
+    let max_y = mesh
+        .vertices
+        .chunks(3)
+        .map(|c| c[1])
+        .fold(f32::MIN, f32::max);
+    assert!(
+        max_x > 10.5,
+        "Chained result should have vertices beyond x=10 (cyl_A protrusion), \
+         but max x = {:.4}",
+        max_x
+    );
+    assert!(
+        max_y > 10.5,
+        "Chained result should have vertices beyond y=10 (cyl_B protrusion), \
+         but max y = {:.4}",
+        max_y
+    );
+
+    // With two protruding cylinders plus the box, we expect significantly more
+    // triangles than a single union.
+    assert!(
+        tri_count >= 50,
+        "Chained boolean should produce at least 50 triangles, got {}. \
+         Too few suggests a cylinder was lost or collapsed.",
+        tri_count
+    );
 }
 
