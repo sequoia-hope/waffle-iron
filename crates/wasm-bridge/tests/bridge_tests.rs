@@ -9,10 +9,10 @@ use wasm_bridge::*;
 
 fn make_sketch_op() -> Operation {
     let mut solved_positions = std::collections::HashMap::new();
-    solved_positions.insert(1, (0.0, 0.0));
-    solved_positions.insert(2, (1.0, 0.0));
-    solved_positions.insert(3, (1.0, 1.0));
-    solved_positions.insert(4, (0.0, 1.0));
+    solved_positions.insert(PointId(1), (0.0, 0.0));
+    solved_positions.insert(PointId(2), (1.0, 0.0));
+    solved_positions.insert(PointId(3), (1.0, 1.0));
+    solved_positions.insert(PointId(4), (0.0, 1.0));
 
     let sketch = Sketch {
         id: Uuid::new_v4(),
@@ -31,25 +31,25 @@ fn make_sketch_op() -> Operation {
         plane_normal: [0.0, 0.0, 1.0],
         entities: vec![
             SketchEntity::Point {
-                id: 1,
+                id: PointId(1),
                 x: 0.0,
                 y: 0.0,
                 construction: false,
             },
             SketchEntity::Point {
-                id: 2,
+                id: PointId(2),
                 x: 1.0,
                 y: 0.0,
                 construction: false,
             },
             SketchEntity::Point {
-                id: 3,
+                id: PointId(3),
                 x: 1.0,
                 y: 1.0,
                 construction: false,
             },
             SketchEntity::Point {
-                id: 4,
+                id: PointId(4),
                 x: 0.0,
                 y: 1.0,
                 construction: false,
@@ -59,7 +59,7 @@ fn make_sketch_op() -> Operation {
         solve_status: SolveStatus::FullyConstrained,
         solved_positions,
         solved_profiles: vec![ClosedProfile {
-            entity_ids: vec![1, 2, 3, 4],
+            entity_ids: vec![EntityId(1), EntityId(2), EntityId(3), EntityId(4)],
             is_outer: true,
             vertex_ids: vec![],
             circle: None,
@@ -312,7 +312,7 @@ fn engine_state_sketch_workflow() {
     // Add entity
     state
         .add_sketch_entity(SketchEntity::Point {
-            id: 1,
+            id: PointId(1),
             x: 0.0,
             y: 0.0,
             construction: false,
@@ -321,7 +321,9 @@ fn engine_state_sketch_workflow() {
 
     // Add constraint
     state
-        .add_sketch_constraint(SketchConstraint::Horizontal { entity: 1 })
+        .add_sketch_constraint(SketchConstraint::Horizontal {
+            entity: EntityId(1),
+        })
         .unwrap();
 
     // Finish sketch
@@ -345,7 +347,7 @@ fn engine_state_no_sketch_errors() {
     let mut state = EngineState::new();
 
     let result = state.add_sketch_entity(SketchEntity::Point {
-        id: 1,
+        id: PointId(1),
         x: 0.0,
         y: 0.0,
         construction: false,
@@ -471,10 +473,10 @@ fn dispatch_solve_sketch_returns_solved() {
 
     // Add a rectangle: 4 points + 4 lines
     for (id, x, y) in [
-        (1, 0.0, 0.0),
-        (2, 10.0, 0.0),
-        (3, 10.0, 10.0),
-        (4, 0.0, 10.0),
+        (PointId(1), 0.0, 0.0),
+        (PointId(2), 10.0, 0.0),
+        (PointId(3), 10.0, 10.0),
+        (PointId(4), 0.0, 10.0),
     ] {
         wasm_bridge::dispatch(
             &mut state,
@@ -489,7 +491,12 @@ fn dispatch_solve_sketch_returns_solved() {
             &mut kernel,
         );
     }
-    for (id, start, end) in [(10, 1, 2), (11, 2, 3), (12, 3, 4), (13, 4, 1)] {
+    for (id, start, end) in [
+        (LineId(10), PointId(1), PointId(2)),
+        (LineId(11), PointId(2), PointId(3)),
+        (LineId(12), PointId(3), PointId(4)),
+        (LineId(13), PointId(4), PointId(1)),
+    ] {
         wasm_bridge::dispatch(
             &mut state,
             UiToEngine::AddSketchEntity {
@@ -508,21 +515,25 @@ fn dispatch_solve_sketch_returns_solved() {
     wasm_bridge::dispatch(
         &mut state,
         UiToEngine::AddConstraint {
-            constraint: SketchConstraint::Dragged { point: 1 },
+            constraint: SketchConstraint::Dragged { point: PointId(1) },
         },
         &mut kernel,
     );
     wasm_bridge::dispatch(
         &mut state,
         UiToEngine::AddConstraint {
-            constraint: SketchConstraint::Horizontal { entity: 10 },
+            constraint: SketchConstraint::Horizontal {
+                entity: EntityId(10),
+            },
         },
         &mut kernel,
     );
     wasm_bridge::dispatch(
         &mut state,
         UiToEngine::AddConstraint {
-            constraint: SketchConstraint::Vertical { entity: 11 },
+            constraint: SketchConstraint::Vertical {
+                entity: EntityId(11),
+            },
         },
         &mut kernel,
     );
@@ -533,7 +544,7 @@ fn dispatch_solve_sketch_returns_solved() {
         // Should have positions for all 4 points
         assert_eq!(solved.positions.len(), 4);
         // Origin should be at (0,0)
-        let origin = solved.positions.get(&1).unwrap();
+        let origin = solved.positions.get(&PointId(1)).unwrap();
         assert!((origin.0).abs() < 1e-6);
         assert!((origin.1).abs() < 1e-6);
     } else {
@@ -568,7 +579,7 @@ fn dispatch_full_sketch_workflow() {
         &mut state,
         UiToEngine::AddSketchEntity {
             entity: SketchEntity::Point {
-                id: 1,
+                id: PointId(1),
                 x: 0.0,
                 y: 0.0,
                 construction: false,
@@ -616,10 +627,10 @@ fn dispatch_sketch_then_extrude_produces_solid() {
 
     // Add a rectangle: 4 points + 4 lines
     for (id, x, y) in [
-        (1, 0.0, 0.0),
-        (2, 10.0, 0.0),
-        (3, 10.0, 10.0),
-        (4, 0.0, 10.0),
+        (PointId(1), 0.0, 0.0),
+        (PointId(2), 10.0, 0.0),
+        (PointId(3), 10.0, 10.0),
+        (PointId(4), 0.0, 10.0),
     ] {
         wasm_bridge::dispatch(
             &mut state,
@@ -634,7 +645,12 @@ fn dispatch_sketch_then_extrude_produces_solid() {
             &mut kernel,
         );
     }
-    for (id, start, end) in [(10, 1, 2), (11, 2, 3), (12, 3, 4), (13, 4, 1)] {
+    for (id, start, end) in [
+        (LineId(10), PointId(1), PointId(2)),
+        (LineId(11), PointId(2), PointId(3)),
+        (LineId(12), PointId(3), PointId(4)),
+        (LineId(13), PointId(4), PointId(1)),
+    ] {
         wasm_bridge::dispatch(
             &mut state,
             UiToEngine::AddSketchEntity {
@@ -651,13 +667,13 @@ fn dispatch_sketch_then_extrude_produces_solid() {
 
     // FinishSketch with solved positions and a profile
     let mut solved_positions = std::collections::HashMap::new();
-    solved_positions.insert(1, (0.0, 0.0));
-    solved_positions.insert(2, (10.0, 0.0));
-    solved_positions.insert(3, (10.0, 10.0));
-    solved_positions.insert(4, (0.0, 10.0));
+    solved_positions.insert(PointId(1), (0.0, 0.0));
+    solved_positions.insert(PointId(2), (10.0, 0.0));
+    solved_positions.insert(PointId(3), (10.0, 10.0));
+    solved_positions.insert(PointId(4), (0.0, 10.0));
 
     let solved_profiles = vec![ClosedProfile {
-        entity_ids: vec![1, 2, 3, 4],
+        entity_ids: vec![EntityId(1), EntityId(2), EntityId(3), EntityId(4)],
         is_outer: true,
         vertex_ids: vec![],
         circle: None,
@@ -752,12 +768,12 @@ fn dispatch_solve_sketch_checks_all_4_corners() {
         &mut kernel,
     );
 
-    // Add a rectangle: 4 points + 4 lines (10×10)
+    // Add a rectangle: 4 points + 4 lines (10x10)
     for (id, x, y) in [
-        (1, 0.0, 0.0),
-        (2, 10.0, 0.0),
-        (3, 10.0, 10.0),
-        (4, 0.0, 10.0),
+        (PointId(1), 0.0, 0.0),
+        (PointId(2), 10.0, 0.0),
+        (PointId(3), 10.0, 10.0),
+        (PointId(4), 0.0, 10.0),
     ] {
         wasm_bridge::dispatch(
             &mut state,
@@ -772,7 +788,12 @@ fn dispatch_solve_sketch_checks_all_4_corners() {
             &mut kernel,
         );
     }
-    for (id, start, end) in [(10, 1, 2), (11, 2, 3), (12, 3, 4), (13, 4, 1)] {
+    for (id, start, end) in [
+        (LineId(10), PointId(1), PointId(2)),
+        (LineId(11), PointId(2), PointId(3)),
+        (LineId(12), PointId(3), PointId(4)),
+        (LineId(13), PointId(4), PointId(1)),
+    ] {
         wasm_bridge::dispatch(
             &mut state,
             UiToEngine::AddSketchEntity {
@@ -791,21 +812,25 @@ fn dispatch_solve_sketch_checks_all_4_corners() {
     wasm_bridge::dispatch(
         &mut state,
         UiToEngine::AddConstraint {
-            constraint: SketchConstraint::Dragged { point: 1 },
+            constraint: SketchConstraint::Dragged { point: PointId(1) },
         },
         &mut kernel,
     );
     wasm_bridge::dispatch(
         &mut state,
         UiToEngine::AddConstraint {
-            constraint: SketchConstraint::Horizontal { entity: 10 },
+            constraint: SketchConstraint::Horizontal {
+                entity: EntityId(10),
+            },
         },
         &mut kernel,
     );
     wasm_bridge::dispatch(
         &mut state,
         UiToEngine::AddConstraint {
-            constraint: SketchConstraint::Vertical { entity: 11 },
+            constraint: SketchConstraint::Vertical {
+                entity: EntityId(11),
+            },
         },
         &mut kernel,
     );
@@ -818,18 +843,18 @@ fn dispatch_solve_sketch_checks_all_4_corners() {
         // Check ALL 4 corners with tolerance
         let eps = 1e-4;
         let expected = [
-            (1, 0.0, 0.0),
-            (2, 10.0, 0.0),
-            (3, 10.0, 10.0),
-            (4, 0.0, 10.0),
+            (PointId(1), 0.0, 0.0),
+            (PointId(2), 10.0, 0.0),
+            (PointId(3), 10.0, 10.0),
+            (PointId(4), 0.0, 10.0),
         ];
         for (id, ex, ey) in expected {
             let pos = solved.positions.get(&id).unwrap_or_else(|| {
-                panic!("Missing solved position for point {}", id);
+                panic!("Missing solved position for point {:?}", id);
             });
             assert!(
                 (pos.0 - ex).abs() < eps && (pos.1 - ey).abs() < eps,
-                "Point {} expected ({}, {}), got ({}, {})",
+                "Point {:?} expected ({}, {}), got ({}, {})",
                 id,
                 ex,
                 ey,
@@ -858,10 +883,10 @@ fn dispatch_export_step_with_solid_reaches_kernel() {
         &mut kernel,
     );
     for (id, x, y) in [
-        (1, 0.0, 0.0),
-        (2, 10.0, 0.0),
-        (3, 10.0, 10.0),
-        (4, 0.0, 10.0),
+        (PointId(1), 0.0, 0.0),
+        (PointId(2), 10.0, 0.0),
+        (PointId(3), 10.0, 10.0),
+        (PointId(4), 0.0, 10.0),
     ] {
         wasm_bridge::dispatch(
             &mut state,
@@ -876,7 +901,12 @@ fn dispatch_export_step_with_solid_reaches_kernel() {
             &mut kernel,
         );
     }
-    for (id, start, end) in [(10, 1, 2), (11, 2, 3), (12, 3, 4), (13, 4, 1)] {
+    for (id, start, end) in [
+        (LineId(10), PointId(1), PointId(2)),
+        (LineId(11), PointId(2), PointId(3)),
+        (LineId(12), PointId(3), PointId(4)),
+        (LineId(13), PointId(4), PointId(1)),
+    ] {
         wasm_bridge::dispatch(
             &mut state,
             UiToEngine::AddSketchEntity {
@@ -891,16 +921,16 @@ fn dispatch_export_step_with_solid_reaches_kernel() {
         );
     }
     let mut solved_positions = std::collections::HashMap::new();
-    solved_positions.insert(1, (0.0, 0.0));
-    solved_positions.insert(2, (10.0, 0.0));
-    solved_positions.insert(3, (10.0, 10.0));
-    solved_positions.insert(4, (0.0, 10.0));
+    solved_positions.insert(PointId(1), (0.0, 0.0));
+    solved_positions.insert(PointId(2), (10.0, 0.0));
+    solved_positions.insert(PointId(3), (10.0, 10.0));
+    solved_positions.insert(PointId(4), (0.0, 10.0));
     let response = wasm_bridge::dispatch(
         &mut state,
         UiToEngine::FinishSketch {
             solved_positions,
             solved_profiles: vec![waffle_types::ClosedProfile {
-                entity_ids: vec![1, 2, 3, 4],
+                entity_ids: vec![EntityId(1), EntityId(2), EntityId(3), EntityId(4)],
                 is_outer: true,
                 vertex_ids: vec![],
                 circle: None,
@@ -1037,8 +1067,8 @@ fn serde_roundtrip_begin_sketch() {
 fn serde_roundtrip_add_sketch_entity() {
     let msg = UiToEngine::AddSketchEntity {
         entity: SketchEntity::Circle {
-            id: 5,
-            center_id: 1,
+            id: CircleId(5),
+            center_id: PointId(1),
             radius: 7.5,
             construction: true,
         },
@@ -1053,8 +1083,8 @@ fn serde_roundtrip_add_sketch_entity() {
 fn serde_roundtrip_add_constraint() {
     let msg = UiToEngine::AddConstraint {
         constraint: SketchConstraint::Distance {
-            entity_a: 1,
-            entity_b: 2,
+            entity_a: EntityId(1),
+            entity_b: EntityId(2),
             value: 42.5,
         },
     };
@@ -1076,12 +1106,12 @@ fn serde_roundtrip_solve_sketch() {
 #[test]
 fn serde_roundtrip_finish_sketch() {
     let mut positions = std::collections::HashMap::new();
-    positions.insert(1, (0.0, 0.0));
-    positions.insert(2, (10.0, 5.0));
+    positions.insert(PointId(1), (0.0, 0.0));
+    positions.insert(PointId(2), (10.0, 5.0));
     let msg = UiToEngine::FinishSketch {
         solved_positions: positions.clone(),
         solved_profiles: vec![ClosedProfile {
-            entity_ids: vec![1, 2, 3],
+            entity_ids: vec![EntityId(1), EntityId(2), EntityId(3)],
             is_outer: true,
             vertex_ids: vec![],
             circle: None,
@@ -1104,8 +1134,8 @@ fn serde_roundtrip_finish_sketch() {
     } = d
     {
         assert_eq!(solved_positions.len(), 2);
-        assert_eq!(solved_positions[&1], (0.0, 0.0));
-        assert_eq!(solved_positions[&2], (10.0, 5.0));
+        assert_eq!(solved_positions[&PointId(1)], (0.0, 0.0));
+        assert_eq!(solved_positions[&PointId(2)], (10.0, 5.0));
         assert_eq!(solved_profiles.len(), 1);
         assert_eq!(plane_origin, [1.0, 2.0, 3.0]);
         assert_eq!(plane_normal, [0.0, 1.0, 0.0]);
@@ -1237,7 +1267,7 @@ fn serde_roundtrip_sketch_solved() {
             positions: std::collections::HashMap::new(),
             radii: std::collections::HashMap::new(),
             profiles: vec![ClosedProfile {
-                entity_ids: vec![1, 2],
+                entity_ids: vec![EntityId(1), EntityId(2)],
                 is_outer: true,
                 vertex_ids: vec![],
                 circle: None,
@@ -1492,7 +1522,9 @@ fn dispatch_add_constraint_without_sketch_returns_error() {
     let response = wasm_bridge::dispatch(
         &mut state,
         UiToEngine::AddConstraint {
-            constraint: SketchConstraint::Horizontal { entity: 1 },
+            constraint: SketchConstraint::Horizontal {
+                entity: EntityId(1),
+            },
         },
         &mut kernel,
     );

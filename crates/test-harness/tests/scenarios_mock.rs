@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 use test_harness::ModelBuilder;
-use waffle_types::{ClosedProfile, Role};
+use waffle_types::{CircleId, ClosedProfile, EntityId, LineId, PointId, Role};
 
 // ── Scenario 1: Basic box extrude ───────────────────────────────────────
 
@@ -36,35 +36,35 @@ fn test_box_with_hole() {
     // Sketch with outer rect + inner circle
     m.begin_sketch([0., 0., 0.], [0., 0., 1.]);
     // Outer rect
-    m.add_point(1, 0., 0.)
-        .add_point(2, 100., 0.)
-        .add_point(3, 100., 50.)
-        .add_point(4, 0., 50.);
-    m.add_line(10, 1, 2)
-        .add_line(11, 2, 3)
-        .add_line(12, 3, 4)
-        .add_line(13, 4, 1);
+    m.add_point(PointId(1), 0., 0.)
+        .add_point(PointId(2), 100., 0.)
+        .add_point(PointId(3), 100., 50.)
+        .add_point(PointId(4), 0., 50.);
+    m.add_line(LineId(10), PointId(1), PointId(2))
+        .add_line(LineId(11), PointId(2), PointId(3))
+        .add_line(LineId(12), PointId(3), PointId(4))
+        .add_line(LineId(13), PointId(4), PointId(1));
     // Inner circle approximated as point (just for testing multi-entity sketches)
-    m.add_point(5, 50., 25.);
-    m.add_circle_entity(20, 5, 10.0);
+    m.add_point(PointId(5), 50., 25.);
+    m.add_circle_entity(CircleId(20), PointId(5), 10.0);
 
     let mut positions = HashMap::new();
-    positions.insert(1, (0.0, 0.0));
-    positions.insert(2, (100.0, 0.0));
-    positions.insert(3, (100.0, 50.0));
-    positions.insert(4, (0.0, 50.0));
-    positions.insert(5, (50.0, 25.0));
+    positions.insert(PointId(1), (0.0, 0.0));
+    positions.insert(PointId(2), (100.0, 0.0));
+    positions.insert(PointId(3), (100.0, 50.0));
+    positions.insert(PointId(4), (0.0, 50.0));
+    positions.insert(PointId(5), (50.0, 25.0));
 
     let profiles = vec![
         ClosedProfile {
-            entity_ids: vec![1, 2, 3, 4],
+            entity_ids: vec![EntityId(1), EntityId(2), EntityId(3), EntityId(4)],
             is_outer: true,
             vertex_ids: vec![],
             circle: None,
             spline_segments: vec![],
         },
         ClosedProfile {
-            entity_ids: vec![5],
+            entity_ids: vec![EntityId(5)],
             is_outer: false,
             vertex_ids: vec![],
             circle: None,
@@ -333,35 +333,35 @@ fn test_full_workflow() {
     // 1. Sketch on XY plane: box with offset hole
     m.begin_sketch([0., 0., 0.], [0., 0., 1.]);
     // Outer rectangle 100x50
-    m.add_point(1, 0., 0.)
-        .add_point(2, 100., 0.)
-        .add_point(3, 100., 50.)
-        .add_point(4, 0., 50.);
-    m.add_line(10, 1, 2)
-        .add_line(11, 2, 3)
-        .add_line(12, 3, 4)
-        .add_line(13, 4, 1);
+    m.add_point(PointId(1), 0., 0.)
+        .add_point(PointId(2), 100., 0.)
+        .add_point(PointId(3), 100., 50.)
+        .add_point(PointId(4), 0., 50.);
+    m.add_line(LineId(10), PointId(1), PointId(2))
+        .add_line(LineId(11), PointId(2), PointId(3))
+        .add_line(LineId(12), PointId(3), PointId(4))
+        .add_line(LineId(13), PointId(4), PointId(1));
     // Inner circle (hole) at offset position
-    m.add_point(5, 70., 25.);
-    m.add_circle_entity(20, 5, 10.0);
+    m.add_point(PointId(5), 70., 25.);
+    m.add_circle_entity(CircleId(20), PointId(5), 10.0);
 
     let mut positions = HashMap::new();
-    positions.insert(1, (0.0, 0.0));
-    positions.insert(2, (100.0, 0.0));
-    positions.insert(3, (100.0, 50.0));
-    positions.insert(4, (0.0, 50.0));
-    positions.insert(5, (70.0, 25.0));
+    positions.insert(PointId(1), (0.0, 0.0));
+    positions.insert(PointId(2), (100.0, 0.0));
+    positions.insert(PointId(3), (100.0, 50.0));
+    positions.insert(PointId(4), (0.0, 50.0));
+    positions.insert(PointId(5), (70.0, 25.0));
 
     let profiles = vec![
         ClosedProfile {
-            entity_ids: vec![1, 2, 3, 4],
+            entity_ids: vec![EntityId(1), EntityId(2), EntityId(3), EntityId(4)],
             is_outer: true,
             vertex_ids: vec![],
             circle: None,
             spline_segments: vec![],
         },
         ClosedProfile {
-            entity_ids: vec![5],
+            entity_ids: vec![EntityId(5)],
             is_outer: false,
             vertex_ids: vec![],
             circle: None,

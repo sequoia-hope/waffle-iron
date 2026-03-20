@@ -128,7 +128,7 @@ pub trait Kernel {
         plane_origin: [f64; 3],
         plane_normal: [f64; 3],
         plane_x_axis: [f64; 3],
-        positions: &HashMap<u32, (f64, f64)>,
+        positions: &HashMap<PointId, (f64, f64)>,
     ) -> Result<Vec<KernelId>, KernelError>;
 }
 

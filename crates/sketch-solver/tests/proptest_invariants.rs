@@ -103,7 +103,7 @@ proptest! {
             if let Some(&(x2, y2)) = result2.positions.get(id) {
                 prop_assert!(
                     (x1 - x2).abs() < 1e-8 && (y1 - y2).abs() < 1e-8,
-                    "point {} differs: ({}, {}) vs ({}, {})", id, x1, y1, x2, y2
+                    "point {:?} differs: ({}, {}) vs ({}, {})", id, x1, y1, x2, y2
                 );
             }
         }
@@ -140,7 +140,7 @@ proptest! {
         prop_assert!(matches!(result1.status, SolveStatus::FullyConstrained));
 
         // Find which points are dragged
-        let dragged: std::collections::HashSet<u32> = sketch.constraints.iter().filter_map(|c| {
+        let dragged: std::collections::HashSet<PointId> = sketch.constraints.iter().filter_map(|c| {
             if let SketchConstraint::Dragged { point } = c { Some(*point) } else { None }
         }).collect();
 
@@ -162,7 +162,7 @@ proptest! {
             if let Some(&(x2, y2)) = result2.positions.get(id) {
                 prop_assert!(
                     (x1 - x2).abs() < 1e-4 && (y1 - y2).abs() < 1e-4,
-                    "point {} differs from different starting positions: ({}, {}) vs ({}, {})",
+                    "point {:?} differs from different starting positions: ({}, {}) vs ({}, {})",
                     id, x1, y1, x2, y2
                 );
             }

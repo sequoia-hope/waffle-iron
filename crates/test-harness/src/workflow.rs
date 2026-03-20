@@ -220,13 +220,13 @@ impl ModelBuilder {
 
         // Create a single Circle entity (the GUI creates this when user draws a circle)
         let circle_entity = SketchEntity::Circle {
-            id: 1,
-            center_id: 2,
+            id: CircleId(1),
+            center_id: PointId(2),
             radius: r,
             construction: false,
         };
         let center_entity = SketchEntity::Point {
-            id: 2,
+            id: PointId(2),
             x: cx,
             y: cy,
             construction: true,
@@ -242,10 +242,10 @@ impl ModelBuilder {
 
         // Create profile with CircleProfile (matching GUI's finishSketch enhancement)
         let mut positions = std::collections::HashMap::new();
-        positions.insert(2, (cx, cy));
+        positions.insert(PointId(2), (cx, cy));
 
         let profiles = vec![ClosedProfile {
-            entity_ids: vec![1],
+            entity_ids: vec![EntityId(1)],
             is_outer: true,
             vertex_ids: vec![],
             circle: Some(waffle_types::CircleProfile {
@@ -289,7 +289,7 @@ impl ModelBuilder {
     }
 
     /// Add a point entity to the active sketch.
-    pub fn add_point(&mut self, id: u32, x: f64, y: f64) -> &mut Self {
+    pub fn add_point(&mut self, id: PointId, x: f64, y: f64) -> &mut Self {
         wasm_bridge::dispatch(
             &mut self.state,
             UiToEngine::AddSketchEntity {
@@ -306,7 +306,7 @@ impl ModelBuilder {
     }
 
     /// Add a line entity to the active sketch.
-    pub fn add_line(&mut self, id: u32, start: u32, end: u32) -> &mut Self {
+    pub fn add_line(&mut self, id: LineId, start: PointId, end: PointId) -> &mut Self {
         wasm_bridge::dispatch(
             &mut self.state,
             UiToEngine::AddSketchEntity {
@@ -323,7 +323,7 @@ impl ModelBuilder {
     }
 
     /// Add a circle entity to the active sketch.
-    pub fn add_circle_entity(&mut self, id: u32, center: u32, radius: f64) -> &mut Self {
+    pub fn add_circle_entity(&mut self, id: CircleId, center: PointId, radius: f64) -> &mut Self {
         wasm_bridge::dispatch(
             &mut self.state,
             UiToEngine::AddSketchEntity {
@@ -340,7 +340,13 @@ impl ModelBuilder {
     }
 
     /// Add an arc entity to the active sketch.
-    pub fn add_arc(&mut self, id: u32, center: u32, start: u32, end: u32) -> &mut Self {
+    pub fn add_arc(
+        &mut self,
+        id: ArcId,
+        center: PointId,
+        start: PointId,
+        end: PointId,
+    ) -> &mut Self {
         wasm_bridge::dispatch(
             &mut self.state,
             UiToEngine::AddSketchEntity {
@@ -361,7 +367,7 @@ impl ModelBuilder {
     pub fn finish_sketch_manual(
         &mut self,
         name: &str,
-        positions: HashMap<u32, (f64, f64)>,
+        positions: HashMap<PointId, (f64, f64)>,
         profiles: Vec<ClosedProfile>,
         origin: [f64; 3],
         normal: [f64; 3],

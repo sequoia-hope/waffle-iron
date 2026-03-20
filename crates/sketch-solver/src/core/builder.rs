@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use nalgebra::Point2;
 
-use crate::types::{EntityKind, SketchConstraint, SketchEntity};
+use crate::types::{EntityId, EntityKind, PointId, SketchConstraint, SketchEntity};
 
 use super::constraint::ConstraintImpl;
 use super::params::ParamLayout;
@@ -46,7 +46,7 @@ pub fn build_eq_to_constraint_map(constraints: &[ConstraintImpl]) -> Vec<usize> 
 
 // ── Internals ──────────────────────────────────────────────────────────────
 
-fn classify_entities(entities: &[SketchEntity]) -> HashMap<u32, EntityKind> {
+fn classify_entities(entities: &[SketchEntity]) -> HashMap<EntityId, EntityKind> {
     let mut map = HashMap::new();
     for e in entities {
         let kind = match e {
@@ -61,33 +61,33 @@ fn classify_entities(entities: &[SketchEntity]) -> HashMap<u32, EntityKind> {
     map
 }
 
-fn find_point_pos(entities: &[SketchEntity], point_id: u32) -> (f64, f64) {
+fn find_point_pos(entities: &[SketchEntity], point_id: PointId) -> (f64, f64) {
     for e in entities {
-        if e.id() == point_id {
-            if let SketchEntity::Point { x, y, .. } = e {
+        if let SketchEntity::Point { id, x, y, .. } = e {
+            if *id == point_id {
                 return (*x, *y);
             }
         }
     }
-    panic!("Point {} not found", point_id)
+    panic!("Point {:?} not found", point_id)
 }
 
-fn find_center_id(entities: &[SketchEntity], entity_id: u32) -> u32 {
+fn find_center_id(entities: &[SketchEntity], entity_id: EntityId) -> PointId {
     for e in entities {
         if e.id() == entity_id {
             match e {
                 SketchEntity::Circle { center_id, .. } => return *center_id,
                 SketchEntity::Arc { center_id, .. } => return *center_id,
-                _ => panic!("Entity {} is not a circle or arc", entity_id),
+                _ => panic!("Entity {:?} is not a circle or arc", entity_id),
             }
         }
     }
-    panic!("Entity {} not found", entity_id)
+    panic!("Entity {:?} not found", entity_id)
 }
 
 fn build_one(
     constraint: &SketchConstraint,
-    entity_types: &HashMap<u32, EntityKind>,
+    entity_types: &HashMap<EntityId, EntityKind>,
     entities: &[SketchEntity],
     layout: &ParamLayout,
 ) -> Option<ConstraintImpl> {
@@ -201,17 +201,17 @@ fn build_one(
             let kind_b = entity_types.get(entity_b)?;
             match (kind_a, kind_b) {
                 (EntityKind::Point, EntityKind::Point) => Some(CI::DistancePP {
-                    p1: layout.point(*entity_a),
-                    p2: layout.point(*entity_b),
+                    p1: layout.point(PointId(entity_a.0)),
+                    p2: layout.point(PointId(entity_b.0)),
                     d: *value,
                 }),
                 (EntityKind::Point, EntityKind::Line) => Some(CI::DistancePL {
-                    point: layout.point(*entity_a),
+                    point: layout.point(PointId(entity_a.0)),
                     line: layout.line(*entity_b),
                     d: *value,
                 }),
                 (EntityKind::Line, EntityKind::Point) => Some(CI::DistancePL {
-                    point: layout.point(*entity_b),
+                    point: layout.point(PointId(entity_b.0)),
                     line: layout.line(*entity_a),
                     d: *value,
                 }),

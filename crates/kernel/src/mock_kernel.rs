@@ -1086,7 +1086,7 @@ impl Kernel for MockKernel {
         plane_origin: [f64; 3],
         plane_normal: [f64; 3],
         _plane_x_axis: [f64; 3],
-        positions: &HashMap<u32, (f64, f64)>,
+        positions: &HashMap<PointId, (f64, f64)>,
     ) -> Result<Vec<KernelId>, KernelError> {
         let mut face_ids = Vec::new();
 
@@ -1095,24 +1095,27 @@ impl Kernel for MockKernel {
             let area = if let Some(ref circ) = profile.circle {
                 std::f64::consts::PI * circ.radius * circ.radius
             } else {
-                // Polygon profile — prefer vertex_ids, fall back to entity_ids, then sorted keys.
-                let keys: Vec<u32> = if !profile.vertex_ids.is_empty()
+                // Polygon profile — prefer vertex_ids, fall back to entity_ids (as PointId), then sorted keys.
+                let keys: Vec<PointId> = if !profile.vertex_ids.is_empty()
                     && profile
                         .vertex_ids
                         .iter()
                         .all(|id| positions.contains_key(id))
                 {
                     profile.vertex_ids.clone()
-                } else if !profile.entity_ids.is_empty()
-                    && profile
-                        .entity_ids
-                        .iter()
-                        .all(|id| positions.contains_key(id))
-                {
-                    profile.entity_ids.clone()
+                } else if !profile.entity_ids.is_empty() {
+                    let as_points: Vec<PointId> =
+                        profile.entity_ids.iter().map(|id| PointId(id.0)).collect();
+                    if as_points.iter().all(|id| positions.contains_key(id)) {
+                        as_points
+                    } else {
+                        let mut k: Vec<PointId> = positions.keys().copied().collect();
+                        k.sort_by_key(|p| p.0);
+                        k
+                    }
                 } else {
-                    let mut k: Vec<u32> = positions.keys().copied().collect();
-                    k.sort();
+                    let mut k: Vec<PointId> = positions.keys().copied().collect();
+                    k.sort_by_key(|p| p.0);
                     k
                 };
 
@@ -1320,17 +1323,17 @@ mod tests {
 
         // Create a rectangular profile
         let profile = ClosedProfile {
-            entity_ids: vec![1, 2, 3, 4],
+            entity_ids: vec![EntityId(1), EntityId(2), EntityId(3), EntityId(4)],
             is_outer: true,
             vertex_ids: vec![],
             circle: None,
             spline_segments: vec![],
         };
         let mut positions = HashMap::new();
-        positions.insert(1, (0.0, 0.0));
-        positions.insert(2, (2.0, 0.0));
-        positions.insert(3, (2.0, 3.0));
-        positions.insert(4, (0.0, 3.0));
+        positions.insert(PointId(1), (0.0, 0.0));
+        positions.insert(PointId(2), (2.0, 0.0));
+        positions.insert(PointId(3), (2.0, 3.0));
+        positions.insert(PointId(4), (0.0, 3.0));
 
         let face_ids = kernel
             .make_faces_from_profiles(

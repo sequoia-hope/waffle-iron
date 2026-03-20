@@ -5,23 +5,115 @@ use uuid::Uuid;
 use crate::gear::{generate_gear_profile, GearParams};
 use crate::geom_ref::GeomRef;
 
-/// Serde helper for HashMap<u32, (f64, f64)>.
+// ── Entity ID Newtypes ──────────────────────────────────────────────────────
+
+/// Generic entity ID — used in polymorphic constraint fields and collections of mixed entity types.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct EntityId(pub u32);
+
+/// Point entity ID.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PointId(pub u32);
+
+/// Line entity ID.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct LineId(pub u32);
+
+/// Circle entity ID.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct CircleId(pub u32);
+
+/// Arc entity ID.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ArcId(pub u32);
+
+impl EntityId {
+    pub fn raw(self) -> u32 {
+        self.0
+    }
+}
+
+impl PointId {
+    pub fn raw(self) -> u32 {
+        self.0
+    }
+}
+
+impl LineId {
+    pub fn raw(self) -> u32 {
+        self.0
+    }
+}
+
+impl CircleId {
+    pub fn raw(self) -> u32 {
+        self.0
+    }
+}
+
+impl ArcId {
+    pub fn raw(self) -> u32 {
+        self.0
+    }
+}
+
+impl From<u32> for EntityId {
+    fn from(v: u32) -> Self {
+        EntityId(v)
+    }
+}
+
+impl From<PointId> for EntityId {
+    fn from(v: PointId) -> Self {
+        EntityId(v.0)
+    }
+}
+
+impl From<LineId> for EntityId {
+    fn from(v: LineId) -> Self {
+        EntityId(v.0)
+    }
+}
+
+impl From<CircleId> for EntityId {
+    fn from(v: CircleId) -> Self {
+        EntityId(v.0)
+    }
+}
+
+impl From<ArcId> for EntityId {
+    fn from(v: ArcId) -> Self {
+        EntityId(v.0)
+    }
+}
+
+// ── Serde helpers for typed-key HashMaps ─────────────────────────────────────
+
+/// Serde helper for HashMap<PointId, (f64, f64)>.
 /// JSON only supports string keys, so we need custom (de)serialization.
-pub(crate) mod u32_key_map {
+pub(crate) mod point_pos_map {
+    use super::PointId;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
     use std::collections::HashMap;
 
-    pub fn serialize<S>(map: &HashMap<u32, (f64, f64)>, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(
+        map: &HashMap<PointId, (f64, f64)>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        // Convert to string keys for JSON
         let string_map: HashMap<String, (f64, f64)> =
-            map.iter().map(|(k, v)| (k.to_string(), *v)).collect();
+            map.iter().map(|(k, v)| (k.0.to_string(), *v)).collect();
         string_map.serialize(serializer)
     }
 
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<HashMap<u32, (f64, f64)>, D::Error>
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<HashMap<PointId, (f64, f64)>, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -30,7 +122,7 @@ pub(crate) mod u32_key_map {
             .into_iter()
             .map(|(k, v)| {
                 k.parse::<u32>()
-                    .map(|key| (key, v))
+                    .map(|key| (PointId(key), v))
                     .map_err(serde::de::Error::custom)
             })
             .collect()
@@ -58,8 +150,8 @@ pub struct Sketch {
     pub solve_status: SolveStatus,
     /// Solved positions for all points. Key is point entity ID.
     /// Derived data — not serialized, recomputed on load.
-    #[serde(default, with = "u32_key_map", skip_serializing)]
-    pub solved_positions: HashMap<u32, (f64, f64)>,
+    #[serde(default, with = "point_pos_map", skip_serializing)]
+    pub solved_positions: HashMap<PointId, (f64, f64)>,
     /// Closed profiles extracted from the solved geometry.
     /// Derived data — not serialized, recomputed on load.
     #[serde(default, skip_serializing)]
@@ -164,38 +256,38 @@ fn default_normal() -> [f64; 3] {
 #[serde(tag = "type")]
 pub enum SketchEntity {
     Point {
-        id: u32,
+        id: PointId,
         x: f64,
         y: f64,
         construction: bool,
     },
     Line {
-        id: u32,
-        start_id: u32,
-        end_id: u32,
+        id: LineId,
+        start_id: PointId,
+        end_id: PointId,
         construction: bool,
     },
     Circle {
-        id: u32,
-        center_id: u32,
+        id: CircleId,
+        center_id: PointId,
         radius: f64,
         construction: bool,
     },
     Arc {
-        id: u32,
-        center_id: u32,
-        start_id: u32,
-        end_id: u32,
+        id: ArcId,
+        center_id: PointId,
+        start_id: PointId,
+        end_id: PointId,
         construction: bool,
     },
     Spline {
-        id: u32,
-        point_ids: Vec<u32>,
+        id: EntityId,
+        point_ids: Vec<PointId>,
         construction: bool,
     },
     /// A parametric gear profile. Stored compactly; expanded to primitives on demand.
     Gear {
-        id: u32,
+        id: EntityId,
         params: GearParams,
         #[serde(default)]
         construction: bool,
@@ -203,14 +295,14 @@ pub enum SketchEntity {
 }
 
 impl SketchEntity {
-    pub fn id(&self) -> u32 {
+    pub fn id(&self) -> EntityId {
         match self {
-            SketchEntity::Point { id, .. }
-            | SketchEntity::Line { id, .. }
-            | SketchEntity::Circle { id, .. }
-            | SketchEntity::Arc { id, .. }
-            | SketchEntity::Spline { id, .. }
-            | SketchEntity::Gear { id, .. } => *id,
+            SketchEntity::Point { id, .. } => EntityId::from(*id),
+            SketchEntity::Line { id, .. } => EntityId::from(*id),
+            SketchEntity::Circle { id, .. } => EntityId::from(*id),
+            SketchEntity::Arc { id, .. } => EntityId::from(*id),
+            SketchEntity::Spline { id, .. } => *id,
+            SketchEntity::Gear { id, .. } => *id,
         }
     }
 
@@ -231,92 +323,92 @@ impl SketchEntity {
 #[serde(tag = "type")]
 pub enum SketchConstraint {
     Coincident {
-        point_a: u32,
-        point_b: u32,
+        point_a: PointId,
+        point_b: PointId,
     },
     Horizontal {
-        entity: u32,
+        entity: EntityId,
     },
     Vertical {
-        entity: u32,
+        entity: EntityId,
     },
     Parallel {
-        line_a: u32,
-        line_b: u32,
+        line_a: EntityId,
+        line_b: EntityId,
     },
     Perpendicular {
-        line_a: u32,
-        line_b: u32,
+        line_a: EntityId,
+        line_b: EntityId,
     },
     Tangent {
-        line: u32,
-        curve: u32,
+        line: EntityId,
+        curve: EntityId,
     },
     Equal {
-        entity_a: u32,
-        entity_b: u32,
+        entity_a: EntityId,
+        entity_b: EntityId,
     },
     Symmetric {
-        entity_a: u32,
-        entity_b: u32,
-        symmetry_line: u32,
+        entity_a: PointId,
+        entity_b: PointId,
+        symmetry_line: EntityId,
     },
     SymmetricH {
-        point_a: u32,
-        point_b: u32,
+        point_a: PointId,
+        point_b: PointId,
     },
     SymmetricV {
-        point_a: u32,
-        point_b: u32,
+        point_a: PointId,
+        point_b: PointId,
     },
     Midpoint {
-        point: u32,
-        line: u32,
+        point: PointId,
+        line: EntityId,
     },
     Distance {
-        entity_a: u32,
-        entity_b: u32,
+        entity_a: EntityId,
+        entity_b: EntityId,
         value: f64,
     },
     Angle {
-        line_a: u32,
-        line_b: u32,
+        line_a: EntityId,
+        line_b: EntityId,
         value_degrees: f64,
     },
     Radius {
-        entity: u32,
+        entity: EntityId,
         value: f64,
     },
     Diameter {
-        entity: u32,
+        entity: EntityId,
         value: f64,
     },
     OnEntity {
-        point: u32,
-        entity: u32,
+        point: PointId,
+        entity: EntityId,
     },
     Dragged {
-        point: u32,
+        point: PointId,
     },
     EqualAngle {
-        line_a: u32,
-        line_b: u32,
-        line_c: u32,
-        line_d: u32,
+        line_a: EntityId,
+        line_b: EntityId,
+        line_c: EntityId,
+        line_d: EntityId,
     },
     Ratio {
-        entity_a: u32,
-        entity_b: u32,
+        entity_a: EntityId,
+        entity_b: EntityId,
         value: f64,
     },
     EqualPointToLine {
-        point_a: u32,
-        point_b: u32,
-        line: u32,
+        point_a: PointId,
+        point_b: PointId,
+        line: EntityId,
     },
     SameOrientation {
-        entity_a: u32,
-        entity_b: u32,
+        entity_a: EntityId,
+        entity_b: EntityId,
     },
 }
 
@@ -338,10 +430,10 @@ pub enum SolveStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SolvedSketch {
     /// Solved positions for all points. Key is point entity ID.
-    pub positions: HashMap<u32, (f64, f64)>,
+    pub positions: HashMap<PointId, (f64, f64)>,
     /// Solved radii for circles and arcs. Key is circle/arc entity ID.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub radii: HashMap<u32, f64>,
+    pub radii: HashMap<EntityId, f64>,
     /// Closed profiles extracted from the solved geometry.
     pub profiles: Vec<ClosedProfile>,
     /// Solve status.
@@ -352,13 +444,13 @@ pub struct SolvedSketch {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClosedProfile {
     /// Ordered entity IDs forming the closed loop.
-    pub entity_ids: Vec<u32>,
+    pub entity_ids: Vec<EntityId>,
     /// Whether the profile winds counter-clockwise (outward) or clockwise (hole).
     pub is_outer: bool,
     /// Ordered point IDs in geometric winding order for polygon construction.
     /// When non-empty, the kernel uses these instead of entity_ids or sorted keys.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub vertex_ids: Vec<u32>,
+    pub vertex_ids: Vec<PointId>,
     /// If this profile is a standalone circle, its center and radius in sketch UV coordinates.
     /// When present, the kernel constructs a true NURBS circular wire instead of a polygon.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -397,46 +489,46 @@ mod tests {
     #[test]
     fn entity_id_point() {
         let e = SketchEntity::Point {
-            id: 42,
+            id: PointId(42),
             x: 1.0,
             y: 2.0,
             construction: false,
         };
-        assert_eq!(e.id(), 42);
+        assert_eq!(e.id(), EntityId(42));
     }
 
     #[test]
     fn entity_id_line() {
         let e = SketchEntity::Line {
-            id: 7,
-            start_id: 1,
-            end_id: 2,
+            id: LineId(7),
+            start_id: PointId(1),
+            end_id: PointId(2),
             construction: false,
         };
-        assert_eq!(e.id(), 7);
+        assert_eq!(e.id(), EntityId(7));
     }
 
     #[test]
     fn entity_id_circle() {
         let e = SketchEntity::Circle {
-            id: 99,
-            center_id: 1,
+            id: CircleId(99),
+            center_id: PointId(1),
             radius: 5.0,
             construction: false,
         };
-        assert_eq!(e.id(), 99);
+        assert_eq!(e.id(), EntityId(99));
     }
 
     #[test]
     fn entity_id_arc() {
         let e = SketchEntity::Arc {
-            id: 33,
-            center_id: 1,
-            start_id: 2,
-            end_id: 3,
+            id: ArcId(33),
+            center_id: PointId(1),
+            start_id: PointId(2),
+            end_id: PointId(3),
             construction: false,
         };
-        assert_eq!(e.id(), 33);
+        assert_eq!(e.id(), EntityId(33));
     }
 
     // ── SketchEntity::is_construction() ───────────────────────────────
@@ -444,7 +536,7 @@ mod tests {
     #[test]
     fn is_construction_point() {
         let e = SketchEntity::Point {
-            id: 1,
+            id: PointId(1),
             x: 0.0,
             y: 0.0,
             construction: true,
@@ -452,7 +544,7 @@ mod tests {
         assert!(e.is_construction());
 
         let e2 = SketchEntity::Point {
-            id: 2,
+            id: PointId(2),
             x: 0.0,
             y: 0.0,
             construction: false,
@@ -463,9 +555,9 @@ mod tests {
     #[test]
     fn is_construction_line() {
         let e = SketchEntity::Line {
-            id: 1,
-            start_id: 1,
-            end_id: 2,
+            id: LineId(1),
+            start_id: PointId(1),
+            end_id: PointId(2),
             construction: true,
         };
         assert!(e.is_construction());
@@ -474,8 +566,8 @@ mod tests {
     #[test]
     fn is_construction_circle() {
         let e = SketchEntity::Circle {
-            id: 1,
-            center_id: 1,
+            id: CircleId(1),
+            center_id: PointId(1),
             radius: 5.0,
             construction: true,
         };
@@ -485,10 +577,10 @@ mod tests {
     #[test]
     fn is_construction_arc() {
         let e = SketchEntity::Arc {
-            id: 1,
-            center_id: 1,
-            start_id: 2,
-            end_id: 3,
+            id: ArcId(1),
+            center_id: PointId(1),
+            start_id: PointId(2),
+            end_id: PointId(3),
             construction: true,
         };
         assert!(e.is_construction());
@@ -546,7 +638,7 @@ mod tests {
     #[test]
     fn sketch_entity_point_serde() {
         let e = SketchEntity::Point {
-            id: 1,
+            id: PointId(1),
             x: 3.14,
             y: -2.7,
             construction: true,
@@ -554,54 +646,57 @@ mod tests {
         let json = serde_json::to_string(&e).unwrap();
         assert!(json.contains("\"type\":\"Point\""));
         let d: SketchEntity = serde_json::from_str(&json).unwrap();
-        assert_eq!(d.id(), 1);
+        assert_eq!(d.id(), EntityId(1));
         assert!(d.is_construction());
     }
 
     #[test]
     fn sketch_entity_arc_serde() {
         let e = SketchEntity::Arc {
-            id: 10,
-            center_id: 1,
-            start_id: 2,
-            end_id: 3,
+            id: ArcId(10),
+            center_id: PointId(1),
+            start_id: PointId(2),
+            end_id: PointId(3),
             construction: false,
         };
         let json = serde_json::to_string(&e).unwrap();
         assert!(json.contains("\"type\":\"Arc\""));
         let d: SketchEntity = serde_json::from_str(&json).unwrap();
-        assert_eq!(d.id(), 10);
+        assert_eq!(d.id(), EntityId(10));
         assert!(!d.is_construction());
     }
 
     #[test]
     fn sketch_entity_circle_serde() {
         let e = SketchEntity::Circle {
-            id: 5,
-            center_id: 1,
+            id: CircleId(5),
+            center_id: PointId(1),
             radius: 7.5,
             construction: false,
         };
         let json = serde_json::to_string(&e).unwrap();
         assert!(json.contains("\"type\":\"Circle\""));
         let d: SketchEntity = serde_json::from_str(&json).unwrap();
-        assert_eq!(d.id(), 5);
+        assert_eq!(d.id(), EntityId(5));
     }
 
     #[test]
     fn sketch_entity_spline_serde() {
         let e = SketchEntity::Spline {
-            id: 20,
-            point_ids: vec![1, 2, 3, 4],
+            id: EntityId(20),
+            point_ids: vec![PointId(1), PointId(2), PointId(3), PointId(4)],
             construction: false,
         };
         let json = serde_json::to_string(&e).unwrap();
         assert!(json.contains("\"type\":\"Spline\""));
         let d: SketchEntity = serde_json::from_str(&json).unwrap();
-        assert_eq!(d.id(), 20);
+        assert_eq!(d.id(), EntityId(20));
         assert!(!d.is_construction());
         if let SketchEntity::Spline { point_ids, .. } = d {
-            assert_eq!(point_ids, vec![1, 2, 3, 4]);
+            assert_eq!(
+                point_ids,
+                vec![PointId(1), PointId(2), PointId(3), PointId(4)]
+            );
         } else {
             panic!("Expected Spline");
         }
@@ -610,13 +705,13 @@ mod tests {
     #[test]
     fn sketch_entity_spline_construction_serde() {
         let e = SketchEntity::Spline {
-            id: 21,
-            point_ids: vec![5, 6],
+            id: EntityId(21),
+            point_ids: vec![PointId(5), PointId(6)],
             construction: true,
         };
         let json = serde_json::to_string(&e).unwrap();
         let d: SketchEntity = serde_json::from_str(&json).unwrap();
-        assert_eq!(d.id(), 21);
+        assert_eq!(d.id(), EntityId(21));
         assert!(d.is_construction());
     }
 
@@ -637,7 +732,7 @@ mod tests {
     #[test]
     fn closed_profile_with_spline_segments_serde() {
         let p = ClosedProfile {
-            entity_ids: vec![1, 2, 3],
+            entity_ids: vec![EntityId(1), EntityId(2), EntityId(3)],
             is_outer: true,
             vertex_ids: vec![],
             circle: None,
@@ -668,16 +763,16 @@ mod tests {
     #[test]
     fn constraint_coincident_serde() {
         let c = SketchConstraint::Coincident {
-            point_a: 1,
-            point_b: 2,
+            point_a: PointId(1),
+            point_b: PointId(2),
         };
         let json = serde_json::to_string(&c).unwrap();
         let d: SketchConstraint = serde_json::from_str(&json).unwrap();
         assert!(matches!(
             d,
             SketchConstraint::Coincident {
-                point_a: 1,
-                point_b: 2
+                point_a: PointId(1),
+                point_b: PointId(2)
             }
         ));
     }
@@ -685,8 +780,8 @@ mod tests {
     #[test]
     fn constraint_distance_serde() {
         let c = SketchConstraint::Distance {
-            entity_a: 1,
-            entity_b: 2,
+            entity_a: EntityId(1),
+            entity_b: EntityId(2),
             value: 42.5,
         };
         let json = serde_json::to_string(&c).unwrap();
@@ -697,8 +792,8 @@ mod tests {
             value,
         } = d
         {
-            assert_eq!(entity_a, 1);
-            assert_eq!(entity_b, 2);
+            assert_eq!(entity_a, EntityId(1));
+            assert_eq!(entity_b, EntityId(2));
             assert!((value - 42.5).abs() < 1e-10);
         } else {
             panic!("Expected Distance");
@@ -708,8 +803,8 @@ mod tests {
     #[test]
     fn constraint_angle_serde() {
         let c = SketchConstraint::Angle {
-            line_a: 5,
-            line_b: 6,
+            line_a: EntityId(5),
+            line_b: EntityId(6),
             value_degrees: 90.0,
         };
         let json = serde_json::to_string(&c).unwrap();
@@ -720,8 +815,8 @@ mod tests {
             value_degrees,
         } = d
         {
-            assert_eq!(line_a, 5);
-            assert_eq!(line_b, 6);
+            assert_eq!(line_a, EntityId(5));
+            assert_eq!(line_b, EntityId(6));
             assert!((value_degrees - 90.0).abs() < 1e-10);
         } else {
             panic!("Expected Angle");
@@ -731,11 +826,11 @@ mod tests {
     #[test]
     fn constraint_radius_diameter_serde() {
         let r = SketchConstraint::Radius {
-            entity: 1,
+            entity: EntityId(1),
             value: 5.0,
         };
         let d = SketchConstraint::Diameter {
-            entity: 1,
+            entity: EntityId(1),
             value: 10.0,
         };
         let jr = serde_json::to_string(&r).unwrap();
@@ -753,17 +848,17 @@ mod tests {
     #[test]
     fn constraint_symmetric_variants_serde() {
         let sym = SketchConstraint::Symmetric {
-            entity_a: 1,
-            entity_b: 2,
-            symmetry_line: 3,
+            entity_a: PointId(1),
+            entity_b: PointId(2),
+            symmetry_line: EntityId(3),
         };
         let sym_h = SketchConstraint::SymmetricH {
-            point_a: 1,
-            point_b: 2,
+            point_a: PointId(1),
+            point_b: PointId(2),
         };
         let sym_v = SketchConstraint::SymmetricV {
-            point_a: 3,
-            point_b: 4,
+            point_a: PointId(3),
+            point_b: PointId(4),
         };
         for c in [sym, sym_h, sym_v] {
             let json = serde_json::to_string(&c).unwrap();
@@ -774,46 +869,56 @@ mod tests {
     #[test]
     fn constraint_remaining_variants_serde() {
         let variants: Vec<SketchConstraint> = vec![
-            SketchConstraint::Horizontal { entity: 1 },
-            SketchConstraint::Vertical { entity: 2 },
+            SketchConstraint::Horizontal {
+                entity: EntityId(1),
+            },
+            SketchConstraint::Vertical {
+                entity: EntityId(2),
+            },
             SketchConstraint::Parallel {
-                line_a: 1,
-                line_b: 2,
+                line_a: EntityId(1),
+                line_b: EntityId(2),
             },
             SketchConstraint::Perpendicular {
-                line_a: 1,
-                line_b: 2,
+                line_a: EntityId(1),
+                line_b: EntityId(2),
             },
-            SketchConstraint::Tangent { line: 1, curve: 2 },
+            SketchConstraint::Tangent {
+                line: EntityId(1),
+                curve: EntityId(2),
+            },
             SketchConstraint::Equal {
-                entity_a: 1,
-                entity_b: 2,
+                entity_a: EntityId(1),
+                entity_b: EntityId(2),
             },
-            SketchConstraint::Midpoint { point: 1, line: 2 },
+            SketchConstraint::Midpoint {
+                point: PointId(1),
+                line: EntityId(2),
+            },
             SketchConstraint::OnEntity {
-                point: 1,
-                entity: 2,
+                point: PointId(1),
+                entity: EntityId(2),
             },
-            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Dragged { point: PointId(1) },
             SketchConstraint::EqualAngle {
-                line_a: 1,
-                line_b: 2,
-                line_c: 3,
-                line_d: 4,
+                line_a: EntityId(1),
+                line_b: EntityId(2),
+                line_c: EntityId(3),
+                line_d: EntityId(4),
             },
             SketchConstraint::Ratio {
-                entity_a: 1,
-                entity_b: 2,
+                entity_a: EntityId(1),
+                entity_b: EntityId(2),
                 value: 2.0,
             },
             SketchConstraint::EqualPointToLine {
-                point_a: 1,
-                point_b: 2,
-                line: 3,
+                point_a: PointId(1),
+                point_b: PointId(2),
+                line: EntityId(3),
             },
             SketchConstraint::SameOrientation {
-                entity_a: 1,
-                entity_b: 2,
+                entity_a: EntityId(1),
+                entity_b: EntityId(2),
             },
         ];
         for c in variants {
@@ -822,14 +927,14 @@ mod tests {
         }
     }
 
-    // ── u32_key_map serde ─────────────────────────────────────────────
+    // ── point_pos_map serde ───────────────────────────────────────────
 
     #[test]
-    fn u32_key_map_roundtrip() {
+    fn point_pos_map_roundtrip() {
         let mut positions = HashMap::new();
-        positions.insert(1, (0.0, 0.0));
-        positions.insert(2, (3.14, -2.7));
-        positions.insert(100, (999.0, 0.5));
+        positions.insert(PointId(1), (0.0, 0.0));
+        positions.insert(PointId(2), (3.14, -2.7));
+        positions.insert(PointId(100), (999.0, 0.5));
 
         let sketch = Sketch {
             id: Uuid::nil(),
@@ -867,14 +972,14 @@ mod tests {
         let old_json = serde_json::to_string(&val).unwrap();
         let d2: Sketch = serde_json::from_str(&old_json).unwrap();
         assert_eq!(d2.solved_positions.len(), 3);
-        assert_eq!(d2.solved_positions[&1], (0.0, 0.0));
+        assert_eq!(d2.solved_positions[&PointId(1)], (0.0, 0.0));
     }
 
     #[test]
     fn gear_entity_serde_roundtrip() {
         use crate::gear::GearParams;
         let entity = SketchEntity::Gear {
-            id: 1,
+            id: EntityId(1),
             params: GearParams {
                 tooth_count: 20,
                 module: 0.002,
@@ -885,7 +990,7 @@ mod tests {
         let json = serde_json::to_string(&entity).unwrap();
         assert!(json.contains(r#""type":"Gear""#));
         let d: SketchEntity = serde_json::from_str(&json).unwrap();
-        assert_eq!(d.id(), 1);
+        assert_eq!(d.id(), EntityId(1));
         assert!(!d.is_construction());
     }
 
@@ -908,7 +1013,7 @@ mod tests {
             plane_origin: [0.0, 0.0, 0.0],
             plane_normal: [0.0, 0.0, 1.0],
             entities: vec![SketchEntity::Gear {
-                id: 1,
+                id: EntityId(1),
                 params: GearParams {
                     tooth_count: 8,
                     module: 0.01,
@@ -979,7 +1084,7 @@ mod tests {
     #[test]
     fn closed_profile_serde() {
         let p = ClosedProfile {
-            entity_ids: vec![1, 2, 3, 4],
+            entity_ids: vec![EntityId(1), EntityId(2), EntityId(3), EntityId(4)],
             is_outer: true,
             vertex_ids: vec![],
             circle: None,
@@ -987,7 +1092,10 @@ mod tests {
         };
         let json = serde_json::to_string(&p).unwrap();
         let d: ClosedProfile = serde_json::from_str(&json).unwrap();
-        assert_eq!(d.entity_ids, vec![1, 2, 3, 4]);
+        assert_eq!(
+            d.entity_ids,
+            vec![EntityId(1), EntityId(2), EntityId(3), EntityId(4)]
+        );
         assert!(d.is_outer);
     }
 
@@ -996,14 +1104,14 @@ mod tests {
     #[test]
     fn solved_sketch_serde() {
         let mut positions = HashMap::new();
-        positions.insert(1, (0.0, 0.0));
-        positions.insert(2, (10.0, 0.0));
+        positions.insert(PointId(1), (0.0, 0.0));
+        positions.insert(PointId(2), (10.0, 0.0));
 
         let ss = SolvedSketch {
             positions,
             radii: HashMap::new(),
             profiles: vec![ClosedProfile {
-                entity_ids: vec![1, 2],
+                entity_ids: vec![EntityId(1), EntityId(2)],
                 is_outer: false,
                 vertex_ids: vec![],
                 circle: None,

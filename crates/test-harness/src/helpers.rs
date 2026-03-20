@@ -103,7 +103,7 @@ pub fn body_ref(feature_id: Uuid) -> GeomRef {
 /// The result of building a sketch profile: entities, solved positions, and closed profiles.
 pub type ProfileData = (
     Vec<SketchEntity>,
-    HashMap<u32, (f64, f64)>,
+    HashMap<PointId, (f64, f64)>,
     Vec<ClosedProfile>,
 );
 
@@ -114,65 +114,65 @@ pub type ProfileData = (
 pub fn rect_profile(x: f64, y: f64, w: f64, h: f64) -> ProfileData {
     let entities = vec![
         SketchEntity::Point {
-            id: 1,
+            id: PointId(1),
             x,
             y,
             construction: false,
         },
         SketchEntity::Point {
-            id: 2,
+            id: PointId(2),
             x: x + w,
             y,
             construction: false,
         },
         SketchEntity::Point {
-            id: 3,
+            id: PointId(3),
             x: x + w,
             y: y + h,
             construction: false,
         },
         SketchEntity::Point {
-            id: 4,
+            id: PointId(4),
             x,
             y: y + h,
             construction: false,
         },
         SketchEntity::Line {
-            id: 10,
-            start_id: 1,
-            end_id: 2,
+            id: LineId(10),
+            start_id: PointId(1),
+            end_id: PointId(2),
             construction: false,
         },
         SketchEntity::Line {
-            id: 11,
-            start_id: 2,
-            end_id: 3,
+            id: LineId(11),
+            start_id: PointId(2),
+            end_id: PointId(3),
             construction: false,
         },
         SketchEntity::Line {
-            id: 12,
-            start_id: 3,
-            end_id: 4,
+            id: LineId(12),
+            start_id: PointId(3),
+            end_id: PointId(4),
             construction: false,
         },
         SketchEntity::Line {
-            id: 13,
-            start_id: 4,
-            end_id: 1,
+            id: LineId(13),
+            start_id: PointId(4),
+            end_id: PointId(1),
             construction: false,
         },
     ];
 
     let mut positions = HashMap::new();
-    positions.insert(1, (x, y));
-    positions.insert(2, (x + w, y));
-    positions.insert(3, (x + w, y + h));
-    positions.insert(4, (x, y + h));
+    positions.insert(PointId(1), (x, y));
+    positions.insert(PointId(2), (x + w, y));
+    positions.insert(PointId(3), (x + w, y + h));
+    positions.insert(PointId(4), (x, y + h));
 
     let profiles = vec![ClosedProfile {
-        entity_ids: vec![1, 2, 3, 4],
+        entity_ids: vec![EntityId(1), EntityId(2), EntityId(3), EntityId(4)],
         is_outer: true,
-        vertex_ids: vec![1, 2, 3, 4],
+        vertex_ids: vec![PointId(1), PointId(2), PointId(3), PointId(4)],
         circle: None,
         spline_segments: vec![],
     }];
@@ -190,12 +190,12 @@ pub fn circle_profile(cx: f64, cy: f64, r: f64, segments: u32) -> ProfileData {
 
     // Center point (construction — not part of profile boundary)
     entities.push(SketchEntity::Point {
-        id: 1,
+        id: PointId(1),
         x: cx,
         y: cy,
         construction: true,
     });
-    positions.insert(1, (cx, cy));
+    positions.insert(PointId(1), (cx, cy));
 
     // Perimeter points
     let point_start = 2u32;
@@ -205,34 +205,34 @@ pub fn circle_profile(cx: f64, cy: f64, r: f64, segments: u32) -> ProfileData {
         let py = cy + r * angle.sin();
         let pid = point_start + i;
         entities.push(SketchEntity::Point {
-            id: pid,
+            id: PointId(pid),
             x: px,
             y: py,
             construction: false,
         });
-        positions.insert(pid, (px, py));
+        positions.insert(PointId(pid), (px, py));
     }
 
     // Lines connecting perimeter points
     let line_start = 100u32;
-    let mut entity_ids = Vec::new();
+    let mut entity_ids: Vec<EntityId> = Vec::new();
     for i in 0..segments {
         let lid = line_start + i;
         let start_id = point_start + i;
         let end_id = point_start + ((i + 1) % segments);
         entities.push(SketchEntity::Line {
-            id: lid,
-            start_id,
-            end_id,
+            id: LineId(lid),
+            start_id: PointId(start_id),
+            end_id: PointId(end_id),
             construction: false,
         });
-        entity_ids.push(point_start + i);
+        entity_ids.push(EntityId(point_start + i));
     }
 
     let profiles = vec![ClosedProfile {
         entity_ids,
         is_outer: true,
-        vertex_ids: (point_start..point_start + segments).collect(),
+        vertex_ids: (point_start..point_start + segments).map(PointId).collect(),
         circle: Some(waffle_types::CircleProfile {
             center_u: cx,
             center_v: cy,
@@ -259,33 +259,33 @@ pub fn polygon_profile(vertices: &[(f64, f64)]) -> ProfileData {
     for (i, &(x, y)) in vertices.iter().enumerate() {
         let id = (i as u32) + 1;
         entities.push(SketchEntity::Point {
-            id,
+            id: PointId(id),
             x,
             y,
             construction: false,
         });
-        positions.insert(id, (x, y));
+        positions.insert(PointId(id), (x, y));
     }
 
     // Lines: IDs 100..100+N-1, connecting consecutive vertices (closing the loop)
-    let mut entity_ids = Vec::new();
+    let mut entity_ids: Vec<EntityId> = Vec::new();
     for i in 0..n {
         let lid = 100 + i;
         let start_id = i + 1;
         let end_id = (i + 1) % n + 1;
         entities.push(SketchEntity::Line {
-            id: lid,
-            start_id,
-            end_id,
+            id: LineId(lid),
+            start_id: PointId(start_id),
+            end_id: PointId(end_id),
             construction: false,
         });
-        entity_ids.push(i + 1);
+        entity_ids.push(EntityId(i + 1));
     }
 
     let profiles = vec![ClosedProfile {
         entity_ids,
         is_outer: true,
-        vertex_ids: (1..=n).collect(),
+        vertex_ids: (1..=n).map(PointId).collect(),
         circle: None,
         spline_segments: vec![],
     }];

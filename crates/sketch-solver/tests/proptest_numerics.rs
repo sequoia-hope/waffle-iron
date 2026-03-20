@@ -1,6 +1,6 @@
 //! Property-based tests for mathematical correctness.
 //!
-//! The Jacobian FD test is the most critical — it catches wrong analytical
+//! The Jacobian FD test is the most critical -- it catches wrong analytical
 //! derivatives across all constraint types with random configurations.
 
 mod proptest_strategies;
@@ -133,7 +133,7 @@ proptest! {
                 if let Some(&(x_new, y_new)) = result.positions.get(id) {
                     prop_assert!(
                         (x_new - x_prev).abs() < 1e-8 && (y_new - y_prev).abs() < 1e-8,
-                        "drift at iteration {}, point {}: ({}, {}) -> ({}, {})",
+                        "drift at iteration {}, point {:?}: ({}, {}) -> ({}, {})",
                         iteration, id, x_prev, y_prev, x_new, y_new
                     );
                 }

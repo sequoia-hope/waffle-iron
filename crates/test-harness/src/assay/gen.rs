@@ -17,7 +17,9 @@ use feature_engine::types::{
 };
 use file_format::metadata::ProjectMetadata;
 use file_format::save::save_project;
-use waffle_types::{CircleProfile, ClosedProfile, Sketch, SketchEntity, SolveStatus};
+use waffle_types::{
+    CircleId, CircleProfile, ClosedProfile, EntityId, PointId, Sketch, SketchEntity, SolveStatus,
+};
 
 /// Generator version — bump when output format changes.
 pub const GENERATOR_VERSION: u32 = 2;
@@ -278,7 +280,7 @@ pub fn random_sketch_primitive(rng: &mut impl Rng, scale: f64) -> (ProfileData, 
             };
             let data = (
                 vec![waffle_types::SketchEntity::Gear {
-                    id: 1,
+                    id: EntityId(1),
                     params,
                     construction: false,
                 }],
@@ -294,8 +296,8 @@ pub fn random_sketch_primitive(rng: &mut impl Rng, scale: f64) -> (ProfileData, 
 ///
 /// Creates a center Point (construction) and a Circle entity.
 fn true_circle_profile(cx: f64, cy: f64, radius: f64) -> ProfileData {
-    let center_id = 1u32;
-    let circle_id = 2u32;
+    let center_id = PointId(1);
+    let circle_id = CircleId(2);
 
     let entities = vec![
         SketchEntity::Point {
@@ -316,7 +318,7 @@ fn true_circle_profile(cx: f64, cy: f64, radius: f64) -> ProfileData {
     positions.insert(center_id, (cx, cy));
 
     let profiles = vec![ClosedProfile {
-        entity_ids: vec![circle_id],
+        entity_ids: vec![EntityId(circle_id.0)],
         is_outer: true,
         vertex_ids: vec![],
         circle: Some(CircleProfile {

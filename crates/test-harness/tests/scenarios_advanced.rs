@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use test_harness::helpers::{mesh_bounding_box, mesh_surface_area, mesh_volume};
 use test_harness::oracle;
 use test_harness::ModelBuilder;
-use waffle_types::{ClosedProfile, Role};
+use waffle_types::{ClosedProfile, EntityId, LineId, PointId, Role};
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Category 1: Error/Edge Cases
@@ -310,29 +310,36 @@ fn test_l_shaped_manual_sketch() {
     //    | |
     //    1-2
     m.begin_sketch([0., 0., 0.], [0., 0., 1.]);
-    m.add_point(1, 0., 0.)
-        .add_point(2, 10., 0.)
-        .add_point(3, 10., 20.)
-        .add_point(4, 0., 20.)
-        .add_point(5, 0., 10.)
-        .add_point(6, 5., 10.);
-    m.add_line(10, 1, 2)
-        .add_line(11, 2, 3)
-        .add_line(12, 3, 4)
-        .add_line(13, 4, 5)
-        .add_line(14, 5, 6)
-        .add_line(15, 6, 1);
+    m.add_point(PointId(1), 0., 0.)
+        .add_point(PointId(2), 10., 0.)
+        .add_point(PointId(3), 10., 20.)
+        .add_point(PointId(4), 0., 20.)
+        .add_point(PointId(5), 0., 10.)
+        .add_point(PointId(6), 5., 10.);
+    m.add_line(LineId(10), PointId(1), PointId(2))
+        .add_line(LineId(11), PointId(2), PointId(3))
+        .add_line(LineId(12), PointId(3), PointId(4))
+        .add_line(LineId(13), PointId(4), PointId(5))
+        .add_line(LineId(14), PointId(5), PointId(6))
+        .add_line(LineId(15), PointId(6), PointId(1));
 
     let mut positions = HashMap::new();
-    positions.insert(1, (0.0, 0.0));
-    positions.insert(2, (10.0, 0.0));
-    positions.insert(3, (10.0, 20.0));
-    positions.insert(4, (0.0, 20.0));
-    positions.insert(5, (0.0, 10.0));
-    positions.insert(6, (5.0, 10.0));
+    positions.insert(PointId(1), (0.0, 0.0));
+    positions.insert(PointId(2), (10.0, 0.0));
+    positions.insert(PointId(3), (10.0, 20.0));
+    positions.insert(PointId(4), (0.0, 20.0));
+    positions.insert(PointId(5), (0.0, 10.0));
+    positions.insert(PointId(6), (5.0, 10.0));
 
     let profiles = vec![ClosedProfile {
-        entity_ids: vec![1, 2, 3, 4, 5, 6],
+        entity_ids: vec![
+            EntityId(1),
+            EntityId(2),
+            EntityId(3),
+            EntityId(4),
+            EntityId(5),
+            EntityId(6),
+        ],
         is_outer: true,
         vertex_ids: vec![],
         circle: None,

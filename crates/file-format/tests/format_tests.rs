@@ -9,8 +9,8 @@ use file_format::{
 };
 use uuid::Uuid;
 use waffle_types::{
-    Anchor, ClosedProfile, GeomRef, OutputKey, ResolvePolicy, Role, Selector, Sketch,
-    SketchConstraint, SketchEntity, SolveStatus, TopoKind,
+    Anchor, ClosedProfile, EntityId, GeomRef, LineId, OutputKey, PointId, ResolvePolicy, Role,
+    Selector, Sketch, SketchConstraint, SketchEntity, SolveStatus, TopoKind,
 };
 
 // ── Helper Functions ─────────────────────────────────────────────────────
@@ -35,71 +35,79 @@ fn make_sketch_feature(name: &str) -> Feature {
         plane_normal: [0.0, 0.0, 1.0],
         entities: vec![
             SketchEntity::Point {
-                id: 1,
+                id: PointId(1),
                 x: 0.0,
                 y: 0.0,
                 construction: false,
             },
             SketchEntity::Point {
-                id: 2,
+                id: PointId(2),
                 x: 100.0,
                 y: 0.0,
                 construction: false,
             },
             SketchEntity::Point {
-                id: 3,
+                id: PointId(3),
                 x: 100.0,
                 y: 50.0,
                 construction: false,
             },
             SketchEntity::Point {
-                id: 4,
+                id: PointId(4),
                 x: 0.0,
                 y: 50.0,
                 construction: false,
             },
             SketchEntity::Line {
-                id: 5,
-                start_id: 1,
-                end_id: 2,
+                id: LineId(5),
+                start_id: PointId(1),
+                end_id: PointId(2),
                 construction: false,
             },
             SketchEntity::Line {
-                id: 6,
-                start_id: 2,
-                end_id: 3,
+                id: LineId(6),
+                start_id: PointId(2),
+                end_id: PointId(3),
                 construction: false,
             },
             SketchEntity::Line {
-                id: 7,
-                start_id: 3,
-                end_id: 4,
+                id: LineId(7),
+                start_id: PointId(3),
+                end_id: PointId(4),
                 construction: false,
             },
             SketchEntity::Line {
-                id: 8,
-                start_id: 4,
-                end_id: 1,
+                id: LineId(8),
+                start_id: PointId(4),
+                end_id: PointId(1),
                 construction: false,
             },
         ],
         constraints: vec![
-            SketchConstraint::Horizontal { entity: 5 },
-            SketchConstraint::Horizontal { entity: 7 },
-            SketchConstraint::Vertical { entity: 6 },
-            SketchConstraint::Vertical { entity: 8 },
+            SketchConstraint::Horizontal {
+                entity: EntityId(5),
+            },
+            SketchConstraint::Horizontal {
+                entity: EntityId(7),
+            },
+            SketchConstraint::Vertical {
+                entity: EntityId(6),
+            },
+            SketchConstraint::Vertical {
+                entity: EntityId(8),
+            },
         ],
         solve_status: SolveStatus::FullyConstrained,
         solved_positions: {
             let mut m = std::collections::HashMap::new();
-            m.insert(1, (0.0, 0.0));
-            m.insert(2, (100.0, 0.0));
-            m.insert(3, (100.0, 50.0));
-            m.insert(4, (0.0, 50.0));
+            m.insert(PointId(1), (0.0, 0.0));
+            m.insert(PointId(2), (100.0, 0.0));
+            m.insert(PointId(3), (100.0, 50.0));
+            m.insert(PointId(4), (0.0, 50.0));
             m
         },
         solved_profiles: vec![ClosedProfile {
-            entity_ids: vec![1, 2, 3, 4],
+            entity_ids: vec![EntityId(1), EntityId(2), EntityId(3), EntityId(4)],
             is_outer: true,
             vertex_ids: vec![],
             circle: None,
@@ -566,25 +574,25 @@ fn make_rebuild_compatible_tree() -> FeatureTree {
         plane_normal: [0.0, 0.0, 1.0],
         entities: vec![
             SketchEntity::Point {
-                id: 1,
+                id: PointId(1),
                 x: 0.0,
                 y: 0.0,
                 construction: false,
             },
             SketchEntity::Point {
-                id: 2,
+                id: PointId(2),
                 x: 1.0,
                 y: 0.0,
                 construction: false,
             },
             SketchEntity::Point {
-                id: 3,
+                id: PointId(3),
                 x: 1.0,
                 y: 1.0,
                 construction: false,
             },
             SketchEntity::Point {
-                id: 4,
+                id: PointId(4),
                 x: 0.0,
                 y: 1.0,
                 construction: false,
@@ -594,14 +602,14 @@ fn make_rebuild_compatible_tree() -> FeatureTree {
         solve_status: SolveStatus::FullyConstrained,
         solved_positions: {
             let mut m = std::collections::HashMap::new();
-            m.insert(1, (0.0, 0.0));
-            m.insert(2, (1.0, 0.0));
-            m.insert(3, (1.0, 1.0));
-            m.insert(4, (0.0, 1.0));
+            m.insert(PointId(1), (0.0, 0.0));
+            m.insert(PointId(2), (1.0, 0.0));
+            m.insert(PointId(3), (1.0, 1.0));
+            m.insert(PointId(4), (0.0, 1.0));
             m
         },
         solved_profiles: vec![ClosedProfile {
-            entity_ids: vec![1, 2, 3, 4],
+            entity_ids: vec![EntityId(1), EntityId(2), EntityId(3), EntityId(4)],
             is_outer: true,
             vertex_ids: vec![],
             circle: None,
@@ -939,71 +947,79 @@ fn round_trip_multi_feature_with_chamfer() {
         plane_normal: [0.0, 0.0, 1.0],
         entities: vec![
             SketchEntity::Point {
-                id: 1,
+                id: PointId(1),
                 x: 0.0,
                 y: 0.0,
                 construction: false,
             },
             SketchEntity::Point {
-                id: 2,
+                id: PointId(2),
                 x: 10.0,
                 y: 0.0,
                 construction: false,
             },
             SketchEntity::Point {
-                id: 3,
+                id: PointId(3),
                 x: 10.0,
                 y: 10.0,
                 construction: false,
             },
             SketchEntity::Point {
-                id: 4,
+                id: PointId(4),
                 x: 0.0,
                 y: 10.0,
                 construction: false,
             },
             SketchEntity::Line {
-                id: 5,
-                start_id: 1,
-                end_id: 2,
+                id: LineId(5),
+                start_id: PointId(1),
+                end_id: PointId(2),
                 construction: false,
             },
             SketchEntity::Line {
-                id: 6,
-                start_id: 2,
-                end_id: 3,
+                id: LineId(6),
+                start_id: PointId(2),
+                end_id: PointId(3),
                 construction: false,
             },
             SketchEntity::Line {
-                id: 7,
-                start_id: 3,
-                end_id: 4,
+                id: LineId(7),
+                start_id: PointId(3),
+                end_id: PointId(4),
                 construction: false,
             },
             SketchEntity::Line {
-                id: 8,
-                start_id: 4,
-                end_id: 1,
+                id: LineId(8),
+                start_id: PointId(4),
+                end_id: PointId(1),
                 construction: false,
             },
         ],
         constraints: vec![
-            SketchConstraint::Horizontal { entity: 5 },
-            SketchConstraint::Horizontal { entity: 7 },
-            SketchConstraint::Vertical { entity: 6 },
-            SketchConstraint::Vertical { entity: 8 },
+            SketchConstraint::Horizontal {
+                entity: EntityId(5),
+            },
+            SketchConstraint::Horizontal {
+                entity: EntityId(7),
+            },
+            SketchConstraint::Vertical {
+                entity: EntityId(6),
+            },
+            SketchConstraint::Vertical {
+                entity: EntityId(8),
+            },
         ],
         solve_status: SolveStatus::FullyConstrained,
         solved_positions: {
             let mut m = std::collections::HashMap::new();
-            m.insert(1, (0.0, 0.0));
-            m.insert(2, (10.0, 0.0));
-            m.insert(3, (10.0, 10.0));
-            m.insert(4, (0.0, 10.0));
+            m.insert(PointId(1), (0.0, 0.0));
+            m.insert(PointId(2), (10.0, 0.0));
+            m.insert(PointId(3), (10.0, 10.0));
+            m.insert(PointId(4), (0.0, 10.0));
             m
         },
         solved_profiles: vec![ClosedProfile {
-            entity_ids: vec![1, 2, 3, 4],
+            entity_ids: vec![EntityId(1), EntityId(2), EntityId(3), EntityId(4)],
             is_outer: true,
             vertex_ids: vec![],
             circle: None,
@@ -1142,24 +1158,28 @@ fn round_trip_preserves_all_constraint_types() {
     };
 
     let constraints = vec![
-        SketchConstraint::Horizontal { entity: 5 },
-        SketchConstraint::Vertical { entity: 6 },
+        SketchConstraint::Horizontal {
+            entity: EntityId(5),
+        },
+        SketchConstraint::Vertical {
+            entity: EntityId(6),
+        },
         SketchConstraint::Distance {
-            entity_a: 1,
-            entity_b: 2,
+            entity_a: EntityId(1),
+            entity_b: EntityId(2),
             value: 42.5,
         },
         SketchConstraint::Parallel {
-            line_a: 5,
-            line_b: 7,
+            line_a: EntityId(5),
+            line_b: EntityId(7),
         },
         SketchConstraint::Perpendicular {
-            line_a: 5,
-            line_b: 6,
+            line_a: EntityId(5),
+            line_b: EntityId(6),
         },
         SketchConstraint::Equal {
-            entity_a: 5,
-            entity_b: 7,
+            entity_a: EntityId(5),
+            entity_b: EntityId(7),
         },
     ];
 
@@ -1170,51 +1190,51 @@ fn round_trip_preserves_all_constraint_types() {
         plane_normal: [0.0, 0.0, 1.0],
         entities: vec![
             SketchEntity::Point {
-                id: 1,
+                id: PointId(1),
                 x: 0.0,
                 y: 0.0,
                 construction: false,
             },
             SketchEntity::Point {
-                id: 2,
+                id: PointId(2),
                 x: 10.0,
                 y: 0.0,
                 construction: false,
             },
             SketchEntity::Point {
-                id: 3,
+                id: PointId(3),
                 x: 10.0,
                 y: 10.0,
                 construction: false,
             },
             SketchEntity::Point {
-                id: 4,
+                id: PointId(4),
                 x: 0.0,
                 y: 10.0,
                 construction: false,
             },
             SketchEntity::Line {
-                id: 5,
-                start_id: 1,
-                end_id: 2,
+                id: LineId(5),
+                start_id: PointId(1),
+                end_id: PointId(2),
                 construction: false,
             },
             SketchEntity::Line {
-                id: 6,
-                start_id: 2,
-                end_id: 3,
+                id: LineId(6),
+                start_id: PointId(2),
+                end_id: PointId(3),
                 construction: false,
             },
             SketchEntity::Line {
-                id: 7,
-                start_id: 3,
-                end_id: 4,
+                id: LineId(7),
+                start_id: PointId(3),
+                end_id: PointId(4),
                 construction: false,
             },
             SketchEntity::Line {
-                id: 8,
-                start_id: 4,
-                end_id: 1,
+                id: LineId(8),
+                start_id: PointId(4),
+                end_id: PointId(1),
                 construction: false,
             },
         ],
@@ -1222,14 +1242,14 @@ fn round_trip_preserves_all_constraint_types() {
         solve_status: SolveStatus::FullyConstrained,
         solved_positions: {
             let mut m = std::collections::HashMap::new();
-            m.insert(1, (0.0, 0.0));
-            m.insert(2, (10.0, 0.0));
-            m.insert(3, (10.0, 10.0));
-            m.insert(4, (0.0, 10.0));
+            m.insert(PointId(1), (0.0, 0.0));
+            m.insert(PointId(2), (10.0, 0.0));
+            m.insert(PointId(3), (10.0, 10.0));
+            m.insert(PointId(4), (0.0, 10.0));
             m
         },
         solved_profiles: vec![ClosedProfile {
-            entity_ids: vec![1, 2, 3, 4],
+            entity_ids: vec![EntityId(1), EntityId(2), EntityId(3), EntityId(4)],
             is_outer: true,
             vertex_ids: vec![],
             circle: None,
@@ -1270,14 +1290,18 @@ fn round_trip_preserves_all_constraint_types() {
     assert!(
         matches!(
             loaded_constraints[0],
-            SketchConstraint::Horizontal { entity: 5 }
+            SketchConstraint::Horizontal {
+                entity: EntityId(5)
+            }
         ),
         "Horizontal constraint should roundtrip"
     );
     assert!(
         matches!(
             loaded_constraints[1],
-            SketchConstraint::Vertical { entity: 6 }
+            SketchConstraint::Vertical {
+                entity: EntityId(6)
+            }
         ),
         "Vertical constraint should roundtrip"
     );
@@ -1287,8 +1311,8 @@ fn round_trip_preserves_all_constraint_types() {
             entity_b,
             value,
         } => {
-            assert_eq!(*entity_a, 1);
-            assert_eq!(*entity_b, 2);
+            assert_eq!(*entity_a, EntityId(1));
+            assert_eq!(*entity_b, EntityId(2));
             assert!(
                 (value - 42.5).abs() < 1e-10,
                 "Distance value should be 42.5"
@@ -1300,8 +1324,8 @@ fn round_trip_preserves_all_constraint_types() {
         matches!(
             loaded_constraints[3],
             SketchConstraint::Parallel {
-                line_a: 5,
-                line_b: 7
+                line_a: EntityId(5),
+                line_b: EntityId(7)
             }
         ),
         "Parallel constraint should roundtrip"
@@ -1310,8 +1334,8 @@ fn round_trip_preserves_all_constraint_types() {
         matches!(
             loaded_constraints[4],
             SketchConstraint::Perpendicular {
-                line_a: 5,
-                line_b: 6
+                line_a: EntityId(5),
+                line_b: EntityId(6)
             }
         ),
         "Perpendicular constraint should roundtrip"
@@ -1320,8 +1344,8 @@ fn round_trip_preserves_all_constraint_types() {
         matches!(
             loaded_constraints[5],
             SketchConstraint::Equal {
-                entity_a: 5,
-                entity_b: 7
+                entity_a: EntityId(5),
+                entity_b: EntityId(7)
             }
         ),
         "Equal constraint should roundtrip"

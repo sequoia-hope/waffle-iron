@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 use crate::units::{MIN_FEATURE_SIZE, TAU_MODEL, TAU_WORK};
 
 // Re-export shared types from waffle-types
-pub use waffle_types::{CircleProfile, ClosedProfile, SplineSegment, TopoKind, TopoSignature};
+pub use waffle_types::{
+    CircleProfile, ClosedProfile, EntityId, PointId, SplineSegment, TopoKind, TopoSignature,
+};
 
 /// Opaque handle to a solid in the geometry kernel.
 /// NEVER persisted. Valid only for the current kernel session.

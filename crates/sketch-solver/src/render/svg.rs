@@ -6,7 +6,8 @@
 use std::fmt::Write;
 
 use crate::types::{
-    ClosedProfile, Sketch, SketchConstraint, SketchEntity, SolveStatus, SolvedSketch,
+    ClosedProfile, EntityId, PointId, Sketch, SketchConstraint, SketchEntity, SolveStatus,
+    SolvedSketch,
 };
 
 // ── Colors ──────────────────────────────────────────────────────────────────
@@ -115,8 +116,8 @@ fn status_color(status: &SolveStatus) -> &'static str {
 }
 
 fn bounding_box_with_entities(
-    positions: &std::collections::HashMap<u32, (f64, f64)>,
-    radii: &std::collections::HashMap<u32, f64>,
+    positions: &std::collections::HashMap<PointId, (f64, f64)>,
+    radii: &std::collections::HashMap<EntityId, f64>,
     entities: &[SketchEntity],
 ) -> (f64, f64, f64, f64) {
     let mut min_x = f64::INFINITY;
@@ -141,7 +142,7 @@ fn bounding_box_with_entities(
                 ..
             } => {
                 if let Some((cx, cy)) = positions.get(center_id) {
-                    let r = radii.get(id).copied().unwrap_or(*radius);
+                    let r = radii.get(&EntityId::from(*id)).copied().unwrap_or(*radius);
                     min_x = min_x.min(cx - r);
                     min_y = min_y.min(cy - r);
                     max_x = max_x.max(cx + r);
@@ -155,7 +156,7 @@ fn bounding_box_with_entities(
                 ..
             } => {
                 if let Some((cx, cy)) = positions.get(center_id) {
-                    let r = radii.get(id).copied().unwrap_or_else(|| {
+                    let r = radii.get(&EntityId::from(*id)).copied().unwrap_or_else(|| {
                         if let Some((sx, sy)) = positions.get(start_id) {
                             ((sx - cx).powi(2) + (sy - cy).powi(2)).sqrt()
                         } else {
@@ -252,9 +253,9 @@ fn write_grid(svg: &mut String, vb_x: f64, vb_y: f64, vb_w: f64, vb_h: f64) {
     while y <= svg_top + vb_h {
         writeln!(
             svg,
-            r#"<line x1="{x1:.2}" y1="{y:.2}" x2="{x2:.2}" y2="{y:.2}"/>"#,
+            r#"<line x1="{x1:.2}" y1="{y1:.2}" x2="{x2:.2}" y2="{y1:.2}"/>"#,
             x1 = svg_left,
-            y = y,
+            y1 = y,
             x2 = svg_left + vb_w,
         )
         .unwrap();
@@ -266,9 +267,9 @@ fn write_grid(svg: &mut String, vb_x: f64, vb_y: f64, vb_w: f64, vb_h: f64) {
 /// Emit an SVG path segment for a profile edge, going from `from_pt` to the other endpoint.
 fn emit_edge_to(
     edge: &EdgeInfo,
-    from_pt: u32,
+    from_pt: PointId,
     path: &mut String,
-    positions: &std::collections::HashMap<u32, (f64, f64)>,
+    positions: &std::collections::HashMap<PointId, (f64, f64)>,
 ) {
     let to_pt = if from_pt == edge.pt_a {
         edge.pt_b
@@ -308,23 +309,23 @@ fn emit_edge_to(
 
 /// Edge info for profile path construction.
 struct EdgeInfo {
-    pt_a: u32,
-    pt_b: u32,
+    pt_a: PointId,
+    pt_b: PointId,
     is_arc: bool,
     center: (f64, f64),
     radius: f64,
-    arc_start: u32,
+    arc_start: PointId,
 }
 
 fn write_profiles(
     svg: &mut String,
     profiles: &[ClosedProfile],
     entities: &[SketchEntity],
-    positions: &std::collections::HashMap<u32, (f64, f64)>,
-    radii: &std::collections::HashMap<u32, f64>,
+    positions: &std::collections::HashMap<PointId, (f64, f64)>,
+    radii: &std::collections::HashMap<EntityId, f64>,
 ) {
     // Build entity lookup
-    let entity_map: std::collections::HashMap<u32, &SketchEntity> =
+    let entity_map: std::collections::HashMap<EntityId, &SketchEntity> =
         entities.iter().map(|e| (e.id(), e)).collect();
 
     // Combine all profile paths into one <path> with fill-rule="evenodd"
@@ -352,7 +353,7 @@ fn write_profiles(
             }) = entity_map.get(&profile.entity_ids[0])
             {
                 if let Some((cx, cy)) = positions.get(center_id) {
-                    let r = radii.get(id).copied().unwrap_or(*radius);
+                    let r = radii.get(&EntityId::from(*id)).copied().unwrap_or(*radius);
                     write_circle_subpath(&mut combined_path, *cx, svg_y(*cy), r);
                     continue;
                 }
@@ -385,7 +386,7 @@ fn write_profiles(
                                 is_arc: false,
                                 center: (0.0, 0.0),
                                 radius: 0.0,
-                                arc_start: 0,
+                                arc_start: PointId(0),
                             });
                         }
                         SketchEntity::Arc {
@@ -396,13 +397,14 @@ fn write_profiles(
                             ..
                         } => {
                             if let Some((cx, cy)) = positions.get(center_id) {
-                                let r = radii.get(id).copied().unwrap_or_else(|| {
-                                    if let Some((sx, sy)) = positions.get(start_id) {
-                                        ((sx - cx).powi(2) + (sy - cy).powi(2)).sqrt()
-                                    } else {
-                                        0.0
-                                    }
-                                });
+                                let r =
+                                    radii.get(&EntityId::from(*id)).copied().unwrap_or_else(|| {
+                                        if let Some((sx, sy)) = positions.get(start_id) {
+                                            ((sx - cx).powi(2) + (sy - cy).powi(2)).sqrt()
+                                        } else {
+                                            0.0
+                                        }
+                                    });
                                 edges.push(EdgeInfo {
                                     pt_a: *start_id,
                                     pt_b: *end_id,
@@ -466,7 +468,7 @@ fn write_profiles(
             combined_path.push_str("Z ");
         } else if !profile.entity_ids.is_empty() {
             // No arcs, no vertex_ids — chain line entities
-            let mut pts: Vec<u32> = Vec::new();
+            let mut pts: Vec<PointId> = Vec::new();
             for eid in &profile.entity_ids {
                 if let Some(SketchEntity::Line {
                     start_id, end_id, ..
@@ -530,8 +532,8 @@ fn write_circle_subpath(path: &mut String, cx: f64, cy: f64, r: f64) {
 fn write_entities(
     svg: &mut String,
     entities: &[SketchEntity],
-    positions: &std::collections::HashMap<u32, (f64, f64)>,
-    radii: &std::collections::HashMap<u32, f64>,
+    positions: &std::collections::HashMap<PointId, (f64, f64)>,
+    radii: &std::collections::HashMap<EntityId, f64>,
     point_color: &str,
 ) {
     writeln!(svg, r#"<g class="entities">"#).unwrap();
@@ -576,7 +578,7 @@ fn write_entities(
                 ..
             } => {
                 if let Some((cx, cy)) = positions.get(center_id) {
-                    let r = radii.get(id).copied().unwrap_or(*radius);
+                    let r = radii.get(&EntityId::from(*id)).copied().unwrap_or(*radius);
                     writeln!(
                         svg,
                         r#"<circle cx="{:.4}" cy="{:.4}" r="{:.4}" stroke="{}" stroke-width="1.5" fill="none"{}/>"#,
@@ -602,7 +604,7 @@ fn write_entities(
                     positions.get(end_id),
                 ) {
                     let r = radii
-                        .get(id)
+                        .get(&EntityId::from(*id))
                         .copied()
                         .unwrap_or_else(|| ((sx - cx).powi(2) + (sy - cy).powi(2)).sqrt());
                     // Approximate arc direction: use cross product to determine sweep
@@ -657,7 +659,7 @@ fn write_constraint_badges(
     svg: &mut String,
     constraints: &[SketchConstraint],
     entities: &[SketchEntity],
-    positions: &std::collections::HashMap<u32, (f64, f64)>,
+    positions: &std::collections::HashMap<PointId, (f64, f64)>,
 ) {
     writeln!(
         svg,
@@ -876,18 +878,18 @@ fn write_constraint_badges(
 /// Get midpoint between two entities — tries point positions first, falls back to
 /// line midpoints or entity centers.
 fn point_or_entity_midpoint(
-    id_a: u32,
-    id_b: u32,
+    id_a: EntityId,
+    id_b: EntityId,
     entities: &[SketchEntity],
-    positions: &std::collections::HashMap<u32, (f64, f64)>,
+    positions: &std::collections::HashMap<PointId, (f64, f64)>,
 ) -> Option<(f64, f64)> {
     let pa = positions
-        .get(&id_a)
+        .get(&PointId(id_a.0))
         .copied()
         .or_else(|| line_midpoint(id_a, entities, positions))
         .or_else(|| entity_center(id_a, entities, positions));
     let pb = positions
-        .get(&id_b)
+        .get(&PointId(id_b.0))
         .copied()
         .or_else(|| line_midpoint(id_b, entities, positions))
         .or_else(|| entity_center(id_b, entities, positions));
@@ -937,9 +939,9 @@ fn write_status_badge(svg: &mut String, status: &SolveStatus, x: f64, y: f64) {
 
 /// Find the midpoint of a line entity by looking up its start/end positions.
 fn line_midpoint(
-    line_id: u32,
+    line_id: EntityId,
     entities: &[SketchEntity],
-    positions: &std::collections::HashMap<u32, (f64, f64)>,
+    positions: &std::collections::HashMap<PointId, (f64, f64)>,
 ) -> Option<(f64, f64)> {
     for entity in entities {
         if let SketchEntity::Line {
@@ -949,7 +951,7 @@ fn line_midpoint(
             ..
         } = entity
         {
-            if *id == line_id {
+            if EntityId::from(*id) == line_id {
                 if let (Some((x1, y1)), Some((x2, y2))) =
                     (positions.get(start_id), positions.get(end_id))
                 {
@@ -963,15 +965,19 @@ fn line_midpoint(
 
 /// Find the center position of a circle or arc entity.
 fn entity_center(
-    entity_id: u32,
+    entity_id: EntityId,
     entities: &[SketchEntity],
-    positions: &std::collections::HashMap<u32, (f64, f64)>,
+    positions: &std::collections::HashMap<PointId, (f64, f64)>,
 ) -> Option<(f64, f64)> {
     for entity in entities {
         match entity {
-            SketchEntity::Circle { id, center_id, .. }
-            | SketchEntity::Arc { id, center_id, .. } => {
-                if *id == entity_id {
+            SketchEntity::Circle { id, center_id, .. } => {
+                if EntityId::from(*id) == entity_id {
+                    return positions.get(center_id).copied();
+                }
+            }
+            SketchEntity::Arc { id, center_id, .. } => {
+                if EntityId::from(*id) == entity_id {
                     return positions.get(center_id).copied();
                 }
             }

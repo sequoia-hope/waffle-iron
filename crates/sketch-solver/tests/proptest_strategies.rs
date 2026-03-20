@@ -68,70 +68,78 @@ pub fn arb_constrained_rectangle() -> impl Strategy<Value = (Sketch, f64, f64)> 
     (5.0..200.0f64, 5.0..200.0f64).prop_map(|(w, h)| {
         let entities = vec![
             SketchEntity::Point {
-                id: 1,
+                id: PointId(1),
                 x: 0.0,
                 y: 0.0,
                 construction: false,
             },
             SketchEntity::Point {
-                id: 2,
+                id: PointId(2),
                 x: w,
                 y: 0.0,
                 construction: false,
             },
             SketchEntity::Point {
-                id: 3,
+                id: PointId(3),
                 x: w,
                 y: h,
                 construction: false,
             },
             SketchEntity::Point {
-                id: 4,
+                id: PointId(4),
                 x: 0.0,
                 y: h,
                 construction: false,
             },
             SketchEntity::Line {
-                id: 10,
-                start_id: 1,
-                end_id: 2,
+                id: LineId(10),
+                start_id: PointId(1),
+                end_id: PointId(2),
                 construction: false,
             },
             SketchEntity::Line {
-                id: 11,
-                start_id: 2,
-                end_id: 3,
+                id: LineId(11),
+                start_id: PointId(2),
+                end_id: PointId(3),
                 construction: false,
             },
             SketchEntity::Line {
-                id: 12,
-                start_id: 3,
-                end_id: 4,
+                id: LineId(12),
+                start_id: PointId(3),
+                end_id: PointId(4),
                 construction: false,
             },
             SketchEntity::Line {
-                id: 13,
-                start_id: 4,
-                end_id: 1,
+                id: LineId(13),
+                start_id: PointId(4),
+                end_id: PointId(1),
                 construction: false,
             },
         ];
         let constraints = vec![
-            SketchConstraint::Horizontal { entity: 10 },
-            SketchConstraint::Horizontal { entity: 12 },
-            SketchConstraint::Vertical { entity: 11 },
-            SketchConstraint::Vertical { entity: 13 },
+            SketchConstraint::Horizontal {
+                entity: EntityId(10),
+            },
+            SketchConstraint::Horizontal {
+                entity: EntityId(12),
+            },
+            SketchConstraint::Vertical {
+                entity: EntityId(11),
+            },
+            SketchConstraint::Vertical {
+                entity: EntityId(13),
+            },
             SketchConstraint::Distance {
-                entity_a: 1,
-                entity_b: 2,
+                entity_a: EntityId(1),
+                entity_b: EntityId(2),
                 value: w,
             },
             SketchConstraint::Distance {
-                entity_a: 2,
-                entity_b: 3,
+                entity_a: EntityId(2),
+                entity_b: EntityId(3),
                 value: h,
             },
-            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Dragged { point: PointId(1) },
         ];
         (make_sketch(entities, constraints), w, h)
     })
@@ -150,70 +158,78 @@ pub fn arb_perturbed_rectangle() -> impl Strategy<Value = (Sketch, f64, f64)> {
             let pts = [(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)];
             let entities = vec![
                 SketchEntity::Point {
-                    id: 1,
+                    id: PointId(1),
                     x: pts[0].0 * (1.0 + perturbations[0]),
                     y: pts[0].1 + perturbations[1] * h.max(1.0),
                     construction: false,
                 },
                 SketchEntity::Point {
-                    id: 2,
+                    id: PointId(2),
                     x: pts[1].0 * (1.0 + perturbations[2]),
                     y: pts[1].1 + perturbations[3] * h.max(1.0),
                     construction: false,
                 },
                 SketchEntity::Point {
-                    id: 3,
+                    id: PointId(3),
                     x: pts[2].0 * (1.0 + perturbations[4]),
                     y: pts[2].1 * (1.0 + perturbations[5]),
                     construction: false,
                 },
                 SketchEntity::Point {
-                    id: 4,
+                    id: PointId(4),
                     x: pts[3].0 + perturbations[6] * w.max(1.0),
                     y: pts[3].1 * (1.0 + perturbations[7]),
                     construction: false,
                 },
                 SketchEntity::Line {
-                    id: 10,
-                    start_id: 1,
-                    end_id: 2,
+                    id: LineId(10),
+                    start_id: PointId(1),
+                    end_id: PointId(2),
                     construction: false,
                 },
                 SketchEntity::Line {
-                    id: 11,
-                    start_id: 2,
-                    end_id: 3,
+                    id: LineId(11),
+                    start_id: PointId(2),
+                    end_id: PointId(3),
                     construction: false,
                 },
                 SketchEntity::Line {
-                    id: 12,
-                    start_id: 3,
-                    end_id: 4,
+                    id: LineId(12),
+                    start_id: PointId(3),
+                    end_id: PointId(4),
                     construction: false,
                 },
                 SketchEntity::Line {
-                    id: 13,
-                    start_id: 4,
-                    end_id: 1,
+                    id: LineId(13),
+                    start_id: PointId(4),
+                    end_id: PointId(1),
                     construction: false,
                 },
             ];
             let constraints = vec![
-                SketchConstraint::Horizontal { entity: 10 },
-                SketchConstraint::Horizontal { entity: 12 },
-                SketchConstraint::Vertical { entity: 11 },
-                SketchConstraint::Vertical { entity: 13 },
+                SketchConstraint::Horizontal {
+                    entity: EntityId(10),
+                },
+                SketchConstraint::Horizontal {
+                    entity: EntityId(12),
+                },
+                SketchConstraint::Vertical {
+                    entity: EntityId(11),
+                },
+                SketchConstraint::Vertical {
+                    entity: EntityId(13),
+                },
                 SketchConstraint::Distance {
-                    entity_a: 1,
-                    entity_b: 2,
+                    entity_a: EntityId(1),
+                    entity_b: EntityId(2),
                     value: w,
                 },
                 SketchConstraint::Distance {
-                    entity_a: 2,
-                    entity_b: 3,
+                    entity_a: EntityId(2),
+                    entity_b: EntityId(3),
                     value: h,
                 },
-                SketchConstraint::Dragged { point: 1 },
+                SketchConstraint::Dragged { point: PointId(1) },
             ];
             (make_sketch(entities, constraints), w, h)
         })
@@ -261,60 +277,62 @@ pub fn arb_constrained_triangle() -> impl Strategy<Value = (Sketch, [f64; 3])> {
 
             let entities = vec![
                 SketchEntity::Point {
-                    id: 1,
+                    id: PointId(1),
                     x: p0.0,
                     y: p0.1,
                     construction: false,
                 },
                 SketchEntity::Point {
-                    id: 2,
+                    id: PointId(2),
                     x: p1.0,
                     y: p1.1,
                     construction: false,
                 },
                 SketchEntity::Point {
-                    id: 3,
+                    id: PointId(3),
                     x: p2.0,
                     y: p2.1,
                     construction: false,
                 },
                 SketchEntity::Line {
-                    id: 10,
-                    start_id: 1,
-                    end_id: 2,
+                    id: LineId(10),
+                    start_id: PointId(1),
+                    end_id: PointId(2),
                     construction: false,
                 },
                 SketchEntity::Line {
-                    id: 11,
-                    start_id: 2,
-                    end_id: 3,
+                    id: LineId(11),
+                    start_id: PointId(2),
+                    end_id: PointId(3),
                     construction: false,
                 },
                 SketchEntity::Line {
-                    id: 12,
-                    start_id: 3,
-                    end_id: 1,
+                    id: LineId(12),
+                    start_id: PointId(3),
+                    end_id: PointId(1),
                     construction: false,
                 },
             ];
             let constraints = vec![
                 SketchConstraint::Distance {
-                    entity_a: 1,
-                    entity_b: 2,
+                    entity_a: EntityId(1),
+                    entity_b: EntityId(2),
                     value: d01,
                 },
                 SketchConstraint::Distance {
-                    entity_a: 2,
-                    entity_b: 3,
+                    entity_a: EntityId(2),
+                    entity_b: EntityId(3),
                     value: d12,
                 },
                 SketchConstraint::Distance {
-                    entity_a: 3,
-                    entity_b: 1,
+                    entity_a: EntityId(3),
+                    entity_b: EntityId(1),
                     value: d20,
                 },
-                SketchConstraint::Horizontal { entity: 10 },
-                SketchConstraint::Dragged { point: 1 },
+                SketchConstraint::Horizontal {
+                    entity: EntityId(10),
+                },
+                SketchConstraint::Dragged { point: PointId(1) },
             ];
             (make_sketch(entities, constraints), [d01, d12, d20])
         })
@@ -369,7 +387,7 @@ pub fn arb_constrained_polygon(n: usize) -> impl Strategy<Value = (Sketch, Vec<f
                 .collect();
 
             // ROTATE points so the first edge (points[0] to points[1]) is horizontal.
-            // This ensures the Horizontal { entity: 100 } constraint is satisfied.
+            // This ensures the Horizontal { entity: EntityId(100) } constraint is satisfied.
             let dx = points[1].0 - points[0].0;
             let dy = points[1].1 - points[0].1;
             let angle = dy.atan2(dx);
@@ -398,7 +416,7 @@ pub fn arb_constrained_polygon(n: usize) -> impl Strategy<Value = (Sketch, Vec<f
             let mut entities = Vec::new();
             for (i, &(x, y)) in points.iter().enumerate() {
                 entities.push(SketchEntity::Point {
-                    id: (i + 1) as u32,
+                    id: PointId((i + 1) as u32),
                     x,
                     y,
                     construction: false,
@@ -407,9 +425,9 @@ pub fn arb_constrained_polygon(n: usize) -> impl Strategy<Value = (Sketch, Vec<f
             for i in 0..n {
                 let j = (i + 1) % n;
                 entities.push(SketchEntity::Line {
-                    id: (100 + i) as u32,
-                    start_id: (i + 1) as u32,
-                    end_id: (j + 1) as u32,
+                    id: LineId((100 + i) as u32),
+                    start_id: PointId((i + 1) as u32),
+                    end_id: PointId((j + 1) as u32),
                     construction: false,
                 });
             }
@@ -422,16 +440,16 @@ pub fn arb_constrained_polygon(n: usize) -> impl Strategy<Value = (Sketch, Vec<f
             let mut constraints = Vec::new();
             for (i, &d) in distances.iter().enumerate() {
                 constraints.push(SketchConstraint::Distance {
-                    entity_a: (i + 1) as u32,
-                    entity_b: ((i + 1) % n + 1) as u32,
+                    entity_a: EntityId((i + 1) as u32),
+                    entity_b: EntityId(((i + 1) % n + 1) as u32),
                     value: d,
                 });
             }
             // Add angle constraints between consecutive edges to remove internal DOFs
             // We need N-3 angle constraints (N distances + N-3 angles + 1 horizontal + 2 dragged = 2N)
             for i in 0..(n.saturating_sub(3)) {
-                let line_a = (100 + i) as u32;
-                let line_b = (100 + i + 1) as u32;
+                let line_a = EntityId((100 + i) as u32);
+                let line_b = EntityId((100 + i + 1) as u32);
                 // Compute angle between consecutive edges
                 let pi = &points[i];
                 let pj = &points[(i + 1) % n];
@@ -447,8 +465,10 @@ pub fn arb_constrained_polygon(n: usize) -> impl Strategy<Value = (Sketch, Vec<f
                     value_degrees: angle_rad.to_degrees(),
                 });
             }
-            constraints.push(SketchConstraint::Horizontal { entity: 100 });
-            constraints.push(SketchConstraint::Dragged { point: 1 });
+            constraints.push(SketchConstraint::Horizontal {
+                entity: EntityId(100),
+            });
+            constraints.push(SketchConstraint::Dragged { point: PointId(1) });
 
             (make_sketch(entities, constraints), distances)
         })
@@ -462,25 +482,27 @@ pub fn arb_underconstrained_line() -> impl Strategy<Value = Sketch> {
     arb_point_coords().prop_map(|(x, y)| {
         let entities = vec![
             SketchEntity::Point {
-                id: 1,
+                id: PointId(1),
                 x,
                 y,
                 construction: false,
             },
             SketchEntity::Point {
-                id: 2,
+                id: PointId(2),
                 x: x + 50.0,
                 y,
                 construction: false,
             },
             SketchEntity::Line {
-                id: 10,
-                start_id: 1,
-                end_id: 2,
+                id: LineId(10),
+                start_id: PointId(1),
+                end_id: PointId(2),
                 construction: false,
             },
         ];
-        let constraints = vec![SketchConstraint::Horizontal { entity: 10 }];
+        let constraints = vec![SketchConstraint::Horizontal {
+            entity: EntityId(10),
+        }];
         make_sketch(entities, constraints)
     })
 }

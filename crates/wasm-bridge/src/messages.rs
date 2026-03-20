@@ -6,24 +6,28 @@ use uuid::Uuid;
 use feature_engine::types::{FeatureTree, Operation};
 use kernel::{EdgeRenderData, RenderMesh};
 use waffle_types::{
-    ClosedProfile, GearParams, GeomRef, SketchConstraint, SketchEntity, SolvedSketch,
+    ClosedProfile, GearParams, GeomRef, PointId, SketchConstraint, SketchEntity, SolvedSketch,
 };
 
-/// Serde helper for HashMap<u32, (f64, f64)> — JSON string keys ↔ u32.
-mod u32_key_map {
+/// Serde helper for HashMap<PointId, (f64, f64)> — JSON string keys ↔ PointId.
+mod point_pos_map {
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
     use std::collections::HashMap;
+    use waffle_types::PointId;
 
-    pub fn serialize<S>(map: &HashMap<u32, (f64, f64)>, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(
+        map: &HashMap<PointId, (f64, f64)>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
         let string_map: HashMap<String, (f64, f64)> =
-            map.iter().map(|(k, v)| (k.to_string(), *v)).collect();
+            map.iter().map(|(k, v)| (k.0.to_string(), *v)).collect();
         string_map.serialize(serializer)
     }
 
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<HashMap<u32, (f64, f64)>, D::Error>
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<HashMap<PointId, (f64, f64)>, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -32,7 +36,7 @@ mod u32_key_map {
             .into_iter()
             .map(|(k, v)| {
                 k.parse::<u32>()
-                    .map(|key| (key, v))
+                    .map(|key| (PointId(key), v))
                     .map_err(serde::de::Error::custom)
             })
             .collect()
@@ -69,8 +73,8 @@ pub enum UiToEngine {
     SolveSketch,
     /// Exit sketch mode and commit the sketch as a feature.
     FinishSketch {
-        #[serde(default, with = "u32_key_map")]
-        solved_positions: HashMap<u32, (f64, f64)>,
+        #[serde(default, with = "point_pos_map")]
+        solved_positions: HashMap<PointId, (f64, f64)>,
         #[serde(default)]
         solved_profiles: Vec<ClosedProfile>,
         #[serde(default = "default_origin")]
@@ -220,8 +224,8 @@ pub enum EngineToUi {
     /// Full gear profile generated with sketch entities.
     GearProfileGenerated {
         entities: Vec<SketchEntity>,
-        #[serde(with = "u32_key_map")]
-        positions: HashMap<u32, (f64, f64)>,
+        #[serde(with = "point_pos_map")]
+        positions: HashMap<PointId, (f64, f64)>,
         profiles: Vec<ClosedProfile>,
         pitch_radius: f64,
     },
