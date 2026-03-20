@@ -8834,7 +8834,6 @@ fn test_nonmanifold_removal_box_box_subtract() {
     );
 }
 
-<<<<<<< HEAD
 // ── Cylinder-box boolean AABB-collapse regression tests ────────────
 
 /// Check whether all vertices lie on the 3D AABB boundary faces.
@@ -9033,7 +9032,61 @@ fn test_cyl_union_box_not_aabb_collapsed() {
         vertex_count
     );
 }
-=======
+/// Two coaxial cylinders (smaller taller, larger shorter) unioned must not
+/// produce an AABB-collapsed mesh. This reproduces assay F0045: circle boss
+/// (r=0.416, d=0.248) + circle boss (r=0.270, d=0.259) on XY plane.
+/// The result is a stepped cylinder where the inner cylinder extends above
+/// the outer one. The mesh must have vertices at intermediate z-values
+/// on the cylindrical surfaces.
+#[test]
+fn test_cyl_cyl_union_not_aabb_collapsed() {
+    let mut k = WaffleKernel::new();
+    // Larger, shorter cylinder
+    let cyl1 = make_cyl_on(&mut k, 0.0, 0.0, 0.416, 0.248);
+    // Smaller, taller cylinder (extends above cyl1)
+    let cyl2 = make_cyl_on(&mut k, 0.0, 0.0, 0.270, 0.259);
+    let result = k
+        .boolean_union(&cyl1, &cyl2)
+        .expect("cyl-cyl union should succeed");
+    let mesh = k
+        .tessellate(&result, 0.01)
+        .expect("tessellation should succeed");
+    let vertex_count = mesh.vertices.len() / 3;
+    assert!(
+        vertex_count > 24,
+        "cyl-cyl union should have more than 24 vertices, got {}",
+        vertex_count
+    );
+    assert!(
+        !is_3d_aabb_collapsed(&mesh.vertices),
+        "cyl-cyl union mesh should NOT have all vertices on 3D AABB faces ({} verts). \
+         The cylindrical patches must produce curved vertices not on AABB faces.",
+        vertex_count
+    );
+}
+
+/// Two offset cylinders (partially overlapping) unioned must have sufficient
+/// triangles and not degenerate to a low-poly box-like result.
+#[test]
+fn test_cyl_cyl_offset_union_sufficient_triangles() {
+    let mut k = WaffleKernel::new();
+    let cyl1 = make_cyl_on(&mut k, 0.0, 0.0, 1.0, 2.0);
+    let cyl2 = make_cyl_on(&mut k, 0.8, 0.0, 1.0, 2.0);
+    let result = k
+        .boolean_union(&cyl1, &cyl2)
+        .expect("offset cyl-cyl union should succeed");
+    let mesh = k
+        .tessellate(&result, 0.01)
+        .expect("tessellation should succeed");
+    let tri_count = mesh.indices.len() / 3;
+    // Two overlapping cylinders should produce significantly more than a box (12 tri)
+    assert!(
+        tri_count >= 32,
+        "offset cyl-cyl union should have >= 32 triangles, got {}",
+        tri_count
+    );
+}
+
 // ── Mesh repair improvement tests (FIP red phase) ────────────────────
 //
 // These tests exercise three improvements to the mesh repair pipeline
@@ -9225,4 +9278,3 @@ fn test_open_chain_closure_snaps_near_endpoints() {
     );
 }
 
->>>>>>> auto-waffle/2026-03-20T06-08-00

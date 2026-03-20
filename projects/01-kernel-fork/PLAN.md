@@ -301,7 +301,31 @@ Also: `large_boss_exceeds_face_union` (truck-level, same geometry).
 *Pre-existing failures (fillet, euler_characteristic, perturbed, shell_closure_overlapping_cuts)
 †RB1, RB6 — pre-existing regression from D1.6/D1.7 commits (boundary-coincident IC skip)
 
-Last updated: Sprint 59 (2026-03-06)
+Last updated: Sprint 68+ (2026-03-20)
+
+---
+
+## Assay Status (2026-03-20)
+
+**Score: 75-76/160** (non-deterministic due to HashMap ordering in borderline cases)
+- pass-boss-only: 46
+- pass-genuine: 29-31
+
+### Failure Categories
+| Category | Count | Description |
+|----------|-------|-------------|
+| watertight (1-6 unpaired) | ~26 | Residual non-manifold edges at earcut overlap boundaries in bounded tessellation |
+| watertight (60+ unpaired) | ~10 | Structural boolean issues with complex geometries |
+| empty mesh | ~3 | Boolean chain failures (3-op sequences, or cut consuming entire boss) |
+| low triangle count | ~8 | Auto-union failure → standalone body → only first extrude visible |
+| bbox diagonal | ~4 | Slight geometry errors (2-25% over oracle max) |
+| face product limit | ~5 | Gear-gear booleans exceed 5000 effective face product |
+| timeout | 4 | Slow boolean ops (>90s) |
+
+### Key Findings (2026-03-20 Session)
+1. **Non-manifold edge root cause**: Bounded tessellation path creates overlapping triangles at face boundaries due to independent earcut tessellation of adjacent faces. The shared-vertex discretization shares edge vertices correctly, but earcut generates different interior triangles that share the same edges. Attempts at post-hoc removal (conservative, aggressive, targeted) all caused regressions. Fix requires changing the tessellation dispatch to avoid overlap.
+2. **F-series F0044-F0060 failures**: These are "featured" test cases with cross-plane/angled/scaled geometries. Failures are due to auto-union fallback (feature-engine returns standalone body with warning, not error) and complex geometric configurations (perpendicular planes, scale extremes 1e4).
+3. **Cyl-cyl union works at kernel level**: Direct WaffleKernel calls to `boolean_union` succeed for coaxial and offset cylinders. Failures through feature-engine may be due to sketch plane resolution or extrude direction differences.
 
 ---
 
