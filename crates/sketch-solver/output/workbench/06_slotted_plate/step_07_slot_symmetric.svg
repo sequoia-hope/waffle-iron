@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-43.20 -72.00 190.40 84.00" width="381" height="168">
+<rect x="-43.20000442681009" y="-72" width="190.40000516461174" height="84" fill="white"/>
+<g class="grid-minor" stroke="#e0e0e0" stroke-width="0.3">
+<line x1="-50.00" y1="-72.00" x2="-50.00" y2="12.00"/>
+<line x1="-40.00" y1="-72.00" x2="-40.00" y2="12.00"/>
+<line x1="-30.00" y1="-72.00" x2="-30.00" y2="12.00"/>
+<line x1="-20.00" y1="-72.00" x2="-20.00" y2="12.00"/>
+<line x1="-10.00" y1="-72.00" x2="-10.00" y2="12.00"/>
+<line x1="0.00" y1="-72.00" x2="0.00" y2="12.00"/>
+<line x1="10.00" y1="-72.00" x2="10.00" y2="12.00"/>
+<line x1="20.00" y1="-72.00" x2="20.00" y2="12.00"/>
+<line x1="30.00" y1="-72.00" x2="30.00" y2="12.00"/>
+<line x1="40.00" y1="-72.00" x2="40.00" y2="12.00"/>
+<line x1="50.00" y1="-72.00" x2="50.00" y2="12.00"/>
+<line x1="60.00" y1="-72.00" x2="60.00" y2="12.00"/>
+<line x1="70.00" y1="-72.00" x2="70.00" y2="12.00"/>
+<line x1="80.00" y1="-72.00" x2="80.00" y2="12.00"/>
+<line x1="90.00" y1="-72.00" x2="90.00" y2="12.00"/>
+<line x1="100.00" y1="-72.00" x2="100.00" y2="12.00"/>
+<line x1="110.00" y1="-72.00" x2="110.00" y2="12.00"/>
+<line x1="120.00" y1="-72.00" x2="120.00" y2="12.00"/>
+<line x1="130.00" y1="-72.00" x2="130.00" y2="12.00"/>
+<line x1="140.00" y1="-72.00" x2="140.00" y2="12.00"/>
+<line x1="-43.20" y1="-80.00" x2="147.20" y2="-80.00"/>
+<line x1="-43.20" y1="-70.00" x2="147.20" y2="-70.00"/>
+<line x1="-43.20" y1="-60.00" x2="147.20" y2="-60.00"/>
+<line x1="-43.20" y1="-50.00" x2="147.20" y2="-50.00"/>
+<line x1="-43.20" y1="-40.00" x2="147.20" y2="-40.00"/>
+<line x1="-43.20" y1="-30.00" x2="147.20" y2="-30.00"/>
+<line x1="-43.20" y1="-20.00" x2="147.20" y2="-20.00"/>
+<line x1="-43.20" y1="-10.00" x2="147.20" y2="-10.00"/>
+<line x1="-43.20" y1="0.00" x2="147.20" y2="0.00"/>
+<line x1="-43.20" y1="10.00" x2="147.20" y2="10.00"/>
+</g>
+<g class="grid-major" stroke="#c0c0c0" stroke-width="0.6">
+<line x1="-100.00" y1="-72.00" x2="-100.00" y2="12.00"/>
+<line x1="0.00" y1="-72.00" x2="0.00" y2="12.00"/>
+<line x1="100.00" y1="-72.00" x2="100.00" y2="12.00"/>
+<line x1="-43.20" y1="-100.00" x2="147.20" y2="-100.00"/>
+<line x1="-43.20" y1="0.00" x2="147.20" y2="0.00"/>
+</g>
+<g class="entities">
+<circle cx="0.0000" cy="-0.0000" r="2" fill="#F44336"/>
+<circle cx="120.0000" cy="-0.0000" r="2" fill="#F44336"/>
+<circle cx="120.0000" cy="-60.0000" r="2" fill="#F44336"/>
+<circle cx="0.0000" cy="-60.0000" r="2" fill="#F44336"/>
+<line x1="0.0000" y1="-0.0000" x2="120.0000" y2="-0.0000" stroke="#2196F3" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="120.0000" y1="-0.0000" x2="120.0000" y2="-60.0000" stroke="#2196F3" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="120.0000" y1="-60.0000" x2="0.0000" y2="-60.0000" stroke="#2196F3" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="0.0000" y1="-60.0000" x2="0.0000" y2="-0.0000" stroke="#2196F3" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="30.0000" cy="-26.8537" r="2" fill="#F44336"/>
+<circle cx="-4.8911" cy="-33.1463" r="2" fill="#F44336"/>
+<circle cx="-10.0000" cy="-30.0000" r="2" fill="#F44336"/>
+<circle cx="55.1089" cy="-26.8537" r="2" fill="#F44336"/>
+<circle cx="90.0000" cy="-33.1463" r="2" fill="#F44336"/>
+<circle cx="50.0000" cy="-30.0000" r="2" fill="#F44336"/>
+<line x1="-4.8911" y1="-33.1463" x2="90.0000" y2="-33.1463" stroke="#2196F3" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="55.1089" y1="-26.8537" x2="30.0000" y2="-26.8537" stroke="#2196F3" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M-4.8911,-33.1463 A6.0000,6.0000 0 0,1 30.0000,-26.8537" stroke="#2196F3" stroke-width="1.5" fill="none"/>
+<path d="M55.1089,-26.8537 A6.0000,6.0000 0 0,0 90.0000,-33.1463" stroke="#2196F3" stroke-width="1.5" fill="none"/>
+</g>
+<g class="badges" font-family="sans-serif" font-size="4">
+<rect x="57.10" y="-6.00" width="5.8" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="60.00" y="-2.00" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">H</text>
+<rect x="57.10" y="-66.00" width="5.8" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="60.00" y="-62.00" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">H</text>
+<rect x="117.10" y="-36.00" width="5.8" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="120.00" y="-32.00" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">V</text>
+<rect x="-2.90" y="-36.00" width="5.8" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="0.00" y="-32.00" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">V</text>
+<rect x="51.50" y="-12.50" width="17.0" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="60.00" y="-8.50" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">120.0</text>
+<rect x="112.90" y="-42.50" width="14.2" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="120.00" y="-38.50" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">60.0</text>
+<rect x="39.65" y="-39.15" width="5.8" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="42.55" y="-35.15" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">H</text>
+<rect x="39.65" y="-32.85" width="5.8" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="42.55" y="-28.85" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">H</text>
+<rect x="-14.10" y="-36.00" width="14.2" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="-7.00" y="-32.00" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">R6.0</text>
+<rect x="45.90" y="-36.00" width="14.2" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="53.00" y="-32.00" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">R6.0</text>
+<rect x="12.90" y="-36.00" width="14.2" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="20.00" y="-32.00" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">SymH</text>
+</g>
+<rect x="-19.90" y="-65.00" width="47.8" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="4.00" y="-61.00" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">Over Constrained</text>
+</svg>

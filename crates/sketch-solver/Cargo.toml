@@ -36,3 +36,7 @@ required-features = ["render"]
 [[example]]
 name = "regenerate_golden"
 required-features = ["render"]
+
+[[example]]
+name = "workbench"
+required-features = ["render"]
