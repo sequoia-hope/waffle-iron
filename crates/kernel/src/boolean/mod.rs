@@ -21,7 +21,8 @@ use classify::{solid_angle, winding_number, winding_number_classify};
 use clip::clip_polygon_by_plane;
 use clip::{
     classify_coplanarity, clip_polygon_by_plane_cached, clip_polygon_by_solid, dedup_face_polys,
-    is_coplanar, merge_nearby_vertices, resolve_t_junctions, CoplanarClass, IntersectionCache,
+    is_coplanar, is_face_set_convex, merge_nearby_vertices, resolve_t_junctions, CoplanarClass,
+    IntersectionCache,
 };
 use stitch::{build_brep_from_polygons, build_brep_from_polygons_inner};
 
@@ -1042,11 +1043,30 @@ fn boolean_op_from_polys_inner(
         });
     }
 
-    let a_convex = a_faces.len() <= 12;
-    let b_convex = b_faces.len() <= 12;
-
-    // Compute tau early so AABB overlap can use it for padding.
+    // Compute tau early so AABB overlap and convexity check can use it.
     let (tau, tau_weld) = compute_adaptive_tau_weld(&a_faces, &b_faces);
+
+    // Convexity check: polygon-approximated cylinders have 34 faces (32 side
+    // quads + 2 caps) but are geometrically convex. The old heuristic
+    // (len <= 12) misclassified them as non-convex, causing
+    // classify_face_nonconvex to produce catastrophically broken results.
+    //
+    // Use geometric convexity test only when at least one solid is simple
+    // (<=12 faces, e.g. a box). When BOTH solids are large (e.g. two
+    // cylinders), S-H clipping against many planes accumulates numerical
+    // error causing empty-mesh results. Fall back to non-convex path for
+    // the both-large case to preserve progressive-splitting robustness.
+    let one_solid_simple = a_faces.len() <= 12 || b_faces.len() <= 12;
+    let a_convex = if one_solid_simple {
+        is_face_set_convex(&a_faces, tau)
+    } else {
+        a_faces.len() <= 12
+    };
+    let b_convex = if one_solid_simple {
+        is_face_set_convex(&b_faces, tau)
+    } else {
+        b_faces.len() <= 12
+    };
 
     // Product-based guard: O(A*B) face classification is too expensive
     // when both solids are non-convex (e.g., two gears with ~200 faces each).

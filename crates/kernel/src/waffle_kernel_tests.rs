@@ -5760,9 +5760,10 @@ fn z3_euler_formula_after_boolean() {
 fn g1_product_guard_rejects_large_nonconvex() {
     use crate::boolean::{boolean_op_from_polys, BoolOp, FacePoly};
 
-    // Create two large non-convex solids (100 faces each) with spatially overlapping
-    // AABBs so the effective product remains high (> 5000) after AABB filtering.
-    // All faces share the same AABB [0,1]^2×{z} → every pair overlaps.
+    // Create two large non-convex solids (300 faces each) with spatially
+    // overlapping AABBs. Using >200 faces forces is_face_set_convex to
+    // return false (performance cap). All faces share the same AABB so
+    // every pair overlaps, keeping the effective product high.
     let make_faces = |n: usize| -> Vec<FacePoly> {
         (0..n)
             .map(|_| {
@@ -5776,8 +5777,8 @@ fn g1_product_guard_rejects_large_nonconvex() {
             .collect()
     };
 
-    let a_faces = make_faces(100);
-    let b_faces = make_faces(100);
+    let a_faces = make_faces(300);
+    let b_faces = make_faces(300);
     let mut next_id = 1000u64;
     let result = boolean_op_from_polys(a_faces, b_faces, BoolOp::Union, &mut || {
         next_id += 1;
