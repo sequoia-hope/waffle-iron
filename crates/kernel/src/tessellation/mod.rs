@@ -1370,8 +1370,23 @@ fn tessellate_cylindrical_patch(
         let base_vertex = vertices.len() as u32 / 3;
         let normal_sign = if inward { -1.0_f64 } else { 1.0_f64 };
 
-        for row in 0..2 {
-            let t = if row == 0 { t_min } else { t_max };
+        // Determine number of axial rows based on height-to-circumference ratio.
+        // A cylinder is a ruled surface — 2 rows is geometrically exact, but
+        // adding intermediate rows prevents 3D AABB collapse detection in
+        // boolean results where all vertices landing on cap planes is degenerate.
+        // Ref #33 Stroud — boundary-adaptive tessellation density.
+        let height = (t_max - t_min).abs();
+        let circumference = std::f64::consts::TAU * r;
+        let n_axial = if height < 1e-12 {
+            2
+        } else {
+            let seg_width = circumference / (n as f64);
+            let aspect = height / seg_width;
+            (aspect.ceil() as usize).clamp(2, 16)
+        };
+
+        for row in 0..n_axial {
+            let t = t_min + (t_max - t_min) * (row as f64) / ((n_axial - 1) as f64);
             // Center of cross-section at axial position t
             let base = [
                 origin[0] + t * axis[0],
@@ -1398,26 +1413,28 @@ fn tessellate_cylindrical_patch(
         }
 
         let n32 = n as u32;
-        for i in 0..n32 {
-            let next = (i + 1) % n32;
-            let bot = base_vertex + i;
-            let bot_next = base_vertex + next;
-            let top = base_vertex + n32 + i;
-            let top_next = base_vertex + n32 + next;
-            if inward {
-                indices.push(bot);
-                indices.push(top);
-                indices.push(bot_next);
-                indices.push(top);
-                indices.push(top_next);
-                indices.push(bot_next);
-            } else {
-                indices.push(bot);
-                indices.push(bot_next);
-                indices.push(top);
-                indices.push(top);
-                indices.push(bot_next);
-                indices.push(top_next);
+        for row_idx in 0..(n_axial as u32 - 1) {
+            for i in 0..n32 {
+                let next = (i + 1) % n32;
+                let bot = base_vertex + row_idx * n32 + i;
+                let bot_next = base_vertex + row_idx * n32 + next;
+                let top = base_vertex + (row_idx + 1) * n32 + i;
+                let top_next = base_vertex + (row_idx + 1) * n32 + next;
+                if inward {
+                    indices.push(bot);
+                    indices.push(top);
+                    indices.push(bot_next);
+                    indices.push(top);
+                    indices.push(top_next);
+                    indices.push(bot_next);
+                } else {
+                    indices.push(bot);
+                    indices.push(bot_next);
+                    indices.push(top);
+                    indices.push(top);
+                    indices.push(bot_next);
+                    indices.push(top_next);
+                }
             }
         }
     } else {
@@ -1441,8 +1458,18 @@ fn tessellate_cylindrical_patch(
             .max(4.0) as usize;
         let base_vertex = vertices.len() as u32 / 3;
 
-        for row in 0..2 {
-            let t = if row == 0 { t_min } else { t_max };
+        let height = (t_max - t_min).abs();
+        let circumference = std::f64::consts::TAU * r;
+        let seg_width = circumference * sweep / std::f64::consts::TAU / (n as f64);
+        let n_axial = if height < 1e-12 || seg_width < 1e-12 {
+            2
+        } else {
+            let aspect = height / seg_width;
+            (aspect.ceil() as usize).clamp(2, 16)
+        };
+
+        for row in 0..n_axial {
+            let t = t_min + (t_max - t_min) * (row as f64) / ((n_axial - 1) as f64);
             let base = [
                 origin[0] + t * axis[0],
                 origin[1] + t * axis[1],
@@ -1468,25 +1495,27 @@ fn tessellate_cylindrical_patch(
         }
 
         let m = (n + 1) as u32;
-        for i in 0..n as u32 {
-            let bot = base_vertex + i;
-            let bot_next = base_vertex + i + 1;
-            let top = base_vertex + m + i;
-            let top_next = base_vertex + m + i + 1;
-            if inward {
-                indices.push(bot);
-                indices.push(top);
-                indices.push(bot_next);
-                indices.push(top);
-                indices.push(top_next);
-                indices.push(bot_next);
-            } else {
-                indices.push(bot);
-                indices.push(bot_next);
-                indices.push(top);
-                indices.push(top);
-                indices.push(bot_next);
-                indices.push(top_next);
+        for row_idx in 0..(n_axial as u32 - 1) {
+            for i in 0..n as u32 {
+                let bot = base_vertex + row_idx * m + i;
+                let bot_next = base_vertex + row_idx * m + i + 1;
+                let top = base_vertex + (row_idx + 1) * m + i;
+                let top_next = base_vertex + (row_idx + 1) * m + i + 1;
+                if inward {
+                    indices.push(bot);
+                    indices.push(top);
+                    indices.push(bot_next);
+                    indices.push(top);
+                    indices.push(top_next);
+                    indices.push(bot_next);
+                } else {
+                    indices.push(bot);
+                    indices.push(bot_next);
+                    indices.push(top);
+                    indices.push(top);
+                    indices.push(bot_next);
+                    indices.push(top_next);
+                }
             }
         }
     }
@@ -2532,30 +2561,57 @@ fn tessellate_cylindrical_face_bounded(
                 }
             };
 
-        emit_ring(&ring_sorted, t_min, out_verts, out_normals);
-        emit_ring(&ring_sorted, t_max, out_verts, out_normals);
+        // Multi-row tessellation: add intermediate axial rows to prevent
+        // 3D AABB collapse where all vertices land on cap planes.
+        // Ref #33 Stroud — boundary-adaptive tessellation density.
+        let r_abs = {
+            let dp0 = v3_sub(disc.positions[ring_sorted[0]], origin);
+            let along0 = v3_dot(dp0, axis);
+            let rad0 = [
+                dp0[0] - along0 * axis[0],
+                dp0[1] - along0 * axis[1],
+                dp0[2] - along0 * axis[2],
+            ];
+            v3_length(rad0)
+        };
+        let height = (t_max - t_min).abs();
+        let circumference = std::f64::consts::TAU * r_abs;
+        let n_axial = if height < 1e-12 {
+            2
+        } else {
+            let seg_width = circumference / (n as f64);
+            let aspect = height / seg_width;
+            (aspect.ceil() as usize).clamp(2, 16)
+        };
+
+        for row in 0..n_axial {
+            let t = t_min + (t_max - t_min) * (row as f64) / ((n_axial - 1) as f64);
+            emit_ring(&ring_sorted, t, out_verts, out_normals);
+        }
 
         let n32 = n as u32;
-        for i in 0..n32 {
-            let next = (i + 1) % n32;
-            let bot = base_vertex + i;
-            let bot_next = base_vertex + next;
-            let top = base_vertex + n32 + i;
-            let top_next = base_vertex + n32 + next;
-            if inward {
-                out_indices.push(bot);
-                out_indices.push(top);
-                out_indices.push(bot_next);
-                out_indices.push(top);
-                out_indices.push(top_next);
-                out_indices.push(bot_next);
-            } else {
-                out_indices.push(bot);
-                out_indices.push(bot_next);
-                out_indices.push(top);
-                out_indices.push(top);
-                out_indices.push(bot_next);
-                out_indices.push(top_next);
+        for row_idx in 0..(n_axial as u32 - 1) {
+            for i in 0..n32 {
+                let next = (i + 1) % n32;
+                let bot = base_vertex + row_idx * n32 + i;
+                let bot_next = base_vertex + row_idx * n32 + next;
+                let top = base_vertex + (row_idx + 1) * n32 + i;
+                let top_next = base_vertex + (row_idx + 1) * n32 + next;
+                if inward {
+                    out_indices.push(bot);
+                    out_indices.push(top);
+                    out_indices.push(bot_next);
+                    out_indices.push(top);
+                    out_indices.push(top_next);
+                    out_indices.push(bot_next);
+                } else {
+                    out_indices.push(bot);
+                    out_indices.push(bot_next);
+                    out_indices.push(top);
+                    out_indices.push(top);
+                    out_indices.push(bot_next);
+                    out_indices.push(top_next);
+                }
             }
         }
         return;
@@ -2666,15 +2722,47 @@ fn tessellate_cylindrical_face_bounded(
     });
 
     if top_ring.len() == bottom_ring.len() {
-        // Equal rings → quad strip (full circles or matching arcs)
+        // Equal rings → quad strip with intermediate axial rows.
+        // Adding intermediate rows prevents 3D AABB collapse detection in
+        // boolean results where all vertices landing on cap planes is degenerate.
         let ring_len = top_ring.len();
         let base_vertex = out_verts.len() as u32 / 3;
 
-        for &vi in bottom_ring.iter().chain(top_ring.iter()) {
-            let pos = disc.positions[vi];
-            out_verts.push(pos[0] as f32);
-            out_verts.push(pos[1] as f32);
-            out_verts.push(pos[2] as f32);
+        // Compute n_axial from height vs segment width
+        let r_est = {
+            let dp0 = v3_sub(disc.positions[bottom_ring[0]], origin);
+            let along0 = v3_dot(dp0, axis);
+            let rad0 = [
+                dp0[0] - along0 * axis[0],
+                dp0[1] - along0 * axis[1],
+                dp0[2] - along0 * axis[2],
+            ];
+            v3_length(rad0)
+        };
+        let height = (t_max - t_min).abs();
+        let circumference = std::f64::consts::TAU * r_est;
+        let seg_width = circumference / (ring_len as f64);
+        let n_axial = if height < 1e-12 || seg_width < 1e-12 {
+            2
+        } else {
+            let aspect = height / seg_width;
+            (aspect.ceil() as usize).clamp(2, 16)
+        };
+        let emit_vertex_interp = |vi_bot: usize,
+                                  vi_top: usize,
+                                  frac: f64,
+                                  verts: &mut Vec<f32>,
+                                  norms: &mut Vec<f32>| {
+            let bot_pos = disc.positions[vi_bot];
+            let top_pos = disc.positions[vi_top];
+            let pos = [
+                bot_pos[0] + frac * (top_pos[0] - bot_pos[0]),
+                bot_pos[1] + frac * (top_pos[1] - bot_pos[1]),
+                bot_pos[2] + frac * (top_pos[2] - bot_pos[2]),
+            ];
+            verts.push(pos[0] as f32);
+            verts.push(pos[1] as f32);
+            verts.push(pos[2] as f32);
             let dp = v3_sub(pos, origin);
             let along = v3_dot(dp, axis);
             let rad = [
@@ -2684,13 +2772,20 @@ fn tessellate_cylindrical_face_bounded(
             ];
             let rlen = v3_length(rad);
             if rlen > TAU_NORMALIZE {
-                out_normals.push((normal_sign * rad[0] / rlen) as f32);
-                out_normals.push((normal_sign * rad[1] / rlen) as f32);
-                out_normals.push((normal_sign * rad[2] / rlen) as f32);
+                norms.push((normal_sign * rad[0] / rlen) as f32);
+                norms.push((normal_sign * rad[1] / rlen) as f32);
+                norms.push((normal_sign * rad[2] / rlen) as f32);
             } else {
-                out_normals.push(0.0);
-                out_normals.push(0.0);
-                out_normals.push(1.0);
+                norms.push(0.0);
+                norms.push(0.0);
+                norms.push(1.0);
+            }
+        };
+
+        for row in 0..n_axial {
+            let frac = (row as f64) / ((n_axial - 1) as f64);
+            for j in 0..ring_len {
+                emit_vertex_interp(bottom_ring[j], top_ring[j], frac, out_verts, out_normals);
             }
         }
 
@@ -2701,33 +2796,35 @@ fn tessellate_cylindrical_face_bounded(
             (an - a0).abs() > std::f64::consts::TAU - 0.3
         };
 
-        for i in 0..n {
-            let next = if is_full {
-                (i + 1) % n
-            } else if i + 1 < n {
-                i + 1
-            } else {
-                continue;
-            };
-            let bot = base_vertex + i;
-            let bot_next = base_vertex + next;
-            let top = base_vertex + n + i;
-            let top_next = base_vertex + n + next;
+        for row_idx in 0..(n_axial as u32 - 1) {
+            for i in 0..n {
+                let next = if is_full {
+                    (i + 1) % n
+                } else if i + 1 < n {
+                    i + 1
+                } else {
+                    continue;
+                };
+                let bot = base_vertex + row_idx * n + i;
+                let bot_next = base_vertex + row_idx * n + next;
+                let top = base_vertex + (row_idx + 1) * n + i;
+                let top_next = base_vertex + (row_idx + 1) * n + next;
 
-            if inward {
-                out_indices.push(bot);
-                out_indices.push(top);
-                out_indices.push(bot_next);
-                out_indices.push(top);
-                out_indices.push(top_next);
-                out_indices.push(bot_next);
-            } else {
-                out_indices.push(bot);
-                out_indices.push(bot_next);
-                out_indices.push(top);
-                out_indices.push(top);
-                out_indices.push(bot_next);
-                out_indices.push(top_next);
+                if inward {
+                    out_indices.push(bot);
+                    out_indices.push(top);
+                    out_indices.push(bot_next);
+                    out_indices.push(top);
+                    out_indices.push(top_next);
+                    out_indices.push(bot_next);
+                } else {
+                    out_indices.push(bot);
+                    out_indices.push(bot_next);
+                    out_indices.push(top);
+                    out_indices.push(top);
+                    out_indices.push(bot_next);
+                    out_indices.push(top_next);
+                }
             }
         }
     } else {

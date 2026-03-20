@@ -8833,3 +8833,202 @@ fn test_nonmanifold_removal_box_box_subtract() {
         &nonmanifold[..nonmanifold.len().min(5)]
     );
 }
+
+// ── Cylinder-box boolean AABB-collapse regression tests ────────────
+
+/// Check whether all vertices lie on the 3D AABB boundary faces.
+///
+/// A proper curved solid must have vertices NOT on any AABB face. If every
+/// vertex sits on at least one AABB face (x=min_x, x=max_x, y=min_y,
+/// y=max_y, z=min_z, or z=max_z), the mesh has "collapsed" to its bounding
+/// box — the cylindrical patch tessellation bug produces exactly this.
+fn is_3d_aabb_collapsed(vertices: &[f32]) -> bool {
+    if vertices.len() < 3 {
+        return true;
+    }
+    let (mut min_x, mut min_y, mut min_z) = (f32::MAX, f32::MAX, f32::MAX);
+    let (mut max_x, mut max_y, mut max_z) = (f32::MIN, f32::MIN, f32::MIN);
+    for chunk in vertices.chunks(3) {
+        min_x = min_x.min(chunk[0]);
+        min_y = min_y.min(chunk[1]);
+        min_z = min_z.min(chunk[2]);
+        max_x = max_x.max(chunk[0]);
+        max_y = max_y.max(chunk[1]);
+        max_z = max_z.max(chunk[2]);
+    }
+    let tol = 1e-4;
+    for chunk in vertices.chunks(3) {
+        let on_any_face = (chunk[0] - min_x).abs() < tol
+            || (chunk[0] - max_x).abs() < tol
+            || (chunk[1] - min_y).abs() < tol
+            || (chunk[1] - max_y).abs() < tol
+            || (chunk[2] - min_z).abs() < tol
+            || (chunk[2] - max_z).abs() < tol;
+        if !on_any_face {
+            return false;
+        }
+    }
+    true
+}
+
+/// Helper: create a cylinder solid on a shared kernel.
+fn make_cyl_on(
+    k: &mut WaffleKernel,
+    cx: f64,
+    cy: f64,
+    r: f64,
+    depth: f64,
+) -> KernelSolidHandle {
+    let (profiles, positions) = make_circle_profile(cx, cy, r);
+    let face_ids = k
+        .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+        .expect("make_faces_from_profiles for cylinder");
+    k.extrude_face(face_ids[0], Z_DIR, depth)
+        .expect("extrude_face for cylinder")
+}
+
+/// Helper: create a box solid on a shared kernel.
+fn make_box_on(
+    k: &mut WaffleKernel,
+    cx: f64,
+    cy: f64,
+    w: f64,
+    h: f64,
+    depth: f64,
+) -> KernelSolidHandle {
+    let (profiles, positions) = make_rect_profile(cx, cy, w, h);
+    let face_ids = k
+        .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+        .expect("make_faces_from_profiles for box");
+    k.extrude_face(face_ids[0], Z_DIR, depth)
+        .expect("extrude_face for box")
+}
+
+/// Cylinder with a smaller box cut out must not produce an AABB-collapsed mesh.
+///
+/// Mirrors assay cases F0036–F0040: extrude a circle (boss) then extrude a
+/// smaller rectangle (cut). The bug is that `tessellate_cylindrical_patch()`
+/// generates a full 360° ring when boundary edges are all linear
+/// (post-boolean), causing all mesh vertices to land on AABB faces.
+///
+/// Geometry: cylinder r=5 centered at origin, box 3x3 cut (fully inside
+/// the cylinder in XY). The resulting solid is a cylinder with a rectangular
+/// notch — its mesh should have curved vertices NOT on the AABB boundary.
+#[test]
+fn test_cyl_minus_box_not_aabb_collapsed() {
+    let mut k = WaffleKernel::new();
+    // Boss: cylinder r=5, depth=10
+    let cyl = make_cyl_on(&mut k, 0.0, 0.0, 5.0, 10.0);
+    // Cut: box 3x3 centered at origin, same depth — fully inside cylinder
+    let box_h = make_box_on(&mut k, 0.0, 0.0, 3.0, 3.0, 10.0);
+    let result = k
+        .boolean_subtract(&cyl, &box_h)
+        .expect("cyl-minus-box boolean should succeed");
+    let mesh = k
+        .tessellate(&result, 0.1)
+        .expect("tessellation should succeed");
+    let vertex_count = mesh.vertices.len() / 3;
+    assert!(
+        vertex_count > 24,
+        "cyl-minus-box should have more than 24 vertices, got {}",
+        vertex_count
+    );
+    assert!(
+        !is_3d_aabb_collapsed(&mesh.vertices),
+        "cyl-minus-box mesh should NOT have all vertices on 3D AABB faces ({} verts). \
+         The cylindrical patch must produce vertices at intermediate z values, \
+         not just z=0 and z=depth.",
+        vertex_count
+    );
+}
+
+/// After cyl-minus-box, the cylindrical face must produce vertices at
+/// intermediate z values (between z=0 and z=depth), and those vertices
+/// must lie on the cylinder surface (distance from axis == radius).
+///
+/// With the full-360° bug, the tessellation only generates vertices at z=0
+/// and z=depth (the cap planes), with no intermediate z. A correct partial
+/// cylindrical patch tessellation must include side-wall vertices.
+#[test]
+fn test_cyl_minus_box_cylindrical_vertices_at_correct_radius() {
+    let mut k = WaffleKernel::new();
+    let radius = 5.0_f64;
+    let depth = 10.0_f64;
+    let cyl = make_cyl_on(&mut k, 0.0, 0.0, radius, depth);
+    let box_h = make_box_on(&mut k, 0.0, 0.0, 3.0, 3.0, depth);
+    let result = k
+        .boolean_subtract(&cyl, &box_h)
+        .expect("cyl-minus-box boolean should succeed");
+    let mesh = k
+        .tessellate(&result, 0.1)
+        .expect("tessellation should succeed");
+
+    let z_tol = 0.01_f64;
+
+    // Count vertices at intermediate z values (not on top/bottom caps).
+    // A properly tessellated cylindrical side face MUST have vertices
+    // between z=0 and z=depth.
+    let mut intermediate_z_count = 0_usize;
+    for chunk in mesh.vertices.chunks(3) {
+        let z = chunk[2] as f64;
+        if z > z_tol && (z - depth).abs() > z_tol {
+            intermediate_z_count += 1;
+
+            // Verify that intermediate-z vertices lie on the cylinder surface
+            let x = chunk[0] as f64;
+            let y = chunk[1] as f64;
+            let dist = (x * x + y * y).sqrt();
+            // Allow some tolerance for box-wall vertices (they won't be at radius)
+            // but cylindrical vertices must be at the correct radius
+            if dist > 2.0 {
+                // Only check vertices far enough from center to be on the cylinder
+                assert!(
+                    (dist - radius).abs() < 0.15,
+                    "Intermediate-z vertex ({:.4}, {:.4}, {:.4}) has distance {:.4} from axis, \
+                     expected radius {:.1}",
+                    x,
+                    y,
+                    z,
+                    dist,
+                    radius
+                );
+            }
+        }
+    }
+    assert!(
+        intermediate_z_count > 0,
+        "Cylinder-minus-box mesh must have vertices at intermediate z values \
+         (between z=0 and z={:.1}), but all {} vertices are on cap planes. \
+         This indicates the cylindrical patch was tessellated as a full 360° ring \
+         at cap z-levels only.",
+        depth,
+        mesh.vertices.len() / 3
+    );
+}
+
+/// Cylinder union box must not produce an AABB-collapsed mesh.
+#[test]
+fn test_cyl_union_box_not_aabb_collapsed() {
+    let mut k = WaffleKernel::new();
+    let cyl = make_cyl_on(&mut k, 0.0, 0.0, 5.0, 10.0);
+    let box_h = make_box_on(&mut k, 0.0, 0.0, 4.0, 4.0, 10.0);
+    let result = k
+        .boolean_union(&cyl, &box_h)
+        .expect("cyl-union-box boolean should succeed");
+    let mesh = k
+        .tessellate(&result, 0.1)
+        .expect("tessellation should succeed");
+    let vertex_count = mesh.vertices.len() / 3;
+    assert!(
+        vertex_count > 24,
+        "cyl-union-box should have more than 24 vertices (a plain box has 24), got {}",
+        vertex_count
+    );
+    assert!(
+        !is_3d_aabb_collapsed(&mesh.vertices),
+        "cyl-union-box mesh should NOT have all vertices on 3D AABB faces ({} verts). \
+         The cylindrical patch must produce vertices at intermediate z values, \
+         not just z=0 and z=depth.",
+        vertex_count
+    );
+}
