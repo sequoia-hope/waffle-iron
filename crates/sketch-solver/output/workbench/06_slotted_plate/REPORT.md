@@ -34,7 +34,7 @@
 
 ## Step 2: Plate Constrained
 **Status**: Fully constrained (0 DOF) | **Entities**: 4 pt, 4 ln | **Constraints**: 7
-> Outer rectangle fully constrained: 120×60mm at origin. Now adding the slot cutout.
+> Outer rectangle fully constrained: 120x60mm at origin. Now adding the slot cutout.
 
 **Active constraints**:
 - Horizontal(E10)
@@ -59,8 +59,8 @@
 ---
 
 ## Step 3: Slot Points
-**Status**: Under-constrained (12 DOF) | **Entities**: 10 pt, 4 ln | **Constraints**: 7
-> Six points for the slot: left arc (center + endpoints), right arc (center + endpoints). Slot centered at y=30.
+**Status**: Under-constrained (8 DOF) | **Entities**: 8 pt, 4 ln | **Constraints**: 7
+> Four points for a rectangular slot cutout, roughly centered in the plate.
 
 **Active constraints**:
 - Horizontal(E10)
@@ -78,11 +78,9 @@
 | P3 | 120.00 | 60.00 |
 | P4 | 0.00 | 60.00 |
 | P20 | 30.00 | 24.00 |
-| P21 | 30.00 | 36.00 |
-| P22 | 30.00 | 30.00 |
-| P23 | 90.00 | 24.00 |
-| P24 | 90.00 | 36.00 |
-| P25 | 90.00 | 30.00 |
+| P21 | 90.00 | 24.00 |
+| P22 | 90.00 | 36.00 |
+| P23 | 30.00 | 36.00 |
 
 **Profiles detected**: 2 closed profile(s)
 
@@ -90,9 +88,9 @@
 
 ---
 
-## Step 4: Slot Shape
-**Status**: Under-constrained (12 DOF) | **Entities**: 10 pt, 6 ln, 2 arc | **Constraints**: 7
-> Slot shape added: two straight sides + two semicircular end caps forming a stadium/slot profile.
+## Step 4: Slot Outline
+**Status**: Under-constrained (8 DOF) | **Entities**: 8 pt, 8 ln | **Constraints**: 7
+> Rectangular slot outline added inside the plate. Two closed profiles now visible.
 
 **Active constraints**:
 - Horizontal(E10)
@@ -110,21 +108,19 @@
 | P3 | 120.00 | 60.00 |
 | P4 | 0.00 | 60.00 |
 | P20 | 30.00 | 24.00 |
-| P21 | 30.00 | 36.00 |
-| P22 | 30.00 | 30.00 |
-| P23 | 90.00 | 24.00 |
-| P24 | 90.00 | 36.00 |
-| P25 | 90.00 | 30.00 |
+| P21 | 90.00 | 24.00 |
+| P22 | 90.00 | 36.00 |
+| P23 | 30.00 | 36.00 |
 
 **Profiles detected**: 4 closed profile(s)
 
-![Step 4](step_04_slot_shape.png)
+![Step 4](step_04_slot_outline.png)
 
 ---
 
-## Step 5: Slot Horizontal
-**Status**: Under-constrained (10 DOF) | **Entities**: 10 pt, 6 ln, 2 arc | **Constraints**: 9
-> Slot sides constrained horizontal. Slot aligned with plate axis.
+## Step 5: Slot Aligned
+**Status**: Under-constrained (4 DOF) | **Entities**: 8 pt, 8 ln | **Constraints**: 11
+> Slot sides constrained horizontal/vertical. Slot axis-aligned within the plate.
 
 **Active constraints**:
 - Horizontal(E10)
@@ -135,7 +131,9 @@
 - Distance(E1, E2, 120.0mm)
 - Distance(E2, E3, 60.0mm)
 - Horizontal(E30)
-- Horizontal(E31)
+- Horizontal(E32)
+- Vertical(E31)
+- Vertical(E33)
 
 | Point | X | Y |
 |-------|-------|-------|
@@ -144,21 +142,19 @@
 | P3 | 120.00 | 60.00 |
 | P4 | 0.00 | 60.00 |
 | P20 | 30.00 | 24.00 |
-| P21 | 30.00 | 36.00 |
-| P22 | 30.00 | 30.00 |
-| P23 | 90.00 | 24.00 |
-| P24 | 90.00 | 36.00 |
-| P25 | 90.00 | 30.00 |
+| P21 | 90.00 | 24.00 |
+| P22 | 90.00 | 36.00 |
+| P23 | 30.00 | 36.00 |
 
 **Profiles detected**: 4 closed profile(s)
 
-![Step 5](step_05_slot_horizontal.png)
+![Step 5](step_05_slot_aligned.png)
 
 ---
 
-## Step 6: Slot Constrained
-**Status**: Under-constrained (4 DOF) | **Entities**: 10 pt, 6 ln, 2 arc | **Constraints**: 13
-> Slot caps R=6mm, centers pinned. Slot is 12mm wide, 60mm long, centered in the plate.
+## Step 6: Slot Sized
+**Status**: Under-constrained (2 DOF) | **Entities**: 8 pt, 8 ln | **Constraints**: 13
+> Slot dimensions set: 60mm long x 12mm wide. Position still free within the plate.
 
 **Active constraints**:
 - Horizontal(E10)
@@ -169,11 +165,11 @@
 - Distance(E1, E2, 120.0mm)
 - Distance(E2, E3, 60.0mm)
 - Horizontal(E30)
-- Horizontal(E31)
-- Radius(E40, 6.0mm)
-- Radius(E41, 6.0mm)
-- Dragged(P22)
-- Dragged(P25)
+- Horizontal(E32)
+- Vertical(E31)
+- Vertical(E33)
+- Distance(E20, E21, 60.0mm)
+- Distance(E21, E22, 12.0mm)
 
 | Point | X | Y |
 |-------|-------|-------|
@@ -182,21 +178,19 @@
 | P3 | 120.00 | 60.00 |
 | P4 | 0.00 | 60.00 |
 | P20 | 30.00 | 24.00 |
-| P21 | 30.00 | 36.00 |
-| P22 | 30.00 | 30.00 |
-| P23 | 90.00 | 24.00 |
-| P24 | 90.00 | 36.00 |
-| P25 | 90.00 | 30.00 |
+| P21 | 90.00 | 24.00 |
+| P22 | 90.00 | 36.00 |
+| P23 | 30.00 | 36.00 |
 
 **Profiles detected**: 4 closed profile(s)
 
-![Step 6](step_06_slot_constrained.png)
+![Step 6](step_06_slot_sized.png)
 
 ---
 
-## Step 7: Slot Symmetric
-**Status**: Over-constrained (3 conflicts) | **Entities**: 10 pt, 6 ln, 2 arc | **Constraints**: 14
-> Slot centers horizontally symmetric. Complete slotted plate with compound profile.
+## Step 7: Slot Positioned
+**Status**: Fully constrained (0 DOF) | **Entities**: 8 pt, 8 ln | **Constraints**: 14
+> Slot bottom-left pinned at (30, 24). Fully constrained compound plate with rectangular slot.
 
 **Active constraints**:
 - Horizontal(E10)
@@ -207,12 +201,12 @@
 - Distance(E1, E2, 120.0mm)
 - Distance(E2, E3, 60.0mm)
 - Horizontal(E30)
-- Horizontal(E31)
-- Radius(E40, 6.0mm)
-- Radius(E41, 6.0mm)
-- Dragged(P22)
-- Dragged(P25)
-- SymmetricH(P22, P25)
+- Horizontal(E32)
+- Vertical(E31)
+- Vertical(E33)
+- Distance(E20, E21, 60.0mm)
+- Distance(E21, E22, 12.0mm)
+- Dragged(P20)
 
 | Point | X | Y |
 |-------|-------|-------|
@@ -220,13 +214,13 @@
 | P2 | 120.00 | 0.00 |
 | P3 | 120.00 | 60.00 |
 | P4 | 0.00 | 60.00 |
-| P20 | 30.00 | 26.85 |
-| P21 | -4.89 | 33.15 |
-| P22 | -10.00 | 30.00 |
-| P23 | 55.11 | 26.85 |
-| P24 | 90.00 | 33.15 |
-| P25 | 50.00 | 30.00 |
+| P20 | 30.00 | 24.00 |
+| P21 | 90.00 | 24.00 |
+| P22 | 90.00 | 36.00 |
+| P23 | 30.00 | 36.00 |
 
-![Step 7](step_07_slot_symmetric.png)
+**Profiles detected**: 4 closed profile(s)
+
+![Step 7](step_07_slot_positioned.png)
 
 ---

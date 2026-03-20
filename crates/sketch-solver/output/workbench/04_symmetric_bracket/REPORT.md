@@ -152,9 +152,9 @@
 
 ---
 
-## Step 5: Fully Constrained
-**Status**: Under-constrained (4 DOF) | **Entities**: 12 pt, 11 ln | **Constraints**: 20
-> Origin pinned, dimensions added (width 80mm, base height 20mm, arm height 40mm, arm width 15mm). Fully constrained symmetric bracket.
+## Step 5: Dimensioned
+**Status**: Under-constrained (1 DOF) | **Entities**: 12 pt, 11 ln | **Constraints**: 23
+> Origin pinned, construction line fixed, all dimensions set (width 80mm, base 20mm, arm 40mm, arm width 15mm, total height 60mm). Near-fully constrained — remaining DOF from redundant symmetry interactions.
 
 **Active constraints**:
 - Vertical(E60)
@@ -173,10 +173,13 @@
 - SymmetricH(P4, P9)
 - SymmetricH(P5, P10)
 - Dragged(P1)
+- Dragged(P50)
+- Dragged(P51)
 - Distance(E1, E2, 40.0mm)
 - Distance(E2, E3, 20.0mm)
 - Distance(E4, E5, 40.0mm)
 - Distance(E5, E6, 15.0mm)
+- Distance(E1, E6, 60.0mm)
 
 | Point | X | Y |
 |-------|-------|-------|
@@ -195,6 +198,6 @@
 
 **Profiles detected**: 1 closed profile(s)
 
-![Step 5](step_05_fully_constrained.png)
+![Step 5](step_05_dimensioned.png)
 
 ---
