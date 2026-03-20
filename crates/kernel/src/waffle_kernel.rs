@@ -970,9 +970,8 @@ impl WaffleKernel {
                     // SSI doesn't handle this configuration yet (e.g., partial overlap).
                     // Use polygon clipping with strict→tolerant fallback chain.
                     // Surface geometry tags are preserved through FacePoly.surface_geom.
-                    // Mark as polygon_soup since S-H clipping produces polygon fragments
-                    // that need the fan path's repair pipeline (weld, fill, chain-close).
-                    polygon_soup = true;
+                    // Note: is_polygon_soup stays false because we want bounded
+                    // tessellation for watertight output on these analytical primitives.
                     let strict = crate::boolean::boolean_op(
                         solid_a,
                         solid_b,
