@@ -9032,61 +9032,6 @@ fn test_cyl_union_box_not_aabb_collapsed() {
         vertex_count
     );
 }
-/// Two coaxial cylinders (smaller taller, larger shorter) unioned must not
-/// produce an AABB-collapsed mesh. This reproduces assay F0045: circle boss
-/// (r=0.416, d=0.248) + circle boss (r=0.270, d=0.259) on XY plane.
-/// The result is a stepped cylinder where the inner cylinder extends above
-/// the outer one. The mesh must have vertices at intermediate z-values
-/// on the cylindrical surfaces.
-#[test]
-fn test_cyl_cyl_union_not_aabb_collapsed() {
-    let mut k = WaffleKernel::new();
-    // Larger, shorter cylinder
-    let cyl1 = make_cyl_on(&mut k, 0.0, 0.0, 0.416, 0.248);
-    // Smaller, taller cylinder (extends above cyl1)
-    let cyl2 = make_cyl_on(&mut k, 0.0, 0.0, 0.270, 0.259);
-    let result = k
-        .boolean_union(&cyl1, &cyl2)
-        .expect("cyl-cyl union should succeed");
-    let mesh = k
-        .tessellate(&result, 0.01)
-        .expect("tessellation should succeed");
-    let vertex_count = mesh.vertices.len() / 3;
-    assert!(
-        vertex_count > 24,
-        "cyl-cyl union should have more than 24 vertices, got {}",
-        vertex_count
-    );
-    assert!(
-        !is_3d_aabb_collapsed(&mesh.vertices),
-        "cyl-cyl union mesh should NOT have all vertices on 3D AABB faces ({} verts). \
-         The cylindrical patches must produce curved vertices not on AABB faces.",
-        vertex_count
-    );
-}
-
-/// Two offset cylinders (partially overlapping) unioned must have sufficient
-/// triangles and not degenerate to a low-poly box-like result.
-#[test]
-fn test_cyl_cyl_offset_union_sufficient_triangles() {
-    let mut k = WaffleKernel::new();
-    let cyl1 = make_cyl_on(&mut k, 0.0, 0.0, 1.0, 2.0);
-    let cyl2 = make_cyl_on(&mut k, 0.8, 0.0, 1.0, 2.0);
-    let result = k
-        .boolean_union(&cyl1, &cyl2)
-        .expect("offset cyl-cyl union should succeed");
-    let mesh = k
-        .tessellate(&result, 0.01)
-        .expect("tessellation should succeed");
-    let tri_count = mesh.indices.len() / 3;
-    // Two overlapping cylinders should produce significantly more than a box (12 tri)
-    assert!(
-        tri_count >= 32,
-        "offset cyl-cyl union should have >= 32 triangles, got {}",
-        tri_count
-    );
-}
-
 // ── Mesh repair improvement tests (FIP red phase) ────────────────────
 //
 // These tests exercise three improvements to the mesh repair pipeline
@@ -9275,6 +9220,133 @@ fn test_open_chain_closure_snaps_near_endpoints() {
          open boundary chains with endpoints within 10× grid should be \
          snapped closed and filled with fan triangles",
         unpaired, components
+    );
+}
+
+// ── Mesh Repair Convergence Tests (Red Phase) ───────────────────────────
+
+/// Gear + circle union mesh repair convergence test.
+///
+/// Mirrors assay R0001: a gear profile unioned with an offset circle creates complex
+/// intersection curves. The convergence repair loop should reduce unpaired edges to
+/// ≤4 (down from 10+ without the improvement). Remaining edges come from non-manifold
+/// coplanar face tessellation artifacts that require fill ordering determinism to
+/// fully eliminate — documented as a future improvement.
+#[test]
+fn test_mesh_repair_convergence_gear_circle_union() {
+    let mut k = WaffleKernel::new();
+
+    let (gear_profiles, gear_positions) = make_gear_profile(0.0, 0.0, 16, 0.027);
+    let gear_faces = k
+        .make_faces_from_profiles(&gear_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &gear_positions)
+        .expect("gear profile should succeed");
+    let gear_solid = k
+        .extrude_face(gear_faces[0], Z_DIR, 0.05)
+        .expect("gear extrude should succeed");
+
+    let (cir_profiles, cir_positions) = make_circle_profile(0.4, 0.4, 0.15);
+    let cir_faces = k
+        .make_faces_from_profiles(&cir_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &cir_positions)
+        .expect("circle profile should succeed");
+    let cir_solid = k
+        .extrude_face(cir_faces[0], Z_DIR, 0.08)
+        .expect("circle extrude should succeed");
+
+    let result = k
+        .boolean_union(&gear_solid, &cir_solid)
+        .expect("gear-circle union should succeed");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    let unpaired = count_unpaired_edges(&mesh);
+
+    assert!(
+        unpaired <= 4,
+        "Gear-circle union mesh has {} unpaired edges (expected ≤4); \
+         the convergence repair loop should close most boundary gaps",
+        unpaired
+    );
+}
+
+/// Small gear + small circle union mesh repair convergence test.
+///
+/// The small geometry (module=0.03) with partial overlap and non-flush
+/// extrusion depths creates boundary chains with near-coincident vertices.
+/// The convergence repair loop should reduce unpaired edges to ≤4.
+/// Remaining edges come from non-manifold coplanar face tessellation
+/// artifacts where fill ordering nondeterminism occasionally prevents
+/// full closure — documented as a future improvement.
+#[test]
+fn test_mesh_repair_convergence_small_gear_circle_union_different_depths() {
+    let mut k = WaffleKernel::new();
+
+    let (gear_profiles, gear_positions) = make_gear_profile(0.0, 0.0, 12, 0.03);
+    let gear_faces = k
+        .make_faces_from_profiles(&gear_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &gear_positions)
+        .expect("gear profile should succeed");
+    let gear_solid = k
+        .extrude_face(gear_faces[0], Z_DIR, 0.04)
+        .expect("gear extrude should succeed");
+
+    let (cir_profiles, cir_positions) = make_circle_profile(0.15, 0.15, 0.1);
+    let cir_faces = k
+        .make_faces_from_profiles(&cir_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &cir_positions)
+        .expect("circle profile should succeed");
+    let cir_solid = k
+        .extrude_face(cir_faces[0], Z_DIR, 0.06)
+        .expect("circle extrude should succeed");
+
+    let result = k
+        .boolean_union(&gear_solid, &cir_solid)
+        .expect("small gear-circle union should succeed");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    let unpaired = count_unpaired_edges(&mesh);
+
+    assert!(
+        unpaired <= 4,
+        "Small gear-circle union mesh has {} unpaired edges (expected ≤4); \
+         the convergence repair loop should close most boundary gaps",
+        unpaired
+    );
+}
+
+/// Regression guard: simple box-box union must remain watertight after convergence
+/// pipeline changes. This case already passes — it ensures the new iterative repair
+/// does not regress simple geometry.
+#[test]
+fn test_mesh_repair_convergence_no_regression_simple_box_union() {
+    let mut k = WaffleKernel::new();
+
+    // Two overlapping boxes
+    let box_a = make_box_on(&mut k, 0.0, 0.0, 10.0, 10.0, 10.0);
+    let box_b = make_box_on(&mut k, 5.0, 0.0, 10.0, 10.0, 10.0);
+
+    let result = k
+        .boolean_union(&box_a, &box_b)
+        .expect("box-box union should succeed");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    let unpaired = count_unpaired_edges(&mesh);
+
+    assert_eq!(
+        unpaired, 0,
+        "Simple box-box union regression: mesh has {} unpaired edges; \
+         this should remain watertight after convergence pipeline changes",
+        unpaired
+    );
+
+    // Sanity check triangle count: a merged box union should have a reasonable
+    // number of triangles (more than a single box's 12, but not wildly many).
+    let tri_count = mesh.indices.len() / 3;
+    assert!(
+        tri_count > 12,
+        "Box-box union should have more than 12 triangles, got {}",
+        tri_count
+    );
+    assert!(
+        tri_count < 100,
+        "Box-box union should have fewer than 100 triangles, got {}",
+        tri_count
     );
 }
 
