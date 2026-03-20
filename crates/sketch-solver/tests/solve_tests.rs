@@ -4011,3 +4011,193 @@ fn hessian_refinement_cardinal_phantom_dof() {
         result.status
     );
 }
+
+// ── Edge Case: Point initially ON the line for DistancePL ───────────────────
+
+#[test]
+fn distance_pl_point_starts_on_line() {
+    // Point 3 starts exactly on the line (y=0), and we want it at distance 10.
+    // The sign is ambiguous at build time (cross ≈ 0). The solver should still
+    // place the point at distance 10 from the line (on either side).
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: PointId(1), x: 0.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(2), x: 100.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(3), x: 50.0, y: 0.0, construction: false }, // ON the line
+            SketchEntity::Line { id: LineId(10), start_id: PointId(1), end_id: PointId(2), construction: false },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: PointId(1) },
+            SketchConstraint::Dragged { point: PointId(2) },
+            SketchConstraint::Distance {
+                entity_a: EntityId(3),
+                entity_b: EntityId(10),
+                value: 10.0,
+            },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    // Point 3 should end up at distance 10 from the line, regardless of sign
+    let (_, y3) = result.positions[&PointId(3)];
+    assert!(
+        (y3.abs() - 10.0).abs() < 1e-4,
+        "point should be at distance 10 from line, got y={y3:.4}"
+    );
+}
+
+// ── Edge Case: Coincident points with nonzero distance (contradiction) ──────
+
+#[test]
+fn coincident_plus_distance_is_overconstrained() {
+    // Coincident forces P1=P2, Distance forces ||P1-P2||=5. Contradiction.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: PointId(1), x: 0.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(2), x: 5.0, y: 0.0, construction: false },
+        ],
+        vec![
+            SketchConstraint::Coincident { point_a: PointId(1), point_b: PointId(2) },
+            SketchConstraint::Distance { entity_a: EntityId(1), entity_b: EntityId(2), value: 5.0 },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    assert!(
+        matches!(result.status, SolveStatus::OverConstrained { .. } | SolveStatus::SolveFailed { .. }),
+        "coincident + distance(5) should be over-constrained or fail, got {:?}",
+        result.status
+    );
+}
+
+// ── Edge Case: OnCircle with point at center (singular Jacobian) ────────────
+
+#[test]
+fn on_circle_point_at_center() {
+    // Point starts exactly at the circle center — the Jacobian of ||p-c|| is
+    // singular there (direction undefined). The arbitrary-direction fallback
+    // should give the solver a gradient to push the point outward.
+    //
+    // System: 5 params (point xy + center xy + radius)
+    //   Dragged(center)=2 eqs, OnCircle=1 eq, Radius=1 eq → 1 DOF (rotation)
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: PointId(1), x: 50.0, y: 50.0, construction: false },
+            SketchEntity::Point { id: PointId(10), x: 50.0, y: 50.0, construction: false },
+            SketchEntity::Circle { id: CircleId(20), center_id: PointId(10), radius: 10.0, construction: false },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: PointId(10) },
+            SketchConstraint::OnEntity { point: PointId(1), entity: EntityId(20) },
+            SketchConstraint::Radius { entity: EntityId(20), value: 10.0 },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    let (x1, y1) = result.positions[&PointId(1)];
+    let dist = ((x1 - 50.0).powi(2) + (y1 - 50.0).powi(2)).sqrt();
+    assert!(
+        (dist - 10.0).abs() < 1e-4,
+        "point should be on circle at distance 10 from center, got dist={dist:.4}, status={:?}",
+        result.status
+    );
+}
+
+// ── Edge Case: DistancePP with coincident starting points ───────────────────
+
+#[test]
+fn distance_pp_from_coincident_start() {
+    // Two points start at the same position. Distance=10 should separate them.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: PointId(1), x: 0.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(2), x: 0.0, y: 0.0, construction: false }, // same as P1
+        ],
+        vec![
+            SketchConstraint::Dragged { point: PointId(1) },
+            SketchConstraint::Distance { entity_a: EntityId(1), entity_b: EntityId(2), value: 10.0 },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    let (x2, y2) = result.positions[&PointId(2)];
+    let dist = (x2.powi(2) + y2.powi(2)).sqrt();
+    assert!(
+        (dist - 10.0).abs() < 1e-4,
+        "point should be at distance 10 from origin, got dist={dist:.4}, status={:?}",
+        result.status
+    );
+}
+
+// ── Edge Case: TangentLineCircle from both sides ────────────────────────────
+
+#[test]
+fn tangent_line_circle_sign_preserved() {
+    // Arc center is above the line. The solver should keep it above (not flip).
+    // Line from (0,0) to (100,0), arc center at (50, 20), radius 20.
+    // Tangent means distance(center, line) = radius = 20.
+    // Center y=20 means it's above — the solver should keep it there.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: PointId(1), x: 0.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(2), x: 100.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(3), x: 50.0, y: 20.0, construction: false }, // center
+            SketchEntity::Point { id: PointId(4), x: 30.0, y: 20.0, construction: false }, // arc start
+            SketchEntity::Point { id: PointId(5), x: 70.0, y: 20.0, construction: false }, // arc end
+            SketchEntity::Line { id: LineId(10), start_id: PointId(1), end_id: PointId(2), construction: false },
+            SketchEntity::Arc { id: ArcId(20), center_id: PointId(3), start_id: PointId(4), end_id: PointId(5), construction: false },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: PointId(1) },
+            SketchConstraint::Dragged { point: PointId(2) },
+            SketchConstraint::Tangent { line: EntityId(10), curve: EntityId(20) },
+            SketchConstraint::Radius { entity: EntityId(20), value: 20.0 },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    let (_, y3) = result.positions[&PointId(3)];
+    // Center should stay ABOVE the line (y > 0), not flip below
+    assert!(
+        y3 > 10.0,
+        "arc center should stay above line (y>0), got y={y3:.4}, status={:?}",
+        result.status
+    );
+    assert!(
+        (y3 - 20.0).abs() < 1e-4,
+        "arc center should be at y=20 (radius from line), got y={y3:.4}"
+    );
+}
+
+// ── Edge Case: Large perturbation convergence ───────────────────────────────
+
+#[test]
+fn rectangle_large_perturbation() {
+    // Rectangle with starting positions 50 units away from solution.
+    // Tests that the solver can converge from far away.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: PointId(1), x: 0.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(2), x: 150.0, y: 50.0, construction: false }, // should be (100, 0)
+            SketchEntity::Point { id: PointId(3), x: 150.0, y: 100.0, construction: false }, // should be (100, 50)
+            SketchEntity::Point { id: PointId(4), x: -50.0, y: 100.0, construction: false }, // should be (0, 50)
+            SketchEntity::Line { id: LineId(10), start_id: PointId(1), end_id: PointId(2), construction: false },
+            SketchEntity::Line { id: LineId(11), start_id: PointId(2), end_id: PointId(3), construction: false },
+            SketchEntity::Line { id: LineId(12), start_id: PointId(3), end_id: PointId(4), construction: false },
+            SketchEntity::Line { id: LineId(13), start_id: PointId(4), end_id: PointId(1), construction: false },
+        ],
+        vec![
+            SketchConstraint::Horizontal { entity: EntityId(10) },
+            SketchConstraint::Horizontal { entity: EntityId(12) },
+            SketchConstraint::Vertical { entity: EntityId(11) },
+            SketchConstraint::Vertical { entity: EntityId(13) },
+            SketchConstraint::Distance { entity_a: EntityId(1), entity_b: EntityId(2), value: 100.0 },
+            SketchConstraint::Distance { entity_a: EntityId(2), entity_b: EntityId(3), value: 50.0 },
+            SketchConstraint::Dragged { point: PointId(1) },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    assert!(
+        matches!(result.status, SolveStatus::FullyConstrained),
+        "rectangle should converge from large perturbation, got {:?}",
+        result.status
+    );
+    assert_point_near(&result.positions, PointId(2), (100.0, 0.0), 1e-4);
+    assert_point_near(&result.positions, PointId(3), (100.0, 50.0), 1e-4);
+    assert_point_near(&result.positions, PointId(4), (0.0, 50.0), 1e-4);
+}

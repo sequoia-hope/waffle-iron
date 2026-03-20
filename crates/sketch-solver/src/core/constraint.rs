@@ -538,9 +538,14 @@ impl ConstraintEq for ConstraintImpl {
                 let a = p1.read(params);
                 let b = p2.read(params);
                 let delta = b - a;
-                let dist = delta.norm().max(EPSILON);
-                let gx = delta.x / dist;
-                let gy = delta.y / dist;
+                let dist = delta.norm();
+                // When points coincide, use arbitrary direction (1,0) to give
+                // the solver a valid gradient for separating them.
+                let (gx, gy) = if dist > EPSILON {
+                    (delta.x / dist, delta.y / dist)
+                } else {
+                    (1.0, 0.0)
+                };
                 out.push((row, p1.x(), -gx));
                 out.push((row, p1.y(), -gy));
                 out.push((row, p2.x(), gx));
@@ -549,18 +554,24 @@ impl ConstraintEq for ConstraintImpl {
             Self::EqualLength { l1, l2 } => {
                 // f = ||l1|| - ||l2||
                 let d1 = l1.delta(params);
-                let len1 = d1.norm().max(EPSILON);
+                let len1 = d1.norm();
                 let d2 = l2.delta(params);
-                let len2 = d2.norm().max(EPSILON);
-                // ∂||l||/∂start = -d/||d||, ∂||l||/∂end = d/||d||
-                let g1x = d1.x / len1;
-                let g1y = d1.y / len1;
+                let len2 = d2.norm();
+                // When line is zero-length, use arbitrary direction
+                let (g1x, g1y) = if len1 > EPSILON {
+                    (d1.x / len1, d1.y / len1)
+                } else {
+                    (1.0, 0.0)
+                };
                 out.push((row, l1.start.x(), -g1x));
                 out.push((row, l1.start.y(), -g1y));
                 out.push((row, l1.end.x(), g1x));
                 out.push((row, l1.end.y(), g1y));
-                let g2x = d2.x / len2;
-                let g2y = d2.y / len2;
+                let (g2x, g2y) = if len2 > EPSILON {
+                    (d2.x / len2, d2.y / len2)
+                } else {
+                    (1.0, 0.0)
+                };
                 out.push((row, l2.start.x(), g2x));
                 out.push((row, l2.start.y(), g2y));
                 out.push((row, l2.end.x(), -g2x));
@@ -665,9 +676,13 @@ impl ConstraintEq for ConstraintImpl {
                 let p = point.read(params);
                 let c = center.read(params);
                 let pc = p - c; // vector from center to point
-                let d_pc = pc.norm().max(EPSILON);
-                let gx = pc.x / d_pc;
-                let gy = pc.y / d_pc;
+                let d_pc = pc.norm();
+                // When point coincides with center, use arbitrary direction (1,0)
+                let (gx, gy) = if d_pc > EPSILON {
+                    (pc.x / d_pc, pc.y / d_pc)
+                } else {
+                    (1.0, 0.0)
+                };
 
                 // ∂f/∂point = pc / d_pc
                 out.push((row, point.x(), gx));
@@ -686,9 +701,12 @@ impl ConstraintEq for ConstraintImpl {
                         // f = dist(point, center) - dist(center, start)
                         let s = start.read(params);
                         let cs = c - s; // center - start
-                        let d_cs = cs.norm().max(EPSILON);
-                        let gs_x = cs.x / d_cs;
-                        let gs_y = cs.y / d_cs;
+                        let d_cs = cs.norm();
+                        let (gs_x, gs_y) = if d_cs > EPSILON {
+                            (cs.x / d_cs, cs.y / d_cs)
+                        } else {
+                            (0.0, 1.0) // different direction to avoid degeneracy
+                        };
                         // ∂f/∂center = -pc/d_pc - cs/d_cs
                         out.push((row, center.x(), -gx - gs_x));
                         out.push((row, center.y(), -gy - gs_y));
@@ -821,9 +839,12 @@ impl ConstraintEq for ConstraintImpl {
                 let center1 = c1.read(params);
                 let center2 = c2.read(params);
                 let delta = center2 - center1;
-                let dist = delta.norm().max(EPSILON);
-                let gx = delta.x / dist;
-                let gy = delta.y / dist;
+                let dist = delta.norm();
+                let (gx, gy) = if dist > EPSILON {
+                    (delta.x / dist, delta.y / dist)
+                } else {
+                    (1.0, 0.0)
+                };
 
                 // ∂(dist)/∂c1 = -delta/dist, ∂(dist)/∂c2 = delta/dist
                 out.push((row, c1.x(), -gx));
@@ -917,19 +938,27 @@ impl ConstraintEq for ConstraintImpl {
             Self::Ratio { l1, l2, k } => {
                 // f = ||l1|| - k * ||l2||
                 let d1 = l1.delta(params);
-                let len1 = d1.norm().max(EPSILON);
+                let len1 = d1.norm();
                 let d2 = l2.delta(params);
-                let len2 = d2.norm().max(EPSILON);
+                let len2 = d2.norm();
 
-                let g1x = d1.x / len1;
-                let g1y = d1.y / len1;
+                let (g1x, g1y) = if len1 > EPSILON {
+                    (d1.x / len1, d1.y / len1)
+                } else {
+                    (1.0, 0.0)
+                };
                 out.push((row, l1.start.x(), -g1x));
                 out.push((row, l1.start.y(), -g1y));
                 out.push((row, l1.end.x(), g1x));
                 out.push((row, l1.end.y(), g1y));
 
-                let g2x = k * d2.x / len2;
-                let g2y = k * d2.y / len2;
+                let (g2ux, g2uy) = if len2 > EPSILON {
+                    (d2.x / len2, d2.y / len2)
+                } else {
+                    (1.0, 0.0)
+                };
+                let g2x = k * g2ux;
+                let g2y = k * g2uy;
                 out.push((row, l2.start.x(), g2x));
                 out.push((row, l2.start.y(), g2y));
                 out.push((row, l2.end.x(), -g2x));
