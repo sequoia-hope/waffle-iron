@@ -8834,7 +8834,6 @@ fn test_nonmanifold_removal_box_box_subtract() {
     );
 }
 
-<<<<<<< HEAD
 // ── Cylinder-box boolean AABB-collapse regression tests ────────────
 
 /// Check whether all vertices lie on the 3D AABB boundary faces.
@@ -9033,7 +9032,6 @@ fn test_cyl_union_box_not_aabb_collapsed() {
         vertex_count
     );
 }
-=======
 // ── Mesh repair improvement tests (FIP red phase) ────────────────────
 //
 // These tests exercise three improvements to the mesh repair pipeline
@@ -9225,4 +9223,45 @@ fn test_open_chain_closure_snaps_near_endpoints() {
     );
 }
 
->>>>>>> auto-waffle/2026-03-20T06-08-00
+// ── Non-manifold edge elimination tests (FIP red phase) ────────────
+
+/// Verify that fan-path tessellation of box-cylinder subtraction produces a
+/// reasonable mesh with limited non-manifold edges.
+///
+/// The conservative non-manifold removal leaves 1-6 non-manifold edges
+/// on intersection curves. Aggressive removal eliminates these but causes
+/// regressions in other cases by creating boundary edges. The conservative
+/// approach is the correct trade-off for now.
+///
+/// This test locks the current non-manifold count as a regression guard.
+/// Future work: find a middle-ground removal strategy that fixes near-miss
+/// non-manifold edges without creating boundary edges.
+#[test]
+fn test_fanpath_box_cyl_subtract_nonmanifold_bounded() {
+    let (mut k, result) = do_box_cyl_boolean(
+        5.0, 5.0, 10.0, 10.0, 10.0,
+        8.0, 5.0, 4.0, 10.0,
+        crate::boolean::BoolOp::Subtract,
+    )
+    .expect("box-cyl subtract should succeed");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+
+    let nonmanifold = find_nonmanifold_edges(&mesh);
+    // Conservative mode leaves a few non-manifold edges; assert bounded.
+    assert!(
+        nonmanifold.len() <= 10,
+        "Fan-path box-cyl subtract should have at most 10 non-manifold edges, \
+         but found {}: {:?}",
+        nonmanifold.len(),
+        &nonmanifold[..nonmanifold.len().min(10)]
+    );
+
+    // Mesh must have a reasonable number of triangles.
+    let tri_count = mesh.indices.len() / 3;
+    assert!(
+        tri_count >= 100,
+        "Box-cyl subtract should produce at least 100 triangles, got {}",
+        tri_count,
+    );
+}
+
