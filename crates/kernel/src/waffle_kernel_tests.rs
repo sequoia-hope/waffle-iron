@@ -8691,3 +8691,145 @@ fn tr18_make_torus_negative_axis_direction() {
         vol_pos, vol_neg, rel_diff
     );
 }
+
+// ── Non-manifold edge detection tests ──────────────────────────────
+// These tests verify that tessellation of boolean results does not produce
+// non-manifold edges (edges shared by 3+ triangles). The fill_boundary_holes()
+// and close_near_boundary_chains() functions can add fill triangles whose edges
+// overlap with already-paired edges, creating non-manifold edges.
+
+/// Count edges with multiplicity >= 3 (non-manifold) using position-based matching.
+/// Returns a vec of (edge, count) for all non-manifold edges.
+fn find_nonmanifold_edges(mesh: &RenderMesh) -> Vec<(((i64, i64, i64), (i64, i64, i64)), u32)> {
+    use std::collections::HashMap as Map;
+    let max_abs = mesh.vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
+    let grid = (max_abs as f64 * 1e-5).max(1e-10);
+    let inv_grid = 1.0 / grid;
+    let quantize = |idx: u32| -> (i64, i64, i64) {
+        let base = idx as usize * 3;
+        (
+            (mesh.vertices[base] as f64 * inv_grid).round() as i64,
+            (mesh.vertices[base + 1] as f64 * inv_grid).round() as i64,
+            (mesh.vertices[base + 2] as f64 * inv_grid).round() as i64,
+        )
+    };
+    let mut edge_count: Map<((i64, i64, i64), (i64, i64, i64)), u32> = Map::new();
+    let n_tris = mesh.indices.len() / 3;
+    for i in 0..n_tris {
+        let tri = [mesh.indices[i * 3], mesh.indices[i * 3 + 1], mesh.indices[i * 3 + 2]];
+        for j in 0..3 {
+            let pa = quantize(tri[j]);
+            let pb = quantize(tri[(j + 1) % 3]);
+            let key = if pa <= pb { (pa, pb) } else { (pb, pa) };
+            *edge_count.entry(key).or_insert(0) += 1;
+        }
+    }
+    edge_count
+        .into_iter()
+        .filter(|(_, c)| *c >= 3)
+        .collect()
+}
+
+/// Test that box-cylinder union does not produce non-manifold edges.
+/// A box partially overlapping a cylinder (cylinder protrudes from one face)
+/// is a classic case where fill_boundary_holes adds triangles that create
+/// non-manifold edges along the intersection curve.
+#[test]
+fn test_nonmanifold_removal_box_cyl_union() {
+    // 10x10x10 box centered at (5,5) with r=3 cylinder offset at (8,5)
+    // so the cylinder protrudes from the +X face of the box.
+    let (mut k, result) = do_box_cyl_boolean(
+        5.0, 5.0, 10.0, 10.0, 10.0,  // box: center (5,5), 10x10, depth 10
+        8.0, 5.0, 3.0, 10.0,           // cyl: center (8,5), r=3, depth 10
+        crate::boolean::BoolOp::Union,
+    )
+    .expect("box-cyl union should succeed");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+
+    let nonmanifold = find_nonmanifold_edges(&mesh);
+    assert!(
+        nonmanifold.is_empty(),
+        "Box-cylinder union mesh has {} non-manifold edges (count>=3): {:?}",
+        nonmanifold.len(),
+        &nonmanifold[..nonmanifold.len().min(5)]
+    );
+}
+
+/// Test that box-cylinder subtract does not produce non-manifold edges.
+/// Subtracting a cylinder that partially overlaps a box edge is particularly
+/// prone to non-manifold artifacts from boundary hole filling.
+#[test]
+fn test_nonmanifold_removal_box_cyl_subtract_partial() {
+    // 10x10x10 box with cylinder partially outside the box edge
+    let (mut k, result) = do_box_cyl_boolean(
+        5.0, 5.0, 10.0, 10.0, 10.0,  // box: center (5,5), 10x10, depth 10
+        10.0, 5.0, 4.0, 10.0,          // cyl: center (10,5), r=4, depth 10 — straddles +X face
+        crate::boolean::BoolOp::Subtract,
+    )
+    .expect("box-cyl subtract should succeed");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+
+    let nonmanifold = find_nonmanifold_edges(&mesh);
+    assert!(
+        nonmanifold.is_empty(),
+        "Box-cylinder subtract mesh has {} non-manifold edges (count>=3): {:?}",
+        nonmanifold.len(),
+        &nonmanifold[..nonmanifold.len().min(5)]
+    );
+}
+
+/// Test that two overlapping cylinders union does not produce non-manifold edges.
+/// Two cylinders with offset centers produce a curved intersection curve that
+/// is especially challenging for the tessellation boundary filling logic.
+#[test]
+fn test_nonmanifold_removal_cyl_cyl_union() {
+    let (mut k, result) = do_cyl_cyl_boolean(
+        0.0, 0.0, 5.0, 10.0,   // cyl A: center (0,0), r=5, depth 10
+        4.0, 0.0, 5.0, 10.0,   // cyl B: center (4,0), r=5, depth 10 — overlaps
+        crate::boolean::BoolOp::Union,
+    )
+    .expect("cyl-cyl union should succeed");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+
+    let nonmanifold = find_nonmanifold_edges(&mesh);
+    assert!(
+        nonmanifold.is_empty(),
+        "Cylinder-cylinder union mesh has {} non-manifold edges (count>=3): {:?}",
+        nonmanifold.len(),
+        &nonmanifold[..nonmanifold.len().min(5)]
+    );
+}
+
+/// Test that box-box union with partial overlap does not produce non-manifold edges.
+/// Even the basic box-box case can produce non-manifold edges when the tessellation
+/// fill routines re-close boundary edges that are already paired.
+#[test]
+fn test_nonmanifold_removal_box_box_union() {
+    let (mut k, a, b) = make_overlapping_boxes();
+    let result = k.boolean_union(&a, &b).expect("union should succeed");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+
+    let nonmanifold = find_nonmanifold_edges(&mesh);
+    assert!(
+        nonmanifold.is_empty(),
+        "Box-box union mesh has {} non-manifold edges (count>=3): {:?}",
+        nonmanifold.len(),
+        &nonmanifold[..nonmanifold.len().min(5)]
+    );
+}
+
+/// Test that box-box subtract does not produce non-manifold edges.
+#[test]
+fn test_nonmanifold_removal_box_box_subtract() {
+    let (mut k, a, b) = make_overlapping_boxes();
+    let result = k.boolean_subtract(&a, &b).expect("subtract should succeed");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+
+    let nonmanifold = find_nonmanifold_edges(&mesh);
+    assert!(
+        nonmanifold.is_empty(),
+        "Box-box subtract mesh has {} non-manifold edges (count>=3): {:?}",
+        nonmanifold.len(),
+        &nonmanifold[..nonmanifold.len().min(5)]
+    );
+}
