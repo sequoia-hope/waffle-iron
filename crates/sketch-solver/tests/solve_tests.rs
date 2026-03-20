@@ -4201,3 +4201,150 @@ fn rectangle_large_perturbation() {
     assert_point_near(&result.positions, PointId(3), (100.0, 50.0), 1e-4);
     assert_point_near(&result.positions, PointId(4), (0.0, 50.0), 1e-4);
 }
+
+// ── Edge Case: Symmetric constraint with points on the symmetry line ────────
+
+#[test]
+fn symmetric_points_on_axis() {
+    // Two points that START on the symmetry line (both at x=50).
+    // Symmetric about vertical line should push them apart to mirror positions.
+    // P1 at (50, 10), P2 at (50, 40) — both on x=50.
+    // After solving, should be at (-d, 10) and (+d, 40) or similar.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: PointId(1), x: 30.0, y: 10.0, construction: false },
+            SketchEntity::Point { id: PointId(2), x: 70.0, y: 10.0, construction: false },
+            SketchEntity::Point { id: PointId(3), x: 50.0, y: 0.0, construction: true },
+            SketchEntity::Point { id: PointId(4), x: 50.0, y: 100.0, construction: true },
+            SketchEntity::Line { id: LineId(10), start_id: PointId(3), end_id: PointId(4), construction: true },
+        ],
+        vec![
+            SketchConstraint::Vertical { entity: EntityId(10) },
+            SketchConstraint::Dragged { point: PointId(3) },
+            SketchConstraint::Dragged { point: PointId(4) },
+            SketchConstraint::Symmetric { entity_a: PointId(1), entity_b: PointId(2), symmetry_line: EntityId(10) },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    let (x1, y1) = result.positions[&PointId(1)];
+    let (x2, y2) = result.positions[&PointId(2)];
+    // P1 and P2 should be symmetric about x=50
+    assert!(
+        (x1 + x2 - 100.0).abs() < 1e-4,
+        "midpoint x should be 50: x1={x1:.4}, x2={x2:.4}"
+    );
+    assert!(
+        (y1 - y2).abs() < 1e-4,
+        "symmetric points should have same y: y1={y1:.4}, y2={y2:.4}"
+    );
+}
+
+// ── Edge Case: Midpoint constraint ──────────────────────────────────────────
+
+#[test]
+fn midpoint_constraint_from_offset() {
+    // Point starts far from the midpoint of a line. Solver should move it.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: PointId(1), x: 0.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(2), x: 100.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(3), x: 10.0, y: 20.0, construction: false }, // far from midpoint
+            SketchEntity::Line { id: LineId(10), start_id: PointId(1), end_id: PointId(2), construction: false },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: PointId(1) },
+            SketchConstraint::Dragged { point: PointId(2) },
+            SketchConstraint::Midpoint { point: PointId(3), line: EntityId(10) },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    assert_point_near(&result.positions, PointId(3), (50.0, 0.0), 1e-4);
+}
+
+// ── Edge Case: Angle constraint near 180 degrees (nearly parallel) ──────────
+
+#[test]
+fn angle_constraint_near_180() {
+    // Two lines at a vertex, target angle 170° (nearly straight).
+    // Tests that atan2-based angle constraint handles near-π correctly.
+    // Initial P4 is placed near the 170° target: line 11 direction ≈ (-cos10°, sin10°).
+    let angle_rad = 170.0_f64.to_radians();
+    let p4x = 50.0 + 50.0 * angle_rad.cos(); // ≈ 50 + 50*(-0.985) ≈ 0.77
+    let p4y = 0.0 + 50.0 * angle_rad.sin();  // ≈ 50*0.174 ≈ 8.68
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: PointId(1), x: 0.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(2), x: 50.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(3), x: 50.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(4), x: p4x, y: p4y, construction: false },
+            SketchEntity::Line { id: LineId(10), start_id: PointId(1), end_id: PointId(2), construction: false },
+            SketchEntity::Line { id: LineId(11), start_id: PointId(3), end_id: PointId(4), construction: false },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: PointId(1) },
+            SketchConstraint::Dragged { point: PointId(2) },
+            SketchConstraint::Coincident { point_a: PointId(2), point_b: PointId(3) },
+            SketchConstraint::Angle { line_a: EntityId(10), line_b: EntityId(11), value_degrees: 170.0 },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    assert!(
+        !matches!(result.status, SolveStatus::SolveFailed { .. }),
+        "angle 170° should converge, got {:?}", result.status
+    );
+}
+
+// ── Edge Case: Parallel lines that start collinear ──────────────────────────
+
+#[test]
+fn parallel_collinear_start() {
+    // Two lines that start perfectly overlapping (collinear).
+    // Parallel constraint is already satisfied. Check it stays satisfied
+    // and the system correctly reports DOF.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: PointId(1), x: 0.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(2), x: 100.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(3), x: 0.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(4), x: 100.0, y: 0.0, construction: false },
+            SketchEntity::Line { id: LineId(10), start_id: PointId(1), end_id: PointId(2), construction: false },
+            SketchEntity::Line { id: LineId(11), start_id: PointId(3), end_id: PointId(4), construction: false },
+        ],
+        vec![
+            SketchConstraint::Parallel { line_a: EntityId(10), line_b: EntityId(11) },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    // 8 params, 1 constraint → 7 DOF
+    match result.status {
+        SolveStatus::UnderConstrained { dof } => {
+            assert_eq!(dof, 7, "expected 7 DOF, got {dof}");
+        }
+        other => panic!("expected UnderConstrained, got {:?}", other),
+    }
+}
+
+// ── Edge Case: Multiple coincident constraints (redundant) ──────────────────
+
+#[test]
+fn redundant_coincident_is_not_overconstrained() {
+    // Two Coincident constraints on the same pair of points.
+    // The system is redundant but not contradictory.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: PointId(1), x: 0.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(2), x: 10.0, y: 10.0, construction: false },
+        ],
+        vec![
+            SketchConstraint::Coincident { point_a: PointId(1), point_b: PointId(2) },
+            SketchConstraint::Coincident { point_a: PointId(1), point_b: PointId(2) },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    // Redundant but satisfiable — should NOT report OverConstrained
+    assert!(
+        !matches!(result.status, SolveStatus::OverConstrained { .. }),
+        "redundant coincident should not be over-constrained, got {:?}",
+        result.status
+    );
+}

@@ -194,7 +194,7 @@ proptest! {
         let (sx, sy) = rot(r, 0.0);
         let (ex, ey) = rot(0.0, r);
         // Extra point on circle at 45°
-        let (px, py) = rot(r * 0.7071, r * 0.7071);
+        let (px, py) = rot(r * std::f64::consts::FRAC_1_SQRT_2, r * std::f64::consts::FRAC_1_SQRT_2);
 
         let sketch = make_sketch(
             vec![
@@ -242,7 +242,7 @@ proptest! {
                     end_id: PointId(3),
                     construction: false,
                 },
-                SketchEntity::Point { id: PointId(4), x: r * 0.7071, y: r * 0.7071, construction: false },
+                SketchEntity::Point { id: PointId(4), x: r * std::f64::consts::FRAC_1_SQRT_2, y: r * std::f64::consts::FRAC_1_SQRT_2, construction: false },
             ],
             vec![
                 SketchConstraint::Dragged { point: PointId(1) },
