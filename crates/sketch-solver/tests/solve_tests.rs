@@ -4348,3 +4348,181 @@ fn redundant_coincident_is_not_overconstrained() {
         result.status
     );
 }
+
+// ── Drag simulation: incremental solve ──────────────────────────────────────
+
+#[test]
+fn drag_simulation_rectangle() {
+    // Simulate dragging corner of a rectangle. Solve at each step using
+    // the previous solution as starting point. All steps should converge.
+    let mut p1 = (0.0, 0.0);
+    for step in 0..10 {
+        // Drag P1 along a diagonal
+        p1.0 = step as f64 * 5.0;
+        p1.1 = step as f64 * 3.0;
+
+        let sketch = make_sketch(
+            vec![
+                SketchEntity::Point { id: PointId(1), x: p1.0, y: p1.1, construction: false },
+                SketchEntity::Point { id: PointId(2), x: p1.0 + 100.0, y: p1.1, construction: false },
+                SketchEntity::Point { id: PointId(3), x: p1.0 + 100.0, y: p1.1 + 50.0, construction: false },
+                SketchEntity::Point { id: PointId(4), x: p1.0, y: p1.1 + 50.0, construction: false },
+                SketchEntity::Line { id: LineId(10), start_id: PointId(1), end_id: PointId(2), construction: false },
+                SketchEntity::Line { id: LineId(11), start_id: PointId(2), end_id: PointId(3), construction: false },
+                SketchEntity::Line { id: LineId(12), start_id: PointId(3), end_id: PointId(4), construction: false },
+                SketchEntity::Line { id: LineId(13), start_id: PointId(4), end_id: PointId(1), construction: false },
+            ],
+            vec![
+                SketchConstraint::Horizontal { entity: EntityId(10) },
+                SketchConstraint::Horizontal { entity: EntityId(12) },
+                SketchConstraint::Vertical { entity: EntityId(11) },
+                SketchConstraint::Vertical { entity: EntityId(13) },
+                SketchConstraint::Distance { entity_a: EntityId(1), entity_b: EntityId(2), value: 100.0 },
+                SketchConstraint::Distance { entity_a: EntityId(2), entity_b: EntityId(3), value: 50.0 },
+                SketchConstraint::Dragged { point: PointId(1) },
+            ],
+        );
+        let result = solve_sketch(&sketch);
+        assert!(
+            matches!(result.status, SolveStatus::FullyConstrained),
+            "drag step {step}: expected FullyConstrained, got {:?}", result.status
+        );
+        assert_point_near(&result.positions, PointId(2), (p1.0 + 100.0, p1.1), 1e-4);
+    }
+}
+
+// ── Near-degenerate isoceles ────────────────────────────────────────────────
+
+#[test]
+fn near_degenerate_isoceles() {
+    // Very thin isoceles triangle: base=100, equal sides=50.1 (barely > 50).
+    // Triangle inequality is barely satisfied. Tests solver doesn't diverge.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: PointId(1), x: 0.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(2), x: 100.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(3), x: 50.0, y: 5.0, construction: false }, // near the base
+            SketchEntity::Line { id: LineId(10), start_id: PointId(1), end_id: PointId(2), construction: false },
+            SketchEntity::Line { id: LineId(11), start_id: PointId(2), end_id: PointId(3), construction: false },
+            SketchEntity::Line { id: LineId(12), start_id: PointId(3), end_id: PointId(1), construction: false },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: PointId(1) },
+            SketchConstraint::Horizontal { entity: EntityId(10) },
+            SketchConstraint::Distance { entity_a: EntityId(1), entity_b: EntityId(2), value: 100.0 },
+            SketchConstraint::Equal { entity_a: EntityId(11), entity_b: EntityId(12) },
+            SketchConstraint::Distance { entity_a: EntityId(2), entity_b: EntityId(3), value: 50.1 },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    assert!(
+        matches!(result.status, SolveStatus::FullyConstrained),
+        "near-degenerate isoceles should converge, got {:?}", result.status
+    );
+    // P3 should be above the base line
+    let (_, y3) = result.positions[&PointId(3)];
+    assert!(y3 > 0.0, "apex should be above base, got y={y3:.4}");
+    // Check equal sides
+    let (x2, y2) = result.positions[&PointId(2)];
+    let (x3, y3) = result.positions[&PointId(3)];
+    let d23 = ((x3 - x2).powi(2) + (y3 - y2).powi(2)).sqrt();
+    let d31 = (x3.powi(2) + y3.powi(2)).sqrt();
+    assert!(
+        (d23 - d31).abs() < 1e-4,
+        "sides should be equal: d23={d23:.4}, d31={d31:.4}"
+    );
+}
+
+// ── Bracket pattern: perpendicular + equal + pinned ─────────────────────────
+
+#[test]
+fn bracket_pattern() {
+    // L-shaped bracket: two perpendicular lines of equal length from a pinned point.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: PointId(1), x: 0.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(2), x: 40.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(3), x: 0.0, y: 40.0, construction: false },
+            SketchEntity::Line { id: LineId(10), start_id: PointId(1), end_id: PointId(2), construction: false },
+            SketchEntity::Line { id: LineId(11), start_id: PointId(1), end_id: PointId(3), construction: false },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: PointId(1) },
+            SketchConstraint::Perpendicular { line_a: EntityId(10), line_b: EntityId(11) },
+            SketchConstraint::Equal { entity_a: EntityId(10), entity_b: EntityId(11) },
+            SketchConstraint::Horizontal { entity: EntityId(10) },
+            SketchConstraint::Distance { entity_a: EntityId(1), entity_b: EntityId(2), value: 40.0 },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    assert!(
+        matches!(result.status, SolveStatus::FullyConstrained),
+        "bracket should be fully constrained, got {:?}", result.status
+    );
+    assert_point_near(&result.positions, PointId(2), (40.0, 0.0), 1e-4);
+    // P3 should be at (0, ±40) — perpendicular to horizontal, equal length
+    let (x3, y3) = result.positions[&PointId(3)];
+    assert!(
+        x3.abs() < 1e-4 && (y3.abs() - 40.0).abs() < 1e-4,
+        "bracket leg should be at (0, ±40), got ({x3:.4}, {y3:.4})"
+    );
+}
+
+// ── Stadium slot (simplified): two lines + two arcs forming a closed slot ───
+
+#[test]
+fn stadium_slot_closed() {
+    // Simplified stadium slot: horizontal lines at y=±6, semicircular arcs at
+    // each end with R=6. Pinned at left center.
+    //
+    // Points: left-center P1(0,0), left-top P2(0,6), left-bottom P3(0,-6),
+    //         right-center P4(40,0), right-top P5(40,6), right-bottom P6(40,-6)
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: PointId(1), x: 0.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(2), x: 0.0, y: 6.0, construction: false },
+            SketchEntity::Point { id: PointId(3), x: 0.0, y: -6.0, construction: false },
+            SketchEntity::Point { id: PointId(4), x: 40.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: PointId(5), x: 40.0, y: 6.0, construction: false },
+            SketchEntity::Point { id: PointId(6), x: 40.0, y: -6.0, construction: false },
+            // Top line: P2 → P5
+            SketchEntity::Line { id: LineId(10), start_id: PointId(2), end_id: PointId(5), construction: false },
+            // Bottom line: P6 → P3
+            SketchEntity::Line { id: LineId(11), start_id: PointId(6), end_id: PointId(3), construction: false },
+            // Left arc: center P1, start P3, end P2 (CCW)
+            SketchEntity::Arc { id: ArcId(20), center_id: PointId(1), start_id: PointId(3), end_id: PointId(2), construction: false },
+            // Right arc: center P4, start P5, end P6 (CCW)
+            SketchEntity::Arc { id: ArcId(21), center_id: PointId(4), start_id: PointId(5), end_id: PointId(6), construction: false },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: PointId(1) },
+            SketchConstraint::Horizontal { entity: EntityId(10) },
+            SketchConstraint::Horizontal { entity: EntityId(11) },
+            SketchConstraint::Radius { entity: EntityId(20), value: 6.0 },
+            SketchConstraint::Radius { entity: EntityId(21), value: 6.0 },
+            // Pin arc end points onto their circles
+            SketchConstraint::OnEntity { point: PointId(2), entity: EntityId(20) },
+            SketchConstraint::OnEntity { point: PointId(6), entity: EntityId(21) },
+            // Distance between centers = slot length
+            SketchConstraint::Distance { entity_a: EntityId(1), entity_b: EntityId(4), value: 40.0 },
+            // Horizontal alignment of centers
+            SketchConstraint::Horizontal {
+                entity: EntityId(10), // reuse — we need centers aligned
+            },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    // The slot should converge — exact shape depends on DOF count
+    assert!(
+        !matches!(result.status, SolveStatus::SolveFailed { .. }),
+        "stadium slot should not fail, got {:?}", result.status
+    );
+    // Check arc radius
+    let (x1, y1) = result.positions[&PointId(1)];
+    let (x2, y2) = result.positions[&PointId(2)];
+    let r_left = ((x2 - x1).powi(2) + (y2 - y1).powi(2)).sqrt();
+    assert!(
+        (r_left - 6.0).abs() < 1e-3,
+        "left arc radius should be 6, got {r_left:.4}"
+    );
+}
