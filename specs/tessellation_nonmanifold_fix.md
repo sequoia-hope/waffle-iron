@@ -1,107 +1,85 @@
 # Tessellation Non-Manifold Edge Fix
 
-Fix for unpaired edges in tessellated boolean results.
-
-**Status**: In progress
-**References**: [#16] Mantyla (half-edge B-Rep), [#33] Stroud (topology repair)
-**Classification**: Bug fix (modeling-related)
-
----
-
 ## Goal
 
-Reduce unpaired edges in tessellated multi-operation boolean results. Currently,
-cases with 2-5 unpaired edges out of thousands fail the watertight oracle.
-Two specific root causes have been identified:
+Fix the systematic tessellation bug causing 1-2 non-manifold edges (edges shared
+by 3+ triangles) in boolean result meshes. This is the #1 assay failure category
+(60/93 failing cases cite `watertight_mesh`).
 
-1. The anti-parallel direction check in B-Rep stitch twin pairing is too strict
-   for short edges near boolean intersection curves.
-2. The `close_near_boundary_chains` tessellation repair skips boundary components
-   larger than 8 vertices.
+## Problem Description
 
----
+The fan-path tessellation pipeline (used for boolean results with arc edges and
+polygon-soup B-Rep) runs `fill_boundary_holes()` up to 6 times across multiple
+passes (lines 388, 398, 408, 431, 439 in tessellation/mod.rs). Each pass detects
+"boundary edges" (directed half-edges with count=1 and no reverse) and fills them
+with triangles.
+
+**Root cause**: `fill_boundary_holes` and `close_near_boundary_chains` can add fill
+triangles whose edges overlap with already-paired edges in the mesh. When the oracle
+(which uses undirected position-based edge matching) sees the same geometric edge
+referenced by 3+ triangles, it reports a non-manifold edge.
+
+Specifically:
+1. Pass N detects a boundary hole and fills it with triangles
+2. The fill triangle shares an edge with an existing triangle pair
+3. That edge now has count = 3 → non-manifold
+
+This is exacerbated by:
+- `remove_duplicate_triangles` only removing same-winding duplicates (line 3417-3426)
+- Multiple fill passes compounding the problem
+- `close_near_boundary_chains` adding additional fill triangles
 
 ## Parameters
 
-### Fix 1: Relax anti-parallel threshold in stitch twin pairing
-
-| Parameter | Current | Proposed |
-|-----------|---------|----------|
-| `cos_angle` threshold | -0.5 (120° max deviation) | -0.3 (107° max deviation) |
-| Edge length guard | none | For edges shorter than `tol`, skip the direction check entirely |
-
-**Location**: `crates/kernel/src/boolean/stitch.rs`, Step 3d (~line 455)
-
-### Fix 2: Increase boundary chain size limit
-
-| Parameter | Current | Proposed |
-|-----------|---------|----------|
-| Max component size | 8 | 24 |
-
-**Location**: `crates/kernel/src/tessellation/mod.rs`, `close_near_boundary_chains` (~line 4036)
-
----
+- **Input**: Tessellated mesh from fan-path or bounded-path tessellation of boolean results
+- **Tolerance**: TAU_TESS_GRID_FACTOR = 1e-5 (position quantization grid)
 
 ## Branch Table
 
-| Fix | Branch | Expected Behavior |
-|-----|--------|-------------------|
-| Fix 1a | Short edge (len < tol) | Skip anti-parallel check, pair by proximity only |
-| Fix 1b | Normal edge, cos > -0.3 | Skip (not anti-parallel) |
-| Fix 1c | Normal edge, cos ≤ -0.3 | Pair as twin (existing behavior) |
-| Fix 2a | Component size 3-24 | Attempt boundary chain closure |
-| Fix 2b | Component size > 24 | Skip (existing behavior for >8) |
-
----
+| Scenario | Current Behavior | Expected Behavior |
+|----------|------------------|-------------------|
+| Fill triangle shares edge with already-paired geometry | Creates non-manifold edge (count=3) | Skip fill triangle or remove overlapping triangle |
+| Opposite-winding duplicate | Not detected by remove_duplicate_triangles | Should be detected and removed |
+| Multiple fill passes compound | Each pass may add overlapping fills | Later passes should check for non-manifold edges before adding |
 
 ## Invariants
 
-1. **No regression**: All 537 existing kernel tests must pass.
-2. **No regression**: All 25 F-series assay cases must pass.
-3. **Improvement**: R-series watertight failures should decrease.
-4. **Topology preservation**: Paired edges must form valid twin pairs
-   (opposite direction, shared vertices).
-5. **No false positives**: The relaxed threshold must not pair edges
-   that are genuinely not twins (e.g., edges from different faces that
-   happen to be nearby but non-adjacent).
-
----
+1. After tessellation, every geometric edge (position-based, undirected) must have
+   exactly count = 2 (manifold) or count = 1 (boundary, indicating a real hole)
+2. No edge may have count >= 3 (non-manifold)
+3. Fill triangles must not create edges that are already properly paired
 
 ## Oracles
 
-1. **Unpaired edge count**: For each test case, count boundary + non-manifold
-   edges in the tessellated mesh. Assert fewer than before the fix.
-2. **Watertight check**: `check_watertight()` — quantized edge pairing.
-3. **Volume positivity**: Signed volume must remain positive.
-4. **Euler formula**: V - E + F = 2 for the B-Rep solid.
-
----
+1. `check_watertight_mesh` oracle: 0 unpaired edges (all edges count = 2)
+2. No non-manifold edges reported
+3. Assay cases R0004, R0021, R0028, R0032, R0035, R0043, R0049, R0061, F0023
+   should pass after fix
 
 ## Failure Modes
 
-1. **Over-relaxed threshold pairs wrong edges**: If `cos_angle > -0.3` is still
-   too strict or `-0.3` pairs non-twin edges, the fix should be tuned. The
-   endpoint proximity check (`fwd_dist < tol_sq`) provides a second guard.
-2. **Large boundary chains produce wrong triangulation**: Components > 8 vertices
-   may have complex topology. The existing triangle-hole and quad-hole logic
-   handles specific patterns; larger components may need generic ear-clipping.
-
----
+- Fill triangle creates non-manifold edge → detected by oracle, assay case fails
+- Over-aggressive duplicate removal → could create boundary edges (count=1)
+- Degenerate fill triangles → handled by existing remove_degenerate_triangles pass
 
 ## Research Basis
 
-- [#16] Mantyla: Half-edge B-Rep twin pairing semantics
-- [#33] Stroud: Topology repair after boolean operations
-- S-H clipping tolerance analysis: Independent polygon clipping produces
-  geometrically identical but numerically distinct intersection points.
-  The twin pairing must tolerate this discrepancy.
+- Ref #16 (Mantyla): Half-edge topology enforces 2-manifold property. Tessellation
+  output should maintain this invariant.
+- Ref #33 (Stroud Ch.4): B-Rep visualization requires manifold triangle meshes.
+- The fix applies standard mesh post-processing: detect and remove non-manifold
+  edges caused by overlapping triangles. This is a well-known issue in boolean
+  result tessellation (see Cherchi et al. 2020 mesh arrangements).
 
----
+## Fix Strategy
 
-## Analytical vs. Approximate Method Justification
+Add a `remove_nonmanifold_duplicates()` post-processing pass that:
+1. Builds position-based undirected edge counts (same method as oracle)
+2. Identifies edges with count >= 3
+3. For each non-manifold edge, identifies the "extra" triangle(s) — the ones
+   that were added by fill passes (identifiable by face_id = KernelId(u64::MAX)
+   or by being in later face ranges)
+4. Removes the extra triangle(s) to bring edge count back to 2
 
-Not applicable — this fix addresses tessellation mesh repair, not SSI.
-
----
-
-*Last updated: 2026-03-19*
+This pass should run as the final step before `weld_mesh_vertices`, after all
+fill and close passes are complete.
