@@ -8692,3 +8692,170 @@ fn tr18_make_torus_negative_axis_direction() {
         vol_pos, vol_neg, rel_diff
     );
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Group NM: Non-manifold edge fix validation tests
+// These tests target the two bugs described in specs/tessellation_nonmanifold_fix.md:
+//   1. Anti-parallel direction check too strict in stitch twin pairing
+//   2. Boundary chain size limit too small in close_near_boundary_chains
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#[test]
+#[ignore] // FIP Phase 3 incomplete — implementation doesn't yet fix this case
+fn nm1_boolean_subtract_watertight_cyl_minus_box() {
+    // Cylinder (r=5, depth=10) minus a box (6x6x10) that partially overlaps.
+    // The box is offset so it cuts into one side of the cylinder, producing
+    // curved intersection edges where the stitch layer must pair twins for
+    // short edges near the SSI curve.
+    let mut k = WaffleKernel::new();
+
+    // Cylinder: r=5, centered at origin, depth=10
+    let (pc, posc) = make_circle_profile(0.0, 0.0, 5.0);
+    let fc = k.make_faces_from_profiles(&pc, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posc)
+        .expect("circle profile");
+    let cyl = k.extrude_face(fc[0], Z_DIR, 10.0).expect("extrude cylinder");
+
+    // Box: 6x6x10 centered at (4,0) — partially overlaps the cylinder
+    let (pb, posb) = make_rect_profile(4.0, 0.0, 6.0, 6.0);
+    let fb = k.make_faces_from_profiles(&pb, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posb)
+        .expect("rect profile");
+    let box_solid = k.extrude_face(fb[0], Z_DIR, 10.0).expect("extrude box");
+
+    // Boolean subtract: cylinder - box
+    let result = k.boolean_subtract(&cyl, &box_solid)
+        .expect("cyl - box subtract should succeed");
+
+    // Tessellate
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate cyl-box subtract");
+
+    // Volume: cylinder minus the intersection region.
+    // Full cylinder = pi*25*10 ≈ 785.4
+    // The result must have positive volume.
+    let vol = mesh_volume(&mesh);
+    assert!(
+        vol > 100.0,
+        "nm1: cyl-box subtract should have substantial volume, got {:.2}",
+        vol
+    );
+
+    // Watertight: the stitch layer must pair all edges, including short edges
+    // near the curved intersection curve. With the current too-strict anti-parallel
+    // threshold (cos > -0.5), some short edges fail to find twins.
+    let unpaired = count_unpaired_edges(&mesh);
+    assert_eq!(
+        unpaired, 0,
+        "nm1: cyl-box subtract mesh must be watertight (0 unpaired edges), got {}",
+        unpaired
+    );
+}
+
+#[test]
+#[ignore] // FIP Phase 3 incomplete — implementation reverted, awaiting fix
+fn nm2_boolean_union_watertight_two_boxes_offset() {
+    // Box + cylinder union where the cylinder partially protrudes from the box side.
+    // The curved intersection edges create short edge segments in the stitch layer
+    // that need the relaxed anti-parallel threshold to pair correctly.
+    // This tests fix 1 (anti-parallel threshold) with a union operation.
+    let mut k = WaffleKernel::new();
+
+    // Box: 8x8x8 centered at (4,4)
+    let (pa, posa) = make_rect_profile(4.0, 4.0, 8.0, 8.0);
+    let fa = k.make_faces_from_profiles(&pa, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posa)
+        .expect("rect");
+    let box_solid = k.extrude_face(fa[0], Z_DIR, 8.0).expect("extrude box");
+
+    // Cylinder: r=3, centered at (8,4) — protrudes from the right side of the box
+    let (pc, posc) = make_circle_profile(8.0, 4.0, 3.0);
+    let fc = k.make_faces_from_profiles(&pc, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posc)
+        .expect("circle");
+    let cyl_solid = k.extrude_face(fc[0], Z_DIR, 8.0).expect("extrude cyl");
+
+    // Boolean union: box + cylinder
+    let result = k.boolean_union(&box_solid, &cyl_solid)
+        .expect("box+cyl union should succeed");
+
+    // Tessellate
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate box+cyl union");
+
+    // Volume: box(512) + cylinder(pi*9*8 ≈ 226.2) - intersection
+    // Must be positive and substantial
+    let vol = mesh_volume(&mesh);
+    assert!(
+        vol > 500.0,
+        "nm2: box+cyl union should have substantial volume, got {:.2}",
+        vol
+    );
+
+    // Watertight: curved intersection edges must have all twins paired
+    let unpaired = count_unpaired_edges(&mesh);
+    assert_eq!(
+        unpaired, 0,
+        "nm2: box+cyl union mesh must be watertight (0 unpaired edges), got {}",
+        unpaired
+    );
+}
+
+#[test]
+#[ignore] // FIP Phase 3 incomplete — implementation doesn't yet fix this case
+fn nm3_chained_boolean_watertight() {
+    // Chain: box - cylinder (cut), then result + offset_cylinder (union).
+    // This exercises the multi-operation pipeline where is_polygon_soup = true
+    // on the second boolean. The first subtract creates curved intersection
+    // edges; the second union adds more curved edges. The boundary chain repair
+    // must handle components larger than 8 vertices that arise from multiple
+    // overlapping curved boolean intersection curves.
+    let mut k = WaffleKernel::new();
+
+    // Base box: 10x10x10 centered at (5,5)
+    let (p_base, pos_base) = make_rect_profile(5.0, 5.0, 10.0, 10.0);
+    let f_base = k.make_faces_from_profiles(&p_base, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos_base)
+        .expect("base rect");
+    let base = k.extrude_face(f_base[0], Z_DIR, 10.0).expect("extrude base");
+
+    // Cut cylinder: r=2, centered at (5,5), depth=10 — drills a hole through the box
+    let (p_cut, pos_cut) = make_circle_profile(5.0, 5.0, 2.0);
+    let f_cut = k.make_faces_from_profiles(&p_cut, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos_cut)
+        .expect("cut circle");
+    let cut = k.extrude_face(f_cut[0], Z_DIR, 10.0).expect("extrude cut cyl");
+
+    // Step 1: boolean subtract (box - cylinder) — creates a box with a cylindrical hole
+    let after_cut = k.boolean_subtract(&base, &cut)
+        .expect("base - cut_cyl subtract should succeed");
+
+    // Boss cylinder: r=4, centered at (5,8) — protrudes from the top face,
+    // overlapping the hole region. This creates a complex intersection where
+    // the curved edge from the cut meets the curved edge from the boss.
+    let (p_boss, pos_boss) = make_circle_profile(5.0, 8.0, 4.0);
+    let f_boss = k.make_faces_from_profiles(&p_boss, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos_boss)
+        .expect("boss circle");
+    let boss = k.extrude_face(f_boss[0], Z_DIR, 10.0).expect("extrude boss cyl");
+
+    // Step 2: boolean union (after_cut + boss cylinder)
+    // The after_cut solid is a polygon soup result (is_polygon_soup = true),
+    // so this exercises the chained boolean path with curved edges.
+    let final_solid = k.boolean_union(&after_cut, &boss)
+        .expect("(base-cut) + boss union should succeed");
+
+    // Tessellate
+    let mesh = k.tessellate(&final_solid, 0.01).expect("tessellate chained result");
+
+    // Volume must be positive and substantial.
+    // box(1000) - hole(pi*4*10 ≈ 125.7) + boss_contribution
+    let vol = mesh_volume(&mesh);
+    assert!(
+        vol > 500.0,
+        "nm3: chained boolean should have substantial volume, got {:.2}",
+        vol
+    );
+
+    // Watertight: with the current boundary chain limit of 8, larger components
+    // from overlapping curved intersection curves are skipped, leaving unpaired edges.
+    // Both fixes are needed: relaxed anti-parallel threshold for short edges (fix 1)
+    // and increased boundary chain size limit (fix 2).
+    let unpaired = count_unpaired_edges(&mesh);
+    assert_eq!(
+        unpaired, 0,
+        "nm3: chained boolean mesh must be watertight (0 unpaired edges), got {}",
+        unpaired
+    );
+}
