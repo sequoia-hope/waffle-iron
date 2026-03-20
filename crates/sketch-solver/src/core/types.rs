@@ -99,7 +99,7 @@ pub struct SolveOptions {
 impl Default for SolveOptions {
     fn default() -> Self {
         Self {
-            max_iterations: 50,
+            max_iterations: 100,
             tolerance: 1e-7,
             lambda_init: 1e-3,
             spring_mu: 1e-10,
@@ -116,4 +116,6 @@ pub struct SolveOutcome {
     pub jacobian_scaled: DMatrix<f64>,
     /// Scaled residual (for conflict detection).
     pub residual_scaled: DVector<f64>,
+    /// Diagonal row-scaling vector D_row (for Hessian analysis).
+    pub d_row: DVector<f64>,
 }

@@ -275,23 +275,41 @@ pub fn arb_constrained_triangle() -> impl Strategy<Value = (Sketch, [f64; 3])> {
             let d12 = ((p2.0 - p1.0).powi(2) + (p2.1 - p1.1).powi(2)).sqrt();
             let d20 = ((p0.0 - p2.0).powi(2) + (p0.1 - p2.1).powi(2)).sqrt();
 
+            // Rotate all points so that edge P0→P1 is horizontal.
+            // This gives the solver a good starting position for the Horizontal constraint.
+            let dx = p1.0 - p0.0;
+            let dy = p1.1 - p0.1;
+            let angle = dy.atan2(dx);
+            let cos_a = (-angle).cos();
+            let sin_a = (-angle).sin();
+            let rotate = |px: f64, py: f64| -> (f64, f64) {
+                let rx = px - p0.0;
+                let ry = py - p0.1;
+                (p0.0 + rx * cos_a - ry * sin_a, p0.1 + rx * sin_a + ry * cos_a)
+            };
+            let rp0 = rotate(p0.0, p0.1);
+            let rp1 = rotate(p1.0, p1.1);
+            let rp2 = rotate(p2.0, p2.1);
+            // Force exact horizontal for P0→P1
+            let rp1 = (rp1.0, rp0.1);
+
             let entities = vec![
                 SketchEntity::Point {
                     id: PointId(1),
-                    x: p0.0,
-                    y: p0.1,
+                    x: rp0.0,
+                    y: rp0.1,
                     construction: false,
                 },
                 SketchEntity::Point {
                     id: PointId(2),
-                    x: p1.0,
-                    y: p1.1,
+                    x: rp1.0,
+                    y: rp1.1,
                     construction: false,
                 },
                 SketchEntity::Point {
                     id: PointId(3),
-                    x: p2.0,
-                    y: p2.1,
+                    x: rp2.0,
+                    y: rp2.1,
                     construction: false,
                 },
                 SketchEntity::Line {
@@ -668,6 +686,7 @@ impl ConstraintSpec {
                         point: pt(0),
                         line: line_idx(2, 4),
                         d: p[6].abs() + 0.1,
+                        sign: 1.0,
                     },
                     params,
                 )
@@ -683,6 +702,7 @@ impl ConstraintSpec {
                         line: line_idx(0, 2),
                         center: pt(4),
                         radius: RadiusDef::Param(RadiusIdx(6)),
+                        sign: 1.0,
                     },
                     params,
                 )

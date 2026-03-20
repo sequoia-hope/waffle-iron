@@ -26,6 +26,14 @@ pub trait ConstraintEq {
     /// Append sparse Jacobian entries: (global_row, param_col, value).
     /// `eq_offset` is this constraint's starting row in the global Jacobian.
     fn jacobian(&self, params: &[f64], eq_offset: usize, out: &mut Vec<(usize, usize, f64)>);
+
+    /// Sparse Hessian entries: (eq_index, param_col1, param_col2, value).
+    /// Only needed for nonlinear constraints. Default: empty (linear constraint).
+    /// Used by restricted Hessian analysis to detect phantom DOF at cardinal positions.
+    fn hessian(&self, params: &[f64], eq_offset: usize) -> Vec<(usize, usize, usize, f64)> {
+        let _ = (params, eq_offset);
+        Vec::new()
+    }
 }
 
 /// Internal constraint representation with pre-resolved typed indices.
@@ -120,6 +128,9 @@ pub enum ConstraintImpl {
         point: PointIdx,
         line: LineIdx,
         d: f64,
+        /// Sign of signed distance at initial config (+1 or -1).
+        /// Fixed at build time so the constraint doesn't flip sides.
+        sign: f64,
     },
 
     // ── Group 5: Tangent ─────────────────────────────────────────────
@@ -127,6 +138,9 @@ pub enum ConstraintImpl {
         line: LineIdx,
         center: PointIdx,
         radius: RadiusDef,
+        /// Sign of signed distance at initial config (+1 or -1).
+        /// Fixed at build time so the constraint doesn't flip sides.
+        sign: f64,
     },
     TangentArcArc {
         c1: PointIdx,
@@ -348,15 +362,18 @@ impl ConstraintEq for ConstraintImpl {
             }
 
             // ── Group 4: Normalized point-line distance ──────────────
-            Self::DistancePL { point, line, d } => {
+            Self::DistancePL {
+                point, line, d, sign,
+            } => {
                 let p = point.read(params);
                 let ls = line.start.read(params);
                 let ld = line.delta(params);
                 let vp = p - ls;
                 let cross = vp.x * ld.y - vp.y * ld.x;
                 let line_len = ld.norm().max(EPSILON);
-                // Absolute distance — slvs PtLineDistance uses unsigned distance
-                out[0] = cross.abs() / line_len - d;
+                // Signed formulation: sign is fixed at build time.
+                // f = sign·h - d where h = cross/D.
+                out[0] = sign * cross / line_len - d;
             }
 
             // ── Group 5: Tangent ─────────────────────────────────────
@@ -364,8 +381,11 @@ impl ConstraintEq for ConstraintImpl {
                 line,
                 center,
                 radius,
+                sign,
             } => {
-                // Normalized distance from center to line minus radius = 0
+                // Signed formulation: sign·h - r = 0 where h = cross/D.
+                // Sign is fixed at build time based on which side of the line
+                // the center is on. This avoids abs/sign discontinuity.
                 let c = center.read(params);
                 let ls = line.start.read(params);
                 let ld = line.delta(params);
@@ -373,8 +393,7 @@ impl ConstraintEq for ConstraintImpl {
                 let cross = vc.x * ld.y - vc.y * ld.x;
                 let line_len = ld.norm().max(EPSILON);
                 let r = radius.read(params, *center);
-                // Absolute distance — tangency is unsigned
-                out[0] = cross.abs() / line_len - r;
+                out[0] = sign * cross / line_len - r;
             }
             Self::TangentArcArc {
                 c1,
@@ -681,25 +700,25 @@ impl ConstraintEq for ConstraintImpl {
             }
 
             // ── Group 4: Normalized point-line distance ──────────────
-            Self::DistancePL { point, line, .. } => {
-                // f = |cross(vp, ld)| / D - d  (unsigned distance)
-                // ∂|cross|/∂x = sign(cross) · ∂cross/∂x
+            Self::DistancePL {
+                point, line, sign, ..
+            } => {
+                // f = sign·h - d where h = cross/D
+                // ∂f/∂x = sign · ∂h/∂x  (constant sign — no discontinuity)
                 let p = point.read(params);
                 let ls = line.start.read(params);
                 let ld = line.delta(params);
                 let vp = p - ls;
                 let cross = vp.x * ld.y - vp.y * ld.x;
-                let s = if cross >= 0.0 { 1.0 } else { -1.0 };
                 let d_sq = ld.norm_squared().max(EPSILON * EPSILON);
                 let d_len = d_sq.sqrt();
                 let d_cubed = d_sq * d_len;
 
-                // ∂f/∂px = s * dy/D
+                let s = *sign;
+
                 out.push((row, point.x(), s * ld.y / d_len));
-                // ∂f/∂py = s * -dx/D
                 out.push((row, point.y(), s * -ld.x / d_len));
 
-                // Line start: quotient rule, scaled by s
                 out.push((
                     row,
                     line.start.x(),
@@ -711,7 +730,6 @@ impl ConstraintEq for ConstraintImpl {
                     s * ((ld.x - vp.x) / d_len + cross * ld.y / d_cubed),
                 ));
 
-                // Line end: quotient rule, scaled by s
                 out.push((
                     row,
                     line.end.x(),
@@ -729,24 +747,26 @@ impl ConstraintEq for ConstraintImpl {
                 line,
                 center,
                 radius,
+                sign,
             } => {
-                // f = |cross(vc, ld)| / D - r  (unsigned distance)
-                // ∂|cross|/∂x = sign(cross) · ∂cross/∂x
+                // f = sign·h - r where h = cross/D
+                // ∂f/∂x = sign · ∂h/∂x  (constant sign — no discontinuity)
                 let c = center.read(params);
                 let ls = line.start.read(params);
                 let ld = line.delta(params);
                 let vc = c - ls;
                 let cross = vc.x * ld.y - vc.y * ld.x;
-                let s = if cross >= 0.0 { 1.0 } else { -1.0 };
                 let d_sq = ld.norm_squared().max(EPSILON * EPSILON);
                 let d_len = d_sq.sqrt();
                 let d_cubed = d_sq * d_len;
 
-                // ∂f/∂center — spatial part scaled by sign(cross)
+                let s = *sign;
+
+                // ∂h/∂center (scaled by sign)
                 out.push((row, center.x(), s * ld.y / d_len));
                 out.push((row, center.y(), s * -ld.x / d_len));
 
-                // ∂f/∂line.start — spatial part scaled by sign(cross)
+                // ∂h/∂line.start (scaled by sign)
                 out.push((
                     row,
                     line.start.x(),
@@ -758,7 +778,7 @@ impl ConstraintEq for ConstraintImpl {
                     s * ((ld.x - vc.x) / d_len + cross * ld.y / d_cubed),
                 ));
 
-                // ∂f/∂line.end — spatial part scaled by sign(cross)
+                // ∂h/∂line.end (scaled by sign)
                 out.push((
                     row,
                     line.end.x(),
@@ -776,20 +796,13 @@ impl ConstraintEq for ConstraintImpl {
                         out.push((row, r_idx.0, -1.0));
                     }
                     RadiusDef::Implicit(start) => {
-                        let s = start.read(params);
-                        let cs = *center; // center PointIdx
-                        let cv = cs.read(params) - s;
+                        let sv = start.read(params);
+                        let cv = center.read(params) - sv;
                         let d_cs = cv.norm().max(EPSILON);
-                        // ∂r/∂center = (center - start) / d_cs
-                        // But center Jacobian already has the cross/D part.
-                        // We need to ADD -∂r/∂center to the existing center entries.
-                        // Since we already pushed center entries, we push additional entries
-                        // (sparse format sums duplicates).
                         let gr_cx = cv.x / d_cs;
                         let gr_cy = cv.y / d_cs;
                         out.push((row, center.x(), -gr_cx));
                         out.push((row, center.y(), -gr_cy));
-                        // ∂r/∂start = -(center - start) / d_cs = (start - center) / d_cs
                         out.push((row, start.x(), gr_cx));
                         out.push((row, start.y(), gr_cy));
                     }
@@ -955,6 +968,137 @@ impl ConstraintEq for ConstraintImpl {
             }
         }
     }
+
+    fn hessian(&self, params: &[f64], eq_offset: usize) -> Vec<(usize, usize, usize, f64)> {
+        let row = eq_offset;
+        let mut out = Vec::new();
+
+        match self {
+            // ── Group 1: Linear constraints have zero Hessian ──────────
+            Self::Coincident { .. }
+            | Self::Horizontal { .. }
+            | Self::Vertical { .. }
+            | Self::SymmetricH { .. }
+            | Self::SymmetricV { .. }
+            | Self::Midpoint { .. }
+            | Self::Dragged { .. }
+            | Self::Radius { .. }
+            | Self::Diameter { .. }
+            | Self::HDistance { .. }
+            | Self::VDistance { .. }
+            | Self::SameOrientation
+            | Self::EqualRadius { .. } => {}
+
+            // ── DistancePP: f = ||Δ|| - d ──────────────────────────────
+            // H(||Δ||) = (I - n̂n̂ᵀ) / ||Δ||  where n̂ = Δ/||Δ||
+            Self::DistancePP { p1, p2, .. } => {
+                push_norm_hessian(&mut out, row, params, &[p1.x(), p1.y()], &[p2.x(), p2.y()]);
+            }
+
+            // ── EqualLength: f = ||l1|| - ||l2|| ───────────────────────
+            Self::EqualLength { l1, l2 } => {
+                // +H(||l1||)
+                push_norm_hessian(
+                    &mut out, row, params,
+                    &[l1.start.x(), l1.start.y()],
+                    &[l1.end.x(), l1.end.y()],
+                );
+                // -H(||l2||)
+                push_norm_hessian_scaled(
+                    &mut out, row, params,
+                    &[l2.start.x(), l2.start.y()],
+                    &[l2.end.x(), l2.end.y()],
+                    -1.0,
+                );
+            }
+
+            // ── OnCircle (Param): f = ||p-c|| - r ──────────────────────
+            Self::OnCircle { point, center, radius: RadiusDef::Param(_) } => {
+                push_norm_hessian(&mut out, row, params, &[point.x(), point.y()], &[center.x(), center.y()]);
+            }
+
+            // ── OnCircle (Implicit): f = ||p-c|| - ||c-s|| ─────────────
+            Self::OnCircle { point, center, radius: RadiusDef::Implicit(start) } => {
+                // +H(||p-c||) with respect to p and c
+                push_norm_hessian_6(
+                    &mut out, row, params,
+                    point.x(), point.y(),
+                    center.x(), center.y(),
+                    1.0, true,
+                );
+                // -H(||c-s||) with respect to c and s
+                push_norm_hessian_6(
+                    &mut out, row, params,
+                    center.x(), center.y(),
+                    start.x(), start.y(),
+                    -1.0, true,
+                );
+            }
+
+            // ── TangentArcArc: f = ||c1-c2|| - (r1 ± r2) ──────────────
+            Self::TangentArcArc { c1, c2, r1, r2, internal } => {
+                // H(||c2-c1||) for center distance part
+                push_norm_hessian(&mut out, row, params, &[c1.x(), c1.y()], &[c2.x(), c2.y()]);
+                // Radius parts: only implicit radii contribute Hessians
+                let sign = if *internal {
+                    let rv1 = r1.read(params, *c1);
+                    let rv2 = r2.read(params, *c2);
+                    if rv1 >= rv2 { -1.0 } else { 1.0 }
+                } else {
+                    -1.0
+                };
+                push_radius_hessian(&mut out, row, params, r1, *c1, sign);
+                if *internal {
+                    push_radius_hessian(&mut out, row, params, r2, *c2, -sign);
+                } else {
+                    push_radius_hessian(&mut out, row, params, r2, *c2, -1.0);
+                }
+            }
+
+            // ── Ratio: f = ||l1|| - k·||l2|| ───────────────────────────
+            Self::Ratio { l1, l2, k } => {
+                push_norm_hessian(
+                    &mut out, row, params,
+                    &[l1.start.x(), l1.start.y()],
+                    &[l1.end.x(), l1.end.y()],
+                );
+                push_norm_hessian_scaled(
+                    &mut out, row, params,
+                    &[l2.start.x(), l2.start.y()],
+                    &[l2.end.x(), l2.end.y()],
+                    -k,
+                );
+            }
+
+            // ── Bilinear constraints: constant mixed Hessians ──────────
+            Self::Parallel { l1, l2 } => {
+                // f = d1x·d2y - d1y·d2x (bilinear in d1 and d2)
+                // Mixed partials are constant ±1.
+                push_bilinear_cross_hessian(&mut out, row, l1, l2);
+            }
+            Self::Perpendicular { l1, l2 } => {
+                // f = d1x·d2x + d1y·d2y (bilinear)
+                push_bilinear_dot_hessian(&mut out, row, l1, l2);
+            }
+            Self::EqualPointToLine { p1, p2, line } => {
+                // f = (p1-p2) × line_delta = dpx·dy - dpy·dx (bilinear)
+                let dp_line = LineIdx { start: *p2, end: *p1 };
+                push_bilinear_cross_hessian(&mut out, row, &dp_line, line);
+            }
+
+            // ── Complex constraints (atan2, quotient) — lower priority ─
+            // These are less prone to LICQ failure. Return empty for now;
+            // the Hessian analysis still helps for the norm-based constraints.
+            Self::Angle { .. }
+            | Self::OnLine { .. }
+            | Self::DistancePL { .. }
+            | Self::TangentLineCircle { .. }
+            | Self::SymmetricLine { .. }
+            | Self::EqualAngle { .. } => {}
+        }
+
+        out
+    }
 }
 
 // ── Jacobian helpers ─────────────────────────────────────────────────────
@@ -1018,4 +1162,189 @@ fn push_angle_jac(
     out.push((row, lb.start.y(), jlb_sy));
     out.push((row, lb.end.x(), -jlb_sx));
     out.push((row, lb.end.y(), -jlb_sy));
+}
+
+// ── Hessian helpers ─────────────────────────────────────────────────────
+
+/// Push Hessian entries for ∂²||Δ||/∂x_i∂x_j where Δ = p2 - p1.
+///
+/// H(||Δ||) = (I - n̂n̂ᵀ) / ||Δ|| where n̂ = Δ/||Δ||.
+/// The sign convention: p1 indices get -1 derivative, p2 indices get +1.
+fn push_norm_hessian(
+    out: &mut Vec<(usize, usize, usize, f64)>,
+    row: usize,
+    params: &[f64],
+    p1_cols: &[usize; 2],  // [x, y] column indices for point 1
+    p2_cols: &[usize; 2],  // [x, y] column indices for point 2
+) {
+    push_norm_hessian_scaled(out, row, params, p1_cols, p2_cols, 1.0);
+}
+
+/// Push Hessian entries for scale * ∂²||Δ||/∂x_i∂x_j.
+fn push_norm_hessian_scaled(
+    out: &mut Vec<(usize, usize, usize, f64)>,
+    row: usize,
+    params: &[f64],
+    p1_cols: &[usize; 2],
+    p2_cols: &[usize; 2],
+    scale: f64,
+) {
+    let dx = params[p2_cols[0]] - params[p1_cols[0]];
+    let dy = params[p2_cols[1]] - params[p1_cols[1]];
+    let dist = (dx * dx + dy * dy).sqrt().max(EPSILON);
+    let inv_d = 1.0 / dist;
+
+    // n̂ = (dx, dy) / dist
+    let nx = dx * inv_d;
+    let ny = dy * inv_d;
+
+    // H_ab = scale * (δ_ab - n_a * n_b) / dist
+    let hxx = scale * (1.0 - nx * nx) * inv_d;
+    let hyy = scale * (1.0 - ny * ny) * inv_d;
+    let hxy = scale * (-nx * ny) * inv_d;
+
+    // All param columns with their signs: p1 has -1, p2 has +1
+    let cols = [
+        (p1_cols[0], -1.0_f64), // p1.x
+        (p1_cols[1], -1.0_f64), // p1.y
+        (p2_cols[0], 1.0_f64),  // p2.x
+        (p2_cols[1], 1.0_f64),  // p2.y
+    ];
+    // h_block[a][b] for the 2D Hessian
+    let h_block = [[hxx, hxy], [hxy, hyy]];
+
+    for (i, &(ci, si)) in cols.iter().enumerate() {
+        let a = i % 2; // 0=x, 1=y
+        for (j, &(cj, sj)) in cols.iter().enumerate() {
+            if j < i {
+                continue; // emit upper triangle only (symmetric)
+            }
+            let b = j % 2;
+            let val = si * sj * h_block[a][b];
+            if val.abs() > 1e-18 {
+                out.push((row, ci, cj, val));
+                if ci != cj {
+                    out.push((row, cj, ci, val)); // symmetric entry
+                }
+            }
+        }
+    }
+}
+
+/// Push Hessian for ||a - b|| with 6 params (a_x, a_y, b_x, b_y), scaled.
+/// `positive_first`: if true, f = +||a-b||, derivative signs: a gets +1, b gets -1.
+#[allow(clippy::too_many_arguments)]
+fn push_norm_hessian_6(
+    out: &mut Vec<(usize, usize, usize, f64)>,
+    row: usize,
+    params: &[f64],
+    ax: usize, ay: usize,
+    bx: usize, by: usize,
+    scale: f64,
+    _positive_first: bool,
+) {
+    push_norm_hessian_scaled(out, row, params, &[bx, by], &[ax, ay], scale);
+}
+
+/// Push Hessian for implicit radius term: ∂²||c-s||/∂params.
+fn push_radius_hessian(
+    out: &mut Vec<(usize, usize, usize, f64)>,
+    row: usize,
+    params: &[f64],
+    radius: &RadiusDef,
+    center: PointIdx,
+    scale: f64,
+) {
+    match radius {
+        RadiusDef::Param(_) => {
+            // Explicit radius is linear — zero Hessian
+        }
+        RadiusDef::Implicit(start) => {
+            // r = ||center - start||, same norm Hessian
+            push_norm_hessian_scaled(
+                out, row, params,
+                &[start.x(), start.y()],
+                &[center.x(), center.y()],
+                scale,
+            );
+        }
+    }
+}
+
+/// Push Hessian for bilinear cross product: f = d1×d2 = d1x·d2y - d1y·d2x.
+/// All second derivatives are constant ±1 mixed partials.
+fn push_bilinear_cross_hessian(
+    out: &mut Vec<(usize, usize, usize, f64)>,
+    row: usize,
+    l1: &LineIdx,
+    l2: &LineIdx,
+) {
+    // f = (e1x-s1x)(e2y-s2y) - (e1y-s1y)(e2x-s2x)
+    // ∂²f/∂(d1x)∂(d2y) = +1, ∂²f/∂(d1y)∂(d2x) = -1
+    // d1x params: s1x with sign -1, e1x with sign +1
+    // d2y params: s2y with sign -1, e2y with sign +1
+    // d1y params: s1y with sign -1, e1y with sign +1
+    // d2x params: s2x with sign -1, e2x with sign +1
+
+    let d1x_params: [(usize, f64); 2] = [(l1.start.x(), -1.0), (l1.end.x(), 1.0)];
+    let d1y_params: [(usize, f64); 2] = [(l1.start.y(), -1.0), (l1.end.y(), 1.0)];
+    let d2x_params: [(usize, f64); 2] = [(l2.start.x(), -1.0), (l2.end.x(), 1.0)];
+    let d2y_params: [(usize, f64); 2] = [(l2.start.y(), -1.0), (l2.end.y(), 1.0)];
+
+    // ∂²f/∂(d1x_param)∂(d2y_param) = sign1 * sign2 * (+1)
+    for &(c1, s1) in &d1x_params {
+        for &(c2, s2) in &d2y_params {
+            let val = s1 * s2;
+            out.push((row, c1, c2, val));
+            if c1 != c2 {
+                out.push((row, c2, c1, val));
+            }
+        }
+    }
+
+    // ∂²f/∂(d1y_param)∂(d2x_param) = sign1 * sign2 * (-1)
+    for &(c1, s1) in &d1y_params {
+        for &(c2, s2) in &d2x_params {
+            let val = -s1 * s2;
+            out.push((row, c1, c2, val));
+            if c1 != c2 {
+                out.push((row, c2, c1, val));
+            }
+        }
+    }
+}
+
+/// Push Hessian for bilinear dot product: f = d1·d2 = d1x·d2x + d1y·d2y.
+fn push_bilinear_dot_hessian(
+    out: &mut Vec<(usize, usize, usize, f64)>,
+    row: usize,
+    l1: &LineIdx,
+    l2: &LineIdx,
+) {
+    let d1x_params: [(usize, f64); 2] = [(l1.start.x(), -1.0), (l1.end.x(), 1.0)];
+    let d1y_params: [(usize, f64); 2] = [(l1.start.y(), -1.0), (l1.end.y(), 1.0)];
+    let d2x_params: [(usize, f64); 2] = [(l2.start.x(), -1.0), (l2.end.x(), 1.0)];
+    let d2y_params: [(usize, f64); 2] = [(l2.start.y(), -1.0), (l2.end.y(), 1.0)];
+
+    // ∂²f/∂(d1x_param)∂(d2x_param) = sign1 * sign2 * (+1)
+    for &(c1, s1) in &d1x_params {
+        for &(c2, s2) in &d2x_params {
+            let val = s1 * s2;
+            out.push((row, c1, c2, val));
+            if c1 != c2 {
+                out.push((row, c2, c1, val));
+            }
+        }
+    }
+
+    // ∂²f/∂(d1y_param)∂(d2y_param) = sign1 * sign2 * (+1)
+    for &(c1, s1) in &d1y_params {
+        for &(c2, s2) in &d2y_params {
+            let val = s1 * s2;
+            out.push((row, c1, c2, val));
+            if c1 != c2 {
+                out.push((row, c2, c1, val));
+            }
+        }
+    }
 }

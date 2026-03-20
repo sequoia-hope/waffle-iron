@@ -21,10 +21,11 @@ pub fn classify_solve(
     eq_to_constraint: &[usize],
     _num_params: usize,
 ) -> SolveStatus {
-    // Conflicts override convergence — an over-constrained contradictory system
-    // may report converged=true (stuck at augmented equilibrium) but rank analysis
-    // detects the contradiction.
-    if !rank.conflicting_rows.is_empty() {
+    // Conflicts are only trusted when the solver has converged (or stagnated).
+    // A non-converged system may have nonzero residual projections that look like
+    // conflicts but are just unconverged residuals. True over-constrained systems
+    // converge to the augmented equilibrium (delta → 0) before rank analysis runs.
+    if outcome.converged && !rank.conflicting_rows.is_empty() {
         let mut conflict_ids: Vec<u32> = rank
             .conflicting_rows
             .iter()
@@ -36,6 +37,19 @@ pub fn classify_solve(
             conflicts: conflict_ids,
         }
     } else if outcome.converged {
+        // Stagnation or gradient-based convergence may fire far from the solution.
+        // Only trust convergence if the residual is reasonably small.
+        // Threshold 0.1 is generous: true solutions have residual < 1e-7,
+        // LICQ fixed points have residual ~ 1e-5 to 1e-2.
+        let well_converged = outcome.final_residual_norm < 0.1;
+        if !well_converged {
+            return SolveStatus::SolveFailed {
+                reason: format!(
+                    "stagnated with large residual ({:.2e}) after {} iterations",
+                    outcome.final_residual_norm, outcome.iterations
+                ),
+            };
+        }
         if rank.dof == 0 {
             SolveStatus::FullyConstrained
         } else {
@@ -66,6 +80,7 @@ mod tests {
             final_residual_norm: norm,
             jacobian_scaled: DMatrix::zeros(0, 0),
             residual_scaled: DVector::zeros(0),
+            d_row: DVector::zeros(0),
         }
     }
 
@@ -76,6 +91,7 @@ mod tests {
             rank: 4,
             dof: 0,
             conflicting_rows: vec![],
+            v_null: None,
         };
         let result = classify_solve(&outcome, &rank, &[], 4);
         assert!(matches!(result, SolveStatus::FullyConstrained));
@@ -88,6 +104,7 @@ mod tests {
             rank: 2,
             dof: 2,
             conflicting_rows: vec![],
+            v_null: None,
         };
         let result = classify_solve(&outcome, &rank, &[], 4);
         assert!(matches!(result, SolveStatus::UnderConstrained { dof: 2 }));
@@ -101,6 +118,7 @@ mod tests {
             rank: 3,
             dof: 0,
             conflicting_rows: vec![0, 2],
+            v_null: None,
         };
         // eq_to_constraint: eq0 → constraint 0, eq1 → constraint 0, eq2 → constraint 1
         let eq_map = vec![0, 0, 1];
@@ -119,6 +137,7 @@ mod tests {
             rank: 2,
             dof: 0,
             conflicting_rows: vec![],
+            v_null: None,
         };
         let result = classify_solve(&outcome, &rank, &[], 2);
         assert!(matches!(result, SolveStatus::SolveFailed { .. }));

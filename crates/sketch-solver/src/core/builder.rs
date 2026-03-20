@@ -21,11 +21,12 @@ pub fn build_constraints(
     constraints: &[SketchConstraint],
     entities: &[SketchEntity],
     layout: &ParamLayout,
+    x0: &[f64],
 ) -> Vec<ConstraintImpl> {
     let entity_types = classify_entities(entities);
     constraints
         .iter()
-        .filter_map(|c| build_one(c, &entity_types, entities, layout))
+        .filter_map(|c| build_one(c, &entity_types, entities, layout, x0))
         .collect()
 }
 
@@ -90,6 +91,7 @@ fn build_one(
     entity_types: &HashMap<EntityId, EntityKind>,
     entities: &[SketchEntity],
     layout: &ParamLayout,
+    x0: &[f64],
 ) -> Option<ConstraintImpl> {
     use ConstraintImpl as CI;
     use SketchConstraint::*;
@@ -205,16 +207,26 @@ fn build_one(
                     p2: layout.point(PointId(entity_b.0)),
                     d: *value,
                 }),
-                (EntityKind::Point, EntityKind::Line) => Some(CI::DistancePL {
-                    point: layout.point(PointId(entity_a.0)),
-                    line: layout.line(*entity_b),
-                    d: *value,
-                }),
-                (EntityKind::Line, EntityKind::Point) => Some(CI::DistancePL {
-                    point: layout.point(PointId(entity_b.0)),
-                    line: layout.line(*entity_a),
-                    d: *value,
-                }),
+                (EntityKind::Point, EntityKind::Line) => {
+                    let pt = layout.point(PointId(entity_a.0));
+                    let ln = layout.line(*entity_b);
+                    Some(CI::DistancePL {
+                        point: pt,
+                        line: ln,
+                        d: *value,
+                        sign: cross_sign(pt, ln, x0),
+                    })
+                }
+                (EntityKind::Line, EntityKind::Point) => {
+                    let pt = layout.point(PointId(entity_b.0));
+                    let ln = layout.line(*entity_a);
+                    Some(CI::DistancePL {
+                        point: pt,
+                        line: ln,
+                        d: *value,
+                        sign: cross_sign(pt, ln, x0),
+                    })
+                }
                 _ => None,
             }
         }
@@ -251,18 +263,23 @@ fn build_one(
             match kind {
                 EntityKind::Arc => {
                     let (center, _start) = layout.arc_center_start(*curve);
+                    let ln = layout.line(*line);
                     Some(CI::TangentLineCircle {
-                        line: layout.line(*line),
+                        line: ln,
                         center,
                         radius: layout.radius_def(*curve),
+                        sign: cross_sign_center(center, ln, x0),
                     })
                 }
                 EntityKind::Circle => {
                     let center_id = find_center_id(entities, *curve);
+                    let center = layout.point(center_id);
+                    let ln = layout.line(*line);
                     Some(CI::TangentLineCircle {
-                        line: layout.line(*line),
-                        center: layout.point(center_id),
+                        line: ln,
+                        center,
                         radius: layout.radius_def(*curve),
+                        sign: cross_sign_center(center, ln, x0),
                     })
                 }
                 _ => None,
@@ -337,4 +354,28 @@ fn build_one(
             line: layout.line(*line),
         }),
     }
+}
+
+use super::types::PointIdx;
+
+/// Compute the sign of the cross product (point relative to line) from initial params.
+/// Returns +1.0 or -1.0, used to fix the side for DistancePL constraints.
+fn cross_sign(point: PointIdx, line: LineIdx, x0: &[f64]) -> f64 {
+    let p = point.read(x0);
+    let ls = line.start.read(x0);
+    let ld = line.delta(x0);
+    let vp = p - ls;
+    let cross = vp.x * ld.y - vp.y * ld.x;
+    if cross >= 0.0 { 1.0 } else { -1.0 }
+}
+
+/// Compute the sign of the cross product (center relative to line) from initial params.
+/// Returns +1.0 or -1.0, used to fix the side for TangentLineCircle constraints.
+fn cross_sign_center(center: PointIdx, line: LineIdx, x0: &[f64]) -> f64 {
+    let c = center.read(x0);
+    let ls = line.start.read(x0);
+    let ld = line.delta(x0);
+    let vc = c - ls;
+    let cross = vc.x * ld.y - vc.y * ld.x;
+    if cross >= 0.0 { 1.0 } else { -1.0 }
 }

@@ -6,7 +6,7 @@ use crate::core::builder::{build_constraints, build_eq_to_constraint_map};
 use crate::core::constraint::ConstraintEq;
 use crate::core::lm::lm_solve;
 use crate::core::params::ParamLayout;
-use crate::core::rank::analyze_rank;
+use crate::core::rank::{analyze_rank, refine_dof_with_hessian};
 use crate::core::status::classify_solve;
 use crate::core::types::SolveOptions;
 use crate::profiles::extract_profiles;
@@ -23,7 +23,7 @@ pub fn solve_sketch(sketch: &Sketch) -> SolvedSketch {
     let x0 = layout.initial_params(entities);
 
     // Build constraint equations
-    let constraint_impls = build_constraints(constraints, entities, &layout);
+    let constraint_impls = build_constraints(constraints, entities, &layout, &x0);
 
     // Build scale type vector for row scaling
     let eq_scale_types: Vec<_> = constraint_impls
@@ -46,11 +46,17 @@ pub fn solve_sketch(sketch: &Sketch) -> SolvedSketch {
 
     // Rank analysis on scaled, un-augmented Jacobian
     let eq_to_constraint = build_eq_to_constraint_map(&constraint_impls);
-    let rank = analyze_rank(
+    let mut rank = analyze_rank(
         &outcome.jacobian_scaled,
         &outcome.residual_scaled,
         options.tolerance,
     );
+
+    // Restricted Hessian analysis: correct phantom DOF at cardinal positions
+    let refined_dof =
+        refine_dof_with_hessian(&rank, &constraint_impls, &outcome.params, &outcome.d_row);
+    rank.dof = refined_dof;
+
     let status = classify_solve(&outcome, &rank, &eq_to_constraint, layout.num_params());
 
     // Extract positions and radii

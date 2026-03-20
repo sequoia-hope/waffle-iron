@@ -12,9 +12,10 @@ use sketch_solver::*;
 
 fn max_residual(sketch: &Sketch, result: &SolvedSketch) -> f64 {
     let layout = ParamLayout::from_entities(&sketch.entities);
-    let constraints = build_constraints(&sketch.constraints, &sketch.entities, &layout);
+    let x0 = layout.initial_params(&sketch.entities);
+    let constraints = build_constraints(&sketch.constraints, &sketch.entities, &layout, &x0);
     // Build param vector from solved positions
-    let mut params = layout.initial_params(&sketch.entities);
+    let mut params = x0;
     for (id, &(x, y)) in &result.positions {
         // Find point index and write solved position
         for entity in &sketch.entities {

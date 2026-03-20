@@ -43,6 +43,12 @@ pub fn lm_solve<C: ConstraintEq>(
     let mut iterations = 0;
     let mut final_residual_norm = 0.0;
 
+    // Stagnation detection: track residual plateau
+    let mut prev_f_inf_norm = f64::INFINITY;
+    let mut stagnation_count = 0_usize;
+    const STAGNATION_LIMIT: usize = 5;
+    const STAGNATION_RATIO: f64 = 0.999;
+
     // Storage for final diagnostics
     let mut final_j_scaled = DMatrix::zeros(m, n);
     let mut final_r_scaled = DVector::zeros(m);
@@ -109,6 +115,7 @@ pub fn lm_solve<C: ConstraintEq>(
         // e) Normal equations
         let h = j_aug.transpose() * &j_aug;
         let g = j_aug.transpose() * &f_aug;
+        let grad_inf_norm = g.amax();
 
         // f) Marquardt damping: H_damped = H + lambda * diag(H)
         let mut h_damped = h.clone();
@@ -185,14 +192,35 @@ pub fn lm_solve<C: ConstraintEq>(
         // force balances constraint force). This is correct solver behavior.
         // Over-constrained contradictions are caught by rank analysis (conflicting_rows)
         // which overrides the convergence flag in classify_solve.
-        let delta_inf_norm = delta.amax();
-        if delta_inf_norm < options.tolerance {
+        // k) Fixed-point check: gradient of augmented cost → 0.
+        // Unlike delta (which shrinks with large lambda), the gradient is
+        // damping-independent and reliably detects genuine fixed points —
+        // both satisfied solutions and contradictory equilibria.
+        if grad_inf_norm < options.tolerance {
             converged = true;
             final_residual_norm = f_inf_norm;
             final_j_scaled = j_s;
             final_r_scaled = f_s;
             break;
         }
+
+        // l) Stagnation detection: residual not improving over several iterations.
+        // At a genuine fixed point (e.g., LICQ failure, contradiction equilibrium),
+        // the solver stalls with constant residual. Mark as converged and let
+        // rank analysis determine the status (UnderConstrained vs OverConstrained).
+        if f_inf_norm >= prev_f_inf_norm * STAGNATION_RATIO {
+            stagnation_count += 1;
+            if stagnation_count >= STAGNATION_LIMIT {
+                converged = true;
+                final_residual_norm = f_inf_norm;
+                final_j_scaled = j_s;
+                final_r_scaled = f_s;
+                break;
+            }
+        } else {
+            stagnation_count = 0;
+        }
+        prev_f_inf_norm = f_inf_norm;
 
         // Final values for this iteration (in case we stop next)
         final_residual_norm = f_inf_norm;
@@ -207,6 +235,7 @@ pub fn lm_solve<C: ConstraintEq>(
         final_residual_norm,
         jacobian_scaled: final_j_scaled,
         residual_scaled: final_r_scaled,
+        d_row,
     }
 }
 
