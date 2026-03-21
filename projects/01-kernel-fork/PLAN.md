@@ -340,19 +340,20 @@ Last updated: Sprint 68+ (2026-03-21)
 
 ## Assay Status (2026-03-21, Session 6)
 
-**Score: ~91/160** (estimated from batch results; full assay pending)
+**Score: 114/160** (+33 from 81/160)
 - Previous: 81/160 (2026-03-21 Session 5)
 
-### Failure Categories (updated)
+### Failure Categories (updated — 46 total: 40 Failed + 6 Errored)
 | Category | Count | Description |
 |----------|-------|-------------|
-| watertight (1-6 unpaired) | ~12 | Reduced from ~22; position-based edge-flip resolved ~10 cases |
+| watertight (1-6 unpaired) | ~10 | Reduced from ~22; position-based edge-flip resolved ~12 cases |
 | watertight (60+ unpaired) | ~10 | Structural boolean issues with complex geometries |
-| empty mesh | ~3 | Boolean chain failures (3-op sequences, or cut consuming entire boss) |
-| low triangle count | ~8 | Auto-union failure → standalone body → only first extrude visible |
+| empty mesh | ~3 | Boolean chain failures |
+| low triangle count / min_tri | ~5 | Auto-union failure or degenerate geometry |
 | bbox diagonal | ~4 | Slight geometry errors (2-25% over oracle max) |
-| face product limit | ~5 | Gear-gear booleans exceed 5000 effective face product |
-| timeout | 4 | Slow boolean ops (>90s) |
+| face product limit | ~3 | Gear-gear booleans exceed face product limit |
+| timeout | 6 | Slow boolean ops (>90s) |
+| F-series featured | ~5 | Cross-plane/angled/scaled geometry failures |
 
 ### Key Findings (2026-03-21 Session 6)
 1. **Non-manifold failures are in fan path, not bounded path**: Almost all non-manifold
