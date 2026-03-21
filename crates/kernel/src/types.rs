@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::units::{MIN_FEATURE_SIZE, TAU_MODEL, TAU_WORK};
+
 // Re-export shared types from waffle-types
 pub use waffle_types::{CircleProfile, ClosedProfile, SplineSegment, TopoKind, TopoSignature};
 
@@ -142,26 +144,28 @@ pub struct BooleanOptions {
 
 impl Default for BooleanOptions {
     fn default() -> Self {
-        let tau_model = 1e-7;
         Self {
-            tau_model,
-            tau_mesh: tau_model,
-            tau_weld: 0.4 * tau_model,
-            tau_work: 1e-12,
-            tau_coplanar: tau_model,
-            min_feature_size: 1e-6,
+            tau_model: TAU_MODEL,
+            tau_mesh: TAU_MODEL,
+            tau_weld: 0.4 * TAU_MODEL,
+            tau_work: TAU_WORK,
+            tau_coplanar: TAU_MODEL,
+            min_feature_size: MIN_FEATURE_SIZE,
         }
     }
 }
 
 impl BooleanOptions {
     pub fn for_scale(extent: f64) -> Self {
-        let tau_model = (extent * 1e-7).clamp(1e-9, 1e-5);
+        use crate::units::{TAU_COINCIDENT, TAU_WELD_FACTOR};
+        // Scale-adaptive: TAU_WELD_FACTOR (1e-7) * extent, clamped between
+        // TAU_COINCIDENT (1e-9) and 1e-5 (10× MIN_FEATURE_SIZE).
+        let tau_model = (extent * TAU_WELD_FACTOR).clamp(TAU_COINCIDENT, MIN_FEATURE_SIZE * 10.0);
         Self {
             tau_model,
             tau_mesh: tau_model,
             tau_weld: 0.4 * tau_model,
-            tau_work: 1e-12,
+            tau_work: TAU_WORK,
             tau_coplanar: tau_model,
             min_feature_size: 10.0 * tau_model,
         }
@@ -227,7 +231,7 @@ impl BooleanOptions {
             tau_model: tol,
             tau_mesh: tol,
             tau_weld: tol * 0.4,
-            tau_work: 1e-12,
+            tau_work: TAU_WORK,
             tau_coplanar: tol,
             min_feature_size: tol * 10.0,
         }
