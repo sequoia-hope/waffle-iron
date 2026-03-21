@@ -3229,6 +3229,20 @@ fn tessellate_solid_bounded(
     // adjacent faces producing overlapping edge-pairs.
     remove_winding_insensitive_duplicates(&vertices, &mut indices, &mut face_ranges);
 
+    // Edge-flip repair: for non-manifold edges caused by conflicting earcut
+    // diagonals across faces sharing corner positions, flip the diagonal in
+    // one face to use an alternative that doesn't conflict. This preserves
+    // all triangles (no holes) unlike removal-based approaches. Must run
+    // BEFORE removal passes so triangles are still available to flip.
+    flip_nonmanifold_interior_diagonals(
+        arena,
+        face_map,
+        &disc,
+        &vertices,
+        &mut indices,
+        &mut face_ranges,
+    );
+
     // Topology-aware non-manifold repair: uses B-Rep edge→face relationships to
     // determine which triangles legitimately share each boundary edge. Removes
     // triangles whose face_id doesn't match the expected topology.
@@ -4359,6 +4373,266 @@ fn remove_nonmanifold_topology_aware(
 
         *indices = new_indices;
         *face_ranges = new_ranges;
+    }
+}
+
+/// Flip non-manifold interior diagonals to resolve earcut conflicts.
+///
+/// When two faces share corner vertex positions without a B-Rep boundary edge,
+/// earcut may create the same interior diagonal in both faces, producing 3+
+/// triangles per edge. This function identifies such diagonals and flips the
+/// diagonal in one face (replacing 2 triangles with 2 using the alternative
+/// diagonal) to eliminate the non-manifold condition without removing triangles.
+///
+/// Research basis: Edge flipping is a fundamental Delaunay refinement operation
+/// [Shewchuk 1997]. Applied selectively to interior diagonals only.
+fn flip_nonmanifold_interior_diagonals(
+    _arena: &TopoArena,
+    _face_map: &HashMap<u64, FaceIdx>,
+    disc: &EdgeDiscretization,
+    vertices: &[f32],
+    indices: &mut [u32],
+    face_ranges: &mut [FaceRange],
+) {
+    let max_iterations = 10;
+
+    for _iteration in 0..max_iterations {
+        let n_tris = indices.len() / 3;
+        if n_tris < 3 {
+            return;
+        }
+
+        // Build quantization grid matching the existing pipeline.
+        let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
+        let grid = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
+        let inv_grid = 1.0 / grid;
+
+        type QPos = (i64, i64, i64);
+        let quantize = |idx: u32| -> QPos {
+            let i = idx as usize * 3;
+            if i + 2 >= vertices.len() {
+                return (0, 0, 0);
+            }
+            (
+                (vertices[i] as f64 * inv_grid).round() as i64,
+                (vertices[i + 1] as f64 * inv_grid).round() as i64,
+                (vertices[i + 2] as f64 * inv_grid).round() as i64,
+            )
+        };
+        let quantize_f64 = |pos: &[f64; 3]| -> QPos {
+            (
+                (pos[0] * inv_grid).round() as i64,
+                (pos[1] * inv_grid).round() as i64,
+                (pos[2] * inv_grid).round() as i64,
+            )
+        };
+
+        // Build B-Rep boundary edge set from discretization.
+        type UEdge = (QPos, QPos);
+        let mut brep_edges: HashSet<UEdge> = HashSet::new();
+        for verts in disc.edge_verts.values() {
+            for pair in verts.windows(2) {
+                let qa = quantize_f64(&disc.positions[pair[0]]);
+                let qb = quantize_f64(&disc.positions[pair[1]]);
+                let key: UEdge = if qa <= qb { (qa, qb) } else { (qb, qa) };
+                brep_edges.insert(key);
+            }
+            // Handle closed-loop edges (last→first).
+            if verts.len() >= 3 {
+                let qa = quantize_f64(&disc.positions[*verts.last().unwrap()]);
+                let qb = quantize_f64(&disc.positions[verts[0]]);
+                if qa != qb {
+                    let key: UEdge = if qa <= qb { (qa, qb) } else { (qb, qa) };
+                    brep_edges.insert(key);
+                }
+            }
+        }
+
+        // Build tri→face_id mapping from face_ranges.
+        let mut tri_face_id: Vec<u64> = vec![0; n_tris];
+        for range in face_ranges.iter() {
+            let tri_start = range.start_index as usize / 3;
+            let tri_end = range.end_index as usize / 3;
+            for item in tri_face_id
+                .iter_mut()
+                .take(tri_end.min(n_tris))
+                .skip(tri_start)
+            {
+                *item = range.face_id.0;
+            }
+        }
+
+        // Build edge→triangle list for mesh edges.
+        let mut edge_tris: HashMap<UEdge, Vec<usize>> = HashMap::new();
+        for t in 0..n_tris {
+            let base = t * 3;
+            let tri = [indices[base], indices[base + 1], indices[base + 2]];
+            for j in 0..3 {
+                let pa = quantize(tri[j]);
+                let pb = quantize(tri[(j + 1) % 3]);
+                let key: UEdge = if pa <= pb { (pa, pb) } else { (pb, pa) };
+                edge_tris.entry(key).or_default().push(t);
+            }
+        }
+
+        // Find non-manifold interior edges (not B-Rep boundaries).
+        let mut nm_edges: Vec<(UEdge, Vec<usize>)> = edge_tris
+            .iter()
+            .filter(|(edge, tris)| tris.len() >= 3 && !brep_edges.contains(edge))
+            .map(|(e, t)| (*e, t.clone()))
+            .collect();
+        nm_edges.sort_by_key(|(edge, _)| *edge);
+
+        if nm_edges.is_empty() {
+            return; // No more non-manifold interior edges — done.
+        }
+
+        let mut flipped_any = false;
+
+        for (nm_edge, tris) in &nm_edges {
+            // Group triangles by face_id.
+            let mut face_groups: HashMap<u64, Vec<usize>> = HashMap::new();
+            for &t in tris {
+                face_groups.entry(tri_face_id[t]).or_default().push(t);
+            }
+
+            // Look for a face with exactly 2 triangles sharing this edge — a flippable quad.
+            for face_tris in face_groups.values() {
+                if face_tris.len() != 2 {
+                    continue;
+                }
+
+                let t_a = face_tris[0];
+                let t_b = face_tris[1];
+
+                // Extract vertex indices for both triangles.
+                let tri_a = [indices[t_a * 3], indices[t_a * 3 + 1], indices[t_a * 3 + 2]];
+                let tri_b = [indices[t_b * 3], indices[t_b * 3 + 1], indices[t_b * 3 + 2]];
+
+                // Find the two shared vertices (on the non-manifold edge) and the
+                // two non-shared vertices (the quad's opposite corners).
+                let qa0 = nm_edge.0;
+                let qa1 = nm_edge.1;
+
+                // Find which vertex indices in tri_a correspond to the nm edge endpoints.
+                let mut shared_a = [u32::MAX; 2]; // indices from tri_a on the nm edge
+                let mut opp_a = u32::MAX; // opposite vertex in tri_a
+                for &vi in &tri_a {
+                    let qv = quantize(vi);
+                    if qv == qa0 && shared_a[0] == u32::MAX {
+                        shared_a[0] = vi;
+                    } else if qv == qa1 && shared_a[1] == u32::MAX {
+                        shared_a[1] = vi;
+                    } else {
+                        opp_a = vi;
+                    }
+                }
+
+                let mut shared_b = [u32::MAX; 2];
+                let mut opp_b = u32::MAX;
+                for &vi in &tri_b {
+                    let qv = quantize(vi);
+                    if qv == qa0 && shared_b[0] == u32::MAX {
+                        shared_b[0] = vi;
+                    } else if qv == qa1 && shared_b[1] == u32::MAX {
+                        shared_b[1] = vi;
+                    } else {
+                        opp_b = vi;
+                    }
+                }
+
+                if opp_a == u32::MAX || opp_b == u32::MAX {
+                    continue; // Couldn't identify quad vertices.
+                }
+                if shared_a[0] == u32::MAX || shared_a[1] == u32::MAX {
+                    continue;
+                }
+
+                // Check that the new diagonal doesn't create a new non-manifold edge.
+                let new_diag_qa = quantize(opp_a);
+                let new_diag_qb = quantize(opp_b);
+                let new_diag_key: UEdge = if new_diag_qa <= new_diag_qb {
+                    (new_diag_qa, new_diag_qb)
+                } else {
+                    (new_diag_qb, new_diag_qa)
+                };
+                let existing_count = edge_tris.get(&new_diag_key).map_or(0, |t| t.len());
+                if existing_count >= 2 {
+                    continue; // Flipping would create another non-manifold edge.
+                }
+
+                // Compute the face normal from the ACTUAL vertex order of tri_a.
+                let pos = |vi: u32| -> [f64; 3] {
+                    let i = vi as usize * 3;
+                    [
+                        vertices[i] as f64,
+                        vertices[i + 1] as f64,
+                        vertices[i + 2] as f64,
+                    ]
+                };
+
+                let p_a0 = pos(tri_a[0]);
+                let p_a1 = pos(tri_a[1]);
+                let p_a2 = pos(tri_a[2]);
+                let face_normal = v3_cross(v3_sub(p_a1, p_a0), v3_sub(p_a2, p_a0));
+
+                let p_oa = pos(opp_a);
+                let p_ob = pos(opp_b);
+                let p_s0 = pos(shared_a[0]);
+                let p_s1 = pos(shared_a[1]);
+
+                // New triangle 1: (shared_a[0], opp_a, opp_b)
+                let new1_normal = v3_cross(v3_sub(p_oa, p_s0), v3_sub(p_ob, p_s0));
+                let new1_area = v3_length(new1_normal);
+
+                // New triangle 2: (shared_a[1], opp_b, opp_a)
+                let new2_normal = v3_cross(v3_sub(p_ob, p_s1), v3_sub(p_oa, p_s1));
+                let new2_area = v3_length(new2_normal);
+
+                // Reject if either new triangle is degenerate.
+                if new1_area < TAU_WORK || new2_area < TAU_WORK {
+                    continue;
+                }
+
+                // Check winding: both new triangles must have normals
+                // in the same direction as the original face normal.
+                let dot1 = v3_dot(new1_normal, face_normal);
+                let dot2 = v3_dot(new2_normal, face_normal);
+
+                if dot1 > 0.0 && dot2 > 0.0 {
+                    // Winding is correct.
+                    indices[t_a * 3] = shared_a[0];
+                    indices[t_a * 3 + 1] = opp_a;
+                    indices[t_a * 3 + 2] = opp_b;
+
+                    indices[t_b * 3] = shared_a[1];
+                    indices[t_b * 3 + 1] = opp_b;
+                    indices[t_b * 3 + 2] = opp_a;
+                } else if dot1 < 0.0 && dot2 < 0.0 {
+                    // Reverse winding for both.
+                    indices[t_a * 3] = shared_a[0];
+                    indices[t_a * 3 + 1] = opp_b;
+                    indices[t_a * 3 + 2] = opp_a;
+
+                    indices[t_b * 3] = shared_a[1];
+                    indices[t_b * 3 + 1] = opp_a;
+                    indices[t_b * 3 + 2] = opp_b;
+                } else {
+                    continue; // Non-convex quad — flip would invert a triangle.
+                }
+
+                flipped_any = true;
+                break; // Restart edge scanning after a flip.
+            }
+
+            if flipped_any {
+                break; // Rebuild edge maps and retry.
+            }
+        }
+
+        if !flipped_any {
+            return; // No flips possible — done.
+        }
     }
 }
 
@@ -7614,6 +7888,241 @@ mod tests {
             !is_xy_aabb_collapsed(&mesh.vertices),
             "box-minus-cyl XY coords should NOT all collapse to AABB faces ({} verts)",
             vertex_count
+        );
+    }
+
+    /// Test that tessellate_solid_bounded resolves non-manifold earcut diagonals.
+    ///
+    /// Constructs two coplanar quadrilateral faces whose boundaries share two
+    /// corner *positions* (via separate B-Rep vertices) without a B-Rep edge
+    /// between those corners. Fan triangulation creates the same interior
+    /// diagonal in both faces, producing 4 triangles on that edge (non-manifold).
+    ///
+    /// After flip_nonmanifold_interior_diagonals() is implemented, the result
+    /// should have ZERO non-manifold edges and preserve all 4 triangles.
+    /// Until then this test fails.
+    #[test]
+    fn test_edge_flip_resolves_nonmanifold_earcut_diagonal() {
+        use crate::geometry::curve::Line3D;
+        use crate::geometry::point::{Point3, Vector3};
+        use crate::geometry::surface::Plane;
+
+        // Build a minimal B-Rep arena with two independent coplanar quad faces.
+        // Both faces are CCW (Newell normal = +z, matching the stored normal)
+        // so tessellate_planar_face_bounded does NOT reverse vertex order.
+        // Fan triangulation (convex quad, n<=8) fans from vertex[0].
+        //
+        // Face 1 (lower diamond, CCW):
+        //   v0(0,0,0) → v1(1,-3,0) → v2(2,0,0) → v3(1,0.01,0)
+        //   Fan: (v0,v1,v2), (v0,v2,v3) → diagonal (0,0,0)-(2,0,0)
+        //
+        // Face 2 (upper diamond, CCW):
+        //   v4(0,0,0) → v5(1,-0.01,0) → v6(2,0,0) → v7(1,4,0)
+        //   Fan: (v4,v5,v6), (v4,v6,v7) → diagonal (0,0,0)-(2,0,0)
+        //
+        // Shared positions: v0≡v4 at (0,0,0), v2≡v6 at (2,0,0).
+        // No B-Rep edge connects v0↔v2 or v4↔v6.
+        // Edge (0,0,0)-(2,0,0) appears in 4 triangles → non-manifold.
+
+        let mut arena = TopoArena::new();
+
+        // ── Vertices ────────────────────────────────────────────────
+        // Face 1 vertices (CCW diamond: left → bottom → right → just-above-center)
+        let v0 = arena.add_vertex([0.0, 0.0, 0.0]);
+        let v1 = arena.add_vertex([1.0, -3.0, 0.0]);
+        let v2 = arena.add_vertex([2.0, 0.0, 0.0]);
+        let v3 = arena.add_vertex([1.0, 0.01, 0.0]);
+        // Face 2 vertices (CCW diamond: left → just-below-center → right → top)
+        // v4≡v0 at (0,0,0), v6≡v2 at (2,0,0) — same positions, different B-Rep vertices
+        let v4 = arena.add_vertex([0.0, 0.0, 0.0]);
+        let v5 = arena.add_vertex([1.0, -0.01, 0.0]);
+        let v6 = arena.add_vertex([2.0, 0.0, 0.0]);
+        let v7 = arena.add_vertex([1.0, 4.0, 0.0]);
+
+        // ── Solid / Shell ───────────────────────────────────────────
+        let solid = arena.add_solid();
+        let shell = arena.add_shell(solid);
+        arena.solids[solid.0].outer_shell = shell;
+
+        // ── Face 1 ─────────────────────────────────────────────────
+        let face1 = arena.add_face(shell);
+        let loop1 = arena.add_loop(face1);
+        arena.faces[face1.0].outer_loop = loop1;
+        arena.shells[shell.0].face = face1;
+
+        // Build 4 edges for face 1: v0→v1, v1→v2, v2→v3, v3→v0
+        let f1_verts = [v0, v1, v2, v3];
+        let mut f1_he_indices = Vec::new();
+        for i in 0..4 {
+            let (_, he_a, he_b) = arena.add_edge();
+            let next_i = (i + 1) % 4;
+            arena.half_edges[he_a.0].origin = f1_verts[i];
+            arena.half_edges[he_b.0].origin = f1_verts[next_i];
+            arena.half_edges[he_a.0].loop_ = loop1;
+            arena.half_edges[he_b.0].loop_ = loop1; // twin side: unused but needs valid loop
+            f1_he_indices.push((he_a, he_b));
+        }
+        // Link the forward half-edges into a cycle for loop1
+        for i in 0..4 {
+            let next_i = (i + 1) % 4;
+            arena.half_edges[f1_he_indices[i].0 .0].next = f1_he_indices[next_i].0;
+            arena.half_edges[f1_he_indices[next_i].0 .0].prev = f1_he_indices[i].0;
+        }
+        arena.loops[loop1.0].half_edge = f1_he_indices[0].0;
+        // Set vertex half_edge references
+        for i in 0..4 {
+            arena.vertices[f1_verts[i].0].half_edge = Some(f1_he_indices[i].0);
+        }
+
+        // ── Face 2 ─────────────────────────────────────────────────
+        let face2 = arena.add_face(shell);
+        let loop2 = arena.add_loop(face2);
+        arena.faces[face2.0].outer_loop = loop2;
+
+        // Build 4 edges for face 2: v4→v5, v5→v6, v6→v7, v7→v4
+        let f2_verts = [v4, v5, v6, v7];
+        let mut f2_he_indices = Vec::new();
+        for i in 0..4 {
+            let (_, he_a, he_b) = arena.add_edge();
+            let next_i = (i + 1) % 4;
+            arena.half_edges[he_a.0].origin = f2_verts[i];
+            arena.half_edges[he_b.0].origin = f2_verts[next_i];
+            arena.half_edges[he_a.0].loop_ = loop2;
+            arena.half_edges[he_b.0].loop_ = loop2;
+            f2_he_indices.push((he_a, he_b));
+        }
+        // Link the forward half-edges into a cycle for loop2
+        for i in 0..4 {
+            let next_i = (i + 1) % 4;
+            arena.half_edges[f2_he_indices[i].0 .0].next = f2_he_indices[next_i].0;
+            arena.half_edges[f2_he_indices[next_i].0 .0].prev = f2_he_indices[i].0;
+        }
+        arena.loops[loop2.0].half_edge = f2_he_indices[0].0;
+        for i in 0..4 {
+            arena.vertices[f2_verts[i].0].half_edge = Some(f2_he_indices[i].0);
+        }
+
+        // ── Geometry maps ───────────────────────────────────────────
+        let z_up_normal = Plane {
+            origin: Point3 {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            normal: Vector3 {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+        };
+
+        let mut face_map: HashMap<u64, FaceIdx> = HashMap::new();
+        face_map.insert(1, face1);
+        face_map.insert(2, face2);
+
+        let mut face_geometry: HashMap<FaceIdx, SurfaceGeom> = HashMap::new();
+        face_geometry.insert(face1, SurfaceGeom::Planar(z_up_normal.clone()));
+        face_geometry.insert(face2, SurfaceGeom::Planar(z_up_normal));
+
+        let mut edge_geometry: HashMap<EdgeIdx, CurveGeom> = HashMap::new();
+        for (idx, edge) in arena.edges.iter().enumerate() {
+            let he_a = edge.half_edge;
+            let v_start = arena.half_edges[he_a.0].origin;
+            let v_end = arena.half_edges[arena.half_edges[he_a.0].twin.0].origin;
+            let p0 = arena.vertices[v_start.0].position;
+            let p1 = arena.vertices[v_end.0].position;
+            edge_geometry.insert(
+                EdgeIdx(idx),
+                CurveGeom::Linear(Line3D {
+                    origin: Point3::from_array(p0),
+                    direction: Vector3::from_array(v3_sub(p1, p0)),
+                }),
+            );
+        }
+
+        // ── Tessellate ─────────────────────────────────────────────
+        let mesh = tessellate_solid_bounded(&arena, &face_map, &face_geometry, &edge_geometry)
+            .expect("tessellate_solid_bounded should succeed");
+
+        // ── Verify: no non-manifold edges ──────────────────────────
+        // Count edge multiplicities using position-based quantization.
+        let max_abs = mesh
+            .vertices
+            .iter()
+            .map(|v| v.abs())
+            .fold(0.0_f32, f32::max);
+        let grid = (max_abs as f64 * 1e-5).max(1e-10);
+        let inv_grid = 1.0 / grid;
+        let quantize = |idx: u32| -> (i64, i64, i64) {
+            let base = idx as usize * 3;
+            (
+                (mesh.vertices[base] as f64 * inv_grid).round() as i64,
+                (mesh.vertices[base + 1] as f64 * inv_grid).round() as i64,
+                (mesh.vertices[base + 2] as f64 * inv_grid).round() as i64,
+            )
+        };
+
+        let n_tris = mesh.indices.len() / 3;
+        let mut edge_counts: HashMap<((i64, i64, i64), (i64, i64, i64)), u32> = HashMap::new();
+        for i in 0..n_tris {
+            let tri = [
+                mesh.indices[i * 3],
+                mesh.indices[i * 3 + 1],
+                mesh.indices[i * 3 + 2],
+            ];
+            for j in 0..3 {
+                let pa = quantize(tri[j]);
+                let pb = quantize(tri[(j + 1) % 3]);
+                let key = if pa <= pb { (pa, pb) } else { (pb, pa) };
+                *edge_counts.entry(key).or_insert(0) += 1;
+            }
+        }
+
+        let nonmanifold_edges: Vec<_> =
+            edge_counts.iter().filter(|(_, &count)| count > 2).collect();
+
+        assert!(
+            nonmanifold_edges.is_empty(),
+            "Expected zero non-manifold edges after edge-flip repair, \
+             but found {} edges with count>2: {:?}. \
+             The flip_nonmanifold_interior_diagonals() function must resolve \
+             conflicting earcut diagonals between adjacent faces that share \
+             corner vertex positions without a connecting B-Rep edge.",
+            nonmanifold_edges.len(),
+            nonmanifold_edges
+                .iter()
+                .take(5)
+                .map(|(edge, count)| format!("edge {:?} count={}", edge, count))
+                .collect::<Vec<_>>()
+        );
+
+        // Also verify the mesh is complete (no missing triangles).
+        // The current removal-based non-manifold repair deletes triangles, which
+        // creates boundary holes. The edge-flip approach should preserve all
+        // triangles while eliminating non-manifold edges, yielding a mesh with
+        // exactly 4 triangles (2 per quad face).
+        assert_eq!(
+            n_tris, 4,
+            "Two quad faces should produce exactly 4 triangles (2 per face), \
+             but got {}. The current removal-based repair deletes triangles \
+             to fix non-manifold edges; flip_nonmanifold_interior_diagonals() \
+             should preserve all triangles by flipping the conflicting diagonal \
+             in one face instead.",
+            n_tris
+        );
+
+        // For this open-surface test (two independent quads, not a closed solid),
+        // boundary edges have count=1, which is expected. The important check is
+        // that no edges have count>2 (already asserted above via nonmanifold_edges).
+        // Also verify that the flipped diagonal exists as an internal edge (count=2).
+        let internal_edges: Vec<_> = edge_counts
+            .iter()
+            .filter(|(_, &count)| count == 2)
+            .collect();
+        assert!(
+            !internal_edges.is_empty(),
+            "Expected at least one internal edge (count=2) from the flipped diagonal, \
+             but found none. This suggests the flip did not create a valid shared edge."
         );
     }
 }

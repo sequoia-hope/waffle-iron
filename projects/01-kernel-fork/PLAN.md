@@ -307,7 +307,17 @@ Last updated: Sprint 68+ (2026-03-21)
 - Added `weld_arc_edge_vertices` for cyl-cyl boolean results
 - 23 new tests (3 red→green + 20 adversarial), all passing
 - Improves vertex index sharing for rendering; position-based watertight check already handled positions
-- Total kernel tests: 585 pass, 2 ignored
+
+### Edge-Flip Non-Manifold Repair (2026-03-21)
+- Added `flip_nonmanifold_interior_diagonals()` in bounded tessellation pipeline
+- Fixes non-manifold edges caused by conflicting earcut diagonals: when two adjacent
+  faces share corner vertex positions but no B-Rep edge, earcut creates the same interior
+  diagonal in both faces. Instead of removing triangles (which creates holes), flips the
+  diagonal in one face to use an alternative that doesn't conflict.
+- Runs BEFORE removal-based passes so triangles are still available to flip
+- F-series: 25/25 (was 24/25 — one case recovered)
+- Spec: `/specs/edge_flip_nonmanifold_repair.md`
+- Total kernel tests: 586 pass, 2 ignored
 
 ---
 
