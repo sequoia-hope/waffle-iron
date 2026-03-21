@@ -11288,3 +11288,239 @@ mod cross_plane_tests {
         );
     }
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// FIP: Bounded tessellation for arc-edge boolean results
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// These tests verify that boolean results involving cylindrical bodies
+// produce watertight meshes with zero unpaired edges. Currently, the
+// tessellator forces arc-edge boolean results to the fan path (per-face
+// vertices + post-hoc welding) instead of the bounded path (shared
+// vertices from edge discretization). The bounded path handles arcs
+// in discretize_edges() and cylindrical faces in
+// tessellate_cylindrical_face_bounded(). After removing the arc guard
+// (line ~91-96 in tessellation/mod.rs), these tests should pass.
+//
+// Each test checks:
+//   1. Mesh is non-empty
+//   2. Zero unpaired edges (watertight)
+//   3. Positive volume (sensible geometry)
+//   4. No unreferenced vertices (bounded path shares by construction)
+
+/// Count vertex indices referenced by at least one triangle, and total vertex
+/// entries in the mesh array. Bounded tessellation shares vertices by
+/// construction (referenced == total). The fan path creates per-face copies
+/// that welding remaps but does not remove, leaving unreferenced entries.
+fn vertex_sharing_stats(mesh: &RenderMesh) -> (usize, usize) {
+    let total = mesh.vertices.len() / 3;
+    let mut used = std::collections::HashSet::new();
+    for idx in &mesh.indices {
+        used.insert(*idx);
+    }
+    (used.len(), total)
+}
+
+// ── FIP Test 1: Box-cylinder union (straddling) produces watertight mesh ──
+//
+// A cylinder (r=4) centered at (7,7) overlapping a 10x10x10 box centered at
+// (5,5) creates a straddling intersection that cuts two box faces. The SSI
+// boolean path produces arc edges in the result B-Rep. Currently, these arcs
+// force the tessellator to the fan path (per-face vertices with post-hoc
+// welding), which produces unpaired edges at the arc/planar seams.
+//
+// The bounded path (tessellate_solid_bounded) handles arcs via
+// discretize_edges() and cylindrical faces via tessellate_cylindrical_face_bounded(),
+// sharing vertices by construction for watertight output.
+
+#[test]
+#[ignore] // Straddling box-cyl goes through polygon-soup (SSI returns NotSupported).
+           // Re-enable when SSI handles partial box-cyl overlap or bounded path
+           // handles cylindrical face tessellation correctly.
+fn fip_box_cyl_union_straddling_watertight() {
+    let mut k = WaffleKernel::new();
+    // 10x10x10 box centered at (5,5) on XY plane
+    let (pb, posb) = make_rect_profile(5.0, 5.0, 10.0, 10.0);
+    let fb = k
+        .make_faces_from_profiles(&pb, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posb)
+        .unwrap();
+    let box_solid = k.extrude_face(fb[0], Z_DIR, 10.0).unwrap();
+    // Cylinder r=4 centered at (7,7) — protrudes past two box edges
+    let (pc, posc) = make_circle_profile(7.0, 7.0, 4.0);
+    let fc = k
+        .make_faces_from_profiles(&pc, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posc)
+        .unwrap();
+    let cyl_solid = k.extrude_face(fc[0], Z_DIR, 10.0).unwrap();
+
+    let result = k
+        .boolean_union(&box_solid, &cyl_solid)
+        .expect("box-cyl union should succeed");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+
+    // 1. Non-empty mesh
+    assert!(
+        mesh.vertices.len() >= 9,
+        "Union mesh must be non-empty, got {} vertex components",
+        mesh.vertices.len()
+    );
+    assert!(
+        mesh.indices.len() >= 3,
+        "Union mesh must have triangles, got {} indices",
+        mesh.indices.len()
+    );
+
+    // 2. Zero unpaired edges (watertight)
+    let unpaired = count_unpaired_edges(&mesh);
+    assert_eq!(
+        unpaired, 0,
+        "Box-cyl union (straddling) mesh must be watertight: got {} unpaired edges. \
+         The fan path's per-face vertex generation produces arc boundary points that \
+         don't match across face boundaries. The bounded path shares discretized \
+         edge vertices by construction.",
+        unpaired
+    );
+
+    // 3. Positive volume
+    let vol = mesh_volume(&mesh);
+    assert!(
+        vol > 0.0,
+        "Union volume must be positive, got {}",
+        vol
+    );
+
+    // 4. No unreferenced vertices (bounded path shares by construction)
+    let (used, total) = vertex_sharing_stats(&mesh);
+    assert_eq!(
+        used, total,
+        "All vertex entries must be referenced (bounded path shares by construction). \
+         Got {} unreferenced entries out of {} total — indicates fan path was used.",
+        total - used,
+        total
+    );
+}
+
+// ── FIP Test 2: Box-cylinder subtract produces watertight mesh ──
+//
+// A cylinder (r=4) centered at (7,7) subtracted from a 10x10x10 box
+// centered at (5,5). The cylinder crosses two box faces, creating partial
+// arc trim boundaries on both the top/bottom planar faces and the side walls.
+// The fan path's independent vertex computation for each face produces
+// position divergence at shared arc edges.
+
+#[test]
+#[ignore] // Straddling box-cyl goes through polygon-soup (SSI returns NotSupported).
+           // Re-enable when SSI handles partial box-cyl overlap or bounded path
+           // handles cylindrical face tessellation correctly.
+fn fip_box_cyl_subtract_straddling_watertight() {
+    let mut k = WaffleKernel::new();
+    let (pb, posb) = make_rect_profile(5.0, 5.0, 10.0, 10.0);
+    let fb = k
+        .make_faces_from_profiles(&pb, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posb)
+        .unwrap();
+    let box_solid = k.extrude_face(fb[0], Z_DIR, 10.0).unwrap();
+    // Cylinder r=4 at (7,7) — straddles two box edges for subtract
+    let (pc, posc) = make_circle_profile(7.0, 7.0, 4.0);
+    let fc = k
+        .make_faces_from_profiles(&pc, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posc)
+        .unwrap();
+    let cyl_solid = k.extrude_face(fc[0], Z_DIR, 10.0).unwrap();
+
+    let result = k
+        .boolean_subtract(&box_solid, &cyl_solid)
+        .expect("box-cyl subtract should succeed");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+
+    // 1. Non-empty mesh
+    assert!(
+        mesh.vertices.len() >= 9,
+        "Subtract mesh must be non-empty, got {} vertex components",
+        mesh.vertices.len()
+    );
+
+    // 2. Zero unpaired edges (watertight)
+    let unpaired = count_unpaired_edges(&mesh);
+    assert_eq!(
+        unpaired, 0,
+        "Box-cyl subtract (straddling) mesh must be watertight: got {} unpaired edges. \
+         The bounded path would share arc boundary vertices by construction.",
+        unpaired
+    );
+
+    // 3. Positive volume — subtract should leave box minus the intersecting chunk
+    let vol = mesh_volume(&mesh);
+    // Box volume is 1000, cylinder removes some portion
+    assert!(
+        vol > 0.0 && vol < 1000.0,
+        "Subtract volume must be positive and less than box volume (1000), got {:.2}",
+        vol
+    );
+
+    // 4. No unreferenced vertices
+    let (used, total) = vertex_sharing_stats(&mesh);
+    assert_eq!(
+        used, total,
+        "All vertex entries must be referenced (bounded path). \
+         Got {} unreferenced entries out of {} total.",
+        total - used,
+        total
+    );
+}
+
+// ── FIP Test 3: Cylinder-cylinder union produces watertight mesh ──
+//
+// Two overlapping cylinders (r=3, offset by 3 along X) produce a union
+// with arc edges at the intersection boundaries. The fan path tessellates
+// each cylindrical face independently, computing arc boundary points
+// through different parameterizations. Position-based welding at 1e-7
+// cannot reliably unify these, leaving unreferenced vertex entries.
+// The bounded path uses discretize_edges() to compute each arc once and
+// share the result between adjacent faces.
+
+#[test]
+fn fip_cyl_cyl_union_watertight() {
+    let (mut k, result) = do_cyl_cyl_boolean(
+        0.0, 0.0, 3.0, 10.0,
+        3.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Union,
+    )
+    .expect("cyl-cyl union should succeed");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+
+    // 1. Non-empty mesh
+    assert!(
+        mesh.vertices.len() >= 9,
+        "Cyl-cyl union mesh must be non-empty, got {} vertex components",
+        mesh.vertices.len()
+    );
+
+    // 2. Zero unpaired edges (watertight)
+    let unpaired = count_unpaired_edges(&mesh);
+    assert_eq!(
+        unpaired, 0,
+        "Cyl-cyl union mesh must be watertight: got {} unpaired edges",
+        unpaired
+    );
+
+    // 3. Positive volume
+    let vol = mesh_volume(&mesh);
+    assert!(
+        vol > 0.0,
+        "Cyl-cyl union volume must be positive, got {}",
+        vol
+    );
+
+    // 4. No unreferenced vertices — the key oracle for bounded vs fan path.
+    //    The fan path creates per-face vertex copies that welding remaps but
+    //    does not remove from the array, leaving total > used.
+    //    The bounded path shares vertex indices by construction: total == used.
+    let (used, total) = vertex_sharing_stats(&mesh);
+    assert_eq!(
+        used, total,
+        "All vertex entries must be referenced (bounded path shares by construction). \
+         Fan path left {} unreferenced vertex entries out of {} total — \
+         per-face vertex copies were remapped by welding but not removed.",
+        total - used,
+        total
+    );
+}
+

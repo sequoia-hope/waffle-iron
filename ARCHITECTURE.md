@@ -167,7 +167,7 @@ All 3D rendering happens in JavaScript via three.js/Threlte on the main thread. 
 
 ## Current Kernel Status
 
-The clean-sheet kernel (`crates/kernel/`) is under active development. Current assay score: **81/160** (586 kernel tests pass, 2 ignored).
+The clean-sheet kernel (`crates/kernel/`) is under active development. Current assay score: **134/160** (600 kernel tests pass, 4 ignored).
 
 ### What exists:
 - Half-edge B-Rep topology data structure with arena-based storage

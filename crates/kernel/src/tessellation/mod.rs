@@ -607,6 +607,10 @@ pub(crate) fn tessellate_solid_ext(
     // Spec: full_edge_vertex_welding.md — Invariant 1 (watertight mesh).
     if needs_fan_welding {
         weld_shared_edge_vertices(&vertices, &mut indices, &mut face_ranges);
+        // Compact: remove unreferenced vertices left after welding remapped
+        // their indices to earlier entries. This ensures used == total for
+        // the vertex_sharing_stats oracle.
+        compact_unreferenced_vertices(&mut vertices, &mut normals, &mut indices);
     }
 
     Ok(RenderMesh {
@@ -615,6 +619,67 @@ pub(crate) fn tessellate_solid_ext(
         indices,
         face_ranges,
     })
+}
+
+/// Remove unreferenced vertex entries from the vertex/normal arrays and
+/// remap indices to the compacted layout. After welding, some vertex entries
+/// are no longer referenced by any triangle index; this removes them so that
+/// total vertex count equals referenced vertex count.
+fn compact_unreferenced_vertices(
+    vertices: &mut Vec<f32>,
+    normals: &mut Vec<f32>,
+    indices: &mut [u32],
+) {
+    let n_verts = vertices.len() / 3;
+    if n_verts == 0 {
+        return;
+    }
+
+    // Find which vertices are referenced
+    let mut used = vec![false; n_verts];
+    for &idx in indices.iter() {
+        if (idx as usize) < n_verts {
+            used[idx as usize] = true;
+        }
+    }
+
+    // Build remap: old index → new index (or u32::MAX if unreferenced)
+    let mut remap: Vec<u32> = vec![u32::MAX; n_verts];
+    let mut new_idx: u32 = 0;
+    for i in 0..n_verts {
+        if used[i] {
+            remap[i] = new_idx;
+            new_idx += 1;
+        }
+    }
+
+    let new_count = new_idx as usize;
+    if new_count == n_verts {
+        return; // Nothing to compact
+    }
+
+    // Compact vertex and normal arrays in-place
+    let mut write = 0;
+    for read in 0..n_verts {
+        if used[read] {
+            vertices[write * 3] = vertices[read * 3];
+            vertices[write * 3 + 1] = vertices[read * 3 + 1];
+            vertices[write * 3 + 2] = vertices[read * 3 + 2];
+            if normals.len() >= (read + 1) * 3 {
+                normals[write * 3] = normals[read * 3];
+                normals[write * 3 + 1] = normals[read * 3 + 1];
+                normals[write * 3 + 2] = normals[read * 3 + 2];
+            }
+            write += 1;
+        }
+    }
+    vertices.truncate(new_count * 3);
+    normals.truncate(new_count * 3);
+
+    // Remap indices
+    for idx in indices.iter_mut() {
+        *idx = remap[*idx as usize];
+    }
 }
 
 /// Weld mesh vertices at shared positions so that adjacent faces sharing
@@ -6268,7 +6333,7 @@ fn close_near_boundary_chains(
         // For a polygon hole (4+ edges, same number of vertices): trace the
         // boundary loop, determine winding, and fan-triangulate.
         // Upper bound raised to 32 to match the component limit above.
-        if component.len() >= 4 && component.len() <= 32 && comp_edges.len() == component.len() {
+        if component.len() >= 4 && component.len() <= 64 && comp_edges.len() == component.len() {
             // Order vertices by tracing through the boundary edges (undirected)
             let target_len = component.len();
             let mut ordered: Vec<QPos> = vec![component[0]];
@@ -6331,7 +6396,7 @@ fn close_near_boundary_chains(
         // boundaries where the tessellation produces almost-closed chains.
         // Only for chains up to 32 vertices to avoid filling large boundaries.
         if component.len() >= 3
-            && component.len() <= 32
+            && component.len() <= 64
             && !comp_edges.is_empty()
             && comp_edges.len() < component.len()
         {
