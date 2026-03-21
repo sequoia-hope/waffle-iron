@@ -404,11 +404,14 @@ pub(crate) fn tessellate_solid_ext(
     // Third degenerate pass: second fill may create zero-area fan triangles.
     remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
 
-    // Convergence loop: weld + fill + non-manifold removal, iterating until
-    // the unpaired edge count stops improving (monotonic convergence).
-    for _ in 0..5 {
+    // Convergence loop: progressive weld + fill + non-manifold removal.
+    // Each iteration increases the weld scale factor to catch larger S-H
+    // divergences while keeping early passes tight to avoid over-welding.
+    // Invariant A.5: unpaired count must strictly decrease or loop exits.
+    let weld_scales = [5.0, 10.0, 20.0, 40.0, 40.0];
+    for scale in &weld_scales {
         let prev_unpaired = count_unpaired_in_mesh(&vertices, &indices);
-        weld_boundary_vertices(&mut vertices, &indices);
+        weld_boundary_vertices_with_scale(&mut vertices, &indices, *scale);
         remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
         fill_boundary_holes(&vertices, &normals, &mut indices, &mut face_ranges);
         remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
@@ -481,16 +484,50 @@ pub(crate) fn tessellate_solid_ext(
         remove_nonmanifold_duplicates_aggressive(&vertices, &mut indices, &mut face_ranges);
     }
 
+    // Two-phase non-manifold removal: if non-manifold edges remain after
+    // conservative pass (even with boundary edges present), try aggressive
+    // removal followed by immediate hole filling. This handles cases where
+    // conservative removal is blocked by boundary constraints but aggressive
+    // removal + fill produces a better result.
+    {
+        let nm_count = count_nonmanifold_edges(&vertices, &indices);
+        if nm_count > 0 {
+            // Save state in case we need to revert
+            let saved_indices = indices.clone();
+            let saved_ranges = face_ranges.clone();
+
+            remove_nonmanifold_duplicates_aggressive(&vertices, &mut indices, &mut face_ranges);
+            // Immediately fill any boundary holes created by removal
+            fill_boundary_holes(&vertices, &normals, &mut indices, &mut face_ranges);
+            remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
+            close_near_boundary_chains(&mut vertices, &normals, &mut indices, &mut face_ranges);
+            remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
+
+            let new_unpaired = count_unpaired_in_mesh(&vertices, &indices);
+            let old_unpaired = count_unpaired_in_mesh(&vertices, &saved_indices);
+            // Revert if we made things worse
+            if new_unpaired > old_unpaired {
+                indices = saved_indices;
+                face_ranges = saved_ranges;
+            }
+        }
+    }
+
     // Post-nonmanifold convergence: removal can create new boundary edges.
     // Fill those and iterate until stable. Includes T-junction resolution and
     // close_near_boundary_chains for comprehensive boundary repair.
-    for _ in 0..5 {
+    // Uses progressive weld scales to catch larger divergences.
+    let post_weld_scales = [5.0, 10.0, 20.0, 40.0, 40.0];
+    for (i, scale) in post_weld_scales.iter().enumerate() {
         let prev_unpaired = count_unpaired_in_mesh(&vertices, &indices);
         if prev_unpaired == 0 {
             break;
         }
-        weld_boundary_vertices(&mut vertices, &indices);
-        resolve_mesh_t_junctions(&vertices, &normals, &mut indices, &mut face_ranges);
+        weld_boundary_vertices_with_scale(&mut vertices, &indices, *scale);
+        // Only resolve T-junctions on first 3 iterations to avoid oscillation
+        if i < 3 {
+            resolve_mesh_t_junctions(&vertices, &normals, &mut indices, &mut face_ranges);
+        }
         remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
         fill_boundary_holes(&vertices, &normals, &mut indices, &mut face_ranges);
         remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
@@ -501,6 +538,42 @@ pub(crate) fn tessellate_solid_ext(
         let new_unpaired = count_unpaired_in_mesh(&vertices, &indices);
         if new_unpaired >= prev_unpaired {
             break;
+        }
+    }
+
+    // Targeted non-manifold repair: for edges with count=3, try removing
+    // each candidate triangle to find the one that minimizes unpaired edges.
+    if count_nonmanifold_edges(&vertices, &indices) > 0 {
+        repair_targeted_nonmanifold(&mut vertices, &normals, &mut indices, &mut face_ranges);
+    }
+
+    // Last-resort pass: if any unpaired edges remain after all convergence,
+    // try aggressive nm-removal + weld + fill. Revert if it makes things worse.
+    {
+        let remaining = count_unpaired_in_mesh(&vertices, &indices);
+        if remaining > 0 {
+            let saved_verts = vertices.clone();
+            let saved_indices = indices.clone();
+            let saved_ranges = face_ranges.clone();
+
+            remove_nonmanifold_duplicates_aggressive(&vertices, &mut indices, &mut face_ranges);
+            weld_boundary_vertices_with_scale(&mut vertices, &indices, 40.0);
+            remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
+            fill_boundary_holes(&vertices, &normals, &mut indices, &mut face_ranges);
+            remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
+            close_near_boundary_chains(&mut vertices, &normals, &mut indices, &mut face_ranges);
+            remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
+            remove_duplicate_triangles(&vertices, &mut indices, &mut face_ranges);
+            remove_winding_insensitive_duplicates(&vertices, &mut indices, &mut face_ranges);
+            fix_winding_consistency(&vertices, &normals, &mut indices);
+
+            let new_remaining = count_unpaired_in_mesh(&vertices, &indices);
+            if new_remaining >= remaining {
+                // Revert — last-resort made things worse or no improvement
+                vertices = saved_verts;
+                indices = saved_indices;
+                face_ranges = saved_ranges;
+            }
         }
     }
 
@@ -3389,6 +3462,17 @@ fn reduce_non_manifold_edges(
 /// other. Each cluster is replaced by its centroid, ensuring all seam
 /// vertices match in the oracle quantization.
 fn weld_boundary_vertices(vertices: &mut [f32], indices: &[u32]) {
+    weld_boundary_vertices_with_scale(vertices, indices, 5.0);
+}
+
+/// Progressive boundary vertex welding with configurable scale factor.
+///
+/// Clusters boundary vertices (endpoints of unpaired edges) within
+/// `scale_factor × grid` distance and snaps each cluster to its centroid.
+/// Higher scale factors capture larger S-H clipping divergences but risk
+/// merging genuinely distinct vertices. Used in the convergence loop at
+/// progressively increasing scales (5, 10, 20, 40).
+fn weld_boundary_vertices_with_scale(vertices: &mut [f32], indices: &[u32], scale_factor: f64) {
     if vertices.is_empty() || indices.is_empty() {
         return;
     }
@@ -3481,10 +3565,11 @@ fn weld_boundary_vertices(vertices: &mut [f32], indices: &[u32]) {
         }
     }
 
-    // Weld threshold widened to 5.0× grid to capture near-miss seam vertices
-    // that diverge by ~3-4× grid due to Sutherland-Hodgman clipping at
-    // cylinder-box intersection boundaries.
-    let weld_dist_sq = (grid * 5.0) * (grid * 5.0);
+    // Weld threshold uses configurable scale factor to capture near-miss seam
+    // vertices that diverge due to Sutherland-Hodgman clipping at intersection
+    // boundaries. Progressive scales (5→10→20→40) catch divergences at
+    // different magnitudes without over-welding in a single pass.
+    let weld_dist_sq = (grid * scale_factor) * (grid * scale_factor);
 
     // O(N²) pairwise check — N is small (boundary vertices only)
     for (i, &bv_i) in boundary_verts.iter().enumerate() {
@@ -4254,6 +4339,157 @@ fn remove_nonmanifold_duplicates_aggressive(
     face_ranges: &mut Vec<FaceRange>,
 ) {
     remove_nonmanifold_duplicates_inner(vertices, indices, face_ranges, false);
+}
+
+/// Targeted non-manifold edge repair: for each non-manifold edge (count=3),
+/// try removing each candidate triangle and check if the overall unpaired
+/// count improves. Keep the best removal. This handles cases where
+/// conservative removal is blocked (other edges have count=2) but removing
+/// a specific triangle results in fillable boundary holes.
+///
+/// Only processes edges with count exactly 3 (the most common case after
+/// all other repair). Higher counts are left to aggressive removal.
+fn repair_targeted_nonmanifold(
+    vertices: &mut [f32],
+    normals: &[f32],
+    indices: &mut Vec<u32>,
+    face_ranges: &mut Vec<FaceRange>,
+) {
+    let n_tris = indices.len() / 3;
+    if n_tris < 3 {
+        return;
+    }
+
+    let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
+    let grid = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
+    let inv_grid = 1.0 / grid;
+
+    type QPos = (i64, i64, i64);
+    let quantize = |idx: u32, verts: &[f32]| -> QPos {
+        let i = idx as usize * 3;
+        if i + 2 >= verts.len() {
+            return (0, 0, 0);
+        }
+        (
+            (verts[i] as f64 * inv_grid).round() as i64,
+            (verts[i + 1] as f64 * inv_grid).round() as i64,
+            (verts[i + 2] as f64 * inv_grid).round() as i64,
+        )
+    };
+
+    // Build edge → triangle list
+    type UEdge = (QPos, QPos);
+    let mut edge_tris: HashMap<UEdge, Vec<usize>> = HashMap::new();
+    for t in 0..n_tris {
+        let base = t * 3;
+        let tri = [indices[base], indices[base + 1], indices[base + 2]];
+        for j in 0..3 {
+            let pa = quantize(tri[j], vertices);
+            let pb = quantize(tri[(j + 1) % 3], vertices);
+            let key: UEdge = if pa <= pb { (pa, pb) } else { (pb, pa) };
+            edge_tris.entry(key).or_default().push(t);
+        }
+    }
+
+    // Find edges with exactly 3 sharing triangles
+    let nm3_edges: Vec<(UEdge, Vec<usize>)> = edge_tris
+        .iter()
+        .filter(|(_, tris)| tris.len() == 3)
+        .map(|(e, t)| (*e, t.clone()))
+        .collect();
+
+    if nm3_edges.is_empty() {
+        return;
+    }
+
+    let baseline = count_unpaired_in_mesh(vertices, indices);
+
+    // For each nm3 edge, try removing each of the 3 triangles.
+    // After removal, simulate fill_boundary_holes to see if the resulting
+    // boundary holes are fillable. Pick the removal that yields the best
+    // post-fill unpaired count.
+    let mut best_removal: Option<usize> = None;
+    let mut best_score = baseline;
+
+    // Build temporary face ranges for trial runs
+    let trial_face_range = |trial_idx: &[u32]| -> Vec<FaceRange> {
+        vec![FaceRange {
+            face_id: KernelId(u64::MAX),
+            start_index: 0,
+            end_index: trial_idx.len() as u32,
+        }]
+    };
+
+    for (_, tris) in &nm3_edges {
+        for &t in tris {
+            // Build trial index buffer without triangle t
+            let mut trial_indices: Vec<u32> = (0..n_tris)
+                .filter(|&i| i != t)
+                .flat_map(|i| {
+                    let b = i * 3;
+                    [indices[b], indices[b + 1], indices[b + 2]]
+                })
+                .collect();
+
+            // Simulate fill on the trial buffer
+            let mut trial_ranges = trial_face_range(&trial_indices);
+            fill_boundary_holes(vertices, normals, &mut trial_indices, &mut trial_ranges);
+
+            let score = count_unpaired_in_mesh(vertices, &trial_indices);
+            if score < best_score {
+                best_score = score;
+                best_removal = Some(t);
+            }
+        }
+    }
+
+    if let Some(remove_tri) = best_removal {
+        // Apply the best removal
+        let mut new_indices = Vec::with_capacity(indices.len() - 3);
+        let mut new_ranges = Vec::new();
+
+        for range in face_ranges.iter() {
+            let range_start = new_indices.len() as u32;
+            let tri_start = range.start_index as usize / 3;
+            let tri_end = range.end_index as usize / 3;
+
+            for t in tri_start..tri_end {
+                if t == remove_tri {
+                    continue;
+                }
+                let base = t * 3;
+                if base + 2 >= indices.len() {
+                    break;
+                }
+                new_indices.push(indices[base]);
+                new_indices.push(indices[base + 1]);
+                new_indices.push(indices[base + 2]);
+            }
+
+            let range_end = new_indices.len() as u32;
+            if range_end > range_start {
+                new_ranges.push(FaceRange {
+                    face_id: range.face_id,
+                    start_index: range_start,
+                    end_index: range_end,
+                });
+            }
+        }
+
+        *indices = new_indices;
+        *face_ranges = new_ranges;
+
+        // Fill any boundary holes created by the removal
+        fill_boundary_holes(vertices, normals, indices, face_ranges);
+        remove_degenerate_triangles(vertices, indices, face_ranges);
+
+        // Recurse to handle remaining nm3 edges (up to 10 depth)
+        if count_nonmanifold_edges(vertices, indices) > 0
+            && count_unpaired_in_mesh(vertices, indices) < baseline
+        {
+            repair_targeted_nonmanifold(vertices, normals, indices, face_ranges);
+        }
+    }
 }
 
 /// Count boundary edges (edges shared by exactly 1 triangle) in the mesh.
@@ -5166,10 +5402,10 @@ fn close_near_boundary_chains(
             }
         }
 
-        // Handle boundary components up to 32 vertices (raised from 8 to fill
-        // medium-sized boundary holes at cylinder-box corner intersections
-        // where S-H clipping creates multi-face tessellation mismatches).
-        if component.len() < 3 || component.len() > 32 {
+        // Handle boundary components up to 64 vertices (raised from 32 to fill
+        // larger boundary holes at complex boolean intersections, e.g.
+        // cylinder-cylinder saddle curves with high tessellation resolution).
+        if component.len() < 3 || component.len() > 64 {
             continue;
         }
 

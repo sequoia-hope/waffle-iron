@@ -1,35 +1,35 @@
 # ASSAY v3 Failure Catalog — WaffleKernel
 
-Generated: 2026-03-20
-Score: **75/160** (75 pass, 81 fail, 4 error)
+Generated: 2026-03-21
+Score: **72/160** (72 pass, 84 fail, 4 error)
 
 ## Summary by Root Cause
 
 | Category | Count | Status |
 |---|---|---|
-| boolean-watertight | 61 | failed |
-| pass-boss-only | 46 | passed |
-| pass-genuine | 29 | passed |
+| boolean-watertight | 64 | failed |
+| pass-boss-only | 45 | passed |
+| pass-genuine | 27 | passed |
 | mesh-too-simple | 8 | failed |
-| cascading-failure | 4 | errored |
 | revolve-normals | 4 | failed |
+| cascading-failure | 4 | errored |
 | multiple-failures | 3 | failed |
 | auto-union-failed | 2 | failed |
+| tessellation-degenerate | 1 | failed |
 | volume-magnitude | 1 | failed |
 | aabb-collapse | 1 | failed |
-| tessellation-degenerate | 1 | failed |
 
 ## Highest-Leverage Fixes
 
-1. **Fix boolean-watertight** → would address ~61 cases
+1. **Fix boolean-watertight** → would address ~64 cases
 2. **Fix mesh-too-simple** → would address ~8 cases
-3. **Fix cascading-failure** → would address ~4 cases
-4. **Fix revolve-normals** → would address ~4 cases
+3. **Fix revolve-normals** → would address ~4 cases
+4. **Fix cascading-failure** → would address ~4 cases
 5. **Fix multiple-failures** → would address ~3 cases
 6. **Fix auto-union-failed** → would address ~2 cases
-7. **Fix volume-magnitude** → would address ~1 cases
-8. **Fix aabb-collapse** → would address ~1 cases
-9. **Fix tessellation-degenerate** → would address ~1 cases
+7. **Fix tessellation-degenerate** → would address ~1 cases
+8. **Fix volume-magnitude** → would address ~1 cases
+9. **Fix aabb-collapse** → would address ~1 cases
 
 ## Individual Case Results
 
@@ -45,7 +45,7 @@ Score: **75/160** (75 pass, 81 fail, 4 error)
 - **Operations**: revolve(rectangle,boss) + revolve(gear,cut)
 - **Scale**: 2.30e0 (log: 0.36)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 63 unpaired edges out of 705 total (0 boundary, 63 non-manifold)
+- **Detail**: watertight_mesh: 67 unpaired edges out of 705 total (4 boundary, 63 non-manifold)
 
 ### R0003 — FAIL
 
@@ -59,7 +59,7 @@ Score: **75/160** (75 pass, 81 fail, 4 error)
 - **Operations**: revolve(rectangle,boss) + revolve(rectangle,boss) + extrude(gear,cut)
 - **Scale**: 1.42e0 (log: 0.15)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 2 unpaired edges out of 1162 total (0 boundary, 2 non-manifold)
+- **Detail**: watertight_mesh: 12 unpaired edges out of 1161 total
 
 ### R0005 — FAIL
 
@@ -108,7 +108,7 @@ Score: **75/160** (75 pass, 81 fail, 4 error)
 - **Operations**: revolve(rectangle,boss) + extrude(gear,boss)
 - **Scale**: 7.15e3 (log: 3.85)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 63 unpaired edges out of 3051 total (0 boundary, 63 non-manifold)
+- **Detail**: watertight_mesh: 67 unpaired edges out of 3051 total (4 boundary, 63 non-manifold)
 
 ### R0012 — FAIL
 
@@ -136,7 +136,7 @@ Score: **75/160** (75 pass, 81 fail, 4 error)
 - **Operations**: revolve(rectangle,boss) + extrude(circle,boss) + revolve(circle,boss)
 - **Scale**: 1.12e-4 (log: -3.95)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 384 unpaired edges out of 1290 total (374 boundary, 10 non-manifold)
+- **Detail**: watertight_mesh: 385 unpaired edges out of 1289 total (375 boundary, 10 non-manifold)
 
 ### R0016 — ERROR
 
@@ -150,7 +150,7 @@ Score: **75/160** (75 pass, 81 fail, 4 error)
 - **Operations**: revolve(rectangle,boss) + extrude(rectangle,boss) + extrude(rectangle,cut)
 - **Scale**: 4.03e3 (log: 3.61)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 6 unpaired edges out of 607 total (4 boundary, 2 non-manifold); consistent_normals: 13 of 404 triangles have reversed normals
+- **Detail**: watertight_mesh: 6 unpaired edges out of 607 total (4 boundary, 2 non-manifold); consistent_normals: 12 of 404 triangles have reversed normals
 
 ### R0018 — FAIL
 
@@ -171,7 +171,7 @@ Score: **75/160** (75 pass, 81 fail, 4 error)
 - **Operations**: revolve(rectangle,boss) + extrude(circle,cut) + extrude(circle,cut)
 - **Scale**: 4.93e1 (log: 1.69)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 65 unpaired edges out of 703 total (0 boundary, 65 non-manifold)
+- **Detail**: watertight_mesh: 75 unpaired edges out of 703 total (12 boundary, 63 non-manifold)
 
 ### R0021 — FAIL
 
@@ -213,7 +213,7 @@ Score: **75/160** (75 pass, 81 fail, 4 error)
 - **Operations**: extrude(circle,boss) + revolve(circle,boss) + extrude(rectangle,boss)
 - **Scale**: 1.33e-1 (log: -0.88)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 62 unpaired edges out of 1764 total (61 boundary, 1 non-manifold)
+- **Detail**: watertight_mesh: 47 unpaired edges out of 1768 total (43 boundary, 4 non-manifold)
 
 ### R0027 — FAIL
 
@@ -248,7 +248,7 @@ Score: **75/160** (75 pass, 81 fail, 4 error)
 - **Operations**: extrude(rectangle,boss) + extrude(gear,cut)
 - **Scale**: 7.97e-2 (log: -1.10)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 770 unpaired edges out of 6118 total (756 boundary, 14 non-manifold)
+- **Detail**: watertight_mesh: 573 unpaired edges out of 6249 total (538 boundary, 35 non-manifold)
 
 ### R0032 — FAIL
 
@@ -262,7 +262,7 @@ Score: **75/160** (75 pass, 81 fail, 4 error)
 - **Operations**: revolve(rectangle,boss) + revolve(gear,cut)
 - **Scale**: 1.98e-2 (log: -1.70)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 1 unpaired edges out of 581 total (0 boundary, 1 non-manifold)
+- **Detail**: watertight_mesh: 4 unpaired edges out of 581 total
 
 ### R0034 — PASS
 
@@ -276,7 +276,7 @@ Score: **75/160** (75 pass, 81 fail, 4 error)
 - **Operations**: revolve(rectangle,boss) + revolve(gear,boss) + extrude(circle,boss)
 - **Scale**: 1.45e0 (log: 0.16)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 3 unpaired edges out of 2475 total (0 boundary, 3 non-manifold)
+- **Detail**: watertight_mesh: 10 unpaired edges out of 2474 total (8 boundary, 2 non-manifold)
 
 ### R0036 — PASS
 
@@ -311,7 +311,7 @@ Score: **75/160** (75 pass, 81 fail, 4 error)
 - **Operations**: extrude(circle,boss) + extrude(circle,boss) + revolve(rectangle,boss)
 - **Scale**: 2.58e1 (log: 1.41)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 73 unpaired edges out of 1478 total (4 boundary, 69 non-manifold); consistent_normals: 12 of 1030 triangles have reversed normals
+- **Detail**: watertight_mesh: 71 unpaired edges out of 1484 total (4 boundary, 67 non-manifold); consistent_normals: 12 of 1032 triangles have reversed normals
 
 ### R0041 — FAIL
 
@@ -339,7 +339,7 @@ Score: **75/160** (75 pass, 81 fail, 4 error)
 - **Operations**: revolve(rectangle,boss) + revolve(gear,boss) + extrude(circle,cut)
 - **Scale**: 3.98e3 (log: 3.60)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 18 unpaired edges out of 3808 total (16 boundary, 2 non-manifold)
+- **Detail**: watertight_mesh: 18 unpaired edges out of 3810 total (15 boundary, 3 non-manifold)
 
 ### R0045 — FAIL
 
@@ -369,12 +369,12 @@ Score: **75/160** (75 pass, 81 fail, 4 error)
 - **Category**: mesh-too-simple
 - **Detail**: minimum_triangle_count: 12 triangles < expected minimum 96 for operations [("extrude", "rectangle"), ("extrude", "gear")]
 
-### R0049 — PASS
+### R0049 — FAIL
 
 - **Operations**: revolve(rectangle,boss) + extrude(gear,cut)
 - **Scale**: 4.31e-3 (log: -2.37)
-- **Category**: pass-genuine
-- **Detail**: 8 oracles passed
+- **Category**: boolean-watertight
+- **Detail**: watertight_mesh: 4 unpaired edges out of 581 total
 
 ### R0050 — FAIL
 
@@ -388,7 +388,7 @@ Score: **75/160** (75 pass, 81 fail, 4 error)
 - **Operations**: extrude(circle,boss) + revolve(circle,cut) + revolve(rectangle,boss)
 - **Scale**: 3.37e-3 (log: -2.47)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 389 unpaired edges out of 16060 total (194 boundary, 195 non-manifold); consistent_normals: 258 of 11027 triangles have reversed normals
+- **Detail**: watertight_mesh: 380 unpaired edges out of 16064 total (183 boundary, 197 non-manifold); consistent_normals: 262 of 11034 triangles have reversed normals
 
 ### R0052 — PASS
 
@@ -472,14 +472,14 @@ Score: **75/160** (75 pass, 81 fail, 4 error)
 - **Operations**: extrude(circle,boss) + extrude(rectangle,cut) + extrude(gear,boss)
 - **Scale**: 1.74e-3 (log: -2.76)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 1225 unpaired edges out of 9653 total (1135 boundary, 90 non-manifold)
+- **Detail**: watertight_mesh: 900 unpaired edges out of 10059 total (787 boundary, 113 non-manifold)
 
 ### R0064 — FAIL
 
 - **Operations**: extrude(gear,boss) + extrude(rectangle,boss)
 - **Scale**: 1.53e3 (log: 3.19)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 3 unpaired edges out of 4013 total (2 boundary, 1 non-manifold)
+- **Detail**: watertight_mesh: 9 unpaired edges out of 4017 total (6 boundary, 3 non-manifold)
 
 ### R0065 — FAIL
 
@@ -514,21 +514,21 @@ Score: **75/160** (75 pass, 81 fail, 4 error)
 - **Operations**: revolve(rectangle,boss) + extrude(rectangle,boss)
 - **Scale**: 1.79e-4 (log: -3.75)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 6 unpaired edges out of 600 total
+- **Detail**: watertight_mesh: 10 unpaired edges out of 599 total
 
-### R0070 — PASS
+### R0070 — FAIL
 
 - **Operations**: revolve(rectangle,boss) + extrude(gear,cut) + extrude(circle,cut)
 - **Scale**: 1.74e-2 (log: -1.76)
-- **Category**: pass-genuine
-- **Detail**: 8 oracles passed
+- **Category**: boolean-watertight
+- **Detail**: watertight_mesh: 4 unpaired edges out of 581 total
 
 ### R0071 — FAIL
 
 - **Operations**: extrude(gear,boss) + revolve(gear,cut)
 - **Scale**: 1.86e-4 (log: -3.73)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 1376 unpaired edges out of 4838 total (1370 boundary, 6 non-manifold)
+- **Detail**: watertight_mesh: 1383 unpaired edges out of 4837 total (1378 boundary, 5 non-manifold)
 
 ### R0072 — PASS
 
@@ -556,14 +556,14 @@ Score: **75/160** (75 pass, 81 fail, 4 error)
 - **Operations**: extrude(gear,boss) + extrude(circle,boss) + extrude(gear,cut)
 - **Scale**: 1.89e2 (log: 2.28)
 - **Category**: boolean-watertight
-- **Detail**: partial rebuild (1 error(s)): bf39bb13-caea-4782-a987-73d7310c7c75: operation error: kernel error: operation not supported: polygon boolean: 680x674 effective face product (12657) too large for non-convex solids; watertight_mesh: 1 unpaired edges out of 4037 total (0 boundary, 1 non-manifold)
+- **Detail**: partial rebuild (1 error(s)): bf39bb13-caea-4782-a987-73d7310c7c75: operation error: kernel error: operation not supported: polygon boolean: 680x674 effective face product (12657) too large for non-convex solids; watertight_mesh: 32 unpaired edges out of 4009 total
 
 ### R0076 — FAIL
 
 - **Operations**: extrude(rectangle,boss) + extrude(gear,cut) + extrude(circle,boss)
 - **Scale**: 2.31e0 (log: 0.36)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 32 unpaired edges out of 1520 total (28 boundary, 4 non-manifold)
+- **Detail**: watertight_mesh: 25 unpaired edges out of 1565 total (10 boundary, 15 non-manifold)
 
 ### R0077 — PASS
 
@@ -598,7 +598,7 @@ Score: **75/160** (75 pass, 81 fail, 4 error)
 - **Operations**: extrude(gear,boss) + extrude(rectangle,cut) + revolve(gear,boss)
 - **Scale**: 2.24e-1 (log: -0.65)
 - **Category**: auto-union-failed
-- **Detail**: auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 602x588 effective face product (41828) too large for non-convex solids. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); volume_magnitude: volume 1.483913e-11 outside [1.128408e-10, 1.128408e6] for scale 2.242963e-1
+- **Detail**: auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 602x588 effective face product (41828) too large for non-convex solids. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); volume_magnitude: volume 1.483912e-11 outside [1.128408e-10, 1.128408e6] for scale 2.242963e-1
 
 ### R0082 — FAIL
 
@@ -731,7 +731,7 @@ Score: **75/160** (75 pass, 81 fail, 4 error)
 - **Operations**: revolve(rectangle,boss) + extrude(rectangle,cut) + revolve(rectangle,boss)
 - **Scale**: 2.25e2 (log: 2.35)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 63 unpaired edges out of 1287 total (0 boundary, 63 non-manifold)
+- **Detail**: watertight_mesh: 71 unpaired edges out of 1286 total (8 boundary, 63 non-manifold)
 
 ### F0001 — PASS
 
@@ -887,12 +887,12 @@ Score: **75/160** (75 pass, 81 fail, 4 error)
 - **Category**: pass-boss-only
 - **Detail**: 8 oracles passed
 
-### F0023 — PASS
+### F0023 — FAIL
 
 - **Operations**: extrude(rectangle,boss) + extrude(rectangle,boss) + extrude(rectangle,boss) + extrude(rectangle,boss)
 - **Scale**: 1.00e0 (log: 0.00)
-- **Category**: pass-boss-only
-- **Detail**: 8 oracles passed
+- **Category**: boolean-watertight
+- **Detail**: watertight_mesh: 3 unpaired edges out of 563 total (2 boundary, 1 non-manifold)
 
 ### F0024 — PASS
 
@@ -1074,7 +1074,7 @@ Score: **75/160** (75 pass, 81 fail, 4 error)
 - **Operations**: extrude(rectangle,boss) + extrude(circle,boss)
 - **Scale**: 1.00e0 (log: 0.00)
 - **Category**: boolean-watertight
-- **Detail**: watertight_mesh: 149 unpaired edges out of 124323 total (6 boundary, 143 non-manifold)
+- **Detail**: watertight_mesh: 149 unpaired edges out of 124325 total (5 boundary, 144 non-manifold)
 
 ### F0050 — FAIL
 

@@ -9833,3 +9833,123 @@ fn test_ssi_fallback_chained_boolean() {
     );
 }
 
+// ── Group WT: Watertight boolean stress tests ─────────────────────────
+// These tests exercise boolean operations known to produce non-manifold or
+// boundary edges in the tessellation output. Each test asserts zero unpaired
+// edges (watertight mesh).
+
+#[test]
+fn wt1_watertight_box_cyl_union_offset() {
+    // Box 10×10×10 + cylinder (r=3, h=15) offset by (2,2,0), union.
+    // The cylinder protrudes above the box top, creating a mixed planar/cylindrical
+    // intersection boundary that must be stitched watertight.
+    let (mut k, result) = do_box_cyl_boolean(
+        5.0, 5.0, 10.0, 10.0, 10.0, // box centered at (5,5), 10×10, depth 10
+        2.0, 2.0, 3.0, 15.0,         // cylinder at (2,2), r=3, depth 15
+        crate::boolean::BoolOp::Union,
+    )
+    .expect("box-cyl union should succeed");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    let unpaired = count_unpaired_edges(&mesh);
+    assert_eq!(
+        unpaired, 0,
+        "Box-cyl union (offset) mesh must be watertight: {} unpaired edges",
+        unpaired
+    );
+}
+
+#[test]
+fn wt2_watertight_box_cyl_subtract_centered() {
+    // Box 10×10×10 subtract cylinder (r=2, h=15) centered at origin.
+    // The cylinder punches through the top and bottom faces, creating a
+    // through-hole that must have watertight inner walls.
+    let (mut k, result) = do_box_cyl_boolean(
+        5.0, 5.0, 10.0, 10.0, 10.0, // box centered at (5,5), 10×10, depth 10
+        0.0, 0.0, 2.0, 15.0,         // cylinder at origin, r=2, depth 15
+        crate::boolean::BoolOp::Subtract,
+    )
+    .expect("box-cyl subtract should succeed");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    let unpaired = count_unpaired_edges(&mesh);
+    assert_eq!(
+        unpaired, 0,
+        "Box-cyl subtract (centered) mesh must be watertight: {} unpaired edges",
+        unpaired
+    );
+}
+
+#[test]
+fn wt3_watertight_two_cyl_union_perpendicular() {
+    // Two cylinders: one along Z (r=3, h=10), one along X (r=3, h=10),
+    // both centered at origin, union.
+    // The intersection curve is a saddle-shaped space curve that is
+    // notoriously difficult to tessellate watertight.
+    let mut k = WaffleKernel::new();
+
+    // Cylinder A: along Z, centered at origin on XY plane
+    let (pa, posa) = make_circle_profile(0.0, 0.0, 3.0);
+    let fa = k
+        .make_faces_from_profiles(&pa, [0.0, 0.0, -5.0], XY_NORMAL, XY_X_AXIS, &posa)
+        .unwrap();
+    let cyl_a = k.extrude_face(fa[0], Z_DIR, 10.0).unwrap();
+
+    // Cylinder B: along X, centered at origin on YZ plane
+    let (pb, posb) = make_circle_profile(0.0, 0.0, 3.0);
+    let yz_normal = [1.0, 0.0, 0.0];
+    let yz_x_axis = [0.0, 1.0, 0.0];
+    let fb = k
+        .make_faces_from_profiles(&pb, [-5.0, 0.0, 0.0], yz_normal, yz_x_axis, &posb)
+        .unwrap();
+    let cyl_b = k.extrude_face(fb[0], [1.0, 0.0, 0.0], 10.0).unwrap();
+
+    let result = k.boolean_union(&cyl_a, &cyl_b).expect("perpendicular cyl union should succeed");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    let unpaired = count_unpaired_edges(&mesh);
+    assert_eq!(
+        unpaired, 0,
+        "Perpendicular cylinder union mesh must be watertight: {} unpaired edges",
+        unpaired
+    );
+}
+
+#[test]
+fn wt4_watertight_three_box_chained_union() {
+    // Box A (10×10×10) at origin, Box B (8×8×8) offset (3,3,0),
+    // Box C (6×6×6) offset (-3,-3,0).
+    // Chained union: (A ∪ B) ∪ C. The three-way overlap region and the
+    // multiple T-junctions along intersection edges must all be stitched.
+    let mut k = WaffleKernel::new();
+
+    // Box A: 10×10×10, centered at (5,5) on XY
+    let (pa, posa) = make_rect_profile(5.0, 5.0, 10.0, 10.0);
+    let fa = k
+        .make_faces_from_profiles(&pa, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posa)
+        .unwrap();
+    let box_a = k.extrude_face(fa[0], Z_DIR, 10.0).unwrap();
+
+    // Box B: 8×8×8, centered at (3+4, 3+4) = (7,7) on XY
+    let (pb, posb) = make_rect_profile(3.0 + 4.0, 3.0 + 4.0, 8.0, 8.0);
+    let fb = k
+        .make_faces_from_profiles(&pb, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posb)
+        .unwrap();
+    let box_b = k.extrude_face(fb[0], Z_DIR, 8.0).unwrap();
+
+    // Box C: 6×6×6, centered at (-3+3, -3+3) = (0,0) on XY
+    let (pc, posc) = make_rect_profile(-3.0 + 3.0, -3.0 + 3.0, 6.0, 6.0);
+    let fc = k
+        .make_faces_from_profiles(&pc, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posc)
+        .unwrap();
+    let box_c = k.extrude_face(fc[0], Z_DIR, 6.0).unwrap();
+
+    // Chained union: (A ∪ B) ∪ C
+    let ab = k.boolean_union(&box_a, &box_b).expect("A ∪ B should succeed");
+    let result = k.boolean_union(&ab, &box_c).expect("(A ∪ B) ∪ C should succeed");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    let unpaired = count_unpaired_edges(&mesh);
+    assert_eq!(
+        unpaired, 0,
+        "Three-box chained union mesh must be watertight: {} unpaired edges",
+        unpaired
+    );
+}
