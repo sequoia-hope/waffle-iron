@@ -753,7 +753,6 @@ fn dispatch_export_stl_no_features() {
 
 // ── GAP W3: Solve precision for all 4 corners ─────────────────────────
 
-#[cfg(feature = "native-solver")]
 #[test]
 fn dispatch_solve_sketch_checks_all_4_corners() {
     let mut state = EngineState::new();

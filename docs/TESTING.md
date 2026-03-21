@@ -175,7 +175,7 @@ Baseline timing data from `profile-rust.sh` run:
 | feature-engine | 1s | MockKernel-based |
 | file-format | 6s | Serialization |
 | modeling-ops | 22s | MockKernel ops |
-| wasm-bridge | <1s | Needs `--no-default-features` |
+| wasm-bridge | <1s | Solver always included |
 | kernel-fork (full) | 407s | Dominated by truck booleans |
 | test-harness (all) | 1817s | See binary breakdown below |
 

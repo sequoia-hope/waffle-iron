@@ -31,7 +31,6 @@ RUST_FAST_FULL_CRATES=(
   file-format
 )
 
-# wasm-bridge is special — needs --no-default-features
 WASM_BRIDGE_CRATE="wasm-bridge"
 
 # ---------------------------------------------------------------------------
@@ -232,8 +231,7 @@ run_rust_fast() {
     run_cargo_test "$crate"
   done
 
-  # wasm-bridge with --no-default-features
-  run_cargo_test "$WASM_BRIDGE_CRATE" --no-default-features
+  run_cargo_test "$WASM_BRIDGE_CRATE"
 
   # kernel-fork filtered
   for filter in "${KERNEL_FORK_FAST_FILTERS[@]}"; do
@@ -264,8 +262,7 @@ run_rust_full() {
     run_cargo_test "$crate"
   done
 
-  # wasm-bridge with --no-default-features
-  run_cargo_test "$WASM_BRIDGE_CRATE" --no-default-features
+  run_cargo_test "$WASM_BRIDGE_CRATE"
 
   local elapsed
   elapsed=$(timer_elapsed "$tier_start")
