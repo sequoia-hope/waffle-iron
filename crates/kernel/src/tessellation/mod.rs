@@ -3229,6 +3229,18 @@ fn tessellate_solid_bounded(
     // adjacent faces producing overlapping edge-pairs.
     remove_winding_insensitive_duplicates(&vertices, &mut indices, &mut face_ranges);
 
+    // Topology-aware non-manifold repair: uses B-Rep edge→face relationships to
+    // determine which triangles legitimately share each boundary edge. Removes
+    // triangles whose face_id doesn't match the expected topology.
+    remove_nonmanifold_topology_aware(
+        arena,
+        face_map,
+        &disc,
+        &vertices,
+        &mut indices,
+        &mut face_ranges,
+    );
+
     // Remove any remaining non-manifold edges by aggressively pruning excess
     // triangles. The bounded path has no fill triangles so all removals target
     // real face overlaps from adjacent tessellations.
@@ -4108,6 +4120,280 @@ fn remove_winding_insensitive_duplicates(
 
 /// Core non-manifold removal logic shared by both aggressive and conservative modes.
 ///
+/// Topology-aware non-manifold edge repair for the bounded tessellation path.
+///
+/// Uses B-Rep topology (half-edge twin relationships) to determine which two
+/// faces should share each boundary edge. For non-manifold mesh edges (3+
+/// triangles sharing), triangles whose face_id is NOT one of the two expected
+/// faces are removed first. Falls through to the aggressive heuristic for
+/// interior edges not in the edge discretization.
+fn remove_nonmanifold_topology_aware(
+    arena: &TopoArena,
+    face_map: &HashMap<u64, FaceIdx>,
+    disc: &EdgeDiscretization,
+    vertices: &[f32],
+    indices: &mut Vec<u32>,
+    face_ranges: &mut Vec<FaceRange>,
+) {
+    let n_tris = indices.len() / 3;
+    if n_tris < 2 {
+        return;
+    }
+
+    // Build quantization grid matching the test oracle exactly.
+    let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
+    let grid = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
+    let inv_grid = 1.0 / grid;
+
+    type QPos = (i64, i64, i64);
+    let quantize_f32 = |idx: u32| -> QPos {
+        let i = idx as usize * 3;
+        if i + 2 >= vertices.len() {
+            return (0, 0, 0);
+        }
+        (
+            (vertices[i] as f64 * inv_grid).round() as i64,
+            (vertices[i + 1] as f64 * inv_grid).round() as i64,
+            (vertices[i + 2] as f64 * inv_grid).round() as i64,
+        )
+    };
+    let quantize_f64 = |pos: &[f64; 3]| -> QPos {
+        (
+            (pos[0] * inv_grid).round() as i64,
+            (pos[1] * inv_grid).round() as i64,
+            (pos[2] * inv_grid).round() as i64,
+        )
+    };
+
+    // Step 1: Build reverse map from FaceIdx → KernelId (u64).
+    let mut face_idx_to_kid: HashMap<FaceIdx, u64> = HashMap::new();
+    for (&kid, &fidx) in face_map {
+        face_idx_to_kid.insert(fidx, kid);
+    }
+
+    // Step 2: Build edge→(KernelId, KernelId) map from B-Rep topology.
+    // For each edge, find its two adjacent faces via half-edge twins.
+    // Then map the edge's discretized vertex positions to quantized mesh edges.
+    type UEdge = (QPos, QPos);
+    let mut topo_edge_faces: HashMap<UEdge, HashSet<u64>> = HashMap::new();
+
+    for (i, edge) in arena.edges.iter().enumerate() {
+        let edge_idx = EdgeIdx(i);
+        let he_a = edge.half_edge;
+        let he_b = arena.half_edges[he_a.0].twin;
+        let loop_a = arena.half_edges[he_a.0].loop_;
+        let loop_b = arena.half_edges[he_b.0].loop_;
+        let face_a = arena.loops[loop_a.0].face;
+        let face_b = arena.loops[loop_b.0].face;
+
+        let kid_a = face_idx_to_kid.get(&face_a).copied();
+        let kid_b = face_idx_to_kid.get(&face_b).copied();
+
+        // Get discretized vertices for this edge
+        if let Some(verts) = disc.edge_verts.get(&edge_idx) {
+            // Create quantized mesh edge keys for each consecutive pair of
+            // discretized vertices along this edge.
+            for pair in verts.windows(2) {
+                let qa = quantize_f64(&disc.positions[pair[0]]);
+                let qb = quantize_f64(&disc.positions[pair[1]]);
+                let key: UEdge = if qa <= qb { (qa, qb) } else { (qb, qa) };
+                let entry = topo_edge_faces.entry(key).or_default();
+                if let Some(ka) = kid_a {
+                    entry.insert(ka);
+                }
+                if let Some(kb) = kid_b {
+                    entry.insert(kb);
+                }
+            }
+            // For full-circle edges (closed loops), also connect last→first
+            if verts.len() >= 3 {
+                let qa = quantize_f64(&disc.positions[*verts.last().unwrap()]);
+                let qb = quantize_f64(&disc.positions[verts[0]]);
+                if qa != qb {
+                    let key: UEdge = if qa <= qb { (qa, qb) } else { (qb, qa) };
+                    let entry = topo_edge_faces.entry(key).or_default();
+                    if let Some(ka) = kid_a {
+                        entry.insert(ka);
+                    }
+                    if let Some(kb) = kid_b {
+                        entry.insert(kb);
+                    }
+                }
+            }
+        }
+    }
+
+    // Step 3: Build tri→face_id mapping from face_ranges.
+    let mut tri_face_id: Vec<u64> = vec![0; n_tris];
+    for range in face_ranges.iter() {
+        let tri_start = range.start_index as usize / 3;
+        let tri_end = range.end_index as usize / 3;
+        for item in tri_face_id
+            .iter_mut()
+            .take(tri_end.min(n_tris))
+            .skip(tri_start)
+        {
+            *item = range.face_id.0;
+        }
+    }
+
+    // Step 4: Build edge → triangle list for mesh edges.
+    let mut edge_tris: HashMap<UEdge, Vec<usize>> = HashMap::new();
+    for t in 0..n_tris {
+        let base = t * 3;
+        let tri = [indices[base], indices[base + 1], indices[base + 2]];
+        for j in 0..3 {
+            let pa = quantize_f32(tri[j]);
+            let pb = quantize_f32(tri[(j + 1) % 3]);
+            let key: UEdge = if pa <= pb { (pa, pb) } else { (pb, pa) };
+            edge_tris.entry(key).or_default().push(t);
+        }
+    }
+
+    // Step 5: For non-manifold edges, use topology info to remove wrong-face triangles.
+    let mut remove_set: HashSet<usize> = HashSet::new();
+
+    // Collect and sort non-manifold edges for determinism.
+    let mut nm_edges: Vec<(UEdge, Vec<usize>)> = edge_tris
+        .iter()
+        .filter(|(_, tris)| tris.len() >= 3)
+        .map(|(e, t)| (*e, t.clone()))
+        .collect();
+    nm_edges.sort_by_key(|(edge, _)| *edge);
+
+    for (edge_key, tris) in &nm_edges {
+        let live: Vec<usize> = tris
+            .iter()
+            .copied()
+            .filter(|t| !remove_set.contains(t))
+            .collect();
+        if live.len() <= 2 {
+            continue;
+        }
+
+        // Look up expected faces from B-Rep topology
+        if let Some(expected_faces) = topo_edge_faces.get(edge_key) {
+            if expected_faces.is_empty() {
+                continue; // No topology info, fall through to aggressive
+            }
+
+            // Partition triangles into "expected" (face_id in expected set) and "extra"
+            let mut expected: Vec<usize> = Vec::new();
+            let mut extra: Vec<usize> = Vec::new();
+            for &t in &live {
+                if expected_faces.contains(&tri_face_id[t]) {
+                    expected.push(t);
+                } else {
+                    extra.push(t);
+                }
+            }
+
+            // If removing all extras would leave >=2 triangles, do it
+            if expected.len() >= 2 {
+                for &t in &extra {
+                    remove_set.insert(t);
+                }
+                // If still more than 2 expected, remove smallest-area extras
+                // among expected (same face appearing multiple times)
+                if expected.len() > 2 {
+                    // Sort by area ascending, keep the 2 largest
+                    expected.sort_by(|&a, &b| {
+                        let area_a = tri_area_f32(vertices, indices, a);
+                        let area_b = tri_area_f32(vertices, indices, b);
+                        area_a
+                            .partial_cmp(&area_b)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    });
+                    for &t in &expected[..(expected.len() - 2)] {
+                        remove_set.insert(t);
+                    }
+                }
+            } else if expected.len() == 1 && !extra.is_empty() {
+                // Keep the 1 expected + the largest extra
+                extra.sort_by(|&a, &b| {
+                    let area_a = tri_area_f32(vertices, indices, a);
+                    let area_b = tri_area_f32(vertices, indices, b);
+                    area_b
+                        .partial_cmp(&area_a)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+                // Remove all but the first (largest) extra
+                for &t in &extra[1..] {
+                    remove_set.insert(t);
+                }
+            }
+            // If expected.len() == 0, all triangles are "extra" — don't remove
+            // blindly, fall through to aggressive.
+        }
+    }
+
+    if !remove_set.is_empty() {
+        // Rebuild indices and face_ranges, skipping removed triangles.
+        let mut new_indices = Vec::with_capacity(indices.len());
+        let mut new_ranges = Vec::new();
+
+        for range in face_ranges.iter() {
+            let range_start = new_indices.len() as u32;
+            let tri_start = range.start_index as usize / 3;
+            let tri_end = range.end_index as usize / 3;
+
+            for t in tri_start..tri_end.min(n_tris) {
+                if remove_set.contains(&t) {
+                    continue;
+                }
+                let base = t * 3;
+                new_indices.push(indices[base]);
+                new_indices.push(indices[base + 1]);
+                new_indices.push(indices[base + 2]);
+            }
+
+            let range_end = new_indices.len() as u32;
+            if range_end > range_start {
+                new_ranges.push(FaceRange {
+                    face_id: range.face_id,
+                    start_index: range_start,
+                    end_index: range_end,
+                });
+            }
+        }
+
+        *indices = new_indices;
+        *face_ranges = new_ranges;
+    }
+}
+
+/// Compute triangle area from f32 vertices for sorting during removal.
+fn tri_area_f32(vertices: &[f32], indices: &[u32], tri_idx: usize) -> f64 {
+    let base = tri_idx * 3;
+    if base + 2 >= indices.len() {
+        return 0.0;
+    }
+    let i0 = indices[base] as usize * 3;
+    let i1 = indices[base + 1] as usize * 3;
+    let i2 = indices[base + 2] as usize * 3;
+    if i0 + 2 >= vertices.len() || i1 + 2 >= vertices.len() || i2 + 2 >= vertices.len() {
+        return 0.0;
+    }
+    let v0 = [
+        vertices[i0] as f64,
+        vertices[i0 + 1] as f64,
+        vertices[i0 + 2] as f64,
+    ];
+    let v1 = [
+        vertices[i1] as f64,
+        vertices[i1 + 1] as f64,
+        vertices[i1 + 2] as f64,
+    ];
+    let v2 = [
+        vertices[i2] as f64,
+        vertices[i2 + 1] as f64,
+        vertices[i2 + 2] as f64,
+    ];
+    let e1 = v3_sub(v1, v0);
+    let e2 = v3_sub(v2, v0);
+    v3_length(v3_cross(e1, e2))
+}
+
 /// For each non-manifold edge (shared by 3+ triangles), removes excess triangles
 /// to bring the count down to 2. Processes edges in sorted order for determinism.
 ///
