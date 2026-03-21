@@ -2412,38 +2412,79 @@ fn r1_concentric_full_depth_subtract() {
     // Boss: z=0→20 upward, r=5
     // Cut:  z=0→20 upward, r=2, concentric
     // Full overlap, concentric subtract → should produce a tube.
-    let result = do_cyl_cyl_boolean_directed(
-        0.0, 0.0, 5.0, 0.0, Z_DIR, 20.0,   // A: z=0..20 up
-        0.0, 0.0, 2.0, 0.0, Z_DIR, 20.0,   // B: z=0..20 up, concentric
+    // Expected volume: π(R²-r²)h = π(25-4)×20 = 420π ≈ 1319.47
+    let (mut k, solid) = do_cyl_cyl_boolean_directed(
+        0.0, 0.0, 5.0, 0.0, Z_DIR, 20.0, // A: z=0..20 up
+        0.0, 0.0, 2.0, 0.0, Z_DIR, 20.0, // B: z=0..20 up, concentric
         crate::boolean::BoolOp::Subtract,
+    )
+    .expect("Concentric full-depth subtract should succeed");
+    let mesh = k
+        .tessellate(&solid, 0.01)
+        .expect("tessellate should succeed for tube");
+    let vol = mesh_volume(&mesh);
+    let expected = std::f64::consts::PI * (25.0 - 4.0) * 20.0;
+    assert!(
+        (vol - expected).abs() < expected * 0.05,
+        "Tube volume should be ~{:.1}, got {:.1}",
+        expected,
+        vol
     );
-    assert!(result.is_ok(), "Concentric full-depth subtract should succeed: {:?}", result.err());
+    assert!(
+        mesh.indices.len() >= 36,
+        "Tube mesh should have reasonable triangle count, got {}",
+        mesh.indices.len() / 3
+    );
 }
 
 #[test]
 fn r2_concentric_full_depth_from_top() {
     // Boss: z=0→20 upward, r=5
     // Cut:  z=20→0 downward (dir [0,0,-1], depth=20), r=2, concentric
-    // Same Z range, reversed direction → should still work.
-    let result = do_cyl_cyl_boolean_directed(
-        0.0, 0.0, 5.0, 0.0, Z_DIR, 20.0,              // A: z=0..20 up
-        0.0, 0.0, 2.0, 20.0, [0.0, 0.0, -1.0], 20.0,  // B: z=20..0 down
+    // Same Z range, reversed direction → should produce same tube as r1.
+    // Expected volume: π(R²-r²)h = 420π ≈ 1319.47
+    let (mut k, solid) = do_cyl_cyl_boolean_directed(
+        0.0, 0.0, 5.0, 0.0, Z_DIR, 20.0,             // A: z=0..20 up
+        0.0, 0.0, 2.0, 20.0, [0.0, 0.0, -1.0], 20.0, // B: z=20..0 down
         crate::boolean::BoolOp::Subtract,
+    )
+    .expect("Concentric subtract from top should succeed");
+    let mesh = k
+        .tessellate(&solid, 0.01)
+        .expect("tessellate should succeed for tube");
+    let vol = mesh_volume(&mesh);
+    let expected = std::f64::consts::PI * (25.0 - 4.0) * 20.0;
+    assert!(
+        (vol - expected).abs() < expected * 0.05,
+        "Reversed-dir tube volume should be ~{:.1}, got {:.1}",
+        expected,
+        vol
     );
-    assert!(result.is_ok(), "Concentric subtract from top should succeed: {:?}", result.err());
 }
 
 #[test]
 fn r3_cut_slight_overshoot() {
     // Boss: z=0→20 upward, r=5
     // Cut:  z=-0.1→20.1, r=2, concentric (slightly overshoots both ends)
-    // Should succeed — overshoot is fine, overlap is [0, 20].
-    let result = do_cyl_cyl_boolean_directed(
-        0.0, 0.0, 5.0, 0.0, Z_DIR, 20.0,      // A: z=0..20
-        0.0, 0.0, 2.0, -0.1, Z_DIR, 20.2,      // B: z=-0.1..20.1
+    // Should succeed — overshoot is fine, effective overlap is [0, 20].
+    // Volume should match r1/r2: tube with same R=5, r=2, h=20.
+    let (mut k, solid) = do_cyl_cyl_boolean_directed(
+        0.0, 0.0, 5.0, 0.0, Z_DIR, 20.0, // A: z=0..20
+        0.0, 0.0, 2.0, -0.1, Z_DIR, 20.2, // B: z=-0.1..20.1
         crate::boolean::BoolOp::Subtract,
+    )
+    .expect("Overshoot cut should succeed");
+    let mesh = k
+        .tessellate(&solid, 0.01)
+        .expect("tessellate should succeed for overshoot tube");
+    let vol = mesh_volume(&mesh);
+    let expected = std::f64::consts::PI * (25.0 - 4.0) * 20.0;
+    assert!(
+        (vol - expected).abs() < expected * 0.05,
+        "Overshoot tube volume should be ~{:.1}, got {:.1}",
+        expected,
+        vol
     );
-    assert!(result.is_ok(), "Overshoot cut should succeed: {:?}", result.err());
 }
 
 #[test]
@@ -2451,13 +2492,25 @@ fn r4_cut_exact_match_from_top_face() {
     // Boss: z=0→20, dir [0,0,1], r=5
     // Cut:  plane_z=20, dir [0,0,-1], depth=20, r=2
     // cyl_z_range for B: z0=20, z1=20+20*(-1)=0 → (0, 20)
-    // Overlap should be [0, 20] — this tests direction normalization in cyl_z_range.
-    let result = do_cyl_cyl_boolean_directed(
-        0.0, 0.0, 5.0, 0.0, Z_DIR, 20.0,              // A: z=0..20
-        0.0, 0.0, 2.0, 20.0, [0.0, 0.0, -1.0], 20.0,  // B: plane at z=20, cuts down
+    // Overlap should be [0, 20] — tests direction normalization in cyl_z_range.
+    // Volume: same tube as r1-r3.
+    let (mut k, solid) = do_cyl_cyl_boolean_directed(
+        0.0, 0.0, 5.0, 0.0, Z_DIR, 20.0,             // A: z=0..20
+        0.0, 0.0, 2.0, 20.0, [0.0, 0.0, -1.0], 20.0, // B: plane at z=20, cuts down
         crate::boolean::BoolOp::Subtract,
+    )
+    .expect("Top-face downward cut should succeed");
+    let mesh = k
+        .tessellate(&solid, 0.01)
+        .expect("tessellate should succeed for top-face cut");
+    let vol = mesh_volume(&mesh);
+    let expected = std::f64::consts::PI * (25.0 - 4.0) * 20.0;
+    assert!(
+        (vol - expected).abs() < expected * 0.05,
+        "Top-face cut tube volume should be ~{:.1}, got {:.1}",
+        expected,
+        vol
     );
-    assert!(result.is_ok(), "Top-face downward cut should succeed: {:?}", result.err());
 }
 
 #[test]
