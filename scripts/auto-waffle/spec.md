@@ -97,19 +97,48 @@ follows the rules produces correct, reviewable commits.
 
 ### Review Pass
 
-A review pass is a non-implementation iteration. Instead of the work prompt,
-Claude receives the review prompt, which asks it to:
+A review pass is a non-implementation iteration focused on governance
+compliance, code health, and documentation freshness. Instead of the work
+prompt, Claude receives the review prompt, which asks it to:
 
-- Read all governance documents
-- Read the kernel source and recent git history
-- Assess compliance with Constitution, FIP, DoD, Architectural Invariants
-- Check that specs match implementations
-- Check that tests are meaningful (not hack-to-green)
-- Report findings to `logs/<ts>-review.md`
-- Optionally fix issues it finds (with commits)
+- Read all governance documents (Constitution, FIP, DoD, Architectural Invariants)
+- Audit the kernel codebase for governance compliance (tolerance escapes,
+  missing specs, missing research citations)
+- Check module health (split files over 2000 lines)
+- Strengthen tests that only check "no panic" without numeric oracles
+- Verify A15 compliance (no silent boolean fallbacks)
+- Remove dead code, stale TODOs, unreachable branches
+- Update PLAN.md, specs, and ARCHITECTURE.md to reflect current reality
+- Run the assay, categorize failures, write recommendations for next dev passes
 
-Review passes can be triggered explicitly (`--review`) or scheduled
-(e.g., every N iterations).
+Review passes ARE authorized to make changes (refactor, split modules, fix
+tolerance escapes, update docs, strengthen tests). They are NOT authorized
+to add new features or change modeling behavior. Changes are committed with
+descriptive messages but not pushed to remote.
+
+### Review Scheduling (Dev:Review Ratio)
+
+By default, auto-waffle runs a repeating cycle of 3 dev passes followed by
+2 review passes (ratio 3:2). In a cycle of 5 iterations:
+
+```
+Iteration 1: dev
+Iteration 2: dev
+Iteration 3: dev
+Iteration 4: review
+Iteration 5: review
+Iteration 6: dev    (cycle repeats)
+...
+```
+
+The ratio is configurable via `--review-ratio D:R`. Set `--no-review` to
+disable automatic review passes entirely. A single review pass can also be
+triggered with `--review`.
+
+The 3:2 default reflects the observation that review passes tend to be
+lighter than dev passes, so running two consecutively covers more ground
+(the second review can catch issues introduced by the first review's
+refactoring).
 
 ## CLI Interface
 
@@ -121,7 +150,8 @@ Options:
   -t, --time-limit DURATION  Run for at most DURATION then stop (e.g., "4h", "30m")
   -w, --work-timeout MINS    Per-iteration timeout in minutes (default: 60)
   --review               Run a single review pass instead of work loop
-  --review-every N       Run a review pass every N work iterations
+  --review-ratio D:R     Dev-to-review ratio per cycle (default: "3:2")
+  --no-review            Disable automatic review passes
   --dry-run              Print prompts that would be sent without executing
   --log-dir DIR          Override log directory (default: scripts/auto-waffle/logs)
   --continue             Resume from last iteration (skip completed work)
@@ -184,9 +214,21 @@ Given to a resumed session after normal completion. Lighter than cleanup:
 
 ### Review Prompt (prompts/review.md)
 
-Detailed prompt TBD — will be workshopped after the basic system works. Core
-idea: read governance + kernel source + recent history, assess compliance,
-report findings, optionally fix issues.
+Instructs Claude to audit the kernel codebase against the governance model.
+The review pass is authorized to make refactoring changes (module splits,
+tolerance fixes, test strengthening, doc updates) but not to add features or
+change modeling behavior. The prompt covers:
+
+1. Governance compliance (tolerance escapes, missing specs, missing citations)
+2. Module health (split files over 2000 lines)
+3. Test quality (strengthen "no panic" tests with numeric oracles)
+4. A15 compliance (no silent boolean fallbacks)
+5. Dead code removal
+6. Documentation freshness (PLAN.md, specs, ARCHITECTURE.md)
+7. Assay triage (run assay, categorize failures, write recommendations)
+
+Like other prompts, it trusts the governance documents to provide detail and
+keeps instructions concise.
 
 ## Logging
 
@@ -269,7 +311,6 @@ automatically, allowing `--resume`.
 
 ## Future Work
 
-- **Review pass prompt** — to be workshopped after the basic loop works
 - **Assay score tracking** — log assay score per iteration, plot progress
 - **Notification hooks** — notify on completion, timeout, or error
 - **Cost tracking** — log token usage per iteration via `--output-format json`

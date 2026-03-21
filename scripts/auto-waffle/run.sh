@@ -23,7 +23,8 @@ TIME_LIMIT_SECS=0       # 0 = unlimited
 WORK_TIMEOUT_MINS=60
 LOG_DIR="$DEFAULT_LOG_DIR"
 REVIEW_MODE=false
-REVIEW_EVERY=0          # 0 = never
+REVIEW_RATIO_DEV=3      # dev passes per cycle
+REVIEW_RATIO_REV=2      # review passes per cycle
 PLAN_ONLY=false
 DRY_RUN=false
 VERBOSE=false
@@ -38,7 +39,8 @@ Options:
   -t, --time-limit DURATION  Run for at most DURATION then stop (e.g., "4h", "30m")
   -w, --work-timeout MINS    Per-iteration timeout in minutes (default: 60)
   --review                   Run a single review pass instead of work loop
-  --review-every N           Run a review pass every N work iterations
+  --review-ratio D:R         Dev-to-review ratio per cycle (default: "3:2" = 3 dev, 2 review)
+  --no-review                Disable automatic review passes
   --plan-only                Generate a plan for the next task and exit (no execution)
   --worktree                 Run each iteration in an isolated git worktree
   --dry-run                  Print prompts that would be sent without executing
@@ -82,8 +84,10 @@ while [[ $# -gt 0 ]]; do
             REVIEW_MODE=true; shift ;;
         --plan-only)
             PLAN_ONLY=true; shift ;;
-        --review-every)
-            REVIEW_EVERY="$2"; shift 2 ;;
+        --review-ratio)
+            IFS=':' read -r REVIEW_RATIO_DEV REVIEW_RATIO_REV <<< "$2"; shift 2 ;;
+        --no-review)
+            REVIEW_RATIO_DEV=0; REVIEW_RATIO_REV=0; shift ;;
         --worktree)
             USE_WORKTREE=true; shift ;;
         --dry-run)
@@ -301,7 +305,11 @@ log "  time limit: $([ "$TIME_LIMIT_SECS" -gt 0 ] && echo "${TIME_LIMIT_SECS}s" 
 log "  work timeout: ${WORK_TIMEOUT_MINS}m"
 log "  log dir: $LOG_DIR"
 log "  worktree: $USE_WORKTREE"
-log "  review every: $([ "$REVIEW_EVERY" -gt 0 ] && echo "$REVIEW_EVERY" || echo "never")"
+if [[ "$REVIEW_RATIO_DEV" -gt 0 && "$REVIEW_RATIO_REV" -gt 0 ]]; then
+    log "  review ratio: ${REVIEW_RATIO_DEV}:${REVIEW_RATIO_REV} (${REVIEW_RATIO_DEV} dev, ${REVIEW_RATIO_REV} review per cycle)"
+else
+    log "  review: disabled"
+fi
 
 if $PLAN_ONLY; then
     ts=$(date '+%Y-%m-%dT%H-%M-%S')
@@ -385,8 +393,15 @@ while true; do
     fi
 
     # Check if this iteration should be a review pass
-    if [[ "$REVIEW_EVERY" -gt 0 && $(( (ITERATION - 1) % REVIEW_EVERY )) -eq 0 && "$ITERATION" -gt 1 ]]; then
-        do_review
+    # With ratio D:R, in a cycle of (D+R) iterations, the last R are reviews
+    CYCLE_LEN=$(( REVIEW_RATIO_DEV + REVIEW_RATIO_REV ))
+    if [[ "$CYCLE_LEN" -gt 0 && "$REVIEW_RATIO_REV" -gt 0 ]]; then
+        POS_IN_CYCLE=$(( (ITERATION - 1) % CYCLE_LEN ))
+        if [[ "$POS_IN_CYCLE" -ge "$REVIEW_RATIO_DEV" ]]; then
+            do_review
+        else
+            do_work
+        fi
     else
         do_work
     fi
