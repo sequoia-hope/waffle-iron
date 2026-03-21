@@ -523,7 +523,11 @@ pub(super) fn build_brep_from_polygons_inner(
         // T-junction gaps from independent floating-point intersection computation).
         // Allow up to 60% in tolerant mode (polygon approximation and fallback
         // from strict mode — tessellation hole-filling can repair small boundary gaps).
-        let threshold = if allow_boundary { 0.60 } else { 0.05 };
+        let threshold = if allow_boundary {
+            crate::units::STITCH_UNPAIRED_TOLERANT
+        } else {
+            crate::units::STITCH_UNPAIRED_STRICT
+        };
         if unpaired_ratio > threshold {
             return Err(KernelError::BooleanFailed {
                 reason: format!(
@@ -690,7 +694,7 @@ pub(crate) fn reconstruct_edge_geometry(
                 let u = v3_dot(d, major) / ellipse.semi_major;
                 let v = v3_dot(d, minor) / ellipse.semi_minor;
                 let r2 = u * u + v * v;
-                (r2 - 1.0).abs() < 0.1 // generous tolerance for polygon-clipping results
+                (r2 - 1.0).abs() < crate::units::ELLIPSE_ON_CURVE_TOL
             };
 
             if on_ellipse(p0) && on_ellipse(p1) {

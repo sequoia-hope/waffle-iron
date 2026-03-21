@@ -71,7 +71,7 @@ pub(super) fn rotation_to_z_aligned(cyl_dir: [f64; 3], box_solid: &WaffleSolid) 
         if let SurfaceGeom::Planar(plane) = geom {
             let n = plane.normal.to_array();
             let dot = v3_dot(n, cyl_dir).abs();
-            if dot < 0.1 {
+            if dot < crate::units::COS_NEAR_PERPENDICULAR {
                 // Nearly perpendicular to cyl direction
                 side_normal = Some(n);
                 break;

@@ -1671,7 +1671,9 @@ fn tessellate_cylindrical_patch(
         }
     }
 
-    let is_full = has_circular_edge || (total_sweep > std::f64::consts::TAU - 0.1 && !has_arc_edge);
+    let is_full = has_circular_edge
+        || (total_sweep > std::f64::consts::TAU - crate::units::FULL_CIRCLE_MARGIN
+            && !has_arc_edge);
 
     if is_full || angle_start.is_none() {
         // Full cylinder: tessellate using axis-generic parametric placement
@@ -5814,7 +5816,7 @@ fn resolve_mesh_t_junctions(
                 let pz = az + dz * t_param;
                 let dist_sq = (vx - px) * (vx - px) + (vy - py) * (vy - py) + (vz - pz) * (vz - pz);
                 // Tight tolerance: slightly more than half oracle grid cell
-                let tol = grid * 0.6;
+                let tol = grid * crate::units::TJUNCTION_GRID_FRACTION;
                 if dist_sq < tol * tol {
                     // Pick the closest candidate (lowest dist_sq, tiebreak by QPos order)
                     if best.is_none() || dist_sq < best.unwrap().0 {
@@ -5853,7 +5855,9 @@ fn resolve_mesh_t_junctions(
                     let area2 = (c2x * c2x + c2y * c2y + c2z * c2z).sqrt() / 2.0;
 
                     // Only split if both triangles are non-degenerate
-                    if area1 > TAU_TESS_GRID_MIN * 0.1 && area2 > TAU_TESS_GRID_MIN * 0.1 {
+                    if area1 > TAU_TESS_GRID_MIN * crate::units::TJUNCTION_AREA_FRACTION
+                        && area2 > TAU_TESS_GRID_MIN * crate::units::TJUNCTION_AREA_FRACTION
+                    {
                         splits.entry(t).or_default().push((local_e, split_v));
                     }
                 }

@@ -71,3 +71,41 @@ pub const TAU_TESS_WELD_MIN: f64 = 1e-8;
 
 /// Maximum clamp for scale-adaptive tessellation welding: 1e-2.
 pub const TAU_TESS_WELD_MAX: f64 = 1e-2;
+
+// ── Topological & geometric classification thresholds ──────────────────
+
+/// Cosine threshold for "nearly perpendicular" face classification: 0.1.
+/// A dot product below this means the face normal is within ~84° of perpendicular
+/// to the reference direction. Used in boolean analytical dispatch.
+pub const COS_NEAR_PERPENDICULAR: f64 = 0.1;
+
+/// Maximum unpaired half-edge ratio in strict stitching mode: 5%.
+/// S-H clipping creates small T-junction gaps from independent floating-point
+/// intersection computation; up to this ratio is tolerated.
+pub const STITCH_UNPAIRED_STRICT: f64 = 0.05;
+
+/// Maximum unpaired half-edge ratio in tolerant stitching mode: 60%.
+/// Polygon approximation and SSI fallback may produce higher unpaired counts;
+/// tessellation hole-filling repairs small boundary gaps.
+pub const STITCH_UNPAIRED_TOLERANT: f64 = 0.60;
+
+/// Generous tolerance for classifying polygon-clipping vertices as on-ellipse: 0.1.
+/// Normalized (u²+v²) distance from 1.0; generous because polygon approximation
+/// introduces chord error relative to the true ellipse.
+pub const ELLIPSE_ON_CURVE_TOL: f64 = 0.1;
+
+/// Angular margin (radians) for detecting full-circle cylinder sweeps: 0.1 (~5.7°).
+/// If total swept angle exceeds TAU - this margin, treat as full cylinder.
+pub const FULL_CIRCLE_MARGIN: f64 = 0.1;
+
+/// T-junction snap radius as fraction of tessellation grid cell: 0.6.
+/// Slightly more than half a grid cell ensures vertices near edge midpoints snap.
+pub const TJUNCTION_GRID_FRACTION: f64 = 0.6;
+
+/// Minimum triangle area for T-junction split as fraction of TAU_TESS_GRID_MIN: 0.1.
+/// Both sub-triangles must exceed this area to avoid creating degenerate geometry.
+pub const TJUNCTION_AREA_FRACTION: f64 = 0.1;
+
+/// Minimum tau_weld-to-tau_model ratio for BooleanOptions validation: 0.1.
+/// Ensures the weld tolerance is at least 10% of model tolerance.
+pub const TAU_WELD_MODEL_MIN_RATIO: f64 = 0.1;

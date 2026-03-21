@@ -211,10 +211,12 @@ impl BooleanOptions {
                 self.tau_work, self.tau_model
             ));
         }
-        if self.tau_weld < 0.1 * self.tau_model {
+        if self.tau_weld < crate::units::TAU_WELD_MODEL_MIN_RATIO * self.tau_model {
             return Err(format!(
-                "tau_weld ({}) must be >= 0.1 * tau_model ({})",
-                self.tau_weld, self.tau_model
+                "tau_weld ({}) must be >= {} * tau_model ({})",
+                self.tau_weld,
+                crate::units::TAU_WELD_MODEL_MIN_RATIO,
+                self.tau_model
             ));
         }
         if self.min_feature_size < self.tau_model {
