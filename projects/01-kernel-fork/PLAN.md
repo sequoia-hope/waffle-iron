@@ -392,34 +392,44 @@ Deep investigation of the 32 watertight assay failures found:
 
 ---
 
-## Assay Status (2026-03-21, Session 6)
+## Assay Status (2026-03-21, Session 7+)
 
-**Score: 114/160** (+33 from 81/160)
-- Previous: 81/160 (2026-03-21 Session 5)
+**Score: 134/160** (+53 from 81/160)
+- Session 5: 81/160
+- Session 6: 114/160 (+33, edge-flip + Steiner fan fixes)
+- Session 7: 134/160 (+20, boundary chain fill limit 32→64 + vertex compaction)
 
-### Failure Categories (updated — 46 total: 40 Failed + 6 Errored)
-| Category | Count | Description |
-|----------|-------|-------------|
-| watertight (1-6 unpaired) | ~10 | Reduced from ~22; position-based edge-flip resolved ~12 cases |
-| watertight (60+ unpaired) | ~10 | Structural boolean issues with complex geometries |
-| empty mesh | ~3 | Boolean chain failures |
-| low triangle count / min_tri | ~5 | Auto-union failure or degenerate geometry |
-| bbox diagonal | ~4 | Slight geometry errors (2-25% over oracle max) |
-| face product limit | ~3 | Gear-gear booleans exceed face product limit |
-| timeout | 6 | Slow boolean ops (>90s) |
-| F-series featured | ~5 | Cross-plane/angled/scaled geometry failures |
+### Failure Categories (26 total: 22 Failed + 4 Errored)
+| Category | Count | Cases | Description |
+|----------|-------|-------|-------------|
+| boolean-watertight | 13 | F0046-F0049,F0055-F0060,R0084,R0099,R0100 | Unpaired edges from S-H clipping precision or non-manifold edges |
+| cascading-failure (timeout) | 4 | F0050,R0085,R0090,R0095 | Boolean ops exceed 90s timeout |
+| revolve-normals | 2 | R0088,R0092 | Empty mesh from revolve (0 triangles, face_range_coverage fail) |
+| mesh-too-simple | 2 | F0044,R0080 | Triangle count far below minimum (4 vs 32, 12 vs 288) |
+| multiple-failures | 2 | R0082,R0091 | AABB diagonal slightly exceeds oracle max (2-4%) |
+| tessellation-degenerate | 1 | F0052 | 64/892 degenerate triangles |
+| aabb-collapse | 1 | F0045 | All vertices on AABB faces (collapsed to boundary shell) |
+| auto-union-failed | 1 | R0081 | Revolve auto-union fails (NotSupported) |
 
-### Key Findings (2026-03-21 Session 6)
-1. **Non-manifold failures are in fan path, not bounded path**: Almost all non-manifold
-   assay failures involve circle profiles → arc edges → fan tessellation path. The bounded
-   path (earcut diagonals) is NOT the bottleneck. The fan path's non-manifold edges come
-   from vertex welding creating spurious edge sharing at triple-face junctions.
-2. **Edge-flip > removal for fan path repair**: Position-based edge-flip resolves 1-2
-   non-manifold edges without creating holes. This is more effective than the existing
-   targeted removal approach because removal creates boundary holes that fill_boundary_holes
-   may not recover, while edge-flip preserves all triangles.
-3. **F-series F0044-F0060 failures**: These are "featured" test cases with cross-plane/angled/scaled geometries. Failures are due to auto-union fallback (feature-engine returns standalone body with warning, not error) and complex geometric configurations (perpendicular planes, scale extremes 1e4).
-4. **Cyl-cyl union works at kernel level**: Direct WaffleKernel calls to `boolean_union` succeed for coaxial and offset cylinders. Failures through feature-engine may be due to sketch plane resolution or extrude direction differences.
+### Root Cause Summary
+1. **S-H clipping precision** (13 cases): Sutherland-Hodgman polygon clipping accumulates
+   numerical error across clip passes. Adjacent faces' clipped edges don't produce matching
+   intersection points, creating unpaired edges. Most impactful root cause.
+2. **Timeout** (4 cases): Complex boolean chains (gear profiles, multi-op) exceed 90s.
+   Likely quadratic face-product scaling.
+3. **Revolve pipeline gaps** (3 cases): R0081 auto-union NotSupported for revolve results;
+   R0088/R0092 produce empty meshes (0 triangles) suggesting tessellation path not reached.
+4. **Featured geometry edge cases** (6 cases): F0044-F0052 involve cross-plane, angled, or
+   scaled geometries that stress the analytical boolean path.
+
+### Recommendations for Next Dev Passes
+1. **S-H clipping precision** — Intersection caching or exact predicates (Ref #4 Shewchuk)
+   would reduce the root cause of 13/26 failures
+2. **Face product limit** — Raising limit or implementing lazy evaluation could recover
+   timeout cases
+3. **Revolve auto-union** — Wire up revolve results to boolean pipeline for multi-body union
+4. **CDT tessellation** — Constrained Delaunay (Ref #33 Stroud) would prevent non-manifold
+   edges from earcut diagonal overlaps
 
 ---
 
