@@ -284,24 +284,15 @@ Also: `large_boss_exceeds_face_union` (truck-level, same geometry).
 
 | Suite | Pass | Fail | Ignored |
 |-------|------|------|---------|
-| truck-shapeops | 375 | 3* | 3 |
-| truck-geometry (revolved_curve) | 11 | 0 | 0 |
-| kernel-fork | 203 | 1* | 2 |
-| test-harness/boolean_properties | 28 | 0 | 0 |
-| test-harness/boolean_workflows | 38 | 0 | 0 |
-| test-harness/boolean_edge_cases | 8 | 0 | 0 |
-| test-harness/boolean_recovery | 14 | 0 | 1 |
-| test-harness/boolean_shell_closure | 3 | 1* | 0 |
-| test-harness/boolean_determinism | 3 | 0 | 0 |
-| test-harness/coplanar_curved | 13 | 0 | 1 |
-| test-harness/multi_op_chains | 5 | 0 | 1 |
-| test-harness/revolve_boolean | 3 | 2† | 3 |
-| test-harness (total) | 400+ | 3 | 6 |
+| kernel (clean-sheet) | 600 | 0 | 4 |
+| test-harness (lib) | 75 | 0 | 1 |
+| test-harness/assay | 134/160 | 22+4err | — |
 
-*Pre-existing failures (fillet, euler_characteristic, perturbed, shell_closure_overlapping_cuts)
-†RB1, RB6 — pre-existing regression from D1.6/D1.7 commits (boundary-coincident IC skip)
+Note: truck-shapeops, truck-geometry, and old boolean suite tests are archived
+with the truck pipeline in `archive/truck/`. The counts above reflect the
+clean-sheet kernel at `crates/kernel/`.
 
-Last updated: Sprint 68+ (2026-03-21)
+Last updated: 2026-03-21 (auto-waffle audit)
 
 ### Arc-Edge Vertex Welding (2026-03-21)
 - Added `weld_arc_edge_vertices` for cyl-cyl boolean results
