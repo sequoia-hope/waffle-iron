@@ -357,6 +357,27 @@ fn box_cyl_boolean(
     op: BoolOp,
     id_alloc: &mut dyn FnMut() -> u64,
 ) -> Result<BooleanResult, KernelError> {
+    // Cross-plane guard: the analytical box-cyl boolean assumes both bodies
+    // share the same extrude axis. When the box was extruded in a different
+    // direction than the cylinder, the AABB computed after rotation to the
+    // cylinder's Z-aligned frame inflates and produces incorrect enclosure
+    // classifications. Detect this by checking whether any box cap-face
+    // normal is parallel to the cylinder direction; if not, bail to the
+    // polygon-clipping fallback which handles arbitrary orientations.
+    let has_parallel_cap = box_solid.face_geometry.values().any(|geom| {
+        if let SurfaceGeom::Planar(plane) = geom {
+            let dot = v3_dot(plane.normal.to_array(), cyl.direction).abs();
+            dot > 0.95 // nearly parallel (within ~18°)
+        } else {
+            false
+        }
+    });
+    if !has_parallel_cap {
+        return Err(KernelError::NotSupported {
+            operation: "cross-plane box-cylinder boolean (different extrude axes)".to_string(),
+        });
+    }
+
     // Rotate into cylinder's Z-aligned frame.
     // For non-rectangular solids (>6 faces), use rotation_to_z_aligned to align a
     // side face normal with X, improving normal consistency (Barton [#24]).
@@ -375,6 +396,8 @@ fn box_cyl_boolean(
     // AABB enclosure is necessary but not sufficient for non-convex polygon extrudes.
     // A rectangular prism has exactly 6 faces; more faces indicate a non-rectangular
     // (possibly concave) polygon extrude. Refine with point-in-solid test.
+    // Cross-plane cases (different extrude axes) are already rejected above,
+    // so AABB inflation from rotation is no longer a concern here.
     let xy_enclosed = if xy_enclosed_aabb && box_solid.face_map.len() > 6 {
         let face_polys = extract_face_polys(box_solid);
         if face_polys.len() < 4 {

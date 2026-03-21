@@ -11014,3 +11014,277 @@ mod welding_tests {
         );
     }
 }
+
+// ── Cross-plane box-cylinder boolean tests ─────────────────────────────
+//
+// These tests exercise booleans where the box and cylinder are extruded
+// along DIFFERENT axes. The bug: `box_cyl_boolean` uses AABB-based
+// enclosure checks that falsely report the cylinder as "fully enclosed"
+// when the extrude axes differ, because the AABB is inflated after
+// rotating to the cylinder's local frame.
+
+mod cross_plane_tests {
+    use super::*;
+
+    /// Box extruded along Z, cylinder extruded along X.
+    /// Union must produce MORE than a bare box (12 triangles).
+    ///
+    /// Bug: the AABB enclosure check falsely marks the cylinder as fully
+    /// enclosed, so union returns just the box mesh (12 tris).
+    #[test]
+    fn test_cross_plane_box_cyl_union_not_just_box() {
+        let mut k = WaffleKernel::new();
+
+        // Box: 1×1×1 extruded along Z
+        let (box_profiles, box_positions) = make_rect_profile(0.5, 0.5, 1.0, 1.0);
+        let box_faces = k
+            .make_faces_from_profiles(
+                &box_profiles,
+                XY_ORIGIN,
+                XY_NORMAL,
+                XY_X_AXIS,
+                &box_positions,
+            )
+            .expect("box make_faces_from_profiles");
+        let box_solid = k
+            .extrude_face(box_faces[0], Z_DIR, 1.0)
+            .expect("box extrude");
+
+        // Cylinder: on the YZ plane (normal=[1,0,0], x_axis=[0,1,0]),
+        // extruded along X. Circle center at (0.5, 0.5) in plane coords,
+        // radius 0.2, depth 2.0. This cylinder pokes through the box
+        // sideways: it extends from x=-0.5 to x=1.5, overshooting the
+        // unit box on both sides. The cylinder is NOT enclosed in the box,
+        // but the AABB-based enclosure check (pre-fix) falsely reports it
+        // as enclosed because the rotated box AABB is inflated.
+        let yz_origin: [f64; 3] = [-0.5, 0.0, 0.0];
+        let yz_normal: [f64; 3] = [1.0, 0.0, 0.0];
+        let yz_x_axis: [f64; 3] = [0.0, 1.0, 0.0];
+        let x_dir: [f64; 3] = [1.0, 0.0, 0.0];
+
+        let (cyl_profiles, cyl_positions) = make_circle_profile(0.5, 0.5, 0.2);
+        let cyl_faces = k
+            .make_faces_from_profiles(
+                &cyl_profiles,
+                yz_origin,
+                yz_normal,
+                yz_x_axis,
+                &cyl_positions,
+            )
+            .expect("cylinder make_faces_from_profiles");
+        let cyl_solid = k
+            .extrude_face(cyl_faces[0], x_dir, 2.0)
+            .expect("cylinder extrude");
+
+        // Union
+        let union_result = k
+            .boolean_union(&box_solid, &cyl_solid)
+            .expect("cross-plane box-cyl union should succeed");
+
+        let mesh = k.tessellate(&union_result, 0.01).unwrap();
+        let n_tris = mesh.indices.len() / 3;
+
+        // A bare box has exactly 12 triangles (2 per face × 6 faces).
+        // If we get only 12, the cylinder was incorrectly discarded.
+        assert!(
+            n_tris > 12,
+            "Cross-plane box-cyl union produced only {} triangles — \
+             cylinder was likely discarded by false fully_enclosed check. \
+             Expected > 12.",
+            n_tris
+        );
+
+        // The cylinder extends 0.5 beyond the box on each side in X,
+        // contributing additional volume. Verify the mesh is not just
+        // the bare box (volume != 1.0). Polygon clipping may produce
+        // approximate volumes, so we only check it differs from the
+        // bare box volume.
+        let vol = mesh_volume(&mesh);
+        let box_vol = 1.0; // 1×1×1
+        assert!(
+            (vol - box_vol).abs() > 0.001,
+            "Union volume ({:.6}) should differ from box volume ({:.6}) — \
+             cylinder contribution is missing",
+            vol,
+            box_vol
+        );
+    }
+
+    /// Same-axis regression test: box and cylinder both extruded along Z.
+    /// This should work regardless of the cross-plane fix.
+    #[test]
+    fn test_same_plane_box_cyl_union_regression() {
+        let mut k = WaffleKernel::new();
+
+        // Box: 1×1×1 centered at (0.5, 0.5)
+        let (box_profiles, box_positions) = make_rect_profile(0.5, 0.5, 1.0, 1.0);
+        let box_faces = k
+            .make_faces_from_profiles(
+                &box_profiles,
+                XY_ORIGIN,
+                XY_NORMAL,
+                XY_X_AXIS,
+                &box_positions,
+            )
+            .expect("box make_faces_from_profiles");
+        let box_solid = k
+            .extrude_face(box_faces[0], Z_DIR, 1.0)
+            .expect("box extrude");
+
+        // Cylinder: small (r=0.1), same XY plane, extruded along Z past the box.
+        // Center at (0.5, 0.5), depth 1.5 — extends 0.5 above the box.
+        let (cyl_profiles, cyl_positions) = make_circle_profile(0.5, 0.5, 0.1);
+        let cyl_faces = k
+            .make_faces_from_profiles(
+                &cyl_profiles,
+                XY_ORIGIN,
+                XY_NORMAL,
+                XY_X_AXIS,
+                &cyl_positions,
+            )
+            .expect("cylinder make_faces_from_profiles");
+        let cyl_solid = k
+            .extrude_face(cyl_faces[0], Z_DIR, 1.5)
+            .expect("cylinder extrude");
+
+        // Union
+        let union_result = k
+            .boolean_union(&box_solid, &cyl_solid)
+            .expect("same-plane box-cyl union should succeed");
+
+        let mesh = k.tessellate(&union_result, 0.01).unwrap();
+        let n_tris = mesh.indices.len() / 3;
+
+        // The cylinder sticks out above the box, so this is NOT a fully-enclosed case.
+        // Union must produce more than a bare box.
+        assert!(
+            n_tris > 12,
+            "Same-plane box-cyl union produced only {} triangles — \
+             expected > 12 (cylinder extends above box).",
+            n_tris
+        );
+
+        // Volume should be box + protruding cylinder portion
+        let vol = mesh_volume(&mesh);
+        let box_vol = 1.0;
+        assert!(
+            vol > box_vol + 0.001,
+            "Union volume ({:.6}) should exceed box volume ({:.6})",
+            vol,
+            box_vol
+        );
+    }
+
+    /// Cross-plane subtraction: box along Z, cylinder along X.
+    /// Subtracting the cylinder from the box must carve a cylindrical hole
+    /// whose axis is parallel to X.
+    ///
+    /// The cylinder (r=0.2, centered at y=0.5, z=0.5 in world) passes through
+    /// the box from x=0 to x=1. After subtraction, mesh vertices on the hole
+    /// boundary must lie on a circle in the YZ plane (at any x-slice through
+    /// the box), NOT on a circle in the XY plane. This distinguishes correct
+    /// X-axis subtraction from a bogus Z-axis subtraction caused by the
+    /// AABB enclosure bug rotating to the wrong frame.
+    #[test]
+    fn test_cross_plane_box_cyl_subtract_produces_hole() {
+        let mut k = WaffleKernel::new();
+
+        // Box: 1×1×1 extruded along Z
+        let (box_profiles, box_positions) = make_rect_profile(0.5, 0.5, 1.0, 1.0);
+        let box_faces = k
+            .make_faces_from_profiles(
+                &box_profiles,
+                XY_ORIGIN,
+                XY_NORMAL,
+                XY_X_AXIS,
+                &box_positions,
+            )
+            .expect("box make_faces_from_profiles");
+        let box_solid = k
+            .extrude_face(box_faces[0], Z_DIR, 1.0)
+            .expect("box extrude");
+
+        // Cylinder: on YZ plane, extruded along X, centered at (0.5, 0.5)
+        // in plane coords (maps to y=0.5, z=0.5 in world), radius 0.2.
+        // This cylinder passes through the box from x=0 to x=1.
+        let yz_origin: [f64; 3] = [0.0, 0.0, 0.0];
+        let yz_normal: [f64; 3] = [1.0, 0.0, 0.0];
+        let yz_x_axis: [f64; 3] = [0.0, 1.0, 0.0];
+        let x_dir: [f64; 3] = [1.0, 0.0, 0.0];
+
+        let (cyl_profiles, cyl_positions) = make_circle_profile(0.5, 0.5, 0.2);
+        let cyl_faces = k
+            .make_faces_from_profiles(
+                &cyl_profiles,
+                yz_origin,
+                yz_normal,
+                yz_x_axis,
+                &cyl_positions,
+            )
+            .expect("cylinder make_faces_from_profiles");
+        let cyl_solid = k
+            .extrude_face(cyl_faces[0], x_dir, 1.0)
+            .expect("cylinder extrude");
+
+        // Subtract cylinder from box
+        let sub_result = k
+            .boolean_subtract(&box_solid, &cyl_solid)
+            .expect("cross-plane box-cyl subtract should succeed");
+
+        let mesh = k.tessellate(&sub_result, 0.01).unwrap();
+        let n_tris = mesh.indices.len() / 3;
+
+        // Subtraction must modify the box — result should have more than 12
+        // triangles due to the cylindrical hole.
+        assert!(
+            n_tris > 12,
+            "Cross-plane box-cyl subtract produced only {} triangles — \
+             expected > 12 (cylindrical hole should add faces).",
+            n_tris
+        );
+
+        // Volume: box (1.0) minus cylinder through-hole (pi*r^2*1.0).
+        // Cylinder r=0.2, depth through box = 1.0 → removed volume ≈ 0.1257
+        // Expected result ≈ 0.8743
+        let vol = mesh_volume(&mesh);
+        let expected_vol = 1.0 - std::f64::consts::PI * 0.2 * 0.2 * 1.0;
+        assert!(
+            (vol - expected_vol).abs() < 0.05,
+            "Subtract volume ({:.4}) should be ~{:.4} (box minus X-axis cylinder hole). \
+             If this is wrong, the hole was likely cut along the wrong axis.",
+            vol,
+            expected_vol
+        );
+
+        // Verify the hole is along the X axis: find mesh vertices that are
+        // interior (not on the box boundary faces). These should satisfy
+        // (y - 0.5)^2 + (z - 0.5)^2 ≈ r^2 for the X-aligned cylinder.
+        let n_verts = mesh.vertices.len() / 3;
+        let r = 0.2_f64;
+        let mut on_cyl_yz = 0;
+        for i in 0..n_verts {
+            let x = mesh.vertices[i * 3] as f64;
+            let y = mesh.vertices[i * 3 + 1] as f64;
+            let z = mesh.vertices[i * 3 + 2] as f64;
+            // Skip vertices on box boundary faces
+            let on_box_face = (x.abs() < 1e-6)
+                || ((x - 1.0).abs() < 1e-6)
+                || (y.abs() < 1e-6)
+                || ((y - 1.0).abs() < 1e-6)
+                || (z.abs() < 1e-6)
+                || ((z - 1.0).abs() < 1e-6);
+            if !on_box_face {
+                // Interior vertex should be on cylinder surface in YZ plane
+                let dist_yz = ((y - 0.5).powi(2) + (z - 0.5).powi(2)).sqrt();
+                if (dist_yz - r).abs() < 0.02 {
+                    on_cyl_yz += 1;
+                }
+            }
+        }
+        assert!(
+            on_cyl_yz > 0,
+            "No interior vertices found on the X-axis cylinder surface (YZ plane). \
+             The hole was likely cut along the wrong axis (Z instead of X)."
+        );
+    }
+}

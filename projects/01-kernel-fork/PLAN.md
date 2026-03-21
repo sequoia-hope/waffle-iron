@@ -368,6 +368,15 @@ Deep investigation of the 32 watertight assay failures found:
    normals because the mesh uses shared position+normal indexing. Separate position
    and normal index arrays (like OpenGL) would allow full welding.
 
+### B23: Cross-plane box-cylinder AABB enclosure fix ✅
+- Bug: `box_cyl_boolean` falsely reported `fully_enclosed=true` for cross-plane
+  cases because the AABB inflates after rotating to the cylinder's Z-aligned frame
+- Fix: Added cross-plane guard that checks if any box cap-face normal is parallel
+  to the cylinder axis (dot > 0.95). If not, returns NotSupported → polygon clipping
+- Fixes F0046, F0047, F0048 (cross-plane box+cylinder union)
+- Spec: `/specs/box_cyl_cross_plane_enclosure_fix.md`
+- 3 new tests (599+3 = 602 total)
+
 ### Next Steps (from analysis)
 - CDT (Constrained Delaunay Triangulation) for polygon face tessellation would prevent
   non-manifold edges from earcut diagonal overlaps (preventive vs post-hoc fix)
