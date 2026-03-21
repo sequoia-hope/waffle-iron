@@ -6324,7 +6324,15 @@ fn i2_reconstruct_plane_plane_stays_linear() {
     reconstruct_edge_geometry(&arena, &face_geometry, &mut edge_geometry);
 
     match &edge_geometry[&edge_idx] {
-        CurveGeom::Linear(_) => {} // expected
+        CurveGeom::Linear(line) => {
+            // Verify geometry is preserved unchanged (DoD 1.2: numeric assertions)
+            assert!((line.origin.x - 0.0).abs() < 1e-12, "origin.x");
+            assert!((line.origin.y - 0.0).abs() < 1e-12, "origin.y");
+            assert!((line.origin.z - 0.0).abs() < 1e-12, "origin.z");
+            assert!((line.direction.x - 1.0).abs() < 1e-12, "direction.x");
+            assert!((line.direction.y - 0.0).abs() < 1e-12, "direction.y");
+            assert!((line.direction.z - 0.0).abs() < 1e-12, "direction.z");
+        }
         other => panic!("Expected Linear, got {:?}", other),
     }
 }
@@ -6406,7 +6414,15 @@ fn i2_reconstruct_oblique_stays_linear() {
     reconstruct_edge_geometry(&arena, &face_geometry, &mut edge_geometry);
 
     match &edge_geometry[&edge_idx] {
-        CurveGeom::Linear(_) => {} // expected — oblique intersection stays linear
+        CurveGeom::Linear(line) => {
+            // Verify geometry is preserved unchanged (DoD 1.2: numeric assertions)
+            assert!((line.origin.x - 3.0).abs() < 1e-12, "origin.x");
+            assert!((line.origin.y - 0.0).abs() < 1e-12, "origin.y");
+            assert!((line.origin.z - 5.0).abs() < 1e-12, "origin.z");
+            assert!((line.direction.x - (-3.0)).abs() < 1e-12, "direction.x");
+            assert!((line.direction.y - 3.0).abs() < 1e-12, "direction.y");
+            assert!((line.direction.z - 0.0).abs() < 1e-12, "direction.z");
+        }
         other => panic!("Expected Linear for oblique cut, got {:?}", other),
     }
 }
