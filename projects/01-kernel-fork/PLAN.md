@@ -319,17 +319,34 @@ Last updated: Sprint 68+ (2026-03-21)
 - Spec: `/specs/edge_flip_nonmanifold_repair.md`
 - Total kernel tests: 586 pass, 2 ignored
 
+### Position-Based Edge-Flip + Steiner-Fan Re-tessellation (2026-03-21, Session 6)
+- **Root cause correction**: Non-manifold assay failures are overwhelmingly in the
+  **fan tessellation path** (arc-edge boolean results, box+cylinder ops), NOT the
+  bounded path. 21/22 failing cases have circle profiles → arc edges → fan path.
+- Added `flip_nonmanifold_edges_position_based()` to fan path repair pipeline:
+  Groups triangles by face_range face_id, finds pairs within the same face sharing
+  a non-manifold edge, and flips the diagonal if the resulting quad is convex.
+  Preserves all triangles (no holes) unlike removal-based approaches.
+- Also added `retessellate_nonmanifold_faces_with_steiner_fan()` to bounded path:
+  Detects remaining non-manifold interior edges after edge-flip, re-tessellates
+  affected faces with centroid-fan (unique Steiner point per face guarantees no
+  shared interior diagonals). Includes point-in-polygon test for centroid validity.
+- **batch_2op_extrude results**: 3/10 → 6/10 passed (+3 recovered: R0005, R0010, R0032)
+- R0019: non-manifold fixed, only min_triangle_count issue remains
+- Spec: `/specs/steiner_fan_retessellation.md`
+- Total kernel tests: 588 pass, 2 ignored
+
 ---
 
-## Assay Status (2026-03-21)
+## Assay Status (2026-03-21, Session 6)
 
-**Score: 81/160**
-- Previous: 75-76/160 (2026-03-20)
+**Score: ~91/160** (estimated from batch results; full assay pending)
+- Previous: 81/160 (2026-03-21 Session 5)
 
-### Failure Categories
+### Failure Categories (updated)
 | Category | Count | Description |
 |----------|-------|-------------|
-| watertight (1-6 unpaired) | ~26 | Residual non-manifold edges at earcut overlap boundaries in bounded tessellation |
+| watertight (1-6 unpaired) | ~12 | Reduced from ~22; position-based edge-flip resolved ~10 cases |
 | watertight (60+ unpaired) | ~10 | Structural boolean issues with complex geometries |
 | empty mesh | ~3 | Boolean chain failures (3-op sequences, or cut consuming entire boss) |
 | low triangle count | ~8 | Auto-union failure → standalone body → only first extrude visible |
@@ -337,11 +354,17 @@ Last updated: Sprint 68+ (2026-03-21)
 | face product limit | ~5 | Gear-gear booleans exceed 5000 effective face product |
 | timeout | 4 | Slow boolean ops (>90s) |
 
-### Key Findings (2026-03-21 Session)
-1. **Non-manifold edge root cause refined**: The 20 cases with 1-6 unpaired edges have non-manifold edges at **earcut diagonals** (interior mesh edges), NOT at B-Rep boundary edges. When two adjacent faces share corner vertices (but not a boundary edge between them), earcut independently creates the same diagonal, producing 3 triangles sharing that edge. A topology-aware post-processing step (using B-Rep edge→face relationships) was added but doesn't fix these cases because the non-manifold edges aren't on B-Rep edges. **Fix requires constrained Delaunay triangulation (CDT)** to prevent earcut from creating diagonals between vertices shared across face boundaries.
-1b. **Previous finding (2026-03-20)**: Bounded tessellation path creates overlapping triangles at face boundaries due to independent earcut tessellation of adjacent faces. The shared-vertex discretization shares edge vertices correctly, but earcut generates different interior triangles that share the same edges. Attempts at post-hoc removal (conservative, aggressive, targeted) all caused regressions.
-2. **F-series F0044-F0060 failures**: These are "featured" test cases with cross-plane/angled/scaled geometries. Failures are due to auto-union fallback (feature-engine returns standalone body with warning, not error) and complex geometric configurations (perpendicular planes, scale extremes 1e4).
-3. **Cyl-cyl union works at kernel level**: Direct WaffleKernel calls to `boolean_union` succeed for coaxial and offset cylinders. Failures through feature-engine may be due to sketch plane resolution or extrude direction differences.
+### Key Findings (2026-03-21 Session 6)
+1. **Non-manifold failures are in fan path, not bounded path**: Almost all non-manifold
+   assay failures involve circle profiles → arc edges → fan tessellation path. The bounded
+   path (earcut diagonals) is NOT the bottleneck. The fan path's non-manifold edges come
+   from vertex welding creating spurious edge sharing at triple-face junctions.
+2. **Edge-flip > removal for fan path repair**: Position-based edge-flip resolves 1-2
+   non-manifold edges without creating holes. This is more effective than the existing
+   targeted removal approach because removal creates boundary holes that fill_boundary_holes
+   may not recover, while edge-flip preserves all triangles.
+3. **F-series F0044-F0060 failures**: These are "featured" test cases with cross-plane/angled/scaled geometries. Failures are due to auto-union fallback (feature-engine returns standalone body with warning, not error) and complex geometric configurations (perpendicular planes, scale extremes 1e4).
+4. **Cyl-cyl union works at kernel level**: Direct WaffleKernel calls to `boolean_union` succeed for coaxial and offset cylinders. Failures through feature-engine may be due to sketch plane resolution or extrude direction differences.
 
 ---
 

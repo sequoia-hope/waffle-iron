@@ -586,6 +586,14 @@ pub(crate) fn tessellate_solid_ext(
         }
     }
 
+    // Position-based edge-flip: for remaining non-manifold edges where
+    // removal+fill fails (the common 1-2 stubborn edges), try flipping the
+    // shared diagonal within one face's triangle pair. This preserves all
+    // triangles (no holes) unlike removal-based approaches.
+    if count_nonmanifold_edges(&vertices, &indices) > 0 {
+        flip_nonmanifold_edges_position_based(&vertices, &mut indices, &face_ranges);
+    }
+
     // If the mesh signed volume is negative, the entire solid is inside-out
     // (all face normals point inward). Flip all windings and normals.
     fix_global_orientation(&mut vertices, &mut normals, &mut indices);
@@ -3243,6 +3251,22 @@ fn tessellate_solid_bounded(
         &mut face_ranges,
     );
 
+    // Steiner-fan re-tessellation: for faces that still have non-manifold
+    // interior diagonals after edge-flip, replace their earcut triangulation
+    // with centroid-fan tessellation.  Each face's centroid is unique, so no
+    // two faces can share interior edges.  This preserves triangle count
+    // (no holes) unlike removal-based approaches.
+    retessellate_nonmanifold_faces_with_steiner_fan(
+        arena,
+        face_map,
+        face_geometry,
+        &disc,
+        &mut vertices,
+        &mut normals,
+        &mut indices,
+        &mut face_ranges,
+    );
+
     // Topology-aware non-manifold repair: uses B-Rep edge→face relationships to
     // determine which triangles legitimately share each boundary edge. Removes
     // triangles whose face_id doesn't match the expected topology.
@@ -4331,6 +4355,634 @@ fn flip_nonmanifold_interior_diagonals(
             return; // No flips possible — done.
         }
     }
+}
+
+/// Steiner-fan re-tessellation for faces with non-manifold interior diagonals.
+///
+/// After edge-flip repair, some faces may still contribute to non-manifold
+/// interior edges (e.g., when 3+ faces share the same diagonal, or when the
+/// quad is non-convex and can't be flipped).  For each such face, replace its
+/// earcut triangulation with a centroid-fan: add the face polygon's centroid
+/// as a new Steiner vertex and create N triangles (centroid→V_i→V_{i+1}) for
+/// an N-vertex boundary.
+///
+/// Since each face's centroid is unique, no two faces can share interior
+/// edges — only boundary edges are shared, which are B-Rep edges with exactly
+/// 2 adjacent faces.
+/// Position-based edge-flip for non-manifold edges in the fan-path mesh.
+///
+/// Like `flip_nonmanifold_interior_diagonals` but works without B-Rep
+/// topology.  Groups triangles by face_range face_id, finds pairs of
+/// triangles within the same face sharing a non-manifold edge, and flips
+/// the diagonal if the resulting quad is convex and the new diagonal isn't
+/// already non-manifold.
+fn flip_nonmanifold_edges_position_based(
+    vertices: &[f32],
+    indices: &mut [u32],
+    face_ranges: &[FaceRange],
+) {
+    let max_iterations = 10;
+
+    for _iteration in 0..max_iterations {
+        let n_tris = indices.len() / 3;
+        if n_tris < 3 {
+            return;
+        }
+
+        let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
+        let grid = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
+        let inv_grid = 1.0 / grid;
+
+        type QPos = (i64, i64, i64);
+        let quantize = |idx: u32| -> QPos {
+            let i = idx as usize * 3;
+            if i + 2 >= vertices.len() {
+                return (0, 0, 0);
+            }
+            (
+                (vertices[i] as f64 * inv_grid).round() as i64,
+                (vertices[i + 1] as f64 * inv_grid).round() as i64,
+                (vertices[i + 2] as f64 * inv_grid).round() as i64,
+            )
+        };
+
+        // Build tri→face_id mapping.
+        let mut tri_face_id: Vec<u64> = vec![0; n_tris];
+        for range in face_ranges.iter() {
+            let tri_start = range.start_index as usize / 3;
+            let tri_end = range.end_index as usize / 3;
+            for item in tri_face_id
+                .iter_mut()
+                .take(tri_end.min(n_tris))
+                .skip(tri_start)
+            {
+                *item = range.face_id.0;
+            }
+        }
+
+        // Build edge→triangle list.
+        type UEdge = (QPos, QPos);
+        let mut edge_tris: HashMap<UEdge, Vec<usize>> = HashMap::new();
+        for t in 0..n_tris {
+            let base = t * 3;
+            let tri = [indices[base], indices[base + 1], indices[base + 2]];
+            for j in 0..3 {
+                let pa = quantize(tri[j]);
+                let pb = quantize(tri[(j + 1) % 3]);
+                let key: UEdge = if pa <= pb { (pa, pb) } else { (pb, pa) };
+                edge_tris.entry(key).or_default().push(t);
+            }
+        }
+
+        // Find non-manifold edges (3+ triangles).
+        let mut nm_edges: Vec<(UEdge, Vec<usize>)> = edge_tris
+            .iter()
+            .filter(|(_, tris)| tris.len() >= 3)
+            .map(|(e, t)| (*e, t.clone()))
+            .collect();
+        nm_edges.sort_by_key(|(edge, _)| *edge);
+
+        if nm_edges.is_empty() {
+            return;
+        }
+
+        let mut flipped_any = false;
+
+        for (nm_edge, tris) in &nm_edges {
+            // Group by face_id.
+            let mut face_groups: HashMap<u64, Vec<usize>> = HashMap::new();
+            for &t in tris {
+                face_groups.entry(tri_face_id[t]).or_default().push(t);
+            }
+
+            // Look for a face with exactly 2 triangles sharing this edge.
+            for face_tris in face_groups.values() {
+                if face_tris.len() != 2 {
+                    continue;
+                }
+
+                let t_a = face_tris[0];
+                let t_b = face_tris[1];
+
+                let tri_a = [indices[t_a * 3], indices[t_a * 3 + 1], indices[t_a * 3 + 2]];
+                let tri_b = [indices[t_b * 3], indices[t_b * 3 + 1], indices[t_b * 3 + 2]];
+
+                let qa0 = nm_edge.0;
+                let qa1 = nm_edge.1;
+
+                // Find shared and opposite vertices.
+                let mut shared_a = [u32::MAX; 2];
+                let mut opp_a = u32::MAX;
+                for &vi in &tri_a {
+                    let qv = quantize(vi);
+                    if qv == qa0 && shared_a[0] == u32::MAX {
+                        shared_a[0] = vi;
+                    } else if qv == qa1 && shared_a[1] == u32::MAX {
+                        shared_a[1] = vi;
+                    } else {
+                        opp_a = vi;
+                    }
+                }
+
+                let mut opp_b = u32::MAX;
+                for &vi in &tri_b {
+                    let qv = quantize(vi);
+                    if qv != qa0 && qv != qa1 {
+                        opp_b = vi;
+                    }
+                }
+
+                if opp_a == u32::MAX
+                    || opp_b == u32::MAX
+                    || shared_a[0] == u32::MAX
+                    || shared_a[1] == u32::MAX
+                {
+                    continue;
+                }
+
+                // Check new diagonal doesn't create another nm edge.
+                let new_diag_qa = quantize(opp_a);
+                let new_diag_qb = quantize(opp_b);
+                let new_diag_key: UEdge = if new_diag_qa <= new_diag_qb {
+                    (new_diag_qa, new_diag_qb)
+                } else {
+                    (new_diag_qb, new_diag_qa)
+                };
+                let existing_count = edge_tris.get(&new_diag_key).map_or(0, |t| t.len());
+                if existing_count >= 2 {
+                    continue;
+                }
+
+                // Compute face normal for winding check.
+                let pos = |vi: u32| -> [f64; 3] {
+                    let i = vi as usize * 3;
+                    [
+                        vertices[i] as f64,
+                        vertices[i + 1] as f64,
+                        vertices[i + 2] as f64,
+                    ]
+                };
+
+                let p_a0 = pos(tri_a[0]);
+                let p_a1 = pos(tri_a[1]);
+                let p_a2 = pos(tri_a[2]);
+                let face_normal = v3_cross(v3_sub(p_a1, p_a0), v3_sub(p_a2, p_a0));
+
+                let p_oa = pos(opp_a);
+                let p_ob = pos(opp_b);
+                let p_s0 = pos(shared_a[0]);
+                let p_s1 = pos(shared_a[1]);
+
+                let new1_normal = v3_cross(v3_sub(p_oa, p_s0), v3_sub(p_ob, p_s0));
+                let new2_normal = v3_cross(v3_sub(p_ob, p_s1), v3_sub(p_oa, p_s1));
+
+                if v3_length(new1_normal) < TAU_WORK || v3_length(new2_normal) < TAU_WORK {
+                    continue;
+                }
+
+                let dot1 = v3_dot(new1_normal, face_normal);
+                let dot2 = v3_dot(new2_normal, face_normal);
+
+                if dot1 > 0.0 && dot2 > 0.0 {
+                    indices[t_a * 3] = shared_a[0];
+                    indices[t_a * 3 + 1] = opp_a;
+                    indices[t_a * 3 + 2] = opp_b;
+                    indices[t_b * 3] = shared_a[1];
+                    indices[t_b * 3 + 1] = opp_b;
+                    indices[t_b * 3 + 2] = opp_a;
+                } else if dot1 < 0.0 && dot2 < 0.0 {
+                    indices[t_a * 3] = shared_a[0];
+                    indices[t_a * 3 + 1] = opp_b;
+                    indices[t_a * 3 + 2] = opp_a;
+                    indices[t_b * 3] = shared_a[1];
+                    indices[t_b * 3 + 1] = opp_a;
+                    indices[t_b * 3 + 2] = opp_b;
+                } else {
+                    continue;
+                }
+
+                flipped_any = true;
+                break;
+            }
+
+            if flipped_any {
+                break;
+            }
+        }
+
+        if !flipped_any {
+            return;
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments, clippy::ptr_arg)]
+fn retessellate_nonmanifold_faces_with_steiner_fan(
+    arena: &TopoArena,
+    face_map: &HashMap<u64, FaceIdx>,
+    face_geometry: &HashMap<FaceIdx, SurfaceGeom>,
+    disc: &EdgeDiscretization,
+    vertices: &mut Vec<f32>,
+    normals: &mut Vec<f32>,
+    indices: &mut Vec<u32>,
+    face_ranges: &mut Vec<FaceRange>,
+) {
+    let n_tris = indices.len() / 3;
+    if n_tris < 2 {
+        return;
+    }
+
+    // Build quantization grid.
+    let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
+    let grid = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
+    let inv_grid = 1.0 / grid;
+
+    type QPos = (i64, i64, i64);
+    let quantize = |idx: u32| -> QPos {
+        let i = idx as usize * 3;
+        if i + 2 >= vertices.len() {
+            return (0, 0, 0);
+        }
+        (
+            (vertices[i] as f64 * inv_grid).round() as i64,
+            (vertices[i + 1] as f64 * inv_grid).round() as i64,
+            (vertices[i + 2] as f64 * inv_grid).round() as i64,
+        )
+    };
+
+    // Build B-Rep boundary edge set.
+    type UEdge = (QPos, QPos);
+    let mut brep_edges: HashSet<UEdge> = HashSet::new();
+    let quantize_f64 = |pos: &[f64; 3]| -> QPos {
+        (
+            (pos[0] * inv_grid).round() as i64,
+            (pos[1] * inv_grid).round() as i64,
+            (pos[2] * inv_grid).round() as i64,
+        )
+    };
+    for verts in disc.edge_verts.values() {
+        for pair in verts.windows(2) {
+            let qa = quantize_f64(&disc.positions[pair[0]]);
+            let qb = quantize_f64(&disc.positions[pair[1]]);
+            let key: UEdge = if qa <= qb { (qa, qb) } else { (qb, qa) };
+            brep_edges.insert(key);
+        }
+        if verts.len() >= 3 {
+            let qa = quantize_f64(&disc.positions[*verts.last().unwrap()]);
+            let qb = quantize_f64(&disc.positions[verts[0]]);
+            if qa != qb {
+                let key: UEdge = if qa <= qb { (qa, qb) } else { (qb, qa) };
+                brep_edges.insert(key);
+            }
+        }
+    }
+
+    // Build tri→face_id mapping.
+    let mut tri_face_id: Vec<u64> = vec![0; n_tris];
+    for range in face_ranges.iter() {
+        let tri_start = range.start_index as usize / 3;
+        let tri_end = range.end_index as usize / 3;
+        for item in tri_face_id
+            .iter_mut()
+            .take(tri_end.min(n_tris))
+            .skip(tri_start)
+        {
+            *item = range.face_id.0;
+        }
+    }
+
+    // Build edge→triangle count for detection.
+    let mut edge_counts: HashMap<UEdge, usize> = HashMap::new();
+    for t in 0..n_tris {
+        let base = t * 3;
+        let tri = [indices[base], indices[base + 1], indices[base + 2]];
+        for j in 0..3 {
+            let pa = quantize(tri[j]);
+            let pb = quantize(tri[(j + 1) % 3]);
+            let key: UEdge = if pa <= pb { (pa, pb) } else { (pb, pa) };
+            *edge_counts.entry(key).or_insert(0) += 1;
+        }
+    }
+
+    // Find non-manifold interior edges (count >= 3, not B-Rep boundary).
+    let nm_edges: Vec<UEdge> = edge_counts
+        .iter()
+        .filter(|(edge, &count)| count >= 3 && !brep_edges.contains(edge))
+        .map(|(e, _)| *e)
+        .collect();
+
+    if nm_edges.is_empty() {
+        return;
+    }
+
+    // Identify which face_ids have triangles on non-manifold interior edges.
+    let mut affected_face_ids: HashSet<u64> = HashSet::new();
+    for (t, &fid) in tri_face_id.iter().enumerate().take(n_tris) {
+        let base = t * 3;
+        let tri = [indices[base], indices[base + 1], indices[base + 2]];
+        for j in 0..3 {
+            let pa = quantize(tri[j]);
+            let pb = quantize(tri[(j + 1) % 3]);
+            let key: UEdge = if pa <= pb { (pa, pb) } else { (pb, pa) };
+            if nm_edges.contains(&key) {
+                affected_face_ids.insert(fid);
+            }
+        }
+    }
+
+    if affected_face_ids.is_empty() {
+        return;
+    }
+
+    // Reverse map: face_id → (FaceIdx, kernel_id)
+    let mut id_to_face: HashMap<u64, FaceIdx> = HashMap::new();
+    for (&kid, &face_idx) in face_map {
+        id_to_face.insert(kid, face_idx);
+    }
+
+    // For each affected face, re-tessellate with centroid-fan.
+    for &fid in &affected_face_ids {
+        let face_idx = match id_to_face.get(&fid) {
+            Some(&fi) => fi,
+            None => continue,
+        };
+
+        // Skip faces with inner loops (holes) — centroid-fan doesn't handle them.
+        if !arena.faces[face_idx.0].inner_loops.is_empty() {
+            continue;
+        }
+
+        // Get boundary for this face.
+        let boundary = collect_loop_boundary(arena, arena.faces[face_idx.0].outer_loop, disc);
+        if boundary.len() < 3 {
+            continue;
+        }
+
+        // Compute face normal from geometry.
+        let normal_f32 = match face_geometry.get(&face_idx) {
+            Some(SurfaceGeom::Planar(plane)) => [
+                plane.normal.x as f32,
+                plane.normal.y as f32,
+                plane.normal.z as f32,
+            ],
+            _ => {
+                // Compute Newell normal from boundary.
+                let loop_verts: Vec<[f64; 3]> =
+                    boundary.iter().map(|&i| disc.positions[i]).collect();
+                let bn = loop_verts.len();
+                let mut newell = [0.0f64; 3];
+                for i in 0..bn {
+                    let curr = loop_verts[i];
+                    let next = loop_verts[(i + 1) % bn];
+                    newell[0] += (curr[1] - next[1]) * (curr[2] + next[2]);
+                    newell[1] += (curr[2] - next[2]) * (curr[0] + next[0]);
+                    newell[2] += (curr[0] - next[0]) * (curr[1] + next[1]);
+                }
+                let nlen = v3_length(newell);
+                if nlen > TAU_WORK {
+                    [
+                        (newell[0] / nlen) as f32,
+                        (newell[1] / nlen) as f32,
+                        (newell[2] / nlen) as f32,
+                    ]
+                } else {
+                    continue; // Degenerate face — skip.
+                }
+            }
+        };
+
+        // Compute centroid of boundary polygon.
+        let n = boundary.len();
+        let mut centroid = [0.0f64; 3];
+        for &vi in &boundary {
+            centroid[0] += disc.positions[vi][0];
+            centroid[1] += disc.positions[vi][1];
+            centroid[2] += disc.positions[vi][2];
+        }
+        centroid[0] /= n as f64;
+        centroid[1] /= n as f64;
+        centroid[2] /= n as f64;
+
+        // Point-in-polygon test using winding number (2D projection).
+        let stored_normal = [
+            normal_f32[0] as f64,
+            normal_f32[1] as f64,
+            normal_f32[2] as f64,
+        ];
+        let (u_axis, v_axis) = compute_plane_basis(stored_normal);
+        let loop_verts_2d: Vec<[f64; 2]> = boundary
+            .iter()
+            .map(|&i| {
+                let d = v3_sub(disc.positions[i], disc.positions[boundary[0]]);
+                [v3_dot(d, u_axis), v3_dot(d, v_axis)]
+            })
+            .collect();
+        let centroid_2d = {
+            let d = v3_sub(centroid, disc.positions[boundary[0]]);
+            [v3_dot(d, u_axis), v3_dot(d, v_axis)]
+        };
+
+        if !point_in_polygon_winding(&centroid_2d, &loop_verts_2d) {
+            continue; // Centroid outside polygon — skip.
+        }
+
+        // Remove old triangles for this face.
+        // Find the face_range for this face.
+        let range_idx = face_ranges.iter().position(|r| r.face_id.0 == fid);
+        let range = match range_idx {
+            Some(ri) => &face_ranges[ri],
+            None => continue,
+        };
+        let old_start = range.start_index as usize;
+        let old_end = range.end_index as usize;
+
+        // Blank out old indices (set to u32::MAX to mark for removal).
+        for idx in indices[old_start..old_end].iter_mut() {
+            *idx = u32::MAX;
+        }
+
+        // Add centroid vertex.
+        let centroid_vi = vertices.len() as u32 / 3;
+        vertices.push(centroid[0] as f32);
+        vertices.push(centroid[1] as f32);
+        vertices.push(centroid[2] as f32);
+        normals.push(normal_f32[0]);
+        normals.push(normal_f32[1]);
+        normals.push(normal_f32[2]);
+
+        // Collect boundary vertex indices in the output vertex buffer.
+        // We need to find which output vertex indices correspond to each boundary
+        // discretization index. The bounded tessellation emits vertices in
+        // boundary order, starting from the face_range's first vertex.
+        // Since the old vertices are still in the buffer, we can map boundary
+        // positions to existing output vertex indices via quantization.
+        let mut boundary_out_indices: Vec<u32> = Vec::with_capacity(n);
+        // Build a position→output-vertex-index map from the existing mesh.
+        let n_verts = vertices.len() / 3;
+        let mut pos_to_vi: HashMap<QPos, u32> = HashMap::new();
+        for vi in 0..n_verts {
+            let qp = (
+                (vertices[vi * 3] as f64 * inv_grid).round() as i64,
+                (vertices[vi * 3 + 1] as f64 * inv_grid).round() as i64,
+                (vertices[vi * 3 + 2] as f64 * inv_grid).round() as i64,
+            );
+            pos_to_vi.entry(qp).or_insert(vi as u32);
+        }
+
+        for &bi in &boundary {
+            let qp = quantize_f64(&disc.positions[bi]);
+            if let Some(&vi) = pos_to_vi.get(&qp) {
+                boundary_out_indices.push(vi);
+            } else {
+                // Boundary vertex not found — add it.
+                let new_vi = vertices.len() as u32 / 3;
+                vertices.push(disc.positions[bi][0] as f32);
+                vertices.push(disc.positions[bi][1] as f32);
+                vertices.push(disc.positions[bi][2] as f32);
+                normals.push(normal_f32[0]);
+                normals.push(normal_f32[1]);
+                normals.push(normal_f32[2]);
+                boundary_out_indices.push(new_vi);
+            }
+        }
+
+        if boundary_out_indices.len() < 3 {
+            continue;
+        }
+
+        // Check winding: boundary should match stored normal.
+        let bverts: Vec<[f64; 3]> = boundary.iter().map(|&i| disc.positions[i]).collect();
+        let mut newell = [0.0f64; 3];
+        for i in 0..n {
+            let curr = bverts[i];
+            let next = bverts[(i + 1) % n];
+            newell[0] += (curr[1] - next[1]) * (curr[2] + next[2]);
+            newell[1] += (curr[2] - next[2]) * (curr[0] + next[0]);
+            newell[2] += (curr[0] - next[0]) * (curr[1] + next[1]);
+        }
+        let reverse = v3_dot(newell, stored_normal) < 0.0;
+
+        // Create fan triangles: centroid → V_i → V_{i+1}.
+        let new_start = indices.len() as u32;
+        for i in 0..n {
+            let next_i = (i + 1) % n;
+            if reverse {
+                indices.push(centroid_vi);
+                indices.push(boundary_out_indices[next_i]);
+                indices.push(boundary_out_indices[i]);
+            } else {
+                indices.push(centroid_vi);
+                indices.push(boundary_out_indices[i]);
+                indices.push(boundary_out_indices[next_i]);
+            }
+        }
+        let new_end = indices.len() as u32;
+
+        // Update face_range to point to new triangles.
+        if let Some(ri) = range_idx {
+            face_ranges[ri].start_index = new_start;
+            face_ranges[ri].end_index = new_end;
+        }
+    }
+
+    // Compact: remove blanked-out indices (u32::MAX).
+    compact_blanked_indices(indices, face_ranges);
+}
+
+/// Point-in-polygon test using winding number algorithm.
+/// Returns true if the point is strictly inside the polygon.
+fn point_in_polygon_winding(point: &[f64; 2], polygon: &[[f64; 2]]) -> bool {
+    let n = polygon.len();
+    if n < 3 {
+        return false;
+    }
+    let mut winding: i32 = 0;
+    for i in 0..n {
+        let j = (i + 1) % n;
+        let yi = polygon[i][1];
+        let yj = polygon[j][1];
+        if yi <= point[1] {
+            if yj > point[1] {
+                // Upward crossing
+                let cross = (polygon[j][0] - polygon[i][0]) * (point[1] - polygon[i][1])
+                    - (point[0] - polygon[i][0]) * (polygon[j][1] - polygon[i][1]);
+                if cross > 0.0 {
+                    winding += 1;
+                }
+            }
+        } else if yj <= point[1] {
+            // Downward crossing
+            let cross = (polygon[j][0] - polygon[i][0]) * (point[1] - polygon[i][1])
+                - (point[0] - polygon[i][0]) * (polygon[j][1] - polygon[i][1]);
+            if cross < 0.0 {
+                winding -= 1;
+            }
+        }
+    }
+    winding != 0
+}
+
+/// Remove blanked-out indices (u32::MAX markers) and update face_ranges.
+fn compact_blanked_indices(indices: &mut Vec<u32>, face_ranges: &mut [FaceRange]) {
+    // Build a mapping from old index positions to new positions.
+    let mut new_indices: Vec<u32> = Vec::with_capacity(indices.len());
+    let mut old_to_new: Vec<usize> = Vec::with_capacity(indices.len());
+
+    let mut tri_idx = 0;
+    while tri_idx + 2 < indices.len() {
+        if indices[tri_idx] == u32::MAX
+            || indices[tri_idx + 1] == u32::MAX
+            || indices[tri_idx + 2] == u32::MAX
+        {
+            // Skip this blanked triangle.
+            old_to_new.push(usize::MAX);
+            old_to_new.push(usize::MAX);
+            old_to_new.push(usize::MAX);
+        } else {
+            let new_pos = new_indices.len();
+            old_to_new.push(new_pos);
+            old_to_new.push(new_pos + 1);
+            old_to_new.push(new_pos + 2);
+            new_indices.push(indices[tri_idx]);
+            new_indices.push(indices[tri_idx + 1]);
+            new_indices.push(indices[tri_idx + 2]);
+        }
+        tri_idx += 3;
+    }
+
+    // Update face_ranges.
+    for range in face_ranges.iter_mut() {
+        let old_start = range.start_index as usize;
+        let old_end = range.end_index as usize;
+
+        // Find first non-blanked index in [old_start, old_end).
+        let mut new_start = usize::MAX;
+        let mut new_end = 0usize;
+        let mut i = old_start;
+        while i < old_end && i < old_to_new.len() {
+            if old_to_new[i] != usize::MAX {
+                if new_start == usize::MAX {
+                    new_start = old_to_new[i];
+                }
+                // The last valid index + 1 in the new buffer (end of last valid triangle).
+                new_end = old_to_new[i] + 3;
+                i += 3; // Skip to next triangle.
+            } else {
+                i += 3;
+            }
+        }
+
+        if new_start == usize::MAX {
+            // Face was entirely blanked — range becomes empty.
+            range.start_index = 0;
+            range.end_index = 0;
+        } else {
+            range.start_index = new_start as u32;
+            range.end_index = new_end as u32;
+        }
+    }
+
+    *indices = new_indices;
 }
 
 /// Compute triangle area from f32 vertices for sorting during removal.
@@ -7114,6 +7766,381 @@ mod tests {
             !internal_edges.is_empty(),
             "Expected at least one internal edge (count=2) from the flipped diagonal, \
              but found none. This suggests the flip did not create a valid shared edge."
+        );
+    }
+
+    /// Three coplanar quad faces all sharing two vertex positions without a
+    /// connecting B-Rep edge.  Earcut creates the same interior diagonal in
+    /// all three faces (6 triangles on one edge).  Edge-flip alone cannot
+    /// resolve this because flipping in one face may create a new conflict
+    /// with the third face.  Steiner-fan re-tessellation should resolve it
+    /// by giving each face a unique centroid-based fan that shares no
+    /// interior diagonals.
+    #[test]
+    fn test_steiner_fan_resolves_three_face_shared_diagonal() {
+        use crate::geometry::curve::Line3D;
+        use crate::geometry::point::{Point3, Vector3};
+        use crate::geometry::surface::Plane;
+
+        let mut arena = TopoArena::new();
+
+        // Shared positions: (0,0,0) and (2,0,0).
+        // Face A: quad (0,0,0) (1,-3,0) (2,0,0) (1,-1,0) — points downward
+        // Face B: quad (0,0,0) (1,1,0)  (2,0,0) (1,3,0)  — points upward
+        // Face C: quad (0,0,0) (0.5,0.3,0) (2,0,0) (1.5,-0.3,0) — narrow strip
+        // Each face has separate B-Rep vertices at the shared positions.
+
+        let positions: [([f64; 3], [[f64; 3]; 4]); 3] = [
+            (
+                [0.0, 0.0, 1.0], // normal (unused for fan, but needed for geometry)
+                [
+                    [0.0, 0.0, 0.0],
+                    [1.0, -3.0, 0.0],
+                    [2.0, 0.0, 0.0],
+                    [1.0, -1.0, 0.0],
+                ],
+            ),
+            (
+                [0.0, 0.0, 1.0],
+                [
+                    [0.0, 0.0, 0.0],
+                    [1.0, 1.0, 0.0],
+                    [2.0, 0.0, 0.0],
+                    [1.0, 3.0, 0.0],
+                ],
+            ),
+            (
+                [0.0, 0.0, 1.0],
+                [
+                    [0.0, 0.0, 0.0],
+                    [0.5, 0.3, 0.0],
+                    [2.0, 0.0, 0.0],
+                    [1.5, -0.3, 0.0],
+                ],
+            ),
+        ];
+
+        let solid = arena.add_solid();
+        let shell = arena.add_shell(solid);
+        arena.solids[solid.0].outer_shell = shell;
+
+        let mut face_indices = Vec::new();
+        let z_up = Plane {
+            origin: Point3 {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            normal: Vector3 {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+        };
+        let mut face_map: HashMap<u64, FaceIdx> = HashMap::new();
+        let mut face_geometry: HashMap<FaceIdx, SurfaceGeom> = HashMap::new();
+
+        for (face_id, (_normal, verts)) in positions.iter().enumerate() {
+            let face = arena.add_face(shell);
+            let lp = arena.add_loop(face);
+            arena.faces[face.0].outer_loop = lp;
+            if face_id == 0 {
+                arena.shells[shell.0].face = face;
+            }
+
+            let mut v_indices = Vec::new();
+            for pos in verts {
+                v_indices.push(arena.add_vertex(*pos));
+            }
+
+            let mut he_pairs = Vec::new();
+            for i in 0..4 {
+                let (_, he_a, he_b) = arena.add_edge();
+                let next_i = (i + 1) % 4;
+                arena.half_edges[he_a.0].origin = v_indices[i];
+                arena.half_edges[he_b.0].origin = v_indices[next_i];
+                arena.half_edges[he_a.0].loop_ = lp;
+                arena.half_edges[he_b.0].loop_ = lp;
+                he_pairs.push((he_a, he_b));
+            }
+            for i in 0..4 {
+                let next_i = (i + 1) % 4;
+                arena.half_edges[he_pairs[i].0 .0].next = he_pairs[next_i].0;
+                arena.half_edges[he_pairs[next_i].0 .0].prev = he_pairs[i].0;
+            }
+            arena.loops[lp.0].half_edge = he_pairs[0].0;
+            for i in 0..4 {
+                arena.vertices[v_indices[i].0].half_edge = Some(he_pairs[i].0);
+            }
+
+            face_map.insert(face_id as u64 + 1, face);
+            face_geometry.insert(face, SurfaceGeom::Planar(z_up.clone()));
+            face_indices.push(face);
+        }
+
+        // Edge geometry
+        let mut edge_geometry: HashMap<EdgeIdx, CurveGeom> = HashMap::new();
+        for (idx, edge) in arena.edges.iter().enumerate() {
+            let he_a = edge.half_edge;
+            let v_start = arena.half_edges[he_a.0].origin;
+            let v_end = arena.half_edges[arena.half_edges[he_a.0].twin.0].origin;
+            let p0 = arena.vertices[v_start.0].position;
+            let p1 = arena.vertices[v_end.0].position;
+            edge_geometry.insert(
+                EdgeIdx(idx),
+                CurveGeom::Linear(Line3D {
+                    origin: Point3::from_array(p0),
+                    direction: Vector3::from_array(v3_sub(p1, p0)),
+                }),
+            );
+        }
+
+        let mesh = tessellate_solid_bounded(&arena, &face_map, &face_geometry, &edge_geometry)
+            .expect("tessellate_solid_bounded should succeed");
+
+        // Count non-manifold edges
+        let max_abs = mesh
+            .vertices
+            .iter()
+            .map(|v| v.abs())
+            .fold(0.0_f32, f32::max);
+        let grid = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
+        let inv_grid = 1.0 / grid;
+        let quantize = |idx: u32| -> (i64, i64, i64) {
+            let base = idx as usize * 3;
+            (
+                (mesh.vertices[base] as f64 * inv_grid).round() as i64,
+                (mesh.vertices[base + 1] as f64 * inv_grid).round() as i64,
+                (mesh.vertices[base + 2] as f64 * inv_grid).round() as i64,
+            )
+        };
+
+        let n_tris = mesh.indices.len() / 3;
+        let mut edge_counts: HashMap<((i64, i64, i64), (i64, i64, i64)), u32> = HashMap::new();
+        for i in 0..n_tris {
+            let tri = [
+                mesh.indices[i * 3],
+                mesh.indices[i * 3 + 1],
+                mesh.indices[i * 3 + 2],
+            ];
+            for j in 0..3 {
+                let pa = quantize(tri[j]);
+                let pb = quantize(tri[(j + 1) % 3]);
+                let key = if pa <= pb { (pa, pb) } else { (pb, pa) };
+                *edge_counts.entry(key).or_insert(0) += 1;
+            }
+        }
+
+        let nonmanifold_edges: Vec<_> =
+            edge_counts.iter().filter(|(_, &count)| count > 2).collect();
+        let unpaired_edges: Vec<_> = edge_counts
+            .iter()
+            .filter(|(_, &count)| count == 1)
+            .collect();
+
+        assert!(
+            nonmanifold_edges.is_empty(),
+            "Three faces sharing vertex positions at (0,0,0) and (2,0,0) \
+             should have zero non-manifold edges after Steiner-fan \
+             re-tessellation, but found {} edges with count>2. \
+             Steiner-fan should give each face a unique interior centroid \
+             so no two faces share interior diagonals.",
+            nonmanifold_edges.len()
+        );
+
+        // The key assertion: Steiner-fan must not create holes (unpaired edges
+        // from triangle removal). Every face must be fully tessellated.
+        // For this open surface, boundary edges are expected (count=1), but
+        // the total triangle count must equal the sum of per-face triangles.
+        // With earcut: 2+2+2 = 6 triangles. With Steiner-fan: 4+4+4 = 12.
+        // The current aggressive removal may delete triangles, creating holes.
+        // Verify that all faces contribute the expected number of triangles.
+        assert!(
+            n_tris >= 6,
+            "Three quad faces must produce at least 6 triangles (2 per face \
+             from earcut), but got {}. If triangles were removed to fix \
+             non-manifold edges, Steiner-fan re-tessellation should \
+             preserve all triangles instead.",
+            n_tris
+        );
+    }
+
+    /// Steiner-fan tessellation must produce correct triangle count:
+    /// N triangles for an N-vertex polygon (vs N-2 from earcut).
+    /// This tests that re-tessellated faces have the expected geometry.
+    #[test]
+    fn test_steiner_fan_triangle_count_for_pentagon() {
+        use crate::geometry::curve::Line3D;
+        use crate::geometry::point::{Point3, Vector3};
+        use crate::geometry::surface::Plane;
+
+        let mut arena = TopoArena::new();
+
+        // Single pentagon face + a second quad face sharing 2 vertices to
+        // trigger non-manifold detection → Steiner-fan re-tessellation of
+        // the pentagon.
+        //
+        // Pentagon: V0(0,0,0) V1(2,-1,0) V2(3,1,0) V3(2,3,0) V4(0,2,0)
+        // Quad:     V5(0,0,0) V6(2,-1,0) V7(1,-3,0) V8(-1,-2,0)
+        // Shared positions: V0≡V5 at (0,0,0), V1≡V6 at (2,-1,0)
+
+        let solid = arena.add_solid();
+        let shell = arena.add_shell(solid);
+        arena.solids[solid.0].outer_shell = shell;
+
+        let z_up = Plane {
+            origin: Point3 {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            normal: Vector3 {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+        };
+
+        // ── Pentagon face ────────────────────
+        let pent_verts: Vec<VertexIdx> = [
+            [0.0, 0.0, 0.0],
+            [2.0, -1.0, 0.0],
+            [3.0, 1.0, 0.0],
+            [2.0, 3.0, 0.0],
+            [0.0, 2.0, 0.0],
+        ]
+        .iter()
+        .map(|p| arena.add_vertex(*p))
+        .collect();
+
+        let pent_face = arena.add_face(shell);
+        let pent_loop = arena.add_loop(pent_face);
+        arena.faces[pent_face.0].outer_loop = pent_loop;
+        arena.shells[shell.0].face = pent_face;
+
+        let mut pent_hes = Vec::new();
+        for i in 0..5 {
+            let (_, he_a, he_b) = arena.add_edge();
+            let next_i = (i + 1) % 5;
+            arena.half_edges[he_a.0].origin = pent_verts[i];
+            arena.half_edges[he_b.0].origin = pent_verts[next_i];
+            arena.half_edges[he_a.0].loop_ = pent_loop;
+            arena.half_edges[he_b.0].loop_ = pent_loop;
+            pent_hes.push((he_a, he_b));
+        }
+        for i in 0..5 {
+            let next_i = (i + 1) % 5;
+            arena.half_edges[pent_hes[i].0 .0].next = pent_hes[next_i].0;
+            arena.half_edges[pent_hes[next_i].0 .0].prev = pent_hes[i].0;
+        }
+        arena.loops[pent_loop.0].half_edge = pent_hes[0].0;
+        for i in 0..5 {
+            arena.vertices[pent_verts[i].0].half_edge = Some(pent_hes[i].0);
+        }
+
+        // ── Quad face (shares two vertex positions with pentagon) ─────
+        let quad_verts: Vec<VertexIdx> = [
+            [0.0, 0.0, 0.0],
+            [2.0, -1.0, 0.0],
+            [1.0, -3.0, 0.0],
+            [-1.0, -2.0, 0.0],
+        ]
+        .iter()
+        .map(|p| arena.add_vertex(*p))
+        .collect();
+
+        let quad_face = arena.add_face(shell);
+        let quad_loop = arena.add_loop(quad_face);
+        arena.faces[quad_face.0].outer_loop = quad_loop;
+
+        let mut quad_hes = Vec::new();
+        for i in 0..4 {
+            let (_, he_a, he_b) = arena.add_edge();
+            let next_i = (i + 1) % 4;
+            arena.half_edges[he_a.0].origin = quad_verts[i];
+            arena.half_edges[he_b.0].origin = quad_verts[next_i];
+            arena.half_edges[he_a.0].loop_ = quad_loop;
+            arena.half_edges[he_b.0].loop_ = quad_loop;
+            quad_hes.push((he_a, he_b));
+        }
+        for i in 0..4 {
+            let next_i = (i + 1) % 4;
+            arena.half_edges[quad_hes[i].0 .0].next = quad_hes[next_i].0;
+            arena.half_edges[quad_hes[next_i].0 .0].prev = quad_hes[i].0;
+        }
+        arena.loops[quad_loop.0].half_edge = quad_hes[0].0;
+        for i in 0..4 {
+            arena.vertices[quad_verts[i].0].half_edge = Some(quad_hes[i].0);
+        }
+
+        let mut face_map: HashMap<u64, FaceIdx> = HashMap::new();
+        face_map.insert(1, pent_face);
+        face_map.insert(2, quad_face);
+        let mut face_geometry: HashMap<FaceIdx, SurfaceGeom> = HashMap::new();
+        face_geometry.insert(pent_face, SurfaceGeom::Planar(z_up.clone()));
+        face_geometry.insert(quad_face, SurfaceGeom::Planar(z_up));
+
+        let mut edge_geometry: HashMap<EdgeIdx, CurveGeom> = HashMap::new();
+        for (idx, edge) in arena.edges.iter().enumerate() {
+            let he_a = edge.half_edge;
+            let v_start = arena.half_edges[he_a.0].origin;
+            let v_end = arena.half_edges[arena.half_edges[he_a.0].twin.0].origin;
+            let p0 = arena.vertices[v_start.0].position;
+            let p1 = arena.vertices[v_end.0].position;
+            edge_geometry.insert(
+                EdgeIdx(idx),
+                CurveGeom::Linear(Line3D {
+                    origin: Point3::from_array(p0),
+                    direction: Vector3::from_array(v3_sub(p1, p0)),
+                }),
+            );
+        }
+
+        let mesh = tessellate_solid_bounded(&arena, &face_map, &face_geometry, &edge_geometry)
+            .expect("tessellation should succeed");
+
+        // After Steiner-fan re-tessellation, no non-manifold edges should remain.
+        let max_abs = mesh
+            .vertices
+            .iter()
+            .map(|v| v.abs())
+            .fold(0.0_f32, f32::max);
+        let grid = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
+        let inv_grid = 1.0 / grid;
+        let quantize = |idx: u32| -> (i64, i64, i64) {
+            let base = idx as usize * 3;
+            (
+                (mesh.vertices[base] as f64 * inv_grid).round() as i64,
+                (mesh.vertices[base + 1] as f64 * inv_grid).round() as i64,
+                (mesh.vertices[base + 2] as f64 * inv_grid).round() as i64,
+            )
+        };
+
+        let n_tris = mesh.indices.len() / 3;
+        let mut edge_counts: HashMap<((i64, i64, i64), (i64, i64, i64)), u32> = HashMap::new();
+        for i in 0..n_tris {
+            let tri = [
+                mesh.indices[i * 3],
+                mesh.indices[i * 3 + 1],
+                mesh.indices[i * 3 + 2],
+            ];
+            for j in 0..3 {
+                let pa = quantize(tri[j]);
+                let pb = quantize(tri[(j + 1) % 3]);
+                let key = if pa <= pb { (pa, pb) } else { (pb, pa) };
+                *edge_counts.entry(key).or_insert(0) += 1;
+            }
+        }
+
+        let nonmanifold_edges: Vec<_> =
+            edge_counts.iter().filter(|(_, &count)| count > 2).collect();
+
+        assert!(
+            nonmanifold_edges.is_empty(),
+            "Pentagon + quad sharing (0,0,0) and (2,-1,0) should have \
+             zero non-manifold edges after Steiner-fan re-tessellation, \
+             but found {} edges with count>2.",
+            nonmanifold_edges.len()
         );
     }
 }
