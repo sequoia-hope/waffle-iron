@@ -3751,12 +3751,12 @@ export function triggerSolve() {
 
 	bridge
 		.send({
-			type: 'SolveSketchLocal',
+			type: 'SolveSketch',
 			entities,
 			constraints,
 			positions: posObj
 		})
-		.catch(err => log('error', `SolveSketchLocal failed: ${err}`));
+		.catch(err => log('error', `SolveSketch failed: ${err}`));
 }
 
 const AUTOSAVE_KEY = 'waffle-autosave';

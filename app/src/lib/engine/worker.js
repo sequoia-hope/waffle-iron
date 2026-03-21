@@ -2,33 +2,11 @@
  * Waffle Iron Engine Web Worker (SvelteKit version)
  *
  * Loads the Rust WASM module and processes messages from the main thread.
- * Also loads the libslvs Emscripten WASM module for constraint solving.
  * All engine computation happens in this worker to keep the UI responsive.
  */
 
-import { initSlvs, isSlvsReady, solveSketch } from './slvs-solver.js';
-
 let wasmModule = null;
 let basePath = '';
-
-/**
- * Load the libslvs Emscripten module via fetch+blob to avoid Vite/Rollup
- * trying to resolve the non-bundled Emscripten output.
- */
-async function loadSlvsFactory() {
-	const resp = await fetch(`${basePath}/pkg/slvs/slvs.js`);
-	const text = await resp.text();
-	// Add ES module exports only if the Emscripten output doesn't already have them
-	let moduleText = text;
-	if (!text.includes('export default')) {
-		moduleText += '\nexport { createSlvsModule };\nexport default createSlvsModule;';
-	}
-	const blob = new Blob([moduleText], { type: 'text/javascript' });
-	const blobUrl = URL.createObjectURL(blob);
-	const mod = await import(/* @vite-ignore */ blobUrl);
-	URL.revokeObjectURL(blobUrl);
-	return mod.default || mod.createSlvsModule;
-}
 
 /**
  * Initialize the WASM module.
@@ -41,15 +19,6 @@ async function initEngine(wasmUrl) {
 		await wasm.default();
 		wasm.init();
 		wasmModule = wasm;
-
-		// Load libslvs constraint solver (non-blocking, graceful failure)
-		try {
-			const createSlvsModule = await loadSlvsFactory();
-			await initSlvs(createSlvsModule, basePath);
-			console.log('libslvs constraint solver ready');
-		} catch (err) {
-			console.warn('libslvs solver not available:', err.message);
-		}
 
 		self.postMessage({ type: 'ready' });
 	} catch (err) {
@@ -112,49 +81,6 @@ function processMessage(msg) {
 			message: `Engine error: ${err.message}`,
 			feature_id: null
 		};
-	}
-}
-
-/**
- * Handle a sketch solve request using libslvs.
- * @param {object} msg - { type: 'SolveSketchLocal', entities, constraints, positions }
- */
-function handleSolveSketch(msg) {
-	if (!isSlvsReady()) {
-		self.postMessage({
-			type: 'SketchSolved',
-			positions: msg.positions,
-			status: 'solver_not_ready',
-			dof: -1,
-			failed: []
-		});
-		return;
-	}
-
-	try {
-		const t0 = performance.now();
-		const result = solveSketch(msg.entities, msg.constraints, msg.positions);
-		const elapsed = performance.now() - t0;
-
-		self.postMessage({
-			type: 'SketchSolved',
-			positions: result.positions,
-			solvedRadii: result.solvedRadii,
-			status: result.status,
-			dof: result.dof,
-			failed: result.failed,
-			refUpdates: result.refUpdates,
-			solveTime: elapsed
-		});
-	} catch (err) {
-		self.postMessage({
-			type: 'SketchSolved',
-			positions: msg.positions,
-			status: 'error',
-			dof: -1,
-			failed: [],
-			error: err.message
-		});
 	}
 }
 
@@ -253,12 +179,6 @@ self.onmessage = async function (event) {
 		return;
 	}
 
-	// Intercept sketch solve — handled by libslvs, not Rust engine
-	if (msg.type === 'SolveSketchLocal') {
-		handleSolveSketch(msg);
-		return;
-	}
-
 	const response = processMessage(msg);
 
 	// If the WASM module crashed, try to auto-restart before responding.
@@ -289,6 +209,29 @@ self.onmessage = async function (event) {
 		} catch (restartErr) {
 			console.error('WASM module restart failed:', restartErr.message);
 		}
+	}
+
+	// Adapt Rust SketchSolved (nested) → store format (flat)
+	if (response.type === 'SketchSolved' && response.solved) {
+		const s = response.solved;
+		const statusType = s.status?.type || 'SolveFailed';
+		let flatStatus, dof, failed;
+		switch (statusType) {
+			case 'FullyConstrained': flatStatus = 'ok'; dof = 0; failed = []; break;
+			case 'UnderConstrained': flatStatus = 'under_constrained'; dof = s.status.dof ?? -1; failed = []; break;
+			case 'OverConstrained': flatStatus = 'over_constrained'; dof = -1; failed = s.status.conflicts || []; break;
+			default: flatStatus = 'error'; dof = -1; failed = []; break;
+		}
+		self.postMessage({
+			type: 'SketchSolved',
+			positions: s.positions || {},
+			solvedRadii: s.radii || {},
+			status: flatStatus,
+			dof,
+			failed,
+			profiles: s.profiles || []
+		});
+		return;
 	}
 
 	if (response.type === 'ModelUpdated') {
