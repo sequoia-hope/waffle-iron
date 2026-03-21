@@ -1,8 +1,8 @@
 {
   "errored": 7,
-  "failed": 60,
+  "failed": 61,
   "generated": "2026-03-21",
-  "passed": 93,
+  "passed": 92,
   "results": [
     {
       "category": "pass-boss-only",
@@ -300,7 +300,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 271 unpaired edges out of 2726 total",
+      "detail": "watertight_mesh: 240 unpaired edges out of 2838 total (236 boundary, 4 non-manifold)",
       "id": "R0050",
       "status": "fail"
     },
@@ -408,7 +408,7 @@
     },
     {
       "category": "multiple-failures",
-      "detail": "bbox diagonal 1.814e-1 exceeds max 1.453e-1",
+      "detail": "bbox diagonal 1.837e-1 exceeds max 1.453e-1",
       "id": "R0068",
       "status": "fail"
     },
@@ -503,10 +503,10 @@
       "status": "pass"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 66 unpaired edges out of 885 total",
       "id": "R0084",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "cascading-failure",
@@ -875,20 +875,20 @@
       "status": "fail"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 257 unpaired edges out of 52308 total (83 boundary, 174 non-manifold)",
       "id": "F0046",
       "status": "fail"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 128 unpaired edges out of 47442 total (0 boundary, 128 non-manifold); consistent_normals: 472 of 32268 triangles have reversed normals",
       "id": "F0047",
       "status": "fail"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 132 unpaired edges out of 74391 total (4 boundary, 128 non-manifold); consistent_normals: 642 of 50446 triangles have reversed normals",
       "id": "F0048",
       "status": "fail"
     },

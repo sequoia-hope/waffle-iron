@@ -373,7 +373,12 @@ Deep investigation of the 32 watertight assay failures found:
   cases because the AABB inflates after rotating to the cylinder's Z-aligned frame
 - Fix: Added cross-plane guard that checks if any box cap-face normal is parallel
   to the cylinder axis (dot > 0.95). If not, returns NotSupported → polygon clipping
-- Fixes F0046, F0047, F0048 (cross-plane box+cylinder union)
+- F0046-F0048 now produce real geometry (47K-74K triangles vs 12) but still fail
+  watertight oracle due to polygon clipping precision on non-axis-aligned geometry
+- R0084 regression (pass→fail) is tolerance-boundary flaky (extrude depth 0.5µm
+  at scale 9.59e-4, near MIN_FEATURE_SIZE), not caused by cross-plane guard
+- Assay: 92/160 (net -1 from flaky R0084; F0046-F0048 geometry improved but
+  still fail watertight)
 - Spec: `/specs/box_cyl_cross_plane_enclosure_fix.md`
 - 3 new tests (599+3 = 602 total)
 

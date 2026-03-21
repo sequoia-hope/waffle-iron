@@ -1,35 +1,35 @@
 # ASSAY v3 Failure Catalog — WaffleKernel
 
 Generated: 2026-03-21
-Score: **93/160** (93 pass, 60 fail, 7 error)
+Score: **92/160** (92 pass, 61 fail, 7 error)
 
 ## Summary by Root Cause
 
 | Category | Count | Status |
 |---|---|---|
-| pass-boss-only | 56 | passed |
+| pass-boss-only | 55 | passed |
+| boolean-watertight | 39 | failed |
 | pass-genuine | 37 | passed |
-| boolean-watertight | 35 | failed |
-| mesh-too-simple | 9 | failed |
 | cascading-failure | 7 | errored |
+| mesh-too-simple | 6 | failed |
 | multiple-failures | 6 | failed |
 | revolve-normals | 5 | failed |
 | auto-union-failed | 2 | failed |
 | volume-magnitude | 1 | failed |
-| tessellation-degenerate | 1 | failed |
 | aabb-collapse | 1 | failed |
+| tessellation-degenerate | 1 | failed |
 
 ## Highest-Leverage Fixes
 
-1. **Fix boolean-watertight** → would address ~35 cases
-2. **Fix mesh-too-simple** → would address ~9 cases
-3. **Fix cascading-failure** → would address ~7 cases
+1. **Fix boolean-watertight** → would address ~39 cases
+2. **Fix cascading-failure** → would address ~7 cases
+3. **Fix mesh-too-simple** → would address ~6 cases
 4. **Fix multiple-failures** → would address ~6 cases
 5. **Fix revolve-normals** → would address ~5 cases
 6. **Fix auto-union-failed** → would address ~2 cases
 7. **Fix volume-magnitude** → would address ~1 cases
-8. **Fix tessellation-degenerate** → would address ~1 cases
-9. **Fix aabb-collapse** → would address ~1 cases
+8. **Fix aabb-collapse** → would address ~1 cases
+9. **Fix tessellation-degenerate** → would address ~1 cases
 
 ## Individual Case Results
 
@@ -507,7 +507,7 @@ Score: **93/160** (93 pass, 60 fail, 7 error)
 - **Operations**: revolve(rectangle,boss) + extrude(circle,boss)
 - **Scale**: 4.84e-2 (log: -1.31)
 - **Category**: multiple-failures
-- **Detail**: bbox diagonal 1.814e-1 exceeds max 1.453e-1
+- **Detail**: bbox diagonal 1.837e-1 exceeds max 1.453e-1
 
 ### R0069 — FAIL
 
@@ -614,12 +614,12 @@ Score: **93/160** (93 pass, 60 fail, 7 error)
 - **Category**: pass-boss-only
 - **Detail**: 8 oracles passed
 
-### R0084 — PASS
+### R0084 — FAIL
 
 - **Operations**: revolve(rectangle,boss) + extrude(circle,boss)
 - **Scale**: 9.59e-4 (log: -3.02)
-- **Category**: pass-boss-only
-- **Detail**: 8 oracles passed
+- **Category**: boolean-watertight
+- **Detail**: watertight_mesh: 66 unpaired edges out of 885 total
 
 ### R0085 — ERROR
 
@@ -1052,22 +1052,22 @@ Score: **93/160** (93 pass, 60 fail, 7 error)
 
 - **Operations**: extrude(rectangle,boss) + extrude(circle,boss)
 - **Scale**: 1.00e0 (log: 0.00)
-- **Category**: mesh-too-simple
-- **Detail**: minimum_triangle_count: 12 triangles < expected minimum 32 for operations [("extrude", "rectangle"), ("extrude", "circle")]
+- **Category**: boolean-watertight
+- **Detail**: watertight_mesh: 257 unpaired edges out of 52308 total (83 boundary, 174 non-manifold)
 
 ### F0047 — FAIL
 
 - **Operations**: extrude(rectangle,boss) + extrude(circle,boss)
 - **Scale**: 1.00e0 (log: 0.00)
-- **Category**: mesh-too-simple
-- **Detail**: minimum_triangle_count: 12 triangles < expected minimum 32 for operations [("extrude", "rectangle"), ("extrude", "circle")]
+- **Category**: boolean-watertight
+- **Detail**: watertight_mesh: 128 unpaired edges out of 47442 total (0 boundary, 128 non-manifold); consistent_normals: 472 of 32268 triangles have reversed normals
 
 ### F0048 — FAIL
 
 - **Operations**: extrude(rectangle,boss) + extrude(circle,boss)
 - **Scale**: 1.00e0 (log: 0.00)
-- **Category**: mesh-too-simple
-- **Detail**: minimum_triangle_count: 12 triangles < expected minimum 32 for operations [("extrude", "rectangle"), ("extrude", "circle")]
+- **Category**: boolean-watertight
+- **Detail**: watertight_mesh: 132 unpaired edges out of 74391 total (4 boundary, 128 non-manifold); consistent_normals: 642 of 50446 triangles have reversed normals
 
 ### F0049 — FAIL
 
