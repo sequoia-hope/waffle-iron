@@ -10,7 +10,7 @@ use crate::geometry::surface::{Plane, SurfaceGeom};
 use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::*;
 use crate::types::*;
-use crate::units::TAU_COINCIDENT;
+use crate::units::{TAU_COINCIDENT, TAU_NORMALIZE, TAU_PARALLEL, TAU_WORK};
 use crate::vecmath::*;
 use std::collections::HashMap;
 
@@ -450,7 +450,9 @@ pub(super) fn build_brep_from_polygons_inner(
                 let b_dir = v3_sub(b_p1, b_p0);
                 let a_len_sq = v3_dot(a_dir, a_dir);
                 let b_len_sq = v3_dot(b_dir, b_dir);
-                if a_len_sq > 1e-30 && b_len_sq > 1e-30 {
+                if a_len_sq > TAU_NORMALIZE * TAU_NORMALIZE
+                    && b_len_sq > TAU_NORMALIZE * TAU_NORMALIZE
+                {
                     let cos_angle = v3_dot(a_dir, b_dir) / (a_len_sq.sqrt() * b_len_sq.sqrt());
                     if cos_angle > -0.5 {
                         continue; // not anti-parallel — skip
@@ -733,7 +735,7 @@ fn try_cyl_plane_ellipse(a: &SurfaceGeom, b: &SurfaceGeom) -> Option<EllipseData
 
     // Must be oblique: not perpendicular (dot ≈ ±1) and not parallel (dot ≈ 0)
     let cos_angle = dot_wn.abs();
-    if !(1e-6..=1.0 - 1e-6).contains(&cos_angle) {
+    if !(TAU_PARALLEL..=1.0 - TAU_PARALLEL).contains(&cos_angle) {
         return None;
     }
 
@@ -745,7 +747,7 @@ fn try_cyl_plane_ellipse(a: &SurfaceGeom, b: &SurfaceGeom) -> Option<EllipseData
     // Major axis: projection of cylinder axis onto cutting plane
     let proj = v3_sub(ax, v3_scale(n, dot_wn));
     let proj_len = v3_length(proj);
-    if proj_len < 1e-10 {
+    if proj_len < TAU_WORK {
         return None;
     }
     let major_axis = v3_scale(proj, 1.0 / proj_len);
@@ -753,7 +755,7 @@ fn try_cyl_plane_ellipse(a: &SurfaceGeom, b: &SurfaceGeom) -> Option<EllipseData
     // Center: where cylinder axis pierces the plane
     let co = cyl.origin.to_array();
     let po = plane.origin.to_array();
-    if dot_wn.abs() < 1e-10 {
+    if dot_wn.abs() < TAU_WORK {
         return None;
     }
     let t = v3_dot(v3_sub(po, co), n) / dot_wn;
@@ -783,7 +785,7 @@ fn try_cyl_plane_circle(a: &SurfaceGeom, b: &SurfaceGeom) -> Option<Circle3D> {
     let n = plane.normal.to_array();
     let ax = cyl.axis.to_array();
     let dot = n[0] * ax[0] + n[1] * ax[1] + n[2] * ax[2];
-    if dot.abs() < 1.0 - 1e-6 {
+    if dot.abs() < 1.0 - TAU_PARALLEL {
         return None; // Oblique — intersection is an ellipse
     }
 

@@ -10,7 +10,7 @@
 //! Reference: Patrikalakis Ch.5 — SSI algorithms for analytic surfaces.
 
 use crate::types::KernelError;
-use crate::units::TAU_COINCIDENT;
+use crate::units::{TAU_COINCIDENT, TAU_NORMALIZE, TAU_PARALLEL, TAU_WORK};
 use crate::vecmath::{
     compute_plane_basis, mat3_mul_vec, v3_add, v3_cross, v3_dot, v3_length, v3_normalize, v3_scale,
     v3_sub, Mat3,
@@ -382,13 +382,13 @@ pub(crate) fn cylinder_cylinder_ssi_non_parallel(
     let cos_angle = v3_dot(cyl_a_axis, cyl_b_axis).abs();
 
     // Parallel → handled by existing parallel SSI path
-    if cos_angle > 1.0 - 1e-6 {
+    if cos_angle > 1.0 - TAU_PARALLEL {
         return Ok(vec![]);
     }
 
     // Near-parallel (angle < 60°) → not supported
     // Use > 0.5 + epsilon so exactly 60° is supported
-    if cos_angle > 0.5 + 1e-9 {
+    if cos_angle > 0.5 + TAU_COINCIDENT {
         return Err(KernelError::NotSupported {
             operation: "cylinder-cylinder SSI: near-parallel axes (angle < 60°)".to_string(),
         });
@@ -397,7 +397,7 @@ pub(crate) fn cylinder_cylinder_ssi_non_parallel(
     // Unequal radii check (>1% relative difference)
     let r_max = cyl_a_radius.max(cyl_b_radius);
     let r_min = cyl_a_radius.min(cyl_b_radius);
-    if r_max < 1e-15 {
+    if r_max < TAU_NORMALIZE {
         return Err(KernelError::NotSupported {
             operation: "cylinder-cylinder SSI: zero radius".to_string(),
         });
@@ -423,7 +423,7 @@ pub(crate) fn cylinder_cylinder_ssi_non_parallel(
     let e = v3_dot(d2, w);
     let denom = a * c - b * b;
 
-    if denom.abs() < 1e-12 {
+    if denom.abs() < TAU_WORK {
         // Degenerate (parallel) — should have been caught above
         return Ok(vec![]);
     }
@@ -466,7 +466,7 @@ pub(crate) fn cylinder_cylinder_ssi_non_parallel(
     let a2_par = v3_scale(e1, v3_dot(a2, e1));
     let a2_perp = v3_sub(a2, a2_par);
     let a2_perp_len = v3_length(a2_perp);
-    if a2_perp_len < 1e-12 {
+    if a2_perp_len < TAU_WORK {
         return Ok(vec![]); // Degenerate
     }
     let e2 = v3_scale(a2_perp, 1.0 / a2_perp_len);
@@ -482,7 +482,7 @@ pub(crate) fn cylinder_cylinder_ssi_non_parallel(
     // Normal = major_axis × e3 (normalized)
     let normal_1 = v3_cross(major_axis_1, v3_scale(e3, 1.0 / v3_length(e3)));
     let normal_1_len = v3_length(normal_1);
-    let normal_1 = if normal_1_len > 1e-12 {
+    let normal_1 = if normal_1_len > TAU_WORK {
         v3_scale(normal_1, 1.0 / normal_1_len)
     } else {
         e1
@@ -497,7 +497,7 @@ pub(crate) fn cylinder_cylinder_ssi_non_parallel(
     let semi_minor_2 = r;
     let normal_2 = v3_cross(major_axis_2, v3_scale(e3, 1.0 / v3_length(e3)));
     let normal_2_len = v3_length(normal_2);
-    let normal_2 = if normal_2_len > 1e-12 {
+    let normal_2 = if normal_2_len > TAU_WORK {
         v3_scale(normal_2, 1.0 / normal_2_len)
     } else {
         e1

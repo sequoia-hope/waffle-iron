@@ -5,6 +5,7 @@
 
 use crate::traits::{Kernel, KernelIntrospect};
 use crate::types::*;
+use crate::units::TAU_WORK;
 use std::collections::HashMap;
 
 /// Face definition tuple: (edge_indices, normal, centroid, area, surface_type).
@@ -419,7 +420,7 @@ impl Kernel for MockKernel {
             + direction[1] * direction[1]
             + direction[2] * direction[2])
             .sqrt();
-        let _norm_dir = if dir_len > 1e-12 {
+        let _norm_dir = if dir_len > TAU_WORK {
             [
                 direction[0] / dir_len,
                 direction[1] / dir_len,
