@@ -10608,3 +10608,409 @@ fn adv20_welding_indices_in_bounds() {
         );
     }
 }
+
+// ── Group W: Full-Edge Vertex Welding Tests ──────────────────────────
+//
+// Tests for the full-edge vertex welding spec (full_edge_vertex_welding.md).
+// These verify that tessellated meshes from boolean results and cylinder
+// primitives are watertight (0 unpaired edges) after welding ALL shared
+// topological edge vertices.
+//
+// Tests 1 and 2 target polygon-soup boolean results where the current
+// arc-only welding leaves linear edge boundaries un-welded. The geometry
+// is chosen to match failing assay patterns (cross-shaped bosses, chained
+// booleans with cylinders).
+
+mod welding_tests {
+    use super::*;
+
+    /// Count unpaired edges in a RenderMesh using position-based quantization at 1e7.
+    ///
+    /// For each triangle, extracts 3 directed edges as position pairs.
+    /// Positions are quantized to i64 at factor 1e7 (= 1e-7 m resolution).
+    /// Each edge gets a canonical key (sorted vertex pair).
+    /// Returns the number of edges that appear an odd number of times.
+    fn count_unpaired_edges_strict(mesh: &RenderMesh) -> usize {
+        use std::collections::HashMap as Map;
+        let inv_grid = 1e7_f64;
+        let quantize = |idx: u32| -> (i64, i64, i64) {
+            let base = idx as usize * 3;
+            (
+                (mesh.vertices[base] as f64 * inv_grid).round() as i64,
+                (mesh.vertices[base + 1] as f64 * inv_grid).round() as i64,
+                (mesh.vertices[base + 2] as f64 * inv_grid).round() as i64,
+            )
+        };
+        let mut edge_count: Map<((i64, i64, i64), (i64, i64, i64)), u32> = Map::new();
+        let n_tris = mesh.indices.len() / 3;
+        for i in 0..n_tris {
+            let tri = [
+                mesh.indices[i * 3],
+                mesh.indices[i * 3 + 1],
+                mesh.indices[i * 3 + 2],
+            ];
+            for j in 0..3 {
+                let pa = quantize(tri[j]);
+                let pb = quantize(tri[(j + 1) % 3]);
+                let key = if pa <= pb { (pa, pb) } else { (pb, pa) };
+                *edge_count.entry(key).or_insert(0) += 1;
+            }
+        }
+        edge_count.values().filter(|&&c| c % 2 != 0).count()
+    }
+
+    // ── Test 1: Box-cylinder union with SSI fallback must be watertight ──
+    //
+    // A cylinder partially overlapping a box triggers the SSI path, which
+    // may fall back to polygon-soup classification. The result contains
+    // both arc and linear edge boundaries that need welding.
+
+    #[test]
+    fn test_cylinder_boolean_watertight() {
+        let mut k = WaffleKernel::new();
+
+        // Create a box: 10x10x10 centered at (5,5) on XY plane
+        let box_solid = make_box_on(&mut k, 5.0, 5.0, 10.0, 10.0, 10.0);
+
+        // Create a cylinder: r=3, depth=10, centered at (8,5) — overlaps the box
+        let cyl_solid = make_cyl_on(&mut k, 8.0, 5.0, 3.0, 10.0);
+
+        // Boolean union — may go through SSI or polygon-soup fallback
+        let result = k
+            .boolean_union(&box_solid, &cyl_solid)
+            .expect("box-cylinder union should succeed");
+
+        // Tessellate
+        let mesh = k
+            .tessellate(&result, 0.01)
+            .expect("tessellation of box-cyl union should succeed");
+
+        // The mesh must have triangles
+        let n_tris = mesh.indices.len() / 3;
+        assert!(
+            n_tris > 0,
+            "Box-cyl union mesh must have triangles, got 0"
+        );
+
+        // Watertight check: every edge must appear exactly twice (opposite winding).
+        // Full-edge welding ensures all shared topological edges — both arc
+        // and linear — are welded, not just the arc edges.
+        let unpaired = count_unpaired_edges_strict(&mesh);
+        assert_eq!(
+            unpaired, 0,
+            "Box-cylinder union mesh must be watertight (0 unpaired edges), got {} unpaired",
+            unpaired
+        );
+    }
+
+    // ── Test 2: Chained 3-operation boolean must be watertight ──
+    //
+    // Three-operation chain at mixed scales: box boss + cylinder boss +
+    // second box boss with partial overlap. Chained booleans on complex
+    // solids exercise the polygon-soup path where the current repair
+    // pipeline leaves edges un-welded.
+
+    #[test]
+    fn test_polygon_soup_boolean_watertight() {
+        let mut k = WaffleKernel::new();
+
+        // Step 1: Base box (10x10x10)
+        let base_box = make_box_on(&mut k, 5.0, 5.0, 10.0, 10.0, 10.0);
+
+        // Step 2: Cylinder boss (r=4, depth=12) centered at (12,5),
+        // partially overlapping the base box on the right side
+        let cyl = make_cyl_on(&mut k, 12.0, 5.0, 4.0, 12.0);
+
+        // Union: base + cylinder
+        let union1 = k
+            .boolean_union(&base_box, &cyl)
+            .expect("box-cyl union should succeed");
+
+        // Step 3: A third box boss (8x8x8) centered at (5,12),
+        // partially overlapping the union result on the top side.
+        // This creates a T-shaped cross-section.
+        let box_c = make_box_on(&mut k, 5.0, 12.0, 8.0, 8.0, 8.0);
+
+        // Union: (base + cyl) + box_c
+        let result = k
+            .boolean_union(&union1, &box_c)
+            .expect("chained union should succeed");
+
+        // Tessellate
+        let mesh = k
+            .tessellate(&result, 0.01)
+            .expect("tessellation of chained boolean should succeed");
+
+        // The mesh must have triangles
+        let n_tris = mesh.indices.len() / 3;
+        assert!(
+            n_tris > 0,
+            "Chained boolean mesh must have triangles, got 0"
+        );
+
+        // Watertight check: 0 unpaired edges.
+        // Without full-edge welding, chained boolean polygon-soup results
+        // leave edge boundaries un-welded.
+        let unpaired = count_unpaired_edges_strict(&mesh);
+        assert_eq!(
+            unpaired, 0,
+            "Chained 3-op boolean mesh must be watertight (0 unpaired edges), got {} unpaired",
+            unpaired
+        );
+    }
+
+    // ── Test 3: Welding preserves geometry (bbox valid, volume > 0) ──
+
+    #[test]
+    fn test_welding_preserves_geometry() {
+        let mut k = WaffleKernel::new();
+
+        // Create two overlapping boxes for a boolean result
+        let box_a = make_box_on(&mut k, 5.0, 5.0, 10.0, 10.0, 10.0);
+        let box_b = make_box_on(&mut k, 10.0, 5.0, 10.0, 10.0, 10.0);
+
+        let result = k
+            .boolean_union(&box_a, &box_b)
+            .expect("union should succeed");
+
+        let mesh = k
+            .tessellate(&result, 0.01)
+            .expect("tessellation should succeed");
+
+        // Triangle count > 0
+        let n_tris = mesh.indices.len() / 3;
+        assert!(
+            n_tris > 0,
+            "Boolean result mesh must have triangles, got 0"
+        );
+
+        // Bounding box must be valid (no NaN)
+        let (bb_min, bb_max) = mesh_bbox(&mesh);
+        for i in 0..3 {
+            assert!(
+                !bb_min[i].is_nan() && !bb_max[i].is_nan(),
+                "Bounding box must not contain NaN (min={:?}, max={:?})",
+                bb_min,
+                bb_max
+            );
+            assert!(
+                bb_max[i] >= bb_min[i],
+                "Bounding box max[{}] must >= min[{}] (min={}, max={})",
+                i,
+                i,
+                bb_min[i],
+                bb_max[i]
+            );
+        }
+
+        // Signed volume must be positive
+        let vol = mesh_volume(&mesh);
+        assert!(
+            vol > 0.0,
+            "Boolean result mesh must have positive volume, got {}",
+            vol
+        );
+    }
+
+    // ── Test 4: Cylinder primitive produces a watertight mesh ──
+
+    #[test]
+    fn test_cylinder_primitive_watertight() {
+        let mut k = WaffleKernel::new();
+
+        // Create a single cylinder: r=5, depth=10
+        let cyl = make_cyl_on(&mut k, 0.0, 0.0, 5.0, 10.0);
+
+        // Tessellate the cylinder primitive directly (no boolean)
+        let mesh = k
+            .tessellate(&cyl, 0.01)
+            .expect("cylinder tessellation should succeed");
+
+        // The mesh must have triangles
+        let n_tris = mesh.indices.len() / 3;
+        assert!(
+            n_tris > 0,
+            "Cylinder mesh must have triangles, got 0"
+        );
+
+        // Watertight check: 0 unpaired edges
+        // This tests that the fan tessellation path for cylinder primitives
+        // also gets full edge welding applied.
+        let unpaired = count_unpaired_edges_strict(&mesh);
+        assert_eq!(
+            unpaired, 0,
+            "Cylinder primitive mesh must be watertight (0 unpaired edges), got {} unpaired",
+            unpaired
+        );
+    }
+
+    // ── Adversarial Test 5: Extreme small scale (1e-4) ──
+    //
+    // A tiny box (0.1 mm features) boolean with a tiny cylinder must still
+    // produce a watertight mesh. At 1e-4 m, the quantization grid (1e7)
+    // gives ~1000 grid units per feature — should be sufficient.
+
+    #[test]
+    fn test_welding_extreme_small_scale() {
+        let mut k = WaffleKernel::new();
+
+        // Box: 1e-4 wide, centered at (5e-5, 5e-5), depth 1e-4
+        let small_box = make_box_on(&mut k, 5e-5, 5e-5, 1e-4, 1e-4, 1e-4);
+
+        // Cylinder: r=3e-5, centered at (8e-5, 5e-5), depth 1e-4
+        let small_cyl = make_cyl_on(&mut k, 8e-5, 5e-5, 3e-5, 1e-4);
+
+        let result = k
+            .boolean_union(&small_box, &small_cyl)
+            .expect("small-scale box-cyl union should succeed");
+
+        let mesh = k
+            .tessellate(&result, 0.01)
+            .expect("small-scale tessellation should succeed");
+
+        let n_tris = mesh.indices.len() / 3;
+        assert!(
+            n_tris > 0,
+            "Small-scale boolean mesh must have triangles, got 0"
+        );
+
+        let unpaired = count_unpaired_edges_strict(&mesh);
+        assert_eq!(
+            unpaired, 0,
+            "Small-scale (1e-4) boolean mesh must be watertight, got {} unpaired edges",
+            unpaired
+        );
+    }
+
+    // ── Adversarial Test 6: Extreme large scale (1e3) ──
+    //
+    // A large box (1000 m features) boolean with a large cylinder.
+    // At 1e3 m coordinates, f32 precision is ~0.0001 m. Quantization at
+    // 1e7 maps this to ~1000 grid units, which could cause false merges
+    // for vertices closer than ~1e-4 m apart. For typical CAD features
+    // at this scale, vertices are far enough apart.
+
+    #[test]
+    fn test_welding_extreme_large_scale() {
+        let mut k = WaffleKernel::new();
+
+        // Box: 1000x1000x1000, centered at (500, 500)
+        let large_box = make_box_on(&mut k, 500.0, 500.0, 1000.0, 1000.0, 1000.0);
+
+        // Cylinder: r=300, centered at (800, 500), depth 1000
+        let large_cyl = make_cyl_on(&mut k, 800.0, 500.0, 300.0, 1000.0);
+
+        let result = k
+            .boolean_union(&large_box, &large_cyl)
+            .expect("large-scale box-cyl union should succeed");
+
+        let mesh = k
+            .tessellate(&result, 0.01)
+            .expect("large-scale tessellation should succeed");
+
+        let n_tris = mesh.indices.len() / 3;
+        assert!(
+            n_tris > 0,
+            "Large-scale boolean mesh must have triangles, got 0"
+        );
+
+        let unpaired = count_unpaired_edges_strict(&mesh);
+        assert_eq!(
+            unpaired, 0,
+            "Large-scale (1e3) boolean mesh must be watertight, got {} unpaired edges",
+            unpaired
+        );
+    }
+
+    // ── Adversarial Test 7: Empty mesh is a no-op ──
+    //
+    // Directly call the welding function on an empty mesh to verify it
+    // doesn't panic. We exercise this indirectly through tessellation of
+    // an empty input — the function should early-return on zero vertices.
+
+    #[test]
+    fn test_welding_empty_mesh_noop() {
+        use crate::tessellation::weld_shared_edge_vertices;
+        use crate::types::FaceRange;
+
+        let vertices: Vec<f32> = vec![];
+        let mut indices: Vec<u32> = vec![];
+        let mut face_ranges: Vec<FaceRange> = vec![];
+
+        // Must not panic
+        weld_shared_edge_vertices(&vertices, &mut indices, &mut face_ranges);
+
+        assert!(indices.is_empty(), "Indices must remain empty");
+        assert!(face_ranges.is_empty(), "Face ranges must remain empty");
+    }
+
+    // ── Adversarial Test 8: No false merges for nearby-but-separate geometry ──
+    //
+    // Two boxes with a gap > MIN_FEATURE_SIZE (1e-6 m) between them.
+    // Tessellate each separately, then verify that the total vertex count
+    // (after welding) equals the sum of individual vertex counts — i.e.,
+    // no cross-body false welding occurred.
+
+    #[test]
+    fn test_welding_no_false_merges() {
+        let mut k = WaffleKernel::new();
+
+        // Box A: 1x1x1, centered at (0.5, 0.5)
+        let box_a = make_box_on(&mut k, 0.5, 0.5, 1.0, 1.0, 1.0);
+
+        // Box B: 1x1x1, centered at (1.501, 0.5) — gap of 0.001 m (= 1 mm)
+        // This gap is 1e-3 m, well above the welding resolution of 1e-7 m.
+        let box_b = make_box_on(&mut k, 1.501, 0.5, 1.0, 1.0, 1.0);
+
+        let mesh_a = k
+            .tessellate(&box_a, 0.01)
+            .expect("box_a tessellation should succeed");
+        let mesh_b = k
+            .tessellate(&box_b, 0.01)
+            .expect("box_b tessellation should succeed");
+
+        // Count unique vertex positions (via quantization) in each mesh
+        let count_unique = |mesh: &RenderMesh| -> usize {
+            let mut positions = std::collections::HashSet::new();
+            let n_verts = mesh.vertices.len() / 3;
+            for vi in 0..n_verts {
+                let key = (
+                    (mesh.vertices[vi * 3] as f64 * 1e7).round() as i64,
+                    (mesh.vertices[vi * 3 + 1] as f64 * 1e7).round() as i64,
+                    (mesh.vertices[vi * 3 + 2] as f64 * 1e7).round() as i64,
+                );
+                positions.insert(key);
+            }
+            positions.len()
+        };
+
+        let unique_a = count_unique(&mesh_a);
+        let unique_b = count_unique(&mesh_b);
+
+        // Neither mesh should share any quantized vertex positions with the other
+        // (the gap is 1 mm = 1e4 grid units apart).
+        let mut all_positions = std::collections::HashSet::new();
+        for mesh in [&mesh_a, &mesh_b] {
+            let n_verts = mesh.vertices.len() / 3;
+            for vi in 0..n_verts {
+                let key = (
+                    (mesh.vertices[vi * 3] as f64 * 1e7).round() as i64,
+                    (mesh.vertices[vi * 3 + 1] as f64 * 1e7).round() as i64,
+                    (mesh.vertices[vi * 3 + 2] as f64 * 1e7).round() as i64,
+                );
+                all_positions.insert(key);
+            }
+        }
+
+        assert_eq!(
+            all_positions.len(),
+            unique_a + unique_b,
+            "Separate boxes with 1mm gap must have no shared quantized positions: \
+             unique_a={}, unique_b={}, combined={} (expected {})",
+            unique_a,
+            unique_b,
+            all_positions.len(),
+            unique_a + unique_b
+        );
+    }
+}

@@ -338,6 +338,46 @@ Last updated: Sprint 68+ (2026-03-21)
 
 ---
 
+## Session 7: Full-Edge Vertex Welding (2026-03-21)
+
+### B22: Generalized vertex welding ✅
+- Replaced `weld_arc_edge_vertices` (arc-edge-only) with `weld_shared_edge_vertices`
+  (all co-located positions) for more robust cross-face index sharing
+- Function no longer depends on TopoArena or edge_geometry — operates purely on
+  mesh vertices/indices (simpler, testable independently)
+- Added degenerate triangle removal after welding (spec Invariant 5)
+- Updated face_range compaction for welded meshes
+- Scope: applied to arc-edge boolean results only (same as before). Extending to
+  all fan-path cases broke 7 normal-consistency tests (bn1-4, rc1-3) because
+  per-vertex normals can't represent hard edges after welding.
+- Spec: `/specs/full_edge_vertex_welding.md`
+- 8 new tests (4 regression + 4 adversarial), total kernel tests: 596 pass, 2 ignored
+
+### Root Cause Analysis: Watertight Failures
+Deep investigation of the 32 watertight assay failures found:
+1. **Not a vertex sharing issue**: The fan path's repair pipeline (fill_boundary_holes,
+   convergence loop, T-junction resolution, edge-flip) already handles position-based
+   watertightness. The `weld_shared_edge_vertices` function is additive.
+2. **Root cause is S-H clipping precision**: Sutherland-Hodgman clipping of face polygons
+   against half-spaces accumulates numerical error across multiple clip passes. Adjacent
+   faces' clipped edges don't always produce matching intersection points.
+3. **Repair pipeline compensates but can't always converge**: Progressive weld scales
+   [5, 10, 20, 40, 40] catch progressively larger S-H divergences, but some gaps are
+   too large or have competing repair effects (fill vs remove oscillation).
+4. **Per-vertex normals prevent full welding**: Welding all vertices breaks hard-edge
+   normals because the mesh uses shared position+normal indexing. Separate position
+   and normal index arrays (like OpenGL) would allow full welding.
+
+### Next Steps (from analysis)
+- CDT (Constrained Delaunay Triangulation) for polygon face tessellation would prevent
+  non-manifold edges from earcut diagonal overlaps (preventive vs post-hoc fix)
+- Improving S-H clipping precision (intersection caching, exact predicates) would
+  reduce the root cause of watertight failures
+- Raising the face product limit (currently 5000 effective) could help 3 assay cases
+  but requires performance profiling
+
+---
+
 ## Assay Status (2026-03-21, Session 6)
 
 **Score: 114/160** (+33 from 81/160)
