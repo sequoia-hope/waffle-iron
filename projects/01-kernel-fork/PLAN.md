@@ -301,15 +301,20 @@ Also: `large_boss_exceeds_face_union` (truck-level, same geometry).
 *Pre-existing failures (fillet, euler_characteristic, perturbed, shell_closure_overlapping_cuts)
 †RB1, RB6 — pre-existing regression from D1.6/D1.7 commits (boundary-coincident IC skip)
 
-Last updated: Sprint 68+ (2026-03-20)
+Last updated: Sprint 68+ (2026-03-21)
+
+### Arc-Edge Vertex Welding (2026-03-21)
+- Added `weld_arc_edge_vertices` for cyl-cyl boolean results
+- 23 new tests (3 red→green + 20 adversarial), all passing
+- Improves vertex index sharing for rendering; position-based watertight check already handled positions
+- Total kernel tests: 585 pass, 2 ignored
 
 ---
 
-## Assay Status (2026-03-20)
+## Assay Status (2026-03-21)
 
-**Score: 75-76/160** (non-deterministic due to HashMap ordering in borderline cases)
-- pass-boss-only: 46
-- pass-genuine: 29-31
+**Score: 81/160**
+- Previous: 75-76/160 (2026-03-20)
 
 ### Failure Categories
 | Category | Count | Description |
@@ -322,8 +327,9 @@ Last updated: Sprint 68+ (2026-03-20)
 | face product limit | ~5 | Gear-gear booleans exceed 5000 effective face product |
 | timeout | 4 | Slow boolean ops (>90s) |
 
-### Key Findings (2026-03-20 Session)
-1. **Non-manifold edge root cause**: Bounded tessellation path creates overlapping triangles at face boundaries due to independent earcut tessellation of adjacent faces. The shared-vertex discretization shares edge vertices correctly, but earcut generates different interior triangles that share the same edges. Attempts at post-hoc removal (conservative, aggressive, targeted) all caused regressions. Fix requires changing the tessellation dispatch to avoid overlap.
+### Key Findings (2026-03-21 Session)
+1. **Non-manifold edge root cause refined**: The 20 cases with 1-6 unpaired edges have non-manifold edges at **earcut diagonals** (interior mesh edges), NOT at B-Rep boundary edges. When two adjacent faces share corner vertices (but not a boundary edge between them), earcut independently creates the same diagonal, producing 3 triangles sharing that edge. A topology-aware post-processing step (using B-Rep edge→face relationships) was added but doesn't fix these cases because the non-manifold edges aren't on B-Rep edges. **Fix requires constrained Delaunay triangulation (CDT)** to prevent earcut from creating diagonals between vertices shared across face boundaries.
+1b. **Previous finding (2026-03-20)**: Bounded tessellation path creates overlapping triangles at face boundaries due to independent earcut tessellation of adjacent faces. The shared-vertex discretization shares edge vertices correctly, but earcut generates different interior triangles that share the same edges. Attempts at post-hoc removal (conservative, aggressive, targeted) all caused regressions.
 2. **F-series F0044-F0060 failures**: These are "featured" test cases with cross-plane/angled/scaled geometries. Failures are due to auto-union fallback (feature-engine returns standalone body with warning, not error) and complex geometric configurations (perpendicular planes, scale extremes 1e4).
 3. **Cyl-cyl union works at kernel level**: Direct WaffleKernel calls to `boolean_union` succeed for coaxial and offset cylinders. Failures through feature-engine may be due to sketch plane resolution or extrude direction differences.
 
