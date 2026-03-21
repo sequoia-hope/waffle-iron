@@ -49,7 +49,7 @@ proptest! {
             SketchConstraint::Distance { entity_a: EntityId(3), entity_b: EntityId(4), value: length },
         ];
         let sketch = make_sketch(entities, constraints);
-        let result = solve_sketch(&sketch);
+        let result = solve_sketch(&sketch).expect("valid test input");
         prop_assert!(
             matches!(result.status, SolveStatus::FullyConstrained),
             "failed for angle={:.4} deg: {:?}", angle_deg, result.status
@@ -87,7 +87,7 @@ proptest! {
             SketchConstraint::Dragged { point: PointId(1) },
         ];
         let sketch = make_sketch(entities, constraints);
-        let result = solve_sketch(&sketch);
+        let result = solve_sketch(&sketch).expect("valid test input");
         prop_assert!(
             matches!(result.status, SolveStatus::FullyConstrained),
             "failed at scale={:.2e}: {:?}", scale, result.status
@@ -123,7 +123,7 @@ proptest! {
             SketchConstraint::Dragged { point: PointId(2) },
         ];
         let sketch = make_sketch(entities, constraints);
-        let result = solve_sketch(&sketch);
+        let result = solve_sketch(&sketch).expect("valid test input");
         prop_assert!(
             matches!(result.status, SolveStatus::FullyConstrained),
             "tangent circles failed: {:?}", result.status
@@ -157,7 +157,7 @@ proptest! {
             SketchConstraint::OnEntity { point: PointId(2), entity: EntityId(10) },
         ];
         let sketch = make_sketch(entities, constraints);
-        let result = solve_sketch(&sketch);
+        let result = solve_sketch(&sketch).expect("valid test input");
         // Should be under-constrained (point free to slide along circle)
         // but the on-entity constraint should be satisfied
         let d = dist(&result.positions, PointId(1), PointId(2));
@@ -217,7 +217,7 @@ proptest! {
             ],
         );
 
-        let result = solve_sketch(&sketch);
+        let result = solve_sketch(&sketch).expect("valid test input");
         // With center pinned (2 DOF removed) and start pinned (2 DOF removed),
         // end has 1 DOF (angle along arc, radius fixed by implicit OnCircle).
         // Point 4 has 1 DOF (on arc). Total: 3 DOF.
@@ -250,7 +250,7 @@ proptest! {
                 SketchConstraint::OnEntity { point: PointId(4), entity: EntityId(10) },
             ],
         );
-        let ref_result = solve_sketch(&ref_sketch);
+        let ref_result = solve_sketch(&ref_sketch).expect("valid test input");
         let ref_dof = match ref_result.status {
             SolveStatus::FullyConstrained => 0,
             SolveStatus::UnderConstrained { dof } => dof,
@@ -293,7 +293,7 @@ proptest! {
                 SketchConstraint::OnEntity { point: PointId(2), entity: EntityId(10) },
             ],
         );
-        let result = solve_sketch(&sketch);
+        let result = solve_sketch(&sketch).expect("valid test input");
 
         // Point should remain on circle after solve
         let (sx, sy) = result.positions[&PointId(2)];
@@ -358,7 +358,7 @@ proptest! {
             SketchConstraint::Tangent { line: EntityId(11), curve: EntityId(10) },
         ];
         let sketch = make_sketch(entities, constraints);
-        let result = solve_sketch(&sketch);
+        let result = solve_sketch(&sketch).expect("valid test input");
 
         // Verify tangency: distance from center to line ≈ radius
         let (cx, cy) = result.positions[&PointId(1)];
@@ -413,7 +413,7 @@ proptest! {
         };
 
         let dof_of = |s: &Sketch| -> u32 {
-            let result = solve_sketch(s);
+            let result = solve_sketch(s).expect("valid test input");
             match result.status {
                 SolveStatus::FullyConstrained => 0,
                 SolveStatus::UnderConstrained { dof } => dof,
@@ -468,7 +468,7 @@ proptest! {
             SketchConstraint::Distance { entity_a: EntityId(3), entity_b: EntityId(4), value: len2 },
         ];
         let sketch = make_sketch(entities, constraints);
-        let result = solve_sketch(&sketch);
+        let result = solve_sketch(&sketch).expect("valid test input");
         // Verify the dot product is near zero
         let (x1, y1) = result.positions[&PointId(1)];
         let (x2, y2) = result.positions[&PointId(2)];

@@ -46,9 +46,16 @@ impl LineIdx {
 
 /// Index of a radius parameter in the parameter vector.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct RadiusIdx(pub usize);
+pub struct RadiusIdx(pub(crate) usize);
 
 impl RadiusIdx {
+    /// Create a RadiusIdx from a raw parameter index.
+    pub fn new(idx: usize) -> Self {
+        RadiusIdx(idx)
+    }
+    pub fn index(self) -> usize {
+        self.0
+    }
     pub fn read(self, params: &[f64]) -> f64 {
         params[self.0]
     }

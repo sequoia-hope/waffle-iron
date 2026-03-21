@@ -10,6 +10,7 @@ use nalgebra::Point2;
 use crate::types::{EntityId, EntityKind, PointId, SketchConstraint, SketchEntity};
 
 use super::constraint::ConstraintImpl;
+use super::error::ValidationError;
 use super::params::ParamLayout;
 use super::types::{LineIdx, RadiusDef};
 
@@ -22,12 +23,15 @@ pub fn build_constraints(
     entities: &[SketchEntity],
     layout: &ParamLayout,
     x0: &[f64],
-) -> Vec<ConstraintImpl> {
+) -> Result<Vec<ConstraintImpl>, ValidationError> {
     let entity_types = classify_entities(entities);
-    constraints
-        .iter()
-        .filter_map(|c| build_one(c, &entity_types, entities, layout, x0))
-        .collect()
+    let mut out = Vec::new();
+    for c in constraints {
+        if let Some(ci) = build_one(c, &entity_types, entities, layout, x0)? {
+            out.push(ci);
+        }
+    }
+    Ok(out)
 }
 
 /// Map each equation row back to its parent constraint index.
@@ -62,28 +66,34 @@ fn classify_entities(entities: &[SketchEntity]) -> HashMap<EntityId, EntityKind>
     map
 }
 
-fn find_point_pos(entities: &[SketchEntity], point_id: PointId) -> (f64, f64) {
+fn find_point_pos(
+    entities: &[SketchEntity],
+    point_id: PointId,
+) -> Result<(f64, f64), ValidationError> {
     for e in entities {
         if let SketchEntity::Point { id, x, y, .. } = e {
             if *id == point_id {
-                return (*x, *y);
+                return Ok((*x, *y));
             }
         }
     }
-    panic!("Point {:?} not found", point_id)
+    Err(ValidationError::UnknownPoint(point_id))
 }
 
-fn find_center_id(entities: &[SketchEntity], entity_id: EntityId) -> PointId {
+fn find_center_id(
+    entities: &[SketchEntity],
+    entity_id: EntityId,
+) -> Result<PointId, ValidationError> {
     for e in entities {
         if e.id() == entity_id {
             match e {
-                SketchEntity::Circle { center_id, .. } => return *center_id,
-                SketchEntity::Arc { center_id, .. } => return *center_id,
-                _ => panic!("Entity {:?} is not a circle or arc", entity_id),
+                SketchEntity::Circle { center_id, .. } => return Ok(*center_id),
+                SketchEntity::Arc { center_id, .. } => return Ok(*center_id),
+                _ => return Err(ValidationError::ExpectedArcOrCircle(entity_id)),
             }
         }
     }
-    panic!("Entity {:?} not found", entity_id)
+    Err(ValidationError::UnknownEntity(entity_id))
 }
 
 fn build_one(
@@ -92,105 +102,116 @@ fn build_one(
     entities: &[SketchEntity],
     layout: &ParamLayout,
     x0: &[f64],
-) -> Option<ConstraintImpl> {
+) -> Result<Option<ConstraintImpl>, ValidationError> {
     use ConstraintImpl as CI;
     use SketchConstraint::*;
 
     match constraint {
-        Coincident { point_a, point_b } => Some(CI::Coincident {
-            p1: layout.point(*point_a),
-            p2: layout.point(*point_b),
-        }),
-        Horizontal { entity } => Some(CI::Horizontal {
-            line: layout.line(*entity),
-        }),
-        Vertical { entity } => Some(CI::Vertical {
-            line: layout.line(*entity),
-        }),
-        Parallel { line_a, line_b } => Some(CI::Parallel {
-            l1: layout.line(*line_a),
-            l2: layout.line(*line_b),
-        }),
-        Perpendicular { line_a, line_b } => Some(CI::Perpendicular {
-            l1: layout.line(*line_a),
-            l2: layout.line(*line_b),
-        }),
-        SymmetricH { point_a, point_b } => Some(CI::SymmetricH {
-            p1: layout.point(*point_a),
-            p2: layout.point(*point_b),
-        }),
-        SymmetricV { point_a, point_b } => Some(CI::SymmetricV {
-            p1: layout.point(*point_a),
-            p2: layout.point(*point_b),
-        }),
+        Coincident { point_a, point_b } => Ok(Some(CI::Coincident {
+            p1: layout.point(*point_a)?,
+            p2: layout.point(*point_b)?,
+        })),
+        Horizontal { entity } => Ok(Some(CI::Horizontal {
+            line: layout.line(*entity)?,
+        })),
+        Vertical { entity } => Ok(Some(CI::Vertical {
+            line: layout.line(*entity)?,
+        })),
+        Parallel { line_a, line_b } => Ok(Some(CI::Parallel {
+            l1: layout.line(*line_a)?,
+            l2: layout.line(*line_b)?,
+        })),
+        Perpendicular { line_a, line_b } => Ok(Some(CI::Perpendicular {
+            l1: layout.line(*line_a)?,
+            l2: layout.line(*line_b)?,
+        })),
+        SymmetricH { point_a, point_b } => Ok(Some(CI::SymmetricH {
+            p1: layout.point(*point_a)?,
+            p2: layout.point(*point_b)?,
+        })),
+        SymmetricV { point_a, point_b } => Ok(Some(CI::SymmetricV {
+            p1: layout.point(*point_a)?,
+            p2: layout.point(*point_b)?,
+        })),
         Symmetric {
             entity_a,
             entity_b,
             symmetry_line,
-        } => Some(CI::SymmetricLine {
-            p1: layout.point(*entity_a),
-            p2: layout.point(*entity_b),
-            line: layout.line(*symmetry_line),
-        }),
-        Midpoint { point, line } => Some(CI::Midpoint {
-            point: layout.point(*point),
-            line: layout.line(*line),
-        }),
+        } => Ok(Some(CI::SymmetricLine {
+            p1: layout.point(*entity_a)?,
+            p2: layout.point(*entity_b)?,
+            line: layout.line(*symmetry_line)?,
+        })),
+        Midpoint { point, line } => Ok(Some(CI::Midpoint {
+            point: layout.point(*point)?,
+            line: layout.line(*line)?,
+        })),
         Dragged { point } => {
-            let (x, y) = find_point_pos(entities, *point);
-            Some(CI::Dragged {
-                point: layout.point(*point),
+            let (x, y) = find_point_pos(entities, *point)?;
+            Ok(Some(CI::Dragged {
+                point: layout.point(*point)?,
                 target: Point2::new(x, y),
-            })
+            }))
         }
         Angle {
             line_a,
             line_b,
             value_degrees,
-        } => Some(CI::Angle {
-            l1: layout.line(*line_a),
-            l2: layout.line(*line_b),
-            value_rad: value_degrees.to_radians(),
-        }),
-        SameOrientation { .. } => Some(CI::SameOrientation),
+        } => {
+            if !value_degrees.is_finite() {
+                return Err(ValidationError::InvalidAngle(*value_degrees));
+            }
+            Ok(Some(CI::Angle {
+                l1: layout.line(*line_a)?,
+                l2: layout.line(*line_b)?,
+                value_rad: value_degrees.to_radians(),
+            }))
+        }
+        SameOrientation { .. } => Ok(Some(CI::SameOrientation)),
 
         Equal { entity_a, entity_b } => {
-            let kind_a = entity_types.get(entity_a)?;
-            let kind_b = entity_types.get(entity_b)?;
+            let kind_a = match entity_types.get(entity_a) {
+                Some(k) => k,
+                None => return Ok(None),
+            };
+            let kind_b = match entity_types.get(entity_b) {
+                Some(k) => k,
+                None => return Ok(None),
+            };
             match (kind_a, kind_b) {
-                (EntityKind::Line, EntityKind::Line) => Some(CI::EqualLength {
-                    l1: layout.line(*entity_a),
-                    l2: layout.line(*entity_b),
-                }),
-                (EntityKind::Circle, EntityKind::Circle) => Some(CI::EqualRadius {
-                    r1: layout.radius(*entity_a),
-                    r2: layout.radius(*entity_b),
-                }),
+                (EntityKind::Line, EntityKind::Line) => Ok(Some(CI::EqualLength {
+                    l1: layout.line(*entity_a)?,
+                    l2: layout.line(*entity_b)?,
+                })),
+                (EntityKind::Circle, EntityKind::Circle) => Ok(Some(CI::EqualRadius {
+                    r1: layout.radius(*entity_a)?,
+                    r2: layout.radius(*entity_b)?,
+                })),
                 (EntityKind::Arc, EntityKind::Arc) => {
-                    let (c1, s1) = layout.arc_center_start(*entity_a);
-                    let (c2, s2) = layout.arc_center_start(*entity_b);
-                    Some(CI::EqualLength {
+                    let (c1, s1) = layout.arc_center_start(*entity_a)?;
+                    let (c2, s2) = layout.arc_center_start(*entity_b)?;
+                    Ok(Some(CI::EqualLength {
                         l1: LineIdx { start: c1, end: s1 },
                         l2: LineIdx { start: c2, end: s2 },
-                    })
+                    }))
                 }
                 (EntityKind::Circle, EntityKind::Arc) => {
-                    let (center, start) = layout.arc_center_start(*entity_b);
-                    Some(CI::OnCircle {
+                    let (center, start) = layout.arc_center_start(*entity_b)?;
+                    Ok(Some(CI::OnCircle {
                         point: start,
                         center,
-                        radius: RadiusDef::Param(layout.radius(*entity_a)),
-                    })
+                        radius: RadiusDef::Param(layout.radius(*entity_a)?),
+                    }))
                 }
                 (EntityKind::Arc, EntityKind::Circle) => {
-                    let (center, start) = layout.arc_center_start(*entity_a);
-                    Some(CI::OnCircle {
+                    let (center, start) = layout.arc_center_start(*entity_a)?;
+                    Ok(Some(CI::OnCircle {
                         point: start,
                         center,
-                        radius: RadiusDef::Param(layout.radius(*entity_b)),
-                    })
+                        radius: RadiusDef::Param(layout.radius(*entity_b)?),
+                    }))
                 }
-                _ => None,
+                _ => Ok(None),
             }
         }
 
@@ -199,128 +220,155 @@ fn build_one(
             entity_b,
             value,
         } => {
-            let kind_a = entity_types.get(entity_a)?;
-            let kind_b = entity_types.get(entity_b)?;
+            if !value.is_finite() || *value < 0.0 {
+                return Err(ValidationError::InvalidDistance(*value));
+            }
+            let kind_a = match entity_types.get(entity_a) {
+                Some(k) => k,
+                None => return Ok(None),
+            };
+            let kind_b = match entity_types.get(entity_b) {
+                Some(k) => k,
+                None => return Ok(None),
+            };
             match (kind_a, kind_b) {
-                (EntityKind::Point, EntityKind::Point) => Some(CI::DistancePP {
-                    p1: layout.point(PointId(entity_a.0)),
-                    p2: layout.point(PointId(entity_b.0)),
+                (EntityKind::Point, EntityKind::Point) => Ok(Some(CI::DistancePP {
+                    p1: layout.point(PointId(entity_a.0))?,
+                    p2: layout.point(PointId(entity_b.0))?,
                     d: *value,
-                }),
+                })),
                 (EntityKind::Point, EntityKind::Line) => {
-                    let pt = layout.point(PointId(entity_a.0));
-                    let ln = layout.line(*entity_b);
-                    Some(CI::DistancePL {
+                    let pt = layout.point(PointId(entity_a.0))?;
+                    let ln = layout.line(*entity_b)?;
+                    Ok(Some(CI::DistancePL {
                         point: pt,
                         line: ln,
                         d: *value,
                         sign: cross_sign(pt, ln, x0),
-                    })
+                    }))
                 }
                 (EntityKind::Line, EntityKind::Point) => {
-                    let pt = layout.point(PointId(entity_b.0));
-                    let ln = layout.line(*entity_a);
-                    Some(CI::DistancePL {
+                    let pt = layout.point(PointId(entity_b.0))?;
+                    let ln = layout.line(*entity_a)?;
+                    Ok(Some(CI::DistancePL {
                         point: pt,
                         line: ln,
                         d: *value,
                         sign: cross_sign(pt, ln, x0),
-                    })
+                    }))
                 }
-                _ => None,
+                _ => Ok(None),
             }
         }
 
         OnEntity { point, entity } => {
-            let kind = entity_types.get(entity)?;
+            let kind = match entity_types.get(entity) {
+                Some(k) => k,
+                None => return Ok(None),
+            };
             match kind {
-                EntityKind::Line => Some(CI::OnLine {
-                    point: layout.point(*point),
-                    line: layout.line(*entity),
-                }),
+                EntityKind::Line => Ok(Some(CI::OnLine {
+                    point: layout.point(*point)?,
+                    line: layout.line(*entity)?,
+                })),
                 EntityKind::Circle => {
-                    let center_id = find_center_id(entities, *entity);
-                    Some(CI::OnCircle {
-                        point: layout.point(*point),
-                        center: layout.point(center_id),
-                        radius: layout.radius_def(*entity),
-                    })
+                    let center_id = find_center_id(entities, *entity)?;
+                    Ok(Some(CI::OnCircle {
+                        point: layout.point(*point)?,
+                        center: layout.point(center_id)?,
+                        radius: layout.radius_def(*entity)?,
+                    }))
                 }
                 EntityKind::Arc => {
-                    let (center, _start) = layout.arc_center_start(*entity);
-                    Some(CI::OnCircle {
-                        point: layout.point(*point),
+                    let (center, _start) = layout.arc_center_start(*entity)?;
+                    Ok(Some(CI::OnCircle {
+                        point: layout.point(*point)?,
                         center,
-                        radius: layout.radius_def(*entity),
-                    })
+                        radius: layout.radius_def(*entity)?,
+                    }))
                 }
-                _ => None,
+                _ => Ok(None),
             }
         }
 
         Tangent { line, curve } => {
-            let kind = entity_types.get(curve)?;
+            let kind = match entity_types.get(curve) {
+                Some(k) => k,
+                None => return Ok(None),
+            };
             match kind {
                 EntityKind::Arc => {
-                    let (center, _start) = layout.arc_center_start(*curve);
-                    let ln = layout.line(*line);
-                    Some(CI::TangentLineCircle {
+                    let (center, _start) = layout.arc_center_start(*curve)?;
+                    let ln = layout.line(*line)?;
+                    Ok(Some(CI::TangentLineCircle {
                         line: ln,
                         center,
-                        radius: layout.radius_def(*curve),
+                        radius: layout.radius_def(*curve)?,
                         sign: cross_sign_center(center, ln, x0),
-                    })
+                    }))
                 }
                 EntityKind::Circle => {
-                    let center_id = find_center_id(entities, *curve);
-                    let center = layout.point(center_id);
-                    let ln = layout.line(*line);
-                    Some(CI::TangentLineCircle {
+                    let center_id = find_center_id(entities, *curve)?;
+                    let center = layout.point(center_id)?;
+                    let ln = layout.line(*line)?;
+                    Ok(Some(CI::TangentLineCircle {
                         line: ln,
                         center,
-                        radius: layout.radius_def(*curve),
+                        radius: layout.radius_def(*curve)?,
                         sign: cross_sign_center(center, ln, x0),
-                    })
+                    }))
                 }
-                _ => None,
+                _ => Ok(None),
             }
         }
 
         Radius { entity, value } => {
-            let kind = entity_types.get(entity)?;
+            if !value.is_finite() || *value < 0.0 {
+                return Err(ValidationError::InvalidRadius(*value));
+            }
+            let kind = match entity_types.get(entity) {
+                Some(k) => k,
+                None => return Ok(None),
+            };
             match kind {
-                EntityKind::Circle => Some(CI::Radius {
-                    r: layout.radius(*entity),
+                EntityKind::Circle => Ok(Some(CI::Radius {
+                    r: layout.radius(*entity)?,
                     target: *value,
-                }),
+                })),
                 EntityKind::Arc => {
-                    let (center, start) = layout.arc_center_start(*entity);
-                    Some(CI::DistancePP {
+                    let (center, start) = layout.arc_center_start(*entity)?;
+                    Ok(Some(CI::DistancePP {
                         p1: center,
                         p2: start,
                         d: *value,
-                    })
+                    }))
                 }
-                _ => None,
+                _ => Ok(None),
             }
         }
 
         Diameter { entity, value } => {
-            let kind = entity_types.get(entity)?;
+            if !value.is_finite() || *value < 0.0 {
+                return Err(ValidationError::InvalidRadius(*value));
+            }
+            let kind = match entity_types.get(entity) {
+                Some(k) => k,
+                None => return Ok(None),
+            };
             match kind {
-                EntityKind::Circle => Some(CI::Diameter {
-                    r: layout.radius(*entity),
+                EntityKind::Circle => Ok(Some(CI::Diameter {
+                    r: layout.radius(*entity)?,
                     target: *value,
-                }),
+                })),
                 EntityKind::Arc => {
-                    let (center, start) = layout.arc_center_start(*entity);
-                    Some(CI::DistancePP {
+                    let (center, start) = layout.arc_center_start(*entity)?;
+                    Ok(Some(CI::DistancePP {
                         p1: center,
                         p2: start,
                         d: *value / 2.0,
-                    })
+                    }))
                 }
-                _ => None,
+                _ => Ok(None),
             }
         }
 
@@ -329,30 +377,35 @@ fn build_one(
             line_b,
             line_c,
             line_d,
-        } => Some(CI::EqualAngle {
-            l1: layout.line(*line_a),
-            l2: layout.line(*line_b),
-            l3: layout.line(*line_c),
-            l4: layout.line(*line_d),
-        }),
+        } => Ok(Some(CI::EqualAngle {
+            l1: layout.line(*line_a)?,
+            l2: layout.line(*line_b)?,
+            l3: layout.line(*line_c)?,
+            l4: layout.line(*line_d)?,
+        })),
         Ratio {
             entity_a,
             entity_b,
             value,
-        } => Some(CI::Ratio {
-            l1: layout.line(*entity_a),
-            l2: layout.line(*entity_b),
-            k: *value,
-        }),
+        } => {
+            if !value.is_finite() {
+                return Err(ValidationError::InvalidRatio(*value));
+            }
+            Ok(Some(CI::Ratio {
+                l1: layout.line(*entity_a)?,
+                l2: layout.line(*entity_b)?,
+                k: *value,
+            }))
+        }
         EqualPointToLine {
             point_a,
             point_b,
             line,
-        } => Some(CI::EqualPointToLine {
-            p1: layout.point(*point_a),
-            p2: layout.point(*point_b),
-            line: layout.line(*line),
-        }),
+        } => Ok(Some(CI::EqualPointToLine {
+            p1: layout.point(*point_a)?,
+            p2: layout.point(*point_b)?,
+            line: layout.line(*line)?,
+        })),
     }
 }
 
@@ -366,7 +419,11 @@ fn cross_sign(point: PointIdx, line: LineIdx, x0: &[f64]) -> f64 {
     let ld = line.delta(x0);
     let vp = p - ls;
     let cross = vp.x * ld.y - vp.y * ld.x;
-    if cross >= 0.0 { 1.0 } else { -1.0 }
+    if cross >= 0.0 {
+        1.0
+    } else {
+        -1.0
+    }
 }
 
 /// Compute the sign of the cross product (center relative to line) from initial params.
@@ -377,5 +434,9 @@ fn cross_sign_center(center: PointIdx, line: LineIdx, x0: &[f64]) -> f64 {
     let ld = line.delta(x0);
     let vc = c - ls;
     let cross = vc.x * ld.y - vc.y * ld.x;
-    if cross >= 0.0 { 1.0 } else { -1.0 }
+    if cross >= 0.0 {
+        1.0
+    } else {
+        -1.0
+    }
 }

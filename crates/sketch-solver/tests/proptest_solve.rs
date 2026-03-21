@@ -25,7 +25,7 @@ proptest! {
     fn proptest_rectangle_exact(
         (sketch, w, h) in proptest_strategies::arb_constrained_rectangle()
     ) {
-        let result = solve_sketch(&sketch);
+        let result = solve_sketch(&sketch).expect("valid test input");
         prop_assert!(
             matches!(result.status, SolveStatus::FullyConstrained),
             "expected FullyConstrained, got {:?}", result.status
@@ -43,7 +43,7 @@ proptest! {
     fn proptest_rectangle_perturbed(
         (sketch, w, h) in proptest_strategies::arb_perturbed_rectangle()
     ) {
-        let result = solve_sketch(&sketch);
+        let result = solve_sketch(&sketch).expect("valid test input");
         prop_assert!(
             matches!(result.status, SolveStatus::FullyConstrained),
             "expected FullyConstrained, got {:?}", result.status
@@ -66,7 +66,7 @@ proptest! {
     fn proptest_triangle_exact(
         (sketch, distances) in proptest_strategies::arb_constrained_triangle()
     ) {
-        let result = solve_sketch(&sketch);
+        let result = solve_sketch(&sketch).expect("valid test input");
         prop_assert!(
             matches!(result.status, SolveStatus::FullyConstrained),
             "expected FullyConstrained, got {:?}", result.status
@@ -85,7 +85,7 @@ proptest! {
     fn proptest_triangle_perturbed(
         (sketch, distances) in proptest_strategies::arb_perturbed_triangle()
     ) {
-        let result = solve_sketch(&sketch);
+        let result = solve_sketch(&sketch).expect("valid test input");
         prop_assume!(matches!(result.status, SolveStatus::FullyConstrained));
         let d01 = dist(&result.positions, PointId(1), PointId(2));
         let d12 = dist(&result.positions, PointId(2), PointId(3));
@@ -102,7 +102,7 @@ proptest! {
     fn proptest_polygon_5(
         (sketch, distances) in proptest_strategies::arb_constrained_polygon(5)
     ) {
-        let result = solve_sketch(&sketch);
+        let result = solve_sketch(&sketch).expect("valid test input");
         // Only verify distances if the solver converged to FullyConstrained.
         // Some configurations might still be too hard for the solver even with
         // the improved strategy.

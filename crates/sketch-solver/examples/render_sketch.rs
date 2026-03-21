@@ -24,7 +24,7 @@ fn main() {
     };
 
     let sketch: Sketch = serde_json::from_str(&json).expect("Failed to parse Sketch JSON");
-    let solved = solve_sketch(&sketch);
+    let solved = solve_sketch(&sketch).expect("workbench solve");
 
     eprintln!("Status: {:?}", solved.status);
     eprintln!("Points: {}", solved.positions.len());

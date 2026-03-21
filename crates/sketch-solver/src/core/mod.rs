@@ -11,6 +11,8 @@
 
 pub mod builder;
 pub mod constraint;
+pub mod error;
+pub mod graph;
 pub mod lm;
 pub mod params;
 pub mod rank;

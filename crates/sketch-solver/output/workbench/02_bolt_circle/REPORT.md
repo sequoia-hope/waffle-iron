@@ -101,7 +101,7 @@
 ---
 
 ## Step 6: Equal Radii
-**Status**: Over-constrained (3 conflicts) | **Entities**: 1 pt, 3 cir | **Constraints**: 5
+**Status**: Solve failed: stagnated with large residual (5.00e0) after 4 iterations | **Entities**: 1 pt, 3 cir | **Constraints**: 5
 > Equal constraint forces inner and middle circles to same radius. Over-constrains unless we remove one radius — demonstrates the over-constrained state.
 
 **Active constraints**:

@@ -100,7 +100,7 @@ impl SketchWorkbench {
             solved_profiles: Vec::new(),
         };
 
-        let solved = solve_sketch(&sketch);
+        let solved = solve_sketch(&sketch).expect("workbench solve");
 
         let file_stem = format!("step_{:02}_{}", self.step, label);
         let svg = render_sketch_svg(&sketch, &solved);

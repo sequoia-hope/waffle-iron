@@ -87,7 +87,7 @@ proptest! {
         (sketch, _, _) in proptest_strategies::arb_constrained_rectangle()
     ) {
         // Warm start: initial positions are the solution
-        let result = solve_sketch(&sketch);
+        let result = solve_sketch(&sketch).expect("valid test input");
         prop_assert!(
             matches!(result.status, SolveStatus::FullyConstrained),
             "expected FullyConstrained"
@@ -108,7 +108,7 @@ proptest! {
     fn proptest_spring_no_drift(
         (mut sketch, _, _) in proptest_strategies::arb_constrained_rectangle()
     ) {
-        let result1 = solve_sketch(&sketch);
+        let result1 = solve_sketch(&sketch).expect("valid test input");
         prop_assert!(matches!(result1.status, SolveStatus::FullyConstrained));
 
         // Solve 4 more times, updating positions each time
@@ -122,7 +122,7 @@ proptest! {
                     }
                 }
             }
-            let result = solve_sketch(&sketch);
+            let result = solve_sketch(&sketch).expect("valid test input");
             prop_assert!(
                 matches!(result.status, SolveStatus::FullyConstrained),
                 "iteration {}: expected FullyConstrained", iteration

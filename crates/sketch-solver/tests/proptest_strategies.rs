@@ -285,7 +285,10 @@ pub fn arb_constrained_triangle() -> impl Strategy<Value = (Sketch, [f64; 3])> {
             let rotate = |px: f64, py: f64| -> (f64, f64) {
                 let rx = px - p0.0;
                 let ry = py - p0.1;
-                (p0.0 + rx * cos_a - ry * sin_a, p0.1 + rx * sin_a + ry * cos_a)
+                (
+                    p0.0 + rx * cos_a - ry * sin_a,
+                    p0.1 + rx * sin_a + ry * cos_a,
+                )
             };
             let rp0 = rotate(p0.0, p0.1);
             let rp1 = rotate(p1.0, p1.1);
@@ -660,7 +663,7 @@ impl ConstraintSpec {
                     ConstraintImpl::OnCircle {
                         point: pt(0),
                         center: pt(2),
-                        radius: RadiusDef::Param(RadiusIdx(4)),
+                        radius: RadiusDef::Param(RadiusIdx::new(4)),
                     },
                     params,
                 )
@@ -701,7 +704,7 @@ impl ConstraintSpec {
                     ConstraintImpl::TangentLineCircle {
                         line: line_idx(0, 2),
                         center: pt(4),
-                        radius: RadiusDef::Param(RadiusIdx(6)),
+                        radius: RadiusDef::Param(RadiusIdx::new(6)),
                         sign: 1.0,
                     },
                     params,
@@ -714,9 +717,9 @@ impl ConstraintSpec {
                 (
                     ConstraintImpl::TangentArcArc {
                         c1: pt(0),
-                        r1: RadiusDef::Param(RadiusIdx(4)),
+                        r1: RadiusDef::Param(RadiusIdx::new(4)),
                         c2: pt(2),
-                        r2: RadiusDef::Param(RadiusIdx(5)),
+                        r2: RadiusDef::Param(RadiusIdx::new(5)),
                         internal: false,
                     },
                     params,
@@ -746,8 +749,8 @@ impl ConstraintSpec {
             ),
             _ => (
                 ConstraintImpl::EqualRadius {
-                    r1: RadiusIdx(0),
-                    r2: RadiusIdx(1),
+                    r1: RadiusIdx::new(0),
+                    r2: RadiusIdx::new(1),
                 },
                 vec![p[0].abs() + 0.5, p[1].abs() + 0.5],
             ),

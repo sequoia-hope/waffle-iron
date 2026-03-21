@@ -13,7 +13,8 @@ use sketch_solver::*;
 fn max_residual(sketch: &Sketch, result: &SolvedSketch) -> f64 {
     let layout = ParamLayout::from_entities(&sketch.entities);
     let x0 = layout.initial_params(&sketch.entities);
-    let constraints = build_constraints(&sketch.constraints, &sketch.entities, &layout, &x0);
+    let constraints = build_constraints(&sketch.constraints, &sketch.entities, &layout, &x0)
+        .expect("valid test input");
     // Build param vector from solved positions
     let mut params = x0;
     for (id, &(x, y)) in &result.positions {
@@ -21,7 +22,7 @@ fn max_residual(sketch: &Sketch, result: &SolvedSketch) -> f64 {
         for entity in &sketch.entities {
             if let SketchEntity::Point { id: eid, .. } = entity {
                 if eid == id {
-                    let idx = layout.point(*id);
+                    let idx = layout.point(*id).expect("valid test input");
                     params[idx.x()] = x;
                     params[idx.y()] = y;
                 }
@@ -51,7 +52,7 @@ proptest! {
     fn proptest_residuals_near_zero_rectangle(
         (sketch, _, _) in proptest_strategies::arb_constrained_rectangle()
     ) {
-        let result = solve_sketch(&sketch);
+        let result = solve_sketch(&sketch).expect("valid test input");
         prop_assert!(
             matches!(result.status, SolveStatus::FullyConstrained),
             "expected FullyConstrained"
@@ -64,7 +65,7 @@ proptest! {
     fn proptest_residuals_near_zero_triangle(
         (sketch, _) in proptest_strategies::arb_constrained_triangle()
     ) {
-        let result = solve_sketch(&sketch);
+        let result = solve_sketch(&sketch).expect("valid test input");
         prop_assert!(
             matches!(result.status, SolveStatus::FullyConstrained),
             "expected FullyConstrained"
@@ -82,7 +83,7 @@ proptest! {
     fn proptest_idempotent_solve(
         (sketch, _, _) in proptest_strategies::arb_constrained_rectangle()
     ) {
-        let result1 = solve_sketch(&sketch);
+        let result1 = solve_sketch(&sketch).expect("valid test input");
         prop_assert!(matches!(result1.status, SolveStatus::FullyConstrained));
 
         // Build a new sketch with solved positions as initial positions
@@ -96,7 +97,7 @@ proptest! {
             }
         }
 
-        let result2 = solve_sketch(&sketch2);
+        let result2 = solve_sketch(&sketch2).expect("valid test input");
         prop_assert!(matches!(result2.status, SolveStatus::FullyConstrained));
 
         // Positions should match
@@ -116,7 +117,7 @@ proptest! {
     fn proptest_underconstrained_has_dof(
         sketch in proptest_strategies::arb_underconstrained_line()
     ) {
-        let result = solve_sketch(&sketch);
+        let result = solve_sketch(&sketch).expect("valid test input");
         match result.status {
             SolveStatus::UnderConstrained { dof } => {
                 prop_assert!(dof > 0, "under-constrained should have dof > 0");
@@ -137,7 +138,7 @@ proptest! {
     fn proptest_fully_constrained_unique(
         (sketch, _, _) in proptest_strategies::arb_constrained_rectangle()
     ) {
-        let result1 = solve_sketch(&sketch);
+        let result1 = solve_sketch(&sketch).expect("valid test input");
         prop_assert!(matches!(result1.status, SolveStatus::FullyConstrained));
 
         // Find which points are dragged
@@ -156,7 +157,7 @@ proptest! {
             }
         }
 
-        let result2 = solve_sketch(&sketch2);
+        let result2 = solve_sketch(&sketch2).expect("valid test input");
         prop_assert!(matches!(result2.status, SolveStatus::FullyConstrained));
 
         for (id, &(x1, y1)) in &result1.positions {

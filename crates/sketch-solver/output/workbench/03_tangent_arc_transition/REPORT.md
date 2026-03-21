@@ -63,12 +63,12 @@
 
 | Point | X | Y |
 |-------|-------|-------|
-| P1 | -2.43 | 2.49 |
+| P1 | -0.56 | 0.51 |
 | P2 | 50.00 | 60.00 |
-| P3 | 99.87 | -0.15 |
-| P4 | 35.02 | 39.98 |
+| P3 | 100.00 | -0.00 |
+| P4 | 35.00 | 39.99 |
 | P5 | 65.00 | 40.00 |
-| P6 | 49.98 | 25.02 |
+| P6 | 50.00 | 26.47 |
 
 **Profiles detected**: 1 closed profile(s)
 
@@ -91,9 +91,9 @@
 | P1 | -0.00 | 0.00 |
 | P2 | 50.00 | 60.00 |
 | P3 | 100.00 | -0.00 |
-| P4 | 35.17 | 39.83 |
-| P5 | 64.69 | 39.65 |
-| P6 | 49.83 | 25.17 |
+| P4 | 34.99 | 39.97 |
+| P5 | 65.00 | 40.00 |
+| P6 | 50.00 | 26.82 |
 
 **Profiles detected**: 1 closed profile(s)
 
@@ -102,7 +102,7 @@
 ---
 
 ## Step 5: Arc Radius Set
-**Status**: Over-constrained (3 conflicts) | **Entities**: 6 pt, 2 ln, 1 arc | **Constraints**: 5
+**Status**: Under-constrained (5 DOF) | **Entities**: 6 pt, 2 ln, 1 arc | **Constraints**: 5
 > Arc radius constrained to 20mm. Shape position and arc size fixed.
 
 **Active constraints**:
@@ -114,19 +114,21 @@
 
 | Point | X | Y |
 |-------|-------|-------|
-| P1 | 0.00 | -0.00 |
+| P1 | -0.00 | 0.00 |
 | P2 | 50.00 | 60.00 |
 | P3 | 100.00 | -0.00 |
-| P4 | 35.43 | 39.57 |
-| P5 | 64.19 | 39.09 |
-| P6 | 49.57 | 25.43 |
+| P4 | 35.11 | 39.45 |
+| P5 | 64.75 | 39.71 |
+| P6 | 50.05 | 26.15 |
+
+**Profiles detected**: 1 closed profile(s)
 
 ![Step 5](step_05_arc_radius_set.png)
 
 ---
 
 ## Step 6: Symmetric V
-**Status**: Over-constrained (3 conflicts) | **Entities**: 6 pt, 2 ln, 1 arc | **Constraints**: 6
+**Status**: Under-constrained (4 DOF) | **Entities**: 6 pt, 2 ln, 1 arc | **Constraints**: 6
 > Equal line lengths make V-shape symmetric. Tangent arc transition fully defined.
 
 **Active constraints**:
@@ -139,12 +141,14 @@
 
 | Point | X | Y |
 |-------|-------|-------|
-| P1 | 0.00 | -0.00 |
+| P1 | -0.00 | -0.00 |
 | P2 | 50.00 | 60.00 |
 | P3 | 100.00 | 0.00 |
-| P4 | 35.38 | 39.65 |
-| P5 | 64.10 | 39.18 |
-| P6 | 49.51 | 25.49 |
+| P4 | 35.12 | 39.64 |
+| P5 | 64.98 | 39.73 |
+| P6 | 50.09 | 26.38 |
+
+**Profiles detected**: 1 closed profile(s)
 
 ![Step 6](step_06_symmetric_v.png)
 

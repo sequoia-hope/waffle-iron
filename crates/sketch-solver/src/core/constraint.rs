@@ -363,7 +363,10 @@ impl ConstraintEq for ConstraintImpl {
 
             // ── Group 4: Normalized point-line distance ──────────────
             Self::DistancePL {
-                point, line, d, sign,
+                point,
+                line,
+                d,
+                sign,
             } => {
                 let p = point.read(params);
                 let ls = line.start.read(params);
@@ -515,11 +518,11 @@ impl ConstraintEq for ConstraintImpl {
             }
             Self::Radius { r, .. } => {
                 // f = r - target
-                out.push((row, r.0, 1.0));
+                out.push((row, r.index(), 1.0));
             }
             Self::Diameter { r, .. } => {
                 // f = 2*r - target
-                out.push((row, r.0, 2.0));
+                out.push((row, r.index(), 2.0));
             }
             Self::HDistance { p1x, p2x, .. } => {
                 // f = p2x - p1x - d
@@ -1028,13 +1031,17 @@ impl ConstraintEq for ConstraintImpl {
             Self::EqualLength { l1, l2 } => {
                 // +H(||l1||)
                 push_norm_hessian(
-                    &mut out, row, params,
+                    &mut out,
+                    row,
+                    params,
                     &[l1.start.x(), l1.start.y()],
                     &[l1.end.x(), l1.end.y()],
                 );
                 // -H(||l2||)
                 push_norm_hessian_scaled(
-                    &mut out, row, params,
+                    &mut out,
+                    row,
+                    params,
                     &[l2.start.x(), l2.start.y()],
                     &[l2.end.x(), l2.end.y()],
                     -1.0,
@@ -1042,37 +1049,71 @@ impl ConstraintEq for ConstraintImpl {
             }
 
             // ── OnCircle (Param): f = ||p-c|| - r ──────────────────────
-            Self::OnCircle { point, center, radius: RadiusDef::Param(_) } => {
-                push_norm_hessian(&mut out, row, params, &[point.x(), point.y()], &[center.x(), center.y()]);
+            Self::OnCircle {
+                point,
+                center,
+                radius: RadiusDef::Param(_),
+            } => {
+                push_norm_hessian(
+                    &mut out,
+                    row,
+                    params,
+                    &[point.x(), point.y()],
+                    &[center.x(), center.y()],
+                );
             }
 
             // ── OnCircle (Implicit): f = ||p-c|| - ||c-s|| ─────────────
-            Self::OnCircle { point, center, radius: RadiusDef::Implicit(start) } => {
+            Self::OnCircle {
+                point,
+                center,
+                radius: RadiusDef::Implicit(start),
+            } => {
                 // +H(||p-c||) with respect to p and c
                 push_norm_hessian_6(
-                    &mut out, row, params,
-                    point.x(), point.y(),
-                    center.x(), center.y(),
-                    1.0, true,
+                    &mut out,
+                    row,
+                    params,
+                    point.x(),
+                    point.y(),
+                    center.x(),
+                    center.y(),
+                    1.0,
+                    true,
                 );
                 // -H(||c-s||) with respect to c and s
                 push_norm_hessian_6(
-                    &mut out, row, params,
-                    center.x(), center.y(),
-                    start.x(), start.y(),
-                    -1.0, true,
+                    &mut out,
+                    row,
+                    params,
+                    center.x(),
+                    center.y(),
+                    start.x(),
+                    start.y(),
+                    -1.0,
+                    true,
                 );
             }
 
             // ── TangentArcArc: f = ||c1-c2|| - (r1 ± r2) ──────────────
-            Self::TangentArcArc { c1, c2, r1, r2, internal } => {
+            Self::TangentArcArc {
+                c1,
+                c2,
+                r1,
+                r2,
+                internal,
+            } => {
                 // H(||c2-c1||) for center distance part
                 push_norm_hessian(&mut out, row, params, &[c1.x(), c1.y()], &[c2.x(), c2.y()]);
                 // Radius parts: only implicit radii contribute Hessians
                 let sign = if *internal {
                     let rv1 = r1.read(params, *c1);
                     let rv2 = r2.read(params, *c2);
-                    if rv1 >= rv2 { -1.0 } else { 1.0 }
+                    if rv1 >= rv2 {
+                        -1.0
+                    } else {
+                        1.0
+                    }
                 } else {
                     -1.0
                 };
@@ -1087,12 +1128,16 @@ impl ConstraintEq for ConstraintImpl {
             // ── Ratio: f = ||l1|| - k·||l2|| ───────────────────────────
             Self::Ratio { l1, l2, k } => {
                 push_norm_hessian(
-                    &mut out, row, params,
+                    &mut out,
+                    row,
+                    params,
                     &[l1.start.x(), l1.start.y()],
                     &[l1.end.x(), l1.end.y()],
                 );
                 push_norm_hessian_scaled(
-                    &mut out, row, params,
+                    &mut out,
+                    row,
+                    params,
                     &[l2.start.x(), l2.start.y()],
                     &[l2.end.x(), l2.end.y()],
                     -k,
@@ -1111,7 +1156,10 @@ impl ConstraintEq for ConstraintImpl {
             }
             Self::EqualPointToLine { p1, p2, line } => {
                 // f = (p1-p2) × line_delta = dpx·dy - dpy·dx (bilinear)
-                let dp_line = LineIdx { start: *p2, end: *p1 };
+                let dp_line = LineIdx {
+                    start: *p2,
+                    end: *p1,
+                };
                 push_bilinear_cross_hessian(&mut out, row, &dp_line, line);
             }
 
@@ -1127,6 +1175,25 @@ impl ConstraintEq for ConstraintImpl {
         }
 
         out
+    }
+}
+
+/// Blanket delegation so `&ConstraintImpl` works with `lm_solve`.
+impl ConstraintEq for &ConstraintImpl {
+    fn num_equations(&self) -> usize {
+        (**self).num_equations()
+    }
+    fn scale_types(&self) -> &[ScaleType] {
+        (**self).scale_types()
+    }
+    fn residuals(&self, params: &[f64], out: &mut [f64]) {
+        (**self).residuals(params, out);
+    }
+    fn jacobian(&self, params: &[f64], eq_offset: usize, out: &mut Vec<(usize, usize, f64)>) {
+        (**self).jacobian(params, eq_offset, out);
+    }
+    fn hessian(&self, params: &[f64], eq_offset: usize) -> Vec<(usize, usize, usize, f64)> {
+        (**self).hessian(params, eq_offset)
     }
 }
 
@@ -1203,8 +1270,8 @@ fn push_norm_hessian(
     out: &mut Vec<(usize, usize, usize, f64)>,
     row: usize,
     params: &[f64],
-    p1_cols: &[usize; 2],  // [x, y] column indices for point 1
-    p2_cols: &[usize; 2],  // [x, y] column indices for point 2
+    p1_cols: &[usize; 2], // [x, y] column indices for point 1
+    p2_cols: &[usize; 2], // [x, y] column indices for point 2
 ) {
     push_norm_hessian_scaled(out, row, params, p1_cols, p2_cols, 1.0);
 }
@@ -1267,8 +1334,10 @@ fn push_norm_hessian_6(
     out: &mut Vec<(usize, usize, usize, f64)>,
     row: usize,
     params: &[f64],
-    ax: usize, ay: usize,
-    bx: usize, by: usize,
+    ax: usize,
+    ay: usize,
+    bx: usize,
+    by: usize,
     scale: f64,
     _positive_first: bool,
 ) {
@@ -1291,7 +1360,9 @@ fn push_radius_hessian(
         RadiusDef::Implicit(start) => {
             // r = ||center - start||, same norm Hessian
             push_norm_hessian_scaled(
-                out, row, params,
+                out,
+                row,
+                params,
                 &[start.x(), start.y()],
                 &[center.x(), center.y()],
                 scale,

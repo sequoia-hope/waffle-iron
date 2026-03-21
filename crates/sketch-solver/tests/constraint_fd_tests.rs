@@ -167,7 +167,7 @@ fn fd_dragged() {
 #[test]
 fn fd_radius() {
     let c = ConstraintImpl::Radius {
-        r: RadiusIdx(0),
+        r: RadiusIdx::new(0),
         target: 5.0,
     };
     verify_jacobian(&c, &[5.0]);
@@ -177,7 +177,7 @@ fn fd_radius() {
 #[test]
 fn fd_diameter() {
     let c = ConstraintImpl::Diameter {
-        r: RadiusIdx(0),
+        r: RadiusIdx::new(0),
         target: 10.0,
     };
     verify_jacobian(&c, &[5.0]);
@@ -306,7 +306,7 @@ fn fd_on_circle_param_radius() {
     let c = ConstraintImpl::OnCircle {
         point: pt(0),
         center: pt(2),
-        radius: RadiusDef::Param(RadiusIdx(4)),
+        radius: RadiusDef::Param(RadiusIdx::new(4)),
     };
     // Point on circle of radius 5 centered at (0,0)
     verify_jacobian(&c, &[3.0, 4.0, 0.0, 0.0, 5.0]);
@@ -342,7 +342,7 @@ fn fd_on_circle_cardinal_above() {
     let c = ConstraintImpl::OnCircle {
         point: pt(0),
         center: pt(2),
-        radius: RadiusDef::Param(RadiusIdx(4)),
+        radius: RadiusDef::Param(RadiusIdx::new(4)),
     };
     // Point at (5, 10+5) = (5, 15), center at (5, 10), radius 5
     verify_jacobian(&c, &[5.0, 15.0, 5.0, 10.0, 5.0]);
@@ -354,7 +354,7 @@ fn fd_on_circle_cardinal_right() {
     let c = ConstraintImpl::OnCircle {
         point: pt(0),
         center: pt(2),
-        radius: RadiusDef::Param(RadiusIdx(4)),
+        radius: RadiusDef::Param(RadiusIdx::new(4)),
     };
     // Point at (5+3, 10) = (8, 10), center at (5, 10), radius 3
     verify_jacobian(&c, &[8.0, 10.0, 5.0, 10.0, 3.0]);
@@ -366,7 +366,7 @@ fn fd_on_circle_cardinal_left() {
     let c = ConstraintImpl::OnCircle {
         point: pt(0),
         center: pt(2),
-        radius: RadiusDef::Param(RadiusIdx(4)),
+        radius: RadiusDef::Param(RadiusIdx::new(4)),
     };
     verify_jacobian(&c, &[2.0, 10.0, 5.0, 10.0, 3.0]);
 }
@@ -377,7 +377,7 @@ fn fd_on_circle_cardinal_below() {
     let c = ConstraintImpl::OnCircle {
         point: pt(0),
         center: pt(2),
-        radius: RadiusDef::Param(RadiusIdx(4)),
+        radius: RadiusDef::Param(RadiusIdx::new(4)),
     };
     verify_jacobian(&c, &[5.0, 7.0, 5.0, 10.0, 3.0]);
 }
@@ -460,7 +460,7 @@ fn fd_tangent_line_circle_param() {
     let c = ConstraintImpl::TangentLineCircle {
         line: line(0, 2),
         center: pt(4),
-        radius: RadiusDef::Param(RadiusIdx(6)),
+        radius: RadiusDef::Param(RadiusIdx::new(6)),
         sign: 1.0,
     };
     // Line along x-axis, circle centered at (5, 3) with radius 3
@@ -487,9 +487,9 @@ fn fd_tangent_arc_arc_external() {
     // Two arcs with explicit radii
     let c = ConstraintImpl::TangentArcArc {
         c1: pt(0),
-        r1: RadiusDef::Param(RadiusIdx(4)),
+        r1: RadiusDef::Param(RadiusIdx::new(4)),
         c2: pt(2),
-        r2: RadiusDef::Param(RadiusIdx(5)),
+        r2: RadiusDef::Param(RadiusIdx::new(5)),
         internal: false,
     };
     verify_jacobian(&c, &[0.0, 0.0, 5.0, 0.0, 2.0, 3.0]);
@@ -500,9 +500,9 @@ fn fd_tangent_arc_arc_external() {
 fn fd_tangent_arc_arc_internal() {
     let c = ConstraintImpl::TangentArcArc {
         c1: pt(0),
-        r1: RadiusDef::Param(RadiusIdx(4)),
+        r1: RadiusDef::Param(RadiusIdx::new(4)),
         c2: pt(2),
-        r2: RadiusDef::Param(RadiusIdx(5)),
+        r2: RadiusDef::Param(RadiusIdx::new(5)),
         internal: true,
     };
     // r1 > r2
@@ -602,8 +602,8 @@ fn fd_same_orientation() {
 #[test]
 fn fd_equal_radius() {
     let c = ConstraintImpl::EqualRadius {
-        r1: RadiusIdx(0),
-        r2: RadiusIdx(1),
+        r1: RadiusIdx::new(0),
+        r2: RadiusIdx::new(1),
     };
     verify_jacobian(&c, &[5.0, 3.0]);
     verify_jacobian(&c, &[7.0, 7.0]);
@@ -784,7 +784,11 @@ fn verify_hessian(c: &ConstraintImpl, params: &[f64]) {
 
 #[test]
 fn fd_hessian_distance_pp() {
-    let c = ConstraintImpl::DistancePP { p1: pt(0), p2: pt(2), d: 5.0 };
+    let c = ConstraintImpl::DistancePP {
+        p1: pt(0),
+        p2: pt(2),
+        d: 5.0,
+    };
     verify_hessian(&c, &[0.0, 0.0, 3.0, 4.0]);
     verify_hessian(&c, &[1.0, 2.0, 4.0, 6.0]);
     // Cardinal: vertically aligned
@@ -795,7 +799,10 @@ fn fd_hessian_distance_pp() {
 
 #[test]
 fn fd_hessian_equal_length() {
-    let c = ConstraintImpl::EqualLength { l1: line(0, 2), l2: line(4, 6) };
+    let c = ConstraintImpl::EqualLength {
+        l1: line(0, 2),
+        l2: line(4, 6),
+    };
     verify_hessian(&c, &[0.0, 0.0, 3.0, 4.0, 1.0, 1.0, 4.0, 5.0]);
     verify_hessian(&c, &[1.0, 2.0, 4.0, 2.0, 0.0, 0.0, 5.0, 0.0]);
 }
@@ -803,8 +810,9 @@ fn fd_hessian_equal_length() {
 #[test]
 fn fd_hessian_on_circle_param() {
     let c = ConstraintImpl::OnCircle {
-        point: pt(0), center: pt(2),
-        radius: RadiusDef::Param(RadiusIdx(4)),
+        point: pt(0),
+        center: pt(2),
+        radius: RadiusDef::Param(RadiusIdx::new(4)),
     };
     verify_hessian(&c, &[3.0, 4.0, 0.0, 0.0, 5.0]);
     // Cardinal: directly above
@@ -816,7 +824,8 @@ fn fd_hessian_on_circle_param() {
 #[test]
 fn fd_hessian_on_circle_implicit() {
     let c = ConstraintImpl::OnCircle {
-        point: pt(2), center: pt(0),
+        point: pt(2),
+        center: pt(0),
         radius: RadiusDef::Implicit(pt(4)),
     };
     verify_hessian(&c, &[0.0, 0.0, 3.0, 4.0, 5.0, 0.0]);
@@ -827,8 +836,10 @@ fn fd_hessian_on_circle_implicit() {
 #[test]
 fn fd_hessian_tangent_arc_arc() {
     let c = ConstraintImpl::TangentArcArc {
-        c1: pt(0), r1: RadiusDef::Param(RadiusIdx(4)),
-        c2: pt(2), r2: RadiusDef::Param(RadiusIdx(5)),
+        c1: pt(0),
+        r1: RadiusDef::Param(RadiusIdx::new(4)),
+        c2: pt(2),
+        r2: RadiusDef::Param(RadiusIdx::new(5)),
         internal: false,
     };
     verify_hessian(&c, &[0.0, 0.0, 5.0, 0.0, 2.0, 3.0]);
@@ -837,26 +848,40 @@ fn fd_hessian_tangent_arc_arc() {
 
 #[test]
 fn fd_hessian_ratio() {
-    let c = ConstraintImpl::Ratio { l1: line(0, 2), l2: line(4, 6), k: 2.0 };
+    let c = ConstraintImpl::Ratio {
+        l1: line(0, 2),
+        l2: line(4, 6),
+        k: 2.0,
+    };
     verify_hessian(&c, &[0.0, 0.0, 3.0, 4.0, 0.0, 0.0, 1.0, 2.0]);
 }
 
 #[test]
 fn fd_hessian_parallel() {
-    let c = ConstraintImpl::Parallel { l1: line(0, 2), l2: line(4, 6) };
+    let c = ConstraintImpl::Parallel {
+        l1: line(0, 2),
+        l2: line(4, 6),
+    };
     verify_hessian(&c, &[0.0, 0.0, 1.0, 0.0, 2.0, 0.0, 3.0, 0.0]);
     verify_hessian(&c, &[1.0, 2.0, 3.0, 5.0, -1.0, 0.0, 4.0, 7.0]);
 }
 
 #[test]
 fn fd_hessian_perpendicular() {
-    let c = ConstraintImpl::Perpendicular { l1: line(0, 2), l2: line(4, 6) };
+    let c = ConstraintImpl::Perpendicular {
+        l1: line(0, 2),
+        l2: line(4, 6),
+    };
     verify_hessian(&c, &[0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]);
     verify_hessian(&c, &[1.0, 2.0, 3.0, 5.0, -1.0, 0.0, 4.0, 7.0]);
 }
 
 #[test]
 fn fd_hessian_equal_point_to_line() {
-    let c = ConstraintImpl::EqualPointToLine { p1: pt(0), p2: pt(2), line: line(4, 6) };
+    let c = ConstraintImpl::EqualPointToLine {
+        p1: pt(0),
+        p2: pt(2),
+        line: line(4, 6),
+    };
     verify_hessian(&c, &[1.0, 3.0, 2.0, 1.0, 0.0, 0.0, 5.0, 0.0]);
 }

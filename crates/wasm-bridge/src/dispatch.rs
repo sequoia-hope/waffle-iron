@@ -47,7 +47,18 @@ fn handle_message(
 
         UiToEngine::SolveSketch => {
             let sketch = state.build_sketch()?;
-            let solved = sketch_solver::solve_sketch(&sketch);
+            let solved = sketch_solver::solve_sketch(&sketch)
+                .unwrap_or_else(|e| {
+                    use waffle_types::SolveStatus;
+                    waffle_types::SolvedSketch {
+                        positions: std::collections::HashMap::new(),
+                        radii: std::collections::HashMap::new(),
+                        profiles: Vec::new(),
+                        status: SolveStatus::SolveFailed {
+                            reason: e.to_string(),
+                        },
+                    }
+                });
             if let Some(active) = state.active_sketch.as_mut() {
                 active.solve_status = solved.status.clone();
             }

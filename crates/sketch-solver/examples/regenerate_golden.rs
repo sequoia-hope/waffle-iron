@@ -445,7 +445,7 @@ fn main() {
         eprintln!("Wrote {}", json_path.display());
 
         // Solve
-        let solved = solve_sketch(&sketch);
+        let solved = solve_sketch(&sketch).expect("workbench solve");
         eprintln!(
             "  {name}: status={:?}, points={}, profiles={}",
             solved.status,

@@ -3150,7 +3150,7 @@ fn main() {
 }
 
 fn solve_and_render(name: &str, sketch: Sketch) -> Result<(), Box<dyn std::error::Error>> {
-    let solved = solve_sketch(&sketch);
+    let solved = solve_sketch(&sketch).expect("workbench solve");
 
     let svg_str = render_sketch_svg(&sketch, &solved);
     let png_data = render_sketch_png(&svg_str, 800, 600);

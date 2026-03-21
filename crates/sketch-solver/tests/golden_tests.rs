@@ -21,7 +21,7 @@ fn golden_reference_path(name: &str) -> std::path::PathBuf {
 }
 
 fn assert_golden(name: &str, sketch: &sketch_solver::Sketch) {
-    let solved = solve_sketch(sketch);
+    let solved = solve_sketch(sketch).expect("valid test input");
     let svg = render_sketch_svg(sketch, &solved);
 
     let ref_path = golden_reference_path(name);

@@ -7,6 +7,7 @@ use std::collections::HashMap;
 
 use crate::types::{EntityId, PointId, SketchEntity};
 
+use super::error::ValidationError;
 use super::types::{LineIdx, PointIdx, RadiusDef, RadiusIdx};
 
 pub struct ParamLayout {
@@ -89,7 +90,7 @@ impl ParamLayout {
                 }
                 SketchEntity::Circle { id, radius, .. } => {
                     if let Some(idx) = self.radius_indices.get(&EntityId::from(*id)) {
-                        params[idx.0] = *radius;
+                        params[idx.index()] = *radius;
                     }
                 }
                 _ => {}
@@ -98,33 +99,40 @@ impl ParamLayout {
         params
     }
 
-    pub fn point(&self, id: PointId) -> PointIdx {
-        self.point_indices[&id]
+    pub fn point(&self, id: PointId) -> Result<PointIdx, ValidationError> {
+        self.point_indices
+            .get(&id)
+            .copied()
+            .ok_or(ValidationError::UnknownPoint(id))
     }
 
-    pub fn radius(&self, id: EntityId) -> RadiusIdx {
-        self.radius_indices[&id]
+    pub fn radius(&self, id: EntityId) -> Result<RadiusIdx, ValidationError> {
+        self.radius_indices
+            .get(&id)
+            .copied()
+            .ok_or(ValidationError::UnknownEntity(id))
     }
 
-    pub fn radius_def(&self, entity_id: EntityId) -> RadiusDef {
+    pub fn radius_def(&self, entity_id: EntityId) -> Result<RadiusDef, ValidationError> {
         if let Some(r) = self.radius_indices.get(&entity_id) {
-            RadiusDef::Param(*r)
+            Ok(RadiusDef::Param(*r))
         } else if let Some((_center_id, start_id)) = self.arc_points.get(&entity_id) {
-            RadiusDef::Implicit(self.point(*start_id))
+            Ok(RadiusDef::Implicit(self.point(*start_id)?))
         } else {
-            panic!(
-                "radius_def() called for entity {:?} which is not a circle or arc",
-                entity_id
-            );
+            Err(ValidationError::UnknownEntity(entity_id))
         }
     }
 
-    pub fn line(&self, line_id: EntityId) -> LineIdx {
-        let (start_id, end_id) = self.line_points[&line_id];
-        LineIdx {
-            start: self.point(start_id),
-            end: self.point(end_id),
-        }
+    pub fn line(&self, line_id: EntityId) -> Result<LineIdx, ValidationError> {
+        let (start_id, end_id) = self
+            .line_points
+            .get(&line_id)
+            .copied()
+            .ok_or(ValidationError::UnknownEntity(line_id))?;
+        Ok(LineIdx {
+            start: self.point(start_id)?,
+            end: self.point(end_id)?,
+        })
     }
 
     pub fn num_params(&self) -> usize {
@@ -132,9 +140,16 @@ impl ParamLayout {
     }
 
     /// Get the (center_id, start_id) for an arc entity.
-    pub fn arc_center_start(&self, arc_id: EntityId) -> (PointIdx, PointIdx) {
-        let (center_id, start_id) = self.arc_points[&arc_id];
-        (self.point(center_id), self.point(start_id))
+    pub fn arc_center_start(
+        &self,
+        arc_id: EntityId,
+    ) -> Result<(PointIdx, PointIdx), ValidationError> {
+        let (center_id, start_id) = self
+            .arc_points
+            .get(&arc_id)
+            .copied()
+            .ok_or(ValidationError::UnknownEntity(arc_id))?;
+        Ok((self.point(center_id)?, self.point(start_id)?))
     }
 
     /// Check if an entity has arc data.
@@ -162,13 +177,15 @@ impl ParamLayout {
     pub fn extract_radii(&self, params: &[f64]) -> HashMap<EntityId, f64> {
         let mut radii = HashMap::new();
         for (id, idx) in &self.radius_indices {
-            radii.insert(*id, params[idx.0]);
+            radii.insert(*id, params[idx.index()]);
         }
         for (id, (center_id, start_id)) in &self.arc_points {
-            let cx = params[self.point(*center_id).x()];
-            let cy = params[self.point(*center_id).y()];
-            let sx = params[self.point(*start_id).x()];
-            let sy = params[self.point(*start_id).y()];
+            let c = self.point_indices[center_id];
+            let s = self.point_indices[start_id];
+            let cx = params[c.x()];
+            let cy = params[c.y()];
+            let sx = params[s.x()];
+            let sy = params[s.y()];
             let r = ((sx - cx).powi(2) + (sy - cy).powi(2)).sqrt();
             radii.insert(*id, r);
         }
@@ -219,10 +236,10 @@ mod tests {
     #[test]
     fn layout_point_indices() {
         let layout = ParamLayout::from_entities(&sample_entities());
-        assert_eq!(layout.point(PointId(1)).x(), 0);
-        assert_eq!(layout.point(PointId(1)).y(), 1);
-        assert_eq!(layout.point(PointId(2)).x(), 2);
-        assert_eq!(layout.point(PointId(3)).x(), 4);
+        assert_eq!(layout.point(PointId(1)).unwrap().x(), 0);
+        assert_eq!(layout.point(PointId(1)).unwrap().y(), 1);
+        assert_eq!(layout.point(PointId(2)).unwrap().x(), 2);
+        assert_eq!(layout.point(PointId(3)).unwrap().x(), 4);
         assert_eq!(layout.num_params(), 7); // 3 points * 2 + 1 radius
     }
 
@@ -237,16 +254,16 @@ mod tests {
     #[test]
     fn layout_line_idx() {
         let layout = ParamLayout::from_entities(&sample_entities());
-        let l = layout.line(EntityId(10));
-        assert_eq!(l.start, layout.point(PointId(1)));
-        assert_eq!(l.end, layout.point(PointId(2)));
+        let l = layout.line(EntityId(10)).unwrap();
+        assert_eq!(l.start, layout.point(PointId(1)).unwrap());
+        assert_eq!(l.end, layout.point(PointId(2)).unwrap());
     }
 
     #[test]
     fn layout_radius_def_circle() {
         let layout = ParamLayout::from_entities(&sample_entities());
         assert!(matches!(
-            layout.radius_def(EntityId(20)),
+            layout.radius_def(EntityId(20)).unwrap(),
             RadiusDef::Param(_)
         ));
     }
@@ -282,7 +299,7 @@ mod tests {
         ];
         let layout = ParamLayout::from_entities(&entities);
         assert!(matches!(
-            layout.radius_def(EntityId(30)),
+            layout.radius_def(EntityId(30)).unwrap(),
             RadiusDef::Implicit(_)
         ));
     }

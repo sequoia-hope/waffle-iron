@@ -16,7 +16,7 @@ fn count_occurrences(haystack: &str, needle: &str) -> usize {
 #[test]
 fn rectangle_has_four_lines() {
     let sketch = fixtures::rectangle_sketch();
-    let solved = solve_sketch(&sketch);
+    let solved = solve_sketch(&sketch).expect("valid test input");
     let svg = render_sketch_svg(&sketch, &solved);
 
     // 4 entity lines (not counting grid lines)
@@ -32,7 +32,7 @@ fn rectangle_has_four_lines() {
 #[test]
 fn rectangle_has_point_dots() {
     let sketch = fixtures::rectangle_sketch();
-    let solved = solve_sketch(&sketch);
+    let solved = solve_sketch(&sketch).expect("valid test input");
     let svg = render_sketch_svg(&sketch, &solved);
 
     // Points are rendered as filled circles with status color
@@ -48,7 +48,7 @@ fn rectangle_has_point_dots() {
 #[test]
 fn rectangle_has_constraint_badges() {
     let sketch = fixtures::rectangle_sketch();
-    let solved = solve_sketch(&sketch);
+    let solved = solve_sketch(&sketch).expect("valid test input");
     let svg = render_sketch_svg(&sketch, &solved);
 
     // Should have H and V badges
@@ -59,7 +59,7 @@ fn rectangle_has_constraint_badges() {
 #[test]
 fn rectangle_has_grid() {
     let sketch = fixtures::rectangle_sketch();
-    let solved = solve_sketch(&sketch);
+    let solved = solve_sketch(&sketch).expect("valid test input");
     let svg = render_sketch_svg(&sketch, &solved);
 
     assert!(svg.contains("grid-minor"), "Missing minor grid");
@@ -69,7 +69,7 @@ fn rectangle_has_grid() {
 #[test]
 fn circle_has_circle_element() {
     let sketch = fixtures::circle_sketch();
-    let solved = solve_sketch(&sketch);
+    let solved = solve_sketch(&sketch).expect("valid test input");
     let svg = render_sketch_svg(&sketch, &solved);
 
     // Should contain a circle element with blue stroke
@@ -82,7 +82,7 @@ fn circle_has_circle_element() {
 #[test]
 fn underconstrained_has_amber_dots() {
     let sketch = fixtures::underconstrained_sketch();
-    let solved = solve_sketch(&sketch);
+    let solved = solve_sketch(&sketch).expect("valid test input");
     let svg = render_sketch_svg(&sketch, &solved);
 
     assert!(
@@ -101,7 +101,7 @@ fn underconstrained_has_amber_dots() {
 #[test]
 fn overconstrained_has_red_dots() {
     let sketch = fixtures::overconstrained_sketch();
-    let solved = solve_sketch(&sketch);
+    let solved = solve_sketch(&sketch).expect("valid test input");
     let svg = render_sketch_svg(&sketch, &solved);
 
     // Over-constrained or solve-failed → red dots
@@ -125,7 +125,7 @@ fn overconstrained_has_red_dots() {
 #[test]
 fn svg_is_valid_xml() {
     for (name, sketch) in fixtures::all_fixtures() {
-        let solved = solve_sketch(&sketch);
+        let solved = solve_sketch(&sketch).expect("valid test input");
         let svg = render_sketch_svg(&sketch, &solved);
         assert!(
             svg.starts_with("<svg"),
@@ -141,7 +141,7 @@ fn svg_is_valid_xml() {
 #[test]
 fn svg_has_viewbox() {
     for (name, sketch) in fixtures::all_fixtures() {
-        let solved = solve_sketch(&sketch);
+        let solved = solve_sketch(&sketch).expect("valid test input");
         let svg = render_sketch_svg(&sketch, &solved);
         assert!(
             svg.contains("viewBox"),
@@ -153,7 +153,7 @@ fn svg_has_viewbox() {
 #[test]
 fn all_fixtures_render_without_panic() {
     for (name, sketch) in fixtures::all_fixtures() {
-        let solved = solve_sketch(&sketch);
+        let solved = solve_sketch(&sketch).expect("valid test input");
         let svg = render_sketch_svg(&sketch, &solved);
         assert!(!svg.is_empty(), "Fixture '{name}' produced empty SVG");
     }
