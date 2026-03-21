@@ -68,14 +68,18 @@ pub(crate) fn tessellate_solid_ext(
     // bounded tessellation for watertight-by-construction output.
     // Requirements for bounded path:
     //   1. Must NOT have arc edges. Parallel cyl-cyl booleans produce arc edges
-    //      whose ring topology the bounded path doesn't yet handle correctly.
-    //      Non-parallel cyl-cyl (elliptical edges), box-minus-cyl (circular edges),
-    //      and box-only booleans use the bounded path successfully.
+    //      whose trimmed-cylinder face topology the bounded path's ring-building
+    //      logic doesn't yet handle correctly. These go through the fan path
+    //      with post-hoc position-based vertex welding for cross-face sharing.
     //   2. Must NOT be polygon-soup. Polygon-soup B-Rep from S-H clipping may
     //      contain internal faces; bounded tessellation's shared vertices make
     //      these indistinguishable from external faces, preventing removal.
     //      The fan path's per-face vertices allow `remove_isolated_triangles`
     //      to identify and remove internal face fragments.
+    // Track whether this is an arc-edge boolean result that needs post-hoc
+    // vertex welding for cross-face index sharing.
+    let mut needs_arc_welding = false;
+
     if cylinder_params.is_none()
         && revolve_params.is_none()
         && sphere_params.is_none()
@@ -89,6 +93,11 @@ pub(crate) fn tessellate_solid_ext(
         if !has_arcs {
             return tessellate_solid_bounded(arena, face_map, face_geometry, _edge_geometry);
         }
+        // Arc-edge boolean results: fall through to fan path below, which
+        // handles trimmed cylindrical face topology correctly. After the fan
+        // path produces the mesh, we apply position-based vertex welding to
+        // create cross-face index sharing at arc edge positions.
+        needs_arc_welding = true;
     }
 
     // Sphere solids: tessellate all faces as a single shared-vertex mesh.
@@ -581,12 +590,87 @@ pub(crate) fn tessellate_solid_ext(
     // (all face normals point inward). Flip all windings and normals.
     fix_global_orientation(&mut vertices, &mut normals, &mut indices);
 
+    // For arc-edge boolean results, weld vertices at arc-edge positions across
+    // face boundaries. The fan path produces per-face vertex blocks (no index
+    // sharing), but watertight-by-construction requires cross-face shared
+    // indices at shared topological edges. We identify arc-edge discretization
+    // positions and remap face-local vertices at those positions to a single
+    // shared vertex index per unique position.
+    if needs_arc_welding {
+        weld_arc_edge_vertices(arena, _edge_geometry, &vertices, &normals, &mut indices);
+    }
+
     Ok(RenderMesh {
         vertices,
         normals,
         indices,
         face_ranges,
     })
+}
+
+/// Weld mesh vertices at arc-edge positions so that adjacent faces sharing
+/// a topological arc edge reference the same vertex index. This creates
+/// cross-face index sharing for watertight-by-construction output without
+/// requiring the bounded tessellation path (which can't handle trimmed
+/// cylindrical face topology from cyl-cyl SSI results).
+///
+/// Only vertices at positions matching arc-edge discretization points are
+/// welded. Other vertices (interior, linear-edge boundary) remain per-face.
+fn weld_arc_edge_vertices(
+    arena: &TopoArena,
+    edge_geometry: &HashMap<EdgeIdx, CurveGeom>,
+    vertices: &[f32],
+    _normals: &[f32],
+    indices: &mut [u32],
+) {
+    let disc = discretize_edges(arena, edge_geometry);
+
+    // Collect positions from arc edges only.
+    let mut arc_positions: HashMap<(i64, i64, i64), u32> = HashMap::new();
+    for (&edge_idx, geom) in edge_geometry.iter() {
+        if !matches!(geom, CurveGeom::Arc(_)) {
+            continue;
+        }
+        if let Some(verts) = disc.edge_verts.get(&edge_idx) {
+            for &vi in verts {
+                let pos = disc.positions[vi];
+                let key = (
+                    (pos[0] * 1e7).round() as i64,
+                    (pos[1] * 1e7).round() as i64,
+                    (pos[2] * 1e7).round() as i64,
+                );
+                // Insert the first mesh vertex index that matches this position.
+                arc_positions.entry(key).or_insert(u32::MAX);
+            }
+        }
+    }
+
+    if arc_positions.is_empty() {
+        return;
+    }
+
+    // Build remap: for each mesh vertex at an arc position, map to the first
+    // mesh vertex index at that position.
+    let n_verts = vertices.len() / 3;
+    let mut remap: Vec<u32> = (0..n_verts as u32).collect();
+    for vi in 0..n_verts {
+        let key = (
+            (vertices[vi * 3] as f64 * 1e7).round() as i64,
+            (vertices[vi * 3 + 1] as f64 * 1e7).round() as i64,
+            (vertices[vi * 3 + 2] as f64 * 1e7).round() as i64,
+        );
+        if let Some(first) = arc_positions.get_mut(&key) {
+            if *first == u32::MAX {
+                *first = vi as u32;
+            }
+            remap[vi] = *first;
+        }
+    }
+
+    // Apply remap to indices.
+    for idx in indices.iter_mut() {
+        *idx = remap[*idx as usize];
+    }
 }
 
 /// Tessellate a circular cap as a fan: center + N perimeter vertices, N triangles.

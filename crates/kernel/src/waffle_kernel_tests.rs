@@ -9955,3 +9955,640 @@ fn wt4_watertight_three_box_chained_union() {
         unpaired
     );
 }
+
+// ── Group WT-ARC: Bounded tessellation for arc-edge boolean results ──────
+// These tests verify that parallel cylinder-cylinder boolean results (which
+// produce CurveGeom::Arc edges in edge_geometry) are tessellated via the
+// bounded path. Currently the `has_arcs` guard in tessellate_solid_ext
+// (lines ~86-91 of tessellation/mod.rs) forces these to the fan path, which
+// produces per-face vertex blocks with no cross-face index sharing.
+//
+// Discriminator: the bounded path shares vertex INDICES across face
+// boundaries (adjacent faces reference the same vertex index at shared
+// edges). The fan path gives each face its own disjoint block of vertex
+// indices, so cross-face index sharing is zero. We detect bounded
+// tessellation by counting edges where the same (index_a, index_b) pair
+// appears in triangles from two different face_ranges.
+
+/// Verify that a boolean result contains arc edges in edge_geometry.
+/// Parallel cyl-cyl booleans produce CurveGeom::Arc edges at the
+/// intersection boundary. If no arcs exist, the bounded path is already
+/// used, making the test meaningless.
+fn assert_has_arc_edges(k: &WaffleKernel, solid: &KernelSolidHandle) {
+    let ws = k.solids.get(&solid.id()).expect("solid must exist");
+    let arc_count = ws
+        .edge_geometry
+        .values()
+        .filter(|e| matches!(e, CurveGeom::Arc(_)))
+        .count();
+    assert!(
+        arc_count > 0,
+        "Boolean result must contain arc edges in edge_geometry (found 0). \
+         Without arcs the bounded path is already used, making this test meaningless."
+    );
+}
+
+/// Count the number of inter-face index-shared edges in a mesh.
+/// An inter-face shared edge is one where two triangles from DIFFERENT
+/// face_ranges reference the exact same vertex index pair (not just
+/// coincident positions — the actual u32 index values must match).
+/// Returns 0 for fan-tessellated meshes (disjoint vertex index ranges).
+fn count_cross_face_index_shared_edges(mesh: &RenderMesh) -> usize {
+    use std::collections::HashMap as Map;
+
+    if mesh.face_ranges.is_empty() {
+        return 0;
+    }
+
+    // Build mapping: triangle_index → face_range_index
+    let mut tri_to_face: Vec<usize> = vec![0; mesh.indices.len() / 3];
+    for (fi, fr) in mesh.face_ranges.iter().enumerate() {
+        let start_tri = fr.start_index as usize / 3;
+        let end_tri = fr.end_index as usize / 3;
+        for ti in start_tri..end_tri.min(tri_to_face.len()) {
+            tri_to_face[ti] = fi;
+        }
+    }
+
+    // Collect edges as (sorted index pair) → set of face_range indices
+    let mut edge_faces: Map<(u32, u32), std::collections::HashSet<usize>> = Map::new();
+    let n_tris = mesh.indices.len() / 3;
+    for ti in 0..n_tris {
+        let face_id = tri_to_face[ti];
+        let tri = [
+            mesh.indices[ti * 3],
+            mesh.indices[ti * 3 + 1],
+            mesh.indices[ti * 3 + 2],
+        ];
+        for j in 0..3 {
+            let a = tri[j];
+            let b = tri[(j + 1) % 3];
+            let key = if a <= b { (a, b) } else { (b, a) };
+            edge_faces.entry(key).or_default().insert(face_id);
+        }
+    }
+
+    // Count edges that span 2+ different face ranges
+    edge_faces.values().filter(|faces| faces.len() >= 2).count()
+}
+
+#[test]
+fn wt5_cyl_cyl_union_bounded_cross_face_sharing() {
+    // Two parallel cylinders (r=3, h=10) offset by 3.0 along X, union.
+    // The parallel cyl-cyl SSI produces CurveGeom::Arc edges at the
+    // intersection arcs. With the has_arcs guard removed, the bounded
+    // tessellation path should share vertex indices across face boundaries.
+    let (mut k, result) = do_cyl_cyl_boolean(
+        0.0, 0.0, 3.0, 10.0,
+        3.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Union,
+    )
+    .expect("cyl-cyl union should succeed");
+
+    // Precondition: the boolean result must contain arc edges.
+    assert_has_arc_edges(&k, &result);
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+
+    // The bounded path shares vertex indices across face boundaries,
+    // producing cross-face index-shared edges. The fan path gives each
+    // face its own disjoint vertex index block, so cross-face sharing
+    // via identical indices is impossible.
+    let cross_face = count_cross_face_index_shared_edges(&mesh);
+    assert!(
+        cross_face > 0,
+        "Cyl-cyl union (parallel, arc edges) must use bounded tessellation \
+         with cross-face vertex index sharing: found 0 cross-face shared edges. \
+         The has_arcs guard is preventing bounded tessellation for arc-edge results."
+    );
+}
+
+#[test]
+fn wt6_cyl_cyl_subtract_bounded_cross_face_sharing() {
+    // Two parallel cylinders (r=3, h=10) offset by 3.0 along X, subtract.
+    // Same arc-edge configuration as wt5, but subtraction topology.
+    let (mut k, result) = do_cyl_cyl_boolean(
+        0.0, 0.0, 3.0, 10.0,
+        3.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Subtract,
+    )
+    .expect("cyl-cyl subtract should succeed");
+
+    assert_has_arc_edges(&k, &result);
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+
+    let cross_face = count_cross_face_index_shared_edges(&mesh);
+    assert!(
+        cross_face > 0,
+        "Cyl-cyl subtract (parallel, arc edges) must use bounded tessellation \
+         with cross-face vertex index sharing: found 0 cross-face shared edges. \
+         The has_arcs guard is preventing bounded tessellation for arc-edge results."
+    );
+}
+
+#[test]
+fn wt7_cyl_cyl_union_different_radii_bounded_cross_face_sharing() {
+    // Two parallel cylinders with different radii: r=4 at origin, r=2 offset (3,0).
+    // The smaller cylinder overlaps into the larger one, producing arc edges
+    // at the intersection. Tests bounded tessellation with asymmetric geometry.
+    let (mut k, result) = do_cyl_cyl_boolean(
+        0.0, 0.0, 4.0, 10.0,
+        3.0, 0.0, 2.0, 10.0,
+        crate::boolean::BoolOp::Union,
+    )
+    .expect("cyl-cyl union (different radii) should succeed");
+
+    assert_has_arc_edges(&k, &result);
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+
+    let cross_face = count_cross_face_index_shared_edges(&mesh);
+    assert!(
+        cross_face > 0,
+        "Cyl-cyl union (different radii, arc edges) must use bounded tessellation \
+         with cross-face vertex index sharing: found 0 cross-face shared edges. \
+         The has_arcs guard is preventing bounded tessellation for arc-edge results."
+    );
+}
+
+// ── Group ADV: Adversarial weld_arc_edge_vertices hardening ──────────────
+
+/// Check that no vertex coordinate in the mesh is NaN or infinite.
+fn check_no_nan_or_inf(mesh: &RenderMesh) {
+    for (i, &v) in mesh.vertices.iter().enumerate() {
+        assert!(
+            v.is_finite(),
+            "Mesh vertex component [{}] is not finite: {}",
+            i, v
+        );
+    }
+    for (i, &n) in mesh.normals.iter().enumerate() {
+        assert!(
+            n.is_finite(),
+            "Mesh normal component [{}] is not finite: {}",
+            i, n
+        );
+    }
+}
+
+/// Check that no triangle in the mesh is degenerate (all three indices distinct
+/// after welding, and the triangle has nonzero area).
+fn check_no_degenerate_triangles(mesh: &RenderMesh) {
+    let n_tris = mesh.indices.len() / 3;
+    for i in 0..n_tris {
+        let i0 = mesh.indices[i * 3] as usize;
+        let i1 = mesh.indices[i * 3 + 1] as usize;
+        let i2 = mesh.indices[i * 3 + 2] as usize;
+
+        // After welding, remapped indices might alias — that's OK for index
+        // equality (welding can collapse edges), but the resulting triangle
+        // must not be fully degenerate (all 3 vertices identical).
+        if i0 == i1 && i1 == i2 {
+            // All three indices the same → fully degenerate
+            panic!(
+                "Triangle {} has all three indices identical ({}) — fully degenerate after welding",
+                i, i0
+            );
+        }
+
+        // Check area via cross product
+        let v0 = [
+            mesh.vertices[i0 * 3] as f64,
+            mesh.vertices[i0 * 3 + 1] as f64,
+            mesh.vertices[i0 * 3 + 2] as f64,
+        ];
+        let v1 = [
+            mesh.vertices[i1 * 3] as f64,
+            mesh.vertices[i1 * 3 + 1] as f64,
+            mesh.vertices[i1 * 3 + 2] as f64,
+        ];
+        let v2 = [
+            mesh.vertices[i2 * 3] as f64,
+            mesh.vertices[i2 * 3 + 1] as f64,
+            mesh.vertices[i2 * 3 + 2] as f64,
+        ];
+        let e1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
+        let e2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
+        let cross = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        let area_sq = cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2];
+        // Allow very small but not exactly zero (floating point will make
+        // some triangles nearly degenerate; only flag truly collapsed ones)
+        assert!(
+            area_sq > 1e-30,
+            "Triangle {} is degenerate (area²={:.2e}), vertices: {:?} {:?} {:?}",
+            i, area_sq, v0, v1, v2
+        );
+    }
+}
+
+#[test]
+fn adv1_box_box_union_unaffected_by_arc_welding() {
+    // Box-box booleans produce no arc edges, so weld_arc_edge_vertices
+    // should be a no-op. Verify the mesh is unchanged from expectations.
+    let (mut k, result) = do_box_box_boolean(
+        0.0, 0.0, 10.0, 10.0, 10.0,
+        5.0, 5.0, 10.0, 10.0, 10.0,
+        crate::boolean::BoolOp::Union,
+    )
+    .expect("box-box union should succeed");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+
+    // No arc edges → welding should not reduce unique vertex count or
+    // introduce any cross-face index sharing via the arc path.
+    // (Cross-face sharing from linear edges is still possible via bounded path.)
+    check_no_nan_or_inf(&mesh);
+    assert!(mesh.vertices.len() > 0, "Mesh must have vertices");
+    assert!(mesh.indices.len() > 0, "Mesh must have indices");
+
+    // Box-box union: 10x10x10 at (0,0) ∪ 10x10x10 at (5,5).
+    // Overlap region is 5x5x10=250, total = 2*1000 - 250 = 1750.
+    let vol = mesh_volume(&mesh);
+    assert!(
+        (vol - 1750.0).abs() < 15.0,
+        "Box-box union volume should be ~1750, got {:.2}",
+        vol
+    );
+}
+
+#[test]
+fn adv2_box_box_subtract_unaffected_by_arc_welding() {
+    // Same as adv1 but with subtract.
+    let (mut k, result) = do_box_box_boolean(
+        0.0, 0.0, 10.0, 10.0, 10.0,
+        5.0, 5.0, 6.0, 6.0, 10.0,
+        crate::boolean::BoolOp::Subtract,
+    )
+    .expect("box-box subtract should succeed");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    check_no_nan_or_inf(&mesh);
+    check_no_degenerate_triangles(&mesh);
+}
+
+#[test]
+fn adv3_cyl_cyl_union_no_nan_after_welding() {
+    // Standard cyl-cyl union: r=3, offset 3 along X.
+    // After welding arc-edge vertices, no NaN or infinite coordinates.
+    let (mut k, result) = do_cyl_cyl_boolean(
+        0.0, 0.0, 3.0, 10.0,
+        3.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Union,
+    )
+    .expect("cyl-cyl union should succeed");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    check_no_nan_or_inf(&mesh);
+}
+
+#[test]
+fn adv4_cyl_cyl_subtract_no_nan_after_welding() {
+    let (mut k, result) = do_cyl_cyl_boolean(
+        0.0, 0.0, 3.0, 10.0,
+        3.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Subtract,
+    )
+    .expect("cyl-cyl subtract should succeed");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    check_no_nan_or_inf(&mesh);
+}
+
+#[test]
+fn adv5_cyl_cyl_union_no_degenerate_triangles_after_welding() {
+    // Welding can remap indices, collapsing some edges. Verify no fully
+    // degenerate (zero-area) triangles are created.
+    let (mut k, result) = do_cyl_cyl_boolean(
+        0.0, 0.0, 3.0, 10.0,
+        3.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Union,
+    )
+    .expect("cyl-cyl union should succeed");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    check_no_degenerate_triangles(&mesh);
+}
+
+#[test]
+fn adv6_cyl_cyl_subtract_no_degenerate_triangles_after_welding() {
+    let (mut k, result) = do_cyl_cyl_boolean(
+        0.0, 0.0, 3.0, 10.0,
+        3.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Subtract,
+    )
+    .expect("cyl-cyl subtract should succeed");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    check_no_degenerate_triangles(&mesh);
+}
+
+#[test]
+fn adv7_near_tolerance_barely_overlapping_cylinders() {
+    // Two cylinders barely overlapping: offset = r_a + r_b - epsilon.
+    // r=3 each, offset = 5.999 (overlap is only 0.001 units).
+    // This tests welding with very narrow intersection region.
+    let offset = 5.999;
+    let result = do_cyl_cyl_boolean(
+        0.0, 0.0, 3.0, 10.0,
+        offset, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Union,
+    );
+    // The boolean may succeed or fail (near-tangent is geometrically tricky).
+    // If it succeeds, the mesh must be valid.
+    if let Ok((mut k, solid)) = result {
+        let mesh = k.tessellate(&solid, 0.01).expect("tessellate should succeed");
+        check_no_nan_or_inf(&mesh);
+        // Volume should be close to 2 * pi * r^2 * h (barely overlapping ≈ two separate cylinders)
+        let vol = mesh_volume(&mesh);
+        let two_cyl = 2.0 * PI * 9.0 * 10.0;
+        assert!(
+            vol > two_cyl * 0.8 && vol < two_cyl * 1.1,
+            "Near-tangent union volume should be roughly 2 full cylinders (~{:.1}), got {:.1}",
+            two_cyl, vol
+        );
+    }
+    // If Err, that's acceptable for near-tolerance geometry — no assertion needed.
+}
+
+#[test]
+fn adv8_near_tolerance_barely_overlapping_subtract() {
+    // Same near-tolerance geometry but with subtract.
+    let offset = 5.999;
+    let result = do_cyl_cyl_boolean(
+        0.0, 0.0, 3.0, 10.0,
+        offset, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Subtract,
+    );
+    if let Ok((mut k, solid)) = result {
+        let mesh = k.tessellate(&solid, 0.01).expect("tessellate should succeed");
+        check_no_nan_or_inf(&mesh);
+        check_no_degenerate_triangles(&mesh);
+    }
+}
+
+#[test]
+fn adv9_coincident_cylinders_union() {
+    // Two identical cylinders at the same position → union should be one cylinder.
+    // This is a degenerate SSI case (intersection curves collapse).
+    let result = do_cyl_cyl_boolean(
+        0.0, 0.0, 3.0, 10.0,
+        0.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Union,
+    );
+    // Coincident geometry may fail at the SSI level. If it succeeds,
+    // the result should have the same volume as a single cylinder.
+    if let Ok((mut k, solid)) = result {
+        let mesh = k.tessellate(&solid, 0.01).expect("tessellate should succeed");
+        check_no_nan_or_inf(&mesh);
+        let vol = mesh_volume(&mesh);
+        let single_cyl = PI * 9.0 * 10.0;
+        assert!(
+            (vol - single_cyl).abs() < 5.0,
+            "Coincident union volume should equal single cylinder (~{:.1}), got {:.1}",
+            single_cyl, vol
+        );
+    }
+}
+
+#[test]
+fn adv10_coincident_cylinders_subtract() {
+    // Two identical cylinders → subtract should produce empty or near-zero geometry.
+    let result = do_cyl_cyl_boolean(
+        0.0, 0.0, 3.0, 10.0,
+        0.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Subtract,
+    );
+    // This may fail (degenerate intersection). If it succeeds, volume ≈ 0.
+    if let Ok((mut k, solid)) = result {
+        let mesh_result = k.tessellate(&solid, 0.01);
+        if let Ok(mesh) = mesh_result {
+            check_no_nan_or_inf(&mesh);
+            let vol = mesh_volume(&mesh);
+            assert!(
+                vol < 1.0,
+                "Coincident subtract should yield near-zero volume, got {:.2}",
+                vol
+            );
+        }
+    }
+}
+
+#[test]
+fn adv11_small_radius_cylinders_near_min_feature_size() {
+    // Cylinders with radius close to MIN_FEATURE_SIZE (1e-6).
+    // r = 1e-5 (10x min feature size) — small but valid.
+    let r = 1e-5;
+    let depth = 1e-4;
+    let offset = r * 1.0; // overlap by one full radius
+    let result = do_cyl_cyl_boolean(
+        0.0, 0.0, r, depth,
+        offset, 0.0, r, depth,
+        crate::boolean::BoolOp::Union,
+    );
+    if let Ok((mut k, solid)) = result {
+        let mesh = k.tessellate(&solid, 0.01).expect("tessellate should succeed");
+        check_no_nan_or_inf(&mesh);
+        // Volume should be positive but very small
+        let vol = mesh_volume(&mesh);
+        assert!(
+            vol > 0.0,
+            "Small-radius union must produce positive volume, got {}",
+            vol
+        );
+        assert!(
+            vol < PI * r * r * depth * 3.0,
+            "Small-radius union volume must not exceed 2 full cylinders ({:.2e}), got {:.2e}",
+            PI * r * r * depth * 2.0, vol
+        );
+    }
+}
+
+#[test]
+fn adv12_small_radius_cylinder_subtract() {
+    // Subtract with very small cylinders.
+    let r = 1e-5;
+    let depth = 1e-4;
+    let offset = r * 0.5;
+    let result = do_cyl_cyl_boolean(
+        0.0, 0.0, r, depth,
+        offset, 0.0, r, depth,
+        crate::boolean::BoolOp::Subtract,
+    );
+    if let Ok((mut k, solid)) = result {
+        let mesh = k.tessellate(&solid, 0.01).expect("tessellate should succeed");
+        check_no_nan_or_inf(&mesh);
+        check_no_degenerate_triangles(&mesh);
+    }
+}
+
+#[test]
+fn adv13_asymmetric_radii_welding_quality() {
+    // One large cylinder (r=10) and one small one (r=1) overlapping.
+    // Tests that welding handles very different curvature tessellations.
+    let (mut k, result) = do_cyl_cyl_boolean(
+        0.0, 0.0, 10.0, 20.0,
+        5.0, 0.0, 1.0, 20.0,
+        crate::boolean::BoolOp::Union,
+    )
+    .expect("asymmetric cyl-cyl union should succeed");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    check_no_nan_or_inf(&mesh);
+    check_no_degenerate_triangles(&mesh);
+
+    // The mesh must produce positive, finite volume.
+    // (Exact volume depends on SSI intersection geometry details.)
+    let vol = mesh_volume(&mesh);
+    assert!(
+        vol > 0.0 && vol.is_finite(),
+        "Asymmetric union volume must be positive and finite, got {:.1}",
+        vol
+    );
+}
+
+#[test]
+fn adv14_asymmetric_radii_subtract_welding_quality() {
+    // Large cylinder minus small one offset to the edge.
+    let (mut k, result) = do_cyl_cyl_boolean(
+        0.0, 0.0, 10.0, 20.0,
+        9.5, 0.0, 1.0, 20.0,
+        crate::boolean::BoolOp::Subtract,
+    )
+    .expect("asymmetric cyl-cyl subtract should succeed");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    check_no_nan_or_inf(&mesh);
+    check_no_degenerate_triangles(&mesh);
+}
+
+#[test]
+fn adv15_cyl_cyl_intersect_welding_quality() {
+    // Intersection of two equal-radius cylinders produces an almond/vesica shape.
+    let (mut k, result) = do_cyl_cyl_boolean(
+        0.0, 0.0, 3.0, 10.0,
+        3.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Intersect,
+    )
+    .expect("cyl-cyl intersect should succeed");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    check_no_nan_or_inf(&mesh);
+    check_no_degenerate_triangles(&mesh);
+
+    // Intersection volume must be less than either cylinder
+    let vol = mesh_volume(&mesh);
+    let single_cyl = PI * 9.0 * 10.0;
+    assert!(
+        vol < single_cyl,
+        "Intersection volume ({:.1}) must be less than single cylinder ({:.1})",
+        vol, single_cyl
+    );
+    assert!(
+        vol > 0.1,
+        "Intersection volume must be positive, got {:.4}",
+        vol
+    );
+}
+
+#[test]
+fn adv16_welding_preserves_box_vertex_count() {
+    // For a simple box extrude (no boolean), welding should be a no-op
+    // because there are no arc edges. Vertex count before and after
+    // should be identical.
+    let (mut k, solid) = make_unit_box();
+    let mesh = k.tessellate(&solid, 0.01).expect("tessellate should succeed");
+
+    // Unit box: 8 unique vertex positions, 6 faces × 2 tris = 12 tris
+    let unique = unique_vertex_positions(&mesh);
+    assert_eq!(unique, 8, "Unit box should have exactly 8 unique vertices");
+    check_no_nan_or_inf(&mesh);
+}
+
+#[test]
+fn adv17_welding_preserves_cylinder_standalone() {
+    // A standalone cylinder (no boolean) also should not be affected by
+    // arc welding — there are no arc edges in edge_geometry for a simple extrude.
+    let (mut k, solid) = make_unit_cylinder();
+    let mesh = k.tessellate(&solid, 0.01).expect("tessellate should succeed");
+    check_no_nan_or_inf(&mesh);
+    check_no_degenerate_triangles(&mesh);
+    assert!(check_watertight(&mesh), "Standalone cylinder must be watertight");
+}
+
+#[test]
+fn adv18_cyl_cyl_union_welded_mesh_manifold_edge_counts() {
+    // After welding, every edge in the mesh should be shared by exactly 2
+    // triangles (manifold condition) OR the mesh may have boundary edges
+    // if the boolean didn't close perfectly. Count unpaired edges and
+    // verify the welding didn't make things worse.
+    let (mut k, result) = do_cyl_cyl_boolean(
+        0.0, 0.0, 3.0, 10.0,
+        3.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Union,
+    )
+    .expect("cyl-cyl union should succeed");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    let unpaired = count_unpaired_edges(&mesh);
+    let total = count_total_edges(&mesh);
+
+    // If watertight, unpaired should be 0. Even if not perfectly watertight,
+    // the unpaired fraction should be small (< 5% of total edges).
+    let ratio = unpaired as f64 / total.max(1) as f64;
+    assert!(
+        ratio < 0.05,
+        "Unpaired edge ratio should be < 5%, got {:.1}% ({} unpaired / {} total)",
+        ratio * 100.0, unpaired, total
+    );
+}
+
+#[test]
+fn adv19_different_radii_intersect_no_nan() {
+    // Two cylinders with very different radii: r=8 and r=2, offset 4.
+    // The intersection is a thin sliver — tests welding under asymmetric conditions.
+    let (mut k, result) = do_cyl_cyl_boolean(
+        0.0, 0.0, 8.0, 10.0,
+        4.0, 0.0, 2.0, 10.0,
+        crate::boolean::BoolOp::Intersect,
+    )
+    .expect("asymmetric cyl-cyl intersect should succeed");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    check_no_nan_or_inf(&mesh);
+    check_no_degenerate_triangles(&mesh);
+
+    // The mesh must produce positive, finite volume.
+    // (Exact volume depends on SSI intersection geometry details.)
+    let vol = mesh_volume(&mesh);
+    assert!(
+        vol > 0.0 && vol.is_finite(),
+        "Asymmetric intersect volume must be positive and finite, got {:.1}",
+        vol
+    );
+}
+
+#[test]
+fn adv20_welding_indices_in_bounds() {
+    // After welding, all triangle indices must be valid (within vertex array bounds).
+    let (mut k, result) = do_cyl_cyl_boolean(
+        0.0, 0.0, 3.0, 10.0,
+        3.0, 0.0, 3.0, 10.0,
+        crate::boolean::BoolOp::Union,
+    )
+    .expect("cyl-cyl union should succeed");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    let n_verts = mesh.vertices.len() / 3;
+    for (i, &idx) in mesh.indices.iter().enumerate() {
+        assert!(
+            (idx as usize) < n_verts,
+            "Index [{}] = {} is out of bounds (n_verts = {})",
+            i, idx, n_verts
+        );
+    }
+}

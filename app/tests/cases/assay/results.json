@@ -1,18 +1,18 @@
 {
-  "errored": 4,
-  "failed": 84,
+  "errored": 7,
+  "failed": 72,
   "generated": "2026-03-21",
-  "passed": 72,
+  "passed": 81,
   "results": [
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 3 unpaired edges out of 4205 total (2 boundary, 1 non-manifold)",
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "R0001",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 67 unpaired edges out of 705 total (4 boundary, 63 non-manifold)",
+      "detail": "watertight_mesh: 66 unpaired edges out of 705 total",
       "id": "R0002",
       "status": "fail"
     },
@@ -30,7 +30,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 16 unpaired edges out of 3525 total (11 boundary, 5 non-manifold)",
+      "detail": "watertight_mesh: 1 unpaired edges out of 3524 total (0 boundary, 1 non-manifold)",
       "id": "R0005",
       "status": "fail"
     },
@@ -47,10 +47,10 @@
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 6 unpaired edges out of 3137 total (5 boundary, 1 non-manifold)",
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "R0008",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "pass-genuine",
@@ -60,13 +60,13 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 4 unpaired edges out of 2566 total (2 boundary, 2 non-manifold)",
+      "detail": "watertight_mesh: 1 unpaired edges out of 2564 total (0 boundary, 1 non-manifold)",
       "id": "R0010",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 67 unpaired edges out of 3051 total (4 boundary, 63 non-manifold)",
+      "detail": "watertight_mesh: 66 unpaired edges out of 3051 total",
       "id": "R0011",
       "status": "fail"
     },
@@ -90,7 +90,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 385 unpaired edges out of 1289 total (375 boundary, 10 non-manifold)",
+      "detail": "watertight_mesh: 376 unpaired edges out of 1283 total (369 boundary, 7 non-manifold)",
       "id": "R0015",
       "status": "fail"
     },
@@ -101,8 +101,8 @@
       "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 6 unpaired edges out of 607 total (4 boundary, 2 non-manifold); consistent_normals: 12 of 404 triangles have reversed normals",
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 12 of 402 triangles have reversed normals",
       "id": "R0017",
       "status": "fail"
     },
@@ -120,7 +120,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 75 unpaired edges out of 703 total (12 boundary, 63 non-manifold)",
+      "detail": "watertight_mesh: 74 unpaired edges out of 703 total",
       "id": "R0020",
       "status": "fail"
     },
@@ -149,14 +149,14 @@
       "status": "pass"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 3 unpaired edges out of 1858 total (1 boundary, 2 non-manifold)",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0025",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 47 unpaired edges out of 1768 total (43 boundary, 4 non-manifold)",
+      "detail": "watertight_mesh: 33 unpaired edges out of 1764 total",
       "id": "R0026",
       "status": "fail"
     },
@@ -179,14 +179,14 @@
       "status": "pass"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 6 unpaired edges out of 196 total (4 boundary, 2 non-manifold)",
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "R0030",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 573 unpaired edges out of 6249 total (538 boundary, 35 non-manifold)",
+      "detail": "watertight_mesh: 474 unpaired edges out of 5783 total (459 boundary, 15 non-manifold)",
       "id": "R0031",
       "status": "fail"
     },
@@ -240,19 +240,19 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 71 unpaired edges out of 1484 total (4 boundary, 67 non-manifold); consistent_normals: 12 of 1032 triangles have reversed normals",
+      "detail": "watertight_mesh: 69 unpaired edges out of 1485 total (66 boundary, 3 non-manifold); consistent_normals: 10 of 970 triangles have reversed normals",
       "id": "R0040",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 68 unpaired edges out of 27284 total (2 boundary, 66 non-manifold)",
+      "detail": "watertight_mesh: 1 unpaired edges out of 28115 total (0 boundary, 1 non-manifold)",
       "id": "R0041",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 4 unpaired edges out of 178 total (2 boundary, 2 non-manifold)",
+      "detail": "watertight_mesh: 1 unpaired edges out of 176 total (0 boundary, 1 non-manifold)",
       "id": "R0042",
       "status": "fail"
     },
@@ -264,7 +264,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 18 unpaired edges out of 3810 total (15 boundary, 3 non-manifold)",
+      "detail": "watertight_mesh: 12 unpaired edges out of 3807 total",
       "id": "R0044",
       "status": "fail"
     },
@@ -276,7 +276,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 165 unpaired edges out of 3210 total (162 boundary, 3 non-manifold)",
+      "detail": "watertight_mesh: 152 unpaired edges out of 3217 total (151 boundary, 1 non-manifold)",
       "id": "R0046",
       "status": "fail"
     },
@@ -300,13 +300,13 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 242 unpaired edges out of 2836 total (236 boundary, 6 non-manifold)",
+      "detail": "watertight_mesh: 271 unpaired edges out of 2726 total",
       "id": "R0050",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 380 unpaired edges out of 16064 total (183 boundary, 197 non-manifold); consistent_normals: 262 of 11034 triangles have reversed normals",
+      "detail": "watertight_mesh: 373 unpaired edges out of 16059 total (179 boundary, 194 non-manifold); consistent_normals: 262 of 11031 triangles have reversed normals",
       "id": "R0051",
       "status": "fail"
     },
@@ -318,21 +318,21 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 772 unpaired edges out of 9458 total",
+      "detail": "watertight_mesh: 738 unpaired edges out of 9393 total",
       "id": "R0053",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 571 unpaired edges out of 9419 total (408 boundary, 163 non-manifold)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0054",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 3 unpaired edges out of 136 total (1 boundary, 2 non-manifold)",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0055",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "boolean-watertight",
@@ -341,10 +341,10 @@
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 4 unpaired edges out of 1526 total (1 boundary, 3 non-manifold)",
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "R0057",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "auto-union-failed",
@@ -360,7 +360,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 11 unpaired edges out of 229 total (7 boundary, 4 non-manifold)",
+      "detail": "watertight_mesh: 11 unpaired edges out of 229 total (10 boundary, 1 non-manifold)",
       "id": "R0060",
       "status": "fail"
     },
@@ -377,16 +377,16 @@
       "status": "pass"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 900 unpaired edges out of 10059 total (787 boundary, 113 non-manifold)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0063",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 9 unpaired edges out of 4017 total (6 boundary, 3 non-manifold)",
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "R0064",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "boolean-watertight",
@@ -426,7 +426,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1383 unpaired edges out of 4837 total (1378 boundary, 5 non-manifold)",
+      "detail": "watertight_mesh: 1368 unpaired edges out of 4827 total",
       "id": "R0071",
       "status": "fail"
     },
@@ -456,7 +456,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 25 unpaired edges out of 1565 total (10 boundary, 15 non-manifold)",
+      "detail": "watertight_mesh: 19 unpaired edges out of 1563 total (6 boundary, 13 non-manifold)",
       "id": "R0076",
       "status": "fail"
     },
@@ -515,10 +515,10 @@
       "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 3 unpaired edges out of 203 total (2 boundary, 1 non-manifold)",
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "R0086",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "pass-genuine",
@@ -558,7 +558,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 4 unpaired edges out of 2221 total (3 boundary, 1 non-manifold)",
+      "detail": "watertight_mesh: 1 unpaired edges out of 2222 total (0 boundary, 1 non-manifold)",
       "id": "R0093",
       "status": "fail"
     },
@@ -594,13 +594,13 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 195 unpaired edges out of 17254 total (1 boundary, 194 non-manifold)",
+      "detail": "watertight_mesh: 64 unpaired edges out of 18260 total (0 boundary, 64 non-manifold)",
       "id": "R0099",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 71 unpaired edges out of 1286 total (8 boundary, 63 non-manifold)",
+      "detail": "watertight_mesh: 70 unpaired edges out of 1286 total",
       "id": "R0100",
       "status": "fail"
     },
@@ -737,10 +737,10 @@
       "status": "pass"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 3 unpaired edges out of 563 total (2 boundary, 1 non-manifold)",
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "F0023",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "pass-boss-only",
@@ -894,15 +894,15 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 149 unpaired edges out of 124325 total (5 boundary, 144 non-manifold)",
+      "detail": "watertight_mesh: 140 unpaired edges out of 124320 total (0 boundary, 140 non-manifold)",
       "id": "F0049",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 133 unpaired edges out of 124129 total (2 boundary, 131 non-manifold); consistent_normals: 863 of 83991 triangles have reversed normals",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0050",
-      "status": "fail"
+      "status": "error"
     },
     {
       "category": "pass-boss-only",
