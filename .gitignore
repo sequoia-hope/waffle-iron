@@ -9,6 +9,9 @@ Cargo.lock
 # Claude Code session state
 .claude/
 
+# MCP server config (personal/editor-specific)
+.mcp.json
+
 # Docker
 .env
 
