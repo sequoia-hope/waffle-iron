@@ -3115,7 +3115,7 @@ fn tessellate_cylindrical_face_bounded(
         let is_full = {
             let a0 = angle_of(disc.positions[bottom_ring[0]]);
             let an = angle_of(disc.positions[bottom_ring[ring_len - 1]]);
-            (an - a0).abs() > std::f64::consts::TAU - 0.3
+            (an - a0).abs() > std::f64::consts::TAU - crate::units::FULL_CIRCLE_MARGIN_CONE
         };
 
         for row_idx in 0..(n_axial as u32 - 1) {

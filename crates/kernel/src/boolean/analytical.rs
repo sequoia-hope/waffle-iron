@@ -12,7 +12,7 @@ use crate::ssi::{self, Aabb};
 use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::*;
 use crate::types::*;
-use crate::units::{TAU_COINCIDENT, TAU_MODEL, TAU_WORK};
+use crate::units::{CAP_FACE_NORMAL_Z, TAU_COINCIDENT, TAU_MODEL, TAU_WORK};
 use crate::vecmath::*;
 use crate::waffle_kernel::{CylinderParams, SphereParams, WaffleSolid};
 use std::collections::BTreeMap;
@@ -1981,9 +1981,9 @@ fn build_box_minus_enclosed_cyl(
     let mut face_top = None;
     for (&fi, geom) in &result.face_geometry {
         if let SurfaceGeom::Planar(plane) = geom {
-            if plane.normal.z < -0.5 {
+            if plane.normal.z < -CAP_FACE_NORMAL_Z {
                 face_bot = Some(fi);
-            } else if plane.normal.z > 0.5 {
+            } else if plane.normal.z > CAP_FACE_NORMAL_Z {
                 face_top = Some(fi);
             }
         }
@@ -2223,9 +2223,9 @@ fn build_cyl_minus_enclosed_box(
     let mut face_top = None;
     for (&fi, geom) in &result.face_geometry {
         if let SurfaceGeom::Planar(plane) = geom {
-            if plane.normal.z < -0.5 {
+            if plane.normal.z < -CAP_FACE_NORMAL_Z {
                 face_bot = Some(fi);
-            } else if plane.normal.z > 0.5 {
+            } else if plane.normal.z > CAP_FACE_NORMAL_Z {
                 face_top = Some(fi);
             }
         }
@@ -2664,9 +2664,9 @@ fn build_box_with_cyl_boss(
     for (&fi, geom) in &result.face_geometry {
         if let SurfaceGeom::Planar(plane) = geom {
             let matches = if on_top {
-                plane.normal.z > 0.5
+                plane.normal.z > CAP_FACE_NORMAL_Z
             } else {
-                plane.normal.z < -0.5
+                plane.normal.z < -CAP_FACE_NORMAL_Z
             };
             if matches {
                 face_punch = Some(fi);

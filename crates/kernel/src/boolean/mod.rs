@@ -32,7 +32,7 @@ use crate::geometry::surface::{Cylinder, SurfaceGeom};
 use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::*;
 use crate::types::*;
-use crate::units::{TAU_MODEL, TAU_NORMALIZE, TAU_WELD_FACTOR, TAU_WELD_MAX, TAU_WELD_MIN};
+use crate::units::{CURVATURE_SUBDIV_THRESHOLD, TAU_MODEL, TAU_NORMALIZE, TAU_WELD_FACTOR, TAU_WELD_MAX, TAU_WELD_MIN};
 use crate::vecmath::*;
 use crate::waffle_kernel::{CylinderParams, WaffleSolid};
 use std::collections::BTreeMap;
@@ -416,7 +416,7 @@ pub(super) fn extract_face_polys(solid: &WaffleSolid) -> Vec<FacePoly> {
                     .skip(1)
                     .map(|v| v3_length(v3_sub(*v, verts[0])))
                     .fold(0.0_f64, f64::max);
-                if face_size > TAU_NORMALIZE && max_dist > face_size * 0.05 {
+                if face_size > TAU_NORMALIZE && max_dist > face_size * CURVATURE_SUBDIV_THRESHOLD {
                     // Too curved: subdivide into triangles (each triangle is
                     // exactly planar). This handles revolve lateral faces.
                     if verts.len() >= 3 {

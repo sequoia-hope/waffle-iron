@@ -98,6 +98,11 @@ pub const ELLIPSE_ON_CURVE_TOL: f64 = 0.1;
 /// If total swept angle exceeds TAU - this margin, treat as full cylinder.
 pub const FULL_CIRCLE_MARGIN: f64 = 0.1;
 
+/// Wider angular margin (radians) for detecting full-circle cone ring sweeps: 0.3 (~17.2°).
+/// Cone vertex rings may have wider angular gaps than cylinder rings due to
+/// non-uniform parametric spacing near the apex.
+pub const FULL_CIRCLE_MARGIN_CONE: f64 = 0.3;
+
 /// T-junction snap radius as fraction of tessellation grid cell: 0.6.
 /// Slightly more than half a grid cell ensures vertices near edge midpoints snap.
 pub const TJUNCTION_GRID_FRACTION: f64 = 0.6;
@@ -146,6 +151,17 @@ pub const SSI_SKEW_FACTOR: f64 = 0.05;
 pub const SSI_SAMPLE_ON_SURFACE_TOL: f64 = 0.05;
 
 // ── Analytical boolean dispatch threshold ──────────────────────────────
+
+/// Curvature subdivision threshold for polygon-to-triangle decomposition: 5%.
+/// When a face polygon's max vertex deviation from the first vertex exceeds
+/// this fraction of face size, the polygon is subdivided into triangles.
+/// Handles revolve lateral faces that are not planar.
+pub const CURVATURE_SUBDIV_THRESHOLD: f64 = 0.05;
+
+/// Normal z-component threshold for top/bottom cap face classification: 0.5.
+/// A planar face with |normal.z| > this value is classified as a cap face
+/// in boolean analytical dispatch. Corresponds to ~60° from horizontal.
+pub const CAP_FACE_NORMAL_Z: f64 = 0.5;
 
 /// Cosine threshold for "nearly parallel" cap normal in box-cylinder dispatch: 0.95.
 /// A box cap normal must have dot product > this with the cylinder axis to be
