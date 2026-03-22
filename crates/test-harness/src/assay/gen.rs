@@ -11,7 +11,7 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::helpers::{datum_plane_ref, gear_profile, rect_profile, ProfileData};
+use crate::helpers::{datum_plane_ref, rect_profile, ProfileData};
 use feature_engine::types::{
     DepthMode, ExtrudeParams, Feature, FeatureTree, Operation, RevolveParams,
 };
@@ -168,7 +168,7 @@ pub fn random_unit_normal(rng: &mut impl Rng) -> [f64; 3] {
         let y: f64 = rng.gen_range(-1.0..1.0);
         let z: f64 = rng.gen_range(-1.0..1.0);
         let len_sq = x * x + y * y + z * z;
-        if len_sq < 1e-12 || len_sq > 1.0 {
+        if !(1e-12..=1.0).contains(&len_sq) {
             continue;
         }
         let len = len_sq.sqrt();

@@ -260,7 +260,8 @@ fn check_watertight(mesh: &RenderMesh) -> bool {
         )
     };
 
-    let mut edge_count: HashMap<((i64, i64, i64), (i64, i64, i64)), u32> = HashMap::new();
+    type GridEdge = ((i64, i64, i64), (i64, i64, i64));
+    let mut edge_count: HashMap<GridEdge, u32> = HashMap::new();
     let num_tris = mesh.indices.len() / 3;
 
     for i in 0..num_tris {
