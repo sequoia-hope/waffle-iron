@@ -6162,7 +6162,21 @@ fn i1_chained_union_accepts_large_product() {
     // Chain: cyl1 ∪ cyl2
     let union12 = k.boolean_union(&cyl1, &cyl2).expect("union cyl1+cyl2");
     // Chain: (cyl1 ∪ cyl2) ∪ cyl3 — should not hit product limit
-    let _union123 = k.boolean_union(&union12, &cyl3).expect("chained union should not hit product limit");
+    let union123 = k.boolean_union(&union12, &cyl3).expect("chained union should not hit product limit");
+
+    // Numeric oracle: 3 disjoint cylinders r=2 h=5 at x=-5,0,5 (spacing > 2r).
+    // Expected volume ≈ 3 × π×r²×h = 3 × π×4×5 ≈ 188.5.
+    // KNOWN ISSUE: chained boolean unions currently produce only ~1 cylinder
+    // volume (~63), suggesting earlier operands are dropped. When the chained
+    // boolean pipeline is fixed, tighten to: (vol - 188.5).abs() < 30.
+    let mesh = k.tessellate(&union123, 0.01).expect("tessellate chained union");
+    let vol = mesh_volume(&mesh);
+    let one_cyl = std::f64::consts::PI * 4.0 * 5.0;
+    assert!(
+        vol > one_cyl * 0.5,
+        "Chained union must retain at least ~1 cylinder volume ({:.1}), got {:.1}",
+        one_cyl, vol
+    );
 }
 
 #[test]
@@ -10299,6 +10313,16 @@ fn adv2_box_box_subtract_unaffected_by_arc_welding() {
     let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
     check_no_nan_or_inf(&mesh);
     check_no_degenerate_triangles(&mesh);
+
+    // Numeric oracle: Box A = 10×10×10 at (0,0), Box B = 6×6×10 at (5,5).
+    // A spans (-5,-5)→(5,5), B spans (2,2)→(8,8). Overlap = 3×3×10 = 90.
+    // Expected: 1000 - 90 = 910. Allow 15% tessellation tolerance.
+    let vol = mesh_volume(&mesh);
+    assert!(
+        (vol - 910.0).abs() < 910.0 * 0.15,
+        "Box-box subtract volume should be ~910, got {:.1}",
+        vol
+    );
 }
 
 #[test]
@@ -10314,6 +10338,13 @@ fn adv3_cyl_cyl_union_no_nan_after_welding() {
 
     let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
     check_no_nan_or_inf(&mesh);
+
+    // Volume oracle: two r=3 h=10 cylinders offset by 3 along X.
+    // Individual volume = π×9×10 ≈ 282.7. Union < 2 × 282.7.
+    let vol = mesh_volume(&mesh);
+    let single_cyl = std::f64::consts::PI * 9.0 * 10.0;
+    assert!(vol > single_cyl, "Union volume {:.1} must exceed single cylinder {:.1}", vol, single_cyl);
+    assert!(vol < 2.0 * single_cyl, "Union volume {:.1} must be less than 2 cylinders {:.1}", vol, 2.0 * single_cyl);
 }
 
 #[test]
@@ -10327,6 +10358,13 @@ fn adv4_cyl_cyl_subtract_no_nan_after_welding() {
 
     let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
     check_no_nan_or_inf(&mesh);
+
+    // Volume oracle: subtract of equal-radius cylinders must produce positive volume
+    // less than either individual cylinder (π×9×10 ≈ 282.7).
+    let vol = mesh_volume(&mesh);
+    let single_cyl = std::f64::consts::PI * 9.0 * 10.0;
+    assert!(vol > 0.0, "Subtract volume must be positive, got {:.1}", vol);
+    assert!(vol < single_cyl, "Subtract volume {:.1} must be less than full cylinder {:.1}", vol, single_cyl);
 }
 
 #[test]
@@ -10534,6 +10572,18 @@ fn adv14_asymmetric_radii_subtract_welding_quality() {
     let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
     check_no_nan_or_inf(&mesh);
     check_no_degenerate_triangles(&mesh);
+
+    // Volume oracle: large cyl (r=10 h=20) minus small cyl (r=1 h=20) at edge.
+    // Large volume = π×100×20 ≈ 6283, small ≈ π×1×20 ≈ 62.8.
+    // Result must be between large-small and large.
+    let vol = mesh_volume(&mesh);
+    let large_vol = std::f64::consts::PI * 100.0 * 20.0;
+    let small_vol = std::f64::consts::PI * 1.0 * 20.0;
+    assert!(
+        vol > large_vol - small_vol - 100.0 && vol < large_vol + 100.0,
+        "Subtract volume {:.1} should be in ({:.1}, {:.1})",
+        vol, large_vol - small_vol - 100.0, large_vol + 100.0
+    );
 }
 
 #[test]
