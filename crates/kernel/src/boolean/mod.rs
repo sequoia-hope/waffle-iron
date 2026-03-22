@@ -585,6 +585,18 @@ pub(super) fn extract_face_polys_general(solid: &WaffleSolid) -> Vec<FacePoly> {
         }
         analytic_polys
     } else {
+        // For polygon-soup solids (boolean results built from S-H clipping),
+        // prefer cached face polys over B-Rep walk. The B-Rep walk via
+        // collect_face_vertices may return partial results (faces with < 3
+        // loop vertices are skipped), silently losing geometry from earlier
+        // boolean operations. Cached polys are the exact face geometry that
+        // produced the solid — more reliable for chained booleans.
+        // Ref #24 Barton: bijective mesh extraction preserves original quality.
+        if solid.is_polygon_soup {
+            if let Some(ref cached) = solid.cached_face_polys {
+                return cached.clone();
+            }
+        }
         let polys = extract_face_polys(solid);
         if !polys.is_empty() {
             return polys;

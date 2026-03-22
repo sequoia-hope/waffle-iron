@@ -891,6 +891,22 @@ impl WaffleKernel {
         Ok(KernelSolidHandle(handle_id))
     }
 
+    /// Check if all faces in a solid have planar geometry.
+    /// Used to distinguish genuine box solids (all-planar) from SSI results
+    /// that happen to have ≤6 faces but include cylindrical/conical surfaces.
+    fn all_faces_planar(solid: &WaffleSolid) -> bool {
+        if solid.face_map.is_empty() {
+            return false;
+        }
+        for face_idx in solid.face_map.values() {
+            match solid.face_geometry.get(face_idx) {
+                Some(SurfaceGeom::Planar(_)) => {}
+                _ => return false,
+            }
+        }
+        true
+    }
+
     /// Check if all faces in a solid have quadric surface geometry (A15 dispatch).
     ///
     /// Returns true if every face has a SurfaceGeom that is Planar, Cylindrical,
@@ -947,8 +963,14 @@ impl WaffleKernel {
         let b_is_prim_cyl = solid_b.cylinder_params.is_some();
         let a_all_quadric = Self::all_faces_quadric(solid_a);
         let b_all_quadric = Self::all_faces_quadric(solid_b);
-        let a_is_simple_box = !a_is_prim_cyl && solid_a.face_map.len() <= 6;
-        let b_is_simple_box = !b_is_prim_cyl && solid_b.face_map.len() <= 6;
+        // A "simple box" is an extruded rectangle: ≤6 faces, ALL planar, no
+        // cylinder params. SSI-produced disjoint cylinder unions may have ≤6
+        // faces but include cylindrical faces — they must NOT be sent to the
+        // box-cylinder SSI path which assumes axis-aligned box geometry.
+        let a_is_simple_box =
+            !a_is_prim_cyl && solid_a.face_map.len() <= 6 && Self::all_faces_planar(solid_a);
+        let b_is_simple_box =
+            !b_is_prim_cyl && solid_b.face_map.len() <= 6 && Self::all_faces_planar(solid_b);
 
         // SSI pipeline: only when BOTH operands are primitives (one cyl + one box,
         // or two cyls). A complex post-boolean solid should NOT be sent to

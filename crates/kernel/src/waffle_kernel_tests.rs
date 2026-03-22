@@ -11857,3 +11857,132 @@ fn adaptive_welding_micro_scale_box_cyl_subtract() {
     );
 }
 
+#[test]
+fn chained_union_three_disjoint_boxes_volume() {
+    // Three disjoint boxes (10×10×10) at x=-30, x=0, x=30.
+    // Chain: box1 ∪ box2, then (box1∪box2) ∪ box3.
+    // Expected volume ≈ 3 × 1000 = 3000
+    // Uses boxes (all-planar faces) to test chained boolean pipeline
+    // without the polygon-soup cylindrical tessellation limitation.
+    let mut k = WaffleKernel::new();
+
+    let (p1, pos1) = make_rect_profile(-30.0, 0.0, 10.0, 10.0);
+    let f1 = k
+        .make_faces_from_profiles(&p1, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos1)
+        .unwrap();
+    let box1 = k.extrude_face(f1[0], Z_DIR, 10.0).unwrap();
+
+    let (p2, pos2) = make_rect_profile(0.0, 0.0, 10.0, 10.0);
+    let f2 = k
+        .make_faces_from_profiles(&p2, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos2)
+        .unwrap();
+    let box2 = k.extrude_face(f2[0], Z_DIR, 10.0).unwrap();
+
+    let (p3, pos3) = make_rect_profile(30.0, 0.0, 10.0, 10.0);
+    let f3 = k
+        .make_faces_from_profiles(&p3, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos3)
+        .unwrap();
+    let box3 = k.extrude_face(f3[0], Z_DIR, 10.0).unwrap();
+
+    // Chained union: (box1 ∪ box2) ∪ box3
+    let union_12 = k.boolean_union(&box1, &box2).expect("box1 ∪ box2");
+    let result = k.boolean_union(&union_12, &box3).expect("(box1∪box2) ∪ box3");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+    let vol = mesh_volume(&mesh);
+    let expected = 3000.0;
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.15,
+        "Chained union of 3 disjoint boxes: expected ~{:.0}, got {:.1} (rel_err={:.4})",
+        expected, vol, rel_err
+    );
+}
+
+#[test]
+fn chained_union_box_plus_two_cyl_bosses_volume() {
+    // A box with two cylinder bosses on top, chained via union.
+    // Tests the most common CAD workflow: base solid + multiple features.
+    // Box 20×20×5 + cyl1(r=3,h=5,x=-5) + cyl2(r=3,h=5,x=5)
+    // Expected volume ≈ box + 2 × π×9×5 ≈ 2000 + 282.7 = 2282.7
+    let mut k = WaffleKernel::new();
+
+    let (pb, posb) = make_rect_profile(0.0, 0.0, 20.0, 20.0);
+    let fb = k
+        .make_faces_from_profiles(&pb, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posb)
+        .unwrap();
+    let box_s = k.extrude_face(fb[0], Z_DIR, 5.0).unwrap();
+
+    let (p1, pos1) = make_circle_profile(-5.0, 0.0, 3.0);
+    let f1 = k
+        .make_faces_from_profiles(&p1, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos1)
+        .unwrap();
+    let cyl1 = k.extrude_face(f1[0], Z_DIR, 5.0).unwrap();
+
+    let (p2, pos2) = make_circle_profile(5.0, 0.0, 3.0);
+    let f2 = k
+        .make_faces_from_profiles(&p2, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos2)
+        .unwrap();
+    let cyl2 = k.extrude_face(f2[0], Z_DIR, 5.0).unwrap();
+
+    // Chain: box ∪ cyl1, then (box∪cyl1) ∪ cyl2
+    let union1 = k.boolean_union(&box_s, &cyl1).expect("box ∪ cyl1");
+    let result = k.boolean_union(&union1, &cyl2).expect("(box∪cyl1) ∪ cyl2");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+    let vol = mesh_volume(&mesh);
+    let box_vol = 20.0 * 20.0 * 5.0;
+    let cyl_vol = std::f64::consts::PI * 9.0 * 5.0;
+    let expected = box_vol + 2.0 * cyl_vol;
+    // Accept wider tolerance due to polygon-approximation volume loss
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.20,
+        "Box + 2 cyl bosses: expected ~{:.0}, got {:.1} (rel_err={:.4})",
+        expected, vol, rel_err
+    );
+}
+
+#[test]
+fn chained_subtract_two_disjoint_cuts_volume() {
+    // A 20×20×10 box minus two disjoint cylinders (r=3, h=10) at (-5,0) and (5,0).
+    // Chain: box − cyl1, then (box−cyl1) − cyl2.
+    // Expected volume ≈ 20×20×10 − 2×π×9×10 ≈ 3434
+    let mut k = WaffleKernel::new();
+
+    // Box 20×20×10 centered at origin
+    let (pb, posb) = make_rect_profile(0.0, 0.0, 20.0, 20.0);
+    let fb = k
+        .make_faces_from_profiles(&pb, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posb)
+        .unwrap();
+    let box_solid = k.extrude_face(fb[0], Z_DIR, 10.0).unwrap();
+
+    // Cylinder 1 at (-5, 0), r=3, h=10
+    let (p1, pos1) = make_circle_profile(-5.0, 0.0, 3.0);
+    let f1 = k
+        .make_faces_from_profiles(&p1, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos1)
+        .unwrap();
+    let cyl1 = k.extrude_face(f1[0], Z_DIR, 10.0).unwrap();
+
+    // Cylinder 2 at (5, 0), r=3, h=10
+    let (p2, pos2) = make_circle_profile(5.0, 0.0, 3.0);
+    let f2 = k
+        .make_faces_from_profiles(&p2, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos2)
+        .unwrap();
+    let cyl2 = k.extrude_face(f2[0], Z_DIR, 10.0).unwrap();
+
+    // Chained subtract: (box − cyl1) − cyl2
+    let cut1 = k.boolean_subtract(&box_solid, &cyl1).expect("box − cyl1 should succeed");
+    let result = k.boolean_subtract(&cut1, &cyl2).expect("(box−cyl1) − cyl2 should succeed");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    let vol = mesh_volume(&mesh);
+    let expected = 20.0 * 20.0 * 10.0 - 2.0 * std::f64::consts::PI * 9.0 * 10.0;
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.20,
+        "Chained subtract of 2 disjoint cuts: expected ~{:.0}, got {:.0} (rel_err={:.4})",
+        expected, vol, rel_err
+    );
+}
+
