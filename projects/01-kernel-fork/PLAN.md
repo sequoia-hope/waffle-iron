@@ -523,6 +523,47 @@ S-H clipping precision issues, not ordering artifacts.
 
 ---
 
+## Audit Findings (2026-03-22, auto-waffle review)
+
+### A15 Compliance: Polygon Fallback for Quadric Pairs
+
+**Status: VIOLATION (documented, not fixed — behavioral change)**
+
+`waffle_kernel.rs:969-976` catches `KernelError::NotSupported` from `ssi_boolean_op()`
+and routes to `polygon_approx_boolean()` for primitive cylinder-box and cylinder-cylinder
+cases. This violates A15.2 ("no mesh fallback for quadric pairs"). The `analytical.rs`
+dispatch correctly returns `NotSupported` for unsupported configurations (cross-plane
+box-cylinder, partial overlaps, skew cylinders), but the caller silently falls back.
+
+**Impact**: Surface geometry IS preserved through the polygon path (A15.5 compliant),
+so geometric drift is limited. However, this path uses Sutherland-Hodgman polygon
+clipping which is the root cause of the 39 watertight failures in the assay.
+
+**Recommendation**: Implement missing SSI configurations (partial overlap, cross-plane)
+to eliminate the polygon fallback for quadric pairs. Until then, the fallback is load-
+bearing for assay score and should not be removed without replacement.
+
+### Chained Boolean Volume Loss Bug
+
+Test `i1_chained_union_accepts_large_product` reveals that chaining boolean unions
+(A∪B then (A∪B)∪C) produces ~1 cylinder volume instead of ~3 for disjoint operands.
+This suggests earlier union results lose geometry when used as operands in subsequent
+booleans. Root cause likely in how `WaffleSolid` is reconstructed from boolean results.
+
+### Tolerance Centralization (Fixed)
+
+11 critical hardcoded tolerance values + 10 geometric heuristics were extracted into
+`units.rs` named constants. See commit `refactor(kernel): centralize ad-hoc tolerance
+constants into units.rs (A14/A3.3)`.
+
+### Test Oracles (Strengthened)
+
+5 tests that only checked for no-panic now have volume bounds. The adv2 box-box
+subtract oracle confirmed ~8% volume error (830 vs 910 expected), consistent with
+S-H clipping imprecision.
+
+---
+
 ## Perturbation-Dependent Tests
 
 Tests that pass but require the perturbation cascade (direct attempt fails).
