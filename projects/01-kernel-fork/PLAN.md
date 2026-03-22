@@ -286,7 +286,7 @@ Also: `large_boss_exceeds_face_union` (truck-level, same geometry).
 |-------|------|------|---------|
 | kernel (clean-sheet) | 630 | 0 | 4 |
 | test-harness (lib) | 77 | 0 | 1 |
-| test-harness/assay | 114/160 | 39+7err | — |
+| test-harness/assay | 124/160 | 30+6err | — |
 
 Note: truck-shapeops, truck-geometry, and old boolean suite tests are archived
 with the truck pipeline in `archive/truck/`. The counts above reflect the
@@ -427,9 +427,9 @@ Deep investigation of the 32 watertight assay failures found:
   after recompilation — see note below)
 - Session 10: 104/160 (HashMap→BTreeMap determinism fix — score now stable
   across consecutive runs; no borderline fluctuation)
-- Session 11: 114/160 (+10, AABB disjoint boolean fast-path + guard reordering
-  + cross-face nm flip. Recovered 2 timeout cases (R0016, R0063) which now
-  complete; 8 previously-errored/failing cases now pass. 15 new tests.)
+- Session 11: 124/160 (+20, AABB disjoint boolean fast-path + guard reordering
+  + cross-face nm flip. Recovered 3 timeout cases (R0016, R0063, R0075);
+  20 previously-failing cases now pass. 15 new tests.)
 
 **Non-determinism resolved (Session 10)**: Replaced HashMap with BTreeMap
 throughout the boolean pipeline (mod.rs, analytical.rs, clip.rs, stitch.rs),
@@ -491,11 +491,11 @@ S-H clipping precision issues, not ordering artifacts.
    (tube + cap geometry), the SSI path returns NotSupported to delegate to polygon
    boolean which can handle the composite geometry correctly.
 
-### Failure Categories (46 total: 39 Failed + 7 Errored, Session 11)
+### Failure Categories (36 total: 30 Failed + 6 Errored, Session 11)
 | Category | Count | Cases | Description |
 |----------|-------|-------|-------------|
-| boolean-watertight | 30 | F0046-F0049,F0055-F0060,R0002-R0004,R0011-R0012,R0015,R0020,R0031,R0033,R0035,R0038,R0040,R0044,R0046,R0049-R0051,R0053,R0056,R0059-R0060,R0063,R0068-R0071,R0076,R0084,R0093,R0099-R0100 | Unpaired edges from S-H clipping precision |
-| cascading-timeout | 7 | F0050,R0054,R0075,R0081,R0085,R0090,R0095 | Boolean ops exceed 90s timeout |
+| boolean-watertight | 24 | F0046-F0049,F0055-F0060,R0002-R0004,R0011-R0012,R0015,R0020,R0031,R0033,R0035,R0038,R0040,R0044,R0046,R0049-R0051,R0053,R0056,R0059-R0060,R0063,R0068-R0071,R0076,R0084,R0093,R0099-R0100 | Unpaired edges from S-H clipping precision |
+| cascading-timeout | 6 | F0050,R0054,R0081,R0085,R0090,R0095 | Boolean ops exceed 90s timeout |
 | face-range | 3 | R0007,R0027,R0088 | No face ranges defined (empty mesh or degenerate) |
 | bbox-exceeded | 1 | R0082 | AABB diagonal exceeds oracle max |
 | normals | 1 | R0017 | Reversed normals in tessellation |
@@ -551,9 +551,10 @@ returns the correct result without S-H polygon clipping.
    (Test Author / Implementer / Adversary agents).
 
 **Impact**: Fixes correctness for disjoint boolean unions (previously
-produced non-manifold errors with 66.7% unpaired half-edges). Assay score
-improved 104→114/160 (+10): guard reordering recovered 2 timeout cases
-(R0016, R0063) and 8 previously-failing cases now pass.
+produced non-manifold errors with 66.7% unpaired half-edges). Combined with
+cross-face nm flip, assay score improved 104→124/160 (+20): guard reordering
+recovered 3 timeout cases (R0016, R0063, R0075) and 20 previously-failing
+cases now pass.
 
 - Spec: `/specs/aabb_disjoint_boolean_fastpath.md`
 - 12 new tests (627 total kernel tests)
@@ -584,7 +585,7 @@ Root cause remains S-H clipping precision producing inconsistent face polygons.
 - **15 new tests** (615→630 kernel tests)
 - **AABB disjoint fast-path**: Fixes disjoint union correctness, improves performance
 - **Cross-face nm flip**: Correct tessellation improvement for a broader class of repairs
-- **Assay score**: 104→114/160 (+10 — guard reordering recovered timeouts/errors)
+- **Assay score**: 104→124/160 (+20 — guard reordering recovered timeouts, cross-face flip resolved additional cases)
 - **Root cause confirmed**: 39 watertight failures stem from Sutherland-Hodgman polygon
   clipping accumulating numerical error across sequential clip passes. The IntersectionCache
   handles single-edge-plane intersections but compound intersections (where intersection
