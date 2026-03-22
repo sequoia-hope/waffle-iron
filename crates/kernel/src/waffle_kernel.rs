@@ -1667,7 +1667,7 @@ fn get_face_loop_verts(arena: &TopoArena, face: FaceIdx) -> Vec<[f64; 3]> {
     verts
 }
 
-fn rotate_point_around_axis(
+pub(crate) fn rotate_point_around_axis(
     point: [f64; 3],
     axis_origin: [f64; 3],
     axis_dir: [f64; 3],

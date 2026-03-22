@@ -2009,20 +2009,12 @@ fn o1_revolve_box_boolean_union() {
     let (pb, posb) = make_rect_profile(0.0, 0.0, 10.0, 10.0);
     let fb = k.make_faces_from_profiles(&pb, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posb).unwrap();
     let box_solid = k.extrude_face(fb[0], Z_DIR, 10.0).unwrap();
-    // Boolean union should not return NotSupported (guard removed)
-    let result = k.boolean_union(&revolve, &box_solid);
-    match &result {
-        Err(KernelError::NotSupported { .. }) => panic!("Revolve boolean guard should be removed"),
-        Ok(handle) => {
-            // If it succeeds, verify positive volume
-            let mesh = k.tessellate(handle, 0.01).expect("tessellate union");
-            let vol = mesh_volume(&mesh);
-            assert!(vol > 0.0, "Union volume should be positive, got {}", vol);
-        }
-        Err(_) => {
-            // BooleanFailed is acceptable for now (complex geometry)
-        }
-    }
+    // Boolean union should succeed with revolve face poly extraction
+    let handle = k.boolean_union(&revolve, &box_solid)
+        .expect("revolve+box boolean union should succeed");
+    let mesh = k.tessellate(&handle, 0.01).expect("tessellate union");
+    let vol = mesh_volume(&mesh);
+    assert!(vol > 0.0, "Union volume should be positive, got {}", vol);
 }
 
 #[test]
@@ -2037,18 +2029,11 @@ fn o1b_revolve_revolve_boolean_union() {
     let f2 = k.make_faces_from_profiles(&p2, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos2).unwrap();
     let rev2 = k.revolve_face(f2[0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], 180.0).unwrap();
 
-    let result = k.boolean_union(&rev1, &rev2);
-    match &result {
-        Err(KernelError::NotSupported { .. }) => panic!("Revolve boolean guard should be removed"),
-        Ok(handle) => {
-            let mesh = k.tessellate(handle, 0.01).expect("tessellate");
-            let vol = mesh_volume(&mesh);
-            assert!(vol > 0.0, "Union volume should be positive, got {}", vol);
-        }
-        Err(_) => {
-            // BooleanFailed acceptable for complex revolve geometries
-        }
-    }
+    let handle = k.boolean_union(&rev1, &rev2)
+        .expect("revolve+revolve boolean union should succeed");
+    let mesh = k.tessellate(&handle, 0.01).expect("tessellate");
+    let vol = mesh_volume(&mesh);
+    assert!(vol > 0.0, "Union volume should be positive, got {}", vol);
 }
 
 #[test]
@@ -2065,6 +2050,53 @@ fn o1c_revolve_circle_profile() {
     let mesh = k.tessellate(&result.unwrap(), 0.01).expect("tessellate revolve circle");
     let vol = mesh_volume(&mesh);
     assert!(vol > 0.0, "Revolve circle volume should be positive, got {}", vol);
+}
+
+#[test]
+fn o1d_revolve_disjoint_union_volume_preserved() {
+    // Regression: revolve solids used to collapse to near-zero volume when
+    // boolean-unioned because extract_face_polys_general had no revolve handling.
+    let mut k = WaffleKernel::new();
+
+    // Create a 90° revolve solid: rect profile at x=5..7, y=0..4, around Y axis
+    let (profiles, positions) = make_rect_profile(6.0, 2.0, 2.0, 4.0);
+    let faces = k
+        .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+        .unwrap();
+    let revolve = k
+        .revolve_face(faces[0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], 90.0)
+        .unwrap();
+    let revolve_mesh = k.tessellate(&revolve, 0.01).expect("tessellate revolve");
+    let revolve_vol = mesh_volume(&revolve_mesh);
+    assert!(revolve_vol > 0.1, "Revolve volume too small: {}", revolve_vol);
+
+    // Create a small box far away (disjoint) — at x=-20..-10, y=0..5, z=0..5
+    let (pb, posb) = make_rect_profile(-15.0, 2.5, 10.0, 5.0);
+    let fb = k
+        .make_faces_from_profiles(&pb, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posb)
+        .unwrap();
+    let box_solid = k.extrude_face(fb[0], Z_DIR, 5.0).unwrap();
+    let box_mesh = k.tessellate(&box_solid, 0.01).expect("tessellate box");
+    let box_vol = mesh_volume(&box_mesh);
+    assert!(box_vol > 0.1, "Box volume too small: {}", box_vol);
+
+    // Union the disjoint solids
+    let union = k
+        .boolean_union(&revolve, &box_solid)
+        .expect("disjoint revolve+box union should succeed");
+    let union_mesh = k.tessellate(&union, 0.01).expect("tessellate union");
+    let union_vol = mesh_volume(&union_mesh);
+
+    // For disjoint solids, union volume ≈ sum of individual volumes (within 5%)
+    let expected = revolve_vol + box_vol;
+    let ratio = union_vol / expected;
+    assert!(
+        ratio > 0.95 && ratio < 1.05,
+        "Union volume {:.4} should be within 5% of sum {:.4} (ratio {:.4})",
+        union_vol,
+        expected,
+        ratio,
+    );
 }
 
 #[test]

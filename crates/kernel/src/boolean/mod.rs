@@ -37,7 +37,7 @@ use crate::units::{
     TAU_WELD_MIN,
 };
 use crate::vecmath::*;
-use crate::waffle_kernel::{CylinderParams, WaffleSolid};
+use crate::waffle_kernel::{rotate_point_around_axis, CylinderParams, RevolveParams, WaffleSolid};
 use std::collections::BTreeMap;
 
 // ── Public types ────────────────────────────────────────────────────────
@@ -561,6 +561,147 @@ fn cylinder_to_face_polys(cyl: &CylinderParams, n: usize) -> Vec<FacePoly> {
     polys
 }
 
+/// Generate planar face polygons approximating a revolve solid.
+///
+/// Converts a revolve (lateral swept faces + optional caps) into N planar quads
+/// per lateral face plus cap N-gons. Mirrors `cylinder_to_face_polys` but uses
+/// the revolve axis + angle instead of a fixed extrusion direction.
+fn revolve_to_face_polys(
+    rp: &RevolveParams,
+    face_geometry: &BTreeMap<FaceIdx, SurfaceGeom>,
+    n: usize,
+) -> Vec<FacePoly> {
+    let mut polys = Vec::new();
+
+    // Collect all start profile vertices (v_a) for cap construction
+    let mut start_profile_pts: Vec<[f64; 3]> = Vec::new();
+
+    for &(face_idx, v_a, v_b) in &rp.lateral_faces {
+        start_profile_pts.push(v_a);
+
+        // Get surface geometry tag for this face
+        let face_sg = face_geometry.get(&face_idx).cloned();
+
+        // Generate N+1 rings of rotated vertex pairs
+        let ring_count = if rp.full_revolution { n } else { n + 1 };
+        let mut ring_a = Vec::with_capacity(ring_count);
+        let mut ring_b = Vec::with_capacity(ring_count);
+        for i in 0..ring_count {
+            let theta = rp.angle_rad * (i as f64) / (n as f64);
+            ring_a.push(rotate_point_around_axis(
+                v_a,
+                rp.axis_origin,
+                rp.axis_dir,
+                theta,
+            ));
+            ring_b.push(rotate_point_around_axis(
+                v_b,
+                rp.axis_origin,
+                rp.axis_dir,
+                theta,
+            ));
+        }
+
+        // Emit quads connecting consecutive rings
+        for i in 0..n {
+            let j = if rp.full_revolution {
+                (i + 1) % n
+            } else {
+                i + 1
+            };
+            // Quad: ring_a[i] → ring_b[i] → ring_b[j] → ring_a[j]
+            let quad = vec![ring_a[i], ring_b[i], ring_b[j], ring_a[j]];
+            let edge1 = v3_sub(ring_b[i], ring_a[i]);
+            let edge2 = v3_sub(ring_a[j], ring_a[i]);
+            let normal = v3_normalize(v3_cross(edge1, edge2));
+            polys.push(FacePoly {
+                verts: quad,
+                normal,
+                origin: ring_a[i],
+                surface_geom: face_sg.clone(),
+            });
+        }
+    }
+
+    // Cap faces (partial revolve only)
+    if !rp.full_revolution && !start_profile_pts.is_empty() {
+        // Also collect v_b of last lateral face to close the profile polygon
+        let mut profile_polygon: Vec<[f64; 3]> = start_profile_pts.clone();
+        // Add the v_b vertices in reverse order to form a closed polygon
+        for &(_fi, _va, vb) in rp.lateral_faces.iter().rev() {
+            profile_polygon.push(vb);
+        }
+
+        // Compute solid centroid for outward normal orientation
+        let centroid = rotate_point_around_axis(
+            polygon_centroid(&profile_polygon),
+            rp.axis_origin,
+            rp.axis_dir,
+            rp.angle_rad * 0.5,
+        );
+
+        // Start cap (at angle = 0): profile polygon as-is
+        {
+            let mut cap_verts = profile_polygon.clone();
+            let newell = newell_normal_3d(&cap_verts);
+            // Orient outward: if newell points toward centroid, flip
+            let cap_center = polygon_centroid(&cap_verts);
+            let to_centroid = v3_sub(centroid, cap_center);
+            let normal = if v3_dot(newell, to_centroid) > 0.0 {
+                cap_verts.reverse();
+                [-newell[0], -newell[1], -newell[2]]
+            } else {
+                newell
+            };
+            polys.push(FacePoly {
+                verts: cap_verts,
+                normal,
+                origin: cap_center,
+                surface_geom: None,
+            });
+        }
+
+        // End cap (at angle = angle_rad): rotate all profile vertices
+        {
+            let mut cap_verts: Vec<[f64; 3]> = profile_polygon
+                .iter()
+                .map(|&p| rotate_point_around_axis(p, rp.axis_origin, rp.axis_dir, rp.angle_rad))
+                .collect();
+            let newell = newell_normal_3d(&cap_verts);
+            let cap_center = polygon_centroid(&cap_verts);
+            let to_centroid = v3_sub(centroid, cap_center);
+            let normal = if v3_dot(newell, to_centroid) > 0.0 {
+                cap_verts.reverse();
+                [-newell[0], -newell[1], -newell[2]]
+            } else {
+                newell
+            };
+            polys.push(FacePoly {
+                verts: cap_verts,
+                normal,
+                origin: cap_center,
+                surface_geom: None,
+            });
+        }
+    }
+
+    polys
+}
+
+/// Compute Newell normal for a polygon (unnormalized → normalized).
+fn newell_normal_3d(verts: &[[f64; 3]]) -> [f64; 3] {
+    let mut n = [0.0, 0.0, 0.0];
+    let len = verts.len();
+    for i in 0..len {
+        let cur = verts[i];
+        let nxt = verts[(i + 1) % len];
+        n[0] += (cur[1] - nxt[1]) * (cur[2] + nxt[2]);
+        n[1] += (cur[2] - nxt[2]) * (cur[0] + nxt[0]);
+        n[2] += (cur[0] - nxt[0]) * (cur[1] + nxt[1]);
+    }
+    v3_normalize(n)
+}
+
 /// Extract face polys from a solid, using polygon approximation for cylinders.
 ///
 /// For solids with `cylinder_params`, generates face polys from the cylinder
@@ -569,6 +710,8 @@ fn cylinder_to_face_polys(cyl: &CylinderParams, n: usize) -> Vec<FacePoly> {
 pub(super) fn extract_face_polys_general(solid: &WaffleSolid) -> Vec<FacePoly> {
     if let Some(ref cyl) = solid.cylinder_params {
         cylinder_to_face_polys(cyl, 32)
+    } else if let Some(ref rp) = solid.revolve_params {
+        revolve_to_face_polys(rp, &solid.face_geometry, 32)
     } else if solid.sphere_params.is_some() || solid.cone_params.is_some() {
         // Sphere faces need analytic subdivision (the B-Rep has only flat
         // octahedral triangles; generate_analytic_face_polys produces curved
