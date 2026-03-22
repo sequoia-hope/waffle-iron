@@ -323,9 +323,9 @@ pub(crate) fn polygon_approx_boolean(
     let a_convex = a_faces.len() <= 12;
     let b_convex = b_faces.len() <= 12;
     let product = a_faces.len() * b_faces.len();
-    if product > 5000 && !a_convex && !b_convex {
+    if product > 50000 && !a_convex && !b_convex {
         let effective = super::count_aabb_overlapping_pairs(&a_faces, &b_faces, TAU_MODEL);
-        if effective > 5000 {
+        if effective > 50000 {
             return Err(KernelError::NotSupported {
                 operation: format!(
                     "polygon approx boolean: {}x{} effective face product ({}) too large for non-convex solids",

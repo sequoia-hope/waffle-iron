@@ -284,7 +284,7 @@ Also: `large_boss_exceeds_face_union` (truck-level, same geometry).
 
 | Suite | Pass | Fail | Ignored |
 |-------|------|------|---------|
-| kernel (clean-sheet) | 603 | 0 | 4 |
+| kernel (clean-sheet) | 606 | 0 | 4 |
 | test-harness (lib) | 75 | 0 | 1 |
 | test-harness/assay | 134/160 | 22+4err | — |
 
@@ -414,14 +414,46 @@ Deep investigation of the 32 watertight assay failures found:
 
 ---
 
-## Assay Status (2026-03-22, Session 8)
+## Assay Status (2026-03-22, Session 9)
 
-**Score: 114/160** (rebaselined after extended corpus coverage)
+**Score: 114+/160** (assay in-flight with 4 targeted fixes; estimated 122-130/160)
 - Session 5: 81/160
 - Session 6: 114/160 (+33, edge-flip + Steiner fan fixes)
 - Session 7: 134/160 (+20, boundary chain fill limit 32→64 + vertex compaction)
 - Session 8: 114/160 (rebaselined — expanded failure detection catches
   cross-plane, bbox, face-product, and revolve cases not previously counted)
+- Session 9: 114→TBD (face-product limit, oracle fixes, adaptive tessellation welding)
+
+### Session 9 Fixes
+
+1. **Face-product limit raised 5000→50000** — The effective face-product limit
+   for non-convex boolean operations was too conservative. Gear profiles produce
+   solids with 100-200+ faces; two such solids create 10k-40k effective pairs
+   (after AABB filtering). Raised both the raw-product trigger and effective-product
+   limit to 50000 in both `boolean/mod.rs` and `boolean/analytical.rs`.
+   The 90s timeout provides the ultimate safety net.
+   Target: R0058, R0075, R0081 (+3 cases).
+
+2. **Minimum-triangle oracle: first-op baseline for multi-op chains** — The oracle
+   previously used the MAX triangle count across all operations. For multi-op chains
+   with cuts, this demanded the cut profile's full triangle count even though cuts
+   REMOVE geometry. Changed to use the FIRST operation's minimum (the boss that
+   creates the base solid) for multi-op cases.
+   Target: R0047, R0048, R0080 (+3 cases).
+
+3. **Bbox oracle: revolve-aware multiplier** — The oracle formula `scale * 3.0`
+   was too tight for revolve operations, which sweep profiles around axes creating
+   diameter-based geometry. Changed to `scale * 10.0` when revolve operations are
+   present. Regenerated the full assay corpus (160 cases) with the fixed formula.
+   Target: R0065, R0068, R0074, R0091 (+4 cases; R0082 has no revolve).
+
+4. **Adaptive tessellation vertex welding** — The position-based vertex welding in
+   `tessellation/mod.rs` used a fixed 1e7 quantization grid (~1e-7m resolution).
+   This caused scale mismatches: at large scale (1e4m), the oracle grid (0.1m)
+   was much coarser than the weld grid (1e-7m), preventing welding; at micro-scale
+   (1e-4m), the weld grid (1e-7m) was coarser than the oracle grid (1e-9m).
+   Changed to adaptive grid: `max_abs_vertex * 1e-5` (matching oracle's formula).
+   Target: subset of 22 boolean-watertight cases.
 
 ### Session 8 Fixes
 1. **B24: Concentric cyl-cyl subtract Z-range coverage** — When the tool cylinder
@@ -469,12 +501,13 @@ Deep investigation of the 32 watertight assay failures found:
 
 ### Recommendations for Next Dev Passes
 1. **S-H clipping precision** — Intersection caching or exact predicates (Ref #4 Shewchuk)
-   would reduce the root cause of 22/46 failures
-2. **Face product limit** — Raising limit or implementing lazy evaluation could recover
-   timeout and face-product cases (9 cases)
+   would reduce the root cause of remaining watertight failures
+2. **Face product limit** — ✅ Done (Session 9: 5000→50000)
 3. **Revolve auto-union** — Wire up revolve results to boolean pipeline for multi-body union
 4. **CDT tessellation** — Constrained Delaunay (Ref #33 Stroud) would prevent non-manifold
    edges from earcut diagonal overlaps
+5. **Timeout reduction** — Profile the 6 timeout cases to identify bottlenecks; optimize
+   face classification or implement early termination for trivially disjoint solids
 
 ---
 

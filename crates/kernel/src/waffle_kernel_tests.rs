@@ -5814,9 +5814,10 @@ fn z3_euler_formula_after_boolean() {
 fn g1_product_guard_rejects_large_nonconvex() {
     use crate::boolean::{boolean_op_from_polys, BoolOp, FacePoly};
 
-    // Create two large non-convex solids (100 faces each) with spatially overlapping
-    // AABBs so the effective product remains high (> 5000) after AABB filtering.
+    // Create two large non-convex solids (250 faces each) with spatially overlapping
+    // AABBs so the effective product remains high (> 50000) after AABB filtering.
     // All faces share the same AABB [0,1]^2×{z} → every pair overlaps.
+    // 250×250 = 62500 > 50000 limit.
     let make_faces = |n: usize| -> Vec<FacePoly> {
         (0..n)
             .map(|_| {
@@ -5830,8 +5831,8 @@ fn g1_product_guard_rejects_large_nonconvex() {
             .collect()
     };
 
-    let a_faces = make_faces(100);
-    let b_faces = make_faces(100);
+    let a_faces = make_faces(250);
+    let b_faces = make_faces(250);
     let mut next_id = 1000u64;
     let result = boolean_op_from_polys(a_faces, b_faces, BoolOp::Union, &mut || {
         next_id += 1;
@@ -5839,7 +5840,7 @@ fn g1_product_guard_rejects_large_nonconvex() {
     });
     assert!(
         matches!(result, Err(KernelError::NotSupported { .. })),
-        "Expected NotSupported for 100x100 non-convex product with overlapping AABBs",
+        "Expected NotSupported for 250x250 non-convex product with overlapping AABBs",
     );
 }
 
@@ -11735,5 +11736,74 @@ fn f0044_concentric_cyl_tube_tessellation() {
     // Volume oracle: pi * (r1^2 - r2^2) * min(d1, d2) approximately
     let vol = mesh_volume(&mesh);
     assert!(vol > 0.0, "F0044 tube volume should be positive, got {}", vol);
+}
+
+#[test]
+fn adaptive_welding_large_scale_box_cyl_union() {
+    // Test that position-based vertex welding uses scale-adaptive grid.
+    // At large scale (1e4), the old fixed 1e7 grid (~1e-7m resolution)
+    // was too fine relative to the oracle's adaptive grid (max_abs * 1e-5),
+    // causing false watertight failures. The adaptive welding grid should
+    // match the oracle grid and produce watertight meshes at all scales.
+    let mut k = WaffleKernel::new();
+    let scale = 1e4;
+
+    // Create large-scale box
+    let (p1, pos1) = make_rect_profile(0.0, 0.0, scale, scale);
+    let f1 = k
+        .make_faces_from_profiles(&p1, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos1)
+        .unwrap();
+    let solid_a = k.extrude_face(f1[0], Z_DIR, scale).unwrap();
+
+    // Create large-scale cylinder (offset for partial overlap)
+    let (p2, pos2) = make_circle_profile(scale * 0.3, 0.0, scale * 0.4);
+    let f2 = k
+        .make_faces_from_profiles(&p2, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos2)
+        .unwrap();
+    let solid_b = k.extrude_face(f2[0], Z_DIR, scale * 0.8).unwrap();
+
+    let solid_c = k.boolean_union(&solid_a, &solid_b).unwrap();
+    let mesh = k.tessellate(&solid_c, 0.01).unwrap();
+    let tri_count = mesh.indices.len() / 3;
+    assert!(tri_count >= 12, "Large-scale union should produce >= 12 triangles, got {}", tri_count);
+
+    // Check watertightness using position-based edge pairing (same as oracle)
+    let unpaired = count_unpaired_edges(&mesh);
+    assert_eq!(
+        unpaired, 0,
+        "Large-scale box+cyl union should be watertight (0 unpaired edges), got {}",
+        unpaired
+    );
+}
+
+#[test]
+fn adaptive_welding_micro_scale_box_cyl_subtract() {
+    // Test watertightness at micro scale (1e-4m).
+    let mut k = WaffleKernel::new();
+    let scale = 1e-4;
+
+    let (p1, pos1) = make_rect_profile(0.0, 0.0, scale, scale);
+    let f1 = k
+        .make_faces_from_profiles(&p1, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos1)
+        .unwrap();
+    let solid_a = k.extrude_face(f1[0], Z_DIR, scale).unwrap();
+
+    let (p2, pos2) = make_circle_profile(0.0, 0.0, scale * 0.3);
+    let f2 = k
+        .make_faces_from_profiles(&p2, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos2)
+        .unwrap();
+    let solid_b = k.extrude_face(f2[0], Z_DIR, scale * 1.2).unwrap();
+
+    let solid_c = k.boolean_subtract(&solid_a, &solid_b).unwrap();
+    let mesh = k.tessellate(&solid_c, 0.01).unwrap();
+    let tri_count = mesh.indices.len() / 3;
+    assert!(tri_count >= 12, "Micro-scale subtract should produce >= 12 triangles, got {}", tri_count);
+
+    let unpaired = count_unpaired_edges(&mesh);
+    assert_eq!(
+        unpaired, 0,
+        "Micro-scale box-cyl subtract should be watertight (0 unpaired edges), got {}",
+        unpaired
+    );
 }
 

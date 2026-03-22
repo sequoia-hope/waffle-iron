@@ -364,7 +364,10 @@ fn spotlight_f0044() {
     let dir = Path::new(ASSAY_DIR);
     let ids = &["F0044", "F0045", "R0092"];
     let (passed, failed, errored) = run_batch(ids, true);
-    println!("F0044+F0045+R0092: {}/3 passed, {} failed, {} errored", passed, failed, errored);
+    println!(
+        "F0044+F0045+R0092: {}/3 passed, {} failed, {} errored",
+        passed, failed, errored
+    );
 }
 
 #[test]
@@ -373,5 +376,8 @@ fn spotlight_r0045() {
     let dir = Path::new(ASSAY_DIR);
     let ids = &["R0045"];
     let (passed, failed, errored) = run_batch(ids, true);
-    println!("R0045: {}/1 passed, {} failed, {} errored", passed, failed, errored);
+    println!(
+        "R0045: {}/1 passed, {} failed, {} errored",
+        passed, failed, errored
+    );
 }

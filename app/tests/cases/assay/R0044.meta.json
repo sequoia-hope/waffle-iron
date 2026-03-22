@@ -61,7 +61,7 @@
   "oracles": {
     "euler_target": 2,
     "expect_watertight": true,
-    "max_bbox_extent": 11931.219606337514,
+    "max_bbox_extent": 39770.73202112505,
     "expect_positive_volume": true,
     "volume_monotonicity": [
       "increase",

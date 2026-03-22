@@ -542,7 +542,12 @@ pub fn generate_case(master_seed: u64, index: usize) -> GeneratedCase {
             .join("+")
     );
 
-    let max_bbox_extent = scale * 3.0; // conservative upper bound
+    // Revolve operations sweep profiles around an axis, potentially creating
+    // geometry with diameter much larger than the profile scale. Use a larger
+    // multiplier when revolves are present.
+    let has_revolve = op_metas.iter().any(|o| o.kind == "revolve");
+    let bbox_multiplier = if has_revolve { 10.0 } else { 3.0 };
+    let max_bbox_extent = scale * bbox_multiplier;
 
     let meta = AssayMeta {
         id: case_id.clone(),

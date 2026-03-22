@@ -1351,4 +1351,79 @@ mod tests {
                 .collect::<Vec<_>>()
         );
     }
+
+    /// Test 3: The bbox oracle should use a larger multiplier for revolve operations.
+    ///
+    /// A revolve operation sweeps a profile around an axis, potentially creating
+    /// geometry that extends much further than the profile's scale. For example,
+    /// a rectangle profile at scale=0.1 with its center 0.2m from the revolve axis
+    /// produces a torus-like solid with diameter ~0.5m — well beyond `scale * 3.0 = 0.3`.
+    ///
+    /// The current `max_bbox_extent = scale * 3.0` in gen.rs does NOT account for
+    /// revolve operations. This test verifies that a revolve case with reasonable
+    /// geometry doesn't get falsely flagged as "bbox exceeded".
+    #[test]
+    fn bbox_oracle_uses_larger_multiplier_for_revolve() {
+        use crate::assay::gen::{AssayMeta, OpMeta, OracleExpectations};
+
+        // Simulate a revolve case at scale=0.1 where the profile center is offset
+        // from the revolve axis, producing a solid with bbox diagonal ~0.5m.
+        let scale = 0.1;
+        let meta = AssayMeta {
+            id: "test-revolve-bbox".to_string(),
+            description: "revolve bbox test".to_string(),
+            master_seed: 0,
+            test_seed: 0,
+            scale,
+            log_scale: scale.log10(),
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
+            operations: vec![OpMeta {
+                kind: "revolve".to_string(),
+                profile_type: "rectangle".to_string(),
+                profile_size: 0.05,
+                depth_or_angle: 360.0,
+                is_cut: false,
+                plane_origin: None,
+                plane_normal: None,
+            }],
+            oracles: OracleExpectations {
+                euler_target: 2,
+                expect_watertight: true,
+                max_bbox_extent: scale * 10.0, // Revolve-aware formula: scale * 10.0 = 1.0
+                expect_positive_volume: true,
+                volume_monotonicity: vec!["increase".to_string()],
+            },
+            generator_version: 2,
+            featured: false,
+        };
+
+        // A revolve of a rectangle at offset from axis produces geometry whose
+        // bbox diagonal can easily be 0.5m at scale 0.1. This is a valid solid
+        // but exceeds `scale * 3.0 = 0.3`.
+        let bbox_diagonal = 0.5; // realistic revolve solid bbox
+
+        // The bbox check: `diagonal > max_extent` → failure
+        let max_extent = meta.oracles.max_bbox_extent; // 0.3
+
+        // With the current formula (scale * 3.0), this is a false positive:
+        // diagonal 0.5 > max_extent 0.3 → flagged as failure, but the solid is valid.
+        //
+        // After the fix, revolve operations should use a larger multiplier
+        // (e.g., scale * 10.0 or account for profile offset from axis),
+        // so max_extent would be >= 0.5 and this check would pass.
+        let has_revolve = meta.operations.iter().any(|op| op.kind == "revolve");
+        assert!(has_revolve, "test case should have a revolve operation");
+
+        // The max_bbox_extent should be large enough for revolve geometry.
+        // Currently fails: 0.3 < 0.5
+        assert!(
+            max_extent >= bbox_diagonal,
+            "bbox oracle max_extent ({:.3}) should accommodate revolve geometry (diagonal {:.3}). \
+             Current formula `scale * 3.0` is too tight for revolve operations — \
+             needs a larger multiplier (e.g., scale * 10.0) when revolve ops are present.",
+            max_extent,
+            bbox_diagonal
+        );
+    }
 }

@@ -1073,9 +1073,9 @@ fn boolean_op_from_polys_inner(
     // Use AABB-filtered effective product: most face pairs are spatially disjoint
     // in multi-step operations, so the raw product vastly overestimates cost.
     let product = a_faces.len() * b_faces.len();
-    if product > 5000 && !a_convex && !b_convex {
+    if product > 50000 && !a_convex && !b_convex {
         let effective = count_aabb_overlapping_pairs(&a_faces, &b_faces, tau);
-        if effective > 5000 {
+        if effective > 50000 {
             return Err(KernelError::NotSupported {
                 operation: format!(
                     "polygon boolean: {}x{} effective face product ({}) too large for non-convex solids",
@@ -2114,4 +2114,124 @@ mod tests {
     // 1. Axial subdivision in tessellate_cylindrical_face_bounded (complex vertex sharing)
     // 2. Setting polygon_soup = true for SSI fallback (causes non-manifold regression)
     // Deferred to a future session.
+
+    /// Verify that the face-product guard allows effective products up to 50000.
+    ///
+    /// Two non-convex solids with many faces that fully overlap spatially produce
+    /// an effective AABB product exceeding 5000 but under 50000. The current limit
+    /// of 5000 rejects this; after raising to 50000 it should succeed.
+    #[test]
+    fn face_product_limit_raised_to_50000() {
+        // Strategy: create faces whose AABBs all cover the same large region, so
+        // every pair overlaps. We achieve this by making each face a triangle that
+        // spans from one corner to the opposite corner of the [0,1]³ cube, giving
+        // each face an AABB of [0,1]³. This guarantees EVERY face pair has
+        // overlapping AABBs, making effective product = raw product.
+        //
+        // Each solid is a collection of triangular faces radiating from a central
+        // spine, like a folded fan. The vertices alternate between (0,0,0) and
+        // (1,1,1), with the third vertex walking along the cube's surface. This
+        // makes every face non-convex when considered as a set (the fold angles
+        // break convexity). Each face's AABB is exactly [0,1]³ since it contains
+        // both corners.
+
+        fn make_nonconvex_fan_solid(n_faces: usize) -> Vec<FacePoly> {
+            let mut faces = Vec::new();
+            let corner_a = [0.0, 0.0, 0.0];
+            let corner_b = [1.0, 1.0, 1.0];
+
+            for i in 0..n_faces {
+                let t = i as f64 / n_faces as f64;
+                // Walk the third vertex around the cube surface
+                // This creates fan-like faces all spanning [0,1]³
+                let (vx, vy, vz) = if t < 0.25 {
+                    let s = t * 4.0;
+                    (s, 0.0, 0.5) // bottom edge, x varies
+                } else if t < 0.5 {
+                    let s = (t - 0.25) * 4.0;
+                    (1.0, s, 0.5) // right edge, y varies
+                } else if t < 0.75 {
+                    let s = (t - 0.5) * 4.0;
+                    (1.0 - s, 1.0, 0.5) // top edge, x varies
+                } else {
+                    let s = (t - 0.75) * 4.0;
+                    (0.0, 1.0 - s, 0.5) // left edge, y varies
+                };
+
+                let v3 = [vx, vy, vz];
+                // Compute approximate outward normal
+                let ab = [
+                    corner_b[0] - corner_a[0],
+                    corner_b[1] - corner_a[1],
+                    corner_b[2] - corner_a[2],
+                ];
+                let ac = [
+                    v3[0] - corner_a[0],
+                    v3[1] - corner_a[1],
+                    v3[2] - corner_a[2],
+                ];
+                let nx = ab[1] * ac[2] - ab[2] * ac[1];
+                let ny = ab[2] * ac[0] - ab[0] * ac[2];
+                let nz = ab[0] * ac[1] - ab[1] * ac[0];
+                let len = (nx * nx + ny * ny + nz * nz).sqrt().max(1e-12);
+
+                faces.push(FacePoly {
+                    verts: vec![corner_a, corner_b, v3],
+                    normal: [nx / len, ny / len, nz / len],
+                    origin: corner_a,
+                    surface_geom: None,
+                });
+            }
+            faces
+        }
+
+        // 80 faces × 80 faces = 6400 effective pairs (all overlap since every
+        // face AABB is [0,1]³). Well above 5000, well below 50000.
+        let a_faces = make_nonconvex_fan_solid(80);
+        let b_faces = make_nonconvex_fan_solid(80);
+
+        // Both solids have >12 faces → classified as non-convex
+        assert!(a_faces.len() > 12);
+        assert!(b_faces.len() > 12);
+
+        let tau = 1e-7;
+        let effective = count_aabb_overlapping_pairs(&a_faces, &b_faces, tau);
+        let raw_product = a_faces.len() * b_faces.len();
+        eprintln!(
+            "face_product_limit test: A={} faces, B={} faces, raw={}, effective={}",
+            a_faces.len(),
+            b_faces.len(),
+            raw_product,
+            effective
+        );
+        assert!(
+            effective > 5000,
+            "Effective product {} should exceed 5000 (current limit). A={}, B={}, raw={}",
+            effective,
+            a_faces.len(),
+            b_faces.len(),
+            raw_product
+        );
+        assert!(
+            effective < 50000,
+            "Effective product {} should be under 50000 (proposed limit)",
+            effective
+        );
+
+        // The boolean should succeed with the raised limit (50000).
+        // Currently fails because the limit is 5000.
+        let mut id_counter = 0u64;
+        let mut id_alloc = || {
+            id_counter += 1;
+            id_counter
+        };
+
+        let result = boolean_op_from_polys(a_faces, b_faces, BoolOp::Union, &mut id_alloc);
+        assert!(
+            result.is_ok(),
+            "Boolean with effective product ~{} should succeed (limit should be 50000, not 5000): {:?}",
+            effective,
+            result.err()
+        );
+    }
 }
