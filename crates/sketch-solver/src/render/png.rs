@@ -30,7 +30,8 @@ pub fn render_sketch_png(svg_content: &str, width: u32, height: u32) -> Vec<u8> 
     let scale = sx.min(sy);
 
     let transform = tiny_skia::Transform::from_scale(scale, scale);
-    resvg::render(&tree, transform, &mut pixmap.as_mut());
+    let mut pm = pixmap.as_mut();
+    resvg::render(&tree, transform, &mut pm);
 
     pixmap.encode_png().expect("Failed to encode PNG")
 }

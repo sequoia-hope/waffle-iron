@@ -147,7 +147,7 @@ pub fn refine_dof_with_hessian<C: ConstraintEq>(
     rank: &RankAnalysis,
     constraints: &[C],
     params: &[f64],
-    d_row: &DVector<f64>,
+    _d_row: &DVector<f64>,
 ) -> usize {
     let v_null = match &rank.v_null {
         Some(v) => v,
@@ -164,7 +164,7 @@ pub fn refine_dof_with_hessian<C: ConstraintEq>(
     // Step 1: Collect per-equation Hessian entries grouped by equation row
     let mut eq_hessians: std::collections::HashMap<usize, Vec<(usize, usize, f64)>> =
         std::collections::HashMap::new();
-    let m = d_row.len();
+    let m: usize = constraints.iter().map(|c| c.num_equations()).sum();
 
     let mut eq_offset = 0;
     for c in constraints {

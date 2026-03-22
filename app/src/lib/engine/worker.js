@@ -222,7 +222,7 @@ self.onmessage = async function (event) {
 			case 'OverConstrained': flatStatus = 'over_constrained'; dof = -1; failed = s.status.conflicts || []; break;
 			default: flatStatus = 'error'; dof = -1; failed = []; break;
 		}
-		self.postMessage({
+		const msg = {
 			type: 'SketchSolved',
 			positions: s.positions || {},
 			solvedRadii: s.radii || {},
@@ -230,7 +230,11 @@ self.onmessage = async function (event) {
 			dof,
 			failed,
 			profiles: s.profiles || []
-		});
+		};
+		if (statusType === 'SolveFailed' && s.status?.reason) {
+			msg.error = s.status.reason;
+		}
+		self.postMessage(msg);
 		return;
 	}
 
