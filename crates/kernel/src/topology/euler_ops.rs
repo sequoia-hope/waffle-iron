@@ -303,7 +303,7 @@ mod tests {
         let (_, v2) = mev(&mut arena, v1, loop_, [0.5, 1.0, 0.0]);
 
         // Close the triangle: connect v2 back to v0, creating a new face
-        let (_, new_face) = mef(&mut arena, v2, v0, loop_);
+        let (_, _new_face) = mef(&mut arena, v2, v0, loop_);
 
         // Check counts: V=3, E=3, F=2
         assert_eq!(arena.vertex_count(), 3);

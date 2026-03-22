@@ -8025,7 +8025,7 @@ mod tests {
 
         let nonmanifold_edges: Vec<_> =
             edge_counts.iter().filter(|(_, &count)| count > 2).collect();
-        let unpaired_edges: Vec<_> = edge_counts
+        let _unpaired_edges: Vec<_> = edge_counts
             .iter()
             .filter(|(_, &count)| count == 1)
             .collect();
