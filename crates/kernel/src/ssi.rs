@@ -3269,7 +3269,7 @@ mod tests {
             {
                 // For 90°, both curves have semi_major = R√2, semi_minor = R
                 assert!(
-                    (*semi_major - sqrt2).abs() < 0.01,
+                    (*semi_major - sqrt2).abs() < EPS,
                     "semi_major={}, expected {}",
                     semi_major,
                     sqrt2
@@ -3313,13 +3313,13 @@ mod tests {
             .collect();
         majors.sort_by(|a, b| a.partial_cmp(b).unwrap());
         assert!(
-            (majors[0] - expected_2).abs() < 0.01,
+            (majors[0] - expected_2).abs() < EPS,
             "smaller={}, expected {}",
             majors[0],
             expected_2
         );
         assert!(
-            (majors[1] - expected_1).abs() < 0.01,
+            (majors[1] - expected_1).abs() < EPS,
             "larger={}, expected {}",
             majors[1],
             expected_1
@@ -3454,12 +3454,12 @@ mod tests {
         for curve in &curves {
             if let SSICurve::Ellipse { center, .. } = curve {
                 assert!(
-                    (center[0] - 5.0).abs() < 0.01,
+                    (center[0] - 5.0).abs() < EPS,
                     "cx={}, expected 5.0",
                     center[0]
                 );
                 assert!(
-                    (center[2] - 5.0).abs() < 0.01,
+                    (center[2] - 5.0).abs() < EPS,
                     "cz={}, expected 5.0",
                     center[2]
                 );
@@ -3498,13 +3498,13 @@ mod tests {
         let mut expecteds = [expected_1, expected_2];
         expecteds.sort_by(|a, b| a.partial_cmp(b).unwrap());
         assert!(
-            (majors[0] - expecteds[0]).abs() < 0.01,
+            (majors[0] - expecteds[0]).abs() < EPS,
             "got {}, expected {}",
             majors[0],
             expecteds[0]
         );
         assert!(
-            (majors[1] - expecteds[1]).abs() < 0.01,
+            (majors[1] - expecteds[1]).abs() < EPS,
             "got {}, expected {}",
             majors[1],
             expecteds[1]
@@ -3528,7 +3528,7 @@ mod tests {
         for curve in &curves {
             if let SSICurve::Ellipse { semi_minor, .. } = curve {
                 assert!(
-                    (*semi_minor - avg_r).abs() < 0.01,
+                    (*semi_minor - avg_r).abs() < EPS,
                     "semi_minor={}, expected {}",
                     semi_minor,
                     avg_r
@@ -5607,7 +5607,7 @@ mod tests {
             {
                 // Each circle should have radius ≈ 5.425 (the ρ value)
                 assert!(
-                    (radius - 5.425).abs() < 0.01,
+                    (radius - 5.425).abs() < EPS,
                     "Circle radius should be ~5.425, got {}",
                     radius
                 );
@@ -5622,16 +5622,19 @@ mod tests {
                 panic!("Expected Circle, got {:?}", curve);
             }
         }
-        // Two circles at z ≈ ±0.905
+        // Two circles at z = ±√(Rs² - ρ²) where Rs=5.5, ρ=5.425
+        let expected_z = (5.5_f64 * 5.5 - 5.425 * 5.425).sqrt(); // ≈ 0.90519…
         z_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
         assert!(
-            (z_values[0] - (-0.905)).abs() < 0.01,
-            "Lower z should be ~-0.905, got {}",
+            (z_values[0] - (-expected_z)).abs() < EPS,
+            "Lower z should be ~-{}, got {}",
+            expected_z,
             z_values[0]
         );
         assert!(
-            (z_values[1] - 0.905).abs() < 0.01,
-            "Upper z should be ~0.905, got {}",
+            (z_values[1] - expected_z).abs() < EPS,
+            "Upper z should be ~{}, got {}",
+            expected_z,
             z_values[1]
         );
     }
@@ -5780,13 +5783,13 @@ mod tests {
                 let expected_h = 2.0 / (1.0 - (half_30).tan()); // ≈ 4.732
                 let expected_r = expected_h * half_30.tan(); // ≈ 2.732
                 assert!(
-                    (center[2] - expected_h).abs() < 0.01,
+                    (center[2] - expected_h).abs() < EPS,
                     "Circle z should be ~{}, got {}",
                     expected_h,
                     center[2]
                 );
                 assert!(
-                    (radius - expected_r).abs() < 0.01,
+                    (radius - expected_r).abs() < EPS,
                     "Circle radius should be ~{}, got {}",
                     expected_r,
                     radius
@@ -6136,7 +6139,7 @@ mod tests {
                     // Check point is on sphere: |pt - sphere_center| ≈ sphere_r
                     let dist_to_sphere = v3_length(v3_sub(pt, sphere_center));
                     assert!(
-                        (dist_to_sphere - sphere_r).abs() < 0.01,
+                        (dist_to_sphere - sphere_r).abs() < EPS,
                         "Point {:?} distance to sphere center = {}, expected {}",
                         pt,
                         dist_to_sphere,
@@ -7276,13 +7279,13 @@ mod tests {
 
         if let SSICurve::Circle { center, radius, .. } = &curves[0] {
             assert!(
-                (center[2] - expected_h).abs() < 0.01,
+                (center[2] - expected_h).abs() < EPS,
                 "Expected circle at z≈{}, got z={}",
                 expected_h,
                 center[2]
             );
             assert!(
-                (*radius - 1.0).abs() < 0.01,
+                (*radius - 1.0).abs() < EPS,
                 "Expected radius≈1, got {}",
                 radius
             );
@@ -7413,7 +7416,7 @@ mod tests {
                         assert!(center[1].abs() < EPS, "Circle center y should be ~0");
                         // Radius should be R_cyl = 4
                         assert!(
-                            (radius - 4.0).abs() < 0.01,
+                            (radius - 4.0).abs() < EPS,
                             "Circle radius should be ~4, got {}",
                             radius
                         );
@@ -7427,13 +7430,13 @@ mod tests {
                 }
                 z_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
                 assert!(
-                    (z_values[0] - (-expected_z)).abs() < 0.01,
+                    (z_values[0] - (-expected_z)).abs() < EPS,
                     "First circle z should be ~{}, got {}",
                     -expected_z,
                     z_values[0]
                 );
                 assert!(
-                    (z_values[1] - expected_z).abs() < 0.01,
+                    (z_values[1] - expected_z).abs() < EPS,
                     "Second circle z should be ~{}, got {}",
                     expected_z,
                     z_values[1]
@@ -7481,7 +7484,7 @@ mod tests {
                         assert!(center[0].abs() < EPS, "Circle center x should be ~0");
                         assert!(center[1].abs() < EPS, "Circle center y should be ~0");
                         assert!(
-                            (radius - 5.0).abs() < 0.01,
+                            (radius - 5.0).abs() < EPS,
                             "Circle radius should be ~5, got {}",
                             radius
                         );
@@ -7494,12 +7497,12 @@ mod tests {
                 }
                 z_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
                 assert!(
-                    (z_values[0] - (-2.0)).abs() < 0.01,
+                    (z_values[0] - (-2.0)).abs() < EPS,
                     "First circle z should be ~-2, got {}",
                     z_values[0]
                 );
                 assert!(
-                    (z_values[1] - 2.0).abs() < 0.01,
+                    (z_values[1] - 2.0).abs() < EPS,
                     "Second circle z should be ~2, got {}",
                     z_values[1]
                 );
@@ -7812,7 +7815,7 @@ mod tests {
                         assert!(normal[2].abs() > 1.0 - EPS, "Normal should be along Z");
                         // Radius should equal h (cone radius at that height)
                         assert!(
-                            (*radius - center[2]).abs() < 0.01,
+                            (*radius - center[2]).abs() < EPS,
                             "Circle radius {} should equal height {}",
                             radius,
                             center[2]
@@ -7824,13 +7827,13 @@ mod tests {
                 }
                 circle_heights.sort_by(|a, b| a.partial_cmp(b).unwrap());
                 assert!(
-                    (circle_heights[0] - h1).abs() < 0.01,
+                    (circle_heights[0] - h1).abs() < EPS,
                     "First circle at h≈{}, got {}",
                     h1,
                     circle_heights[0]
                 );
                 assert!(
-                    (circle_heights[1] - h2).abs() < 0.01,
+                    (circle_heights[1] - h2).abs() < EPS,
                     "Second circle at h≈{}, got {}",
                     h2,
                     circle_heights[1]
@@ -7984,7 +7987,7 @@ mod tests {
                         assert!(normal[2].abs() > 1.0 - EPS, "Normal should be along Z");
                         // Radius should be ρ = 2.875
                         assert!(
-                            (*radius - expected_rho).abs() < 0.01,
+                            (*radius - expected_rho).abs() < EPS,
                             "Circle radius should be ~{}, got {}",
                             expected_rho,
                             radius
@@ -7996,13 +7999,13 @@ mod tests {
                 }
                 circle_zs.sort_by(|a, b| a.partial_cmp(b).unwrap());
                 assert!(
-                    (circle_zs[0] - (-expected_z)).abs() < 0.01,
+                    (circle_zs[0] - (-expected_z)).abs() < EPS,
                     "First circle at z≈{}, got {}",
                     -expected_z,
                     circle_zs[0]
                 );
                 assert!(
-                    (circle_zs[1] - expected_z).abs() < 0.01,
+                    (circle_zs[1] - expected_z).abs() < EPS,
                     "Second circle at z≈{}, got {}",
                     expected_z,
                     circle_zs[1]

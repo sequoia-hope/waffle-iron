@@ -1178,7 +1178,16 @@ fn j2_box_cyl_union_basic() {
     let handle = result.unwrap();
     let mesh = k.tessellate(&handle, 0.01).unwrap();
     let vol = mesh_volume(&mesh);
-    assert!(vol > 0.0, "Union volume should be positive, got {}", vol);
+    // Cylinder (r=3, h=10) is fully enclosed by box (10×10×10 centered at origin),
+    // so union volume = box volume = 1000.0
+    let expected = 1000.0;
+    assert!(
+        (vol - expected).abs() / expected < 0.05,
+        "Union volume should be ~{}, got {} ({}% error)",
+        expected,
+        vol,
+        ((vol - expected).abs() / expected * 100.0)
+    );
 }
 
 #[test]

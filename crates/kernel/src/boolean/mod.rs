@@ -1458,7 +1458,7 @@ mod tests {
         );
         let area = polygon_area_3d(&clipped);
         assert!(
-            (area - 0.5).abs() < 0.01,
+            (area - 0.5).abs() < 1e-9,
             "Clipped area should be ~0.5, got {}",
             area
         );
@@ -1830,7 +1830,35 @@ mod tests {
 
         // Run the full union
         let result = kernel.boolean_union(&handle_a, &handle_b);
-        result.expect("step shape union should succeed");
+        let handle = result.expect("step shape union should succeed");
+        let mesh = kernel.tessellate(&handle, 0.01).unwrap();
+        // Step shape volume: 10×10×5 + 5×10×5 = 500 + 250 = 750
+        // Compute volume via divergence theorem (signed tetrahedra)
+        let mut vol = 0.0_f64;
+        let n_tris = mesh.indices.len() / 3;
+        for i in 0..n_tris {
+            let idx = |j: usize| {
+                let k = mesh.indices[i * 3 + j] as usize;
+                [
+                    mesh.vertices[k * 3] as f64,
+                    mesh.vertices[k * 3 + 1] as f64,
+                    mesh.vertices[k * 3 + 2] as f64,
+                ]
+            };
+            let (v0, v1, v2) = (idx(0), idx(1), idx(2));
+            vol += v0[0] * (v1[1] * v2[2] - v1[2] * v2[1])
+                - v0[1] * (v1[0] * v2[2] - v1[2] * v2[0])
+                + v0[2] * (v1[0] * v2[1] - v1[1] * v2[0]);
+        }
+        vol = vol.abs() / 6.0;
+        let expected = 750.0;
+        assert!(
+            (vol - expected).abs() / expected < 0.05,
+            "Step-shape union volume should be ~{}, got {} ({}% error)",
+            expected,
+            vol,
+            ((vol - expected).abs() / expected * 100.0)
+        );
     }
 
     /// Two adjacent faces sharing a geometric edge, clipped by the same plane,
