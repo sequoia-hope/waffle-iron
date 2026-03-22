@@ -3790,6 +3790,31 @@ fn diag_r0080_reversed_normals() {
     eprintln!("  degenerate:      {}/{}", degen_count, n_tris);
     eprintln!("  outward normals: {}/{}", outward_agree, outward_agree + outward_disagree);
     eprintln!("=================\n");
+
+    // Structural oracle: mesh must have a reasonable number of triangles
+    assert!(n_tris >= 10, "R0080 union should produce >= 10 triangles, got {}", n_tris);
+
+    // No degenerate (zero-area) triangles allowed
+    assert_eq!(degen_count, 0, "R0080 mesh has {} degenerate triangles", degen_count);
+
+    // Normal consistency: the vast majority of normals must agree with winding
+    let consistency_ratio = consistent as f64 / total as f64;
+    assert!(
+        consistency_ratio > 0.90,
+        "R0080 normal consistency {:.1}% ({}/{}) is below 90% threshold",
+        consistency_ratio * 100.0, consistent, total
+    );
+
+    // Outward normal check: majority of normals should point outward from centroid
+    let outward_total = outward_agree + outward_disagree;
+    if outward_total > 0 {
+        let outward_ratio = outward_agree as f64 / outward_total as f64;
+        assert!(
+            outward_ratio > 0.80,
+            "R0080 outward normal agreement {:.1}% ({}/{}) is below 80% threshold",
+            outward_ratio * 100.0, outward_agree, outward_total
+        );
+    }
 }
 
 // ── Group Q: Tilted plane + off-axis tests ──────────────────────────────
