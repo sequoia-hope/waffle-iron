@@ -116,7 +116,7 @@ wasm-bridge → sketch-ui (update display, color by status)
 
 | # | Project | Purpose | Technology | Dependencies | Status |
 |---|---------|---------|------------|-------------|--------|
-| 01 | kernel | Clean-sheet B-Rep geometry kernel | Rust | None | In progress (assay score 81/160) |
+| 01 | kernel | Clean-sheet B-Rep geometry kernel | Rust | None | In progress (assay score 104/160) |
 | 02 | sketch-solver | 2D constraint solving via slvs | Rust + C (libslvs) | None | Complete (M1-M10 + Emscripten WASM) |
 | 03 | wasm-bridge | WASM↔JS communication protocol | Rust + JS | 01 | Complete (M1-M8) |
 | 04 | 3d-viewport | three.js rendering via Threlte | Svelte + JS | 01 | Complete |
@@ -167,7 +167,7 @@ All 3D rendering happens in JavaScript via three.js/Threlte on the main thread. 
 
 ## Current Kernel Status
 
-The clean-sheet kernel (`crates/kernel/`) is under active development. Current assay score: **134/160** (600 kernel tests pass, 4 ignored).
+The clean-sheet kernel (`crates/kernel/`) is under active development. Current assay score: **104/160** (606 kernel tests pass, 4 ignored). Score decreased from 134→104 after Session 8 expanded failure detection to correctly count cross-plane, bbox, face-product, and revolve failures not previously counted.
 
 ### What exists:
 - Half-edge B-Rep topology data structure with arena-based storage
@@ -176,15 +176,15 @@ The clean-sheet kernel (`crates/kernel/`) is under active development. Current a
 - SSI solvers for all 15 quadric surface pairs (Ref: Patrikalakis Ch.5)
 - Analytical boolean pipeline: box×box, box×cyl, cyl×cyl (parallel + non-parallel)
 - Geometry-driven tessellation for planar, cylindrical, conical, spherical, and toroidal faces
-- `MockKernel` (full deterministic test double, ~1,800 lines)
+- `MockKernel` (full deterministic test double, ~1,820 lines)
 - `WaffleKernel` — extrude, revolve, and boolean operations functional
 - 160-case randomized assay test suite (seed 42) with analytical ground truth
 
 ### What's next (in priority order):
-1. Fix remaining non-manifold edges (earcut diagonal overlaps → CDT)
-2. Improve tessellation vertex sharing for watertight meshes
-3. Complete Tier 1 surface enum (Cone, Sphere, Torus in `SurfaceGeom`)
-4. Stress tests for chained booleans and edge cases
+1. Eliminate polygon fallback for quadric boolean pairs (A15 compliance — 39 watertight failures)
+2. Fix remaining non-manifold edges (earcut diagonal overlaps → CDT)
+3. Investigate chained boolean volume loss (A∪B∪C produces ~1 volume instead of ~3)
+4. Profile and reduce 9 boolean timeout cases (>90s operations)
 
 ### Deferred indefinitely:
 - Fillet, chamfer, shell operations
