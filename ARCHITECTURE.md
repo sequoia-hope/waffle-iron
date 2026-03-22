@@ -116,7 +116,7 @@ wasm-bridge → sketch-ui (update display, color by status)
 
 | # | Project | Purpose | Technology | Dependencies | Status |
 |---|---------|---------|------------|-------------|--------|
-| 01 | kernel | Clean-sheet B-Rep geometry kernel | Rust | None | In progress (assay score 104/160) |
+| 01 | kernel | Clean-sheet B-Rep geometry kernel | Rust | None | In progress (assay score 124/160) |
 | 02 | sketch-solver | 2D constraint solving via slvs | Rust + C (libslvs) | None | Complete (M1-M10 + Emscripten WASM) |
 | 03 | wasm-bridge | WASM↔JS communication protocol | Rust + JS | 01 | Complete (M1-M8) |
 | 04 | 3d-viewport | three.js rendering via Threlte | Svelte + JS | 01 | Complete |
@@ -167,7 +167,7 @@ All 3D rendering happens in JavaScript via three.js/Threlte on the main thread. 
 
 ## Current Kernel Status
 
-The clean-sheet kernel (`crates/kernel/`) is under active development. Current assay score: **104/160** (606 kernel tests pass, 4 ignored). Score decreased from 134→104 after Session 8 expanded failure detection to correctly count cross-plane, bbox, face-product, and revolve failures not previously counted.
+The clean-sheet kernel (`crates/kernel/`) is under active development. Current assay score: **124/160** (630 kernel tests pass, 4 ignored). Score improved from 104→124 through sphere SSI dispatch, AABB disjoint fast-path, and cross-face non-manifold edge flip fixes.
 
 ### What exists:
 - Half-edge B-Rep topology data structure with arena-based storage

@@ -32,7 +32,10 @@ use crate::geometry::surface::{Cylinder, SurfaceGeom};
 use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::*;
 use crate::types::*;
-use crate::units::{CURVATURE_SUBDIV_THRESHOLD, TAU_MODEL, TAU_NORMALIZE, TAU_WELD_FACTOR, TAU_WELD_MAX, TAU_WELD_MIN};
+use crate::units::{
+    CURVATURE_SUBDIV_THRESHOLD, TAU_MODEL, TAU_NORMALIZE, TAU_WELD_FACTOR, TAU_WELD_MAX,
+    TAU_WELD_MIN,
+};
 use crate::vecmath::*;
 use crate::waffle_kernel::{CylinderParams, WaffleSolid};
 use std::collections::BTreeMap;
