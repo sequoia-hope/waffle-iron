@@ -284,7 +284,7 @@ Also: `large_boss_exceeds_face_union` (truck-level, same geometry).
 
 | Suite | Pass | Fail | Ignored |
 |-------|------|------|---------|
-| kernel (clean-sheet) | 627 | 0 | 4 |
+| kernel (clean-sheet) | 630 | 0 | 4 |
 | test-harness (lib) | 77 | 0 | 1 |
 | test-harness/assay | 104/160 | 47+9err | — |
 
@@ -558,6 +558,39 @@ to assay score (104/160) since assay failures are from overlapping solids.
 - Spec: `/specs/aabb_disjoint_boolean_fastpath.md`
 - 12 new tests (627 total kernel tests)
 - Ref #24 Barton: spatial rejection for non-interfering geometry
+
+### Cross-Face Non-Manifold Edge Flip ✅
+
+Extended `flip_nonmanifold_edges_position_based` in tessellation to handle
+non-manifold edges where 3 triangles span different face ranges. Previously
+the function only flipped diagonals within a single face range.
+
+The cross-face fallback tries all triangle pairs from the non-manifold edge
+list, using the same validation: convex quad check, new diagonal nm-edge
+check, and winding consistency.
+
+**Impact**: Correct tessellation improvement. Doesn't fix the assay near-miss
+cases (F0023/R0038 with 1 non-manifold edge) because those edges fail
+validation checks — the flipped diagonal would create a new non-manifold edge.
+Root cause remains S-H clipping precision producing inconsistent face polygons.
+
+- Spec: `/specs/cross_face_nonmanifold_flip.md`
+- 3 new tests (630 total kernel tests)
+- Ref #33 Stroud: mesh topology repair via local operations
+
+### Session 11 Summary
+
+- **Two full FIP cycles** with role separation (Test Author / Implementer / Adversary)
+- **15 new tests** (615→630 kernel tests)
+- **AABB disjoint fast-path**: Fixes disjoint union correctness, improves performance
+- **Cross-face nm flip**: Correct tessellation improvement for a broader class of repairs
+- **Assay score**: 104/160 (unchanged — remaining failures are S-H clipping precision)
+- **Root cause confirmed**: 39 watertight failures stem from Sutherland-Hodgman polygon
+  clipping accumulating numerical error across sequential clip passes. The IntersectionCache
+  handles single-edge-plane intersections but compound intersections (where intersection
+  points from pass N become vertices for pass N+1) diverge between adjacent faces.
+  Fixing this requires either exact arithmetic (Shewchuk predicates) or a fundamentally
+  different boolean pipeline architecture (e.g., topology-guaranteed SSI for all face pairs).
 
 ---
 
