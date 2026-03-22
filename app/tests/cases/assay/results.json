@@ -1,8 +1,8 @@
 {
-  "errored": 7,
-  "failed": 58,
+  "errored": 9,
+  "failed": 47,
   "generated": "2026-03-22",
-  "passed": 95,
+  "passed": 104,
   "results": [
     {
       "category": "pass-boss-only",
@@ -42,7 +42,7 @@
     },
     {
       "category": "revolve-normals",
-      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 96 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"gear\")]",
+      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"gear\")]",
       "id": "R0007",
       "status": "fail"
     },
@@ -71,8 +71,8 @@
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): bc9220a7-b035-4902-9842-67f2cecad33c: operation error: kernel error: operation not supported: polygon boolean: 310x590 effective face product (5790) too large for non-convex solids",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 1530 unpaired edges out of 9477 total (1527 boundary, 3 non-manifold)",
       "id": "R0012",
       "status": "fail"
     },
@@ -107,16 +107,16 @@
       "status": "fail"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 288 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"gear\"), (\"revolve\", \"gear\")]",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0018",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "minimum_triangle_count: 120 triangles < expected minimum 288 for operations [(\"extrude\", \"circle\"), (\"revolve\", \"gear\")]",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0019",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "boolean-watertight",
@@ -162,7 +162,7 @@
     },
     {
       "category": "revolve-normals",
-      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 96 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"gear\"), (\"revolve\", \"circle\")]",
+      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 12 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"gear\"), (\"revolve\", \"circle\")]",
       "id": "R0027",
       "status": "fail"
     },
@@ -281,16 +281,16 @@
       "status": "fail"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 288 for operations [(\"extrude\", \"rectangle\"), (\"revolve\", \"gear\"), (\"revolve\", \"circle\")]",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0047",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"gear\")]",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0048",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "boolean-watertight",
@@ -347,10 +347,10 @@
       "status": "pass"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 366x394 effective face product (15224) too large for non-convex solids. Body created as standalone.; partial rebuild (1 error(s)): 2d4513b2-1d7e-4018-ae1d-6bc19a9c035a: operation error: kernel error: operation not supported: polygon boolean: 366x506 effective face product (9145) too large for non-convex solids; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0058",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "boolean-watertight",
@@ -389,10 +389,10 @@
       "status": "pass"
     },
     {
-      "category": "multiple-failures",
-      "detail": "bbox diagonal 2.763e-2 exceeds max 2.617e-2",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0065",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "pass-genuine",
@@ -407,8 +407,8 @@
       "status": "pass"
     },
     {
-      "category": "multiple-failures",
-      "detail": "bbox diagonal 1.837e-1 exceeds max 1.453e-1",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 4 unpaired edges out of 755 total",
       "id": "R0068",
       "status": "fail"
     },
@@ -443,16 +443,16 @@
       "status": "pass"
     },
     {
-      "category": "multiple-failures",
-      "detail": "bbox diagonal 1.185e0 exceeds max 1.020e0",
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "R0074",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): bf39bb13-caea-4782-a987-73d7310c7c75: operation error: kernel error: operation not supported: polygon boolean: 680x674 effective face product (12657) too large for non-convex solids; watertight_mesh: 32 unpaired edges out of 4009 total",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0075",
-      "status": "fail"
+      "status": "error"
     },
     {
       "category": "boolean-watertight",
@@ -479,16 +479,16 @@
       "status": "pass"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 288 for operations [(\"extrude\", \"rectangle\"), (\"revolve\", \"gear\")]",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0080",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 602x588 effective face product (41828) too large for non-convex solids. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); volume_magnitude: volume 1.483912e-11 outside [1.128408e-10, 1.128408e6] for scale 2.242963e-1",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0081",
-      "status": "fail"
+      "status": "error"
     },
     {
       "category": "multiple-failures",
@@ -528,7 +528,7 @@
     },
     {
       "category": "revolve-normals",
-      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 96 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\"), (\"extrude\", \"rectangle\")]",
+      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\"), (\"extrude\", \"rectangle\")]",
       "id": "R0088",
       "status": "fail"
     },
@@ -545,10 +545,10 @@
       "status": "error"
     },
     {
-      "category": "multiple-failures",
-      "detail": "bbox diagonal 4.946e-4 exceeds max 4.771e-4",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0091",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "pass-genuine",

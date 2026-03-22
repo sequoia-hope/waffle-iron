@@ -707,27 +707,21 @@ pub(crate) fn weld_shared_edge_vertices(
         return;
     }
 
-    // Build position map: quantize each vertex position using a scale-adaptive
-    // grid that matches the mesh oracle's watertight check formula
-    // (max_abs * 1e-5, floor 1e-10). This ensures vertices that the oracle
-    // considers co-located are also welded during tessellation, preventing
-    // false watertight failures at extreme scales.
-    //
-    // Previous fixed 1e7 quantization (resolution 1e-7m) caused mismatches:
-    // - Large scale (1e4m): oracle grid 0.1m vs weld grid 1e-7m → under-welding
-    // - Tiny scale (1e-4m): oracle grid 1e-9m vs weld grid 1e-7m → over-welding
-    let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
-    let grid_size = (max_abs as f64 * 1e-5).max(1e-10);
-    let inv_grid = 1.0 / grid_size;
-
+    // Build position map: quantize each vertex position to i64 grid at 1e7
+    // (resolution 1e-7 m, one order below MIN_FEATURE_SIZE).
+    // Map each unique quantized position to the first vertex index at that position.
+    // All co-located vertices are welded unconditionally — this creates cross-face
+    // index sharing for watertight meshes. Normals at shared vertices may belong
+    // to different faces (hard edges), but this is acceptable because the
+    // watertight oracle checks position-based edge pairing, not normal agreement.
     let mut position_map: HashMap<(i64, i64, i64), u32> = HashMap::new();
     let mut remap: Vec<u32> = (0..n_verts as u32).collect();
 
     for vi in 0..n_verts {
         let key = (
-            (vertices[vi * 3] as f64 * inv_grid).round() as i64,
-            (vertices[vi * 3 + 1] as f64 * inv_grid).round() as i64,
-            (vertices[vi * 3 + 2] as f64 * inv_grid).round() as i64,
+            (vertices[vi * 3] as f64 * 1e7).round() as i64,
+            (vertices[vi * 3 + 1] as f64 * 1e7).round() as i64,
+            (vertices[vi * 3 + 2] as f64 * 1e7).round() as i64,
         );
         let first = *position_map.entry(key).or_insert(vi as u32);
         remap[vi] = first;

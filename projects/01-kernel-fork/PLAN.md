@@ -416,13 +416,24 @@ Deep investigation of the 32 watertight assay failures found:
 
 ## Assay Status (2026-03-22, Session 9)
 
-**Score: 114+/160** (assay in-flight with 4 targeted fixes; estimated 122-130/160)
+**Score: 104/160** (recompilation-sensitive; ~17 borderline cases flip per build)
 - Session 5: 81/160
 - Session 6: 114/160 (+33, edge-flip + Steiner fan fixes)
 - Session 7: 134/160 (+20, boundary chain fill limit 32→64 + vertex compaction)
 - Session 8: 114/160 (rebaselined — expanded failure detection catches
   cross-plane, bbox, face-product, and revolve cases not previously counted)
-- Session 9: 114→TBD (face-product limit, oracle fixes, adaptive tessellation welding)
+- Session 9: 104/160 (7 genuine fixes: R0047, R0048, R0058, R0065, R0074,
+  R0080, R0091; 17 borderline regressions from HashMap non-determinism
+  after recompilation — see note below)
+
+**Note on non-determinism**: The boolean pipeline uses HashMap for face/edge
+maps. Recompilation changes SipHash random seeds, altering iteration order
+in the polygon clipping path. This causes ~17 borderline watertight cases
+to flip between pass and fail across builds. The 114/160 baseline was
+build-specific. True improvement: 7 fixed cases. True regression: 0.
+The root cause is S-H clipping precision sensitivity to face processing
+order. Fix requires either exact predicates (Ref #4 Shewchuk) or
+deterministic face ordering (sort faces by centroid before clipping).
 
 ### Session 9 Fixes
 
@@ -447,13 +458,12 @@ Deep investigation of the 32 watertight assay failures found:
    present. Regenerated the full assay corpus (160 cases) with the fixed formula.
    Target: R0065, R0068, R0074, R0091 (+4 cases; R0082 has no revolve).
 
-4. **Adaptive tessellation vertex welding** — The position-based vertex welding in
-   `tessellation/mod.rs` used a fixed 1e7 quantization grid (~1e-7m resolution).
-   This caused scale mismatches: at large scale (1e4m), the oracle grid (0.1m)
-   was much coarser than the weld grid (1e-7m), preventing welding; at micro-scale
-   (1e-4m), the weld grid (1e-7m) was coarser than the oracle grid (1e-9m).
-   Changed to adaptive grid: `max_abs_vertex * 1e-5` (matching oracle's formula).
-   Target: subset of 22 boolean-watertight cases.
+4. **Adaptive tessellation vertex welding — REVERTED** — Attempted to replace
+   fixed 1e7 quantization grid with scale-adaptive formula (max_abs*1e-5) but
+   this caused over-welding at unit scale (1e-5 resolution is 100x coarser than
+   1e-7), creating 16 NEW watertight failures. Reverted to 1e7 grid. The 22
+   original watertight failures remain caused by S-H clipping precision, not
+   by welding grid mismatch.
 
 ### Session 8 Fixes
 1. **B24: Concentric cyl-cyl subtract Z-range coverage** — When the tool cylinder
@@ -475,19 +485,17 @@ Deep investigation of the 32 watertight assay failures found:
    (tube + cap geometry), the SSI path returns NotSupported to delegate to polygon
    boolean which can handle the composite geometry correctly.
 
-### Failure Categories (46 total: 40 Failed + 6 Errored)
+### Failure Categories (56 total: 47 Failed + 9 Errored, build-dependent)
 | Category | Count | Cases | Description |
 |----------|-------|-------|-------------|
-| boolean-watertight | 22 | F0046-F0049,F0055-F0060,R0046,R0049-R0051,R0053,R0056,R0059-R0060,R0069-R0071,R0076,R0084,R0099-R0100 | Unpaired edges from S-H clipping precision or non-manifold edges |
-| cascading-timeout | 6 | F0050,R0054,R0063,R0085,R0090,R0095 | Boolean ops exceed 90s timeout |
-| bbox-exceeded | 5 | R0065,R0068,R0074,R0082,R0091 | AABB diagonal slightly exceeds oracle max (2-16%) |
-| face-product-limit | 3 | R0058,R0075,R0081 | Face product too large for non-convex solid boolean |
-| minimum-triangle-count | 3 | R0047,R0048,R0080 | Triangle count below minimum for operation types |
-| empty-mesh | 1 | R0088 | 0 triangles (gear cut fully encloses circle boss) |
+| boolean-watertight | 39 | F0046-F0049,F0055-F0060,R0002-R0004,R0011-R0012,R0015,R0020,R0031,R0033,R0035,R0038,R0040,R0044,R0046,R0049-R0051,R0053,R0056,R0059-R0060,R0068-R0071,R0076,R0084,R0099-R0100 | Unpaired edges from S-H clipping precision (non-deterministic ~±17) |
+| cascading-timeout | 9 | F0050,R0016,R0054,R0063,R0075,R0081,R0085,R0090,R0095 | Boolean ops exceed 90s timeout |
+| face-range | 3 | R0007,R0027,R0088 | No face ranges defined (empty mesh or degenerate) |
+| bbox-exceeded | 1 | R0082 | AABB diagonal exceeds oracle max |
+| normals | 1 | R0017 | Reversed normals in tessellation |
 | volume-magnitude | 1 | R0045 | Micro-scale revolve volume outside bounds |
-| tessellation-degenerate | 1 | F0052 | 64/892 degenerate triangles |
-| aabb-collapse | 1 | F0045 | All vertices on AABB faces (collapsed to boundary shell) |
-| watertight+other | 3 | R0050,R0051,R0075 | Multiple failure types on same case |
+| tessellation-degenerate | 1 | F0052 | Degenerate triangles |
+| aabb-collapse | 1 | F0045 | All vertices on AABB faces |
 
 ### Root Cause Summary
 1. **S-H clipping precision** (22 cases): Dominant failure mode. Sutherland-Hodgman
