@@ -6,7 +6,7 @@
 use crate::traits::{Kernel, KernelIntrospect};
 use crate::types::*;
 use crate::units::TAU_WORK;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// Face definition tuple: (edge_indices, normal, centroid, area, surface_type).
 type FaceDef<'a> = (Vec<usize>, [f64; 3], [f64; 3], f64, &'a str);
@@ -51,9 +51,9 @@ struct MockSolid {
 pub struct MockKernel {
     next_id: u64,
     next_handle: u64,
-    solids: HashMap<u64, MockSolid>,
+    solids: BTreeMap<u64, MockSolid>,
     /// Tracks faces created by make_faces_from_profiles for subsequent extrude.
-    standalone_faces: HashMap<u64, MockFace>,
+    standalone_faces: BTreeMap<u64, MockFace>,
 }
 
 impl MockKernel {
@@ -61,8 +61,8 @@ impl MockKernel {
         Self {
             next_id: 1,
             next_handle: 1,
-            solids: HashMap::new(),
-            standalone_faces: HashMap::new(),
+            solids: BTreeMap::new(),
+            standalone_faces: BTreeMap::new(),
         }
     }
 
