@@ -377,7 +377,7 @@ impl Default for MockKernel {
 /// Compute two tangent vectors orthogonal to a normal.
 fn tangent_vectors(n: [f64; 3]) -> ([f64; 3], [f64; 3]) {
     // Pick a vector not parallel to n
-    let up = if n[0].abs() < 0.9 {
+    let up = if n[0].abs() < crate::units::BASIS_AXIS_ALIGNMENT {
         [1.0, 0.0, 0.0]
     } else {
         [0.0, 1.0, 0.0]

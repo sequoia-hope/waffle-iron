@@ -47,7 +47,7 @@ pub(crate) fn v3_normalize(v: [f64; 3]) -> [f64; 3] {
 
 /// Compute an orthonormal basis (u, v) for a plane given its normal.
 pub(crate) fn compute_plane_basis(normal: [f64; 3]) -> ([f64; 3], [f64; 3]) {
-    let up = if normal[0].abs() < 0.9 {
+    let up = if normal[0].abs() < crate::units::BASIS_AXIS_ALIGNMENT {
         [1.0, 0.0, 0.0]
     } else {
         [0.0, 1.0, 0.0]

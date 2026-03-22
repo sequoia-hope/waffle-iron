@@ -404,7 +404,7 @@ impl WaffleKernel {
         // Build orthonormal basis: ax is the cone axis (base → apex)
         // u_axis and v_axis are perpendicular to ax, used for base circle
         let u_axis = {
-            let trial = if ax[0].abs() < 0.9 {
+            let trial = if ax[0].abs() < crate::units::BASIS_AXIS_ALIGNMENT {
                 [1.0, 0.0, 0.0]
             } else {
                 [0.0, 1.0, 0.0]
@@ -660,7 +660,7 @@ impl WaffleKernel {
 
         // Build orthonormal basis: ax is the torus axis
         let e1 = {
-            let trial = if ax[0].abs() < 0.9 {
+            let trial = if ax[0].abs() < crate::units::BASIS_AXIS_ALIGNMENT {
                 [1.0, 0.0, 0.0]
             } else {
                 [0.0, 1.0, 0.0]

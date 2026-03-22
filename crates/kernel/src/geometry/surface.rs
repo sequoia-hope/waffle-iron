@@ -68,7 +68,7 @@ pub struct Torus {
 /// Given a unit normal, return (x_axis, y_axis) forming a right-handed frame.
 fn make_frame(normal: Vector3) -> (Vector3, Vector3) {
     // Pick the coordinate axis least aligned with normal to avoid degeneracy
-    let hint = if normal.x.abs() < 0.9 {
+    let hint = if normal.x.abs() < crate::units::BASIS_AXIS_ALIGNMENT {
         Vector3::new(1.0, 0.0, 0.0)
     } else {
         Vector3::new(0.0, 1.0, 0.0)

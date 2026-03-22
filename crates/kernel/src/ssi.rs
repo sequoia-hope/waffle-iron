@@ -87,7 +87,7 @@ pub(crate) fn cyls_parallel(a: &CylinderParams, b: &CylinderParams) -> bool {
 /// Returns:
 /// - If plane ⊥ axis (cos_angle ≈ 1): a circle (if within height range)
 /// - If plane ∥ axis (cos_angle ≈ 0): 0 or 2 line segments
-/// - Oblique case: empty (ellipse curve type not yet supported, per A15.4)
+/// - Oblique case: ellipse (Patrikalakis Ch.5 — semi_minor = R, semi_major = R/sin γ)
 pub(crate) fn plane_cylinder_ssi(
     plane_origin: [f64; 3],
     plane_normal: [f64; 3],
@@ -402,7 +402,7 @@ pub(crate) fn cylinder_cylinder_ssi_non_parallel(
             operation: "cylinder-cylinder SSI: zero radius".to_string(),
         });
     }
-    if (r_max - r_min) / r_max >= 0.01 {
+    if (r_max - r_min) / r_max >= crate::units::SSI_RADII_RELATIVE_TOL {
         return Err(KernelError::NotSupported {
             operation: "cylinder-cylinder SSI: unequal radii".to_string(),
         });
@@ -436,7 +436,7 @@ pub(crate) fn cylinder_cylinder_ssi_non_parallel(
     let closest_dist = v3_length(v3_sub(p1_closest, p2_closest));
 
     // Skew axes check
-    if closest_dist >= 0.05 * r {
+    if closest_dist >= crate::units::SSI_SKEW_FACTOR * r {
         return Err(KernelError::NotSupported {
             operation: "cylinder-cylinder SSI: skew (non-intersecting) axes".to_string(),
         });
@@ -1317,7 +1317,7 @@ pub(crate) fn sphere_torus_ssi(
 
             // Check if this point is on the sphere surface
             let dist_to_sphere = v3_length(v3_sub(pt, sphere_center));
-            if (dist_to_sphere - s).abs() < 0.05 {
+            if (dist_to_sphere - s).abs() < crate::units::SSI_SAMPLE_ON_SURFACE_TOL {
                 found_pts.push(pt);
             }
         }
@@ -1741,7 +1741,7 @@ pub(crate) fn cone_cone_ssi(
                 let perp_dist_b = v3_length(perp_b);
 
                 // Use relative tolerance proportional to the cone radius
-                let tol_b = (rb * 0.05).max(0.02);
+                let tol_b = (rb * crate::units::SSI_SAMPLE_ON_SURFACE_TOL).max(0.02);
                 if (perp_dist_b - rb).abs() < tol_b {
                     found_pts.push(pt);
                 }
@@ -1842,7 +1842,7 @@ pub(crate) fn cone_cone_ssi(
                 let perp_b = v3_sub(pt, proj_b);
                 let perp_dist_b = v3_length(perp_b);
 
-                if (perp_dist_b - rb).abs() < 0.05 {
+                if (perp_dist_b - rb).abs() < crate::units::SSI_SAMPLE_ON_SURFACE_TOL {
                     found_pts.push(pt);
                 }
             }
@@ -2419,7 +2419,7 @@ pub(crate) fn torus_torus_ssi(
 
             // Check distance to torus B surface
             let sd = torus_signed_distance(pt, torus_b_center, ax_b, r_b, sr_b);
-            if sd.abs() < 0.05 {
+            if sd.abs() < crate::units::SSI_SAMPLE_ON_SURFACE_TOL {
                 found_pts.push(pt);
             }
         }
@@ -3586,7 +3586,7 @@ mod tests {
         } = curve
         {
             // Build a local frame: u, v perpendicular to normal
-            let arbitrary = if normal[0].abs() < 0.9 {
+            let arbitrary = if normal[0].abs() < crate::units::BASIS_AXIS_ALIGNMENT {
                 [1.0, 0.0, 0.0]
             } else {
                 [0.0, 1.0, 0.0]
@@ -6089,7 +6089,7 @@ mod tests {
             {
                 // Build orthonormal basis for circle plane
                 let n = *normal;
-                let u = if n[0].abs() < 0.9 {
+                let u = if n[0].abs() < crate::units::BASIS_AXIS_ALIGNMENT {
                     let raw = v3_cross(n, [1.0, 0.0, 0.0]);
                     let len = v3_length(raw);
                     v3_scale(raw, 1.0 / len)

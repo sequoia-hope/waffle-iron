@@ -367,7 +367,7 @@ fn box_cyl_boolean(
     let has_parallel_cap = box_solid.face_geometry.values().any(|geom| {
         if let SurfaceGeom::Planar(plane) = geom {
             let dot = v3_dot(plane.normal.to_array(), cyl.direction).abs();
-            dot > 0.95 // nearly parallel (within ~18°)
+            dot > crate::units::COS_NEAR_PARALLEL_CAP // nearly parallel (within ~18°)
         } else {
             false
         }

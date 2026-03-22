@@ -144,7 +144,7 @@ fn generate_analytic_face_polys(
 
             // Build local frame (x_axis, y_axis perpendicular to axis)
             let (x_axis, y_axis) = {
-                let up = if axis[0].abs() < 0.9 {
+                let up = if axis[0].abs() < crate::units::BASIS_AXIS_ALIGNMENT {
                     [1.0, 0.0, 0.0]
                 } else {
                     [0.0, 1.0, 0.0]
@@ -225,7 +225,7 @@ fn generate_analytic_face_polys(
 
             // Build local frame
             let (x_axis, y_axis) = {
-                let up = if normal[0].abs() < 0.9 {
+                let up = if normal[0].abs() < crate::units::BASIS_AXIS_ALIGNMENT {
                     [1.0, 0.0, 0.0]
                 } else {
                     [0.0, 1.0, 0.0]
@@ -1643,7 +1643,7 @@ mod tests {
         // cylinder as enclosed in the box and discards it.
         let dir = v3_normalize([-0.5196, -0.7471, -0.4145]);
         // Compute a valid x_axis perpendicular to dir
-        let up = if dir[1].abs() < 0.9 {
+        let up = if dir[1].abs() < crate::units::BASIS_AXIS_ALIGNMENT {
             [0.0, 1.0, 0.0]
         } else {
             [1.0, 0.0, 0.0]

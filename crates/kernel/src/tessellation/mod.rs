@@ -3390,7 +3390,7 @@ fn tessellate_solid_bounded(
 fn make_circle_axes(normal: &[f64; 3]) -> ([f64; 3], [f64; 3]) {
     let n = *normal;
     // Pick a vector not parallel to normal
-    let up = if n[0].abs() < 0.9 {
+    let up = if n[0].abs() < crate::units::BASIS_AXIS_ALIGNMENT {
         [1.0, 0.0, 0.0]
     } else {
         [0.0, 1.0, 0.0]
@@ -7041,7 +7041,7 @@ fn tessellate_cone_solid(
 
     // Build orthonormal basis for base circle
     let u_axis = {
-        let trial = if axis[0].abs() < 0.9 {
+        let trial = if axis[0].abs() < crate::units::BASIS_AXIS_ALIGNMENT {
             [1.0, 0.0, 0.0]
         } else {
             [0.0, 1.0, 0.0]
@@ -7256,7 +7256,7 @@ fn tessellate_torus_solid(
 
     // Build orthonormal basis
     let e1 = {
-        let trial = if axis[0].abs() < 0.9 {
+        let trial = if axis[0].abs() < crate::units::BASIS_AXIS_ALIGNMENT {
             [1.0, 0.0, 0.0]
         } else {
             [0.0, 1.0, 0.0]

@@ -454,12 +454,12 @@ pub(super) fn dedup_face_polys(polys: &[FacePoly], tau_weld: f64) -> Vec<FacePol
             }
             // Nearly parallel normals?
             let dot = v3_dot(ni, polys[j].normal);
-            if dot.abs() < 0.99 {
+            if dot.abs() < crate::units::COS_NEAR_PARALLEL {
                 continue;
             }
             // Nearly same area?
             let aj = polygon_area_3d(&polys[j].verts);
-            if ai > 0.0 && (aj - ai).abs() / ai > 0.01 {
+            if ai > 0.0 && (aj - ai).abs() / ai > crate::units::DUPLICATE_FACE_AREA_TOL {
                 continue;
             }
             // Nearly same centroid?

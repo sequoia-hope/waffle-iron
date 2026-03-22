@@ -172,16 +172,18 @@ pub(super) fn winding_number(p: [f64; 3], faces: &[FacePoly]) -> f64 {
 
 /// Classify point as inside/outside using GWN.
 ///
-/// Returns Some(true) for inside (w > 0.5), Some(false) for outside (w < 0.3),
-/// None for ambiguous boundary [0.3, 0.7].
+/// Returns Some(true) for inside (w > WINDING_INSIDE_THRESHOLD),
+/// Some(false) for outside (w < WINDING_OUTSIDE_THRESHOLD),
+/// None for ambiguous boundary.
 pub(super) fn winding_number_classify(p: [f64; 3], faces: &[FacePoly]) -> Option<bool> {
+    use crate::units::{WINDING_INSIDE_THRESHOLD, WINDING_OUTSIDE_THRESHOLD};
     let w = winding_number(p, faces);
     if w.is_nan() {
         return None;
     }
-    if w > 0.5 {
+    if w > WINDING_INSIDE_THRESHOLD {
         Some(true)
-    } else if w < 0.3 {
+    } else if w < WINDING_OUTSIDE_THRESHOLD {
         Some(false)
     } else {
         None // ambiguity band
