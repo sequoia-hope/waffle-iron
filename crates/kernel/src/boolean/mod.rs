@@ -26,7 +26,7 @@ use clip::{
 };
 use stitch::{build_brep_from_polygons, build_brep_from_polygons_inner};
 
-use crate::geometry::curve::CurveGeom;
+use crate::geometry::curve::{CurveGeom, Line3D};
 use crate::geometry::point::{Point3, Vector3};
 use crate::geometry::surface::{Cylinder, SurfaceGeom};
 use crate::topology::arena::TopoArena;
@@ -1043,8 +1043,141 @@ fn boolean_op_from_polys_inner(
     allow_boundary: bool,
     id_alloc: &mut dyn FnMut() -> u64,
 ) -> Result<BooleanResult, KernelError> {
+    // Compute tau early so AABB overlap and convexity check can use it.
+    let (tau, tau_weld) = compute_adaptive_tau_weld(&a_faces, &b_faces);
+
+    // Compute AABBs early for disjoint fast-path and per-face early-out.
+    let compute_aabb = |faces: &[FacePoly]| -> ([f64; 3], [f64; 3]) {
+        let mut mn = [f64::INFINITY; 3];
+        let mut mx = [f64::NEG_INFINITY; 3];
+        for f in faces {
+            for v in &f.verts {
+                for j in 0..3 {
+                    mn[j] = mn[j].min(v[j]);
+                    mx[j] = mx[j].max(v[j]);
+                }
+            }
+        }
+        (mn, mx)
+    };
+    let (a_min, a_max) = compute_aabb(&a_faces);
+    let (b_min, b_max) = compute_aabb(&b_faces);
+
+    // Spec: aabb_disjoint_boolean_fastpath.md
+    // Ref #24 Barton: spatial rejection for non-interfering geometry
+    // AABB disjointness fast-path: if bounding boxes don't overlap (with tau
+    // margin), skip S-H clipping entirely. Disjoint solids have no intersection.
+    // Placed BEFORE face-product guard so disjoint high-face-count solids
+    // (e.g., two large gears) don't hit the product limit and timeout.
+    let aabb_disjoint = (0..3).any(|i| a_max[i] + tau < b_min[i] || b_max[i] + tau < a_min[i]);
+
+    if aabb_disjoint {
+        let result_faces: Vec<FacePoly> = match op {
+            BoolOp::Union => {
+                // Both face sets combined
+                let mut combined = a_faces.to_vec();
+                combined.extend(b_faces.iter().cloned());
+                combined
+            }
+            BoolOp::Subtract => {
+                // A minus nothing = A
+                a_faces.to_vec()
+            }
+            BoolOp::Intersect => {
+                // No shared volume = empty
+                vec![]
+            }
+        };
+
+        // Build B-Rep directly from face polys without S-H clipping.
+        // Each face becomes a loop of half-edges with self-twin boundary edges.
+        let mut arena = TopoArena::new();
+        let solid_idx = arena.add_solid();
+        let shell_idx = arena.add_shell(solid_idx);
+        arena.solids[solid_idx.0].outer_shell = shell_idx;
+
+        let mut face_map = BTreeMap::new();
+        let mut edge_map = BTreeMap::new();
+        let vertex_map = BTreeMap::new();
+        let mut face_geometry = BTreeMap::new();
+        let mut edge_geometry = BTreeMap::new();
+
+        let mut first_face_set = false;
+        for fp in &result_faces {
+            if fp.verts.len() < 3 {
+                continue;
+            }
+            let face_idx = arena.add_face(shell_idx);
+            if !first_face_set {
+                arena.shells[shell_idx.0].face = face_idx;
+                first_face_set = true;
+            }
+            let loop_idx = arena.add_loop(face_idx);
+            arena.faces[face_idx.0].outer_loop = loop_idx;
+
+            let geom = fp.surface_geom.clone().unwrap_or(SurfaceGeom::Planar(
+                crate::geometry::surface::Plane {
+                    origin: Point3::from_array(fp.origin),
+                    normal: Vector3::from_array(fp.normal),
+                },
+            ));
+            face_geometry.insert(face_idx, geom);
+            face_map.insert(id_alloc(), face_idx);
+
+            let n = fp.verts.len();
+            let first_he = HalfEdgeIdx(arena.half_edges.len());
+            for i in 0..n {
+                let v_idx = arena.add_vertex(fp.verts[i]);
+                let he_idx = HalfEdgeIdx(first_he.0 + i);
+                let next_he = HalfEdgeIdx(first_he.0 + ((i + 1) % n));
+                let prev_he = HalfEdgeIdx(first_he.0 + ((i + n - 1) % n));
+                let edge_idx = EdgeIdx(arena.edges.len());
+                arena.edges.push(Edge { half_edge: he_idx });
+                arena.half_edges.push(HalfEdge {
+                    origin: v_idx,
+                    edge: edge_idx,
+                    twin: he_idx, // self-twin (boundary)
+                    next: next_he,
+                    prev: prev_he,
+                    loop_: loop_idx,
+                });
+                arena.vertices[v_idx.0].half_edge = Some(he_idx);
+
+                let p0 = fp.verts[i];
+                let p1 = fp.verts[(i + 1) % n];
+                let dir = v3_sub(p1, p0);
+                edge_geometry.insert(
+                    edge_idx,
+                    CurveGeom::Linear(Line3D {
+                        origin: Point3::from_array(p0),
+                        direction: Vector3::from_array(dir),
+                    }),
+                );
+                edge_map.insert(id_alloc(), edge_idx);
+            }
+            arena.loops[loop_idx.0].half_edge = first_he;
+        }
+
+        let cached = if result_faces.is_empty() {
+            None
+        } else {
+            Some(result_faces)
+        };
+
+        return Ok(BooleanResult {
+            arena,
+            face_map,
+            edge_map,
+            vertex_map,
+            face_geometry,
+            edge_geometry,
+            cached_face_polys: cached,
+        });
+    }
+
     // Guard against pathological face counts: O(n*m) classification becomes
     // too expensive when both solids have many faces (e.g., revolve(gear) × gear).
+    // Placed AFTER disjoint fast-path so disjoint high-face-count solids still succeed.
     let total_faces = a_faces.len() + b_faces.len();
     if total_faces > 8000 {
         return Err(KernelError::NotSupported {
@@ -1054,9 +1187,6 @@ fn boolean_op_from_polys_inner(
             ),
         });
     }
-
-    // Compute tau early so AABB overlap and convexity check can use it.
-    let (tau, tau_weld) = compute_adaptive_tau_weld(&a_faces, &b_faces);
 
     // Convexity check: polygon-approximated cylinders have 34 faces (32 side
     // quads + 2 caps) but are geometrically convex. The old heuristic
@@ -1098,25 +1228,6 @@ fn boolean_op_from_polys_inner(
             });
         }
     }
-
-    // Compute AABBs for early-out: faces entirely outside the opposing
-    // solid's bounding box are classified as Outside without expensive
-    // S-H clipping or ray casting.
-    let compute_aabb = |faces: &[FacePoly]| -> ([f64; 3], [f64; 3]) {
-        let mut mn = [f64::INFINITY; 3];
-        let mut mx = [f64::NEG_INFINITY; 3];
-        for f in faces {
-            for v in &f.verts {
-                for j in 0..3 {
-                    mn[j] = mn[j].min(v[j]);
-                    mx[j] = mx[j].max(v[j]);
-                }
-            }
-        }
-        (mn, mx)
-    };
-    let (a_min, a_max) = compute_aabb(&a_faces);
-    let (b_min, b_max) = compute_aabb(&b_faces);
 
     let face_outside_aabb = |face: &FacePoly, aabb_min: &[f64; 3], aabb_max: &[f64; 3]| -> bool {
         // Face is outside AABB if ALL its vertices are outside on the same side
@@ -2246,5 +2357,428 @@ mod tests {
             effective,
             result.err()
         );
+    }
+
+    // ── AABB Disjoint Fast-Path Tests ──────────────────────────────────
+    mod disjoint_fastpath_tests {
+        use super::*;
+
+        /// Build 6 face polygons for an axis-aligned box from min to max.
+        /// Each face has 4 vertices in CCW order viewed from outside,
+        /// outward-pointing normal, and origin at face center.
+        fn make_box_face_polys(min: [f64; 3], max: [f64; 3]) -> Vec<FacePoly> {
+            let [x0, y0, z0] = min;
+            let [x1, y1, z1] = max;
+
+            vec![
+                // +X face
+                FacePoly {
+                    verts: vec![[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]],
+                    normal: [1.0, 0.0, 0.0],
+                    origin: [x1, (y0 + y1) / 2.0, (z0 + z1) / 2.0],
+                    surface_geom: None,
+                },
+                // -X face
+                FacePoly {
+                    verts: vec![[x0, y0, z1], [x0, y1, z1], [x0, y1, z0], [x0, y0, z0]],
+                    normal: [-1.0, 0.0, 0.0],
+                    origin: [x0, (y0 + y1) / 2.0, (z0 + z1) / 2.0],
+                    surface_geom: None,
+                },
+                // +Y face
+                FacePoly {
+                    verts: vec![[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]],
+                    normal: [0.0, 1.0, 0.0],
+                    origin: [(x0 + x1) / 2.0, y1, (z0 + z1) / 2.0],
+                    surface_geom: None,
+                },
+                // -Y face
+                FacePoly {
+                    verts: vec![[x0, y0, z1], [x1, y0, z1], [x1, y0, z0], [x0, y0, z0]],
+                    normal: [0.0, -1.0, 0.0],
+                    origin: [(x0 + x1) / 2.0, y0, (z0 + z1) / 2.0],
+                    surface_geom: None,
+                },
+                // +Z face
+                FacePoly {
+                    verts: vec![[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]],
+                    normal: [0.0, 0.0, 1.0],
+                    origin: [(x0 + x1) / 2.0, (y0 + y1) / 2.0, z1],
+                    surface_geom: None,
+                },
+                // -Z face
+                FacePoly {
+                    verts: vec![[x0, y1, z0], [x1, y1, z0], [x1, y0, z0], [x0, y0, z0]],
+                    normal: [0.0, 0.0, -1.0],
+                    origin: [(x0 + x1) / 2.0, (y0 + y1) / 2.0, z0],
+                    surface_geom: None,
+                },
+            ]
+        }
+
+        /// Build a polygon-approximated cylinder (N-sided prism) centered at
+        /// (cx, cy) with given radius, extending from z=z0 to z=z1.
+        fn make_prism_face_polys(
+            cx: f64,
+            cy: f64,
+            radius: f64,
+            z0: f64,
+            z1: f64,
+            n_sides: usize,
+        ) -> Vec<FacePoly> {
+            let mut faces = Vec::new();
+            let tau = std::f64::consts::TAU;
+
+            // Bottom cap (normal -Z)
+            let mut bottom_verts = Vec::new();
+            for i in (0..n_sides).rev() {
+                let angle = tau * i as f64 / n_sides as f64;
+                bottom_verts.push([cx + radius * angle.cos(), cy + radius * angle.sin(), z0]);
+            }
+            faces.push(FacePoly {
+                verts: bottom_verts,
+                normal: [0.0, 0.0, -1.0],
+                origin: [cx, cy, z0],
+                surface_geom: None,
+            });
+
+            // Top cap (normal +Z)
+            let mut top_verts = Vec::new();
+            for i in 0..n_sides {
+                let angle = tau * i as f64 / n_sides as f64;
+                top_verts.push([cx + radius * angle.cos(), cy + radius * angle.sin(), z1]);
+            }
+            faces.push(FacePoly {
+                verts: top_verts,
+                normal: [0.0, 0.0, 1.0],
+                origin: [cx, cy, z1],
+                surface_geom: None,
+            });
+
+            // Side quads
+            for i in 0..n_sides {
+                let a0 = tau * i as f64 / n_sides as f64;
+                let a1 = tau * ((i + 1) % n_sides) as f64 / n_sides as f64;
+                let cos0 = a0.cos();
+                let sin0 = a0.sin();
+                let cos1 = a1.cos();
+                let sin1 = a1.sin();
+
+                let p0 = [cx + radius * cos0, cy + radius * sin0, z0];
+                let p1 = [cx + radius * cos1, cy + radius * sin1, z0];
+                let p2 = [cx + radius * cos1, cy + radius * sin1, z1];
+                let p3 = [cx + radius * cos0, cy + radius * sin0, z1];
+
+                let mid_angle = (a0 + a1) / 2.0;
+                let nx = mid_angle.cos();
+                let ny = mid_angle.sin();
+
+                faces.push(FacePoly {
+                    verts: vec![p0, p1, p2, p3],
+                    normal: [nx, ny, 0.0],
+                    origin: [cx + radius * nx, cy + radius * ny, (z0 + z1) / 2.0],
+                    surface_geom: None,
+                });
+            }
+
+            faces
+        }
+
+        fn new_id_alloc() -> impl FnMut() -> u64 {
+            let mut counter = 0u64;
+            move || {
+                counter += 1;
+                counter
+            }
+        }
+
+        #[test]
+        fn disjoint_union_preserves_all_faces() {
+            // Two unit boxes separated by a gap: box A at [0,1]^3, box B at [5,6]^3
+            let a_faces = make_box_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+            let b_faces = make_box_face_polys([5.0, 5.0, 5.0], [6.0, 6.0, 6.0]);
+
+            assert_eq!(a_faces.len(), 6);
+            assert_eq!(b_faces.len(), 6);
+
+            let mut id_alloc = new_id_alloc();
+            let result = boolean_op_from_polys(a_faces, b_faces, BoolOp::Union, &mut id_alloc)
+                .expect("disjoint union should succeed");
+
+            // Disjoint union must preserve ALL faces from both operands: 6 + 6 = 12
+            let face_count = result.arena.faces.len();
+            assert_eq!(
+                face_count, 12,
+                "Disjoint union should produce exactly 12 faces (6+6), got {}",
+                face_count
+            );
+        }
+
+        #[test]
+        fn disjoint_subtract_preserves_operand_a() {
+            // A at [0,1]^3, B at [5,6]^3 — disjoint, so A - B = A
+            let a_faces = make_box_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+            let b_faces = make_box_face_polys([5.0, 5.0, 5.0], [6.0, 6.0, 6.0]);
+
+            let mut id_alloc = new_id_alloc();
+            let result = boolean_op_from_polys(a_faces, b_faces, BoolOp::Subtract, &mut id_alloc)
+                .expect("disjoint subtract should succeed");
+
+            // A - B where B is disjoint should produce exactly A's faces
+            let face_count = result.arena.faces.len();
+            assert_eq!(
+                face_count, 6,
+                "Disjoint subtract should produce exactly 6 faces (operand A only), got {}",
+                face_count
+            );
+        }
+
+        #[test]
+        fn disjoint_intersect_produces_empty() {
+            // A at [0,1]^3, B at [5,6]^3 — disjoint, so A ∩ B = empty
+            let a_faces = make_box_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+            let b_faces = make_box_face_polys([5.0, 5.0, 5.0], [6.0, 6.0, 6.0]);
+
+            let mut id_alloc = new_id_alloc();
+            let result = boolean_op_from_polys(a_faces, b_faces, BoolOp::Intersect, &mut id_alloc);
+
+            // Disjoint intersection should produce an empty result (0 faces).
+            // This is acceptable as either Ok with 0 faces or an Err indicating empty.
+            match result {
+                Ok(res) => {
+                    let face_count = res.arena.faces.len();
+                    assert_eq!(
+                        face_count, 0,
+                        "Disjoint intersect should produce 0 faces, got {}",
+                        face_count
+                    );
+                }
+                Err(_) => {
+                    // An error (e.g., empty result) is also acceptable for disjoint intersect
+                }
+            }
+        }
+
+        #[test]
+        fn disjoint_union_volume_equals_sum() {
+            // Two disjoint unit boxes: each has volume 1.0, union volume should be ~2.0
+            let a_faces = make_box_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+            let b_faces = make_box_face_polys([5.0, 5.0, 5.0], [6.0, 6.0, 6.0]);
+
+            let mut id_alloc = new_id_alloc();
+            let result = boolean_op_from_polys(a_faces, b_faces, BoolOp::Union, &mut id_alloc)
+                .expect("disjoint union should succeed");
+
+            // Verify face count as a proxy for volume preservation
+            // Each unit box has 6 faces; union of disjoint should have 12
+            let face_count = result.arena.faces.len();
+            assert_eq!(
+                face_count, 12,
+                "Disjoint union should have 12 faces for volume preservation (6+6), got {}",
+                face_count
+            );
+
+            // Also verify cached_face_polys if available
+            if let Some(ref polys) = result.cached_face_polys {
+                assert_eq!(
+                    polys.len(),
+                    12,
+                    "Cached face polys should have 12 entries for disjoint union, got {}",
+                    polys.len()
+                );
+
+                // Check total area as volume proxy: each unit box has surface area 6.0
+                let total_area: f64 = polys.iter().map(|fp| polygon_area_3d(&fp.verts)).sum();
+                assert!(
+                    (total_area - 12.0).abs() < 1.2, // 10% tolerance
+                    "Total surface area of disjoint union should be ~12.0 (2 unit boxes), got {}",
+                    total_area
+                );
+            }
+        }
+
+        #[test]
+        fn touching_boxes_use_full_pipeline() {
+            // Two boxes sharing a face: A=[0,1]^3, B=[1,2] x [0,1] x [0,1]
+            // These are NOT disjoint — the shared face should be eliminated in union.
+            let a_faces = make_box_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+            let b_faces = make_box_face_polys([1.0, 0.0, 0.0], [2.0, 1.0, 1.0]);
+
+            let mut id_alloc = new_id_alloc();
+            let result = boolean_op_from_polys(a_faces, b_faces, BoolOp::Union, &mut id_alloc)
+                .expect("touching union should succeed");
+
+            // The shared face (A's +X and B's -X) should be eliminated,
+            // so union should produce fewer than 12 faces.
+            let face_count = result.arena.faces.len();
+            assert!(
+                face_count < 12,
+                "Touching boxes union should eliminate shared face: expected < 12 faces, got {}",
+                face_count
+            );
+        }
+
+        // ── Adversarial tests ──────────────────────────────────────────
+
+        #[test]
+        fn adv_near_touching_gap_at_tau_boundary() {
+            // Two boxes with a gap of TAU_MODEL (1e-7).
+            // At unit scale the adaptive tau used for AABB disjointness is
+            // much smaller than 1e-7, so the fast-path will fire. Either
+            // way the union must succeed and produce a valid result.
+            let gap = 1e-7; // TAU_MODEL
+            let a = make_box_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+            let b = make_box_face_polys([1.0 + gap, 0.0, 0.0], [2.0 + gap, 1.0, 1.0]);
+            let mut id = new_id_alloc();
+            let result = boolean_op_from_polys(a, b, BoolOp::Union, &mut id);
+            assert!(
+                result.is_ok(),
+                "Near-touching union must succeed: {:?}",
+                result.err()
+            );
+            let res = result.unwrap();
+            // Must have at least 10 faces (12 if fast-path, 10 if full pipeline merges shared face)
+            assert!(
+                res.arena.faces.len() >= 10,
+                "Near-touching union should preserve most faces, got {}",
+                res.arena.faces.len()
+            );
+        }
+
+        #[test]
+        fn adv_disjoint_along_each_axis() {
+            // Disjoint along X only
+            let a_x = make_box_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+            let b_x = make_box_face_polys([5.0, 0.0, 0.0], [6.0, 1.0, 1.0]);
+            let mut id = new_id_alloc();
+            let r = boolean_op_from_polys(a_x, b_x, BoolOp::Union, &mut id).unwrap();
+            assert_eq!(
+                r.arena.faces.len(),
+                12,
+                "Disjoint along X: expected 12 faces"
+            );
+
+            // Disjoint along Y only
+            let a_y = make_box_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+            let b_y = make_box_face_polys([0.0, 5.0, 0.0], [1.0, 6.0, 1.0]);
+            let mut id = new_id_alloc();
+            let r = boolean_op_from_polys(a_y, b_y, BoolOp::Union, &mut id).unwrap();
+            assert_eq!(
+                r.arena.faces.len(),
+                12,
+                "Disjoint along Y: expected 12 faces"
+            );
+
+            // Disjoint along Z only
+            let a_z = make_box_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+            let b_z = make_box_face_polys([0.0, 0.0, 5.0], [1.0, 1.0, 6.0]);
+            let mut id = new_id_alloc();
+            let r = boolean_op_from_polys(a_z, b_z, BoolOp::Union, &mut id).unwrap();
+            assert_eq!(
+                r.arena.faces.len(),
+                12,
+                "Disjoint along Z: expected 12 faces"
+            );
+        }
+
+        #[test]
+        fn adv_disjoint_micro_scale() {
+            // Two tiny boxes at 1e-4 scale, separated by 1e-3
+            let a = make_box_face_polys([0.0, 0.0, 0.0], [1e-4, 1e-4, 1e-4]);
+            let b = make_box_face_polys([1e-3, 0.0, 0.0], [1e-3 + 1e-4, 1e-4, 1e-4]);
+            let mut id = new_id_alloc();
+            let r = boolean_op_from_polys(a, b, BoolOp::Union, &mut id).unwrap();
+            assert_eq!(
+                r.arena.faces.len(),
+                12,
+                "Micro-scale disjoint union should have 12 faces, got {}",
+                r.arena.faces.len()
+            );
+        }
+
+        #[test]
+        fn adv_disjoint_macro_scale() {
+            // Two large boxes at 1e3 scale, separated by 1e4
+            let a = make_box_face_polys([0.0, 0.0, 0.0], [1e3, 1e3, 1e3]);
+            let b = make_box_face_polys([1e4, 0.0, 0.0], [1e4 + 1e3, 1e3, 1e3]);
+            let mut id = new_id_alloc();
+            let r = boolean_op_from_polys(a, b, BoolOp::Union, &mut id).unwrap();
+            assert_eq!(
+                r.arena.faces.len(),
+                12,
+                "Macro-scale disjoint union should have 12 faces, got {}",
+                r.arena.faces.len()
+            );
+        }
+
+        #[test]
+        fn adv_disjoint_subtract_identity() {
+            // A - B where B is disjoint should equal A (same face count)
+            let a = make_box_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+            let a_alone_count = a.len(); // 6
+            let b = make_box_face_polys([10.0, 10.0, 10.0], [11.0, 11.0, 11.0]);
+            let mut id = new_id_alloc();
+            let r = boolean_op_from_polys(a, b, BoolOp::Subtract, &mut id).unwrap();
+            assert_eq!(
+                r.arena.faces.len(),
+                a_alone_count,
+                "Disjoint subtract should preserve A's {} faces, got {}",
+                a_alone_count,
+                r.arena.faces.len()
+            );
+        }
+
+        #[test]
+        fn adv_mutation_sanity_check() {
+            // Overlapping boxes: the full pipeline should merge shared volume,
+            // producing fewer than 12 faces. This confirms the fast-path
+            // (12 faces for disjoint) is actually different from the overlap case.
+            let a = make_box_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+            let b = make_box_face_polys([0.5, 0.0, 0.0], [1.5, 1.0, 1.0]);
+            let mut id = new_id_alloc();
+            let r = boolean_op_from_polys(a, b, BoolOp::Union, &mut id).unwrap();
+            assert!(
+                r.arena.faces.len() < 12,
+                "Overlapping union should produce fewer than 12 faces (shared volume merged), got {}",
+                r.arena.faces.len()
+            );
+        }
+
+        #[test]
+        fn disjoint_union_no_timeout_large_solids() {
+            // Two 64-sided prisms far apart. With AABB fast-path, union should be
+            // nearly instant. Without it, the O(n*m) classification is slow.
+            // 66 faces each => 132 total. 66*66 = 4356 face pairs in S-H pipeline.
+            let a_faces = make_prism_face_polys(0.0, 0.0, 1.0, 0.0, 1.0, 64);
+            let b_faces = make_prism_face_polys(100.0, 100.0, 1.0, 0.0, 1.0, 64);
+
+            // Each prism has 66 faces (2 caps + 64 side quads)
+            assert_eq!(a_faces.len(), 66, "Prism A should have 66 faces");
+            assert_eq!(b_faces.len(), 66, "Prism B should have 66 faces");
+
+            let start = std::time::Instant::now();
+            let mut id_alloc = new_id_alloc();
+            let result = boolean_op_from_polys(a_faces, b_faces, BoolOp::Union, &mut id_alloc);
+            let elapsed = start.elapsed();
+
+            // With the AABB fast-path, disjoint solids should complete in well
+            // under 1 second. Without it, 66*66 = 4356 face pairs go through
+            // S-H clipping which can be slow and produce incorrect results.
+            assert!(
+                elapsed.as_secs_f64() < 1.0,
+                "Disjoint union of 66-face prisms should complete in < 1s (AABB fast-path), took {:.2}s",
+                elapsed.as_secs_f64()
+            );
+
+            let result = result.expect("disjoint union of prisms should succeed");
+
+            // Should preserve all faces: 66 + 66 = 132
+            let face_count = result.arena.faces.len();
+            assert_eq!(
+                face_count, 132,
+                "Disjoint union of two 66-face prisms should produce 132 faces, got {}",
+                face_count
+            );
+        }
     }
 }

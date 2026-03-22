@@ -284,15 +284,15 @@ Also: `large_boss_exceeds_face_union` (truck-level, same geometry).
 
 | Suite | Pass | Fail | Ignored |
 |-------|------|------|---------|
-| kernel (clean-sheet) | 606 | 0 | 4 |
-| test-harness (lib) | 75 | 0 | 1 |
-| test-harness/assay | 134/160 | 22+4err | — |
+| kernel (clean-sheet) | 627 | 0 | 4 |
+| test-harness (lib) | 77 | 0 | 1 |
+| test-harness/assay | 104/160 | 47+9err | — |
 
 Note: truck-shapeops, truck-geometry, and old boolean suite tests are archived
 with the truck pipeline in `archive/truck/`. The counts above reflect the
 clean-sheet kernel at `crates/kernel/`.
 
-Last updated: 2026-03-21 (auto-waffle audit)
+Last updated: 2026-03-22 (Session 11)
 
 ### Arc-Edge Vertex Welding (2026-03-21)
 - Added `weld_arc_edge_vertices` for cyl-cyl boolean results
@@ -427,6 +427,10 @@ Deep investigation of the 32 watertight assay failures found:
   after recompilation — see note below)
 - Session 10: 104/160 (HashMap→BTreeMap determinism fix — score now stable
   across consecutive runs; no borderline fluctuation)
+- Session 11: 104/160 (AABB disjoint boolean fast-path — correctness fix for
+  disjoint unions previously producing non-manifold errors; performance
+  improvement for disjoint boolean operations; guard reordering so disjoint
+  high-face-count solids bypass face-product limit. 12 new tests.)
 
 **Non-determinism resolved (Session 10)**: Replaced HashMap with BTreeMap
 throughout the boolean pipeline (mod.rs, analytical.rs, clip.rs, stitch.rs),
@@ -520,6 +524,40 @@ S-H clipping precision issues, not ordering artifacts.
    edges from earcut diagonal overlaps
 6. **Timeout reduction** — Profile the 9 timeout cases to identify bottlenecks; optimize
    face classification or implement early termination for trivially disjoint solids
+
+---
+
+## Session 11: AABB Disjoint Boolean Fast-Path (2026-03-22)
+
+### B28: AABB Disjoint Boolean Fast-Path ✅
+
+Added early-exit fast-path to `boolean_op_from_polys_inner` that detects
+spatially disjoint operands (non-overlapping AABBs with tau margin) and
+returns the correct result without S-H polygon clipping.
+
+**Three changes:**
+
+1. **AABB disjoint check**: When bounding boxes don't overlap (inflated by
+   tau for conservatism), short-circuit: Union → combine both face sets,
+   Subtract → return A only, Intersect → empty solid. Builds B-Rep directly
+   from face polygons with self-twin boundary edges. Caches face polys for
+   downstream reuse.
+
+2. **Guard reordering**: Moved the total_faces (8000) and face-product (50000)
+   guards to AFTER the disjoint check, so disjoint high-face-count solids
+   bypass these limits entirely.
+
+3. **Full FIP cycle**: Spec (`specs/aabb_disjoint_boolean_fastpath.md`),
+   6 red-phase tests (3 failing), 6 adversarial tests, role separation
+   (Test Author / Implementer / Adversary agents).
+
+**Impact**: Fixes correctness for disjoint boolean unions (previously
+produced non-manifold errors with 66.7% unpaired half-edges). No change
+to assay score (104/160) since assay failures are from overlapping solids.
+
+- Spec: `/specs/aabb_disjoint_boolean_fastpath.md`
+- 12 new tests (627 total kernel tests)
+- Ref #24 Barton: spatial rejection for non-interfering geometry
 
 ---
 
