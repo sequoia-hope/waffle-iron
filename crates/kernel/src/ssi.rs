@@ -4694,9 +4694,31 @@ mod tests {
         )
         .unwrap();
 
-        // Should not panic. At this scale TOL=1e-9 still leaves room for
-        // features. We may or may not get results depending on whether
-        // h values pass the h > TOL filter, but must not panic/NaN.
+        // Coaxial cone-sphere at micro scale.  Quadratic in h:
+        //   a = 1 + tan²(30°) = 4/3,  b = -2·5e-5 = -1e-4,
+        //   c = (5e-5)² − (4e-5)² = 9e-10.
+        //   disc = 1e-8 − (16/3)·9e-10 = 5.2e-9 > 0  → two real roots.
+        //   h₁ ≈ 6.45e-5, h₂ ≈ 1.05e-5 — both within [0, 1e-4] and > TOL.
+        // Therefore the solver must return exactly 2 circles.
+        assert_eq!(
+            curves.len(),
+            2,
+            "Coaxial micro-scale cone-sphere must produce 2 circles, got {}",
+            curves.len()
+        );
+        for curve in &curves {
+            match curve {
+                SSICurve::Circle { radius, .. } => {
+                    // Radii = h·tan(30°), both on order 1e-5, well above TOL.
+                    assert!(
+                        *radius > 1e-6 && *radius < 1e-4,
+                        "Circle radius {} outside expected micro-scale range [1e-6, 1e-4]",
+                        radius
+                    );
+                }
+                other => panic!("Expected Circle, got {:?}", other),
+            }
+        }
         validate_cone_sphere_results(
             &curves,
             apex,
