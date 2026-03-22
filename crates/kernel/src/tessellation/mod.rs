@@ -17,7 +17,7 @@ use crate::vecmath::{
     compute_plane_basis, v3_add, v3_cross, v3_dot, v3_length, v3_normalize, v3_scale, v3_sub,
 };
 use crate::waffle_kernel::{ConeParams, CylinderParams, RevolveParams, SphereParams, TorusParams};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 
 /// Number of segments for circular/cylindrical tessellation.
 const CIRCLE_SEGMENTS: usize = 64;
@@ -29,9 +29,9 @@ const CIRCLE_SEGMENTS: usize = 64;
 #[allow(dead_code)]
 pub(crate) fn tessellate_solid(
     arena: &TopoArena,
-    face_map: &HashMap<u64, FaceIdx>,
-    face_geometry: &HashMap<FaceIdx, SurfaceGeom>,
-    _edge_geometry: &HashMap<EdgeIdx, CurveGeom>,
+    face_map: &BTreeMap<u64, FaceIdx>,
+    face_geometry: &BTreeMap<FaceIdx, SurfaceGeom>,
+    _edge_geometry: &BTreeMap<EdgeIdx, CurveGeom>,
     cylinder_params: Option<&CylinderParams>,
     revolve_params: Option<&RevolveParams>,
     is_polygon_soup: bool,
@@ -54,9 +54,9 @@ pub(crate) fn tessellate_solid(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn tessellate_solid_ext(
     arena: &TopoArena,
-    face_map: &HashMap<u64, FaceIdx>,
-    face_geometry: &HashMap<FaceIdx, SurfaceGeom>,
-    _edge_geometry: &HashMap<EdgeIdx, CurveGeom>,
+    face_map: &BTreeMap<u64, FaceIdx>,
+    face_geometry: &BTreeMap<FaceIdx, SurfaceGeom>,
+    _edge_geometry: &BTreeMap<EdgeIdx, CurveGeom>,
     cylinder_params: Option<&CylinderParams>,
     revolve_params: Option<&RevolveParams>,
     sphere_params: Option<&SphereParams>,
@@ -714,7 +714,7 @@ pub(crate) fn weld_shared_edge_vertices(
     // index sharing for watertight meshes. Normals at shared vertices may belong
     // to different faces (hard edges), but this is acceptable because the
     // watertight oracle checks position-based edge pairing, not normal agreement.
-    let mut position_map: HashMap<(i64, i64, i64), u32> = HashMap::new();
+    let mut position_map: BTreeMap<(i64, i64, i64), u32> = BTreeMap::new();
     let mut remap: Vec<u32> = (0..n_verts as u32).collect();
 
     for vi in 0..n_verts {
@@ -1474,8 +1474,8 @@ fn tessellate_polygon_face_fallback(
 /// Supports both linear (2-point) and circular (polyline) edges.
 pub(crate) fn extract_edges(
     arena: &TopoArena,
-    edge_map: &HashMap<u64, EdgeIdx>,
-    edge_geometry: &HashMap<EdgeIdx, CurveGeom>,
+    edge_map: &BTreeMap<u64, EdgeIdx>,
+    edge_geometry: &BTreeMap<EdgeIdx, CurveGeom>,
 ) -> Result<EdgeRenderData, KernelError> {
     let mut vertices: Vec<f32> = Vec::new();
     let mut edge_ranges: Vec<EdgeRange> = Vec::new();
@@ -1587,7 +1587,7 @@ fn tessellate_cylindrical_patch(
     arena: &TopoArena,
     face_idx: FaceIdx,
     cyl: &crate::geometry::surface::Cylinder,
-    edge_geometry: &std::collections::HashMap<EdgeIdx, CurveGeom>,
+    edge_geometry: &std::collections::BTreeMap<EdgeIdx, CurveGeom>,
     vertices: &mut Vec<f32>,
     normals: &mut Vec<f32>,
     indices: &mut Vec<u32>,
@@ -1841,7 +1841,7 @@ fn tessellate_planar_face_with_hole(
     arena: &TopoArena,
     face_idx: FaceIdx,
     plane: &crate::geometry::surface::Plane,
-    edge_geometry: &std::collections::HashMap<EdgeIdx, CurveGeom>,
+    edge_geometry: &std::collections::BTreeMap<EdgeIdx, CurveGeom>,
     vertices: &mut Vec<f32>,
     normals: &mut Vec<f32>,
     indices: &mut Vec<u32>,
@@ -2121,7 +2121,7 @@ fn dist_sq_3d(a: &[f64; 3], b: &[f64; 3]) -> f64 {
 fn is_arc_bounded_face(
     arena: &TopoArena,
     face_idx: FaceIdx,
-    edge_geometry: &std::collections::HashMap<EdgeIdx, CurveGeom>,
+    edge_geometry: &std::collections::BTreeMap<EdgeIdx, CurveGeom>,
 ) -> bool {
     let loop_idx = arena.faces[face_idx.0].outer_loop;
     let start_he = arena.loops[loop_idx.0].half_edge;
@@ -2147,7 +2147,7 @@ fn tessellate_arc_bounded_cap(
     arena: &TopoArena,
     face_idx: FaceIdx,
     plane: &crate::geometry::surface::Plane,
-    edge_geometry: &std::collections::HashMap<EdgeIdx, CurveGeom>,
+    edge_geometry: &std::collections::BTreeMap<EdgeIdx, CurveGeom>,
     vertices: &mut Vec<f32>,
     normals: &mut Vec<f32>,
     indices: &mut Vec<u32>,
@@ -2293,16 +2293,16 @@ pub(crate) struct EdgeDiscretization {
     /// Vertex positions in f64 (converted to f32 once during face tessellation).
     pub(crate) positions: Vec<[f64; 3]>,
     /// Ordered vertex indices per edge (from origin to destination).
-    pub(crate) edge_verts: HashMap<EdgeIdx, Vec<usize>>,
+    pub(crate) edge_verts: BTreeMap<EdgeIdx, Vec<usize>>,
 }
 
 /// Discretize all edges in a solid into a shared vertex pool.
 pub(crate) fn discretize_edges(
     arena: &TopoArena,
-    edge_geometry: &HashMap<EdgeIdx, CurveGeom>,
+    edge_geometry: &BTreeMap<EdgeIdx, CurveGeom>,
 ) -> EdgeDiscretization {
     let mut positions: Vec<[f64; 3]> = Vec::new();
-    let mut edge_verts: HashMap<EdgeIdx, Vec<usize>> = HashMap::new();
+    let mut edge_verts: BTreeMap<EdgeIdx, Vec<usize>> = BTreeMap::new();
 
     for (i, edge) in arena.edges.iter().enumerate() {
         let edge_idx = EdgeIdx(i);
@@ -2595,7 +2595,7 @@ fn tessellate_cylindrical_face_bounded(
     face_idx: FaceIdx,
     cyl: &crate::geometry::surface::Cylinder,
     disc: &EdgeDiscretization,
-    _edge_geometry: &HashMap<EdgeIdx, CurveGeom>,
+    _edge_geometry: &BTreeMap<EdgeIdx, CurveGeom>,
     out_verts: &mut Vec<f32>,
     out_normals: &mut Vec<f32>,
     out_indices: &mut Vec<u32>,
@@ -2780,7 +2780,7 @@ fn tessellate_cylindrical_face_bounded(
 
                 // Emit vertices with cylindrical normals (deduplicated via index map)
                 let base_vertex = out_verts.len() as u32 / 3;
-                let mut vi_to_local: HashMap<usize, u32> = HashMap::new();
+                let mut vi_to_local: BTreeMap<usize, u32> = BTreeMap::new();
                 let mut next_local: u32 = 0;
                 let mut local_indices: Vec<u32> = Vec::with_capacity(strip_verts.len());
 
@@ -3207,9 +3207,9 @@ fn tessellate_cylindrical_face_bounded(
 /// discretized edges). Minimal post-processing.
 fn tessellate_solid_bounded(
     arena: &TopoArena,
-    face_map: &HashMap<u64, FaceIdx>,
-    face_geometry: &HashMap<FaceIdx, SurfaceGeom>,
-    edge_geometry: &HashMap<EdgeIdx, CurveGeom>,
+    face_map: &BTreeMap<u64, FaceIdx>,
+    face_geometry: &BTreeMap<FaceIdx, SurfaceGeom>,
+    edge_geometry: &BTreeMap<EdgeIdx, CurveGeom>,
 ) -> Result<RenderMesh, KernelError> {
     let disc = discretize_edges(arena, edge_geometry);
 
@@ -3484,7 +3484,7 @@ fn count_unpaired_in_mesh(vertices: &[f32], indices: &[u32]) -> usize {
             (b, a)
         }
     };
-    let mut edge_counts: HashMap<(QPos, QPos), usize> = HashMap::new();
+    let mut edge_counts: BTreeMap<(QPos, QPos), usize> = BTreeMap::new();
     for t in 0..n_tris {
         let base = t * 3;
         let tri = [indices[base], indices[base + 1], indices[base + 2]];
@@ -3545,7 +3545,7 @@ fn weld_boundary_vertices_with_scale(vertices: &mut [f32], indices: &[u32], scal
 
     // Build undirected edge counts
     type QPos = (i64, i64, i64);
-    let mut edge_counts: HashMap<(QPos, QPos), usize> = HashMap::new();
+    let mut edge_counts: BTreeMap<(QPos, QPos), usize> = BTreeMap::new();
     let make_edge = |a: QPos, b: QPos| -> (QPos, QPos) {
         if a <= b {
             (a, b)
@@ -3640,8 +3640,8 @@ fn weld_boundary_vertices_with_scale(vertices: &mut [f32], indices: &[u32], scal
     }
 
     // Compute centroid for each cluster and assign
-    let mut cluster_sum: HashMap<usize, [f64; 3]> = HashMap::new();
-    let mut cluster_count: HashMap<usize, usize> = HashMap::new();
+    let mut cluster_sum: BTreeMap<usize, [f64; 3]> = BTreeMap::new();
+    let mut cluster_count: BTreeMap<usize, usize> = BTreeMap::new();
 
     for (i, &bv_i) in boundary_verts.iter().enumerate() {
         let root = find(&mut parent, i);
@@ -3954,7 +3954,7 @@ fn remove_winding_insensitive_duplicates(
 /// interior edges not in the edge discretization.
 fn remove_nonmanifold_topology_aware(
     arena: &TopoArena,
-    face_map: &HashMap<u64, FaceIdx>,
+    face_map: &BTreeMap<u64, FaceIdx>,
     disc: &EdgeDiscretization,
     vertices: &[f32],
     indices: &mut Vec<u32>,
@@ -3991,7 +3991,7 @@ fn remove_nonmanifold_topology_aware(
     };
 
     // Step 1: Build reverse map from FaceIdx → KernelId (u64).
-    let mut face_idx_to_kid: HashMap<FaceIdx, u64> = HashMap::new();
+    let mut face_idx_to_kid: BTreeMap<FaceIdx, u64> = BTreeMap::new();
     for (&kid, &fidx) in face_map {
         face_idx_to_kid.insert(fidx, kid);
     }
@@ -4000,7 +4000,7 @@ fn remove_nonmanifold_topology_aware(
     // For each edge, find its two adjacent faces via half-edge twins.
     // Then map the edge's discretized vertex positions to quantized mesh edges.
     type UEdge = (QPos, QPos);
-    let mut topo_edge_faces: HashMap<UEdge, HashSet<u64>> = HashMap::new();
+    let mut topo_edge_faces: BTreeMap<UEdge, HashSet<u64>> = BTreeMap::new();
 
     for (i, edge) in arena.edges.iter().enumerate() {
         let edge_idx = EdgeIdx(i);
@@ -4063,7 +4063,7 @@ fn remove_nonmanifold_topology_aware(
     }
 
     // Step 4: Build edge → triangle list for mesh edges.
-    let mut edge_tris: HashMap<UEdge, Vec<usize>> = HashMap::new();
+    let mut edge_tris: BTreeMap<UEdge, Vec<usize>> = BTreeMap::new();
     for t in 0..n_tris {
         let base = t * 3;
         let tri = [indices[base], indices[base + 1], indices[base + 2]];
@@ -4199,7 +4199,7 @@ fn remove_nonmanifold_topology_aware(
 /// [Shewchuk 1997]. Applied selectively to interior diagonals only.
 fn flip_nonmanifold_interior_diagonals(
     _arena: &TopoArena,
-    _face_map: &HashMap<u64, FaceIdx>,
+    _face_map: &BTreeMap<u64, FaceIdx>,
     disc: &EdgeDiscretization,
     vertices: &[f32],
     indices: &mut [u32],
@@ -4274,7 +4274,7 @@ fn flip_nonmanifold_interior_diagonals(
         }
 
         // Build edge→triangle list for mesh edges.
-        let mut edge_tris: HashMap<UEdge, Vec<usize>> = HashMap::new();
+        let mut edge_tris: BTreeMap<UEdge, Vec<usize>> = BTreeMap::new();
         for t in 0..n_tris {
             let base = t * 3;
             let tri = [indices[base], indices[base + 1], indices[base + 2]];
@@ -4302,7 +4302,7 @@ fn flip_nonmanifold_interior_diagonals(
 
         for (nm_edge, tris) in &nm_edges {
             // Group triangles by face_id.
-            let mut face_groups: HashMap<u64, Vec<usize>> = HashMap::new();
+            let mut face_groups: BTreeMap<u64, Vec<usize>> = BTreeMap::new();
             for &t in tris {
                 face_groups.entry(tri_face_id[t]).or_default().push(t);
             }
@@ -4512,7 +4512,7 @@ fn flip_nonmanifold_edges_position_based(
 
         // Build edge→triangle list.
         type UEdge = (QPos, QPos);
-        let mut edge_tris: HashMap<UEdge, Vec<usize>> = HashMap::new();
+        let mut edge_tris: BTreeMap<UEdge, Vec<usize>> = BTreeMap::new();
         for t in 0..n_tris {
             let base = t * 3;
             let tri = [indices[base], indices[base + 1], indices[base + 2]];
@@ -4540,7 +4540,7 @@ fn flip_nonmanifold_edges_position_based(
 
         for (nm_edge, tris) in &nm_edges {
             // Group by face_id.
-            let mut face_groups: HashMap<u64, Vec<usize>> = HashMap::new();
+            let mut face_groups: BTreeMap<u64, Vec<usize>> = BTreeMap::new();
             for &t in tris {
                 face_groups.entry(tri_face_id[t]).or_default().push(t);
             }
@@ -4669,8 +4669,8 @@ fn flip_nonmanifold_edges_position_based(
 #[allow(clippy::too_many_arguments, clippy::ptr_arg)]
 fn retessellate_nonmanifold_faces_with_steiner_fan(
     arena: &TopoArena,
-    face_map: &HashMap<u64, FaceIdx>,
-    face_geometry: &HashMap<FaceIdx, SurfaceGeom>,
+    face_map: &BTreeMap<u64, FaceIdx>,
+    face_geometry: &BTreeMap<FaceIdx, SurfaceGeom>,
     disc: &EdgeDiscretization,
     vertices: &mut Vec<f32>,
     normals: &mut Vec<f32>,
@@ -4742,7 +4742,7 @@ fn retessellate_nonmanifold_faces_with_steiner_fan(
     }
 
     // Build edge→triangle count for detection.
-    let mut edge_counts: HashMap<UEdge, usize> = HashMap::new();
+    let mut edge_counts: BTreeMap<UEdge, usize> = BTreeMap::new();
     for t in 0..n_tris {
         let base = t * 3;
         let tri = [indices[base], indices[base + 1], indices[base + 2]];
@@ -4785,7 +4785,7 @@ fn retessellate_nonmanifold_faces_with_steiner_fan(
     }
 
     // Reverse map: face_id → (FaceIdx, kernel_id)
-    let mut id_to_face: HashMap<u64, FaceIdx> = HashMap::new();
+    let mut id_to_face: BTreeMap<u64, FaceIdx> = BTreeMap::new();
     for (&kid, &face_idx) in face_map {
         id_to_face.insert(kid, face_idx);
     }
@@ -4909,7 +4909,7 @@ fn retessellate_nonmanifold_faces_with_steiner_fan(
         let mut boundary_out_indices: Vec<u32> = Vec::with_capacity(n);
         // Build a position→output-vertex-index map from the existing mesh.
         let n_verts = vertices.len() / 3;
-        let mut pos_to_vi: HashMap<QPos, u32> = HashMap::new();
+        let mut pos_to_vi: BTreeMap<QPos, u32> = BTreeMap::new();
         for vi in 0..n_verts {
             let qp = (
                 (vertices[vi * 3] as f64 * inv_grid).round() as i64,
@@ -5197,7 +5197,7 @@ fn remove_nonmanifold_duplicates_inner(
     for _pass in 0..10 {
         // Build edge -> list of triangle indices (excluding already removed).
         type UEdge = (QPos, QPos);
-        let mut edge_tris: HashMap<UEdge, Vec<usize>> = HashMap::new();
+        let mut edge_tris: BTreeMap<UEdge, Vec<usize>> = BTreeMap::new();
         for t in 0..n_tris {
             if remove_set.contains(&t) {
                 continue;
@@ -5245,7 +5245,7 @@ fn remove_nonmanifold_duplicates_inner(
             })
             .collect();
 
-        let mut eff_edge_count: HashMap<UEdge, usize> = HashMap::new();
+        let mut eff_edge_count: BTreeMap<UEdge, usize> = BTreeMap::new();
         for (e, tris) in edge_tris.iter() {
             eff_edge_count.insert(*e, tris.len());
         }
@@ -5462,7 +5462,7 @@ fn repair_targeted_nonmanifold(
 
     // Build edge → triangle list
     type UEdge = (QPos, QPos);
-    let mut edge_tris: HashMap<UEdge, Vec<usize>> = HashMap::new();
+    let mut edge_tris: BTreeMap<UEdge, Vec<usize>> = BTreeMap::new();
     for t in 0..n_tris {
         let base = t * 3;
         let tri = [indices[base], indices[base + 1], indices[base + 2]];
@@ -5600,7 +5600,7 @@ fn count_boundary_edges(vertices: &[f32], indices: &[u32]) -> usize {
         )
     };
 
-    let mut edge_counts: HashMap<(QPos, QPos), u32> = HashMap::new();
+    let mut edge_counts: BTreeMap<(QPos, QPos), u32> = BTreeMap::new();
     for t in 0..n_tris {
         let base = t * 3;
         let tri = [indices[base], indices[base + 1], indices[base + 2]];
@@ -5639,7 +5639,7 @@ fn count_nonmanifold_edges(vertices: &[f32], indices: &[u32]) -> usize {
         )
     };
 
-    let mut edge_counts: HashMap<(QPos, QPos), u32> = HashMap::new();
+    let mut edge_counts: BTreeMap<(QPos, QPos), u32> = BTreeMap::new();
     for t in 0..n_tris {
         let base = t * 3;
         let tri = [indices[base], indices[base + 1], indices[base + 2]];
@@ -5693,7 +5693,7 @@ fn resolve_mesh_t_junctions(
     };
 
     // Build undirected edge counts (oracle-style)
-    let mut edge_counts: HashMap<(QPos, QPos), usize> = HashMap::new();
+    let mut edge_counts: BTreeMap<(QPos, QPos), usize> = BTreeMap::new();
     let make_edge = |a: QPos, b: QPos| -> (QPos, QPos) {
         if a <= b {
             (a, b)
@@ -5728,7 +5728,7 @@ fn resolve_mesh_t_junctions(
 
     // Collect ONLY vertices that are endpoints of boundary edges (T-junction
     // candidates must themselves be on the boundary manifold).
-    let mut boundary_verts: HashMap<QPos, u32> = HashMap::new();
+    let mut boundary_verts: BTreeMap<QPos, u32> = BTreeMap::new();
     for &(qa, qb) in &boundary_edges_vec {
         // Find a vertex index for each quantized position
         for t in 0..n_tris {
@@ -5748,7 +5748,7 @@ fn resolve_mesh_t_junctions(
 
     // For each boundary edge, check if a BOUNDARY vertex lies on its interior.
     // Build map: triangle_index → list of (edge_local_idx, split_vertex_idx)
-    let mut splits: HashMap<usize, Vec<(usize, u32)>> = HashMap::new();
+    let mut splits: BTreeMap<usize, Vec<(usize, u32)>> = BTreeMap::new();
 
     for t in 0..n_tris {
         let base = t * 3;
@@ -5972,9 +5972,9 @@ fn fill_boundary_holes(
     };
 
     // Build directed edge → count and vertex index mapping
-    let mut directed_counts: HashMap<(QPos, QPos), usize> = HashMap::new();
+    let mut directed_counts: BTreeMap<(QPos, QPos), usize> = BTreeMap::new();
     // Map quantized position → vertex index (first seen)
-    let mut pos_to_idx: HashMap<QPos, u32> = HashMap::new();
+    let mut pos_to_idx: BTreeMap<QPos, u32> = BTreeMap::new();
 
     for t in 0..n_tris {
         let base = t * 3;
@@ -6004,12 +6004,12 @@ fn fill_boundary_holes(
         return;
     }
 
-    // Sort for deterministic cycle detection (eliminates HashMap ordering nondeterminism)
+    // Sort for deterministic cycle detection (eliminates BTreeMap ordering nondeterminism)
     boundary_edges.sort();
 
     // Build adjacency: for each boundary vertex, what are the next vertices?
     // Use Vec to handle branching (vertex with multiple outgoing boundary edges).
-    let mut next_vertices: HashMap<QPos, Vec<QPos>> = HashMap::new();
+    let mut next_vertices: BTreeMap<QPos, Vec<QPos>> = BTreeMap::new();
     for &(a, b) in &boundary_edges {
         next_vertices.entry(a).or_default().push(b);
     }
@@ -6164,8 +6164,8 @@ fn close_near_boundary_chains(
     };
 
     // Build directed edge counts
-    let mut directed_counts: HashMap<(QPos, QPos), usize> = HashMap::new();
-    let mut pos_to_idx: HashMap<QPos, u32> = HashMap::new();
+    let mut directed_counts: BTreeMap<(QPos, QPos), usize> = BTreeMap::new();
+    let mut pos_to_idx: BTreeMap<QPos, u32> = BTreeMap::new();
 
     for t in 0..n_tris {
         let base = t * 3;
@@ -6197,7 +6197,7 @@ fn close_near_boundary_chains(
 
     // Collect boundary vertex adjacency (undirected) using union-find-like component detection
     let mut boundary_verts: HashSet<QPos> = HashSet::new();
-    let mut vert_adj: HashMap<QPos, HashSet<QPos>> = HashMap::new();
+    let mut vert_adj: BTreeMap<QPos, HashSet<QPos>> = BTreeMap::new();
     for &(a, b) in &boundary_edges {
         boundary_verts.insert(a);
         boundary_verts.insert(b);
@@ -6405,8 +6405,8 @@ fn close_near_boundary_chains(
             && comp_edges.len() < component.len()
         {
             // Build directed adjacency from boundary edges within this component
-            let mut fwd: HashMap<QPos, QPos> = HashMap::new();
-            let mut rev_map: HashMap<QPos, QPos> = HashMap::new();
+            let mut fwd: BTreeMap<QPos, QPos> = BTreeMap::new();
+            let mut rev_map: BTreeMap<QPos, QPos> = BTreeMap::new();
             for &(a, b) in &comp_edges {
                 fwd.insert(a, b);
                 rev_map.insert(b, a);
@@ -6567,7 +6567,7 @@ fn remove_isolated_triangles(
     }
 
     // Build edge count map
-    let mut edge_counts: HashMap<PosEdge, usize> = HashMap::new();
+    let mut edge_counts: BTreeMap<PosEdge, usize> = BTreeMap::new();
     for t in 0..n_tris {
         let base = t * 3;
         let va = quantize(indices[base]);
@@ -6706,7 +6706,7 @@ fn snap_boundary_to_oracle_grid(vertices: &mut [f32], indices: &[u32]) {
         }
     };
 
-    let mut edge_counts: HashMap<(QPos, QPos), usize> = HashMap::new();
+    let mut edge_counts: BTreeMap<(QPos, QPos), usize> = BTreeMap::new();
     for t in 0..n_tris {
         let base = t * 3;
         let qt = [
@@ -6755,7 +6755,7 @@ fn snap_boundary_to_oracle_grid(vertices: &mut [f32], indices: &[u32]) {
 /// and shared vertices on edges/corners are welded for watertightness.
 fn tessellate_sphere_solid(
     arena: &TopoArena,
-    face_map: &HashMap<u64, FaceIdx>,
+    face_map: &BTreeMap<u64, FaceIdx>,
     sp: &SphereParams,
 ) -> Result<RenderMesh, KernelError> {
     let center = sp.center;
@@ -6769,7 +6769,7 @@ fn tessellate_sphere_solid(
 
     // Use a position-based vertex map for sharing: round positions to avoid
     // floating-point mismatch on shared edges.
-    let mut vertex_cache: HashMap<[i64; 3], u32> = HashMap::new();
+    let mut vertex_cache: BTreeMap<[i64; 3], u32> = BTreeMap::new();
 
     // Quantization: snap sphere-surface positions to a grid fine enough for
     // the subdivision but coarse enough for f32 fidelity.
@@ -6786,7 +6786,7 @@ fn tessellate_sphere_solid(
     };
 
     let add_vertex = |pos: [f64; 3],
-                      vertex_cache: &mut HashMap<[i64; 3], u32>,
+                      vertex_cache: &mut BTreeMap<[i64; 3], u32>,
                       vertices: &mut Vec<f32>,
                       normals: &mut Vec<f32>|
      -> u32 {
@@ -7023,8 +7023,8 @@ fn tessellate_sphere_face(
 /// The base is a fan from center, lateral surface is rings from apex to base.
 fn tessellate_cone_solid(
     _arena: &TopoArena,
-    face_map: &HashMap<u64, FaceIdx>,
-    face_geometry: &HashMap<FaceIdx, SurfaceGeom>,
+    face_map: &BTreeMap<u64, FaceIdx>,
+    face_geometry: &BTreeMap<FaceIdx, SurfaceGeom>,
     cp: &ConeParams,
 ) -> Result<RenderMesh, KernelError> {
     let base_center = cp.base_center;
@@ -7242,7 +7242,7 @@ fn tessellate_cone_solid(
 /// Generates a shared-vertex mesh with `n_u × n_v` quads (each split into 2 triangles).
 /// Normals point outward from the tube surface.
 fn tessellate_torus_solid(
-    face_map: &HashMap<u64, FaceIdx>,
+    face_map: &BTreeMap<u64, FaceIdx>,
     tp: &TorusParams,
 ) -> Result<RenderMesh, KernelError> {
     let center = tp.center;
@@ -7751,15 +7751,15 @@ mod tests {
             },
         };
 
-        let mut face_map: HashMap<u64, FaceIdx> = HashMap::new();
+        let mut face_map: BTreeMap<u64, FaceIdx> = BTreeMap::new();
         face_map.insert(1, face1);
         face_map.insert(2, face2);
 
-        let mut face_geometry: HashMap<FaceIdx, SurfaceGeom> = HashMap::new();
+        let mut face_geometry: BTreeMap<FaceIdx, SurfaceGeom> = BTreeMap::new();
         face_geometry.insert(face1, SurfaceGeom::Planar(z_up_normal.clone()));
         face_geometry.insert(face2, SurfaceGeom::Planar(z_up_normal));
 
-        let mut edge_geometry: HashMap<EdgeIdx, CurveGeom> = HashMap::new();
+        let mut edge_geometry: BTreeMap<EdgeIdx, CurveGeom> = BTreeMap::new();
         for (idx, edge) in arena.edges.iter().enumerate() {
             let he_a = edge.half_edge;
             let v_start = arena.half_edges[he_a.0].origin;
@@ -7798,7 +7798,7 @@ mod tests {
         };
 
         let n_tris = mesh.indices.len() / 3;
-        let mut edge_counts: HashMap<((i64, i64, i64), (i64, i64, i64)), u32> = HashMap::new();
+        let mut edge_counts: BTreeMap<((i64, i64, i64), (i64, i64, i64)), u32> = BTreeMap::new();
         for i in 0..n_tris {
             let tri = [
                 mesh.indices[i * 3],
@@ -7929,8 +7929,8 @@ mod tests {
                 z: 1.0,
             },
         };
-        let mut face_map: HashMap<u64, FaceIdx> = HashMap::new();
-        let mut face_geometry: HashMap<FaceIdx, SurfaceGeom> = HashMap::new();
+        let mut face_map: BTreeMap<u64, FaceIdx> = BTreeMap::new();
+        let mut face_geometry: BTreeMap<FaceIdx, SurfaceGeom> = BTreeMap::new();
 
         for (face_id, (_normal, verts)) in positions.iter().enumerate() {
             let face = arena.add_face(shell);
@@ -7971,7 +7971,7 @@ mod tests {
         }
 
         // Edge geometry
-        let mut edge_geometry: HashMap<EdgeIdx, CurveGeom> = HashMap::new();
+        let mut edge_geometry: BTreeMap<EdgeIdx, CurveGeom> = BTreeMap::new();
         for (idx, edge) in arena.edges.iter().enumerate() {
             let he_a = edge.half_edge;
             let v_start = arena.half_edges[he_a.0].origin;
@@ -8008,7 +8008,7 @@ mod tests {
         };
 
         let n_tris = mesh.indices.len() / 3;
-        let mut edge_counts: HashMap<((i64, i64, i64), (i64, i64, i64)), u32> = HashMap::new();
+        let mut edge_counts: BTreeMap<((i64, i64, i64), (i64, i64, i64)), u32> = BTreeMap::new();
         for i in 0..n_tris {
             let tri = [
                 mesh.indices[i * 3],
@@ -8165,14 +8165,14 @@ mod tests {
             arena.vertices[quad_verts[i].0].half_edge = Some(quad_hes[i].0);
         }
 
-        let mut face_map: HashMap<u64, FaceIdx> = HashMap::new();
+        let mut face_map: BTreeMap<u64, FaceIdx> = BTreeMap::new();
         face_map.insert(1, pent_face);
         face_map.insert(2, quad_face);
-        let mut face_geometry: HashMap<FaceIdx, SurfaceGeom> = HashMap::new();
+        let mut face_geometry: BTreeMap<FaceIdx, SurfaceGeom> = BTreeMap::new();
         face_geometry.insert(pent_face, SurfaceGeom::Planar(z_up.clone()));
         face_geometry.insert(quad_face, SurfaceGeom::Planar(z_up));
 
-        let mut edge_geometry: HashMap<EdgeIdx, CurveGeom> = HashMap::new();
+        let mut edge_geometry: BTreeMap<EdgeIdx, CurveGeom> = BTreeMap::new();
         for (idx, edge) in arena.edges.iter().enumerate() {
             let he_a = edge.half_edge;
             let v_start = arena.half_edges[he_a.0].origin;
@@ -8209,7 +8209,7 @@ mod tests {
         };
 
         let n_tris = mesh.indices.len() / 3;
-        let mut edge_counts: HashMap<((i64, i64, i64), (i64, i64, i64)), u32> = HashMap::new();
+        let mut edge_counts: BTreeMap<((i64, i64, i64), (i64, i64, i64)), u32> = BTreeMap::new();
         for i in 0..n_tris {
             let tri = [
                 mesh.indices[i * 3],

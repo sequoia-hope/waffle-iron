@@ -35,7 +35,7 @@ use crate::types::*;
 use crate::units::{TAU_MODEL, TAU_NORMALIZE, TAU_WELD_FACTOR, TAU_WELD_MAX, TAU_WELD_MIN};
 use crate::vecmath::*;
 use crate::waffle_kernel::{CylinderParams, WaffleSolid};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 // ── Public types ────────────────────────────────────────────────────────
 
@@ -50,11 +50,11 @@ pub(crate) enum BoolOp {
 /// Result of a boolean operation: a new B-Rep solid with topology and geometry.
 pub(crate) struct BooleanResult {
     pub arena: TopoArena,
-    pub face_map: HashMap<u64, FaceIdx>,
-    pub edge_map: HashMap<u64, EdgeIdx>,
-    pub vertex_map: HashMap<u64, VertexIdx>,
-    pub face_geometry: HashMap<FaceIdx, SurfaceGeom>,
-    pub edge_geometry: HashMap<EdgeIdx, CurveGeom>,
+    pub face_map: BTreeMap<u64, FaceIdx>,
+    pub edge_map: BTreeMap<u64, EdgeIdx>,
+    pub vertex_map: BTreeMap<u64, VertexIdx>,
+    pub face_geometry: BTreeMap<FaceIdx, SurfaceGeom>,
+    pub edge_geometry: BTreeMap<EdgeIdx, CurveGeom>,
     /// Cached face polygons from the boolean result, for reuse in subsequent booleans.
     pub cached_face_polys: Option<Vec<FacePoly>>,
 }
@@ -458,7 +458,7 @@ pub(super) fn extract_face_polys(solid: &WaffleSolid) -> Vec<FacePoly> {
             surface_geom: face_sg,
         });
     }
-    // Sort for deterministic order (HashMap iteration is nondeterministic).
+    // Sort for deterministic order (BTreeMap iteration is nondeterministic).
     // This ensures classify_face sees cutting planes in the same order every run.
     polys.sort_by(|a, b| {
         let ca = polygon_centroid(&a.verts);
@@ -736,11 +736,11 @@ pub(crate) fn boolean_op(
                 arena.solids[solid_idx.0].outer_shell = shell_idx;
                 Ok(BooleanResult {
                     arena,
-                    face_map: HashMap::new(),
-                    edge_map: HashMap::new(),
-                    vertex_map: HashMap::new(),
-                    face_geometry: HashMap::new(),
-                    edge_geometry: HashMap::new(),
+                    face_map: BTreeMap::new(),
+                    edge_map: BTreeMap::new(),
+                    vertex_map: BTreeMap::new(),
+                    face_geometry: BTreeMap::new(),
+                    edge_geometry: BTreeMap::new(),
                     cached_face_polys: None,
                 })
             }
@@ -760,11 +760,11 @@ pub(crate) fn boolean_op(
                 arena.solids[solid_idx.0].outer_shell = shell_idx;
                 Ok(BooleanResult {
                     arena,
-                    face_map: HashMap::new(),
-                    edge_map: HashMap::new(),
-                    vertex_map: HashMap::new(),
-                    face_geometry: HashMap::new(),
-                    edge_geometry: HashMap::new(),
+                    face_map: BTreeMap::new(),
+                    edge_map: BTreeMap::new(),
+                    vertex_map: BTreeMap::new(),
+                    face_geometry: BTreeMap::new(),
+                    edge_geometry: BTreeMap::new(),
                     cached_face_polys: None,
                 })
             }
@@ -802,11 +802,11 @@ pub(crate) fn boolean_op_tolerant(
                 arena.solids[solid_idx.0].outer_shell = shell_idx;
                 Ok(BooleanResult {
                     arena,
-                    face_map: HashMap::new(),
-                    edge_map: HashMap::new(),
-                    vertex_map: HashMap::new(),
-                    face_geometry: HashMap::new(),
-                    edge_geometry: HashMap::new(),
+                    face_map: BTreeMap::new(),
+                    edge_map: BTreeMap::new(),
+                    vertex_map: BTreeMap::new(),
+                    face_geometry: BTreeMap::new(),
+                    edge_geometry: BTreeMap::new(),
                     cached_face_polys: None,
                 })
             }
@@ -824,11 +824,11 @@ pub(crate) fn boolean_op_tolerant(
                 arena.solids[solid_idx.0].outer_shell = shell_idx;
                 Ok(BooleanResult {
                     arena,
-                    face_map: HashMap::new(),
-                    edge_map: HashMap::new(),
-                    vertex_map: HashMap::new(),
-                    face_geometry: HashMap::new(),
-                    edge_geometry: HashMap::new(),
+                    face_map: BTreeMap::new(),
+                    edge_map: BTreeMap::new(),
+                    vertex_map: BTreeMap::new(),
+                    face_geometry: BTreeMap::new(),
+                    edge_geometry: BTreeMap::new(),
                     cached_face_polys: None,
                 })
             }
@@ -1176,11 +1176,11 @@ fn boolean_op_from_polys_inner(
         arena.solids[solid_idx.0].outer_shell = shell_idx;
         return Ok(BooleanResult {
             arena,
-            face_map: HashMap::new(),
-            edge_map: HashMap::new(),
-            vertex_map: HashMap::new(),
-            face_geometry: HashMap::new(),
-            edge_geometry: HashMap::new(),
+            face_map: BTreeMap::new(),
+            edge_map: BTreeMap::new(),
+            vertex_map: BTreeMap::new(),
+            face_geometry: BTreeMap::new(),
+            edge_geometry: BTreeMap::new(),
             cached_face_polys: None,
         });
     }
@@ -1211,6 +1211,7 @@ mod tests {
     use super::*;
     use crate::traits::Kernel;
     use crate::waffle_kernel::WaffleKernel;
+    use std::collections::HashMap;
 
     // ── Test helpers ────────────────────────────────────────────────
 

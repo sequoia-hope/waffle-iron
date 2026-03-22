@@ -14,24 +14,24 @@ use crate::traits::{Kernel, KernelIntrospect};
 use crate::types::*;
 use crate::units::{MIN_FEATURE_SIZE, TAU_MODEL, TAU_NORMALIZE};
 use crate::vecmath::*;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// Clean-sheet geometry kernel with half-edge B-Rep topology.
 pub struct WaffleKernel {
     next_id: u64,
     next_handle: u64,
-    solids: HashMap<u64, WaffleSolid>,
-    standalone_faces: HashMap<u64, StandaloneFace>,
+    solids: BTreeMap<u64, WaffleSolid>,
+    standalone_faces: BTreeMap<u64, StandaloneFace>,
 }
 
 /// A full B-Rep solid with topology arena and geometry maps.
 pub(crate) struct WaffleSolid {
     pub(crate) arena: TopoArena,
-    pub(crate) face_map: HashMap<u64, FaceIdx>,
-    pub(crate) edge_map: HashMap<u64, EdgeIdx>,
-    pub(crate) vertex_map: HashMap<u64, VertexIdx>,
-    pub(crate) face_geometry: HashMap<FaceIdx, SurfaceGeom>,
-    pub(crate) edge_geometry: HashMap<EdgeIdx, CurveGeom>,
+    pub(crate) face_map: BTreeMap<u64, FaceIdx>,
+    pub(crate) edge_map: BTreeMap<u64, EdgeIdx>,
+    pub(crate) vertex_map: BTreeMap<u64, VertexIdx>,
+    pub(crate) face_geometry: BTreeMap<FaceIdx, SurfaceGeom>,
+    pub(crate) edge_geometry: BTreeMap<EdgeIdx, CurveGeom>,
     pub(crate) cylinder_params: Option<CylinderParams>,
     pub(crate) revolve_params: Option<RevolveParams>,
     pub(crate) sphere_params: Option<SphereParams>,
@@ -110,8 +110,8 @@ impl WaffleKernel {
         Self {
             next_id: 1,
             next_handle: 1,
-            solids: HashMap::new(),
-            standalone_faces: HashMap::new(),
+            solids: BTreeMap::new(),
+            standalone_faces: BTreeMap::new(),
         }
     }
 
@@ -273,11 +273,11 @@ impl WaffleKernel {
 
         // Build geometry and ID maps
         let handle_id = self.alloc_handle();
-        let mut face_map = HashMap::new();
-        let mut edge_map = HashMap::new();
-        let mut vertex_map = HashMap::new();
-        let mut face_geometry = HashMap::new();
-        let mut edge_geometry = HashMap::new();
+        let mut face_map = BTreeMap::new();
+        let mut edge_map = BTreeMap::new();
+        let mut vertex_map = BTreeMap::new();
+        let mut face_geometry = BTreeMap::new();
+        let mut edge_geometry = BTreeMap::new();
 
         let sphere_geom = SurfaceGeom::Spherical(Sphere {
             center: Point3::from_array(center),
@@ -491,11 +491,11 @@ impl WaffleKernel {
 
         // Build geometry and ID maps
         let handle_id = self.alloc_handle();
-        let mut face_map = HashMap::new();
-        let mut edge_map = HashMap::new();
-        let mut vertex_map = HashMap::new();
-        let mut face_geometry = HashMap::new();
-        let mut edge_geometry = HashMap::new();
+        let mut face_map = BTreeMap::new();
+        let mut edge_map = BTreeMap::new();
+        let mut vertex_map = BTreeMap::new();
+        let mut face_geometry = BTreeMap::new();
+        let mut edge_geometry = BTreeMap::new();
 
         let half_angle = radius.atan2(height);
         let conical_geom = SurfaceGeom::Conical(Cone {
@@ -835,11 +835,11 @@ impl WaffleKernel {
 
         // Build geometry and ID maps
         let handle_id = self.alloc_handle();
-        let mut face_map = HashMap::new();
-        let mut edge_map = HashMap::new();
-        let mut vertex_map = HashMap::new();
-        let mut face_geometry = HashMap::new();
-        let edge_geometry = HashMap::new();
+        let mut face_map = BTreeMap::new();
+        let mut edge_map = BTreeMap::new();
+        let mut vertex_map = BTreeMap::new();
+        let mut face_geometry = BTreeMap::new();
+        let edge_geometry = BTreeMap::new();
 
         let torus_geom = SurfaceGeom::Toroidal(Torus {
             center: Point3::from_array(center),
@@ -1099,11 +1099,11 @@ impl WaffleKernel {
 
         // Build maps: allocate KernelIds for all topology entities
         let handle_id = self.alloc_handle();
-        let mut face_map = HashMap::new();
-        let mut edge_map = HashMap::new();
-        let mut vertex_map = HashMap::new();
-        let mut face_geometry = HashMap::new();
-        let mut edge_geometry = HashMap::new();
+        let mut face_map = BTreeMap::new();
+        let mut edge_map = BTreeMap::new();
+        let mut vertex_map = BTreeMap::new();
+        let mut face_geometry = BTreeMap::new();
+        let mut edge_geometry = BTreeMap::new();
         let mut lateral_face_data = Vec::new();
 
         // Compute solid centroid for outward-pointing normal determination
@@ -1457,11 +1457,11 @@ impl WaffleKernel {
 
         // Build maps and geometry
         let handle_id = self.alloc_handle();
-        let mut face_map = HashMap::new();
-        let mut edge_map = HashMap::new();
-        let mut vertex_map = HashMap::new();
-        let mut face_geometry = HashMap::new();
-        let mut edge_geometry = HashMap::new();
+        let mut face_map = BTreeMap::new();
+        let mut edge_map = BTreeMap::new();
+        let mut vertex_map = BTreeMap::new();
+        let mut face_geometry = BTreeMap::new();
+        let mut edge_geometry = BTreeMap::new();
 
         // Face geometry
         let bottom_kid = self.alloc_id();
@@ -1872,11 +1872,11 @@ impl Kernel for WaffleKernel {
 
         // Build maps: allocate KernelIds for all topology entities
         let handle_id = self.alloc_handle();
-        let mut face_map = HashMap::new();
-        let mut edge_map = HashMap::new();
-        let mut vertex_map = HashMap::new();
-        let mut face_geometry = HashMap::new();
-        let mut edge_geometry = HashMap::new();
+        let mut face_map = BTreeMap::new();
+        let mut edge_map = BTreeMap::new();
+        let mut vertex_map = BTreeMap::new();
+        let mut face_geometry = BTreeMap::new();
+        let mut edge_geometry = BTreeMap::new();
 
         let dir_norm = v3_normalize(direction);
 

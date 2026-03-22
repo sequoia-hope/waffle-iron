@@ -6264,7 +6264,7 @@ fn i2_reconstruct_cyl_plane_circle() {
     arena.half_edges[he2.0].edge = edge_idx;
 
     // Face geometry
-    let mut face_geometry: HashMap<FaceIdx, SurfaceGeom> = HashMap::new();
+    let mut face_geometry: BTreeMap<FaceIdx, SurfaceGeom> = BTreeMap::new();
     face_geometry.insert(
         face_a,
         SurfaceGeom::Planar(Plane {
@@ -6282,7 +6282,7 @@ fn i2_reconstruct_cyl_plane_circle() {
     );
 
     // Edge geometry: initially linear
-    let mut edge_geometry: HashMap<EdgeIdx, CurveGeom> = HashMap::new();
+    let mut edge_geometry: BTreeMap<EdgeIdx, CurveGeom> = BTreeMap::new();
     edge_geometry.insert(
         edge_idx,
         CurveGeom::Linear(Line3D {
@@ -6362,7 +6362,7 @@ fn i2_reconstruct_plane_plane_stays_linear() {
     arena.half_edges[he2.0].twin = he0;
     arena.half_edges[he2.0].edge = edge_idx;
 
-    let mut face_geometry: HashMap<FaceIdx, SurfaceGeom> = HashMap::new();
+    let mut face_geometry: BTreeMap<FaceIdx, SurfaceGeom> = BTreeMap::new();
     face_geometry.insert(face_a, SurfaceGeom::Planar(Plane {
         origin: Point3::new(0.0, 0.0, 0.0), normal: Vector3::new(0.0, 0.0, 1.0),
     }));
@@ -6370,7 +6370,7 @@ fn i2_reconstruct_plane_plane_stays_linear() {
         origin: Point3::new(0.0, 0.0, 0.0), normal: Vector3::new(0.0, 1.0, 0.0),
     }));
 
-    let mut edge_geometry: HashMap<EdgeIdx, CurveGeom> = HashMap::new();
+    let mut edge_geometry: BTreeMap<EdgeIdx, CurveGeom> = BTreeMap::new();
     edge_geometry.insert(edge_idx, CurveGeom::Linear(Line3D {
         origin: Point3::new(0.0, 0.0, 0.0), direction: Vector3::new(1.0, 0.0, 0.0),
     }));
@@ -6448,7 +6448,7 @@ fn i2_reconstruct_oblique_stays_linear() {
     arena.half_edges[he2.0].twin = he0;
     arena.half_edges[he2.0].edge = edge_idx;
 
-    let mut face_geometry: HashMap<FaceIdx, SurfaceGeom> = HashMap::new();
+    let mut face_geometry: BTreeMap<FaceIdx, SurfaceGeom> = BTreeMap::new();
     // Oblique plane: normal at 45° to cylinder axis
     let oblique_normal = Vector3::new(0.0, 1.0, 1.0).normalized();
     face_geometry.insert(face_a, SurfaceGeom::Planar(Plane {
@@ -6460,7 +6460,7 @@ fn i2_reconstruct_oblique_stays_linear() {
         radius: 3.0,
     }));
 
-    let mut edge_geometry: HashMap<EdgeIdx, CurveGeom> = HashMap::new();
+    let mut edge_geometry: BTreeMap<EdgeIdx, CurveGeom> = BTreeMap::new();
     edge_geometry.insert(edge_idx, CurveGeom::Linear(Line3D {
         origin: Point3::new(3.0, 0.0, 5.0), direction: Vector3::new(-3.0, 3.0, 0.0),
     }));

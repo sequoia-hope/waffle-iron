@@ -15,7 +15,7 @@ use crate::types::*;
 use crate::units::{TAU_COINCIDENT, TAU_MODEL, TAU_WORK};
 use crate::vecmath::*;
 use crate::waffle_kernel::{CylinderParams, WaffleSolid};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use super::{
     boolean_op_from_polys, build_brep_from_polygons, build_brep_from_polygons_inner,
@@ -270,11 +270,11 @@ pub(crate) fn polygon_approx_boolean(
                 arena.solids[solid_idx.0].outer_shell = shell_idx;
                 Ok(BooleanResult {
                     arena,
-                    face_map: HashMap::new(),
-                    edge_map: HashMap::new(),
-                    vertex_map: HashMap::new(),
-                    face_geometry: HashMap::new(),
-                    edge_geometry: HashMap::new(),
+                    face_map: BTreeMap::new(),
+                    edge_map: BTreeMap::new(),
+                    vertex_map: BTreeMap::new(),
+                    face_geometry: BTreeMap::new(),
+                    edge_geometry: BTreeMap::new(),
                     cached_face_polys: None,
                 })
             }
@@ -292,11 +292,11 @@ pub(crate) fn polygon_approx_boolean(
                 arena.solids[solid_idx.0].outer_shell = shell_idx;
                 Ok(BooleanResult {
                     arena,
-                    face_map: HashMap::new(),
-                    edge_map: HashMap::new(),
-                    vertex_map: HashMap::new(),
-                    face_geometry: HashMap::new(),
-                    edge_geometry: HashMap::new(),
+                    face_map: BTreeMap::new(),
+                    edge_map: BTreeMap::new(),
+                    vertex_map: BTreeMap::new(),
+                    face_geometry: BTreeMap::new(),
+                    edge_geometry: BTreeMap::new(),
                     cached_face_polys: None,
                 })
             }
@@ -647,7 +647,7 @@ fn non_parallel_cyl_cyl_boolean(
     arena.vertices[v1.0].half_edge = Some(he_ell2_a);
 
     // ── Face geometry ──────────────────────────────────────────
-    let mut face_geometry = HashMap::new();
+    let mut face_geometry = BTreeMap::new();
 
     let flip_b = matches!(op, BoolOp::Subtract);
 
@@ -669,7 +669,7 @@ fn non_parallel_cyl_cyl_boolean(
     );
 
     // ── Edge geometry ──────────────────────────────────────────
-    let mut edge_geometry: HashMap<EdgeIdx, CurveGeom> = HashMap::new();
+    let mut edge_geometry: BTreeMap<EdgeIdx, CurveGeom> = BTreeMap::new();
 
     edge_geometry.insert(
         e_ell1,
@@ -693,9 +693,9 @@ fn non_parallel_cyl_cyl_boolean(
     );
 
     // ── Build maps ──────────────────────────────────────────────
-    let mut face_map = HashMap::new();
-    let mut edge_map = HashMap::new();
-    let mut vertex_map = HashMap::new();
+    let mut face_map = BTreeMap::new();
+    let mut edge_map = BTreeMap::new();
+    let mut vertex_map = BTreeMap::new();
 
     face_map.insert(id_alloc(), face_a);
     face_map.insert(id_alloc(), face_b);
@@ -775,11 +775,11 @@ fn cyl_cyl_boolean_z_aligned(
                             arena.solids[solid_idx.0].outer_shell = shell_idx;
                             Ok(BooleanResult {
                                 arena,
-                                face_map: HashMap::new(),
-                                edge_map: HashMap::new(),
-                                vertex_map: HashMap::new(),
-                                face_geometry: HashMap::new(),
-                                edge_geometry: HashMap::new(),
+                                face_map: BTreeMap::new(),
+                                edge_map: BTreeMap::new(),
+                                vertex_map: BTreeMap::new(),
+                                face_geometry: BTreeMap::new(),
+                                edge_geometry: BTreeMap::new(),
                                 cached_face_polys: None,
                             })
                         } else if tool_covers_bottom && !tool_covers_top {
@@ -888,9 +888,9 @@ pub(super) fn clone_solid_as_result(
     solid: &WaffleSolid,
     id_alloc: &mut dyn FnMut() -> u64,
 ) -> Result<BooleanResult, KernelError> {
-    let mut face_map = HashMap::new();
-    let mut edge_map = HashMap::new();
-    let mut vertex_map = HashMap::new();
+    let mut face_map = BTreeMap::new();
+    let mut edge_map = BTreeMap::new();
+    let mut vertex_map = BTreeMap::new();
 
     for &idx in solid.face_map.values() {
         face_map.insert(id_alloc(), idx);
@@ -995,7 +995,7 @@ pub(crate) fn build_cyl_result(
     arena.vertices[v_top.0].half_edge = Some(he_top_a);
 
     // Face geometry
-    let mut face_geometry = HashMap::new();
+    let mut face_geometry = BTreeMap::new();
     face_geometry.insert(
         bottom_face,
         SurfaceGeom::Planar(Plane {
@@ -1020,7 +1020,7 @@ pub(crate) fn build_cyl_result(
     );
 
     // Edge geometry
-    let mut edge_geometry = HashMap::new();
+    let mut edge_geometry = BTreeMap::new();
     edge_geometry.insert(
         e_bottom,
         CurveGeom::Circular(Circle3D {
@@ -1046,9 +1046,9 @@ pub(crate) fn build_cyl_result(
     );
 
     // Build maps
-    let mut face_map = HashMap::new();
-    let mut edge_map = HashMap::new();
-    let mut vertex_map = HashMap::new();
+    let mut face_map = BTreeMap::new();
+    let mut edge_map = BTreeMap::new();
+    let mut vertex_map = BTreeMap::new();
     face_map.insert(id_alloc(), bottom_face);
     face_map.insert(id_alloc(), top_face);
     face_map.insert(id_alloc(), side_face);
@@ -1220,7 +1220,7 @@ fn build_cyl_tube(
     let top_center = [cx, cy, z_max];
     let bot_center = [cx, cy, z_min];
 
-    let mut face_geometry = HashMap::new();
+    let mut face_geometry = BTreeMap::new();
     // Z-aligned function: always use [0,0,1] axis and z_min origin for consistent tessellation
     face_geometry.insert(
         face_outer,
@@ -1254,7 +1254,7 @@ fn build_cyl_tube(
     );
 
     // ── Edge geometry
-    let mut edge_geometry = HashMap::new();
+    let mut edge_geometry = BTreeMap::new();
     edge_geometry.insert(
         e_outer_bot,
         CurveGeom::Circular(Circle3D {
@@ -1303,9 +1303,9 @@ fn build_cyl_tube(
     );
 
     // ── Build maps
-    let mut face_map = HashMap::new();
-    let mut edge_map = HashMap::new();
-    let mut vertex_map = HashMap::new();
+    let mut face_map = BTreeMap::new();
+    let mut edge_map = BTreeMap::new();
+    let mut vertex_map = BTreeMap::new();
     face_map.insert(id_alloc(), face_outer);
     face_map.insert(id_alloc(), face_inner);
     face_map.insert(id_alloc(), face_top);
@@ -2635,7 +2635,7 @@ fn build_partial_cyl_cyl(
     arena.vertices[v3.0].half_edge = Some(he_aat_b);
 
     // ── Face geometry ───────────────────────────────────────────────
-    let mut face_geometry = HashMap::new();
+    let mut face_geometry = BTreeMap::new();
     let origin_a_z = [cyl_a.center_bottom[0], cyl_a.center_bottom[1], z_min];
     face_geometry.insert(
         face_cyl_a,
@@ -2669,7 +2669,7 @@ fn build_partial_cyl_cyl(
 
     // ── Edge geometry ───────────────────────────────────────────────
 
-    let mut edge_geometry: HashMap<EdgeIdx, CurveGeom> = HashMap::new();
+    let mut edge_geometry: BTreeMap<EdgeIdx, CurveGeom> = BTreeMap::new();
 
     // Vertical lines
     edge_geometry.insert(
@@ -2723,9 +2723,9 @@ fn build_partial_cyl_cyl(
 
     // ── Build maps ──────────────────────────────────────────────────
 
-    let mut face_map = HashMap::new();
-    let mut edge_map = HashMap::new();
-    let mut vertex_map = HashMap::new();
+    let mut face_map = BTreeMap::new();
+    let mut edge_map = BTreeMap::new();
+    let mut vertex_map = BTreeMap::new();
 
     face_map.insert(id_alloc(), face_cyl_a);
     face_map.insert(id_alloc(), face_cyl_b);

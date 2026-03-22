@@ -12,7 +12,7 @@ use crate::topology::half_edge::*;
 use crate::types::*;
 use crate::units::{TAU_COINCIDENT, TAU_NORMALIZE, TAU_PARALLEL, TAU_WORK};
 use crate::vecmath::*;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use super::{polygon_area_3d, BooleanResult, FacePoly};
 
@@ -46,15 +46,15 @@ pub(super) fn build_brep_from_polygons_inner(
     id_alloc: &mut dyn FnMut() -> u64,
 ) -> Result<BooleanResult, KernelError> {
     let mut arena = TopoArena::new();
-    let mut face_map = HashMap::new();
-    let mut edge_map = HashMap::new();
-    let mut vertex_map = HashMap::new();
-    let mut face_geometry: HashMap<FaceIdx, SurfaceGeom> = HashMap::new();
-    let mut edge_geometry: HashMap<EdgeIdx, CurveGeom> = HashMap::new();
+    let mut face_map = BTreeMap::new();
+    let mut edge_map = BTreeMap::new();
+    let mut vertex_map = BTreeMap::new();
+    let mut face_geometry: BTreeMap<FaceIdx, SurfaceGeom> = BTreeMap::new();
+    let mut edge_geometry: BTreeMap<EdgeIdx, CurveGeom> = BTreeMap::new();
 
     // Step 1: Weld vertices — quantize positions to tau_weld grid
     let inv_tau = 1.0 / tau_weld;
-    let mut pos_to_vertex: HashMap<(i64, i64, i64), VertexIdx> = HashMap::new();
+    let mut pos_to_vertex: BTreeMap<(i64, i64, i64), VertexIdx> = BTreeMap::new();
 
     let quantize = |p: [f64; 3]| -> (i64, i64, i64) {
         (
@@ -84,12 +84,12 @@ pub(super) fn build_brep_from_polygons_inner(
     arena.solids[solid_idx.0].outer_shell = shell_idx;
 
     // Map directed edges (from, to) → HalfEdgeIdx for twin pairing
-    let mut directed_he: HashMap<(VertexIdx, VertexIdx), HalfEdgeIdx> = HashMap::new();
+    let mut directed_he: BTreeMap<(VertexIdx, VertexIdx), HalfEdgeIdx> = BTreeMap::new();
     // Track all half-edges that need twin pairing
     let mut unpaired_hes: Vec<HalfEdgeIdx> = Vec::new();
 
     let mut first_face_idx = None;
-    let mut face_idx_map: HashMap<usize, FaceIdx> = HashMap::new();
+    let mut face_idx_map: BTreeMap<usize, FaceIdx> = BTreeMap::new();
 
     for (fi, face_poly) in faces.iter().enumerate() {
         let vert_indices = &face_vert_indices[fi];
@@ -313,7 +313,7 @@ pub(super) fn build_brep_from_polygons_inner(
     // due to quantization grid boundary effects.
     {
         type QEdge = ((i64, i64, i64), (i64, i64, i64));
-        let mut pos_directed_he: HashMap<QEdge, Vec<HalfEdgeIdx>> = HashMap::new();
+        let mut pos_directed_he: BTreeMap<QEdge, Vec<HalfEdgeIdx>> = BTreeMap::new();
 
         // Build position-based map for unpaired half-edges only
         for &he_idx in &unpaired_hes {
@@ -596,8 +596,8 @@ pub(super) fn build_brep_from_polygons_inner(
 /// Ref: Patrikalakis Ch.5 — plane-cylinder perpendicular SSI is a circle.
 pub(crate) fn reconstruct_edge_geometry(
     arena: &TopoArena,
-    face_geometry: &HashMap<FaceIdx, SurfaceGeom>,
-    edge_geometry: &mut HashMap<EdgeIdx, CurveGeom>,
+    face_geometry: &BTreeMap<FaceIdx, SurfaceGeom>,
+    edge_geometry: &mut BTreeMap<EdgeIdx, CurveGeom>,
 ) {
     let edge_indices: Vec<EdgeIdx> = edge_geometry.keys().copied().collect();
 

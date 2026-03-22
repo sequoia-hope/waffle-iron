@@ -6,7 +6,7 @@ use crate::units::{
     TAU_TESS_GRID_MIN,
 };
 use crate::vecmath::*;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use super::{polygon_area_3d, FacePoly};
 
@@ -27,7 +27,7 @@ use super::{polygon_area_3d, FacePoly};
 /// Ref [#9] Cherchi 2020: indirect predicates — same principle of avoiding
 /// recomputation. Ref [#10] Levy 2025: exact constructions cached per-edge.
 pub(super) struct IntersectionCache {
-    cache: HashMap<([i64; 6], [i64; 4]), [f64; 3]>,
+    cache: BTreeMap<([i64; 6], [i64; 4]), [f64; 3]>,
     inv_quant: f64,
 }
 
@@ -35,7 +35,7 @@ impl IntersectionCache {
     pub(super) fn new(tau: f64) -> Self {
         let step = (tau * TAU_CACHE_STEP_FACTOR).max(TAU_NORMALIZE);
         Self {
-            cache: HashMap::new(),
+            cache: BTreeMap::new(),
             inv_quant: 1.0 / step,
         }
     }
@@ -499,10 +499,10 @@ pub(super) fn merge_nearby_vertices(polys: &[FacePoly], tau_weld: f64) -> Vec<Fa
     let weld_dist_sq = merge_tol * merge_tol;
 
     // Build canonical vertex map: each vertex gets mapped to its representative
-    let mut canonical: HashMap<(i64, i64, i64), [f64; 3]> = HashMap::new();
+    let mut canonical: BTreeMap<(i64, i64, i64), [f64; 3]> = BTreeMap::new();
 
     let find_or_insert =
-        |pos: [f64; 3], canonical: &mut HashMap<(i64, i64, i64), [f64; 3]>| -> [f64; 3] {
+        |pos: [f64; 3], canonical: &mut BTreeMap<(i64, i64, i64), [f64; 3]>| -> [f64; 3] {
             let sx = pos[0] * inv_tau;
             let sy = pos[1] * inv_tau;
             let sz = pos[2] * inv_tau;

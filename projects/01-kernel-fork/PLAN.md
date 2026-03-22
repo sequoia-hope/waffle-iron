@@ -414,9 +414,9 @@ Deep investigation of the 32 watertight assay failures found:
 
 ---
 
-## Assay Status (2026-03-22, Session 9)
+## Assay Status (2026-03-22, Session 10)
 
-**Score: 104/160** (recompilation-sensitive; ~17 borderline cases flip per build)
+**Score: 104/160** (now deterministic across builds — see Session 10 fix)
 - Session 5: 81/160
 - Session 6: 114/160 (+33, edge-flip + Steiner fan fixes)
 - Session 7: 134/160 (+20, boundary chain fill limit 32→64 + vertex compaction)
@@ -425,15 +425,18 @@ Deep investigation of the 32 watertight assay failures found:
 - Session 9: 104/160 (7 genuine fixes: R0047, R0048, R0058, R0065, R0074,
   R0080, R0091; 17 borderline regressions from HashMap non-determinism
   after recompilation — see note below)
+- Session 10: 104/160 (HashMap→BTreeMap determinism fix — score now stable
+  across consecutive runs; no borderline fluctuation)
 
-**Note on non-determinism**: The boolean pipeline uses HashMap for face/edge
-maps. Recompilation changes SipHash random seeds, altering iteration order
-in the polygon clipping path. This causes ~17 borderline watertight cases
-to flip between pass and fail across builds. The 114/160 baseline was
-build-specific. True improvement: 7 fixed cases. True regression: 0.
-The root cause is S-H clipping precision sensitivity to face processing
-order. Fix requires either exact predicates (Ref #4 Shewchuk) or
-deterministic face ordering (sort faces by centroid before clipping).
+**Non-determinism resolved (Session 10)**: Replaced HashMap with BTreeMap
+throughout the boolean pipeline (mod.rs, analytical.rs, clip.rs, stitch.rs),
+tessellation, and WaffleSolid/BooleanResult structs. Added PartialOrd+Ord
+derives to all topology index types (FaceIdx, EdgeIdx, VertexIdx, etc.).
+BTreeMap provides deterministic iteration order (sorted by key), eliminating
+the SipHash seed sensitivity that caused ~17 borderline cases to flip between
+pass and fail across recompilations. Two consecutive full assay runs now
+produce identical 104/160 scores. The remaining 56 failures are genuine
+S-H clipping precision issues, not ordering artifacts.
 
 ### Session 9 Fixes
 
@@ -485,7 +488,7 @@ deterministic face ordering (sort faces by centroid before clipping).
    (tube + cap geometry), the SSI path returns NotSupported to delegate to polygon
    boolean which can handle the composite geometry correctly.
 
-### Failure Categories (56 total: 47 Failed + 9 Errored, build-dependent)
+### Failure Categories (56 total: 47 Failed + 9 Errored, deterministic after Session 10)
 | Category | Count | Cases | Description |
 |----------|-------|-------|-------------|
 | boolean-watertight | 39 | F0046-F0049,F0055-F0060,R0002-R0004,R0011-R0012,R0015,R0020,R0031,R0033,R0035,R0038,R0040,R0044,R0046,R0049-R0051,R0053,R0056,R0059-R0060,R0068-R0071,R0076,R0084,R0099-R0100 | Unpaired edges from S-H clipping precision (non-deterministic ~±17) |
@@ -511,10 +514,11 @@ deterministic face ordering (sort faces by centroid before clipping).
 1. **S-H clipping precision** — Intersection caching or exact predicates (Ref #4 Shewchuk)
    would reduce the root cause of remaining watertight failures
 2. **Face product limit** — ✅ Done (Session 9: 5000→50000)
-3. **Revolve auto-union** — Wire up revolve results to boolean pipeline for multi-body union
-4. **CDT tessellation** — Constrained Delaunay (Ref #33 Stroud) would prevent non-manifold
+3. **HashMap determinism** — ✅ Done (Session 10: HashMap→BTreeMap in boolean pipeline)
+4. **Revolve auto-union** — Wire up revolve results to boolean pipeline for multi-body union
+5. **CDT tessellation** — Constrained Delaunay (Ref #33 Stroud) would prevent non-manifold
    edges from earcut diagonal overlaps
-5. **Timeout reduction** — Profile the 6 timeout cases to identify bottlenecks; optimize
+6. **Timeout reduction** — Profile the 9 timeout cases to identify bottlenecks; optimize
    face classification or implement early termination for trivially disjoint solids
 
 ---
