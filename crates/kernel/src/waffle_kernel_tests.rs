@@ -11986,3 +11986,346 @@ fn chained_subtract_two_disjoint_cuts_volume() {
     );
 }
 
+// ══════════════════════════════════════════════════════════════════
+// Group SSI_SPHERE: Sphere boolean SSI dispatch tests
+// ══════════════════════════════════════════════════════════════════
+//
+// These tests verify that sphere boolean operations use the SSI dispatch
+// path (not polygon approximation). The key discriminator is:
+//   1. Result faces preserve SurfaceGeom::Spherical (not polygon soup)
+//   2. Result solid has is_polygon_soup = false
+//
+// Until the sphere SSI dispatch is implemented, these tests will FAIL
+// on the SurfaceGeom/polygon_soup assertions (the polygon fallback path
+// produces correct geometry but loses surface type information).
+
+/// Helper: count faces with SurfaceGeom::Spherical in a solid.
+fn count_spherical_faces(k: &WaffleKernel, solid: &KernelSolidHandle) -> usize {
+    let ws = k.solids.get(&solid.id()).expect("solid must exist");
+    ws.face_geometry
+        .values()
+        .filter(|g| matches!(g, SurfaceGeom::Spherical(_)))
+        .count()
+}
+
+/// Helper: count faces with SurfaceGeom::Planar in a solid.
+fn count_planar_faces(k: &WaffleKernel, solid: &KernelSolidHandle) -> usize {
+    let ws = k.solids.get(&solid.id()).expect("solid must exist");
+    ws.face_geometry
+        .values()
+        .filter(|g| matches!(g, SurfaceGeom::Planar(_)))
+        .count()
+}
+
+/// Helper: check that a solid is NOT marked as polygon soup.
+/// When the SSI dispatch path is used, the result should have proper
+/// analytical B-Rep geometry, not polygon approximation.
+fn assert_not_polygon_soup(k: &WaffleKernel, solid: &KernelSolidHandle) {
+    let ws = k.solids.get(&solid.id()).expect("solid must exist");
+    assert!(
+        !ws.is_polygon_soup,
+        "SSI dispatch result must NOT be polygon soup (is_polygon_soup should be false)"
+    );
+}
+
+// ── SSI_SPHERE_01: Box minus enclosed sphere ────────────────────
+// Box 10x10x10 at origin, sphere r=3 at center (5,5,5).
+// boolean_subtract(box, sphere) → box with spherical cavity.
+// Volume ≈ 1000 - 4/3π·27 ≈ 886.9
+//
+// NOTE: Cavity (multi-shell) operations currently fall through to the
+// polygon clipping path because the tessellation pipeline doesn't yet
+// support inverted normals for inner shells. The polygon path produces
+// correct geometry as a single-shell polygon soup.
+#[test]
+fn ssi_sphere_01_box_minus_enclosed_sphere() {
+    use std::f64::consts::PI;
+
+    let mut k = WaffleKernel::new();
+
+    let box_h = make_box_on(&mut k, 5.0, 5.0, 10.0, 10.0, 10.0);
+    let sphere_h = k.make_sphere([5.0, 5.0, 5.0], 3.0).expect("make_sphere should succeed");
+
+    let result = k
+        .boolean_subtract(&box_h, &sphere_h)
+        .expect("box - enclosed sphere should succeed");
+
+    // -- Watertight mesh
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    assert!(
+        check_watertight(&mesh),
+        "Box-minus-sphere result must be watertight (unpaired edges: {})",
+        count_unpaired_edges(&mesh)
+    );
+
+    // -- Volume: 1000 - 4/3 π 27 ≈ 886.9
+    let vol = mesh_volume(&mesh);
+    let expected = 1000.0 - (4.0 / 3.0) * PI * 27.0;
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.05,
+        "Box-minus-sphere volume: expected {:.1}, got {:.1} (rel_err={:.4})",
+        expected, vol, rel_err
+    );
+}
+
+// ── SSI_SPHERE_02: Box union enclosed sphere ────────────────────
+// Box 10x10x10 at origin, sphere r=3 at center (5,5,5).
+// boolean_union(box, sphere) → result = box (sphere fully inside).
+// Volume ≈ 1000
+#[test]
+fn ssi_sphere_02_box_union_enclosed_sphere() {
+    let mut k = WaffleKernel::new();
+
+    let box_h = make_box_on(&mut k, 5.0, 5.0, 10.0, 10.0, 10.0);
+    let sphere_h = k.make_sphere([5.0, 5.0, 5.0], 3.0).expect("make_sphere should succeed");
+
+    let result = k
+        .boolean_union(&box_h, &sphere_h)
+        .expect("box + enclosed sphere union should succeed");
+
+    // -- Topology: single shell → V-E+F = 2
+    let v = k.list_vertices(&result).len() as i64;
+    let e = k.list_edges(&result).len() as i64;
+    let f = k.list_faces(&result).len() as i64;
+    assert_eq!(
+        v - e + f,
+        2,
+        "Box union enclosed sphere must be single shell V-E+F=2, got V={}, E={}, F={} → {}",
+        v, e, f, v - e + f
+    );
+
+    // -- Volume: sphere is absorbed, result = box volume
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    let vol = mesh_volume(&mesh);
+    let rel_err = (vol - 1000.0).abs() / 1000.0;
+    assert!(
+        rel_err < 0.02,
+        "Box union enclosed sphere volume should be ~1000, got {:.1} (rel_err={:.4})",
+        vol, rel_err
+    );
+
+    // -- All faces should be planar (sphere absorbed into box)
+    let planar_count = count_planar_faces(&k, &result);
+    let total_faces = f as usize;
+    assert_eq!(
+        planar_count, total_faces,
+        "Box union enclosed sphere: all {} faces should be Planar (sphere absorbed), \
+         but only {} are Planar",
+        total_faces, planar_count
+    );
+
+    // -- SSI dispatch discriminator: result must NOT be polygon soup
+    assert_not_polygon_soup(&k, &result);
+}
+
+// ── SSI_SPHERE_03: Box intersect enclosed sphere ────────────────
+// Box 10x10x10, sphere r=3 at center (5,5,5).
+// boolean_intersect(box, sphere) → result = sphere.
+// Volume ≈ 4/3π·27 ≈ 113.1
+#[test]
+fn ssi_sphere_03_box_intersect_enclosed_sphere() {
+    use std::f64::consts::PI;
+
+    let mut k = WaffleKernel::new();
+
+    let box_h = make_box_on(&mut k, 5.0, 5.0, 10.0, 10.0, 10.0);
+    let sphere_h = k.make_sphere([5.0, 5.0, 5.0], 3.0).expect("make_sphere should succeed");
+
+    let result = k
+        .boolean_intersect(&box_h, &sphere_h)
+        .expect("box intersect enclosed sphere should succeed");
+
+    // -- Volume: result is the sphere
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    let vol = mesh_volume(&mesh);
+    let expected = (4.0 / 3.0) * PI * 27.0;
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.02,
+        "Box intersect enclosed sphere volume should be ~{:.1} (sphere), got {:.1} (rel_err={:.4})",
+        expected, vol, rel_err
+    );
+
+    // -- All faces should be Spherical (result is the sphere)
+    let spherical_count = count_spherical_faces(&k, &result);
+    let total_faces = k.list_faces(&result).len();
+    assert_eq!(
+        spherical_count, total_faces,
+        "Box intersect enclosed sphere: all {} faces should be Spherical (result = sphere), \
+         but only {} are Spherical",
+        total_faces, spherical_count
+    );
+
+    // -- Watertight
+    assert!(
+        check_watertight(&mesh),
+        "Box intersect sphere result must be watertight (unpaired edges: {})",
+        count_unpaired_edges(&mesh)
+    );
+
+    // -- SSI dispatch discriminator: result must NOT be polygon soup
+    assert_not_polygon_soup(&k, &result);
+}
+
+// ── SSI_SPHERE_04: Concentric sphere subtract ───────────────────
+// Sphere A: center (0,0,0), r=5
+// Sphere B: center (0,0,0), r=3
+// boolean_subtract(A, B) → spherical shell.
+// Volume ≈ 4/3π(125-27) ≈ 410.5
+//
+// NOTE: Concentric subtract (multi-shell) currently falls through to the
+// polygon clipping path. The polygon path produces correct geometry.
+#[test]
+fn ssi_sphere_04_concentric_sphere_subtract() {
+    use std::f64::consts::PI;
+
+    let mut k = WaffleKernel::new();
+
+    let sphere_a = k.make_sphere([0.0, 0.0, 0.0], 5.0).expect("sphere A");
+    let sphere_b = k.make_sphere([0.0, 0.0, 0.0], 3.0).expect("sphere B");
+
+    let result = k
+        .boolean_subtract(&sphere_a, &sphere_b)
+        .expect("concentric sphere subtract should succeed");
+
+    // -- Volume: 4/3π(125 - 27) ≈ 410.5
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    let vol = mesh_volume(&mesh);
+    let expected = (4.0 / 3.0) * PI * (125.0 - 27.0);
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.05,
+        "Concentric sphere shell volume: expected {:.1}, got {:.1} (rel_err={:.4})",
+        expected, vol, rel_err
+    );
+
+    // -- Watertight
+    assert!(
+        check_watertight(&mesh),
+        "Concentric sphere shell must be watertight (unpaired edges: {})",
+        count_unpaired_edges(&mesh)
+    );
+}
+
+// ── SSI_SPHERE_05: Disjoint sphere union ────────────────────────
+// Sphere A: center (0,0,0), r=2
+// Sphere B: center (10,0,0), r=2
+// boolean_union(A, B) → two disjoint spheres.
+// Volume ≈ 2 × 4/3π·8 ≈ 67.0
+#[test]
+fn ssi_sphere_05_disjoint_sphere_union() {
+    use std::f64::consts::PI;
+
+    let mut k = WaffleKernel::new();
+
+    let sphere_a = k.make_sphere([0.0, 0.0, 0.0], 2.0).expect("sphere A");
+    let sphere_b = k.make_sphere([10.0, 0.0, 0.0], 2.0).expect("sphere B");
+
+    let result = k
+        .boolean_union(&sphere_a, &sphere_b)
+        .expect("disjoint sphere union should succeed");
+
+    // -- Topology: two shells → V-E+F = 4
+    let v = k.list_vertices(&result).len() as i64;
+    let e = k.list_edges(&result).len() as i64;
+    let f = k.list_faces(&result).len() as i64;
+    assert_eq!(
+        v - e + f,
+        4,
+        "Disjoint sphere union must have V-E+F=4 (two shells), got V={}, E={}, F={} → {}",
+        v, e, f, v - e + f
+    );
+
+    // -- Volume: 2 × 4/3π·8 ≈ 67.0
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    let vol = mesh_volume(&mesh);
+    let expected = 2.0 * (4.0 / 3.0) * PI * 8.0;
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.02,
+        "Disjoint sphere union volume: expected {:.1}, got {:.1} (rel_err={:.4})",
+        expected, vol, rel_err
+    );
+
+    // -- Watertight
+    assert!(
+        check_watertight(&mesh),
+        "Disjoint sphere union must be watertight (unpaired edges: {})",
+        count_unpaired_edges(&mesh)
+    );
+
+    // -- SSI dispatch discriminator: all faces should be Spherical
+    let spherical_count = count_spherical_faces(&k, &result);
+    let total_faces = f as usize;
+    assert_eq!(
+        spherical_count, total_faces,
+        "Disjoint sphere union: all {} faces should be Spherical, but only {} are",
+        total_faces, spherical_count
+    );
+
+    // -- SSI dispatch discriminator: result must NOT be polygon soup
+    assert_not_polygon_soup(&k, &result);
+}
+
+// ── SSI_SPHERE_06: Disjoint sphere subtract ─────────────────────
+// Sphere A: center (0,0,0), r=2
+// Sphere B: center (10,0,0), r=2
+// boolean_subtract(A, B) → just sphere A (nothing to subtract).
+// Volume ≈ 4/3π·8 ≈ 33.5
+#[test]
+fn ssi_sphere_06_disjoint_sphere_subtract() {
+    use std::f64::consts::PI;
+
+    let mut k = WaffleKernel::new();
+
+    let sphere_a = k.make_sphere([0.0, 0.0, 0.0], 2.0).expect("sphere A");
+    let sphere_b = k.make_sphere([10.0, 0.0, 0.0], 2.0).expect("sphere B");
+
+    let result = k
+        .boolean_subtract(&sphere_a, &sphere_b)
+        .expect("disjoint sphere subtract should succeed");
+
+    // -- Topology: single shell → V-E+F = 2
+    let v = k.list_vertices(&result).len() as i64;
+    let e = k.list_edges(&result).len() as i64;
+    let f = k.list_faces(&result).len() as i64;
+    assert_eq!(
+        v - e + f,
+        2,
+        "Disjoint sphere subtract must be single shell V-E+F=2, got V={}, E={}, F={} → {}",
+        v, e, f, v - e + f
+    );
+
+    // -- Volume: 4/3π·8 ≈ 33.5 (just sphere A)
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    let vol = mesh_volume(&mesh);
+    let expected = (4.0 / 3.0) * PI * 8.0;
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.02,
+        "Disjoint sphere subtract volume: expected {:.1}, got {:.1} (rel_err={:.4})",
+        expected, vol, rel_err
+    );
+
+    // -- Watertight
+    assert!(
+        check_watertight(&mesh),
+        "Disjoint sphere subtract must be watertight (unpaired edges: {})",
+        count_unpaired_edges(&mesh)
+    );
+
+    // -- SSI dispatch discriminator: all faces should be Spherical
+    let spherical_count = count_spherical_faces(&k, &result);
+    let total_faces = f as usize;
+    assert_eq!(
+        spherical_count, total_faces,
+        "Disjoint sphere subtract: all {} faces should be Spherical (result = sphere A), \
+         but only {} are",
+        total_faces, spherical_count
+    );
+
+    // -- SSI dispatch discriminator: result must NOT be polygon soup
+    assert_not_polygon_soup(&k, &result);
+}
+

@@ -1,8 +1,8 @@
-//! SSI-based boolean operations (box-cylinder, cylinder-cylinder) and
-//! analytical B-Rep construction helpers.
+//! SSI-based boolean operations (box-cylinder, cylinder-cylinder,
+//! box-sphere, sphere-sphere) and analytical B-Rep construction helpers.
 //!
 //! Contains frame rotation utilities, analytical SSI dispatch, and all
-//! build_* functions for constructing B-Rep results from cylinder/box
+//! build_* functions for constructing B-Rep results from cylinder/box/sphere
 //! primitives.
 
 use crate::geometry::curve::{Arc3D, Circle3D, CurveGeom, Ellipse3D, Line3D};
@@ -14,7 +14,7 @@ use crate::topology::half_edge::*;
 use crate::types::*;
 use crate::units::{TAU_COINCIDENT, TAU_MODEL, TAU_WORK};
 use crate::vecmath::*;
-use crate::waffle_kernel::{CylinderParams, WaffleSolid};
+use crate::waffle_kernel::{CylinderParams, SphereParams, WaffleSolid};
 use std::collections::BTreeMap;
 
 use super::{
@@ -197,7 +197,15 @@ pub(crate) fn ellipse_to_polygon(
 
 // ── SSI dispatch ────────────────────────────────────────────────────────
 
-/// Perform an SSI-based boolean operation on solids involving cylinders.
+/// Perform an SSI-based boolean operation on solids involving cylinders or spheres.
+///
+/// Dispatches to the appropriate analytical boolean handler based on operand types:
+/// - cylinder + cylinder → `cyl_cyl_boolean`
+/// - box + cylinder → `box_cyl_boolean`
+/// - box + sphere → `box_sphere_boolean`
+/// - sphere + sphere → `sphere_sphere_boolean`
+///
+/// Ref: A15 (Analytical Primacy) — quadric pairs must use exact SSI, not mesh fallback.
 pub(crate) fn ssi_boolean_op(
     solid_a: &WaffleSolid,
     solid_b: &WaffleSolid,
@@ -206,6 +214,8 @@ pub(crate) fn ssi_boolean_op(
 ) -> Result<BooleanResult, KernelError> {
     let a_is_cyl = solid_a.cylinder_params.is_some();
     let b_is_cyl = solid_b.cylinder_params.is_some();
+    let a_is_sphere = solid_a.sphere_params.is_some();
+    let b_is_sphere = solid_b.sphere_params.is_some();
 
     // Try analytical SSI pipeline first; fall back to polygon approximation
     // for unsupported cases (partial overlaps, cylinder-minus-box, etc.)
@@ -213,11 +223,11 @@ pub(crate) fn ssi_boolean_op(
         let cyl_a = solid_a.cylinder_params.as_ref().unwrap();
         let cyl_b = solid_b.cylinder_params.as_ref().unwrap();
         cyl_cyl_boolean(cyl_a, cyl_b, op, id_alloc)
-    } else if !a_is_cyl && b_is_cyl {
+    } else if !a_is_cyl && !a_is_sphere && b_is_cyl {
         let box_aabb = ssi::compute_box_aabb(solid_a);
         let cyl = solid_b.cylinder_params.as_ref().unwrap();
         box_cyl_boolean(&box_aabb, solid_a, cyl, op, id_alloc)
-    } else if a_is_cyl && !b_is_cyl {
+    } else if a_is_cyl && !b_is_cyl && !b_is_sphere {
         let box_aabb = ssi::compute_box_aabb(solid_b);
         let cyl = solid_a.cylinder_params.as_ref().unwrap();
         match op {
@@ -226,6 +236,30 @@ pub(crate) fn ssi_boolean_op(
                 box_cyl_boolean(&box_aabb, solid_b, cyl, BoolOp::Intersect, id_alloc)
             }
             BoolOp::Subtract => cyl_minus_box_boolean(&box_aabb, solid_b, cyl, id_alloc),
+        }
+    } else if a_is_sphere && b_is_sphere {
+        // Sphere + Sphere
+        let sp_a = solid_a.sphere_params.as_ref().unwrap();
+        let sp_b = solid_b.sphere_params.as_ref().unwrap();
+        sphere_sphere_boolean(sp_a, sp_b, solid_a, solid_b, op, id_alloc)
+    } else if !a_is_sphere && b_is_sphere {
+        // Box + Sphere
+        let sp = solid_b.sphere_params.as_ref().unwrap();
+        box_sphere_boolean(solid_a, sp, solid_b, op, id_alloc)
+    } else if a_is_sphere && !b_is_sphere {
+        // Sphere + Box: commute operands for subtract, symmetric for union/intersect
+        let sp = solid_a.sphere_params.as_ref().unwrap();
+        match op {
+            BoolOp::Union => box_sphere_boolean(solid_b, sp, solid_a, BoolOp::Union, id_alloc),
+            BoolOp::Intersect => {
+                box_sphere_boolean(solid_b, sp, solid_a, BoolOp::Intersect, id_alloc)
+            }
+            BoolOp::Subtract => {
+                // sphere - box: not yet supported analytically
+                Err(KernelError::NotSupported {
+                    operation: "sphere-minus-box boolean".to_string(),
+                })
+            }
         }
     } else {
         Err(KernelError::NotSupported {
@@ -480,6 +514,583 @@ fn box_cyl_boolean(
             }
         }
     }
+}
+
+// ── Box-sphere boolean ──────────────────────────────────────────────────
+
+/// Box-sphere boolean with analytical enclosure classification.
+///
+/// Uses plane-sphere SSI (A15) to determine the geometric relationship between
+/// a box (all-planar) solid and a sphere primitive. Handles fully-enclosed,
+/// disjoint, and box-inside-sphere configurations analytically. Partial overlaps
+/// return NotSupported and fall through to the polygon clipping path.
+///
+/// Ref: [#1] Patrikalakis Ch.5 — plane-sphere SSI produces circles.
+/// Ref: [#33] Stroud — multi-shell Euler formula for cavity operations.
+fn box_sphere_boolean(
+    box_solid: &WaffleSolid,
+    sphere: &SphereParams,
+    sphere_solid: &WaffleSolid,
+    op: BoolOp,
+    id_alloc: &mut dyn FnMut() -> u64,
+) -> Result<BooleanResult, KernelError> {
+    let box_aabb = ssi::compute_box_aabb(box_solid);
+    let c = sphere.center;
+    let r = sphere.radius;
+
+    // Classify: is the sphere fully inside the box?
+    let sphere_in_box = c[0] - r >= box_aabb.min[0] - TAU_COINCIDENT
+        && c[0] + r <= box_aabb.max[0] + TAU_COINCIDENT
+        && c[1] - r >= box_aabb.min[1] - TAU_COINCIDENT
+        && c[1] + r <= box_aabb.max[1] + TAU_COINCIDENT
+        && c[2] - r >= box_aabb.min[2] - TAU_COINCIDENT
+        && c[2] + r <= box_aabb.max[2] + TAU_COINCIDENT;
+
+    // Classify: is the box fully inside the sphere?
+    // All 8 box corners must be inside the sphere.
+    let box_in_sphere = [
+        [box_aabb.min[0], box_aabb.min[1], box_aabb.min[2]],
+        [box_aabb.max[0], box_aabb.min[1], box_aabb.min[2]],
+        [box_aabb.min[0], box_aabb.max[1], box_aabb.min[2]],
+        [box_aabb.max[0], box_aabb.max[1], box_aabb.min[2]],
+        [box_aabb.min[0], box_aabb.min[1], box_aabb.max[2]],
+        [box_aabb.max[0], box_aabb.min[1], box_aabb.max[2]],
+        [box_aabb.min[0], box_aabb.max[1], box_aabb.max[2]],
+        [box_aabb.max[0], box_aabb.max[1], box_aabb.max[2]],
+    ]
+    .iter()
+    .all(|corner| ssi::point_in_sphere(*corner, c, r));
+
+    // Classify: are they disjoint?
+    // Sphere is disjoint from AABB if its center is farther than r from the nearest
+    // point on the AABB.
+    let nearest = [
+        c[0].clamp(box_aabb.min[0], box_aabb.max[0]),
+        c[1].clamp(box_aabb.min[1], box_aabb.max[1]),
+        c[2].clamp(box_aabb.min[2], box_aabb.max[2]),
+    ];
+    let dist_sq = v3_dot(v3_sub(c, nearest), v3_sub(c, nearest));
+    let disjoint = dist_sq > (r + TAU_COINCIDENT) * (r + TAU_COINCIDENT);
+
+    match op {
+        BoolOp::Subtract => {
+            if disjoint {
+                // Nothing to subtract → result = box
+                clone_solid_as_result(box_solid, id_alloc)
+            } else {
+                // Sphere-in-box (cavity) and partial overlap cases require
+                // multi-shell tessellation with inverted normals, which the
+                // current tessellation pipeline doesn't support. Defer to
+                // polygon clipping path which produces a single-shell result.
+                Err(KernelError::NotSupported {
+                    operation: "box-sphere subtract (multi-shell)".to_string(),
+                })
+            }
+        }
+        BoolOp::Union => {
+            if sphere_in_box {
+                // Sphere fully inside box → union = box
+                clone_solid_as_result(box_solid, id_alloc)
+            } else if disjoint {
+                // Disjoint → two-shell union
+                build_disjoint_box_sphere_union(box_solid, sphere_solid, id_alloc)
+            } else if box_in_sphere {
+                // Box inside sphere → union = sphere
+                clone_solid_as_result(sphere_solid, id_alloc)
+            } else {
+                Err(KernelError::NotSupported {
+                    operation: "partial box-sphere union".to_string(),
+                })
+            }
+        }
+        BoolOp::Intersect => {
+            if sphere_in_box {
+                // Sphere fully inside box → intersect = sphere
+                clone_solid_as_result(sphere_solid, id_alloc)
+            } else if disjoint {
+                // No intersection
+                build_empty_result(id_alloc)
+            } else if box_in_sphere {
+                // Box inside sphere → intersect = box
+                clone_solid_as_result(box_solid, id_alloc)
+            } else {
+                Err(KernelError::NotSupported {
+                    operation: "partial box-sphere intersect".to_string(),
+                })
+            }
+        }
+    }
+}
+
+/// Build an empty solid result (no faces, edges, vertices).
+fn build_empty_result(id_alloc: &mut dyn FnMut() -> u64) -> Result<BooleanResult, KernelError> {
+    let _ = id_alloc(); // consume one ID for consistency
+    let arena = TopoArena::new();
+    Ok(BooleanResult {
+        arena,
+        face_map: BTreeMap::new(),
+        edge_map: BTreeMap::new(),
+        vertex_map: BTreeMap::new(),
+        face_geometry: BTreeMap::new(),
+        edge_geometry: BTreeMap::new(),
+        cached_face_polys: None,
+    })
+}
+
+/// Build a box with a spherical cavity (2 shells) for box-minus-enclosed-sphere.
+///
+/// The result is the original box B-Rep plus the sphere's B-Rep with reversed
+/// winding (inner shell). Uses the same merge+winding-reversal approach as
+/// build_sphere_shell for consistency.
+///
+/// Ref: [#33] Stroud — multi-shell Euler formula: V-E+F = 2S.
+#[allow(dead_code)] // Will be used when multi-shell tessellation is implemented
+fn build_box_with_sphere_cavity(
+    box_solid: &WaffleSolid,
+    _sphere: &SphereParams,
+    sphere_solid: &WaffleSolid,
+    id_alloc: &mut dyn FnMut() -> u64,
+) -> Result<BooleanResult, KernelError> {
+    // Clone the box topology as the base result
+    let mut result = clone_solid_as_result(box_solid, id_alloc)?;
+
+    // Add sphere as inner shell with reversed winding (same as build_sphere_shell)
+    let v_offset = result.arena.vertices.len();
+    let he_offset = result.arena.half_edges.len();
+    let e_offset = result.arena.edges.len();
+    let f_offset = result.arena.faces.len();
+    let l_offset = result.arena.loops.len();
+
+    for v in &sphere_solid.arena.vertices {
+        result.arena.vertices.push(Vertex {
+            position: v.position,
+            half_edge: v.half_edge.map(|he| HalfEdgeIdx(he.0 + he_offset)),
+        });
+    }
+
+    let solid_idx = SolidIdx(0);
+    let inner_shell = result.arena.add_shell(solid_idx);
+
+    for l in &sphere_solid.arena.loops {
+        result.arena.loops.push(Loop {
+            half_edge: HalfEdgeIdx(l.half_edge.0 + he_offset),
+            face: FaceIdx(l.face.0 + f_offset),
+        });
+    }
+
+    for f in &sphere_solid.arena.faces {
+        result.arena.faces.push(Face {
+            outer_loop: LoopIdx(f.outer_loop.0 + l_offset),
+            inner_loops: f
+                .inner_loops
+                .iter()
+                .map(|l| LoopIdx(l.0 + l_offset))
+                .collect(),
+            shell: inner_shell,
+        });
+    }
+
+    // Clone half-edges with SWAPPED next/prev for reversed winding
+    for he in &sphere_solid.arena.half_edges {
+        result.arena.half_edges.push(HalfEdge {
+            origin: VertexIdx(he.origin.0 + v_offset),
+            edge: EdgeIdx(he.edge.0 + e_offset),
+            twin: HalfEdgeIdx(he.twin.0 + he_offset),
+            next: HalfEdgeIdx(he.prev.0 + he_offset), // SWAPPED
+            prev: HalfEdgeIdx(he.next.0 + he_offset), // SWAPPED
+            loop_: LoopIdx(he.loop_.0 + l_offset),
+        });
+    }
+
+    // Fix origins after winding reversal
+    for he_idx in he_offset..result.arena.half_edges.len() {
+        let twin_idx = result.arena.half_edges[he_idx].twin;
+        let twin_origin = result.arena.half_edges[twin_idx.0].origin;
+        result.arena.half_edges[he_idx].origin = twin_origin;
+    }
+
+    for e in &sphere_solid.arena.edges {
+        result.arena.edges.push(Edge {
+            half_edge: HalfEdgeIdx(e.half_edge.0 + he_offset),
+        });
+    }
+
+    for (&_kid, &idx) in &sphere_solid.face_map {
+        let new_idx = FaceIdx(idx.0 + f_offset);
+        result.face_map.insert(id_alloc(), new_idx);
+        if let Some(geom) = sphere_solid.face_geometry.get(&idx) {
+            result.face_geometry.insert(new_idx, geom.clone());
+        }
+    }
+    for (&_kid, &idx) in &sphere_solid.edge_map {
+        let new_idx = EdgeIdx(idx.0 + e_offset);
+        result.edge_map.insert(id_alloc(), new_idx);
+        if let Some(geom) = sphere_solid.edge_geometry.get(&idx) {
+            result.edge_geometry.insert(new_idx, geom.clone());
+        }
+    }
+    for (&_kid, &idx) in &sphere_solid.vertex_map {
+        let new_idx = VertexIdx(idx.0 + v_offset);
+        result.vertex_map.insert(id_alloc(), new_idx);
+    }
+
+    Ok(result)
+}
+
+/// Build a disjoint union of a box solid and a sphere solid (2 shells).
+fn build_disjoint_box_sphere_union(
+    box_solid: &WaffleSolid,
+    sphere_solid: &WaffleSolid,
+    id_alloc: &mut dyn FnMut() -> u64,
+) -> Result<BooleanResult, KernelError> {
+    // For disjoint union, we can combine both solids' face polygon representations
+    // and build a unified B-Rep. Simpler approach: clone both solids into a
+    // merged arena with two shells.
+    //
+    // However, the simplest correct approach that preserves surface geometry is to
+    // clone box, then add sphere topology as a second shell (same as cavity builder
+    // but without inversion).
+
+    // Start with box clone
+    let mut result = clone_solid_as_result(box_solid, id_alloc)?;
+
+    // Add sphere entities into the same arena
+    let v_offset = result.arena.vertices.len();
+    let he_offset = result.arena.half_edges.len();
+    let e_offset = result.arena.edges.len();
+    let f_offset = result.arena.faces.len();
+    let l_offset = result.arena.loops.len();
+
+    // Clone sphere arena entities with offset
+    for v in &sphere_solid.arena.vertices {
+        result.arena.vertices.push(Vertex {
+            position: v.position,
+            half_edge: v.half_edge.map(|he| HalfEdgeIdx(he.0 + he_offset)),
+        });
+    }
+
+    // Add a new shell for the sphere
+    let solid_idx = SolidIdx(0);
+    let _sphere_shell = result.arena.add_shell(solid_idx);
+
+    for l in &sphere_solid.arena.loops {
+        result.arena.loops.push(Loop {
+            half_edge: HalfEdgeIdx(l.half_edge.0 + he_offset),
+            face: FaceIdx(l.face.0 + f_offset),
+        });
+    }
+
+    for f in &sphere_solid.arena.faces {
+        result.arena.faces.push(Face {
+            outer_loop: LoopIdx(f.outer_loop.0 + l_offset),
+            inner_loops: f
+                .inner_loops
+                .iter()
+                .map(|l| LoopIdx(l.0 + l_offset))
+                .collect(),
+            shell: _sphere_shell,
+        });
+    }
+
+    for he in &sphere_solid.arena.half_edges {
+        result.arena.half_edges.push(HalfEdge {
+            origin: VertexIdx(he.origin.0 + v_offset),
+            edge: EdgeIdx(he.edge.0 + e_offset),
+            twin: HalfEdgeIdx(he.twin.0 + he_offset),
+            next: HalfEdgeIdx(he.next.0 + he_offset),
+            prev: HalfEdgeIdx(he.prev.0 + he_offset),
+            loop_: LoopIdx(he.loop_.0 + l_offset),
+        });
+    }
+
+    for e in &sphere_solid.arena.edges {
+        result.arena.edges.push(Edge {
+            half_edge: HalfEdgeIdx(e.half_edge.0 + he_offset),
+        });
+    }
+
+    // Map sphere faces/edges/vertices with new IDs and offset indices
+    for (&_kid, &idx) in &sphere_solid.face_map {
+        let new_idx = FaceIdx(idx.0 + f_offset);
+        result.face_map.insert(id_alloc(), new_idx);
+        if let Some(geom) = sphere_solid.face_geometry.get(&idx) {
+            result.face_geometry.insert(new_idx, geom.clone());
+        }
+    }
+    for (&_kid, &idx) in &sphere_solid.edge_map {
+        let new_idx = EdgeIdx(idx.0 + e_offset);
+        result.edge_map.insert(id_alloc(), new_idx);
+        if let Some(geom) = sphere_solid.edge_geometry.get(&idx) {
+            result.edge_geometry.insert(new_idx, geom.clone());
+        }
+    }
+    for (&_kid, &idx) in &sphere_solid.vertex_map {
+        let new_idx = VertexIdx(idx.0 + v_offset);
+        result.vertex_map.insert(id_alloc(), new_idx);
+    }
+
+    Ok(result)
+}
+
+// ── Sphere-sphere boolean ───────────────────────────────────────────────
+
+/// Sphere-sphere boolean with analytical enclosure classification.
+///
+/// Handles concentric, fully-enclosed, and disjoint configurations analytically.
+/// Partial overlaps (where SSI produces a circle intersection curve) return
+/// NotSupported and fall through to the polygon clipping path.
+///
+/// Ref: [#1] Patrikalakis Ch.5 — sphere-sphere SSI produces circles.
+/// Ref: [#33] Stroud — multi-shell Euler formula.
+fn sphere_sphere_boolean(
+    sp_a: &SphereParams,
+    sp_b: &SphereParams,
+    solid_a: &WaffleSolid,
+    solid_b: &WaffleSolid,
+    op: BoolOp,
+    id_alloc: &mut dyn FnMut() -> u64,
+) -> Result<BooleanResult, KernelError> {
+    let dist = v3_length(v3_sub(sp_a.center, sp_b.center));
+
+    // Classify geometric relationship
+    let disjoint = dist > sp_a.radius + sp_b.radius + TAU_COINCIDENT;
+    let concentric = dist < TAU_COINCIDENT;
+    let b_in_a = dist + sp_b.radius <= sp_a.radius + TAU_COINCIDENT;
+    let a_in_b = dist + sp_a.radius <= sp_b.radius + TAU_COINCIDENT;
+
+    match op {
+        BoolOp::Subtract => {
+            if disjoint {
+                // Nothing to subtract → result = A
+                clone_solid_as_result(solid_a, id_alloc)
+            } else {
+                // Concentric/enclosed/partial subtract requires multi-shell
+                // tessellation with inverted normals. Defer to polygon path.
+                Err(KernelError::NotSupported {
+                    operation: "sphere-sphere subtract (multi-shell)".to_string(),
+                })
+            }
+        }
+        BoolOp::Union => {
+            if b_in_a || (concentric && sp_a.radius >= sp_b.radius) {
+                // B inside A → union = A
+                clone_solid_as_result(solid_a, id_alloc)
+            } else if a_in_b {
+                // A inside B → union = B
+                clone_solid_as_result(solid_b, id_alloc)
+            } else if disjoint {
+                // Disjoint → two-shell union
+                build_disjoint_sphere_union(solid_a, solid_b, id_alloc)
+            } else {
+                Err(KernelError::NotSupported {
+                    operation: "partial sphere-sphere union".to_string(),
+                })
+            }
+        }
+        BoolOp::Intersect => {
+            if b_in_a {
+                // B inside A → intersect = B
+                clone_solid_as_result(solid_b, id_alloc)
+            } else if a_in_b {
+                // A inside B → intersect = A
+                clone_solid_as_result(solid_a, id_alloc)
+            } else if disjoint {
+                // No intersection
+                build_empty_result(id_alloc)
+            } else {
+                Err(KernelError::NotSupported {
+                    operation: "partial sphere-sphere intersect".to_string(),
+                })
+            }
+        }
+    }
+}
+
+/// Build a spherical shell (outer sphere A minus inner sphere B) → 2-shell result.
+///
+/// Clones sphere A's B-Rep as the outer shell, then adds sphere B's B-Rep as an
+/// inner void shell (same approach as build_box_with_sphere_cavity).
+#[allow(dead_code)] // Will be used when multi-shell tessellation is implemented
+fn build_sphere_shell(
+    solid_a: &WaffleSolid,
+    solid_b: &WaffleSolid,
+    _sp_a: &SphereParams,
+    _sp_b: &SphereParams,
+    id_alloc: &mut dyn FnMut() -> u64,
+) -> Result<BooleanResult, KernelError> {
+    // Clone outer sphere A
+    let mut result = clone_solid_as_result(solid_a, id_alloc)?;
+
+    // Add inner sphere B as a second shell with REVERSED winding.
+    // The inner shell represents a cavity/void, so face normals must point
+    // inward (toward sphere center). Swapping next↔prev reverses the
+    // half-edge loop traversal, flipping face orientation.
+    // Ref: [#33] Stroud — inner shell face orientation is inverted.
+    let v_offset = result.arena.vertices.len();
+    let he_offset = result.arena.half_edges.len();
+    let e_offset = result.arena.edges.len();
+    let f_offset = result.arena.faces.len();
+    let l_offset = result.arena.loops.len();
+
+    for v in &solid_b.arena.vertices {
+        result.arena.vertices.push(Vertex {
+            position: v.position,
+            half_edge: v.half_edge.map(|he| HalfEdgeIdx(he.0 + he_offset)),
+        });
+    }
+
+    let solid_idx = SolidIdx(0);
+    let inner_shell = result.arena.add_shell(solid_idx);
+
+    for l in &solid_b.arena.loops {
+        result.arena.loops.push(Loop {
+            half_edge: HalfEdgeIdx(l.half_edge.0 + he_offset),
+            face: FaceIdx(l.face.0 + f_offset),
+        });
+    }
+
+    for f in &solid_b.arena.faces {
+        result.arena.faces.push(Face {
+            outer_loop: LoopIdx(f.outer_loop.0 + l_offset),
+            inner_loops: f
+                .inner_loops
+                .iter()
+                .map(|l| LoopIdx(l.0 + l_offset))
+                .collect(),
+            shell: inner_shell,
+        });
+    }
+
+    // Clone half-edges with SWAPPED next/prev for reversed winding
+    for he in &solid_b.arena.half_edges {
+        result.arena.half_edges.push(HalfEdge {
+            origin: VertexIdx(he.origin.0 + v_offset),
+            edge: EdgeIdx(he.edge.0 + e_offset),
+            twin: HalfEdgeIdx(he.twin.0 + he_offset),
+            next: HalfEdgeIdx(he.prev.0 + he_offset), // SWAPPED
+            prev: HalfEdgeIdx(he.next.0 + he_offset), // SWAPPED
+            loop_: LoopIdx(he.loop_.0 + l_offset),
+        });
+    }
+
+    // Fix origins after winding reversal: each half-edge in the reversed
+    // loop should originate from the destination of the original half-edge
+    // (which is the origin of its twin in the original winding).
+    for he_idx in he_offset..result.arena.half_edges.len() {
+        let twin_idx = result.arena.half_edges[he_idx].twin;
+        let twin_origin = result.arena.half_edges[twin_idx.0].origin;
+        result.arena.half_edges[he_idx].origin = twin_origin;
+    }
+
+    for e in &solid_b.arena.edges {
+        result.arena.edges.push(Edge {
+            half_edge: HalfEdgeIdx(e.half_edge.0 + he_offset),
+        });
+    }
+
+    for (&_kid, &idx) in &solid_b.face_map {
+        let new_idx = FaceIdx(idx.0 + f_offset);
+        result.face_map.insert(id_alloc(), new_idx);
+        if let Some(geom) = solid_b.face_geometry.get(&idx) {
+            result.face_geometry.insert(new_idx, geom.clone());
+        }
+    }
+    for (&_kid, &idx) in &solid_b.edge_map {
+        let new_idx = EdgeIdx(idx.0 + e_offset);
+        result.edge_map.insert(id_alloc(), new_idx);
+        if let Some(geom) = solid_b.edge_geometry.get(&idx) {
+            result.edge_geometry.insert(new_idx, geom.clone());
+        }
+    }
+    for (&_kid, &idx) in &solid_b.vertex_map {
+        let new_idx = VertexIdx(idx.0 + v_offset);
+        result.vertex_map.insert(id_alloc(), new_idx);
+    }
+
+    Ok(result)
+}
+
+/// Build a disjoint union of two sphere solids (2 shells).
+fn build_disjoint_sphere_union(
+    solid_a: &WaffleSolid,
+    solid_b: &WaffleSolid,
+    id_alloc: &mut dyn FnMut() -> u64,
+) -> Result<BooleanResult, KernelError> {
+    // Same approach as build_disjoint_box_sphere_union: clone A, merge B
+    let mut result = clone_solid_as_result(solid_a, id_alloc)?;
+
+    let v_offset = result.arena.vertices.len();
+    let he_offset = result.arena.half_edges.len();
+    let e_offset = result.arena.edges.len();
+    let f_offset = result.arena.faces.len();
+    let l_offset = result.arena.loops.len();
+
+    for v in &solid_b.arena.vertices {
+        result.arena.vertices.push(Vertex {
+            position: v.position,
+            half_edge: v.half_edge.map(|he| HalfEdgeIdx(he.0 + he_offset)),
+        });
+    }
+
+    let solid_idx = SolidIdx(0);
+    let shell_b = result.arena.add_shell(solid_idx);
+
+    for l in &solid_b.arena.loops {
+        result.arena.loops.push(Loop {
+            half_edge: HalfEdgeIdx(l.half_edge.0 + he_offset),
+            face: FaceIdx(l.face.0 + f_offset),
+        });
+    }
+
+    for f in &solid_b.arena.faces {
+        result.arena.faces.push(Face {
+            outer_loop: LoopIdx(f.outer_loop.0 + l_offset),
+            inner_loops: f
+                .inner_loops
+                .iter()
+                .map(|l| LoopIdx(l.0 + l_offset))
+                .collect(),
+            shell: shell_b,
+        });
+    }
+
+    for he in &solid_b.arena.half_edges {
+        result.arena.half_edges.push(HalfEdge {
+            origin: VertexIdx(he.origin.0 + v_offset),
+            edge: EdgeIdx(he.edge.0 + e_offset),
+            twin: HalfEdgeIdx(he.twin.0 + he_offset),
+            next: HalfEdgeIdx(he.next.0 + he_offset),
+            prev: HalfEdgeIdx(he.prev.0 + he_offset),
+            loop_: LoopIdx(he.loop_.0 + l_offset),
+        });
+    }
+
+    for e in &solid_b.arena.edges {
+        result.arena.edges.push(Edge {
+            half_edge: HalfEdgeIdx(e.half_edge.0 + he_offset),
+        });
+    }
+
+    for (&_kid, &idx) in &solid_b.face_map {
+        let new_idx = FaceIdx(idx.0 + f_offset);
+        result.face_map.insert(id_alloc(), new_idx);
+        if let Some(geom) = solid_b.face_geometry.get(&idx) {
+            result.face_geometry.insert(new_idx, geom.clone());
+        }
+    }
+    for (&_kid, &idx) in &solid_b.edge_map {
+        let new_idx = EdgeIdx(idx.0 + e_offset);
+        result.edge_map.insert(id_alloc(), new_idx);
+        if let Some(geom) = solid_b.edge_geometry.get(&idx) {
+            result.edge_geometry.insert(new_idx, geom.clone());
+        }
+    }
+    for (&_kid, &idx) in &solid_b.vertex_map {
+        let new_idx = VertexIdx(idx.0 + v_offset);
+        result.vertex_map.insert(id_alloc(), new_idx);
+    }
+
+    Ok(result)
 }
 
 // ── Cylinder-cylinder boolean ───────────────────────────────────────────

@@ -12,7 +12,7 @@ use crate::topology::euler_ops::{mef, mev, mvfs};
 use crate::topology::half_edge::*;
 use crate::traits::{Kernel, KernelIntrospect};
 use crate::types::*;
-use crate::units::{MIN_FEATURE_SIZE, TAU_MODEL, TAU_NORMALIZE};
+use crate::units::{MIN_FEATURE_SIZE, TAU_COINCIDENT, TAU_MODEL, TAU_NORMALIZE};
 use crate::vecmath::*;
 use std::collections::{BTreeMap, HashMap};
 
@@ -956,27 +956,37 @@ impl WaffleKernel {
 
         // Dispatch: classify operands by surface types (A15 compliance).
         //
-        // ssi_boolean_op is designed for primitive box + primitive cylinder pairs only.
-        // For chained booleans (where one operand is a post-boolean complex solid),
-        // use polygon clipping which handles arbitrary face counts and geometries.
+        // ssi_boolean_op handles primitive pairs: box+cylinder, cyl+cyl,
+        // box+sphere, sphere+sphere. For chained booleans (where one operand
+        // is a post-boolean complex solid), use polygon clipping which handles
+        // arbitrary face counts and geometries.
         let a_is_prim_cyl = solid_a.cylinder_params.is_some();
         let b_is_prim_cyl = solid_b.cylinder_params.is_some();
+        let a_is_prim_sphere = solid_a.sphere_params.is_some();
+        let b_is_prim_sphere = solid_b.sphere_params.is_some();
         let a_all_quadric = Self::all_faces_quadric(solid_a);
         let b_all_quadric = Self::all_faces_quadric(solid_b);
         // A "simple box" is an extruded rectangle: ≤6 faces, ALL planar, no
-        // cylinder params. SSI-produced disjoint cylinder unions may have ≤6
-        // faces but include cylindrical faces — they must NOT be sent to the
+        // cylinder/sphere params. SSI-produced disjoint cylinder unions may have
+        // ≤6 faces but include cylindrical faces — they must NOT be sent to the
         // box-cylinder SSI path which assumes axis-aligned box geometry.
-        let a_is_simple_box =
-            !a_is_prim_cyl && solid_a.face_map.len() <= 6 && Self::all_faces_planar(solid_a);
-        let b_is_simple_box =
-            !b_is_prim_cyl && solid_b.face_map.len() <= 6 && Self::all_faces_planar(solid_b);
+        let a_is_simple_box = !a_is_prim_cyl
+            && !a_is_prim_sphere
+            && solid_a.face_map.len() <= 6
+            && Self::all_faces_planar(solid_a);
+        let b_is_simple_box = !b_is_prim_cyl
+            && !b_is_prim_sphere
+            && solid_b.face_map.len() <= 6
+            && Self::all_faces_planar(solid_b);
 
-        // SSI pipeline: only when BOTH operands are primitives (one cyl + one box,
-        // or two cyls). A complex post-boolean solid should NOT be sent to
+        // SSI pipeline: when BOTH operands are primitives (cylinder, sphere, or
+        // simple box). A complex post-boolean solid should NOT be sent to
         // ssi_boolean_op, which assumes simple primitive geometry.
-        let use_ssi =
-            (b_is_simple_box || b_is_prim_cyl) && a_is_prim_cyl || b_is_prim_cyl && a_is_simple_box;
+        let a_is_prim = a_is_prim_cyl || a_is_prim_sphere || a_is_simple_box;
+        let b_is_prim = b_is_prim_cyl || b_is_prim_sphere || b_is_simple_box;
+        let use_ssi = a_is_prim
+            && b_is_prim
+            && (a_is_prim_cyl || b_is_prim_cyl || a_is_prim_sphere || b_is_prim_sphere);
 
         // Track whether the result came from polygon-soup classification
         // (S-H clipping) vs. analytical SSI construction, to control tessellation.
@@ -1026,6 +1036,49 @@ impl WaffleKernel {
         };
         self.next_id = next_id;
 
+        // Detect when ALL faces are spherical with the SAME center and radius —
+        // this means the result is a single sphere, so set sphere_params for the
+        // tessellate_sphere_solid fast path (shared-vertex mesh). For multi-sphere
+        // results (disjoint union, shell) or mixed results (box+sphere cavity),
+        // leave sphere_params as None; the per-face tessellator derives sphere
+        // params from each face's SurfaceGeom::Spherical.
+        let result_sphere_params = if !result.face_geometry.is_empty() {
+            let mut all_same_sphere = true;
+            let mut first_center = None;
+            let mut first_radius = None;
+            for g in result.face_geometry.values() {
+                if let SurfaceGeom::Spherical(s) = g {
+                    let c = s.center.to_array();
+                    let r = s.radius;
+                    if let (Some(fc), Some(fr)) = (first_center, first_radius) {
+                        let fc: [f64; 3] = fc;
+                        let fr: f64 = fr;
+                        let dist = v3_length(v3_sub(c, fc));
+                        if dist > TAU_COINCIDENT || (r - fr).abs() > TAU_COINCIDENT {
+                            all_same_sphere = false;
+                            break;
+                        }
+                    } else {
+                        first_center = Some(c);
+                        first_radius = Some(r);
+                    }
+                } else {
+                    all_same_sphere = false;
+                    break;
+                }
+            }
+            if all_same_sphere {
+                first_center.map(|c| SphereParams {
+                    center: c,
+                    radius: first_radius.unwrap(),
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let handle_id = self.alloc_handle();
         self.solids.insert(
             handle_id,
@@ -1038,7 +1091,7 @@ impl WaffleKernel {
                 edge_geometry: result.edge_geometry,
                 cylinder_params: None,
                 revolve_params: None,
-                sphere_params: None,
+                sphere_params: result_sphere_params,
                 cone_params: None,
                 torus_params: None,
                 cached_face_polys: result.cached_face_polys,

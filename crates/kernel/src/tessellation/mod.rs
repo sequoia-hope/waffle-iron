@@ -125,6 +125,17 @@ pub(crate) fn tessellate_solid_ext(
     let mut sorted_faces: Vec<(u64, FaceIdx)> = face_map.iter().map(|(&k, &v)| (k, v)).collect();
     sorted_faces.sort_by_key(|(k, _)| *k);
 
+    // When spherical faces are present without top-level sphere_params
+    // (boolean results with sphere geometry), enable fan welding so that
+    // per-face tessellation produces watertight shared edges.
+    if sphere_params.is_none()
+        && sorted_faces
+            .iter()
+            .any(|&(_, fi)| matches!(face_geometry.get(&fi), Some(SurfaceGeom::Spherical(_))))
+    {
+        needs_fan_welding = true;
+    }
+
     for &(kid, face_idx) in &sorted_faces {
         let geom = face_geometry.get(&face_idx);
 
@@ -316,35 +327,35 @@ pub(crate) fn tessellate_solid_ext(
                     }
                 }
             }
-            Some(SurfaceGeom::Spherical(_)) => {
-                if let Some(sp) = sphere_params {
-                    let start_index = indices.len() as u32;
-                    tessellate_sphere_face(
-                        arena,
-                        face_idx,
-                        sp,
-                        &mut vertices,
-                        &mut normals,
-                        &mut indices,
-                    );
-                    let end_index = indices.len() as u32;
-                    face_ranges.push(FaceRange {
-                        face_id: KernelId(kid),
-                        start_index,
-                        end_index,
-                    });
+            Some(SurfaceGeom::Spherical(s)) => {
+                // Use explicit sphere_params if available, otherwise derive
+                // from the face's SurfaceGeom (for boolean results that carry
+                // spherical face geometry without top-level sphere_params).
+                let derived_sp;
+                let sp_ref = if let Some(sp) = sphere_params {
+                    sp
                 } else {
-                    // Boolean result — use polygon fallback
-                    tessellate_polygon_face_fallback(
-                        arena,
-                        face_idx,
-                        kid,
-                        &mut vertices,
-                        &mut normals,
-                        &mut indices,
-                        &mut face_ranges,
-                    );
-                }
+                    derived_sp = SphereParams {
+                        center: s.center.to_array(),
+                        radius: s.radius,
+                    };
+                    &derived_sp
+                };
+                let start_index = indices.len() as u32;
+                tessellate_sphere_face(
+                    arena,
+                    face_idx,
+                    sp_ref,
+                    &mut vertices,
+                    &mut normals,
+                    &mut indices,
+                );
+                let end_index = indices.len() as u32;
+                face_ranges.push(FaceRange {
+                    face_id: KernelId(kid),
+                    start_index,
+                    end_index,
+                });
             }
             Some(SurfaceGeom::Conical(_)) | Some(SurfaceGeom::Toroidal(_)) => {
                 // Analytic tessellation not yet implemented — use polygon fallback
@@ -6785,6 +6796,64 @@ fn tessellate_sphere_solid(
         ]
     };
 
+    // Sort face_map entries for deterministic tessellation order.
+    let mut sorted_faces: Vec<(u64, FaceIdx)> = face_map.iter().map(|(&k, &v)| (k, v)).collect();
+    sorted_faces.sort_by_key(|(k, _)| *k);
+
+    // Detect if this is a cavity (inner shell) by checking the B-Rep winding
+    // direction of the first face against the sphere outward normal.
+    // All faces of a sphere share the same orientation, so checking one suffices.
+    // Ref: [#33] Stroud — inner shell face orientation is inverted.
+    let flip = if let Some(&(_, first_face)) = sorted_faces.first() {
+        let loop_idx = arena.faces[first_face.0].outer_loop;
+        let start_he = arena.loops[loop_idx.0].half_edge;
+        let mut fv = Vec::new();
+        let mut he = start_he;
+        loop {
+            let v = arena.half_edges[he.0].origin;
+            fv.push(arena.vertices[v.0].position);
+            he = arena.half_edges[he.0].next;
+            if he == start_he {
+                break;
+            }
+        }
+        if fv.len() >= 3 {
+            let ea = [
+                fv[1][0] - fv[0][0],
+                fv[1][1] - fv[0][1],
+                fv[1][2] - fv[0][2],
+            ];
+            let eb = [
+                fv[2][0] - fv[0][0],
+                fv[2][1] - fv[0][1],
+                fv[2][2] - fv[0][2],
+            ];
+            let cross = [
+                ea[1] * eb[2] - ea[2] * eb[1],
+                ea[2] * eb[0] - ea[0] * eb[2],
+                ea[0] * eb[1] - ea[1] * eb[0],
+            ];
+            let centroid = [
+                (fv[0][0] + fv[1][0] + fv[2][0]) / 3.0,
+                (fv[0][1] + fv[1][1] + fv[2][1]) / 3.0,
+                (fv[0][2] + fv[1][2] + fv[2][2]) / 3.0,
+            ];
+            let outward = [
+                centroid[0] - center[0],
+                centroid[1] - center[1],
+                centroid[2] - center[2],
+            ];
+            cross[0] * outward[0] + cross[1] * outward[1] + cross[2] * outward[2] < 0.0
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    let normal_sign: f64 = if flip { -1.0 } else { 1.0 };
+
+    // Modified add_vertex to support normal flipping
     let add_vertex = |pos: [f64; 3],
                       vertex_cache: &mut BTreeMap<[i64; 3], u32>,
                       vertices: &mut Vec<f32>,
@@ -6807,9 +6876,9 @@ fn tessellate_sphere_solid(
         let sy = center[1] + dy * scale;
         let sz = center[2] + dz * scale;
 
-        let nx = dx / len;
-        let ny = dy / len;
-        let nz = dz / len;
+        let nx = normal_sign * dx / len;
+        let ny = normal_sign * dy / len;
+        let nz = normal_sign * dz / len;
 
         vertices.push(sx as f32);
         vertices.push(sy as f32);
@@ -6821,10 +6890,6 @@ fn tessellate_sphere_solid(
         vertex_cache.insert(key, idx);
         idx
     };
-
-    // Sort face_map entries for deterministic tessellation order.
-    let mut sorted_faces: Vec<(u64, FaceIdx)> = face_map.iter().map(|(&k, &v)| (k, v)).collect();
-    sorted_faces.sort_by_key(|(k, _)| *k);
 
     for &(kid, face_idx) in &sorted_faces {
         // Collect the 3 vertices of this triangular face
@@ -6852,8 +6917,6 @@ fn tessellate_sphere_solid(
         let start_index = indices.len() as u32;
 
         // Build vertex grid for this face using barycentric subdivision
-        // Row i (0..=n) has (n-i+1) vertices.
-        // We store vertex indices in a flat array for indexing.
         let mut grid: Vec<Vec<u32>> = Vec::with_capacity(n + 1);
         for i in 0..=n {
             let mut row = Vec::with_capacity(n - i + 1);
@@ -6873,20 +6936,30 @@ fn tessellate_sphere_solid(
             grid.push(row);
         }
 
-        // Generate triangle indices
+        // Generate triangle indices — flip winding for cavity faces
         for i in 0..n {
             let row_len = grid[i].len();
             for j in 0..(row_len - 1) {
-                // Upper triangle
-                indices.push(grid[i][j]);
-                indices.push(grid[i][j + 1]);
-                indices.push(grid[i + 1][j]);
-
-                // Lower triangle (if exists)
-                if j + 1 < grid[i + 1].len() {
-                    indices.push(grid[i][j + 1]);
-                    indices.push(grid[i + 1][j + 1]);
+                if flip {
+                    // Reversed winding for inner shell
+                    indices.push(grid[i][j]);
                     indices.push(grid[i + 1][j]);
+                    indices.push(grid[i][j + 1]);
+                    if j + 1 < grid[i + 1].len() {
+                        indices.push(grid[i][j + 1]);
+                        indices.push(grid[i + 1][j]);
+                        indices.push(grid[i + 1][j + 1]);
+                    }
+                } else {
+                    // Normal outward winding
+                    indices.push(grid[i][j]);
+                    indices.push(grid[i][j + 1]);
+                    indices.push(grid[i + 1][j]);
+                    if j + 1 < grid[i + 1].len() {
+                        indices.push(grid[i][j + 1]);
+                        indices.push(grid[i + 1][j + 1]);
+                        indices.push(grid[i + 1][j]);
+                    }
                 }
             }
         }
@@ -6944,12 +7017,38 @@ fn tessellate_sphere_face(
     let center = sp.center;
     let radius = sp.radius;
 
+    // Detect normal direction: compute B-Rep face normal from winding,
+    // compare with sphere outward normal (centroid - center). If they
+    // disagree, the face is an inner shell (cavity) — flip normals and
+    // winding to produce inward-facing tessellation.
+    // Ref: [#33] Stroud — inner shells have reversed face orientation.
+    let edge_a = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+    let edge_b = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+    let cross = [
+        edge_a[1] * edge_b[2] - edge_a[2] * edge_b[1],
+        edge_a[2] * edge_b[0] - edge_a[0] * edge_b[2],
+        edge_a[0] * edge_b[1] - edge_a[1] * edge_b[0],
+    ];
+    let centroid = [
+        (p0[0] + p1[0] + p2[0]) / 3.0,
+        (p0[1] + p1[1] + p2[1]) / 3.0,
+        (p0[2] + p1[2] + p2[2]) / 3.0,
+    ];
+    let outward = [
+        centroid[0] - center[0],
+        centroid[1] - center[1],
+        centroid[2] - center[2],
+    ];
+    let dot = cross[0] * outward[0] + cross[1] * outward[1] + cross[2] * outward[2];
+    let flip = dot < 0.0; // Negative dot means B-Rep winding disagrees with outward normal
+
     // Subdivision level: CIRCLE_SEGMENTS / 4
     let n = CIRCLE_SEGMENTS / 4;
 
+    // Normal sign: +1 for outward-facing, -1 for inward-facing (cavity)
+    let normal_sign: f64 = if flip { -1.0 } else { 1.0 };
+
     // Generate (n+1)*(n+2)/2 vertices on the sphere by barycentric subdivision
-    // For row i (0..=n), we have (n-i+1) points.
-    // Barycentric coords: (1 - i/n - j/n, j/n, i/n) for j in 0..=(n-i)
     let base_vertex = vertices.len() as u32 / 3;
     for i in 0..=n {
         for j in 0..=(n - i) {
@@ -6974,10 +7073,10 @@ fn tessellate_sphere_face(
             let sy = center[1] + dy * scale;
             let sz = center[2] + dz * scale;
 
-            // Normal = normalize(v - center) = (dx, dy, dz) / len
-            let nx = dx / len;
-            let ny = dy / len;
-            let nz = dz / len;
+            // Normal = ±normalize(v - center), flipped for cavity faces
+            let nx = normal_sign * dx / len;
+            let ny = normal_sign * dy / len;
+            let nz = normal_sign * dz / len;
 
             vertices.push(sx as f32);
             vertices.push(sy as f32);
@@ -7001,16 +7100,28 @@ fn tessellate_sphere_face(
     for i in 0..n {
         let row_len = n - i + 1;
         for j in 0..(row_len - 1) {
-            // Upper triangle: (i,j), (i,j+1), (i+1,j)
-            indices.push(vertex_index(i, j));
-            indices.push(vertex_index(i, j + 1));
-            indices.push(vertex_index(i + 1, j));
-
-            // Lower triangle (if it exists): (i,j+1), (i+1,j+1), (i+1,j)
-            if j + 1 < row_len - 1 {
-                indices.push(vertex_index(i, j + 1));
-                indices.push(vertex_index(i + 1, j + 1));
+            if flip {
+                // Reversed winding for cavity faces (signed volume contribution negative)
+                indices.push(vertex_index(i, j));
                 indices.push(vertex_index(i + 1, j));
+                indices.push(vertex_index(i, j + 1));
+
+                if j + 1 < row_len - 1 {
+                    indices.push(vertex_index(i, j + 1));
+                    indices.push(vertex_index(i + 1, j));
+                    indices.push(vertex_index(i + 1, j + 1));
+                }
+            } else {
+                // Normal winding for outward-facing faces
+                indices.push(vertex_index(i, j));
+                indices.push(vertex_index(i, j + 1));
+                indices.push(vertex_index(i + 1, j));
+
+                if j + 1 < row_len - 1 {
+                    indices.push(vertex_index(i, j + 1));
+                    indices.push(vertex_index(i + 1, j + 1));
+                    indices.push(vertex_index(i + 1, j));
+                }
             }
         }
     }
