@@ -4557,6 +4557,7 @@ fn flip_nonmanifold_edges_position_based(
             }
 
             // Look for a face with exactly 2 triangles sharing this edge.
+            let mut flipped_any_this_edge = false;
             for face_tris in face_groups.values() {
                 if face_tris.len() != 2 {
                     continue;
@@ -4662,8 +4663,120 @@ fn flip_nonmanifold_edges_position_based(
                     continue;
                 }
 
+                flipped_any_this_edge = true;
                 flipped_any = true;
                 break;
+            }
+
+            // Cross-face fallback: when no single face has 2 triangles sharing
+            // this edge, try pairs across different face ranges.
+            if !flipped_any_this_edge {
+                let qa0 = nm_edge.0;
+                let qa1 = nm_edge.1;
+
+                'outer: for i in 0..tris.len() {
+                    for j in (i + 1)..tris.len() {
+                        let t_a = tris[i];
+                        let t_b = tris[j];
+
+                        let tri_a = [indices[t_a * 3], indices[t_a * 3 + 1], indices[t_a * 3 + 2]];
+                        let tri_b = [indices[t_b * 3], indices[t_b * 3 + 1], indices[t_b * 3 + 2]];
+
+                        // Find shared and opposite vertices.
+                        let mut shared = [u32::MAX; 2];
+                        let mut opp_a = u32::MAX;
+                        for &vi in &tri_a {
+                            let qv = quantize(vi);
+                            if qv == qa0 && shared[0] == u32::MAX {
+                                shared[0] = vi;
+                            } else if qv == qa1 && shared[1] == u32::MAX {
+                                shared[1] = vi;
+                            } else {
+                                opp_a = vi;
+                            }
+                        }
+
+                        let mut opp_b = u32::MAX;
+                        for &vi in &tri_b {
+                            let qv = quantize(vi);
+                            if qv != qa0 && qv != qa1 {
+                                opp_b = vi;
+                            }
+                        }
+
+                        if opp_a == u32::MAX
+                            || opp_b == u32::MAX
+                            || shared[0] == u32::MAX
+                            || shared[1] == u32::MAX
+                        {
+                            continue;
+                        }
+
+                        // Check new diagonal doesn't create another nm edge.
+                        let new_diag_qa = quantize(opp_a);
+                        let new_diag_qb = quantize(opp_b);
+                        let new_diag_key: UEdge = if new_diag_qa <= new_diag_qb {
+                            (new_diag_qa, new_diag_qb)
+                        } else {
+                            (new_diag_qb, new_diag_qa)
+                        };
+                        let existing_count = edge_tris.get(&new_diag_key).map_or(0, |t| t.len());
+                        if existing_count >= 2 {
+                            continue;
+                        }
+
+                        // Compute face normal for winding check.
+                        let pos = |vi: u32| -> [f64; 3] {
+                            let i = vi as usize * 3;
+                            [
+                                vertices[i] as f64,
+                                vertices[i + 1] as f64,
+                                vertices[i + 2] as f64,
+                            ]
+                        };
+
+                        let p_a0 = pos(tri_a[0]);
+                        let p_a1 = pos(tri_a[1]);
+                        let p_a2 = pos(tri_a[2]);
+                        let face_normal = v3_cross(v3_sub(p_a1, p_a0), v3_sub(p_a2, p_a0));
+
+                        let p_oa = pos(opp_a);
+                        let p_ob = pos(opp_b);
+                        let p_s0 = pos(shared[0]);
+                        let p_s1 = pos(shared[1]);
+
+                        let new1_normal = v3_cross(v3_sub(p_oa, p_s0), v3_sub(p_ob, p_s0));
+                        let new2_normal = v3_cross(v3_sub(p_ob, p_s1), v3_sub(p_oa, p_s1));
+
+                        if v3_length(new1_normal) < TAU_WORK || v3_length(new2_normal) < TAU_WORK {
+                            continue;
+                        }
+
+                        let dot1 = v3_dot(new1_normal, face_normal);
+                        let dot2 = v3_dot(new2_normal, face_normal);
+
+                        if dot1 > 0.0 && dot2 > 0.0 {
+                            indices[t_a * 3] = shared[0];
+                            indices[t_a * 3 + 1] = opp_a;
+                            indices[t_a * 3 + 2] = opp_b;
+                            indices[t_b * 3] = shared[1];
+                            indices[t_b * 3 + 1] = opp_b;
+                            indices[t_b * 3 + 2] = opp_a;
+                        } else if dot1 < 0.0 && dot2 < 0.0 {
+                            indices[t_a * 3] = shared[0];
+                            indices[t_a * 3 + 1] = opp_b;
+                            indices[t_a * 3 + 2] = opp_a;
+                            indices[t_b * 3] = shared[1];
+                            indices[t_b * 3 + 1] = opp_a;
+                            indices[t_b * 3 + 2] = opp_b;
+                        } else {
+                            continue;
+                        }
+
+                        flipped_any = true;
+                        break 'outer;
+                    }
+                }
             }
 
             if flipped_any {
@@ -8344,6 +8457,185 @@ mod tests {
              zero non-manifold edges after Steiner-fan re-tessellation, \
              but found {} edges with count>2.",
             nonmanifold_edges.len()
+        );
+    }
+
+    /// Cross-face non-manifold edge flip: when a non-manifold edge is shared
+    /// by triangles from THREE different face ranges (one triangle per face),
+    /// no single face has a pair of 2, so the existing same-face flip logic
+    /// cannot resolve it.  A cross-face flip must pick two triangles from
+    /// different faces that form a flippable quad and flip the shared
+    /// diagonal.
+    ///
+    /// Mesh layout:
+    ///   v0 (0,0,0)  v1 (1,0,0)  v2 (1,1,0)
+    ///   v3 (0.5, -0.5, 0)  v4 (0.5, 1.5, 0)
+    ///
+    ///   Face 0 (1 tri): v0→v1→v2   — edge v0→v2
+    ///   Face 1 (1 tri): v0→v2→v4   — edge v0→v2
+    ///   Face 2 (1 tri): v2→v0→v3   — edge v0→v2 (reversed)
+    ///
+    /// Edge v0→v2 appears in 3 triangles → non-manifold.
+    /// A cross-face flip should pick two of these triangles that share edge
+    /// v0→v2 and form a convex quad, then flip the diagonal.
+    #[test]
+    fn cross_face_nm_edge_flip_resolves_shared_diagonal() {
+        let (vertices, mut indices) = make_mesh(
+            &[
+                [0.0, 0.0, 0.0],  // v0
+                [1.0, 0.0, 0.0],  // v1
+                [1.0, 1.0, 0.0],  // v2
+                [0.5, -0.5, 0.0], // v3
+                [0.5, 1.5, 0.0],  // v4
+            ],
+            &[
+                [0, 1, 2], // face 0 — uses edge 0→2
+                [0, 2, 4], // face 1 — uses edge 0→2
+                [2, 0, 3], // face 2 — uses edge 0→2
+            ],
+        );
+
+        let face_ranges = vec![
+            FaceRange {
+                face_id: KernelId(1),
+                start_index: 0,
+                end_index: 3,
+            },
+            FaceRange {
+                face_id: KernelId(2),
+                start_index: 3,
+                end_index: 6,
+            },
+            FaceRange {
+                face_id: KernelId(3),
+                start_index: 6,
+                end_index: 9,
+            },
+        ];
+
+        let nm_before = count_nonmanifold_edges(&vertices, &indices);
+        assert!(
+            nm_before > 0,
+            "Setup error: expected at least 1 non-manifold edge before flip, got 0"
+        );
+
+        flip_nonmanifold_edges_position_based(&vertices, &mut indices, &face_ranges);
+
+        let nm_after = count_nonmanifold_edges(&vertices, &indices);
+        assert_eq!(
+            nm_after, 0,
+            "cross-face flip should resolve the non-manifold edge on the \
+             shared diagonal when each triangle is in a different face range; \
+             {} non-manifold edge(s) remain",
+            nm_after
+        );
+    }
+
+    /// Verify that a cross-face non-manifold flip preserves the triangle count
+    /// (flips only rearrange existing triangles, never add or remove them).
+    /// Uses the same 3-face / 3-triangle scenario as the resolve test.
+    #[test]
+    fn cross_face_nm_flip_preserves_triangle_count() {
+        let (vertices, mut indices) = make_mesh(
+            &[
+                [0.0, 0.0, 0.0],  // v0
+                [1.0, 0.0, 0.0],  // v1
+                [1.0, 1.0, 0.0],  // v2
+                [0.5, -0.5, 0.0], // v3
+                [0.5, 1.5, 0.0],  // v4
+            ],
+            &[
+                [0, 1, 2], // face 0
+                [0, 2, 4], // face 1
+                [2, 0, 3], // face 2
+            ],
+        );
+
+        let face_ranges = vec![
+            FaceRange {
+                face_id: KernelId(1),
+                start_index: 0,
+                end_index: 3,
+            },
+            FaceRange {
+                face_id: KernelId(2),
+                start_index: 3,
+                end_index: 6,
+            },
+            FaceRange {
+                face_id: KernelId(3),
+                start_index: 6,
+                end_index: 9,
+            },
+        ];
+
+        let tri_count_before = indices.len() / 3;
+
+        flip_nonmanifold_edges_position_based(&vertices, &mut indices, &face_ranges);
+
+        let tri_count_after = indices.len() / 3;
+        assert_eq!(
+            tri_count_before, tri_count_after,
+            "flip must preserve triangle count: before={}, after={}",
+            tri_count_before, tri_count_after
+        );
+    }
+
+    /// Regression: a non-manifold edge where the flippable pair lives in the
+    /// SAME face range should still be resolved by the existing same-face
+    /// flip logic, even when a cross-face code path is available.
+    ///
+    /// Here face 0 has two quad triangles on diagonal v0→v2, and face 1 has
+    /// two more quad triangles on the same diagonal, giving 4 triangles on
+    /// that edge. The existing same-face code finds a pair of 2 within
+    /// face 0 and flips the diagonal. Then on the next iteration it finds
+    /// the pair in face 1 and flips that too.
+    #[test]
+    fn cross_face_nm_flip_no_regression_same_face() {
+        let (vertices, mut indices) = make_mesh(
+            &[
+                [0.0, 0.0, 0.0],  // v0
+                [1.0, 0.0, 0.0],  // v1
+                [1.0, 1.0, 0.0],  // v2
+                [0.0, 1.0, 0.0],  // v3
+                [0.5, 0.5, 0.1],  // v4 — face 1 apex above
+                [0.5, 0.5, -0.1], // v5 — face 1 apex below
+            ],
+            &[
+                [0, 1, 2], // face 0: tri A (quad half, diagonal 0→2)
+                [0, 2, 3], // face 0: tri B (quad half, diagonal 0→2)
+                [0, 2, 4], // face 1: tri C (shares edge 0→2)
+                [0, 2, 5], // face 1: tri D (shares edge 0→2)
+            ],
+        );
+
+        let face_ranges = vec![
+            FaceRange {
+                face_id: KernelId(1),
+                start_index: 0,
+                end_index: 6,
+            },
+            FaceRange {
+                face_id: KernelId(2),
+                start_index: 6,
+                end_index: 12,
+            },
+        ];
+
+        let nm_before = count_nonmanifold_edges(&vertices, &indices);
+        assert!(
+            nm_before > 0,
+            "Setup error: expected non-manifold edges before flip"
+        );
+
+        flip_nonmanifold_edges_position_based(&vertices, &mut indices, &face_ranges);
+
+        let nm_after = count_nonmanifold_edges(&vertices, &indices);
+        assert_eq!(
+            nm_after, 0,
+            "same-face non-manifold edge should be resolved by existing \
+             flip logic; {} non-manifold edge(s) remain",
+            nm_after
         );
     }
 }
