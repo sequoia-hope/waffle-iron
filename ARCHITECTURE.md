@@ -121,7 +121,7 @@ wasm-bridge → sketch-ui (update display, color by status)
 | 03 | wasm-bridge | WASM↔JS communication protocol | Rust + JS | 01 | Complete (M1-M8) |
 | 04 | 3d-viewport | three.js rendering via Threlte | Svelte + JS | 01 | Complete |
 | 05 | sketch-ui | 2D sketch editing interface | Svelte + JS | 02, 03, 04 | Complete |
-| 06 | feature-engine | Parametric feature tree + persistent naming | Rust | 01 | Complete (M1-M10 + fillet/chamfer/shell pipeline) |
+| 06 | feature-engine | Parametric feature tree + persistent naming | Rust | 01 | Complete (M1-M10; fillet/chamfer/shell deferred) |
 | 07 | modeling-ops | Operation implementations with provenance | Rust | 01 | Complete (M1-M10) |
 | 08 | ui-chrome | Application shell (panels, toolbar, tree) | Svelte | 05, 06, 07 | Complete |
 | 09 | file-format | Save/load/export | Rust | 06 | Complete (M1-M6) |
