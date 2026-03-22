@@ -361,7 +361,7 @@ fn batch_2op_extrude() {
 #[test]
 #[ignore]
 fn spotlight_f0044() {
-    let dir = Path::new(ASSAY_DIR);
+    let _dir = Path::new(ASSAY_DIR);
     let ids = &["F0044", "F0045", "R0092"];
     let (passed, failed, errored) = run_batch(ids, true);
     println!(
@@ -373,7 +373,7 @@ fn spotlight_f0044() {
 #[test]
 #[ignore]
 fn spotlight_r0045() {
-    let dir = Path::new(ASSAY_DIR);
+    let _dir = Path::new(ASSAY_DIR);
     let ids = &["R0045"];
     let (passed, failed, errored) = run_batch(ids, true);
     println!(
