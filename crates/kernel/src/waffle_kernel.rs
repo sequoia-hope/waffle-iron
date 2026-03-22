@@ -967,30 +967,13 @@ impl WaffleKernel {
             match crate::boolean::ssi_boolean_op(solid_a, solid_b, op, &mut id_alloc) {
                 Ok(r) => r,
                 Err(KernelError::NotSupported { .. }) => {
-                    // SSI doesn't handle this configuration yet (e.g., partial overlap).
-                    // Use polygon clipping with strict→tolerant fallback chain.
-                    // Surface geometry tags are preserved through FacePoly.surface_geom.
-                    // Route through fan tessellation to avoid non-manifold edges.
+                    // SSI doesn't handle this configuration yet (e.g., partial
+                    // overlap, concentric tube+cap). Use polygon approximation
+                    // which generates proper polygon faces from CylinderParams
+                    // (extract_face_polys_general), since primitive cylinder
+                    // B-Reps have minimal vertices that extract_face_polys skips.
                     polygon_soup = true;
-                    let strict = crate::boolean::boolean_op(
-                        solid_a,
-                        solid_b,
-                        op,
-                        &BooleanOptions::default(),
-                        &mut id_alloc,
-                    );
-                    match strict {
-                        Ok(r) => r,
-                        Err(KernelError::BooleanFailed { .. }) => {
-                            crate::boolean::boolean_op_tolerant(
-                                solid_a,
-                                solid_b,
-                                op,
-                                &mut id_alloc,
-                            )?
-                        }
-                        Err(e) => return Err(e),
-                    }
+                    crate::boolean::polygon_approx_boolean(solid_a, solid_b, op, &mut id_alloc)?
                 }
                 Err(e) => return Err(e),
             }

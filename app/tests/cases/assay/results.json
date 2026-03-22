@@ -1,968 +1,969 @@
 {
-  "passed": 134,
-  "failed": 22,
-  "errored": 4,
-  "generated": "2026-03-21",
+  "errored": 7,
+  "failed": 58,
+  "generated": "2026-03-22",
+  "passed": 95,
   "results": [
     {
-      "id": "F0001",
-      "status": "pass",
       "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0002",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0003",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0004",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0005",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0006",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0007",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0008",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0009",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0010",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0011",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0012",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0013",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0014",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0015",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0016",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0017",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0018",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0019",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0020",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0021",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0022",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0023",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0024",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0025",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0026",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0027",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0028",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0029",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0030",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0031",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0032",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0033",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0034",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0035",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0036",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0037",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0038",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0039",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0040",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0041",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0042",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0043",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0044",
-      "status": "fail",
-      "category": "mesh-too-simple",
-      "detail": "minimum_triangle_count: 4 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\")]; volume_magnitude: volume 3.140986e-11 outside [1.000000e-8, 1.000000e8] for scale 1.000000e0"
-    },
-    {
-      "id": "F0045",
-      "status": "fail",
-      "category": "aabb-collapse",
-      "detail": "aabb_collapse: all 146 unique vertices lie on AABB faces \u2014 mesh collapsed to bounding box"
-    },
-    {
-      "id": "F0046",
-      "status": "fail",
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 257 unpaired edges out of 52308 total (83 boundary, 174 non-manifold)"
-    },
-    {
-      "id": "F0047",
-      "status": "fail",
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 128 unpaired edges out of 47442 total (0 boundary, 128 non-manifold); consistent_normals: 472 of 32268 triangles have reversed normals"
-    },
-    {
-      "id": "F0048",
-      "status": "fail",
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 132 unpaired edges out of 74391 total (4 boundary, 128 non-manifold); consistent_normals: 642 of 50446 triangles have reversed normals"
-    },
-    {
-      "id": "F0049",
-      "status": "fail",
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 130 unpaired edges out of 124330 total (0 boundary, 130 non-manifold)"
-    },
-    {
-      "id": "F0050",
-      "status": "error",
-      "category": "cascading-failure",
-      "detail": "timeout after 90s"
-    },
-    {
-      "id": "F0051",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0052",
-      "status": "fail",
-      "category": "tessellation-degenerate",
-      "detail": "no_degenerate_triangles: 64 of 892 triangles are degenerate"
-    },
-    {
-      "id": "F0053",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0054",
-      "status": "pass",
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "F0055",
-      "status": "fail",
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 12 unpaired edges out of 2130 total"
-    },
-    {
-      "id": "F0056",
-      "status": "fail",
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 94 unpaired edges out of 275 total"
-    },
-    {
-      "id": "F0057",
-      "status": "fail",
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 33 unpaired edges out of 330 total; consistent_normals: 6 of 209 triangles have reversed normals"
-    },
-    {
-      "id": "F0058",
-      "status": "fail",
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 73 unpaired edges out of 284 total"
-    },
-    {
-      "id": "F0059",
-      "status": "fail",
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 59 unpaired edges out of 316 total"
-    },
-    {
-      "id": "F0060",
-      "status": "fail",
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 9 unpaired edges out of 372 total; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); volume_magnitude: volume 0.000000e0 outside [1.000000e-8, 1.000000e8] for scale 1.000000e0"
-    },
-    {
+      "detail": "8 oracles passed",
       "id": "R0001",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
+      "status": "pass"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 66 unpaired edges out of 705 total",
       "id": "R0002",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 127 unpaired edges out of 1892 total",
       "id": "R0003",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 12 unpaired edges out of 1161 total",
       "id": "R0004",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
+      "status": "fail"
     },
     {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0005",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
+      "status": "pass"
     },
     {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0006",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
+      "status": "pass"
     },
     {
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 96 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"gear\")]",
       "id": "R0007",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
+      "status": "fail"
     },
     {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "R0008",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
+      "status": "pass"
     },
     {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0009",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
+      "status": "pass"
     },
     {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "R0010",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
+      "status": "pass"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 66 unpaired edges out of 3051 total",
       "id": "R0011",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
+      "status": "fail"
     },
     {
+      "category": "multiple-failures",
+      "detail": "partial rebuild (1 error(s)): bc9220a7-b035-4902-9842-67f2cecad33c: operation error: kernel error: operation not supported: polygon boolean: 310x590 effective face product (5790) too large for non-convex solids",
       "id": "R0012",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
+      "status": "fail"
     },
     {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "R0013",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
+      "status": "pass"
     },
     {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0014",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
+      "status": "pass"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 376 unpaired edges out of 1286 total (369 boundary, 7 non-manifold); no_degenerate_triangles: 1 of 739 triangles are degenerate",
       "id": "R0015",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
+      "status": "fail"
     },
     {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0016",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
+      "status": "error"
     },
     {
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 12 of 402 triangles have reversed normals",
       "id": "R0017",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
+      "status": "fail"
     },
     {
-      "id": "R0018",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0019",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0020",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0021",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0022",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0023",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0024",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0025",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0026",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0027",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0028",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0029",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0030",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0031",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0032",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0033",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0034",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0035",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0036",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0037",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0038",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0039",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0040",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0041",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0042",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0043",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0044",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0045",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0046",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0047",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0048",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0049",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0050",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0051",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0052",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0053",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0054",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0055",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0056",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0057",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0058",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0059",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0060",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0061",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0062",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0063",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0064",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0065",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0066",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0067",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0068",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0069",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0070",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0071",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0072",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0073",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0074",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0075",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0076",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0077",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0078",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0079",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
-    },
-    {
-      "id": "R0080",
-      "status": "fail",
       "category": "mesh-too-simple",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 288 for operations [(\"extrude\", \"rectangle\"), (\"revolve\", \"gear\")]"
+      "detail": "minimum_triangle_count: 12 triangles < expected minimum 288 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"gear\"), (\"revolve\", \"gear\")]",
+      "id": "R0018",
+      "status": "fail"
     },
     {
-      "id": "R0081",
-      "status": "fail",
+      "category": "mesh-too-simple",
+      "detail": "minimum_triangle_count: 120 triangles < expected minimum 288 for operations [(\"extrude\", \"circle\"), (\"revolve\", \"gear\")]",
+      "id": "R0019",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 74 unpaired edges out of 703 total",
+      "id": "R0020",
+      "status": "fail"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "R0021",
+      "status": "pass"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "R0022",
+      "status": "pass"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "R0023",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "R0024",
+      "status": "pass"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "R0025",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "R0026",
+      "status": "pass"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 96 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"gear\"), (\"revolve\", \"circle\")]",
+      "id": "R0027",
+      "status": "fail"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "R0028",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "R0029",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "R0030",
+      "status": "pass"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 471 unpaired edges out of 5786 total (459 boundary, 12 non-manifold)",
+      "id": "R0031",
+      "status": "fail"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "R0032",
+      "status": "pass"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 4 unpaired edges out of 581 total",
+      "id": "R0033",
+      "status": "fail"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "R0034",
+      "status": "pass"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 8 unpaired edges out of 2476 total",
+      "id": "R0035",
+      "status": "fail"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "R0036",
+      "status": "pass"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "R0037",
+      "status": "pass"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 1 unpaired edges out of 605 total (0 boundary, 1 non-manifold)",
+      "id": "R0038",
+      "status": "fail"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "R0039",
+      "status": "pass"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 66 unpaired edges out of 1488 total; consistent_normals: 10 of 970 triangles have reversed normals",
+      "id": "R0040",
+      "status": "fail"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "R0041",
+      "status": "pass"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "R0042",
+      "status": "pass"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "R0043",
+      "status": "pass"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 12 unpaired edges out of 3807 total",
+      "id": "R0044",
+      "status": "fail"
+    },
+    {
+      "category": "volume-magnitude",
+      "detail": "volume_magnitude: volume 5.519793e-17 outside [1.174499e-15, 1.174499e1] for scale 4.897234e-3",
+      "id": "R0045",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 151 unpaired edges out of 3218 total",
+      "id": "R0046",
+      "status": "fail"
+    },
+    {
+      "category": "mesh-too-simple",
+      "detail": "minimum_triangle_count: 12 triangles < expected minimum 288 for operations [(\"extrude\", \"rectangle\"), (\"revolve\", \"gear\"), (\"revolve\", \"circle\")]",
+      "id": "R0047",
+      "status": "fail"
+    },
+    {
+      "category": "mesh-too-simple",
+      "detail": "minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"gear\")]",
+      "id": "R0048",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 4 unpaired edges out of 581 total",
+      "id": "R0049",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 240 unpaired edges out of 2838 total (236 boundary, 4 non-manifold)",
+      "id": "R0050",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 373 unpaired edges out of 16059 total (179 boundary, 194 non-manifold); consistent_normals: 262 of 11031 triangles have reversed normals",
+      "id": "R0051",
+      "status": "fail"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "R0052",
+      "status": "pass"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 738 unpaired edges out of 9393 total",
+      "id": "R0053",
+      "status": "fail"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "R0054",
+      "status": "error"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "R0055",
+      "status": "pass"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 126 unpaired edges out of 3690 total",
+      "id": "R0056",
+      "status": "fail"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "R0057",
+      "status": "pass"
+    },
+    {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 602x588 effective face product (41828) too large for non-convex solids. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); "
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 366x394 effective face product (15224) too large for non-convex solids. Body created as standalone.; partial rebuild (1 error(s)): 2d4513b2-1d7e-4018-ae1d-6bc19a9c035a: operation error: kernel error: operation not supported: polygon boolean: 366x506 effective face product (9145) too large for non-convex solids; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
+      "id": "R0058",
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 90 unpaired edges out of 3801 total",
+      "id": "R0059",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 10 unpaired edges out of 230 total",
+      "id": "R0060",
+      "status": "fail"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "R0061",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "R0062",
+      "status": "pass"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "R0063",
+      "status": "error"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "R0064",
+      "status": "pass"
+    },
+    {
+      "category": "multiple-failures",
+      "detail": "bbox diagonal 2.763e-2 exceeds max 2.617e-2",
+      "id": "R0065",
+      "status": "fail"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "R0066",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "R0067",
+      "status": "pass"
+    },
+    {
+      "category": "multiple-failures",
+      "detail": "bbox diagonal 1.837e-1 exceeds max 1.453e-1",
+      "id": "R0068",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 10 unpaired edges out of 599 total",
+      "id": "R0069",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 4 unpaired edges out of 581 total",
+      "id": "R0070",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 1368 unpaired edges out of 4827 total",
+      "id": "R0071",
+      "status": "fail"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "R0072",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "R0073",
+      "status": "pass"
+    },
+    {
+      "category": "multiple-failures",
+      "detail": "bbox diagonal 1.185e0 exceeds max 1.020e0",
+      "id": "R0074",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): bf39bb13-caea-4782-a987-73d7310c7c75: operation error: kernel error: operation not supported: polygon boolean: 680x674 effective face product (12657) too large for non-convex solids; watertight_mesh: 32 unpaired edges out of 4009 total",
+      "id": "R0075",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 17 unpaired edges out of 1565 total (6 boundary, 11 non-manifold)",
+      "id": "R0076",
+      "status": "fail"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "R0077",
+      "status": "pass"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "R0078",
+      "status": "pass"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "R0079",
+      "status": "pass"
+    },
+    {
+      "category": "mesh-too-simple",
+      "detail": "minimum_triangle_count: 12 triangles < expected minimum 288 for operations [(\"extrude\", \"rectangle\"), (\"revolve\", \"gear\")]",
+      "id": "R0080",
+      "status": "fail"
+    },
+    {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 602x588 effective face product (41828) too large for non-convex solids. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); volume_magnitude: volume 1.483912e-11 outside [1.128408e-10, 1.128408e6] for scale 2.242963e-1",
+      "id": "R0081",
+      "status": "fail"
+    },
+    {
+      "category": "multiple-failures",
+      "detail": "bbox diagonal 1.972e3 exceeds max 1.921e3",
       "id": "R0082",
-      "status": "fail",
-      "category": "multiple-failures",
-      "detail": "bbox diagonal 1.972e3 exceeds max 1.921e3"
+      "status": "fail"
     },
     {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "R0083",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
+      "status": "pass"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 66 unpaired edges out of 885 total",
       "id": "R0084",
-      "status": "fail",
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 66 unpaired edges out of 885 total"
+      "status": "fail"
     },
     {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0085",
-      "status": "error",
-      "category": "cascading-failure",
-      "detail": "timeout after 90s"
+      "status": "error"
     },
     {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "R0086",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
+      "status": "pass"
     },
     {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0087",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
+      "status": "pass"
     },
     {
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 96 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\"), (\"extrude\", \"rectangle\")]",
       "id": "R0088",
-      "status": "fail",
-      "category": "revolve-normals",
-      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 96 for operations"
+      "status": "fail"
     },
     {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "R0089",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
+      "status": "pass"
     },
     {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0090",
-      "status": "error",
-      "category": "cascading-failure",
-      "detail": "timeout after 90s"
+      "status": "error"
     },
     {
-      "id": "R0091",
-      "status": "fail",
       "category": "multiple-failures",
-      "detail": "bbox diagonal 4.946e-4 exceeds max 4.771e-4"
+      "detail": "bbox diagonal 4.946e-4 exceeds max 4.771e-4",
+      "id": "R0091",
+      "status": "fail"
     },
     {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0092",
-      "status": "fail",
-      "category": "revolve-normals",
-      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 32 for operations"
+      "status": "pass"
     },
     {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0093",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
+      "status": "pass"
     },
     {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0094",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
+      "status": "pass"
     },
     {
-      "id": "R0095",
-      "status": "error",
       "category": "cascading-failure",
-      "detail": "timeout after 90s"
+      "detail": "timeout after 90s",
+      "id": "R0095",
+      "status": "error"
     },
     {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0096",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
+      "status": "pass"
     },
     {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
       "id": "R0097",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
+      "status": "pass"
     },
     {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0098",
-      "status": "pass",
-      "category": "pass-genuine",
-      "detail": "8 oracles passed"
+      "status": "pass"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 64 unpaired edges out of 18260 total (0 boundary, 64 non-manifold)",
       "id": "R0099",
-      "status": "fail",
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 64 unpaired edges out of 18260 total (0 boundary, 64 non-manifold)"
+      "status": "fail"
     },
     {
-      "id": "R0100",
-      "status": "fail",
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 70 unpaired edges out of 1286 total"
+      "detail": "watertight_mesh: 70 unpaired edges out of 1286 total",
+      "id": "R0100",
+      "status": "fail"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0001",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0002",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0003",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0004",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0005",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0006",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0007",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0008",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0009",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0010",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0011",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0012",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0013",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0014",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0015",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0016",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0017",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0018",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0019",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0020",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0021",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0022",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0023",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0024",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0025",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0026",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0027",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0028",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0029",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0030",
+      "status": "pass"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "F0031",
+      "status": "pass"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "F0032",
+      "status": "pass"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "F0033",
+      "status": "pass"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "F0034",
+      "status": "pass"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "F0035",
+      "status": "pass"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "F0036",
+      "status": "pass"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "F0037",
+      "status": "pass"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "F0038",
+      "status": "pass"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "F0039",
+      "status": "pass"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "F0040",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0041",
+      "status": "pass"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "F0042",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0043",
+      "status": "pass"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "F0044",
+      "status": "pass"
+    },
+    {
+      "category": "aabb-collapse",
+      "detail": "aabb_collapse: all 146 unique vertices lie on AABB faces — mesh collapsed to bounding box",
+      "id": "F0045",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 257 unpaired edges out of 52308 total (83 boundary, 174 non-manifold)",
+      "id": "F0046",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 128 unpaired edges out of 47442 total (0 boundary, 128 non-manifold); consistent_normals: 472 of 32268 triangles have reversed normals",
+      "id": "F0047",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 132 unpaired edges out of 74391 total (4 boundary, 128 non-manifold); consistent_normals: 642 of 50446 triangles have reversed normals",
+      "id": "F0048",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 130 unpaired edges out of 124330 total (0 boundary, 130 non-manifold)",
+      "id": "F0049",
+      "status": "fail"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "F0050",
+      "status": "error"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0051",
+      "status": "pass"
+    },
+    {
+      "category": "tessellation-degenerate",
+      "detail": "no_degenerate_triangles: 64 of 892 triangles are degenerate",
+      "id": "F0052",
+      "status": "fail"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "8 oracles passed",
+      "id": "F0053",
+      "status": "pass"
+    },
+    {
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
+      "id": "F0054",
+      "status": "pass"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 12 unpaired edges out of 2130 total",
+      "id": "F0055",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 94 unpaired edges out of 275 total",
+      "id": "F0056",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 33 unpaired edges out of 330 total; consistent_normals: 6 of 209 triangles have reversed normals",
+      "id": "F0057",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 73 unpaired edges out of 284 total",
+      "id": "F0058",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 59 unpaired edges out of 316 total",
+      "id": "F0059",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 9 unpaired edges out of 372 total; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); volume_magnitude: volume 0.000000e0 outside [1.000000e-8, 1.000000e8] for scale 1.000000e0",
+      "id": "F0060",
+      "status": "fail"
     }
-  ]
+  ],
+  "total": 160
 }

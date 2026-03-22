@@ -11577,3 +11577,163 @@ fn fip_cyl_cyl_union_watertight() {
     );
 }
 
+// ── Assay R0092 reproduction: micro-scale oblique circle boss + circle cut ──
+
+#[test]
+fn r0092_micro_oblique_circle_subtract_nonempty() {
+    // R0092: scale=1.56e-2, oblique plane, circle boss + circle cut.
+    // The assay reports 0 triangles. This test reproduces the exact geometry.
+    let mut k = WaffleKernel::new();
+    let origin = [0.005165278612291496, 3.232041089727515e-05, -0.004938033523850324];
+    let normal = [0.1387022742463836, -0.7820981964155548, -0.6075229133805715];
+    let (_, n, x_axis) = make_plane_from_normal(origin, normal);
+
+    // Op 1: circle boss (radius = profile_size/2, depth)
+    let r1 = 0.004054351381038178; // profile_size = radius for circles
+    let d1 = 0.008063370257105199;
+    let (p1, pos1) = make_circle_profile(0.0, 0.0, r1);
+    let f1 = k
+        .make_faces_from_profiles(&p1, origin, n, x_axis, &pos1)
+        .unwrap();
+    let solid_a = k.extrude_face(f1[0], n, d1).unwrap();
+
+    // Verify first solid tessellates non-empty
+    let scale = 0.015594195647157605;
+    let tol = scale * 0.01;
+    let mesh_a = k.tessellate(&solid_a, tol).unwrap();
+    assert!(
+        !mesh_a.indices.is_empty(),
+        "First extrude (boss) must produce triangles, got 0"
+    );
+
+    // Op 2: circle cut (larger radius, subtract)
+    let r2 = 0.0051919507577885896; // profile_size = radius
+    let d2 = 0.0061072266797926175;
+    let (p2, pos2) = make_circle_profile(0.0, 0.0, r2);
+    let f2 = k
+        .make_faces_from_profiles(&p2, origin, n, x_axis, &pos2)
+        .unwrap();
+    let solid_b = k.extrude_face(f2[0], n, d2).unwrap();
+
+    // Boolean subtract
+    let result = k.boolean_subtract(&solid_a, &solid_b);
+    assert!(
+        result.is_ok(),
+        "Boolean subtract should succeed, got: {:?}",
+        result.err()
+    );
+    let solid_c = result.unwrap();
+
+    let mesh = k.tessellate(&solid_c, tol).unwrap();
+    let tri_count = mesh.indices.len() / 3;
+    assert!(
+        tri_count > 0,
+        "R0092 micro-oblique circle subtract must produce triangles, got 0"
+    );
+
+    // Volume sanity: should be positive (boss > cut in volume since the cut
+    // radius is larger but could intersect differently)
+    let vol = mesh_volume(&mesh);
+    assert!(
+        vol > 0.0,
+        "R0092 result volume should be positive, got {}",
+        vol
+    );
+}
+
+#[test]
+fn r0092_axis_aligned_variant_nonempty() {
+    // Simplified variant: same radii and depths but on axis-aligned plane.
+    // If this passes but the oblique version fails, the issue is in
+    // oblique-plane geometry handling.
+    let mut k = WaffleKernel::new();
+
+    let r1 = 0.004054351381038178; // profile_size = radius
+    let d1 = 0.008063370257105199;
+    let r2 = 0.0051919507577885896;
+    let d2 = 0.0061072266797926175;
+    let scale = 0.015594195647157605;
+    let tol = scale * 0.01;
+
+    let (p1, pos1) = make_circle_profile(0.0, 0.0, r1);
+    let f1 = k
+        .make_faces_from_profiles(&p1, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos1)
+        .unwrap();
+    let solid_a = k.extrude_face(f1[0], Z_DIR, d1).unwrap();
+
+    let (p2, pos2) = make_circle_profile(0.0, 0.0, r2);
+    let f2 = k
+        .make_faces_from_profiles(&p2, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos2)
+        .unwrap();
+    let solid_b = k.extrude_face(f2[0], Z_DIR, d2).unwrap();
+
+    let solid_c = k.boolean_subtract(&solid_a, &solid_b).unwrap();
+    let mesh = k.tessellate(&solid_c, tol).unwrap();
+    let tri_count = mesh.indices.len() / 3;
+    assert!(
+        tri_count > 0,
+        "Axis-aligned circle subtract must produce triangles, got 0"
+    );
+
+    // Also test the reverse: boss is wider than cutter (should definitely leave geometry)
+    let mut k2 = WaffleKernel::new();
+    let (p1b, pos1b) = make_circle_profile(0.0, 0.0, r2); // wider
+    let f1b = k2
+        .make_faces_from_profiles(&p1b, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos1b)
+        .unwrap();
+    let solid_a2 = k2.extrude_face(f1b[0], Z_DIR, d1).unwrap();
+
+    let (p2b, pos2b) = make_circle_profile(0.0, 0.0, r1); // narrower cutter
+    let f2b = k2
+        .make_faces_from_profiles(&p2b, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos2b)
+        .unwrap();
+    let solid_b2 = k2.extrude_face(f2b[0], Z_DIR, d2).unwrap();
+
+    let solid_c2 = k2.boolean_subtract(&solid_a2, &solid_b2).unwrap();
+    let mesh2 = k2.tessellate(&solid_c2, tol).unwrap();
+    let tri_count2 = mesh2.indices.len() / 3;
+    assert!(
+        tri_count2 > 0,
+        "Reversed (boss wider) circle subtract must produce triangles, got 0"
+    );
+}
+
+#[test]
+fn f0044_concentric_cyl_tube_tessellation() {
+    // F0044: concentric cyl-cyl subtract where r2 < r1, d2 < d1.
+    // Result should be a tube (annular ring). Must produce enough triangles.
+    let mut k = WaffleKernel::new();
+    let r1 = 0.4332616211343831; // boss radius
+    let d1 = 0.41936422375756266;
+    let r2 = 0.13101348435799912; // cut radius (smaller)
+    let d2 = 0.3146301643368442;
+
+    let (p1, pos1) = make_circle_profile(0.0, 0.0, r1);
+    let f1 = k
+        .make_faces_from_profiles(&p1, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos1)
+        .unwrap();
+    let solid_a = k.extrude_face(f1[0], Z_DIR, d1).unwrap();
+
+    let (p2, pos2) = make_circle_profile(0.0, 0.0, r2);
+    let f2 = k
+        .make_faces_from_profiles(&p2, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos2)
+        .unwrap();
+    let solid_b = k.extrude_face(f2[0], Z_DIR, d2).unwrap();
+
+    let solid_c = k.boolean_subtract(&solid_a, &solid_b).unwrap();
+
+    let mesh = k.tessellate(&solid_c, 0.01).unwrap();
+    let tri_count = mesh.indices.len() / 3;
+
+    // A tube should have significantly more than 4 triangles
+    assert!(
+        tri_count >= 32,
+        "Concentric cyl tube must have >= 32 triangles (got {})",
+        tri_count
+    );
+
+    // Volume oracle: pi * (r1^2 - r2^2) * min(d1, d2) approximately
+    let vol = mesh_volume(&mesh);
+    assert!(vol > 0.0, "F0044 tube volume should be positive, got {}", vol);
+}
+

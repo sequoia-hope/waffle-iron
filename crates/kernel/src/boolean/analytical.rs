@@ -763,22 +763,79 @@ fn cyl_cyl_boolean_z_aligned(
             return match op {
                 BoolOp::Subtract => {
                     if r2 >= r1 - TAU_COINCIDENT {
-                        // Tool completely encloses blank: result is empty solid
-                        let mut arena = TopoArena::new();
-                        let solid_idx = arena.add_solid();
-                        let shell_idx = arena.add_shell(solid_idx);
-                        arena.solids[solid_idx.0].outer_shell = shell_idx;
-                        Ok(BooleanResult {
-                            arena,
-                            face_map: HashMap::new(),
-                            edge_map: HashMap::new(),
-                            vertex_map: HashMap::new(),
-                            face_geometry: HashMap::new(),
-                            edge_geometry: HashMap::new(),
-                            cached_face_polys: None,
-                        })
+                        // Tool laterally encloses blank — check Z coverage
+                        let tool_covers_bottom = bz_min <= az_min + TAU_COINCIDENT;
+                        let tool_covers_top = bz_max >= az_max - TAU_COINCIDENT;
+
+                        if tool_covers_bottom && tool_covers_top {
+                            // Case 1: Tool fully covers blank Z range → empty solid
+                            let mut arena = TopoArena::new();
+                            let solid_idx = arena.add_solid();
+                            let shell_idx = arena.add_shell(solid_idx);
+                            arena.solids[solid_idx.0].outer_shell = shell_idx;
+                            Ok(BooleanResult {
+                                arena,
+                                face_map: HashMap::new(),
+                                edge_map: HashMap::new(),
+                                vertex_map: HashMap::new(),
+                                face_geometry: HashMap::new(),
+                                edge_geometry: HashMap::new(),
+                                cached_face_polys: None,
+                            })
+                        } else if tool_covers_bottom && !tool_covers_top {
+                            // Case 2: Tool covers bottom, top survives [bz_max, az_max]
+                            let surviving = CylinderParams {
+                                center_bottom: [
+                                    cyl_a.center_bottom[0],
+                                    cyl_a.center_bottom[1],
+                                    bz_max,
+                                ],
+                                radius: r1,
+                                x_axis: cyl_a.x_axis,
+                                y_axis: cyl_a.y_axis,
+                                direction: cyl_a.direction,
+                                depth: az_max - bz_max,
+                            };
+                            build_cyl_result(&surviving, id_alloc)
+                        } else if !tool_covers_bottom && tool_covers_top {
+                            // Case 3: Tool covers top, bottom survives [az_min, bz_min]
+                            let surviving = CylinderParams {
+                                center_bottom: [
+                                    cyl_a.center_bottom[0],
+                                    cyl_a.center_bottom[1],
+                                    az_min,
+                                ],
+                                radius: r1,
+                                x_axis: cyl_a.x_axis,
+                                y_axis: cyl_a.y_axis,
+                                direction: cyl_a.direction,
+                                depth: bz_min - az_min,
+                            };
+                            build_cyl_result(&surviving, id_alloc)
+                        } else {
+                            // Case 4: Tool in middle — would produce two disjoint solids
+                            return Err(KernelError::NotSupported {
+                                operation: "concentric subtract producing disjoint solids"
+                                    .to_string(),
+                            });
+                        }
                     } else {
-                        build_cyl_tube(cyl_a, cyl_b, z_min, z_max, id_alloc)
+                        // r2 < r1 (inner hole). Check if inner cylinder's Z range
+                        // fully covers outer. If not, the result is a tube + cap(s),
+                        // which is too complex for a single analytical build.
+                        let inner_covers_z =
+                            bz_min <= az_min + TAU_COINCIDENT && bz_max >= az_max - TAU_COINCIDENT;
+                        if inner_covers_z {
+                            build_cyl_tube(cyl_a, cyl_b, z_min, z_max, id_alloc)
+                        } else {
+                            // Inner hole doesn't span full outer height → fall back
+                            // to polygon boolean for correct tube+cap geometry.
+                            return Err(KernelError::NotSupported {
+                                operation:
+                                    "concentric cyl subtract: inner shorter than outer (tube+cap)"
+                                        .to_string(),
+                            });
+                        }
                     }
                 }
                 BoolOp::Union => {
@@ -803,6 +860,16 @@ fn cyl_cyl_boolean_z_aligned(
         // Non-concentric: compute 2D intersection points
         let a = (r1 * r1 - r2 * r2 + d * d) / (2.0 * d);
         let h = (r1 * r1 - a * a).max(0.0).sqrt();
+
+        // Enclosed case: when h ≈ 0, one cylinder is fully inside the other
+        // (no real 2D intersection). The analytical partial builder can't
+        // handle this — fall through to polygon approximation.
+        if h < TAU_COINCIDENT {
+            return Err(KernelError::NotSupported {
+                operation: "non-concentric enclosed cylinders (no 2D intersection)".to_string(),
+            });
+        }
+
         let ux = dx / d;
         let uy = dy / d;
         let mid_x = c1[0] + a * ux;

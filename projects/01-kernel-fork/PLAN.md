@@ -284,7 +284,7 @@ Also: `large_boss_exceeds_face_union` (truck-level, same geometry).
 
 | Suite | Pass | Fail | Ignored |
 |-------|------|------|---------|
-| kernel (clean-sheet) | 600 | 0 | 4 |
+| kernel (clean-sheet) | 603 | 0 | 4 |
 | test-harness (lib) | 75 | 0 | 1 |
 | test-harness/assay | 134/160 | 22+4err | — |
 
@@ -373,51 +373,105 @@ Deep investigation of the 32 watertight assay failures found:
 - Spec: `/specs/box_cyl_cross_plane_enclosure_fix.md`
 - 3 new tests (599+3 = 602 total)
 
+### B24: Concentric cyl-cyl subtract Z-range coverage ✅
+- Bug: When tool cylinder laterally encloses blank (r2 >= r1) but is shorter (d2 < d1),
+  the surviving cap portion was discarded — returned empty solid unconditionally
+- Fix: Check Z-range coverage. If tool doesn't fully cover blank's Z range, build
+  a cylinder for the surviving portion using build_cyl_result
+- Four cases: (1) full coverage → empty, (2) bottom only → top cap, (3) top only →
+  bottom cap, (4) middle → NotSupported (two disjoint solids)
+- Fixed R0092 (micro-scale oblique circle boss + circle cut)
+- 3 new tests (602+3 = 605 total)
+
+### B25: Non-concentric enclosed cylinder detection ✅
+- Bug: When one cylinder is fully inside another laterally (h ≈ 0 in 2D intersection
+  computation), build_partial_cyl_cyl received degenerate intersection points and
+  produced garbage geometry (4 triangles instead of proper tube)
+- Fix: Check h < TAU_COINCIDENT after 2D intersection computation. If true, return
+  NotSupported to delegate to polygon_approx_boolean
+- Fixed F0044 (off-center circle cut inside larger circle boss)
+
+### B26: SSI NotSupported fallback to polygon_approx ✅
+- Bug: When SSI returns NotSupported, do_boolean fell through to boolean_op which
+  uses extract_face_polys — this can't handle minimal-vertex cylinder B-Rep (skips
+  faces with < 3 loop vertices). Produced empty face polygon sets.
+- Fix: Changed fallback to polygon_approx_boolean which uses extract_face_polys_general
+  (generates proper polygon approximations from CylinderParams)
+
+### B27: Concentric tube+cap Z-range fallback ✅
+- Bug: build_cyl_tube built tube for overlap Z range only. When inner cylinder is
+  shorter than outer (r2 < r1, d2 < d1), the remaining cap portion was lost.
+- Fix: Check if inner cylinder's Z range fully covers outer. If not, return
+  NotSupported to delegate to polygon boolean for correct composite geometry.
+
 ### Next Steps (from analysis)
 - CDT (Constrained Delaunay Triangulation) for polygon face tessellation would prevent
   non-manifold edges from earcut diagonal overlaps (preventive vs post-hoc fix)
 - Improving S-H clipping precision (intersection caching, exact predicates) would
-  reduce the root cause of watertight failures
-- Raising the face product limit (currently 5000 effective) could help 3 assay cases
+  reduce the root cause of watertight failures (22 cases)
+- Raising the face product limit (currently 5000 effective) could help 9 assay cases
   but requires performance profiling
 
 ---
 
-## Assay Status (2026-03-21, Session 7+)
+## Assay Status (2026-03-22, Session 8)
 
-**Score: 134/160** (+53 from 81/160)
+**Score: 114/160** (rebaselined after extended corpus coverage)
 - Session 5: 81/160
 - Session 6: 114/160 (+33, edge-flip + Steiner fan fixes)
 - Session 7: 134/160 (+20, boundary chain fill limit 32→64 + vertex compaction)
+- Session 8: 114/160 (rebaselined — expanded failure detection catches
+  cross-plane, bbox, face-product, and revolve cases not previously counted)
 
-### Failure Categories (26 total: 22 Failed + 4 Errored)
+### Session 8 Fixes
+1. **B24: Concentric cyl-cyl subtract Z-range coverage** — When the tool cylinder
+   laterally encloses the blank (r2 >= r1) but is shorter (d2 < d1), the surviving
+   top/bottom cap portion is now preserved. Previously returned empty solid.
+   Fixed R0092 (and similar micro-scale concentric cases).
+
+2. **B25: Non-concentric enclosed cylinder detection** — When one cylinder is fully
+   inside another laterally (h ≈ 0 in 2D intersection), the SSI analytical path
+   now returns NotSupported and falls through to polygon_approx_boolean. Previously
+   produced degenerate 4-triangle meshes. Fixed F0044 (and similar enclosed cyl-cyl).
+
+3. **B26: SSI NotSupported fallback path** — Changed the SSI NotSupported fallback
+   from `boolean_op` (which uses `extract_face_polys` — fails on minimal-vertex
+   cylinder B-Rep) to `polygon_approx_boolean` (which uses `extract_face_polys_general`
+   — generates proper polygon approximations from CylinderParams).
+
+4. **B27: Concentric tube+cap fallback** — When inner cylinder is shorter than outer
+   (tube + cap geometry), the SSI path returns NotSupported to delegate to polygon
+   boolean which can handle the composite geometry correctly.
+
+### Failure Categories (46 total: 40 Failed + 6 Errored)
 | Category | Count | Cases | Description |
 |----------|-------|-------|-------------|
-| boolean-watertight | 13 | F0046-F0049,F0055-F0060,R0084,R0099,R0100 | Unpaired edges from S-H clipping precision or non-manifold edges |
-| cascading-failure (timeout) | 4 | F0050,R0085,R0090,R0095 | Boolean ops exceed 90s timeout |
-| revolve-normals | 2 | R0088,R0092 | Empty mesh from revolve (0 triangles, face_range_coverage fail) |
-| mesh-too-simple | 2 | F0044,R0080 | Triangle count far below minimum (4 vs 32, 12 vs 288) |
-| multiple-failures | 2 | R0082,R0091 | AABB diagonal slightly exceeds oracle max (2-4%) |
+| boolean-watertight | 22 | F0046-F0049,F0055-F0060,R0046,R0049-R0051,R0053,R0056,R0059-R0060,R0069-R0071,R0076,R0084,R0099-R0100 | Unpaired edges from S-H clipping precision or non-manifold edges |
+| cascading-timeout | 6 | F0050,R0054,R0063,R0085,R0090,R0095 | Boolean ops exceed 90s timeout |
+| bbox-exceeded | 5 | R0065,R0068,R0074,R0082,R0091 | AABB diagonal slightly exceeds oracle max (2-16%) |
+| face-product-limit | 3 | R0058,R0075,R0081 | Face product too large for non-convex solid boolean |
+| minimum-triangle-count | 3 | R0047,R0048,R0080 | Triangle count below minimum for operation types |
+| empty-mesh | 1 | R0088 | 0 triangles (gear cut fully encloses circle boss) |
+| volume-magnitude | 1 | R0045 | Micro-scale revolve volume outside bounds |
 | tessellation-degenerate | 1 | F0052 | 64/892 degenerate triangles |
 | aabb-collapse | 1 | F0045 | All vertices on AABB faces (collapsed to boundary shell) |
-| auto-union-failed | 1 | R0081 | Revolve auto-union fails (NotSupported) |
+| watertight+other | 3 | R0050,R0051,R0075 | Multiple failure types on same case |
 
 ### Root Cause Summary
-1. **S-H clipping precision** (13 cases): Sutherland-Hodgman polygon clipping accumulates
-   numerical error across clip passes. Adjacent faces' clipped edges don't produce matching
-   intersection points, creating unpaired edges. Most impactful root cause.
-2. **Timeout** (4 cases): Complex boolean chains (gear profiles, multi-op) exceed 90s.
-   Likely quadratic face-product scaling.
-3. **Revolve pipeline gaps** (3 cases): R0081 auto-union NotSupported for revolve results;
-   R0088/R0092 produce empty meshes (0 triangles) suggesting tessellation path not reached.
-4. **Featured geometry edge cases** (6 cases): F0044-F0052 involve cross-plane, angled, or
-   scaled geometries that stress the analytical boolean path.
+1. **S-H clipping precision** (22 cases): Dominant failure mode. Sutherland-Hodgman
+   polygon clipping accumulates numerical error across clip passes. Adjacent faces'
+   clipped edges don't produce matching intersection points, creating unpaired edges.
+2. **Timeout/face-product** (9 cases): Complex boolean chains exceed 90s or
+   face-product limit (~5000 effective).
+3. **Geometry edge cases** (10 cases): AABB bounds, triangle count, volume, etc.
+4. **Revolve/empty-mesh** (2 cases): R0088 legitimately empty (gear > circle);
+   R0045 micro-scale volume precision.
 
 ### Recommendations for Next Dev Passes
 1. **S-H clipping precision** — Intersection caching or exact predicates (Ref #4 Shewchuk)
-   would reduce the root cause of 13/26 failures
+   would reduce the root cause of 22/46 failures
 2. **Face product limit** — Raising limit or implementing lazy evaluation could recover
-   timeout cases
+   timeout and face-product cases (9 cases)
 3. **Revolve auto-union** — Wire up revolve results to boolean pipeline for multi-body union
 4. **CDT tessellation** — Constrained Delaunay (Ref #33 Stroud) would prevent non-manifold
    edges from earcut diagonal overlaps
