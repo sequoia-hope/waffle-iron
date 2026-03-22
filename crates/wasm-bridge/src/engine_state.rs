@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use feature_engine::Engine;
-use waffle_types::{ClosedProfile, GeomRef, Sketch, SketchConstraint, SketchEntity, SolveStatus};
+use waffle_types::{
+    ClosedProfile, GeomRef, PointId, Sketch, SketchConstraint, SketchEntity, SolveStatus,
+};
 
 /// The engine state wrapper for the WASM bridge.
 ///
@@ -106,7 +108,7 @@ impl EngineState {
     /// properties like circle radius that the Rust side never received).
     pub fn finish_sketch(
         &mut self,
-        solved_positions: HashMap<u32, (f64, f64)>,
+        solved_positions: HashMap<PointId, (f64, f64)>,
         solved_profiles: Vec<ClosedProfile>,
         plane_origin: [f64; 3],
         plane_normal: [f64; 3],

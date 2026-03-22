@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="62.78 -115.97 70.00 70.00" width="140" height="140">
+<rect x="62.775962689357414" y="-115.97271807823145" width="70" height="70" fill="white"/>
+<g class="grid-minor" stroke="#e0e0e0" stroke-width="0.3">
+<line x1="60.00" y1="-115.97" x2="60.00" y2="-45.97"/>
+<line x1="70.00" y1="-115.97" x2="70.00" y2="-45.97"/>
+<line x1="80.00" y1="-115.97" x2="80.00" y2="-45.97"/>
+<line x1="90.00" y1="-115.97" x2="90.00" y2="-45.97"/>
+<line x1="100.00" y1="-115.97" x2="100.00" y2="-45.97"/>
+<line x1="110.00" y1="-115.97" x2="110.00" y2="-45.97"/>
+<line x1="120.00" y1="-115.97" x2="120.00" y2="-45.97"/>
+<line x1="130.00" y1="-115.97" x2="130.00" y2="-45.97"/>
+<line x1="62.78" y1="-120.00" x2="132.78" y2="-120.00"/>
+<line x1="62.78" y1="-110.00" x2="132.78" y2="-110.00"/>
+<line x1="62.78" y1="-100.00" x2="132.78" y2="-100.00"/>
+<line x1="62.78" y1="-90.00" x2="132.78" y2="-90.00"/>
+<line x1="62.78" y1="-80.00" x2="132.78" y2="-80.00"/>
+<line x1="62.78" y1="-70.00" x2="132.78" y2="-70.00"/>
+<line x1="62.78" y1="-60.00" x2="132.78" y2="-60.00"/>
+<line x1="62.78" y1="-50.00" x2="132.78" y2="-50.00"/>
+</g>
+<g class="grid-major" stroke="#c0c0c0" stroke-width="0.6">
+<line x1="0.00" y1="-115.97" x2="0.00" y2="-45.97"/>
+<line x1="100.00" y1="-115.97" x2="100.00" y2="-45.97"/>
+<line x1="62.78" y1="-200.00" x2="132.78" y2="-200.00"/>
+<line x1="62.78" y1="-100.00" x2="132.78" y2="-100.00"/>
+</g>
+<path d="M72.7760,-77.8510 A21.8783,21.8783 0 1,1 116.5325,-77.8510 A21.8783,21.8783 0 1,1 72.7760,-77.8510 Z" fill="#E3F2FD" fill-opacity="0.5" fill-rule="evenodd" stroke="none"/>
+<g class="entities">
+<circle cx="94.6543" cy="-77.8510" r="2" fill="#4CAF50"/>
+<circle cx="94.6543" cy="-77.8510" r="21.8783" stroke="#2196F3" stroke-width="1.5" fill="none"/>
+</g>
+<g class="badges" font-family="sans-serif" font-size="4">
+<rect x="89.15" y="-83.85" width="17.0" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="97.65" y="-79.85" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">R21.9</text>
+</g>
+<rect x="67.48" y="-108.97" width="50.6" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="92.78" y="-104.97" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">Fully Constrained</text>
+</svg>

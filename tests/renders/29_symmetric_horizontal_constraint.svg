@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-42.00 -80.00 84.00 70.00" width="168" height="140">
+<rect x="-42" y="-80" width="84" height="70" fill="white"/>
+<g class="grid-minor" stroke="#e0e0e0" stroke-width="0.3">
+<line x1="-50.00" y1="-80.00" x2="-50.00" y2="-10.00"/>
+<line x1="-40.00" y1="-80.00" x2="-40.00" y2="-10.00"/>
+<line x1="-30.00" y1="-80.00" x2="-30.00" y2="-10.00"/>
+<line x1="-20.00" y1="-80.00" x2="-20.00" y2="-10.00"/>
+<line x1="-10.00" y1="-80.00" x2="-10.00" y2="-10.00"/>
+<line x1="0.00" y1="-80.00" x2="0.00" y2="-10.00"/>
+<line x1="10.00" y1="-80.00" x2="10.00" y2="-10.00"/>
+<line x1="20.00" y1="-80.00" x2="20.00" y2="-10.00"/>
+<line x1="30.00" y1="-80.00" x2="30.00" y2="-10.00"/>
+<line x1="40.00" y1="-80.00" x2="40.00" y2="-10.00"/>
+<line x1="-42.00" y1="-80.00" x2="42.00" y2="-80.00"/>
+<line x1="-42.00" y1="-70.00" x2="42.00" y2="-70.00"/>
+<line x1="-42.00" y1="-60.00" x2="42.00" y2="-60.00"/>
+<line x1="-42.00" y1="-50.00" x2="42.00" y2="-50.00"/>
+<line x1="-42.00" y1="-40.00" x2="42.00" y2="-40.00"/>
+<line x1="-42.00" y1="-30.00" x2="42.00" y2="-30.00"/>
+<line x1="-42.00" y1="-20.00" x2="42.00" y2="-20.00"/>
+<line x1="-42.00" y1="-10.00" x2="42.00" y2="-10.00"/>
+</g>
+<g class="grid-major" stroke="#c0c0c0" stroke-width="0.6">
+<line x1="-100.00" y1="-80.00" x2="-100.00" y2="-10.00"/>
+<line x1="0.00" y1="-80.00" x2="0.00" y2="-10.00"/>
+<line x1="-42.00" y1="-100.00" x2="42.00" y2="-100.00"/>
+</g>
+<g class="entities">
+<circle cx="30.0000" cy="-20.0000" r="2" fill="#4CAF50"/>
+<circle cx="-30.0000" cy="-20.0000" r="2" fill="#4CAF50"/>
+</g>
+<g class="badges" font-family="sans-serif" font-size="4">
+<rect x="-7.10" y="-26.00" width="14.2" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="0.00" y="-22.00" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">SymH</text>
+</g>
+<rect x="-35.30" y="-73.00" width="50.6" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="-10.00" y="-69.00" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">Fully Constrained</text>
+</svg>

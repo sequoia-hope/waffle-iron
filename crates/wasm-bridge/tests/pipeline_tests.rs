@@ -38,10 +38,10 @@ fn create_rect_sketch(
     wasm_bridge::dispatch(state, UiToEngine::BeginSketch { plane }, kernel);
 
     for (id, x, y) in [
-        (1, 0.0, 0.0),
-        (2, 10.0, 0.0),
-        (3, 10.0, 10.0),
-        (4, 0.0, 10.0),
+        (PointId(1), 0.0, 0.0),
+        (PointId(2), 10.0, 0.0),
+        (PointId(3), 10.0, 10.0),
+        (PointId(4), 0.0, 10.0),
     ] {
         wasm_bridge::dispatch(
             state,
@@ -57,7 +57,12 @@ fn create_rect_sketch(
         );
     }
 
-    for (id, start, end) in [(10, 1, 2), (11, 2, 3), (12, 3, 4), (13, 4, 1)] {
+    for (id, start, end) in [
+        (LineId(10), PointId(1), PointId(2)),
+        (LineId(11), PointId(2), PointId(3)),
+        (LineId(12), PointId(3), PointId(4)),
+        (LineId(13), PointId(4), PointId(1)),
+    ] {
         wasm_bridge::dispatch(
             state,
             UiToEngine::AddSketchEntity {
@@ -73,13 +78,13 @@ fn create_rect_sketch(
     }
 
     let mut solved_positions = HashMap::new();
-    solved_positions.insert(1, (0.0, 0.0));
-    solved_positions.insert(2, (10.0, 0.0));
-    solved_positions.insert(3, (10.0, 10.0));
-    solved_positions.insert(4, (0.0, 10.0));
+    solved_positions.insert(PointId(1), (0.0, 0.0));
+    solved_positions.insert(PointId(2), (10.0, 0.0));
+    solved_positions.insert(PointId(3), (10.0, 10.0));
+    solved_positions.insert(PointId(4), (0.0, 10.0));
 
     let solved_profiles = vec![ClosedProfile {
-        entity_ids: vec![1, 2, 3, 4],
+        entity_ids: vec![EntityId(1), EntityId(2), EntityId(3), EntityId(4)],
         is_outer: true,
         vertex_ids: vec![],
         circle: None,
@@ -804,7 +809,7 @@ fn add_entity_without_begin_sketch_returns_error() {
         &mut state,
         UiToEngine::AddSketchEntity {
             entity: SketchEntity::Point {
-                id: 1,
+                id: PointId(1),
                 x: 0.0,
                 y: 0.0,
                 construction: false,
@@ -963,7 +968,7 @@ fn extrude_sketch_with_no_profiles_returns_error() {
         &mut state,
         UiToEngine::AddSketchEntity {
             entity: SketchEntity::Point {
-                id: 1,
+                id: PointId(1),
                 x: 0.0,
                 y: 0.0,
                 construction: false,

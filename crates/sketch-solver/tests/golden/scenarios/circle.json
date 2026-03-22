@@ -1,0 +1,63 @@
+{
+  "id": "00000000-0000-0000-0000-000000000000",
+  "plane": {
+    "kind": {
+      "type": "Face"
+    },
+    "anchor": {
+      "type": "Datum",
+      "datum_id": "00000000-0000-0000-0000-000000000000"
+    },
+    "selector": {
+      "type": "Role",
+      "role": {
+        "type": "ProfileFace"
+      },
+      "index": 0
+    },
+    "policy": {
+      "type": "Strict"
+    }
+  },
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "entities": [
+    {
+      "type": "Point",
+      "id": 1,
+      "x": 50.0,
+      "y": 50.0,
+      "construction": false
+    },
+    {
+      "type": "Circle",
+      "id": 10,
+      "center_id": 1,
+      "radius": 30.0,
+      "construction": false
+    }
+  ],
+  "constraints": [
+    {
+      "type": "Dragged",
+      "point": 1
+    },
+    {
+      "type": "Radius",
+      "entity": 10,
+      "value": 30.0
+    }
+  ],
+  "solve_status": {
+    "type": "UnderConstrained",
+    "dof": 99
+  }
+}

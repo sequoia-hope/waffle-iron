@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-33.00 -45.00 126.00 70.00" width="252" height="140">
+<rect x="-33.0000000585108" y="-44.999999962937" width="126.00000011150277" height="70" fill="white"/>
+<g class="grid-minor" stroke="#e0e0e0" stroke-width="0.3">
+<line x1="-40.00" y1="-45.00" x2="-40.00" y2="25.00"/>
+<line x1="-30.00" y1="-45.00" x2="-30.00" y2="25.00"/>
+<line x1="-20.00" y1="-45.00" x2="-20.00" y2="25.00"/>
+<line x1="-10.00" y1="-45.00" x2="-10.00" y2="25.00"/>
+<line x1="0.00" y1="-45.00" x2="0.00" y2="25.00"/>
+<line x1="10.00" y1="-45.00" x2="10.00" y2="25.00"/>
+<line x1="20.00" y1="-45.00" x2="20.00" y2="25.00"/>
+<line x1="30.00" y1="-45.00" x2="30.00" y2="25.00"/>
+<line x1="40.00" y1="-45.00" x2="40.00" y2="25.00"/>
+<line x1="50.00" y1="-45.00" x2="50.00" y2="25.00"/>
+<line x1="60.00" y1="-45.00" x2="60.00" y2="25.00"/>
+<line x1="70.00" y1="-45.00" x2="70.00" y2="25.00"/>
+<line x1="80.00" y1="-45.00" x2="80.00" y2="25.00"/>
+<line x1="90.00" y1="-45.00" x2="90.00" y2="25.00"/>
+<line x1="-33.00" y1="-50.00" x2="93.00" y2="-50.00"/>
+<line x1="-33.00" y1="-40.00" x2="93.00" y2="-40.00"/>
+<line x1="-33.00" y1="-30.00" x2="93.00" y2="-30.00"/>
+<line x1="-33.00" y1="-20.00" x2="93.00" y2="-20.00"/>
+<line x1="-33.00" y1="-10.00" x2="93.00" y2="-10.00"/>
+<line x1="-33.00" y1="0.00" x2="93.00" y2="0.00"/>
+<line x1="-33.00" y1="10.00" x2="93.00" y2="10.00"/>
+<line x1="-33.00" y1="20.00" x2="93.00" y2="20.00"/>
+</g>
+<g class="grid-major" stroke="#c0c0c0" stroke-width="0.6">
+<line x1="-100.00" y1="-45.00" x2="-100.00" y2="25.00"/>
+<line x1="0.00" y1="-45.00" x2="0.00" y2="25.00"/>
+<line x1="-33.00" y1="-100.00" x2="93.00" y2="-100.00"/>
+<line x1="-33.00" y1="0.00" x2="93.00" y2="0.00"/>
+</g>
+<path d="M45.0000,-0.0000 A15.0000,15.0000 0 1,1 75.0000,-0.0000 A15.0000,15.0000 0 1,1 45.0000,-0.0000 Z" fill="#E3F2FD" fill-opacity="0.5" fill-rule="evenodd" stroke="none"/>
+<g class="entities">
+<circle cx="-0.0000" cy="-0.0000" r="2" fill="#FF9800"/>
+<circle cx="15.0000" cy="-0.0000" r="2" fill="#FF9800"/>
+<circle cx="0.0000" cy="-15.0000" r="2" fill="#FF9800"/>
+<path d="M15.0000,-0.0000 A15.0000,15.0000 0 0,0 0.0000,-15.0000" stroke="#2196F3" stroke-width="1.5" fill="none"/>
+<circle cx="60.0000" cy="-0.0000" r="2" fill="#FF9800"/>
+<circle cx="60.0000" cy="-0.0000" r="15.0000" stroke="#2196F3" stroke-width="1.5" fill="none"/>
+</g>
+<g class="badges" font-family="sans-serif" font-size="4">
+<rect x="-2.90" y="-6.00" width="5.8" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="-0.00" y="-2.00" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">=</text>
+<rect x="57.10" y="-6.00" width="5.8" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="60.00" y="-2.00" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">=</text>
+</g>
+<rect x="-14.70" y="-38.00" width="39.4" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="5.00" y="-34.00" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">Under (2 DOF)</text>
+</svg>

@@ -63,8 +63,7 @@ for crate in "${CRATES[@]}"; do
     run_test "$crate" cargo test -p "$crate"
 done
 
-# wasm-bridge needs --no-default-features (native-solver requires libslvs C++)
-run_test "wasm-bridge" cargo test -p wasm-bridge --no-default-features
+run_test "wasm-bridge" cargo test -p wasm-bridge
 
 # Phase 2: test-harness as a whole
 run_test "test-harness (all)" cargo test -p test-harness

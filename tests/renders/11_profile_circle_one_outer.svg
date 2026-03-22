@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="15.00 -85.00 70.00 70.00" width="140" height="140">
+<rect x="15" y="-85" width="70" height="70" fill="white"/>
+<g class="grid-minor" stroke="#e0e0e0" stroke-width="0.3">
+<line x1="10.00" y1="-85.00" x2="10.00" y2="-15.00"/>
+<line x1="20.00" y1="-85.00" x2="20.00" y2="-15.00"/>
+<line x1="30.00" y1="-85.00" x2="30.00" y2="-15.00"/>
+<line x1="40.00" y1="-85.00" x2="40.00" y2="-15.00"/>
+<line x1="50.00" y1="-85.00" x2="50.00" y2="-15.00"/>
+<line x1="60.00" y1="-85.00" x2="60.00" y2="-15.00"/>
+<line x1="70.00" y1="-85.00" x2="70.00" y2="-15.00"/>
+<line x1="80.00" y1="-85.00" x2="80.00" y2="-15.00"/>
+<line x1="15.00" y1="-90.00" x2="85.00" y2="-90.00"/>
+<line x1="15.00" y1="-80.00" x2="85.00" y2="-80.00"/>
+<line x1="15.00" y1="-70.00" x2="85.00" y2="-70.00"/>
+<line x1="15.00" y1="-60.00" x2="85.00" y2="-60.00"/>
+<line x1="15.00" y1="-50.00" x2="85.00" y2="-50.00"/>
+<line x1="15.00" y1="-40.00" x2="85.00" y2="-40.00"/>
+<line x1="15.00" y1="-30.00" x2="85.00" y2="-30.00"/>
+<line x1="15.00" y1="-20.00" x2="85.00" y2="-20.00"/>
+</g>
+<g class="grid-major" stroke="#c0c0c0" stroke-width="0.6">
+<line x1="0.00" y1="-85.00" x2="0.00" y2="-15.00"/>
+<line x1="15.00" y1="-100.00" x2="85.00" y2="-100.00"/>
+</g>
+<path d="M25.0000,-50.0000 A25.0000,25.0000 0 1,1 75.0000,-50.0000 A25.0000,25.0000 0 1,1 25.0000,-50.0000 Z" fill="#E3F2FD" fill-opacity="0.5" fill-rule="evenodd" stroke="none"/>
+<g class="entities">
+<circle cx="50.0000" cy="-50.0000" r="2" fill="#4CAF50"/>
+<circle cx="50.0000" cy="-50.0000" r="25.0000" stroke="#2196F3" stroke-width="1.5" fill="none"/>
+</g>
+<g class="badges" font-family="sans-serif" font-size="4">
+<rect x="44.50" y="-56.00" width="17.0" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="53.00" y="-52.00" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">R25.0</text>
+</g>
+<rect x="19.70" y="-78.00" width="50.6" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="45.00" y="-74.00" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">Fully Constrained</text>
+</svg>

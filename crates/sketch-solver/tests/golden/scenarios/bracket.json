@@ -1,0 +1,183 @@
+{
+  "id": "00000000-0000-0000-0000-000000000000",
+  "plane": {
+    "kind": {
+      "type": "Face"
+    },
+    "anchor": {
+      "type": "Datum",
+      "datum_id": "00000000-0000-0000-0000-000000000000"
+    },
+    "selector": {
+      "type": "Role",
+      "role": {
+        "type": "ProfileFace"
+      },
+      "index": 0
+    },
+    "policy": {
+      "type": "Strict"
+    }
+  },
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "entities": [
+    {
+      "type": "Point",
+      "id": 1,
+      "x": 0.0,
+      "y": 0.0,
+      "construction": false
+    },
+    {
+      "type": "Point",
+      "id": 2,
+      "x": 80.0,
+      "y": 0.0,
+      "construction": false
+    },
+    {
+      "type": "Point",
+      "id": 3,
+      "x": 80.0,
+      "y": 20.0,
+      "construction": false
+    },
+    {
+      "type": "Point",
+      "id": 4,
+      "x": 30.0,
+      "y": 20.0,
+      "construction": false
+    },
+    {
+      "type": "Point",
+      "id": 5,
+      "x": 30.0,
+      "y": 60.0,
+      "construction": false
+    },
+    {
+      "type": "Point",
+      "id": 6,
+      "x": 0.0,
+      "y": 60.0,
+      "construction": false
+    },
+    {
+      "type": "Point",
+      "id": 7,
+      "x": 30.0,
+      "y": 30.0,
+      "construction": false
+    },
+    {
+      "type": "Line",
+      "id": 20,
+      "start_id": 1,
+      "end_id": 2,
+      "construction": false
+    },
+    {
+      "type": "Line",
+      "id": 21,
+      "start_id": 2,
+      "end_id": 3,
+      "construction": false
+    },
+    {
+      "type": "Line",
+      "id": 22,
+      "start_id": 3,
+      "end_id": 4,
+      "construction": false
+    },
+    {
+      "type": "Line",
+      "id": 23,
+      "start_id": 4,
+      "end_id": 5,
+      "construction": false
+    },
+    {
+      "type": "Line",
+      "id": 24,
+      "start_id": 5,
+      "end_id": 6,
+      "construction": false
+    },
+    {
+      "type": "Line",
+      "id": 25,
+      "start_id": 6,
+      "end_id": 1,
+      "construction": false
+    }
+  ],
+  "constraints": [
+    {
+      "type": "Horizontal",
+      "entity": 20
+    },
+    {
+      "type": "Horizontal",
+      "entity": 22
+    },
+    {
+      "type": "Horizontal",
+      "entity": 24
+    },
+    {
+      "type": "Vertical",
+      "entity": 21
+    },
+    {
+      "type": "Vertical",
+      "entity": 23
+    },
+    {
+      "type": "Vertical",
+      "entity": 25
+    },
+    {
+      "type": "Distance",
+      "entity_a": 1,
+      "entity_b": 2,
+      "value": 80.0
+    },
+    {
+      "type": "Distance",
+      "entity_a": 2,
+      "entity_b": 3,
+      "value": 20.0
+    },
+    {
+      "type": "Distance",
+      "entity_a": 5,
+      "entity_b": 6,
+      "value": 30.0
+    },
+    {
+      "type": "Distance",
+      "entity_a": 6,
+      "entity_b": 1,
+      "value": 60.0
+    },
+    {
+      "type": "Dragged",
+      "point": 1
+    }
+  ],
+  "solve_status": {
+    "type": "UnderConstrained",
+    "dof": 99
+  }
+}

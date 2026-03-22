@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::bspline::fit_bspline_to_points;
-use crate::{ClosedProfile, SketchEntity, SplineSegment};
+use crate::{ArcId, ClosedProfile, EntityId, LineId, PointId, SketchEntity, SplineSegment};
 
 /// Parameters for generating an involute gear profile.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,8 +56,8 @@ impl Default for GearParams {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GearProfileResult {
     pub entities: Vec<SketchEntity>,
-    #[serde(with = "crate::sketch::u32_key_map")]
-    pub positions: HashMap<u32, (f64, f64)>,
+    #[serde(with = "crate::sketch::point_pos_map")]
+    pub positions: HashMap<PointId, (f64, f64)>,
     pub profiles: Vec<ClosedProfile>,
     pub pitch_radius: f64,
     pub base_radius: f64,
@@ -113,23 +113,23 @@ pub fn generate_gear_profile(params: &GearParams) -> GearProfileResult {
 
     let mut points: Vec<(f64, f64)> = Vec::new();
     let mut entities: Vec<SketchEntity> = Vec::new();
-    let mut positions: HashMap<u32, (f64, f64)> = HashMap::new();
+    let mut positions: HashMap<PointId, (f64, f64)> = HashMap::new();
 
     // Spline and line data for building ClosedProfile
-    let mut profile_entity_ids: Vec<u32> = Vec::new();
-    let mut profile_vertex_ids: Vec<u32> = Vec::new();
+    let mut profile_entity_ids: Vec<EntityId> = Vec::new();
+    let mut profile_vertex_ids: Vec<PointId> = Vec::new();
     let mut spline_segments: Vec<SplineSegment> = Vec::new();
 
     let mut next_id = 1u32;
 
     let add_point = |points: &mut Vec<(f64, f64)>,
                      entities: &mut Vec<SketchEntity>,
-                     positions: &mut HashMap<u32, (f64, f64)>,
+                     positions: &mut HashMap<PointId, (f64, f64)>,
                      next_id: &mut u32,
                      x: f64,
                      y: f64|
-     -> u32 {
-        let id = *next_id;
+     -> PointId {
+        let id = PointId(*next_id);
         *next_id += 1;
         points.push((x, y));
         entities.push(SketchEntity::Point {
@@ -219,7 +219,7 @@ pub fn generate_gear_profile(params: &GearParams) -> GearProfileResult {
         );
 
         // Radial line: root → base (left side)
-        let line_id = next_id;
+        let line_id = LineId(next_id);
         next_id += 1;
         entities.push(SketchEntity::Line {
             id: line_id,
@@ -227,7 +227,7 @@ pub fn generate_gear_profile(params: &GearParams) -> GearProfileResult {
             end_id: left_base_id,
             construction: false,
         });
-        profile_entity_ids.push(line_id);
+        profile_entity_ids.push(EntityId::from(line_id));
         profile_vertex_ids.push(tooth_left_root_idx[tooth as usize]);
 
         // Left involute spline (baseR → addendumR)
@@ -252,14 +252,14 @@ pub fn generate_gear_profile(params: &GearParams) -> GearProfileResult {
             left_involute_pts[left_involute_pts.len() - 1].1,
         );
 
-        let left_spline_point_ids: Vec<u32> = std::iter::once(left_base_id)
+        let left_spline_point_ids: Vec<PointId> = std::iter::once(left_base_id)
             .chain(left_mid_ids.iter().copied())
             .chain(std::iter::once(left_tip_id))
             .collect();
 
         let left_ctrl = fit_bspline_to_points(&left_involute_pts, 3);
 
-        let spline_id = next_id;
+        let spline_id = EntityId(next_id);
         next_id += 1;
         entities.push(SketchEntity::Spline {
             id: spline_id,
@@ -305,7 +305,7 @@ pub fn generate_gear_profile(params: &GearParams) -> GearProfileResult {
             right_involute_pts[0].0,
             right_involute_pts[0].1,
         );
-        let arc_id = next_id;
+        let arc_id = ArcId(next_id);
         next_id += 1;
         entities.push(SketchEntity::Arc {
             id: arc_id,
@@ -314,7 +314,7 @@ pub fn generate_gear_profile(params: &GearParams) -> GearProfileResult {
             end_id: right_tip_id,
             construction: false,
         });
-        profile_entity_ids.push(arc_id);
+        profile_entity_ids.push(EntityId::from(arc_id));
 
         // Right involute spline (addendumR → baseR)
         let mut right_mid_ids = Vec::with_capacity(num_inv_samples - 1);
@@ -338,14 +338,14 @@ pub fn generate_gear_profile(params: &GearParams) -> GearProfileResult {
             right_involute_pts[right_involute_pts.len() - 1].1,
         );
 
-        let right_spline_point_ids: Vec<u32> = std::iter::once(right_tip_id)
+        let right_spline_point_ids: Vec<PointId> = std::iter::once(right_tip_id)
             .chain(right_mid_ids.iter().copied())
             .chain(std::iter::once(right_base_id))
             .collect();
 
         let right_ctrl = fit_bspline_to_points(&right_involute_pts, 3);
 
-        let spline_id = next_id;
+        let spline_id = EntityId(next_id);
         next_id += 1;
         entities.push(SketchEntity::Spline {
             id: spline_id,
@@ -368,7 +368,7 @@ pub fn generate_gear_profile(params: &GearParams) -> GearProfileResult {
         });
 
         // Radial line: base → root (right side)
-        let line_id = next_id;
+        let line_id = LineId(next_id);
         next_id += 1;
         entities.push(SketchEntity::Line {
             id: line_id,
@@ -376,11 +376,11 @@ pub fn generate_gear_profile(params: &GearParams) -> GearProfileResult {
             end_id: tooth_right_root_idx[tooth as usize],
             construction: false,
         });
-        profile_entity_ids.push(line_id);
+        profile_entity_ids.push(EntityId::from(line_id));
 
         // Root arc to next tooth
         let next_tooth = ((tooth + 1) % n) as usize;
-        let arc_id = next_id;
+        let arc_id = ArcId(next_id);
         next_id += 1;
         entities.push(SketchEntity::Arc {
             id: arc_id,
@@ -389,7 +389,7 @@ pub fn generate_gear_profile(params: &GearParams) -> GearProfileResult {
             end_id: tooth_left_root_idx[next_tooth],
             construction: false,
         });
-        profile_entity_ids.push(arc_id);
+        profile_entity_ids.push(EntityId::from(arc_id));
         profile_vertex_ids.push(tooth_right_root_idx[tooth as usize]);
     }
 

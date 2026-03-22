@@ -1740,7 +1740,7 @@ impl Kernel for WaffleKernel {
         plane_origin: [f64; 3],
         plane_normal: [f64; 3],
         plane_x_axis: [f64; 3],
-        positions: &HashMap<u32, (f64, f64)>,
+        positions: &HashMap<PointId, (f64, f64)>,
     ) -> Result<Vec<KernelId>, KernelError> {
         // Compute plane Y axis from normal x X-axis
         let plane_y_axis = v3_cross(plane_normal, plane_x_axis);
@@ -1781,24 +1781,28 @@ impl Kernel for WaffleKernel {
                 continue;
             }
 
-            // Polygon profile path — prefer vertex_ids, fall back to entity_ids, then sorted keys.
-            let keys: Vec<u32> = if !profile.vertex_ids.is_empty()
+            // Polygon profile path — prefer vertex_ids, fall back to entity_ids (as PointId), then sorted keys.
+            let keys: Vec<PointId> = if !profile.vertex_ids.is_empty()
                 && profile
                     .vertex_ids
                     .iter()
                     .all(|id| positions.contains_key(id))
             {
                 profile.vertex_ids.clone()
-            } else if !profile.entity_ids.is_empty()
-                && profile
-                    .entity_ids
-                    .iter()
-                    .all(|id| positions.contains_key(id))
-            {
-                profile.entity_ids.clone()
+            } else if !profile.entity_ids.is_empty() {
+                // Legacy fallback: entity_ids may hold raw IDs that correspond to point positions
+                let as_points: Vec<PointId> =
+                    profile.entity_ids.iter().map(|id| PointId(id.0)).collect();
+                if as_points.iter().all(|id| positions.contains_key(id)) {
+                    as_points
+                } else {
+                    let mut k: Vec<PointId> = positions.keys().copied().collect();
+                    k.sort_by_key(|p| p.0);
+                    k
+                }
             } else {
-                let mut k: Vec<u32> = positions.keys().copied().collect();
-                k.sort();
+                let mut k: Vec<PointId> = positions.keys().copied().collect();
+                k.sort_by_key(|p| p.0);
                 k
             };
 

@@ -1490,17 +1490,17 @@ mod tests {
         cy: f64,
         w: f64,
         h: f64,
-    ) -> (Vec<ClosedProfile>, HashMap<u32, (f64, f64)>) {
+    ) -> (Vec<ClosedProfile>, HashMap<PointId, (f64, f64)>) {
         let mut positions = HashMap::new();
-        positions.insert(1, (cx - w / 2.0, cy - h / 2.0));
-        positions.insert(2, (cx + w / 2.0, cy - h / 2.0));
-        positions.insert(3, (cx + w / 2.0, cy + h / 2.0));
-        positions.insert(4, (cx - w / 2.0, cy + h / 2.0));
+        positions.insert(PointId(1), (cx - w / 2.0, cy - h / 2.0));
+        positions.insert(PointId(2), (cx + w / 2.0, cy - h / 2.0));
+        positions.insert(PointId(3), (cx + w / 2.0, cy + h / 2.0));
+        positions.insert(PointId(4), (cx - w / 2.0, cy + h / 2.0));
 
         let profile = ClosedProfile {
-            entity_ids: vec![10, 11, 12, 13],
+            entity_ids: vec![EntityId(10), EntityId(11), EntityId(12), EntityId(13)],
             is_outer: true,
-            vertex_ids: vec![],
+            vertex_ids: vec![PointId(1), PointId(2), PointId(3), PointId(4)],
             circle: None,
             spline_segments: vec![],
         };
@@ -1886,12 +1886,12 @@ mod tests {
         cx: f64,
         cy: f64,
         r: f64,
-    ) -> (Vec<ClosedProfile>, HashMap<u32, (f64, f64)>) {
+    ) -> (Vec<ClosedProfile>, HashMap<PointId, (f64, f64)>) {
         let mut positions = HashMap::new();
-        positions.insert(1, (cx, cy));
+        positions.insert(PointId(1), (cx, cy));
 
         let profile = ClosedProfile {
-            entity_ids: vec![1],
+            entity_ids: vec![EntityId(1)],
             is_outer: true,
             vertex_ids: vec![],
             circle: Some(crate::types::CircleProfile {

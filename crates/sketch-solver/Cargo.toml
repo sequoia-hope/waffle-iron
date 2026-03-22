@@ -3,9 +3,40 @@ name = "sketch-solver"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+render = ["dep:resvg", "dep:usvg", "dep:tiny-skia", "dep:rand"]
+
 [dependencies]
 waffle-types = { path = "../waffle-types" }
-slvs = "0.6"
+# slvs = "0.6"  # disabled — C build broken on GCC 15
+nalgebra = "0.33"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
 thiserror = "1"
+
+# Optional render dependencies
+resvg = { version = "0.44", optional = true }
+usvg = { version = "0.44", optional = true }
+tiny-skia = { version = "0.11", optional = true }
+rand = { version = "0.8", optional = true }
+
+[dev-dependencies]
+proptest = "1.6"
+rand = "0.8"
+
+[[example]]
+name = "render_sketch"
+required-features = ["render"]
+
+[[example]]
+name = "render_all"
+required-features = ["render"]
+
+[[example]]
+name = "regenerate_golden"
+required-features = ["render"]
+
+[[example]]
+name = "workbench"
+required-features = ["render"]

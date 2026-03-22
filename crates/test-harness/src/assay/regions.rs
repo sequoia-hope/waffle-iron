@@ -10,7 +10,7 @@ use crate::helpers::ProfileData;
 use i_overlay::core::fill_rule::FillRule;
 use i_overlay::core::overlay_rule::OverlayRule;
 use i_overlay::float::single::SingleFloatOverlay;
-use waffle_types::{ClosedProfile, SketchEntity};
+use waffle_types::{ClosedProfile, EntityId, LineId, PointId, SketchEntity};
 
 /// A closed 2D region extracted from iOverlay decomposition.
 #[derive(Debug, Clone)]
@@ -145,7 +145,7 @@ pub fn contours_to_profiles(regions: &[ClosedRegion]) -> ProfileData {
             positions.extend(hole_positions);
 
             hole_profiles.push(ClosedProfile {
-                entity_ids: hole_point_ids,
+                entity_ids: hole_point_ids.iter().map(|p| EntityId(p.0)).collect(),
                 is_outer: false,
                 vertex_ids: vec![],
                 circle: None,
@@ -155,7 +155,7 @@ pub fn contours_to_profiles(regions: &[ClosedRegion]) -> ProfileData {
 
         // Outer profile
         profiles.push(ClosedProfile {
-            entity_ids: outer_point_ids,
+            entity_ids: outer_point_ids.iter().map(|p| EntityId(p.0)).collect(),
             is_outer: true,
             vertex_ids: vec![],
             circle: None,
@@ -170,7 +170,11 @@ pub fn contours_to_profiles(regions: &[ClosedRegion]) -> ProfileData {
 }
 
 /// Result of building entities for a single contour: (entities, positions, point_ids).
-type ContourData = (Vec<SketchEntity>, HashMap<u32, (f64, f64)>, Vec<u32>);
+type ContourData = (
+    Vec<SketchEntity>,
+    HashMap<PointId, (f64, f64)>,
+    Vec<PointId>,
+);
 
 /// Build sketch entities (points + lines) for a single contour.
 ///
@@ -185,13 +189,13 @@ fn build_contour_entities(contour: &[[f64; 2]], base_id: u32, _is_outer: bool) -
     for (i, pt) in contour.iter().enumerate() {
         let id = base_id + (i as u32) + 1;
         entities.push(SketchEntity::Point {
-            id,
+            id: PointId(id),
             x: pt[0],
             y: pt[1],
             construction: false,
         });
-        positions.insert(id, (pt[0], pt[1]));
-        point_ids.push(id);
+        positions.insert(PointId(id), (pt[0], pt[1]));
+        point_ids.push(PointId(id));
     }
 
     // Lines connecting consecutive points
@@ -201,9 +205,9 @@ fn build_contour_entities(contour: &[[f64; 2]], base_id: u32, _is_outer: bool) -
         let start_id = base_id + i + 1;
         let end_id = base_id + ((i + 1) % n) + 1;
         entities.push(SketchEntity::Line {
-            id: lid,
-            start_id,
-            end_id,
+            id: LineId(lid),
+            start_id: PointId(start_id),
+            end_id: PointId(end_id),
             construction: false,
         });
     }

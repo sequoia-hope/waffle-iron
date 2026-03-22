@@ -10,22 +10,22 @@ use modeling_ops::fillet::execute_fillet;
 use modeling_ops::revolve::execute_revolve;
 use modeling_ops::shell::execute_shell;
 use modeling_ops::types::OpError;
-use waffle_types::{ClosedProfile, OutputKey, Role, TopoKind, TopoSignature};
+use waffle_types::{ClosedProfile, EntityId, OutputKey, PointId, Role, TopoKind, TopoSignature};
 
 /// Helper: create a face from a rectangular profile.
 fn make_face(kernel: &mut MockKernel) -> KernelId {
     let profile = ClosedProfile {
-        entity_ids: vec![1, 2, 3, 4],
+        entity_ids: vec![EntityId(1), EntityId(2), EntityId(3), EntityId(4)],
         is_outer: true,
         vertex_ids: vec![],
         circle: None,
         spline_segments: vec![],
     };
     let mut positions = HashMap::new();
-    positions.insert(1, (0.0, 0.0));
-    positions.insert(2, (2.0, 0.0));
-    positions.insert(3, (2.0, 3.0));
-    positions.insert(4, (0.0, 3.0));
+    positions.insert(PointId(1), (0.0, 0.0));
+    positions.insert(PointId(2), (2.0, 0.0));
+    positions.insert(PointId(3), (2.0, 3.0));
+    positions.insert(PointId(4), (0.0, 3.0));
 
     let face_ids = kernel
         .make_faces_from_profiles(
@@ -364,17 +364,17 @@ fn boolean_assigns_body_a_b_roles() {
 
     // Use a different-sized profile for body B so signatures differ
     let profile_b = ClosedProfile {
-        entity_ids: vec![10, 11, 12, 13],
+        entity_ids: vec![EntityId(10), EntityId(11), EntityId(12), EntityId(13)],
         is_outer: true,
         vertex_ids: vec![],
         circle: None,
         spline_segments: vec![],
     };
     let mut positions_b = HashMap::new();
-    positions_b.insert(10, (0.0, 0.0));
-    positions_b.insert(11, (5.0, 0.0));
-    positions_b.insert(12, (5.0, 5.0));
-    positions_b.insert(13, (0.0, 5.0));
+    positions_b.insert(PointId(10), (0.0, 0.0));
+    positions_b.insert(PointId(11), (5.0, 0.0));
+    positions_b.insert(PointId(12), (5.0, 5.0));
+    positions_b.insert(PointId(13), (0.0, 5.0));
     let face_b_ids = kernel
         .make_faces_from_profiles(
             &[profile_b],
@@ -927,17 +927,17 @@ fn role_indices_are_sequential() {
 /// Helper: create a face from a rectangular profile using WaffleKernel.
 fn make_truck_face(kernel: &mut WaffleKernel) -> KernelId {
     let profile = ClosedProfile {
-        entity_ids: vec![1, 2, 3, 4],
+        entity_ids: vec![EntityId(1), EntityId(2), EntityId(3), EntityId(4)],
         is_outer: true,
         vertex_ids: vec![],
         circle: None,
         spline_segments: vec![],
     };
     let mut positions = HashMap::new();
-    positions.insert(1, (0.0, 0.0));
-    positions.insert(2, (2.0, 0.0));
-    positions.insert(3, (2.0, 3.0));
-    positions.insert(4, (0.0, 3.0));
+    positions.insert(PointId(1), (0.0, 0.0));
+    positions.insert(PointId(2), (2.0, 0.0));
+    positions.insert(PointId(3), (2.0, 3.0));
+    positions.insert(PointId(4), (0.0, 3.0));
 
     let face_ids = kernel
         .make_faces_from_profiles(

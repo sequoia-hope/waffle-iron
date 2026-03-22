@@ -1,0 +1,128 @@
+{
+  "id": "00000000-0000-0000-0000-000000000000",
+  "plane": {
+    "kind": {
+      "type": "Face"
+    },
+    "anchor": {
+      "type": "Datum",
+      "datum_id": "00000000-0000-0000-0000-000000000000"
+    },
+    "selector": {
+      "type": "Role",
+      "role": {
+        "type": "ProfileFace"
+      },
+      "index": 0
+    },
+    "policy": {
+      "type": "Strict"
+    }
+  },
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "entities": [
+    {
+      "type": "Point",
+      "id": 1,
+      "x": 0.0,
+      "y": 0.0,
+      "construction": false
+    },
+    {
+      "type": "Point",
+      "id": 2,
+      "x": 100.0,
+      "y": 0.0,
+      "construction": false
+    },
+    {
+      "type": "Point",
+      "id": 3,
+      "x": 100.0,
+      "y": 50.0,
+      "construction": false
+    },
+    {
+      "type": "Point",
+      "id": 4,
+      "x": 0.0,
+      "y": 50.0,
+      "construction": false
+    },
+    {
+      "type": "Line",
+      "id": 10,
+      "start_id": 1,
+      "end_id": 2,
+      "construction": false
+    },
+    {
+      "type": "Line",
+      "id": 11,
+      "start_id": 2,
+      "end_id": 3,
+      "construction": false
+    },
+    {
+      "type": "Line",
+      "id": 12,
+      "start_id": 3,
+      "end_id": 4,
+      "construction": false
+    },
+    {
+      "type": "Line",
+      "id": 13,
+      "start_id": 4,
+      "end_id": 1,
+      "construction": false
+    }
+  ],
+  "constraints": [
+    {
+      "type": "Horizontal",
+      "entity": 10
+    },
+    {
+      "type": "Horizontal",
+      "entity": 12
+    },
+    {
+      "type": "Vertical",
+      "entity": 11
+    },
+    {
+      "type": "Vertical",
+      "entity": 13
+    },
+    {
+      "type": "Distance",
+      "entity_a": 1,
+      "entity_b": 2,
+      "value": 100.0
+    },
+    {
+      "type": "Distance",
+      "entity_a": 2,
+      "entity_b": 3,
+      "value": 50.0
+    },
+    {
+      "type": "Dragged",
+      "point": 1
+    }
+  ],
+  "solve_status": {
+    "type": "UnderConstrained",
+    "dof": 99
+  }
+}

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::sketch::{CircleProfile, ClosedProfile, SketchEntity};
+use crate::sketch::{CircleProfile, ClosedProfile, EntityId, PointId, SketchEntity};
 
 /// Extract closed profiles from solved sketch geometry.
 ///
@@ -13,7 +13,7 @@ use crate::sketch::{CircleProfile, ClosedProfile, SketchEntity};
 /// 5. Discard the unbounded outer face
 pub fn extract_profiles(
     entities: &[SketchEntity],
-    positions: &HashMap<u32, (f64, f64)>,
+    positions: &HashMap<PointId, (f64, f64)>,
 ) -> Vec<ClosedProfile> {
     let mut profiles = Vec::new();
 
@@ -34,7 +34,7 @@ pub fn extract_profiles(
                     radius: *radius,
                 });
                 profiles.push(ClosedProfile {
-                    entity_ids: vec![*id],
+                    entity_ids: vec![EntityId::from(*id)],
                     is_outer: true,
                     vertex_ids: vec![],
                     circle: circle_data,
@@ -56,15 +56,16 @@ pub fn extract_profiles(
                 construction,
             } => {
                 if !construction {
+                    let eid = EntityId::from(*id);
                     edges.push(DirectedEdge {
                         from: *start_id,
                         to: *end_id,
-                        entity_id: *id,
+                        entity_id: eid,
                     });
                     edges.push(DirectedEdge {
                         from: *end_id,
                         to: *start_id,
-                        entity_id: *id,
+                        entity_id: eid,
                     });
                 }
             }
@@ -76,15 +77,16 @@ pub fn extract_profiles(
                 ..
             } => {
                 if !construction {
+                    let eid = EntityId::from(*id);
                     edges.push(DirectedEdge {
                         from: *start_id,
                         to: *end_id,
-                        entity_id: *id,
+                        entity_id: eid,
                     });
                     edges.push(DirectedEdge {
                         from: *end_id,
                         to: *start_id,
-                        entity_id: *id,
+                        entity_id: eid,
                     });
                 }
             }
@@ -97,7 +99,7 @@ pub fn extract_profiles(
     }
 
     // Build adjacency: for each vertex, list outgoing edges sorted by angle
-    let mut adjacency: HashMap<u32, Vec<DirectedEdge>> = HashMap::new();
+    let mut adjacency: HashMap<PointId, Vec<DirectedEdge>> = HashMap::new();
     for edge in &edges {
         adjacency.entry(edge.from).or_default().push(edge.clone());
     }
@@ -118,7 +120,7 @@ pub fn extract_profiles(
     }
 
     // Track which directed edges have been used
-    let mut used: HashMap<(u32, u32, u32), bool> = HashMap::new();
+    let mut used: HashMap<(PointId, PointId, EntityId), bool> = HashMap::new();
     for edge in &edges {
         used.insert((edge.from, edge.to, edge.entity_id), false);
     }
@@ -130,8 +132,8 @@ pub fn extract_profiles(
             continue;
         }
 
-        let mut face_edges: Vec<u32> = Vec::new();
-        let mut face_vertices: Vec<u32> = Vec::new();
+        let mut face_edges: Vec<EntityId> = Vec::new();
+        let mut face_vertices: Vec<PointId> = Vec::new();
         let mut current = edge.clone();
 
         loop {
@@ -197,7 +199,7 @@ pub fn extract_profiles(
             // Skip standalone circles
             if profile.entity_ids.len() == 1 {
                 let is_circle = entities.iter().any(|e| {
-                    matches!(e, SketchEntity::Circle { id, .. } if *id == profile.entity_ids[0])
+                    matches!(e, SketchEntity::Circle { id, .. } if EntityId::from(*id) == profile.entity_ids[0])
                 });
                 if is_circle {
                     continue;
@@ -222,15 +224,15 @@ pub fn extract_profiles(
 
 #[derive(Debug, Clone)]
 struct DirectedEdge {
-    from: u32,
-    to: u32,
-    entity_id: u32,
+    from: PointId,
+    to: PointId,
+    entity_id: EntityId,
 }
 
 /// Compute the departure angle of a directed edge from a vertex.
 fn departure_angle(
     from_pos: (f64, f64),
-    positions: &HashMap<u32, (f64, f64)>,
+    positions: &HashMap<PointId, (f64, f64)>,
     edge: &DirectedEdge,
 ) -> f64 {
     let to_pos = positions.get(&edge.to).copied().unwrap_or((0.0, 0.0));
@@ -244,9 +246,9 @@ fn departure_angle(
 /// immediately after the reverse of `current` (i.e., after the direction
 /// from current.to back to current.from) when sorted counter-clockwise.
 fn next_half_edge(
-    adjacency: &HashMap<u32, Vec<DirectedEdge>>,
+    adjacency: &HashMap<PointId, Vec<DirectedEdge>>,
     current: &DirectedEdge,
-    positions: &HashMap<u32, (f64, f64)>,
+    positions: &HashMap<PointId, (f64, f64)>,
 ) -> Option<DirectedEdge> {
     let out_edges = adjacency.get(&current.to)?;
     if out_edges.is_empty() {
@@ -293,7 +295,7 @@ fn next_half_edge(
 
 /// Compute signed area of a polygon from vertex IDs using the shoelace formula.
 /// Positive = CCW (outer), Negative = CW (hole).
-fn compute_signed_area(vertices: &[u32], positions: &HashMap<u32, (f64, f64)>) -> f64 {
+fn compute_signed_area(vertices: &[PointId], positions: &HashMap<PointId, (f64, f64)>) -> f64 {
     if vertices.len() < 3 {
         return 0.0;
     }
@@ -312,18 +314,18 @@ fn compute_signed_area(vertices: &[u32], positions: &HashMap<u32, (f64, f64)>) -
 fn compute_profile_area(
     profile: &ClosedProfile,
     entities: &[SketchEntity],
-    positions: &HashMap<u32, (f64, f64)>,
+    positions: &HashMap<PointId, (f64, f64)>,
 ) -> f64 {
     // Collect the ordered vertex IDs by walking the profile's entity chain
     let mut vertices = Vec::new();
     for entity_id in &profile.entity_ids {
         for entity in entities {
             match entity {
-                SketchEntity::Line { id, start_id, .. } if *id == *entity_id => {
+                SketchEntity::Line { id, start_id, .. } if EntityId::from(*id) == *entity_id => {
                     vertices.push(*start_id);
                     break;
                 }
-                SketchEntity::Arc { id, start_id, .. } if *id == *entity_id => {
+                SketchEntity::Arc { id, start_id, .. } if EntityId::from(*id) == *entity_id => {
                     vertices.push(*start_id);
                     break;
                 }

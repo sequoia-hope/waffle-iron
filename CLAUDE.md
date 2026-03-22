@@ -135,7 +135,7 @@ After any Rust crate changes that affect the WASM bridge:
 
 1. Build with nightly + build-std (required for panic=unwind on WASM):
    ```
-   cargo +nightly build -p wasm-bridge --target wasm32-unknown-unknown --release --no-default-features -Zbuild-std
+   cargo +nightly build -p wasm-bridge --target wasm32-unknown-unknown --release -Zbuild-std
    ```
 2. Generate JS bindings:
    ```

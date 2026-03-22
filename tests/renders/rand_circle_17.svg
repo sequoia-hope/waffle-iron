@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-66.96 -22.35 87.19 87.19" width="174" height="174">
+<rect x="-66.95602548674779" y="-22.34694630120694" width="87.1868257098238" height="87.1868257098238" fill="white"/>
+<g class="grid-minor" stroke="#e0e0e0" stroke-width="0.3">
+<line x1="-70.00" y1="-22.35" x2="-70.00" y2="64.84"/>
+<line x1="-60.00" y1="-22.35" x2="-60.00" y2="64.84"/>
+<line x1="-50.00" y1="-22.35" x2="-50.00" y2="64.84"/>
+<line x1="-40.00" y1="-22.35" x2="-40.00" y2="64.84"/>
+<line x1="-30.00" y1="-22.35" x2="-30.00" y2="64.84"/>
+<line x1="-20.00" y1="-22.35" x2="-20.00" y2="64.84"/>
+<line x1="-10.00" y1="-22.35" x2="-10.00" y2="64.84"/>
+<line x1="0.00" y1="-22.35" x2="0.00" y2="64.84"/>
+<line x1="10.00" y1="-22.35" x2="10.00" y2="64.84"/>
+<line x1="20.00" y1="-22.35" x2="20.00" y2="64.84"/>
+<line x1="-66.96" y1="-30.00" x2="20.23" y2="-30.00"/>
+<line x1="-66.96" y1="-20.00" x2="20.23" y2="-20.00"/>
+<line x1="-66.96" y1="-10.00" x2="20.23" y2="-10.00"/>
+<line x1="-66.96" y1="0.00" x2="20.23" y2="0.00"/>
+<line x1="-66.96" y1="10.00" x2="20.23" y2="10.00"/>
+<line x1="-66.96" y1="20.00" x2="20.23" y2="20.00"/>
+<line x1="-66.96" y1="30.00" x2="20.23" y2="30.00"/>
+<line x1="-66.96" y1="40.00" x2="20.23" y2="40.00"/>
+<line x1="-66.96" y1="50.00" x2="20.23" y2="50.00"/>
+<line x1="-66.96" y1="60.00" x2="20.23" y2="60.00"/>
+</g>
+<g class="grid-major" stroke="#c0c0c0" stroke-width="0.6">
+<line x1="-100.00" y1="-22.35" x2="-100.00" y2="64.84"/>
+<line x1="0.00" y1="-22.35" x2="0.00" y2="64.84"/>
+<line x1="-66.96" y1="-100.00" x2="20.23" y2="-100.00"/>
+<line x1="-66.96" y1="0.00" x2="20.23" y2="0.00"/>
+</g>
+<path d="M-54.5008,21.2465 A31.1382,31.1382 0 1,1 7.7755,21.2465 A31.1382,31.1382 0 1,1 -54.5008,21.2465 Z" fill="#E3F2FD" fill-opacity="0.5" fill-rule="evenodd" stroke="none"/>
+<g class="entities">
+<circle cx="-23.3626" cy="21.2465" r="2" fill="#4CAF50"/>
+<circle cx="-23.3626" cy="21.2465" r="31.1382" stroke="#2196F3" stroke-width="1.5" fill="none"/>
+</g>
+<g class="badges" font-family="sans-serif" font-size="4">
+<rect x="-28.86" y="15.25" width="17.0" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="-20.36" y="19.25" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">R31.1</text>
+</g>
+<rect x="-59.80" y="-15.35" width="50.6" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="-34.50" y="-11.35" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">Fully Constrained</text>
+</svg>

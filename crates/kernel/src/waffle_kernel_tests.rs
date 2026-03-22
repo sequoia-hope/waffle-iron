@@ -20,18 +20,18 @@ fn make_rect_profile(
     cy: f64,
     w: f64,
     h: f64,
-) -> (Vec<ClosedProfile>, HashMap<u32, (f64, f64)>) {
+) -> (Vec<ClosedProfile>, HashMap<PointId, (f64, f64)>) {
     // 4 corners CCW: bottom-left, bottom-right, top-right, top-left
     let mut positions = HashMap::new();
-    positions.insert(1, (cx - w / 2.0, cy - h / 2.0));
-    positions.insert(2, (cx + w / 2.0, cy - h / 2.0));
-    positions.insert(3, (cx + w / 2.0, cy + h / 2.0));
-    positions.insert(4, (cx - w / 2.0, cy + h / 2.0));
+    positions.insert(PointId(1), (cx - w / 2.0, cy - h / 2.0));
+    positions.insert(PointId(2), (cx + w / 2.0, cy - h / 2.0));
+    positions.insert(PointId(3), (cx + w / 2.0, cy + h / 2.0));
+    positions.insert(PointId(4), (cx - w / 2.0, cy + h / 2.0));
 
     let profile = ClosedProfile {
-        entity_ids: vec![10, 11, 12, 13],
+        entity_ids: vec![EntityId(10), EntityId(11), EntityId(12), EntityId(13)],
         is_outer: true,
-        vertex_ids: vec![],
+        vertex_ids: vec![PointId(1), PointId(2), PointId(3), PointId(4)],
         circle: None,
         spline_segments: vec![],
     };
@@ -554,12 +554,12 @@ fn make_circle_profile(
     cx: f64,
     cy: f64,
     r: f64,
-) -> (Vec<ClosedProfile>, HashMap<u32, (f64, f64)>) {
+) -> (Vec<ClosedProfile>, HashMap<PointId, (f64, f64)>) {
     let mut positions = HashMap::new();
-    positions.insert(1, (cx, cy));
+    positions.insert(PointId(1), (cx, cy));
 
     let profile = ClosedProfile {
-        entity_ids: vec![1],
+        entity_ids: vec![EntityId(1)],
         is_outer: true,
         vertex_ids: vec![],
         circle: Some(CircleProfile {
@@ -2362,15 +2362,15 @@ fn vid1_vertex_ids_ordering_respected() {
     // The kernel should use this order, not sorted [1,2,3,4]
     let mut k = WaffleKernel::new();
     let mut positions = HashMap::new();
-    positions.insert(1, (0.0, 0.0));
-    positions.insert(2, (10.0, 0.0));
-    positions.insert(3, (10.0, 10.0));
-    positions.insert(4, (0.0, 10.0));
+    positions.insert(PointId(1), (0.0, 0.0));
+    positions.insert(PointId(2), (10.0, 0.0));
+    positions.insert(PointId(3), (10.0, 10.0));
+    positions.insert(PointId(4), (0.0, 10.0));
 
     let profile = ClosedProfile {
         entity_ids: vec![],
         is_outer: true,
-        vertex_ids: vec![4, 3, 2, 1], // Reversed order
+        vertex_ids: vec![PointId(4), PointId(3), PointId(2), PointId(1)], // Reversed order
         circle: None,
         spline_segments: vec![],
     };
@@ -2395,15 +2395,15 @@ fn vid2_vertex_ids_preferred_over_entity_ids() {
     // The kernel should use vertex_ids successfully
     let mut k = WaffleKernel::new();
     let mut positions = HashMap::new();
-    positions.insert(1, (0.0, 0.0));
-    positions.insert(2, (10.0, 0.0));
-    positions.insert(3, (10.0, 10.0));
-    positions.insert(4, (0.0, 10.0));
+    positions.insert(PointId(1), (0.0, 0.0));
+    positions.insert(PointId(2), (10.0, 0.0));
+    positions.insert(PointId(3), (10.0, 10.0));
+    positions.insert(PointId(4), (0.0, 10.0));
 
     let profile = ClosedProfile {
-        entity_ids: vec![10, 11, 12, 13], // Not in positions
+        entity_ids: vec![EntityId(10), EntityId(11), EntityId(12), EntityId(13)], // Not in positions
         is_outer: true,
-        vertex_ids: vec![1, 2, 3, 4], // Valid point IDs
+        vertex_ids: vec![PointId(1), PointId(2), PointId(3), PointId(4)], // Valid point IDs
         circle: None,
         spline_segments: vec![],
     };
@@ -2421,15 +2421,15 @@ fn vid3_vertex_ids_skipped_when_ids_missing() {
     // Should fall back to entity_ids or sorted keys
     let mut k = WaffleKernel::new();
     let mut positions = HashMap::new();
-    positions.insert(1, (0.0, 0.0));
-    positions.insert(2, (10.0, 0.0));
-    positions.insert(3, (10.0, 10.0));
-    positions.insert(4, (0.0, 10.0));
+    positions.insert(PointId(1), (0.0, 0.0));
+    positions.insert(PointId(2), (10.0, 0.0));
+    positions.insert(PointId(3), (10.0, 10.0));
+    positions.insert(PointId(4), (0.0, 10.0));
 
     let profile = ClosedProfile {
-        entity_ids: vec![1, 2, 3, 4], // Valid as fallback
+        entity_ids: vec![EntityId(1), EntityId(2), EntityId(3), EntityId(4)], // Valid as fallback
         is_outer: true,
-        vertex_ids: vec![1, 2, 3, 99], // 99 not in positions
+        vertex_ids: vec![PointId(1), PointId(2), PointId(3), PointId(99)], // 99 not in positions
         circle: None,
         spline_segments: vec![],
     };
@@ -2695,7 +2695,7 @@ fn make_gear_profile(
     cy: f64,
     teeth: u32,
     module_val: f64,
-) -> (Vec<ClosedProfile>, HashMap<u32, (f64, f64)>) {
+) -> (Vec<ClosedProfile>, HashMap<PointId, (f64, f64)>) {
     use std::f64::consts::PI;
 
     let pitch_radius = (teeth as f64) * module_val / 2.0;
@@ -2706,7 +2706,7 @@ fn make_gear_profile(
     let root_half_angle = 0.15 * tooth_angle;
 
     let mut positions = HashMap::new();
-    let mut vertex_ids = Vec::new();
+    let mut vertex_ids: Vec<PointId> = Vec::new();
     let mut next_id = 1u32;
 
     for t in 0..teeth {
@@ -2716,29 +2716,29 @@ fn make_gear_profile(
         let root_left_angle = base_angle + root_half_angle;
         let rl_x = cx + dedendum_radius * root_left_angle.cos();
         let rl_y = cy + dedendum_radius * root_left_angle.sin();
-        positions.insert(next_id, (rl_x, rl_y));
-        vertex_ids.push(next_id);
+        positions.insert(PointId(next_id), (rl_x, rl_y));
+        vertex_ids.push(PointId(next_id));
         next_id += 1;
 
         let tip_left_angle = tooth_center_angle - tip_half_angle;
         let tl_x = cx + addendum_radius * tip_left_angle.cos();
         let tl_y = cy + addendum_radius * tip_left_angle.sin();
-        positions.insert(next_id, (tl_x, tl_y));
-        vertex_ids.push(next_id);
+        positions.insert(PointId(next_id), (tl_x, tl_y));
+        vertex_ids.push(PointId(next_id));
         next_id += 1;
 
         let tip_right_angle = tooth_center_angle + tip_half_angle;
         let tr_x = cx + addendum_radius * tip_right_angle.cos();
         let tr_y = cy + addendum_radius * tip_right_angle.sin();
-        positions.insert(next_id, (tr_x, tr_y));
-        vertex_ids.push(next_id);
+        positions.insert(PointId(next_id), (tr_x, tr_y));
+        vertex_ids.push(PointId(next_id));
         next_id += 1;
 
         let root_right_angle = (t as f64 + 1.0) * tooth_angle - root_half_angle;
         let rr_x = cx + dedendum_radius * root_right_angle.cos();
         let rr_y = cy + dedendum_radius * root_right_angle.sin();
-        positions.insert(next_id, (rr_x, rr_y));
-        vertex_ids.push(next_id);
+        positions.insert(PointId(next_id), (rr_x, rr_y));
+        vertex_ids.push(PointId(next_id));
         next_id += 1;
     }
 
@@ -4158,14 +4158,14 @@ fn r_f0001_exact_feature_engine_path() {
 
     // Both use vertex_ids = [1,2,3,4] with positions from waffle file
     let mut positions = HashMap::new();
-    positions.insert(1, (-0.25, -0.25));
-    positions.insert(2, (0.25, -0.25));
-    positions.insert(3, (0.25, 0.25));
-    positions.insert(4, (-0.25, 0.25));
+    positions.insert(PointId(1), (-0.25, -0.25));
+    positions.insert(PointId(2), (0.25, -0.25));
+    positions.insert(PointId(3), (0.25, 0.25));
+    positions.insert(PointId(4), (-0.25, 0.25));
     let profile = ClosedProfile {
-        entity_ids: vec![1, 2, 3, 4],
+        entity_ids: vec![EntityId(1), EntityId(2), EntityId(3), EntityId(4)],
         is_outer: true,
-        vertex_ids: vec![1, 2, 3, 4],
+        vertex_ids: vec![PointId(1), PointId(2), PointId(3), PointId(4)],
         circle: None,
         spline_segments: vec![],
     };
@@ -5175,11 +5175,11 @@ fn make_revolve_triangle(
 ) -> (WaffleKernel, KernelSolidHandle) {
     let mut k = WaffleKernel::new();
     let mut positions = HashMap::new();
-    positions.insert(1, (x1, y1));
-    positions.insert(2, (x2, y2));
-    positions.insert(3, (x3, y3));
+    positions.insert(PointId(1), (x1, y1));
+    positions.insert(PointId(2), (x2, y2));
+    positions.insert(PointId(3), (x3, y3));
     let profile = ClosedProfile {
-        entity_ids: vec![10, 11, 12],
+        entity_ids: vec![EntityId(10), EntityId(11), EntityId(12)],
         is_outer: true,
         vertex_ids: vec![],
         circle: None,

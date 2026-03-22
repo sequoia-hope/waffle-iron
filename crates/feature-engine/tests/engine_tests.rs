@@ -8,10 +8,10 @@ use waffle_types::*;
 /// Includes solved positions and a closed profile for the rectangle.
 fn make_sketch_op() -> Operation {
     let mut solved_positions = std::collections::HashMap::new();
-    solved_positions.insert(1, (0.0, 0.0));
-    solved_positions.insert(2, (1.0, 0.0));
-    solved_positions.insert(3, (1.0, 1.0));
-    solved_positions.insert(4, (0.0, 1.0));
+    solved_positions.insert(PointId(1), (0.0, 0.0));
+    solved_positions.insert(PointId(2), (1.0, 0.0));
+    solved_positions.insert(PointId(3), (1.0, 1.0));
+    solved_positions.insert(PointId(4), (0.0, 1.0));
 
     let sketch = Sketch {
         id: Uuid::new_v4(),
@@ -30,25 +30,25 @@ fn make_sketch_op() -> Operation {
         plane_normal: [0.0, 0.0, 1.0],
         entities: vec![
             SketchEntity::Point {
-                id: 1,
+                id: PointId(1),
                 x: 0.0,
                 y: 0.0,
                 construction: false,
             },
             SketchEntity::Point {
-                id: 2,
+                id: PointId(2),
                 x: 1.0,
                 y: 0.0,
                 construction: false,
             },
             SketchEntity::Point {
-                id: 3,
+                id: PointId(3),
                 x: 1.0,
                 y: 1.0,
                 construction: false,
             },
             SketchEntity::Point {
-                id: 4,
+                id: PointId(4),
                 x: 0.0,
                 y: 1.0,
                 construction: false,
@@ -58,7 +58,7 @@ fn make_sketch_op() -> Operation {
         solve_status: SolveStatus::FullyConstrained,
         solved_positions,
         solved_profiles: vec![ClosedProfile {
-            entity_ids: vec![1, 2, 3, 4],
+            entity_ids: vec![EntityId(1), EntityId(2), EntityId(3), EntityId(4)],
             is_outer: true,
             vertex_ids: vec![],
             circle: None,

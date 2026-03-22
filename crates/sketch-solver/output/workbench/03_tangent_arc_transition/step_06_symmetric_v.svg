@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-20.00 -72.00 140.00 84.00" width="280" height="168">
+<rect x="-20.000000000047955" y="-72.00000000000144" width="140.00000000002933" height="84.00000000000998" fill="white"/>
+<g class="grid-minor" stroke="#e0e0e0" stroke-width="0.3">
+<line x1="-30.00" y1="-72.00" x2="-30.00" y2="12.00"/>
+<line x1="-20.00" y1="-72.00" x2="-20.00" y2="12.00"/>
+<line x1="-10.00" y1="-72.00" x2="-10.00" y2="12.00"/>
+<line x1="0.00" y1="-72.00" x2="0.00" y2="12.00"/>
+<line x1="10.00" y1="-72.00" x2="10.00" y2="12.00"/>
+<line x1="20.00" y1="-72.00" x2="20.00" y2="12.00"/>
+<line x1="30.00" y1="-72.00" x2="30.00" y2="12.00"/>
+<line x1="40.00" y1="-72.00" x2="40.00" y2="12.00"/>
+<line x1="50.00" y1="-72.00" x2="50.00" y2="12.00"/>
+<line x1="60.00" y1="-72.00" x2="60.00" y2="12.00"/>
+<line x1="70.00" y1="-72.00" x2="70.00" y2="12.00"/>
+<line x1="80.00" y1="-72.00" x2="80.00" y2="12.00"/>
+<line x1="90.00" y1="-72.00" x2="90.00" y2="12.00"/>
+<line x1="100.00" y1="-72.00" x2="100.00" y2="12.00"/>
+<line x1="110.00" y1="-72.00" x2="110.00" y2="12.00"/>
+<line x1="-20.00" y1="-80.00" x2="120.00" y2="-80.00"/>
+<line x1="-20.00" y1="-70.00" x2="120.00" y2="-70.00"/>
+<line x1="-20.00" y1="-60.00" x2="120.00" y2="-60.00"/>
+<line x1="-20.00" y1="-50.00" x2="120.00" y2="-50.00"/>
+<line x1="-20.00" y1="-40.00" x2="120.00" y2="-40.00"/>
+<line x1="-20.00" y1="-30.00" x2="120.00" y2="-30.00"/>
+<line x1="-20.00" y1="-20.00" x2="120.00" y2="-20.00"/>
+<line x1="-20.00" y1="-10.00" x2="120.00" y2="-10.00"/>
+<line x1="-20.00" y1="0.00" x2="120.00" y2="0.00"/>
+<line x1="-20.00" y1="10.00" x2="120.00" y2="10.00"/>
+</g>
+<g class="grid-major" stroke="#c0c0c0" stroke-width="0.6">
+<line x1="-100.00" y1="-72.00" x2="-100.00" y2="12.00"/>
+<line x1="0.00" y1="-72.00" x2="0.00" y2="12.00"/>
+<line x1="100.00" y1="-72.00" x2="100.00" y2="12.00"/>
+<line x1="-20.00" y1="-100.00" x2="120.00" y2="-100.00"/>
+<line x1="-20.00" y1="0.00" x2="120.00" y2="0.00"/>
+</g>
+<path d="M100.0000,-0.0000 L64.9790,-39.7315 A20.0000,20.0000 0 0,0 35.1198,-39.6441 Z" fill="#E3F2FD" fill-opacity="0.5" fill-rule="evenodd" stroke="none"/>
+<g class="entities">
+<circle cx="-0.0000" cy="0.0000" r="2" fill="#FF9800"/>
+<circle cx="50.0000" cy="-60.0000" r="2" fill="#FF9800"/>
+<circle cx="100.0000" cy="-0.0000" r="2" fill="#FF9800"/>
+<circle cx="35.1198" cy="-39.6441" r="2" fill="#FF9800"/>
+<circle cx="64.9790" cy="-39.7315" r="2" fill="#FF9800"/>
+<circle cx="50.0878" cy="-26.3793" r="2" fill="#FF9800"/>
+<line x1="-0.0000" y1="0.0000" x2="35.1198" y2="-39.6441" stroke="#2196F3" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="64.9790" y1="-39.7315" x2="100.0000" y2="-0.0000" stroke="#2196F3" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M35.1198,-39.6441 A20.0000,20.0000 0 0,1 64.9790,-39.7315" stroke="#2196F3" stroke-width="1.5" fill="none"/>
+</g>
+<g class="badges" font-family="sans-serif" font-size="4">
+<rect x="30.92" y="-29.10" width="5.8" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="33.82" y="-25.10" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">T</text>
+<rect x="63.39" y="-29.12" width="5.8" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="66.29" y="-25.12" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">T</text>
+<rect x="44.59" y="-32.38" width="17.0" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="53.09" y="-28.38" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">R20.0</text>
+<rect x="14.66" y="-25.82" width="5.8" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="17.56" y="-21.82" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">=</text>
+<rect x="79.59" y="-25.87" width="5.8" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="82.49" y="-21.87" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">=</text>
+</g>
+<rect x="0.30" y="-65.00" width="39.4" height="5.0" rx="1" fill="#FFFFFF" stroke="#333333" stroke-width="0.3" opacity="0.9"/>
+<text x="20.00" y="-61.00" text-anchor="middle" fill="#333333" font-family="sans-serif" font-size="4">Under (4 DOF)</text>
+</svg>

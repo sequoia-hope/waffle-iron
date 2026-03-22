@@ -176,10 +176,10 @@ mod tests {
     fn make_test_sketch() -> Sketch {
         let sketch_id = Uuid::new_v4();
         let mut positions = HashMap::new();
-        positions.insert(1, (5.0, 10.0));
-        positions.insert(2, (15.0, 10.0));
-        positions.insert(3, (15.0, 20.0));
-        positions.insert(4, (5.0, 20.0));
+        positions.insert(PointId(1), (5.0, 10.0));
+        positions.insert(PointId(2), (15.0, 10.0));
+        positions.insert(PointId(3), (15.0, 20.0));
+        positions.insert(PointId(4), (5.0, 20.0));
 
         Sketch {
             id: sketch_id,
@@ -188,44 +188,44 @@ mod tests {
             plane_normal: [0.0, 0.0, 1.0],
             entities: vec![
                 SketchEntity::Point {
-                    id: 1,
+                    id: PointId(1),
                     x: 5.0,
                     y: 10.0,
                     construction: false,
                 },
                 SketchEntity::Point {
-                    id: 2,
+                    id: PointId(2),
                     x: 15.0,
                     y: 10.0,
                     construction: false,
                 },
                 SketchEntity::Circle {
-                    id: 10,
-                    center_id: 1,
+                    id: CircleId(10),
+                    center_id: PointId(1),
                     radius: 5.0,
                     construction: false,
                 },
             ],
             constraints: vec![
                 SketchConstraint::Distance {
-                    entity_a: 1,
-                    entity_b: 2,
+                    entity_a: EntityId(1),
+                    entity_b: EntityId(2),
                     value: 10.0,
                 },
                 SketchConstraint::Radius {
-                    entity: 10,
+                    entity: EntityId(10),
                     value: 5.0,
                 },
                 SketchConstraint::Angle {
-                    line_a: 1,
-                    line_b: 2,
+                    line_a: EntityId(1),
+                    line_b: EntityId(2),
                     value_degrees: 45.0,
                 },
             ],
             solve_status: SolveStatus::FullyConstrained,
             solved_positions: positions,
             solved_profiles: vec![ClosedProfile {
-                entity_ids: vec![1, 2, 3, 4],
+                entity_ids: vec![EntityId(1), EntityId(2), EntityId(3), EntityId(4)],
                 is_outer: true,
                 vertex_ids: vec![],
                 circle: Some(CircleProfile {
@@ -304,7 +304,7 @@ mod tests {
             }
 
             // Solved positions scaled
-            let pos = sketch.solved_positions.get(&1).unwrap();
+            let pos = sketch.solved_positions.get(&PointId(1)).unwrap();
             assert!(
                 (pos.0 - 0.005).abs() < 1e-10,
                 "solved pos x: expected 0.005, got {}",
