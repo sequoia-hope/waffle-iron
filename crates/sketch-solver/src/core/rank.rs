@@ -27,11 +27,14 @@ pub struct RankAnalysis {
 ///
 /// - `jacobian_scaled`: the D_row-scaled, un-augmented Jacobian
 /// - `residual_scaled`: the scaled residual vector
-/// - `tolerance`: singular value threshold (values below this are "zero")
+/// - `conflict_tolerance`: threshold for detecting conflicting constraints.
+///   Rows with residual above this in the left null space are flagged.
+///   The singular-value rank cutoff is computed independently as
+///   `max(m,n) * EPSILON * sigma_max`.
 pub fn analyze_rank(
     jacobian_scaled: &DMatrix<f64>,
     residual_scaled: &DVector<f64>,
-    tolerance: f64,
+    conflict_tolerance: f64,
 ) -> RankAnalysis {
     let (nrows, ncols) = jacobian_scaled.shape();
 
@@ -82,7 +85,7 @@ pub fn analyze_rank(
         let u_k = u.column(k);
         let r_k = u_k.dot(residual_scaled);
 
-        if r_k.abs() > tolerance {
+        if r_k.abs() > conflict_tolerance {
             for j in 0..nrows {
                 if u_k[j].abs() > 0.01 {
                     conflicting_rows.insert(j);

@@ -22,13 +22,15 @@ pub fn lm_solve<C: ConstraintEq>(
     constraints: &[C],
     eq_scale_types: &[ScaleType],
     num_equations: usize,
+    num_point_params: usize,
     options: &SolveOptions,
 ) -> SolveOutcome {
     let n = x0.len();
     let m = num_equations;
 
     // Phase 1: Static scaling (compute once from x_anchor)
-    let l_c = bbox_diagonal(x_anchor);
+    // Only use point-coordinate params for bbox — radius params would distort the diagonal.
+    let l_c = bbox_diagonal(&x_anchor[..num_point_params]);
     let d_row = build_d_row(eq_scale_types, l_c);
     let mu = options.spring_mu;
     let sqrt_mu = mu.sqrt();
@@ -193,20 +195,14 @@ pub fn lm_solve<C: ConstraintEq>(
             }
         }
 
-        // k) Stuck check — params not moving → at a fixed point of the augmented system.
-        // Check the un-augmented constraint residual to decide convergence:
-        // if constraints are satisfied (f_inf_norm small), mark converged.
-        // If not (e.g. coincident points 5e-6 apart), don't claim convergence.
-        // k) Stuck check — params not moving → at a fixed point of the augmented system.
-        // Mark as converged. Under-constrained systems with springs settle to an
-        // equilibrium where the constraint residual may not be exactly zero (spring
-        // force balances constraint force). This is correct solver behavior.
-        // Over-constrained contradictions are caught by rank analysis (conflicting_rows)
-        // which overrides the convergence flag in classify_solve.
         // k) Fixed-point check: gradient of augmented cost → 0.
         // Unlike delta (which shrinks with large lambda), the gradient is
         // damping-independent and reliably detects genuine fixed points —
-        // both satisfied solutions and contradictory equilibria.
+        // both fully satisfied solutions and spring-supported equilibria in
+        // under-constrained problems where the constraint residual may not be
+        // exactly zero. Over-constrained contradictions are handled later via
+        // rank analysis (conflicting_rows) which can override the convergence
+        // flag in classify_solve.
         if grad_inf_norm < options.tolerance {
             converged = true;
             final_residual_norm = f_inf_norm;

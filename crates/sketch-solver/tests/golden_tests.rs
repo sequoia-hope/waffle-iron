@@ -26,17 +26,29 @@ fn assert_golden(name: &str, sketch: &sketch_solver::Sketch) {
 
     let ref_path = golden_reference_path(name);
     if !ref_path.exists() {
-        // No reference yet — write it and pass (first run)
-        std::fs::write(&ref_path, &svg).unwrap_or_else(|e| {
+        let should_update = std::env::var("UPDATE_GOLDENS")
+            .map(|v| !v.is_empty() && v != "0")
+            .unwrap_or(false);
+
+        if should_update {
+            std::fs::write(&ref_path, &svg).unwrap_or_else(|e| {
+                panic!(
+                    "Golden reference missing and could not write: {}\nError: {}",
+                    ref_path.display(),
+                    e
+                );
+            });
+            return;
+        } else {
             panic!(
-                "Golden reference missing and could not write: {}\n\
-                 Run: cargo run --example regenerate_golden --features render\n\
-                 Error: {}",
+                "Golden reference missing: {}.\n\
+                 Regenerate with:\n\
+                   cargo run --example regenerate_golden --features render\n\
+                 Or re-run tests with:\n\
+                   UPDATE_GOLDENS=1 cargo test --features render --test golden_tests",
                 ref_path.display(),
-                e
             );
-        });
-        return;
+        }
     }
 
     let reference = std::fs::read_to_string(&ref_path).unwrap_or_else(|e| {

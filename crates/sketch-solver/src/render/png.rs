@@ -6,6 +6,9 @@ use std::sync::Arc;
 ///
 /// Uses resvg + usvg + tiny-skia for rasterization. Loads system fonts
 /// so that text elements (constraint badges, status labels) render correctly.
+///
+/// Note: PNG output may vary across machines depending on available fonts.
+/// SVG output is the canonical golden format; PNGs are for convenience only.
 pub fn render_sketch_png(svg_content: &str, width: u32, height: u32) -> Vec<u8> {
     let mut fontdb = usvg::fontdb::Database::new();
     fontdb.load_system_fonts();

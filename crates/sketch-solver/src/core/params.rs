@@ -15,6 +15,7 @@ pub struct ParamLayout {
     radius_indices: HashMap<EntityId, RadiusIdx>,
     arc_points: HashMap<EntityId, (PointId, PointId)>, // arc_id → (center_id, start_id)
     line_points: HashMap<EntityId, (PointId, PointId)>, // line_id → (start_id, end_id)
+    num_point_params: usize,
     num_params: usize,
 }
 
@@ -39,6 +40,8 @@ impl ParamLayout {
                 offset += 2;
             }
         }
+
+        let num_point_params = offset;
 
         for entity in entities {
             if let SketchEntity::Circle { id, .. } = entity {
@@ -74,6 +77,7 @@ impl ParamLayout {
             radius_indices,
             arc_points,
             line_points,
+            num_point_params,
             num_params: offset,
         }
     }
@@ -137,6 +141,12 @@ impl ParamLayout {
 
     pub fn num_params(&self) -> usize {
         self.num_params
+    }
+
+    /// Number of parameters that are point coordinates (x, y pairs).
+    /// Excludes radius parameters — use this for bbox computation.
+    pub fn num_point_params(&self) -> usize {
+        self.num_point_params
     }
 
     /// Get the (center_id, start_id) for an arc entity.

@@ -105,7 +105,7 @@ fn fully_constrained_point() {
         ..Default::default()
     };
 
-    let result = lm_solve(&x0, &x_anchor, &constraints, &eq_scale_types, 2, &options);
+    let result = lm_solve(&x0, &x_anchor, &constraints, &eq_scale_types, 2, x0.len(), &options);
     assert!(result.converged);
     assert!(result.iterations < 5);
     assert!((result.params[0] - 3.0).abs() < 1e-6);
@@ -139,7 +139,7 @@ fn two_points_distance() {
         ..Default::default()
     };
 
-    let result = lm_solve(&x0, &x_anchor, &constraints, &eq_scale_types, 3, &options);
+    let result = lm_solve(&x0, &x_anchor, &constraints, &eq_scale_types, 3, x0.len(), &options);
     assert!(result.converged);
     let dist = (result.params[2].powi(2) + result.params[3].powi(2)).sqrt();
     assert!((dist - 5.0).abs() < 1e-6);
@@ -180,7 +180,7 @@ fn under_constrained_stabilized_by_springs() {
         ..Default::default()
     };
 
-    let result = lm_solve(&x0, &x_anchor, &constraints, &eq_scale_types, 1, &options);
+    let result = lm_solve(&x0, &x_anchor, &constraints, &eq_scale_types, 1, x0.len(), &options);
     assert!(result.converged);
     // x should be near 3.0, but slightly pulled towards 1.0 by the spring (mu=1e-4)
     // Equilibrium: (x-3) + 1e-4(x-1) = 0 => x \approx 3 - 2e-4
@@ -204,7 +204,7 @@ fn cold_start_distant_guess() {
         ..Default::default()
     };
 
-    let result = lm_solve(&x0, &x_anchor, &constraints, &eq_scale_types, 2, &options);
+    let result = lm_solve(&x0, &x_anchor, &constraints, &eq_scale_types, 2, x0.len(), &options);
     assert!(result.converged);
     assert!(result.iterations < 50);
     assert!((result.params[0]).abs() < 1e-6);

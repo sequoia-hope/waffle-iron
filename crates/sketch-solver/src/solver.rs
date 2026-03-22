@@ -65,6 +65,7 @@ pub fn solve_sketch(sketch: &Sketch) -> Result<SolvedSketch, SolveError> {
             &sub_constraints,
             &eq_scale_types,
             num_equations,
+            layout.num_point_params(),
             &options,
         );
 
@@ -76,10 +77,11 @@ pub fn solve_sketch(sketch: &Sketch) -> Result<SolvedSketch, SolveError> {
         // Rank analysis — extract sub-Jacobian with only this subsystem's param columns.
         // The full Jacobian has zero columns for unused params which would inflate DOF.
         let sub_jacobian = extract_columns(&outcome.jacobian_scaled, &subsystem.param_indices);
-        let eq_to_constraint: Vec<usize> = sub_constraints
+        let eq_to_constraint: Vec<usize> = subsystem
+            .constraint_indices
             .iter()
-            .enumerate()
-            .flat_map(|(i, c)| std::iter::repeat_n(i, c.num_equations()))
+            .zip(sub_constraints.iter())
+            .flat_map(|(&global_idx, c)| std::iter::repeat_n(global_idx, c.num_equations()))
             .collect();
         let mut rank = analyze_rank(&sub_jacobian, &outcome.residual_scaled, options.tolerance);
         let refined_dof =
@@ -144,6 +146,7 @@ fn solve_monolithic(
         constraint_impls,
         &eq_scale_types,
         num_equations,
+        layout.num_point_params(),
         &options,
     );
 
@@ -192,8 +195,26 @@ fn worse_status(a: SolveStatus, b: SolveStatus) -> SolveStatus {
     }
     if severity(&b) > severity(&a) {
         b
-    } else {
+    } else if severity(&a) > severity(&b) {
         a
+    } else {
+        // Equal severity — merge information from both
+        match (a, b) {
+            (
+                SolveStatus::OverConstrained { conflicts: mut ca },
+                SolveStatus::OverConstrained { conflicts: cb },
+            ) => {
+                ca.extend(cb);
+                ca.sort_unstable();
+                ca.dedup();
+                SolveStatus::OverConstrained { conflicts: ca }
+            }
+            (
+                SolveStatus::UnderConstrained { dof: da },
+                SolveStatus::UnderConstrained { dof: db },
+            ) => SolveStatus::UnderConstrained { dof: da + db },
+            (a, _) => a,
+        }
     }
 }
 

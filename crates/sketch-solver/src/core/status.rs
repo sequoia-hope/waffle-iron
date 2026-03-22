@@ -8,10 +8,11 @@ use super::types::SolveOutcome;
 /// Classify the solve result into a user-facing SolveStatus.
 ///
 /// Uses convergence from `SolveOutcome` and rank from `RankAnalysis`:
-/// - Converged + rank == num_params → FullyConstrained
-/// - Converged + rank < num_params → UnderConstrained { dof }
-/// - Not converged + conflicting rows → OverConstrained { conflicts }
-/// - Not converged otherwise → SolveFailed
+/// - Converged + large residual (>= 0.1) → SolveFailed (stagnation)
+/// - Converged + conflicting rows → OverConstrained { conflicts }
+/// - Converged + rank == num_params and no conflicts → FullyConstrained
+/// - Converged + rank < num_params and no conflicts → UnderConstrained { dof }
+/// - Not converged → SolveFailed
 ///
 /// `eq_to_constraint`: maps equation row → parent constraint index
 ///   (for reporting which constraints conflict, not which equation rows).
