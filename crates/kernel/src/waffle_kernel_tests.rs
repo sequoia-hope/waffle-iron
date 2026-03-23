@@ -12780,6 +12780,108 @@ fn t7_partial_union_cyl_faces_outward_winding() {
     );
 }
 
+/// T8: Box fully enclosed in cylinder → union = cylinder with side faces.
+/// Reproduces R0067 bug: cylinder (r=0.047) encloses box (0.042×0.042).
+/// Without the fix, the polygon_approx path destroys cylinder side faces.
+#[test]
+fn t8_box_enclosed_in_cyl_union_has_side_faces() {
+    // Cylinder larger than box, same center, cylinder taller
+    let (mut k, handle) = do_box_cyl_boolean(
+        0.0, 0.0, 0.042, 0.042, 0.03,
+        0.0, 0.0, 0.047, 0.04,
+        crate::boolean::BoolOp::Union,
+    )
+    .expect("box-enclosed-in-cyl union should succeed");
+
+    let mesh = k.tessellate(&handle, 0.001).expect("tessellate");
+
+    // Count triangles whose centroid lies on the cylinder surface
+    let cyl_r = 0.047_f64;
+    let mut cyl_side_tris = 0;
+    let n_tris = mesh.indices.len() / 3;
+    for t in 0..n_tris {
+        let [v0, v1, v2] = get_tri_verts(&mesh, t);
+        let centroid = [
+            (v0[0] + v1[0] + v2[0]) / 3.0,
+            (v0[1] + v1[1] + v2[1]) / 3.0,
+            (v0[2] + v1[2] + v2[2]) / 3.0,
+        ];
+        let dist = (centroid[0] * centroid[0] + centroid[1] * centroid[1]).sqrt();
+        if (dist - cyl_r).abs() < cyl_r * 0.05 {
+            cyl_side_tris += 1;
+        }
+    }
+
+    assert!(
+        cyl_side_tris > 0,
+        "T8: union of box-enclosed-in-cyl must have cylinder side-face triangles, got 0",
+    );
+
+    // Volume should be at least cylinder volume (π r² h)
+    let expected_vol = std::f64::consts::PI * cyl_r * cyl_r * 0.04;
+    let vol = mesh_volume(&mesh).abs();
+    assert!(
+        vol >= expected_vol * 0.90,
+        "T8: volume {:.9} should be at least ~{:.9} (cylinder volume)",
+        vol, expected_vol,
+    );
+
+    // Watertight
+    let unpaired = count_unpaired_edges(&mesh);
+    assert_eq!(unpaired, 0, "T8: result must be watertight, got {} unpaired", unpaired);
+}
+
+/// T9: Box-in-cylinder union with Z extension (box boss on cylinder).
+/// Box is XY-enclosed in cylinder but extends 0.03 above cylinder top.
+#[test]
+fn t9_box_boss_on_cyl_union_has_side_faces() {
+    // Cylinder r=0.047, depth=0.03 at origin
+    // Box 0.042×0.042, depth=0.06 at origin (extends 0.03 above cylinder)
+    let (mut k, handle) = do_box_cyl_boolean(
+        0.0, 0.0, 0.042, 0.042, 0.06,
+        0.0, 0.0, 0.047, 0.03,
+        crate::boolean::BoolOp::Union,
+    )
+    .expect("box-boss-on-cyl union should succeed");
+
+    let mesh = k.tessellate(&handle, 0.001).expect("tessellate");
+
+    // Count triangles whose centroid lies on the cylinder surface
+    let cyl_r = 0.047_f64;
+    let mut cyl_side_tris = 0;
+    let n_tris = mesh.indices.len() / 3;
+    for t in 0..n_tris {
+        let [v0, v1, v2] = get_tri_verts(&mesh, t);
+        let centroid = [
+            (v0[0] + v1[0] + v2[0]) / 3.0,
+            (v0[1] + v1[1] + v2[1]) / 3.0,
+            (v0[2] + v1[2] + v2[2]) / 3.0,
+        ];
+        let dist = (centroid[0] * centroid[0] + centroid[1] * centroid[1]).sqrt();
+        if (dist - cyl_r).abs() < cyl_r * 0.05 {
+            cyl_side_tris += 1;
+        }
+    }
+
+    assert!(
+        cyl_side_tris > 0,
+        "T9: union of box-boss-on-cyl must have cylinder side-face triangles, got 0",
+    );
+
+    // Volume should be at least cylinder volume (π r² h)
+    let cyl_vol = std::f64::consts::PI * cyl_r * cyl_r * 0.03;
+    let vol = mesh_volume(&mesh).abs();
+    assert!(
+        vol >= cyl_vol * 0.90,
+        "T9: volume {:.9} should be at least ~{:.9} (cylinder volume)",
+        vol, cyl_vol,
+    );
+
+    // Watertight
+    let unpaired = count_unpaired_edges(&mesh);
+    assert_eq!(unpaired, 0, "T9: result must be watertight, got {} unpaired", unpaired);
+}
+
 /// T6: Winding consistency for partial union.
 #[test]
 fn t6_partial_box_cyl_union_winding_consistent() {

@@ -480,6 +480,29 @@ fn box_cyl_boolean(
             }
         }
         BoolOp::Union => {
+            // Box fully enclosed in cylinder → union = cylinder
+            let box_in_cyl = ssi::box_enclosed_in_cyl(&box_aabb, &cyl_z);
+            let box_z_enclosed = box_aabb.min[2] >= cyl_z_min - TAU_COINCIDENT
+                && box_aabb.max[2] <= cyl_z_max + TAU_COINCIDENT;
+            if box_in_cyl && box_z_enclosed {
+                let mut result = build_cyl_result(&cyl_z, id_alloc)?;
+                rotate_boolean_result(&mut result, &m_inv);
+                return Ok(result);
+            }
+
+            // Box XY-enclosed in cylinder but extends beyond one cap → cyl with box boss
+            if box_in_cyl {
+                let box_extends_above = box_aabb.max[2] > cyl_z_max + TAU_COINCIDENT;
+                let box_extends_below = box_aabb.min[2] < cyl_z_min - TAU_COINCIDENT;
+                if box_extends_above != box_extends_below {
+                    let mut result =
+                        build_cyl_with_box_boss(&box_aabb, &cyl_z, box_extends_above, id_alloc)?;
+                    rotate_boolean_result(&mut result, &m_inv);
+                    return Ok(result);
+                }
+                // Both sides extend: fall through (future work)
+            }
+
             if fully_enclosed {
                 // Cylinder fully inside box → union = box (original frame)
                 clone_solid_as_result(box_solid, id_alloc)
@@ -2818,6 +2841,386 @@ fn build_box_with_cyl_boss(
     result.edge_map.insert(id_alloc(), e_seam);
     result.vertex_map.insert(id_alloc(), v_punch_seam);
     result.vertex_map.insert(id_alloc(), v_end_seam);
+
+    Ok(result)
+}
+
+/// Build a cylinder with a rectangular box boss on one cap.
+///
+/// The box is XY-enclosed in the cylinder but extends beyond one cap in Z.
+/// Result: cylinder side + unpunched cap + annular cap (with rect hole) + 4 box side quads + box end cap = 8 faces.
+fn build_cyl_with_box_boss(
+    aabb: &Aabb,
+    cyl: &CylinderParams,
+    on_top: bool,
+    id_alloc: &mut dyn FnMut() -> u64,
+) -> Result<BooleanResult, KernelError> {
+    let (cyl_z_min, cyl_z_max) = ssi::cyl_z_range(cyl);
+
+    // Start with a clean cylinder B-Rep
+    let mut result = build_cyl_result(cyl, id_alloc)?;
+
+    // Find the cap face to punch (top or bottom of cylinder)
+    let punch_z = if on_top { cyl_z_max } else { cyl_z_min };
+    let mut face_punch = None;
+    for (&fi, geom) in &result.face_geometry {
+        if let SurfaceGeom::Planar(plane) = geom {
+            let matches = if on_top {
+                plane.normal.z > CAP_FACE_NORMAL_Z
+            } else {
+                plane.normal.z < -CAP_FACE_NORMAL_Z
+            };
+            if matches {
+                face_punch = Some(fi);
+            }
+        }
+    }
+    let face_punch = face_punch.ok_or(KernelError::BooleanFailed {
+        reason: "cannot find cylinder cap to punch for box boss".to_string(),
+    })?;
+
+    // Box end Z (the end away from the cylinder)
+    let box_end_z = if on_top { aabb.max[2] } else { aabb.min[2] };
+    let boss_dir: [f64; 3] = if on_top {
+        [0.0, 0.0, 1.0]
+    } else {
+        [0.0, 0.0, -1.0]
+    };
+
+    // Box corner coordinates at punch Z and at boss end Z
+    let bx0 = aabb.min[0];
+    let bx1 = aabb.max[0];
+    let by0 = aabb.min[1];
+    let by1 = aabb.max[1];
+
+    // 4 punch-level vertices (on the cylinder cap plane)
+    let v_p0 = result.arena.add_vertex([bx0, by0, punch_z]);
+    let v_p1 = result.arena.add_vertex([bx1, by0, punch_z]);
+    let v_p2 = result.arena.add_vertex([bx1, by1, punch_z]);
+    let v_p3 = result.arena.add_vertex([bx0, by1, punch_z]);
+
+    // 4 boss-end vertices
+    let v_e0 = result.arena.add_vertex([bx0, by0, box_end_z]);
+    let v_e1 = result.arena.add_vertex([bx1, by0, box_end_z]);
+    let v_e2 = result.arena.add_vertex([bx1, by1, box_end_z]);
+    let v_e3 = result.arena.add_vertex([bx0, by1, box_end_z]);
+
+    // Add rectangular inner loop to the punched cap
+    let inner_loop = result.arena.add_loop(face_punch);
+    result.arena.faces[face_punch.0]
+        .inner_loops
+        .push(inner_loop);
+
+    // 4 edges for the inner rectangle on the punched cap
+    let (e_ip0, he_ip0_a, he_ip0_b) = result.arena.add_edge(); // p0→p1
+    let (e_ip1, he_ip1_a, he_ip1_b) = result.arena.add_edge(); // p1→p2
+    let (e_ip2, he_ip2_a, he_ip2_b) = result.arena.add_edge(); // p2→p3
+    let (e_ip3, he_ip3_a, he_ip3_b) = result.arena.add_edge(); // p3→p0
+
+    // Inner loop winding: for an inner loop (hole), winding is CW from outside.
+    // When on_top (normal +Z), inner loop goes p0→p3→p2→p1 (CW from +Z).
+    // When on_bottom (normal -Z), inner loop goes p0→p1→p2→p3 (CW from -Z = CCW from +Z).
+    if on_top {
+        // CW from +Z: p0→p3→p2→p1
+        result.arena.half_edges[he_ip3_b.0].origin = v_p0;
+        result.arena.half_edges[he_ip3_b.0].next = he_ip2_b;
+        result.arena.half_edges[he_ip3_b.0].prev = he_ip0_b;
+        result.arena.half_edges[he_ip3_b.0].loop_ = inner_loop;
+
+        result.arena.half_edges[he_ip2_b.0].origin = v_p3;
+        result.arena.half_edges[he_ip2_b.0].next = he_ip1_b;
+        result.arena.half_edges[he_ip2_b.0].prev = he_ip3_b;
+        result.arena.half_edges[he_ip2_b.0].loop_ = inner_loop;
+
+        result.arena.half_edges[he_ip1_b.0].origin = v_p2;
+        result.arena.half_edges[he_ip1_b.0].next = he_ip0_b;
+        result.arena.half_edges[he_ip1_b.0].prev = he_ip2_b;
+        result.arena.half_edges[he_ip1_b.0].loop_ = inner_loop;
+
+        result.arena.half_edges[he_ip0_b.0].origin = v_p1;
+        result.arena.half_edges[he_ip0_b.0].next = he_ip3_b;
+        result.arena.half_edges[he_ip0_b.0].prev = he_ip1_b;
+        result.arena.half_edges[he_ip0_b.0].loop_ = inner_loop;
+
+        result.arena.loops[inner_loop.0].half_edge = he_ip3_b;
+    } else {
+        // CW from -Z: p0→p1→p2→p3
+        result.arena.half_edges[he_ip0_a.0].origin = v_p0;
+        result.arena.half_edges[he_ip0_a.0].next = he_ip1_a;
+        result.arena.half_edges[he_ip0_a.0].prev = he_ip3_a;
+        result.arena.half_edges[he_ip0_a.0].loop_ = inner_loop;
+
+        result.arena.half_edges[he_ip1_a.0].origin = v_p1;
+        result.arena.half_edges[he_ip1_a.0].next = he_ip2_a;
+        result.arena.half_edges[he_ip1_a.0].prev = he_ip0_a;
+        result.arena.half_edges[he_ip1_a.0].loop_ = inner_loop;
+
+        result.arena.half_edges[he_ip2_a.0].origin = v_p2;
+        result.arena.half_edges[he_ip2_a.0].next = he_ip3_a;
+        result.arena.half_edges[he_ip2_a.0].prev = he_ip1_a;
+        result.arena.half_edges[he_ip2_a.0].loop_ = inner_loop;
+
+        result.arena.half_edges[he_ip3_a.0].origin = v_p3;
+        result.arena.half_edges[he_ip3_a.0].next = he_ip0_a;
+        result.arena.half_edges[he_ip3_a.0].prev = he_ip2_a;
+        result.arena.half_edges[he_ip3_a.0].loop_ = inner_loop;
+
+        result.arena.loops[inner_loop.0].half_edge = he_ip0_a;
+    }
+
+    // 4 vertical edges connecting punch to end
+    let (e_v0, he_v0_a, he_v0_b) = result.arena.add_edge(); // p0→e0
+    let (e_v1, he_v1_a, he_v1_b) = result.arena.add_edge(); // p1→e1
+    let (e_v2, he_v2_a, he_v2_b) = result.arena.add_edge(); // p2→e2
+    let (e_v3, he_v3_a, he_v3_b) = result.arena.add_edge(); // p3→e3
+
+    // 4 edges for the box end cap
+    let (e_ep0, he_ep0_a, he_ep0_b) = result.arena.add_edge(); // e0→e1
+    let (e_ep1, he_ep1_a, he_ep1_b) = result.arena.add_edge(); // e1→e2
+    let (e_ep2, he_ep2_a, he_ep2_b) = result.arena.add_edge(); // e2→e3
+    let (e_ep3, he_ep3_a, he_ep3_b) = result.arena.add_edge(); // e3→e0
+
+    let shell_idx = ShellIdx(0);
+
+    // 4 box side quad faces
+    // Each quad: punch_i → punch_{i+1} → end_{i+1} → end_i (outward normal)
+    // Side face winding depends on boss direction.
+    // Vertices are ordered so the outward normal points away from the box center.
+
+    // Helper: corner pairs for the 4 sides (CCW order when viewed from +Z)
+    let punch_verts = [v_p0, v_p1, v_p2, v_p3];
+    let end_verts = [v_e0, v_e1, v_e2, v_e3];
+    let inner_he_a = [he_ip0_a, he_ip1_a, he_ip2_a, he_ip3_a];
+    let inner_he_b = [he_ip0_b, he_ip1_b, he_ip2_b, he_ip3_b];
+    let vert_he_a = [he_v0_a, he_v1_a, he_v2_a, he_v3_a];
+    let vert_he_b = [he_v0_b, he_v1_b, he_v2_b, he_v3_b];
+    let end_he_a = [he_ep0_a, he_ep1_a, he_ep2_a, he_ep3_a];
+    let end_he_b = [he_ep0_b, he_ep1_b, he_ep2_b, he_ep3_b];
+
+    // Side face normals (outward)
+    let side_normals: [[f64; 3]; 4] = [
+        [0.0, -1.0, 0.0], // p0→p1 (y=by0, -Y)
+        [1.0, 0.0, 0.0],  // p1→p2 (x=bx1, +X)
+        [0.0, 1.0, 0.0],  // p2→p3 (y=by1, +Y)
+        [-1.0, 0.0, 0.0], // p3→p0 (x=bx0, -X)
+    ];
+    let side_origins: [[f64; 3]; 4] = [
+        [bx0, by0, punch_z],
+        [bx1, by0, punch_z],
+        [bx0, by1, punch_z],
+        [bx0, by0, punch_z],
+    ];
+
+    let mut side_faces = Vec::new();
+    for i in 0..4 {
+        let ni = (i + 1) % 4;
+        let face_side = result.arena.add_face(shell_idx);
+        let loop_side = result.arena.add_loop(face_side);
+        result.arena.faces[face_side.0].outer_loop = loop_side;
+        side_faces.push(face_side);
+
+        // Each side quad loop: 4 half-edges
+        // For on_top: punch_i → punch_ni (up inner edge _a) → end_ni (vert _a) → end_i (end edge _b reverse) → punch_i (vert _b)
+        // Actually, the loop goes: bottom_edge → right_vert → top_edge → left_vert
+        // With outward normal pointing away from box center.
+        //
+        // When on_top (boss extends upward):
+        //   Loop (CCW from outward normal): punch_i → punch_ni → end_ni → end_i
+        //   half-edges: ip_i_a (punch_i→punch_ni) → v_ni_a (punch_ni→end_ni) → ep_i_b (end_ni→end_i) → v_i_b (end_i→punch_i)
+        //
+        // When on_bottom (boss extends downward):
+        //   Loop (CCW from outward normal): punch_ni → punch_i → end_i → end_ni
+        //   half-edges: ip_i_b (punch_ni→punch_i) → v_i_a (punch_i→end_i) → ep_i_a (end_i→end_ni) → v_ni_b (end_ni→punch_ni)
+
+        if on_top {
+            // CCW from outward: punch_i → punch_ni → end_ni → end_i
+            let h_bottom = inner_he_a[i];
+            let h_right = vert_he_a[ni];
+            let h_top = end_he_b[i];
+            let h_left = vert_he_b[i];
+
+            result.arena.half_edges[h_bottom.0].origin = punch_verts[i];
+            result.arena.half_edges[h_bottom.0].next = h_right;
+            result.arena.half_edges[h_bottom.0].prev = h_left;
+            result.arena.half_edges[h_bottom.0].loop_ = loop_side;
+
+            result.arena.half_edges[h_right.0].origin = punch_verts[ni];
+            result.arena.half_edges[h_right.0].next = h_top;
+            result.arena.half_edges[h_right.0].prev = h_bottom;
+            result.arena.half_edges[h_right.0].loop_ = loop_side;
+
+            result.arena.half_edges[h_top.0].origin = end_verts[ni];
+            result.arena.half_edges[h_top.0].next = h_left;
+            result.arena.half_edges[h_top.0].prev = h_right;
+            result.arena.half_edges[h_top.0].loop_ = loop_side;
+
+            result.arena.half_edges[h_left.0].origin = end_verts[i];
+            result.arena.half_edges[h_left.0].next = h_bottom;
+            result.arena.half_edges[h_left.0].prev = h_top;
+            result.arena.half_edges[h_left.0].loop_ = loop_side;
+
+            result.arena.loops[loop_side.0].half_edge = h_bottom;
+        } else {
+            // CCW from outward: punch_ni → punch_i → end_i → end_ni
+            let h_bottom = inner_he_b[i];
+            let h_right = vert_he_a[i];
+            let h_top = end_he_a[i];
+            let h_left = vert_he_b[ni];
+
+            result.arena.half_edges[h_bottom.0].origin = punch_verts[ni];
+            result.arena.half_edges[h_bottom.0].next = h_right;
+            result.arena.half_edges[h_bottom.0].prev = h_left;
+            result.arena.half_edges[h_bottom.0].loop_ = loop_side;
+
+            result.arena.half_edges[h_right.0].origin = punch_verts[i];
+            result.arena.half_edges[h_right.0].next = h_top;
+            result.arena.half_edges[h_right.0].prev = h_bottom;
+            result.arena.half_edges[h_right.0].loop_ = loop_side;
+
+            result.arena.half_edges[h_top.0].origin = end_verts[i];
+            result.arena.half_edges[h_top.0].next = h_left;
+            result.arena.half_edges[h_top.0].prev = h_right;
+            result.arena.half_edges[h_top.0].loop_ = loop_side;
+
+            result.arena.half_edges[h_left.0].origin = end_verts[ni];
+            result.arena.half_edges[h_left.0].next = h_bottom;
+            result.arena.half_edges[h_left.0].prev = h_top;
+            result.arena.half_edges[h_left.0].loop_ = loop_side;
+
+            result.arena.loops[loop_side.0].half_edge = h_bottom;
+        }
+
+        // Face geometry for side
+        result.face_geometry.insert(
+            face_side,
+            SurfaceGeom::Planar(Plane {
+                origin: Point3::from_array(side_origins[i]),
+                normal: Vector3::from_array(side_normals[i]),
+            }),
+        );
+    }
+
+    // Box end cap face
+    let face_end = result.arena.add_face(shell_idx);
+    let loop_end = result.arena.add_loop(face_end);
+    result.arena.faces[face_end.0].outer_loop = loop_end;
+
+    // End cap winding: CCW from boss_dir
+    if on_top {
+        // CCW from +Z: e0→e1→e2→e3
+        result.arena.half_edges[he_ep0_a.0].origin = v_e0;
+        result.arena.half_edges[he_ep0_a.0].next = he_ep1_a;
+        result.arena.half_edges[he_ep0_a.0].prev = he_ep3_a;
+        result.arena.half_edges[he_ep0_a.0].loop_ = loop_end;
+
+        result.arena.half_edges[he_ep1_a.0].origin = v_e1;
+        result.arena.half_edges[he_ep1_a.0].next = he_ep2_a;
+        result.arena.half_edges[he_ep1_a.0].prev = he_ep0_a;
+        result.arena.half_edges[he_ep1_a.0].loop_ = loop_end;
+
+        result.arena.half_edges[he_ep2_a.0].origin = v_e2;
+        result.arena.half_edges[he_ep2_a.0].next = he_ep3_a;
+        result.arena.half_edges[he_ep2_a.0].prev = he_ep1_a;
+        result.arena.half_edges[he_ep2_a.0].loop_ = loop_end;
+
+        result.arena.half_edges[he_ep3_a.0].origin = v_e3;
+        result.arena.half_edges[he_ep3_a.0].next = he_ep0_a;
+        result.arena.half_edges[he_ep3_a.0].prev = he_ep2_a;
+        result.arena.half_edges[he_ep3_a.0].loop_ = loop_end;
+
+        result.arena.loops[loop_end.0].half_edge = he_ep0_a;
+    } else {
+        // CCW from -Z: e0→e3→e2→e1
+        result.arena.half_edges[he_ep3_b.0].origin = v_e0;
+        result.arena.half_edges[he_ep3_b.0].next = he_ep2_b;
+        result.arena.half_edges[he_ep3_b.0].prev = he_ep0_b;
+        result.arena.half_edges[he_ep3_b.0].loop_ = loop_end;
+
+        result.arena.half_edges[he_ep2_b.0].origin = v_e3;
+        result.arena.half_edges[he_ep2_b.0].next = he_ep1_b;
+        result.arena.half_edges[he_ep2_b.0].prev = he_ep3_b;
+        result.arena.half_edges[he_ep2_b.0].loop_ = loop_end;
+
+        result.arena.half_edges[he_ep1_b.0].origin = v_e2;
+        result.arena.half_edges[he_ep1_b.0].next = he_ep0_b;
+        result.arena.half_edges[he_ep1_b.0].prev = he_ep2_b;
+        result.arena.half_edges[he_ep1_b.0].loop_ = loop_end;
+
+        result.arena.half_edges[he_ep0_b.0].origin = v_e1;
+        result.arena.half_edges[he_ep0_b.0].next = he_ep3_b;
+        result.arena.half_edges[he_ep0_b.0].prev = he_ep1_b;
+        result.arena.half_edges[he_ep0_b.0].loop_ = loop_end;
+
+        result.arena.loops[loop_end.0].half_edge = he_ep3_b;
+    }
+
+    result.face_geometry.insert(
+        face_end,
+        SurfaceGeom::Planar(Plane {
+            origin: Point3::from_array([bx0, by0, box_end_z]),
+            normal: Vector3::from_array(boss_dir),
+        }),
+    );
+
+    // Vertex half-edge refs
+    result.arena.vertices[v_p0.0].half_edge = Some(vert_he_a[0]);
+    result.arena.vertices[v_p1.0].half_edge = Some(vert_he_a[1]);
+    result.arena.vertices[v_p2.0].half_edge = Some(vert_he_a[2]);
+    result.arena.vertices[v_p3.0].half_edge = Some(vert_he_a[3]);
+    result.arena.vertices[v_e0.0].half_edge = Some(end_he_a[0]);
+    result.arena.vertices[v_e1.0].half_edge = Some(end_he_a[1]);
+    result.arena.vertices[v_e2.0].half_edge = Some(end_he_a[2]);
+    result.arena.vertices[v_e3.0].half_edge = Some(end_he_a[3]);
+
+    // Edge geometry: all new edges are linear
+    let boss_height = (box_end_z - punch_z).abs();
+    for i in 0..4 {
+        let ni = (i + 1) % 4;
+        // Inner rectangle edges at punch_z
+        let p_i = result.arena.vertices[punch_verts[i].0].position;
+        let p_ni = result.arena.vertices[punch_verts[ni].0].position;
+        result.edge_geometry.insert(
+            [e_ip0, e_ip1, e_ip2, e_ip3][i],
+            CurveGeom::Linear(Line3D {
+                origin: Point3::from_array(p_i),
+                direction: Vector3::from_array(v3_sub(p_ni, p_i)),
+            }),
+        );
+
+        // Vertical edges
+        result.edge_geometry.insert(
+            [e_v0, e_v1, e_v2, e_v3][i],
+            CurveGeom::Linear(Line3D {
+                origin: Point3::from_array(p_i),
+                direction: Vector3::from_array(v3_scale(boss_dir, boss_height)),
+            }),
+        );
+
+        // End cap edges
+        let e_i = result.arena.vertices[end_verts[i].0].position;
+        let e_ni = result.arena.vertices[end_verts[ni].0].position;
+        result.edge_geometry.insert(
+            [e_ep0, e_ep1, e_ep2, e_ep3][i],
+            CurveGeom::Linear(Line3D {
+                origin: Point3::from_array(e_i),
+                direction: Vector3::from_array(v3_sub(e_ni, e_i)),
+            }),
+        );
+    }
+
+    // Add IDs for new entities
+    for &f in &side_faces {
+        result.face_map.insert(id_alloc(), f);
+    }
+    result.face_map.insert(id_alloc(), face_end);
+    for &e in &[
+        e_ip0, e_ip1, e_ip2, e_ip3, e_v0, e_v1, e_v2, e_v3, e_ep0, e_ep1, e_ep2, e_ep3,
+    ] {
+        result.edge_map.insert(id_alloc(), e);
+    }
+    for &v in &[v_p0, v_p1, v_p2, v_p3, v_e0, v_e1, v_e2, v_e3] {
+        result.vertex_map.insert(id_alloc(), v);
+    }
 
     Ok(result)
 }
