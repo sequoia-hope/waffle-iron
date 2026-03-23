@@ -430,6 +430,28 @@ export async function initEngine() {
 			}
 		}
 
+		// If no localStorage restore found, check IndexedDB for most recently modified doc
+		if (!autoRestoreState) {
+			try {
+				const { getStore } = await import('$lib/storage/index.js');
+				const local = getStore();
+				const docs = await local.list();
+				if (docs.length > 0) {
+					// docs are sorted by modified desc — first is most recent
+					const newest = docs[0];
+					autoRestoreState = { available: true, timestamp: newest.modified, source: 'indexeddb', docId: newest.id };
+				}
+			} catch {
+				// IndexedDB not available or empty — no restore
+			}
+		}
+
+		// Ensure activeDocId is set so saveToProvider() works on direct `/` navigation
+		if (!activeDocId) {
+			const { generateDocId } = await import('$lib/storage/types.js');
+			activeDocId = generateDocId();
+		}
+
 		// Initialize default tab state if no document was loaded
 		if (documentTabs.length === 0) {
 			const tabId = 'default';
@@ -3712,6 +3734,25 @@ export function toggleOriginTriad() {
 export function getAutoRestoreState() { return autoRestoreState; }
 
 export async function restoreAutoSave() {
+	// Restore from IndexedDB if that was the source
+	if (autoRestoreState?.source === 'indexeddb' && autoRestoreState?.docId) {
+		try {
+			const { getStore } = await import('$lib/storage/index.js');
+			const local = getStore();
+			const doc = await local.get(autoRestoreState.docId);
+			if (doc?.json) {
+				activeDocId = autoRestoreState.docId;
+				await loadProject(doc.json);
+				autoRestoreState = null;
+				return true;
+			}
+		} catch {
+			// fall through
+		}
+		autoRestoreState = null;
+		return false;
+	}
+	// Legacy localStorage restore
 	if (typeof localStorage === 'undefined') return false;
 	const saved = localStorage.getItem(AUTOSAVE_KEY);
 	if (!saved) return false;
@@ -3722,7 +3763,17 @@ export async function restoreAutoSave() {
 	return true;
 }
 
-export function discardAutoSave() {
+export async function discardAutoSave() {
+	// Clear IndexedDB restore doc if that was the source
+	if (autoRestoreState?.source === 'indexeddb' && autoRestoreState?.docId) {
+		try {
+			const { getStore } = await import('$lib/storage/index.js');
+			const local = getStore();
+			await local.delete(autoRestoreState.docId);
+		} catch {
+			// ignore cleanup errors
+		}
+	}
 	if (typeof localStorage !== 'undefined') {
 		localStorage.removeItem(AUTOSAVE_KEY);
 		localStorage.removeItem(AUTOSAVE_TIME_KEY);

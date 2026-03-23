@@ -57,12 +57,16 @@ pub struct Sketch {
     /// Current solve status (updated after each solve).
     pub solve_status: SolveStatus,
     /// Solved positions for all points. Key is point entity ID.
-    /// Derived data — not serialized, recomputed on load.
-    #[serde(default, with = "u32_key_map", skip_serializing)]
+    /// Derived data — serialized when populated (for WASM→JS bridge), skipped when empty.
+    #[serde(
+        default,
+        with = "u32_key_map",
+        skip_serializing_if = "HashMap::is_empty"
+    )]
     pub solved_positions: HashMap<u32, (f64, f64)>,
     /// Closed profiles extracted from the solved geometry.
-    /// Derived data — not serialized, recomputed on load.
-    #[serde(default, skip_serializing)]
+    /// Derived data — serialized when populated (for WASM→JS bridge), skipped when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub solved_profiles: Vec<ClosedProfile>,
 }
 
@@ -850,21 +854,21 @@ mod tests {
             solved_profiles: vec![],
         };
 
-        // solved_positions are skip_serializing (derived data), so they don't round-trip
+        // solved_positions use skip_serializing_if = "HashMap::is_empty":
+        // when populated, they ARE serialized (needed for WASM→JS bridge)
         let json = serde_json::to_string(&sketch).unwrap();
-        assert!(!json.contains("solved_positions"));
+        assert!(json.contains("solved_positions"));
         let d: Sketch = serde_json::from_str(&json).unwrap();
-        assert_eq!(d.solved_positions.len(), 0);
+        assert_eq!(d.solved_positions.len(), 3);
+        assert_eq!(d.solved_positions[&1], (0.0, 0.0));
 
-        // But old files with solved_positions still deserialize correctly (backward compat)
-        // Inject solved_positions back into the serialized JSON for this test
-        let mut val: serde_json::Value = serde_json::from_str(&json).unwrap();
-        val["solved_positions"] =
-            serde_json::json!({"1":[0.0,0.0],"2":[3.14,-2.7],"100":[999.0,0.5]});
-        let old_json = serde_json::to_string(&val).unwrap();
-        let d2: Sketch = serde_json::from_str(&old_json).unwrap();
-        assert_eq!(d2.solved_positions.len(), 3);
-        assert_eq!(d2.solved_positions[&1], (0.0, 0.0));
+        // When empty, solved_positions are skipped (keeps .waffle files small)
+        let mut empty_sketch = sketch.clone();
+        empty_sketch.solved_positions = HashMap::new();
+        let json2 = serde_json::to_string(&empty_sketch).unwrap();
+        assert!(!json2.contains("solved_positions"));
+        let d2: Sketch = serde_json::from_str(&json2).unwrap();
+        assert_eq!(d2.solved_positions.len(), 0);
     }
 
     #[test]
