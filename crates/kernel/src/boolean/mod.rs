@@ -1089,6 +1089,23 @@ fn collect_fragments(
                     emit(output, face.verts.clone(), face.normal, face.origin, sg);
                 }
             }
+            FaceClass::AntiParallelCoplanarPartial {
+                inside_frags,
+                outside_frags,
+            } => {
+                // Anti-parallel coplanar, split: emit outside fragments for subtract A,
+                // inside fragments for intersect.
+                if include_outside {
+                    for frag in outside_frags {
+                        emit(output, frag.clone(), face.normal, face.origin, sg.clone());
+                    }
+                }
+                if include_partial_inside {
+                    for frag in inside_frags {
+                        emit(output, frag.clone(), face.normal, face.origin, sg.clone());
+                    }
+                }
+            }
         }
     }
 }
@@ -1154,6 +1171,11 @@ fn collect_union_fragments(
             FaceClass::CoplanarTouching => {
                 // Anti-parallel coplanar: shared boundary face.
                 // Remove from both primary and secondary in union.
+            }
+            FaceClass::AntiParallelCoplanarPartial { .. } => {
+                // Anti-parallel coplanar: shared internal boundary.
+                // Discard from both primary and secondary in union
+                // (same as CoplanarTouching).
             }
         }
     }
@@ -1344,16 +1366,21 @@ fn boolean_op_from_polys_inner(
     // cylinders), S-H clipping against many planes accumulates numerical
     // error causing empty-mesh results. Fall back to non-convex path for
     // the both-large case to preserve progressive-splitting robustness.
-    let one_solid_simple = a_faces.len() <= 12 || b_faces.len() <= 12;
-    let a_convex = if one_solid_simple {
+    // Convexity check: polygon-approximated cylinders have 34 faces (32 side
+    // quads + 2 caps) but are geometrically convex. Test geometric convexity
+    // when at least one solid is moderate-sized (≤48 faces). When BOTH solids
+    // are large, S-H clipping against many planes accumulates numerical error;
+    // fall back to non-convex path for the both-large case.
+    let one_solid_moderate = a_faces.len() <= 48 || b_faces.len() <= 48;
+    let a_convex = if one_solid_moderate {
         is_face_set_convex(&a_faces, tau)
     } else {
-        a_faces.len() <= 12
+        false
     };
-    let b_convex = if one_solid_simple {
+    let b_convex = if one_solid_moderate {
         is_face_set_convex(&b_faces, tau)
     } else {
-        b_faces.len() <= 12
+        false
     };
 
     // Product-based guard: O(A*B) face classification is too expensive

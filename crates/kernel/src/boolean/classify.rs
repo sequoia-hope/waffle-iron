@@ -228,6 +228,13 @@ pub(super) enum FaceClass {
     /// Anti-parallel coplanar: face lies on shared boundary between touching
     /// solids. For union: remove from both. For subtract: keep for A, discard for B.
     CoplanarTouching,
+    /// Anti-parallel coplanar face that has been split by the opposing solid's
+    /// non-coplanar faces. For subtract: emit outside_frags from A (annular region).
+    /// For union: discard both sides (shared internal boundary).
+    AntiParallelCoplanarPartial {
+        inside_frags: Vec<Vec<[f64; 3]>>,
+        outside_frags: Vec<Vec<[f64; 3]>>,
+    },
 }
 
 /// Classify a face polygon against the opposing solid's faces.
@@ -270,6 +277,11 @@ pub(super) fn classify_face(
     // likely non-convex (e.g., gear profiles with 50+ faces). For non-convex
     // opposing solids, Sutherland-Hodgman clipping gives wrong results, so
     // we use pure ray-casting classification instead.
+    //
+    // Note: the outer gate (boolean/mod.rs) may route solids with up to 48
+    // faces here based on geometric convexity. The S-H path is only safe
+    // when the opposing set is truly small (≤12 planes); for larger convex
+    // solids (like 34-face cylinders), ray-casting avoids precision loss.
     let opposing_likely_convex = opposing.len() <= 12;
 
     if opposing_likely_convex {
@@ -318,7 +330,9 @@ pub(super) fn classify_face(
 
     // Handle coplanar cases first
     if has_antiparallel_coplanar {
-        return FaceClass::CoplanarTouching;
+        // Fall through to non-convex coplanar splitting (S-H is unreliable for
+        // partial coplanar faces against many opposing planes)
+        return classify_coplanar_nonconvex_antiparallel(face, opposing, tau, cache);
     }
     if has_coplanar {
         // For coplanar faces, S-H can still find the overlap region because
@@ -388,10 +402,11 @@ pub(super) fn classify_face_nonconvex(
     }
 
     // Check coplanar partnerships
-    if opposing.iter().any(|opp| {
+    let has_antiparallel = opposing.iter().any(|opp| {
         classify_coplanarity(face.normal, face.verts[0], opp, tau) == CoplanarClass::AntiParallel
-    }) {
-        return FaceClass::CoplanarTouching;
+    });
+    if has_antiparallel {
+        return classify_coplanar_nonconvex_antiparallel(face, opposing, tau, cache);
     }
 
     let has_coplanar = opposing
@@ -448,7 +463,9 @@ pub(super) fn classify_face_nonconvex(
     // Progressive splitting: split face by each cutting plane,
     // keeping BOTH halves at each step.
     // Cap fragment count to prevent exponential blowup (2^N planes).
-    const MAX_FRAGMENTS: usize = 512;
+    // 2048 handles gear profiles (~560 faces) where cylinder caps need
+    // splitting by many tangent planes from the gear's tooth edges.
+    const MAX_FRAGMENTS: usize = 2048;
     let mut fragments: Vec<Vec<[f64; 3]>> = vec![face.verts.clone()];
 
     for (plane_pt, inward_n) in &cutting_planes {
@@ -618,6 +635,109 @@ fn classify_coplanar_nonconvex(
 
     // Retain ALL inside fragments — no largest-fragment heuristic.
     FaceClass::CoplanarPartial {
+        inside_frags,
+        outside_frags,
+    }
+}
+
+/// Classify an anti-parallel coplanar face against a non-convex opposing solid.
+///
+/// Identical logic to `classify_coplanar_nonconvex` but returns
+/// `AntiParallelCoplanarPartial` instead of `CoplanarPartial`, and
+/// `CoplanarTouching` for degenerate cases (no cutting planes, fully inside).
+fn classify_coplanar_nonconvex_antiparallel(
+    face: &FacePoly,
+    opposing: &[FacePoly],
+    tau: f64,
+    cache: &mut Option<IntersectionCache>,
+) -> FaceClass {
+    let mut cutting_planes: Vec<([f64; 3], [f64; 3])> = Vec::new();
+
+    for opp in opposing {
+        if is_coplanar(face.normal, face.verts[0], opp, tau) {
+            continue;
+        }
+
+        // Straddle check: face must have vertices on both sides of the plane
+        let mut has_pos = false;
+        let mut has_neg = false;
+        for v in &face.verts {
+            let d = v3_dot(v3_sub(*v, opp.origin), opp.normal);
+            if d > tau {
+                has_pos = true;
+            }
+            if d < -tau {
+                has_neg = true;
+            }
+        }
+        if has_pos && has_neg {
+            cutting_planes.push((opp.origin, v3_negate(opp.normal)));
+        }
+    }
+
+    let inward_offset = v3_scale(face.normal, -tau * 100.0);
+
+    if cutting_planes.is_empty() {
+        // No non-coplanar faces straddle us — no splitting possible.
+        // The face is anti-parallel coplanar with at least one opposing face,
+        // so treat it as a shared boundary (CoplanarTouching).
+        return FaceClass::CoplanarTouching;
+    }
+
+    // Progressive splitting by non-coplanar opposing face planes
+    const MAX_FRAGMENTS: usize = 2048;
+    let mut fragments: Vec<Vec<[f64; 3]>> = vec![face.verts.clone()];
+
+    for (plane_pt, inward_n) in &cutting_planes {
+        if fragments.len() >= MAX_FRAGMENTS {
+            break;
+        }
+        let outward_n = v3_negate(*inward_n);
+        let mut new_fragments = Vec::new();
+        for frag in &fragments {
+            let half_in =
+                clip_polygon_by_plane_cached(frag, *plane_pt, *inward_n, tau, cache.as_mut());
+            let half_out =
+                clip_polygon_by_plane_cached(frag, *plane_pt, outward_n, tau, cache.as_mut());
+            if half_in.len() >= 3 && polygon_area_3d(&half_in) > TAU_NORMALIZE {
+                new_fragments.push(half_in);
+            }
+            if half_out.len() >= 3 && polygon_area_3d(&half_out) > TAU_NORMALIZE {
+                new_fragments.push(half_out);
+            }
+        }
+        fragments = new_fragments;
+    }
+
+    // Classify each fragment using point_in_solid
+    let mut inside_frags: Vec<Vec<[f64; 3]>> = Vec::new();
+    let mut outside_frags: Vec<Vec<[f64; 3]>> = Vec::new();
+
+    for frag in fragments {
+        let centroid = polygon_centroid(&frag);
+        let sample = v3_add(centroid, inward_offset);
+        if point_in_solid(sample, opposing) {
+            inside_frags.push(frag);
+        } else {
+            outside_frags.push(frag);
+        }
+    }
+
+    if inside_frags.is_empty() || outside_frags.is_empty() {
+        // No meaningful split: either fully outside or fully inside the
+        // opposing solid. For anti-parallel coplanar faces, this means the
+        // face is a shared boundary → CoplanarTouching.
+        return FaceClass::CoplanarTouching;
+    }
+
+    let original_area = polygon_area_3d(&face.verts);
+    let inside_total_area: f64 = inside_frags.iter().map(|f| polygon_area_3d(f)).sum();
+    if (inside_total_area - original_area).abs() / original_area < MIN_FEATURE_SIZE {
+        // Fully inside: degenerate, same as CoplanarTouching
+        return FaceClass::CoplanarTouching;
+    }
+
+    FaceClass::AntiParallelCoplanarPartial {
         inside_frags,
         outside_frags,
     }
