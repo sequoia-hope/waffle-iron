@@ -1641,13 +1641,33 @@ export async function createGear(gearParams) {
 
 	const entityIds = [];
 
-	// Add all entities from the Rust-generated profile directly
+	// Build ID remap: Rust-space id → JS-space id
+	const idMap = new Map();
 	for (const entity of response.entities) {
-		const id = allocEntityId();
-		// Remap the entity's ID to our local ID space
-		entityIds.push(id);
-		// We add the entity as-is from Rust (already has correct structure)
-		addLocalEntity({ ...entity, id });
+		const newId = allocEntityId();
+		idMap.set(entity.id, newId);
+		entityIds.push(newId);
+	}
+
+	// Add entities with remapped IDs and internal references
+	for (const entity of response.entities) {
+		const remapped = { ...entity, id: idMap.get(entity.id) };
+		// Remap point references in Lines
+		if (remapped.start_id != null && idMap.has(remapped.start_id)) {
+			remapped.start_id = idMap.get(remapped.start_id);
+		}
+		if (remapped.end_id != null && idMap.has(remapped.end_id)) {
+			remapped.end_id = idMap.get(remapped.end_id);
+		}
+		// Remap point references in Arcs
+		if (remapped.center_id != null && idMap.has(remapped.center_id)) {
+			remapped.center_id = idMap.get(remapped.center_id);
+		}
+		// Remap point references in Splines
+		if (remapped.point_ids) {
+			remapped.point_ids = remapped.point_ids.map(pid => idMap.get(pid) ?? pid);
+		}
+		addLocalEntity(remapped);
 	}
 
 	// Add pitch circle as construction geometry

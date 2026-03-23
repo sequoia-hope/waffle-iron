@@ -335,7 +335,7 @@
 		if (preview.type === 'gear-preview') {
 			const { polyline } = preview.data;
 			if (!polyline || polyline.length < 2) return null;
-			const worldPoints = polyline.map(p => sketchToWorld(p.x, p.y, plane));
+			const worldPoints = polyline.map(p => sketchToWorld(p[0], p[1], plane));
 			return { type: 'line', geometry: new THREE.BufferGeometry().setFromPoints(worldPoints) };
 		}
 
