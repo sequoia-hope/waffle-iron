@@ -2876,22 +2876,11 @@ export async function finishSketch() {
 		return undefined;
 	}
 
-	// Helper: get spline control points in (u,v) for a spline entity.
-	// Returns null if not a spline or positions unavailable.
-	function getSplineControlPoints(entity, forward) {
-		if (entity.type !== 'Spline' || !entity.point_ids || entity.point_ids.length < 2) return null;
-		const pts = entity.point_ids
-			.map(pid => sketchPositions.get(pid))
-			.filter(Boolean);
-		if (pts.length < 2) return null;
-		const coords = pts.map(p => [p.x, p.y]);
-		if (!forward) coords.reverse();
-		return coords;
-	}
+// Synthetic point ID counter for arc samples (high value to avoid collision with real IDs)
+	let nextSynthId = 900000;
 
 	const profiles = extractedProfilesState.map((p) => {
 		const pointIds = [];
-		const splineSegments = [];
 		const edgeEntities = [...p.entityIds].map(id => sketchEntities.find(e => e.id === id)).filter(Boolean);
 
 		// Standalone circles: pass as tagged circle profile for true NURBS cylinder extrusion
@@ -2910,25 +2899,60 @@ export async function finishSketch() {
 
 		if (edgeEntities.length === 0) return { entity_ids: [...p.entityIds], is_outer: p.isOuter };
 
-		// Chain entities: each entity contributes exactly 1 point (its start).
-		// Spline curve geometry is stored in spline_segments for the kernel to
-		// construct proper BSpline edges instead of straight line segments.
+		// Chain entities into a dense polygon. Splines contribute ALL their sample
+		// points; arcs are sampled into intermediate points. This preserves involute
+		// curve geometry for gear profiles (and any other curved profiles).
 		const [firstStart, firstEnd] = entityEndpoints(edgeEntities[0]);
 		if (firstStart == null) return { entity_ids: [...p.entityIds], is_outer: p.isOuter };
 
-		// First entity
-		const firstPt = entityStartPoint(edgeEntities[0], true);
-		if (firstPt != null) {
-			const splineCtrl = getSplineControlPoints(edgeEntities[0], true);
-			if (splineCtrl) {
-				splineSegments.push({
-					start_point_index: pointIds.length,
-					end_point_index: -1, // patched after loop
-					control_points: splineCtrl
-				});
+		// Helper: add all points for an entity (dense sampling) in the given direction.
+		// Adds all points EXCEPT the last one (next entity's start handles it).
+		function addEntityPoints(entity, forward) {
+			if (entity.type === 'Spline' && entity.point_ids?.length >= 2) {
+				// Spline: add ALL sample points (involute curves have 12+ points)
+				const pts = forward ? entity.point_ids : [...entity.point_ids].reverse();
+				for (const pid of pts.slice(0, -1)) {
+					pointIds.push(pid);
+				}
+			} else if (entity.type === 'Arc') {
+				// Arc: sample the curve into intermediate points
+				const sId = forward ? entity.start_id : entity.end_id;
+				const eId = forward ? entity.end_id : entity.start_id;
+				const center = sketchPositions.get(entity.center_id);
+				const sPos = sketchPositions.get(sId);
+				const ePos = sketchPositions.get(eId);
+				if (center && sPos && ePos) {
+					const radius = Math.hypot(sPos.x - center.x, sPos.y - center.y);
+					let startAngle = Math.atan2(sPos.y - center.y, sPos.x - center.x);
+					let endAngle = Math.atan2(ePos.y - center.y, ePos.x - center.x);
+					if (endAngle <= startAngle) endAngle += Math.PI * 2;
+
+					pointIds.push(sId); // start point
+					const ARC_SAMPLES = 16;
+					for (let s = 1; s < ARC_SAMPLES; s++) {
+						const t = s / ARC_SAMPLES;
+						const angle = startAngle + t * (endAngle - startAngle);
+						const synthId = nextSynthId++;
+						posObj[synthId] = [
+							center.x + Math.cos(angle) * radius,
+							center.y + Math.sin(angle) * radius
+						];
+						pointIds.push(synthId);
+					}
+					// Don't push end point — next entity's start handles it
+				} else {
+					// Fallback: just add start point
+					pointIds.push(sId);
+				}
+			} else {
+				// Line or unknown: single start point
+				const pt = entityStartPoint(entity, forward);
+				if (pt != null) pointIds.push(pt);
 			}
-			pointIds.push(firstPt);
 		}
+
+		// First entity
+		addEntityPoints(edgeEntities[0], true);
 		let prevEnd = firstEnd;
 
 		for (let i = 1; i < edgeEntities.length; i++) {
@@ -2940,31 +2964,11 @@ export async function finishSketch() {
 			const connected = forward || nextEnd === prevEnd;
 			const dir = connected ? forward : true;
 
-			const pt = entityStartPoint(entity, dir);
-			if (pt != null) {
-				const splineCtrl = getSplineControlPoints(entity, dir);
-				if (splineCtrl) {
-					splineSegments.push({
-						start_point_index: pointIds.length,
-						end_point_index: -1, // patched below
-						control_points: splineCtrl
-					});
-				}
-				pointIds.push(pt);
-			}
+			addEntityPoints(entity, dir);
 			prevEnd = connected ? (forward ? nextEnd : nextStart) : nextEnd;
 		}
 
-		// Patch end_point_index for spline segments (each points to next vertex, wrapping)
-		for (const seg of splineSegments) {
-			seg.end_point_index = (seg.start_point_index + 1) % pointIds.length;
-		}
-
-		const result = { entity_ids: [...p.entityIds], is_outer: p.isOuter, vertex_ids: pointIds };
-		if (splineSegments.length > 0) {
-			result.spline_segments = splineSegments;
-		}
-		return result;
+		return { entity_ids: [...p.entityIds], is_outer: p.isOuter, vertex_ids: pointIds };
 	});
 
 	const profileCount = profiles.length;
