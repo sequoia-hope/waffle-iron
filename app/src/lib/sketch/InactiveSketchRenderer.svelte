@@ -72,15 +72,17 @@
 			const normal = sketch.plane_normal || [0, 0, 1];
 			const plane = buildSketchPlane(origin, normal);
 
+			const entities = sketch.entities || [];
+
+			// Reconstruct positions from Point entities — solved_positions
+			// is not serialized from Rust (skip_serializing), so we mirror
+			// the Rust recompute_derived() logic here.
 			const positions = new Map();
-			const savedPos = sketch.solved_positions || {};
-			for (const [id, coords] of Object.entries(savedPos)) {
-				if (Array.isArray(coords) && coords.length >= 2) {
-					positions.set(Number(id), { x: coords[0], y: coords[1] });
+			for (const entity of entities) {
+				if (entity.type === 'Point' && entity.id != null) {
+					positions.set(entity.id, { x: entity.x, y: entity.y });
 				}
 			}
-
-			const entities = sketch.entities || [];
 			const profiles = extractProfiles(entities, positions);
 
 			result.push({ featureId: feature.id, sketch, plane, positions, entities, profiles });
@@ -682,7 +684,7 @@
 {#each sketchWireframes as wireframe (wireframe.featureId)}
 	{#each wireframe.geometries as geo, i}
 		{@const isHovered = hoveredAxisEntity && hoveredAxisEntity.featureId === wireframe.featureId && hoveredAxisEntity.entityId === geo.entityId}
-		<T.Line geometry={geo.geometry} renderOrder={3}>
+		<T.Line geometry={geo.geometry} renderOrder={3} userData={{ waffleType: 'sketch' }}>
 			<T.LineBasicMaterial
 				color={isHovered ? COLOR_ENTITY_HOVER : (geo.construction ? 0x666688 : wireframe.color)}
 				depthTest={true}

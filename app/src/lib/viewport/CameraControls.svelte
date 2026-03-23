@@ -202,6 +202,8 @@
 	 */
 	function updateOrthoFrustum() {
 		if (!cameraRef || !isOrtho()) return;
+		if (!Number.isFinite(frustumHalf) || frustumHalf <= 0) frustumHalf = 0.03;
+		if (!Number.isFinite(aspect) || aspect <= 0) return;
 		const cam = /** @type {THREE.OrthographicCamera} */ (cameraRef);
 		cam.left = -frustumHalf * aspect;
 		cam.right = frustumHalf * aspect;
@@ -231,7 +233,7 @@
 		// Positive deltaY = scroll down = zoom out; negative = zoom in
 		const zoomSpeed = 0.001;
 		const delta = -e.deltaY * zoomSpeed;
-		const zoomFactor = Math.max(0.1, Math.min(10, 1 + delta));
+		const zoomFactor = Math.max(0.1, Math.min(10, Math.pow(2, delta)));
 
 		zoomTowardScreenPoint(zoomFactor, ndcX, ndcY);
 		controlsRef.update();
@@ -251,12 +253,10 @@
 		_mouse.y = ndcY;
 
 		if (isOrtho()) {
-			frustumHalf = Math.max(0.0001, Math.min(maxDistance * 2, frustumHalf / zoomFactor));
-			updateOrthoFrustum();
-
+			// Raycast BEFORE changing frustumHalf so the intersection point
+			// matches the cursor position the user actually sees.
 			_raycaster.setFromCamera(_mouse, cameraRef);
 
-			// In sketch mode, use the sketch plane for zoom-toward-cursor
 			const smOrtho = getSketchMode();
 			if (smOrtho?.active) {
 				const sketchNormal = new THREE.Vector3(smOrtho.normal[0], smOrtho.normal[1], smOrtho.normal[2]).normalize();
@@ -268,18 +268,28 @@
 				_plane.setFromNormalAndCoplanarPoint(cameraDir, controlsRef.target);
 			}
 
-			const ray = _raycaster.ray;
-			if (ray.intersectPlane(_plane, _planeIntersect)) {
+			let hitPlane = _raycaster.ray.intersectPlane(_plane, _planeIntersect);
+
+			// Now apply the frustum scale change
+			frustumHalf = Math.max(0.0001, Math.min(maxDistance * 2, frustumHalf / zoomFactor));
+			if (!Number.isFinite(frustumHalf)) frustumHalf = 0.03;
+			updateOrthoFrustum();
+
+			if (hitPlane && Number.isFinite(_planeIntersect.x) && Number.isFinite(_planeIntersect.y) && Number.isFinite(_planeIntersect.z)) {
+				// Pan camera and target toward cursor in-plane only.
+				// In ortho the camera-to-target distance is irrelevant for
+				// rendering, so we move both by the same world-space delta
+				// to keep the offset (view direction) unchanged.
 				const fraction = 1 - (1 / zoomFactor);
-				cameraRef.position.lerp(_planeIntersect, fraction);
-				controlsRef.target.lerp(_planeIntersect, fraction);
-			} else {
-				const currentDist = cameraRef.position.distanceTo(controlsRef.target);
-				const newDist = Math.max(MIN_DISTANCE, Math.min(maxDistance, currentDist / zoomFactor));
-				const direction = new THREE.Vector3()
-					.subVectors(cameraRef.position, controlsRef.target)
-					.normalize();
-				cameraRef.position.copy(controlsRef.target).addScaledVector(direction, newDist);
+				const dx = (_planeIntersect.x - controlsRef.target.x) * fraction;
+				const dy = (_planeIntersect.y - controlsRef.target.y) * fraction;
+				const dz = (_planeIntersect.z - controlsRef.target.z) * fraction;
+				controlsRef.target.x += dx;
+				controlsRef.target.y += dy;
+				controlsRef.target.z += dz;
+				cameraRef.position.x += dx;
+				cameraRef.position.y += dy;
+				cameraRef.position.z += dz;
 			}
 
 			cameraRef.updateProjectionMatrix();
@@ -293,54 +303,51 @@
 
 		// In sketch mode, zoom toward the cursor's projection on the sketch plane.
 		// Wireframe lines aren't meshes so normal raycasting misses them.
-		// The camera must never get too close to the sketch plane or everything
-		// gets clipped by the near plane and disappears.
 		const sm = getSketchMode();
 		if (sm?.active) {
 			const sketchNormal = new THREE.Vector3(sm.normal[0], sm.normal[1], sm.normal[2]).normalize();
 			const sketchOrigin = new THREE.Vector3(sm.origin[0], sm.origin[1], sm.origin[2]);
 			_plane.setFromNormalAndCoplanarPoint(sketchNormal, sketchOrigin);
-			if (_raycaster.ray.intersectPlane(_plane, _planeIntersect)) {
-				const distToPlane = Math.abs(_plane.distanceToPoint(cameraRef.position));
-
-				// Minimum distance camera can be from sketch plane (must exceed near plane)
+			if (_raycaster.ray.intersectPlane(_plane, _planeIntersect) && Number.isFinite(_planeIntersect.x) && Number.isFinite(_planeIntersect.y) && Number.isFinite(_planeIntersect.z)) {
+				// Use camera-to-target distance (not distToPlane) — these diverge
+				// when the camera has been orbited away from perpendicular.
+				const cameraDist = cameraRef.position.distanceTo(controlsRef.target);
 				const MIN_SKETCH_DIST = 0.001;
 
-				if (zoomFactor > 1) {
-					// Zooming in: check if we'd breach minimum distance
-					const newDistToPlane = distToPlane / zoomFactor;
-					if (newDistToPlane < MIN_SKETCH_DIST) {
-						// Clamp: only zoom as much as we can without breaching
-						if (distToPlane <= MIN_SKETCH_DIST) {
-							// Already at limit — just pan toward cursor, no zoom
-							const panFraction = 0.1;
-							controlsRef.target.lerp(_planeIntersect, panFraction);
-							const viewDir = new THREE.Vector3()
-								.subVectors(cameraRef.position, controlsRef.target)
-								.normalize();
-							cameraRef.position.copy(controlsRef.target).addScaledVector(viewDir, distToPlane);
-							cameraRef.updateProjectionMatrix();
-							controlsRef.update();
-							return;
+				if (zoomFactor > 1 && cameraDist / zoomFactor < MIN_SKETCH_DIST) {
+					if (cameraDist <= MIN_SKETCH_DIST) {
+						// Already at limit — just pan toward cursor, no zoom
+						const panFraction = 0.1;
+						controlsRef.target.lerp(_planeIntersect, panFraction);
+						const viewDir = new THREE.Vector3()
+							.subVectors(cameraRef.position, controlsRef.target);
+						if (viewDir.lengthSq() < 1e-20) {
+							viewDir.set(0, 0, 1);
+						} else {
+							viewDir.normalize();
 						}
-						// Reduce zoomFactor so we stop at the limit
-						zoomFactor = distToPlane / MIN_SKETCH_DIST;
+						cameraRef.position.copy(controlsRef.target).addScaledVector(viewDir, cameraDist);
+						cameraRef.updateProjectionMatrix();
+						return;
 					}
+					zoomFactor = cameraDist / MIN_SKETCH_DIST;
 				}
 
-				// Pan toward cursor, scale camera distance
+				// Pan toward cursor, scale camera distance from target
 				const fraction = 1 - (1 / zoomFactor);
 				controlsRef.target.lerp(_planeIntersect, fraction);
 
-				const currentDist = distToPlane;
-				const newDist = Math.max(MIN_SKETCH_DIST, currentDist / zoomFactor);
+				const newDist = Math.max(MIN_SKETCH_DIST, cameraDist / zoomFactor);
 				const viewDir = new THREE.Vector3()
-					.subVectors(cameraRef.position, controlsRef.target)
-					.normalize();
+					.subVectors(cameraRef.position, controlsRef.target);
+				if (viewDir.lengthSq() < 1e-20) {
+					viewDir.set(0, 0, 1);
+				} else {
+					viewDir.normalize();
+				}
 				cameraRef.position.copy(controlsRef.target).addScaledVector(viewDir, newDist);
 			}
 			cameraRef.updateProjectionMatrix();
-			controlsRef.update();
 			return;
 		}
 
@@ -520,7 +527,10 @@
 					cachedSceneBox.expandByObject(obj);
 				}
 			});
-			sceneBBoxValid = !cachedSceneBox.isEmpty();
+			sceneBBoxValid = !cachedSceneBox.isEmpty() &&
+				Number.isFinite(cachedSceneBox.min.x) && Number.isFinite(cachedSceneBox.max.x) &&
+				Number.isFinite(cachedSceneBox.min.y) && Number.isFinite(cachedSceneBox.max.y) &&
+				Number.isFinite(cachedSceneBox.min.z) && Number.isFinite(cachedSceneBox.max.z);
 			if (sceneBBoxValid) cachedSceneBox.getBoundingSphere(cachedSceneSphere);
 		}
 		return sceneBBoxValid;
@@ -541,6 +551,11 @@
 		maxDistance = Math.max(cachedSceneSphere.radius * 20, 2);
 
 		if (isOrtho()) {
+			// In sketch mode, skip tight near/far — use the wide template defaults
+			// (-1e7/1e7). Sketch wireframes don't z-fight, and datum plane meshes
+			// can produce NaN AABBs that corrupt the projection matrix.
+			if (sketchActive) return;
+
 			// Project AABB corners onto camera view direction to find tight near/far
 			const cam = /** @type {THREE.OrthographicCamera} */ (cameraRef);
 			const viewDir = new THREE.Vector3();
@@ -561,6 +576,9 @@
 				if (d > maxDist) maxDist = d;
 			}
 
+			// Guard against NaN from degenerate AABBs
+			if (!Number.isFinite(minDist) || !Number.isFinite(maxDist) || minDist >= maxDist) return;
+
 			// Add padding and ensure minimum range for numerical stability
 			const padding = Math.max((maxDist - minDist) * 0.1, 0.01);
 			cam.near = minDist - padding;
@@ -570,33 +588,21 @@
 	}
 
 	/**
-	 * Fit camera to view all visible objects in the scene.
+	 * Fit camera to a bounding box.
+	 * @param {THREE.Box3} box
 	 */
-	function fitAll() {
-		if (!cameraRef || !scene) return;
-
-		const box = new THREE.Box3();
-		scene.traverse((obj) => {
-			if (/** @type {any} */ (obj).isMesh && obj.visible) {
-				box.expandByObject(obj);
-			}
-		});
-
-		if (box.isEmpty()) return;
-
+	function fitToBox(box) {
 		const center = box.getCenter(new THREE.Vector3());
 		const size = box.getSize(new THREE.Vector3());
 		const maxDim = Math.max(size.x, size.y, size.z);
 
 		if (isOrtho()) {
-			// Ortho: set frustum to frame the scene
 			frustumHalf = maxDim * 1.5 / 2;
 			updateOrthoFrustum();
 
 			const direction = new THREE.Vector3()
 				.subVectors(cameraRef.position, center)
 				.normalize();
-			// Keep camera at a reasonable distance even in ortho (for raycasting)
 			cameraRef.position.copy(center).addScaledVector(direction, maxDim * 2);
 			cameraRef.up.set(0, 1, 0);
 			cameraRef.lookAt(center);
@@ -619,6 +625,35 @@
 		}
 
 		updateClippingPlanes(true);
+	}
+
+	/**
+	 * Fit camera to view the scene with priority: model > sketch > default.
+	 * Datum planes and other decorations are excluded so they don't dominate
+	 * the bounding box for small geometry.
+	 */
+	function fitAll() {
+		if (!cameraRef || !scene) return;
+
+		const modelBox = new THREE.Box3();
+		const sketchBox = new THREE.Box3();
+
+		scene.traverse((obj) => {
+			if (!obj.visible) return;
+			const type = /** @type {any} */ (obj).userData?.waffleType;
+			if (type === 'model') {
+				modelBox.expandByObject(obj);
+			} else if (type === 'sketch') {
+				sketchBox.expandByObject(obj);
+			}
+		});
+
+		if (!modelBox.isEmpty()) {
+			fitToBox(modelBox);
+		} else if (!sketchBox.isEmpty()) {
+			fitToBox(sketchBox);
+		}
+		// If neither exists, keep the default camera — don't fit to datum planes
 	}
 
 	/**

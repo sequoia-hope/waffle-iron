@@ -424,6 +424,7 @@
 				geometry={mesh.geometry}
 				material={meshMaterials[i]?.length > 1 ? meshMaterials[i] : meshMaterials[i]?.[0]}
 				frustumCulled={false}
+				userData={{ waffleType: 'model' }}
 				raycast={() => {}}
 			/>
 		{:else}
@@ -431,6 +432,7 @@
 				geometry={mesh.geometry}
 				material={meshMaterials[i]?.length > 1 ? meshMaterials[i] : meshMaterials[i]?.[0]}
 				frustumCulled={false}
+				userData={{ waffleType: 'model' }}
 				onpointermove={(e) => handlePointerMove(e, i)}
 				onpointerout={handlePointerOut}
 				onclick={(e) => handleClick(e, i)}

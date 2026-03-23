@@ -3026,6 +3026,7 @@ export function getCameraState() {
 		up: [up.x, up.y, up.z],
 		zoom: cameraObject.zoom ?? 1,
 		projection: cameraProjection,
+		frustumTop: /** @type {any} */ (cameraObject).top ?? null,
 	};
 }
 
