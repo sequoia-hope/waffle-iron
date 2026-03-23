@@ -12910,3 +12910,126 @@ fn t6_partial_box_cyl_union_winding_consistent() {
     );
 }
 
+// ── Arc segment extrude tests ───────────────────────────────────
+
+/// Test that extruding a polygon profile with arc_segments produces Cylindrical face geometry.
+#[test]
+fn arc_segment_extrude_produces_cylindrical_faces() {
+    use std::f64::consts::PI;
+
+    let mut k = WaffleKernel::new();
+
+    // Create a simple profile: a square with a rounded top edge (arc).
+    // Bottom-left(0,0), bottom-right(1,0), then an arc from (1,0) up to (0,1).
+    // We sample the arc into 4 points for simplicity.
+    let mut positions = HashMap::new();
+    // Square corners
+    positions.insert(1, (0.0, 0.0)); // bottom-left
+    positions.insert(2, (1.0, 0.0)); // bottom-right
+    // Arc points from (1,0) to (0,1) centered at (0.5, 0.5), radius ~0.707
+    let cx = 0.5;
+    let cy = 0.5;
+    let r = (0.5_f64 * 0.5 + 0.5 * 0.5).sqrt();
+    let start_angle = -PI / 4.0; // angle to (1,0) from center (0.5,0.5)
+    let end_angle = 3.0 * PI / 4.0; // angle to (0,1) from center
+    let n_arc = 4;
+    // Arc sample points (excluding start=vertex2 and end=vertex5, which are corners)
+    for i in 1..n_arc {
+        let t = i as f64 / n_arc as f64;
+        let angle = start_angle + t * (end_angle - start_angle);
+        let x = cx + r * angle.cos();
+        let y = cy + r * angle.sin();
+        positions.insert(100 + i as u32, (x, y));
+    }
+    positions.insert(5, (0.0, 1.0)); // top-left (arc end)
+
+    // vertex_ids: [1, 2, 101, 102, 103, 5]
+    // Arc spans indices 1 (vertex 2) through 4 (vertex 103) — 4 edges within the arc
+    let profile = ClosedProfile {
+        entity_ids: vec![],
+        is_outer: true,
+        vertex_ids: vec![1, 2, 101, 102, 103, 5],
+        circle: None,
+        spline_segments: vec![],
+        arc_segments: vec![waffle_types::ArcSegment {
+            start_vertex_index: 1, // index of vertex 2 in vertex_ids
+            end_vertex_index: 4,   // index of vertex 103 in vertex_ids
+            center_u: cx,
+            center_v: cy,
+            radius: r,
+        }],
+    };
+
+    let faces = k
+        .make_faces_from_profiles(
+            &[profile],
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0],
+            &positions,
+        )
+        .expect("make_faces_from_profiles");
+
+    let solid = k
+        .extrude_face(faces[0], [0.0, 0.0, 1.0], 1.0)
+        .expect("extrude_face");
+
+    // Check that the solid has cylindrical faces
+    let ws = k.solids.get(&solid.id()).expect("solid exists");
+    let mut n_cylindrical = 0;
+    let mut n_planar = 0;
+    for geom in ws.face_geometry.values() {
+        match geom {
+            SurfaceGeom::Cylindrical(_) => n_cylindrical += 1,
+            SurfaceGeom::Planar(_) => n_planar += 1,
+            _ => {}
+        }
+    }
+
+    // Arc has 4 edges (indices 1..=4), each producing a cylindrical side face
+    assert!(
+        n_cylindrical >= 4,
+        "Expected at least 4 cylindrical faces from arc edges, got {}",
+        n_cylindrical
+    );
+    // 2 planar caps (top/bottom) + 2 straight side faces (edges 0 and 5)
+    assert!(
+        n_planar >= 4,
+        "Expected at least 4 planar faces, got {}",
+        n_planar
+    );
+
+    // Tessellation should succeed and produce smooth normals
+    let mesh = k.tessellate(&solid, 0.01).expect("tessellate");
+    assert!(!mesh.vertices.is_empty(), "mesh should have vertices");
+    assert!(!mesh.normals.is_empty(), "mesh should have normals");
+    assert_eq!(
+        mesh.vertices.len(),
+        mesh.normals.len(),
+        "normals count should match vertices"
+    );
+
+    // Verify cylindrical faces have varying normals (smooth, not flat).
+    // Collect normals from face_ranges that correspond to cylindrical geometry.
+    // For a cylindrical face with 4 boundary vertices, the normals should differ
+    // (radial direction varies along the arc).
+    let n_verts = mesh.vertices.len() / 3;
+    let mut has_varying_normals = false;
+    for tri in 0..(mesh.indices.len() / 3) {
+        let i0 = mesh.indices[tri * 3] as usize;
+        let i1 = mesh.indices[tri * 3 + 1] as usize;
+        let n0 = [mesh.normals[i0 * 3], mesh.normals[i0 * 3 + 1], mesh.normals[i0 * 3 + 2]];
+        let n1 = [mesh.normals[i1 * 3], mesh.normals[i1 * 3 + 1], mesh.normals[i1 * 3 + 2]];
+        // Check if normals differ (smooth shading)
+        let diff = (n0[0] - n1[0]).abs() + (n0[1] - n1[1]).abs() + (n0[2] - n1[2]).abs();
+        if diff > 0.01 {
+            has_varying_normals = true;
+            break;
+        }
+    }
+    assert!(
+        has_varying_normals,
+        "Expected varying normals on cylindrical faces (smooth shading), but all normals are uniform"
+    );
+}
+

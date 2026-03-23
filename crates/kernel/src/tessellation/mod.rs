@@ -3212,6 +3212,75 @@ fn tessellate_cylindrical_face_bounded(
 }
 
 /// Tessellate a solid using boundary-constrained (edge-first) tessellation.
+/// Weld vertices that share the same position and have similar normals.
+///
+/// Adjacent cylindrical side faces produce separate vertex instances at shared
+/// edge positions. Without welding, the GPU sees distinct vertices and renders
+/// hard edges between quads. Merging vertices whose positions and normals match
+/// (within tolerance) enables smooth normal interpolation across face boundaries.
+fn weld_smooth_vertices(vertices: &[f32], normals: &[f32], indices: &mut [u32]) {
+    if vertices.is_empty() || indices.is_empty() {
+        return;
+    }
+    let n_verts = vertices.len() / 3;
+
+    // Quantize positions to a grid for grouping
+    let max_abs = vertices
+        .iter()
+        .map(|v| v.abs())
+        .fold(0.0_f32, f32::max)
+        .max(1e-6);
+    let grid = (max_abs as f64 * 1e-5).max(1e-9);
+    let inv_grid = 1.0 / grid;
+
+    // Group vertices by quantized position
+    let mut pos_groups: BTreeMap<(i64, i64, i64), Vec<usize>> = BTreeMap::new();
+    for i in 0..n_verts {
+        let qx = (vertices[i * 3] as f64 * inv_grid).round() as i64;
+        let qy = (vertices[i * 3 + 1] as f64 * inv_grid).round() as i64;
+        let qz = (vertices[i * 3 + 2] as f64 * inv_grid).round() as i64;
+        pos_groups.entry((qx, qy, qz)).or_default().push(i);
+    }
+
+    // Build remap: for each group of co-located vertices with similar normals,
+    // point all to the first one.
+    let mut remap: Vec<u32> = (0..n_verts as u32).collect();
+    let normal_tol = 0.02_f32; // cosine tolerance for normal similarity
+
+    for group in pos_groups.values() {
+        if group.len() < 2 {
+            continue;
+        }
+        // Within each position group, cluster by normal similarity
+        let mut merged = vec![false; group.len()];
+        for i in 0..group.len() {
+            if merged[i] {
+                continue;
+            }
+            let vi = group[i];
+            let ni = [normals[vi * 3], normals[vi * 3 + 1], normals[vi * 3 + 2]];
+            for j in (i + 1)..group.len() {
+                if merged[j] {
+                    continue;
+                }
+                let vj = group[j];
+                let nj = [normals[vj * 3], normals[vj * 3 + 1], normals[vj * 3 + 2]];
+                // Check if normals are similar (dot product close to 1)
+                let dot = ni[0] * nj[0] + ni[1] * nj[1] + ni[2] * nj[2];
+                if dot > 1.0 - normal_tol {
+                    remap[vj] = vi as u32;
+                    merged[j] = true;
+                }
+            }
+        }
+    }
+
+    // Apply remap to indices
+    for idx in indices.iter_mut() {
+        *idx = remap[*idx as usize];
+    }
+}
+
 /// Used for boolean results where CylinderParams/RevolveParams are unavailable.
 ///
 /// For analytical B-Rep: watertight by construction (shared vertices from
@@ -3385,6 +3454,12 @@ fn tessellate_solid_bounded(
     remove_nonmanifold_duplicates_aggressive(&vertices, &mut indices, &mut face_ranges);
 
     fix_global_orientation(&mut vertices, &mut normals, &mut indices);
+
+    // Weld vertices on cylindrical faces: adjacent cylindrical side quads produce
+    // separate vertex instances at shared positions with identical cylindrical normals.
+    // Without welding, three.js sees hard edges between quads. By merging vertices
+    // at the same position with the same normal, smooth shading interpolates correctly.
+    weld_smooth_vertices(&vertices, &normals, &mut indices);
 
     Ok(RenderMesh {
         vertices,

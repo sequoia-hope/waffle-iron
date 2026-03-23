@@ -2011,14 +2011,14 @@ impl Kernel for WaffleKernel {
         );
 
         // Build arc-edge lookup: polygon edge index → arc info
+        // Edge i connects vertex[i] to vertex[(i+1) % n].
+        // Arc samples span vertex indices [start_idx..=end_idx] (16 points for 16 samples).
+        // The arc also includes the edge from end_idx to end_idx+1 (the arc's geometric
+        // endpoint, added as the next entity's start). So arc edges are start_idx..=end_idx.
         let mut arc_edge_map: BTreeMap<usize, usize> = BTreeMap::new();
         for (ai, arc) in standalone.arc_segments.iter().enumerate() {
-            // Arc covers polygon edges from start_idx to end_idx-1
-            // (edge i connects vertex[i] to vertex[i+1], last arc vertex is shared with next segment)
-            if arc.end_idx > arc.start_idx {
-                for edge_idx in arc.start_idx..arc.end_idx {
-                    arc_edge_map.insert(edge_idx, ai);
-                }
+            for edge_idx in arc.start_idx..=arc.end_idx {
+                arc_edge_map.insert(edge_idx, ai);
             }
         }
 
