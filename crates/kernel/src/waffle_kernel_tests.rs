@@ -799,8 +799,8 @@ fn cd1_cylinder_3_edge_ranges() {
         .expect("extract_edges should succeed for cylinder");
     assert_eq!(
         edges.edge_ranges.len(),
-        3,
-        "Cylinder should have 3 edge ranges (2 circles + 1 seam)"
+        2,
+        "Cylinder should have 2 edge ranges (2 circles, seam suppressed as smooth)"
     );
 }
 

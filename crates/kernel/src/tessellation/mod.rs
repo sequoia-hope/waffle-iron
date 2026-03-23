@@ -10,8 +10,8 @@ use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::*;
 use crate::types::*;
 use crate::units::{
-    MIN_FEATURE_SIZE, TAU_COINCIDENT, TAU_NORMALIZE, TAU_TESS_GRID_FACTOR, TAU_TESS_GRID_MIN,
-    TAU_WORK,
+    MIN_FEATURE_SIZE, TAU_COINCIDENT, TAU_MODEL, TAU_NORMALIZE, TAU_TESS_GRID_FACTOR,
+    TAU_TESS_GRID_MIN, TAU_WORK,
 };
 use crate::vecmath::{
     compute_plane_basis, v3_add, v3_cross, v3_dot, v3_length, v3_normalize, v3_scale, v3_sub,
@@ -1481,17 +1481,47 @@ fn tessellate_polygon_face_fallback(
     });
 }
 
+/// Check if an edge lies between two faces that share the same cylindrical surface,
+/// meaning it's an internal seam that should not be rendered.
+fn is_smooth_edge(
+    arena: &TopoArena,
+    edge_idx: EdgeIdx,
+    face_geometry: &BTreeMap<FaceIdx, SurfaceGeom>,
+) -> bool {
+    let he_a = arena.edges[edge_idx.0].half_edge;
+    let he_b = arena.half_edges[he_a.0].twin;
+    let face_a = arena.loops[arena.half_edges[he_a.0].loop_.0].face;
+    let face_b = arena.loops[arena.half_edges[he_b.0].loop_.0].face;
+
+    match (face_geometry.get(&face_a), face_geometry.get(&face_b)) {
+        (Some(SurfaceGeom::Cylindrical(ca)), Some(SurfaceGeom::Cylindrical(cb))) => {
+            // Same cylinder: same origin, axis, and radius (within tolerance)
+            let origin_match = ca.origin.distance_to(cb.origin) < TAU_MODEL;
+            let axis_match = v3_dot(ca.axis.to_array(), cb.axis.to_array()).abs() > 1.0 - TAU_MODEL;
+            let radius_match = (ca.radius - cb.radius).abs() < TAU_MODEL;
+            origin_match && axis_match && radius_match
+        }
+        _ => false,
+    }
+}
+
 /// Extract edge line segments for rendering edge overlays.
 /// Supports both linear (2-point) and circular (polyline) edges.
+/// Edges between co-cylindrical faces (smooth seams) are suppressed.
 pub(crate) fn extract_edges(
     arena: &TopoArena,
     edge_map: &BTreeMap<u64, EdgeIdx>,
     edge_geometry: &BTreeMap<EdgeIdx, CurveGeom>,
+    face_geometry: &BTreeMap<FaceIdx, SurfaceGeom>,
 ) -> Result<EdgeRenderData, KernelError> {
     let mut vertices: Vec<f32> = Vec::new();
     let mut edge_ranges: Vec<EdgeRange> = Vec::new();
 
     for (&kid, &edge_idx) in edge_map {
+        // Skip smooth edges (internal seams between co-cylindrical faces)
+        if is_smooth_edge(arena, edge_idx, face_geometry) {
+            continue;
+        }
         let start_vertex = vertices.len() as u32 / 3;
 
         match edge_geometry.get(&edge_idx) {

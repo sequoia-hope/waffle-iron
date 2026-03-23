@@ -2151,7 +2151,12 @@ impl Kernel for WaffleKernel {
                 id: KernelId(solid.id()),
             })?;
 
-        tessellation::extract_edges(&ws.arena, &ws.edge_map, &ws.edge_geometry)
+        tessellation::extract_edges(
+            &ws.arena,
+            &ws.edge_map,
+            &ws.edge_geometry,
+            &ws.face_geometry,
+        )
     }
 
     fn revolve_face(
