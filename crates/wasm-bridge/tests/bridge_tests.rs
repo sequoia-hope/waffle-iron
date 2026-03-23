@@ -64,6 +64,7 @@ fn make_sketch_op() -> Operation {
             vertex_ids: vec![],
             circle: None,
             spline_segments: vec![],
+            arc_segments: vec![],
         }],
     };
     Operation::Sketch { sketch }
@@ -662,6 +663,7 @@ fn dispatch_sketch_then_extrude_produces_solid() {
         vertex_ids: vec![],
         circle: None,
         spline_segments: vec![],
+        arc_segments: vec![],
     }];
 
     let response = wasm_bridge::dispatch(
@@ -905,6 +907,7 @@ fn dispatch_export_step_with_solid_reaches_kernel() {
                 vertex_ids: vec![],
                 circle: None,
                 spline_segments: vec![],
+                arc_segments: vec![],
             }],
             plane_origin: [0.0, 0.0, 0.0],
             plane_normal: [0.0, 0.0, 1.0],
@@ -1086,6 +1089,7 @@ fn serde_roundtrip_finish_sketch() {
             vertex_ids: vec![],
             circle: None,
             spline_segments: vec![],
+            arc_segments: vec![],
         }],
         plane_origin: [1.0, 2.0, 3.0],
         plane_normal: [0.0, 1.0, 0.0],
@@ -1241,6 +1245,7 @@ fn serde_roundtrip_sketch_solved() {
                 vertex_ids: vec![],
                 circle: None,
                 spline_segments: vec![],
+                arc_segments: vec![],
             }],
             status: SolveStatus::UnderConstrained { dof: 2 },
         },

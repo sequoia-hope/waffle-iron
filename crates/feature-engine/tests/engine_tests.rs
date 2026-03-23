@@ -63,6 +63,7 @@ fn make_sketch_op() -> Operation {
             vertex_ids: vec![],
             circle: None,
             spline_segments: vec![],
+            arc_segments: vec![],
         }],
     };
     Operation::Sketch { sketch }

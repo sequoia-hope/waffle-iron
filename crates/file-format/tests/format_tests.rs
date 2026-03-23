@@ -104,6 +104,7 @@ fn make_sketch_feature(name: &str) -> Feature {
             vertex_ids: vec![],
             circle: None,
             spline_segments: vec![],
+            arc_segments: vec![],
         }],
     };
 
@@ -606,6 +607,7 @@ fn make_rebuild_compatible_tree() -> FeatureTree {
             vertex_ids: vec![],
             circle: None,
             spline_segments: vec![],
+            arc_segments: vec![],
         }],
     };
 
@@ -1008,6 +1010,7 @@ fn round_trip_multi_feature_with_chamfer() {
             vertex_ids: vec![],
             circle: None,
             spline_segments: vec![],
+            arc_segments: vec![],
         }],
     };
 
@@ -1234,6 +1237,7 @@ fn round_trip_preserves_all_constraint_types() {
             vertex_ids: vec![],
             circle: None,
             spline_segments: vec![],
+            arc_segments: vec![],
         }],
     };
 

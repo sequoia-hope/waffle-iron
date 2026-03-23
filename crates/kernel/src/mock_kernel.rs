@@ -1325,6 +1325,7 @@ mod tests {
             vertex_ids: vec![],
             circle: None,
             spline_segments: vec![],
+            arc_segments: vec![],
         };
         let mut positions = HashMap::new();
         positions.insert(1, (0.0, 0.0));

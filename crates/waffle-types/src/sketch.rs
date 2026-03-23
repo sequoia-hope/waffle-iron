@@ -367,6 +367,9 @@ pub struct ClosedProfile {
     /// Segments that should be built as B-spline curves instead of lines.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub spline_segments: Vec<SplineSegment>,
+    /// Arc segments within the polygon, used to assign cylindrical face geometry on extrude.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub arc_segments: Vec<ArcSegment>,
 }
 
 /// Circle profile data in sketch-local UV coordinates.
@@ -386,6 +389,20 @@ pub struct SplineSegment {
     pub end_point_index: usize,
     /// Control points in sketch UV coordinates.
     pub control_points: Vec<(f64, f64)>,
+}
+
+/// An arc segment within a polygon profile, used to assign cylindrical face geometry on extrude.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ArcSegment {
+    /// Index into vertex_ids where the arc's sampled points begin.
+    pub start_vertex_index: usize,
+    /// Index into vertex_ids where the arc's sampled points end (inclusive).
+    pub end_vertex_index: usize,
+    /// Arc center in sketch UV coordinates.
+    pub center_u: f64,
+    pub center_v: f64,
+    /// Arc radius.
+    pub radius: f64,
 }
 
 #[cfg(test)]
@@ -647,6 +664,7 @@ mod tests {
                 end_point_index: 2,
                 control_points: vec![(0.0, 0.0), (1.0, 1.0), (2.0, 0.0)],
             }],
+            arc_segments: vec![],
         };
         let json = serde_json::to_string(&p).unwrap();
         assert!(json.contains("spline_segments"));
@@ -985,6 +1003,7 @@ mod tests {
             vertex_ids: vec![],
             circle: None,
             spline_segments: vec![],
+            arc_segments: vec![],
         };
         let json = serde_json::to_string(&p).unwrap();
         let d: ClosedProfile = serde_json::from_str(&json).unwrap();
@@ -1008,6 +1027,7 @@ mod tests {
                 vertex_ids: vec![],
                 circle: None,
                 spline_segments: vec![],
+                arc_segments: vec![],
             }],
             status: SolveStatus::UnderConstrained { dof: 1 },
         };
@@ -1349,6 +1369,7 @@ mod tests {
             vertex_ids: vec![],
             circle: None,
             spline_segments: vec![],
+            arc_segments: vec![],
         };
         let mut sketch = make_sketch(vec![SketchEntity::Point {
             id: 1,

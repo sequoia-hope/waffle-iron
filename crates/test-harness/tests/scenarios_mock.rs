@@ -62,6 +62,7 @@ fn test_box_with_hole() {
             vertex_ids: vec![],
             circle: None,
             spline_segments: vec![],
+            arc_segments: vec![],
         },
         ClosedProfile {
             entity_ids: vec![5],
@@ -69,6 +70,7 @@ fn test_box_with_hole() {
             vertex_ids: vec![],
             circle: None,
             spline_segments: vec![],
+            arc_segments: vec![],
         },
     ];
 
@@ -359,6 +361,7 @@ fn test_full_workflow() {
             vertex_ids: vec![],
             circle: None,
             spline_segments: vec![],
+            arc_segments: vec![],
         },
         ClosedProfile {
             entity_ids: vec![5],
@@ -366,6 +369,7 @@ fn test_full_workflow() {
             vertex_ids: vec![],
             circle: None,
             spline_segments: vec![],
+            arc_segments: vec![],
         },
     ];
 

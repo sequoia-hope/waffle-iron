@@ -325,6 +325,7 @@ fn true_circle_profile(cx: f64, cy: f64, radius: f64) -> ProfileData {
             radius,
         }),
         spline_segments: vec![],
+        arc_segments: vec![],
     }];
 
     (entities, positions, profiles)

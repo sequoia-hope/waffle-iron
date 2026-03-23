@@ -150,6 +150,7 @@ pub fn contours_to_profiles(regions: &[ClosedRegion]) -> ProfileData {
                 vertex_ids: vec![],
                 circle: None,
                 spline_segments: vec![],
+                arc_segments: vec![],
             });
         }
 
@@ -160,6 +161,7 @@ pub fn contours_to_profiles(regions: &[ClosedRegion]) -> ProfileData {
             vertex_ids: vec![],
             circle: None,
             spline_segments: vec![],
+            arc_segments: vec![],
         });
 
         // Hole profiles

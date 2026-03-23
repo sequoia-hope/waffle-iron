@@ -1503,6 +1503,7 @@ mod tests {
             vertex_ids: vec![],
             circle: None,
             spline_segments: vec![],
+            arc_segments: vec![],
         };
 
         (vec![profile], positions)
@@ -1900,6 +1901,7 @@ mod tests {
                 radius: r,
             }),
             spline_segments: vec![],
+            arc_segments: vec![],
         };
 
         (vec![profile], positions)

@@ -34,6 +34,7 @@ fn make_rect_profile(
         vertex_ids: vec![],
         circle: None,
         spline_segments: vec![],
+            arc_segments: vec![],
     };
 
     (vec![profile], positions)
@@ -568,6 +569,7 @@ fn make_circle_profile(
             radius: r,
         }),
         spline_segments: vec![],
+            arc_segments: vec![],
     };
 
     (vec![profile], positions)
@@ -2504,6 +2506,7 @@ fn vid1_vertex_ids_ordering_respected() {
         vertex_ids: vec![4, 3, 2, 1], // Reversed order
         circle: None,
         spline_segments: vec![],
+            arc_segments: vec![],
     };
 
     let face_ids = k
@@ -2537,6 +2540,7 @@ fn vid2_vertex_ids_preferred_over_entity_ids() {
         vertex_ids: vec![1, 2, 3, 4], // Valid point IDs
         circle: None,
         spline_segments: vec![],
+            arc_segments: vec![],
     };
 
     let face_ids = k
@@ -2563,6 +2567,7 @@ fn vid3_vertex_ids_skipped_when_ids_missing() {
         vertex_ids: vec![1, 2, 3, 99], // 99 not in positions
         circle: None,
         spline_segments: vec![],
+            arc_segments: vec![],
     };
 
     let face_ids = k
@@ -2879,6 +2884,7 @@ fn make_gear_profile(
         vertex_ids,
         circle: None,
         spline_segments: vec![],
+            arc_segments: vec![],
     };
 
     (vec![profile], positions)
@@ -3673,6 +3679,7 @@ fn diag_tilted_box_cyl_boss_normals() {
             radius: 0.35,
         }),
         spline_segments: vec![],
+            arc_segments: vec![],
     }];
     let circle_positions = HashMap::new();
     let f2 = k.make_faces_from_profiles(&circle_profiles, plane_origin, plane_normal, x_axis, &circle_positions)
@@ -4299,6 +4306,7 @@ fn r_f0001_exact_feature_engine_path() {
         vertex_ids: vec![1, 2, 3, 4],
         circle: None,
         spline_segments: vec![],
+            arc_segments: vec![],
     };
 
     // Box A
@@ -5315,6 +5323,7 @@ fn make_revolve_triangle(
         vertex_ids: vec![],
         circle: None,
         spline_segments: vec![],
+            arc_segments: vec![],
     };
     let faces = k
         .make_faces_from_profiles(&[profile], XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)

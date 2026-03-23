@@ -175,6 +175,7 @@ pub fn rect_profile(x: f64, y: f64, w: f64, h: f64) -> ProfileData {
         vertex_ids: vec![1, 2, 3, 4],
         circle: None,
         spline_segments: vec![],
+        arc_segments: vec![],
     }];
 
     (entities, positions, profiles)
@@ -239,6 +240,7 @@ pub fn circle_profile(cx: f64, cy: f64, r: f64, segments: u32) -> ProfileData {
             radius: r,
         }),
         spline_segments: vec![],
+        arc_segments: vec![],
     }];
 
     (entities, positions, profiles)
@@ -288,6 +290,7 @@ pub fn polygon_profile(vertices: &[(f64, f64)]) -> ProfileData {
         vertex_ids: (1..=n).collect(),
         circle: None,
         spline_segments: vec![],
+        arc_segments: vec![],
     }];
 
     (entities, positions, profiles)

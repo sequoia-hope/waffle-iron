@@ -337,6 +337,7 @@ fn test_l_shaped_manual_sketch() {
         vertex_ids: vec![],
         circle: None,
         spline_segments: vec![],
+        arc_segments: vec![],
     }];
 
     m.finish_sketch_manual("l_sketch", positions, profiles, [0., 0., 0.], [0., 0., 1.])

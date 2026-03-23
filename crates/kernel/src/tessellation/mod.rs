@@ -7721,6 +7721,7 @@ mod tests {
                 radius: r,
             }),
             spline_segments: vec![],
+            arc_segments: vec![],
         };
         let face_ids = kernel
             .make_faces_from_profiles(
@@ -7757,6 +7758,7 @@ mod tests {
             vertex_ids: vec![1, 2, 3, 4],
             circle: None,
             spline_segments: vec![],
+            arc_segments: vec![],
         };
         let face_ids = kernel
             .make_faces_from_profiles(

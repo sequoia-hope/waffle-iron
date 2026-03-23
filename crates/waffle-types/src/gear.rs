@@ -399,6 +399,7 @@ pub fn generate_gear_profile(params: &GearParams) -> GearProfileResult {
         vertex_ids: profile_vertex_ids,
         circle: None,
         spline_segments,
+        arc_segments: vec![],
     }];
 
     GearProfileResult {

@@ -20,6 +20,7 @@ fn make_face(kernel: &mut MockKernel) -> KernelId {
         vertex_ids: vec![],
         circle: None,
         spline_segments: vec![],
+        arc_segments: vec![],
     };
     let mut positions = HashMap::new();
     positions.insert(1, (0.0, 0.0));
@@ -369,6 +370,7 @@ fn boolean_assigns_body_a_b_roles() {
         vertex_ids: vec![],
         circle: None,
         spline_segments: vec![],
+        arc_segments: vec![],
     };
     let mut positions_b = HashMap::new();
     positions_b.insert(10, (0.0, 0.0));
@@ -932,6 +934,7 @@ fn make_truck_face(kernel: &mut WaffleKernel) -> KernelId {
         vertex_ids: vec![],
         circle: None,
         spline_segments: vec![],
+        arc_segments: vec![],
     };
     let mut positions = HashMap::new();
     positions.insert(1, (0.0, 0.0));

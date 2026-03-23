@@ -39,6 +39,7 @@ pub fn extract_profiles(
                     vertex_ids: vec![],
                     circle: circle_data,
                     spline_segments: vec![],
+                    arc_segments: vec![],
                 });
             }
         }
@@ -176,6 +177,7 @@ pub fn extract_profiles(
                 vertex_ids: face_vertices,
                 circle: None,
                 spline_segments: vec![],
+                arc_segments: vec![],
             });
         }
     }

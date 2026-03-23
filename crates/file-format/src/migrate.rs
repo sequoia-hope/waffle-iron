@@ -238,6 +238,7 @@ mod tests {
                     end_point_index: 1,
                     control_points: vec![(5.0, 10.0), (10.0, 15.0), (15.0, 10.0)],
                 }],
+                arc_segments: vec![],
             }],
         }
     }

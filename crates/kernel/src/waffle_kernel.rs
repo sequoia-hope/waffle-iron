@@ -97,12 +97,21 @@ struct CircleInfo {
     y_axis: [f64; 3],
 }
 
+/// Arc segment metadata for cylindrical face assignment during extrude.
+struct ArcInfo {
+    start_idx: usize,
+    end_idx: usize,
+    center_3d: [f64; 3],
+    radius: f64,
+}
+
 /// A standalone face (pre-extrude), stored as either polygon vertices or circle info.
 struct StandaloneFace {
     vertices: Vec<[f64; 3]>,
     plane_origin: [f64; 3],
     plane_normal: [f64; 3],
     circle_info: Option<CircleInfo>,
+    arc_segments: Vec<ArcInfo>,
 }
 
 impl WaffleKernel {
@@ -1775,6 +1784,7 @@ impl Kernel for WaffleKernel {
                             x_axis: plane_x_axis,
                             y_axis: plane_y_axis,
                         }),
+                        arc_segments: vec![],
                     },
                 );
                 face_ids.push(KernelId(face_id));
@@ -1828,6 +1838,27 @@ impl Kernel for WaffleKernel {
                 });
             }
 
+            // Convert arc segments from sketch UV to 3D
+            let arc_segments: Vec<ArcInfo> = profile
+                .arc_segments
+                .iter()
+                .map(|a| {
+                    let center_3d = v3_add(
+                        plane_origin,
+                        v3_add(
+                            v3_scale(plane_x_axis, a.center_u),
+                            v3_scale(plane_y_axis, a.center_v),
+                        ),
+                    );
+                    ArcInfo {
+                        start_idx: a.start_vertex_index,
+                        end_idx: a.end_vertex_index,
+                        center_3d,
+                        radius: a.radius,
+                    }
+                })
+                .collect();
+
             let face_id = self.alloc_id();
             self.standalone_faces.insert(
                 face_id,
@@ -1836,6 +1867,7 @@ impl Kernel for WaffleKernel {
                     plane_origin,
                     plane_normal,
                     circle_info: None,
+                    arc_segments,
                 },
             );
             face_ids.push(KernelId(face_id));
@@ -1978,6 +2010,18 @@ impl Kernel for WaffleKernel {
             }),
         );
 
+        // Build arc-edge lookup: polygon edge index → arc info
+        let mut arc_edge_map: BTreeMap<usize, usize> = BTreeMap::new();
+        for (ai, arc) in standalone.arc_segments.iter().enumerate() {
+            // Arc covers polygon edges from start_idx to end_idx-1
+            // (edge i connects vertex[i] to vertex[i+1], last arc vertex is shared with next segment)
+            if arc.end_idx > arc.start_idx {
+                for edge_idx in arc.start_idx..arc.end_idx {
+                    arc_edge_map.insert(edge_idx, ai);
+                }
+            }
+        }
+
         // Side faces with outward normals using Newell winding (correct for non-convex profiles)
         let newell = compute_newell_normal(&standalone.vertices);
         let winding_sign = v3_dot(newell, dir_norm).signum(); // +1 if CCW from extrude dir view
@@ -1987,27 +2031,37 @@ impl Kernel for WaffleKernel {
             let sf_kid = self.alloc_id();
             face_map.insert(sf_kid, sf);
 
-            // Compute outward normal for this side face
-            let v_a = standalone.vertices[i];
-            let v_b = standalone.vertices[(i + 1) % n];
-            let edge_dir = v3_sub(v_b, v_a);
-            let mid = v3_scale(v3_add(v_a, v_b), 0.5);
-            // Use polygon winding to determine outward direction.
-            // For CCW winding (viewed from extrude dir): outward = cross(edge_dir, extrude_dir)
-            // For CW winding: outward = cross(extrude_dir, edge_dir)
-            let side_normal = if winding_sign >= 0.0 {
-                v3_normalize(v3_cross(edge_dir, direction))
+            if let Some(&arc_idx) = arc_edge_map.get(&i) {
+                // Arc edge → cylindrical face geometry for smooth shading
+                let arc = &standalone.arc_segments[arc_idx];
+                face_geometry.insert(
+                    sf,
+                    SurfaceGeom::Cylindrical(Cylinder {
+                        origin: Point3::from_array(arc.center_3d),
+                        axis: Vector3::from_array(dir_norm),
+                        radius: arc.radius,
+                    }),
+                );
             } else {
-                v3_normalize(v3_cross(direction, edge_dir))
-            };
+                // Straight edge → planar face geometry
+                let v_a = standalone.vertices[i];
+                let v_b = standalone.vertices[(i + 1) % n];
+                let edge_dir = v3_sub(v_b, v_a);
+                let mid = v3_scale(v3_add(v_a, v_b), 0.5);
+                let side_normal = if winding_sign >= 0.0 {
+                    v3_normalize(v3_cross(edge_dir, direction))
+                } else {
+                    v3_normalize(v3_cross(direction, edge_dir))
+                };
 
-            face_geometry.insert(
-                sf,
-                SurfaceGeom::Planar(Plane {
-                    origin: Point3::from_array(mid),
-                    normal: Vector3::from_array(side_normal),
-                }),
-            );
+                face_geometry.insert(
+                    sf,
+                    SurfaceGeom::Planar(Plane {
+                        origin: Point3::from_array(mid),
+                        normal: Vector3::from_array(side_normal),
+                    }),
+                );
+            }
         }
 
         // Map all edges

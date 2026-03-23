@@ -2881,6 +2881,7 @@ export async function finishSketch() {
 
 	const profiles = extractedProfilesState.map((p) => {
 		const pointIds = [];
+		const arcSegments = [];
 		const edgeEntities = [...p.entityIds].map(id => sketchEntities.find(e => e.id === id)).filter(Boolean);
 
 		// Standalone circles: pass as tagged circle profile for true NURBS cylinder extrusion
@@ -2927,6 +2928,7 @@ export async function finishSketch() {
 					let endAngle = Math.atan2(ePos.y - center.y, ePos.x - center.x);
 					if (endAngle <= startAngle) endAngle += Math.PI * 2;
 
+					const arcStartIdx = pointIds.length;
 					pointIds.push(sId); // start point
 					const ARC_SAMPLES = 16;
 					for (let s = 1; s < ARC_SAMPLES; s++) {
@@ -2939,6 +2941,15 @@ export async function finishSketch() {
 						];
 						pointIds.push(synthId);
 					}
+					const arcEndIdx = pointIds.length - 1;
+					// Record arc metadata for cylindrical face assignment
+					arcSegments.push({
+						start_vertex_index: arcStartIdx,
+						end_vertex_index: arcEndIdx,
+						center_u: center.x,
+						center_v: center.y,
+						radius: radius,
+					});
 					// Don't push end point — next entity's start handles it
 				} else {
 					// Fallback: just add start point
@@ -2968,7 +2979,11 @@ export async function finishSketch() {
 			prevEnd = connected ? (forward ? nextEnd : nextStart) : nextEnd;
 		}
 
-		return { entity_ids: [...p.entityIds], is_outer: p.isOuter, vertex_ids: pointIds };
+		const result = { entity_ids: [...p.entityIds], is_outer: p.isOuter, vertex_ids: pointIds };
+		if (arcSegments.length > 0) {
+			result.arc_segments = arcSegments;
+		}
+		return result;
 	});
 
 	const profileCount = profiles.length;

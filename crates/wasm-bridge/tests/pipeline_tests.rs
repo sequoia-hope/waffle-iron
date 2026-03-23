@@ -84,6 +84,7 @@ fn create_rect_sketch(
         vertex_ids: vec![],
         circle: None,
         spline_segments: vec![],
+        arc_segments: vec![],
     }];
 
     let response = wasm_bridge::dispatch(

@@ -254,6 +254,7 @@ impl ModelBuilder {
                 radius: r,
             }),
             spline_segments: vec![],
+            arc_segments: vec![],
         }];
 
         let response = wasm_bridge::dispatch(
