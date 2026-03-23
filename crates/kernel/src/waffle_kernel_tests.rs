@@ -1190,6 +1190,137 @@ fn j2_box_cyl_union_basic() {
     );
 }
 
+/// Check that all triangles in a mesh have geometric winding consistent with
+/// their vertex normals. Returns the count of inconsistent triangles.
+fn count_winding_inconsistent_tris(mesh: &RenderMesh) -> usize {
+    let n_tris = mesh.indices.len() / 3;
+    let mut bad = 0;
+    for t in 0..n_tris {
+        let i0 = mesh.indices[t * 3] as usize;
+        let i1 = mesh.indices[t * 3 + 1] as usize;
+        let i2 = mesh.indices[t * 3 + 2] as usize;
+
+        let v0 = [mesh.vertices[i0*3] as f64, mesh.vertices[i0*3+1] as f64, mesh.vertices[i0*3+2] as f64];
+        let v1 = [mesh.vertices[i1*3] as f64, mesh.vertices[i1*3+1] as f64, mesh.vertices[i1*3+2] as f64];
+        let v2 = [mesh.vertices[i2*3] as f64, mesh.vertices[i2*3+1] as f64, mesh.vertices[i2*3+2] as f64];
+
+        let e1 = [v1[0]-v0[0], v1[1]-v0[1], v1[2]-v0[2]];
+        let e2 = [v2[0]-v0[0], v2[1]-v0[1], v2[2]-v0[2]];
+        let geo_n = [
+            e1[1]*e2[2] - e1[2]*e2[1],
+            e1[2]*e2[0] - e1[0]*e2[2],
+            e1[0]*e2[1] - e1[1]*e2[0],
+        ];
+
+        let avg_n = [
+            (mesh.normals[i0*3] + mesh.normals[i1*3] + mesh.normals[i2*3]) as f64 / 3.0,
+            (mesh.normals[i0*3+1] + mesh.normals[i1*3+1] + mesh.normals[i2*3+1]) as f64 / 3.0,
+            (mesh.normals[i0*3+2] + mesh.normals[i1*3+2] + mesh.normals[i2*3+2]) as f64 / 3.0,
+        ];
+
+        let dot = geo_n[0]*avg_n[0] + geo_n[1]*avg_n[1] + geo_n[2]*avg_n[2];
+        if dot < 0.0 {
+            bad += 1;
+        }
+    }
+    bad
+}
+
+#[test]
+fn j2b_box_cyl_boss_union_winding_consistent() {
+    // Cylinder extends above box (boss configuration) — the exact case
+    // that produces transparent faces if winding is wrong.
+    let mut k = WaffleKernel::new();
+    // 10x10x5 box centered at origin
+    let (pb, posb) = make_rect_profile(0.0, 0.0, 10.0, 10.0);
+    let fb = k.make_faces_from_profiles(&pb, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posb).unwrap();
+    let box_solid = k.extrude_face(fb[0], Z_DIR, 5.0).unwrap();
+    // r=3 cylinder at origin, h=15 — extends 10 above box
+    let (profiles_c, positions_c) = make_circle_profile(0.0, 0.0, 3.0);
+    let face_c = k.make_faces_from_profiles(&profiles_c, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions_c).unwrap();
+    let cyl_solid = k.extrude_face(face_c[0], Z_DIR, 15.0).unwrap();
+    let handle = k.boolean_union(&box_solid, &cyl_solid).unwrap();
+    let mesh = k.tessellate(&handle, 0.01).unwrap();
+
+    assert!(mesh.indices.len() > 0, "Mesh should have triangles");
+    let bad = count_winding_inconsistent_tris(&mesh);
+    let total = mesh.indices.len() / 3;
+    assert!(
+        bad == 0,
+        "All triangles should have consistent winding, but {}/{} are inconsistent",
+        bad, total
+    );
+}
+
+#[test]
+fn j2c_box_cyl_boss_tilted_winding_consistent() {
+    // Same boss config but on a tilted plane (like R0067)
+    let mut k = WaffleKernel::new();
+    let origin: [f64; 3] = [0.105, -0.015, -0.118];
+    let normal: [f64; 3] = [0.809, -0.056, 0.585];
+    let norm_len = (normal[0]*normal[0] + normal[1]*normal[1] + normal[2]*normal[2]).sqrt();
+    let normal = [normal[0]/norm_len, normal[1]/norm_len, normal[2]/norm_len];
+
+    // Compute x_axis perpendicular to normal
+    let up: [f64; 3] = if normal[0].abs() < 0.9 { [1.0, 0.0, 0.0] } else { [0.0, 1.0, 0.0] };
+    let x_axis = [
+        normal[1]*up[2] - normal[2]*up[1],
+        normal[2]*up[0] - normal[0]*up[2],
+        normal[0]*up[1] - normal[1]*up[0],
+    ];
+    let xlen = (x_axis[0]*x_axis[0] + x_axis[1]*x_axis[1] + x_axis[2]*x_axis[2]).sqrt();
+    let x_axis = [x_axis[0]/xlen, x_axis[1]/xlen, x_axis[2]/xlen];
+
+    // R0067 dimensions: circle r=0.0465 > box half=0.0425/2 → cylinder extends
+    // beyond box in XY, so SSI returns NotSupported → polygon_approx_boolean
+    let (pc, posc) = make_circle_profile(0.0, 0.0, 0.047);
+    let fc = k.make_faces_from_profiles(&pc, origin, normal, x_axis, &posc).unwrap();
+    let cyl_solid = k.extrude_face(fc[0], normal, 0.098).unwrap();
+
+    // Rectangle on same plane (smaller than cylinder diameter)
+    let (pr, posr) = make_rect_profile(0.0, 0.0, 0.085, 0.085);
+    let fr = k.make_faces_from_profiles(&pr, origin, normal, x_axis, &posr).unwrap();
+    let box_solid = k.extrude_face(fr[0], normal, 0.080).unwrap();
+
+    // R0067 order: cylinder first (existing model), box second (new extrude)
+    let handle = k.boolean_union(&cyl_solid, &box_solid).unwrap();
+    let mesh = k.tessellate(&handle, 0.001).unwrap();
+
+    eprintln!("Mesh: {} verts, {} tris, {} face_ranges",
+        mesh.vertices.len() / 3, mesh.indices.len() / 3, mesh.face_ranges.len());
+    for (i, fr) in mesh.face_ranges.iter().enumerate() {
+        let n_tris = (fr.end_index - fr.start_index) / 3;
+        eprintln!("  face[{}] id={} tris={}", i, fr.face_id.0, n_tris);
+    }
+
+    assert!(mesh.indices.len() > 0, "Mesh should have triangles");
+    let bad = count_winding_inconsistent_tris(&mesh);
+    let total = mesh.indices.len() / 3;
+    assert!(
+        bad == 0,
+        "All triangles should have consistent winding, but {}/{} are inconsistent",
+        bad, total
+    );
+
+    // Check volume: cylinder (r=0.047, h=0.098) ∪ box (0.085×0.085×0.080)
+    // Box is inside cylinder laterally (0.085/2 < 0.047), but shorter.
+    // Expected: cylinder volume + box overhang... actually box IS inside cylinder
+    // circle r=0.047 fully contains rect 0.085×0.085? No: rect corner is at
+    // sqrt(0.0425²+0.0425²)=0.060 > 0.047, so corners stick out.
+    // Complex shape — just check positive volume
+    let vol = mesh_volume(&mesh);
+    assert!(vol > 0.0, "Volume should be positive, got {}", vol);
+
+    // Check all triangle normals are finite
+    for i in 0..mesh.normals.len() {
+        assert!(mesh.normals[i].is_finite(), "Normal[{}] is not finite: {}", i, mesh.normals[i]);
+    }
+
+    // Check face ranges span all indices
+    let covered: usize = mesh.face_ranges.iter().map(|r| (r.end_index - r.start_index) as usize).sum();
+    assert_eq!(covered, mesh.indices.len(), "Face ranges should cover all indices");
+}
+
 #[test]
 fn j3_disjoint_boxes_union() {
     // Two boxes that don't overlap at all
@@ -9728,14 +9859,16 @@ fn test_ssi_fallback_marks_polygon_soup() {
     );
 }
 
-/// When the SSI boolean path fails and falls back to polygon clipping, the
-/// cylindrical protrusion must be properly tessellated — not collapsed to the
-/// box AABB. This verifies the mesh has vertices outside the box bounding faces
-/// and enough triangles for the cylindrical surface.
+/// Verify that a box-cylinder partial union produces a correctly-shaped mesh
+/// with the cylindrical protrusion extending past the box boundary.
 ///
 /// Same geometry as test_ssi_fallback_marks_polygon_soup: box 10x10 at (5,5),
 /// cylinder r=4 at (9,5), depth 10. The cylinder protrudes past x=10 (up to
 /// x=13), so vertices beyond x=10 must exist.
+///
+/// The analytical path produces chord-approximated faces (all vertices at
+/// z=0 or z=10). The polygon clipping fallback produces intermediate-height
+/// vertices. Both are correct; the key check is mesh extent and watertightness.
 #[test]
 fn test_ssi_fallback_no_aabb_collapse() {
     let mut k = WaffleKernel::new();
@@ -9769,16 +9902,8 @@ fn test_ssi_fallback_no_aabb_collapse() {
         max_x
     );
 
-    // The mesh should NOT be AABB-collapsed (all vertices on bounding box faces).
-    assert!(
-        !is_3d_aabb_collapsed(&mesh.vertices),
-        "Box + straddling cylinder mesh should NOT be AABB-collapsed. \
-         The cylindrical surface must produce off-AABB vertices."
-    );
-
     // A box-cylinder union with a protruding cylinder should have significantly
-    // more triangles than a plain box (12 tris). The cylindrical surface alone
-    // needs ~20+ triangles at tolerance 0.05.
+    // more triangles than a plain box (12 tris).
     assert!(
         tri_count >= 30,
         "Expected at least 30 triangles for box + protruding cylinder, got {}. \
@@ -12393,5 +12518,284 @@ fn ssi_sphere_06_disjoint_sphere_subtract() {
 
     // -- SSI dispatch discriminator: result must NOT be polygon soup
     assert_not_polygon_soup(&k, &result);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// Group T: Partial box-cylinder union (SSI analytical path)
+// ══════════════════════════════════════════════════════════════════
+
+/// T1: Single-side protrusion — cylinder wider than box on one side only.
+/// Box 4×4×2 centered at origin, cyl r=1.5 offset to x=1.0 (protrudes right only).
+/// Circle extends x: [-0.5, 2.5], y: [-1.5, 1.5] — only x=2 protrudes since box is [-2,2]×[-2,2].
+#[test]
+fn t1_partial_box_cyl_union_one_side_volume() {
+    let (mut k, handle) = do_box_cyl_boolean(
+        0.0, 0.0, 4.0, 4.0, 2.0, // box: [-2,2]×[-2,2]×[0,2]
+        1.0, 0.0, 1.5, 2.0,       // cyl: center (1.0,0), r=1.5, h=2
+        crate::boolean::BoolOp::Union,
+    )
+    .expect("partial union one-side should succeed");
+
+    let mesh = k.tessellate(&handle, 0.01).expect("tessellate");
+    let vol = mesh_volume(&mesh);
+
+    // Box volume = 32.0. Circle at (1,0) r=1.5 extends x to 2.5, but box edge is at x=2.
+    // The protruding segment: d = 2.0 - 1.0 = 1.0, θ = acos(1.0/1.5)
+    let d = 1.0_f64;
+    let theta = (d / 1.5).acos();
+    let seg_area = 1.5 * 1.5 * (theta - theta.sin() * theta.cos());
+    let expected = 32.0 + seg_area * 2.0; // extruded over h=2
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.05,
+        "T1 volume: expected {:.3}, got {:.3} (rel_err={:.4})",
+        expected, vol, rel_err,
+    );
+}
+
+/// T1b: Single-side protrusion watertight check.
+#[test]
+fn t1b_partial_box_cyl_union_one_side_watertight() {
+    let (mut k, handle) = do_box_cyl_boolean(
+        0.0, 0.0, 4.0, 4.0, 2.0,
+        1.0, 0.0, 1.5, 2.0,
+        crate::boolean::BoolOp::Union,
+    )
+    .expect("partial union one-side should succeed");
+
+    let mesh = k.tessellate(&handle, 0.01).expect("tessellate");
+    let unpaired = count_unpaired_edges(&mesh);
+    assert_eq!(
+        unpaired, 0,
+        "T1b: one-side partial union must be watertight, got {} unpaired edges",
+        unpaired,
+    );
+}
+
+/// T2: Two adjacent sides protrusion — cylinder protrudes through right and front.
+#[test]
+fn t2_partial_box_cyl_union_two_adjacent_sides() {
+    // Box 2×2×2 at origin, cyl at (0.5, -0.5) r=1.5
+    // Protrudes through right (x=1) and front (y=-1) sides
+    let (mut k, handle) = do_box_cyl_boolean(
+        0.0, 0.0, 2.0, 2.0, 2.0,
+        0.5, -0.5, 1.5, 2.0,
+        crate::boolean::BoolOp::Union,
+    )
+    .expect("partial union two-adjacent should succeed");
+
+    let mesh = k.tessellate(&handle, 0.01).expect("tessellate");
+    let vol = mesh_volume(&mesh);
+    // Volume must be greater than box volume (8.0)
+    assert!(
+        vol > 8.0,
+        "T2: union volume {:.3} should exceed box volume 8.0",
+        vol,
+    );
+    // And watertight
+    let unpaired = count_unpaired_edges(&mesh);
+    assert_eq!(
+        unpaired, 0,
+        "T2: two-adjacent partial union must be watertight, got {} unpaired",
+        unpaired,
+    );
+}
+
+/// T3: Four-side protrusion — cylinder protrudes through all 4 sides but corners outside circle.
+/// Box 6×6×2 at origin, cyl r=4 at center. Corners at distance √18≈4.24 > r=4.
+#[test]
+fn t3_partial_box_cyl_union_four_sides() {
+    use std::f64::consts::PI;
+    // Box 6×6×2: corners at (±3,±3), distance √18 ≈ 4.24 from center
+    // Cyl r=4 at center: protrudes through all 4 sides, but corners are outside
+    let (mut k, handle) = do_box_cyl_boolean(
+        0.0, 0.0, 6.0, 6.0, 2.0,
+        0.0, 0.0, 4.0, 2.0,
+        crate::boolean::BoolOp::Union,
+    )
+    .expect("partial union four-sides should succeed");
+
+    let mesh = k.tessellate(&handle, 0.01).expect("tessellate");
+    let vol = mesh_volume(&mesh);
+    // Box vol = 72. Cylinder protrudes through all 4 sides.
+    // Volume must exceed box volume
+    let box_vol = 72.0;
+    assert!(
+        vol > box_vol,
+        "T3: four-side union volume {:.3} should exceed box volume {:.3}",
+        vol, box_vol,
+    );
+    // Should be close to cylinder volume (pi*16*2 ≈ 100.5)
+    // Chord approximation may slightly exceed true volume
+    let cyl_vol = PI * 16.0 * 2.0;
+    let rel_err = (vol - cyl_vol).abs() / cyl_vol;
+    assert!(
+        rel_err < 0.02,
+        "T3: four-side union volume {:.3} should be ~cylinder {:.3} (rel_err={:.4})",
+        vol, cyl_vol, rel_err,
+    );
+    // Watertight
+    let unpaired = count_unpaired_edges(&mesh);
+    assert_eq!(
+        unpaired, 0,
+        "T3: four-side partial union must be watertight, got {} unpaired",
+        unpaired,
+    );
+}
+
+/// T4: Z-range mismatch — cylinder extends above box.
+#[test]
+fn t4_partial_box_cyl_union_extends_above() {
+    // Box 2×2×2 at origin [z: 0..2], cyl at (0.5, 0) r=1.5 h=5 [z: 0..5]
+    let (mut k, handle) = do_box_cyl_boolean(
+        0.0, 0.0, 2.0, 2.0, 2.0,
+        0.5, 0.0, 1.5, 5.0,
+        crate::boolean::BoolOp::Union,
+    )
+    .expect("partial union extends-above should succeed");
+
+    let mesh = k.tessellate(&handle, 0.01).expect("tessellate");
+    let vol = mesh_volume(&mesh);
+    // Volume > box volume (8.0) and > simple protrusion
+    assert!(
+        vol > 8.0,
+        "T4: extends-above volume {:.3} should exceed 8.0",
+        vol,
+    );
+    // Watertight
+    let unpaired = count_unpaired_edges(&mesh);
+    assert_eq!(
+        unpaired, 0,
+        "T4: extends-above partial union must be watertight, got {} unpaired",
+        unpaired,
+    );
+}
+
+/// T5: R0067-like case — small cylinder protruding from box.
+/// Verifies the exact scenario that was failing before: circle r=0.047, box w=0.085.
+#[test]
+fn t5_r0067_like_partial_union() {
+    // Simplified version of R0067: box slightly smaller than cylinder diameter
+    let (mut k, handle) = do_box_cyl_boolean(
+        0.0, 0.0, 0.085, 0.085, 0.1,
+        0.0, 0.0, 0.047, 0.1,
+        crate::boolean::BoolOp::Union,
+    )
+    .expect("R0067-like partial union should succeed");
+
+    let mesh = k.tessellate(&handle, 0.001).expect("tessellate");
+    let vol = mesh_volume(&mesh);
+    // Volume should be approximately the cylinder volume (since box is inscribed)
+    let box_vol = 0.085 * 0.085 * 0.1;
+    // Union >= max(box, cyl)
+    assert!(
+        vol >= box_vol * 0.95,
+        "T5: volume {:.6} should be at least box volume {:.6}",
+        vol, box_vol,
+    );
+    // Watertight
+    let unpaired = count_unpaired_edges(&mesh);
+    assert_eq!(
+        unpaired, 0,
+        "T5: R0067-like partial union must be watertight, got {} unpaired",
+        unpaired,
+    );
+}
+
+/// Extract triangle vertex positions from a RenderMesh.
+fn get_tri_verts(mesh: &RenderMesh, t: usize) -> [[f64; 3]; 3] {
+    let i0 = mesh.indices[t * 3] as usize;
+    let i1 = mesh.indices[t * 3 + 1] as usize;
+    let i2 = mesh.indices[t * 3 + 2] as usize;
+    [
+        [mesh.vertices[i0*3] as f64, mesh.vertices[i0*3+1] as f64, mesh.vertices[i0*3+2] as f64],
+        [mesh.vertices[i1*3] as f64, mesh.vertices[i1*3+1] as f64, mesh.vertices[i1*3+2] as f64],
+        [mesh.vertices[i2*3] as f64, mesh.vertices[i2*3+1] as f64, mesh.vertices[i2*3+2] as f64],
+    ]
+}
+
+/// T7: Cylinder chord-quad faces must have outward-facing geometric winding.
+/// This catches the bug where the `!has_curved_edges` fan path in
+/// `tessellate_cylindrical_face_bounded` emits CW triangles (invisible due
+/// to backface culling) because it lacks the Newell winding check.
+#[test]
+fn t7_partial_union_cyl_faces_outward_winding() {
+    // 1-side protrusion: box 4×4×2 at origin, cyl at (1,0) r=1.5
+    let (mut k, handle) = do_box_cyl_boolean(
+        0.0, 0.0, 4.0, 4.0, 2.0,
+        1.0, 0.0, 1.5, 2.0,
+        crate::boolean::BoolOp::Union,
+    )
+    .expect("partial union");
+    let mesh = k.tessellate(&handle, 0.01).expect("tessellate");
+
+    let cyl_cx = 1.0_f64;
+    let cyl_cy = 0.0_f64;
+    let cyl_r = 1.5_f64;
+    let mut bad_cyl_tris = 0;
+    let mut total_cyl_tris = 0;
+    let n_tris = mesh.indices.len() / 3;
+    for t in 0..n_tris {
+        let [v0, v1, v2] = get_tri_verts(&mesh, t);
+        let centroid = [
+            (v0[0] + v1[0] + v2[0]) / 3.0,
+            (v0[1] + v1[1] + v2[1]) / 3.0,
+            (v0[2] + v1[2] + v2[2]) / 3.0,
+        ];
+
+        // Is centroid on the cylinder surface? (XY distance from axis ≈ r)
+        let dx = centroid[0] - cyl_cx;
+        let dy = centroid[1] - cyl_cy;
+        let dist = (dx * dx + dy * dy).sqrt();
+        if (dist - cyl_r).abs() > cyl_r * 0.05 {
+            continue;
+        }
+
+        total_cyl_tris += 1;
+
+        // Geometric normal via cross product
+        let e1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
+        let e2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
+        let geo_n = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+
+        // Radial outward direction at centroid (XY only, ignore Z)
+        let radial = [dx / dist, dy / dist, 0.0];
+
+        // Dot product: positive = outward (correct), negative = inward (bug)
+        let dot = geo_n[0] * radial[0] + geo_n[1] * radial[1] + geo_n[2] * radial[2];
+        if dot < 0.0 {
+            bad_cyl_tris += 1;
+        }
+    }
+
+    assert!(total_cyl_tris > 0, "should have cylinder-surface triangles");
+    assert_eq!(
+        bad_cyl_tris, 0,
+        "T7: {} of {} cylinder triangles have inward-facing geometric winding",
+        bad_cyl_tris, total_cyl_tris,
+    );
+}
+
+/// T6: Winding consistency for partial union.
+#[test]
+fn t6_partial_box_cyl_union_winding_consistent() {
+    let (mut k, handle) = do_box_cyl_boolean(
+        0.0, 0.0, 2.0, 2.0, 2.0,
+        0.5, 0.0, 1.5, 2.0,
+        crate::boolean::BoolOp::Union,
+    )
+    .expect("partial union should succeed");
+
+    let mesh = k.tessellate(&handle, 0.01).expect("tessellate");
+    let bad = count_winding_inconsistent_tris(&mesh);
+    assert_eq!(
+        bad, 0,
+        "T6: partial union should have 0 winding-inconsistent tris, got {}",
+        bad,
+    );
 }
 

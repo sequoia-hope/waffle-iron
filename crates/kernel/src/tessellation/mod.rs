@@ -3236,7 +3236,6 @@ fn tessellate_solid_bounded(
     for &(kid, face_idx) in &sorted_faces {
         let start_index = indices.len() as u32;
         let geom = face_geometry.get(&face_idx);
-
         match geom {
             Some(SurfaceGeom::Cylindrical(cyl)) => {
                 tessellate_cylindrical_face_bounded(

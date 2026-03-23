@@ -791,6 +791,68 @@ pub(crate) fn box_cyl_disjoint(aabb: &Aabb, cyl: &CylinderParams) -> bool {
     false
 }
 
+/// Compute intersections of circle (cx, cy, r) with vertical line x=X.
+/// Returns intersection y-values clipped to [y_min, y_max].
+///
+/// Reference: Patrikalakis Ch.5 — plane-cylinder SSI (vertical plane case).
+pub(crate) fn circle_vline_intersections(
+    cx: f64,
+    cy: f64,
+    r: f64,
+    x: f64,
+    y_min: f64,
+    y_max: f64,
+) -> Vec<f64> {
+    let dx = x - cx;
+    let disc = r * r - dx * dx;
+    if disc < -TOL {
+        return vec![];
+    }
+    let disc = disc.max(0.0);
+    let dy = disc.sqrt();
+    let mut results = Vec::new();
+    let y1 = cy - dy;
+    let y2 = cy + dy;
+    if y1 >= y_min - TOL && y1 <= y_max + TOL {
+        results.push(y1.clamp(y_min, y_max));
+    }
+    if y2 >= y_min - TOL && y2 <= y_max + TOL && (y2 - y1).abs() > TOL {
+        results.push(y2.clamp(y_min, y_max));
+    }
+    results
+}
+
+/// Compute intersections of circle (cx, cy, r) with horizontal line y=Y.
+/// Returns intersection x-values clipped to [x_min, x_max].
+///
+/// Reference: Patrikalakis Ch.5 — plane-cylinder SSI (horizontal plane case).
+pub(crate) fn circle_hline_intersections(
+    cx: f64,
+    cy: f64,
+    r: f64,
+    y: f64,
+    x_min: f64,
+    x_max: f64,
+) -> Vec<f64> {
+    let dy = y - cy;
+    let disc = r * r - dy * dy;
+    if disc < -TOL {
+        return vec![];
+    }
+    let disc = disc.max(0.0);
+    let dx = disc.sqrt();
+    let mut results = Vec::new();
+    let x1 = cx - dx;
+    let x2 = cx + dx;
+    if x1 >= x_min - TOL && x1 <= x_max + TOL {
+        results.push(x1.clamp(x_min, x_max));
+    }
+    if x2 >= x_min - TOL && x2 <= x_max + TOL && (x2 - x1).abs() > TOL {
+        results.push(x2.clamp(x_min, x_max));
+    }
+    results
+}
+
 /// Check if two Z-axis cylinders are disjoint (no overlap in XY).
 pub(crate) fn cyls_disjoint(a: &CylinderParams, b: &CylinderParams) -> bool {
     let dx = a.center_bottom[0] - b.center_bottom[0];

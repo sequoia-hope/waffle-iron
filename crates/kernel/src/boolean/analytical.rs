@@ -492,9 +492,20 @@ fn box_cyl_boolean(
                 rotate_boolean_result(&mut result, &m_inv);
                 Ok(result)
             } else {
-                Err(KernelError::NotSupported {
-                    operation: "partial box-cylinder union".to_string(),
-                })
+                // Partial overlap: cylinder center inside box, protruding through sides
+                let center_inside = cyl_z.center_bottom[0] >= box_aabb.min[0] - TAU_COINCIDENT
+                    && cyl_z.center_bottom[0] <= box_aabb.max[0] + TAU_COINCIDENT
+                    && cyl_z.center_bottom[1] >= box_aabb.min[1] - TAU_COINCIDENT
+                    && cyl_z.center_bottom[1] <= box_aabb.max[1] + TAU_COINCIDENT;
+                if center_inside {
+                    let mut result = build_box_cyl_partial_union(&box_aabb, &cyl_z, id_alloc)?;
+                    rotate_boolean_result(&mut result, &m_inv);
+                    Ok(result)
+                } else {
+                    Err(KernelError::NotSupported {
+                        operation: "box-cylinder union with center outside box".to_string(),
+                    })
+                }
             }
         }
         BoolOp::Intersect => {
@@ -3375,6 +3386,364 @@ fn normalize_angle(mut angle: f64) -> f64 {
         angle -= std::f64::consts::TAU;
     }
     angle
+}
+
+// ── Box-cylinder partial union (center inside, protrudes through sides) ──
+
+/// Build the union of a box and a partially-protruding cylinder.
+///
+/// The cylinder center must be inside the box XY footprint. The cylinder
+/// protrudes through 1-4 side faces. The result is constructed analytically
+/// using plane-cylinder SSI intersection points (Patrikalakis Ch.5 [#1]).
+///
+/// Uses `build_brep_from_polygons` for topology construction, with chord
+/// approximation for arc boundaries. The cylinder patch face(s) get
+/// `SurfaceGeom::Cylindrical` for proper curved tessellation.
+fn build_box_cyl_partial_union(
+    aabb: &Aabb,
+    cyl: &CylinderParams,
+    id_alloc: &mut dyn FnMut() -> u64,
+) -> Result<BooleanResult, KernelError> {
+    let cx = cyl.center_bottom[0];
+    let cy = cyl.center_bottom[1];
+    let r = cyl.radius;
+    let (cyl_z_min, cyl_z_max) = ssi::cyl_z_range(cyl);
+    let mn = aabb.min;
+    let mx = aabb.max;
+
+    // Union Z extent
+    let z_bot = mn[2].min(cyl_z_min);
+    let z_top = mx[2].max(cyl_z_max);
+
+    let tau = TAU_COINCIDENT;
+
+    // ── Find all circle-AABB intersection points ──
+    let mut ipts: Vec<[f64; 2]> = Vec::new();
+    // Left (x=min)
+    for &iy in &ssi::circle_vline_intersections(cx, cy, r, mn[0], mn[1], mx[1]) {
+        ipts.push([mn[0], iy]);
+    }
+    // Right (x=max)
+    for &iy in &ssi::circle_vline_intersections(cx, cy, r, mx[0], mn[1], mx[1]) {
+        ipts.push([mx[0], iy]);
+    }
+    // Front (y=min)
+    for &ix in &ssi::circle_hline_intersections(cx, cy, r, mn[1], mn[0], mx[0]) {
+        ipts.push([ix, mn[1]]);
+    }
+    // Back (y=max)
+    for &ix in &ssi::circle_hline_intersections(cx, cy, r, mx[1], mn[0], mx[0]) {
+        ipts.push([ix, mx[1]]);
+    }
+
+    // Sort CCW by angle from cylinder center
+    ipts.sort_by(|a, b| {
+        let aa = (a[1] - cy).atan2(a[0] - cx);
+        let ab = (b[1] - cy).atan2(b[0] - cx);
+        aa.partial_cmp(&ab).unwrap()
+    });
+    // Deduplicate nearby points
+    ipts.dedup_by(|a, b| {
+        let d = ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt();
+        d < tau
+    });
+
+    if ipts.len() < 2 {
+        return Err(KernelError::NotSupported {
+            operation: "box-cylinder partial union: <2 intersection points".into(),
+        });
+    }
+
+    let n = ipts.len();
+
+    // ── Classify arcs: exposed (outside box) vs interior ──
+    let is_exposed: Vec<bool> = (0..n)
+        .map(|i| {
+            let j = (i + 1) % n;
+            let ai = (ipts[i][1] - cy).atan2(ipts[i][0] - cx);
+            let aj = (ipts[j][1] - cy).atan2(ipts[j][0] - cx);
+            let sweep = normalize_angle(aj - ai);
+            let mid_a = ai + sweep / 2.0;
+            let mid_x = cx + r * mid_a.cos();
+            let mid_y = cy + r * mid_a.sin();
+            mid_x < mn[0] - tau || mid_x > mx[0] + tau || mid_y < mn[1] - tau || mid_y > mx[1] + tau
+        })
+        .collect();
+
+    // An intersection point is an "exit" if the CCW arc from it goes outside the box.
+    let is_exit_pt: Vec<bool> = is_exposed.clone();
+    // An intersection point is an "entry" if the CCW arc arriving at it comes from outside.
+    let is_entry_pt: Vec<bool> = (0..n).map(|i| is_exposed[(i + n - 1) % n]).collect();
+
+    // ── Build 2D union boundary (CCW) ──
+    // Box corners CCW: front-left(0), front-right(1), back-right(2), back-left(3)
+    let corners = [
+        [mn[0], mn[1]], // 0: front-left
+        [mx[0], mn[1]], // 1: front-right
+        [mx[0], mx[1]], // 2: back-right
+        [mn[0], mx[1]], // 3: back-left
+    ];
+    let corner_inside_cyl: [bool; 4] = std::array::from_fn(|i| {
+        let dx = corners[i][0] - cx;
+        let dy = corners[i][1] - cy;
+        dx * dx + dy * dy < r * r - tau
+    });
+
+    // Identify which intersection points lie on each box side and sort by parameter
+    // Sides: 0=front(y=min, x+), 1=right(x=max, y+), 2=back(y=max, x-), 3=left(x=min, y-)
+    let on_side = |pt: [f64; 2], side: usize| -> bool {
+        match side {
+            0 => (pt[1] - mn[1]).abs() < tau && pt[0] >= mn[0] - tau && pt[0] <= mx[0] + tau,
+            1 => (pt[0] - mx[0]).abs() < tau && pt[1] >= mn[1] - tau && pt[1] <= mx[1] + tau,
+            2 => (pt[1] - mx[1]).abs() < tau && pt[0] >= mn[0] - tau && pt[0] <= mx[0] + tau,
+            3 => (pt[0] - mn[0]).abs() < tau && pt[1] >= mn[1] - tau && pt[1] <= mx[1] + tau,
+            _ => false,
+        }
+    };
+
+    let side_param = |pt: [f64; 2], side: usize| -> f64 {
+        match side {
+            0 => pt[0] - mn[0], // x increases
+            1 => pt[1] - mn[1], // y increases
+            2 => mx[0] - pt[0], // x decreases
+            3 => mx[1] - pt[1], // y decreases
+            _ => 0.0,
+        }
+    };
+
+    let mut side_ipts: [Vec<usize>; 4] = [vec![], vec![], vec![], vec![]];
+    for (idx, pt) in ipts.iter().enumerate() {
+        for (side, pts) in side_ipts.iter_mut().enumerate() {
+            if on_side(*pt, side) {
+                pts.push(idx);
+            }
+        }
+    }
+    for (side, pts) in side_ipts.iter_mut().enumerate() {
+        pts.sort_by(|&a, &b| {
+            side_param(ipts[a], side)
+                .partial_cmp(&side_param(ipts[b], side))
+                .unwrap()
+        });
+    }
+
+    // Number of chord segments for arc approximation
+    let n_arc_chords: usize = 16;
+
+    // Generate chord vertices for an arc from ipts[start] to ipts[end] (CCW).
+    // Returns intermediate vertices only (not endpoints).
+    let arc_chords_2d = |start_idx: usize, end_idx: usize| -> Vec<[f64; 2]> {
+        let a_start = (ipts[start_idx][1] - cy).atan2(ipts[start_idx][0] - cx);
+        let a_end = (ipts[end_idx][1] - cy).atan2(ipts[end_idx][0] - cx);
+        let sweep = normalize_angle(a_end - a_start);
+        let mut verts = Vec::new();
+        for k in 1..n_arc_chords {
+            let t = k as f64 / n_arc_chords as f64;
+            let a = a_start + sweep * t;
+            verts.push([cx + r * a.cos(), cy + r * a.sin()]);
+        }
+        verts
+    };
+
+    // Find starting corner outside the cylinder
+    let start_corner = (0..4).find(|&i| !corner_inside_cyl[i]);
+    let Some(start_c) = start_corner else {
+        // All corners inside cylinder — box fully enclosed in cylinder XY,
+        // union = cylinder.
+        return build_cyl_result(cyl, id_alloc);
+    };
+
+    // Walk box boundary CCW, substituting exposed arcs where the cylinder protrudes.
+    let mut boundary_2d: Vec<[f64; 2]> = Vec::new();
+    // Track which boundary segments are arc chords (indices into boundary_2d)
+    let mut arc_segments: Vec<(usize, usize)> = Vec::new(); // (start_boundary_idx, end_boundary_idx)
+
+    // Set of ipt indices already consumed by an arc walk
+    let mut consumed: Vec<bool> = vec![false; n];
+
+    for side_offset in 0..4 {
+        let side = (start_c + side_offset) % 4;
+
+        // Add start corner if outside cylinder
+        if !corner_inside_cyl[side] {
+            boundary_2d.push(corners[side]);
+        }
+
+        // Process intersection points on this side in order
+        for &ipt_idx in &side_ipts[side] {
+            if consumed[ipt_idx] {
+                continue;
+            }
+
+            if is_exit_pt[ipt_idx] {
+                // Add exit point, then follow exposed arc(s) to entry point
+                boundary_2d.push(ipts[ipt_idx]);
+                let arc_start_bi = boundary_2d.len();
+
+                let mut cur = ipt_idx;
+                consumed[cur] = true;
+                loop {
+                    let next = (cur + 1) % n;
+                    if !is_exposed[cur] {
+                        break;
+                    }
+                    // Add chord vertices for arc from cur to next
+                    let chords = arc_chords_2d(cur, next);
+                    boundary_2d.extend_from_slice(&chords);
+                    consumed[next] = true;
+                    cur = next;
+                }
+                // `cur` is now the entry point; add it
+                boundary_2d.push(ipts[cur]);
+
+                let arc_end_bi = boundary_2d.len() - 1;
+                arc_segments.push((arc_start_bi, arc_end_bi));
+            } else if !is_entry_pt[ipt_idx] {
+                // Neither exit nor entry — add as boundary point
+                boundary_2d.push(ipts[ipt_idx]);
+                consumed[ipt_idx] = true;
+            }
+            // Entry points are added by the arc walk from the exit side
+        }
+    }
+
+    // Deduplicate consecutive near-identical points
+    boundary_2d.dedup_by(|a, b| ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt() < tau);
+    // Check wrap-around
+    if boundary_2d.len() > 2 {
+        let first = boundary_2d[0];
+        let last = boundary_2d[boundary_2d.len() - 1];
+        if ((first[0] - last[0]).powi(2) + (first[1] - last[1]).powi(2)).sqrt() < tau {
+            boundary_2d.pop();
+        }
+    }
+
+    if boundary_2d.len() < 3 {
+        return Err(KernelError::BooleanFailed {
+            reason: "box-cylinder partial union: degenerate boundary".into(),
+        });
+    }
+
+    // ── Build face polygons ──
+    let mut face_polys: Vec<FacePoly> = Vec::new();
+    let nb = boundary_2d.len();
+
+    // Top cap (z=z_top)
+    let top_cap_verts: Vec<[f64; 3]> = boundary_2d.iter().map(|p| [p[0], p[1], z_top]).collect();
+    face_polys.push(FacePoly {
+        verts: top_cap_verts,
+        normal: [0.0, 0.0, 1.0],
+        origin: [mn[0], mn[1], z_top],
+        surface_geom: None,
+    });
+
+    // Bottom cap (z=z_bot) — reversed winding
+    let bot_cap_verts: Vec<[f64; 3]> = boundary_2d
+        .iter()
+        .rev()
+        .map(|p| [p[0], p[1], z_bot])
+        .collect();
+    face_polys.push(FacePoly {
+        verts: bot_cap_verts,
+        normal: [0.0, 0.0, -1.0],
+        origin: [mn[0], mn[1], z_bot],
+        surface_geom: None,
+    });
+
+    // Side faces: each consecutive pair of boundary_2d points forms a vertical quad
+    for i in 0..nb {
+        let j = (i + 1) % nb;
+        let p0 = boundary_2d[i];
+        let p1 = boundary_2d[j];
+
+        // Edge direction in XY
+        let dx = p1[0] - p0[0];
+        let dy = p1[1] - p0[1];
+        let len = (dx * dx + dy * dy).sqrt();
+        if len < tau {
+            continue;
+        }
+
+        // Outward normal: rotate edge direction 90deg CW (for CCW boundary).
+        // The boundary goes p0→p1 CCW, so outward is to the right: (dy, -dx).
+        let nx = dy / len;
+        let ny = -dx / len;
+        // Note: the quad winding is reversed (p1→p0 on top) to properly twin with
+        // cap faces, but the normal still points outward.
+
+        // Quad: CCW from outside. Top edge must go p1→p0 (opposite to cap direction
+        // which goes p0→p1) so the shared half-edges are proper twins.
+        let verts = vec![
+            [p1[0], p1[1], z_bot],
+            [p1[0], p1[1], z_top],
+            [p0[0], p0[1], z_top],
+            [p0[0], p0[1], z_bot],
+        ];
+
+        face_polys.push(FacePoly {
+            verts,
+            normal: [nx, ny, 0.0],
+            origin: [p0[0], p0[1], z_bot],
+            surface_geom: None,
+        });
+    }
+
+    // Build B-Rep from face polygons
+    let tau_weld = TAU_MODEL;
+    let mut result = build_brep_from_polygons(&face_polys, tau_weld, id_alloc)?;
+
+    // Post-process: tag cylinder chord-quad faces with Cylindrical surface geometry.
+    // This causes the tessellator to compute smooth cylindrical normals (radial outward)
+    // instead of flat polygon normals, fixing the segmented/transparent appearance.
+    // The `build_brep_from_polygons` stitch path does NOT call `reconstruct_edge_geometry`,
+    // so edges stay Linear and the tessellator uses its `!has_curved_edges` fan path.
+    {
+        let cyl_geom = SurfaceGeom::Cylindrical(Cylinder {
+            origin: Point3::from_array([cx, cy, z_bot]),
+            axis: Vector3::new(0.0, 0.0, 1.0),
+            radius: r,
+        });
+        // Find faces whose vertices all lie on the cylinder (within tolerance).
+        // These are the chord-quad faces that should have cylindrical normals.
+        let face_indices: Vec<FaceIdx> = result.face_geometry.keys().copied().collect::<Vec<_>>();
+        for face_idx in face_indices {
+            // Only re-tag faces currently marked as Planar with horizontal (non-cap) normals
+            if let Some(SurfaceGeom::Planar(plane)) = result.face_geometry.get(&face_idx) {
+                if plane.normal.z.abs() > 0.1 {
+                    continue; // cap face — keep planar
+                }
+            } else {
+                continue;
+            }
+            // Check: are ALL vertices of this face on the cylinder circle?
+            let outer_loop = result.arena.faces[face_idx.0].outer_loop;
+            let start_he = result.arena.loops[outer_loop.0].half_edge;
+            let mut he = start_he;
+            let mut all_on_cyl = true;
+            let mut count = 0;
+            loop {
+                let vi = result.arena.half_edges[he.0].origin;
+                let pos = result.arena.vertices[vi.0].position;
+                let dx = pos[0] - cx;
+                let dy = pos[1] - cy;
+                let dist = (dx * dx + dy * dy).sqrt();
+                if (dist - r).abs() > r * 0.02 {
+                    all_on_cyl = false;
+                    break;
+                }
+                count += 1;
+                he = result.arena.half_edges[he.0].next;
+                if he == start_he || count > 100 {
+                    break;
+                }
+            }
+            if all_on_cyl && count >= 3 {
+                result.face_geometry.insert(face_idx, cyl_geom.clone());
+            }
+        }
+    }
+
+    Ok(result)
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────
