@@ -18,10 +18,20 @@
 		let cases = state.cases;
 		if (searchTerm.trim()) {
 			const term = searchTerm.trim().toLowerCase();
-			cases = cases.filter(c =>
-				c.id.toLowerCase().includes(term) ||
-				(c.description && c.description.toLowerCase().includes(term))
-			);
+			const results = state.results || {};
+			cases = cases.filter(c => {
+				// Search across all visible attributes
+				if (c.id.toLowerCase().includes(term)) return true;
+				if (c.description && c.description.toLowerCase().includes(term)) return true;
+				if (c.featured && 'featured'.includes(term)) return true;
+				const r = results[c.id];
+				if (r) {
+					if (r.status && r.status.toLowerCase().includes(term)) return true;
+					if (r.category && r.category.toLowerCase().includes(term)) return true;
+					if (r.detail && r.detail.toLowerCase().includes(term)) return true;
+				}
+				return false;
+			});
 		}
 		// Sort: featured first, then by status (pass, fail, error), then by ID
 		const results = state.results || {};
@@ -72,7 +82,7 @@
 		<input
 			class="ab-search"
 			type="text"
-			placeholder="Search cases..."
+			placeholder="Search id, ops, status, category..."
 			data-testid="assay-search"
 			bind:value={searchTerm}
 		/>
