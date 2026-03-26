@@ -2448,7 +2448,8 @@ fn generate_chained_extrude_cases(output_dir: &std::path::Path) -> Vec<ManifestE
 
             // Pick a profile shape — all centered on origin so they overlap the Z-axis
             let scale_frac: f64 = rng.gen_range(0.15..0.5);
-            let profile_data = chained_profile_shape(&mut rng, scale_frac, step);
+            let (profile_data, profile_type, profile_size) =
+                chained_profile_shape(&mut rng, scale_frac, step);
 
             let (_, pair) = build_sketch_extrude(
                 &format!("Sketch {}", step + 1),
@@ -2464,8 +2465,8 @@ fn generate_chained_extrude_cases(output_dir: &std::path::Path) -> Vec<ManifestE
 
             op_metas.push(OpMeta {
                 kind: "extrude".to_string(),
-                profile_type: "polygon".to_string(),
-                profile_size: scale_frac,
+                profile_type,
+                profile_size,
                 depth_or_angle: depth,
                 is_cut: false,
                 plane_origin: Some(origin),
@@ -2514,13 +2515,18 @@ fn generate_chained_extrude_cases(output_dir: &std::path::Path) -> Vec<ManifestE
 
 /// Generate a profile shape for a chained extrude step.
 ///
-/// 4 shape types, all centered so they contain the 2D origin (0,0):
+/// 7 shape types, all centered so they contain the 2D origin (0,0):
 /// - L-shape (6 vertices)
 /// - T-shape (8 vertices)
 /// - Notched rectangle (8 vertices)
 /// - Plus/cross (12 vertices)
-fn chained_profile_shape(rng: &mut impl Rng, s: f64, step: usize) -> ProfileData {
-    let shape = (step + rng.gen_range(0..4usize)) % 4;
+/// - Rectangle (simple)
+/// - Circle (true circle entity)
+/// - Gear (8-24 teeth)
+///
+/// Returns `(profile_data, profile_type, profile_size)`.
+fn chained_profile_shape(rng: &mut impl Rng, s: f64, step: usize) -> (ProfileData, String, f64) {
+    let shape = (step + rng.gen_range(0..7usize)) % 7;
     match shape {
         0 => {
             // L-shape: full rectangle minus top-right quadrant
@@ -2529,14 +2535,18 @@ fn chained_profile_shape(rng: &mut impl Rng, s: f64, step: usize) -> ProfileData
             let hh = s * rng.gen_range(0.8..1.2);
             let cut_w = hw * rng.gen_range(0.3..0.6);
             let cut_h = hh * rng.gen_range(0.3..0.6);
-            polygon_profile(&[
-                (-hw, -hh),
-                (hw, -hh),
-                (hw, hh - cut_h),
-                (hw - cut_w, hh - cut_h),
-                (hw - cut_w, hh),
-                (-hw, hh),
-            ])
+            (
+                polygon_profile(&[
+                    (-hw, -hh),
+                    (hw, -hh),
+                    (hw, hh - cut_h),
+                    (hw - cut_w, hh - cut_h),
+                    (hw - cut_w, hh),
+                    (-hw, hh),
+                ]),
+                "polygon".to_string(),
+                s,
+            )
         }
         1 => {
             // T-shape: rectangle body + tab on top center
@@ -2545,16 +2555,20 @@ fn chained_profile_shape(rng: &mut impl Rng, s: f64, step: usize) -> ProfileData
             let tw = s * rng.gen_range(0.2..0.4); // tab half-width (< bw)
             let th = s * rng.gen_range(0.2..0.4); // tab height
             let tw = tw.min(bw * 0.8); // ensure tab narrower than body
-            polygon_profile(&[
-                (-bw, -bh),
-                (bw, -bh),
-                (bw, bh),
-                (tw, bh),
-                (tw, bh + th),
-                (-tw, bh + th),
-                (-tw, bh),
-                (-bw, bh),
-            ])
+            (
+                polygon_profile(&[
+                    (-bw, -bh),
+                    (bw, -bh),
+                    (bw, bh),
+                    (tw, bh),
+                    (tw, bh + th),
+                    (-tw, bh + th),
+                    (-tw, bh),
+                    (-bw, bh),
+                ]),
+                "polygon".to_string(),
+                s,
+            )
         }
         2 => {
             // Notched rectangle: rectangle with a rectangular notch on the right side
@@ -2562,35 +2576,84 @@ fn chained_profile_shape(rng: &mut impl Rng, s: f64, step: usize) -> ProfileData
             let hh = s * rng.gen_range(0.7..1.1);
             let nw = hw * rng.gen_range(0.2..0.4); // notch width
             let nh = hh * rng.gen_range(0.2..0.5); // notch half-height
-            polygon_profile(&[
-                (-hw, -hh),
-                (hw, -hh),
-                (hw, -nh),
-                (hw - nw, -nh),
-                (hw - nw, nh),
-                (hw, nh),
-                (hw, hh),
-                (-hw, hh),
-            ])
+            (
+                polygon_profile(&[
+                    (-hw, -hh),
+                    (hw, -hh),
+                    (hw, -nh),
+                    (hw - nw, -nh),
+                    (hw - nw, nh),
+                    (hw, nh),
+                    (hw, hh),
+                    (-hw, hh),
+                ]),
+                "polygon".to_string(),
+                s,
+            )
         }
-        _ => {
+        3 => {
             // Plus/cross shape: 12 vertices
             let arm_w = s * rng.gen_range(0.15..0.3); // arm half-width
             let arm_l = s * rng.gen_range(0.5..0.9); // arm half-length
-            polygon_profile(&[
-                (-arm_w, -arm_l),
-                (arm_w, -arm_l),
-                (arm_w, -arm_w),
-                (arm_l, -arm_w),
-                (arm_l, arm_w),
-                (arm_w, arm_w),
-                (arm_w, arm_l),
-                (-arm_w, arm_l),
-                (-arm_w, arm_w),
-                (-arm_l, arm_w),
-                (-arm_l, -arm_w),
-                (-arm_w, -arm_w),
-            ])
+            (
+                polygon_profile(&[
+                    (-arm_w, -arm_l),
+                    (arm_w, -arm_l),
+                    (arm_w, -arm_w),
+                    (arm_l, -arm_w),
+                    (arm_l, arm_w),
+                    (arm_w, arm_w),
+                    (arm_w, arm_l),
+                    (-arm_w, arm_l),
+                    (-arm_w, arm_w),
+                    (-arm_l, arm_w),
+                    (-arm_l, -arm_w),
+                    (-arm_w, -arm_w),
+                ]),
+                "polygon".to_string(),
+                s,
+            )
+        }
+        4 => {
+            // Rectangle: simple centered rectangle
+            let w = s * rng.gen_range(0.5..1.2);
+            let h = s * rng.gen_range(0.5..1.2);
+            (
+                crate::helpers::rect_profile(-w / 2.0, -h / 2.0, w, h),
+                "rectangle".to_string(),
+                w.max(h),
+            )
+        }
+        5 => {
+            // Circle: true circle profile centered on origin
+            let radius = s * rng.gen_range(0.3..0.8);
+            (
+                true_circle_profile(0.0, 0.0, radius),
+                "circle".to_string(),
+                radius,
+            )
+        }
+        _ => {
+            // Gear: 8-24 teeth
+            let teeth: u32 = rng.gen_range(8..=24);
+            let module_val = s * 0.08;
+            let pitch_radius = (teeth as f64) * module_val / 2.0;
+            let params = waffle_types::GearParams {
+                tooth_count: teeth,
+                module: module_val,
+                pressure_angle_deg: 20.0,
+                ..Default::default()
+            };
+            let data = (
+                vec![waffle_types::SketchEntity::Gear {
+                    id: 1,
+                    params,
+                    construction: false,
+                }],
+                std::collections::HashMap::new(),
+                vec![],
+            );
+            (data, "gear".to_string(), pitch_radius)
         }
     }
 }

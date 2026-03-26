@@ -36,8 +36,8 @@
     {
       "kind": "extrude",
       "profile_type": "polygon",
-      "profile_size": 0.3514491974192969,
-      "depth_or_angle": 0.11114909092768795,
+      "profile_size": 0.3981554940231037,
+      "depth_or_angle": 0.288340959626772,
       "is_cut": false,
       "plane_origin": [
         0.0,
@@ -53,13 +53,13 @@
     {
       "kind": "extrude",
       "profile_type": "polygon",
-      "profile_size": 0.25814273705501645,
-      "depth_or_angle": 0.29501949244025927,
+      "profile_size": 0.2102519463298277,
+      "depth_or_angle": 0.14650087938967124,
       "is_cut": false,
       "plane_origin": [
         0.0,
         0.0,
-        0.2982834965202433
+        0.4754753652193273
       ],
       "plane_normal": [
         0.0,
@@ -69,14 +69,14 @@
     },
     {
       "kind": "extrude",
-      "profile_type": "polygon",
-      "profile_size": 0.48042378146266773,
-      "depth_or_angle": 0.18696545344000515,
+      "profile_type": "circle",
+      "profile_size": 0.08954247458085308,
+      "depth_or_angle": 0.10598016710778797,
       "is_cut": false,
       "plane_origin": [
         0.0,
         0.0,
-        0.5933029889605026
+        0.6219762446089986
       ],
       "plane_normal": [
         0.0,
@@ -86,14 +86,31 @@
     },
     {
       "kind": "extrude",
-      "profile_type": "polygon",
-      "profile_size": 0.4885295533700562,
+      "profile_type": "circle",
+      "profile_size": 0.09938926194846924,
+      "depth_or_angle": 0.28881358940723867,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.7279564117167866
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "gear",
+      "profile_size": 0.234494185617627,
       "depth_or_angle": 0.23846581699918104,
       "is_cut": false,
       "plane_origin": [
         0.0,
         0.0,
-        0.7802684424005077
+        1.0167700011240253
       ],
       "plane_normal": [
         0.0,
@@ -104,13 +121,30 @@
     {
       "kind": "extrude",
       "profile_type": "polygon",
-      "profile_size": 0.4571427972044936,
-      "depth_or_angle": 0.2895874485946115,
+      "profile_size": 0.2856185046423547,
+      "depth_or_angle": 0.29698678058109773,
       "is_cut": false,
       "plane_origin": [
         0.0,
         0.0,
-        1.0187342593996889
+        1.2552358181232064
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "gear",
+      "profile_size": 0.2584217491498483,
+      "depth_or_angle": 0.24014878817591523,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        1.5522225987043041
       ],
       "plane_normal": [
         0.0,
@@ -121,13 +155,13 @@
     {
       "kind": "extrude",
       "profile_type": "polygon",
-      "profile_size": 0.2500554581509275,
-      "depth_or_angle": 0.15754044165395037,
+      "profile_size": 0.23664261415118243,
+      "depth_or_angle": 0.22177389283725296,
       "is_cut": false,
       "plane_origin": [
         0.0,
         0.0,
-        1.3083217079943004
+        1.7923713868802194
       ],
       "plane_normal": [
         0.0,
@@ -138,13 +172,13 @@
     {
       "kind": "extrude",
       "profile_type": "polygon",
-      "profile_size": 0.2620718144502996,
-      "depth_or_angle": 0.24365151554406256,
+      "profile_size": 0.32694784327965865,
+      "depth_or_angle": 0.22640131186616475,
       "is_cut": false,
       "plane_origin": [
         0.0,
         0.0,
-        1.4658621496482507
+        2.0141452797174724
       ],
       "plane_normal": [
         0.0,
@@ -155,13 +189,13 @@
     {
       "kind": "extrude",
       "profile_type": "polygon",
-      "profile_size": 0.44003706712293145,
-      "depth_or_angle": 0.1726316971754854,
+      "profile_size": 0.1592675286828296,
+      "depth_or_angle": 0.28515465050182826,
       "is_cut": false,
       "plane_origin": [
         0.0,
         0.0,
-        1.7095136651923133
+        2.2405465915836373
       ],
       "plane_normal": [
         0.0,
@@ -172,47 +206,13 @@
     {
       "kind": "extrude",
       "profile_type": "polygon",
-      "profile_size": 0.3347467242499261,
-      "depth_or_angle": 0.19652665259336075,
+      "profile_size": 0.18632635170129058,
+      "depth_or_angle": 0.14042728409930869,
       "is_cut": false,
       "plane_origin": [
         0.0,
         0.0,
-        1.8821453623677986
-      ],
-      "plane_normal": [
-        0.0,
-        0.0,
-        1.0
-      ]
-    },
-    {
-      "kind": "extrude",
-      "profile_type": "polygon",
-      "profile_size": 0.46806477276589,
-      "depth_or_angle": 0.28226896837256316,
-      "is_cut": false,
-      "plane_origin": [
-        0.0,
-        0.0,
-        2.0786720149611595
-      ],
-      "plane_normal": [
-        0.0,
-        0.0,
-        1.0
-      ]
-    },
-    {
-      "kind": "extrude",
-      "profile_type": "polygon",
-      "profile_size": 0.16709388803049993,
-      "depth_or_angle": 0.17716636359799742,
-      "is_cut": false,
-      "plane_origin": [
-        0.0,
-        0.0,
-        2.3609409833337227
+        2.5257012420854656
       ],
       "plane_normal": [
         0.0,
