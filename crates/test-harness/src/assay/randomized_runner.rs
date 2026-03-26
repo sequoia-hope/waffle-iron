@@ -115,14 +115,23 @@ pub fn run_randomized_assay(dir: &Path, use_kernel: bool) -> AssayReport {
         results.push(result);
     }
 
-    AssayReport {
+    let report = AssayReport {
         total: results.len(),
         passed,
         failed,
         errored,
         results,
         total_duration: start.elapsed(),
+    };
+
+    // Auto-update results.json so the AssayBrowser GUI stays in sync
+    // Only write when using real kernel — mock results aren't meaningful for the GUI
+    if use_kernel {
+        let catalog = build_catalog(dir, &report);
+        write_results_json(dir, &catalog);
     }
+
+    report
 }
 
 /// Run the randomized assay on a single case by ID.
@@ -131,7 +140,109 @@ pub fn run_randomized_assay(dir: &Path, use_kernel: bool) -> AssayReport {
 pub fn run_single_case(dir: &Path, case_id: &str, use_kernel: bool) -> Option<AssayResult> {
     let cases = discover_cases(dir);
     let case = cases.iter().find(|c| c.id == case_id)?;
-    Some(replay_and_validate(case, use_kernel))
+    let result = replay_and_validate(case, use_kernel);
+
+    // Merge this single result into results.json so the GUI stays in sync
+    // Only write when using real kernel — mock results aren't meaningful for the GUI
+    if use_kernel {
+        update_single_result(dir, case, &result);
+    }
+
+    Some(result)
+}
+
+/// Update a single case's entry in the existing results.json (read → merge → write).
+fn update_single_result(dir: &Path, case: &DiscoveredCase, result: &AssayResult) {
+    let meta: AssayMeta = fs::read_to_string(&case.meta_path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| AssayMeta {
+            id: result.id.clone(),
+            description: result.description.clone(),
+            master_seed: 0,
+            test_seed: 0,
+            scale: 0.0,
+            log_scale: 0.0,
+            plane_origin: [0.0; 3],
+            plane_normal: [0.0; 3],
+            operations: vec![],
+            oracles: crate::assay::gen::OracleExpectations {
+                euler_target: 2,
+                expect_watertight: true,
+                max_bbox_extent: 0.0,
+                expect_positive_volume: true,
+                volume_monotonicity: vec![],
+                expect_rebuild_error: false,
+            },
+            generator_version: 0,
+            featured: false,
+        });
+
+    let category = categorize_result(result, &meta);
+    let status_str = match result.status {
+        AssayStatus::Passed => "pass",
+        AssayStatus::Failed => "fail",
+        AssayStatus::Errored => "error",
+    };
+
+    let new_entry = serde_json::json!({
+        "id": result.id,
+        "status": status_str,
+        "category": category.to_string(),
+        "detail": result.detail,
+    });
+
+    let results_path = dir.join("results.json");
+
+    // Read existing results.json, or start with an empty structure
+    let mut doc: serde_json::Value = fs::read_to_string(&results_path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| {
+            serde_json::json!({
+                "generated": today_utc(),
+                "total": 0,
+                "passed": 0,
+                "failed": 0,
+                "errored": 0,
+                "results": [],
+            })
+        });
+
+    // Find or insert entry for this case
+    if let Some(results_arr) = doc["results"].as_array_mut() {
+        if let Some(existing) = results_arr.iter_mut().find(|e| e["id"] == result.id) {
+            *existing = new_entry;
+        } else {
+            results_arr.push(new_entry);
+        }
+
+        // Recompute summary counts
+        let total = results_arr.len();
+        let passed = results_arr.iter().filter(|e| e["status"] == "pass").count();
+        let failed = results_arr.iter().filter(|e| e["status"] == "fail").count();
+        let errored = results_arr
+            .iter()
+            .filter(|e| e["status"] == "error")
+            .count();
+        doc["generated"] = serde_json::Value::String(today_utc());
+        doc["total"] = serde_json::json!(total);
+        doc["passed"] = serde_json::json!(passed);
+        doc["failed"] = serde_json::json!(failed);
+        doc["errored"] = serde_json::json!(errored);
+    }
+
+    fs::write(
+        &results_path,
+        serde_json::to_string_pretty(&doc).expect("serialize results"),
+    )
+    .unwrap_or_else(|e| {
+        eprintln!(
+            "Failed to write results.json to {}: {}",
+            results_path.display(),
+            e
+        );
+    });
 }
 
 /// Replay a single test case and validate against oracle expectations.
@@ -193,6 +304,30 @@ fn replay_and_validate(case: &DiscoveredCase, use_kernel: bool) -> AssayResult {
         .iter()
         .map(|(id, msg)| format!("{}: {}", id, msg))
         .collect();
+
+    // 4b-1. If we expect a rebuild error (e.g., disjoint union), check and pass early
+    if meta.oracles.expect_rebuild_error {
+        if !engine_errors.is_empty() {
+            return AssayResult {
+                id: case.id.clone(),
+                description: meta.description.clone(),
+                status: AssayStatus::Passed,
+                duration: case_start.elapsed(),
+                detail: format!(
+                    "expected rebuild error (disjoint operands): {}",
+                    error_msgs.join("; ")
+                ),
+            };
+        }
+        // Expected an error but got none — that's a failure
+        return AssayResult {
+            id: case.id.clone(),
+            description: meta.description.clone(),
+            status: AssayStatus::Failed,
+            duration: case_start.elapsed(),
+            detail: "expected rebuild error but rebuild succeeded".to_string(),
+        };
+    }
 
     // 4c. Feature count validation
     let expected_feature_count = meta.operations.len() * 2; // each op = sketch + operation
@@ -331,6 +466,15 @@ fn replay_and_validate(case: &DiscoveredCase, use_kernel: bool) -> AssayResult {
         let verdict = crate::oracle::check_volume_magnitude(&mesh, meta.scale);
         if !verdict.passed {
             failures.push(format!("volume_magnitude: {}", verdict.detail));
+        }
+    }
+
+    // Mesh Euler characteristic check
+    if !mesh.vertices.is_empty() {
+        let verdict =
+            crate::oracle::check_mesh_euler_characteristic(&mesh, meta.oracles.euler_target);
+        if !verdict.passed {
+            failures.push(format!("mesh_euler_characteristic: {}", verdict.detail));
         }
     }
 
@@ -751,6 +895,7 @@ pub fn build_catalog(dir: &Path, report: &AssayReport) -> Vec<CatalogEntry> {
                     max_bbox_extent: 0.0,
                     expect_positive_volume: true,
                     volume_monotonicity: vec![],
+                    expect_rebuild_error: false,
                 },
                 generator_version: 0,
                 featured: false,
@@ -1026,7 +1171,7 @@ mod tests {
     fn discover_cases_from_corpus() {
         let (_dir, corpus_path) = generate_test_corpus(5);
         let cases = discover_cases(&corpus_path);
-        assert_eq!(cases.len(), 65); // 5 random + 60 featured
+        assert_eq!(cases.len(), 77); // 5 random + 72 featured
         assert_eq!(cases[0].id, "R0001");
         assert!(cases[0].waffle_path.exists());
         assert!(cases[0].meta_path.exists());
@@ -1088,6 +1233,7 @@ mod tests {
                 max_bbox_extent: 1.0,
                 expect_positive_volume: true,
                 volume_monotonicity: vec![],
+                expect_rebuild_error: false,
             },
             generator_version: 3,
             featured: false,
@@ -1146,6 +1292,7 @@ mod tests {
                 max_bbox_extent: 1.0,
                 expect_positive_volume: true,
                 volume_monotonicity: vec![],
+                expect_rebuild_error: false,
             },
             generator_version: 3,
             featured: false,
@@ -1227,6 +1374,7 @@ mod tests {
                 max_bbox_extent: 1.0,
                 expect_positive_volume: true,
                 volume_monotonicity: vec!["increase".to_string()],
+                expect_rebuild_error: false,
             },
             generator_version: 3,
             featured: false,
@@ -1276,6 +1424,7 @@ mod tests {
                 max_bbox_extent: 1.0,
                 expect_positive_volume: true,
                 volume_monotonicity: vec![],
+                expect_rebuild_error: false,
             },
             generator_version: 3,
             featured: false,
@@ -1322,6 +1471,7 @@ mod tests {
                 max_bbox_extent: 300.0,
                 expect_positive_volume: true,
                 volume_monotonicity: vec![],
+                expect_rebuild_error: false,
             },
             generator_version: 3,
             featured: false,
@@ -1336,8 +1486,8 @@ mod tests {
     fn run_mock_smoke() {
         let (_dir, corpus_path) = generate_test_corpus(3);
         let report = run_randomized_assay(&corpus_path, false);
-        // 3 random + 60 featured = 63 total
-        assert_eq!(report.total, 63);
+        // 3 random + 72 featured = 75 total
+        assert_eq!(report.total, 75);
         // Mock kernel produces deterministic results — all should complete (pass or fail, not error)
         assert_eq!(
             report.errored,
@@ -1393,6 +1543,7 @@ mod tests {
                 max_bbox_extent: scale * 10.0, // Revolve-aware formula: scale * 10.0 = 1.0
                 expect_positive_volume: true,
                 volume_monotonicity: vec!["increase".to_string()],
+                expect_rebuild_error: false,
             },
             generator_version: 2,
             featured: false,

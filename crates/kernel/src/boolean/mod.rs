@@ -1242,13 +1242,13 @@ fn boolean_op_from_polys_inner(
     let aabb_disjoint = (0..3).any(|i| a_max[i] + tau < b_min[i] || b_max[i] + tau < a_min[i]);
 
     if aabb_disjoint {
+        if matches!(op, BoolOp::Union) {
+            return Err(KernelError::BooleanFailed {
+                reason: "operands are disjoint (bounding boxes do not overlap)".into(),
+            });
+        }
         let result_faces: Vec<FacePoly> = match op {
-            BoolOp::Union => {
-                // Both face sets combined
-                let mut combined = a_faces.to_vec();
-                combined.extend(b_faces.iter().cloned());
-                combined
-            }
+            BoolOp::Union => unreachable!(),
             BoolOp::Subtract => {
                 // A minus nothing = A
                 a_faces.to_vec()
@@ -1854,7 +1854,7 @@ mod tests {
 
     #[test]
     fn disjoint_boxes_union() {
-        let (k, result) = do_boolean_via_kernel(
+        let result = do_boolean_via_kernel(
             5.0,
             5.0,
             10.0,
@@ -1866,10 +1866,8 @@ mod tests {
             10.0,
             10.0,
             BoolOp::Union,
-        )
-        .expect("disjoint union should succeed");
-        let faces = k.list_faces(&result);
-        assert_eq!(faces.len(), 12, "Disjoint union should have 12 faces");
+        );
+        assert!(result.is_err(), "Disjoint union should return error");
     }
 
     #[test]
@@ -2698,25 +2696,14 @@ mod tests {
         }
 
         #[test]
-        fn disjoint_union_preserves_all_faces() {
+        fn disjoint_union_returns_error() {
             // Two unit boxes separated by a gap: box A at [0,1]^3, box B at [5,6]^3
             let a_faces = make_box_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
             let b_faces = make_box_face_polys([5.0, 5.0, 5.0], [6.0, 6.0, 6.0]);
 
-            assert_eq!(a_faces.len(), 6);
-            assert_eq!(b_faces.len(), 6);
-
             let mut id_alloc = new_id_alloc();
-            let result = boolean_op_from_polys(a_faces, b_faces, BoolOp::Union, &mut id_alloc)
-                .expect("disjoint union should succeed");
-
-            // Disjoint union must preserve ALL faces from both operands: 6 + 6 = 12
-            let face_count = result.arena.faces.len();
-            assert_eq!(
-                face_count, 12,
-                "Disjoint union should produce exactly 12 faces (6+6), got {}",
-                face_count
-            );
+            let result = boolean_op_from_polys(a_faces, b_faces, BoolOp::Union, &mut id_alloc);
+            assert!(result.is_err(), "Disjoint union should return error");
         }
 
         #[test]
@@ -2765,40 +2752,22 @@ mod tests {
         }
 
         #[test]
-        fn disjoint_union_volume_equals_sum() {
-            // Two disjoint unit boxes: each has volume 1.0, union volume should be ~2.0
+        fn disjoint_union_error_contains_disjoint() {
             let a_faces = make_box_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
             let b_faces = make_box_face_polys([5.0, 5.0, 5.0], [6.0, 6.0, 6.0]);
 
             let mut id_alloc = new_id_alloc();
-            let result = boolean_op_from_polys(a_faces, b_faces, BoolOp::Union, &mut id_alloc)
-                .expect("disjoint union should succeed");
-
-            // Verify face count as a proxy for volume preservation
-            // Each unit box has 6 faces; union of disjoint should have 12
-            let face_count = result.arena.faces.len();
-            assert_eq!(
-                face_count, 12,
-                "Disjoint union should have 12 faces for volume preservation (6+6), got {}",
-                face_count
-            );
-
-            // Also verify cached_face_polys if available
-            if let Some(ref polys) = result.cached_face_polys {
-                assert_eq!(
-                    polys.len(),
-                    12,
-                    "Cached face polys should have 12 entries for disjoint union, got {}",
-                    polys.len()
-                );
-
-                // Check total area as volume proxy: each unit box has surface area 6.0
-                let total_area: f64 = polys.iter().map(|fp| polygon_area_3d(&fp.verts)).sum();
-                assert!(
-                    (total_area - 12.0).abs() < 1.2, // 10% tolerance
-                    "Total surface area of disjoint union should be ~12.0 (2 unit boxes), got {}",
-                    total_area
-                );
+            let result = boolean_op_from_polys(a_faces, b_faces, BoolOp::Union, &mut id_alloc);
+            match result {
+                Err(KernelError::BooleanFailed { ref reason }) => {
+                    assert!(
+                        reason.contains("disjoint"),
+                        "Error reason should contain 'disjoint', got: {}",
+                        reason
+                    );
+                }
+                Ok(_) => panic!("Expected BooleanFailed, got Ok"),
+                Err(e) => panic!("Expected BooleanFailed, got {:?}", e),
             }
         }
 
@@ -2828,25 +2797,31 @@ mod tests {
         #[test]
         fn adv_near_touching_gap_at_tau_boundary() {
             // Two boxes with a gap of TAU_MODEL (1e-7).
-            // At unit scale the adaptive tau used for AABB disjointness is
-            // much smaller than 1e-7, so the fast-path will fire. Either
-            // way the union must succeed and produce a valid result.
+            // At unit scale the adaptive tau is much smaller than 1e-7,
+            // so the AABB disjoint check fires. This is correctly rejected
+            // as a disjoint union.
             let gap = 1e-7; // TAU_MODEL
             let a = make_box_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
             let b = make_box_face_polys([1.0 + gap, 0.0, 0.0], [2.0 + gap, 1.0, 1.0]);
             let mut id = new_id_alloc();
             let result = boolean_op_from_polys(a, b, BoolOp::Union, &mut id);
             assert!(
-                result.is_ok(),
-                "Near-touching union must succeed: {:?}",
-                result.err()
+                result.is_err(),
+                "Near-touching disjoint union should return error"
             );
-            let res = result.unwrap();
-            // Must have at least 10 faces (12 if fast-path, 10 if full pipeline merges shared face)
+        }
+
+        #[test]
+        fn barely_touching_boxes_union_succeeds() {
+            // Two boxes sharing a face (AABB overlaps) → succeeds
+            let a = make_box_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+            let b = make_box_face_polys([1.0, 0.0, 0.0], [2.0, 1.0, 1.0]);
+            let mut id = new_id_alloc();
+            let result = boolean_op_from_polys(a, b, BoolOp::Union, &mut id);
             assert!(
-                res.arena.faces.len() >= 10,
-                "Near-touching union should preserve most faces, got {}",
-                res.arena.faces.len()
+                result.is_ok(),
+                "Touching boxes union must succeed: {:?}",
+                result.err()
             );
         }
 
@@ -2856,33 +2831,27 @@ mod tests {
             let a_x = make_box_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
             let b_x = make_box_face_polys([5.0, 0.0, 0.0], [6.0, 1.0, 1.0]);
             let mut id = new_id_alloc();
-            let r = boolean_op_from_polys(a_x, b_x, BoolOp::Union, &mut id).unwrap();
-            assert_eq!(
-                r.arena.faces.len(),
-                12,
-                "Disjoint along X: expected 12 faces"
+            assert!(
+                boolean_op_from_polys(a_x, b_x, BoolOp::Union, &mut id).is_err(),
+                "Disjoint along X: expected error"
             );
 
             // Disjoint along Y only
             let a_y = make_box_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
             let b_y = make_box_face_polys([0.0, 5.0, 0.0], [1.0, 6.0, 1.0]);
             let mut id = new_id_alloc();
-            let r = boolean_op_from_polys(a_y, b_y, BoolOp::Union, &mut id).unwrap();
-            assert_eq!(
-                r.arena.faces.len(),
-                12,
-                "Disjoint along Y: expected 12 faces"
+            assert!(
+                boolean_op_from_polys(a_y, b_y, BoolOp::Union, &mut id).is_err(),
+                "Disjoint along Y: expected error"
             );
 
             // Disjoint along Z only
             let a_z = make_box_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
             let b_z = make_box_face_polys([0.0, 0.0, 5.0], [1.0, 1.0, 6.0]);
             let mut id = new_id_alloc();
-            let r = boolean_op_from_polys(a_z, b_z, BoolOp::Union, &mut id).unwrap();
-            assert_eq!(
-                r.arena.faces.len(),
-                12,
-                "Disjoint along Z: expected 12 faces"
+            assert!(
+                boolean_op_from_polys(a_z, b_z, BoolOp::Union, &mut id).is_err(),
+                "Disjoint along Z: expected error"
             );
         }
 
@@ -2892,12 +2861,9 @@ mod tests {
             let a = make_box_face_polys([0.0, 0.0, 0.0], [1e-4, 1e-4, 1e-4]);
             let b = make_box_face_polys([1e-3, 0.0, 0.0], [1e-3 + 1e-4, 1e-4, 1e-4]);
             let mut id = new_id_alloc();
-            let r = boolean_op_from_polys(a, b, BoolOp::Union, &mut id).unwrap();
-            assert_eq!(
-                r.arena.faces.len(),
-                12,
-                "Micro-scale disjoint union should have 12 faces, got {}",
-                r.arena.faces.len()
+            assert!(
+                boolean_op_from_polys(a, b, BoolOp::Union, &mut id).is_err(),
+                "Micro-scale disjoint union should return error"
             );
         }
 
@@ -2907,12 +2873,9 @@ mod tests {
             let a = make_box_face_polys([0.0, 0.0, 0.0], [1e3, 1e3, 1e3]);
             let b = make_box_face_polys([1e4, 0.0, 0.0], [1e4 + 1e3, 1e3, 1e3]);
             let mut id = new_id_alloc();
-            let r = boolean_op_from_polys(a, b, BoolOp::Union, &mut id).unwrap();
-            assert_eq!(
-                r.arena.faces.len(),
-                12,
-                "Macro-scale disjoint union should have 12 faces, got {}",
-                r.arena.faces.len()
+            assert!(
+                boolean_op_from_polys(a, b, BoolOp::Union, &mut id).is_err(),
+                "Macro-scale disjoint union should return error"
             );
         }
 
@@ -2951,13 +2914,11 @@ mod tests {
 
         #[test]
         fn disjoint_union_no_timeout_large_solids() {
-            // Two 64-sided prisms far apart. With AABB fast-path, union should be
-            // nearly instant. Without it, the O(n*m) classification is slow.
-            // 66 faces each => 132 total. 66*66 = 4356 face pairs in S-H pipeline.
+            // Two 64-sided prisms far apart. With AABB fast-path, the disjoint
+            // check should fire instantly and return an error.
             let a_faces = make_prism_face_polys(0.0, 0.0, 1.0, 0.0, 1.0, 64);
             let b_faces = make_prism_face_polys(100.0, 100.0, 1.0, 0.0, 1.0, 64);
 
-            // Each prism has 66 faces (2 caps + 64 side quads)
             assert_eq!(a_faces.len(), 66, "Prism A should have 66 faces");
             assert_eq!(b_faces.len(), 66, "Prism B should have 66 faces");
 
@@ -2966,24 +2927,12 @@ mod tests {
             let result = boolean_op_from_polys(a_faces, b_faces, BoolOp::Union, &mut id_alloc);
             let elapsed = start.elapsed();
 
-            // With the AABB fast-path, disjoint solids should complete in well
-            // under 1 second. Without it, 66*66 = 4356 face pairs go through
-            // S-H clipping which can be slow and produce incorrect results.
             assert!(
                 elapsed.as_secs_f64() < 1.0,
-                "Disjoint union of 66-face prisms should complete in < 1s (AABB fast-path), took {:.2}s",
+                "Disjoint union rejection should complete in < 1s, took {:.2}s",
                 elapsed.as_secs_f64()
             );
-
-            let result = result.expect("disjoint union of prisms should succeed");
-
-            // Should preserve all faces: 66 + 66 = 132
-            let face_count = result.arena.faces.len();
-            assert_eq!(
-                face_count, 132,
-                "Disjoint union of two 66-face prisms should produce 132 faces, got {}",
-                face_count
-            );
+            assert!(result.is_err(), "Disjoint union should return error");
         }
     }
 }

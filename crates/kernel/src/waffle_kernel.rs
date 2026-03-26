@@ -1035,6 +1035,11 @@ impl WaffleKernel {
             polygon_soup = true;
             match crate::boolean::planar_planar_boolean(solid_a, solid_b, op, &mut id_alloc) {
                 Ok(r) => r,
+                Err(KernelError::BooleanFailed { ref reason }) if reason.contains("disjoint") => {
+                    return Err(KernelError::BooleanFailed {
+                        reason: reason.clone(),
+                    });
+                }
                 Err(KernelError::NotSupported { .. }) | Err(KernelError::BooleanFailed { .. }) => {
                     // Safety fallback: use the general polygon-clipping path.
                     let strict = crate::boolean::boolean_op(

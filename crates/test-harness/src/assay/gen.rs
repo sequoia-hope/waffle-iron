@@ -11,7 +11,7 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::helpers::{datum_plane_ref, rect_profile, ProfileData};
+use crate::helpers::{datum_plane_ref, polygon_profile, rect_profile, ProfileData};
 use feature_engine::types::{
     DepthMode, ExtrudeParams, Feature, FeatureTree, Operation, RevolveParams,
 };
@@ -111,6 +111,10 @@ pub struct OracleExpectations {
     pub expect_positive_volume: bool,
     /// Per-step volume monotonicity: "increase" for boss, "decrease" for cut.
     pub volume_monotonicity: Vec<String>,
+    /// If true, the rebuild is expected to produce an engine error (e.g., disjoint union).
+    /// When set, the runner skips mesh oracle checks and passes if errors are present.
+    #[serde(default)]
+    pub expect_rebuild_error: bool,
 }
 
 /// A generated test case ready to be written to disk.
@@ -245,6 +249,66 @@ pub fn random_plane(rng: &mut impl Rng, scale: f64) -> ([f64; 3], [f64; 3]) {
     }
 }
 
+/// Compute the 3D AABB of an extruded rectangle on an oblique plane.
+///
+/// The rectangle is centered at the origin on the plane, with half-extents w/2 and h/2
+/// along the plane's local X and Y axes. The extrusion goes along the normal by depth.
+fn extrude_rect_aabb(
+    origin: [f64; 3],
+    normal: [f64; 3],
+    w: f64,
+    h: f64,
+    depth: f64,
+) -> ([f64; 3], [f64; 3]) {
+    // Build a local frame on the plane
+    let n = normal;
+    // Pick a non-parallel vector for cross product
+    let ref_vec = if n[0].abs() < 0.9 {
+        [1.0, 0.0, 0.0]
+    } else {
+        [0.0, 1.0, 0.0]
+    };
+    let x_axis = {
+        let cx = n[1] * ref_vec[2] - n[2] * ref_vec[1];
+        let cy = n[2] * ref_vec[0] - n[0] * ref_vec[2];
+        let cz = n[0] * ref_vec[1] - n[1] * ref_vec[0];
+        let len = (cx * cx + cy * cy + cz * cz).sqrt();
+        [cx / len, cy / len, cz / len]
+    };
+    let y_axis = [
+        n[1] * x_axis[2] - n[2] * x_axis[1],
+        n[2] * x_axis[0] - n[0] * x_axis[2],
+        n[0] * x_axis[1] - n[1] * x_axis[0],
+    ];
+
+    let hw = w / 2.0;
+    let hh = h / 2.0;
+
+    // 4 corners of the rectangle on the plane, plus 4 corners extruded by depth
+    let mut mn = [f64::INFINITY; 3];
+    let mut mx = [f64::NEG_INFINITY; 3];
+    for &dz in &[0.0, depth] {
+        for &(du, dv) in &[(-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)] {
+            let pt = [
+                origin[0] + x_axis[0] * du + y_axis[0] * dv + n[0] * dz,
+                origin[1] + x_axis[1] * du + y_axis[1] * dv + n[1] * dz,
+                origin[2] + x_axis[2] * du + y_axis[2] * dv + n[2] * dz,
+            ];
+            for j in 0..3 {
+                mn[j] = mn[j].min(pt[j]);
+                mx[j] = mx[j].max(pt[j]);
+            }
+        }
+    }
+    (mn, mx)
+}
+
+/// Check if two 3D AABBs are disjoint (no overlap in any axis).
+fn aabb_disjoint_3d(a: &([f64; 3], [f64; 3]), b: &([f64; 3], [f64; 3])) -> bool {
+    let tau = 1e-9; // conservative margin
+    (0..3).any(|i| a.1[i] + tau < b.0[i] || b.1[i] + tau < a.0[i])
+}
+
 /// Generate a random sketch primitive. Returns (ProfileData, profile_type_name, characteristic_size).
 ///
 /// Weighted 33/33/33: rectangle, true circle, gear.
@@ -346,6 +410,35 @@ pub fn random_operation(rng: &mut impl Rng, scale: f64, is_first: bool) -> (Stri
         let angle = rng.gen_range(30.0..360.0); // degrees
         ("revolve".to_string(), angle, is_cut)
     }
+}
+
+// ── Euler Target Computation ──────────────────────────────────────────────
+
+/// Compute the expected Euler characteristic from the operation list.
+///
+/// A cut operation that fully penetrates the body creates a through-hole
+/// (genus += 1), so χ = 2 - 2g. Detection heuristic: if a cut's depth is
+/// >= the first boss's depth, assume it creates a through-hole.
+///
+/// Conservative: blind holes may be misclassified as through-holes, yielding
+/// a more lenient target (χ=0 instead of 2). This avoids false positives —
+/// the oracle only misses some cases, never flags correct geometry.
+pub fn compute_euler_target(ops: &[OpMeta]) -> i64 {
+    let mut genus = 0i64;
+    if ops.len() >= 2 {
+        // Find the first boss operation's depth as the reference
+        let first_boss_depth = ops
+            .iter()
+            .find(|o| !o.is_cut)
+            .map(|o| o.depth_or_angle)
+            .unwrap_or(f64::MAX);
+        for op in ops.iter().skip(1) {
+            if op.is_cut && op.depth_or_angle >= first_boss_depth {
+                genus += 1;
+            }
+        }
+    }
+    2 - 2 * genus
 }
 
 // ── Case Generation ────────────────────────────────────────────────────────
@@ -559,13 +652,14 @@ pub fn generate_case(master_seed: u64, index: usize) -> GeneratedCase {
         log_scale,
         plane_origin,
         plane_normal,
-        operations: op_metas,
+        operations: op_metas.clone(),
         oracles: OracleExpectations {
-            euler_target: 2, // Euler characteristic for a single solid
+            euler_target: compute_euler_target(&op_metas),
             expect_watertight: true,
             max_bbox_extent,
             expect_positive_volume: true,
             volume_monotonicity,
+            expect_rebuild_error: false,
         },
         generator_version: GENERATOR_VERSION,
         featured: false,
@@ -858,6 +952,7 @@ pub fn generate_featured_cases(output_dir: &std::path::Path) -> Vec<ManifestEntr
                 max_bbox_extent,
                 expect_positive_volume: true,
                 volume_monotonicity: vec!["increase".to_string(), "increase".to_string()],
+                expect_rebuild_error: false,
             },
             generator_version: GENERATOR_VERSION,
             featured: true,
@@ -892,7 +987,7 @@ pub fn generate_featured_cases(output_dir: &std::path::Path) -> Vec<ManifestEntr
     // Append intersecting multi-extrude oblique cases (F0016-F0025)
     entries.extend(generate_intersecting_oblique_cases(output_dir));
 
-    // Append boolean-path-targeting cases (F0026-F0060)
+    // Append boolean-path-targeting cases (F0026-F0061)
     entries.extend(generate_circle_boss_cases(output_dir));
     entries.extend(generate_box_minus_cyl_cases(output_dir));
     entries.extend(generate_cyl_minus_box_cases(output_dir));
@@ -900,6 +995,15 @@ pub fn generate_featured_cases(output_dir: &std::path::Path) -> Vec<ManifestEntr
     entries.extend(generate_mixed_cross_plane_cases(output_dir));
     entries.extend(generate_scale_extreme_cases(output_dir));
     entries.extend(generate_cyl_cyl_angled_cases(output_dir));
+
+    // Append gear-profile-targeting case (F0061)
+    entries.extend(generate_gear_cut_cases(output_dir));
+
+    // Append box-through-hole case (F0062)
+    entries.extend(generate_box_through_hole_cases(output_dir));
+
+    // Append chained extrude cases (F0063-F0072)
+    entries.extend(generate_chained_extrude_cases(output_dir));
 
     entries
 }
@@ -1027,6 +1131,11 @@ fn generate_oblique_plane_cases(output_dir: &std::path::Path) -> Vec<ManifestEnt
             seed
         );
 
+        // Detect disjoint operands: compute 3D AABBs of both extrusions
+        let aabb1 = extrude_rect_aabb(origin1, normal1, w1, h1, d1);
+        let aabb2 = extrude_rect_aabb(origin2, normal2, w2, h2, d2);
+        let disjoint = aabb_disjoint_3d(&aabb1, &aabb2);
+
         let meta = AssayMeta {
             id: case_id.clone(),
             description: description.clone(),
@@ -1062,6 +1171,7 @@ fn generate_oblique_plane_cases(output_dir: &std::path::Path) -> Vec<ManifestEnt
                 max_bbox_extent: 3.0,
                 expect_positive_volume: true,
                 volume_monotonicity: vec!["increase".to_string(), "increase".to_string()],
+                expect_rebuild_error: disjoint,
             },
             generator_version: GENERATOR_VERSION,
             featured: true,
@@ -1224,6 +1334,7 @@ fn generate_intersecting_oblique_cases(output_dir: &std::path::Path) -> Vec<Mani
                 max_bbox_extent: 4.0,
                 expect_positive_volume: true,
                 volume_monotonicity,
+                expect_rebuild_error: false,
             },
             generator_version: GENERATOR_VERSION,
             featured: true,
@@ -1437,6 +1548,7 @@ fn generate_circle_boss_cases(output_dir: &std::path::Path) -> Vec<ManifestEntry
                 max_bbox_extent: 3.0,
                 expect_positive_volume: true,
                 volume_monotonicity: vec!["increase".to_string(), "increase".to_string()],
+                expect_rebuild_error: false,
             },
             generator_version: GENERATOR_VERSION,
             featured: true,
@@ -1537,6 +1649,7 @@ fn generate_box_minus_cyl_cases(output_dir: &std::path::Path) -> Vec<ManifestEnt
                 max_bbox_extent: 3.0,
                 expect_positive_volume: true,
                 volume_monotonicity: vec!["increase".to_string(), "decrease".to_string()],
+                expect_rebuild_error: false,
             },
             generator_version: GENERATOR_VERSION,
             featured: true,
@@ -1640,6 +1753,7 @@ fn generate_cyl_minus_box_cases(output_dir: &std::path::Path) -> Vec<ManifestEnt
                 max_bbox_extent: 3.0,
                 expect_positive_volume: true,
                 volume_monotonicity: vec!["increase".to_string(), "decrease".to_string()],
+                expect_rebuild_error: false,
             },
             generator_version: GENERATOR_VERSION,
             featured: true,
@@ -1750,6 +1864,7 @@ fn generate_cyl_cyl_parallel_cases(output_dir: &std::path::Path) -> Vec<Manifest
                 max_bbox_extent: 3.0,
                 expect_positive_volume: true,
                 volume_monotonicity: vec!["increase".to_string(), mono_2.to_string()],
+                expect_rebuild_error: false,
             },
             generator_version: GENERATOR_VERSION,
             featured: true,
@@ -1849,6 +1964,7 @@ fn generate_mixed_cross_plane_cases(output_dir: &std::path::Path) -> Vec<Manifes
                 max_bbox_extent: 3.0,
                 expect_positive_volume: true,
                 volume_monotonicity: vec!["increase".to_string(), "increase".to_string()],
+                expect_rebuild_error: false,
             },
             generator_version: GENERATOR_VERSION,
             featured: true,
@@ -1970,6 +2086,7 @@ fn generate_scale_extreme_cases(output_dir: &std::path::Path) -> Vec<ManifestEnt
                 max_bbox_extent: scale * 3.0,
                 expect_positive_volume: true,
                 volume_monotonicity: vec!["increase".to_string(), mono_2.to_string()],
+                expect_rebuild_error: false,
             },
             generator_version: GENERATOR_VERSION,
             featured: true,
@@ -2069,6 +2186,7 @@ fn generate_cyl_cyl_angled_cases(output_dir: &std::path::Path) -> Vec<ManifestEn
                 max_bbox_extent: 3.0,
                 expect_positive_volume: true,
                 volume_monotonicity: vec!["increase".to_string(), mono_2.to_string()],
+                expect_rebuild_error: false,
             },
             generator_version: GENERATOR_VERSION,
             featured: true,
@@ -2078,6 +2196,403 @@ fn generate_cyl_cyl_angled_cases(output_dir: &std::path::Path) -> Vec<ManifestEn
     }
 
     entries
+}
+
+/// F0061: Gear boss with through circular cut — exercises gear polygon extrude + boolean subtract.
+///
+/// Gear profile (12 teeth, module=0.05) extruded as boss, then a circle (r=0.1)
+/// cut through the full depth. Circle radius (0.1) < dedendum radius (0.2375),
+/// so the hole is fully enclosed within the gear.
+fn generate_gear_cut_cases(output_dir: &std::path::Path) -> Vec<ManifestEntry> {
+    let mut entries = Vec::new();
+    let origin = [0.0, 0.0, 0.0];
+    let normal = [0.0, 0.0, 1.0];
+
+    let case_id = "F0061";
+    let gear_depth = 0.2;
+    let hole_radius = 0.1;
+    // Cut depth > gear depth to ensure through-hole
+    let cut_depth = 0.3;
+
+    let mut features = Vec::new();
+
+    // Op 1: Gear sketch + boss extrude
+    let teeth: u32 = 12;
+    let module_val: f64 = 0.05;
+    let pitch_radius = (teeth as f64) * module_val / 2.0; // 0.3
+    let params = waffle_types::GearParams {
+        tooth_count: teeth,
+        module: module_val,
+        pressure_angle_deg: 20.0,
+        ..Default::default()
+    };
+    let gear_profile_data: ProfileData = (
+        vec![waffle_types::SketchEntity::Gear {
+            id: 1,
+            params,
+            construction: false,
+        }],
+        std::collections::HashMap::new(),
+        vec![],
+    );
+    let (_, gear_feats) = build_sketch_extrude(
+        "Gear Sketch",
+        "Gear Extrude",
+        origin,
+        normal,
+        gear_profile_data,
+        gear_depth,
+        false,
+        false,
+    );
+    features.extend(gear_feats);
+
+    // Op 2: Circle sketch + cut extrude (through-hole)
+    let (_, cut_feats) = build_sketch_extrude(
+        "Hole Sketch",
+        "Hole Cut",
+        origin,
+        normal,
+        true_circle_profile(0.0, 0.0, hole_radius),
+        cut_depth,
+        true,
+        false,
+    );
+    features.extend(cut_feats);
+
+    let description =
+        "2 ops, scale=1.00e0, extrude(gear,boss)+extrude(circle,cut) — Gear with through hole"
+            .to_string();
+
+    let meta = AssayMeta {
+        id: case_id.to_string(),
+        description: description.clone(),
+        master_seed: 0,
+        test_seed: 10001,
+        scale: 1.0,
+        log_scale: 0.0,
+        plane_origin: origin,
+        plane_normal: normal,
+        operations: vec![
+            OpMeta {
+                kind: "extrude".to_string(),
+                profile_type: "gear".to_string(),
+                profile_size: pitch_radius,
+                depth_or_angle: gear_depth,
+                is_cut: false,
+                plane_origin: None,
+                plane_normal: None,
+            },
+            OpMeta {
+                kind: "extrude".to_string(),
+                profile_type: "circle".to_string(),
+                profile_size: hole_radius,
+                depth_or_angle: cut_depth,
+                is_cut: true,
+                plane_origin: None,
+                plane_normal: None,
+            },
+        ],
+        oracles: OracleExpectations {
+            euler_target: 0, // Through-hole: genus=1, χ=2-2(1)=0
+            expect_watertight: true,
+            max_bbox_extent: 3.0,
+            expect_positive_volume: true,
+            volume_monotonicity: vec!["increase".to_string(), "decrease".to_string()],
+            expect_rebuild_error: false,
+        },
+        generator_version: GENERATOR_VERSION,
+        featured: true,
+    };
+
+    entries.push(write_featured_case(output_dir, case_id, features, meta));
+    entries
+}
+
+/// F0062: Box with through-hole — centroid-only classification reproduction case.
+///
+/// 1×1×0.2 box centered at (0.5, 0.5) minus a through-hole cylinder (r=0.1,
+/// depth=0.3) centered at the same point. The cylinder extends beyond the box
+/// in Z, so the box top face (Z=0.2) is NOT coplanar with anything — it routes
+/// through the centroid-only path in `classify_face`. Because the face centroid
+/// falls inside the cylinder, the entire top face is incorrectly discarded.
+fn generate_box_through_hole_cases(output_dir: &std::path::Path) -> Vec<ManifestEntry> {
+    let mut entries = Vec::new();
+    let origin = [0.0, 0.0, 0.0];
+    let normal = [0.0, 0.0, 1.0];
+
+    let case_id = "F0062";
+    let box_w = 1.0;
+    let box_h = 1.0;
+    let box_d = 0.2;
+    let hole_radius = 0.1;
+    let cut_depth = 0.3; // extends beyond box top
+
+    let mut features = Vec::new();
+
+    // Op 1: Box sketch + boss extrude (centered at 0.5, 0.5)
+    let (_, box_feats) = build_sketch_extrude(
+        "Box Sketch",
+        "Box Extrude",
+        origin,
+        normal,
+        rect_profile(0.0, 0.0, box_w, box_h),
+        box_d,
+        false,
+        false,
+    );
+    features.extend(box_feats);
+
+    // Op 2: Circle sketch + cut extrude (through-hole at center)
+    let (_, cut_feats) = build_sketch_extrude(
+        "Hole Sketch",
+        "Hole Cut",
+        origin,
+        normal,
+        true_circle_profile(box_w / 2.0, box_h / 2.0, hole_radius),
+        cut_depth,
+        true,
+        false,
+    );
+    features.extend(cut_feats);
+
+    let description =
+        "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,cut) — Box with through hole (centroid bug repro)"
+            .to_string();
+
+    let meta = AssayMeta {
+        id: case_id.to_string(),
+        description: description.clone(),
+        master_seed: 0,
+        test_seed: 10002,
+        scale: 1.0,
+        log_scale: 0.0,
+        plane_origin: origin,
+        plane_normal: normal,
+        operations: vec![
+            OpMeta {
+                kind: "extrude".to_string(),
+                profile_type: "rectangle".to_string(),
+                profile_size: box_w,
+                depth_or_angle: box_d,
+                is_cut: false,
+                plane_origin: None,
+                plane_normal: None,
+            },
+            OpMeta {
+                kind: "extrude".to_string(),
+                profile_type: "circle".to_string(),
+                profile_size: hole_radius,
+                depth_or_angle: cut_depth,
+                is_cut: true,
+                plane_origin: None,
+                plane_normal: None,
+            },
+        ],
+        oracles: OracleExpectations {
+            euler_target: 0, // Through-hole: genus=1, χ=2-2(1)=0
+            expect_watertight: true,
+            max_bbox_extent: 3.0,
+            expect_positive_volume: true,
+            volume_monotonicity: vec!["increase".to_string(), "decrease".to_string()],
+            expect_rebuild_error: false,
+        },
+        generator_version: GENERATOR_VERSION,
+        featured: true,
+    };
+
+    entries.push(write_featured_case(output_dir, case_id, features, meta));
+    entries
+}
+
+// ── Chained Extrude Cases (F0063-F0072) ───────────────────────────────────
+
+/// Generate 10 chained extrude cases with 5-20 stacked boss extrusions.
+///
+/// Each step sketches a closed shape on the top face of the previous extrusion
+/// and extrudes upward. Profiles are varied (L-shape, T-shape, notched rectangle,
+/// plus/cross) but all contain the 2D origin so every union is non-disjoint.
+///
+/// Tests the boolean merge pipeline under long sequential chains.
+fn generate_chained_extrude_cases(output_dir: &std::path::Path) -> Vec<ManifestEntry> {
+    let mut entries = Vec::new();
+
+    // (case_number, chain_length, seed)
+    let specs: [(u64, usize, u64); 10] = [
+        (63, 5, 10001),
+        (64, 5, 10002),
+        (65, 8, 10003),
+        (66, 8, 10004),
+        (67, 10, 10005),
+        (68, 12, 10006),
+        (69, 15, 10007),
+        (70, 15, 10008),
+        (71, 20, 10009),
+        (72, 20, 10010),
+    ];
+
+    for &(case_num, chain_length, seed) in &specs {
+        let case_id = format!("F{:04}", case_num);
+        let mut rng = <rand::rngs::StdRng as rand::SeedableRng>::seed_from_u64(seed);
+
+        let normal = [0.0, 0.0, 1.0];
+        let mut cumulative_z = 0.0f64;
+        let mut features: Vec<Feature> = Vec::new();
+        let mut op_metas: Vec<OpMeta> = Vec::new();
+        let mut volume_monotonicity: Vec<String> = Vec::new();
+        let mut total_extrudes = 0usize;
+
+        for step in 0..chain_length {
+            let origin = [0.0, 0.0, cumulative_z];
+            let depth: f64 = rng.gen_range(0.1..0.3);
+
+            // Pick a profile shape — all centered on origin so they overlap the Z-axis
+            let scale_frac: f64 = rng.gen_range(0.15..0.5);
+            let profile_data = chained_profile_shape(&mut rng, scale_frac, step);
+
+            let (_, pair) = build_sketch_extrude(
+                &format!("Sketch {}", step + 1),
+                &format!("Extrude {}", step + 1),
+                origin,
+                normal,
+                profile_data,
+                depth,
+                false, // boss, not cut
+                false, // not symmetric
+            );
+            features.extend(pair);
+
+            op_metas.push(OpMeta {
+                kind: "extrude".to_string(),
+                profile_type: "polygon".to_string(),
+                profile_size: scale_frac,
+                depth_or_angle: depth,
+                is_cut: false,
+                plane_origin: Some(origin),
+                plane_normal: Some(normal),
+            });
+
+            volume_monotonicity.push("increase".to_string());
+            cumulative_z += depth;
+            total_extrudes += 1;
+        }
+
+        let max_bbox_extent = 3.0 + (chain_length as f64) * 0.5;
+        let description = format!(
+            "{} ops, scale=1.00e0, {} chained extrudes (stacked Z) — seed {}",
+            chain_length, chain_length, seed
+        );
+
+        let meta = AssayMeta {
+            id: case_id.clone(),
+            description: description.clone(),
+            master_seed: 0,
+            test_seed: seed,
+            scale: 1.0,
+            log_scale: 0.0,
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: normal,
+            operations: op_metas,
+            oracles: OracleExpectations {
+                euler_target: 2,
+                expect_watertight: true,
+                max_bbox_extent,
+                expect_positive_volume: true,
+                volume_monotonicity,
+                expect_rebuild_error: false,
+            },
+            generator_version: GENERATOR_VERSION,
+            featured: true,
+        };
+
+        entries.push(write_featured_case(output_dir, &case_id, features, meta));
+        let _ = total_extrudes; // used in stats below
+    }
+
+    entries
+}
+
+/// Generate a profile shape for a chained extrude step.
+///
+/// 4 shape types, all centered so they contain the 2D origin (0,0):
+/// - L-shape (6 vertices)
+/// - T-shape (8 vertices)
+/// - Notched rectangle (8 vertices)
+/// - Plus/cross (12 vertices)
+fn chained_profile_shape(rng: &mut impl Rng, s: f64, step: usize) -> ProfileData {
+    let shape = (step + rng.gen_range(0..4usize)) % 4;
+    match shape {
+        0 => {
+            // L-shape: full rectangle minus top-right quadrant
+            // Outer boundary: 6 vertices, CCW
+            let hw = s * rng.gen_range(0.8..1.2);
+            let hh = s * rng.gen_range(0.8..1.2);
+            let cut_w = hw * rng.gen_range(0.3..0.6);
+            let cut_h = hh * rng.gen_range(0.3..0.6);
+            polygon_profile(&[
+                (-hw, -hh),
+                (hw, -hh),
+                (hw, hh - cut_h),
+                (hw - cut_w, hh - cut_h),
+                (hw - cut_w, hh),
+                (-hw, hh),
+            ])
+        }
+        1 => {
+            // T-shape: rectangle body + tab on top center
+            let bw = s * rng.gen_range(0.6..1.0); // body half-width
+            let bh = s * rng.gen_range(0.3..0.5); // body half-height
+            let tw = s * rng.gen_range(0.2..0.4); // tab half-width (< bw)
+            let th = s * rng.gen_range(0.2..0.4); // tab height
+            let tw = tw.min(bw * 0.8); // ensure tab narrower than body
+            polygon_profile(&[
+                (-bw, -bh),
+                (bw, -bh),
+                (bw, bh),
+                (tw, bh),
+                (tw, bh + th),
+                (-tw, bh + th),
+                (-tw, bh),
+                (-bw, bh),
+            ])
+        }
+        2 => {
+            // Notched rectangle: rectangle with a rectangular notch on the right side
+            let hw = s * rng.gen_range(0.7..1.1);
+            let hh = s * rng.gen_range(0.7..1.1);
+            let nw = hw * rng.gen_range(0.2..0.4); // notch width
+            let nh = hh * rng.gen_range(0.2..0.5); // notch half-height
+            polygon_profile(&[
+                (-hw, -hh),
+                (hw, -hh),
+                (hw, -nh),
+                (hw - nw, -nh),
+                (hw - nw, nh),
+                (hw, nh),
+                (hw, hh),
+                (-hw, hh),
+            ])
+        }
+        _ => {
+            // Plus/cross shape: 12 vertices
+            let arm_w = s * rng.gen_range(0.15..0.3); // arm half-width
+            let arm_l = s * rng.gen_range(0.5..0.9); // arm half-length
+            polygon_profile(&[
+                (-arm_w, -arm_l),
+                (arm_w, -arm_l),
+                (arm_w, -arm_w),
+                (arm_l, -arm_w),
+                (arm_l, arm_w),
+                (arm_w, arm_w),
+                (arm_w, arm_l),
+                (-arm_w, arm_l),
+                (-arm_w, arm_w),
+                (-arm_l, arm_w),
+                (-arm_l, -arm_w),
+                (-arm_w, -arm_w),
+            ])
+        }
+    }
 }
 
 // ── Corpus Generation ──────────────────────────────────────────────────────
@@ -2151,8 +2666,10 @@ pub fn generate_corpus(config: &CorpusConfig) -> CorpusStats {
         count: config.case_count + featured_count,
         // F0001-F0010: 10×2=20, F0011-F0015: 5×2=10, F0016-F0020: 5×3=15, F0021-F0025: 5×4=20,
         // F0026-F0030: 5×2=10, F0031-F0035: 5×2=10, F0036-F0040: 5×2=10,
-        // F0041-F0045: 5×2=10, F0046-F0050: 5×2=10, F0051-F0055: 5×2=10, F0056-F0060: 5×2=10 = 135
-        extrude_count: extrude_count + 135,
+        // F0041-F0045: 5×2=10, F0046-F0050: 5×2=10, F0051-F0055: 5×2=10, F0056-F0060: 5×2=10,
+        // F0061: 1×2=2, F0062: 1×2=2 = 139
+        // F0063-F0072: 5+5+8+8+10+12+15+15+20+20 = 118
+        extrude_count: extrude_count + 139 + 118,
         revolve_count,
     }
 }
@@ -2324,12 +2841,12 @@ mod tests {
     }
 
     #[test]
-    fn featured_case_ids_f0026_to_f0060() {
+    fn featured_case_ids_f0026_to_f0072() {
         let dir = tempfile::tempdir().unwrap();
         let entries = generate_featured_cases(dir.path());
         let ids: Vec<&str> = entries.iter().map(|e| e.id.as_str()).collect();
-        // Check that F0026-F0060 are all present
-        for n in 26..=60 {
+        // Check that F0026-F0072 are all present
+        for n in 26..=72 {
             let expected = format!("F{:04}", n);
             assert!(
                 ids.contains(&expected.as_str()),
@@ -2337,8 +2854,8 @@ mod tests {
                 expected
             );
         }
-        // Total: F0001-F0010 (10) + F0011-F0015 (5) + F0016-F0025 (10) + F0026-F0060 (35) = 60
-        assert_eq!(entries.len(), 60, "expected 60 featured cases");
+        // Total: F0001-F0010 (10) + F0011-F0015 (5) + F0016-F0025 (10) + F0026-F0062 (37) + F0063-F0072 (10) = 72
+        assert_eq!(entries.len(), 72, "expected 72 featured cases");
     }
 
     #[test]

@@ -541,9 +541,9 @@ fn box_cyl_boolean(
                 rotate_boolean_result(&mut result, &m_inv);
                 Ok(result)
             } else if disjoint {
-                let mut result = build_disjoint_box_cyl_union(&box_aabb, &cyl_z, id_alloc)?;
-                rotate_boolean_result(&mut result, &m_inv);
-                Ok(result)
+                Err(KernelError::BooleanFailed {
+                    reason: "operands are disjoint (bounding boxes do not overlap)".into(),
+                })
             } else {
                 // Partial overlap: cylinder center inside box, protruding through sides
                 let center_inside = cyl_z.center_bottom[0] >= box_aabb.min[0] - TAU_COINCIDENT
@@ -656,8 +656,9 @@ fn box_sphere_boolean(
                 // Sphere fully inside box → union = box
                 clone_solid_as_result(box_solid, id_alloc)
             } else if disjoint {
-                // Disjoint → two-shell union
-                build_disjoint_box_sphere_union(box_solid, sphere_solid, id_alloc)
+                Err(KernelError::BooleanFailed {
+                    reason: "operands are disjoint (bounding boxes do not overlap)".into(),
+                })
             } else if box_in_sphere {
                 // Box inside sphere → union = sphere
                 clone_solid_as_result(sphere_solid, id_alloc)
@@ -801,101 +802,6 @@ fn build_box_with_sphere_cavity(
     Ok(result)
 }
 
-/// Build a disjoint union of a box solid and a sphere solid (2 shells).
-fn build_disjoint_box_sphere_union(
-    box_solid: &WaffleSolid,
-    sphere_solid: &WaffleSolid,
-    id_alloc: &mut dyn FnMut() -> u64,
-) -> Result<BooleanResult, KernelError> {
-    // For disjoint union, we can combine both solids' face polygon representations
-    // and build a unified B-Rep. Simpler approach: clone both solids into a
-    // merged arena with two shells.
-    //
-    // However, the simplest correct approach that preserves surface geometry is to
-    // clone box, then add sphere topology as a second shell (same as cavity builder
-    // but without inversion).
-
-    // Start with box clone
-    let mut result = clone_solid_as_result(box_solid, id_alloc)?;
-
-    // Add sphere entities into the same arena
-    let v_offset = result.arena.vertices.len();
-    let he_offset = result.arena.half_edges.len();
-    let e_offset = result.arena.edges.len();
-    let f_offset = result.arena.faces.len();
-    let l_offset = result.arena.loops.len();
-
-    // Clone sphere arena entities with offset
-    for v in &sphere_solid.arena.vertices {
-        result.arena.vertices.push(Vertex {
-            position: v.position,
-            half_edge: v.half_edge.map(|he| HalfEdgeIdx(he.0 + he_offset)),
-        });
-    }
-
-    // Add a new shell for the sphere
-    let solid_idx = SolidIdx(0);
-    let _sphere_shell = result.arena.add_shell(solid_idx);
-
-    for l in &sphere_solid.arena.loops {
-        result.arena.loops.push(Loop {
-            half_edge: HalfEdgeIdx(l.half_edge.0 + he_offset),
-            face: FaceIdx(l.face.0 + f_offset),
-        });
-    }
-
-    for f in &sphere_solid.arena.faces {
-        result.arena.faces.push(Face {
-            outer_loop: LoopIdx(f.outer_loop.0 + l_offset),
-            inner_loops: f
-                .inner_loops
-                .iter()
-                .map(|l| LoopIdx(l.0 + l_offset))
-                .collect(),
-            shell: _sphere_shell,
-        });
-    }
-
-    for he in &sphere_solid.arena.half_edges {
-        result.arena.half_edges.push(HalfEdge {
-            origin: VertexIdx(he.origin.0 + v_offset),
-            edge: EdgeIdx(he.edge.0 + e_offset),
-            twin: HalfEdgeIdx(he.twin.0 + he_offset),
-            next: HalfEdgeIdx(he.next.0 + he_offset),
-            prev: HalfEdgeIdx(he.prev.0 + he_offset),
-            loop_: LoopIdx(he.loop_.0 + l_offset),
-        });
-    }
-
-    for e in &sphere_solid.arena.edges {
-        result.arena.edges.push(Edge {
-            half_edge: HalfEdgeIdx(e.half_edge.0 + he_offset),
-        });
-    }
-
-    // Map sphere faces/edges/vertices with new IDs and offset indices
-    for (&_kid, &idx) in &sphere_solid.face_map {
-        let new_idx = FaceIdx(idx.0 + f_offset);
-        result.face_map.insert(id_alloc(), new_idx);
-        if let Some(geom) = sphere_solid.face_geometry.get(&idx) {
-            result.face_geometry.insert(new_idx, geom.clone());
-        }
-    }
-    for (&_kid, &idx) in &sphere_solid.edge_map {
-        let new_idx = EdgeIdx(idx.0 + e_offset);
-        result.edge_map.insert(id_alloc(), new_idx);
-        if let Some(geom) = sphere_solid.edge_geometry.get(&idx) {
-            result.edge_geometry.insert(new_idx, geom.clone());
-        }
-    }
-    for (&_kid, &idx) in &sphere_solid.vertex_map {
-        let new_idx = VertexIdx(idx.0 + v_offset);
-        result.vertex_map.insert(id_alloc(), new_idx);
-    }
-
-    Ok(result)
-}
-
 // ── Sphere-sphere boolean ───────────────────────────────────────────────
 
 /// Sphere-sphere boolean with analytical enclosure classification.
@@ -943,8 +849,9 @@ fn sphere_sphere_boolean(
                 // A inside B → union = B
                 clone_solid_as_result(solid_b, id_alloc)
             } else if disjoint {
-                // Disjoint → two-shell union
-                build_disjoint_sphere_union(solid_a, solid_b, id_alloc)
+                Err(KernelError::BooleanFailed {
+                    reason: "operands are disjoint (bounding boxes do not overlap)".into(),
+                })
             } else {
                 Err(KernelError::NotSupported {
                     operation: "partial sphere-sphere union".to_string(),
@@ -1044,89 +951,6 @@ fn build_sphere_shell(
         let twin_idx = result.arena.half_edges[he_idx].twin;
         let twin_origin = result.arena.half_edges[twin_idx.0].origin;
         result.arena.half_edges[he_idx].origin = twin_origin;
-    }
-
-    for e in &solid_b.arena.edges {
-        result.arena.edges.push(Edge {
-            half_edge: HalfEdgeIdx(e.half_edge.0 + he_offset),
-        });
-    }
-
-    for (&_kid, &idx) in &solid_b.face_map {
-        let new_idx = FaceIdx(idx.0 + f_offset);
-        result.face_map.insert(id_alloc(), new_idx);
-        if let Some(geom) = solid_b.face_geometry.get(&idx) {
-            result.face_geometry.insert(new_idx, geom.clone());
-        }
-    }
-    for (&_kid, &idx) in &solid_b.edge_map {
-        let new_idx = EdgeIdx(idx.0 + e_offset);
-        result.edge_map.insert(id_alloc(), new_idx);
-        if let Some(geom) = solid_b.edge_geometry.get(&idx) {
-            result.edge_geometry.insert(new_idx, geom.clone());
-        }
-    }
-    for (&_kid, &idx) in &solid_b.vertex_map {
-        let new_idx = VertexIdx(idx.0 + v_offset);
-        result.vertex_map.insert(id_alloc(), new_idx);
-    }
-
-    Ok(result)
-}
-
-/// Build a disjoint union of two sphere solids (2 shells).
-fn build_disjoint_sphere_union(
-    solid_a: &WaffleSolid,
-    solid_b: &WaffleSolid,
-    id_alloc: &mut dyn FnMut() -> u64,
-) -> Result<BooleanResult, KernelError> {
-    // Same approach as build_disjoint_box_sphere_union: clone A, merge B
-    let mut result = clone_solid_as_result(solid_a, id_alloc)?;
-
-    let v_offset = result.arena.vertices.len();
-    let he_offset = result.arena.half_edges.len();
-    let e_offset = result.arena.edges.len();
-    let f_offset = result.arena.faces.len();
-    let l_offset = result.arena.loops.len();
-
-    for v in &solid_b.arena.vertices {
-        result.arena.vertices.push(Vertex {
-            position: v.position,
-            half_edge: v.half_edge.map(|he| HalfEdgeIdx(he.0 + he_offset)),
-        });
-    }
-
-    let solid_idx = SolidIdx(0);
-    let shell_b = result.arena.add_shell(solid_idx);
-
-    for l in &solid_b.arena.loops {
-        result.arena.loops.push(Loop {
-            half_edge: HalfEdgeIdx(l.half_edge.0 + he_offset),
-            face: FaceIdx(l.face.0 + f_offset),
-        });
-    }
-
-    for f in &solid_b.arena.faces {
-        result.arena.faces.push(Face {
-            outer_loop: LoopIdx(f.outer_loop.0 + l_offset),
-            inner_loops: f
-                .inner_loops
-                .iter()
-                .map(|l| LoopIdx(l.0 + l_offset))
-                .collect(),
-            shell: shell_b,
-        });
-    }
-
-    for he in &solid_b.arena.half_edges {
-        result.arena.half_edges.push(HalfEdge {
-            origin: VertexIdx(he.origin.0 + v_offset),
-            edge: EdgeIdx(he.edge.0 + e_offset),
-            twin: HalfEdgeIdx(he.twin.0 + he_offset),
-            next: HalfEdgeIdx(he.next.0 + he_offset),
-            prev: HalfEdgeIdx(he.prev.0 + he_offset),
-            loop_: LoopIdx(he.loop_.0 + l_offset),
-        });
     }
 
     for e in &solid_b.arena.edges {
@@ -1406,7 +1230,9 @@ fn cyl_cyl_boolean_z_aligned(
 
     if disjoint {
         match op {
-            BoolOp::Union => build_disjoint_cyl_cyl_union(cyl_a, cyl_b, id_alloc),
+            BoolOp::Union => Err(KernelError::BooleanFailed {
+                reason: "operands are disjoint (bounding boxes do not overlap)".into(),
+            }),
             BoolOp::Subtract => build_cyl_result(cyl_a, id_alloc),
             BoolOp::Intersect => Err(KernelError::BooleanFailed {
                 reason: "no intersection (disjoint cylinders)".to_string(),
@@ -2900,25 +2726,6 @@ fn build_cyl_minus_enclosed_box(
 // ── Disjoint unions ────────────────────────────────────────────────────
 
 /// Build a disjoint union of a box and a cylinder.
-fn build_disjoint_box_cyl_union(
-    aabb: &Aabb,
-    cyl: &CylinderParams,
-    id_alloc: &mut dyn FnMut() -> u64,
-) -> Result<BooleanResult, KernelError> {
-    // Build box as polygon faces
-    let box_faces = make_box_face_polys(aabb);
-    let tau_weld = TAU_MODEL;
-    let mut result = build_brep_from_polygons(&box_faces, tau_weld, id_alloc)?;
-
-    // Build cylinder and merge into the same arena
-    let cyl_result = build_cyl_result(cyl, id_alloc)?;
-
-    // Merge the cylinder arena into the box result
-    merge_brep_into(&mut result, &cyl_result, id_alloc);
-
-    Ok(result)
-}
-
 /// Build a box with a cylindrical boss on top (or bottom).
 ///
 /// The cylinder is XY-enclosed in the box and sits on the box top (or bottom) face.
@@ -3475,17 +3282,6 @@ fn build_cyl_with_box_boss(
 }
 
 /// Build a disjoint union of two cylinders.
-fn build_disjoint_cyl_cyl_union(
-    cyl_a: &CylinderParams,
-    cyl_b: &CylinderParams,
-    id_alloc: &mut dyn FnMut() -> u64,
-) -> Result<BooleanResult, KernelError> {
-    let mut result = build_cyl_result(cyl_a, id_alloc)?;
-    let cyl_b_result = build_cyl_result(cyl_b, id_alloc)?;
-    merge_brep_into(&mut result, &cyl_b_result, id_alloc);
-    Ok(result)
-}
-
 /// Create FacePoly list for an axis-aligned box.
 /// Vertex winding is CCW when viewed from the outward normal direction.
 pub(super) fn make_box_face_polys(aabb: &Aabb) -> Vec<FacePoly> {
@@ -3565,109 +3361,6 @@ pub(super) fn make_box_face_polys(aabb: &Aabb) -> Vec<FacePoly> {
             surface_geom: None,
         },
     ]
-}
-
-/// Merge a second BooleanResult into the first (for disjoint unions).
-pub(super) fn merge_brep_into(
-    target: &mut BooleanResult,
-    source: &BooleanResult,
-    id_alloc: &mut dyn FnMut() -> u64,
-) {
-    let v_offset = target.arena.vertices.len();
-    let he_offset = target.arena.half_edges.len();
-    let e_offset = target.arena.edges.len();
-    let l_offset = target.arena.loops.len();
-    let f_offset = target.arena.faces.len();
-    let sh_offset = target.arena.shells.len();
-    let so_offset = target.arena.solids.len();
-
-    // Copy vertices with offset
-    for v in &source.arena.vertices {
-        let mut vc = v.clone();
-        if let Some(ref mut he) = vc.half_edge {
-            he.0 += he_offset;
-        }
-        target.arena.vertices.push(vc);
-    }
-
-    // Copy half-edges with offset
-    for he in &source.arena.half_edges {
-        let mut hec = he.clone();
-        hec.origin.0 += v_offset;
-        hec.edge.0 += e_offset;
-        hec.twin.0 += he_offset;
-        hec.next.0 += he_offset;
-        hec.prev.0 += he_offset;
-        hec.loop_.0 += l_offset;
-        target.arena.half_edges.push(hec);
-    }
-
-    // Copy edges with offset
-    for e in &source.arena.edges {
-        let mut ec = e.clone();
-        ec.half_edge.0 += he_offset;
-        target.arena.edges.push(ec);
-    }
-
-    // Copy loops with offset
-    for l in &source.arena.loops {
-        let mut lc = l.clone();
-        lc.half_edge.0 += he_offset;
-        lc.face.0 += f_offset;
-        target.arena.loops.push(lc);
-    }
-
-    // Copy faces with offset
-    for f in &source.arena.faces {
-        let mut fc = f.clone();
-        fc.outer_loop.0 += l_offset;
-        fc.inner_loops.iter_mut().for_each(|l| l.0 += l_offset);
-        fc.shell.0 += sh_offset;
-        target.arena.faces.push(fc);
-    }
-
-    // Copy shells with offset
-    for s in &source.arena.shells {
-        let mut sc = s.clone();
-        sc.face.0 += f_offset;
-        sc.solid.0 += so_offset;
-        target.arena.shells.push(sc);
-    }
-
-    // Copy solids with offset
-    for s in &source.arena.solids {
-        let mut sc = s.clone();
-        sc.outer_shell.0 += sh_offset;
-        sc.inner_shells.iter_mut().for_each(|s| s.0 += sh_offset);
-        target.arena.solids.push(sc);
-    }
-
-    // Copy face geometry with offset
-    for (&fi, geom) in &source.face_geometry {
-        target
-            .face_geometry
-            .insert(FaceIdx(fi.0 + f_offset), geom.clone());
-    }
-
-    // Copy edge geometry with offset
-    for (&ei, geom) in &source.edge_geometry {
-        target
-            .edge_geometry
-            .insert(EdgeIdx(ei.0 + e_offset), geom.clone());
-    }
-
-    // Add new face/edge/vertex maps with fresh IDs
-    for &fi in source.face_map.values() {
-        target.face_map.insert(id_alloc(), FaceIdx(fi.0 + f_offset));
-    }
-    for &ei in source.edge_map.values() {
-        target.edge_map.insert(id_alloc(), EdgeIdx(ei.0 + e_offset));
-    }
-    for &vi in source.vertex_map.values() {
-        target
-            .vertex_map
-            .insert(id_alloc(), VertexIdx(vi.0 + v_offset));
-    }
 }
 
 // ── Partial cylinder-cylinder boolean ──────────────────────────────────
@@ -4453,12 +4146,13 @@ pub(crate) fn planar_planar_boolean(
     let aabb_disjoint = (0..3).any(|i| a_max[i] + tau < b_min[i] || b_max[i] + tau < a_min[i]);
 
     if aabb_disjoint {
+        if matches!(op, BoolOp::Union) {
+            return Err(KernelError::BooleanFailed {
+                reason: "operands are disjoint (bounding boxes do not overlap)".into(),
+            });
+        }
         let result_faces: Vec<FacePoly> = match op {
-            BoolOp::Union => {
-                let mut combined = a_faces;
-                combined.extend(b_faces);
-                combined
-            }
+            BoolOp::Union => unreachable!(),
             BoolOp::Subtract => a_faces,
             BoolOp::Intersect => vec![],
         };

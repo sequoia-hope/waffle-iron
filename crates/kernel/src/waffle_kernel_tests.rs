@@ -1359,14 +1359,10 @@ fn j3_disjoint_boxes_union() {
         .unwrap();
     let sb = k.extrude_face(fb[0], Z_DIR, 1.0).unwrap();
 
-    let result = k.boolean_union(&sa, &sb).expect("disjoint union should succeed");
-    let mesh = k.tessellate(&result, 0.01).unwrap();
-    let vol = mesh_volume(&mesh);
-    // Two unit boxes → volume = 2.0
+    let result = k.boolean_union(&sa, &sb);
     assert!(
-        (vol - 2.0).abs() < 0.05,
-        "Disjoint union volume should be ~2.0, got {}",
-        vol
+        result.is_err(),
+        "Disjoint union should return an error, got Ok",
     );
 }
 
@@ -1929,18 +1925,14 @@ fn m8_box_cyl_result_has_arc_edges() {
 fn m9_box_cyl_disjoint_union_volume() {
     // Box at (0,0) and cylinder at (20,0) -- disjoint
     // Box: 10x10x10 = 1000, Cyl: pi*9*10 ~= 282.74
-    let (mut k, result) = do_box_cyl_boolean(
+    let result = do_box_cyl_boolean(
         0.0, 0.0, 10.0, 10.0, 10.0,
         20.0, 0.0, 3.0, 10.0,
         crate::boolean::BoolOp::Union,
-    ).expect("disjoint union should succeed");
-    let mesh = k.tessellate(&result, 0.01).unwrap();
-    let vol = mesh_volume(&mesh);
-    let expected = 1000.0 + PI * 9.0 * 10.0;
+    );
     assert!(
-        (vol - expected).abs() < 5.0,
-        "Disjoint union volume should be ~{:.2}, got {:.2}",
-        expected, vol
+        result.is_err(),
+        "Disjoint box-cyl union should return an error, got Ok",
     );
 }
 
@@ -2232,22 +2224,11 @@ fn o1d_revolve_disjoint_union_volume_preserved() {
     let box_vol = mesh_volume(&box_mesh);
     assert!(box_vol > 0.1, "Box volume too small: {}", box_vol);
 
-    // Union the disjoint solids
-    let union = k
-        .boolean_union(&revolve, &box_solid)
-        .expect("disjoint revolve+box union should succeed");
-    let union_mesh = k.tessellate(&union, 0.01).expect("tessellate union");
-    let union_vol = mesh_volume(&union_mesh);
-
-    // For disjoint solids, union volume ≈ sum of individual volumes (within 5%)
-    let expected = revolve_vol + box_vol;
-    let ratio = union_vol / expected;
+    // Union the disjoint solids — should now return an error
+    let union_result = k.boolean_union(&revolve, &box_solid);
     assert!(
-        ratio > 0.95 && ratio < 1.05,
-        "Union volume {:.4} should be within 5% of sum {:.4} (ratio {:.4})",
-        union_vol,
-        expected,
-        ratio,
+        union_result.is_err(),
+        "Disjoint revolve+box union should return an error, got Ok",
     );
 }
 
@@ -6379,28 +6360,11 @@ fn i1_chained_union_accepts_large_product() {
     let f2 = k.make_faces_from_profiles(&p2, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos2).unwrap();
     let cyl2 = k.extrude_face(f2[0], Z_DIR, 5.0).unwrap();
 
-    // Third cylinder at x=5
-    let (p3, pos3) = make_circle_profile(5.0, 0.0, 2.0);
-    let f3 = k.make_faces_from_profiles(&p3, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos3).unwrap();
-    let cyl3 = k.extrude_face(f3[0], Z_DIR, 5.0).unwrap();
-
-    // Chain: cyl1 ∪ cyl2
-    let union12 = k.boolean_union(&cyl1, &cyl2).expect("union cyl1+cyl2");
-    // Chain: (cyl1 ∪ cyl2) ∪ cyl3 — should not hit product limit
-    let union123 = k.boolean_union(&union12, &cyl3).expect("chained union should not hit product limit");
-
-    // Numeric oracle: 3 disjoint cylinders r=2 h=5 at x=-5,0,5 (spacing > 2r).
-    // Expected volume ≈ 3 × π×r²×h = 3 × π×4×5 ≈ 188.5.
-    // KNOWN ISSUE: chained boolean unions currently produce only ~1 cylinder
-    // volume (~63), suggesting earlier operands are dropped. When the chained
-    // boolean pipeline is fixed, tighten to: (vol - 188.5).abs() < 30.
-    let mesh = k.tessellate(&union123, 0.01).expect("tessellate chained union");
-    let vol = mesh_volume(&mesh);
-    let one_cyl = std::f64::consts::PI * 4.0 * 5.0;
+    // All three cylinders are disjoint (spacing=5 > 2r=4), so the first union should fail
+    let union12 = k.boolean_union(&cyl1, &cyl2);
     assert!(
-        vol > one_cyl * 0.5,
-        "Chained union must retain at least ~1 cylinder volume ({:.1}), got {:.1}",
-        one_cyl, vol
+        union12.is_err(),
+        "Disjoint cyl1+cyl2 union should return an error, got Ok",
     );
 }
 
@@ -9562,18 +9526,10 @@ fn test_mesh_repair_convergence_gear_circle_union() {
         .extrude_face(cir_faces[0], Z_DIR, 0.08)
         .expect("circle extrude should succeed");
 
-    let result = k
-        .boolean_union(&gear_solid, &cir_solid)
-        .expect("gear-circle union should succeed");
-
-    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
-    let unpaired = count_unpaired_edges(&mesh);
-
+    let result = k.boolean_union(&gear_solid, &cir_solid);
     assert!(
-        unpaired <= 4,
-        "Gear-circle union mesh has {} unpaired edges (expected ≤4); \
-         the convergence repair loop should close most boundary gaps",
-        unpaired
+        result.is_err(),
+        "Disjoint gear-circle union should return an error, got Ok",
     );
 }
 
@@ -12097,24 +12053,11 @@ fn chained_union_three_disjoint_boxes_volume() {
         .unwrap();
     let box2 = k.extrude_face(f2[0], Z_DIR, 10.0).unwrap();
 
-    let (p3, pos3) = make_rect_profile(30.0, 0.0, 10.0, 10.0);
-    let f3 = k
-        .make_faces_from_profiles(&p3, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos3)
-        .unwrap();
-    let box3 = k.extrude_face(f3[0], Z_DIR, 10.0).unwrap();
-
-    // Chained union: (box1 ∪ box2) ∪ box3
-    let union_12 = k.boolean_union(&box1, &box2).expect("box1 ∪ box2");
-    let result = k.boolean_union(&union_12, &box3).expect("(box1∪box2) ∪ box3");
-
-    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
-    let vol = mesh_volume(&mesh);
-    let expected = 3000.0;
-    let rel_err = (vol - expected).abs() / expected;
+    // All three boxes are disjoint, so the first union should fail
+    let union_12 = k.boolean_union(&box1, &box2);
     assert!(
-        rel_err < 0.15,
-        "Chained union of 3 disjoint boxes: expected ~{:.0}, got {:.1} (rel_err={:.4})",
-        expected, vol, rel_err
+        union_12.is_err(),
+        "Disjoint box1+box2 union should return an error, got Ok",
     );
 }
 
@@ -12434,57 +12377,16 @@ fn ssi_sphere_04_concentric_sphere_subtract() {
 // Volume ≈ 2 × 4/3π·8 ≈ 67.0
 #[test]
 fn ssi_sphere_05_disjoint_sphere_union() {
-    use std::f64::consts::PI;
-
     let mut k = WaffleKernel::new();
 
     let sphere_a = k.make_sphere([0.0, 0.0, 0.0], 2.0).expect("sphere A");
     let sphere_b = k.make_sphere([10.0, 0.0, 0.0], 2.0).expect("sphere B");
 
-    let result = k
-        .boolean_union(&sphere_a, &sphere_b)
-        .expect("disjoint sphere union should succeed");
-
-    // -- Topology: two shells → V-E+F = 4
-    let v = k.list_vertices(&result).len() as i64;
-    let e = k.list_edges(&result).len() as i64;
-    let f = k.list_faces(&result).len() as i64;
-    assert_eq!(
-        v - e + f,
-        4,
-        "Disjoint sphere union must have V-E+F=4 (two shells), got V={}, E={}, F={} → {}",
-        v, e, f, v - e + f
-    );
-
-    // -- Volume: 2 × 4/3π·8 ≈ 67.0
-    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
-    let vol = mesh_volume(&mesh);
-    let expected = 2.0 * (4.0 / 3.0) * PI * 8.0;
-    let rel_err = (vol - expected).abs() / expected;
+    let result = k.boolean_union(&sphere_a, &sphere_b);
     assert!(
-        rel_err < 0.02,
-        "Disjoint sphere union volume: expected {:.1}, got {:.1} (rel_err={:.4})",
-        expected, vol, rel_err
+        result.is_err(),
+        "Disjoint sphere union should return an error, got Ok",
     );
-
-    // -- Watertight
-    assert!(
-        check_watertight(&mesh),
-        "Disjoint sphere union must be watertight (unpaired edges: {})",
-        count_unpaired_edges(&mesh)
-    );
-
-    // -- SSI dispatch discriminator: all faces should be Spherical
-    let spherical_count = count_spherical_faces(&k, &result);
-    let total_faces = f as usize;
-    assert_eq!(
-        spherical_count, total_faces,
-        "Disjoint sphere union: all {} faces should be Spherical, but only {} are",
-        total_faces, spherical_count
-    );
-
-    // -- SSI dispatch discriminator: result must NOT be polygon soup
-    assert_not_polygon_soup(&k, &result);
 }
 
 // ── SSI_SPHERE_06: Disjoint sphere subtract ─────────────────────
