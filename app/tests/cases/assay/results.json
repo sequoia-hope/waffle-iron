@@ -1,8 +1,8 @@
 {
-  "errored": 28,
-  "failed": 88,
+  "errored": 24,
+  "failed": 103,
   "generated": "2026-03-26",
-  "passed": 46,
+  "passed": 45,
   "results": [
     {
       "category": "auto-union-failed",
@@ -18,7 +18,7 @@
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): ba7cd91f-a089-4e7c-adae-4de34337051d: operation error: kernel error: operation not supported: polygon boolean: 13448 total faces exceeds limit (8000)",
+      "detail": "partial rebuild (1 error(s)): 0360ffd8-09cf-445b-aa54-b873a63a331b: operation error: kernel error: operation not supported: polygon boolean: 13448 total faces exceeds limit (8000)",
       "id": "R0003",
       "status": "fail"
     },
@@ -29,14 +29,14 @@
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1300 unpaired edges out of 56906 total; unit_normals: 2352 of 85552 normals are not unit length; mesh_euler_characteristic: V(19404) - E(56906) + F(37504) = 2 (expected 0)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0005",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(71) - E(195) + F(130) = 6 (expected 0)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); mesh_euler_characteristic: V(130) - E(384) + F(256) = 2 (expected 0)",
       "id": "R0006",
       "status": "fail"
     },
@@ -59,14 +59,14 @@
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 897 unpaired edges out of 32487 total; mesh_euler_characteristic: V(11132) - E(32487) + F(21359) = 4 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); volume_magnitude: volume 2.548968e-3 outside [2.281929e-2, 2.281929e14] for scale 1.316540e2",
       "id": "R0010",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "unit_normals: 8 of 76096 normals are not unit length",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
       "id": "R0011",
       "status": "fail"
     },
@@ -114,7 +114,7 @@
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 6d0b4b39-2e80-4964-9cb7-222eb71f9796: operation error: kernel error: operation not supported: polygon boolean: 20644 total faces exceeds limit (8000); mesh_euler_characteristic: V(130) - E(384) + F(256) = 2 (expected 0)",
+      "detail": "partial rebuild (1 error(s)): 80f35c59-b4c9-4661-af73-5b5a54c3a5fa: operation error: kernel error: operation not supported: polygon boolean: 20644 total faces exceeds limit (8000); mesh_euler_characteristic: V(130) - E(384) + F(256) = 2 (expected 0)",
       "id": "R0019",
       "status": "fail"
     },
@@ -155,10 +155,10 @@
       "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 74 unpaired edges out of 15370 total (71 boundary, 3 non-manifold); unit_normals: 272 of 31503 normals are not unit length; mesh_euler_characteristic: V(4729) - E(15370) + F(10225) = -416 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0026",
-      "status": "fail"
+      "status": "error"
     },
     {
       "category": "revolve-normals",
@@ -167,8 +167,8 @@
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "unit_normals: 256 of 33112 normals are not unit length; mesh_euler_characteristic: V(2120) - E(6336) + F(4224) = 8 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (2 warning(s)): Revolve 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged)",
       "id": "R0028",
       "status": "fail"
     },
@@ -179,8 +179,8 @@
       "status": "pass"
     },
     {
-      "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(132) - E(366) + F(244) = 10 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (2 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged)",
       "id": "R0030",
       "status": "fail"
     },
@@ -191,8 +191,8 @@
       "status": "error"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 56257c3a-3a71-4933-9b1b-9fc6f7638e02: operation error: kernel error: operation not supported: polygon boolean: 20868 total faces exceeds limit (8000); mesh_euler_characteristic: V(2112) - E(6318) + F(4212) = 6 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; partial rebuild (1 error(s)): 47bd1da5-bf31-4cb8-81f2-deb1de1674ba: operation error: kernel error: operation not supported: polygon boolean: 20868 total faces exceeds limit (8000); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
       "id": "R0032",
       "status": "fail"
     },
@@ -209,16 +209,16 @@
       "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (2 warning(s)): Revolve 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged)",
       "id": "R0035",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "multiple-failures",
+      "detail": "mesh_euler_characteristic: V(896) - E(2682) + F(1788) = 2 (expected 0)",
       "id": "R0036",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "multiple-failures",
@@ -239,8 +239,8 @@
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 324 unpaired edges out of 45971 total (3 boundary, 321 non-manifold); consistent_normals: 417 of 31242 triangles have reversed normals; mesh_euler_characteristic: V(14815) - E(45971) + F(31242) = 86 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 131 unpaired edges out of 15852 total (2 boundary, 129 non-manifold); mesh_euler_characteristic: V(4944) - E(15852) + F(10926) = 18 (expected 2)",
       "id": "R0040",
       "status": "fail"
     },
@@ -257,8 +257,8 @@
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(792) - E(2358) + F(1572) = 6 (expected 0)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); mesh_euler_characteristic: V(64) - E(180) + F(120) = 4 (expected 0)",
       "id": "R0043",
       "status": "fail"
     },
@@ -293,10 +293,10 @@
       "status": "fail"
     },
     {
-      "category": "revolve-normals",
-      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; unit_normals: 32 of 46880 normals are not unit length; face_range_coverage: no face ranges defined; outward_normals: no valid triangles; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"gear\")]; volume_magnitude: volume 0.000000e0 outside [8.017676e-16, 8.017676e0] for scale 4.312040e-3",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0049",
-      "status": "fail"
+      "status": "error"
     },
     {
       "category": "cascading-failure",
@@ -311,10 +311,10 @@
       "status": "error"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
       "id": "R0052",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "auto-union-failed",
@@ -365,14 +365,14 @@
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(77) - E(207) + F(138) = 8 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\"), (\"extrude\", \"rectangle\")]",
       "id": "R0061",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "unit_normals: 256 of 8472 normals are not unit length; mesh_euler_characteristic: V(2056) - E(6156) + F(4104) = 4 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"revolve\", \"circle\"), (\"extrude\", \"rectangle\")]",
       "id": "R0062",
       "status": "fail"
     },
@@ -395,8 +395,8 @@
       "status": "error"
     },
     {
-      "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(128) - E(360) + F(240) = 8 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
       "id": "R0066",
       "status": "fail"
     },
@@ -407,26 +407,26 @@
       "status": "pass"
     },
     {
-      "category": "multiple-failures",
-      "detail": "unit_normals: 16 of 82000 normals are not unit length; mesh_euler_characteristic: V(64) - E(180) + F(120) = 4 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
       "id": "R0068",
       "status": "fail"
     },
     {
-      "category": "mesh-too-simple",
-      "detail": "unit_normals: 16 of 73768 normals are not unit length; minimum_triangle_count: 12 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"rectangle\")]",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"rectangle\")]",
       "id": "R0069",
       "status": "fail"
     },
     {
-      "category": "revolve-normals",
-      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; unit_normals: 16 of 40080 normals are not unit length; face_range_coverage: no face ranges defined; outward_normals: no valid triangles; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"gear\"), (\"extrude\", \"circle\")]; volume_magnitude: volume 0.000000e0 outside [5.261258e-14, 5.261258e2] for scale 1.739255e-2",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0070",
-      "status": "fail"
+      "status": "error"
     },
     {
       "category": "tessellation-degenerate",
-      "detail": "partial rebuild (1 error(s)): 8ecee074-e1dd-423d-9f0b-2159ef35f383: operation error: kernel error: operation not supported: polygon boolean: 8572 total faces exceeds limit (8000); no_degenerate_triangles: 648 of 2012 triangles are degenerate; mesh_euler_characteristic: V(1008) - E(3018) + F(2012) = 2 (expected 0)",
+      "detail": "partial rebuild (1 error(s)): b73eff04-754a-4e8b-beaf-45f1a86051d9: operation error: kernel error: operation not supported: polygon boolean: 8572 total faces exceeds limit (8000); no_degenerate_triangles: 648 of 2012 triangles are degenerate; mesh_euler_characteristic: V(1008) - E(3018) + F(2012) = 2 (expected 0)",
       "id": "R0071",
       "status": "fail"
     },
@@ -437,22 +437,22 @@
       "status": "pass"
     },
     {
-      "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(512) - E(1524) + F(1016) = 4 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
       "id": "R0073",
       "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (2 warning(s)): Revolve 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged)",
       "id": "R0074",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 32 unpaired edges out of 151 total; minimum_triangle_count: 90 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"circle\"), (\"extrude\", \"gear\")]; mesh_euler_characteristic: V(64) - E(151) + F(90) = 3 (expected 2)",
       "id": "R0075",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "multiple-failures",
@@ -461,8 +461,8 @@
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(2056) - E(6156) + F(4104) = 4 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"revolve\", \"circle\"), (\"extrude\", \"rectangle\")]",
       "id": "R0077",
       "status": "fail"
     },
@@ -491,20 +491,20 @@
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(1072) - E(3198) + F(2132) = 6 (expected 2); bbox diagonal 1.972e3 exceeds max 1.921e3",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
       "id": "R0082",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(72) - E(198) + F(132) = 6 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\")]",
       "id": "R0083",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "unit_normals: 16 of 106576 normals are not unit length; mesh_euler_characteristic: V(64) - E(180) + F(120) = 4 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
       "id": "R0084",
       "status": "fail"
     },
@@ -521,10 +521,10 @@
       "status": "pass"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
       "id": "R0087",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "revolve-normals",
@@ -545,8 +545,8 @@
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "unit_normals: 256 of 8472 normals are not unit length; mesh_euler_characteristic: V(2056) - E(6156) + F(4104) = 4 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"revolve\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
       "id": "R0091",
       "status": "fail"
     },
@@ -581,8 +581,8 @@
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(1128) - E(3372) + F(2248) = 4 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
       "id": "R0097",
       "status": "fail"
     },
@@ -875,10 +875,10 @@
       "status": "pass"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 257 unpaired edges out of 52308 total (73 boundary, 184 non-manifold); mesh_euler_characteristic: V(17010) - E(52308) + F(35458) = 160 (expected 2)",
       "id": "F0046",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "boolean-watertight",
@@ -887,16 +887,16 @@
       "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 130 unpaired edges out of 74754 total (1 boundary, 129 non-manifold); consistent_normals: 642 of 50684 triangles have reversed normals; mesh_euler_characteristic: V(24174) - E(74754) + F(50684) = 104 (expected 2)",
       "id": "F0048",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 140 unpaired edges out of 124678 total (0 boundary, 140 non-manifold); mesh_euler_characteristic: V(40557) - E(124678) + F(84272) = 151 (expected 2)",
       "id": "F0049",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "cascading-failure",
@@ -975,7 +975,67 @@
       "detail": "8 oracles passed",
       "id": "F0062",
       "status": "pass"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "outward_normals: only 82 of 124 triangles (66.1%) have outward normals (need 95%); mesh_euler_characteristic: V(72) - E(186) + F(124) = 10 (expected 2)",
+      "id": "F0063",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "outward_normals: only 104 of 156 triangles (66.7%) have outward normals (need 95%); mesh_euler_characteristic: V(88) - E(234) + F(156) = 10 (expected 2)",
+      "id": "F0064",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "outward_normals: only 148 of 232 triangles (63.8%) have outward normals (need 95%); mesh_euler_characteristic: V(132) - E(348) + F(232) = 16 (expected 2)",
+      "id": "F0065",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "outward_normals: only 130 of 208 triangles (62.5%) have outward normals (need 95%); mesh_euler_characteristic: V(120) - E(312) + F(208) = 16 (expected 2)",
+      "id": "F0066",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "outward_normals: only 202 of 336 triangles (60.1%) have outward normals (need 95%); mesh_euler_characteristic: V(188) - E(504) + F(336) = 20 (expected 2)",
+      "id": "F0067",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "outward_normals: only 208 of 344 triangles (60.5%) have outward normals (need 95%); mesh_euler_characteristic: V(196) - E(516) + F(344) = 24 (expected 2)",
+      "id": "F0068",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "outward_normals: only 280 of 460 triangles (60.9%) have outward normals (need 95%); mesh_euler_characteristic: V(260) - E(690) + F(460) = 30 (expected 2)",
+      "id": "F0069",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "outward_normals: only 266 of 444 triangles (59.9%) have outward normals (need 95%); mesh_euler_characteristic: V(252) - E(666) + F(444) = 30 (expected 2)",
+      "id": "F0070",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "outward_normals: only 342 of 576 triangles (59.4%) have outward normals (need 95%); mesh_euler_characteristic: V(328) - E(864) + F(576) = 40 (expected 2)",
+      "id": "F0071",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "outward_normals: only 348 of 592 triangles (58.8%) have outward normals (need 95%); mesh_euler_characteristic: V(336) - E(888) + F(592) = 40 (expected 2)",
+      "id": "F0072",
+      "status": "fail"
     }
   ],
-  "total": 162
+  "total": 172
 }
