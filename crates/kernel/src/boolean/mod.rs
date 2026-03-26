@@ -1013,12 +1013,18 @@ pub(super) fn collect_fragments(
     include_partial_inside: bool,
 ) {
     let emit = |output: &mut Vec<FacePoly>,
-                verts: Vec<[f64; 3]>,
+                mut verts: Vec<[f64; 3]>,
                 normal: [f64; 3],
                 origin: [f64; 3],
                 sg: Option<SurfaceGeom>| {
         if verts.len() < 3 {
             return;
+        }
+        // Ref #33 Stroud: Newell normal gives polygon orientation.
+        // S-H clipping can reverse vertex winding; fix before emission.
+        let newell = newell_normal_3d(&verts);
+        if v3_dot(newell, normal) < 0.0 {
+            verts.reverse();
         }
         let mut f = FacePoly {
             verts,
@@ -1126,8 +1132,14 @@ pub(super) fn collect_union_fragments(
 ) {
     let push_frag = |output: &mut Vec<FacePoly>, verts: &Vec<[f64; 3]>, face: &FacePoly| {
         if verts.len() >= 3 {
+            let mut fixed_verts = verts.clone();
+            // Ref #33 Stroud: ensure winding matches stored normal after clipping.
+            let newell = newell_normal_3d(&fixed_verts);
+            if v3_dot(newell, face.normal) < 0.0 {
+                fixed_verts.reverse();
+            }
             output.push(FacePoly {
-                verts: verts.clone(),
+                verts: fixed_verts,
                 normal: face.normal,
                 origin: face.origin,
                 surface_geom: face.surface_geom.clone(),
@@ -1135,10 +1147,23 @@ pub(super) fn collect_union_fragments(
         }
     };
 
+    // Emit a whole face with winding consistency check.
+    let emit_face = |output: &mut Vec<FacePoly>, face: &FacePoly| {
+        if face.verts.len() < 3 {
+            return;
+        }
+        let mut f = face.clone();
+        let newell = newell_normal_3d(&f.verts);
+        if v3_dot(newell, f.normal) < 0.0 {
+            f.verts.reverse();
+        }
+        output.push(f);
+    };
+
     for (face, class) in classified {
         match class {
             FaceClass::Outside => {
-                output.push(face.clone());
+                emit_face(output, face);
             }
             FaceClass::Inside => {
                 // Fully-inside faces are hidden — discard for union
@@ -1162,7 +1187,7 @@ pub(super) fn collect_union_fragments(
                     // coplanar same-direction, so their shared boundary
                     // edges have the same winding). T-junction resolution
                     // will insert split vertices from adjacent faces.
-                    output.push(face.clone());
+                    emit_face(output, face);
                 } else {
                     // Secondary: emit only outside frags.
                     for frag in outside_frags {
@@ -2910,6 +2935,52 @@ mod tests {
                 "Overlapping union should produce fewer than 12 faces (shared volume merged), got {}",
                 r.arena.faces.len()
             );
+        }
+
+        #[test]
+        fn fragment_winding_matches_normal_after_union() {
+            // Two overlapping boxes — union produces fragments.
+            // Verify every output FacePoly's Newell normal agrees with stored normal.
+            let a = make_box_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+            let b = make_box_face_polys([0.5, 0.0, 0.0], [1.5, 1.0, 1.0]);
+            let mut id = new_id_alloc();
+            let result = boolean_op_from_polys(a, b, BoolOp::Union, &mut id).unwrap();
+            if let Some(ref polys) = result.cached_face_polys {
+                for fp in polys {
+                    if fp.verts.len() < 3 {
+                        continue;
+                    }
+                    let newell = newell_normal_3d(&fp.verts);
+                    let dot = v3_dot(newell, fp.normal);
+                    assert!(
+                        dot >= 0.0,
+                        "Fragment winding disagrees with normal: dot={dot}"
+                    );
+                }
+            }
+        }
+
+        #[test]
+        fn fragment_winding_matches_normal_after_subtract() {
+            // Overlapping boxes — subtract produces fragments.
+            // Verify every output FacePoly's Newell normal agrees with stored normal.
+            let a = make_box_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+            let b = make_box_face_polys([0.5, 0.0, 0.0], [1.5, 1.0, 1.0]);
+            let mut id = new_id_alloc();
+            let result = boolean_op_from_polys(a, b, BoolOp::Subtract, &mut id).unwrap();
+            if let Some(ref polys) = result.cached_face_polys {
+                for fp in polys {
+                    if fp.verts.len() < 3 {
+                        continue;
+                    }
+                    let newell = newell_normal_3d(&fp.verts);
+                    let dot = v3_dot(newell, fp.normal);
+                    assert!(
+                        dot >= 0.0,
+                        "Fragment winding disagrees with normal: dot={dot}"
+                    );
+                }
+            }
         }
 
         #[test]
