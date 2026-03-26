@@ -1,0 +1,301 @@
+{
+  "id": "F0069",
+  "description": "15 ops, scale=1.00e0, 15 chained extrudes (stacked Z) — seed 10007",
+  "master_seed": 0,
+  "test_seed": 10007,
+  "scale": 1.0,
+  "log_scale": 0.0,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "polygon",
+      "profile_size": 0.2388031485574899,
+      "depth_or_angle": 0.19533048345784204,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "polygon",
+      "profile_size": 0.21735727269279725,
+      "depth_or_angle": 0.29763233381608145,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.19533048345784204
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "polygon",
+      "profile_size": 0.476650813414461,
+      "depth_or_angle": 0.22362384155860413,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.4929628172739235
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "polygon",
+      "profile_size": 0.4426124993087328,
+      "depth_or_angle": 0.2647591287237458,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.7165866588325276
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "polygon",
+      "profile_size": 0.41550043274071213,
+      "depth_or_angle": 0.13277260315187056,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.9813457875562734
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "polygon",
+      "profile_size": 0.29618037853246293,
+      "depth_or_angle": 0.2861049310485126,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        1.114118390708144
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "polygon",
+      "profile_size": 0.4582133956962706,
+      "depth_or_angle": 0.17744913513179608,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        1.4002233217566566
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "polygon",
+      "profile_size": 0.48394299474601055,
+      "depth_or_angle": 0.15119446207958434,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        1.5776724568884528
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "polygon",
+      "profile_size": 0.34395852013420736,
+      "depth_or_angle": 0.23819674182315936,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        1.7288669189680372
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "polygon",
+      "profile_size": 0.16485178470958334,
+      "depth_or_angle": 0.2726551889223489,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        1.9670636607911967
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "polygon",
+      "profile_size": 0.3899538704480467,
+      "depth_or_angle": 0.24676340722477944,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        2.2397188497135456
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "polygon",
+      "profile_size": 0.4247306945564546,
+      "depth_or_angle": 0.20088108057765225,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        2.486482256938325
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "polygon",
+      "profile_size": 0.4250080557313026,
+      "depth_or_angle": 0.10537248708909193,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        2.6873633375159773
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "polygon",
+      "profile_size": 0.28304063801067203,
+      "depth_or_angle": 0.19089323887447157,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        2.792735824605069
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "polygon",
+      "profile_size": 0.21770113744022468,
+      "depth_or_angle": 0.12213313816940673,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        2.983629063479541
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 10.5,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [
+      "increase",
+      "increase",
+      "increase",
+      "increase",
+      "increase",
+      "increase",
+      "increase",
+      "increase",
+      "increase",
+      "increase",
+      "increase",
+      "increase",
+      "increase",
+      "increase",
+      "increase"
+    ],
+    "expect_rebuild_error": false
+  },
+  "generator_version": 2,
+  "featured": true
+}

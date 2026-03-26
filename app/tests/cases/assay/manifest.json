@@ -1,6 +1,6 @@
 {
   "master_seed": 42,
-  "count": 160,
+  "count": 172,
   "generator_version": 2,
   "cases": [
     {
@@ -1121,6 +1121,90 @@
       "filename": "F0060.waffle",
       "meta_filename": "F0060.meta.json",
       "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,cut) — Cyl-cyl angled 90° (F60)",
+      "featured": true
+    },
+    {
+      "id": "F0061",
+      "filename": "F0061.waffle",
+      "meta_filename": "F0061.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(gear,boss)+extrude(circle,cut) — Gear with through hole",
+      "featured": true
+    },
+    {
+      "id": "F0062",
+      "filename": "F0062.waffle",
+      "meta_filename": "F0062.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,cut) — Box with through hole (centroid bug repro)",
+      "featured": true
+    },
+    {
+      "id": "F0063",
+      "filename": "F0063.waffle",
+      "meta_filename": "F0063.meta.json",
+      "description": "5 ops, scale=1.00e0, 5 chained extrudes (stacked Z) — seed 10001",
+      "featured": true
+    },
+    {
+      "id": "F0064",
+      "filename": "F0064.waffle",
+      "meta_filename": "F0064.meta.json",
+      "description": "5 ops, scale=1.00e0, 5 chained extrudes (stacked Z) — seed 10002",
+      "featured": true
+    },
+    {
+      "id": "F0065",
+      "filename": "F0065.waffle",
+      "meta_filename": "F0065.meta.json",
+      "description": "8 ops, scale=1.00e0, 8 chained extrudes (stacked Z) — seed 10003",
+      "featured": true
+    },
+    {
+      "id": "F0066",
+      "filename": "F0066.waffle",
+      "meta_filename": "F0066.meta.json",
+      "description": "8 ops, scale=1.00e0, 8 chained extrudes (stacked Z) — seed 10004",
+      "featured": true
+    },
+    {
+      "id": "F0067",
+      "filename": "F0067.waffle",
+      "meta_filename": "F0067.meta.json",
+      "description": "10 ops, scale=1.00e0, 10 chained extrudes (stacked Z) — seed 10005",
+      "featured": true
+    },
+    {
+      "id": "F0068",
+      "filename": "F0068.waffle",
+      "meta_filename": "F0068.meta.json",
+      "description": "12 ops, scale=1.00e0, 12 chained extrudes (stacked Z) — seed 10006",
+      "featured": true
+    },
+    {
+      "id": "F0069",
+      "filename": "F0069.waffle",
+      "meta_filename": "F0069.meta.json",
+      "description": "15 ops, scale=1.00e0, 15 chained extrudes (stacked Z) — seed 10007",
+      "featured": true
+    },
+    {
+      "id": "F0070",
+      "filename": "F0070.waffle",
+      "meta_filename": "F0070.meta.json",
+      "description": "15 ops, scale=1.00e0, 15 chained extrudes (stacked Z) — seed 10008",
+      "featured": true
+    },
+    {
+      "id": "F0071",
+      "filename": "F0071.waffle",
+      "meta_filename": "F0071.meta.json",
+      "description": "20 ops, scale=1.00e0, 20 chained extrudes (stacked Z) — seed 10009",
+      "featured": true
+    },
+    {
+      "id": "F0072",
+      "filename": "F0072.waffle",
+      "meta_filename": "F0072.meta.json",
+      "description": "20 ops, scale=1.00e0, 20 chained extrudes (stacked Z) — seed 10010",
       "featured": true
     }
   ]

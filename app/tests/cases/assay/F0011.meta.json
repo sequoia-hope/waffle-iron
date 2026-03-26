@@ -59,7 +59,8 @@
     "volume_monotonicity": [
       "increase",
       "increase"
-    ]
+    ],
+    "expect_rebuild_error": true
   },
   "generator_version": 2,
   "featured": true

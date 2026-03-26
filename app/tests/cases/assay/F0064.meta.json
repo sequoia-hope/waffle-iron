@@ -1,0 +1,121 @@
+{
+  "id": "F0064",
+  "description": "5 ops, scale=1.00e0, 5 chained extrudes (stacked Z) — seed 10002",
+  "master_seed": 0,
+  "test_seed": 10002,
+  "scale": 1.0,
+  "log_scale": 0.0,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "polygon",
+      "profile_size": 0.45489125043112244,
+      "depth_or_angle": 0.24739397435723282,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "polygon",
+      "profile_size": 0.2164927706081715,
+      "depth_or_angle": 0.16403040577580824,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.24739397435723282
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "polygon",
+      "profile_size": 0.15579512602975454,
+      "depth_or_angle": 0.13238610072376872,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.41142438013304106
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "polygon",
+      "profile_size": 0.24346470840656098,
+      "depth_or_angle": 0.23340261999390965,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.5438104808568098
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "polygon",
+      "profile_size": 0.37786402530031915,
+      "depth_or_angle": 0.22401986063675333,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.7772131008507195
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 5.5,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [
+      "increase",
+      "increase",
+      "increase",
+      "increase",
+      "increase"
+    ],
+    "expect_rebuild_error": false
+  },
+  "generator_version": 2,
+  "featured": true
+}

@@ -67,7 +67,8 @@
       "increase",
       "increase",
       "decrease"
-    ]
+    ],
+    "expect_rebuild_error": false
   },
   "generator_version": 2,
   "featured": false
