@@ -17,10 +17,16 @@ use crate::vecmath::*;
 use crate::waffle_kernel::{CylinderParams, SphereParams, WaffleSolid};
 use std::collections::BTreeMap;
 
+use super::classify::{classify_face, classify_face_nonconvex, point_in_solid, FaceClass};
+use super::clip::{
+    classify_coplanarity, clip_polygon_by_plane_cached, dedup_face_polys, is_coplanar,
+    is_face_set_convex, merge_nearby_vertices, resolve_t_junctions, CoplanarClass,
+    IntersectionCache,
+};
 use super::{
     boolean_op_from_polys, build_brep_from_polygons, build_brep_from_polygons_inner,
-    extract_face_polys, extract_face_polys_general, point_in_solid, BoolOp, BooleanResult,
-    FacePoly,
+    collect_fragments, collect_union_fragments, compute_adaptive_tau_weld, extract_face_polys,
+    extract_face_polys_general, polygon_area_3d, polygon_centroid, BoolOp, BooleanResult, FacePoly,
 };
 
 // ── Frame rotation utilities ────────────────────────────────────────────
@@ -473,6 +479,30 @@ fn box_cyl_boolean(
                 Ok(result)
             } else if disjoint {
                 clone_solid_as_result(box_solid, id_alloc)
+            } else if xy_enclosed {
+                // Through-hole or partial-depth hole — cylinder XY-enclosed but
+                // extends beyond one or both caps. Clip cylinder Z to box Z so
+                // seam vertices land on the box caps. build_box_minus_enclosed_cyl's
+                // touches_bot/touches_top logic handles all sub-cases correctly.
+                let clipped_cyl = CylinderParams {
+                    center_bottom: [
+                        cyl_z.center_bottom[0],
+                        cyl_z.center_bottom[1],
+                        box_aabb.min[2],
+                    ],
+                    depth: box_aabb.max[2] - box_aabb.min[2],
+                    radius: cyl_z.radius,
+                    direction: cyl_z.direction,
+                    x_axis: cyl_z.x_axis,
+                    y_axis: cyl_z.y_axis,
+                };
+                let mut result = if box_solid.face_map.len() <= 6 {
+                    build_box_minus_enclosed_cyl(&box_aabb, &clipped_cyl, id_alloc)?
+                } else {
+                    build_planar_solid_minus_enclosed_cyl(box_solid, &clipped_cyl, &m, id_alloc)?
+                };
+                rotate_boolean_result(&mut result, &m_inv);
+                Ok(result)
             } else {
                 Err(KernelError::NotSupported {
                     operation: "partial box-cylinder subtract".to_string(),
@@ -2183,6 +2213,225 @@ fn build_box_minus_enclosed_cyl(
     );
 
     // Step 8: Add IDs for new entities
+    result.face_map.insert(id_alloc(), face_cyl);
+    result.edge_map.insert(id_alloc(), e_bot_circle);
+    result.edge_map.insert(id_alloc(), e_top_circle);
+    result.edge_map.insert(id_alloc(), e_seam);
+    result.vertex_map.insert(id_alloc(), v_bot_seam);
+    result.vertex_map.insert(id_alloc(), v_top_seam);
+
+    Ok(result)
+}
+
+/// Build a planar-solid-minus-enclosed-cylinder result for non-rectangular
+/// all-planar solids (e.g., gear extrudes). Same topology as
+/// `build_box_minus_enclosed_cyl` but uses the solid's actual face polygons
+/// instead of an AABB box.
+///
+/// `cyl` must be in the Z-aligned frame. `m` is the rotation matrix from
+/// world to Z-aligned frame (used to rotate face polygons).
+fn build_planar_solid_minus_enclosed_cyl(
+    solid: &WaffleSolid,
+    cyl: &CylinderParams,
+    m: &Mat3,
+    id_alloc: &mut dyn FnMut() -> u64,
+) -> Result<BooleanResult, KernelError> {
+    let cx = cyl.center_bottom[0];
+    let cy = cyl.center_bottom[1];
+    let r = cyl.radius;
+    let dir = cyl.direction;
+
+    // Cylinder's actual z-range (already clipped to solid z-range by caller)
+    let cyl_z_min = cyl.center_bottom[2];
+    let cyl_z_max = cyl_z_min + cyl.depth;
+
+    // Determine if cylinder touches caps
+    let touches_bot = true; // Caller clips cyl to solid Z, so always touches
+    let touches_top = true;
+
+    // Extract face polygons from the solid and rotate into Z-aligned frame
+    let orig_polys = extract_face_polys(solid);
+    if orig_polys.len() < 4 {
+        return Err(KernelError::BooleanFailed {
+            reason: "too few face polygons for planar solid".to_string(),
+        });
+    }
+    let rotated_polys: Vec<FacePoly> = orig_polys
+        .iter()
+        .map(|fp| FacePoly {
+            verts: fp.verts.iter().map(|v| mat3_mul_vec(m, *v)).collect(),
+            normal: mat3_mul_vec(m, fp.normal),
+            origin: mat3_mul_vec(m, fp.origin),
+            surface_geom: None, // Will be reconstructed from rotated geometry
+        })
+        .collect();
+
+    // Build B-Rep from the rotated face polygons
+    let tau_weld = TAU_MODEL;
+    let mut result = build_brep_from_polygons(&rotated_polys, tau_weld, id_alloc)?;
+
+    // Find bottom and top face indices by normal direction
+    let mut face_bot = None;
+    let mut face_top = None;
+    for (&fi, geom) in &result.face_geometry {
+        if let SurfaceGeom::Planar(plane) = geom {
+            if plane.normal.z < -CAP_FACE_NORMAL_Z {
+                face_bot = Some(fi);
+            } else if plane.normal.z > CAP_FACE_NORMAL_Z {
+                face_top = Some(fi);
+            }
+        }
+    }
+    let face_bot = face_bot.ok_or(KernelError::BooleanFailed {
+        reason: "cannot find bottom face in planar solid".to_string(),
+    })?;
+    let face_top = face_top.ok_or(KernelError::BooleanFailed {
+        reason: "cannot find top face in planar solid".to_string(),
+    })?;
+
+    // Add cylinder seam vertices
+    let bot_seam = [cx + r, cy, cyl_z_min];
+    let top_seam = [cx + r, cy, cyl_z_max];
+    let v_bot_seam = result.arena.add_vertex(bot_seam);
+    let v_top_seam = result.arena.add_vertex(top_seam);
+
+    let shell_idx = ShellIdx(0);
+
+    // Bottom circle edge
+    let (e_bot_circle, he_ibot_a, he_ibot_b) = result.arena.add_edge();
+
+    if touches_bot {
+        let inner_loop_bot = result.arena.add_loop(face_bot);
+        result.arena.faces[face_bot.0]
+            .inner_loops
+            .push(inner_loop_bot);
+        result.arena.half_edges[he_ibot_a.0].origin = v_bot_seam;
+        result.arena.half_edges[he_ibot_a.0].next = he_ibot_a;
+        result.arena.half_edges[he_ibot_a.0].prev = he_ibot_a;
+        result.arena.half_edges[he_ibot_a.0].loop_ = inner_loop_bot;
+        result.arena.loops[inner_loop_bot.0].half_edge = he_ibot_a;
+    } else {
+        let face_cap_bot = result.arena.add_face(shell_idx);
+        let loop_cap_bot = result.arena.add_loop(face_cap_bot);
+        result.arena.faces[face_cap_bot.0].outer_loop = loop_cap_bot;
+        result.arena.half_edges[he_ibot_a.0].origin = v_bot_seam;
+        result.arena.half_edges[he_ibot_a.0].next = he_ibot_a;
+        result.arena.half_edges[he_ibot_a.0].prev = he_ibot_a;
+        result.arena.half_edges[he_ibot_a.0].loop_ = loop_cap_bot;
+        result.arena.loops[loop_cap_bot.0].half_edge = he_ibot_a;
+        result.face_geometry.insert(
+            face_cap_bot,
+            SurfaceGeom::Planar(Plane {
+                origin: Point3::new(cx, cy, cyl_z_min),
+                normal: Vector3::new(0.0, 0.0, -1.0),
+            }),
+        );
+        result.face_map.insert(id_alloc(), face_cap_bot);
+    }
+
+    // Top circle edge
+    let (e_top_circle, he_itop_a, he_itop_b) = result.arena.add_edge();
+
+    if touches_top {
+        let inner_loop_top = result.arena.add_loop(face_top);
+        result.arena.faces[face_top.0]
+            .inner_loops
+            .push(inner_loop_top);
+        result.arena.half_edges[he_itop_a.0].origin = v_top_seam;
+        result.arena.half_edges[he_itop_a.0].next = he_itop_a;
+        result.arena.half_edges[he_itop_a.0].prev = he_itop_a;
+        result.arena.half_edges[he_itop_a.0].loop_ = inner_loop_top;
+        result.arena.loops[inner_loop_top.0].half_edge = he_itop_a;
+    } else {
+        let face_cap_top = result.arena.add_face(shell_idx);
+        let loop_cap_top = result.arena.add_loop(face_cap_top);
+        result.arena.faces[face_cap_top.0].outer_loop = loop_cap_top;
+        result.arena.half_edges[he_itop_a.0].origin = v_top_seam;
+        result.arena.half_edges[he_itop_a.0].next = he_itop_a;
+        result.arena.half_edges[he_itop_a.0].prev = he_itop_a;
+        result.arena.half_edges[he_itop_a.0].loop_ = loop_cap_top;
+        result.arena.loops[loop_cap_top.0].half_edge = he_itop_a;
+        result.face_geometry.insert(
+            face_cap_top,
+            SurfaceGeom::Planar(Plane {
+                origin: Point3::new(cx, cy, cyl_z_max),
+                normal: Vector3::new(0.0, 0.0, 1.0),
+            }),
+        );
+        result.face_map.insert(id_alloc(), face_cap_top);
+    }
+
+    // Cylinder side face
+    let face_cyl = result.arena.add_face(shell_idx);
+    let loop_cyl = result.arena.add_loop(face_cyl);
+    result.arena.faces[face_cyl.0].outer_loop = loop_cyl;
+
+    // Seam edge (vertical)
+    let (e_seam, he_seam_a, he_seam_b) = result.arena.add_edge();
+
+    // Cylinder side loop: seam_a → itop_b → seam_b → ibot_b
+    result.arena.half_edges[he_seam_a.0].origin = v_bot_seam;
+    result.arena.half_edges[he_seam_a.0].next = he_itop_b;
+    result.arena.half_edges[he_seam_a.0].prev = he_ibot_b;
+    result.arena.half_edges[he_seam_a.0].loop_ = loop_cyl;
+
+    result.arena.half_edges[he_itop_b.0].origin = v_top_seam;
+    result.arena.half_edges[he_itop_b.0].next = he_seam_b;
+    result.arena.half_edges[he_itop_b.0].prev = he_seam_a;
+    result.arena.half_edges[he_itop_b.0].loop_ = loop_cyl;
+
+    result.arena.half_edges[he_seam_b.0].origin = v_top_seam;
+    result.arena.half_edges[he_seam_b.0].next = he_ibot_b;
+    result.arena.half_edges[he_seam_b.0].prev = he_itop_b;
+    result.arena.half_edges[he_seam_b.0].loop_ = loop_cyl;
+
+    result.arena.half_edges[he_ibot_b.0].origin = v_bot_seam;
+    result.arena.half_edges[he_ibot_b.0].next = he_seam_a;
+    result.arena.half_edges[he_ibot_b.0].prev = he_seam_b;
+    result.arena.half_edges[he_ibot_b.0].loop_ = loop_cyl;
+
+    result.arena.loops[loop_cyl.0].half_edge = he_seam_a;
+
+    // Set vertex half-edge refs
+    result.arena.vertices[v_bot_seam.0].half_edge = Some(he_ibot_a);
+    result.arena.vertices[v_top_seam.0].half_edge = Some(he_itop_a);
+
+    // Face geometry for cylinder face (negative radius = inward-facing normals)
+    result.face_geometry.insert(
+        face_cyl,
+        SurfaceGeom::Cylindrical(Cylinder {
+            origin: Point3::from_array(cyl.center_bottom),
+            axis: Vector3::from_array(dir),
+            radius: -r,
+        }),
+    );
+
+    // Edge geometry
+    result.edge_geometry.insert(
+        e_bot_circle,
+        CurveGeom::Circular(Circle3D {
+            center: Point3::from_array([cx, cy, cyl_z_min]),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            radius: r,
+        }),
+    );
+    result.edge_geometry.insert(
+        e_top_circle,
+        CurveGeom::Circular(Circle3D {
+            center: Point3::from_array([cx, cy, cyl_z_max]),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            radius: r,
+        }),
+    );
+    result.edge_geometry.insert(
+        e_seam,
+        CurveGeom::Linear(Line3D {
+            origin: Point3::from_array(bot_seam),
+            direction: Vector3::from_array([0.0, 0.0, cyl_z_max - cyl_z_min]),
+        }),
+    );
+
+    // Add IDs for new entities
     result.face_map.insert(id_alloc(), face_cyl);
     result.edge_map.insert(id_alloc(), e_bot_circle);
     result.edge_map.insert(id_alloc(), e_top_circle);
@@ -4147,6 +4396,342 @@ fn build_box_cyl_partial_union(
     }
 
     Ok(result)
+}
+
+// ── Planar-planar boolean (A15 compliance) ──────────────────────────────
+
+/// Exact boolean for all-planar solid pairs.
+///
+/// Both operands must have ONLY `SurfaceGeom::Planar` faces. This function
+/// replaces the polygon-clipping fallback for these cases, fixing:
+/// - The inward-offset sampling bug in `classify_face_nonconvex` (line 510)
+///   that corrupts topology for chained booleans on oblique solids
+/// - The self-twin boundary construction in the AABB-disjoint fast path
+///
+/// For non-convex opposing solids, fragment classification uses
+/// `point_in_solid(centroid)` WITHOUT the inward offset. For all-planar
+/// solids, fragment centroids from plane-plane splitting lie in the face
+/// interior (not on a curved surface), so no offset is needed.
+///
+/// Ref: A15.1 (quadric → exact SSI), A15.5 (surface type preservation).
+pub(crate) fn planar_planar_boolean(
+    solid_a: &WaffleSolid,
+    solid_b: &WaffleSolid,
+    op: BoolOp,
+    id_alloc: &mut dyn FnMut() -> u64,
+) -> Result<BooleanResult, KernelError> {
+    // Step 1: Extract face polygons
+    let a_faces = extract_face_polys_general(solid_a);
+    let b_faces = extract_face_polys_general(solid_b);
+
+    if a_faces.is_empty() || b_faces.is_empty() {
+        return Err(KernelError::BooleanFailed {
+            reason: "planar_planar_boolean: empty face set".into(),
+        });
+    }
+
+    // Step 2: Compute adaptive tolerances
+    let (tau, tau_weld) = compute_adaptive_tau_weld(&a_faces, &b_faces);
+
+    // Step 3: AABB disjoint fast-path
+    let compute_aabb = |faces: &[FacePoly]| -> ([f64; 3], [f64; 3]) {
+        let mut mn = [f64::INFINITY; 3];
+        let mut mx = [f64::NEG_INFINITY; 3];
+        for f in faces {
+            for v in &f.verts {
+                for j in 0..3 {
+                    mn[j] = mn[j].min(v[j]);
+                    mx[j] = mx[j].max(v[j]);
+                }
+            }
+        }
+        (mn, mx)
+    };
+    let (a_min, a_max) = compute_aabb(&a_faces);
+    let (b_min, b_max) = compute_aabb(&b_faces);
+
+    let aabb_disjoint = (0..3).any(|i| a_max[i] + tau < b_min[i] || b_max[i] + tau < a_min[i]);
+
+    if aabb_disjoint {
+        let result_faces: Vec<FacePoly> = match op {
+            BoolOp::Union => {
+                let mut combined = a_faces;
+                combined.extend(b_faces);
+                combined
+            }
+            BoolOp::Subtract => a_faces,
+            BoolOp::Intersect => vec![],
+        };
+
+        if result_faces.is_empty() {
+            let mut arena = TopoArena::new();
+            let solid_idx = arena.add_solid();
+            let shell_idx = arena.add_shell(solid_idx);
+            arena.solids[solid_idx.0].outer_shell = shell_idx;
+            return Ok(BooleanResult {
+                arena,
+                face_map: BTreeMap::new(),
+                edge_map: BTreeMap::new(),
+                vertex_map: BTreeMap::new(),
+                face_geometry: BTreeMap::new(),
+                edge_geometry: BTreeMap::new(),
+                cached_face_polys: None,
+            });
+        }
+
+        // Build proper B-Rep (not self-twin boundary hack)
+        let cached = result_faces.clone();
+        let mut result = build_brep_from_polygons_inner(&result_faces, tau_weld, false, id_alloc)?;
+        result.cached_face_polys = Some(cached);
+        return Ok(result);
+    }
+
+    // Step 4: Guard against pathological face counts
+    let total_faces = a_faces.len() + b_faces.len();
+    if total_faces > 8000 {
+        return Err(KernelError::NotSupported {
+            operation: format!(
+                "planar_planar_boolean: {} total faces exceeds limit (8000)",
+                total_faces
+            ),
+        });
+    }
+
+    // Step 5: Convexity check
+    let a_convex = is_face_set_convex(&a_faces, tau);
+    let b_convex = is_face_set_convex(&b_faces, tau);
+
+    // Step 6: Per-face AABB early-out helper
+    let face_outside_aabb = |face: &FacePoly, aabb_min: &[f64; 3], aabb_max: &[f64; 3]| -> bool {
+        for axis in 0..3 {
+            if face.verts.iter().all(|v| v[axis] < aabb_min[axis] - tau) {
+                return true;
+            }
+            if face.verts.iter().all(|v| v[axis] > aabb_max[axis] + tau) {
+                return true;
+            }
+        }
+        false
+    };
+
+    // Step 7: Classify faces
+    // Intersection cache for consistent edge-plane intersection points.
+    let mut cache: Option<IntersectionCache> = Some(IntersectionCache::new(tau));
+
+    let mut a_classified: Vec<(FacePoly, FaceClass)> = Vec::with_capacity(a_faces.len());
+    for f in &a_faces {
+        if face_outside_aabb(f, &b_min, &b_max) {
+            a_classified.push((f.clone(), FaceClass::Outside));
+        } else {
+            let class = if b_convex {
+                classify_face(f, &b_faces, tau, &mut cache)
+            } else {
+                classify_face_nonconvex_planar(f, &b_faces, tau, &mut cache)
+            };
+            a_classified.push((f.clone(), class));
+        }
+    }
+
+    let mut b_classified: Vec<(FacePoly, FaceClass)> = Vec::with_capacity(b_faces.len());
+    for f in &b_faces {
+        if face_outside_aabb(f, &a_min, &a_max) {
+            b_classified.push((f.clone(), FaceClass::Outside));
+        } else {
+            let class = if a_convex {
+                classify_face(f, &a_faces, tau, &mut cache)
+            } else {
+                classify_face_nonconvex_planar(f, &a_faces, tau, &mut cache)
+            };
+            b_classified.push((f.clone(), class));
+        }
+    }
+
+    // Step 8: Collect result fragments
+    let mut result_polys = Vec::new();
+    match op {
+        BoolOp::Union => {
+            collect_union_fragments(&a_classified, &mut result_polys, true);
+            collect_union_fragments(&b_classified, &mut result_polys, false);
+        }
+        BoolOp::Subtract => {
+            collect_fragments(&a_classified, &mut result_polys, false, true, false, false);
+            collect_fragments(&b_classified, &mut result_polys, true, false, true, false);
+        }
+        BoolOp::Intersect => {
+            collect_fragments(&a_classified, &mut result_polys, false, false, true, true);
+            collect_fragments(&b_classified, &mut result_polys, false, false, true, false);
+        }
+    }
+
+    if result_polys.is_empty() {
+        let mut arena = TopoArena::new();
+        let solid_idx = arena.add_solid();
+        let shell_idx = arena.add_shell(solid_idx);
+        arena.solids[solid_idx.0].outer_shell = shell_idx;
+        return Ok(BooleanResult {
+            arena,
+            face_map: BTreeMap::new(),
+            edge_map: BTreeMap::new(),
+            vertex_map: BTreeMap::new(),
+            face_geometry: BTreeMap::new(),
+            edge_geometry: BTreeMap::new(),
+            cached_face_polys: None,
+        });
+    }
+
+    // Step 9: Post-processing — ensure all faces are planar (A15.5)
+    let result_polys: Vec<FacePoly> = result_polys
+        .into_iter()
+        .map(|mut fp| {
+            if fp.surface_geom.is_none() {
+                fp.surface_geom = Some(SurfaceGeom::Planar(Plane {
+                    origin: Point3::from_array(fp.origin),
+                    normal: Vector3::from_array(fp.normal),
+                }));
+            }
+            fp
+        })
+        .collect();
+
+    let result_polys = dedup_face_polys(&result_polys, tau_weld);
+    let result_polys = merge_nearby_vertices(&result_polys, tau_weld);
+    let result_polys = resolve_t_junctions(&result_polys, tau_weld);
+
+    // Step 10: Build B-Rep with strict manifold requirement
+    let cached = result_polys.clone();
+    let mut result = build_brep_from_polygons_inner(&result_polys, tau_weld, false, id_alloc)?;
+    result.cached_face_polys = Some(cached);
+    Ok(result)
+}
+
+/// Classify a face against a non-convex opposing solid using progressive
+/// splitting — planar-specific variant WITHOUT the inward offset.
+///
+/// For all-planar solids, fragment centroids from plane-plane splitting lie
+/// exactly in the face interior, not on a curved surface. The inward offset
+/// (`face.normal * -tau * 100`) used in the general `classify_face_nonconvex`
+/// can push the sample point through a thin slab, causing mis-classification.
+/// This variant uses the raw centroid for `point_in_solid`.
+fn classify_face_nonconvex_planar(
+    face: &FacePoly,
+    opposing: &[FacePoly],
+    tau: f64,
+    cache: &mut Option<IntersectionCache>,
+) -> FaceClass {
+    use crate::units::TAU_NORMALIZE;
+
+    let original_area = polygon_area_3d(&face.verts);
+    if original_area < TAU_NORMALIZE {
+        return FaceClass::Outside;
+    }
+
+    // Check coplanar partnerships
+    let has_antiparallel = opposing.iter().any(|opp| {
+        classify_coplanarity(face.normal, face.verts[0], opp, tau) == CoplanarClass::AntiParallel
+    });
+    if has_antiparallel {
+        // Delegate to the general antiparallel handler — it's correct for
+        // planar solids (uses progressive splitting + point_in_solid).
+        // The inward offset in the antiparallel path is acceptable because
+        // the face IS on the boundary (shared surface), so the offset
+        // correctly pushes into the solid volume.
+        return classify_face_nonconvex(face, opposing, tau, cache);
+    }
+
+    let has_coplanar = opposing
+        .iter()
+        .any(|opp| is_coplanar(face.normal, face.verts[0], opp, tau));
+
+    if has_coplanar {
+        // Coplanar same-direction: delegate to general handler (offset is fine
+        // for coplanar surface classification).
+        return classify_face_nonconvex(face, opposing, tau, cache);
+    }
+
+    // ── Non-coplanar path: progressive splitting WITHOUT inward offset ───
+
+    let mut cutting_planes: Vec<([f64; 3], [f64; 3])> = Vec::new();
+
+    for opp in opposing {
+        if is_coplanar(face.normal, face.verts[0], opp, tau) {
+            continue;
+        }
+
+        // Straddle check: face must have vertices on both sides of the plane
+        let mut has_pos = false;
+        let mut has_neg = false;
+        for v in &face.verts {
+            let d = v3_dot(v3_sub(*v, opp.origin), opp.normal);
+            if d > tau {
+                has_pos = true;
+            }
+            if d < -tau {
+                has_neg = true;
+            }
+        }
+        if has_pos && has_neg {
+            cutting_planes.push((opp.origin, v3_negate(opp.normal)));
+        }
+    }
+
+    if cutting_planes.is_empty() {
+        // No planes straddle — classify centroid directly (no inward offset)
+        let centroid = polygon_centroid(&face.verts);
+        if point_in_solid(centroid, opposing) {
+            return FaceClass::Inside;
+        }
+        return FaceClass::Outside;
+    }
+
+    // Progressive splitting
+    const MAX_FRAGMENTS: usize = 2048;
+    let mut fragments: Vec<Vec<[f64; 3]>> = vec![face.verts.clone()];
+
+    for (plane_pt, inward_n) in &cutting_planes {
+        if fragments.len() >= MAX_FRAGMENTS {
+            break;
+        }
+        let outward_n = v3_negate(*inward_n);
+        let mut new_fragments = Vec::new();
+        for frag in &fragments {
+            let half_in =
+                clip_polygon_by_plane_cached(frag, *plane_pt, *inward_n, tau, cache.as_mut());
+            let half_out =
+                clip_polygon_by_plane_cached(frag, *plane_pt, outward_n, tau, cache.as_mut());
+            if half_in.len() >= 3 && polygon_area_3d(&half_in) > TAU_NORMALIZE {
+                new_fragments.push(half_in);
+            }
+            if half_out.len() >= 3 && polygon_area_3d(&half_out) > TAU_NORMALIZE {
+                new_fragments.push(half_out);
+            }
+        }
+        fragments = new_fragments;
+    }
+
+    // Classify each fragment with point_in_solid using raw centroid (NO offset)
+    let mut inside_frags: Vec<Vec<[f64; 3]>> = Vec::new();
+    let mut outside_frags: Vec<Vec<[f64; 3]>> = Vec::new();
+
+    for frag in fragments {
+        let centroid = polygon_centroid(&frag);
+        if point_in_solid(centroid, opposing) {
+            inside_frags.push(frag);
+        } else {
+            outside_frags.push(frag);
+        }
+    }
+
+    if inside_frags.is_empty() {
+        return FaceClass::Outside;
+    }
+    if outside_frags.is_empty() {
+        return FaceClass::Inside;
+    }
+
+    FaceClass::Partial {
+        inside_frags,
+        outside_frags,
+    }
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────

@@ -991,11 +991,22 @@ impl WaffleKernel {
         // SSI pipeline: when BOTH operands are primitives (cylinder, sphere, or
         // simple box). A complex post-boolean solid should NOT be sent to
         // ssi_boolean_op, which assumes simple primitive geometry.
+        // Extended: all-planar solids (e.g., gear extrudes with >6 faces) can
+        // also use SSI when paired with a primitive cylinder (A15 compliance).
         let a_is_prim = a_is_prim_cyl || a_is_prim_sphere || a_is_simple_box;
         let b_is_prim = b_is_prim_cyl || b_is_prim_sphere || b_is_simple_box;
-        let use_ssi = a_is_prim
+        let a_is_all_planar =
+            !a_is_prim_cyl && !a_is_prim_sphere && Self::all_faces_planar(solid_a);
+        let b_is_all_planar =
+            !b_is_prim_cyl && !b_is_prim_sphere && Self::all_faces_planar(solid_b);
+        let use_ssi = (a_is_prim
             && b_is_prim
-            && (a_is_prim_cyl || b_is_prim_cyl || a_is_prim_sphere || b_is_prim_sphere);
+            && (a_is_prim_cyl || b_is_prim_cyl || a_is_prim_sphere || b_is_prim_sphere))
+            || (a_is_all_planar && b_is_prim_cyl)   // planar solid - cylinder
+            || (b_is_all_planar && a_is_prim_cyl); // cylinder - planar solid
+
+        // Both operands all-planar — use dedicated exact boolean (A15 compliance).
+        let both_all_planar = a_is_all_planar && b_is_all_planar;
 
         // Track whether the result came from polygon-soup classification
         // (S-H clipping) vs. analytical SSI construction, to control tessellation.
@@ -1018,8 +1029,38 @@ impl WaffleKernel {
                 }
                 Err(e) => return Err(e),
             }
+        } else if both_all_planar {
+            // Both operands are all-planar polyhedra — use exact planar boolean
+            // (A15 compliance). Falls back to polygon clipping if it fails.
+            polygon_soup = true;
+            match crate::boolean::planar_planar_boolean(solid_a, solid_b, op, &mut id_alloc) {
+                Ok(r) => r,
+                Err(KernelError::NotSupported { .. }) | Err(KernelError::BooleanFailed { .. }) => {
+                    // Safety fallback: use the general polygon-clipping path.
+                    let strict = crate::boolean::boolean_op(
+                        solid_a,
+                        solid_b,
+                        op,
+                        &BooleanOptions::default(),
+                        &mut id_alloc,
+                    );
+                    match strict {
+                        ok @ Ok(_) => ok?,
+                        Err(KernelError::BooleanFailed { .. }) => {
+                            crate::boolean::boolean_op_tolerant(
+                                solid_a,
+                                solid_b,
+                                op,
+                                &mut id_alloc,
+                            )?
+                        }
+                        Err(e) => return Err(e),
+                    }
+                }
+                Err(e) => return Err(e),
+            }
         } else if a_all_quadric && b_all_quadric {
-            // Both operands have only quadric faces (includes simple box-box,
+            // Both operands have only quadric faces (includes mixed planar+cylindrical
             // post-boolean results with preserved surface types, and chained
             // booleans like merged_solid + new_cylinder). Use polygon clipping
             // with tolerant fallback.

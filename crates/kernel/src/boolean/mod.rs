@@ -12,9 +12,11 @@ pub(crate) mod stitch;
 
 #[cfg(test)]
 pub(crate) use analytical::build_cyl_result;
-pub(crate) use analytical::{polygon_approx_boolean, ssi_boolean_op};
+pub(crate) use analytical::{planar_planar_boolean, polygon_approx_boolean, ssi_boolean_op};
 
-use classify::{classify_face, classify_face_nonconvex, point_in_solid, FaceClass};
+#[cfg(test)]
+use classify::point_in_solid;
+use classify::{classify_face, classify_face_nonconvex, FaceClass};
 #[cfg(test)]
 use classify::{solid_angle, winding_number, winding_number_classify};
 #[cfg(test)]
@@ -838,7 +840,7 @@ pub(crate) fn count_aabb_overlapping_pairs(
 /// tau: face classification tolerance (signed-distance threshold for inside/outside).
 ///
 /// Scales with model size to handle extreme scale ranges (1e-4 to 1e4).
-fn compute_adaptive_tau_weld(a_faces: &[FacePoly], b_faces: &[FacePoly]) -> (f64, f64) {
+pub(super) fn compute_adaptive_tau_weld(a_faces: &[FacePoly], b_faces: &[FacePoly]) -> (f64, f64) {
     let mut min = [f64::INFINITY; 3];
     let mut max = [f64::NEG_INFINITY; 3];
     for face in a_faces.iter().chain(b_faces.iter()) {
@@ -1002,7 +1004,7 @@ pub(crate) fn boolean_op_tolerant(
 /// - `include_outside`: collect Outside faces and Partial outside fragments
 /// - `include_fully_inside`: collect fully-Inside faces (truly enclosed by opposing solid)
 /// - `include_partial_inside`: collect Partial inside fragments (coplanar overlap regions)
-fn collect_fragments(
+pub(super) fn collect_fragments(
     classified: &[(FacePoly, FaceClass)],
     output: &mut Vec<FacePoly>,
     flip_normals: bool,
@@ -1117,7 +1119,7 @@ fn collect_fragments(
 /// to keep the surface overlap; secondary emits only outside frags.
 /// By emitting sub-regions instead of the original face, edges are properly split
 /// at intersection boundaries, preventing T-junctions.
-fn collect_union_fragments(
+pub(super) fn collect_union_fragments(
     classified: &[(FacePoly, FaceClass)],
     output: &mut Vec<FacePoly>,
     is_primary: bool,

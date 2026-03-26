@@ -196,7 +196,7 @@ pub(super) fn winding_number_classify(p: [f64; 3], faces: &[FacePoly]) -> Option
 /// failed for grazing angles near edges/vertices of non-convex solids.
 /// GWN is smooth and has no such failure modes.
 /// Ref #7 Jacobson et al. (2013).
-pub(super) fn point_in_solid(point: [f64; 3], faces: &[FacePoly]) -> bool {
+pub(crate) fn point_in_solid(point: [f64; 3], faces: &[FacePoly]) -> bool {
     winding_number_classify(point, faces).unwrap_or(false)
 }
 
@@ -204,7 +204,7 @@ pub(super) fn point_in_solid(point: [f64; 3], faces: &[FacePoly]) -> bool {
 
 /// Classification of a face fragment with respect to the opposing solid.
 #[derive(Debug)]
-pub(super) enum FaceClass {
+pub(crate) enum FaceClass {
     /// Entirely outside the opposing solid.
     Outside,
     /// Entirely inside the opposing solid.
@@ -247,7 +247,7 @@ pub(super) enum FaceClass {
 /// Ray casting correctly handles both convex and non-convex solids.
 ///
 /// Ref #7 Jacobson: winding number approach (simplified to ray casting).
-pub(super) fn classify_face(
+pub(crate) fn classify_face(
     face: &FacePoly,
     opposing: &[FacePoly],
     tau: f64,
@@ -272,20 +272,20 @@ pub(super) fn classify_face(
         }
     }
 
-    // Heuristic: a convex solid from extruding a convex polygon has at most
-    // ~12 faces (rect=6, hexagon=8, etc.). Solids with many more faces are
-    // likely non-convex (e.g., gear profiles with 50+ faces). For non-convex
-    // opposing solids, Sutherland-Hodgman clipping gives wrong results, so
-    // we use pure ray-casting classification instead.
+    // This function is called only when the opposing solid has been verified
+    // geometrically convex by is_face_set_convex in boolean/mod.rs.
     //
-    // Note: the outer gate (boolean/mod.rs) may route solids with up to 48
-    // faces here based on geometric convexity. The S-H path is only safe
-    // when the opposing set is truly small (≤12 planes); for larger convex
-    // solids (like 34-face cylinders), ray-casting avoids precision loss.
+    // For small opposing sets (≤12 faces), S-H clipping is numerically stable
+    // and used as the authoritative classifier. For larger convex solids
+    // (e.g. 34-face polygon-approximated cylinders), S-H against many planes
+    // can accumulate precision errors causing watertight failures. Use
+    // centroid ray-casting for the common fully-inside/fully-outside cases,
+    // but fall through to S-H when the face is partially inside (centroid
+    // inside but vertices extend beyond — the "centroid-only bug").
     let opposing_likely_convex = opposing.len() <= 12;
 
     if opposing_likely_convex {
-        // Convex opposing solid: S-H clipping is authoritative
+        // Small convex opposing solid: S-H clipping is authoritative
         let inside = clip_polygon_by_solid(&face.verts, opposing, tau, Some(face.normal), cache);
         let inside_area = polygon_area_3d(&inside);
 
@@ -323,22 +323,19 @@ pub(super) fn classify_face(
         };
     }
 
-    // Non-convex opposing solid: use ray-casting for classification.
-    // S-H clipping cannot reliably classify or split faces against non-convex
-    // solids because the half-space intersection is degenerate.
+    // Large convex opposing solid (>12 faces): S-H fragment geometry against
+    // many planes can accumulate precision errors causing watertight failures.
+    // Use S-H to compute the inside AREA RATIO (which is robust), then:
+    // - If area ratio ≈ 0: Outside (centroid confirms)
+    // - If area ratio ≈ 1: Inside/CoplanarTouching (centroid confirms)
+    // - If partial (0 < ratio < 1): use S-H fragments (the centroid-only bug fix)
     let inward_offset = v3_scale(face.normal, -tau * 100.0);
 
     // Handle coplanar cases first
     if has_antiparallel_coplanar {
-        // Fall through to non-convex coplanar splitting (S-H is unreliable for
-        // partial coplanar faces against many opposing planes)
         return classify_coplanar_nonconvex_antiparallel(face, opposing, tau, cache);
     }
     if has_coplanar {
-        // For coplanar faces, S-H can still find the overlap region because
-        // the clip skips coplanar opposing faces and clips against the
-        // opposing solid's bounding planes only (which form a convex set
-        // per-coplanar-face). Use S-H for the overlap calculation.
         let inside = clip_polygon_by_solid(&face.verts, opposing, tau, Some(face.normal), cache);
         let inside_area = polygon_area_3d(&inside);
         if inside_area > TAU_NORMALIZE {
@@ -352,15 +349,77 @@ pub(super) fn classify_face(
         return FaceClass::Outside;
     }
 
-    // Non-coplanar face against non-convex solid: classify by centroid ray-casting.
-    // Cannot produce partial fragments (S-H splitting is unreliable for
-    // non-convex solids), so classify as either fully Inside or fully Outside.
+    // Non-coplanar face: centroid ray-casting for binary classification,
+    // with S-H fragment production only when the face SIGNIFICANTLY extends
+    // beyond the opposing solid's AABB (the "centroid-only bug" scenario).
+    //
+    // The centroid-only bug: a large face whose centroid falls inside a small
+    // opposing solid gets classified as fully Inside and discarded, even though
+    // most of the face area is outside. Fix: when centroid says Inside, check
+    // if the face extends beyond the opposing AABB — if so, use S-H fragments.
+    // For small faces near the boundary, binary classification avoids the
+    // watertight issues caused by S-H precision errors against many planes.
     let centroid = polygon_centroid(&face.verts);
     let sample = v3_add(centroid, inward_offset);
-    if point_in_solid(sample, opposing) {
+    let centroid_inside = point_in_solid(sample, opposing);
+
+    if !centroid_inside {
+        return FaceClass::Outside;
+    }
+
+    // Centroid is inside — check if face extends beyond opposing solid's AABB.
+    // If so, the face is larger than the opposing solid and must be partially
+    // classified (the centroid-only bug scenario).
+    let (opp_min, opp_max) = {
+        let mut mn = [f64::INFINITY; 3];
+        let mut mx = [f64::NEG_INFINITY; 3];
+        for opp in opposing {
+            for v in &opp.verts {
+                for j in 0..3 {
+                    mn[j] = mn[j].min(v[j]);
+                    mx[j] = mx[j].max(v[j]);
+                }
+            }
+        }
+        (mn, mx)
+    };
+    let face_extends_beyond = face.verts.iter().any(|v| {
+        v[0] < opp_min[0] - tau
+            || v[0] > opp_max[0] + tau
+            || v[1] < opp_min[1] - tau
+            || v[1] > opp_max[1] + tau
+            || v[2] < opp_min[2] - tau
+            || v[2] > opp_max[2] + tau
+    });
+
+    if !face_extends_beyond {
+        // Face fits within opposing AABB — centroid Inside is reliable
         return FaceClass::Inside;
     }
-    FaceClass::Outside
+
+    // Face extends beyond opposing AABB. Use S-H to check the area ratio.
+    // Only produce fragments when most of the face is OUTSIDE the opposing
+    // solid (inside_ratio < 0.5). This catches the centroid-only bug (large
+    // face with centroid inside a small solid) while avoiding S-H precision
+    // issues for faces that are mostly inside.
+    let inside = clip_polygon_by_solid(&face.verts, opposing, tau, Some(face.normal), cache);
+    let inside_area = polygon_area_3d(&inside);
+    if inside_area < TAU_NORMALIZE {
+        return FaceClass::Outside;
+    }
+    let inside_ratio = inside_area / original_area;
+    if inside_ratio >= 0.5 {
+        // Face is mostly inside — centroid classification is reliable
+        return FaceClass::Inside;
+    }
+    // Face is mostly outside but centroid is inside — the centroid-only bug.
+    // Produce S-H fragments for correct partial classification.
+    let outside_frags =
+        split_outside_fragments(&face.verts, opposing, tau, Some(face.normal), cache);
+    FaceClass::Partial {
+        inside_frags: vec![inside],
+        outside_frags,
+    }
 }
 
 /// Classify a face against a non-convex opposing solid using edge-piercing
@@ -390,7 +449,7 @@ pub(super) fn classify_face(
 /// splits because both sides clip against the same face planes.
 ///
 /// Ref #7 Jacobson: winding numbers for inside/outside classification.
-pub(super) fn classify_face_nonconvex(
+pub(crate) fn classify_face_nonconvex(
     face: &FacePoly,
     opposing: &[FacePoly],
     tau: f64,

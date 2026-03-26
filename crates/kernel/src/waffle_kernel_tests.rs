@@ -140,6 +140,25 @@ fn count_total_edges(mesh: &RenderMesh) -> usize {
     edge_count.len()
 }
 
+/// Count unique vertices using oracle-compatible quantization.
+fn count_unique_verts(mesh: &RenderMesh) -> usize {
+    use std::collections::HashSet;
+    let max_abs = mesh.vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
+    let grid = (max_abs as f64 * 1e-5).max(1e-10);
+    let inv_grid = 1.0 / grid;
+    let n_verts = mesh.vertices.len() / 3;
+    let mut seen = HashSet::new();
+    for i in 0..n_verts {
+        let key = (
+            (mesh.vertices[i * 3] as f64 * inv_grid).round() as i64,
+            (mesh.vertices[i * 3 + 1] as f64 * inv_grid).round() as i64,
+            (mesh.vertices[i * 3 + 2] as f64 * inv_grid).round() as i64,
+        );
+        seen.insert(key);
+    }
+    seen.len()
+}
+
 /// Compute axis-aligned bounding box of a mesh.
 /// Returns (min_corner, max_corner).
 fn mesh_bbox(mesh: &RenderMesh) -> ([f64; 3], [f64; 3]) {
@@ -13031,5 +13050,413 @@ fn arc_segment_extrude_produces_cylindrical_faces() {
         has_varying_normals,
         "Expected varying normals on cylindrical faces (smooth shading), but all normals are uniform"
     );
+}
+
+/// Box-cylinder subtract through-hole: no triangle on the top or bottom face
+/// should cover the hole center. If fill_boundary_holes incorrectly seals the
+/// inner boundary of the annular face, a fan-triangulated disk appears at the
+/// hole center — this test catches that.
+#[test]
+fn through_hole_center_not_covered() {
+    // Box 10×10×10 at origin, cylinder r=2 at (5,5), depth 15 (punches through).
+    let (mut k, result) = do_box_cyl_boolean(
+        5.0, 5.0, 10.0, 10.0, 10.0,
+        5.0, 5.0, 2.0, 15.0,
+        crate::boolean::BoolOp::Subtract,
+    )
+    .expect("box-cyl subtract should succeed");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    let verts = &mesh.vertices;
+    let idxs = &mesh.indices;
+
+    // Helper: check if point (px, py) is inside triangle (projected onto XY)
+    // using barycentric coordinates.
+    let point_in_tri_xy = |px: f64, py: f64, ax: f64, ay: f64, bx: f64, by: f64, cx: f64, cy: f64| -> bool {
+        let d = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
+        if d.abs() < 1e-12 { return false; }
+        let u = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / d;
+        let v = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / d;
+        let w = 1.0 - u - v;
+        u >= -1e-6 && v >= -1e-6 && w >= -1e-6
+    };
+
+    let hole_cx = 5.0;
+    let hole_cy = 5.0;
+    let tol_z = 0.05; // tolerance for "on the top/bottom face"
+
+    // Check top face (z ≈ 10.0) and bottom face (z ≈ 0.0)
+    for (face_name, face_z) in &[("top", 10.0_f64), ("bottom", 0.0_f64)] {
+        let mut covering_tri = false;
+        for t in 0..(idxs.len() / 3) {
+            let i0 = idxs[t * 3] as usize * 3;
+            let i1 = idxs[t * 3 + 1] as usize * 3;
+            let i2 = idxs[t * 3 + 2] as usize * 3;
+            if i0 + 2 >= verts.len() || i1 + 2 >= verts.len() || i2 + 2 >= verts.len() {
+                continue;
+            }
+            let z0 = verts[i0 + 2] as f64;
+            let z1 = verts[i1 + 2] as f64;
+            let z2 = verts[i2 + 2] as f64;
+            // All three vertices must be on the face plane
+            if (z0 - face_z).abs() > tol_z || (z1 - face_z).abs() > tol_z || (z2 - face_z).abs() > tol_z {
+                continue;
+            }
+            let ax = verts[i0] as f64;
+            let ay = verts[i0 + 1] as f64;
+            let bx = verts[i1] as f64;
+            let by = verts[i1 + 1] as f64;
+            let cx = verts[i2] as f64;
+            let cy = verts[i2 + 1] as f64;
+            if point_in_tri_xy(hole_cx, hole_cy, ax, ay, bx, by, cx, cy) {
+                covering_tri = true;
+                break;
+            }
+        }
+        assert!(
+            !covering_tri,
+            "Through-hole center ({}, {}) at {} face (z={}) is covered by a triangle — \
+             fill_boundary_holes may have sealed the through-hole",
+            hole_cx, hole_cy, face_name, face_z
+        );
+    }
+}
+
+// ── F0062 / F0061 regression tests ──────────────────────────────────
+
+/// F0062 regression: Box 1×1×0.2 with through-hole (circle r=0.1, depth=0.3).
+/// The cylinder extends beyond the box on both sides. Must produce a watertight
+/// genus-1 solid with V-E+F=0.
+#[test]
+fn f0062_box_through_hole_regression() {
+    // Box centered at (0.5, 0.5), 1×1, extruded 0.2
+    let (mut k, result) = do_box_cyl_boolean(
+        0.5, 0.5, 1.0, 1.0, 0.2,
+        0.5, 0.5, 0.1, 0.3, // cyl r=0.1, depth=0.3 > box depth 0.2
+        crate::boolean::BoolOp::Subtract,
+    )
+    .expect("box through-hole subtract should succeed");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+    assert!(
+        check_watertight(&mesh),
+        "F0062 box through-hole must be watertight"
+    );
+    let vol = mesh_volume(&mesh);
+    assert!(
+        vol > 0.0,
+        "F0062 volume should be positive, got {}",
+        vol
+    );
+    // Expected: box_vol - cyl_vol = 1*1*0.2 - pi*0.01*0.2 ≈ 0.1937
+    let expected = 1.0 * 1.0 * 0.2 - PI * 0.1 * 0.1 * 0.2;
+    assert!(
+        (vol - expected).abs() < 0.01,
+        "F0062 volume ~{:.4}, got {:.4}",
+        expected,
+        vol
+    );
+}
+
+/// Blind hole regression: cylinder extends above but not below.
+#[test]
+fn box_cyl_subtract_blind_hole_extends_above() {
+    // Box 10×10×10, cyl r=2 depth=7 starting at z=5 → extends from z=5 to z=12
+    // Cylinder starts inside box but extends above top face.
+    let mut k = WaffleKernel::new();
+    let (pb, posb) = make_rect_profile(5.0, 5.0, 10.0, 10.0);
+    let fb = k.make_faces_from_profiles(&pb, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &posb).unwrap();
+    let box_solid = k.extrude_face(fb[0], Z_DIR, 10.0).unwrap();
+    // Cylinder at (5,5) r=2, from z=5 to z=12 (extends above box top z=10)
+    let cyl_origin = [0.0, 0.0, 5.0];
+    let (pc, posc) = make_circle_profile(5.0, 5.0, 2.0);
+    let fc = k.make_faces_from_profiles(&pc, cyl_origin, XY_NORMAL, XY_X_AXIS, &posc).unwrap();
+    let cyl_solid = k.extrude_face(fc[0], Z_DIR, 7.0).unwrap();
+    let result = k.boolean_subtract(&box_solid, &cyl_solid).expect("blind hole should succeed");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+    assert!(
+        check_watertight(&mesh),
+        "Blind hole (extends above) must be watertight"
+    );
+    let vol = mesh_volume(&mesh);
+    assert!(vol > 0.0, "Volume should be positive, got {}", vol);
+}
+
+/// F0061 regression: Gear with through-hole. Gear (8 teeth, module=0.1)
+/// extruded 0.2, then circle r=0.05 cut depth=0.3 (through-hole).
+#[test]
+fn f0061_gear_through_hole_regression() {
+    let mut k = WaffleKernel::new();
+
+    // Gear extrude
+    let (gp, gpos) = make_gear_profile(0.0, 0.0, 8, 0.1);
+    let gfaces = k
+        .make_faces_from_profiles(&gp, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &gpos)
+        .expect("gear faces");
+    let gear_solid = k.extrude_face(gfaces[0], Z_DIR, 0.2).unwrap();
+    let gear_mesh = k.tessellate(&gear_solid, 0.01).unwrap();
+    let gear_vol = mesh_volume(&gear_mesh);
+
+    // Cylinder cut (through-hole)
+    let (cp, cpos) = make_circle_profile(0.0, 0.0, 0.05);
+    let cfaces = k
+        .make_faces_from_profiles(&cp, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &cpos)
+        .expect("circle faces");
+    let cyl_solid = k.extrude_face(cfaces[0], Z_DIR, 0.3).unwrap();
+
+    let result = k
+        .boolean_subtract(&gear_solid, &cyl_solid)
+        .expect("gear through-hole subtract should succeed");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+    assert!(
+        check_watertight(&mesh),
+        "F0061 gear through-hole must be watertight"
+    );
+    let vol = mesh_volume(&mesh);
+    assert!(vol > 0.0, "F0061 volume should be positive, got {}", vol);
+    assert!(
+        vol < gear_vol,
+        "F0061 volume ({:.6}) should be less than gear volume ({:.6})",
+        vol,
+        gear_vol
+    );
+}
+
+// ── Planar-planar boolean tests (A15 compliance) ────────────────────────
+
+/// Create an oblique box: extrude a rectangle on a tilted plane.
+/// Returns the solid handle.
+fn make_oblique_box(
+    kernel: &mut WaffleKernel,
+    cx: f64,
+    cy: f64,
+    w: f64,
+    h: f64,
+    depth: f64,
+    plane_origin: [f64; 3],
+    plane_normal: [f64; 3],
+) -> KernelSolidHandle {
+    // Compute x-axis perpendicular to plane normal
+    let up: [f64; 3] = if plane_normal[1].abs() < 0.9 {
+        [0.0, 1.0, 0.0]
+    } else {
+        [1.0, 0.0, 0.0]
+    };
+    let x_axis = v3_normalize(v3_cross(up, plane_normal));
+
+    let (profiles, positions) = make_rect_profile(cx, cy, w, h);
+    let face_ids = kernel
+        .make_faces_from_profiles(&profiles, plane_origin, plane_normal, x_axis, &positions)
+        .expect("make_faces_from_profiles for oblique box");
+    kernel
+        .extrude_face(face_ids[0], plane_normal, depth)
+        .expect("extrude oblique box")
+}
+
+/// Two oblique boxes on a tilted plane, unioned. Matches F0011-F0015 geometry.
+#[test]
+fn oblique_box_union_2op() {
+    let mut k = WaffleKernel::new();
+    let normal = v3_normalize([0.3, 0.5, 0.8]);
+    let origin = [0.0, 0.0, 0.0];
+
+    let s1 = make_oblique_box(&mut k, 0.0, 0.0, 1.0, 1.0, 0.5, origin, normal);
+    let s2 = make_oblique_box(&mut k, 0.3, 0.3, 1.0, 1.0, 0.5, origin, normal);
+
+    let result = k.boolean_union(&s1, &s2).expect("oblique 2-box union");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+
+    assert!(check_watertight(&mesh), "oblique 2-box union must be watertight");
+    let vol = mesh_volume(&mesh);
+    assert!(vol > 0.0, "oblique 2-box union volume should be positive, got {}", vol);
+
+    // Euler characteristic: V - E + F = 2 for genus-0
+    let v = count_unique_verts(&mesh);
+    let e = count_total_edges(&mesh);
+    let f = mesh.indices.len() / 3;
+    let chi = v as i64 - e as i64 + f as i64;
+    assert_eq!(chi, 2, "oblique 2-box union chi = V({}) - E({}) + F({}) = {}", v, e, f, chi);
+}
+
+/// Four oblique boxes on a tilted plane, chained union. Matches F0021 geometry.
+#[test]
+fn oblique_box_union_4op() {
+    let mut k = WaffleKernel::new();
+    let normal = v3_normalize([-0.4, 0.6, 0.7]);
+    let origin = [0.1, -0.1, 0.05];
+
+    let s1 = make_oblique_box(&mut k, 0.0, 0.0, 1.0, 1.0, 0.5, origin, normal);
+    let s2 = make_oblique_box(&mut k, 0.3, 0.0, 0.8, 1.2, 0.4, origin, normal);
+    let s3 = make_oblique_box(&mut k, 0.0, 0.4, 1.2, 0.6, 0.3, origin, normal);
+    let s4 = make_oblique_box(&mut k, -0.2, -0.2, 0.9, 0.9, 0.6, origin, normal);
+
+    let r1 = k.boolean_union(&s1, &s2).expect("union 1");
+    let r2 = k.boolean_union(&r1, &s3).expect("union 2");
+    let result = k.boolean_union(&r2, &s4).expect("union 3");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+
+    assert!(check_watertight(&mesh), "oblique 4-box union must be watertight");
+    let vol = mesh_volume(&mesh);
+    assert!(vol > 0.0, "oblique 4-box union volume should be positive, got {}", vol);
+
+    let v = count_unique_verts(&mesh);
+    let e = count_total_edges(&mesh);
+    let f = mesh.indices.len() / 3;
+    let chi = v as i64 - e as i64 + f as i64;
+    assert_eq!(chi, 2, "oblique 4-box union chi = V({}) - E({}) + F({}) = {}", v, e, f, chi);
+}
+
+/// Oblique box subtract (A - B where B cuts through A).
+#[test]
+fn oblique_box_subtract() {
+    let mut k = WaffleKernel::new();
+    let normal = v3_normalize([0.5, 0.3, 0.8]);
+    let origin = [0.0, 0.0, 0.0];
+
+    let s1 = make_oblique_box(&mut k, 0.0, 0.0, 2.0, 2.0, 1.0, origin, normal);
+    let s2 = make_oblique_box(&mut k, 0.5, 0.5, 1.0, 1.0, 2.0, origin, normal);
+
+    let result = k.boolean_subtract(&s1, &s2).expect("oblique box subtract");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+
+    assert!(check_watertight(&mesh), "oblique box subtract must be watertight");
+    let vol = mesh_volume(&mesh);
+    assert!(vol > 0.0, "oblique box subtract volume should be positive, got {}", vol);
+
+    let v = count_unique_verts(&mesh);
+    let e = count_total_edges(&mesh);
+    let f = mesh.indices.len() / 3;
+    let chi = v as i64 - e as i64 + f as i64;
+    assert_eq!(chi, 2, "oblique box subtract chi = V({}) - E({}) + F({}) = {}", v, e, f, chi);
+}
+
+/// Oblique box intersect.
+#[test]
+fn oblique_box_intersect() {
+    let mut k = WaffleKernel::new();
+    let normal = v3_normalize([0.2, 0.7, 0.7]);
+    let origin = [0.0, 0.0, 0.0];
+
+    let s1 = make_oblique_box(&mut k, 0.0, 0.0, 2.0, 2.0, 1.0, origin, normal);
+    let s2 = make_oblique_box(&mut k, 0.5, 0.5, 2.0, 2.0, 1.0, origin, normal);
+
+    let result = k.boolean_intersect(&s1, &s2).expect("oblique box intersect");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+
+    assert!(check_watertight(&mesh), "oblique box intersect must be watertight");
+    let vol = mesh_volume(&mesh);
+    assert!(vol > 0.0, "oblique box intersect volume should be positive, got {}", vol);
+
+    // Intersection should be smaller than either operand
+    let mesh1 = k.tessellate(&s1, 0.01).unwrap();
+    let mesh2 = k.tessellate(&s2, 0.01).unwrap();
+    let vol1 = mesh_volume(&mesh1);
+    let vol2 = mesh_volume(&mesh2);
+    assert!(vol < vol1.min(vol2), "intersection vol ({:.6}) should be < min({:.6}, {:.6})", vol, vol1, vol2);
+}
+
+/// Two boxes sharing a face, unioned.
+#[test]
+fn coplanar_box_union() {
+    let mut k = WaffleKernel::new();
+    // Box A: x=[0,1], y=[0,1], z=[0,1]
+    let s1 = make_box_on(&mut k, 0.5, 0.5, 1.0, 1.0, 1.0);
+    // Box B: x=[1,2], y=[0,1], z=[0,1] — shares x=1 face
+    let s2 = make_box_on(&mut k, 1.5, 0.5, 1.0, 1.0, 1.0);
+
+    let result = k.boolean_union(&s1, &s2).expect("coplanar face union");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+
+    assert!(check_watertight(&mesh), "coplanar face union must be watertight");
+    let v = count_unique_verts(&mesh);
+    let e = count_total_edges(&mesh);
+    let f = mesh.indices.len() / 3;
+    let chi = v as i64 - e as i64 + f as i64;
+    assert_eq!(chi, 2, "coplanar face union chi = V({}) - E({}) + F({}) = {}", v, e, f, chi);
+}
+
+/// One box fully inside another, unioned.
+#[test]
+fn enclosed_box_union() {
+    let mut k = WaffleKernel::new();
+    // Outer box: 4x4x4 centered at origin
+    let s1 = make_box_on(&mut k, 0.0, 0.0, 4.0, 4.0, 4.0);
+    // Inner box: 1x1x1 centered at origin (fully inside)
+    let s2 = make_box_on(&mut k, 0.0, 0.0, 1.0, 1.0, 1.0);
+
+    let result = k.boolean_union(&s1, &s2).expect("enclosed box union");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+
+    assert!(check_watertight(&mesh), "enclosed box union must be watertight");
+
+    // Volume should equal outer box volume
+    let outer_mesh = k.tessellate(&s1, 0.01).unwrap();
+    let outer_vol = mesh_volume(&outer_mesh);
+    let result_vol = mesh_volume(&mesh);
+    let rel_err = (result_vol - outer_vol).abs() / outer_vol;
+    assert!(rel_err < 0.01, "enclosed union vol ({:.6}) should ≈ outer vol ({:.6}), rel_err={:.4}", result_vol, outer_vol, rel_err);
+}
+
+// ── Phase 5: Adversarial tests ──────────────────────────────────────────
+
+/// Two boxes with face planes within ~5° of coplanar (near-coplanar).
+#[test]
+fn near_coplanar_oblique_union() {
+    let mut k = WaffleKernel::new();
+    let n1 = v3_normalize([0.0, 0.0, 1.0]);
+    let n2 = v3_normalize([0.05, 0.0, 1.0]); // ~3° off from n1
+    let origin = [0.0, 0.0, 0.0];
+
+    let s1 = make_oblique_box(&mut k, 0.0, 0.0, 1.0, 1.0, 0.5, origin, n1);
+    let s2 = make_oblique_box(&mut k, 0.3, 0.3, 1.0, 1.0, 0.5, origin, n2);
+
+    let result = k.boolean_union(&s1, &s2).expect("near-coplanar union");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+    assert!(check_watertight(&mesh), "near-coplanar union must be watertight");
+    let vol = mesh_volume(&mesh);
+    assert!(vol > 0.0, "near-coplanar union volume should be positive");
+}
+
+/// Two boxes intersecting to produce a very thin sliver.
+#[test]
+fn sliver_intersection() {
+    let mut k = WaffleKernel::new();
+    let normal = v3_normalize([0.0, 0.0, 1.0]);
+    let origin = [0.0, 0.0, 0.0];
+
+    // Two boxes that barely overlap (0.01 unit overlap in x)
+    let s1 = make_oblique_box(&mut k, 0.0, 0.0, 1.0, 1.0, 1.0, origin, normal);
+    let s2 = make_oblique_box(&mut k, 0.99, 0.0, 1.0, 1.0, 1.0, origin, normal);
+
+    let result = k.boolean_intersect(&s1, &s2).expect("sliver intersect");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+    assert!(check_watertight(&mesh), "sliver intersect must be watertight");
+    let vol = mesh_volume(&mesh);
+    assert!(vol > 0.0, "sliver intersect should have positive volume, got {}", vol);
+}
+
+/// Three boxes chained union where intermediate result has coplanar faces.
+#[test]
+fn three_box_chain_coplanar() {
+    let mut k = WaffleKernel::new();
+    let normal = v3_normalize([0.4, 0.3, 0.86]);
+    let origin = [0.0, 0.0, 0.0];
+
+    // Three oblique boxes that form an L-shape
+    let s1 = make_oblique_box(&mut k, 0.0, 0.0, 1.0, 1.0, 0.5, origin, normal);
+    let s2 = make_oblique_box(&mut k, 1.0, 0.0, 1.0, 1.0, 0.5, origin, normal);
+    let s3 = make_oblique_box(&mut k, 0.0, 1.0, 1.0, 1.0, 0.5, origin, normal);
+
+    let r1 = k.boolean_union(&s1, &s2).expect("chain union 1");
+    let result = k.boolean_union(&r1, &s3).expect("chain union 2");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+
+    assert!(check_watertight(&mesh), "3-box chain union must be watertight");
+    let vol = mesh_volume(&mesh);
+    assert!(vol > 0.0, "3-box chain union volume should be positive");
+
+    let v = count_unique_verts(&mesh);
+    let e = count_total_edges(&mesh);
+    let f = mesh.indices.len() / 3;
+    let chi = v as i64 - e as i64 + f as i64;
+    assert_eq!(chi, 2, "3-box chain chi = V({}) - E({}) + F({}) = {}", v, e, f, chi);
 }
 

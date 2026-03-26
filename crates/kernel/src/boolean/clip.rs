@@ -26,13 +26,13 @@ use super::{polygon_area_3d, FacePoly};
 ///
 /// Ref [#9] Cherchi 2020: indirect predicates — same principle of avoiding
 /// recomputation. Ref [#10] Levy 2025: exact constructions cached per-edge.
-pub(super) struct IntersectionCache {
+pub(crate) struct IntersectionCache {
     cache: BTreeMap<([i64; 6], [i64; 4]), [f64; 3]>,
     inv_quant: f64,
 }
 
 impl IntersectionCache {
-    pub(super) fn new(tau: f64) -> Self {
+    pub(crate) fn new(tau: f64) -> Self {
         let step = (tau * TAU_CACHE_STEP_FACTOR).max(TAU_NORMALIZE);
         Self {
             cache: BTreeMap::new(),
@@ -46,7 +46,7 @@ impl IntersectionCache {
     /// to form a cache key together with the plane definition. Multi-probe
     /// lookup (floor/ceil in each quantized dimension) catches near-boundary
     /// cases where the same geometric edge quantizes to adjacent cells.
-    pub(super) fn get_or_insert(
+    pub(crate) fn get_or_insert(
         &mut self,
         a: [f64; 3],
         b: [f64; 3],
@@ -147,7 +147,7 @@ fn snap_to_grid(val: f64, inv_grid: f64) -> f64 {
 /// that adjacent faces sharing a geometric edge get identical intersection
 /// coordinates when clipped by the same plane.
 #[cfg(test)]
-pub(super) fn clip_polygon_by_plane(
+pub(crate) fn clip_polygon_by_plane(
     verts: &[[f64; 3]],
     plane_point: [f64; 3],
     inward_normal: [f64; 3],
@@ -162,7 +162,7 @@ pub(super) fn clip_polygon_by_plane(
 /// if the same geometric edge (identified by quantized endpoints) was already
 /// clipped by the same plane, the cached result is returned instead of
 /// recomputing, eliminating floating-point divergence between adjacent faces.
-pub(super) fn clip_polygon_by_plane_cached(
+pub(crate) fn clip_polygon_by_plane_cached(
     verts: &[[f64; 3]],
     plane_point: [f64; 3],
     inward_normal: [f64; 3],
@@ -273,7 +273,7 @@ pub(super) fn clip_polygon_by_plane_cached(
 
 /// Coplanarity classification between two face planes.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) enum CoplanarClass {
+pub(crate) enum CoplanarClass {
     NotCoplanar,
     SameDirection,
     AntiParallel,
@@ -281,7 +281,7 @@ pub(super) enum CoplanarClass {
 
 /// Classify whether a face is coplanar with an opposing face, and if so,
 /// whether their normals are parallel or anti-parallel.
-pub(super) fn classify_coplanarity(
+pub(crate) fn classify_coplanarity(
     face_normal: [f64; 3],
     face_point: [f64; 3],
     opp: &FacePoly,
@@ -305,7 +305,7 @@ pub(super) fn classify_coplanarity(
 }
 
 /// Check if a face polygon is coplanar with an opposing face.
-pub(super) fn is_coplanar(
+pub(crate) fn is_coplanar(
     face_normal: [f64; 3],
     face_point: [f64; 3],
     opp: &FacePoly,
@@ -320,7 +320,7 @@ pub(super) fn is_coplanar(
 /// If `face_normal` is provided, skip opposing faces that are coplanar with the
 /// polygon being clipped. Two faces are coplanar when their normals are parallel
 /// (or anti-parallel) and a vertex of the polygon lies on the opposing face's plane.
-pub(super) fn clip_polygon_by_solid(
+pub(crate) fn clip_polygon_by_solid(
     verts: &[[f64; 3]],
     opposing_faces: &[FacePoly],
     tau: f64,
@@ -355,7 +355,7 @@ pub(super) fn clip_polygon_by_solid(
 /// A solid is convex if every vertex of every face lies on or behind (inside)
 /// every face plane. Uses signed distance: positive = outside, negative = inside.
 /// Capped at 200 faces to avoid O(V*F) blowup for large face sets.
-pub(super) fn is_face_set_convex(faces: &[FacePoly], tau: f64) -> bool {
+pub(crate) fn is_face_set_convex(faces: &[FacePoly], tau: f64) -> bool {
     // Quick heuristic: very small or very large face sets
     if faces.len() <= 6 {
         return true; // Box or simpler — always convex
@@ -410,7 +410,7 @@ pub(super) fn is_face_set_convex(faces: &[FacePoly], tau: f64) -> bool {
 /// classification paths), the resulting mesh has non-manifold edges.
 /// This function identifies fragments with nearly identical centroids,
 /// normals, and vertex counts, and keeps only one copy.
-pub(super) fn dedup_face_polys(polys: &[FacePoly], tau_weld: f64) -> Vec<FacePoly> {
+pub(crate) fn dedup_face_polys(polys: &[FacePoly], tau_weld: f64) -> Vec<FacePoly> {
     if polys.len() < 2 {
         return polys.to_vec();
     }
@@ -483,7 +483,7 @@ pub(super) fn dedup_face_polys(polys: &[FacePoly], tau_weld: f64) -> Vec<FacePol
 
 /// This avoids moving isolated vertices and preserves original face geometry.
 #[allow(dead_code)]
-pub(super) fn merge_nearby_vertices(polys: &[FacePoly], tau_weld: f64) -> Vec<FacePoly> {
+pub(crate) fn merge_nearby_vertices(polys: &[FacePoly], tau_weld: f64) -> Vec<FacePoly> {
     // Compute merge tolerance directly from vertex coordinates to align with
     // the oracle's f32 quantization grid (max_abs * 1e-5). Use 2x grid to
     // ensure vertices within one oracle grid cell always merge.
@@ -574,7 +574,7 @@ pub(super) fn merge_nearby_vertices(polys: &[FacePoly], tau_weld: f64) -> Vec<Fa
 /// 2. For each face edge, checking if any vertex from other faces lies on the
 ///    edge interior (within tolerance)
 /// 3. Inserting those vertices into the edge, splitting it
-pub(super) fn resolve_t_junctions(polys: &[FacePoly], tau: f64) -> Vec<FacePoly> {
+pub(crate) fn resolve_t_junctions(polys: &[FacePoly], tau: f64) -> Vec<FacePoly> {
     // Collect all unique vertices (quantized for lookup)
     let inv_tau = 1.0 / tau;
     let quantize = |p: [f64; 3]| -> (i64, i64, i64) {
