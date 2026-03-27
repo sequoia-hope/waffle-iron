@@ -79,4 +79,36 @@
 | suppress_undo_interactions.rs | 5 | Mock |
 | workflow_tests.rs | 10 | Mock |
 | helpers.rs (src) | 5 | None (unit) |
+| assay_randomized.rs | 2 + 7 batches (ignored) | WaffleKernel |
 | **Total** | **313 (6 ignored)** | |
+
+---
+
+## Completed Tasks
+
+### Fix Euler Target Oracle Predictions (2026-03-27)
+
+**Spec**: `/specs/euler_target_oracle_fix.md`
+
+**Problem**: `compute_euler_target()` over-predicted through-holes for multi-plane
+and 3-op cases, causing 8 assay cases to fail with correct geometry (chi=2 actual
+vs chi=0 expected). The generator's `extrude_rect_aabb()` also used a different
+local frame algorithm than the kernel's `tangent_x_from_normal()`.
+
+**Fix**:
+- Rewrote `compute_euler_target()` to only predict through-holes for 2-op
+  same-plane extrude cases where cut_depth ≥ boss_depth
+- Aligned AABB frame algorithm with kernel
+- Widened disjointness margin from 1e-9 to 1e-4
+
+**Tests**:
+- 5 unit tests for `compute_euler_target` branch coverage
+- `batch_euler_target_fix` integration test: 8/8 target cases pass
+
+**Result**: Assay score 44/172 → 55/172 (+11 passes)
+
+**Files changed**:
+- `crates/test-harness/src/assay/gen.rs`
+- `crates/test-harness/tests/assay_randomized.rs`
+- `crates/kernel/src/tessellation/mod.rs` (clippy type alias)
+- `specs/euler_target_oracle_fix.md`
