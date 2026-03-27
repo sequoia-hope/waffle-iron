@@ -1677,7 +1677,7 @@ fn generate_box_minus_cyl_cases(output_dir: &std::path::Path) -> Vec<ManifestEnt
                 },
             ],
             oracles: OracleExpectations {
-                euler_target: 2,
+                euler_target: 4,
                 expect_watertight: true,
                 max_bbox_extent: 3.0,
                 expect_positive_volume: true,
@@ -1781,7 +1781,7 @@ fn generate_cyl_minus_box_cases(output_dir: &std::path::Path) -> Vec<ManifestEnt
                 },
             ],
             oracles: OracleExpectations {
-                euler_target: 2,
+                euler_target: 4,
                 expect_watertight: true,
                 max_bbox_extent: 3.0,
                 expect_positive_volume: true,

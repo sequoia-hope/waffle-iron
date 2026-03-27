@@ -2309,20 +2309,22 @@ fn cyl_minus_box_boolean(
     }
 }
 
-/// Build B-Rep for cylinder with a rectangular through-hole (cylinder minus enclosed box).
+/// Build B-Rep for cylinder with an enclosed rectangular subtract.
 ///
-/// Topology: 7 faces:
-/// - 1 outer cylinder wall (with seam edge)
-/// - 2 annular end caps (outer circle + inner rectangle hole)
-/// - 4 inner rectangular wall faces (planar)
-///
-/// V=10, E=15, F=7 → V-E+F = 10-15+7 = 2 ✓ (Euler)
+/// Handles 4 cap-touching cases (mirrors `build_box_minus_enclosed_cyl`):
+/// - touches_bot && touches_top: through-hole, inner loops on both caps (7 faces, chi=2)
+/// - !touches_bot && !touches_top: blind pocket, standalone floor+ceiling faces (9 faces, chi=4)
+/// - mixed: inner loop on touched cap, standalone face on untouched cap (8 faces, chi=3)
 fn build_cyl_minus_enclosed_box(
     aabb: &Aabb,
     cyl: &CylinderParams,
     id_alloc: &mut dyn FnMut() -> u64,
 ) -> Result<BooleanResult, KernelError> {
     let (cyl_z_min, cyl_z_max) = ssi::cyl_z_range(cyl);
+    let box_z_min = aabb.min[2];
+    let box_z_max = aabb.max[2];
+    let touches_bot = (box_z_min - cyl_z_min).abs() < TAU_COINCIDENT;
+    let touches_top = (box_z_max - cyl_z_max).abs() < TAU_COINCIDENT;
 
     // Step 1: Build standalone cylinder as base
     let mut result = build_cyl_result(cyl, id_alloc)?;
@@ -2346,101 +2348,181 @@ fn build_cyl_minus_enclosed_box(
         reason: "cannot find top face of cylinder".to_string(),
     })?;
 
-    // Step 3: Box corner positions (4 corners × 2 Z-levels = 8 vertices)
+    // Step 3: Box corner positions at actual box Z positions
     let bx0 = aabb.min[0];
     let bx1 = aabb.max[0];
     let by0 = aabb.min[1];
     let by1 = aabb.max[1];
+    let z_bot = if touches_bot { cyl_z_min } else { box_z_min };
+    let z_top = if touches_top { cyl_z_max } else { box_z_max };
 
-    let v_b0 = result.arena.add_vertex([bx0, by0, cyl_z_min]); // bottom-left, bottom
-    let v_b1 = result.arena.add_vertex([bx1, by0, cyl_z_min]); // bottom-right, bottom
-    let v_b2 = result.arena.add_vertex([bx1, by1, cyl_z_min]); // top-right, bottom
-    let v_b3 = result.arena.add_vertex([bx0, by1, cyl_z_min]); // top-left, bottom
-    let v_t0 = result.arena.add_vertex([bx0, by0, cyl_z_max]); // bottom-left, top
-    let v_t1 = result.arena.add_vertex([bx1, by0, cyl_z_max]); // bottom-right, top
-    let v_t2 = result.arena.add_vertex([bx1, by1, cyl_z_max]); // top-right, top
-    let v_t3 = result.arena.add_vertex([bx0, by1, cyl_z_max]); // top-left, top
+    let v_b0 = result.arena.add_vertex([bx0, by0, z_bot]); // bottom-left, bottom
+    let v_b1 = result.arena.add_vertex([bx1, by0, z_bot]); // bottom-right, bottom
+    let v_b2 = result.arena.add_vertex([bx1, by1, z_bot]); // top-right, bottom
+    let v_b3 = result.arena.add_vertex([bx0, by1, z_bot]); // top-left, bottom
+    let v_t0 = result.arena.add_vertex([bx0, by0, z_top]); // bottom-left, top
+    let v_t1 = result.arena.add_vertex([bx1, by0, z_top]); // bottom-right, top
+    let v_t2 = result.arena.add_vertex([bx1, by1, z_top]); // top-right, top
+    let v_t3 = result.arena.add_vertex([bx0, by1, z_top]); // top-left, top
 
-    // Step 4: Inner rectangular loops on bottom and top cap faces
-    // Bottom cap inner loop: rectangle winding CW from outside (= CCW from -Z = CW from +Z)
-    // For a hole in a face with outward normal -Z, the inner loop winds CW when viewed from -Z,
-    // which is CCW when viewed from +Z. The ordering is: b0 → b3 → b2 → b1
-    let inner_loop_bot = result.arena.add_loop(face_bot);
-    result.arena.faces[face_bot.0]
-        .inner_loops
-        .push(inner_loop_bot);
+    let shell_idx = ShellIdx(0);
 
+    // Step 4: Bottom rectangle edges
     let (e_br0, he_br0_a, he_br0_b) = result.arena.add_edge(); // b0→b3
     let (e_br1, he_br1_a, he_br1_b) = result.arena.add_edge(); // b3→b2
     let (e_br2, he_br2_a, he_br2_b) = result.arena.add_edge(); // b2→b1
     let (e_br3, he_br3_a, he_br3_b) = result.arena.add_edge(); // b1→b0
 
-    // Bottom inner loop: b0 → b3 → b2 → b1 → b0
-    result.arena.half_edges[he_br0_a.0].origin = v_b0;
-    result.arena.half_edges[he_br0_a.0].next = he_br1_a;
-    result.arena.half_edges[he_br0_a.0].prev = he_br3_a;
-    result.arena.half_edges[he_br0_a.0].loop_ = inner_loop_bot;
+    if touches_bot {
+        // Inner loop on bottom cap (hole in annular face)
+        let inner_loop_bot = result.arena.add_loop(face_bot);
+        result.arena.faces[face_bot.0]
+            .inner_loops
+            .push(inner_loop_bot);
 
-    result.arena.half_edges[he_br1_a.0].origin = v_b3;
-    result.arena.half_edges[he_br1_a.0].next = he_br2_a;
-    result.arena.half_edges[he_br1_a.0].prev = he_br0_a;
-    result.arena.half_edges[he_br1_a.0].loop_ = inner_loop_bot;
+        // Bottom inner loop: b0 → b3 → b2 → b1 → b0
+        result.arena.half_edges[he_br0_a.0].origin = v_b0;
+        result.arena.half_edges[he_br0_a.0].next = he_br1_a;
+        result.arena.half_edges[he_br0_a.0].prev = he_br3_a;
+        result.arena.half_edges[he_br0_a.0].loop_ = inner_loop_bot;
 
-    result.arena.half_edges[he_br2_a.0].origin = v_b2;
-    result.arena.half_edges[he_br2_a.0].next = he_br3_a;
-    result.arena.half_edges[he_br2_a.0].prev = he_br1_a;
-    result.arena.half_edges[he_br2_a.0].loop_ = inner_loop_bot;
+        result.arena.half_edges[he_br1_a.0].origin = v_b3;
+        result.arena.half_edges[he_br1_a.0].next = he_br2_a;
+        result.arena.half_edges[he_br1_a.0].prev = he_br0_a;
+        result.arena.half_edges[he_br1_a.0].loop_ = inner_loop_bot;
 
-    result.arena.half_edges[he_br3_a.0].origin = v_b1;
-    result.arena.half_edges[he_br3_a.0].next = he_br0_a;
-    result.arena.half_edges[he_br3_a.0].prev = he_br2_a;
-    result.arena.half_edges[he_br3_a.0].loop_ = inner_loop_bot;
+        result.arena.half_edges[he_br2_a.0].origin = v_b2;
+        result.arena.half_edges[he_br2_a.0].next = he_br3_a;
+        result.arena.half_edges[he_br2_a.0].prev = he_br1_a;
+        result.arena.half_edges[he_br2_a.0].loop_ = inner_loop_bot;
 
-    result.arena.loops[inner_loop_bot.0].half_edge = he_br0_a;
+        result.arena.half_edges[he_br3_a.0].origin = v_b1;
+        result.arena.half_edges[he_br3_a.0].next = he_br0_a;
+        result.arena.half_edges[he_br3_a.0].prev = he_br2_a;
+        result.arena.half_edges[he_br3_a.0].loop_ = inner_loop_bot;
 
-    // Top cap inner loop: rectangle winding CW from outside (= CW from +Z)
-    // For a hole in a face with outward normal +Z, the inner loop winds CW from +Z.
-    // Ordering: t0 → t1 → t2 → t3
-    let inner_loop_top = result.arena.add_loop(face_top);
-    result.arena.faces[face_top.0]
-        .inner_loops
-        .push(inner_loop_top);
+        result.arena.loops[inner_loop_bot.0].half_edge = he_br0_a;
+    } else {
+        // Standalone floor face (pocket bottom) — no hole in cylinder cap
+        let face_floor = result.arena.add_face(shell_idx);
+        let loop_floor = result.arena.add_loop(face_floor);
+        result.arena.faces[face_floor.0].outer_loop = loop_floor;
 
+        // Floor loop: b0 → b3 → b2 → b1 → b0 (same winding as inner loop would be)
+        result.arena.half_edges[he_br0_a.0].origin = v_b0;
+        result.arena.half_edges[he_br0_a.0].next = he_br1_a;
+        result.arena.half_edges[he_br0_a.0].prev = he_br3_a;
+        result.arena.half_edges[he_br0_a.0].loop_ = loop_floor;
+
+        result.arena.half_edges[he_br1_a.0].origin = v_b3;
+        result.arena.half_edges[he_br1_a.0].next = he_br2_a;
+        result.arena.half_edges[he_br1_a.0].prev = he_br0_a;
+        result.arena.half_edges[he_br1_a.0].loop_ = loop_floor;
+
+        result.arena.half_edges[he_br2_a.0].origin = v_b2;
+        result.arena.half_edges[he_br2_a.0].next = he_br3_a;
+        result.arena.half_edges[he_br2_a.0].prev = he_br1_a;
+        result.arena.half_edges[he_br2_a.0].loop_ = loop_floor;
+
+        result.arena.half_edges[he_br3_a.0].origin = v_b1;
+        result.arena.half_edges[he_br3_a.0].next = he_br0_a;
+        result.arena.half_edges[he_br3_a.0].prev = he_br2_a;
+        result.arena.half_edges[he_br3_a.0].loop_ = loop_floor;
+
+        result.arena.loops[loop_floor.0].half_edge = he_br0_a;
+
+        // Floor geometry: upward-facing normal (closing pocket from below, facing into void)
+        result.face_geometry.insert(
+            face_floor,
+            SurfaceGeom::Planar(Plane {
+                origin: Point3::new(bx0, by0, z_bot),
+                normal: Vector3::new(0.0, 0.0, 1.0),
+            }),
+        );
+        result.face_map.insert(id_alloc(), face_floor);
+    }
+
+    // Step 5: Top rectangle edges
     let (e_tr0, he_tr0_a, he_tr0_b) = result.arena.add_edge(); // t0→t1
     let (e_tr1, he_tr1_a, he_tr1_b) = result.arena.add_edge(); // t1→t2
     let (e_tr2, he_tr2_a, he_tr2_b) = result.arena.add_edge(); // t2→t3
     let (e_tr3, he_tr3_a, he_tr3_b) = result.arena.add_edge(); // t3→t0
 
-    // Top inner loop: t0 → t1 → t2 → t3 → t0
-    result.arena.half_edges[he_tr0_a.0].origin = v_t0;
-    result.arena.half_edges[he_tr0_a.0].next = he_tr1_a;
-    result.arena.half_edges[he_tr0_a.0].prev = he_tr3_a;
-    result.arena.half_edges[he_tr0_a.0].loop_ = inner_loop_top;
+    if touches_top {
+        // Inner loop on top cap (hole in annular face)
+        let inner_loop_top = result.arena.add_loop(face_top);
+        result.arena.faces[face_top.0]
+            .inner_loops
+            .push(inner_loop_top);
 
-    result.arena.half_edges[he_tr1_a.0].origin = v_t1;
-    result.arena.half_edges[he_tr1_a.0].next = he_tr2_a;
-    result.arena.half_edges[he_tr1_a.0].prev = he_tr0_a;
-    result.arena.half_edges[he_tr1_a.0].loop_ = inner_loop_top;
+        // Top inner loop: t0 → t1 → t2 → t3 → t0
+        result.arena.half_edges[he_tr0_a.0].origin = v_t0;
+        result.arena.half_edges[he_tr0_a.0].next = he_tr1_a;
+        result.arena.half_edges[he_tr0_a.0].prev = he_tr3_a;
+        result.arena.half_edges[he_tr0_a.0].loop_ = inner_loop_top;
 
-    result.arena.half_edges[he_tr2_a.0].origin = v_t2;
-    result.arena.half_edges[he_tr2_a.0].next = he_tr3_a;
-    result.arena.half_edges[he_tr2_a.0].prev = he_tr1_a;
-    result.arena.half_edges[he_tr2_a.0].loop_ = inner_loop_top;
+        result.arena.half_edges[he_tr1_a.0].origin = v_t1;
+        result.arena.half_edges[he_tr1_a.0].next = he_tr2_a;
+        result.arena.half_edges[he_tr1_a.0].prev = he_tr0_a;
+        result.arena.half_edges[he_tr1_a.0].loop_ = inner_loop_top;
 
-    result.arena.half_edges[he_tr3_a.0].origin = v_t3;
-    result.arena.half_edges[he_tr3_a.0].next = he_tr0_a;
-    result.arena.half_edges[he_tr3_a.0].prev = he_tr2_a;
-    result.arena.half_edges[he_tr3_a.0].loop_ = inner_loop_top;
+        result.arena.half_edges[he_tr2_a.0].origin = v_t2;
+        result.arena.half_edges[he_tr2_a.0].next = he_tr3_a;
+        result.arena.half_edges[he_tr2_a.0].prev = he_tr1_a;
+        result.arena.half_edges[he_tr2_a.0].loop_ = inner_loop_top;
 
-    result.arena.loops[inner_loop_top.0].half_edge = he_tr0_a;
+        result.arena.half_edges[he_tr3_a.0].origin = v_t3;
+        result.arena.half_edges[he_tr3_a.0].next = he_tr0_a;
+        result.arena.half_edges[he_tr3_a.0].prev = he_tr2_a;
+        result.arena.half_edges[he_tr3_a.0].loop_ = inner_loop_top;
 
-    // Step 5: 4 inner rectangular wall faces (inward-facing normals)
+        result.arena.loops[inner_loop_top.0].half_edge = he_tr0_a;
+    } else {
+        // Standalone ceiling face (pocket top) — no hole in cylinder cap
+        let face_ceil = result.arena.add_face(shell_idx);
+        let loop_ceil = result.arena.add_loop(face_ceil);
+        result.arena.faces[face_ceil.0].outer_loop = loop_ceil;
+
+        // Ceiling loop: t0 → t1 → t2 → t3 → t0 (same winding as inner loop would be)
+        result.arena.half_edges[he_tr0_a.0].origin = v_t0;
+        result.arena.half_edges[he_tr0_a.0].next = he_tr1_a;
+        result.arena.half_edges[he_tr0_a.0].prev = he_tr3_a;
+        result.arena.half_edges[he_tr0_a.0].loop_ = loop_ceil;
+
+        result.arena.half_edges[he_tr1_a.0].origin = v_t1;
+        result.arena.half_edges[he_tr1_a.0].next = he_tr2_a;
+        result.arena.half_edges[he_tr1_a.0].prev = he_tr0_a;
+        result.arena.half_edges[he_tr1_a.0].loop_ = loop_ceil;
+
+        result.arena.half_edges[he_tr2_a.0].origin = v_t2;
+        result.arena.half_edges[he_tr2_a.0].next = he_tr3_a;
+        result.arena.half_edges[he_tr2_a.0].prev = he_tr1_a;
+        result.arena.half_edges[he_tr2_a.0].loop_ = loop_ceil;
+
+        result.arena.half_edges[he_tr3_a.0].origin = v_t3;
+        result.arena.half_edges[he_tr3_a.0].next = he_tr0_a;
+        result.arena.half_edges[he_tr3_a.0].prev = he_tr2_a;
+        result.arena.half_edges[he_tr3_a.0].loop_ = loop_ceil;
+
+        result.arena.loops[loop_ceil.0].half_edge = he_tr0_a;
+
+        // Ceiling geometry: downward-facing normal (closing pocket from above, facing into void)
+        result.face_geometry.insert(
+            face_ceil,
+            SurfaceGeom::Planar(Plane {
+                origin: Point3::new(bx0, by0, z_top),
+                normal: Vector3::new(0.0, 0.0, -1.0),
+            }),
+        );
+        result.face_map.insert(id_alloc(), face_ceil);
+    }
+
+    // Step 6: 4 inner rectangular wall faces (inward-facing normals)
     // Each wall connects a bottom edge to a top edge via 2 vertical edges.
     // Wall 0: front (y=by0, normal +Y inward) — b0→b1 bottom, t1→t0 top
     // Wall 1: right (x=bx1, normal -X inward) — b1→b2 bottom, t2→t1 top
     // Wall 2: back  (y=by1, normal -Y inward) — b2→b3 bottom, t3→t2 top
     // Wall 3: left  (x=bx0, normal +X inward) — b3→b0 bottom, t0→t3 top
-    let shell_idx = ShellIdx(0);
 
     // 4 vertical edges connecting bottom to top corners
     let (e_v0, he_v0_a, he_v0_b) = result.arena.add_edge(); // b0↔t0
@@ -2574,60 +2656,60 @@ fn build_cyl_minus_enclosed_box(
     result.face_geometry.insert(
         face_w0,
         SurfaceGeom::Planar(Plane {
-            origin: Point3::from_array([bx0, by0, cyl_z_min]),
+            origin: Point3::from_array([bx0, by0, z_bot]),
             normal: Vector3::new(0.0, 1.0, 0.0),
         }),
     );
     result.face_geometry.insert(
         face_w1,
         SurfaceGeom::Planar(Plane {
-            origin: Point3::from_array([bx1, by0, cyl_z_min]),
+            origin: Point3::from_array([bx1, by0, z_bot]),
             normal: Vector3::new(-1.0, 0.0, 0.0),
         }),
     );
     result.face_geometry.insert(
         face_w2,
         SurfaceGeom::Planar(Plane {
-            origin: Point3::from_array([bx1, by1, cyl_z_min]),
+            origin: Point3::from_array([bx1, by1, z_bot]),
             normal: Vector3::new(0.0, -1.0, 0.0),
         }),
     );
     result.face_geometry.insert(
         face_w3,
         SurfaceGeom::Planar(Plane {
-            origin: Point3::from_array([bx0, by0, cyl_z_min]),
+            origin: Point3::from_array([bx0, by0, z_bot]),
             normal: Vector3::new(1.0, 0.0, 0.0),
         }),
     );
 
     // Step 8: Edge geometry
     // Bottom rect edges (linear)
-    let h = cyl_z_max - cyl_z_min;
+    let h = z_top - z_bot;
     result.edge_geometry.insert(
         e_br0,
         CurveGeom::Linear(Line3D {
-            origin: Point3::from_array([bx0, by0, cyl_z_min]),
+            origin: Point3::from_array([bx0, by0, z_bot]),
             direction: Vector3::new(0.0, by1 - by0, 0.0),
         }),
     );
     result.edge_geometry.insert(
         e_br1,
         CurveGeom::Linear(Line3D {
-            origin: Point3::from_array([bx0, by1, cyl_z_min]),
+            origin: Point3::from_array([bx0, by1, z_bot]),
             direction: Vector3::new(bx1 - bx0, 0.0, 0.0),
         }),
     );
     result.edge_geometry.insert(
         e_br2,
         CurveGeom::Linear(Line3D {
-            origin: Point3::from_array([bx1, by1, cyl_z_min]),
+            origin: Point3::from_array([bx1, by1, z_bot]),
             direction: Vector3::new(0.0, by0 - by1, 0.0),
         }),
     );
     result.edge_geometry.insert(
         e_br3,
         CurveGeom::Linear(Line3D {
-            origin: Point3::from_array([bx1, by0, cyl_z_min]),
+            origin: Point3::from_array([bx1, by0, z_bot]),
             direction: Vector3::new(bx0 - bx1, 0.0, 0.0),
         }),
     );
@@ -2636,28 +2718,28 @@ fn build_cyl_minus_enclosed_box(
     result.edge_geometry.insert(
         e_tr0,
         CurveGeom::Linear(Line3D {
-            origin: Point3::from_array([bx0, by0, cyl_z_max]),
+            origin: Point3::from_array([bx0, by0, z_top]),
             direction: Vector3::new(bx1 - bx0, 0.0, 0.0),
         }),
     );
     result.edge_geometry.insert(
         e_tr1,
         CurveGeom::Linear(Line3D {
-            origin: Point3::from_array([bx1, by0, cyl_z_max]),
+            origin: Point3::from_array([bx1, by0, z_top]),
             direction: Vector3::new(0.0, by1 - by0, 0.0),
         }),
     );
     result.edge_geometry.insert(
         e_tr2,
         CurveGeom::Linear(Line3D {
-            origin: Point3::from_array([bx1, by1, cyl_z_max]),
+            origin: Point3::from_array([bx1, by1, z_top]),
             direction: Vector3::new(bx0 - bx1, 0.0, 0.0),
         }),
     );
     result.edge_geometry.insert(
         e_tr3,
         CurveGeom::Linear(Line3D {
-            origin: Point3::from_array([bx0, by1, cyl_z_max]),
+            origin: Point3::from_array([bx0, by1, z_top]),
             direction: Vector3::new(0.0, by0 - by1, 0.0),
         }),
     );
@@ -2666,28 +2748,28 @@ fn build_cyl_minus_enclosed_box(
     result.edge_geometry.insert(
         e_v0,
         CurveGeom::Linear(Line3D {
-            origin: Point3::from_array([bx0, by0, cyl_z_min]),
+            origin: Point3::from_array([bx0, by0, z_bot]),
             direction: Vector3::new(0.0, 0.0, h),
         }),
     );
     result.edge_geometry.insert(
         e_v1,
         CurveGeom::Linear(Line3D {
-            origin: Point3::from_array([bx1, by0, cyl_z_min]),
+            origin: Point3::from_array([bx1, by0, z_bot]),
             direction: Vector3::new(0.0, 0.0, h),
         }),
     );
     result.edge_geometry.insert(
         e_v2,
         CurveGeom::Linear(Line3D {
-            origin: Point3::from_array([bx1, by1, cyl_z_min]),
+            origin: Point3::from_array([bx1, by1, z_bot]),
             direction: Vector3::new(0.0, 0.0, h),
         }),
     );
     result.edge_geometry.insert(
         e_v3,
         CurveGeom::Linear(Line3D {
-            origin: Point3::from_array([bx0, by1, cyl_z_min]),
+            origin: Point3::from_array([bx0, by1, z_bot]),
             direction: Vector3::new(0.0, 0.0, h),
         }),
     );
@@ -4829,5 +4911,177 @@ mod tests {
             "all {} vertices on AABB faces — cylinder z-range not used",
             vert_count
         );
+    }
+
+    // ── Cylinder-minus-enclosed-box cap-touching tests ──────────────────
+
+    fn count_inner_loops(result: &BooleanResult) -> usize {
+        result.arena.faces.iter().map(|f| f.inner_loops.len()).sum()
+    }
+
+    fn count_faces(result: &BooleanResult) -> usize {
+        result.arena.faces.len()
+    }
+
+    fn count_edges(result: &BooleanResult) -> usize {
+        result.arena.edges.len()
+    }
+
+    fn count_vertices(result: &BooleanResult) -> usize {
+        result.arena.vertices.len()
+    }
+
+    #[test]
+    fn test_cyl_minus_enclosed_box_through_hole() {
+        // Box Z matches cylinder Z exactly → through-hole (2 inner loops on caps)
+        let cyl = CylinderParams {
+            center_bottom: [0.0, 0.0, 0.0],
+            radius: 0.5,
+            x_axis: [1.0, 0.0, 0.0],
+            y_axis: [0.0, 1.0, 0.0],
+            direction: [0.0, 0.0, 1.0],
+            depth: 1.0,
+        };
+        let aabb = Aabb {
+            min: [-0.2, -0.2, 0.0],
+            max: [0.2, 0.2, 1.0],
+        };
+        let mut id = 1000u64;
+        let result = build_cyl_minus_enclosed_box(&aabb, &cyl, &mut || {
+            id += 1;
+            id
+        })
+        .unwrap();
+
+        let v = count_vertices(&result);
+        let e = count_edges(&result);
+        let f = count_faces(&result);
+        let chi = v as i64 - e as i64 + f as i64;
+        assert_eq!(chi, 2, "through-hole: V={v}, E={e}, F={f}, chi={chi}");
+        assert_eq!(
+            count_inner_loops(&result),
+            2,
+            "through-hole should have 2 inner loops (one per cap)"
+        );
+        assert_eq!(f, 7, "through-hole: expected 7 faces, got {f}");
+    }
+
+    #[test]
+    fn test_cyl_minus_enclosed_box_blind_pocket() {
+        // Box Z strictly inside cylinder Z → blind pocket (no inner loops, floor+ceiling)
+        let cyl = CylinderParams {
+            center_bottom: [0.0, 0.0, 0.0],
+            radius: 0.5,
+            x_axis: [1.0, 0.0, 0.0],
+            y_axis: [0.0, 1.0, 0.0],
+            direction: [0.0, 0.0, 1.0],
+            depth: 1.0,
+        };
+        let aabb = Aabb {
+            min: [-0.2, -0.2, 0.2],
+            max: [0.2, 0.2, 0.8],
+        };
+        let mut id = 1000u64;
+        let result = build_cyl_minus_enclosed_box(&aabb, &cyl, &mut || {
+            id += 1;
+            id
+        })
+        .unwrap();
+
+        let v = count_vertices(&result);
+        let e = count_edges(&result);
+        let f = count_faces(&result);
+        let chi = v as i64 - e as i64 + f as i64;
+        assert_eq!(chi, 4, "blind pocket: V={v}, E={e}, F={f}, chi={chi}");
+        assert_eq!(
+            count_inner_loops(&result),
+            0,
+            "blind pocket should have 0 inner loops"
+        );
+        assert_eq!(f, 9, "blind pocket: expected 9 faces, got {f}");
+
+        // Verify box vertices use actual box Z, not cylinder Z
+        let has_z_02 = result
+            .arena
+            .vertices
+            .iter()
+            .any(|v| (v.position[2] - 0.2).abs() < 1e-10);
+        let has_z_08 = result
+            .arena
+            .vertices
+            .iter()
+            .any(|v| (v.position[2] - 0.8).abs() < 1e-10);
+        assert!(has_z_02, "should have vertices at z=0.2 (box bottom)");
+        assert!(has_z_08, "should have vertices at z=0.8 (box top)");
+    }
+
+    #[test]
+    fn test_cyl_minus_enclosed_box_top_only() {
+        // Box touches top cap only → 1 inner loop on top, floor face at bottom
+        let cyl = CylinderParams {
+            center_bottom: [0.0, 0.0, 0.0],
+            radius: 0.5,
+            x_axis: [1.0, 0.0, 0.0],
+            y_axis: [0.0, 1.0, 0.0],
+            direction: [0.0, 0.0, 1.0],
+            depth: 1.0,
+        };
+        let aabb = Aabb {
+            min: [-0.2, -0.2, 0.3],
+            max: [0.2, 0.2, 1.0],
+        };
+        let mut id = 1000u64;
+        let result = build_cyl_minus_enclosed_box(&aabb, &cyl, &mut || {
+            id += 1;
+            id
+        })
+        .unwrap();
+
+        let v = count_vertices(&result);
+        let e = count_edges(&result);
+        let f = count_faces(&result);
+        let chi = v as i64 - e as i64 + f as i64;
+        assert_eq!(chi, 3, "top-only: V={v}, E={e}, F={f}, chi={chi}");
+        assert_eq!(
+            count_inner_loops(&result),
+            1,
+            "top-only should have 1 inner loop (on top cap)"
+        );
+        assert_eq!(f, 8, "top-only: expected 8 faces, got {f}");
+    }
+
+    #[test]
+    fn test_cyl_minus_enclosed_box_bottom_only() {
+        // Box touches bottom cap only → 1 inner loop on bottom, ceiling face at top
+        let cyl = CylinderParams {
+            center_bottom: [0.0, 0.0, 0.0],
+            radius: 0.5,
+            x_axis: [1.0, 0.0, 0.0],
+            y_axis: [0.0, 1.0, 0.0],
+            direction: [0.0, 0.0, 1.0],
+            depth: 1.0,
+        };
+        let aabb = Aabb {
+            min: [-0.2, -0.2, 0.0],
+            max: [0.2, 0.2, 0.7],
+        };
+        let mut id = 1000u64;
+        let result = build_cyl_minus_enclosed_box(&aabb, &cyl, &mut || {
+            id += 1;
+            id
+        })
+        .unwrap();
+
+        let v = count_vertices(&result);
+        let e = count_edges(&result);
+        let f = count_faces(&result);
+        let chi = v as i64 - e as i64 + f as i64;
+        assert_eq!(chi, 3, "bottom-only: V={v}, E={e}, F={f}, chi={chi}");
+        assert_eq!(
+            count_inner_loops(&result),
+            1,
+            "bottom-only should have 1 inner loop (on bottom cap)"
+        );
+        assert_eq!(f, 8, "bottom-only: expected 8 faces, got {f}");
     }
 }

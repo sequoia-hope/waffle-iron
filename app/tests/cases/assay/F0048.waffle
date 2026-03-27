@@ -3,31 +3,31 @@
   "version": 3,
   "document": {
     "name": "Assay F0048",
-    "created": "2026-03-27T09:24:12.765699089Z",
-    "modified": "2026-03-27T09:24:12.765699089Z"
+    "created": "2026-03-27T19:11:30.757605470Z",
+    "modified": "2026-03-27T19:11:30.757605470Z"
   },
   "tabs": [
     {
-      "id": "abf7bdd7-54ee-4708-b267-b851b3303f60",
+      "id": "baf456fb-9545-487c-8456-1b0e891ed1fd",
       "name": "Part 1",
       "kind": {
         "type": "Part",
         "features": {
           "features": [
             {
-              "id": "93a0381a-63b9-487d-8e16-a3e530043eb2",
+              "id": "9f1cdfef-2f74-4fd9-b92c-6411742dc654",
               "name": "Sketch 1",
               "operation": {
                 "type": "Sketch",
                 "sketch": {
-                  "id": "93a0381a-63b9-487d-8e16-a3e530043eb2",
+                  "id": "9f1cdfef-2f74-4fd9-b92c-6411742dc654",
                   "plane": {
                     "kind": {
                       "type": "Face"
                     },
                     "anchor": {
                       "type": "Datum",
-                      "datum_id": "1dfe0759-66df-4b2a-8448-9faa44fca1b8"
+                      "datum_id": "3f818a6d-980d-4758-addc-6dc4ee94d928"
                     },
                     "selector": {
                       "type": "Role",
@@ -121,13 +121,13 @@
                       0.2438894845151201,
                       0.16256034916308615
                     ],
-                    "1": [
-                      -0.2438894845151201,
-                      -0.16256034916308615
-                    ],
                     "4": [
                       -0.2438894845151201,
                       0.16256034916308615
+                    ],
+                    "1": [
+                      -0.2438894845151201,
+                      -0.16256034916308615
                     ]
                   },
                   "solved_profiles": [
@@ -153,12 +153,12 @@
               "references": []
             },
             {
-              "id": "606ed095-0000-413f-8284-b8f39c1365cd",
+              "id": "e58e307b-8b0a-4617-bb3b-4c8b12b1013f",
               "name": "Extrude 1",
               "operation": {
                 "type": "Extrude",
                 "params": {
-                  "sketch_id": "93a0381a-63b9-487d-8e16-a3e530043eb2",
+                  "sketch_id": "9f1cdfef-2f74-4fd9-b92c-6411742dc654",
                   "profile_index": 0,
                   "depth": 0.40382679449221126,
                   "direction": null,
@@ -176,19 +176,19 @@
               "references": []
             },
             {
-              "id": "f48348b7-5f12-4fd6-8bee-32dae8cd4e4a",
+              "id": "093e69dc-ab52-4b0f-a5ae-1e3f9bf5877f",
               "name": "Sketch 2",
               "operation": {
                 "type": "Sketch",
                 "sketch": {
-                  "id": "f48348b7-5f12-4fd6-8bee-32dae8cd4e4a",
+                  "id": "093e69dc-ab52-4b0f-a5ae-1e3f9bf5877f",
                   "plane": {
                     "kind": {
                       "type": "Face"
                     },
                     "anchor": {
                       "type": "Datum",
-                      "datum_id": "5badde82-d653-4d80-948a-47eb69de03aa"
+                      "datum_id": "bc809cdf-9f82-416e-96d9-fae9f3d6c543"
                     },
                     "selector": {
                       "type": "Role",
@@ -256,12 +256,12 @@
               "references": []
             },
             {
-              "id": "3163bc19-8215-4baa-bb41-f03bef059b05",
+              "id": "b1899a12-bf9d-417c-b398-8555a08d14cb",
               "name": "Extrude 2",
               "operation": {
                 "type": "Extrude",
                 "params": {
-                  "sketch_id": "f48348b7-5f12-4fd6-8bee-32dae8cd4e4a",
+                  "sketch_id": "093e69dc-ab52-4b0f-a5ae-1e3f9bf5877f",
                   "profile_index": 0,
                   "depth": 0.2978850291758029,
                   "direction": null,
@@ -284,5 +284,5 @@
       }
     }
   ],
-  "active_tab": "abf7bdd7-54ee-4708-b267-b851b3303f60"
+  "active_tab": "baf456fb-9545-487c-8456-1b0e891ed1fd"
 }

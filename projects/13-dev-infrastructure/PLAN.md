@@ -86,6 +86,33 @@
 
 ## Completed Tasks
 
+### Fix Blind Pocket Topology in cyl-minus-enclosed-box (2026-03-27)
+
+**Spec**: `/specs/cyl_minus_box_blind_pocket.md`
+
+**Problem**: `build_cyl_minus_enclosed_box` placed box vertices at cylinder Z positions
+and unconditionally created inner loops on both caps, producing through-hole topology
+(chi=0) instead of enclosed void (chi=4) for blind pockets (F0036-F0040). Also, F0031-F0035
+(box-minus-enclosed-cyl) had correct kernel output but wrong euler_target=2 (should be 4).
+
+**Fix**:
+- Added `touches_bot`/`touches_top` detection (mirrors `build_box_minus_enclosed_cyl`)
+- Used actual box Z positions for vertices when box doesn't touch cap
+- Conditional inner loop vs standalone cap face per cap
+- Updated euler_target from 2→4 for F0031-F0040
+
+**Tests**:
+- 4 unit tests: through-hole, blind pocket, top-only, bottom-only
+- `batch_enclosed_subtract_fix` integration test: 10/10 pass
+
+**Result**: Assay score 55/172 → 66/172 (+11 passes)
+
+**Files changed**:
+- `crates/kernel/src/boolean/analytical.rs`
+- `crates/test-harness/src/assay/gen.rs`
+- `crates/test-harness/tests/assay_randomized.rs`
+- `specs/cyl_minus_box_blind_pocket.md`
+
 ### Fix Euler Target Oracle Predictions (2026-03-27)
 
 **Spec**: `/specs/euler_target_oracle_fix.md`

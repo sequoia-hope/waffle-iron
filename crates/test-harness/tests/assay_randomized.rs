@@ -434,3 +434,24 @@ fn batch_euler_target_fix() {
         passed
     );
 }
+
+/// Verify F0031-F0040: box-minus-enclosed-cyl (F0031-F0035) and cyl-minus-enclosed-box (F0036-F0040).
+///
+/// These test blind pocket topology with correct euler_target=4.
+/// Run with: cargo test -p test-harness --test assay_randomized -- batch_enclosed_subtract_fix --ignored --nocapture
+#[test]
+#[ignore]
+fn batch_enclosed_subtract_fix() {
+    let ids: Vec<String> = (31..=40).map(|i| format!("F{:04}", i)).collect();
+    let id_refs: Vec<&str> = ids.iter().map(|s| s.as_str()).collect();
+    let (passed, failed, errored) = run_batch(&id_refs, true);
+    println!(
+        "Enclosed subtract fix: {}/10 passed, {} failed, {} errored",
+        passed, failed, errored
+    );
+    assert!(
+        passed >= 10,
+        "Expected all 10 enclosed subtract cases to pass, got {}",
+        passed
+    );
+}

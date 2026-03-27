@@ -3,31 +3,31 @@
   "version": 3,
   "document": {
     "name": "Assay F0054",
-    "created": "2026-03-27T09:24:12.767962461Z",
-    "modified": "2026-03-27T09:24:12.767962461Z"
+    "created": "2026-03-27T19:11:30.758897405Z",
+    "modified": "2026-03-27T19:11:30.758897405Z"
   },
   "tabs": [
     {
-      "id": "d24dc240-75da-4fed-bf20-25ff1809afd1",
+      "id": "8f1c3597-8a9d-452d-9dc7-868f92db0c56",
       "name": "Part 1",
       "kind": {
         "type": "Part",
         "features": {
           "features": [
             {
-              "id": "76548258-36f4-4481-a981-d22a10bd6f1e",
+              "id": "ea000281-e330-4808-b805-eafdc6a20a8c",
               "name": "Sketch 1",
               "operation": {
                 "type": "Sketch",
                 "sketch": {
-                  "id": "76548258-36f4-4481-a981-d22a10bd6f1e",
+                  "id": "ea000281-e330-4808-b805-eafdc6a20a8c",
                   "plane": {
                     "kind": {
                       "type": "Face"
                     },
                     "anchor": {
                       "type": "Datum",
-                      "datum_id": "7efc2920-ed75-4933-85d8-0fe0ef7fabc5"
+                      "datum_id": "6445ce87-4187-4baa-8d45-39786feef455"
                     },
                     "selector": {
                       "type": "Role",
@@ -95,12 +95,12 @@
               "references": []
             },
             {
-              "id": "8c9850fe-1469-482d-be40-24baf1d6f992",
+              "id": "7bedc8ee-b870-4134-8546-5ad4d7620419",
               "name": "Extrude 1",
               "operation": {
                 "type": "Extrude",
                 "params": {
-                  "sketch_id": "76548258-36f4-4481-a981-d22a10bd6f1e",
+                  "sketch_id": "ea000281-e330-4808-b805-eafdc6a20a8c",
                   "profile_index": 0,
                   "depth": 2000.0,
                   "direction": null,
@@ -118,19 +118,19 @@
               "references": []
             },
             {
-              "id": "25dc35b3-1eba-4fb1-9592-c8cfa741f53c",
+              "id": "c62ab77e-687f-48b0-bef2-35b4d2c32b9b",
               "name": "Sketch 2",
               "operation": {
                 "type": "Sketch",
                 "sketch": {
-                  "id": "25dc35b3-1eba-4fb1-9592-c8cfa741f53c",
+                  "id": "c62ab77e-687f-48b0-bef2-35b4d2c32b9b",
                   "plane": {
                     "kind": {
                       "type": "Face"
                     },
                     "anchor": {
                       "type": "Datum",
-                      "datum_id": "d4ff2dfe-3354-4ef6-a30f-34d3ccde47e1"
+                      "datum_id": "ca37a346-20c2-43b5-a647-163398997c5c"
                     },
                     "selector": {
                       "type": "Role",
@@ -216,12 +216,12 @@
                     "type": "FullyConstrained"
                   },
                   "solved_positions": {
-                    "1": [
-                      -750.0,
-                      -750.0
-                    ],
                     "2": [
                       750.0,
+                      -750.0
+                    ],
+                    "1": [
+                      -750.0,
                       -750.0
                     ],
                     "3": [
@@ -256,12 +256,12 @@
               "references": []
             },
             {
-              "id": "a436639f-933f-4942-afab-15faa64efadd",
+              "id": "493ee19f-e09c-4460-a035-48a66f5c89f3",
               "name": "Extrude 2",
               "operation": {
                 "type": "Extrude",
                 "params": {
-                  "sketch_id": "25dc35b3-1eba-4fb1-9592-c8cfa741f53c",
+                  "sketch_id": "c62ab77e-687f-48b0-bef2-35b4d2c32b9b",
                   "profile_index": 0,
                   "depth": 1500.0,
                   "direction": null,
@@ -284,5 +284,5 @@
       }
     }
   ],
-  "active_tab": "d24dc240-75da-4fed-bf20-25ff1809afd1"
+  "active_tab": "8f1c3597-8a9d-452d-9dc7-868f92db0c56"
 }
