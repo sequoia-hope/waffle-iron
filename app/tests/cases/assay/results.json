@@ -1,6 +1,6 @@
 {
-  "errored": 28,
-  "failed": 78,
+  "errored": 17,
+  "failed": 89,
   "generated": "2026-03-27",
   "passed": 66,
   "results": [
@@ -275,10 +275,10 @@
       "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "multiple-failures",
+      "detail": "mesh_euler_characteristic: V(204) - E(582) + F(388) = 10 (expected 2)",
       "id": "R0046",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "pass-genuine",
@@ -353,10 +353,10 @@
       "status": "pass"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "multiple-failures",
+      "detail": "mesh_euler_characteristic: V(7780) - E(23322) + F(15548) = 6 (expected 2)",
       "id": "R0059",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "pass-genuine",
@@ -389,10 +389,10 @@
       "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 1300 unpaired edges out of 56906 total; unit_normals: 2352 of 85552 normals are not unit length",
       "id": "R0065",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "auto-union-failed",
@@ -419,10 +419,10 @@
       "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; unit_normals: 16 of 40208 normals are not unit length; face_range_coverage: no face ranges defined; outward_normals: no valid triangles; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"gear\"), (\"extrude\", \"circle\")]; volume_magnitude: volume 0.000000e0 outside [5.261258e-14, 5.261258e2] for scale 1.739255e-2",
       "id": "R0070",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "tessellation-degenerate",
@@ -875,10 +875,10 @@
       "status": "pass"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 257 unpaired edges out of 52308 total (73 boundary, 184 non-manifold); mesh_euler_characteristic: V(17010) - E(52308) + F(35458) = 160 (expected 2)",
       "id": "F0046",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "boolean-watertight",
@@ -887,16 +887,16 @@
       "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 130 unpaired edges out of 74754 total (1 boundary, 129 non-manifold); consistent_normals: 642 of 50684 triangles have reversed normals; mesh_euler_characteristic: V(24174) - E(74754) + F(50684) = 104 (expected 2)",
       "id": "F0048",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 140 unpaired edges out of 124678 total (0 boundary, 140 non-manifold); mesh_euler_characteristic: V(40557) - E(124678) + F(84272) = 151 (expected 2)",
       "id": "F0049",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "cascading-failure",
@@ -989,10 +989,10 @@
       "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 1664 unpaired edges out of 3592 total; mesh_euler_characteristic: V(1764) - E(3592) + F(1840) = 12 (expected 2)",
       "id": "F0065",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "revolve-normals",
@@ -1001,16 +1001,16 @@
       "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 1488 unpaired edges out of 3306 total; mesh_euler_characteristic: V(1608) - E(3306) + F(1708) = 10 (expected 2)",
       "id": "F0067",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "boolean-normals",
+      "detail": "watertight_mesh: 1104 unpaired edges out of 3216 total; outward_normals: only 1567 of 1776 triangles (88.2%) have outward normals (need 95%); mesh_euler_characteristic: V(1454) - E(3216) + F(1776) = 14 (expected 2)",
       "id": "F0068",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "cascading-failure",
@@ -1025,10 +1025,10 @@
       "status": "error"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "boolean-normals",
+      "detail": "watertight_mesh: 852 unpaired edges out of 2382 total; outward_normals: only 1152 of 1304 triangles (88.3%) have outward normals (need 95%); mesh_euler_characteristic: V(1108) - E(2382) + F(1304) = 30 (expected 2)",
       "id": "F0071",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "cascading-failure",

@@ -1,7 +1,7 @@
 {
   "master_seed": 42,
-  "count": 172,
-  "generator_version": 2,
+  "count": 175,
+  "generator_version": 3,
   "cases": [
     {
       "id": "R0001",
@@ -1205,6 +1205,27 @@
       "filename": "F0072.waffle",
       "meta_filename": "F0072.meta.json",
       "description": "20 ops, scale=1.00e0, 20 chained extrudes (stacked Z) — seed 10010",
+      "featured": true
+    },
+    {
+      "id": "F0073",
+      "filename": "F0073.waffle",
+      "meta_filename": "F0073.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+revolve(rectangle,axis-through-center) — self-intersection error",
+      "featured": true
+    },
+    {
+      "id": "F0074",
+      "filename": "F0074.waffle",
+      "meta_filename": "F0074.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+revolve(rectangle,axis-near-vertex) — self-intersection error",
+      "featured": true
+    },
+    {
+      "id": "F0075",
+      "filename": "F0075.waffle",
+      "meta_filename": "F0075.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+revolve(rectangle,offset-axis) — valid revolve",
       "featured": true
     }
   ]

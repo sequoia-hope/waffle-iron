@@ -13362,3 +13362,60 @@ fn three_box_chain_coplanar() {
     assert_eq!(chi, 2, "3-box chain chi = V({}) - E({}) + F({}) = {}", v, e, f, chi);
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Revolve validation tests
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#[test]
+fn test_revolve_rejects_zero_axis() {
+    let mut k = WaffleKernel::new();
+    let (profiles, positions) = make_rect_profile(1.0, 0.0, 0.5, 0.5);
+    let faces = k
+        .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+        .unwrap();
+    let result = k.revolve_face(faces[0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], 360.0);
+    assert!(result.is_err(), "revolve with zero axis should fail");
+    let msg = format!("{:?}", result.unwrap_err());
+    assert!(msg.contains("degenerate"), "error should mention degenerate: {}", msg);
+}
+
+#[test]
+fn test_revolve_rejects_profile_on_axis() {
+    let mut k = WaffleKernel::new();
+    let (profiles, positions) = make_rect_profile(0.0, 0.0, 0.5, 0.5);
+    let faces = k
+        .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+        .unwrap();
+    // Axis along Z through corner (-0.25, -0.25) — that vertex is ON the axis
+    let result = k.revolve_face(faces[0], [-0.25, -0.25, 0.0], [0.0, 0.0, 1.0], 360.0);
+    assert!(result.is_err(), "revolve with vertex on axis should fail");
+    let msg = format!("{:?}", result.unwrap_err());
+    assert!(msg.contains("self-intersection"), "error should mention self-intersection: {}", msg);
+}
+
+#[test]
+fn test_revolve_rejects_profile_crossing_axis() {
+    let mut k = WaffleKernel::new();
+    // Profile centered at (0,0), corners at (±0.5, ±0.5, 0)
+    let (profiles, positions) = make_rect_profile(0.0, 0.0, 1.0, 1.0);
+    let faces = k
+        .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+        .unwrap();
+    // Axis along Z through corner (0.5, 0.5) — that vertex is ON the axis
+    let result = k.revolve_face(faces[0], [0.5, 0.5, 0.0], [0.0, 0.0, 1.0], 180.0);
+    assert!(result.is_err(), "revolve with vertex on axis should fail");
+}
+
+#[test]
+fn test_revolve_accepts_offset_profile() {
+    let mut k = WaffleKernel::new();
+    // Profile centered at x=2, well offset from Y axis
+    let (profiles, positions) = make_rect_profile(2.0, 0.0, 0.5, 0.5);
+    let faces = k
+        .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+        .unwrap();
+    // Axis along Y at origin — profile center at x=2, well clear
+    let result = k.revolve_face(faces[0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], 90.0);
+    assert!(result.is_ok(), "revolve with offset profile should succeed: {:?}", result.err());
+}
+

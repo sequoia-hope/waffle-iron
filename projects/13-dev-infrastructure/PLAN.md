@@ -86,6 +86,34 @@
 
 ## Completed Tasks
 
+### Fix Revolve Axis Construction + Self-Intersection Detection (2026-03-27)
+
+**Spec**: `/specs/revolve_self_intersection.md`
+
+**Problem**: All 57 revolve assay cases failed (0/57). The generator constructed revolve axes
+using `[normal.y, -normal.x, 0]` which for normal=[0,0,1] produces a degenerate zero-vector
+axis and places the axis through the profile center, causing self-intersecting geometry.
+
+**Fix**:
+- **Kernel**: Added zero-axis rejection and profile-to-axis distance check in `revolve_polygon()`.
+  Returns `KernelError::Other` for degenerate axes or vertices too close to axis.
+- **Generator**: Replaced broken axis math with proper in-plane tangent via cross product
+  (same algorithm as `compute_plane_basis`). Axis offset 1.5× profile_size along tangent.
+- **Featured cases**: F0073 (axis through center, error), F0074 (axis near vertex, error),
+  F0075 (valid offset revolve, success).
+- **Generator version**: 2 → 3
+
+**Tests**:
+- 4 kernel unit tests: `test_revolve_rejects_zero_axis`, `test_revolve_rejects_profile_on_axis`,
+  `test_revolve_rejects_profile_crossing_axis`, `test_revolve_accepts_offset_profile`
+- 3 featured assay cases (F0073-F0075)
+
+**Files changed**:
+- `crates/kernel/src/waffle_kernel.rs` — self-intersection checks in `revolve_polygon()`
+- `crates/kernel/src/waffle_kernel_tests.rs` — 4 revolve validation tests
+- `crates/test-harness/src/assay/gen.rs` — axis fix + F0073-F0075 + version bump to 3
+- `specs/revolve_self_intersection.md` — new spec
+
 ### Fix Blind Pocket Topology in cyl-minus-enclosed-box (2026-03-27)
 
 **Spec**: `/specs/cyl_minus_box_blind_pocket.md`

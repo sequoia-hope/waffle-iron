@@ -3,31 +3,31 @@
   "version": 3,
   "document": {
     "name": "Assay F0055",
-    "created": "2026-03-27T19:11:30.759091368Z",
-    "modified": "2026-03-27T19:11:30.759091368Z"
+    "created": "2026-03-27T21:22:05.017803330Z",
+    "modified": "2026-03-27T21:22:05.017803330Z"
   },
   "tabs": [
     {
-      "id": "5a4c5fd3-8741-4e93-843e-455c77e7d5d1",
+      "id": "e1f3e2ec-c94f-4084-9bdd-e8b0d56fff39",
       "name": "Part 1",
       "kind": {
         "type": "Part",
         "features": {
           "features": [
             {
-              "id": "27a1f1de-cc8a-47c0-9c7f-b85b0b455a09",
+              "id": "0c4d99c5-e2e2-4c27-9cc6-6dd99d457f12",
               "name": "Sketch 1",
               "operation": {
                 "type": "Sketch",
                 "sketch": {
-                  "id": "27a1f1de-cc8a-47c0-9c7f-b85b0b455a09",
+                  "id": "0c4d99c5-e2e2-4c27-9cc6-6dd99d457f12",
                   "plane": {
                     "kind": {
                       "type": "Face"
                     },
                     "anchor": {
                       "type": "Datum",
-                      "datum_id": "10d5b525-101e-4f72-a15b-1210f6ee5c49"
+                      "datum_id": "9bf58200-1ff1-4feb-a06f-fb8b721dc6f2"
                     },
                     "selector": {
                       "type": "Role",
@@ -117,17 +117,17 @@
                       -1500.0,
                       -1500.0
                     ],
-                    "2": [
+                    "3": [
                       1500.0,
-                      -1500.0
+                      1500.0
                     ],
                     "4": [
                       -1500.0,
                       1500.0
                     ],
-                    "3": [
+                    "2": [
                       1500.0,
-                      1500.0
+                      -1500.0
                     ]
                   },
                   "solved_profiles": [
@@ -153,12 +153,12 @@
               "references": []
             },
             {
-              "id": "2e77e26a-f383-4197-b680-5dcfe5453838",
+              "id": "9ecaf39e-46b8-4454-820d-8e36c9bf0191",
               "name": "Extrude 1",
               "operation": {
                 "type": "Extrude",
                 "params": {
-                  "sketch_id": "27a1f1de-cc8a-47c0-9c7f-b85b0b455a09",
+                  "sketch_id": "0c4d99c5-e2e2-4c27-9cc6-6dd99d457f12",
                   "profile_index": 0,
                   "depth": 2000.0,
                   "direction": null,
@@ -176,19 +176,19 @@
               "references": []
             },
             {
-              "id": "f6dd14e8-fee0-4eb7-807c-964c5dfd91c1",
+              "id": "cba8c28b-8534-45af-b2b3-ef59e7558119",
               "name": "Sketch 2",
               "operation": {
                 "type": "Sketch",
                 "sketch": {
-                  "id": "f6dd14e8-fee0-4eb7-807c-964c5dfd91c1",
+                  "id": "cba8c28b-8534-45af-b2b3-ef59e7558119",
                   "plane": {
                     "kind": {
                       "type": "Face"
                     },
                     "anchor": {
                       "type": "Datum",
-                      "datum_id": "ec69c306-884a-43ef-95bc-ac28fd7fcbe0"
+                      "datum_id": "63b431b5-68c0-4bfb-8d5a-5460183ee4dc"
                     },
                     "selector": {
                       "type": "Role",
@@ -256,12 +256,12 @@
               "references": []
             },
             {
-              "id": "f48895e9-ec82-4ca2-a760-a648a87f525f",
+              "id": "99cd12b4-8986-462c-8faa-f7b6972165c6",
               "name": "Extrude 2",
               "operation": {
                 "type": "Extrude",
                 "params": {
-                  "sketch_id": "f6dd14e8-fee0-4eb7-807c-964c5dfd91c1",
+                  "sketch_id": "cba8c28b-8534-45af-b2b3-ef59e7558119",
                   "profile_index": 0,
                   "depth": 1500.0,
                   "direction": null,
@@ -284,5 +284,5 @@
       }
     }
   ],
-  "active_tab": "5a4c5fd3-8741-4e93-843e-455c77e7d5d1"
+  "active_tab": "e1f3e2ec-c94f-4084-9bdd-e8b0d56fff39"
 }

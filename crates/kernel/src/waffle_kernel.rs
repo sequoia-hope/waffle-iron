@@ -1166,9 +1166,33 @@ impl WaffleKernel {
         angle_deg: f64,
     ) -> Result<KernelSolidHandle, KernelError> {
         let angle_rad = angle_deg.to_radians();
+        let tau_model = TAU_MODEL;
+
+        // Check 1: Reject degenerate (zero-length) axis direction
+        if v3_length(axis_direction) < tau_model {
+            return Err(KernelError::Other {
+                message: "revolve axis direction is degenerate (zero-length)".to_string(),
+            });
+        }
+
         let axis_dir = v3_normalize(axis_direction);
         let n = standalone.vertices.len();
-        let tau_model = TAU_MODEL;
+
+        // Check 2: Reject profiles with vertices on (or too close to) the axis
+        for v in &standalone.vertices {
+            let to_v = v3_sub(*v, axis_origin);
+            let along = v3_dot(to_v, axis_dir);
+            let perp = v3_sub(to_v, v3_scale(axis_dir, along));
+            let dist = v3_length(perp);
+            if dist < tau_model {
+                return Err(KernelError::Other {
+                    message: format!(
+                        "revolve self-intersection: profile vertex at distance {:.2e} from axis (min {:.2e})",
+                        dist, tau_model
+                    ),
+                });
+            }
+        }
 
         // Profile edge validation removed: all edge orientations are now valid.
         // Axis-aligned edges produce cylindrical/planar faces; tilted edges produce

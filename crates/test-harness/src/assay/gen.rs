@@ -20,7 +20,7 @@ use file_format::save::save_project;
 use waffle_types::{CircleProfile, ClosedProfile, Sketch, SketchEntity, SolveStatus};
 
 /// Generator version — bump when output format changes.
-pub const GENERATOR_VERSION: u32 = 2;
+pub const GENERATOR_VERSION: u32 = 3;
 
 // ── Configuration ──────────────────────────────────────────────────────────
 
@@ -593,7 +593,25 @@ pub fn generate_case(master_seed: u64, index: usize) -> GeneratedCase {
                 references: vec![],
             }
         } else {
-            // Revolve: place axis offset from profile center to avoid self-intersection
+            // Revolve: compute in-plane tangent vector for axis direction.
+            // Use the same algorithm as compute_plane_basis: cross normal with
+            // the least-aligned world axis to get a vector that lies in the sketch plane.
+            let tangent = {
+                let n = op_normal;
+                let helper = if n[0].abs() < n[1].abs().min(n[2].abs()) {
+                    [1.0, 0.0, 0.0]
+                } else if n[1].abs() < n[2].abs() {
+                    [0.0, 1.0, 0.0]
+                } else {
+                    [0.0, 0.0, 1.0]
+                };
+                let tx = n[1] * helper[2] - n[2] * helper[1];
+                let ty = n[2] * helper[0] - n[0] * helper[2];
+                let tz = n[0] * helper[1] - n[1] * helper[0];
+                let len = (tx * tx + ty * ty + tz * tz).sqrt();
+                [tx / len, ty / len, tz / len]
+            };
+            // Offset axis 1.5× profile_size along tangent to keep entire profile on one side
             let axis_offset = profile_size * 1.5;
             Feature {
                 id: Uuid::new_v4(),
@@ -603,11 +621,11 @@ pub fn generate_case(master_seed: u64, index: usize) -> GeneratedCase {
                         sketch_id,
                         profile_index: 0,
                         axis_origin: [
-                            op_origin[0] + axis_offset * op_normal[1],
-                            op_origin[1] - axis_offset * op_normal[0],
-                            op_origin[2],
+                            op_origin[0] + axis_offset * tangent[0],
+                            op_origin[1] + axis_offset * tangent[1],
+                            op_origin[2] + axis_offset * tangent[2],
                         ],
-                        axis_direction: [op_normal[1], -op_normal[0], 0.0],
+                        axis_direction: tangent,
                         angle: depth_or_angle,
                         cut: is_cut,
                         merge: true,
@@ -1037,6 +1055,9 @@ pub fn generate_featured_cases(output_dir: &std::path::Path) -> Vec<ManifestEntr
 
     // Append chained extrude cases (F0063-F0072)
     entries.extend(generate_chained_extrude_cases(output_dir));
+
+    // Append revolve self-intersection cases (F0073-F0075)
+    entries.extend(generate_revolve_self_intersection_cases(output_dir));
 
     entries
 }
@@ -2691,6 +2712,314 @@ fn chained_profile_shape(rng: &mut impl Rng, s: f64, step: usize) -> (ProfileDat
     }
 }
 
+// ── Revolve Self-Intersection Cases (F0073-F0075) ─────────────────────────
+
+/// Generate 3 revolve self-intersection test cases:
+/// - F0073: axis through profile center (error expected)
+/// - F0074: axis barely inside profile (error expected)
+/// - F0075: valid revolve with properly offset axis (regression guard)
+fn generate_revolve_self_intersection_cases(output_dir: &std::path::Path) -> Vec<ManifestEntry> {
+    let mut entries = Vec::new();
+    let origin = [0.0, 0.0, 0.0];
+    let normal = [0.0, 0.0, 1.0];
+
+    // F0073: Rect boss + revolve with axis through profile center → error
+    {
+        let mut features = Vec::new();
+        let (_, box_feats) = build_sketch_extrude(
+            "Box Sketch",
+            "Box Extrude",
+            origin,
+            normal,
+            rect_profile(0.0, 0.0, 1.0, 1.0),
+            0.5,
+            false,
+            false,
+        );
+        features.extend(box_feats);
+
+        // Revolve sketch + revolve with axis at origin (through profile center)
+        let sketch_id = Uuid::new_v4();
+        let (entities, positions, profiles) = rect_profile(0.0, 0.0, 0.4, 0.4);
+        features.push(Feature {
+            id: sketch_id,
+            name: "Revolve Sketch".to_string(),
+            operation: Operation::Sketch {
+                sketch: Sketch {
+                    id: sketch_id,
+                    plane: datum_plane_ref(Uuid::new_v4()),
+                    plane_origin: origin,
+                    plane_normal: normal,
+                    entities,
+                    constraints: vec![],
+                    solve_status: SolveStatus::FullyConstrained,
+                    solved_positions: positions,
+                    solved_profiles: profiles,
+                },
+            },
+            suppressed: false,
+            references: vec![],
+        });
+        features.push(Feature {
+            id: Uuid::new_v4(),
+            name: "Revolve Center".to_string(),
+            operation: Operation::Revolve {
+                params: RevolveParams {
+                    sketch_id,
+                    profile_index: 0,
+                    axis_origin: [0.0, 0.0, 0.0], // through profile center
+                    axis_direction: [0.0, 1.0, 0.0],
+                    angle: 180.0,
+                    cut: false,
+                    merge: true,
+                },
+            },
+            suppressed: false,
+            references: vec![],
+        });
+
+        let meta = AssayMeta {
+            id: "F0073".to_string(),
+            description: "2 ops, scale=1.00e0, extrude(rectangle,boss)+revolve(rectangle,axis-through-center) — self-intersection error".to_string(),
+            master_seed: 0,
+            test_seed: 20001,
+            scale: 1.0,
+            log_scale: 0.0,
+            plane_origin: origin,
+            plane_normal: normal,
+            operations: vec![
+                OpMeta {
+                    kind: "extrude".to_string(),
+                    profile_type: "rectangle".to_string(),
+                    profile_size: 1.0,
+                    depth_or_angle: 0.5,
+                    is_cut: false,
+                    plane_origin: None,
+                    plane_normal: None,
+                },
+                OpMeta {
+                    kind: "revolve".to_string(),
+                    profile_type: "rectangle".to_string(),
+                    profile_size: 0.4,
+                    depth_or_angle: 180.0,
+                    is_cut: false,
+                    plane_origin: None,
+                    plane_normal: None,
+                },
+            ],
+            oracles: OracleExpectations {
+                euler_target: 2,
+                expect_watertight: true,
+                max_bbox_extent: 10.0,
+                expect_positive_volume: true,
+                volume_monotonicity: vec!["increase".to_string(), "error".to_string()],
+                expect_rebuild_error: true,
+            },
+            generator_version: GENERATOR_VERSION,
+            featured: true,
+        };
+        entries.push(write_featured_case(output_dir, "F0073", features, meta));
+    }
+
+    // F0074: Circle boss + revolve with axis barely inside profile → error
+    {
+        let mut features = Vec::new();
+        let (_, box_feats) = build_sketch_extrude(
+            "Box Sketch",
+            "Box Extrude",
+            origin,
+            normal,
+            rect_profile(0.0, 0.0, 1.0, 1.0),
+            0.5,
+            false,
+            false,
+        );
+        features.extend(box_feats);
+
+        // Revolve sketch with axis offset only 0.01 from center (still inside profile)
+        let sketch_id = Uuid::new_v4();
+        let (entities, positions, profiles) = rect_profile(0.0, 0.0, 0.4, 0.4);
+        features.push(Feature {
+            id: sketch_id,
+            name: "Revolve Sketch".to_string(),
+            operation: Operation::Sketch {
+                sketch: Sketch {
+                    id: sketch_id,
+                    plane: datum_plane_ref(Uuid::new_v4()),
+                    plane_origin: origin,
+                    plane_normal: normal,
+                    entities,
+                    constraints: vec![],
+                    solve_status: SolveStatus::FullyConstrained,
+                    solved_positions: positions,
+                    solved_profiles: profiles,
+                },
+            },
+            suppressed: false,
+            references: vec![],
+        });
+        features.push(Feature {
+            id: Uuid::new_v4(),
+            name: "Revolve Near".to_string(),
+            operation: Operation::Revolve {
+                params: RevolveParams {
+                    sketch_id,
+                    profile_index: 0,
+                    axis_origin: [0.2, 0.0, 0.0], // axis through vertex at (0.2, ±0.2)
+                    axis_direction: [0.0, 0.0, 1.0], // along Z — vertex (0.2,-0.2) has perp dist 0
+                    angle: 270.0,
+                    cut: false,
+                    merge: true,
+                },
+            },
+            suppressed: false,
+            references: vec![],
+        });
+
+        let meta = AssayMeta {
+            id: "F0074".to_string(),
+            description: "2 ops, scale=1.00e0, extrude(rectangle,boss)+revolve(rectangle,axis-near-vertex) — self-intersection error".to_string(),
+            master_seed: 0,
+            test_seed: 20002,
+            scale: 1.0,
+            log_scale: 0.0,
+            plane_origin: origin,
+            plane_normal: normal,
+            operations: vec![
+                OpMeta {
+                    kind: "extrude".to_string(),
+                    profile_type: "rectangle".to_string(),
+                    profile_size: 1.0,
+                    depth_or_angle: 0.5,
+                    is_cut: false,
+                    plane_origin: None,
+                    plane_normal: None,
+                },
+                OpMeta {
+                    kind: "revolve".to_string(),
+                    profile_type: "rectangle".to_string(),
+                    profile_size: 0.4,
+                    depth_or_angle: 270.0,
+                    is_cut: false,
+                    plane_origin: None,
+                    plane_normal: None,
+                },
+            ],
+            oracles: OracleExpectations {
+                euler_target: 2,
+                expect_watertight: true,
+                max_bbox_extent: 10.0,
+                expect_positive_volume: true,
+                volume_monotonicity: vec!["increase".to_string(), "error".to_string()],
+                expect_rebuild_error: true,
+            },
+            generator_version: GENERATOR_VERSION,
+            featured: true,
+        };
+        entries.push(write_featured_case(output_dir, "F0074", features, meta));
+    }
+
+    // F0075: Rect boss + valid revolve with properly offset axis (regression guard)
+    {
+        let mut features = Vec::new();
+        let (_, box_feats) = build_sketch_extrude(
+            "Box Sketch",
+            "Box Extrude",
+            origin,
+            normal,
+            rect_profile(0.0, 0.0, 1.0, 1.0),
+            0.5,
+            false,
+            false,
+        );
+        features.extend(box_feats);
+
+        // Revolve sketch with axis well offset from profile
+        let sketch_id = Uuid::new_v4();
+        let (entities, positions, profiles) = rect_profile(0.0, 0.0, 0.4, 0.4);
+        features.push(Feature {
+            id: sketch_id,
+            name: "Revolve Sketch".to_string(),
+            operation: Operation::Sketch {
+                sketch: Sketch {
+                    id: sketch_id,
+                    plane: datum_plane_ref(Uuid::new_v4()),
+                    plane_origin: origin,
+                    plane_normal: normal,
+                    entities,
+                    constraints: vec![],
+                    solve_status: SolveStatus::FullyConstrained,
+                    solved_positions: positions,
+                    solved_profiles: profiles,
+                },
+            },
+            suppressed: false,
+            references: vec![],
+        });
+        features.push(Feature {
+            id: Uuid::new_v4(),
+            name: "Revolve Offset".to_string(),
+            operation: Operation::Revolve {
+                params: RevolveParams {
+                    sketch_id,
+                    profile_index: 0,
+                    axis_origin: [1.0, 0.0, 0.0], // well clear of profile (closest vertex at 0.8)
+                    axis_direction: [0.0, 1.0, 0.0],
+                    angle: 180.0,
+                    cut: false,
+                    merge: true,
+                },
+            },
+            suppressed: false,
+            references: vec![],
+        });
+
+        let meta = AssayMeta {
+            id: "F0075".to_string(),
+            description: "2 ops, scale=1.00e0, extrude(rectangle,boss)+revolve(rectangle,offset-axis) — valid revolve".to_string(),
+            master_seed: 0,
+            test_seed: 20003,
+            scale: 1.0,
+            log_scale: 0.0,
+            plane_origin: origin,
+            plane_normal: normal,
+            operations: vec![
+                OpMeta {
+                    kind: "extrude".to_string(),
+                    profile_type: "rectangle".to_string(),
+                    profile_size: 1.0,
+                    depth_or_angle: 0.5,
+                    is_cut: false,
+                    plane_origin: None,
+                    plane_normal: None,
+                },
+                OpMeta {
+                    kind: "revolve".to_string(),
+                    profile_type: "rectangle".to_string(),
+                    profile_size: 0.4,
+                    depth_or_angle: 180.0,
+                    is_cut: false,
+                    plane_origin: None,
+                    plane_normal: None,
+                },
+            ],
+            oracles: OracleExpectations {
+                euler_target: 2,
+                expect_watertight: true,
+                max_bbox_extent: 20.0,
+                expect_positive_volume: true,
+                volume_monotonicity: vec!["increase".to_string(), "increase".to_string()],
+                expect_rebuild_error: false,
+            },
+            generator_version: GENERATOR_VERSION,
+            featured: true,
+        };
+        entries.push(write_featured_case(output_dir, "F0075", features, meta));
+    }
+
+    entries
+}
+
 // ── Corpus Generation ──────────────────────────────────────────────────────
 
 /// Generate a full corpus of test cases and write them to disk.
@@ -2937,12 +3266,12 @@ mod tests {
     }
 
     #[test]
-    fn featured_case_ids_f0026_to_f0072() {
+    fn featured_case_ids_f0026_to_f0075() {
         let dir = tempfile::tempdir().unwrap();
         let entries = generate_featured_cases(dir.path());
         let ids: Vec<&str> = entries.iter().map(|e| e.id.as_str()).collect();
-        // Check that F0026-F0072 are all present
-        for n in 26..=72 {
+        // Check that F0026-F0075 are all present
+        for n in 26..=75 {
             let expected = format!("F{:04}", n);
             assert!(
                 ids.contains(&expected.as_str()),
@@ -2950,8 +3279,8 @@ mod tests {
                 expected
             );
         }
-        // Total: F0001-F0010 (10) + F0011-F0015 (5) + F0016-F0025 (10) + F0026-F0062 (37) + F0063-F0072 (10) = 72
-        assert_eq!(entries.len(), 72, "expected 72 featured cases");
+        // Total: F0001-F0010 (10) + F0011-F0015 (5) + F0016-F0025 (10) + F0026-F0062 (37) + F0063-F0072 (10) + F0073-F0075 (3) = 75
+        assert_eq!(entries.len(), 75, "expected 75 featured cases");
     }
 
     #[test]
@@ -3001,8 +3330,8 @@ mod tests {
     }
 
     #[test]
-    fn generator_version_is_2() {
-        assert_eq!(GENERATOR_VERSION, 2);
+    fn generator_version_is_3() {
+        assert_eq!(GENERATOR_VERSION, 3);
     }
 
     #[test]

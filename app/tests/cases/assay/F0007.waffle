@@ -3,31 +3,31 @@
   "version": 3,
   "document": {
     "name": "Assay F0007",
-    "created": "2026-03-27T19:11:30.746676519Z",
-    "modified": "2026-03-27T19:11:30.746676519Z"
+    "created": "2026-03-27T21:22:04.993997086Z",
+    "modified": "2026-03-27T21:22:04.993997086Z"
   },
   "tabs": [
     {
-      "id": "a8bc3044-b42f-4ca5-935a-62ed917c7797",
+      "id": "4427abc2-5b1b-4288-9cdf-5d9c99001e67",
       "name": "Part 1",
       "kind": {
         "type": "Part",
         "features": {
           "features": [
             {
-              "id": "f95ae682-509d-4971-b98a-5f863aa53216",
+              "id": "a5c741f8-dfe3-46d4-b046-ca4605fe1696",
               "name": "Sketch 1",
               "operation": {
                 "type": "Sketch",
                 "sketch": {
-                  "id": "f95ae682-509d-4971-b98a-5f863aa53216",
+                  "id": "a5c741f8-dfe3-46d4-b046-ca4605fe1696",
                   "plane": {
                     "kind": {
                       "type": "Face"
                     },
                     "anchor": {
                       "type": "Datum",
-                      "datum_id": "f525df3f-fa55-4765-bb7d-b6d9b872bc59"
+                      "datum_id": "e6b89131-8b2e-4d2b-932e-fc94ac5b5426"
                     },
                     "selector": {
                       "type": "Role",
@@ -153,12 +153,12 @@
               "references": []
             },
             {
-              "id": "19935b4a-1792-4103-bc21-1fff3a6b9e0e",
+              "id": "f352c4d2-5a2f-42dd-a7a0-896166059b1d",
               "name": "Extrude 1",
               "operation": {
                 "type": "Extrude",
                 "params": {
-                  "sketch_id": "f95ae682-509d-4971-b98a-5f863aa53216",
+                  "sketch_id": "a5c741f8-dfe3-46d4-b046-ca4605fe1696",
                   "profile_index": 0,
                   "depth": 4.0,
                   "direction": null,
@@ -176,19 +176,19 @@
               "references": []
             },
             {
-              "id": "d31a5621-0a97-49e3-936a-6855dfda0fd8",
+              "id": "c98bb038-d18a-4394-93d2-13fece15be29",
               "name": "Sketch 2",
               "operation": {
                 "type": "Sketch",
                 "sketch": {
-                  "id": "d31a5621-0a97-49e3-936a-6855dfda0fd8",
+                  "id": "c98bb038-d18a-4394-93d2-13fece15be29",
                   "plane": {
                     "kind": {
                       "type": "Face"
                     },
                     "anchor": {
                       "type": "Datum",
-                      "datum_id": "b131feca-4161-4e7f-b918-262f7e67882c"
+                      "datum_id": "eeba029f-9c84-4702-843b-26cb1dc7620b"
                     },
                     "selector": {
                       "type": "Role",
@@ -282,13 +282,13 @@
                       1.5,
                       1.5
                     ],
-                    "2": [
-                      1.5,
-                      -1.5
-                    ],
                     "4": [
                       -1.5,
                       1.5
+                    ],
+                    "2": [
+                      1.5,
+                      -1.5
                     ]
                   },
                   "solved_profiles": [
@@ -314,12 +314,12 @@
               "references": []
             },
             {
-              "id": "c141afb6-fc4e-4458-a078-5c413613d3f6",
+              "id": "1563fb74-cd3d-47d2-9e91-6cbba3d1a27e",
               "name": "Extrude 2",
               "operation": {
                 "type": "Extrude",
                 "params": {
-                  "sketch_id": "d31a5621-0a97-49e3-936a-6855dfda0fd8",
+                  "sketch_id": "c98bb038-d18a-4394-93d2-13fece15be29",
                   "profile_index": 0,
                   "depth": 2.0,
                   "direction": null,
@@ -342,5 +342,5 @@
       }
     }
   ],
-  "active_tab": "a8bc3044-b42f-4ca5-935a-62ed917c7797"
+  "active_tab": "4427abc2-5b1b-4288-9cdf-5d9c99001e67"
 }

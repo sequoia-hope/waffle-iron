@@ -52,6 +52,6 @@
     ],
     "expect_rebuild_error": false
   },
-  "generator_version": 2,
+  "generator_version": 3,
   "featured": false
 }
