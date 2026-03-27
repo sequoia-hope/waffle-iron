@@ -1,8 +1,8 @@
 {
-  "errored": 17,
-  "failed": 89,
+  "errored": 12,
+  "failed": 96,
   "generated": "2026-03-27",
-  "passed": 66,
+  "passed": 67,
   "results": [
     {
       "category": "auto-union-failed",
@@ -18,13 +18,13 @@
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 7a56ef97-a774-4dee-90c3-4fc502601f20: operation error: kernel error: operation not supported: polygon boolean: 13448 total faces exceeds limit (8000)",
+      "detail": "partial rebuild (1 error(s)): 272e205b-8a51-41f8-be07-6abaecc1c8e7: operation error: kernel error: operation not supported: polygon boolean: 13448 total faces exceeds limit (8000)",
       "id": "R0003",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); consistent_normals: 0 of 0 triangles have reversed normals; unit_normals: 16 of 73744 normals are not unit length; face_range_coverage: no face ranges defined; outward_normals: no valid triangles; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"revolve\", \"rectangle\"), (\"extrude\", \"gear\")]; volume_magnitude: volume 0.000000e0 outside [2.869500e-8, 2.869500e8] for scale 1.421026e0",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); unit_normals: 16 of 528 normals are not unit length",
       "id": "R0004",
       "status": "fail"
     },
@@ -47,10 +47,10 @@
       "status": "fail"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 44 unpaired edges out of 5839 total; mesh_euler_characteristic: V(1939) - E(5839) + F(3878) = -22 (expected 2)",
       "id": "R0008",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "multiple-failures",
@@ -60,7 +60,7 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); volume_magnitude: volume 2.548968e-3 outside [2.281929e-2, 2.281929e14] for scale 1.316540e2",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); volume_magnitude: volume 3.254130e-3 outside [2.281929e-2, 2.281929e14] for scale 1.316540e2",
       "id": "R0010",
       "status": "fail"
     },
@@ -89,10 +89,10 @@
       "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): 1722c3cd-d7c0-446d-aac5-944d60eb9daa: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 1.92e-20 from axis (min 1.00e-7); watertight_mesh: 559 unpaired edges out of 23184 total (431 boundary, 128 non-manifold); no_degenerate_triangles: 10 of 15644 triangles are degenerate; unit_normals: 20 of 223862 normals are not unit length; mesh_euler_characteristic: V(8672) - E(23184) + F(15644) = 1132 (expected 2)",
       "id": "R0015",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "cascading-failure",
@@ -101,10 +101,10 @@
       "status": "error"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 9 unpaired edges out of 651 total; mesh_euler_characteristic: V(161) - E(651) + F(431) = -59 (expected 2)",
       "id": "R0017",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "pass-genuine",
@@ -114,15 +114,15 @@
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 0793c345-7a51-429e-a06b-8bb4fd23f0bc: operation error: kernel error: operation not supported: polygon boolean: 20644 total faces exceeds limit (8000)",
+      "detail": "partial rebuild (1 error(s)): 95921679-50bd-4330-96f5-1a32f7225101: operation error: kernel error: operation not supported: polygon boolean: 20644 total faces exceeds limit (8000)",
       "id": "R0019",
       "status": "fail"
     },
     {
-      "category": "revolve-normals",
-      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: no valid triangles; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\")]; volume_magnitude: volume 0.000000e0 outside [1.198368e-3, 1.198368e13] for scale 4.930187e1",
+      "category": "pass-genuine",
+      "detail": "8 oracles passed",
       "id": "R0020",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "multiple-failures",
@@ -156,7 +156,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 85 unpaired edges out of 15323 total (84 boundary, 1 non-manifold); unit_normals: 272 of 31503 normals are not unit length; mesh_euler_characteristic: V(4743) - E(15323) + F(10188) = -392 (expected 2)",
+      "detail": "watertight_mesh: 99 unpaired edges out of 13374 total; unit_normals: 334 of 29227 normals are not unit length; mesh_euler_characteristic: V(4464) - E(13374) + F(8883) = -27 (expected 2)",
       "id": "R0026",
       "status": "fail"
     },
@@ -192,7 +192,7 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; partial rebuild (1 error(s)): 8c8e168d-ecbf-4f24-a71b-c1ddb59ca815: operation error: kernel error: operation not supported: polygon boolean: 20868 total faces exceeds limit (8000); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; partial rebuild (1 error(s)): 5f09324b-d1c0-4690-93b1-e1df084c861d: operation error: kernel error: operation not supported: polygon boolean: 20868 total faces exceeds limit (8000); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
       "id": "R0032",
       "status": "fail"
     },
@@ -204,7 +204,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 680 unpaired edges out of 26644 total; mesh_euler_characteristic: V(9112) - E(26644) + F(17536) = 4 (expected 2)",
+      "detail": "watertight_mesh: 560 unpaired edges out of 27160 total; mesh_euler_characteristic: V(9240) - E(27160) + F(17920) = 0 (expected 2)",
       "id": "R0034",
       "status": "fail"
     },
@@ -228,7 +228,7 @@
     },
     {
       "category": "revolve-normals",
-      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; unit_normals: 8 of 72208 normals are not unit length; face_range_coverage: no face ranges defined; outward_normals: no valid triangles; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"revolve\", \"rectangle\"), (\"revolve\", \"circle\")]; volume_magnitude: volume 0.000000e0 outside [2.447684e-5, 2.447684e11] for scale 1.347675e1",
+      "detail": "partial rebuild (1 error(s)): 8db8671d-197a-4c4e-80a7-1076904ad65d: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 8.01e-16 from axis (min 1.00e-7); consistent_normals: 0 of 0 triangles have reversed normals; unit_normals: 8 of 71440 normals are not unit length; face_range_coverage: no face ranges defined; outward_normals: no valid triangles; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"revolve\", \"rectangle\"), (\"revolve\", \"circle\")]; volume_magnitude: volume 0.000000e0 outside [2.447684e-5, 2.447684e11] for scale 1.347675e1",
       "id": "R0038",
       "status": "fail"
     },
@@ -264,7 +264,7 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: polygon boolean: 14468 total faces exceeds limit (8000). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 1040 unpaired edges out of 43144 total; mesh_euler_characteristic: V(14728) - E(43144) + F(28416) = 0 (expected 2)",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: polygon boolean: 14468 total faces exceeds limit (8000). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 898 unpaired edges out of 43454 total; mesh_euler_characteristic: V(14784) - E(43454) + F(28670) = 0 (expected 2)",
       "id": "R0044",
       "status": "fail"
     },
@@ -276,15 +276,15 @@
     },
     {
       "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(204) - E(582) + F(388) = 10 (expected 2)",
+      "detail": "partial rebuild (1 error(s)): 78d8b945-c8cf-4d50-8a34-8c05601cbc51: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 2.78e-17 from axis (min 1.00e-7); mesh_euler_characteristic: V(68) - E(192) + F(128) = 4 (expected 2)",
       "id": "R0046",
       "status": "fail"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "multiple-failures",
+      "detail": "partial rebuild (1 error(s)): a64842e9-98c5-41bb-a0b0-a8174d08d34a: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 2.79e-20 from axis (min 1.00e-7)",
       "id": "R0047",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "pass-genuine",
@@ -293,22 +293,22 @@
       "status": "pass"
     },
     {
-      "category": "revolve-normals",
-      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; unit_normals: 32 of 47264 normals are not unit length; face_range_coverage: no face ranges defined; outward_normals: no valid triangles; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"gear\")]; volume_magnitude: volume 0.000000e0 outside [8.017676e-16, 8.017676e0] for scale 4.312040e-3",
+      "category": "multiple-failures",
+      "detail": "unit_normals: 16 of 528 normals are not unit length",
       "id": "R0049",
       "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "multiple-failures",
+      "detail": "partial rebuild (2 error(s)): 00ae0f23-b87e-4fa0-addf-923a23a86f51: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 4.44e-16 from axis (min 1.00e-7); 1b2c9101-a3a9-4e6b-bbb4-feb328f97c8a: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 1.78e-15 from axis (min 1.00e-7)",
       "id": "R0050",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): 6cd03fda-4923-4327-9cf9-2ac847fd0ea8: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 4.85e-19 from axis (min 1.00e-7); watertight_mesh: 18 unpaired edges out of 13383 total; unit_normals: 20 of 115682 normals are not unit length; mesh_euler_characteristic: V(6140) - E(13383) + F(8916) = 1673 (expected 2)",
       "id": "R0051",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "auto-union-failed",
@@ -323,14 +323,14 @@
       "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: polygon boolean: 17032 total faces exceeds limit (8000). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
       "id": "R0054",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(42) - E(111) + F(74) = 5 (expected 2)",
+      "detail": "mesh_euler_characteristic: V(871) - E(2601) + F(1734) = 4 (expected 2)",
       "id": "R0055",
       "status": "fail"
     },
@@ -341,8 +341,8 @@
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 135 unpaired edges out of 25032 total; mesh_euler_characteristic: V(8389) - E(25032) + F(16643) = 0 (expected 2)",
+      "category": "multiple-failures",
+      "detail": "partial rebuild (1 error(s)): 2d7f0860-6476-43de-b191-c0fbc71eab50: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 0.00e0 from axis (min 1.00e-7)",
       "id": "R0057",
       "status": "fail"
     },
@@ -353,8 +353,8 @@
       "status": "pass"
     },
     {
-      "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(7780) - E(23322) + F(15548) = 6 (expected 2)",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 131 unpaired edges out of 18337 total; mesh_euler_characteristic: V(6161) - E(18337) + F(12181) = 5 (expected 2)",
       "id": "R0059",
       "status": "fail"
     },
@@ -420,13 +420,13 @@
     },
     {
       "category": "revolve-normals",
-      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; unit_normals: 16 of 40208 normals are not unit length; face_range_coverage: no face ranges defined; outward_normals: no valid triangles; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"gear\"), (\"extrude\", \"circle\")]; volume_magnitude: volume 0.000000e0 outside [5.261258e-14, 5.261258e2] for scale 1.739255e-2",
+      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; unit_normals: 16 of 72592 normals are not unit length; face_range_coverage: no face ranges defined; outward_normals: no valid triangles; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"gear\"), (\"extrude\", \"circle\")]; volume_magnitude: volume 0.000000e0 outside [5.261258e-14, 5.261258e2] for scale 1.739255e-2",
       "id": "R0070",
       "status": "fail"
     },
     {
       "category": "tessellation-degenerate",
-      "detail": "partial rebuild (1 error(s)): 11242d1f-574e-4964-a7ed-7d0f4d4cc27a: operation error: kernel error: operation not supported: polygon boolean: 8572 total faces exceeds limit (8000); no_degenerate_triangles: 648 of 2012 triangles are degenerate",
+      "detail": "partial rebuild (1 error(s)): c8c4abac-1ab3-45f7-bc7b-63823a06d4b6: operation error: kernel error: operation not supported: polygon boolean: 8572 total faces exceeds limit (8000); no_degenerate_triangles: 648 of 2012 triangles are degenerate",
       "id": "R0071",
       "status": "fail"
     },
@@ -576,7 +576,7 @@
     },
     {
       "category": "multiple-failures",
-      "detail": "unit_normals: 256 of 8448 normals are not unit length",
+      "detail": "partial rebuild (1 error(s)): 41188e3c-9c9d-4713-bbfd-ce66cdc7a559: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 2.74e-18 from axis (min 1.00e-7)",
       "id": "R0096",
       "status": "fail"
     },
@@ -600,7 +600,7 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); volume_magnitude: volume 9.886150e-3 outside [1.132784e-1, 1.132784e15] for scale 2.245859e2",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
       "id": "R0100",
       "status": "fail"
     },
@@ -1035,7 +1035,25 @@
       "detail": "timeout after 90s",
       "id": "F0072",
       "status": "error"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "expected rebuild error (disjoint operands): 3af826a0-6097-452c-a96d-5fc7d94b6f08: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 0.00e0 from axis (min 1.00e-7)",
+      "id": "F0073",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "expected rebuild error (disjoint operands): 2755ea9f-baef-4531-a4fc-355faa3744ee: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 0.00e0 from axis (min 1.00e-7)",
+      "id": "F0074",
+      "status": "pass"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 4 unpaired edges out of 584 total; unit_normals: 32 of 19016 normals are not unit length; mesh_euler_characteristic: V(197) - E(584) + F(388) = 1 (expected 2)",
+      "id": "F0075",
+      "status": "fail"
     }
   ],
-  "total": 172
+  "total": 175
 }
