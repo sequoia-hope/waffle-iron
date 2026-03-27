@@ -3,31 +3,31 @@
   "version": 3,
   "document": {
     "name": "Assay R0029",
-    "created": "2026-03-26T23:57:19.215142428Z",
-    "modified": "2026-03-26T23:57:19.215142428Z"
+    "created": "2026-03-27T09:24:12.712852251Z",
+    "modified": "2026-03-27T09:24:12.712852251Z"
   },
   "tabs": [
     {
-      "id": "9bddcc67-8f49-4637-a187-4aa3325b3204",
+      "id": "6a423a65-fa8f-481a-bc60-96695c2abc7c",
       "name": "Part 1",
       "kind": {
         "type": "Part",
         "features": {
           "features": [
             {
-              "id": "3f7b2f95-622b-4172-9171-6f00b74c1afd",
+              "id": "2d8d3ed1-f17c-4e8e-9368-4a79b714178d",
               "name": "Sketch 1",
               "operation": {
                 "type": "Sketch",
                 "sketch": {
-                  "id": "3f7b2f95-622b-4172-9171-6f00b74c1afd",
+                  "id": "2d8d3ed1-f17c-4e8e-9368-4a79b714178d",
                   "plane": {
                     "kind": {
                       "type": "Face"
                     },
                     "anchor": {
                       "type": "Datum",
-                      "datum_id": "c49db581-9ad3-4be1-ad1f-7527e3a60e79"
+                      "datum_id": "e0487816-90b8-44cd-b6ff-90fac894a148"
                     },
                     "selector": {
                       "type": "Role",
@@ -113,20 +113,20 @@
                     "type": "FullyConstrained"
                   },
                   "solved_positions": {
-                    "4": [
-                      -154.50163002322333,
-                      63.901502581203125
-                    ],
-                    "1": [
-                      -154.50163002322333,
-                      -63.901502581203125
-                    ],
                     "3": [
                       154.50163002322333,
                       63.901502581203125
                     ],
                     "2": [
                       154.50163002322333,
+                      -63.901502581203125
+                    ],
+                    "4": [
+                      -154.50163002322333,
+                      63.901502581203125
+                    ],
+                    "1": [
+                      -154.50163002322333,
                       -63.901502581203125
                     ]
                   },
@@ -153,12 +153,12 @@
               "references": []
             },
             {
-              "id": "a112e0e4-72e5-4593-8b2a-779e03ae157d",
+              "id": "51749cc7-9b83-40cb-8733-e01c98b2d304",
               "name": "Extrude 1",
               "operation": {
                 "type": "Extrude",
                 "params": {
-                  "sketch_id": "3f7b2f95-622b-4172-9171-6f00b74c1afd",
+                  "sketch_id": "2d8d3ed1-f17c-4e8e-9368-4a79b714178d",
                   "profile_index": 0,
                   "depth": 331.986830205466,
                   "direction": null,
@@ -176,19 +176,19 @@
               "references": []
             },
             {
-              "id": "0b1d8a4e-fc5c-47b0-a7f0-71f17e482a49",
+              "id": "9f1042de-4763-4bfd-99c7-162308a89054",
               "name": "Sketch 2",
               "operation": {
                 "type": "Sketch",
                 "sketch": {
-                  "id": "0b1d8a4e-fc5c-47b0-a7f0-71f17e482a49",
+                  "id": "9f1042de-4763-4bfd-99c7-162308a89054",
                   "plane": {
                     "kind": {
                       "type": "Face"
                     },
                     "anchor": {
                       "type": "Datum",
-                      "datum_id": "4b613cd3-24ba-4d73-84e9-1bcba47a8767"
+                      "datum_id": "1dd83da0-25ab-40cc-a459-0aa06fd38f39"
                     },
                     "selector": {
                       "type": "Role",
@@ -274,20 +274,20 @@
                     "type": "FullyConstrained"
                   },
                   "solved_positions": {
-                    "3": [
-                      127.28569477718096,
-                      48.65675313112407
-                    ],
-                    "1": [
+                    "4": [
                       -127.28569477718096,
-                      -48.65675313112407
+                      48.65675313112407
                     ],
                     "2": [
                       127.28569477718096,
                       -48.65675313112407
                     ],
-                    "4": [
+                    "1": [
                       -127.28569477718096,
+                      -48.65675313112407
+                    ],
+                    "3": [
+                      127.28569477718096,
                       48.65675313112407
                     ]
                   },
@@ -314,12 +314,12 @@
               "references": []
             },
             {
-              "id": "4a1cd1e0-69c3-4f2b-9bbc-072432c5de9d",
+              "id": "50cdd0d8-af6d-4e5a-bf96-92a69672e5db",
               "name": "Extrude 2",
               "operation": {
                 "type": "Extrude",
                 "params": {
-                  "sketch_id": "0b1d8a4e-fc5c-47b0-a7f0-71f17e482a49",
+                  "sketch_id": "9f1042de-4763-4bfd-99c7-162308a89054",
                   "profile_index": 0,
                   "depth": 217.6105782332849,
                   "direction": null,
@@ -342,5 +342,5 @@
       }
     }
   ],
-  "active_tab": "9bddcc67-8f49-4637-a187-4aa3325b3204"
+  "active_tab": "6a423a65-fa8f-481a-bc60-96695c2abc7c"
 }

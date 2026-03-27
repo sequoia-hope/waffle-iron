@@ -10,6 +10,7 @@ use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::*;
 use crate::types::*;
 use crate::units::{
+    COS_HOLE_COHERENCE, HOLE_CIRCULARITY_CV, HOLE_FILL_COHERENCE_MIN_EDGES, HOLE_PLANARITY_RATIO,
     MIN_FEATURE_SIZE, TAU_COINCIDENT, TAU_MODEL, TAU_NORMALIZE, TAU_TESS_GRID_FACTOR,
     TAU_TESS_GRID_MIN, TAU_WORK,
 };
@@ -1494,12 +1495,50 @@ fn is_smooth_edge(
     let face_b = arena.loops[arena.half_edges[he_b.0].loop_.0].face;
 
     match (face_geometry.get(&face_a), face_geometry.get(&face_b)) {
+        (Some(SurfaceGeom::Planar(pa)), Some(SurfaceGeom::Planar(pb))) => {
+            // Co-planar: same normal direction and same plane distance from origin
+            let normal_match = v3_dot(
+                [pa.normal.x, pa.normal.y, pa.normal.z],
+                [pb.normal.x, pb.normal.y, pb.normal.z],
+            )
+            .abs()
+                > 1.0 - TAU_MODEL;
+            let diff = [
+                pb.origin.x - pa.origin.x,
+                pb.origin.y - pa.origin.y,
+                pb.origin.z - pa.origin.z,
+            ];
+            let distance_match =
+                v3_dot(diff, [pa.normal.x, pa.normal.y, pa.normal.z]).abs() < TAU_MODEL;
+            normal_match && distance_match
+        }
         (Some(SurfaceGeom::Cylindrical(ca)), Some(SurfaceGeom::Cylindrical(cb))) => {
             // Same cylinder: same origin, axis, and radius (within tolerance)
             let origin_match = ca.origin.distance_to(cb.origin) < TAU_MODEL;
             let axis_match = v3_dot(ca.axis.to_array(), cb.axis.to_array()).abs() > 1.0 - TAU_MODEL;
             let radius_match = (ca.radius - cb.radius).abs() < TAU_MODEL;
             origin_match && axis_match && radius_match
+        }
+        (Some(SurfaceGeom::Conical(ca)), Some(SurfaceGeom::Conical(cb))) => {
+            // Co-conical: same apex, axis, and half-angle
+            let apex_match = ca.apex.distance_to(cb.apex) < TAU_MODEL;
+            let axis_match = v3_dot(ca.axis.to_array(), cb.axis.to_array()).abs() > 1.0 - TAU_MODEL;
+            let angle_match = (ca.half_angle - cb.half_angle).abs() < TAU_MODEL;
+            apex_match && axis_match && angle_match
+        }
+        (Some(SurfaceGeom::Spherical(sa)), Some(SurfaceGeom::Spherical(sb))) => {
+            // Co-spherical: same center and radius
+            let center_match = sa.center.distance_to(sb.center) < TAU_MODEL;
+            let radius_match = (sa.radius - sb.radius).abs() < TAU_MODEL;
+            center_match && radius_match
+        }
+        (Some(SurfaceGeom::Toroidal(ta)), Some(SurfaceGeom::Toroidal(tb))) => {
+            // Co-toroidal: same center, axis, major and minor radii
+            let center_match = ta.center.distance_to(tb.center) < TAU_MODEL;
+            let axis_match = v3_dot(ta.axis.to_array(), tb.axis.to_array()).abs() > 1.0 - TAU_MODEL;
+            let major_match = (ta.major_radius - tb.major_radius).abs() < TAU_MODEL;
+            let minor_match = (ta.minor_radius - tb.minor_radius).abs() < TAU_MODEL;
+            center_match && axis_match && major_match && minor_match
         }
         _ => false,
     }
@@ -6162,6 +6201,197 @@ fn resolve_mesh_t_junctions(
     *face_ranges = new_ranges;
 }
 
+/// Check whether a boundary cycle is an intentional face opening (through-hole).
+///
+/// Returns `true` if BOTH conditions are met:
+/// 1. ALL triangles adjacent to the cycle edges have geometric normals that agree
+///    within `COS_HOLE_COHERENCE` — indicating the cycle is on a single face.
+/// 2. The cycle winds CLOCKWISE relative to the face normal (inner loop), meaning
+///    it's a hole boundary, not an outer face boundary.
+///
+/// Through-hole inner boundaries wind CW relative to the face normal (right-hand rule
+/// excludes the hole interior from the face). Outer face boundaries and S-H artifact
+/// gaps wind CCW. This distinguishes through-holes from legitimate fill targets.
+type QuantizedPt = (i64, i64, i64);
+type DirectedEdgeMap = BTreeMap<(QuantizedPt, QuantizedPt), usize>;
+
+fn boundary_cycle_is_coherent(
+    cycle: &[QuantizedPt],
+    vertices: &[f32],
+    indices: &[u32],
+    directed_edge_to_tri: &DirectedEdgeMap,
+) -> bool {
+    // Collect geometric normals of triangles adjacent to cycle edges,
+    // and resolve cycle vertex positions.
+    let mut adj_normals: Vec<[f64; 3]> = Vec::new();
+    let mut cycle_positions: Vec<[f64; 3]> = Vec::with_capacity(cycle.len());
+
+    let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
+    let grid = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
+    let inv_grid = 1.0 / grid;
+
+    for i in 0..cycle.len() {
+        let a = cycle[i];
+        let b = cycle[(i + 1) % cycle.len()];
+        // Try both directions: the cycle ordering may not match the triangle edge direction
+        let tri_idx = directed_edge_to_tri
+            .get(&(a, b))
+            .or_else(|| directed_edge_to_tri.get(&(b, a)))
+            .copied();
+        if let Some(t) = tri_idx {
+            let base = t * 3;
+            if base + 2 >= indices.len() {
+                continue;
+            }
+            let ia = indices[base] as usize * 3;
+            let ib = indices[base + 1] as usize * 3;
+            let ic = indices[base + 2] as usize * 3;
+            if ia + 2 >= vertices.len() || ib + 2 >= vertices.len() || ic + 2 >= vertices.len() {
+                continue;
+            }
+            // Geometric normal of adjacent triangle
+            let ax = (vertices[ib] - vertices[ia]) as f64;
+            let ay = (vertices[ib + 1] - vertices[ia + 1]) as f64;
+            let az = (vertices[ib + 2] - vertices[ia + 2]) as f64;
+            let bx = (vertices[ic] - vertices[ia]) as f64;
+            let by = (vertices[ic + 1] - vertices[ia + 1]) as f64;
+            let bz = (vertices[ic + 2] - vertices[ia + 2]) as f64;
+            let nx = ay * bz - az * by;
+            let ny = az * bx - ax * bz;
+            let nz = ax * by - ay * bx;
+            let len = (nx * nx + ny * ny + nz * nz).sqrt();
+            if len > TAU_WORK {
+                adj_normals.push([nx / len, ny / len, nz / len]);
+            }
+
+            // Resolve position of vertex 'a' from this triangle
+            let mut found = false;
+            for &vi in &[indices[base], indices[base + 1], indices[base + 2]] {
+                let vi3 = vi as usize * 3;
+                if vi3 + 2 >= vertices.len() {
+                    continue;
+                }
+                let qx = (vertices[vi3] as f64 * inv_grid).round() as i64;
+                let qy = (vertices[vi3 + 1] as f64 * inv_grid).round() as i64;
+                let qz = (vertices[vi3 + 2] as f64 * inv_grid).round() as i64;
+                if (qx, qy, qz) == a {
+                    cycle_positions.push([
+                        vertices[vi3] as f64,
+                        vertices[vi3 + 1] as f64,
+                        vertices[vi3 + 2] as f64,
+                    ]);
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                // Fallback: reconstruct from quantized position
+                cycle_positions.push([a.0 as f64 * grid, a.1 as f64 * grid, a.2 as f64 * grid]);
+            }
+        }
+    }
+
+    // Need at least 3 adjacent normals for meaningful coherence check
+    if adj_normals.len() < 3 || cycle_positions.len() < 3 {
+        return false;
+    }
+
+    // Compute average face normal
+    let mut avg = [0.0_f64; 3];
+    for n in &adj_normals {
+        avg[0] += n[0];
+        avg[1] += n[1];
+        avg[2] += n[2];
+    }
+    let avg_len = (avg[0] * avg[0] + avg[1] * avg[1] + avg[2] * avg[2]).sqrt();
+    if avg_len < TAU_WORK {
+        return false;
+    }
+    avg[0] /= avg_len;
+    avg[1] /= avg_len;
+    avg[2] /= avg_len;
+
+    // Check if ALL normals agree with the average (coherence check)
+    let min_dot = adj_normals
+        .iter()
+        .map(|n| n[0] * avg[0] + n[1] * avg[1] + n[2] * avg[2])
+        .fold(f64::INFINITY, f64::min);
+
+    let normals_coherent = min_dot > COS_HOLE_COHERENCE;
+
+    if !normals_coherent {
+        return false;
+    }
+
+    // Winding direction check: compute the signed area of the cycle projected
+    // onto the face normal using the Newell method.
+    //
+    // For CCW triangles (standard outward-facing), boundary edges trace:
+    //   - Outer boundary: CCW relative to face normal → positive signed area
+    //   - Inner boundary (hole): CW relative to face normal → negative signed area
+    //
+    // Through-holes are inner boundaries → negative signed area → skip.
+    let n = cycle_positions.len();
+    let mut cross_sum = [0.0_f64; 3];
+    for i in 0..n {
+        let j = (i + 1) % n;
+        let vi = &cycle_positions[i];
+        let vj = &cycle_positions[j];
+        cross_sum[0] += vi[1] * vj[2] - vi[2] * vj[1];
+        cross_sum[1] += vi[2] * vj[0] - vi[0] * vj[2];
+        cross_sum[2] += vi[0] * vj[1] - vi[1] * vj[0];
+    }
+
+    let signed_area = (cross_sum[0] * avg[0] + cross_sum[1] * avg[1] + cross_sum[2] * avg[2]) / 2.0;
+
+    if signed_area < 0.0 {
+        // CW winding = inner loop on a coherent-normal face = through-hole
+        return true;
+    }
+
+    // For CCW cycles with coherent normals: the cycle might be the matching
+    // boundary on the cylinder wall side of a through-hole. These are nearly
+    // perfectly circular and perfectly planar. Only detect these with strict
+    // thresholds to avoid false positives on revolve caps and S-H gaps.
+    let n_pos = cycle_positions.len() as f64;
+    let cx = cycle_positions.iter().map(|p| p[0]).sum::<f64>() / n_pos;
+    let cy = cycle_positions.iter().map(|p| p[1]).sum::<f64>() / n_pos;
+    let cz = cycle_positions.iter().map(|p| p[2]).sum::<f64>() / n_pos;
+
+    let distances: Vec<f64> = cycle_positions
+        .iter()
+        .map(|p| {
+            let dx = p[0] - cx;
+            let dy = p[1] - cy;
+            let dz = p[2] - cz;
+            (dx * dx + dy * dy + dz * dz).sqrt()
+        })
+        .collect();
+
+    let mean_dist = distances.iter().sum::<f64>() / n_pos;
+    if mean_dist < TAU_WORK {
+        return false;
+    }
+
+    // Check planarity: out-of-plane distance < 0.1% of mean radius
+    let max_out_of_plane = cycle_positions
+        .iter()
+        .map(|p| ((p[0] - cx) * avg[0] + (p[1] - cy) * avg[1] + (p[2] - cz) * avg[2]).abs())
+        .fold(0.0_f64, f64::max);
+    if max_out_of_plane > mean_dist * HOLE_PLANARITY_RATIO {
+        return false;
+    }
+
+    // Check strict circularity: coefficient of variation < 5%
+    let variance = distances
+        .iter()
+        .map(|d| (d - mean_dist).powi(2))
+        .sum::<f64>()
+        / n_pos;
+    let cv = variance.sqrt() / mean_dist;
+    cv < HOLE_CIRCULARITY_CV
+}
+
 /// Fill small boundary holes in the mesh.
 ///
 /// After boolean operations, S-H clipping can leave small holes where face
@@ -6391,9 +6621,10 @@ fn close_near_boundary_chains(
         )
     };
 
-    // Build directed edge counts
+    // Build directed edge counts and edge-to-triangle map
     let mut directed_counts: BTreeMap<(QPos, QPos), usize> = BTreeMap::new();
     let mut pos_to_idx: BTreeMap<QPos, u32> = BTreeMap::new();
+    let mut directed_edge_to_tri: BTreeMap<(QPos, QPos), usize> = BTreeMap::new();
 
     for t in 0..n_tris {
         let base = t * 3;
@@ -6405,6 +6636,7 @@ fn close_near_boundary_chains(
             let b = tri_pos[(j + 1) % 3];
             *directed_counts.entry((a, b)).or_insert(0) += 1;
             pos_to_idx.entry(a).or_insert(tri_indices[j]);
+            directed_edge_to_tri.entry((a, b)).or_insert(t);
         }
     }
 
@@ -6437,7 +6669,6 @@ fn close_near_boundary_chains(
     let mut visited: HashSet<QPos> = HashSet::new();
     let mut fill_triangles: Vec<[u32; 3]> = Vec::new();
     let boundary_edge_set: HashSet<(QPos, QPos)> = boundary_edges.iter().copied().collect();
-
     // Sort boundary vertices for deterministic component discovery.
     let mut sorted_boundary_verts: Vec<QPos> = boundary_verts.iter().copied().collect();
     sorted_boundary_verts.sort();
@@ -6565,6 +6796,7 @@ fn close_near_boundary_chains(
         // For a polygon hole (4+ edges, same number of vertices): trace the
         // boundary loop, determine winding, and fan-triangulate.
         // Upper bound raised to 32 to match the component limit above.
+        // Skip coherent-normal cycles (through-hole openings).
         if component.len() >= 4 && component.len() <= 64 && comp_edges.len() == component.len() {
             // Order vertices by tracing through the boundary edges (undirected)
             let target_len = component.len();
@@ -6580,6 +6812,19 @@ fn close_near_boundary_chains(
                 } else {
                     break;
                 }
+            }
+
+            // Check coherence AFTER ordering so the winding check is correct.
+            if ordered.len() == target_len
+                && ordered.len() >= HOLE_FILL_COHERENCE_MIN_EDGES
+                && boundary_cycle_is_coherent(&ordered, vertices, indices, &directed_edge_to_tri)
+            {
+                #[cfg(debug_assertions)]
+                eprintln!(
+                    "close_near_boundary_chains: skipping coherent {}-vertex polygon hole (through-hole opening)",
+                    component.len()
+                );
+                continue;
             }
 
             if ordered.len() == target_len {
@@ -6678,6 +6923,23 @@ fn close_near_boundary_chains(
                             let snap_threshold_sq = snap_threshold * snap_threshold;
 
                             if dist_sq <= snap_threshold_sq {
+                                // Normal-coherence check for open chains ≥ 8 edges
+                                if chain.len() >= HOLE_FILL_COHERENCE_MIN_EDGES
+                                    && boundary_cycle_is_coherent(
+                                        &chain[..chain.len() - 1],
+                                        vertices,
+                                        indices,
+                                        &directed_edge_to_tri,
+                                    )
+                                {
+                                    #[cfg(debug_assertions)]
+                                    eprintln!(
+                                        "close_near_boundary_chains: skipping coherent {}-vertex open chain (through-hole opening)",
+                                        chain.len()
+                                    );
+                                    continue;
+                                }
+
                                 // Snap chain end to chain start position
                                 vertices[ei] = vertices[si];
                                 vertices[ei + 1] = vertices[si + 1];
@@ -8742,6 +9004,148 @@ mod tests {
             "same-face non-manifold edge should be resolved by existing \
              flip logic; {} non-manifold edge(s) remain",
             nm_after
+        );
+    }
+
+    // ── is_smooth_edge tests ────────────────────────────────────────
+
+    /// Build a minimal arena with two faces sharing one edge.
+    /// Returns (arena, edge_idx, face_a_idx, face_b_idx).
+    fn make_two_face_arena() -> (TopoArena, EdgeIdx, FaceIdx, FaceIdx) {
+        use crate::topology::half_edge::*;
+
+        let mut arena = TopoArena::default();
+
+        // Vertices (unused by is_smooth_edge, but needed for arena)
+        arena.vertices.push(Vertex {
+            position: [0.0, 0.0, 0.0],
+            half_edge: None,
+        });
+        arena.vertices.push(Vertex {
+            position: [1.0, 0.0, 0.0],
+            half_edge: None,
+        });
+
+        // Shells (one shell for both faces)
+        arena.shells.push(Shell {
+            face: FaceIdx(0),
+            solid: SolidIdx(0),
+        });
+
+        // Two faces
+        let face_a = FaceIdx(arena.faces.len());
+        arena.faces.push(Face {
+            outer_loop: LoopIdx(0),
+            inner_loops: vec![],
+            shell: ShellIdx(0),
+        });
+        let face_b = FaceIdx(arena.faces.len());
+        arena.faces.push(Face {
+            outer_loop: LoopIdx(1),
+            inner_loops: vec![],
+            shell: ShellIdx(0),
+        });
+
+        // Two loops
+        arena.loops.push(Loop {
+            half_edge: HalfEdgeIdx(0),
+            face: face_a,
+        });
+        arena.loops.push(Loop {
+            half_edge: HalfEdgeIdx(1),
+            face: face_b,
+        });
+
+        // Two half-edges forming twins
+        let he_a = HalfEdgeIdx(arena.half_edges.len());
+        arena.half_edges.push(HalfEdge {
+            origin: VertexIdx(0),
+            edge: EdgeIdx(0),
+            loop_: LoopIdx(0),
+            next: he_a,
+            prev: he_a,
+            twin: HalfEdgeIdx(1),
+        });
+        let he_b = HalfEdgeIdx(arena.half_edges.len());
+        arena.half_edges.push(HalfEdge {
+            origin: VertexIdx(1),
+            edge: EdgeIdx(0),
+            loop_: LoopIdx(1),
+            next: he_b,
+            prev: he_b,
+            twin: HalfEdgeIdx(0),
+        });
+
+        let edge_idx = EdgeIdx(arena.edges.len());
+        arena.edges.push(Edge { half_edge: he_a });
+
+        (arena, edge_idx, face_a, face_b)
+    }
+
+    #[test]
+    fn is_smooth_edge_coplanar_faces_same_plane() {
+        let (arena, edge_idx, face_a, face_b) = make_two_face_arena();
+        let mut face_geometry = BTreeMap::new();
+        let plane = SurfaceGeom::Planar(crate::geometry::surface::Plane {
+            origin: crate::geometry::point::Point3::new(0.0, 0.0, 0.0),
+            normal: crate::geometry::point::Vector3::new(0.0, 0.0, 1.0),
+        });
+        face_geometry.insert(face_a, plane.clone());
+        face_geometry.insert(face_b, plane);
+
+        assert!(
+            is_smooth_edge(&arena, edge_idx, &face_geometry),
+            "Co-planar faces on the same plane should be smooth"
+        );
+    }
+
+    #[test]
+    fn is_smooth_edge_parallel_planes_different_distance() {
+        let (arena, edge_idx, face_a, face_b) = make_two_face_arena();
+        let mut face_geometry = BTreeMap::new();
+        face_geometry.insert(
+            face_a,
+            SurfaceGeom::Planar(crate::geometry::surface::Plane {
+                origin: crate::geometry::point::Point3::new(0.0, 0.0, 0.0),
+                normal: crate::geometry::point::Vector3::new(0.0, 0.0, 1.0),
+            }),
+        );
+        face_geometry.insert(
+            face_b,
+            SurfaceGeom::Planar(crate::geometry::surface::Plane {
+                origin: crate::geometry::point::Point3::new(0.0, 0.0, 1.0),
+                normal: crate::geometry::point::Vector3::new(0.0, 0.0, 1.0),
+            }),
+        );
+
+        assert!(
+            !is_smooth_edge(&arena, edge_idx, &face_geometry),
+            "Parallel planes at different distances should NOT be smooth"
+        );
+    }
+
+    #[test]
+    fn is_smooth_edge_perpendicular_planes() {
+        let (arena, edge_idx, face_a, face_b) = make_two_face_arena();
+        let mut face_geometry = BTreeMap::new();
+        face_geometry.insert(
+            face_a,
+            SurfaceGeom::Planar(crate::geometry::surface::Plane {
+                origin: crate::geometry::point::Point3::new(0.0, 0.0, 0.0),
+                normal: crate::geometry::point::Vector3::new(0.0, 0.0, 1.0),
+            }),
+        );
+        face_geometry.insert(
+            face_b,
+            SurfaceGeom::Planar(crate::geometry::surface::Plane {
+                origin: crate::geometry::point::Point3::new(0.0, 0.0, 0.0),
+                normal: crate::geometry::point::Vector3::new(1.0, 0.0, 0.0),
+            }),
+        );
+
+        assert!(
+            !is_smooth_edge(&arena, edge_idx, &face_geometry),
+            "Perpendicular planes should NOT be smooth"
         );
     }
 }

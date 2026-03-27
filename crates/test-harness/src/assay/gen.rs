@@ -260,20 +260,26 @@ fn extrude_rect_aabb(
     h: f64,
     depth: f64,
 ) -> ([f64; 3], [f64; 3]) {
-    // Build a local frame on the plane
+    // Build a local frame matching the kernel's tangent_x_from_normal()
+    // (feature-engine/src/rebuild.rs). Must use the same algorithm so
+    // the AABB prediction matches the actual geometry.
     let n = normal;
-    // Pick a non-parallel vector for cross product
-    let ref_vec = if n[0].abs() < 0.9 {
-        [1.0, 0.0, 0.0]
+    let ref_vec = if n[2].abs() < 0.99 {
+        [0.0, 0.0, 1.0] // Z
     } else {
-        [0.0, 1.0, 0.0]
+        [1.0, 0.0, 0.0] // X
     };
+    // Cross product: ref × n (same order as kernel)
     let x_axis = {
-        let cx = n[1] * ref_vec[2] - n[2] * ref_vec[1];
-        let cy = n[2] * ref_vec[0] - n[0] * ref_vec[2];
-        let cz = n[0] * ref_vec[1] - n[1] * ref_vec[0];
+        let cx = ref_vec[1] * n[2] - ref_vec[2] * n[1];
+        let cy = ref_vec[2] * n[0] - ref_vec[0] * n[2];
+        let cz = ref_vec[0] * n[1] - ref_vec[1] * n[0];
         let len = (cx * cx + cy * cy + cz * cz).sqrt();
-        [cx / len, cy / len, cz / len]
+        if len < 1e-12 {
+            [1.0, 0.0, 0.0]
+        } else {
+            [cx / len, cy / len, cz / len]
+        }
     };
     let y_axis = [
         n[1] * x_axis[2] - n[2] * x_axis[1],
@@ -304,8 +310,13 @@ fn extrude_rect_aabb(
 }
 
 /// Check if two 3D AABBs are disjoint (no overlap in any axis).
+///
+/// Uses a generous margin (1e-4) to match the kernel's adaptive tau, which
+/// can be significantly larger than the geometric epsilon. The generator's
+/// AABB is approximate (frame mismatch, profile simplification), so a wider
+/// margin avoids false disjointness predictions.
 fn aabb_disjoint_3d(a: &([f64; 3], [f64; 3]), b: &([f64; 3], [f64; 3])) -> bool {
-    let tau = 1e-9; // conservative margin
+    let tau = 1e-4; // generous margin to match kernel's adaptive tolerance
     (0..3).any(|i| a.1[i] + tau < b.0[i] || b.1[i] + tau < a.0[i])
 }
 
@@ -420,25 +431,47 @@ pub fn random_operation(rng: &mut impl Rng, scale: f64, is_first: bool) -> (Stri
 /// (genus += 1), so χ = 2 - 2g. Detection heuristic: if a cut's depth is
 /// >= the first boss's depth, assume it creates a through-hole.
 ///
-/// Conservative: blind holes may be misclassified as through-holes, yielding
-/// a more lenient target (χ=0 instead of 2). This avoids false positives —
-/// the oracle only misses some cases, never flags correct geometry.
+/// Conservative: only predict through-holes for simple 2-op cases where a
+/// single extrude cut on the same sketch plane fully penetrates the boss.
+///
+/// We avoid predicting through-holes when:
+/// - Operations use different sketch planes (cut axis misaligned with boss)
+/// - The cut is a revolve (angle vs depth comparison is meaningless)
+/// - There are 3+ operations (subsequent bosses can fill holes)
+///
+/// When uncertain, predict χ=2 (no through-hole). A missed through-hole
+/// only makes the oracle lenient — it never rejects correct geometry.
 pub fn compute_euler_target(ops: &[OpMeta]) -> i64 {
-    let mut genus = 0i64;
-    if ops.len() >= 2 {
-        // Find the first boss operation's depth as the reference
-        let first_boss_depth = ops
-            .iter()
-            .find(|o| !o.is_cut)
-            .map(|o| o.depth_or_angle)
-            .unwrap_or(f64::MAX);
-        for op in ops.iter().skip(1) {
-            if op.is_cut && op.depth_or_angle >= first_boss_depth {
-                genus += 1;
-            }
-        }
+    // Only predict through-holes for exactly 2-op cases (boss + cut)
+    if ops.len() != 2 {
+        return 2;
     }
-    2 - 2 * genus
+
+    let boss = &ops[0];
+    let cut = &ops[1];
+
+    // Must be boss then cut
+    if boss.is_cut || !cut.is_cut {
+        return 2;
+    }
+
+    // Only predict through-hole for extrude cuts (not revolves)
+    if cut.kind != "extrude" {
+        return 2;
+    }
+
+    // Only predict through-hole when cut shares the same plane normal
+    // as the boss (multi-plane cuts rarely penetrate fully)
+    let same_plane = match (boss.plane_normal, cut.plane_normal) {
+        (None, None) => true, // both use case-level plane
+        _ => false,           // different planes → can't predict
+    };
+
+    if same_plane && cut.depth_or_angle >= boss.depth_or_angle {
+        0 // genus=1 through-hole: χ = 2 - 2(1) = 0
+    } else {
+        2
+    }
 }
 
 // ── Case Generation ────────────────────────────────────────────────────────
@@ -2970,5 +3003,143 @@ mod tests {
     #[test]
     fn generator_version_is_2() {
         assert_eq!(GENERATOR_VERSION, 2);
+    }
+
+    #[test]
+    fn euler_target_no_cuts_is_2() {
+        let ops = vec![
+            OpMeta {
+                kind: "extrude".to_string(),
+                profile_type: "rectangle".to_string(),
+                profile_size: 1.0,
+                depth_or_angle: 1.0,
+                is_cut: false,
+                plane_origin: None,
+                plane_normal: None,
+            },
+            OpMeta {
+                kind: "extrude".to_string(),
+                profile_type: "circle".to_string(),
+                profile_size: 0.5,
+                depth_or_angle: 0.5,
+                is_cut: false,
+                plane_origin: None,
+                plane_normal: None,
+            },
+        ];
+        assert_eq!(compute_euler_target(&ops), 2);
+    }
+
+    #[test]
+    fn euler_target_through_hole_same_plane() {
+        // Cut deeper than boss on same plane → through-hole (χ=0)
+        let ops = vec![
+            OpMeta {
+                kind: "extrude".to_string(),
+                profile_type: "rectangle".to_string(),
+                profile_size: 1.0,
+                depth_or_angle: 1.0,
+                is_cut: false,
+                plane_origin: None,
+                plane_normal: None,
+            },
+            OpMeta {
+                kind: "extrude".to_string(),
+                profile_type: "circle".to_string(),
+                profile_size: 0.5,
+                depth_or_angle: 2.0,
+                is_cut: true,
+                plane_origin: None,
+                plane_normal: None,
+            },
+        ];
+        assert_eq!(compute_euler_target(&ops), 0);
+    }
+
+    #[test]
+    fn euler_target_multi_plane_cut_returns_2() {
+        // Cut on different plane → can't predict through-hole → χ=2
+        let ops = vec![
+            OpMeta {
+                kind: "extrude".to_string(),
+                profile_type: "rectangle".to_string(),
+                profile_size: 1.0,
+                depth_or_angle: 1.0,
+                is_cut: false,
+                plane_origin: None,
+                plane_normal: None,
+            },
+            OpMeta {
+                kind: "extrude".to_string(),
+                profile_type: "circle".to_string(),
+                profile_size: 0.5,
+                depth_or_angle: 2.0,
+                is_cut: true,
+                plane_origin: None,
+                plane_normal: Some([0.0, 1.0, 0.0]),
+            },
+        ];
+        assert_eq!(compute_euler_target(&ops), 2);
+    }
+
+    #[test]
+    fn euler_target_three_ops_returns_2() {
+        // 3 operations → can't predict (subsequent boss may fill hole) → χ=2
+        let ops = vec![
+            OpMeta {
+                kind: "extrude".to_string(),
+                profile_type: "rectangle".to_string(),
+                profile_size: 1.0,
+                depth_or_angle: 1.0,
+                is_cut: false,
+                plane_origin: None,
+                plane_normal: None,
+            },
+            OpMeta {
+                kind: "extrude".to_string(),
+                profile_type: "circle".to_string(),
+                profile_size: 0.5,
+                depth_or_angle: 2.0,
+                is_cut: true,
+                plane_origin: None,
+                plane_normal: None,
+            },
+            OpMeta {
+                kind: "extrude".to_string(),
+                profile_type: "rectangle".to_string(),
+                profile_size: 0.8,
+                depth_or_angle: 1.0,
+                is_cut: false,
+                plane_origin: None,
+                plane_normal: None,
+            },
+        ];
+        assert_eq!(compute_euler_target(&ops), 2);
+    }
+
+    #[test]
+    fn euler_target_revolve_cut_returns_2() {
+        // Revolve cut → can't compare angle to depth → χ=2
+        let ops = vec![
+            OpMeta {
+                kind: "extrude".to_string(),
+                profile_type: "rectangle".to_string(),
+                profile_size: 1.0,
+                depth_or_angle: 1.0,
+                is_cut: false,
+                plane_origin: None,
+                plane_normal: None,
+            },
+            OpMeta {
+                kind: "revolve".to_string(),
+                profile_type: "circle".to_string(),
+                profile_size: 0.5,
+                depth_or_angle: 180.0,
+                is_cut: true,
+                plane_origin: None,
+                plane_normal: None,
+            },
+        ];
+        assert_eq!(compute_euler_target(&ops), 2);
     }
 }
