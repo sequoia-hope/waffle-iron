@@ -455,3 +455,20 @@ fn batch_enclosed_subtract_fix() {
         passed
     );
 }
+
+/// Verify revolve self-intersection detection (F0073-F0075).
+///
+/// F0073: axis through center → expect_rebuild_error (should pass)
+/// F0074: axis through vertex → expect_rebuild_error (should pass)
+/// F0075: valid offset revolve → should succeed
+/// Run with: cargo test -p test-harness --test assay_randomized -- batch_revolve_self_intersection --ignored --nocapture
+#[test]
+#[ignore]
+fn batch_revolve_self_intersection() {
+    let ids = &["F0073", "F0074", "F0075"];
+    let (passed, failed, errored) = run_batch(ids, true);
+    println!(
+        "Revolve self-intersection: {}/3 passed, {} failed, {} errored",
+        passed, failed, errored
+    );
+}

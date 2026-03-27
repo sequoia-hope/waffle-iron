@@ -2865,8 +2865,8 @@ fn generate_revolve_self_intersection_cases(output_dir: &std::path::Path) -> Vec
                 params: RevolveParams {
                     sketch_id,
                     profile_index: 0,
-                    axis_origin: [0.2, 0.2, 0.0], // axis through vertex at (0.2, 0.2)
-                    axis_direction: [0.0, 0.0, 1.0], // along Z — vertex (0.2,0.2) has perp dist 0
+                    axis_origin: [0.0, 0.0, 0.0], // axis through vertex at (0, 0) — first corner
+                    axis_direction: [0.0, 0.0, 1.0], // along Z — vertex (0,0) has perp dist 0
                     angle: 270.0,
                     cut: false,
                     merge: true,
