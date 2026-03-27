@@ -2,7 +2,7 @@ use std::path::Path;
 
 use test_harness::assay::randomized_runner::{
     build_catalog, catalog_summary, discover_cases, generate_catalog_markdown,
-    run_randomized_assay, run_single_case, write_results_json,
+    run_randomized_assay, run_single_case,
 };
 use test_harness::assay::scoring::AssayStatus;
 
@@ -49,8 +49,7 @@ fn randomized_assay_full_kernel() {
     let report = run_randomized_assay(dir, true);
     let catalog = build_catalog(dir, &report);
 
-    // Write results.json so AssayBrowser GUI stays up-to-date
-    write_results_json(dir, &catalog);
+    // results.json is auto-written by run_randomized_assay() now
 
     // Print summary
     println!("\n{}", catalog_summary(&report, &catalog));
@@ -232,6 +231,40 @@ fn spotlight_r0100_revolve_revolve() {
     }
 }
 
+/// Gear extrude with through circular cut — validates gear+boolean pipeline.
+/// Run with: cargo test -p test-harness --test assay_randomized -- spotlight_f0061 --ignored --nocapture
+#[test]
+#[ignore]
+fn spotlight_f0061_gear_cut() {
+    let dir = Path::new(ASSAY_DIR);
+    if !dir.exists() {
+        eprintln!("Assay corpus not generated yet");
+        return;
+    }
+    let result = run_single_case(dir, "F0061", true);
+    match result {
+        Some(r) => {
+            println!("\n=== F0061 Spotlight ===");
+            println!("Description: {}", r.description);
+            println!("Status: {:?}", r.status);
+            println!("Detail: {}", r.detail);
+            println!("Duration: {:?}", r.duration);
+            // F0061 currently fails watertight_mesh in the full assay pipeline
+            // (gear+boolean produces unpaired edges). The direct kernel test
+            // (f0061_gear_subtract_through_hole) passes with 0 unpaired edges.
+            // Track progress: assert not Errored (i.e. boolean completes and produces geometry).
+            assert_ne!(
+                r.status,
+                AssayStatus::Errored,
+                "F0061 should not error: {}",
+                r.detail
+            );
+            // TODO: tighten to assert_eq!(Passed) once full pipeline watertightness improves
+        }
+        None => panic!("F0061 not found in corpus"),
+    }
+}
+
 /// Generate the full catalog markdown and write to ASSAY_CATALOG.md.
 ///
 /// Run with: cargo test -p test-harness --test assay_randomized -- generate_catalog --ignored --nocapture
@@ -251,8 +284,7 @@ fn generate_catalog() {
     let catalog_path = Path::new("ASSAY_CATALOG.md");
     std::fs::write(catalog_path, &markdown).expect("failed to write ASSAY_CATALOG.md");
 
-    // Write results.json to assay dir for GUI consumption
-    write_results_json(dir, &catalog);
+    // results.json is auto-written by run_randomized_assay() now
 
     println!("\nWrote ASSAY_CATALOG.md + results.json");
     println!("{}", catalog_summary(&report, &catalog));
@@ -379,5 +411,26 @@ fn spotlight_r0045() {
     println!(
         "R0045: {}/1 passed, {} failed, {} errored",
         passed, failed, errored
+    );
+}
+
+/// Verify euler_target oracle fix: 8 cases that had chi=2 but oracle expected chi=0.
+///
+/// Run with: cargo test -p test-harness --test assay_randomized -- batch_euler_target_fix --ignored --nocapture
+#[test]
+#[ignore]
+fn batch_euler_target_fix() {
+    let ids = &[
+        "R0023", "R0036", "R0039", "R0048", "R0058", "R0060", "R0076", "R0080",
+    ];
+    let (passed, failed, errored) = run_batch(ids, true);
+    println!(
+        "Euler target fix: {}/8 passed, {} failed, {} errored",
+        passed, failed, errored
+    );
+    assert!(
+        passed >= 8,
+        "Expected all 8 euler_target fix cases to pass, got {}",
+        passed
     );
 }
