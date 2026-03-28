@@ -410,7 +410,7 @@ pub(crate) fn enclosed_hole_in_solid(
 
     // Cylinder Z range
     let cyl_z_bot = v3_dot(cyl_b.center_bottom, dir);
-    let cyl_z_top = cyl_z_bot + cyl_b.depth;
+    let _cyl_z_top = cyl_z_bot + cyl_b.depth;
 
     // Compute inner circle points at top and bottom of the SOLID (not cylinder)
     // We need to find the Z range where the hole actually intersects the solid
@@ -1905,8 +1905,8 @@ fn build_enclosed_cyl_subtract(
 fn build_enclosed_hole(
     outer: &CylinderParams,
     inner: &CylinderParams,
-    z_min: f64,
-    z_max: f64,
+    _z_min: f64,
+    _z_max: f64,
     id_alloc: &mut dyn FnMut() -> u64,
 ) -> Result<BooleanResult, KernelError> {
     let n = 32usize; // polygon subdivision count

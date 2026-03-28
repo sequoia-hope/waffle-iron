@@ -1709,33 +1709,53 @@ fn l9_revolve_zero_angle_error() {
 
 #[test]
 fn l10_revolve_full_360_succeeds() {
-    // 360° full revolution should succeed (no longer rejected)
+    // 360° full revolution of a 2×4 rectangle centered at x=5, around Y axis.
+    // By Pappus's theorem: V = 2π × centroid_distance × area = 2π × 5 × 8 ≈ 251.33
     let mut k = WaffleKernel::new();
     let (profiles, positions) = make_rect_profile(5.0, 0.0, 2.0, 4.0);
     let faces = k
         .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
         .unwrap();
-    let result = k.revolve_face(faces[0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], 360.0);
+    let handle = k.revolve_face(faces[0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], 360.0)
+        .expect("Full 360° revolve should succeed");
+    let mesh = k.tessellate(&handle, 0.01).expect("tessellate full revolve");
+    assert!(mesh.vertices.len() > 0, "Mesh should have vertices");
+    assert!(mesh.indices.len() > 0, "Mesh should have triangles");
+    let vol = mesh_volume(&mesh);
+    // Pappus: V = 2π × 5.0 × (2.0 × 4.0) = 80π ≈ 251.33
+    let expected = 2.0 * std::f64::consts::PI * 5.0 * 8.0;
     assert!(
-        result.is_ok(),
-        "Full 360° revolve should succeed, got {:?}",
-        result.err()
+        (vol - expected).abs() / expected < 0.10,
+        "Full 360° revolve volume: got {:.2}, expected {:.2} (Pappus)", vol, expected
     );
 }
 
 #[test]
 fn l11_revolve_circle_succeeds() {
-    // Circle profiles are now supported via N-gon approximation
+    // 180° revolve of a circle (r=1) centered at x=5, around Y axis.
+    // By Pappus's theorem: V = π × centroid_distance × area = π × 5 × π(1²) = 5π² ≈ 49.35
     let mut k = WaffleKernel::new();
     let (profiles, positions) = make_circle_profile(5.0, 0.0, 1.0);
     let faces = k
         .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
         .unwrap();
-    let result = k.revolve_face(faces[0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], 180.0);
-    assert!(result.is_ok(), "Circle revolve should succeed, got {:?}", result.err());
-    let mesh = k.tessellate(&result.unwrap(), 0.01).expect("tessellate revolve circle");
+    let handle = k.revolve_face(faces[0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], 180.0)
+        .expect("Circle revolve should succeed");
+    let mesh = k.tessellate(&handle, 0.01).expect("tessellate revolve circle");
+    assert!(mesh.vertices.len() > 0, "Mesh should have vertices");
+    assert!(mesh.indices.len() > 0, "Mesh should have triangles");
     let vol = mesh_volume(&mesh);
-    assert!(vol > 0.0, "Revolve circle volume should be positive, got {}", vol);
+    // Pappus: V = π × 5.0 × π × 1.0² = 5π² ≈ 49.35
+    let expected = std::f64::consts::PI * 5.0 * std::f64::consts::PI * 1.0;
+    assert!(
+        vol > 0.0,
+        "Revolve circle volume should be positive, got {}", vol
+    );
+    // N-gon approximation gives ~15-20% undershoot vs exact circle area, so use 25% tolerance
+    assert!(
+        (vol - expected).abs() / expected < 0.25,
+        "Revolve circle volume: got {:.2}, expected {:.2} (Pappus, N-gon approx)", vol, expected
+    );
 }
 
 #[test]
@@ -2182,18 +2202,25 @@ fn o1b_revolve_revolve_boolean_union() {
 
 #[test]
 fn o1c_revolve_circle_profile() {
-    // Revolve a circle N-gon profile (should pass validation now)
+    // Revolve a circle N-gon profile (r=1, centered at x=5) 180° around Y axis.
+    // By Pappus: V = π × centroid_distance × area = π × 5 × π(1²) = 5π² ≈ 49.35
     let mut k = WaffleKernel::new();
     let (profiles, positions) = make_circle_profile(5.0, 0.0, 1.0);
     let faces = k
         .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
         .expect("make_faces for circle");
     // Revolve around Y axis — circle edges are short chords, not axis-aligned
-    let result = k.revolve_face(faces[0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], 180.0);
-    assert!(result.is_ok(), "Revolve with circle profile should succeed, got {:?}", result.err());
-    let mesh = k.tessellate(&result.unwrap(), 0.01).expect("tessellate revolve circle");
+    let handle = k.revolve_face(faces[0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], 180.0)
+        .expect("Revolve with circle profile should succeed");
+    let mesh = k.tessellate(&handle, 0.01).expect("tessellate revolve circle");
     let vol = mesh_volume(&mesh);
+    let expected = std::f64::consts::PI * 5.0 * std::f64::consts::PI * 1.0;
     assert!(vol > 0.0, "Revolve circle volume should be positive, got {}", vol);
+    // N-gon approximation gives undershoot; 25% tolerance for chord error
+    assert!(
+        (vol - expected).abs() / expected < 0.25,
+        "Revolve circle volume: got {:.2}, expected {:.2} (Pappus)", vol, expected
+    );
 }
 
 #[test]
@@ -4482,17 +4509,20 @@ fn r_cyl_minus_partial_box_succeeds() {
     let box_solid = k.extrude_face(box_faces[0], Z_DIR, 1.0).unwrap();
 
     // Partial cyl-minus-box succeeds via polygon clipping with geometry preservation
-    let result = k.do_boolean(&cyl, &box_solid, crate::boolean::BoolOp::Subtract);
-    assert!(result.is_ok(), "partial cyl minus box should succeed: {:?}", result);
-    let handle = result.unwrap();
+    let handle = k.do_boolean(&cyl, &box_solid, crate::boolean::BoolOp::Subtract)
+        .expect("partial cyl minus box should succeed");
 
-    // Verify result has faces and produces a tessellation
+    // Verify result has faces and produces a tessellation with volume bounds
     let faces = k.list_faces(&handle);
     assert!(!faces.is_empty(), "result should have faces");
-    let mesh = k.tessellate(&handle, 0.01);
-    assert!(mesh.is_ok(), "tessellation should succeed");
-    let mesh = mesh.unwrap();
+    let mesh = k.tessellate(&handle, 0.01).expect("tessellation should succeed");
     assert!(mesh.indices.len() >= 3, "mesh should have triangles");
+    // Cylinder vol ≈ π×1²×2 ≈ 6.28, box vol = 1.5×1.5×1.0 = 2.25
+    // Result = cyl - (cyl ∩ box), so vol < cyl_vol and vol > 0
+    let vol = mesh_volume(&mesh);
+    let cyl_vol = std::f64::consts::PI * 1.0 * 1.0 * 2.0;
+    assert!(vol > 0.0, "subtract result should have positive volume, got {}", vol);
+    assert!(vol < cyl_vol * 1.05, "subtract result volume {} should be < cylinder volume {}", vol, cyl_vol);
 }
 
 /// Partial box-cylinder union now succeeds via polygon clipping fallback.
@@ -4500,7 +4530,7 @@ fn r_cyl_minus_partial_box_succeeds() {
 fn r_partial_box_cyl_union_succeeds() {
     let mut k = WaffleKernel::new();
 
-    // Create box
+    // Create box: 2×2×2 centered at origin
     let (box_profiles, box_pos) = make_rect_profile(0.0, 0.0, 2.0, 2.0);
     let box_faces = k
         .make_faces_from_profiles(&box_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &box_pos)
@@ -4515,17 +4545,21 @@ fn r_partial_box_cyl_union_succeeds() {
     let cyl_solid = k.extrude_face(cyl_faces[0], Z_DIR, 2.0).unwrap();
 
     // Partial box-cyl union succeeds via polygon clipping with geometry preservation
-    let result = k.boolean_union(&box_solid, &cyl_solid);
-    assert!(result.is_ok(), "partial box-cyl union should succeed: {:?}", result);
-    let handle = result.unwrap();
+    let handle = k.boolean_union(&box_solid, &cyl_solid)
+        .expect("partial box-cyl union should succeed");
 
-    // Verify result has faces and produces a tessellation
+    // Verify result has faces, tessellation, and volume bounds
     let faces = k.list_faces(&handle);
     assert!(!faces.is_empty(), "result should have faces");
-    let mesh = k.tessellate(&handle, 0.01);
-    assert!(mesh.is_ok(), "tessellation should succeed");
-    let mesh = mesh.unwrap();
+    let mesh = k.tessellate(&handle, 0.01).expect("tessellation should succeed");
     assert!(mesh.indices.len() >= 3, "mesh should have triangles");
+    // Box vol = 2×2×2 = 8.0, cyl vol ≈ π×1²×2 ≈ 6.28
+    // Union vol ∈ (max(box, cyl), box + cyl) = (8.0, 14.28)
+    let vol = mesh_volume(&mesh);
+    let box_vol = 8.0;
+    let cyl_vol = std::f64::consts::PI * 1.0 * 1.0 * 2.0;
+    assert!(vol >= box_vol * 0.95, "union volume {} should be >= box volume {}", vol, box_vol);
+    assert!(vol <= (box_vol + cyl_vol) * 1.05, "union volume {} should be <= sum {}", vol, box_vol + cyl_vol);
 }
 
 /// Partial box-cylinder subtract succeeds (box minus protruding cylinder).
@@ -4547,19 +4581,17 @@ fn r_partial_box_cyl_subtract_succeeds() {
         .unwrap();
     let cyl_solid = k.extrude_face(cyl_faces[0], Z_DIR, 2.0).unwrap();
 
-    let result = k.boolean_subtract(&box_solid, &cyl_solid);
-    assert!(
-        result.is_ok(),
-        "partial box-cyl subtract should succeed: {:?}",
-        result
-    );
-    let handle = result.unwrap();
+    let handle = k.boolean_subtract(&box_solid, &cyl_solid)
+        .expect("partial box-cyl subtract should succeed");
     let faces = k.list_faces(&handle);
     assert!(!faces.is_empty(), "result should have faces");
-    let mesh = k.tessellate(&handle, 0.01);
-    assert!(mesh.is_ok(), "tessellation should succeed");
-    let mesh = mesh.unwrap();
+    let mesh = k.tessellate(&handle, 0.01).expect("tessellation should succeed");
     assert!(mesh.indices.len() >= 3, "mesh should have triangles");
+    // Box vol = 8.0, cyl vol ≈ π×1²×2 ≈ 6.28; subtract removes overlap region
+    // Result vol ∈ (box - cyl, box) = (1.72, 8.0) since cylinder only partially overlaps
+    let vol = mesh_volume(&mesh);
+    assert!(vol > 0.0, "subtract result should have positive volume, got {}", vol);
+    assert!(vol < 8.0 * 1.05, "subtract result volume {} should be < box volume 8.0", vol);
 }
 
 /// Partial box-cylinder intersect succeeds.
@@ -4567,7 +4599,7 @@ fn r_partial_box_cyl_subtract_succeeds() {
 fn r_partial_box_cyl_intersect_succeeds() {
     let mut k = WaffleKernel::new();
 
-    // Create box
+    // Create box: 2×2×2 centered at origin
     let (box_profiles, box_pos) = make_rect_profile(0.0, 0.0, 2.0, 2.0);
     let box_faces = k
         .make_faces_from_profiles(&box_profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &box_pos)
@@ -4581,19 +4613,17 @@ fn r_partial_box_cyl_intersect_succeeds() {
         .unwrap();
     let cyl_solid = k.extrude_face(cyl_faces[0], Z_DIR, 2.0).unwrap();
 
-    let result = k.boolean_intersect(&box_solid, &cyl_solid);
-    assert!(
-        result.is_ok(),
-        "partial box-cyl intersect should succeed: {:?}",
-        result
-    );
-    let handle = result.unwrap();
+    let handle = k.boolean_intersect(&box_solid, &cyl_solid)
+        .expect("partial box-cyl intersect should succeed");
     let faces = k.list_faces(&handle);
     assert!(!faces.is_empty(), "result should have faces");
-    let mesh = k.tessellate(&handle, 0.01);
-    assert!(mesh.is_ok(), "tessellation should succeed");
-    let mesh = mesh.unwrap();
+    let mesh = k.tessellate(&handle, 0.01).expect("tessellation should succeed");
     assert!(mesh.indices.len() >= 3, "mesh should have triangles");
+    // Intersect vol < min(box, cyl) and > 0 since they partially overlap
+    let vol = mesh_volume(&mesh);
+    let cyl_vol = std::f64::consts::PI * 1.0 * 1.0 * 2.0;
+    assert!(vol > 0.0, "intersect result should have positive volume, got {}", vol);
+    assert!(vol < cyl_vol * 1.05, "intersect volume {} should be < cylinder volume {:.2}", vol, cyl_vol);
 }
 
 /// Partial cyl-minus-box produces mesh with non-zero volume.

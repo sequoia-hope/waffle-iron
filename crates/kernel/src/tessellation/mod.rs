@@ -3314,7 +3314,7 @@ fn weld_smooth_vertices(vertices: &[f32], normals: &[f32], indices: &mut [u32]) 
     // Build remap: for each group of co-located vertices with similar normals,
     // point all to the first one.
     let mut remap: Vec<u32> = (0..n_verts as u32).collect();
-    let normal_tol = 0.02_f32; // cosine tolerance for normal similarity
+    let normal_tol = crate::units::COS_NORMAL_SIMILARITY;
 
     for group in pos_groups.values() {
         if group.len() < 2 {

@@ -198,3 +198,10 @@ pub const HOLE_PLANARITY_RATIO: f64 = 0.001;
 /// Through-hole boundaries from cylinder subtract are nearly perfect circles.
 /// Revolve caps and S-H gaps are irregular (wedge-shaped, non-circular).
 pub const HOLE_CIRCULARITY_CV: f64 = 0.05;
+
+// ── Tessellation vertex welding ──────────────────────────────────────
+
+/// Cosine tolerance for normal similarity in vertex welding: 0.02.
+/// When deduplicating co-located vertices, normals must differ by less than
+/// this cosine distance to be merged. Preserves hard edges on curved surfaces.
+pub const COS_NORMAL_SIMILARITY: f32 = 0.02;
