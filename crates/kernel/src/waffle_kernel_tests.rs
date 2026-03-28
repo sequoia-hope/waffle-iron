@@ -2964,11 +2964,15 @@ fn make_gear_rect_solids() -> (WaffleKernel, KernelSolidHandle, KernelSolidHandl
 fn l1_gear_rect_union_succeeds() {
     let (mut k, gear, rect) = make_gear_rect_solids();
     let result = k.boolean_union(&gear, &rect);
-    assert!(
-        result.is_ok(),
-        "l1: gear+rect union should succeed, got: {:?}",
-        result.err()
-    );
+    assert!(result.is_ok(),
+        "l1: gear+rect union should succeed, got: {:?}", result.err());
+    let handle = result.unwrap();
+    let mesh = k.tessellate(&handle, 0.01).expect("l1: tessellate should succeed");
+    let n_tris = mesh.indices.len() / 3;
+    assert!(n_tris >= 12, "l1: union mesh should have >=12 triangles, got {n_tris}");
+    let vol = mesh_volume(&mesh);
+    // Rect volume alone = 10*10*5 = 500; union must be >= rect volume
+    assert!(vol > 400.0, "l1: gear+rect union volume should be >400, got {vol:.2}");
 }
 
 #[test]
@@ -7583,28 +7587,32 @@ fn sp10_make_sphere_small_radius() {
 fn sp11_make_sphere_zero_radius() {
     let mut k = WaffleKernel::new();
     let result = k.make_sphere([0.0, 0.0, 0.0], 0.0);
-    assert!(result.is_err(), "Zero radius sphere should produce an error");
+    assert!(matches!(result, Err(KernelError::Other { .. })),
+        "Zero radius sphere should produce KernelError::Other, got {:?}", result);
 }
 
 #[test]
 fn sp12_make_sphere_negative_radius() {
     let mut k = WaffleKernel::new();
     let result = k.make_sphere([0.0, 0.0, 0.0], -1.0);
-    assert!(result.is_err(), "Negative radius sphere should produce an error");
+    assert!(matches!(result, Err(KernelError::Other { .. })),
+        "Negative radius sphere should produce KernelError::Other, got {:?}", result);
 }
 
 #[test]
 fn sp13_make_sphere_nan_radius() {
     let mut k = WaffleKernel::new();
     let result = k.make_sphere([0.0, 0.0, 0.0], f64::NAN);
-    assert!(result.is_err(), "NaN radius sphere should produce an error");
+    assert!(matches!(result, Err(KernelError::Other { .. })),
+        "NaN radius sphere should produce KernelError::Other, got {:?}", result);
 }
 
 #[test]
 fn sp14_make_sphere_inf_radius() {
     let mut k = WaffleKernel::new();
     let result = k.make_sphere([0.0, 0.0, 0.0], f64::INFINITY);
-    assert!(result.is_err(), "Infinite radius sphere should produce an error");
+    assert!(matches!(result, Err(KernelError::Other { .. })),
+        "Infinite radius sphere should produce KernelError::Other, got {:?}", result);
 }
 
 #[test]
@@ -7612,21 +7620,24 @@ fn sp15_make_sphere_tiny_radius() {
     let mut k = WaffleKernel::new();
     // Below MIN_FEATURE_SIZE (1e-6) — should be rejected
     let result = k.make_sphere([0.0, 0.0, 0.0], 1e-7);
-    assert!(result.is_err(), "Radius below MIN_FEATURE_SIZE should produce an error");
+    assert!(matches!(result, Err(KernelError::Other { .. })),
+        "Radius below MIN_FEATURE_SIZE should produce KernelError::Other, got {:?}", result);
 }
 
 #[test]
 fn sp16_make_sphere_nan_center() {
     let mut k = WaffleKernel::new();
     let result = k.make_sphere([f64::NAN, 0.0, 0.0], 1.0);
-    assert!(result.is_err(), "NaN center component should produce an error");
+    assert!(matches!(result, Err(KernelError::Other { .. })),
+        "NaN center component should produce KernelError::Other, got {:?}", result);
 }
 
 #[test]
 fn sp17_make_sphere_inf_center() {
     let mut k = WaffleKernel::new();
     let result = k.make_sphere([0.0, f64::INFINITY, 0.0], 1.0);
-    assert!(result.is_err(), "Infinite center component should produce an error");
+    assert!(matches!(result, Err(KernelError::Other { .. })),
+        "Infinite center component should produce KernelError::Other, got {:?}", result);
 }
 
 // ── SP4: Boolean integration ────────────────────────────────────
@@ -8164,10 +8175,12 @@ fn cn5_make_cone_invalid_radius() {
     let mut k = WaffleKernel::new();
     // Zero radius
     let result = k.make_cone([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.0, 1.0);
-    assert!(result.is_err(), "Zero radius cone should produce an error");
+    assert!(matches!(result, Err(KernelError::Other { .. })),
+        "Zero radius cone should produce KernelError::Other, got {:?}", result);
     // Negative radius
     let result = k.make_cone([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], -1.0, 1.0);
-    assert!(result.is_err(), "Negative radius cone should produce an error");
+    assert!(matches!(result, Err(KernelError::Other { .. })),
+        "Negative radius cone should produce KernelError::Other, got {:?}", result);
 }
 
 #[test]
@@ -8175,10 +8188,12 @@ fn cn6_make_cone_invalid_height() {
     let mut k = WaffleKernel::new();
     // Zero height
     let result = k.make_cone([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 0.0);
-    assert!(result.is_err(), "Zero height cone should produce an error");
+    assert!(matches!(result, Err(KernelError::Other { .. })),
+        "Zero height cone should produce KernelError::Other, got {:?}", result);
     // Negative height
     let result = k.make_cone([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, -1.0);
-    assert!(result.is_err(), "Negative height cone should produce an error");
+    assert!(matches!(result, Err(KernelError::Other { .. })),
+        "Negative height cone should produce KernelError::Other, got {:?}", result);
 }
 
 #[test]
@@ -8186,10 +8201,12 @@ fn cn7_make_cone_below_min_feature() {
     let mut k = WaffleKernel::new();
     // Radius below MIN_FEATURE_SIZE (1e-6)
     let result = k.make_cone([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1e-7, 1.0);
-    assert!(result.is_err(), "Radius below MIN_FEATURE_SIZE should produce an error");
+    assert!(matches!(result, Err(KernelError::Other { .. })),
+        "Radius below MIN_FEATURE_SIZE should produce KernelError::Other, got {:?}", result);
     // Height below MIN_FEATURE_SIZE
     let result = k.make_cone([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 1e-7);
-    assert!(result.is_err(), "Height below MIN_FEATURE_SIZE should produce an error");
+    assert!(matches!(result, Err(KernelError::Other { .. })),
+        "Height below MIN_FEATURE_SIZE should produce KernelError::Other, got {:?}", result);
 }
 
 #[test]
@@ -8197,10 +8214,12 @@ fn cn8_make_cone_nonfinite_center() {
     let mut k = WaffleKernel::new();
     // NaN in center
     let result = k.make_cone([f64::NAN, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 1.0);
-    assert!(result.is_err(), "NaN center component should produce an error");
+    assert!(matches!(result, Err(KernelError::Other { .. })),
+        "NaN center component should produce KernelError::Other, got {:?}", result);
     // Infinity in center
     let result = k.make_cone([0.0, f64::INFINITY, 0.0], [0.0, 0.0, 1.0], 1.0, 1.0);
-    assert!(result.is_err(), "Infinite center component should produce an error");
+    assert!(matches!(result, Err(KernelError::Other { .. })),
+        "Infinite center component should produce KernelError::Other, got {:?}", result);
 }
 
 // ── CN9–CN13: Adversarial / edge-case validation (FIP Phase 4) ──
@@ -8608,10 +8627,8 @@ fn tr06_make_torus_surface_geometry() {
 fn tr07_make_torus_invalid_zero_axis() {
     let mut k = WaffleKernel::new();
     let result = k.make_torus([0.0, 0.0, 0.0], [0.0, 0.0, 0.0], 1.0, 0.3);
-    assert!(
-        result.is_err(),
-        "Zero axis vector should produce an error"
-    );
+    assert!(matches!(result, Err(KernelError::Other { .. })),
+        "Zero axis vector should produce KernelError::Other, got {:?}", result);
 }
 
 // ── TR08: Invalid minor >= major ────────────────────────────────
@@ -8622,17 +8639,13 @@ fn tr08_make_torus_invalid_minor_ge_major() {
 
     // minor == major
     let result = k.make_torus([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 1.0);
-    assert!(
-        result.is_err(),
-        "minor_radius == major_radius should produce an error"
-    );
+    assert!(matches!(result, Err(KernelError::Other { .. })),
+        "minor_radius == major_radius should produce KernelError::Other, got {:?}", result);
 
     // minor > major
     let result = k.make_torus([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 1.5);
-    assert!(
-        result.is_err(),
-        "minor_radius > major_radius should produce an error"
-    );
+    assert!(matches!(result, Err(KernelError::Other { .. })),
+        "minor_radius > major_radius should produce KernelError::Other, got {:?}", result);
 }
 
 // ── TR09: Invalid negative radius ───────────────────────────────
@@ -8643,31 +8656,23 @@ fn tr09_make_torus_invalid_negative_radius() {
 
     // Negative major radius
     let result = k.make_torus([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], -1.0, 0.3);
-    assert!(
-        result.is_err(),
-        "Negative major_radius should produce an error"
-    );
+    assert!(matches!(result, Err(KernelError::Other { .. })),
+        "Negative major_radius should produce KernelError::Other, got {:?}", result);
 
     // Negative minor radius
     let result = k.make_torus([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, -0.3);
-    assert!(
-        result.is_err(),
-        "Negative minor_radius should produce an error"
-    );
+    assert!(matches!(result, Err(KernelError::Other { .. })),
+        "Negative minor_radius should produce KernelError::Other, got {:?}", result);
 
     // Zero major radius
     let result = k.make_torus([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.0, 0.3);
-    assert!(
-        result.is_err(),
-        "Zero major_radius should produce an error"
-    );
+    assert!(matches!(result, Err(KernelError::Other { .. })),
+        "Zero major_radius should produce KernelError::Other, got {:?}", result);
 
     // Zero minor radius
     let result = k.make_torus([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 0.0);
-    assert!(
-        result.is_err(),
-        "Zero minor_radius should produce an error"
-    );
+    assert!(matches!(result, Err(KernelError::Other { .. })),
+        "Zero minor_radius should produce KernelError::Other, got {:?}", result);
 }
 
 // ── TR10: Tilted axis ───────────────────────────────────────────
@@ -13013,7 +13018,7 @@ fn arc_segment_extrude_produces_cylindrical_faces() {
     // Collect normals from face_ranges that correspond to cylindrical geometry.
     // For a cylindrical face with 4 boundary vertices, the normals should differ
     // (radial direction varies along the arc).
-    let n_verts = mesh.vertices.len() / 3;
+    let _n_verts = mesh.vertices.len() / 3;
     let mut has_varying_normals = false;
     for tri in 0..(mesh.indices.len() / 3) {
         let i0 = mesh.indices[tri * 3] as usize;
@@ -13618,13 +13623,10 @@ fn test_overlapping_box_union_not_polygon_soup() {
     );
 }
 
-/// Diagnostic test for assay case F0001: two IDENTICAL overlapping boxes
+/// Structural test for assay case F0001: two IDENTICAL overlapping boxes
 /// (same profile, same plane_origin [0,0,0], same extrusion depth 0.3).
-/// The second sketch is NOT offset — both boxes occupy the exact same volume.
-///
-/// This test prints detailed diagnostic information to debug why F0001
-/// still produces V=24, E=30, F=24, 6 non-manifold edges after the
-/// polygon_soup fix.
+/// Validates that the planar-planar boolean path correctly routes identical
+/// boxes and that pre-boolean solid state is well-formed.
 #[test]
 fn test_f0001_diagnostic_path() {
     let mut k = WaffleKernel::new();
@@ -13638,23 +13640,19 @@ fn test_f0001_diagnostic_path() {
         .extrude_face(faces_a[0], Z_DIR, 0.3)
         .expect("extrude box A");
 
-    // ── Diagnose Box A ──
+    // ── Validate Box A topology ──
     {
         let face_ids_a = k.list_faces(&box_a);
-        println!("=== BOX A ===");
-        println!("  face count: {}", face_ids_a.len());
+        assert_eq!(face_ids_a.len(), 6, "Box A must have 6 faces");
         let ws_a = k.solids.get(&box_a.id()).expect("box_a solid");
-        println!("  face_geometry entries: {}", ws_a.face_geometry.len());
-        println!("  face_map entries: {}", ws_a.face_map.len());
-        println!("  all_faces_planar: {}", WaffleKernel::all_faces_planar(ws_a));
-        for (&kid, &fidx) in &ws_a.face_map {
-            let geom = ws_a.face_geometry.get(&fidx);
-            println!("    face kid={} fidx={:?} geometry={:?}", kid, fidx, geom.map(|g| std::mem::discriminant(g)));
-            if let Some(g) = geom {
-                println!("      full: {:?}", g);
-            } else {
-                println!("      ** NO GEOMETRY **");
-            }
+        assert_eq!(ws_a.face_geometry.len(), ws_a.face_map.len(),
+            "Box A face_geometry and face_map must have equal entries");
+        assert!(WaffleKernel::all_faces_planar(ws_a),
+            "Box A must have all planar faces");
+        // Every mapped face must have geometry
+        for (&_kid, &fidx) in &ws_a.face_map {
+            assert!(ws_a.face_geometry.contains_key(&fidx),
+                "Box A face {:?} missing geometry", fidx);
         }
     }
 
@@ -13667,102 +13665,41 @@ fn test_f0001_diagnostic_path() {
         .extrude_face(faces_b[0], Z_DIR, 0.3)
         .expect("extrude box B");
 
-    // ── Diagnose both solids ──
-    {
-        let face_ids_b = k.list_faces(&box_b);
-        println!("\n=== BOX B ===");
-        println!("  face count: {}", face_ids_b.len());
-        let ws_b = k.solids.get(&box_b.id()).expect("box_b solid");
-        println!("  face_geometry entries: {}", ws_b.face_geometry.len());
-        println!("  face_map entries: {}", ws_b.face_map.len());
-        println!("  all_faces_planar: {}", WaffleKernel::all_faces_planar(ws_b));
-        for (&kid, &fidx) in &ws_b.face_map {
-            let geom = ws_b.face_geometry.get(&fidx);
-            println!("    face kid={} fidx={:?} geometry={:?}", kid, fidx, geom.map(|g| std::mem::discriminant(g)));
-        }
-    }
-
-    // ── Boolean dispatch diagnostics ──
-    println!("\n=== BOOLEAN DISPATCH ===");
+    // ── Validate both solids are planar primitives (planar-planar dispatch) ──
     {
         let ws_a = k.solids.get(&box_a.id()).expect("box_a solid");
         let ws_b = k.solids.get(&box_b.id()).expect("box_b solid");
-        let a_all_planar = WaffleKernel::all_faces_planar(ws_a);
-        let b_all_planar = WaffleKernel::all_faces_planar(ws_b);
-        let both_all_planar = a_all_planar && b_all_planar;
-        let a_cyl = ws_a.cylinder_params.is_some();
-        let b_cyl = ws_b.cylinder_params.is_some();
-        let a_sph = ws_a.sphere_params.is_some();
-        let b_sph = ws_b.sphere_params.is_some();
-        let a_simple_box = !a_cyl && !a_sph && ws_a.face_map.len() <= 6 && a_all_planar;
-        let b_simple_box = !b_cyl && !b_sph && ws_b.face_map.len() <= 6 && b_all_planar;
-        let a_prim = a_cyl || a_sph || a_simple_box;
-        let b_prim = b_cyl || b_sph || b_simple_box;
-        let use_ssi = (a_prim && b_prim && (a_cyl || b_cyl || a_sph || b_sph))
-            || (a_all_planar && b_cyl)
-            || (b_all_planar && a_cyl);
-
-        println!("  a_all_planar: {}", a_all_planar);
-        println!("  b_all_planar: {}", b_all_planar);
-        println!("  both_all_planar: {}", both_all_planar);
-        println!("  a_simple_box: {}", a_simple_box);
-        println!("  b_simple_box: {}", b_simple_box);
-        println!("  a_prim: {}", a_prim);
-        println!("  b_prim: {}", b_prim);
-        println!("  use_ssi: {}", use_ssi);
-        println!("  expected path: {}", if use_ssi { "SSI" } else if both_all_planar { "planar_planar_boolean" } else { "general polygon" });
+        assert!(WaffleKernel::all_faces_planar(ws_a), "Box A must be all-planar");
+        assert!(WaffleKernel::all_faces_planar(ws_b), "Box B must be all-planar");
+        assert!(ws_a.cylinder_params.is_none(), "Box A must not have cylinder params");
+        assert!(ws_b.cylinder_params.is_none(), "Box B must not have cylinder params");
+        assert!(ws_a.sphere_params.is_none(), "Box A must not have sphere params");
+        assert!(ws_b.sphere_params.is_none(), "Box B must not have sphere params");
     }
 
-    // ── Attempt boolean_union ──
-    println!("\n=== BOOLEAN UNION ===");
-    let union_result = k.boolean_union(&box_a, &box_b);
-    match &union_result {
-        Ok(handle) => {
-            println!("  boolean_union: OK (handle id={})", handle.id());
+    // ── Boolean union must succeed ──
+    let union_handle = k.boolean_union(&box_a, &box_b)
+        .expect("identical box union must succeed");
 
-            // Check is_polygon_soup
-            let ws_u = k.solids.get(&handle.id()).expect("union solid");
-            println!("  is_polygon_soup: {}", ws_u.is_polygon_soup);
-            println!("  union face_map entries: {}", ws_u.face_map.len());
-            println!("  union face_geometry entries: {}", ws_u.face_geometry.len());
-            for (&kid, &fidx) in &ws_u.face_map {
-                let geom = ws_u.face_geometry.get(&fidx);
-                println!("    union face kid={} fidx={:?} geometry={:?}", kid, fidx, geom.map(|g| std::mem::discriminant(g)));
-            }
+    // ── Tessellate and validate result ──
+    let mesh = k.tessellate(&union_handle, 0.01)
+        .expect("tessellate identical box union must succeed");
 
-            // Tessellate
-            println!("\n=== TESSELLATION ===");
-            match k.tessellate(handle, 0.01) {
-                Ok(mesh) => {
-                    let v = count_unique_verts(&mesh);
-                    let e = count_total_edges(&mesh);
-                    let f = mesh.indices.len() / 3;
-                    let unpaired = count_unpaired_edges(&mesh);
-                    let vol = mesh_volume(&mesh);
-                    println!("  raw vertex count: {}", mesh.vertices.len() / 3);
-                    println!("  unique V: {}", v);
-                    println!("  unique E: {}", e);
-                    println!("  F (triangles): {}", f);
-                    println!("  Euler V-E+F: {}", v as i64 - e as i64 + f as i64);
-                    println!("  unpaired (non-manifold) edges: {}", unpaired);
-                    println!("  volume: {:.6}", vol);
-                    println!("  expected volume (0.5*0.5*0.3): {:.6}", 0.5 * 0.5 * 0.3);
-                    println!("  watertight: {}", check_watertight(&mesh));
+    let n_tris = mesh.indices.len() / 3;
+    assert!(n_tris >= 12, "identical box union should have >=12 triangles, got {n_tris}");
 
-                    // Print AABB to confirm geometry
-                    let (bb_min, bb_max) = mesh_bbox(&mesh);
-                    println!("  AABB min: [{:.4}, {:.4}, {:.4}]", bb_min[0], bb_min[1], bb_min[2]);
-                    println!("  AABB max: [{:.4}, {:.4}, {:.4}]", bb_max[0], bb_max[1], bb_max[2]);
-                }
-                Err(e) => {
-                    println!("  tessellate FAILED: {:?}", e);
-                }
-            }
-        }
-        Err(e) => {
-            println!("  boolean_union FAILED: {:?}", e);
-        }
-    }
+    let vol = mesh_volume(&mesh);
+    let expected_vol = 0.5 * 0.5 * 0.3;
+    let rel_err = (vol - expected_vol).abs() / expected_vol;
+    assert!(rel_err < 0.05,
+        "identical box union volume {vol:.6} should be ~{expected_vol:.6} (rel_err={rel_err:.4})");
+
+    let (bb_min, bb_max) = mesh_bbox(&mesh);
+    // AABB should span [-0.25, 0.25] in X/Y and [0, 0.3] in Z
+    assert!((bb_min[0] - (-0.25)).abs() < 0.01, "AABB min X wrong: {}", bb_min[0]);
+    assert!((bb_max[0] - 0.25).abs() < 0.01, "AABB max X wrong: {}", bb_max[0]);
+    assert!((bb_min[2]).abs() < 0.01, "AABB min Z wrong: {}", bb_min[2]);
+    assert!((bb_max[2] - 0.3).abs() < 0.01, "AABB max Z wrong: {}", bb_max[2]);
 }
 
 // ── Assay-reproducer tests (F0001, F0031) ─────────────────────────────
