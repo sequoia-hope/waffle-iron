@@ -1,5 +1,9 @@
 # 01 — Kernel Fork: Agent Instructions
 
+> **ARCHIVED (2026-03-28):** These instructions cover the truck-based kernel, which
+> has been replaced by the clean-sheet kernel at `crates/kernel/`. See the top-level
+> `CLAUDE.md` for current kernel development instructions.
+
 You are working on **kernel-fork**. Read ARCHITECTURE.md in this directory first.
 
 ## Your Job

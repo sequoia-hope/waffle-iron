@@ -1,6 +1,14 @@
 # Specs Status Dashboard
 
-Cross-reference of all spec files against the codebase. Updated 2026-03-04.
+> **Note (2026-03-28):** The table below covers the **archived truck-based kernel**
+> (`vendor/truck/`, `kernel-fork/`). The truck kernel was replaced by the clean-sheet
+> kernel at `crates/kernel/` starting Sprint 68. Spec files for features implemented
+> in the clean-sheet kernel (SSI solvers, analytical booleans, tessellation, Euler
+> operators) are in the same `/specs/` directory but are NOT reflected in this table.
+> A future pass should rebuild this dashboard against `crates/kernel/` implementation
+> paths.
+
+Originally updated 2026-03-04 (truck-era).
 
 ## Status Legend
 

@@ -1,5 +1,10 @@
 # 01 — Kernel Fork: Plan
 
+> **ARCHIVED (2026-03-28):** This plan covers the truck-based kernel (`kernel-fork`,
+> `vendor/truck/`), which has been replaced by the clean-sheet kernel at `crates/kernel/`.
+> The truck code is archived in `archive/truck/`. This plan is retained for historical
+> reference only. Active kernel work is tracked in ARCHITECTURE.md and kernel test suites.
+
 ## Milestones
 
 ### M1: Fork and Build Setup ✓
