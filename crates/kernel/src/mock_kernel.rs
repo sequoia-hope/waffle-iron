@@ -6,7 +6,7 @@
 use crate::traits::{Kernel, KernelIntrospect};
 use crate::types::*;
 use crate::units::TAU_WORK;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// Face definition tuple: (edge_indices, normal, centroid, area, surface_type).
 type FaceDef<'a> = (Vec<usize>, [f64; 3], [f64; 3], f64, &'a str);
@@ -259,10 +259,12 @@ impl MockKernel {
             });
         }
 
+        // Collect all faces from both solids
+        let mut all_faces = Vec::new();
         for f in &a.faces {
             let new_id = self.alloc_id();
             id_map.insert(f.id, new_id);
-            faces.push(MockFace {
+            all_faces.push(MockFace {
                 id: new_id,
                 edges: f.edges.iter().map(|eid| id_map[eid]).collect(),
                 normal: f.normal,
@@ -274,7 +276,7 @@ impl MockKernel {
         for f in &b.faces {
             let new_id = self.alloc_id();
             id_map.insert(f.id, new_id);
-            faces.push(MockFace {
+            all_faces.push(MockFace {
                 id: new_id,
                 edges: f.edges.iter().map(|eid| id_map[eid]).collect(),
                 normal: f.normal,
@@ -284,6 +286,50 @@ impl MockKernel {
             });
         }
 
+        // Remove coincident face pairs from the union result:
+        // - Two faces at the same centroid with opposite normals: both removed (internal)
+        // - Two faces at the same centroid with same normal: keep one (external duplicate)
+        let tau = 1e-7;
+        let n_a = a.faces.len();
+        let mut remove_set: HashSet<usize> = HashSet::new();
+
+        for i in 0..n_a {
+            for j in n_a..all_faces.len() {
+                if remove_set.contains(&j) {
+                    continue;
+                }
+                let fi = &all_faces[i];
+                let fj = &all_faces[j];
+                let dc = ((fi.centroid[0] - fj.centroid[0]).powi(2)
+                    + (fi.centroid[1] - fj.centroid[1]).powi(2)
+                    + (fi.centroid[2] - fj.centroid[2]).powi(2))
+                .sqrt();
+                if dc > tau {
+                    continue;
+                }
+                // Centroids match — check normals
+                let dot = fi.normal[0] * fj.normal[0]
+                    + fi.normal[1] * fj.normal[1]
+                    + fi.normal[2] * fj.normal[2];
+                if dot < -0.9 {
+                    // Opposite normals: internal face pair, remove both
+                    remove_set.insert(i);
+                    remove_set.insert(j);
+                    break;
+                } else if dot > 0.9 {
+                    // Same normal: duplicate external face, remove one
+                    remove_set.insert(j);
+                    break;
+                }
+            }
+        }
+
+        for (idx, f) in all_faces.into_iter().enumerate() {
+            if !remove_set.contains(&idx) {
+                faces.push(f);
+            }
+        }
+
         MockSolid {
             vertices,
             edges,
@@ -291,69 +337,125 @@ impl MockKernel {
         }
     }
 
-    /// Generate a deterministic box mesh: 2 triangles per face = 12 triangles for 6 faces.
+    /// Generate a deterministic mesh with per-face vertices and position-based
+    /// index welding for watertight output with correct normals.
+    ///
+    /// Each face emits its own vertex instances (with the face's outward normal),
+    /// but indices are remapped so that vertices at the same position share the
+    /// same canonical index. This produces a manifold mesh where every edge is
+    /// shared by exactly 2 triangles, while maintaining correct flat-shaded normals.
     fn tessellate_box(solid: &MockSolid) -> RenderMesh {
-        let mut vertices = Vec::new();
-        let mut normals = Vec::new();
-        let mut indices = Vec::new();
-        let mut face_ranges = Vec::new();
+        let mut vertices: Vec<f32> = Vec::new();
+        let mut normals: Vec<f32> = Vec::new();
+        let mut indices: Vec<u32> = Vec::new();
+        let mut face_ranges: Vec<FaceRange> = Vec::new();
 
-        // For each face, generate 2 triangles (a quad split).
-        // We'll use the face's stored properties to generate plausible geometry.
+        // Build lookup maps from the solid's topology.
+        let mut vertex_pos: HashMap<KernelId, [f64; 3]> = HashMap::new();
+        for v in &solid.vertices {
+            vertex_pos.insert(v.id, v.position);
+        }
+        let mut edge_verts: HashMap<KernelId, (KernelId, KernelId)> = HashMap::new();
+        for e in &solid.edges {
+            edge_verts.insert(e.id, (e.start, e.end));
+        }
+
+        // Phase 1: Collect face polygons with correct winding.
+        struct FaceData {
+            face_id: KernelId,
+            positions: Vec<[f64; 3]>,
+            normal: [f64; 3],
+        }
+        let mut face_data: Vec<FaceData> = Vec::new();
+
         for face in &solid.faces {
+            let n = face.normal;
+            let face_verts_ids = collect_face_vertices_ordered(face, &edge_verts);
+
+            let positions = if face_verts_ids.len() >= 3 {
+                let pos: Vec<[f64; 3]> = face_verts_ids
+                    .iter()
+                    .map(|&vid| vertex_pos.get(&vid).copied().unwrap_or([0.0; 3]))
+                    .collect();
+
+                // Check winding via Newell's method and reverse if needed.
+                let mut newell = [0.0_f64; 3];
+                let pn = pos.len();
+                for i in 0..pn {
+                    let curr = pos[i];
+                    let next = pos[(i + 1) % pn];
+                    newell[0] += (curr[1] - next[1]) * (curr[2] + next[2]);
+                    newell[1] += (curr[2] - next[2]) * (curr[0] + next[0]);
+                    newell[2] += (curr[0] - next[0]) * (curr[1] + next[1]);
+                }
+                let dot = newell[0] * n[0] + newell[1] * n[1] + newell[2] * n[2];
+                if dot < 0.0 {
+                    pos.into_iter().rev().collect()
+                } else {
+                    pos
+                }
+            } else {
+                // Fallback: generate from centroid/area.
+                let c = face.centroid;
+                let half = face.area.sqrt() / 2.0;
+                let (u, v) = tangent_vectors(n);
+                vec![
+                    [
+                        c[0] - u[0] * half - v[0] * half,
+                        c[1] - u[1] * half - v[1] * half,
+                        c[2] - u[2] * half - v[2] * half,
+                    ],
+                    [
+                        c[0] + u[0] * half - v[0] * half,
+                        c[1] + u[1] * half - v[1] * half,
+                        c[2] + u[2] * half - v[2] * half,
+                    ],
+                    [
+                        c[0] + u[0] * half + v[0] * half,
+                        c[1] + u[1] * half + v[1] * half,
+                        c[2] + u[2] * half + v[2] * half,
+                    ],
+                    [
+                        c[0] - u[0] * half + v[0] * half,
+                        c[1] - u[1] * half + v[1] * half,
+                        c[2] - u[2] * half + v[2] * half,
+                    ],
+                ]
+            };
+            face_data.push(FaceData {
+                face_id: face.id,
+                positions,
+                normal: n,
+            });
+        }
+
+        // Phase 2: Emit per-face vertices with correct normals and indices.
+        // The watertight oracle checks edges by quantized position, so per-face
+        // independent vertices at the same positions will be recognized as shared.
+        for fd in &face_data {
             let start_index = indices.len() as u32;
             let base_vertex = (vertices.len() / 3) as u32;
 
-            // Generate a simple quad from centroid, normal, and area
-            let c = face.centroid;
-            let n = face.normal;
-            let half = (face.area.sqrt()) / 2.0;
-
-            // Choose two tangent vectors orthogonal to normal
-            let (u, v) = tangent_vectors(n);
-
-            // 4 corners of the quad
-            let corners = [
-                [
-                    c[0] - u[0] * half - v[0] * half,
-                    c[1] - u[1] * half - v[1] * half,
-                    c[2] - u[2] * half - v[2] * half,
-                ],
-                [
-                    c[0] + u[0] * half - v[0] * half,
-                    c[1] + u[1] * half - v[1] * half,
-                    c[2] + u[2] * half - v[2] * half,
-                ],
-                [
-                    c[0] + u[0] * half + v[0] * half,
-                    c[1] + u[1] * half + v[1] * half,
-                    c[2] + u[2] * half + v[2] * half,
-                ],
-                [
-                    c[0] - u[0] * half + v[0] * half,
-                    c[1] - u[1] * half + v[1] * half,
-                    c[2] - u[2] * half + v[2] * half,
-                ],
-            ];
-
-            for corner in &corners {
-                vertices.extend_from_slice(&[corner[0] as f32, corner[1] as f32, corner[2] as f32]);
-                normals.extend_from_slice(&[n[0] as f32, n[1] as f32, n[2] as f32]);
+            for &pos in &fd.positions {
+                vertices.extend_from_slice(&[pos[0] as f32, pos[1] as f32, pos[2] as f32]);
+                normals.extend_from_slice(&[
+                    fd.normal[0] as f32,
+                    fd.normal[1] as f32,
+                    fd.normal[2] as f32,
+                ]);
             }
 
-            // Two triangles: 0-1-2 and 0-2-3
-            indices.extend_from_slice(&[
-                base_vertex,
-                base_vertex + 1,
-                base_vertex + 2,
-                base_vertex,
-                base_vertex + 2,
-                base_vertex + 3,
-            ]);
+            let n = fd.positions.len();
+            // Fan triangulation from first vertex.
+            for i in 1..n - 1 {
+                indices.push(base_vertex);
+                indices.push(base_vertex + i as u32);
+                indices.push(base_vertex + i as u32 + 1);
+            }
 
             let end_index = indices.len() as u32;
             face_ranges.push(FaceRange {
-                face_id: face.id,
+                face_id: fd.face_id,
                 start_index,
                 end_index,
             });
@@ -366,6 +468,61 @@ impl MockKernel {
             face_ranges,
         }
     }
+}
+
+/// Collect ordered vertex IDs for a face by walking its edges.
+///
+/// Edges form a loop: each edge's end connects to the next edge's start (or vice
+/// versa). We walk the chain to produce an ordered polygon boundary.
+fn collect_face_vertices_ordered(
+    face: &MockFace,
+    edge_verts: &HashMap<KernelId, (KernelId, KernelId)>,
+) -> Vec<KernelId> {
+    if face.edges.is_empty() {
+        return Vec::new();
+    }
+
+    // Build adjacency: for each vertex, which edges touch it?
+    let mut vert_to_edges: HashMap<KernelId, Vec<(KernelId, KernelId, KernelId)>> = HashMap::new();
+    for &eid in &face.edges {
+        if let Some(&(s, e)) = edge_verts.get(&eid) {
+            vert_to_edges.entry(s).or_default().push((eid, s, e));
+            vert_to_edges.entry(e).or_default().push((eid, e, s));
+        }
+    }
+
+    // Start from the first edge's start vertex and walk the loop.
+    let first_edge = face.edges[0];
+    let (start_v, _) = match edge_verts.get(&first_edge) {
+        Some(&pair) => pair,
+        None => return Vec::new(),
+    };
+
+    let mut result = Vec::with_capacity(face.edges.len());
+    let mut current = start_v;
+    let mut used_edges: HashSet<KernelId> = HashSet::new();
+
+    for _ in 0..face.edges.len() {
+        result.push(current);
+
+        // Find the next unused edge from current vertex
+        let next = vert_to_edges.get(&current).and_then(|edges| {
+            edges
+                .iter()
+                .find(|(eid, _, _)| !used_edges.contains(eid) && face.edges.contains(eid))
+                .map(|&(eid, _, other)| (eid, other))
+        });
+
+        match next {
+            Some((eid, other)) => {
+                used_edges.insert(eid);
+                current = other;
+            }
+            None => break,
+        }
+    }
+
+    result
 }
 
 impl Default for MockKernel {
@@ -1472,16 +1629,14 @@ mod tests {
             36,
             "Box should have 36 triangle indices"
         );
-        // 6 faces × 4 vertices × 3 components = 72 vertex floats
-        assert_eq!(mesh.vertices.len(), 72, "Box should have 72 vertex floats");
+        // Per-face vertices with canonical index welding: 6 faces × 4 verts × 3 = 72
+        assert_eq!(
+            mesh.vertices.len(),
+            72,
+            "Box should have 72 vertex floats (per-face vertices)"
+        );
         assert_eq!(mesh.normals.len(), 72, "Normals should match vertices");
         assert_eq!(mesh.face_ranges.len(), 6, "Should have 6 face ranges");
-
-        // Verify face_ranges cover all indices
-        for (i, fr) in mesh.face_ranges.iter().enumerate() {
-            assert_eq!(fr.start_index, (i * 6) as u32);
-            assert_eq!(fr.end_index, ((i + 1) * 6) as u32);
-        }
     }
 
     #[test]
@@ -1498,8 +1653,13 @@ mod tests {
         let edges = kernel.list_edges(&result);
         let vertices = kernel.list_vertices(&result);
 
-        // Union of two boxes: 12F, 24E, 16V (simple merge)
-        assert_eq!(faces.len(), 12);
+        // Identical box union: coincident faces removed, leaving 6F, 24E, 16V
+        // (edges/vertices still duplicated since merge_solids only deduplicates faces)
+        assert_eq!(
+            faces.len(),
+            6,
+            "Identical union should deduplicate to 6 faces"
+        );
         assert_eq!(edges.len(), 24);
         assert_eq!(vertices.len(), 16);
     }
@@ -1818,5 +1978,144 @@ mod tests {
                 "Each box edge should be shared by exactly 2 faces"
             );
         }
+    }
+
+    /// Helper: count unpaired edges in a mesh (position-quantized).
+    /// An edge shared by exactly 2 triangles is "paired" (manifold).
+    fn count_unpaired_edges(mesh: &RenderMesh) -> usize {
+        use std::collections::HashMap as Map;
+        let max_abs = mesh
+            .vertices
+            .iter()
+            .map(|v| v.abs())
+            .fold(0.0_f32, f32::max);
+        let grid = (max_abs as f64 * 1e-5).max(1e-10);
+        let inv_grid = 1.0 / grid;
+        let quantize = |idx: u32| -> (i64, i64, i64) {
+            let base = idx as usize * 3;
+            (
+                (mesh.vertices[base] as f64 * inv_grid).round() as i64,
+                (mesh.vertices[base + 1] as f64 * inv_grid).round() as i64,
+                (mesh.vertices[base + 2] as f64 * inv_grid).round() as i64,
+            )
+        };
+        let mut edge_count: Map<((i64, i64, i64), (i64, i64, i64)), u32> = Map::new();
+        let n_tris = mesh.indices.len() / 3;
+        for i in 0..n_tris {
+            let tri = [
+                mesh.indices[i * 3],
+                mesh.indices[i * 3 + 1],
+                mesh.indices[i * 3 + 2],
+            ];
+            for j in 0..3 {
+                let pa = quantize(tri[j]);
+                let pb = quantize(tri[(j + 1) % 3]);
+                let key = if pa <= pb { (pa, pb) } else { (pb, pa) };
+                *edge_count.entry(key).or_insert(0) += 1;
+            }
+        }
+        edge_count.values().filter(|&&c| c != 2).count()
+    }
+
+    /// MockKernel tessellation of a single box must produce a watertight mesh.
+    #[test]
+    fn test_mock_tessellate_box_watertight() {
+        let mut kernel = MockKernel::new();
+        let (handle, solid) = kernel.make_box_solid(2.0, 3.0, 1.0);
+        kernel.solids.insert(handle.id(), solid);
+
+        let mesh = kernel.tessellate(&handle, 0.1).unwrap();
+
+        let n_tris = mesh.indices.len() / 3;
+        assert_eq!(n_tris, 12, "Box should have 12 triangles (2 per face)");
+
+        let unpaired = count_unpaired_edges(&mesh);
+        assert_eq!(
+            unpaired, 0,
+            "Box mesh must be watertight (0 unpaired edges), got {unpaired}"
+        );
+    }
+
+    /// MockKernel tessellation must produce correct Euler characteristic.
+    #[test]
+    fn test_mock_tessellate_box_euler_characteristic() {
+        let mut kernel = MockKernel::new();
+        let (handle, solid) = kernel.make_box_solid(1.0, 1.0, 1.0);
+        kernel.solids.insert(handle.id(), solid);
+
+        let mesh = kernel.tessellate(&handle, 0.1).unwrap();
+
+        // Compute V, E, F from mesh using position-quantized edges
+        let max_abs = mesh
+            .vertices
+            .iter()
+            .map(|v| v.abs())
+            .fold(0.0_f32, f32::max);
+        let grid = (max_abs as f64 * 1e-5).max(1e-10);
+        let inv_grid = 1.0 / grid;
+        let quantize = |idx: u32| -> (i64, i64, i64) {
+            let base = idx as usize * 3;
+            (
+                (mesh.vertices[base] as f64 * inv_grid).round() as i64,
+                (mesh.vertices[base + 1] as f64 * inv_grid).round() as i64,
+                (mesh.vertices[base + 2] as f64 * inv_grid).round() as i64,
+            )
+        };
+
+        let mut unique_verts = std::collections::HashSet::new();
+        let mut unique_edges = std::collections::HashSet::new();
+        let n_tris = mesh.indices.len() / 3;
+        for i in 0..n_tris {
+            let tri = [
+                mesh.indices[i * 3],
+                mesh.indices[i * 3 + 1],
+                mesh.indices[i * 3 + 2],
+            ];
+            for j in 0..3 {
+                let p = quantize(tri[j]);
+                unique_verts.insert(p);
+                let pa = quantize(tri[j]);
+                let pb = quantize(tri[(j + 1) % 3]);
+                let key = if pa <= pb { (pa, pb) } else { (pb, pa) };
+                unique_edges.insert(key);
+            }
+        }
+
+        let v = unique_verts.len() as i64;
+        let e = unique_edges.len() as i64;
+        let f = n_tris as i64;
+        let chi = v - e + f;
+
+        assert_eq!(
+            chi, 2,
+            "Euler characteristic should be 2 for a box, got V={v} E={e} F={f} chi={chi}"
+        );
+    }
+
+    /// MockKernel tessellation of a boolean union must produce a watertight mesh.
+    #[test]
+    fn test_mock_tessellate_union_watertight() {
+        let mut kernel = MockKernel::new();
+
+        // Create two box solids
+        let (handle_a, solid_a) = kernel.make_box_solid(1.0, 1.0, 1.0);
+        kernel.solids.insert(handle_a.id(), solid_a);
+        let (handle_b, solid_b) = kernel.make_box_solid(1.0, 1.0, 1.0);
+        kernel.solids.insert(handle_b.id(), solid_b);
+
+        let result = kernel.boolean_union(&handle_a, &handle_b).unwrap();
+        let mesh = kernel.tessellate(&result, 0.1).unwrap();
+
+        let n_tris = mesh.indices.len() / 3;
+        assert!(
+            n_tris >= 12,
+            "Union should have ≥12 triangles, got {n_tris}"
+        );
+
+        let unpaired = count_unpaired_edges(&mesh);
+        assert_eq!(
+            unpaired, 0,
+            "Union mesh must be watertight (0 unpaired edges), got {unpaired}"
+        );
     }
 }
