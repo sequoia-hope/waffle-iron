@@ -384,8 +384,7 @@ fn test_plane_sphere_through_center() {
 #[test]
 fn test_plane_sphere_offset() {
     // Plane at z=3, sphere at origin r=5 → circle at z=3, r=sqrt(25-9)=4
-    let curves =
-        plane_sphere_ssi([0.0, 0.0, 3.0], [0.0, 0.0, 1.0], [0.0, 0.0, 0.0], 5.0).unwrap();
+    let curves = plane_sphere_ssi([0.0, 0.0, 3.0], [0.0, 0.0, 1.0], [0.0, 0.0, 0.0], 5.0).unwrap();
     assert_eq!(curves.len(), 1);
     if let SSICurve::Circle { center, radius, .. } = &curves[0] {
         assert!(center[0].abs() < EPS);
@@ -400,16 +399,14 @@ fn test_plane_sphere_offset() {
 #[test]
 fn test_plane_sphere_tangent() {
     // Plane at z=5 (tangent) → within tolerance → empty
-    let curves =
-        plane_sphere_ssi([0.0, 0.0, 5.0], [0.0, 0.0, 1.0], [0.0, 0.0, 0.0], 5.0).unwrap();
+    let curves = plane_sphere_ssi([0.0, 0.0, 5.0], [0.0, 0.0, 1.0], [0.0, 0.0, 0.0], 5.0).unwrap();
     assert!(curves.is_empty());
 }
 
 #[test]
 fn test_plane_sphere_disjoint() {
     // Plane at z=10, sphere r=5 → d=10 > 5 → empty
-    let curves =
-        plane_sphere_ssi([0.0, 0.0, 10.0], [0.0, 0.0, 1.0], [0.0, 0.0, 0.0], 5.0).unwrap();
+    let curves = plane_sphere_ssi([0.0, 0.0, 10.0], [0.0, 0.0, 1.0], [0.0, 0.0, 0.0], 5.0).unwrap();
     assert!(curves.is_empty());
 }
 
@@ -917,6 +914,8 @@ fn cc5_skew_axes() {
 
 #[test]
 fn cc6_near_parallel_30deg() {
+    // 30° is now within the supported range (≥15°) after threshold extension.
+    // Previously returned NotSupported; now returns 2 analytical ellipses.
     let cos30 = (std::f64::consts::FRAC_PI_6).cos();
     let sin30 = (std::f64::consts::FRAC_PI_6).sin();
     let result = cylinder_cylinder_ssi_non_parallel(
@@ -927,7 +926,37 @@ fn cc6_near_parallel_30deg() {
         [sin30, 0.0, cos30],
         1.0,
     );
-    assert!(matches!(result, Err(KernelError::NotSupported { .. })));
+    let curves = result.unwrap();
+    assert_eq!(curves.len(), 2);
+    // Verify semi-axes: α=30°, half=15°, R=1.0
+    let half = std::f64::consts::FRAC_PI_6 / 2.0; // 15°
+    let expected_sm1 = 1.0 / half.sin(); // R/sin(15°) ≈ 3.864
+    let expected_sm2 = 1.0 / half.cos(); // R/cos(15°) ≈ 1.035
+    let mut majors: Vec<f64> = curves
+        .iter()
+        .map(|c| {
+            if let SSICurve::Ellipse { semi_major, .. } = c {
+                *semi_major
+            } else {
+                panic!("Expected Ellipse")
+            }
+        })
+        .collect();
+    majors.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let mut expected = [expected_sm1, expected_sm2];
+    expected.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    assert!(
+        (majors[0] - expected[0]).abs() < EPS,
+        "smaller={}, expected {}",
+        majors[0],
+        expected[0]
+    );
+    assert!(
+        (majors[1] - expected[1]).abs() < EPS,
+        "larger={}, expected {}",
+        majors[1],
+        expected[1]
+    );
 }
 
 #[test]
@@ -958,8 +987,7 @@ fn cc8_oracle_points_on_both_cylinders() {
     let axis_b = [1.0, 0.0, 0.0];
     let origin = [0.0, 0.0, 0.0];
     let r = 1.0;
-    let curves =
-        cylinder_cylinder_ssi_non_parallel(origin, axis_a, r, origin, axis_b, r).unwrap();
+    let curves = cylinder_cylinder_ssi_non_parallel(origin, axis_a, r, origin, axis_b, r).unwrap();
     assert_eq!(curves.len(), 2);
 
     for curve in &curves {
@@ -3560,9 +3588,7 @@ fn test_sphere_torus_near_tangent_outer() {
                     "NaN in ellipse normal"
                 );
                 assert!(
-                    !major_axis[0].is_nan()
-                        && !major_axis[1].is_nan()
-                        && !major_axis[2].is_nan(),
+                    !major_axis[0].is_nan() && !major_axis[1].is_nan() && !major_axis[2].is_nan(),
                     "NaN in ellipse major_axis"
                 );
                 assert!(!semi_major.is_nan(), "NaN in semi_major");
@@ -3793,9 +3819,7 @@ fn test_cone_cone_near_coaxial() {
                     "NaN in ellipse normal"
                 );
                 assert!(
-                    !major_axis[0].is_nan()
-                        && !major_axis[1].is_nan()
-                        && !major_axis[2].is_nan(),
+                    !major_axis[0].is_nan() && !major_axis[1].is_nan() && !major_axis[2].is_nan(),
                     "NaN in ellipse major_axis"
                 );
                 assert!(!semi_major.is_nan(), "NaN in semi_major");
@@ -3961,9 +3985,7 @@ fn test_cone_cone_no_nan_in_results() {
                     normal
                 );
                 assert!(
-                    !major_axis[0].is_nan()
-                        && !major_axis[1].is_nan()
-                        && !major_axis[2].is_nan(),
+                    !major_axis[0].is_nan() && !major_axis[1].is_nan() && !major_axis[2].is_nan(),
                     "Curve {}: NaN in ellipse major_axis {:?}",
                     i,
                     major_axis
@@ -5686,12 +5708,7 @@ fn assert_point_on_plane(p: [f64; 3], plane_origin: [f64; 3], plane_normal: [f64
 }
 
 /// Helper: check that a point lies on the cone surface (within tolerance).
-fn assert_point_on_cone(
-    p: [f64; 3],
-    cone_apex: [f64; 3],
-    cone_axis: [f64; 3],
-    half_angle: f64,
-) {
+fn assert_point_on_cone(p: [f64; 3], cone_apex: [f64; 3], cone_axis: [f64; 3], half_angle: f64) {
     let dp = v3_sub(p, cone_apex);
     let h = v3_dot(dp, cone_axis);
     let radial_sq = v3_dot(dp, dp) - h * h;
@@ -6032,13 +6049,7 @@ fn eval_hyperbola(
 }
 
 /// Check if a point lies on a cone surface within tolerance.
-fn point_on_cone(
-    pt: [f64; 3],
-    apex: [f64; 3],
-    axis: [f64; 3],
-    half_angle: f64,
-    tol: f64,
-) -> bool {
+fn point_on_cone(pt: [f64; 3], apex: [f64; 3], axis: [f64; 3], half_angle: f64, tol: f64) -> bool {
     let v = v3_sub(pt, apex);
     let h = v3_dot(v, axis);
     if h < -tol {
@@ -7500,5 +7511,430 @@ fn test_plane_cone_parabola_offset_apex() {
             }
         }
         other => panic!("Expected Parabola, got {:?}", other),
+    }
+}
+
+// ── Adversarial / Hardening Tests — Cylinder-Cylinder Non-Parallel SSI ──
+
+#[test]
+fn test_cyl_cyl_adversarial_15deg_boundary_exact() {
+    // Exactly 15.0° — must be accepted (not NotSupported), returning 2 ellipses.
+    // Verifies the threshold boundary is inclusive at 15°.
+    let r = 1.0;
+    let angle = (15.0_f64).to_radians();
+    let axis_b = [angle.sin(), 0.0, angle.cos()];
+
+    let result = cylinder_cylinder_ssi_non_parallel(
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        r,
+        [0.0, 0.0, 0.0],
+        axis_b,
+        r,
+    );
+
+    let curves = result.expect("Exactly 15 degrees must be Ok, not NotSupported");
+    assert_eq!(curves.len(), 2, "Expected exactly 2 ellipses at 15 degrees");
+
+    // O4: No NaN or infinity in any output field
+    for curve in &curves {
+        if let SSICurve::Ellipse {
+            center,
+            normal,
+            major_axis,
+            semi_major,
+            semi_minor,
+        } = curve
+        {
+            for v in center.iter().chain(normal.iter()).chain(major_axis.iter()) {
+                assert!(v.is_finite(), "NaN/infinity in ellipse coordinate: {v}");
+            }
+            assert!(
+                semi_major.is_finite() && !semi_major.is_nan(),
+                "semi_major is NaN/inf"
+            );
+            assert!(
+                semi_minor.is_finite() && !semi_minor.is_nan(),
+                "semi_minor is NaN/inf"
+            );
+            assert!(
+                *semi_major > 0.0,
+                "semi_major must be positive, got {semi_major}"
+            );
+            assert!(
+                *semi_minor > 0.0,
+                "semi_minor must be positive, got {semi_minor}"
+            );
+        } else {
+            panic!("Expected Ellipse at 15 degrees, got {curve:?}");
+        }
+    }
+}
+
+#[test]
+fn test_cyl_cyl_adversarial_14_99deg_rejected() {
+    // 14.9° — below the effective threshold (~14.98°, since SSI_CYL_CYL_MIN_ANGLE_COS
+    // is rounded up to 0.9660 to give 15° margin). Must be rejected as NotSupported.
+    let r = 1.0;
+    let angle = (14.9_f64).to_radians();
+    let axis_b = [angle.sin(), 0.0, angle.cos()];
+
+    let result = cylinder_cylinder_ssi_non_parallel(
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        r,
+        [0.0, 0.0, 0.0],
+        axis_b,
+        r,
+    );
+
+    assert!(
+        matches!(result, Err(KernelError::NotSupported { .. })),
+        "14.9 deg must be rejected (cos(14.9) > threshold 0.9660), got {result:?}"
+    );
+}
+
+#[test]
+fn test_cyl_cyl_adversarial_extreme_eccentricity_15deg() {
+    // At 15°, curve 1 has semi_major = R/sin(7.5°) ~ 7.66R — highly eccentric.
+    // Validates: (a) semi-axis formula, (b) eccentricity < 1.0, (c) 64 sample
+    // points on both cylinders.
+    let r = 1.0;
+    let angle = (15.0_f64).to_radians();
+    let half = angle / 2.0;
+    let axis_b = [angle.sin(), 0.0, angle.cos()];
+
+    let curves = cylinder_cylinder_ssi_non_parallel(
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        r,
+        [0.0, 0.0, 0.0],
+        axis_b,
+        r,
+    )
+    .expect("15 degrees should be supported");
+    assert_eq!(curves.len(), 2);
+
+    // I2: Verify semi-axis formula
+    let expected_sm1 = r / half.sin(); // R/sin(7.5°) ~ 7.6604
+    let expected_sm2 = r / half.cos(); // R/cos(7.5°) ~ 1.0082
+
+    let mut semi_majors: Vec<f64> = Vec::new();
+    for curve in &curves {
+        if let SSICurve::Ellipse {
+            semi_major,
+            semi_minor,
+            ..
+        } = curve
+        {
+            semi_majors.push(*semi_major);
+            assert!(
+                (*semi_minor - r).abs() < 1e-9,
+                "semi_minor should equal R={r}, got {semi_minor}"
+            );
+        } else {
+            panic!("Expected Ellipse at 15 degrees");
+        }
+    }
+    semi_majors.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let mut expected = [expected_sm1, expected_sm2];
+    expected.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    assert!(
+        (semi_majors[0] - expected[0]).abs() < 1e-6,
+        "Smaller semi_major: got {}, expected {}",
+        semi_majors[0],
+        expected[0]
+    );
+    assert!(
+        (semi_majors[1] - expected[1]).abs() < 1e-6,
+        "Larger semi_major (R/sin(7.5 deg)): got {}, expected {} (~7.66R)",
+        semi_majors[1],
+        expected[1]
+    );
+
+    // O3: Eccentricity of the more eccentric curve must be < 1.0
+    let big_a = semi_majors[1];
+    let big_b = r; // semi_minor = R
+    let ecc = (1.0 - (big_b * big_b) / (big_a * big_a)).sqrt();
+    assert!(
+        ecc < 1.0,
+        "Eccentricity must be < 1.0 (non-degenerate), got {ecc}"
+    );
+    // At 15°, expected eccentricity ~ sqrt(1 - sin^2(7.5°)) ~ 0.9914
+    assert!(
+        (ecc - 0.9914).abs() < 0.01,
+        "Expected eccentricity ~ 0.9914 at 15 deg, got {ecc}"
+    );
+
+    // O1: 64 sample points on each ellipse must lie on both cylinder surfaces
+    let cyl_a_origin = [0.0, 0.0, 0.0];
+    let cyl_a_axis = [0.0, 0.0, 1.0];
+    for (ci, curve) in curves.iter().enumerate() {
+        for i in 0..64 {
+            let t = std::f64::consts::TAU * (i as f64) / 64.0;
+            let pt = eval_ellipse(curve, t);
+            let da = dist_to_line(pt, cyl_a_origin, cyl_a_axis);
+            let db = dist_to_line(pt, cyl_a_origin, axis_b);
+            assert!(
+                (da - r).abs() < 1e-6,
+                "15deg curve{ci} point {i}: dist to axis A = {da:.2e}, expected {r}"
+            );
+            assert!(
+                (db - r).abs() < 1e-6,
+                "15deg curve{ci} point {i}: dist to axis B = {db:.2e}, expected {r}"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_cyl_cyl_adversarial_large_radius() {
+    // R = 1000.0 m (bridge-scale geometry). 30° angle.
+    // Verifies on-surface tolerance scales proportionally with radius.
+    let r = 1000.0;
+    let angle = (30.0_f64).to_radians();
+    let axis_b = [angle.sin(), 0.0, angle.cos()];
+
+    let curves = cylinder_cylinder_ssi_non_parallel(
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        r,
+        [0.0, 0.0, 0.0],
+        axis_b,
+        r,
+    )
+    .expect("30 deg with R=1000 should be supported");
+    assert_eq!(curves.len(), 2, "Expected 2 ellipses");
+
+    // Proportional tolerance: scale by R
+    let tol = 1e-6 * r; // 1e-3 for R=1000
+    let cyl_a_origin = [0.0, 0.0, 0.0];
+    let cyl_a_axis = [0.0, 0.0, 1.0];
+    for (ci, curve) in curves.iter().enumerate() {
+        for i in 0..32 {
+            let t = std::f64::consts::TAU * (i as f64) / 32.0;
+            let pt = eval_ellipse(curve, t);
+            let da = dist_to_line(pt, cyl_a_origin, cyl_a_axis);
+            let db = dist_to_line(pt, cyl_a_origin, axis_b);
+            assert!(
+                (da - r).abs() < tol,
+                "large-R curve{ci} point {i}: dist to axis A = {da:.2e}, expected {r}"
+            );
+            assert!(
+                (db - r).abs() < tol,
+                "large-R curve{ci} point {i}: dist to axis B = {db:.2e}, expected {r}"
+            );
+        }
+    }
+
+    // Verify semi-axes scale with R
+    let half = angle / 2.0;
+    for curve in &curves {
+        if let SSICurve::Ellipse {
+            semi_major,
+            semi_minor,
+            ..
+        } = curve
+        {
+            assert!(
+                (*semi_minor - r).abs() < 1e-3,
+                "semi_minor should equal R=1000, got {semi_minor}"
+            );
+            let matches_1 = (*semi_major - r / half.sin()).abs() < 1e-3;
+            let matches_2 = (*semi_major - r / half.cos()).abs() < 1e-3;
+            assert!(
+                matches_1 || matches_2,
+                "semi_major {semi_major} doesn't match expected formulae for R=1000"
+            );
+        } else {
+            panic!("Expected Ellipse");
+        }
+    }
+}
+
+#[test]
+fn test_cyl_cyl_adversarial_tiny_radius() {
+    // R = 1e-4 m (0.1mm, fine mechanical feature). 30° angle.
+    // Verifies solver doesn't lose precision at small scales.
+    let r = 1e-4;
+    let angle = (30.0_f64).to_radians();
+    let axis_b = [angle.sin(), 0.0, angle.cos()];
+
+    let curves = cylinder_cylinder_ssi_non_parallel(
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        r,
+        [0.0, 0.0, 0.0],
+        axis_b,
+        r,
+    )
+    .expect("30 deg with R=1e-4 should be supported");
+    assert_eq!(curves.len(), 2, "Expected 2 ellipses");
+
+    // Proportional tolerance
+    let tol = 1e-6 * r.max(1e-9);
+    let cyl_a_origin = [0.0, 0.0, 0.0];
+    let cyl_a_axis = [0.0, 0.0, 1.0];
+    for (ci, curve) in curves.iter().enumerate() {
+        for i in 0..32 {
+            let t = std::f64::consts::TAU * (i as f64) / 32.0;
+            let pt = eval_ellipse(curve, t);
+            let da = dist_to_line(pt, cyl_a_origin, cyl_a_axis);
+            let db = dist_to_line(pt, cyl_a_origin, axis_b);
+            assert!(
+                (da - r).abs() < tol,
+                "tiny-R curve{ci} point {i}: dist to axis A = {da:.2e}, expected {r}"
+            );
+            assert!(
+                (db - r).abs() < tol,
+                "tiny-R curve{ci} point {i}: dist to axis B = {db:.2e}, expected {r}"
+            );
+        }
+    }
+
+    // Verify semi-axes scale with R
+    let half = angle / 2.0;
+    for curve in &curves {
+        if let SSICurve::Ellipse {
+            semi_major,
+            semi_minor,
+            ..
+        } = curve
+        {
+            assert!(
+                (*semi_minor - r).abs() < 1e-10,
+                "semi_minor should equal R=1e-4, got {semi_minor}"
+            );
+            let matches_1 = (*semi_major - r / half.sin()).abs() < 1e-10;
+            let matches_2 = (*semi_major - r / half.cos()).abs() < 1e-10;
+            assert!(
+                matches_1 || matches_2,
+                "semi_major {semi_major} doesn't match expected formulae for R=1e-4"
+            );
+        } else {
+            panic!("Expected Ellipse");
+        }
+    }
+}
+
+#[test]
+fn test_cyl_cyl_adversarial_offset_origin() {
+    // Axes intersect at (5, 10, 15), not at the origin.
+    // Cylinder A: axis Z through (5,10,15).
+    // Cylinder B: axis 25° in XZ plane through (5,10,15).
+    let r = 1.0;
+    let origin = [5.0, 10.0, 15.0];
+    let angle = (25.0_f64).to_radians();
+    let axis_a = [0.0, 0.0, 1.0];
+    let axis_b = [angle.sin(), 0.0, angle.cos()];
+
+    let curves = cylinder_cylinder_ssi_non_parallel(origin, axis_a, r, origin, axis_b, r)
+        .expect("25 deg at offset origin should be supported");
+    assert_eq!(curves.len(), 2, "Expected 2 ellipses");
+
+    // Verify center is at the axis intersection point (5, 10, 15)
+    for curve in &curves {
+        if let SSICurve::Ellipse { center, .. } = curve {
+            assert!(
+                (center[0] - origin[0]).abs() < 1e-6,
+                "Center X should be {}, got {}",
+                origin[0],
+                center[0]
+            );
+            assert!(
+                (center[1] - origin[1]).abs() < 1e-6,
+                "Center Y should be {}, got {}",
+                origin[1],
+                center[1]
+            );
+            assert!(
+                (center[2] - origin[2]).abs() < 1e-6,
+                "Center Z should be {}, got {}",
+                origin[2],
+                center[2]
+            );
+        } else {
+            panic!("Expected Ellipse");
+        }
+    }
+
+    // On-surface validation at offset origin
+    for (ci, curve) in curves.iter().enumerate() {
+        for i in 0..32 {
+            let t = std::f64::consts::TAU * (i as f64) / 32.0;
+            let pt = eval_ellipse(curve, t);
+            let da = dist_to_line(pt, origin, axis_a);
+            let db = dist_to_line(pt, origin, axis_b);
+            assert!(
+                (da - r).abs() < 1e-6,
+                "offset curve{ci} point {i}: dist to axis A = {da:.2e}, expected {r}"
+            );
+            assert!(
+                (db - r).abs() < 1e-6,
+                "offset curve{ci} point {i}: dist to axis B = {db:.2e}, expected {r}"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_cyl_cyl_adversarial_no_nan_sweep() {
+    // Sweep through angles 15°, 16°, ..., 89° — verify every output is well-formed.
+    let r = 1.0;
+    for deg in 15..=89 {
+        let angle = (deg as f64).to_radians();
+        let axis_b = [angle.sin(), 0.0, angle.cos()];
+
+        let curves = cylinder_cylinder_ssi_non_parallel(
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            r,
+            [0.0, 0.0, 0.0],
+            axis_b,
+            r,
+        )
+        .unwrap_or_else(|e| panic!("{deg} deg should be supported, got error: {e:?}"));
+
+        assert_eq!(
+            curves.len(),
+            2,
+            "{deg} deg: expected 2 ellipses, got {}",
+            curves.len()
+        );
+
+        for (ci, curve) in curves.iter().enumerate() {
+            if let SSICurve::Ellipse {
+                center,
+                normal,
+                major_axis,
+                semi_major,
+                semi_minor,
+            } = curve
+            {
+                // O4: No NaN or infinity
+                for v in center.iter().chain(normal.iter()).chain(major_axis.iter()) {
+                    assert!(
+                        v.is_finite(),
+                        "{deg} deg curve{ci}: non-finite coordinate {v}"
+                    );
+                }
+                assert!(
+                    semi_major.is_finite() && *semi_major > 0.0,
+                    "{deg} deg curve{ci}: bad semi_major {semi_major}"
+                );
+                assert!(
+                    semi_minor.is_finite() && *semi_minor > 0.0,
+                    "{deg} deg curve{ci}: bad semi_minor {semi_minor}"
+                );
+
+                // semi_major >= semi_minor (by construction, semi_minor = R)
+                assert!(
+                    *semi_major >= *semi_minor - 1e-12,
+                    "{deg} deg curve{ci}: semi_major ({semi_major}) < semi_minor ({semi_minor})"
+                );
+            } else {
+                panic!("{deg} deg curve{ci}: expected Ellipse, got {curve:?}");
+            }
+        }
     }
 }

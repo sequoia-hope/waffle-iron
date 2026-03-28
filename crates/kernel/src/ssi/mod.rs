@@ -408,11 +408,13 @@ pub(crate) fn cylinder_cylinder_ssi_non_parallel(
         return Ok(vec![]);
     }
 
-    // Near-parallel (angle < 60°) → not supported
-    // Use > 0.5 + epsilon so exactly 60° is supported
-    if cos_angle > 0.5 + TAU_COINCIDENT {
+    // Near-parallel (angle < 15°) → not supported
+    // Dual-ellipse formula is valid for any α > 0°, but below 15° the ellipses
+    // become too eccentric (semi_major > 7.7×R) for reliable downstream use.
+    // Ref: Patrikalakis Ch.5 — equal-R cylinder SSI dual-ellipse formula.
+    if cos_angle > crate::units::SSI_CYL_CYL_MIN_ANGLE_COS {
         return Err(KernelError::NotSupported {
-            operation: "cylinder-cylinder SSI: near-parallel axes (angle < 60°)".to_string(),
+            operation: "cylinder-cylinder SSI: near-parallel axes (angle < 15°)".to_string(),
         });
     }
 
@@ -2989,7 +2991,6 @@ pub(crate) fn torus_torus_ssi(
         end: p_end,
     }])
 }
-
 
 #[cfg(test)]
 mod tests;

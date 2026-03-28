@@ -115,8 +115,8 @@ A sub-case is "done" when:
 | Parallel, offset (overlapping) | analytical | done | Returns 2 `Line` segments (`cylinder_cylinder_ssi`) |
 | Parallel, coaxial (same axis) | analytical | done | Returns empty (coaxial) |
 | Parallel, disjoint | analytical | done | Returns empty |
-| Non-parallel, equal-R, ≥60° | analytical | done | Returns 2 `Ellipse` (`cylinder_cylinder_ssi_non_parallel`) |
-| Non-parallel, equal-R, <60° | not-supported | missing | Returns `KernelError::NotSupported` (near-parallel) |
+| Non-parallel, equal-R, ≥15° | analytical | done | Returns 2 `Ellipse` (`cylinder_cylinder_ssi_non_parallel`). Extended from ≥60° to ≥15° (Sprint 69). |
+| Non-parallel, equal-R, <15° | not-supported | missing | Returns `KernelError::NotSupported` (near-parallel, eccentricity > 0.99) |
 | Non-parallel, unequal-R | not-supported | missing | Returns `KernelError::NotSupported` |
 | Skew axes (non-intersecting) | not-supported | missing | Returns `KernelError::NotSupported` |
 
@@ -278,7 +278,7 @@ Coaxial path is exact. General path scans 360 θ × 36 φ samples on torus A sur
 | 2 | Plane–Cylinder | **done** | All (perp, parallel, oblique) | — |
 | 3 | Plane–Cone | **done** | All (perp, oblique ellipse/parabola/hyperbola, through-apex) | — |
 | 4 | Plane–Sphere | **done** | All | — |
-| 5 | Cylinder–Cylinder | **partial** | Parallel + equal-R non-parallel ≥60° | Near-parallel, unequal-R, skew |
+| 5 | Cylinder–Cylinder | **partial** | Parallel + equal-R non-parallel ≥15° | Near-parallel (<15°), unequal-R, skew |
 | 6 | Plane–Torus | **partial** | Axis-perpendicular only | All other orientations |
 | 7 | Cylinder–Cone | **stub** | Coaxial only | General position (72×200 scan) |
 | 8 | Cylinder–Sphere | **partial** | Coaxial | Offset (Line approximation) |

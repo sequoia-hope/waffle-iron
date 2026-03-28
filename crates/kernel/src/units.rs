@@ -145,6 +145,11 @@ pub const SSI_RADII_RELATIVE_TOL: f64 = 0.01;
 /// Axes separated by more than this fraction of radius are considered skew.
 pub const SSI_SKEW_FACTOR: f64 = 0.05;
 
+/// Maximum cosine of the inter-axis angle for non-parallel cylinder-cylinder SSI.
+/// cos(15°) ≈ 0.96593; rounded up to 0.9660 so exactly 15° is supported.
+/// Angles with |cos(α)| > this value are rejected as too near-parallel.
+pub const SSI_CYL_CYL_MIN_ANGLE_COS: f64 = 0.9660;
+
 /// Absolute tolerance for point-on-surface checks in SSI sampling: 0.05.
 /// Used in cone-cone, cone-sphere, cylinder-sphere, and torus SSI solvers
 /// to classify sample points as on the intersection surface.

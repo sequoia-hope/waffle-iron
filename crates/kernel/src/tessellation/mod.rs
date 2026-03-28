@@ -3299,7 +3299,8 @@ fn weld_smooth_vertices(vertices: &[f32], normals: &[f32], indices: &mut [u32]) 
         .map(|v| v.abs())
         .fold(0.0_f32, f32::max)
         .max(crate::units::MIN_FEATURE_SIZE as f32);
-    let grid = (max_abs as f64 * crate::units::TAU_TESS_GRID_FACTOR).max(crate::units::TAU_TESS_GRID_MIN);
+    let grid =
+        (max_abs as f64 * crate::units::TAU_TESS_GRID_FACTOR).max(crate::units::TAU_TESS_GRID_MIN);
     let inv_grid = 1.0 / grid;
 
     // Group vertices by quantized position
