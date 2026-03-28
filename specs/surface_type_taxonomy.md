@@ -2,7 +2,7 @@
 
 Specification for Waffle Iron's surface representation strategy.
 
-**Status**: Design spec (not yet implemented beyond Tier 1 partial)
+**Status**: Design spec (Tier 1 analytic types fully represented in `SurfaceGeom` enum)
 **References**: [#1] Patrikalakis, [#32] Piegl & Tiller, [#33] Stroud, [#36] Parasolid, [#37] Mistry
 **Governance**: ADR-11, A15, A15.5
 
@@ -58,7 +58,7 @@ Five quadric surfaces with closed-form evaluation, normals, and SSI.
 - **Eval cost**: O(1) — trigonometric in parameter
 - **SSI pairs**: Cone-Plane (conic section), Cone-Cylinder (degree ≤ 4), Cone-Cone (degree ≤ 4), Cone-Sphere (degree ≤ 4), Cone-Torus (degree ≤ 8)
 - **Tessellation**: Angular strips with varying radius; adaptive near apex
-- **Status**: Struct exists in kernel geometry; not yet in `SurfaceGeom` enum
+- **Status**: In `SurfaceGeom` enum as `Conical`
 
 ### Sphere
 
@@ -67,7 +67,7 @@ Five quadric surfaces with closed-form evaluation, normals, and SSI.
 - **Eval cost**: O(1) — trigonometric in two parameters
 - **SSI pairs**: Sphere-Plane (circle), Sphere-Cylinder (degree ≤ 4), Sphere-Cone (degree ≤ 4), Sphere-Sphere (circle), Sphere-Torus (degree ≤ 4)
 - **Tessellation**: Latitude-longitude strips or icosahedral subdivision; adaptive by curvature
-- **Status**: Struct exists in kernel geometry; not yet in `SurfaceGeom` enum
+- **Status**: In `SurfaceGeom` enum as `Spherical`
 
 ### Torus
 
@@ -76,7 +76,7 @@ Five quadric surfaces with closed-form evaluation, normals, and SSI.
 - **Eval cost**: O(1) — trigonometric in two parameters
 - **SSI pairs**: Torus-Plane (degree-4), Torus-Cylinder (degree ≤ 8), Torus-Cone (degree ≤ 8), Torus-Sphere (degree ≤ 4), Torus-Torus (degree ≤ 8)
 - **Tessellation**: Double angular strips; adaptive by curvature ratio R/r
-- **Status**: Struct exists in kernel geometry; not yet in `SurfaceGeom` enum
+- **Status**: In `SurfaceGeom` enum as `Toroidal`
 
 ---
 

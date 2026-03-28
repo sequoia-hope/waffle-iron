@@ -116,7 +116,7 @@ wasm-bridge → sketch-ui (update display, color by status)
 
 | # | Project | Purpose | Technology | Dependencies | Status |
 |---|---------|---------|------------|-------------|--------|
-| 01 | kernel | Clean-sheet B-Rep geometry kernel | Rust | None | In progress (681 tests, 4 ignored; assay 190 cases) |
+| 01 | kernel | Clean-sheet B-Rep geometry kernel | Rust | None | In progress (684 tests, 4 ignored; assay 190 cases) |
 | 02 | sketch-solver | 2D constraint solving via slvs | Rust + C (libslvs) | None | Complete (M1-M10 + Emscripten WASM) |
 | 03 | wasm-bridge | WASM↔JS communication protocol | Rust + JS | 01 | Complete (M1-M8) |
 | 04 | 3d-viewport | three.js rendering via Threlte | Svelte + JS | 01 | Complete |
@@ -167,7 +167,7 @@ All 3D rendering happens in JavaScript via three.js/Threlte on the main thread. 
 
 ## Current Kernel Status
 
-The clean-sheet kernel (`crates/kernel/`) is under active development. **681 kernel tests pass** (4 ignored). 190-case randomized assay corpus (seed 42) with analytical ground truth and Euler characteristic oracles.
+The clean-sheet kernel (`crates/kernel/`) is under active development. **684 kernel tests pass** (4 ignored). 190-case randomized assay corpus (seed 42) with analytical ground truth and Euler characteristic oracles.
 
 ### What exists:
 - Half-edge B-Rep topology data structure with arena-based storage
@@ -176,7 +176,7 @@ The clean-sheet kernel (`crates/kernel/`) is under active development. **681 ker
 - SSI solvers for all 15 quadric surface pairs (Ref: Patrikalakis Ch.5)
 - Analytical boolean pipeline: box×box, box×cyl, cyl×cyl (parallel + non-parallel), planar-planar, enclosed-hole
 - Geometry-driven tessellation for planar, cylindrical, conical, spherical, and toroidal faces
-- `MockKernel` (full deterministic test double, ~1,820 lines)
+- `MockKernel` (full deterministic test double, ~2,100 lines)
 - `WaffleKernel` — extrude, revolve, and boolean operations functional
 - 190-case randomized assay test suite (seed 42) with analytical ground truth and Euler characteristic oracle
 
