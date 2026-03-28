@@ -473,6 +473,10 @@ mod tests {
         assert!((pt.x - 1.0).abs() < EPS);
         assert!((pt.y - 2.0).abs() < EPS);
         assert!((pt.z - 3.0).abs() < EPS);
+
+        // Verify non-origin (u,v) stays on plane (z = 3.0)
+        let pt2 = p.evaluate(7.0, -3.0);
+        assert!((pt2.z - 3.0).abs() < EPS, "off-origin evaluate must stay on plane");
     }
 
     #[test]
@@ -499,6 +503,11 @@ mod tests {
         assert!(c.contains_point(Point3::new(3.0, 0.0, 5.0)));
         // Point inside
         assert!(!c.contains_point(Point3::new(1.0, 0.0, 5.0)));
+        // Point on surface at 90° angle: (0, 3, 0)
+        assert!(c.contains_point(Point3::new(0.0, 3.0, 0.0)));
+        // Point on surface at 45° angle: (3/√2, 3/√2, 0)
+        let s = 3.0 / std::f64::consts::SQRT_2;
+        assert!(c.contains_point(Point3::new(s, s, 0.0)));
     }
 
     #[test]
@@ -530,6 +539,12 @@ mod tests {
         assert!(pt2.x.abs() < EPS);
         assert!(pt2.y.abs() < EPS);
         assert!((pt2.z - 5.0).abs() < EPS);
+        // All evaluated points must lie exactly on sphere surface (distance oracle)
+        for &(u, v) in &[(0.5, 0.3), (1.0, -0.7), (3.14, 1.2)] {
+            let p = s.evaluate(u, v);
+            let dist = ((p.x * p.x) + (p.y * p.y) + (p.z * p.z)).sqrt();
+            assert!((dist - 5.0).abs() < EPS, "evaluate({u},{v}) not on sphere: dist={dist}");
+        }
     }
 
     #[test]
@@ -556,6 +571,11 @@ mod tests {
         assert!(c.contains_point(Point3::new(5.0, 0.0, 5.0)));
         // Inside
         assert!(!c.contains_point(Point3::new(1.0, 0.0, 5.0)));
+        // Verify tan(half_angle) relationship: at height h, radius = h*tan(45°) = h
+        for h in &[1.0, 3.0, 10.0] {
+            assert!(c.contains_point(Point3::new(*h, 0.0, *h)));
+            assert!(c.contains_point(Point3::new(0.0, *h, *h)));
+        }
     }
 
     #[test]

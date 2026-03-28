@@ -67,6 +67,10 @@ mod tests {
         let mut arena = TopoArena::new();
         mvfs(&mut arena, [0.0, 0.0, 0.0]);
         // V=1, E=0, F=1, S=1, R=0 → 1-0+1-0=2=2*1 ✓
+        assert_eq!(arena.vertex_count(), 1);
+        assert_eq!(arena.edge_count(), 0);
+        assert_eq!(arena.face_count(), 1);
+        assert_eq!(arena.shell_count(), 1);
         assert!(check_euler_poincare(&arena).is_ok());
     }
 
@@ -80,6 +84,11 @@ mod tests {
         let _ = mef(&mut arena, v2, v0, loop_);
 
         // V=3, E=3, F=2, S=1, R=0 → 3-3+2=2=2*1 ✓
+        assert_eq!(arena.vertex_count(), 3);
+        assert_eq!(arena.edge_count(), 3);
+        assert_eq!(arena.face_count(), 2);
+        assert_eq!(arena.shell_count(), 1);
         assert!(check_euler_poincare(&arena).is_ok());
+        assert!(check_manifold_edges(&arena).is_ok());
     }
 }
