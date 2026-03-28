@@ -2521,9 +2521,10 @@ pub(crate) fn torus_torus_ssi(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::units::MIN_FEATURE_SIZE;
     use std::f64::consts::FRAC_1_SQRT_2;
 
-    const EPS: f64 = 1e-6;
+    const EPS: f64 = MIN_FEATURE_SIZE;
 
     // ── Plane-Cylinder SSI ────────────────────────────────────────────
 

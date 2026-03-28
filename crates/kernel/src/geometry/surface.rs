@@ -458,9 +458,10 @@ impl Torus {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::units::MIN_FEATURE_SIZE;
     use std::f64::consts::{FRAC_PI_2, FRAC_PI_4};
 
-    const EPS: f64 = 1e-6;
+    const EPS: f64 = MIN_FEATURE_SIZE;
 
     #[test]
     fn plane_evaluate_origin() {
