@@ -163,6 +163,11 @@ pub const SSI_SAMPLE_ON_SURFACE_TOL: f64 = 0.05;
 /// Handles revolve lateral faces that are not planar.
 pub const CURVATURE_SUBDIV_THRESHOLD: f64 = 0.05;
 
+/// Relative radius tolerance for on-cylinder vertex classification: 2%.
+/// Used in boolean post-processing to re-tag planar faces as cylindrical
+/// when all vertices lie within this fraction of the expected radius.
+pub const ON_CYLINDER_RADIUS_TOL: f64 = 0.02;
+
 /// Normal z-component threshold for top/bottom cap face classification: 0.5.
 /// A planar face with |normal.z| > this value is classified as a cap face
 /// in boolean analytical dispatch. Corresponds to ~60° from horizontal.

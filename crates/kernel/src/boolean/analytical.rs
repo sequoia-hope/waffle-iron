@@ -12,7 +12,7 @@ use crate::ssi::{self, Aabb};
 use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::*;
 use crate::types::*;
-use crate::units::{CAP_FACE_NORMAL_Z, TAU_COINCIDENT, TAU_MODEL, TAU_WORK};
+use crate::units::{CAP_FACE_NORMAL_Z, ON_CYLINDER_RADIUS_TOL, TAU_COINCIDENT, TAU_MODEL, TAU_WORK};
 use crate::vecmath::*;
 use crate::waffle_kernel::{CylinderParams, SphereParams, WaffleSolid};
 use std::collections::BTreeMap;
@@ -4669,7 +4669,7 @@ fn build_box_cyl_partial_union(
         for face_idx in face_indices {
             // Only re-tag faces currently marked as Planar with horizontal (non-cap) normals
             if let Some(SurfaceGeom::Planar(plane)) = result.face_geometry.get(&face_idx) {
-                if plane.normal.z.abs() > 0.1 {
+                if plane.normal.z.abs() > CAP_FACE_NORMAL_Z {
                     continue; // cap face — keep planar
                 }
             } else {
@@ -4687,7 +4687,7 @@ fn build_box_cyl_partial_union(
                 let dx = pos[0] - cx;
                 let dy = pos[1] - cy;
                 let dist = (dx * dx + dy * dy).sqrt();
-                if (dist - r).abs() > r * 0.02 {
+                if (dist - r).abs() > r * ON_CYLINDER_RADIUS_TOL {
                     all_on_cyl = false;
                     break;
                 }
