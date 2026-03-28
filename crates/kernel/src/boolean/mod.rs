@@ -3008,4 +3008,275 @@ mod tests {
             assert!(result.is_err(), "Disjoint union should return error");
         }
     }
+
+    // ── Stacked box union regression tests (F0001) ──────────────────────
+    //
+    // These tests call planar_planar_boolean DIRECTLY (bypassing the kernel's
+    // fallback path) to verify that the primary boolean codepath produces
+    // manifold, topologically correct results for coplanar-face configurations.
+
+    /// Build 6 face polygons for an axis-aligned box from min to max.
+    /// Each face has CCW winding when viewed from outside (along the
+    /// outward normal). Adjacent faces share edges in opposite directions
+    /// to ensure manifold twin pairing.
+    fn make_aabb_face_polys(min: [f64; 3], max: [f64; 3]) -> Vec<FacePoly> {
+        let [x0, y0, z0] = min;
+        let [x1, y1, z1] = max;
+        vec![
+            // -Z face (looking up from below, CCW)
+            FacePoly {
+                verts: vec![[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]],
+                normal: [0.0, 0.0, -1.0],
+                origin: [(x0 + x1) / 2.0, (y0 + y1) / 2.0, z0],
+                surface_geom: None,
+            },
+            // +Z face (looking down from above, CCW)
+            FacePoly {
+                verts: vec![[x0, y0, z1], [x0, y1, z1], [x1, y1, z1], [x1, y0, z1]],
+                normal: [0.0, 0.0, 1.0],
+                origin: [(x0 + x1) / 2.0, (y0 + y1) / 2.0, z1],
+                surface_geom: None,
+            },
+            // -Y face (looking from front, CCW)
+            FacePoly {
+                verts: vec![[x0, y0, z0], [x0, y0, z1], [x1, y0, z1], [x1, y0, z0]],
+                normal: [0.0, -1.0, 0.0],
+                origin: [(x0 + x1) / 2.0, y0, (z0 + z1) / 2.0],
+                surface_geom: None,
+            },
+            // +Y face (looking from back, CCW)
+            FacePoly {
+                verts: vec![[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]],
+                normal: [0.0, 1.0, 0.0],
+                origin: [(x0 + x1) / 2.0, y1, (z0 + z1) / 2.0],
+                surface_geom: None,
+            },
+            // -X face (looking from left, CCW)
+            FacePoly {
+                verts: vec![[x0, y0, z0], [x0, y1, z0], [x0, y1, z1], [x0, y0, z1]],
+                normal: [-1.0, 0.0, 0.0],
+                origin: [x0, (y0 + y1) / 2.0, (z0 + z1) / 2.0],
+                surface_geom: None,
+            },
+            // +X face (looking from right, CCW)
+            FacePoly {
+                verts: vec![[x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0]],
+                normal: [1.0, 0.0, 0.0],
+                origin: [x1, (y0 + y1) / 2.0, (z0 + z1) / 2.0],
+                surface_geom: None,
+            },
+        ]
+    }
+
+    /// Build a WaffleSolid from face polygons using build_brep_from_polygons
+    /// for proper B-Rep topology. This exercises the same code path as kernel
+    /// extrude: extract_face_polys walks the B-Rep half-edge loops.
+    fn make_waffle_solid_from_polys(polys: Vec<FacePoly>) -> WaffleSolid {
+        let mut id_counter = 1000u64;
+        let mut id_alloc = || {
+            id_counter += 1;
+            id_counter
+        };
+        let result = stitch::build_brep_from_polygons(&polys, 1e-9, &mut id_alloc)
+            .expect("build_brep_from_polygons should succeed for a valid box");
+        WaffleSolid {
+            arena: result.arena,
+            face_map: result.face_map,
+            edge_map: result.edge_map,
+            vertex_map: result.vertex_map,
+            face_geometry: result.face_geometry,
+            edge_geometry: result.edge_geometry,
+            cylinder_params: None,
+            revolve_params: None,
+            sphere_params: None,
+            cone_params: None,
+            torus_params: None,
+            cached_face_polys: None,
+            is_polygon_soup: false,
+        }
+    }
+
+    /// Helper: create a stacked box starting at a given z offset via the kernel.
+    fn make_box_at_z(
+        kernel: &mut WaffleKernel,
+        cx: f64,
+        cy: f64,
+        w: f64,
+        h: f64,
+        z_offset: f64,
+        depth: f64,
+    ) -> KernelSolidHandle {
+        let (profiles, positions) = make_rect_profile(cx, cy, w, h);
+        let origin = [0.0, 0.0, z_offset];
+        let face_ids = kernel
+            .make_faces_from_profiles(&profiles, origin, XY_NORMAL, XY_X_AXIS, &positions)
+            .expect("make_faces_from_profiles should succeed");
+        kernel
+            .extrude_face(face_ids[0], Z_DIR, depth)
+            .expect("extrude_face should succeed")
+    }
+
+    /// Count unpaired half-edges in an arena. A half-edge is unpaired if
+    /// its twin index points back to itself (self-twin = boundary edge).
+    fn count_unpaired_half_edges(arena: &TopoArena) -> usize {
+        arena
+            .half_edges
+            .iter()
+            .enumerate()
+            .filter(|(i, he)| he.twin.0 == *i)
+            .count()
+    }
+
+    /// F0001 regression: Two axis-aligned boxes stacked along Z (sharing a face
+    /// at z=0.3) should produce a manifold union with zero unpaired half-edges
+    /// and Euler characteristic V-E+F = 2.
+    ///
+    /// Tests planar_planar_boolean directly with cached face polys, then also
+    /// tests the full kernel pipeline to verify the end-to-end result.
+    #[test]
+    fn test_stacked_box_union_manifold() {
+        // --- Direct planar_planar_boolean test with polygon-soup solids ---
+        let solid_a =
+            make_waffle_solid_from_polys(make_aabb_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 0.3]));
+        let solid_b =
+            make_waffle_solid_from_polys(make_aabb_face_polys([0.0, 0.0, 0.3], [1.0, 1.0, 0.6]));
+
+        let mut id_counter = 5000u64;
+        let mut id_alloc = || {
+            id_counter += 1;
+            id_counter
+        };
+
+        let result = planar_planar_boolean(&solid_a, &solid_b, BoolOp::Union, &mut id_alloc)
+            .expect("planar_planar_boolean should succeed for stacked boxes");
+
+        let unpaired = count_unpaired_half_edges(&result.arena);
+        assert_eq!(
+            unpaired, 0,
+            "Stacked box union should have 0 unpaired half-edges, got {unpaired}"
+        );
+
+        let v = result.arena.vertices.len() as i64;
+        let e = result.arena.edges.len() as i64;
+        let f = result.arena.faces.len() as i64;
+        let chi = v - e + f;
+        assert_eq!(
+            chi, 2,
+            "Stacked box union Euler characteristic: V({v})-E({e})+F({f}) = {chi}, expected 2"
+        );
+
+        // --- Full kernel pipeline test (exercises extrude → boolean → store) ---
+        let mut kernel = WaffleKernel::new();
+        let handle_a = make_box_at_z(&mut kernel, 0.5, 0.5, 1.0, 1.0, 0.0, 0.3);
+        let handle_b = make_box_at_z(&mut kernel, 0.5, 0.5, 1.0, 1.0, 0.3, 0.3);
+
+        let result_handle = kernel
+            .boolean_union(&handle_a, &handle_b)
+            .expect("stacked box union via kernel should succeed");
+
+        let verts = kernel.list_vertices(&result_handle);
+        let edges = kernel.list_edges(&result_handle);
+        let faces = kernel.list_faces(&result_handle);
+
+        let kv = verts.len() as i64;
+        let ke = edges.len() as i64;
+        let kf = faces.len() as i64;
+        let kchi = kv - ke + kf;
+
+        assert_eq!(
+            kchi, 2,
+            "Kernel stacked box union Euler: V({kv})-E({ke})+F({kf}) = {kchi}, expected 2"
+        );
+    }
+
+    /// F0001 regression: Stacked box union should merge the shared coplanar face
+    /// and produce at most 10 polygon faces. The bounding box must span z=0..0.6.
+    #[test]
+    fn test_stacked_box_union_face_count() {
+        let solid_a =
+            make_waffle_solid_from_polys(make_aabb_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 0.3]));
+        let solid_b =
+            make_waffle_solid_from_polys(make_aabb_face_polys([0.0, 0.0, 0.3], [1.0, 1.0, 0.6]));
+
+        let mut id_counter = 5000u64;
+        let mut id_alloc = || {
+            id_counter += 1;
+            id_counter
+        };
+
+        let result = planar_planar_boolean(&solid_a, &solid_b, BoolOp::Union, &mut id_alloc)
+            .expect("planar_planar_boolean should succeed for stacked boxes");
+
+        let face_count = result.arena.faces.len();
+        assert!(
+            face_count <= 10,
+            "Stacked box union should have <= 10 faces (shared face removed), got {face_count}"
+        );
+
+        // Bounding box check via cached face polys
+        if let Some(ref polys) = result.cached_face_polys {
+            let mut z_min = f64::INFINITY;
+            let mut z_max = f64::NEG_INFINITY;
+            for fp in polys {
+                for v in &fp.verts {
+                    if v[2] < z_min {
+                        z_min = v[2];
+                    }
+                    if v[2] > z_max {
+                        z_max = v[2];
+                    }
+                }
+            }
+            assert!(z_min < 0.01, "z_min should be ~0.0, got {z_min}");
+            assert!(z_max > 0.59, "z_max should be ~0.6, got {z_max}");
+        }
+
+        // Also verify via kernel pipeline
+        let mut kernel = WaffleKernel::new();
+        let ha = make_box_at_z(&mut kernel, 0.5, 0.5, 1.0, 1.0, 0.0, 0.3);
+        let hb = make_box_at_z(&mut kernel, 0.5, 0.5, 1.0, 1.0, 0.3, 0.3);
+        let rh = kernel
+            .boolean_union(&ha, &hb)
+            .expect("kernel stacked box union should succeed");
+        let kfaces = kernel.list_faces(&rh);
+        assert!(
+            kfaces.len() <= 10,
+            "Kernel stacked box union should have <= 10 faces, got {}",
+            kfaces.len()
+        );
+    }
+
+    /// F0001 regression: Two identical boxes (same position, same size) unioned
+    /// should produce a single box with 6 faces and Euler characteristic 2.
+    #[test]
+    fn test_identical_box_union() {
+        let solid_a =
+            make_waffle_solid_from_polys(make_aabb_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 0.3]));
+        let solid_b =
+            make_waffle_solid_from_polys(make_aabb_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 0.3]));
+
+        let mut id_counter = 5000u64;
+        let mut id_alloc = || {
+            id_counter += 1;
+            id_counter
+        };
+
+        let result = planar_planar_boolean(&solid_a, &solid_b, BoolOp::Union, &mut id_alloc)
+            .expect("identical box union via planar_planar_boolean should succeed");
+
+        let face_count = result.arena.faces.len();
+        assert_eq!(
+            face_count, 6,
+            "Identical box union should have 6 faces, got {face_count}"
+        );
+
+        let v = result.arena.vertices.len() as i64;
+        let e = result.arena.edges.len() as i64;
+        let f = result.arena.faces.len() as i64;
+        let chi = v - e + f;
+        assert_eq!(
+            chi, 2,
+            "Identical box union Euler: V({v})-E({e})+F({f}) = {chi}, expected 2"
+        );
+    }
 }

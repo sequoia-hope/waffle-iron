@@ -13419,3 +13419,269 @@ fn test_revolve_accepts_offset_profile() {
     assert!(result.is_ok(), "revolve with offset profile should succeed: {:?}", result.err());
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// FIP: Stacked-box boolean tessellation watertightness regression
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/// Two boxes stacked face-to-face along Z (sharing the z=0.3 plane):
+///   Box A: rect(0.15, 0.15) 0.3×0.3 on XY plane, extruded z=0→0.3
+///   Box B: same rect on z=0.3 plane, extruded z=0.3→0.6
+/// Their union should be a single 0.3×0.3×0.6 box.
+///
+/// Regression: the boolean pipeline unconditionally sets
+/// `is_polygon_soup = true` for ALL `both_all_planar` boolean operations
+/// (line 1035 of waffle_kernel.rs), even when `planar_planar_boolean`
+/// succeeds with a clean B-Rep result. This routes tessellation to the
+/// fan path (per-face vertices + post-hoc welding) instead of the bounded
+/// path (shared vertices, watertight by construction).
+///
+/// This test asserts that `is_polygon_soup` is false after a successful
+/// planar-planar boolean, which ensures the bounded tessellation path
+/// is used and produces a watertight mesh without relying on post-hoc
+/// welding heuristics.
+#[test]
+fn test_stacked_box_tessellation_watertight() {
+    let mut k = WaffleKernel::new();
+
+    // Box A: 0.3×0.3 rect centered at (0.15, 0.15), extruded 0.3 along +Z from z=0
+    let (profiles_a, positions_a) = make_rect_profile(0.15, 0.15, 0.3, 0.3);
+    let face_a = k
+        .make_faces_from_profiles(&profiles_a, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions_a)
+        .expect("make_faces_from_profiles should succeed for box A");
+    let solid_a = k
+        .extrude_face(face_a[0], Z_DIR, 0.3)
+        .expect("extrude should succeed for box A");
+
+    // Box B: same profile on z=0.3 plane, extruded 0.3 along +Z from z=0.3
+    let (profiles_b, positions_b) = make_rect_profile(0.15, 0.15, 0.3, 0.3);
+    let plane_origin_b = [0.0, 0.0, 0.3];
+    let face_b = k
+        .make_faces_from_profiles(&profiles_b, plane_origin_b, XY_NORMAL, XY_X_AXIS, &positions_b)
+        .expect("make_faces_from_profiles should succeed for box B");
+    let solid_b = k
+        .extrude_face(face_b[0], Z_DIR, 0.3)
+        .expect("extrude should succeed for box B");
+
+    // Union the stacked boxes
+    let union = k
+        .boolean_union(&solid_a, &solid_b)
+        .expect("boolean_union of stacked boxes should succeed");
+
+    // ── Core assertion: is_polygon_soup must be false ──
+    // The planar_planar_boolean path produces a clean B-Rep via analytical
+    // SSI. Marking the result as polygon_soup forces the fan tessellation
+    // path which relies on fragile post-hoc welding heuristics instead of
+    // the bounded path that is watertight by construction.
+    let ws = k.solids.get(&union.id())
+        .expect("union solid must exist in kernel");
+    assert!(
+        !ws.is_polygon_soup,
+        "Successful planar-planar boolean must NOT set is_polygon_soup = true. \
+         The result is a clean B-Rep from analytical SSI and should use the \
+         bounded tessellation path (shared vertices, watertight by construction), \
+         not the fan path (per-face vertices + post-hoc welding)."
+    );
+
+    // ── Tessellate and verify watertightness ──
+    let mesh = k
+        .tessellate(&union, 0.01)
+        .expect("tessellate should succeed");
+
+    // Watertight check: every edge shared by exactly 2 triangles
+    let unpaired = count_unpaired_edges(&mesh);
+    assert_eq!(
+        unpaired, 0,
+        "Stacked-box union mesh must be watertight (0 unpaired edges), \
+         got {} unpaired edges.",
+        unpaired
+    );
+
+    // Euler characteristic: V - E + F = 2 for a closed genus-0 solid
+    let v = count_unique_verts(&mesh) as i64;
+    let e = count_total_edges(&mesh) as i64;
+    let f = (mesh.indices.len() / 3) as i64;
+    assert_eq!(
+        v - e + f,
+        2,
+        "Euler formula V-E+F must equal 2 for stacked-box union mesh \
+         (got V={}, E={}, F={})",
+        v,
+        e,
+        f
+    );
+
+    // Volume check: should be 0.3 × 0.3 × 0.6 = 0.054
+    let vol = mesh_volume(&mesh);
+    let expected_vol = 0.3 * 0.3 * 0.6;
+    assert!(
+        (vol - expected_vol).abs() < expected_vol * 0.05,
+        "Stacked-box union volume should be ~{:.4}, got {:.6}",
+        expected_vol,
+        vol
+    );
+}
+
+/// Verify that overlapping box-box union also produces is_polygon_soup = false.
+/// This confirms the fix applies to the general overlapping case, not just
+/// face-coincident stacking.
+#[test]
+fn test_overlapping_box_union_not_polygon_soup() {
+    let (mut k, a, b) = make_overlapping_boxes();
+    let result = k.boolean_union(&a, &b).expect("union should succeed");
+
+    let ws = k.solids.get(&result.id())
+        .expect("union solid must exist in kernel");
+    assert!(
+        !ws.is_polygon_soup,
+        "Overlapping box-box union via planar_planar_boolean must NOT set \
+         is_polygon_soup = true. The analytical planar boolean produces a \
+         clean B-Rep that should use bounded tessellation."
+    );
+}
+
+/// Diagnostic test for assay case F0001: two IDENTICAL overlapping boxes
+/// (same profile, same plane_origin [0,0,0], same extrusion depth 0.3).
+/// The second sketch is NOT offset — both boxes occupy the exact same volume.
+///
+/// This test prints detailed diagnostic information to debug why F0001
+/// still produces V=24, E=30, F=24, 6 non-manifold edges after the
+/// polygon_soup fix.
+#[test]
+fn test_f0001_diagnostic_path() {
+    let mut k = WaffleKernel::new();
+
+    // ── Box A: 0.5×0.5 rectangle centered at origin, extruded 0.3 along +Z from z=0 ──
+    let (profiles_a, positions_a) = make_rect_profile(0.0, 0.0, 0.5, 0.5);
+    let faces_a = k
+        .make_faces_from_profiles(&profiles_a, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions_a)
+        .expect("make_faces box A");
+    let box_a = k
+        .extrude_face(faces_a[0], Z_DIR, 0.3)
+        .expect("extrude box A");
+
+    // ── Diagnose Box A ──
+    {
+        let face_ids_a = k.list_faces(&box_a);
+        println!("=== BOX A ===");
+        println!("  face count: {}", face_ids_a.len());
+        let ws_a = k.solids.get(&box_a.id()).expect("box_a solid");
+        println!("  face_geometry entries: {}", ws_a.face_geometry.len());
+        println!("  face_map entries: {}", ws_a.face_map.len());
+        println!("  all_faces_planar: {}", WaffleKernel::all_faces_planar(ws_a));
+        for (&kid, &fidx) in &ws_a.face_map {
+            let geom = ws_a.face_geometry.get(&fidx);
+            println!("    face kid={} fidx={:?} geometry={:?}", kid, fidx, geom.map(|g| std::mem::discriminant(g)));
+            if let Some(g) = geom {
+                println!("      full: {:?}", g);
+            } else {
+                println!("      ** NO GEOMETRY **");
+            }
+        }
+    }
+
+    // ── Box B: SAME profile, SAME plane_origin [0,0,0], SAME depth 0.3 ──
+    let (profiles_b, positions_b) = make_rect_profile(0.0, 0.0, 0.5, 0.5);
+    let faces_b = k
+        .make_faces_from_profiles(&profiles_b, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions_b)
+        .expect("make_faces box B");
+    let box_b = k
+        .extrude_face(faces_b[0], Z_DIR, 0.3)
+        .expect("extrude box B");
+
+    // ── Diagnose both solids ──
+    {
+        let face_ids_b = k.list_faces(&box_b);
+        println!("\n=== BOX B ===");
+        println!("  face count: {}", face_ids_b.len());
+        let ws_b = k.solids.get(&box_b.id()).expect("box_b solid");
+        println!("  face_geometry entries: {}", ws_b.face_geometry.len());
+        println!("  face_map entries: {}", ws_b.face_map.len());
+        println!("  all_faces_planar: {}", WaffleKernel::all_faces_planar(ws_b));
+        for (&kid, &fidx) in &ws_b.face_map {
+            let geom = ws_b.face_geometry.get(&fidx);
+            println!("    face kid={} fidx={:?} geometry={:?}", kid, fidx, geom.map(|g| std::mem::discriminant(g)));
+        }
+    }
+
+    // ── Boolean dispatch diagnostics ──
+    println!("\n=== BOOLEAN DISPATCH ===");
+    {
+        let ws_a = k.solids.get(&box_a.id()).expect("box_a solid");
+        let ws_b = k.solids.get(&box_b.id()).expect("box_b solid");
+        let a_all_planar = WaffleKernel::all_faces_planar(ws_a);
+        let b_all_planar = WaffleKernel::all_faces_planar(ws_b);
+        let both_all_planar = a_all_planar && b_all_planar;
+        let a_cyl = ws_a.cylinder_params.is_some();
+        let b_cyl = ws_b.cylinder_params.is_some();
+        let a_sph = ws_a.sphere_params.is_some();
+        let b_sph = ws_b.sphere_params.is_some();
+        let a_simple_box = !a_cyl && !a_sph && ws_a.face_map.len() <= 6 && a_all_planar;
+        let b_simple_box = !b_cyl && !b_sph && ws_b.face_map.len() <= 6 && b_all_planar;
+        let a_prim = a_cyl || a_sph || a_simple_box;
+        let b_prim = b_cyl || b_sph || b_simple_box;
+        let use_ssi = (a_prim && b_prim && (a_cyl || b_cyl || a_sph || b_sph))
+            || (a_all_planar && b_cyl)
+            || (b_all_planar && a_cyl);
+
+        println!("  a_all_planar: {}", a_all_planar);
+        println!("  b_all_planar: {}", b_all_planar);
+        println!("  both_all_planar: {}", both_all_planar);
+        println!("  a_simple_box: {}", a_simple_box);
+        println!("  b_simple_box: {}", b_simple_box);
+        println!("  a_prim: {}", a_prim);
+        println!("  b_prim: {}", b_prim);
+        println!("  use_ssi: {}", use_ssi);
+        println!("  expected path: {}", if use_ssi { "SSI" } else if both_all_planar { "planar_planar_boolean" } else { "general polygon" });
+    }
+
+    // ── Attempt boolean_union ──
+    println!("\n=== BOOLEAN UNION ===");
+    let union_result = k.boolean_union(&box_a, &box_b);
+    match &union_result {
+        Ok(handle) => {
+            println!("  boolean_union: OK (handle id={})", handle.id());
+
+            // Check is_polygon_soup
+            let ws_u = k.solids.get(&handle.id()).expect("union solid");
+            println!("  is_polygon_soup: {}", ws_u.is_polygon_soup);
+            println!("  union face_map entries: {}", ws_u.face_map.len());
+            println!("  union face_geometry entries: {}", ws_u.face_geometry.len());
+            for (&kid, &fidx) in &ws_u.face_map {
+                let geom = ws_u.face_geometry.get(&fidx);
+                println!("    union face kid={} fidx={:?} geometry={:?}", kid, fidx, geom.map(|g| std::mem::discriminant(g)));
+            }
+
+            // Tessellate
+            println!("\n=== TESSELLATION ===");
+            match k.tessellate(handle, 0.01) {
+                Ok(mesh) => {
+                    let v = count_unique_verts(&mesh);
+                    let e = count_total_edges(&mesh);
+                    let f = mesh.indices.len() / 3;
+                    let unpaired = count_unpaired_edges(&mesh);
+                    let vol = mesh_volume(&mesh);
+                    println!("  raw vertex count: {}", mesh.vertices.len() / 3);
+                    println!("  unique V: {}", v);
+                    println!("  unique E: {}", e);
+                    println!("  F (triangles): {}", f);
+                    println!("  Euler V-E+F: {}", v as i64 - e as i64 + f as i64);
+                    println!("  unpaired (non-manifold) edges: {}", unpaired);
+                    println!("  volume: {:.6}", vol);
+                    println!("  expected volume (0.5*0.5*0.3): {:.6}", 0.5 * 0.5 * 0.3);
+                    println!("  watertight: {}", check_watertight(&mesh));
+
+                    // Print AABB to confirm geometry
+                    let (bb_min, bb_max) = mesh_bbox(&mesh);
+                    println!("  AABB min: [{:.4}, {:.4}, {:.4}]", bb_min[0], bb_min[1], bb_min[2]);
+                    println!("  AABB max: [{:.4}, {:.4}, {:.4}]", bb_max[0], bb_max[1], bb_max[2]);
+                }
+                Err(e) => {
+                    println!("  tessellate FAILED: {:?}", e);
+                }
+            }
+        }
+        Err(e) => {
+            println!("  boolean_union FAILED: {:?}", e);
+        }
+    }
+}

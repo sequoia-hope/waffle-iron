@@ -1032,9 +1032,24 @@ impl WaffleKernel {
         } else if both_all_planar {
             // Both operands are all-planar polyhedra — use exact planar boolean
             // (A15 compliance). Falls back to polygon clipping if it fails.
-            polygon_soup = true;
+            // Invariant: for Union, when planar_planar_boolean succeeds the
+            // result is a clean B-Rep that should use bounded tessellation
+            // (shared vertices, watertight by construction). Setting
+            // polygon_soup unconditionally caused F0001 (stacked box union)
+            // to route through fan tessellation which produces non-manifold
+            // meshes with unpaired edges. For Subtract/Intersect, the result
+            // may have internal face fragments requiring fan-path removal.
             match crate::boolean::planar_planar_boolean(solid_a, solid_b, op, &mut id_alloc) {
-                Ok(r) => r,
+                Ok(r) => {
+                    // Union results from planar_planar_boolean are clean B-Reps
+                    // with internal faces properly removed. Subtract/intersect
+                    // results may retain internal fragments that bounded
+                    // tessellation cannot distinguish from external faces.
+                    if op != crate::boolean::BoolOp::Union {
+                        polygon_soup = true;
+                    }
+                    r
+                }
                 Err(KernelError::BooleanFailed { ref reason }) if reason.contains("disjoint") => {
                     return Err(KernelError::BooleanFailed {
                         reason: reason.clone(),
@@ -1042,6 +1057,9 @@ impl WaffleKernel {
                 }
                 Err(KernelError::NotSupported { .. }) | Err(KernelError::BooleanFailed { .. }) => {
                     // Safety fallback: use the general polygon-clipping path.
+                    // Mark as polygon_soup so tessellation uses the fan path
+                    // which can remove internal face fragments.
+                    polygon_soup = true;
                     let strict = crate::boolean::boolean_op(
                         solid_a,
                         solid_b,
