@@ -38,6 +38,28 @@ pub(crate) enum SSICurve {
         semi_major: f64,
         semi_minor: f64,
     },
+    /// A parabola in 3D (plane-cone intersection at γ ≈ β).
+    /// axis_dir is the symmetry/opening direction of the parabola.
+    /// Parametric: P(t) = vertex + t·perp_dir + (t²/(4·focal_length))·axis_dir
+    /// where perp_dir = normalize(normal × axis_dir) is the transverse direction.
+    Parabola {
+        vertex: [f64; 3],
+        axis_dir: [f64; 3],
+        normal: [f64; 3],
+        focal_length: f64,
+        t_range: (f64, f64),
+    },
+    /// A hyperbola branch in 3D (plane-cone intersection at γ < β).
+    /// Parametric: P(t) = center + a·cosh(t)·major_axis + b·sinh(t)·minor_axis
+    /// where minor_axis = normalize(normal × major_axis).
+    Hyperbola {
+        center: [f64; 3],
+        major_axis: [f64; 3],
+        normal: [f64; 3],
+        semi_transverse: f64,
+        semi_conjugate: f64,
+        t_range: (f64, f64),
+    },
 }
 
 /// Axis-aligned bounding box.
@@ -675,45 +697,296 @@ pub(crate) fn plane_cone_ssi(
         // ── Classify conic type ───────────────────────────────────────────
         let discriminant = cos_alpha_sq - sin_beta_sq;
 
+        // ── Shared setup for parabola / hyperbola / ellipse ─────────────
+        //
+        // All three conic cases share the same local-frame construction:
+        //   Local Z = cone axis, local X = projection of plane normal
+        //   perpendicular to the axis (the symmetry plane of the conic).
+
+        let signed_n_dot_a = v3_dot(n, a);
+        let sin_alpha = (1.0 - signed_n_dot_a * signed_n_dot_a).sqrt().max(TOL);
+        let d_signed = -d_apex; // positive when apex is on the negative side of the plane
+        let abs_cos_alpha = cos_angle; // = |n̂ · â|
+
+        // Local X direction: plane normal projected perpendicular to cone axis
+        let n_perp = v3_sub(n, v3_scale(a, signed_n_dot_a));
+        let n_perp_len = v3_length(n_perp);
+        let local_x_dir = if n_perp_len > TOL {
+            v3_scale(n_perp, 1.0 / n_perp_len)
+        } else {
+            return Ok(vec![]);
+        };
+
         if discriminant.abs() < TOL {
-            // Parabola (cutting angle ≈ half-angle) — not yet implemented
-            return Err(KernelError::NotSupported {
-                operation: "plane-cone SSI: parabolic section".to_string(),
-            });
+            // ── Parabola case (γ ≈ β) ──────────────────────────────────
+            // Ref #1: Patrikalakis Ch.5 — plane-cone parabolic section
+            //
+            // When cos²(α) ≈ sin²(β), the cutting plane is tangent to the
+            // cone's asymptotic direction. The intersection is a parabola.
+            //
+            // In local cone frame (apex=origin, axis=Z, plane normal in XZ):
+            //   Plane: sin(α)·x + cos(α)·z = D
+            //   Cone:  x² + y² = t²·z²
+            //
+            // Substituting x = (D - z·cos(α))/sin(α) into cone eqn:
+            //   (D - z·cos(α))²/sin²(α) + y² = t²·z²
+            // Since cos²(α) ≈ sin²(β) = t²·cos²(β) = t²(1-sin²(β)) ≈ t²·cos²(α)/cos²(α)...
+            // Actually: cos²α = sin²β ⟹ t·sinα = cosα (the z² terms cancel).
+            //
+            // The vertex is at the point where the parabola is closest to
+            // the apex. On the y=0 symmetry line:
+            //   (D - z·cosα)² / sin²α = t²·z²
+            // With t·sinα = cosα: (D - z·cosα)² = cos²α · z²
+            //   D - z·cosα = ±cosα · z
+            // Two solutions: z = D/(2cosα) (double root from + sign) or z→∞ (- sign).
+            //
+            // Vertex: z_v = D/(2·cosα), x_v = (D - z_v·cosα)/sinα = D/(2·sinα)
+            //
+            // The parabola opens in the +z direction (away from apex) in local frame.
+            // Focal length p: from the standard form y² = 4p·(z-z_v) at x=x_v,
+            // expanding the cone-plane intersection near the vertex:
+            //   y² = t²·z² - (D-z·cosα)²/sin²α
+            // Let z = z_v + δ. After expansion with t·sinα = cosα:
+            //   y² ≈ 2·t·D·δ / sinα = 4p·δ  → p = t·D / (2·sinα)
+
+            if abs_cos_alpha < TOL || d_signed.abs() < TOL {
+                // Plane through apex or perpendicular: degenerate
+                return Ok(vec![]);
+            }
+
+            let z_v = d_signed / (2.0 * abs_cos_alpha);
+            let x_v = d_signed / (2.0 * sin_alpha);
+
+            // Check vertex is within cone bounds
+            if z_v < -TOL || z_v > max_height + TOL {
+                return Ok(vec![]);
+            }
+
+            // Invariant I4: focal_length = D·cos(α) / (2·sin(α))
+            // Derived from u² = 2w·(t²z_v·sinα + x_v·cosα), where the quadratic
+            // term in w vanishes (t²sin²α = cos²α at the parabola boundary),
+            // leaving u² = 4·p·w with p = (t²z_v·sinα + x_v·cosα)/2 = D·cosα/(2sinα).
+            let focal_length = d_signed.abs() * abs_cos_alpha / (2.0 * sin_alpha);
+            if focal_length < TOL {
+                return Ok(vec![]);
+            }
+
+            // Vertex in world coordinates
+            let vertex = v3_add(
+                v3_add(cone_apex, v3_scale(a, z_v)),
+                v3_scale(local_x_dir, x_v),
+            );
+
+            // Parabola axis direction in local frame: along +z (cone axis direction)
+            // projected into the cutting plane.
+            // The parabola opens in the direction of increasing z along the plane.
+            // In local frame the axis direction is (−cosα, 0, sinα)/1 (direction
+            // along the plane away from the apex in the symmetry plane).
+            // In world: sinα·a − cosα·local_x_dir (increasing z, decreasing x in local)
+            let axis_dir_raw = v3_sub(v3_scale(a, sin_alpha), v3_scale(local_x_dir, abs_cos_alpha));
+            let axis_dir = v3_normalize(axis_dir_raw);
+
+            // Determine t_range: the parabola parameter t where cone height
+            // stays within [0, max_height].
+            //
+            // With corrected parametric form:
+            //   P(t) = vertex + t·perp_dir + (t²/(4p))·axis_dir
+            //
+            // The z-component (height along cone axis):
+            //   z(t) = z_v + (t²/(4p))·(axis_dir·a) + t·(perp_dir·a)
+            //
+            // axis_dir·a = sinα (by construction)
+            // perp_dir·a = 0 (perp is y-direction in local frame, perpendicular to axis)
+            //
+            // So z(t) = z_v + (t²/(4p))·sinα.  The parabola is symmetric in t.
+            // z is minimized at t=0 (the vertex) and increases with |t|.
+            //
+            // For z = max_height: t² = 4p·(max_height - z_v)/sinα
+            // Since the curve is symmetric, t_range = [-t_max, t_max].
+            let delta_z = max_height - z_v;
+            if delta_z < TOL {
+                // Vertex at or beyond max_height — only point intersection
+                return Ok(vec![]);
+            }
+            let t_max_sq = 4.0 * focal_length * delta_z / sin_alpha;
+            if t_max_sq < TOL {
+                return Ok(vec![]);
+            }
+            let t_max = t_max_sq.sqrt();
+
+            // Symmetric range
+            let t_min = -t_max;
+
+            return Ok(vec![SSICurve::Parabola {
+                vertex,
+                axis_dir,
+                normal: n,
+                focal_length,
+                t_range: (t_min, t_max),
+            }]);
         }
 
         if discriminant < 0.0 {
-            // Hyperbola (shallow cut, γ < β) — not yet implemented
-            return Err(KernelError::NotSupported {
-                operation: "plane-cone SSI: hyperbolic section".to_string(),
-            });
+            // ── Hyperbola case (γ < β, discriminant < 0) ────────────────
+            // Ref #1: Patrikalakis Ch.5 — plane-cone hyperbolic section
+            //
+            // When cos²(α) < sin²(β), the cutting plane is shallower than
+            // the cone surface. The intersection is a hyperbola.
+            //
+            // In local frame: Plane: sin(α)·x + cos(α)·z = D, Cone: x²+y² = t²z²
+            //
+            // On the y=0 symmetry line: (D - z·cosα)²/sin²α = t²z²
+            //   D - z·cosα = ±t·sinα·z
+            //   z₁ = D / (t·sinα + cosα)    (always valid, + branch)
+            //   z₂ = D / (cosα - t·sinα)    (note: cosα < t·sinα here, so denom < 0)
+            //
+            // Both z-values are the vertices of the hyperbola (on the y=0 line).
+            // z₁ > 0 (on the cone), z₂ < 0 (on the opposite nappe if D > 0).
+            // For a single-nappe cone, only the z₁ branch matters.
+            //
+            // Hyperbola center: midpoint of vertices in local frame.
+            // semi_transverse a = |z₂ - z₁| / (2·sinα) (distance from center to vertex along major axis)
+            // semi_conjugate b: from y² = t²z² - (D-z·cosα)²/sin²α at z = z_center,
+            //   b² = t²·z_c² - x_c² where x_c = (D - z_c·cosα)/sinα
+
+            let z1 = d_signed / (t * sin_alpha + abs_cos_alpha);
+            let z2 = d_signed / (abs_cos_alpha - t * sin_alpha);
+
+            // For single-nappe cone, we only want the branch with z > 0
+            // z1 is always on the positive nappe (when D > 0)
+            // z2 is on the negative nappe (opposite side)
+
+            // Check if the positive-nappe vertex is within cone bounds
+            let z_pos = if d_signed > 0.0 { z1 } else { z2 };
+            let z_neg = if d_signed > 0.0 { z2 } else { z1 };
+
+            if z_pos < -TOL || z_pos > max_height + TOL {
+                return Ok(vec![]);
+            }
+
+            // Hyperbola center in local frame
+            let z_c = (z_pos + z_neg) / 2.0;
+            let x_c = (d_signed - z_c * abs_cos_alpha) / sin_alpha;
+
+            // Invariant I5: Semi-axes from conic section theory
+            // In cutting-plane coordinates centered at vertex, the hyperbola satisfies:
+            //   u² = 2w·C + w²·E
+            // where C = D·t (always), E = t²sin²α - cos²α = |disc|/cos²β.
+            // Standard form centered at midpoint: W²/a² - U²/b² = 1
+            //   a = C/E = D·sinβ·cosβ / |disc|
+            //   b = C/√E = D·sinβ / √|disc|
+            let abs_disc = discriminant.abs(); // = sin²β - cos²α > 0
+            let cos_beta = half_angle.cos();
+
+            let a_conic = (d_signed.abs() * sin_beta * cos_beta) / abs_disc;
+            let b_conic = d_signed.abs() * sin_beta / abs_disc.sqrt();
+
+            if a_conic < TOL || b_conic < TOL {
+                return Ok(vec![]);
+            }
+
+            // Center in world coordinates
+            let center = v3_add(
+                v3_add(cone_apex, v3_scale(a, z_c)),
+                v3_scale(local_x_dir, x_c),
+            );
+
+            // Major axis direction (transverse axis): same as for ellipse,
+            // along the symmetry plane of the conic.
+            // Direction: sinα·a − cosα·local_x_dir (from low-z to high-z along the plane)
+            let major_dir_raw =
+                v3_sub(v3_scale(a, sin_alpha), v3_scale(local_x_dir, abs_cos_alpha));
+            let major_dir = v3_normalize(major_dir_raw);
+
+            // Determine t_range for the branch within [0, max_height]
+            // P(t) = center + a·cosh(t)·major + b·sinh(t)·minor
+            // Height: z(t) = z_c + a·cosh(t)·sinα
+            // (minor_axis·a = 0 since minor is perpendicular to the symmetry plane)
+            //
+            // At the vertex (t=0): z = z_c + a·sinα
+            // For z = 0: cosh(t) = (0 - z_c)/(a·sinα) → but cosh ≥ 1, so check
+            // For z = max_height: cosh(t) = (max_height - z_c)/(a·sinα)
+
+            // The positive branch vertex is at t=0: z_vertex = z_c + a_conic * sin_alpha
+            // We want the branch that stays in [0, max_height]
+            let z_vertex = z_c + a_conic * sin_alpha;
+
+            // For t_range: height is z(t) = z_c + a·cosh(t)·sinα
+            // For positive branch: z increases with |t|
+            // t=0 gives minimum z on this branch = z_vertex
+            if z_vertex < -TOL || z_vertex > max_height + TOL {
+                // Try the other branch: z_vertex_neg = z_c - a·sinα
+                let z_vertex_neg = z_c - a_conic * sin_alpha;
+                if z_vertex_neg < -TOL || z_vertex_neg > max_height + TOL {
+                    return Ok(vec![]);
+                }
+                // Use the other branch (negate major_axis)
+                let neg_major = v3_scale(major_dir, -1.0);
+
+                // t_range: z(t) = z_c - a·cosh(t)·sinα, z decreases with |t|
+                // z = 0: cosh(t) = z_c / (a·sinα)
+                // z = max_height: cosh(t) = (z_c - max_height) / (a·sinα)
+                let cosh_at_zero = z_c / (a_conic * sin_alpha);
+                let cosh_at_max = (z_c - max_height) / (a_conic * sin_alpha);
+
+                let t_lo = if cosh_at_max >= 1.0 {
+                    -cosh_at_max.acosh()
+                } else {
+                    0.0
+                };
+                let t_hi = if cosh_at_zero >= 1.0 {
+                    cosh_at_zero.acosh()
+                } else {
+                    0.0
+                };
+
+                if (t_hi - t_lo).abs() < TOL {
+                    return Ok(vec![]);
+                }
+
+                return Ok(vec![SSICurve::Hyperbola {
+                    center,
+                    major_axis: neg_major,
+                    normal: n,
+                    semi_transverse: a_conic,
+                    semi_conjugate: b_conic,
+                    t_range: (t_lo, t_hi),
+                }]);
+            }
+
+            // Positive branch: z(t) = z_c + a·cosh(t)·sinα
+            // z = max_height → cosh(t) = (max_height - z_c) / (a·sinα)
+            // z = 0 → cosh(t) = -z_c / (a·sinα) — only if z_c < 0
+            let cosh_at_max = (max_height - z_c) / (a_conic * sin_alpha);
+            let t_hi = if cosh_at_max >= 1.0 {
+                cosh_at_max.acosh()
+            } else {
+                0.0 // vertex is already past max_height — shouldn't happen given check above
+            };
+
+            // The branch extends symmetrically from t=0 (the vertex).
+            // cosh is even, so z(-t) = z(t). The range is symmetric: [-t_hi, t_hi].
+            let t_range = (-t_hi, t_hi);
+
+            if (t_range.1 - t_range.0).abs() < TOL {
+                return Ok(vec![]);
+            }
+
+            return Ok(vec![SSICurve::Hyperbola {
+                center,
+                major_axis: major_dir,
+                normal: n,
+                semi_transverse: a_conic,
+                semi_conjugate: b_conic,
+                t_range,
+            }]);
         }
 
         // ── Ellipse case (discriminant > 0, γ > β) ───────────────────────
         //
-        // Work in a local cone frame: apex at origin, axis along Z, with the
-        // plane normal rotated into the XZ plane. Solve for the ellipse
-        // analytically, then transform back to world coordinates.
-
-        let signed_n_dot_a = v3_dot(n, a);
-        let sin_alpha = (1.0 - signed_n_dot_a * signed_n_dot_a).sqrt().max(TOL);
-
-        // D = signed distance from apex to plane along the outward normal
-        // We want D > 0 for the plane on the "positive" side.
-        // d_apex = (A - P)·n, so the distance from apex to plane along n is -d_apex.
-        let d_signed = -d_apex; // positive when apex is on the negative side of the plane
-
-        // In the rotated cone frame (apex=origin, axis=Z, plane normal in XZ):
-        //   Plane: sin(α)·x + cos(α)·z = D
-        //   Cone:  x² + y² = t²·z²
-        //
-        // The ellipse endpoints on the y=0 symmetry line (from plane+cone, y=0):
-        //   t·z·sin(α) = ±(D - z·cos(α))
-        //   z₁ = D / (t·sin(α) + |cos(α)|)    (near-apex side)
-        //   z₂ = D / (|cos(α)| - t·sin(α))    (far-from-apex side)
-        //
-        // cos(α) here uses the absolute value to ensure correct sign handling.
-        let abs_cos_alpha = cos_angle; // = |n̂ · â|
+        // Uses the shared local cone frame (apex=origin, axis=Z, plane normal in XZ).
+        // Variables signed_n_dot_a, sin_alpha, d_signed, abs_cos_alpha, local_x_dir
+        // are already computed in the shared setup block above.
 
         let z1 = d_signed / (t * sin_alpha + abs_cos_alpha);
         let z2 = d_signed / (abs_cos_alpha - t * sin_alpha);
@@ -750,21 +1023,7 @@ pub(crate) fn plane_cone_ssi(
 
         // ── Transform back to world coordinates ──────────────────────────
         //
-        // The local frame has: Z = cone_axis, and the plane normal projected
-        // into the XY plane defines the X direction (the symmetry plane).
-        //
-        // The local X axis is perpendicular to the cone axis and lies in the
-        // plane of symmetry (containing axis and plane normal).
-        // n_perp = normalize(n - (n·a)·a) is the component of the plane normal
-        // perpendicular to the axis. In the local frame, this points in +X.
-
-        let n_perp = v3_sub(n, v3_scale(a, signed_n_dot_a));
-        let n_perp_len = v3_length(n_perp);
-        let local_x_dir = if n_perp_len > TOL {
-            v3_scale(n_perp, 1.0 / n_perp_len)
-        } else {
-            return Ok(vec![]);
-        };
+        // Uses local_x_dir from the shared setup block above.
 
         // In local frame: center = (x_mid, 0, z_mid)
         // In world frame: center = apex + z_mid * a + x_mid * local_x_dir
@@ -3277,7 +3536,8 @@ mod tests {
     #[test]
     fn test_plane_cone_oblique_empty() {
         use std::f64::consts::FRAC_PI_4;
-        // Oblique plane → not supported → Err(NotSupported)
+        // Oblique plane at 45° normal with 45° half-angle cone → parabolic section
+        // (cos²α = sin²β = 0.5, so discriminant ≈ 0)
         let normal = [FRAC_1_SQRT_2, 0.0, FRAC_1_SQRT_2];
         let result = plane_cone_ssi(
             [0.0, 0.0, 5.0],
@@ -3287,7 +3547,13 @@ mod tests {
             FRAC_PI_4,
             10.0,
         );
-        assert!(matches!(result, Err(KernelError::NotSupported { .. })));
+        let curves = result.expect("Parabola case should return Ok");
+        assert_eq!(curves.len(), 1, "Should return one parabola");
+        assert!(
+            matches!(curves[0], SSICurve::Parabola { .. }),
+            "Expected Parabola, got {:?}",
+            curves[0]
+        );
     }
 
     // ── Point-in-Sphere ───────────────────────────────────────────────
@@ -4724,6 +4990,7 @@ mod tests {
                 } => {
                     assert!(*semi_major > 0.0 && *semi_minor > 0.0);
                 }
+                _ => panic!("Unexpected SSICurve variant: {:?}", curve),
             }
         }
     }
@@ -4944,6 +5211,7 @@ mod tests {
                     assert!(!semi_major.is_nan() && !semi_minor.is_nan());
                     assert!(*semi_major > 0.0 && *semi_minor > 0.0);
                 }
+                _ => panic!("Unexpected SSICurve variant: {:?}", curve),
             }
         }
     }
@@ -6306,6 +6574,7 @@ mod tests {
                         "NaN in line end"
                     );
                 }
+                _ => panic!("Unexpected SSICurve variant: {:?}", curve),
             }
         }
     }
@@ -6528,6 +6797,7 @@ mod tests {
                     assert!(!semi_major.is_nan(), "NaN in semi_major");
                     assert!(!semi_minor.is_nan(), "NaN in semi_minor");
                 }
+                _ => panic!("Unexpected SSICurve variant: {:?}", curve),
             }
         }
     }
@@ -6572,6 +6842,7 @@ mod tests {
                     assert!(!center[0].is_nan() && !center[1].is_nan() && !center[2].is_nan());
                     assert!(!semi_major.is_nan() && !semi_minor.is_nan());
                 }
+                _ => panic!("Unexpected SSICurve variant: {:?}", curve),
             }
         }
     }
@@ -6706,6 +6977,7 @@ mod tests {
                         semi_minor
                     );
                 }
+                _ => panic!("Unexpected SSICurve variant: {:?}", curve),
             }
         }
     }
@@ -7055,6 +7327,7 @@ mod tests {
                     assert!(*semi_major > 0.0, "Curve {}: non-positive semi_major", i);
                     assert!(*semi_minor > 0.0, "Curve {}: non-positive semi_minor", i);
                 }
+                _ => panic!("Unexpected SSICurve variant: {:?}", curve),
             }
         }
     }
@@ -7138,6 +7411,7 @@ mod tests {
                     assert!(*semi_major > 0.0, "Curve {}: non-positive semi_major", i);
                     assert!(*semi_minor > 0.0, "Curve {}: non-positive semi_minor", i);
                 }
+                _ => panic!("Unexpected SSICurve variant: {:?}", curve),
             }
         }
     }
@@ -7205,6 +7479,7 @@ mod tests {
                     assert!(!semi_major.is_nan() && *semi_major > 0.0);
                     assert!(!semi_minor.is_nan() && *semi_minor > 0.0);
                 }
+                _ => panic!("Unexpected SSICurve variant: {:?}", curve),
             }
         }
     }
@@ -7327,6 +7602,7 @@ mod tests {
                     assert!(*semi_major > 0.0, "Curve {}: non-positive semi_major", i);
                     assert!(*semi_minor > 0.0, "Curve {}: non-positive semi_minor", i);
                 }
+                _ => panic!("Unexpected SSICurve variant: {:?}", curve),
             }
         }
     }
@@ -7384,6 +7660,7 @@ mod tests {
                     }
                     assert!(*semi_major > 0.0 && *semi_minor > 0.0);
                 }
+                _ => panic!("Unexpected SSICurve variant: {:?}", curve),
             }
         }
     }
@@ -7906,6 +8183,7 @@ mod tests {
                             assert!(*semi_major > EPS, "Ellipse semi_major should be positive");
                             assert!(*semi_minor > EPS, "Ellipse semi_minor should be positive");
                         }
+                        _ => panic!("Unexpected SSICurve variant: {:?}", curve),
                     }
                 }
             }
@@ -7971,6 +8249,7 @@ mod tests {
                             assert!(*semi_major > EPS);
                             assert!(*semi_minor > EPS);
                         }
+                        _ => panic!("Unexpected SSICurve variant: {:?}", curve),
                     }
                 }
             }
@@ -8035,6 +8314,7 @@ mod tests {
                             assert!(*semi_major > EPS);
                             assert!(*semi_minor > EPS);
                         }
+                        _ => panic!("Unexpected SSICurve variant: {:?}", curve),
                     }
                 }
             }
@@ -8209,6 +8489,7 @@ mod tests {
                             assert!(*semi_major > EPS);
                             assert!(*semi_minor > EPS);
                         }
+                        _ => panic!("Unexpected SSICurve variant: {:?}", curve),
                     }
                 }
             }
@@ -8378,6 +8659,7 @@ mod tests {
                             assert!(*semi_major > EPS);
                             assert!(*semi_minor > EPS);
                         }
+                        _ => panic!("Unexpected SSICurve variant: {:?}", curve),
                     }
                 }
             }
@@ -8610,26 +8892,50 @@ mod tests {
         // normal = (sin60°, 0, cos60°) = (√3/2, 0, 0.5)
         let half_angle = std::f64::consts::FRAC_PI_6; // 30°
         let plane_normal = [(3.0_f64).sqrt() / 2.0, 0.0, 0.5];
-        let plane_origin = [0.0, 0.0, 5.0];
+        let plane_origin = [0.0, 0.0, 1.0];
         let cone_apex = [0.0, 0.0, 0.0];
         let cone_axis = [0.0, 0.0, 1.0];
-        let max_height = 20.0;
+        let max_height = 2.0;
 
-        let result = plane_cone_ssi(
+        let curves = plane_cone_ssi(
             plane_origin,
             plane_normal,
             cone_apex,
             cone_axis,
             half_angle,
             max_height,
-        );
+        )
+        .expect("Parabola case should return Ok");
 
-        // Parabola not yet implemented — should return NotSupported
-        assert!(
-            matches!(result, Err(KernelError::NotSupported { .. })),
-            "Parabolic boundary case should return NotSupported, got {:?}",
-            result,
+        assert_eq!(
+            curves.len(),
+            1,
+            "Expected 1 parabola curve, got {}",
+            curves.len()
         );
+        match &curves[0] {
+            SSICurve::Parabola {
+                vertex,
+                focal_length,
+                t_range,
+                ..
+            } => {
+                // vertex should exist (finite coordinates)
+                assert!(
+                    vertex.iter().all(|c| c.is_finite()),
+                    "Vertex must be finite"
+                );
+                // focal_length must be positive
+                assert!(
+                    *focal_length > 0.0,
+                    "focal_length must be > 0, got {}",
+                    focal_length
+                );
+                // t_range must be non-degenerate
+                assert!(t_range.1 > t_range.0, "t_range must be non-degenerate");
+            }
+            other => panic!("Expected Parabola, got {:?}", other),
+        }
     }
 
     #[test]
@@ -8639,26 +8945,306 @@ mod tests {
         // normal = (1, 0, 0) → plane parallel to cone axis → γ = 0°
         let half_angle = std::f64::consts::FRAC_PI_4; // 45°
         let plane_normal = [1.0, 0.0, 0.0]; // perpendicular to axis → γ = 0°
-        let plane_origin = [2.0, 0.0, 0.0]; // offset from axis
+        let plane_origin = [1.0, 0.0, 0.0]; // offset from axis
         let cone_apex = [0.0, 0.0, 0.0];
         let cone_axis = [0.0, 0.0, 1.0];
-        let max_height = 10.0;
+        let max_height = 2.0;
 
-        let result = plane_cone_ssi(
+        let curves = plane_cone_ssi(
             plane_origin,
             plane_normal,
             cone_apex,
             cone_axis,
             half_angle,
             max_height,
-        );
+        )
+        .expect("Hyperbola case should return Ok");
 
-        // Hyperbola not yet implemented — should return NotSupported
-        assert!(
-            matches!(result, Err(KernelError::NotSupported { .. })),
-            "Hyperbola case should return NotSupported, got {:?}",
-            result,
+        assert_eq!(
+            curves.len(),
+            1,
+            "Expected 1 hyperbola curve, got {}",
+            curves.len()
         );
+        match &curves[0] {
+            SSICurve::Hyperbola {
+                semi_transverse,
+                semi_conjugate,
+                ..
+            } => {
+                assert!(
+                    *semi_transverse > 0.0,
+                    "semi_transverse must be > 0, got {}",
+                    semi_transverse
+                );
+                assert!(
+                    *semi_conjugate > 0.0,
+                    "semi_conjugate must be > 0, got {}",
+                    semi_conjugate
+                );
+            }
+            other => panic!("Expected Hyperbola, got {:?}", other),
+        }
+    }
+
+    // ── Parabola / Hyperbola helpers ─────────────────────────────────────
+
+    /// Evaluate a point on a parabola: P(t) = vertex + t*perp_dir + (t²/(4*f))*axis_dir
+    /// axis_dir is the opening direction; perp_dir = normalize(normal × axis_dir) is transverse
+    fn eval_parabola(
+        vertex: [f64; 3],
+        axis_dir: [f64; 3],
+        normal: [f64; 3],
+        focal_length: f64,
+        t: f64,
+    ) -> [f64; 3] {
+        let perp_dir = v3_normalize(v3_cross(normal, axis_dir));
+        v3_add(
+            vertex,
+            v3_add(
+                v3_scale(perp_dir, t),
+                v3_scale(axis_dir, t * t / (4.0 * focal_length)),
+            ),
+        )
+    }
+
+    /// Evaluate a point on a hyperbola: P(t) = center + a*cosh(t)*major + b*sinh(t)*minor
+    fn eval_hyperbola(
+        center: [f64; 3],
+        major_axis: [f64; 3],
+        normal: [f64; 3],
+        a: f64,
+        b: f64,
+        t: f64,
+    ) -> [f64; 3] {
+        let minor_axis = v3_normalize(v3_cross(normal, major_axis));
+        v3_add(
+            center,
+            v3_add(
+                v3_scale(major_axis, a * t.cosh()),
+                v3_scale(minor_axis, b * t.sinh()),
+            ),
+        )
+    }
+
+    /// Check if a point lies on a cone surface within tolerance.
+    fn point_on_cone(
+        pt: [f64; 3],
+        apex: [f64; 3],
+        axis: [f64; 3],
+        half_angle: f64,
+        tol: f64,
+    ) -> bool {
+        let v = v3_sub(pt, apex);
+        let h = v3_dot(v, axis);
+        if h < -tol {
+            return false;
+        }
+        let radial_sq = v3_dot(v, v) - h * h;
+        let expected_r = h * half_angle.tan();
+        (radial_sq.sqrt() - expected_r).abs() < tol
+    }
+
+    #[test]
+    fn test_plane_cone_parabola_on_surface() {
+        // Same parabola setup: half_angle=30°, γ=30°=β
+        let half_angle = std::f64::consts::FRAC_PI_6;
+        let plane_normal = [(3.0_f64).sqrt() / 2.0, 0.0, 0.5];
+        let plane_origin = [0.0, 0.0, 1.0];
+        let cone_apex = [0.0, 0.0, 0.0];
+        let cone_axis = [0.0, 0.0, 1.0];
+        let max_height = 2.0;
+
+        let curves = plane_cone_ssi(
+            plane_origin,
+            plane_normal,
+            cone_apex,
+            cone_axis,
+            half_angle,
+            max_height,
+        )
+        .expect("Parabola case should return Ok");
+
+        assert_eq!(curves.len(), 1);
+        match &curves[0] {
+            SSICurve::Parabola {
+                vertex,
+                axis_dir,
+                normal,
+                focal_length,
+                t_range,
+            } => {
+                let tol = 1e-7;
+                // Sample 10 points along the parabola
+                for i in 0..10 {
+                    let frac = i as f64 / 9.0;
+                    let t = t_range.0 + frac * (t_range.1 - t_range.0);
+                    let pt = eval_parabola(*vertex, *axis_dir, *normal, *focal_length, t);
+
+                    // Point must lie on the plane: dot(pt - plane_origin, plane_normal) ≈ 0
+                    let d = v3_dot(v3_sub(pt, plane_origin), plane_normal);
+                    assert!(
+                        d.abs() < tol,
+                        "Parabola point at t={} not on plane: dist={}",
+                        t,
+                        d
+                    );
+
+                    // Point must lie on the cone surface
+                    assert!(
+                        point_on_cone(pt, cone_apex, cone_axis, half_angle, tol),
+                        "Parabola point at t={} not on cone: pt={:?}",
+                        t,
+                        pt
+                    );
+                }
+            }
+            other => panic!("Expected Parabola, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_plane_cone_hyperbola_on_surface() {
+        // Same hyperbola setup: half_angle=45°, γ=0° < β
+        let half_angle = std::f64::consts::FRAC_PI_4;
+        let plane_normal = [1.0, 0.0, 0.0];
+        let plane_origin = [1.0, 0.0, 0.0];
+        let cone_apex = [0.0, 0.0, 0.0];
+        let cone_axis = [0.0, 0.0, 1.0];
+        let max_height = 2.0;
+
+        let curves = plane_cone_ssi(
+            plane_origin,
+            plane_normal,
+            cone_apex,
+            cone_axis,
+            half_angle,
+            max_height,
+        )
+        .expect("Hyperbola case should return Ok");
+
+        assert_eq!(curves.len(), 1);
+        match &curves[0] {
+            SSICurve::Hyperbola {
+                center,
+                major_axis,
+                normal,
+                semi_transverse,
+                semi_conjugate,
+                t_range,
+            } => {
+                let tol = 1e-7;
+                // Sample 10 points along the hyperbola
+                for i in 0..10 {
+                    let frac = i as f64 / 9.0;
+                    let t = t_range.0 + frac * (t_range.1 - t_range.0);
+                    let pt = eval_hyperbola(
+                        *center,
+                        *major_axis,
+                        *normal,
+                        *semi_transverse,
+                        *semi_conjugate,
+                        t,
+                    );
+
+                    // Point must lie on the plane
+                    let d = v3_dot(v3_sub(pt, plane_origin), plane_normal);
+                    assert!(
+                        d.abs() < tol,
+                        "Hyperbola point at t={} not on plane: dist={}",
+                        t,
+                        d
+                    );
+
+                    // Point must lie on the cone surface
+                    assert!(
+                        point_on_cone(pt, cone_apex, cone_axis, half_angle, tol),
+                        "Hyperbola point at t={} not on cone: pt={:?}",
+                        t,
+                        pt
+                    );
+                }
+            }
+            other => panic!("Expected Hyperbola, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_plane_cone_parabola_steep_cone() {
+        // half_angle = 60° (π/3), plane normal at 30° from axis → γ = 60° = β
+        // normal = (sin30°, 0, cos30°) = (0.5, 0, √3/2)
+        let half_angle = std::f64::consts::FRAC_PI_3; // 60°
+        let plane_normal = [0.5, 0.0, (3.0_f64).sqrt() / 2.0];
+        let plane_origin = [0.0, 0.0, 1.0];
+        let cone_apex = [0.0, 0.0, 0.0];
+        let cone_axis = [0.0, 0.0, 1.0];
+        let max_height = 5.0;
+
+        let curves = plane_cone_ssi(
+            plane_origin,
+            plane_normal,
+            cone_apex,
+            cone_axis,
+            half_angle,
+            max_height,
+        )
+        .expect("Steep-cone parabola case should return Ok");
+
+        assert_eq!(curves.len(), 1, "Expected 1 parabola curve");
+        match &curves[0] {
+            SSICurve::Parabola {
+                vertex,
+                focal_length,
+                t_range,
+                ..
+            } => {
+                assert!(
+                    vertex.iter().all(|c| c.is_finite()),
+                    "Vertex must be finite"
+                );
+                assert!(*focal_length > 0.0, "focal_length must be > 0");
+                assert!(t_range.1 > t_range.0, "t_range must be non-degenerate");
+            }
+            other => panic!("Expected Parabola, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_plane_cone_hyperbola_moderate_angle() {
+        // half_angle = 60° (π/3), γ = 30° < β = 60°
+        // Plane normal at 60° from axis: normal = (sin60°, 0, cos60°) = (√3/2, 0, 0.5)
+        // γ = 90° - 60° = 30°... actually γ = arcsin(|dot(normal, axis)|)
+        // dot(normal, axis) = 0.5 → angle between normal and axis = 60°
+        // γ = 90° - 60° = 30° < β = 60° → hyperbola
+        let half_angle = std::f64::consts::FRAC_PI_3; // 60°
+        let plane_normal = [(3.0_f64).sqrt() / 2.0, 0.0, 0.5];
+        let plane_origin = [1.0, 0.0, 1.0];
+        let cone_apex = [0.0, 0.0, 0.0];
+        let cone_axis = [0.0, 0.0, 1.0];
+        let max_height = 5.0;
+
+        let curves = plane_cone_ssi(
+            plane_origin,
+            plane_normal,
+            cone_apex,
+            cone_axis,
+            half_angle,
+            max_height,
+        )
+        .expect("Moderate-angle hyperbola case should return Ok");
+
+        assert_eq!(curves.len(), 1, "Expected 1 hyperbola curve");
+        match &curves[0] {
+            SSICurve::Hyperbola {
+                semi_transverse,
+                semi_conjugate,
+                ..
+            } => {
+                assert!(*semi_transverse > 0.0, "semi_transverse must be > 0");
+                assert!(*semi_conjugate > 0.0, "semi_conjugate must be > 0");
+            }
+            other => panic!("Expected Hyperbola, got {:?}", other),
+        }
     }
 
     #[test]
@@ -9319,6 +9905,7 @@ mod tests {
                                     assert!(!end[k].is_nan(), "Config {} Line end NaN", i);
                                 }
                             }
+                            _ => panic!("Unexpected SSICurve variant: {:?}", curve),
                         }
                     }
                 }
@@ -9326,6 +9913,589 @@ mod tests {
                     // NotSupported is acceptable (parabola, hyperbola)
                 }
             }
+        }
+    }
+
+    // ── ADVERSARY Phase 4: Pathological parabola / hyperbola tests ───────
+
+    #[test]
+    fn test_plane_cone_parabola_near_zero_distance() {
+        // ADVERSARY: Plane very close to apex in the parabola regime.
+        // Cone at origin, axis +Z, half_angle=45°, max_height=1.0.
+        // Plane origin at (0,0,0.001), normal=(1/√2, 0, 1/√2) → γ=45°=β → parabola.
+        // The signed distance D from apex to plane is tiny (~0.001/√2),
+        // producing a parabola with very small focal_length and vertex near the apex.
+        let half_angle = std::f64::consts::FRAC_PI_4; // 45°
+        let cone_apex = [0.0, 0.0, 0.0];
+        let cone_axis = [0.0, 0.0, 1.0];
+        let plane_origin = [0.0, 0.0, 0.001];
+        let plane_normal = [FRAC_1_SQRT_2, 0.0, FRAC_1_SQRT_2];
+        let max_height = 1.0;
+
+        let curves = plane_cone_ssi(
+            plane_origin,
+            plane_normal,
+            cone_apex,
+            cone_axis,
+            half_angle,
+            max_height,
+        )
+        .expect("Near-zero-distance parabola should return Ok");
+
+        assert_eq!(
+            curves.len(),
+            1,
+            "Expected 1 parabola curve, got {}",
+            curves.len()
+        );
+
+        match &curves[0] {
+            SSICurve::Parabola {
+                vertex,
+                axis_dir,
+                normal,
+                focal_length,
+                t_range,
+            } => {
+                // Vertex z should be close to 0.001 (very near apex)
+                assert!(
+                    vertex[2] < 0.01,
+                    "Vertex z={} should be close to 0.001",
+                    vertex[2],
+                );
+                assert!(
+                    vertex[2] > 0.0,
+                    "Vertex z={} should be positive (above apex)",
+                    vertex[2],
+                );
+                // Focal length should be very small but positive
+                assert!(
+                    *focal_length > 0.0 && *focal_length < 0.01,
+                    "focal_length={} should be small but positive",
+                    focal_length,
+                );
+                // All values must be finite
+                assert!(
+                    vertex.iter().all(|c| c.is_finite()),
+                    "Vertex must be finite"
+                );
+                assert!(
+                    axis_dir.iter().all(|c| c.is_finite()),
+                    "axis_dir must be finite"
+                );
+                assert!(focal_length.is_finite(), "focal_length must be finite");
+
+                // Verify sampled points lie on both surfaces
+                let tol = 1e-6;
+                for i in 0..10 {
+                    let frac = i as f64 / 9.0;
+                    let t = t_range.0 + frac * (t_range.1 - t_range.0);
+                    let pt = eval_parabola(*vertex, *axis_dir, *normal, *focal_length, t);
+
+                    let d = v3_dot(v3_sub(pt, plane_origin), plane_normal);
+                    assert!(
+                        d.abs() < tol,
+                        "Parabola point at t={} not on plane: dist={:.2e}",
+                        t,
+                        d,
+                    );
+                    assert!(
+                        point_on_cone(pt, cone_apex, cone_axis, half_angle, tol),
+                        "Parabola point at t={} not on cone: pt={:?}",
+                        t,
+                        pt,
+                    );
+                }
+            }
+            other => panic!("Expected Parabola, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_plane_cone_hyperbola_axis_parallel_plane() {
+        // ADVERSARY: Plane completely parallel to cone axis (cos_alpha=0, γ=0).
+        // Cone at origin, axis +Z, half_angle=30°, max_height=5.0.
+        // Plane at x=2, normal=(1,0,0) — perpendicular to X, parallel to Z.
+        // cos(α)=0, so γ=0 < β=30° → hyperbola regime (discriminant = 0 - sin²30° = -0.25).
+        let half_angle = std::f64::consts::FRAC_PI_6; // 30°
+        let cone_apex = [0.0, 0.0, 0.0];
+        let cone_axis = [0.0, 0.0, 1.0];
+        let plane_origin = [2.0, 0.0, 0.0];
+        let plane_normal = [1.0, 0.0, 0.0];
+        let max_height = 5.0;
+
+        let curves = plane_cone_ssi(
+            plane_origin,
+            plane_normal,
+            cone_apex,
+            cone_axis,
+            half_angle,
+            max_height,
+        )
+        .expect("Axis-parallel hyperbola should return Ok");
+
+        assert_eq!(
+            curves.len(),
+            1,
+            "Expected 1 hyperbola, got {}",
+            curves.len()
+        );
+
+        match &curves[0] {
+            SSICurve::Hyperbola {
+                center,
+                major_axis,
+                normal,
+                semi_transverse,
+                semi_conjugate,
+                t_range,
+            } => {
+                assert!(*semi_transverse > 0.0, "semi_transverse must be > 0");
+                assert!(*semi_conjugate > 0.0, "semi_conjugate must be > 0");
+
+                // All values finite
+                assert!(
+                    center.iter().all(|c| c.is_finite()),
+                    "center must be finite"
+                );
+                assert!(
+                    major_axis.iter().all(|c| c.is_finite()),
+                    "major_axis must be finite"
+                );
+
+                // Verify 5 sampled points lie on both surfaces
+                let tol = 1e-6;
+                for i in 0..5 {
+                    let frac = i as f64 / 4.0;
+                    let t = t_range.0 + frac * (t_range.1 - t_range.0);
+                    let pt = eval_hyperbola(
+                        *center,
+                        *major_axis,
+                        *normal,
+                        *semi_transverse,
+                        *semi_conjugate,
+                        t,
+                    );
+
+                    // Point on plane: x ≈ 2.0
+                    let d = v3_dot(v3_sub(pt, plane_origin), plane_normal);
+                    assert!(
+                        d.abs() < tol,
+                        "Hyperbola point at t={} not on plane: dist={:.2e}",
+                        t,
+                        d,
+                    );
+                    // Point on cone
+                    assert!(
+                        point_on_cone(pt, cone_apex, cone_axis, half_angle, tol),
+                        "Hyperbola point at t={} not on cone: pt={:?}",
+                        t,
+                        pt,
+                    );
+                }
+            }
+            other => panic!("Expected Hyperbola, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_plane_cone_parabola_very_narrow_cone() {
+        // ADVERSARY: Very narrow cone (half_angle=1°), parabola case (γ=β=1°).
+        // The plane normal must be at α = 90° - 1° = 89° from the axis.
+        // cos(α) = cos(89°) ≈ sin(1°) ≈ 0.01745.
+        // sin(β) = sin(1°) ≈ 0.01745. discriminant ≈ 0 → parabola.
+        let half_angle = 1.0_f64.to_radians();
+        let cone_apex = [0.0, 0.0, 0.0];
+        let cone_axis = [0.0, 0.0, 1.0];
+        let max_height = 10.0;
+
+        // α = 89° → normal at 89° from axis
+        let alpha_rad = 89.0_f64.to_radians();
+        let plane_normal = [alpha_rad.sin(), 0.0, alpha_rad.cos()];
+        let plane_origin = [0.0, 0.0, 5.0];
+
+        let curves = plane_cone_ssi(
+            plane_origin,
+            plane_normal,
+            cone_apex,
+            cone_axis,
+            half_angle,
+            max_height,
+        )
+        .expect("Narrow-cone parabola should return Ok");
+
+        assert_eq!(curves.len(), 1, "Expected 1 parabola, got {}", curves.len());
+
+        match &curves[0] {
+            SSICurve::Parabola {
+                vertex,
+                axis_dir,
+                normal,
+                focal_length,
+                t_range,
+            } => {
+                assert!(
+                    *focal_length > 0.0,
+                    "focal_length={} must be positive",
+                    focal_length,
+                );
+                assert!(
+                    vertex.iter().all(|c| c.is_finite()),
+                    "Vertex must be finite"
+                );
+                assert!(t_range.1 > t_range.0, "t_range must be non-degenerate");
+
+                // Verify points on both surfaces
+                let tol = 1e-6;
+                for i in 0..10 {
+                    let frac = i as f64 / 9.0;
+                    let t = t_range.0 + frac * (t_range.1 - t_range.0);
+                    let pt = eval_parabola(*vertex, *axis_dir, *normal, *focal_length, t);
+
+                    let d = v3_dot(v3_sub(pt, plane_origin), plane_normal);
+                    assert!(
+                        d.abs() < tol,
+                        "Narrow parabola point t={} not on plane: dist={:.2e}",
+                        t,
+                        d,
+                    );
+                    assert!(
+                        point_on_cone(pt, cone_apex, cone_axis, half_angle, tol),
+                        "Narrow parabola point t={} not on cone: pt={:?}",
+                        t,
+                        pt,
+                    );
+                }
+            }
+            other => panic!("Expected Parabola, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_plane_cone_hyperbola_nearly_parabolic() {
+        // ADVERSARY: γ just slightly less than β — near the parabola/hyperbola boundary.
+        // half_angle=30° → sin²β = 0.25, cos²β = 0.75.
+        // We need cos²α = sin²β - δ for small δ to stay in hyperbola regime.
+        // cos²α = 0.25 - 0.001 = 0.249 → cosα = 0.49900... → α = arccos(0.49900...)
+        // discriminant = cos²α - sin²β = -0.001 (just inside hyperbola).
+        let half_angle = std::f64::consts::FRAC_PI_6; // 30°
+        let cos_alpha = (0.25_f64 - 0.001).sqrt(); // ≈ 0.49900
+        let alpha_rad = cos_alpha.acos();
+        let plane_normal = [alpha_rad.sin(), 0.0, alpha_rad.cos()];
+        let plane_origin = [1.0, 0.0, 5.0];
+        let cone_apex = [0.0, 0.0, 0.0];
+        let cone_axis = [0.0, 0.0, 1.0];
+        let max_height = 100.0; // large to accommodate near-degenerate hyperbola
+
+        let curves = plane_cone_ssi(
+            plane_origin,
+            plane_normal,
+            cone_apex,
+            cone_axis,
+            half_angle,
+            max_height,
+        )
+        .expect("Nearly-parabolic hyperbola should return Ok");
+
+        assert_eq!(curves.len(), 1, "Expected 1 curve, got {}", curves.len());
+
+        match &curves[0] {
+            SSICurve::Hyperbola {
+                center,
+                major_axis,
+                normal,
+                semi_transverse,
+                semi_conjugate,
+                t_range,
+            } => {
+                // Near the boundary, semi_transverse should be large
+                // (the hyperbola flattens toward a parabola).
+                assert!(
+                    *semi_transverse > 1.0,
+                    "Near-boundary semi_transverse={} should be large",
+                    semi_transverse,
+                );
+                assert!(*semi_conjugate > 0.0, "semi_conjugate must be > 0");
+
+                // All finite
+                assert!(
+                    center.iter().all(|c| c.is_finite()),
+                    "center must be finite"
+                );
+                assert!(
+                    semi_transverse.is_finite(),
+                    "semi_transverse must be finite"
+                );
+                assert!(semi_conjugate.is_finite(), "semi_conjugate must be finite");
+
+                // Verify points on both surfaces
+                let tol = 1e-6;
+                for i in 0..10 {
+                    let frac = i as f64 / 9.0;
+                    let t = t_range.0 + frac * (t_range.1 - t_range.0);
+                    let pt = eval_hyperbola(
+                        *center,
+                        *major_axis,
+                        *normal,
+                        *semi_transverse,
+                        *semi_conjugate,
+                        t,
+                    );
+
+                    let d = v3_dot(v3_sub(pt, plane_origin), plane_normal);
+                    assert!(
+                        d.abs() < tol,
+                        "Near-parabolic hyperbola point t={} not on plane: dist={:.2e}",
+                        t,
+                        d,
+                    );
+                    assert!(
+                        point_on_cone(pt, cone_apex, cone_axis, half_angle, tol),
+                        "Near-parabolic hyperbola point t={} not on cone: pt={:?}",
+                        t,
+                        pt,
+                    );
+                }
+            }
+            other => panic!("Expected Hyperbola, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_plane_cone_parabola_nearly_elliptic() {
+        // ADVERSARY: γ just barely at the boundary from the ellipse side.
+        // half_angle=30° → sin²β = 0.25.
+        // Set cos²α = sin²β + 5e-8 = 0.250000050 → discriminant ≈ 5e-8.
+        // With TOL=1e-9 for discriminant check (|disc| < TOL → parabola),
+        // disc=5e-8 is actually above TOL, so this will be classified as ellipse.
+        // Instead use disc ≈ 5e-10 (within TOL=1e-9):
+        // cos²α = 0.25 + 5e-10 → cosα = sqrt(0.25 + 5e-10)
+        let half_angle = std::f64::consts::FRAC_PI_6; // 30°
+        let cos_alpha = (0.25_f64 + 5e-10).sqrt();
+        let alpha_rad = cos_alpha.acos();
+        let plane_normal = [alpha_rad.sin(), 0.0, alpha_rad.cos()];
+        let plane_origin = [0.0, 0.0, 5.0];
+        let cone_apex = [0.0, 0.0, 0.0];
+        let cone_axis = [0.0, 0.0, 1.0];
+        let max_height = 50.0;
+
+        let curves = plane_cone_ssi(
+            plane_origin,
+            plane_normal,
+            cone_apex,
+            cone_axis,
+            half_angle,
+            max_height,
+        )
+        .expect("Nearly-elliptic parabola should return Ok");
+
+        assert_eq!(curves.len(), 1, "Expected 1 curve, got {}", curves.len());
+
+        // Should be classified as Parabola since |disc| < TOL
+        match &curves[0] {
+            SSICurve::Parabola {
+                vertex,
+                axis_dir,
+                normal,
+                focal_length,
+                t_range,
+            } => {
+                assert!(*focal_length > 0.0, "focal_length must be positive");
+                assert!(
+                    vertex.iter().all(|c| c.is_finite()),
+                    "Vertex must be finite"
+                );
+
+                // Verify points on both surfaces
+                let tol = 1e-6;
+                for i in 0..10 {
+                    let frac = i as f64 / 9.0;
+                    let t = t_range.0 + frac * (t_range.1 - t_range.0);
+                    let pt = eval_parabola(*vertex, *axis_dir, *normal, *focal_length, t);
+
+                    let d = v3_dot(v3_sub(pt, plane_origin), plane_normal);
+                    assert!(
+                        d.abs() < tol,
+                        "Nearly-elliptic parabola point t={} not on plane: dist={:.2e}",
+                        t,
+                        d,
+                    );
+                    assert!(
+                        point_on_cone(pt, cone_apex, cone_axis, half_angle, tol),
+                        "Nearly-elliptic parabola point t={} not on cone: pt={:?}",
+                        t,
+                        pt,
+                    );
+                }
+            }
+            other => panic!("Expected Parabola (boundary case), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_plane_cone_hyperbola_wide_cone() {
+        // ADVERSARY: Very wide cone (half_angle=80°) with axis-perpendicular plane.
+        // normal=(1,0,0) → α=90° → cos(α)=0. γ=0 < β=80° → hyperbola.
+        // discriminant = 0 - sin²(80°) ≈ -0.9698.
+        let half_angle = 80.0_f64.to_radians();
+        let cone_apex = [0.0, 0.0, 0.0];
+        let cone_axis = [0.0, 0.0, 1.0];
+        let plane_origin = [0.5, 0.0, 0.0];
+        let plane_normal = [1.0, 0.0, 0.0];
+        let max_height = 2.0;
+
+        let curves = plane_cone_ssi(
+            plane_origin,
+            plane_normal,
+            cone_apex,
+            cone_axis,
+            half_angle,
+            max_height,
+        )
+        .expect("Wide-cone hyperbola should return Ok");
+
+        assert_eq!(
+            curves.len(),
+            1,
+            "Expected 1 hyperbola, got {}",
+            curves.len()
+        );
+
+        match &curves[0] {
+            SSICurve::Hyperbola {
+                center,
+                major_axis,
+                normal,
+                semi_transverse,
+                semi_conjugate,
+                t_range,
+            } => {
+                assert!(*semi_transverse > 0.0, "semi_transverse must be > 0");
+                assert!(*semi_conjugate > 0.0, "semi_conjugate must be > 0");
+                assert!(
+                    center.iter().all(|c| c.is_finite()),
+                    "center must be finite"
+                );
+
+                // For a very wide cone, the semi_conjugate should be substantial
+                // since the cone opens rapidly.
+
+                // Verify points on both surfaces
+                let tol = 1e-6;
+                for i in 0..5 {
+                    let frac = i as f64 / 4.0;
+                    let t = t_range.0 + frac * (t_range.1 - t_range.0);
+                    let pt = eval_hyperbola(
+                        *center,
+                        *major_axis,
+                        *normal,
+                        *semi_transverse,
+                        *semi_conjugate,
+                        t,
+                    );
+
+                    let d = v3_dot(v3_sub(pt, plane_origin), plane_normal);
+                    assert!(
+                        d.abs() < tol,
+                        "Wide-cone hyperbola point t={} not on plane: dist={:.2e}",
+                        t,
+                        d,
+                    );
+                    assert!(
+                        point_on_cone(pt, cone_apex, cone_axis, half_angle, tol),
+                        "Wide-cone hyperbola point t={} not on cone: pt={:?}",
+                        t,
+                        pt,
+                    );
+                }
+            }
+            other => panic!("Expected Hyperbola, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_plane_cone_parabola_offset_apex() {
+        // ADVERSARY: Cone with non-origin apex and tilted axis.
+        // apex=(3,-2,5), axis=(0, 1/√2, 1/√2), half_angle=45°.
+        // For parabola: γ=β=45° → cos(α)=sin(45°)=1/√2 → α=45°.
+        // Need plane normal such that |dot(normal, axis)| = cos(45°) = 1/√2.
+        //
+        // axis = (0, 1/√2, 1/√2). We need normal·axis = ±1/√2.
+        // Try normal = (1, 0, 0): dot = 0 → no.
+        // We need a normal in the symmetry plane. Let's compute:
+        // Project normal requirement: n·a = 1/√2 where a = (0, 1/√2, 1/√2).
+        // Let n = (nx, ny, nz) unit, n·a = (ny+nz)/√2 = 1/√2 → ny+nz = 1.
+        // Choose n = (0, 1, 0): ny+nz = 1 → n·a = 1/√2. ✓
+        // But n=(0,1,0) is unit, cos(α) = 1/√2, sin²(β) = sin²(45°) = 0.5,
+        // cos²(α) = 0.5. disc = 0.5 - 0.5 = 0 → parabola. ✓
+        let half_angle = std::f64::consts::FRAC_PI_4; // 45°
+        let cone_apex = [3.0, -2.0, 5.0];
+        let cone_axis = [0.0, FRAC_1_SQRT_2, FRAC_1_SQRT_2];
+        let plane_normal = [0.0, 1.0, 0.0];
+        let plane_origin = [3.0, -1.0, 5.0]; // 1 unit from apex along y
+        let max_height = 10.0;
+
+        let curves = plane_cone_ssi(
+            plane_origin,
+            plane_normal,
+            cone_apex,
+            cone_axis,
+            half_angle,
+            max_height,
+        )
+        .expect("Offset-apex parabola should return Ok");
+
+        assert_eq!(curves.len(), 1, "Expected 1 parabola, got {}", curves.len());
+
+        match &curves[0] {
+            SSICurve::Parabola {
+                vertex,
+                axis_dir,
+                normal,
+                focal_length,
+                t_range,
+            } => {
+                assert!(*focal_length > 0.0, "focal_length must be positive");
+                assert!(
+                    vertex.iter().all(|c| c.is_finite()),
+                    "Vertex must be finite"
+                );
+
+                let tol = 1e-6;
+
+                // Vertex must lie on the plane
+                let d_vtx = v3_dot(v3_sub(*vertex, plane_origin), plane_normal);
+                assert!(d_vtx.abs() < tol, "Vertex not on plane: dist={:.2e}", d_vtx,);
+
+                // Vertex must lie on the cone surface
+                assert!(
+                    point_on_cone(*vertex, cone_apex, cone_axis, half_angle, tol),
+                    "Vertex {:?} not on cone surface",
+                    vertex,
+                );
+
+                // Verify sampled points
+                for i in 0..10 {
+                    let frac = i as f64 / 9.0;
+                    let t = t_range.0 + frac * (t_range.1 - t_range.0);
+                    let pt = eval_parabola(*vertex, *axis_dir, *normal, *focal_length, t);
+
+                    let d = v3_dot(v3_sub(pt, plane_origin), plane_normal);
+                    assert!(
+                        d.abs() < tol,
+                        "Offset-apex parabola point t={} not on plane: dist={:.2e}",
+                        t,
+                        d,
+                    );
+                    assert!(
+                        point_on_cone(pt, cone_apex, cone_axis, half_angle, tol),
+                        "Offset-apex parabola point t={} not on cone: pt={:?}",
+                        t,
+                        pt,
+                    );
+                }
+            }
+            other => panic!("Expected Parabola, got {:?}", other),
         }
     }
 }

@@ -87,12 +87,12 @@ A sub-case is "done" when:
 |----------|--------|--------|-------|
 | Perpendicular (plane ⊥ axis) | analytical | done | Returns `Circle` at cut height (`plane_cone_ssi`) |
 | Oblique (ellipse, γ > β) | analytical | done | Returns `Ellipse` with exact semi-axes |
-| Oblique (parabola, γ ≈ β) | not-supported | missing | Requires `SSICurve::Conic` variant |
-| Oblique (hyperbola, γ < β) | not-supported | missing | Requires `SSICurve::Conic` variant |
+| Oblique (parabola, γ ≈ β) | analytical | done | Returns `SSICurve::Parabola` with vertex, axis, focal_length |
+| Oblique (hyperbola, γ < β) | analytical | done | Returns `SSICurve::Hyperbola` with center, axes, semi-transverse/conjugate |
 | Through apex (γ < β) | analytical | done | Returns 2 `Line` generator segments |
 | Through apex (γ > β) | analytical | done | Returns empty (degenerate point) |
 
-**Implementation**: `ssi.rs:plane_cone_ssi` (lines 559–730). Perpendicular, oblique ellipse, and through-apex sub-cases.
+**Implementation**: `ssi.rs:plane_cone_ssi`. All six sub-cases: perpendicular (circle), oblique ellipse, oblique parabola, oblique hyperbola, through-apex (lines), and no-intersection (empty).
 
 ---
 
@@ -276,7 +276,7 @@ Coaxial path is exact. General path scans 360 θ × 36 φ samples on torus A sur
 |---|------|----------------|---------------------|---------------------------|
 | 1 | Plane–Plane | **done** | All | — |
 | 2 | Plane–Cylinder | **done** | All (perp, parallel, oblique) | — |
-| 3 | Plane–Cone | **partial** | Perpendicular + oblique ellipse + through-apex | Oblique parabola + hyperbola |
+| 3 | Plane–Cone | **done** | All (perp, oblique ellipse/parabola/hyperbola, through-apex) | — |
 | 4 | Plane–Sphere | **done** | All | — |
 | 5 | Cylinder–Cylinder | **partial** | Parallel + equal-R non-parallel ≥60° | Near-parallel, unequal-R, skew |
 | 6 | Plane–Torus | **partial** | Axis-perpendicular only | All other orientations |
@@ -290,8 +290,8 @@ Coaxial path is exact. General path scans 360 θ × 36 φ samples on torus A sur
 | 14 | Sphere–Torus | **stub** | Axial | Off-axis (360×36 scan) |
 | 15 | Torus–Torus | **stub** | Coaxial | General position (360×36 scan) |
 
-**Fully analytical**: 4 of 15 pairs (Plane–Plane, Plane–Cylinder, Plane–Sphere, Sphere–Sphere)
-**Partial**: 4 of 15 pairs (Plane–Cone, Cyl–Cyl, Plane–Torus, Cyl–Sphere)
+**Fully analytical**: 5 of 15 pairs (Plane–Plane, Plane–Cylinder, Plane–Cone, Plane–Sphere, Sphere–Sphere)
+**Partial**: 3 of 15 pairs (Cyl–Cyl, Plane–Torus, Cyl–Sphere)
 **Stub (sampling)**: 7 of 15 pairs (Cyl–Cone, Cone–Cone, Cyl–Torus, Cone–Sphere, Cone–Torus, Sphere–Torus, Torus–Torus)
 
 ---
