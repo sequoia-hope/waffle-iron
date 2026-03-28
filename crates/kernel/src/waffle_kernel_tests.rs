@@ -88,7 +88,7 @@ fn check_watertight(mesh: &RenderMesh) -> bool {
 fn count_unpaired_edges(mesh: &RenderMesh) -> usize {
     use std::collections::HashMap as Map;
     let max_abs = mesh.vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
-    let grid = (max_abs as f64 * 1e-5).max(1e-10);
+    let grid = (max_abs as f64 * crate::units::TAU_TESS_GRID_FACTOR).max(crate::units::TAU_TESS_GRID_MIN);
     let inv_grid = 1.0 / grid;
     let quantize = |idx: u32| -> (i64, i64, i64) {
         let base = idx as usize * 3;
@@ -116,7 +116,7 @@ fn count_unpaired_edges(mesh: &RenderMesh) -> usize {
 fn count_total_edges(mesh: &RenderMesh) -> usize {
     use std::collections::HashMap as Map;
     let max_abs = mesh.vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
-    let grid = (max_abs as f64 * 1e-5).max(1e-10);
+    let grid = (max_abs as f64 * crate::units::TAU_TESS_GRID_FACTOR).max(crate::units::TAU_TESS_GRID_MIN);
     let inv_grid = 1.0 / grid;
     let quantize = |idx: u32| -> (i64, i64, i64) {
         let base = idx as usize * 3;
@@ -144,7 +144,7 @@ fn count_total_edges(mesh: &RenderMesh) -> usize {
 fn count_unique_verts(mesh: &RenderMesh) -> usize {
     use std::collections::HashSet;
     let max_abs = mesh.vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
-    let grid = (max_abs as f64 * 1e-5).max(1e-10);
+    let grid = (max_abs as f64 * crate::units::TAU_TESS_GRID_FACTOR).max(crate::units::TAU_TESS_GRID_MIN);
     let inv_grid = 1.0 / grid;
     let n_verts = mesh.vertices.len() / 3;
     let mut seen = HashSet::new();
@@ -4071,6 +4071,9 @@ fn q_tilted_plane_box_watertight() {
     let solid = k.extrude_face(faces[0], normal, 1.0).unwrap();
     let mesh = k.tessellate(&solid, 0.01).unwrap();
     assert!(check_watertight(&mesh), "Tilted-plane box must be watertight");
+    // Volume oracle: 1×1×1 box = 1.0 regardless of sketch plane tilt.
+    let vol = mesh_volume(&mesh);
+    assert!((vol - 1.0).abs() < 0.15, "tilted box volume {vol} should be ~1.0");
 }
 
 #[test]
@@ -4084,6 +4087,9 @@ fn q_tilted_plane_gear_watertight() {
     let solid = k.extrude_face(faces[0], normal, 0.5).unwrap();
     let mesh = k.tessellate(&solid, 0.01).unwrap();
     assert!(check_watertight(&mesh), "Tilted-plane gear must be watertight");
+    // Volume oracle: gear profile × depth 0.5. Must be positive.
+    let vol = mesh_volume(&mesh);
+    assert!(vol > 0.0, "tilted gear volume must be positive, got {vol}");
 }
 
 #[test]
@@ -4097,6 +4103,11 @@ fn q_tilted_plane_cylinder_watertight() {
     let solid = k.extrude_face(faces[0], normal, 0.5).unwrap();
     let mesh = k.tessellate(&solid, 0.01).unwrap();
     assert!(check_watertight(&mesh), "Tilted-plane cylinder must be watertight");
+    // Volume oracle: π×0.5²×0.5 ≈ 0.3927
+    let vol = mesh_volume(&mesh);
+    let expected = std::f64::consts::PI * 0.25 * 0.5;
+    assert!((vol - expected).abs() < expected * 0.15,
+        "tilted cylinder volume {vol} should be ~{expected}");
 }
 
 #[test]
@@ -4678,7 +4689,7 @@ fn find_unpaired_edge_positions(mesh: &RenderMesh) -> Vec<([f32; 3], [f32; 3], u
     use std::collections::HashMap as Map;
     fn quantize_oracle(mesh: &RenderMesh, idx: u32) -> (i64, i64, i64) {
         let max_abs = mesh.vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
-        let grid = (max_abs as f64 * 1e-5).max(1e-10);
+        let grid = (max_abs as f64 * crate::units::TAU_TESS_GRID_FACTOR).max(crate::units::TAU_TESS_GRID_MIN);
         let inv = 1.0 / grid;
         let i = idx as usize * 3;
         (
@@ -9028,7 +9039,7 @@ fn tr18_make_torus_negative_axis_direction() {
 fn find_nonmanifold_edges(mesh: &RenderMesh) -> Vec<(((i64, i64, i64), (i64, i64, i64)), u32)> {
     use std::collections::HashMap as Map;
     let max_abs = mesh.vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
-    let grid = (max_abs as f64 * 1e-5).max(1e-10);
+    let grid = (max_abs as f64 * crate::units::TAU_TESS_GRID_FACTOR).max(crate::units::TAU_TESS_GRID_MIN);
     let inv_grid = 1.0 / grid;
     let quantize = |idx: u32| -> (i64, i64, i64) {
         let base = idx as usize * 3;
@@ -9078,6 +9089,12 @@ fn test_nonmanifold_removal_box_cyl_union() {
         nonmanifold.len(),
         &nonmanifold[..nonmanifold.len().min(5)]
     );
+
+    // Volume oracle: box=10×10×10=1000, cyl=π×3²×10≈282.7
+    // Union ∈ [max(A,B), A+B] = [1000, 1282.7]
+    let vol = mesh_volume(&mesh);
+    assert!(vol > 900.0, "union volume {vol} too small (box alone ~1000)");
+    assert!(vol < 1400.0, "union volume {vol} too large (sum ~1282.7)");
 }
 
 /// Test that box-cylinder subtract does not produce non-manifold edges.
@@ -9101,6 +9118,12 @@ fn test_nonmanifold_removal_box_cyl_subtract_partial() {
         nonmanifold.len(),
         &nonmanifold[..nonmanifold.len().min(5)]
     );
+
+    // Volume oracle: box=1000, subtract removes partial cylinder overlap.
+    // Result must be strictly less than box and strictly positive.
+    let vol = mesh_volume(&mesh);
+    assert!(vol > 0.0, "subtract volume must be positive, got {vol}");
+    assert!(vol < 1000.0, "subtract volume {vol} must be less than box (1000)");
 }
 
 /// Test that two overlapping cylinders union does not produce non-manifold edges.
@@ -9123,6 +9146,12 @@ fn test_nonmanifold_removal_cyl_cyl_union() {
         nonmanifold.len(),
         &nonmanifold[..nonmanifold.len().min(5)]
     );
+
+    // Volume oracle: cyl_A=π×5²×10≈785.4, cyl_B same.
+    // Union ∈ [max(A,B), A+B] = [785.4, 1570.8]
+    let vol = mesh_volume(&mesh);
+    assert!(vol > 700.0, "cyl-cyl union volume {vol} too small (each cyl ~785)");
+    assert!(vol < 1600.0, "cyl-cyl union volume {vol} too large (sum ~1571)");
 }
 
 /// Test that box-box union with partial overlap does not produce non-manifold edges.
@@ -9141,6 +9170,12 @@ fn test_nonmanifold_removal_box_box_union() {
         nonmanifold.len(),
         &nonmanifold[..nonmanifold.len().min(5)]
     );
+
+    // Volume oracle: box_A=10×10×10=1000, box_B=1000, overlap=5×10×10=500.
+    // Union = A + B - overlap = 1500. Allow ±15% for tessellation.
+    let vol = mesh_volume(&mesh);
+    assert!(vol > 1200.0, "box-box union volume {vol} too small (expected ~1500)");
+    assert!(vol < 1800.0, "box-box union volume {vol} too large (expected ~1500)");
 }
 
 /// Test that box-box subtract does not produce non-manifold edges.
@@ -9157,6 +9192,12 @@ fn test_nonmanifold_removal_box_box_subtract() {
         nonmanifold.len(),
         &nonmanifold[..nonmanifold.len().min(5)]
     );
+
+    // Volume oracle: box_A=1000, overlap region=500.
+    // Subtract = A - overlap = 500. Allow ±15% for tessellation.
+    let vol = mesh_volume(&mesh);
+    assert!(vol > 400.0, "box-box subtract volume {vol} too small (expected ~500)");
+    assert!(vol < 600.0, "box-box subtract volume {vol} too large (expected ~500)");
 }
 
 // ── Cylinder-box boolean AABB-collapse regression tests ────────────
@@ -9374,7 +9415,7 @@ fn test_cyl_union_box_not_aabb_collapsed() {
 fn boundary_component_sizes(mesh: &RenderMesh) -> Vec<usize> {
     use std::collections::{HashMap as Map, HashSet, VecDeque};
     let max_abs = mesh.vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
-    let grid = (max_abs as f64 * 1e-5).max(1e-10);
+    let grid = (max_abs as f64 * crate::units::TAU_TESS_GRID_FACTOR).max(crate::units::TAU_TESS_GRID_MIN);
     let inv_grid = 1.0 / grid;
     type QPos = (i64, i64, i64);
     let quantize = |idx: u32| -> QPos {
@@ -9577,11 +9618,14 @@ fn test_mesh_repair_convergence_gear_circle_union() {
         .extrude_face(cir_faces[0], Z_DIR, 0.08)
         .expect("circle extrude should succeed");
 
-    let result = k.boolean_union(&gear_solid, &cir_solid);
-    assert!(
-        result.is_ok(),
-        "Disjoint gear-circle union should succeed as compound solid",
-    );
+    let result = k.boolean_union(&gear_solid, &cir_solid)
+        .expect("Disjoint gear-circle union should succeed as compound solid");
+
+    // Volume oracle: gear volume > 0, circle volume = π×0.15²×0.08≈0.00565.
+    // Union ∈ [max(A,B), A+B]. Both volumes positive, result must be too.
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    let vol = mesh_volume(&mesh);
+    assert!(vol > 0.0, "gear-circle union volume must be positive, got {vol}");
 }
 
 /// Small gear + small circle union mesh repair convergence test.
