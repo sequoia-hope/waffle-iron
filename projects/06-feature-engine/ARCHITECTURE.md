@@ -36,7 +36,7 @@ When a parameter changes (e.g., user edits a sketch dimension or changes an extr
 
 ### Performance Considerations
 
-Each feature replay involves a kernel operation + tessellation. For a 50-feature tree, this could mean 50 kernel operations. With truck's boolean performance issues (seconds per boolean), this could be slow.
+Each feature replay involves a kernel operation + tessellation. For a 50-feature tree, this could mean 50 kernel operations. With the kernel's boolean performance characteristics, this could be slow.
 
 Mitigation strategies:
 - **Lazy tessellation:** Only tessellate the final state, not intermediate states.
@@ -53,7 +53,7 @@ This is the core algorithm that makes parametric CAD work. When a fillet referen
 After a rebuild, kernel-internal IDs (KernelId) may change:
 - Booleans create new objects with new IDs.
 - Topology changes (adding/removing faces/edges) shift IDs.
-- truck provides NO old→new mapping.
+- The kernel provides NO old→new mapping.
 
 ### The Solution: GeomRef
 

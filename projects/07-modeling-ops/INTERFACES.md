@@ -21,10 +21,10 @@
 | `ChamferParams` | INTERFACES.md | Chamfer operation parameters |
 | `ShellParams` | INTERFACES.md | Shell operation parameters |
 | `BooleanParams` | INTERFACES.md | Boolean combine parameters |
-| `Kernel` trait | kernel-fork | Geometry operations |
-| `KernelIntrospect` trait | kernel-fork | Topology queries |
-| `KernelSolidHandle` | kernel-fork | Solid handle |
-| `KernelId` | kernel-fork | Entity identifier |
+| `Kernel` trait | kernel | Geometry operations |
+| `KernelIntrospect` trait | kernel | Topology queries |
+| `KernelSolidHandle` | kernel | Solid handle |
+| `KernelId` | kernel | Entity identifier |
 | `TopoKind` | INTERFACES.md | Entity kind |
 | `TopoSignature` | INTERFACES.md | Geometric signature |
 | `Role` | INTERFACES.md | Semantic role for entities |

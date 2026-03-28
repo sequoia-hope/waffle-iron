@@ -11,9 +11,9 @@ Implement modeling operations (extrude, revolve, fillet, chamfer, shell, boolean
 1. **Every operation returns complete provenance.** This is non-negotiable. Feature-engine depends on it.
 2. **Assign semantic roles to created entities.** EndCapPositive, SideFace, FilletFace, etc. These are how downstream features reference geometry stably.
 3. **The topology diff utility is foundational.** Build it first. All operations use it.
-4. **Test against MockKernel first, then TruckKernel.** MockKernel gives deterministic, predictable results.
+4. **Test against MockKernel first, then WaffleKernel.** MockKernel gives deterministic, predictable results.
 5. **Operations are stateless.** Each operation receives all context as parameters. No hidden state.
-6. **Fillet/chamfer/shell are DEFERRED INDEFINITELY.** MockKernel implementations and tests exist, but TruckKernel support is not production-ready. Do not work on these operations.
+6. **Fillet/chamfer/shell are DEFERRED INDEFINITELY.** MockKernel implementations and tests exist, but WaffleKernel support is not production-ready. Do not work on these operations.
 
 ## Build & Test
 
@@ -36,5 +36,5 @@ cargo clippy -p modeling-ops
 
 ## Dependencies
 
-- kernel-fork (Kernel + KernelIntrospect traits)
+- kernel (Kernel + KernelIntrospect traits)
 - No dependencies on feature-engine or sketch-solver (this crate is called BY feature-engine)

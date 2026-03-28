@@ -101,5 +101,5 @@ In practice, a Sub-Project Agent may assume different feature-cycle roles across
 
 12. **Tests are permanent.** Passing tests must never be deleted.
 13. **Determinism is mandatory.** Same inputs → same outputs. No random values, no system time, no non-deterministic iteration.
-14. **Mock before real.** Test against MockKernel first, TruckKernel second.
-15. **Document failures.** If a truck operation fails in unexpected ways, document it in the kernel-fork PLAN.md.
+14. **Mock before real.** Test against MockKernel first, WaffleKernel second.
+15. **Document failures.** If a kernel operation fails in unexpected ways, document it in the kernel PLAN.md.

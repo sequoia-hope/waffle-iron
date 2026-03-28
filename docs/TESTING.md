@@ -12,7 +12,7 @@ Fast unit and integration tests using MockKernel and pure logic. Covers:
 - **modeling-ops** — Modeling operation dispatching
 - **wasm-bridge** — WASM API surface
 - **file-format** — Serialization/deserialization
-- **kernel-fork** — Mock/types/primitives/tessellation modules only (no truck booleans)
+- **kernel** — Mock/types/primitives/tessellation modules
 - **test-harness** — Fast binaries: `scenarios_mock`, `workflow_tests`, `oracle_tests`, `report_tests`, `scenarios_advanced`, `stl_tests`
 
 ### Rust Full (~910 tests, <5min)
@@ -20,8 +20,8 @@ Fast unit and integration tests using MockKernel and pure logic. Covers:
 All Rust crates including slow tests:
 
 - Everything in Rust Fast, plus:
-- **kernel-fork** — Full crate including truck boolean tests
-- **test-harness** — All binaries including `scenarios_truck`, `advanced_scenarios`, `extrude_chains`, `boolean_workflows`, `boolean_failures`
+- **kernel** — Full crate including all kernel tests
+- **test-harness** — All binaries including `advanced_scenarios`, `extrude_chains`, `boolean_workflows`, `boolean_failures`
 
 ### GUI Fast (~36 spec files, <2min)
 
@@ -62,8 +62,8 @@ Everything in GUI Fast, plus heavy workflow and infrastructure specs:
 | Condition | Tier |
 |-----------|------|
 | Uses `ModelBuilder::mock()` or `MockKernel` | Fast |
-| Uses `ModelBuilder::truck()` or `TruckKernel` | Full (slow) |
-| test-harness binary with "truck", "advanced", "chains", "boolean_workflows", "boolean_failures" | Full |
+| Uses `ModelBuilder::kernel()` or `WaffleKernel` | Full (slow) |
+| test-harness binary with "advanced", "chains", "boolean_workflows", "boolean_failures" | Full |
 | Pure type/logic tests (no kernel) | Fast |
 
 ### GUI Tests
@@ -117,8 +117,8 @@ These files are gitignored and not committed.
 
 The WASM binary is built with `cargo +nightly` and `-Zbuild-std`, which enables
 `panic=unwind` on `wasm32-unknown-unknown` (see `.cargo/config.toml`). This makes
-`std::panic::catch_unwind` actually catch truck boolean panics instead of killing the
-module. The boolean cascade in `healing.rs` wraps each attempt in `catch_unwind`, and
+`std::panic::catch_unwind` actually catch kernel panics instead of killing the
+module. The boolean cascade wraps each attempt in `catch_unwind`, and
 a WASM-specific attempt limit (`MAX_WASM_CASCADE_ATTEMPTS`) prevents stack exhaustion.
 
 **Without nightly + -Zbuild-std**, `panic="abort"` is forced and `catch_unwind` is a
@@ -176,7 +176,7 @@ Baseline timing data from `profile-rust.sh` run:
 | file-format | 6s | Serialization |
 | modeling-ops | 22s | MockKernel ops |
 | wasm-bridge | <1s | Needs `--no-default-features` |
-| kernel-fork (full) | 407s | Dominated by truck booleans |
+| kernel (full) | 407s | Dominated by boolean tests |
 | test-harness (all) | 1817s | See binary breakdown below |
 
 ### test-harness binary breakdown
@@ -190,10 +190,10 @@ Baseline timing data from `profile-rust.sh` run:
 | scenarios_advanced | <1s | Fast |
 | stl_tests | <1s | Fast |
 | extrude_on_extrude | 1s | Full |
-| geomref_truck | 1s | Full |
+| geomref_kernel | 1s | Full |
 | auto_union_detection | 2s | Full |
 | boolean_workflows | 26s | Full |
-| scenarios_truck | 29s | Full |
+| scenarios_kernel | 29s | Full |
 | size_probe | 33s | Full |
 | boolean_failures | 158s | Full |
 | **extrude_chains** | **1659s** | Full (96% of harness time) |

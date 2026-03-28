@@ -11,7 +11,7 @@ Implement save, load, and STEP export for Waffle Iron projects. The native forma
 1. **Store the recipe, not geometry.** The JSON file contains Operations, parameters, and GeomRefs. No BREP, no meshes, no solved positions.
 2. **Test round-trips obsessively.** Save → load → rebuild → verify the resulting topology matches the original.
 3. **Version the format.** Include a version number. Write migration functions for future format changes.
-4. **Handle STEP export failures gracefully.** truck's STEP export has known limitations. Return clear error messages.
+4. **Handle STEP export failures gracefully.** STEP export has known limitations. Return clear error messages.
 5. **All enums use `#[serde(tag = "type")]`.** Forward-compatible tagging.
 
 ## Build & Test
@@ -33,5 +33,5 @@ cargo clippy -p file-format
 ## Dependencies
 
 - feature-engine (FeatureTree, Engine for rebuild on load)
-- kernel-fork (for STEP export via ruststep)
+- kernel (for STEP export via ruststep)
 - serde, serde_json

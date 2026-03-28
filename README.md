@@ -12,7 +12,7 @@
 
 | Layer | Choice | License |
 |-------|--------|---------|
-| Geometry kernel | Fork of [truck](https://github.com/ricosjp/truck) | Apache-2.0 |
+| Geometry kernel | Clean-sheet B-Rep kernel | GPL-3.0 |
 | 2D constraint solver | [slvs](https://crates.io/crates/slvs) (SolveSpace libslvs) | GPL-3.0 |
 | 3D rendering | [three.js](https://threejs.org/) via [Threlte](https://threlte.xyz/) | MIT |
 | UI framework | [Svelte](https://svelte.dev/) / SvelteKit | MIT |

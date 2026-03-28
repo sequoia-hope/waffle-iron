@@ -31,7 +31,7 @@ The native file format is a JSON serialization of the `FeatureTree`. It stores:
 This matches Onshape's approach and is the correct design for parametric CAD:
 1. **Files are small.** A 50-feature model is kilobytes of JSON, not megabytes of BREP.
 2. **Full parametric history.** Every parameter is editable after load. Changing a sketch dimension rebuilds the entire model.
-3. **Format independence.** Not tied to any specific kernel version. If truck's BREP representation changes, old files still load (the recipe is kernel-agnostic).
+3. **Format independence.** Not tied to any specific kernel version. If the kernel's BREP representation changes, old files still load (the recipe is kernel-agnostic).
 4. **Deterministic.** Same recipe always produces the same geometry.
 
 ## File Format Versioning
@@ -56,7 +56,7 @@ This matches Onshape's approach and is the correct design for parametric CAD:
 ## STEP Export
 
 1. Rebuild the model from the feature tree (full rebuild to get final solid).
-2. Export the final solid via truck's ruststep (AP203).
+2. Export the final solid via ruststep (AP203).
 3. Known limitations:
    - AP203 only (no colors, layers, or modern AP242).
    - Boolean-result solids may fail to export.

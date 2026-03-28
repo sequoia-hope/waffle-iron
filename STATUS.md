@@ -14,10 +14,10 @@ Status codes: **W** = Working end-to-end, **P** = Partial, **DEFERRED** = Deferr
 | Construction geometry | **W** | |
 | Extrude | **W** | Depth, direction, profile selector, cut toggle |
 | Revolve | **W** | Angle, axis quick-pick (X/Y/Z), sketch line axis |
-| Fillet | **DEFERRED** | MockKernel tests pass; TruckKernel experimental; UI disabled |
-| Chamfer | **DEFERRED** | MockKernel tests pass; TruckKernel experimental; UI disabled |
-| Shell | **DEFERRED** | MockKernel tests pass; TruckKernel experimental; UI disabled |
-| Boolean union/subtract/intersect | **P** | Box-box offset works; box-cylinder and coplanar fragile |
+| Fillet | **DEFERRED** | MockKernel tests pass; experimental (Sprint 18); UI disabled |
+| Chamfer | **DEFERRED** | MockKernel tests pass; experimental (Sprint 18); UI disabled |
+| Shell | **DEFERRED** | MockKernel tests pass; experimental (Sprint 18); UI disabled |
+| Boolean union/subtract/intersect | **P** | Analytic SSI for quadric surfaces; coplanar handling in progress |
 | Feature tree CRUD | **W** | Add, edit, delete, rename, reorder, suppress |
 | Undo/redo | **W** | Full command-pattern undo/redo |
 | Rollback slider | **W** | |
@@ -34,7 +34,7 @@ Status codes: **W** = Working end-to-end, **P** = Partial, **DEFERRED** = Deferr
 
 | Crate / Suite | Tests | Notes |
 |---------------|------:|-------|
-| kernel-fork | 174 | +2 ignored; includes boolean workflow tests |
+| kernel | 38 | Euler ops, types, validation |
 | sketch-solver | 31 | Constraint solving, profile extraction |
 | wasm-bridge | 22 | Message dispatch, pipeline tests |
 | feature-engine | 124 | Feature tree, rebuild, GeomRef, undo/redo |
@@ -59,7 +59,7 @@ The core parametric pipeline is functional end-to-end:
 
 ## What Needs Work
 
-1. **Boolean reliability** — truck boolean operations fail for box-cylinder, coplanar faces, and chained operations. This is the #1 technical risk. Work happens in `vendor/truck/`.
+1. **Kernel implementation** — Clean-sheet kernel (`crates/kernel/`) using Euler operators and analytic SSI. Track progress via assay score. Boolean operations for quadric surfaces use exact surface-surface intersection.
 2. **GUI test coverage** — 425 Playwright tests exist but many scenarios remain untested. Expand coverage in `app/tests/gui/`.
 3. **Integration tests** — Cross-crate scenarios in `crates/test-harness/` need more multi-operation workflows.
 4. **Sketch-on-face** — Plane extraction from selected face GeomRef is not wired.
@@ -71,7 +71,7 @@ The core parametric pipeline is functional end-to-end:
 **These operations are deferred indefinitely. Do not work on them.**
 
 - MockKernel implementations exist and tests pass
-- Experimental TruckKernel implementations were added in Sprint 18
+- Experimental implementations were added in Sprint 18
 - UI dialogs display warning banners with disabled Apply buttons
 - These depend on boolean reliability, which is itself fragile
 - Priority should go to boolean shapeops, GUI tests, and integration tests instead

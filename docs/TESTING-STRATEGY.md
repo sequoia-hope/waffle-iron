@@ -22,7 +22,7 @@
 **Tools:** `#[test]`, MockKernel, hand-written mocks.
 
 **Examples:**
-- kernel-fork: MockKernel returns deterministic topology → verify face/edge/vertex counts.
+- kernel: MockKernel returns deterministic topology → verify face/edge/vertex counts.
 - sketch-solver: solve a rectangle sketch → verify positions match analytically.
 - modeling-ops: extrude via MockKernel → verify OpResult has correct roles and provenance.
 - feature-engine: build feature tree → resolve GeomRefs → verify correct KernelId.
@@ -31,7 +31,7 @@
 **Rules:**
 - Every public function has at least one test.
 - Tests are deterministic: no random values, no system time, no filesystem side effects.
-- Tests use MockKernel, not TruckKernel (for speed and determinism).
+- Tests use MockKernel, not WaffleKernel (for speed and determinism).
 - Tests run in parallel safely (no shared mutable state).
 
 ## 2. Property-Based Tests
@@ -80,7 +80,7 @@ After any operation:
 
 ## 3. Integration Tests
 
-**Scope:** Full pipeline tests using real truck kernel.
+**Scope:** Full pipeline tests using real WaffleKernel.
 
 **Flow:** sketch → solve → extrude → tessellate → verify mesh.
 
@@ -132,13 +132,13 @@ After any operation:
 ## 6. Test Efficiency Guidelines
 
 ### MockKernel for Unit Tests
-Use MockKernel (from kernel-fork) for all unit tests in modeling-ops, feature-engine, and file-format. MockKernel is:
+Use MockKernel (from kernel) for all unit tests in modeling-ops, feature-engine, and file-format. MockKernel is:
 - **Fast:** No real geometry computation.
 - **Deterministic:** Same inputs always produce same IDs and signatures.
 - **Predictable:** Documented behavior (extrude rectangle → 8V, 12E, 6F).
 
 ### Real Kernel for Integration Only
-TruckKernel is used only in integration tests. These tests verify that the real kernel behaves as MockKernel predicts.
+WaffleKernel is used only in integration tests. These tests verify that the real kernel behaves as MockKernel predicts.
 
 ### No Random Fuzzing in CI
 Property-based tests use fixed seeds in CI for reproducibility. Random exploration happens locally.

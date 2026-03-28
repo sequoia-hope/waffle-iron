@@ -35,9 +35,9 @@ RUST_FAST_FULL_CRATES=(
 WASM_BRIDGE_CRATE="wasm-bridge"
 
 # ---------------------------------------------------------------------------
-# Rust Fast Tier — kernel-fork filtered modules
+# Rust Fast Tier — kernel filtered modules
 # ---------------------------------------------------------------------------
-KERNEL_FORK_FAST_FILTERS=(
+KERNEL_FAST_FILTERS=(
   mock_kernel
   "types::"
   "primitives::"
@@ -61,13 +61,12 @@ TEST_HARNESS_FAST_BINS=(
 # ---------------------------------------------------------------------------
 RUST_FULL_CRATES=(
   waffle-types
-  kernel-fork
+  kernel
   sketch-solver
   feature-engine
   modeling-ops
   file-format
   test-harness
-  truck-shapeops
 )
 
 # ---------------------------------------------------------------------------
@@ -235,9 +234,9 @@ run_rust_fast() {
   # wasm-bridge with --no-default-features
   run_cargo_test "$WASM_BRIDGE_CRATE" --no-default-features
 
-  # kernel-fork filtered
-  for filter in "${KERNEL_FORK_FAST_FILTERS[@]}"; do
-    run_cargo_test_filter kernel-fork "$filter"
+  # kernel filtered
+  for filter in "${KERNEL_FAST_FILTERS[@]}"; do
+    run_cargo_test_filter kernel "$filter"
   done
 
   # test-harness fast binaries
@@ -428,7 +427,7 @@ print_help() {
   echo ""
   echo -e "${BOLD}Rust Fast Tier:${NC}"
   echo "  Full crates: ${RUST_FAST_FULL_CRATES[*]} $WASM_BRIDGE_CRATE"
-  echo "  kernel-fork filters: ${KERNEL_FORK_FAST_FILTERS[*]}"
+  echo "  kernel filters: ${KERNEL_FAST_FILTERS[*]}"
   echo "  test-harness filters: ${TEST_HARNESS_FAST_BINS[*]}"
   echo ""
   echo -e "${BOLD}Rust Full Tier:${NC}"

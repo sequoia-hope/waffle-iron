@@ -431,20 +431,24 @@ The 15 quadric surface pairs ordered by CAD frequency, with implementation statu
 | # | Pair | SSI Curve Type | Status |
 |---|------|----------------|--------|
 | 1 | Plane–Plane | Line (or overlap) | done |
-| 2 | Plane–Cylinder | Ellipse/circle | done |
-| 3 | Plane–Cone | Conic section | done |
+| 2 | Plane–Cylinder | Ellipse/circle/lines | done |
+| 3 | Plane–Cone | Conic section | partial — perpendicular only |
 | 4 | Plane–Sphere | Circle | done |
-| 5 | Cylinder–Cylinder | Degree ≤ 4 curve | done (parallel + non-parallel ≥60°) |
-| 6 | Plane–Torus | Degree-4 curve | done |
-| 7 | Cylinder–Cone | Degree ≤ 4 curve | done |
-| 8 | Cylinder–Sphere | Degree ≤ 4 curve | done |
-| 9 | Cone–Cone | Degree ≤ 4 curve | done |
-| 10 | Cylinder–Torus | Degree ≤ 8 curve | done |
-| 11 | Cone–Sphere | Degree ≤ 4 curve | done |
+| 5 | Cylinder–Cylinder | Line or degree-4 | partial — parallel + equal-R non-parallel ≥60° |
+| 6 | Plane–Torus | Degree-4 curve | partial — axis-perpendicular only |
+| 7 | Cylinder–Cone | Degree ≤ 4 curve | stub (sampling) — coaxial analytical |
+| 8 | Cylinder–Sphere | Degree ≤ 4 curve | partial — coaxial analytical, offset approximate |
+| 9 | Cone–Cone | Degree ≤ 4 curve | stub (sampling) — coaxial analytical |
+| 10 | Cylinder–Torus | Degree ≤ 8 curve | stub (sampling) — coaxial analytical |
+| 11 | Cone–Sphere | Degree ≤ 4 curve | stub (sampling) — coaxial analytical |
 | 12 | Sphere–Sphere | Circle | done |
-| 13 | Cone–Torus | Degree ≤ 8 curve | done |
-| 14 | Sphere–Torus | Degree ≤ 4 curve | done |
-| 15 | Torus–Torus | Degree ≤ 8 curve | done |
+| 13 | Cone–Torus | Degree ≤ 8 curve | stub (sampling) — coaxial analytical |
+| 14 | Sphere–Torus | Degree ≤ 4 curve | stub (sampling) — axial analytical |
+| 15 | Torus–Torus | Degree ≤ 8 curve | stub (sampling) — coaxial analytical |
+
+Detailed sub-case enumeration and acceptance criteria in `/specs/ssi_solver_matrix.md`.
+Status `stub` indicates a sampling-based approximation exists but violates A15.1;
+analytical solver required.
 
 ### A15.5 Surface tier preservation
 

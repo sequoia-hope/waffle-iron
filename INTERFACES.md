@@ -29,7 +29,7 @@ use std::fmt;
 pub struct KernelSolidHandle(pub(crate) u64);
 
 /// Transient kernel-internal entity identifier.
-/// Derived from truck's VertexID/EdgeID/FaceID (Arc-pointer-based).
+/// Kernel-internal entity identifier.
 /// Stable within a single kernel session but NOT across rebuilds or serialization.
 /// NEVER persisted — use GeomRef for persistent references.
 ///

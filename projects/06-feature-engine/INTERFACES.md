@@ -22,9 +22,9 @@
 | `Provenance`, `EntityRecord`, `Rewrite` | modeling-ops | Entity tracking |
 | `SolvedSketch` | sketch-solver | Solved sketch for Sketch features |
 | `ClosedProfile` | sketch-solver | Profiles for extrude/revolve |
-| `Kernel` trait | kernel-fork | Kernel operations (via modeling-ops) |
-| `KernelIntrospect` trait | kernel-fork | Topology queries for resolution |
-| `KernelSolidHandle`, `KernelId` | kernel-fork | Runtime geometry handles |
+| `Kernel` trait | kernel | Kernel operations (via modeling-ops) |
+| `KernelIntrospect` trait | kernel | Topology queries for resolution |
+| `KernelSolidHandle`, `KernelId` | kernel | Runtime geometry handles |
 
 ## Public API
 

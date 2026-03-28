@@ -38,7 +38,7 @@ diff(before: &[(KernelId, TopoSignature)], after: &[(KernelId, TopoSignature)]) 
 - **Deleted:** entities in `before` but not in `after` (by KernelId).
 - **Modified:** entities present in both but with changed signatures. Produces `Rewrite` records with `RewriteReason`.
 
-Note: truck assigns new IDs to entities created by booleans, so "modified" detection requires signature matching between old and new entities. An entity with a new ID but a very similar signature to a deleted entity is classified as "modified" (Rewrite) rather than "deleted + created."
+Note: The kernel assigns new IDs to entities created by booleans, so "modified" detection requires signature matching between old and new entities. An entity with a new ID but a very similar signature to a deleted entity is classified as "modified" (Rewrite) rather than "deleted + created."
 
 ## Operations
 
@@ -119,7 +119,7 @@ Note: truck assigns new IDs to entities created by booleans, so "modified" detec
 - `BooleanBodyBFace { index }` — surviving faces from body B.
 
 **Provenance:**
-- Boolean results create entirely new topology (truck assigns new IDs).
+- Boolean results create entirely new topology (the kernel assigns new IDs).
 - Use signature matching to trace faces from input bodies to result.
 
 ### Mirror / Pattern (Deferred)

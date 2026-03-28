@@ -9,11 +9,11 @@ Build the parametric modeling engine: feature tree management, the GeomRef resol
 ## Critical Rules
 
 1. **GeomRef resolution is the core algorithm.** Test it obsessively. Create a feature tree, modify an early feature, verify all downstream references resolve correctly.
-2. **The MockKernel from kernel-fork is your primary testing tool.** Do not wait for TruckKernel. Build and test everything against MockKernel's deterministic output.
+2. **The MockKernel from kernel is your primary testing tool.** Do not wait for WaffleKernel. Build and test everything against MockKernel's deterministic output.
 3. **Rebuild must be correct before it's fast.** Get the algorithm right first. Optimize later.
 4. **Role-based resolution first, signature fallback second.** Roles are fast and stable. Signatures are the safety net for when topology changes invalidate roles.
 5. **Document persistent naming failures.** When you find cases that break, add them to PLAN.md under Notes. This helps future work.
-6. **Fillet/chamfer/shell are DEFERRED INDEFINITELY.** The engine pipeline for these operations works, but TruckKernel support is not production-ready. Do not prioritize these operations.
+6. **Fillet/chamfer/shell are DEFERRED INDEFINITELY.** The engine pipeline for these operations works, but WaffleKernel support is not production-ready. Do not prioritize these operations.
 
 ## Build & Test
 
@@ -43,6 +43,6 @@ cargo clippy -p feature-engine
 
 ## Dependencies
 
-- kernel-fork (MockKernel for testing, Kernel/KernelIntrospect traits)
+- kernel (MockKernel for testing, Kernel/KernelIntrospect traits)
 - modeling-ops (OpResult production)
 - sketch-solver (SolvedSketch for Sketch features)

@@ -83,10 +83,10 @@
 
 ## Blockers
 
-- ~~Depends on kernel-fork (Kernel + KernelIntrospect traits, especially MockKernel)~~ Resolved
+- ~~Depends on kernel (Kernel + KernelIntrospect traits, especially MockKernel)~~ Resolved [SUPERSEDED by clean-sheet kernel]
 - ~~Depends on modeling-ops (OpResult production with provenance)~~ Resolved
 - ~~Can start M1-M4 with mock OpResults before modeling-ops is ready~~ Resolved (all milestones complete)
-- Fillet, chamfer, and shell operations: MockKernel tests pass but TruckKernel implementation is deferred indefinitely (see root CLAUDE.md)
+- Fillet, chamfer, and shell operations: MockKernel tests pass but WaffleKernel implementation is deferred indefinitely (see root CLAUDE.md)
 
 ## Interface Change Requests
 
@@ -95,6 +95,6 @@
 ## Notes
 
 - This is the hardest sub-project. GeomRef resolution is the core algorithm.
-- Start with MockKernel. Do not wait for TruckKernel.
+- Start with MockKernel. Do not wait for WaffleKernel.
 - The rebuild algorithm must be correct before it's fast. Optimize later.
 - Persistent naming is a simplified version of commercial approaches. Document limitations honestly.

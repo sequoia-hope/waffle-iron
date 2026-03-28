@@ -23,7 +23,7 @@ tests/
   stl_tests.rs         # STL export tests (6)
   report_tests.rs      # Report generation tests (8)
   scenarios_mock.rs    # Complex workflows against MockKernel (15)
-  scenarios_truck.rs   # Complex workflows against TruckKernel (7, 3 ignored)
+  scenarios_kernel.rs  # Complex workflows against WaffleKernel (7, 3 ignored)
 ```
 
 ### Key Design Decisions
@@ -46,7 +46,7 @@ tests/
 
 ```
 test-harness
-├── kernel-fork (Kernel, KernelIntrospect, MockKernel, TruckKernel, types)
+├── kernel (Kernel, KernelIntrospect, MockKernel, WaffleKernel, types)
 ├── feature-engine (Feature, Operation, *Params, Engine)
 ├── modeling-ops (KernelBundle, OpResult, Role, TopoSnapshot)
 ├── wasm-bridge (dispatch, EngineState, UiToEngine, EngineToUi)

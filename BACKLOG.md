@@ -7,22 +7,23 @@ Last reviewed: 2026-02-21
 
 ## Active (pick from top)
 
-# --- P1: Boolean shapeops reliability (vendor/truck/) ---
+# --- P1: Kernel implementation (crates/kernel/) ---
 
 - [x] **HP-1**: Auto-union fails for 3+ chained abutting extrudes — FIXED: incremental rebuild consumption tracking bug in rebuild.rs
 - [x] **HP-2**: Cut operation splits previously-unioned body into fragments — FIXED: same root cause as HP-1
-- [ ] Add BooleanError enum + Result-returning API wrappers in truck-shapeops
-- [ ] Wire BooleanError into KernelError in kernel-fork/src/truck_kernel.rs so failures carry stage info
-- [ ] Add BooleanOptions struct with layered tolerances (tau_model/mesh/weld/coplanar) to kernel-fork/src/types.rs
-- [ ] Wire BooleanOptions into TruckKernel boolean methods replacing compute_adaptive_tol
-- [ ] Add `robust` crate dependency to truck-shapeops + wrapper module for orient3d/orient2d
-- [ ] Replace naive float comparisons in ray_cast_classify with robust predicates
-- [ ] Replace naive coplanar detection in coplanar.rs with robust predicates
-- [ ] Diagnose chained boolean failure: why k1, k8, l4 extrude_chain tests fail (NotSimpleWire after auto-union)
-- [ ] Improve wire splitting in weld_coincident_edges for 3+ chained boolean operations
-- [ ] Add input validation layer: reject non-manifold/degenerate solids before boolean entry
-- [ ] Add boolean debug artifact collection: dump meshes/curves on failure for offline diagnosis
-- [ ] Write spec for boolean error types (/specs/boolean_error_types.md) per FIP
+- [x] ~~Add BooleanError enum + Result-returning API wrappers in truck-shapeops~~ SUPERSEDED by clean-sheet kernel
+- [x] ~~Wire BooleanError into KernelError in kernel-fork/src/truck_kernel.rs~~ SUPERSEDED by clean-sheet kernel
+- [x] ~~Add BooleanOptions struct with layered tolerances to kernel-fork/src/types.rs~~ SUPERSEDED by clean-sheet kernel
+- [x] ~~Wire BooleanOptions into TruckKernel boolean methods~~ SUPERSEDED by clean-sheet kernel
+- [x] ~~Add `robust` crate dependency to truck-shapeops~~ SUPERSEDED by clean-sheet kernel
+- [x] ~~Replace naive float comparisons in ray_cast_classify with robust predicates~~ SUPERSEDED by clean-sheet kernel
+- [x] ~~Replace naive coplanar detection in coplanar.rs with robust predicates~~ SUPERSEDED by clean-sheet kernel
+- [x] ~~Diagnose chained boolean failure~~ SUPERSEDED by clean-sheet kernel
+- [x] ~~Improve wire splitting in weld_coincident_edges~~ SUPERSEDED by clean-sheet kernel
+- [ ] Implement analytic SSI solvers for quadric surface pairs (plane-plane, plane-cylinder, cylinder-cylinder, etc.)
+- [ ] Boolean face classification using winding numbers
+- [ ] Input validation layer: reject non-manifold/degenerate solids before boolean entry
+- [ ] Boolean debug artifact collection: dump meshes/curves on failure for offline diagnosis
 
 # --- P2: GUI test coverage (app/tests/gui/) ---
 
@@ -48,7 +49,7 @@ Last reviewed: 2026-02-21
 - [ ] Integration: Sketch-on-face + extrude stacking (3 levels deep) via ModelBuilder
 - [ ] Integration: Undo/redo stress test — 10 ops, undo all, redo all, verify final state
 - [ ] Integration: Save/load round-trip with complex tree (5+ features)
-- [ ] Integration: Cylinder geometry via TruckKernel (circle sketch + extrude = cylinder solid)
+- [ ] Integration: Cylinder geometry via WaffleKernel (circle sketch + extrude = cylinder solid)
 
 # --- P4: Extrude/revolve pipeline polish ---
 
@@ -65,19 +66,18 @@ Last reviewed: 2026-02-21
 
 # --- P6: Code quality ---
 
-- [ ] Replace Option<Solid> with Result in remaining truck-shapeops public API
-- [ ] Add rustdoc to kernel-fork public types and trait methods
+- [ ] Add rustdoc to kernel public types and trait methods
 - [ ] Workspace-wide cargo clippy audit and fix
 
 ## Parked (intentionally deferred)
 
-- [ ] Fillet — TruckKernel (DEFERRED INDEFINITELY: depends on boolean reliability)
-- [ ] Chamfer — TruckKernel (DEFERRED INDEFINITELY: depends on boolean reliability)
-- [ ] Shell — TruckKernel (DEFERRED INDEFINITELY: depends on boolean reliability)
+- [ ] Fillet — WaffleKernel (DEFERRED INDEFINITELY: depends on boolean reliability)
+- [ ] Chamfer — WaffleKernel (DEFERRED INDEFINITELY: depends on boolean reliability)
+- [ ] Shell — WaffleKernel (DEFERRED INDEFINITELY: depends on boolean reliability)
 - [ ] Assemblies (Phase 7) — blocked on everything else
 - [ ] XOR boolean operation — needs classification refactor first
 - [ ] 2D polygon overlay for coplanar (iOverlay/Clipper2) — big scope, needs spec + research
-- [ ] Adaptive mesh refinement for intersection construction — deep truck internals
+- [ ] Adaptive mesh refinement for intersection construction — deep kernel internals
 - [ ] Per-edge/per-feature tolerance tracking — needs tolerance architecture first
 - [ ] TouchingPolicy enum — needs commercial kernel research
 - [ ] Performance benchmarks with regression tracking

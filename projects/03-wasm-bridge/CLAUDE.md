@@ -35,4 +35,4 @@ cargo test -p wasm-bridge
 - wasm-bindgen, js-sys, web-sys
 - serde, serde_json
 - console_error_panic_hook
-- All Rust engine crates (kernel-fork, feature-engine, modeling-ops, sketch-solver)
+- All Rust engine crates (kernel, feature-engine, modeling-ops, sketch-solver)

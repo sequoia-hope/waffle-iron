@@ -23,7 +23,7 @@ All outputs must be deterministic. Same inputs must always produce the same resu
 - No random values in tests or production code
 - No system time dependencies in logic
 - No filesystem side effects in tests
-- truck-meshalgo uses deterministic hashing — preserve this
+- Tessellation uses deterministic hashing — preserve this
 
 ## Interface Changes
 

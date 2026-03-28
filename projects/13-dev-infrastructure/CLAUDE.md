@@ -17,7 +17,7 @@ println!("{}", report.to_text());
 ## Adding New Test Scenarios
 
 1. Create a test in `tests/scenarios_mock.rs` (or `scenarios_truck.rs`)
-2. Use `ModelBuilder::mock()` for deterministic tests, `ModelBuilder::truck()` for real geometry
+2. Use `ModelBuilder::mock()` for deterministic tests, `ModelBuilder::kernel()` for real geometry
 3. Name every feature — this makes failures readable
 4. Call `m.assert_has_solid("name")` after operations that should produce solids
 5. Use `m.report()` to generate a full diagnostic report
@@ -52,12 +52,12 @@ The report has these sections:
 - Use `edge_ref_best_effort(feature_id)` for fillet/chamfer targets (MockKernel re-IDs entities)
 - Use `body_ref(feature_id)` for boolean body references
 - MockKernel box: V=8 E=12 F=6, mesh: 12 triangles, 24 vertices (per-face), 6 face ranges
-- TruckKernel: fillet/chamfer/shell return NotSupported; coplanar booleans fail
+- WaffleKernel: fillet/chamfer/shell return NotSupported; coplanar booleans fail
 
 ## Running Tests
 
 ```bash
 cargo test -p test-harness                    # All tests
 cargo test -p test-harness test_full_workflow -- --nocapture  # See report output
-cargo test -p test-harness --test scenarios_truck -- --ignored  # Run ignored truck tests
+cargo test -p test-harness --test scenarios_kernel -- --ignored  # Run ignored kernel tests
 ```

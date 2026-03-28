@@ -11,7 +11,7 @@ pub struct ModelBuilder {
 
 // Constructors
 ModelBuilder::mock() -> Self
-ModelBuilder::truck() -> Self
+ModelBuilder::kernel() -> Self
 ModelBuilder::with_auto_check(self) -> Self
 
 // Sketch shortcuts
@@ -117,9 +117,9 @@ ModelReport::to_text(&self) -> String
 | `dispatch()` | wasm-bridge | Core message handler |
 | `UiToEngine/EngineToUi` | wasm-bridge | Message protocol |
 | `KernelBundle` | modeling-ops | Trait object for kernel |
-| `MockKernel/TruckKernel` | kernel-fork | Kernel implementations |
-| `RenderMesh/FaceRange` | kernel-fork | Tessellated mesh data |
-| `KernelSolidHandle/KernelId` | kernel-fork | Entity handles |
+| `MockKernel/WaffleKernel` | kernel | Kernel implementations |
+| `RenderMesh/FaceRange` | kernel | Tessellated mesh data |
+| `KernelSolidHandle/KernelId` | kernel | Entity handles |
 | `OpResult/Role/Provenance` | modeling-ops | Operation results |
 | `GeomRef/Anchor/Selector` | waffle-types | Persistent naming |
 | `SketchEntity/ClosedProfile` | waffle-types | Sketch data |

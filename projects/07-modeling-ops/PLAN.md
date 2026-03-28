@@ -67,7 +67,7 @@
 - [x] All ops produce OutputKey::Main consistency check
 - [x] Fixed fillet role assignment to use signature_similarity (consistent with chamfer/shell)
 
-### M10: Integration with TruckKernel — PARTIAL ✅
+### M10: Integration with TruckKernel — PARTIAL ✅ [SUPERSEDED by clean-sheet kernel]
 - [x] Refactored truck_introspect.rs: extracted shared impl functions, implemented KernelIntrospect directly on TruckKernel (resolves Blocker 1)
 - [x] TruckKernel now satisfies KernelBundle trait
 - [x] Extrude integration tests (4): valid OpResult, correct topology, role assignment, provenance signatures
@@ -75,6 +75,7 @@
 - [x] Not-supported tests (3): fillet, chamfer, shell correctly return NotSupported
 - **Remaining limitation**: Boolean operations unreliable in truck 0.4 (panics/None for box-cylinder and coplanar faces)
 - **Remaining limitation**: Revolve role detection heuristic (normal-axis dot product) doesn't reliably identify RevStartFace/RevEndFace with real truck geometry
+- **Note**: TruckKernel is archived; WaffleKernel is the active kernel implementation
 
 ## Test Summary
 

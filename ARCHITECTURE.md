@@ -147,7 +147,7 @@ All cross-crate contracts are defined as Rust traits and types in `INTERFACES.md
 
 ### Deterministic Outputs
 
-Same inputs must always produce the same results. This is critical for testing and for agent-driven development where reproducibility enables debugging. truck-meshalgo uses deterministic hashing for tessellation — this must be preserved. No random values, no system-time dependencies, no non-deterministic iteration orders.
+Same inputs must always produce the same results. This is critical for testing and for agent-driven development where reproducibility enables debugging. Tessellation uses deterministic hashing — this must be preserved. No random values, no system-time dependencies, no non-deterministic iteration orders.
 
 ### Mock-Driven Development
 

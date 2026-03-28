@@ -14,9 +14,9 @@
 |------|--------|---------|
 | `UiToEngine` | INTERFACES.md | Commands from UI to engine |
 | `EngineToUi` | INTERFACES.md | Results from engine to UI |
-| `RenderMesh` | INTERFACES.md (kernel-fork) | Mesh data to transfer to JS |
-| `EdgeRenderData` | INTERFACES.md (kernel-fork) | Edge data to transfer to JS |
-| `FaceRange` | INTERFACES.md (kernel-fork) | Face-to-triangle mapping |
+| `RenderMesh` | INTERFACES.md (kernel) | Mesh data to transfer to JS |
+| `EdgeRenderData` | INTERFACES.md (kernel) | Edge data to transfer to JS |
+| `FaceRange` | INTERFACES.md (kernel) | Face-to-triangle mapping |
 | `SketchEntity` | INTERFACES.md | Sketch data for solver bridge |
 | `SketchConstraint` | INTERFACES.md | Constraint data for solver bridge |
 | `SolvedSketch` | INTERFACES.md (sketch-solver) | Solver results |
