@@ -116,7 +116,7 @@ wasm-bridge → sketch-ui (update display, color by status)
 
 | # | Project | Purpose | Technology | Dependencies | Status |
 |---|---------|---------|------------|-------------|--------|
-| 01 | kernel | Clean-sheet B-Rep geometry kernel | Rust | None | In progress (assay score 124/160) |
+| 01 | kernel | Clean-sheet B-Rep geometry kernel | Rust | None | In progress (assay score 67/190) |
 | 02 | sketch-solver | 2D constraint solving via slvs | Rust + C (libslvs) | None | Complete (M1-M10 + Emscripten WASM) |
 | 03 | wasm-bridge | WASM↔JS communication protocol | Rust + JS | 01 | Complete (M1-M8) |
 | 04 | 3d-viewport | three.js rendering via Threlte | Svelte + JS | 01 | Complete |
@@ -167,24 +167,24 @@ All 3D rendering happens in JavaScript via three.js/Threlte on the main thread. 
 
 ## Current Kernel Status
 
-The clean-sheet kernel (`crates/kernel/`) is under active development. Current assay score: **124/160** (630 kernel tests pass, 4 ignored). Score improved from 104→124 through sphere SSI dispatch, AABB disjoint fast-path, and cross-face non-manifold edge flip fixes.
+The clean-sheet kernel (`crates/kernel/`) is under active development. Current assay score: **67/190** (673 kernel tests pass, 4 ignored). Corpus expanded from 160→190 with harder cases (off-axis chained extrudes, swiss cheese disc patterns, circle/rectangle/gear profiles).
 
 ### What exists:
 - Half-edge B-Rep topology data structure with arena-based storage
 - Euler operators (mvfs, mev, mef, kemr, kfmrh) with invariant validation
 - Analytic geometry types (Point3, Vector3, Plane, Cylinder, Cone, Sphere, Torus)
 - SSI solvers for all 15 quadric surface pairs (Ref: Patrikalakis Ch.5)
-- Analytical boolean pipeline: box×box, box×cyl, cyl×cyl (parallel + non-parallel)
+- Analytical boolean pipeline: box×box, box×cyl, cyl×cyl (parallel + non-parallel), planar-planar, enclosed-hole
 - Geometry-driven tessellation for planar, cylindrical, conical, spherical, and toroidal faces
 - `MockKernel` (full deterministic test double, ~1,820 lines)
 - `WaffleKernel` — extrude, revolve, and boolean operations functional
-- 160-case randomized assay test suite (seed 42) with analytical ground truth
+- 190-case randomized assay test suite (seed 42) with analytical ground truth and Euler characteristic oracle
 
 ### What's next (in priority order):
-1. Eliminate polygon fallback for quadric boolean pairs (A15 compliance — 39 watertight failures)
-2. Fix remaining non-manifold edges (earcut diagonal overlaps → CDT)
-3. Investigate chained boolean volume loss (A∪B∪C produces ~1 volume instead of ~3)
-4. Profile and reduce 9 boolean timeout cases (>90s operations)
+1. Fix enclosed-hole boolean for coaxial multi-hole patterns (swiss cheese disc — F0086 investigation)
+2. Improve chained extrude reliability (F0063-F0090 cases)
+3. Eliminate remaining polygon fallback for quadric boolean pairs (A15 compliance)
+4. Fix non-manifold edges from earcut diagonal overlaps
 
 ### Deferred indefinitely:
 - Fillet, chamfer, shell operations
