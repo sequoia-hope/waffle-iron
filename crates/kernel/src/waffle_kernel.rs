@@ -936,6 +936,25 @@ impl WaffleKernel {
         true
     }
 
+    /// Build a compound solid from two disjoint operands by concatenating
+    /// their face polygons. Used when boolean union detects non-overlapping
+    /// operands: A ∪ B where A ∩ B = ∅ is a valid compound with two shells.
+    fn build_disjoint_union(
+        solid_a: &WaffleSolid,
+        solid_b: &WaffleSolid,
+        id_alloc: &mut dyn FnMut() -> u64,
+    ) -> Result<crate::boolean::BooleanResult, KernelError> {
+        let mut a_faces = crate::boolean::extract_face_polys_general(solid_a);
+        let b_faces = crate::boolean::extract_face_polys_general(solid_b);
+        a_faces.extend(b_faces);
+        crate::boolean::build_brep_from_polygons_inner(
+            &a_faces,
+            crate::units::TAU_MODEL,
+            true,
+            id_alloc,
+        )
+    }
+
     /// Execute a boolean operation on two box solids.
     fn do_boolean(
         &mut self,
@@ -1027,6 +1046,12 @@ impl WaffleKernel {
                     polygon_soup = true;
                     crate::boolean::polygon_approx_boolean(solid_a, solid_b, op, &mut id_alloc)?
                 }
+                Err(KernelError::BooleanFailed { ref reason })
+                    if reason.contains("disjoint") && op == crate::boolean::BoolOp::Union =>
+                {
+                    polygon_soup = true;
+                    Self::build_disjoint_union(solid_a, solid_b, &mut id_alloc)?
+                }
                 Err(e) => return Err(e),
             }
         } else if both_all_planar {
@@ -1049,6 +1074,12 @@ impl WaffleKernel {
                         polygon_soup = true;
                     }
                     r
+                }
+                Err(KernelError::BooleanFailed { ref reason })
+                    if reason.contains("disjoint") && op == crate::boolean::BoolOp::Union =>
+                {
+                    polygon_soup = true;
+                    Self::build_disjoint_union(solid_a, solid_b, &mut id_alloc)?
                 }
                 Err(KernelError::BooleanFailed { ref reason }) if reason.contains("disjoint") => {
                     return Err(KernelError::BooleanFailed {

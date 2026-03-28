@@ -28,7 +28,8 @@ use clip::{
     is_coplanar, is_face_set_convex, merge_nearby_vertices, resolve_t_junctions, CoplanarClass,
     IntersectionCache,
 };
-use stitch::{build_brep_from_polygons, build_brep_from_polygons_inner};
+use stitch::build_brep_from_polygons;
+pub(crate) use stitch::build_brep_from_polygons_inner;
 
 use crate::geometry::curve::{CurveGeom, Line3D};
 use crate::geometry::point::{Point3, Vector3};
@@ -1269,13 +1270,14 @@ fn boolean_op_from_polys_inner(
     let aabb_disjoint = (0..3).any(|i| a_max[i] + tau < b_min[i] || b_max[i] + tau < a_min[i]);
 
     if aabb_disjoint {
-        if matches!(op, BoolOp::Union) {
-            return Err(KernelError::BooleanFailed {
-                reason: "operands are disjoint (bounding boxes do not overlap)".into(),
-            });
-        }
         let result_faces: Vec<FacePoly> = match op {
-            BoolOp::Union => unreachable!(),
+            BoolOp::Union => {
+                // Disjoint union: combine faces from both solids.
+                // A ∪ B where A ∩ B = ∅ is a valid compound with two shells.
+                let mut combined = a_faces.to_vec();
+                combined.extend(b_faces.iter().cloned());
+                combined
+            }
             BoolOp::Subtract => {
                 // A minus nothing = A
                 a_faces.to_vec()
@@ -1881,7 +1883,7 @@ mod tests {
 
     #[test]
     fn disjoint_boxes_union() {
-        let result = do_boolean_via_kernel(
+        let (k, result) = do_boolean_via_kernel(
             5.0,
             5.0,
             10.0,
@@ -1893,8 +1895,14 @@ mod tests {
             10.0,
             10.0,
             BoolOp::Union,
+        )
+        .expect("Disjoint union should succeed (compound solid)");
+        let faces = k.list_faces(&result);
+        assert!(
+            faces.len() >= 12,
+            "Disjoint union should have >= 12 faces (6+6), got {}",
+            faces.len()
         );
-        assert!(result.is_err(), "Disjoint union should return error");
     }
 
     #[test]
@@ -2729,8 +2737,14 @@ mod tests {
             let b_faces = make_box_face_polys([5.0, 5.0, 5.0], [6.0, 6.0, 6.0]);
 
             let mut id_alloc = new_id_alloc();
-            let result = boolean_op_from_polys(a_faces, b_faces, BoolOp::Union, &mut id_alloc);
-            assert!(result.is_err(), "Disjoint union should return error");
+            let result = boolean_op_from_polys(a_faces, b_faces, BoolOp::Union, &mut id_alloc)
+                .expect("Disjoint union should succeed (compound solid)");
+            // Compound solid should have all faces from both operands (6 + 6 = 12)
+            assert!(
+                result.arena.faces.len() >= 12,
+                "Disjoint union should have >= 12 faces, got {}",
+                result.arena.faces.len()
+            );
         }
 
         #[test]
@@ -2780,22 +2794,18 @@ mod tests {
 
         #[test]
         fn disjoint_union_error_contains_disjoint() {
+            // Disjoint union now succeeds, producing a compound solid with all faces
             let a_faces = make_box_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
             let b_faces = make_box_face_polys([5.0, 5.0, 5.0], [6.0, 6.0, 6.0]);
 
             let mut id_alloc = new_id_alloc();
-            let result = boolean_op_from_polys(a_faces, b_faces, BoolOp::Union, &mut id_alloc);
-            match result {
-                Err(KernelError::BooleanFailed { ref reason }) => {
-                    assert!(
-                        reason.contains("disjoint"),
-                        "Error reason should contain 'disjoint', got: {}",
-                        reason
-                    );
-                }
-                Ok(_) => panic!("Expected BooleanFailed, got Ok"),
-                Err(e) => panic!("Expected BooleanFailed, got {:?}", e),
-            }
+            let result = boolean_op_from_polys(a_faces, b_faces, BoolOp::Union, &mut id_alloc)
+                .expect("Disjoint union should succeed (compound solid)");
+            assert!(
+                result.arena.faces.len() >= 12,
+                "Disjoint union should have >= 12 faces, got {}",
+                result.arena.faces.len()
+            );
         }
 
         #[test]
@@ -2825,16 +2835,18 @@ mod tests {
         fn adv_near_touching_gap_at_tau_boundary() {
             // Two boxes with a gap of TAU_MODEL (1e-7).
             // At unit scale the adaptive tau is much smaller than 1e-7,
-            // so the AABB disjoint check fires. This is correctly rejected
-            // as a disjoint union.
+            // so the AABB disjoint check fires. Disjoint union now succeeds
+            // as a compound solid.
             let gap = 1e-7; // TAU_MODEL
             let a = make_box_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
             let b = make_box_face_polys([1.0 + gap, 0.0, 0.0], [2.0 + gap, 1.0, 1.0]);
             let mut id = new_id_alloc();
-            let result = boolean_op_from_polys(a, b, BoolOp::Union, &mut id);
+            let result = boolean_op_from_polys(a, b, BoolOp::Union, &mut id)
+                .expect("Near-touching disjoint union should succeed (compound solid)");
             assert!(
-                result.is_err(),
-                "Near-touching disjoint union should return error"
+                result.arena.faces.len() >= 12,
+                "Near-touching disjoint union should have >= 12 faces, got {}",
+                result.arena.faces.len()
             );
         }
 
@@ -2854,31 +2866,40 @@ mod tests {
 
         #[test]
         fn adv_disjoint_along_each_axis() {
-            // Disjoint along X only
+            // Disjoint along X only — succeeds as compound solid
             let a_x = make_box_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
             let b_x = make_box_face_polys([5.0, 0.0, 0.0], [6.0, 1.0, 1.0]);
             let mut id = new_id_alloc();
+            let r = boolean_op_from_polys(a_x, b_x, BoolOp::Union, &mut id)
+                .expect("Disjoint along X: should succeed");
             assert!(
-                boolean_op_from_polys(a_x, b_x, BoolOp::Union, &mut id).is_err(),
-                "Disjoint along X: expected error"
+                r.arena.faces.len() >= 12,
+                "Disjoint along X: expected >= 12 faces, got {}",
+                r.arena.faces.len()
             );
 
             // Disjoint along Y only
             let a_y = make_box_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
             let b_y = make_box_face_polys([0.0, 5.0, 0.0], [1.0, 6.0, 1.0]);
             let mut id = new_id_alloc();
+            let r = boolean_op_from_polys(a_y, b_y, BoolOp::Union, &mut id)
+                .expect("Disjoint along Y: should succeed");
             assert!(
-                boolean_op_from_polys(a_y, b_y, BoolOp::Union, &mut id).is_err(),
-                "Disjoint along Y: expected error"
+                r.arena.faces.len() >= 12,
+                "Disjoint along Y: expected >= 12 faces, got {}",
+                r.arena.faces.len()
             );
 
             // Disjoint along Z only
             let a_z = make_box_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
             let b_z = make_box_face_polys([0.0, 0.0, 5.0], [1.0, 1.0, 6.0]);
             let mut id = new_id_alloc();
+            let r = boolean_op_from_polys(a_z, b_z, BoolOp::Union, &mut id)
+                .expect("Disjoint along Z: should succeed");
             assert!(
-                boolean_op_from_polys(a_z, b_z, BoolOp::Union, &mut id).is_err(),
-                "Disjoint along Z: expected error"
+                r.arena.faces.len() >= 12,
+                "Disjoint along Z: expected >= 12 faces, got {}",
+                r.arena.faces.len()
             );
         }
 
@@ -2888,9 +2909,12 @@ mod tests {
             let a = make_box_face_polys([0.0, 0.0, 0.0], [1e-4, 1e-4, 1e-4]);
             let b = make_box_face_polys([1e-3, 0.0, 0.0], [1e-3 + 1e-4, 1e-4, 1e-4]);
             let mut id = new_id_alloc();
+            let r = boolean_op_from_polys(a, b, BoolOp::Union, &mut id)
+                .expect("Micro-scale disjoint union should succeed (compound solid)");
             assert!(
-                boolean_op_from_polys(a, b, BoolOp::Union, &mut id).is_err(),
-                "Micro-scale disjoint union should return error"
+                r.arena.faces.len() >= 12,
+                "Micro-scale disjoint union should have >= 12 faces, got {}",
+                r.arena.faces.len()
             );
         }
 
@@ -2900,9 +2924,12 @@ mod tests {
             let a = make_box_face_polys([0.0, 0.0, 0.0], [1e3, 1e3, 1e3]);
             let b = make_box_face_polys([1e4, 0.0, 0.0], [1e4 + 1e3, 1e3, 1e3]);
             let mut id = new_id_alloc();
+            let r = boolean_op_from_polys(a, b, BoolOp::Union, &mut id)
+                .expect("Macro-scale disjoint union should succeed (compound solid)");
             assert!(
-                boolean_op_from_polys(a, b, BoolOp::Union, &mut id).is_err(),
-                "Macro-scale disjoint union should return error"
+                r.arena.faces.len() >= 12,
+                "Macro-scale disjoint union should have >= 12 faces, got {}",
+                r.arena.faces.len()
             );
         }
 
@@ -2988,7 +3015,7 @@ mod tests {
         #[test]
         fn disjoint_union_no_timeout_large_solids() {
             // Two 64-sided prisms far apart. With AABB fast-path, the disjoint
-            // check should fire instantly and return an error.
+            // check should fire instantly and produce a compound solid.
             let a_faces = make_prism_face_polys(0.0, 0.0, 1.0, 0.0, 1.0, 64);
             let b_faces = make_prism_face_polys(100.0, 100.0, 1.0, 0.0, 1.0, 64);
 
@@ -2997,15 +3024,20 @@ mod tests {
 
             let start = std::time::Instant::now();
             let mut id_alloc = new_id_alloc();
-            let result = boolean_op_from_polys(a_faces, b_faces, BoolOp::Union, &mut id_alloc);
+            let result = boolean_op_from_polys(a_faces, b_faces, BoolOp::Union, &mut id_alloc)
+                .expect("Disjoint union should succeed (compound solid)");
             let elapsed = start.elapsed();
 
             assert!(
                 elapsed.as_secs_f64() < 1.0,
-                "Disjoint union rejection should complete in < 1s, took {:.2}s",
+                "Disjoint union should complete in < 1s, took {:.2}s",
                 elapsed.as_secs_f64()
             );
-            assert!(result.is_err(), "Disjoint union should return error");
+            assert!(
+                result.arena.faces.len() >= 132,
+                "Disjoint union should have >= 132 faces (66+66), got {}",
+                result.arena.faces.len()
+            );
         }
     }
 

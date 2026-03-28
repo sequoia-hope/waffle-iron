@@ -4761,13 +4761,13 @@ pub(crate) fn planar_planar_boolean(
     let aabb_disjoint = (0..3).any(|i| a_max[i] + tau < b_min[i] || b_max[i] + tau < a_min[i]);
 
     if aabb_disjoint {
-        if matches!(op, BoolOp::Union) {
-            return Err(KernelError::BooleanFailed {
-                reason: "operands are disjoint (bounding boxes do not overlap)".into(),
-            });
-        }
         let result_faces: Vec<FacePoly> = match op {
-            BoolOp::Union => unreachable!(),
+            BoolOp::Union => {
+                // Disjoint union: combine faces from both solids.
+                let mut combined = a_faces;
+                combined.extend(b_faces);
+                combined
+            }
             BoolOp::Subtract => a_faces,
             BoolOp::Intersect => vec![],
         };

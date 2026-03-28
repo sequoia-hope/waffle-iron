@@ -39,7 +39,7 @@ pub(super) fn build_brep_from_polygons(
 /// When `allow_boundary` is true, allows up to 5% unpaired half-edges
 /// (creates self-twin boundary edges). When false, any unpaired edges
 /// produce an error.
-pub(super) fn build_brep_from_polygons_inner(
+pub(crate) fn build_brep_from_polygons_inner(
     faces: &[FacePoly],
     tau_weld: f64,
     allow_boundary: bool,

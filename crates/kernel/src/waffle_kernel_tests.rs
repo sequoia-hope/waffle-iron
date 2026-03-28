@@ -1344,7 +1344,7 @@ fn j2c_box_cyl_boss_tilted_winding_consistent() {
 
 #[test]
 fn j3_disjoint_boxes_union() {
-    // Two boxes that don't overlap at all
+    // Two boxes that don't overlap at all — disjoint union produces compound solid
     let mut k = WaffleKernel::new();
 
     let (pa, posa) = make_rect_profile(0.5, 0.5, 1.0, 1.0);
@@ -1359,10 +1359,13 @@ fn j3_disjoint_boxes_union() {
         .unwrap();
     let sb = k.extrude_face(fb[0], Z_DIR, 1.0).unwrap();
 
-    let result = k.boolean_union(&sa, &sb);
+    let result = k.boolean_union(&sa, &sb)
+        .expect("Disjoint union should succeed (compound solid)");
+    let faces = k.list_faces(&result);
     assert!(
-        result.is_err(),
-        "Disjoint union should return an error, got Ok",
+        faces.len() >= 12,
+        "Disjoint union should have >= 12 faces (6+6), got {}",
+        faces.len()
     );
 }
 
@@ -1945,14 +1948,20 @@ fn m8_box_cyl_result_has_arc_edges() {
 fn m9_box_cyl_disjoint_union_volume() {
     // Box at (0,0) and cylinder at (20,0) -- disjoint
     // Box: 10x10x10 = 1000, Cyl: pi*9*10 ~= 282.74
-    let result = do_box_cyl_boolean(
+    let (mut k, result) = do_box_cyl_boolean(
         0.0, 0.0, 10.0, 10.0, 10.0,
         20.0, 0.0, 3.0, 10.0,
         crate::boolean::BoolOp::Union,
-    );
+    )
+    .expect("Disjoint box-cyl union should succeed (compound solid)");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+    let vol = mesh_volume(&mesh);
+    let expected = 1000.0 + std::f64::consts::PI * 9.0 * 10.0;
+    let rel_err = (vol - expected).abs() / expected;
     assert!(
-        result.is_err(),
-        "Disjoint box-cyl union should return an error, got Ok",
+        rel_err < 0.10,
+        "Disjoint box-cyl union volume: expected ~{:.0}, got {:.1} (rel_err={:.4})",
+        expected, vol, rel_err
     );
 }
 
@@ -2251,11 +2260,17 @@ fn o1d_revolve_disjoint_union_volume_preserved() {
     let box_vol = mesh_volume(&box_mesh);
     assert!(box_vol > 0.1, "Box volume too small: {}", box_vol);
 
-    // Union the disjoint solids — should now return an error
-    let union_result = k.boolean_union(&revolve, &box_solid);
+    // Union the disjoint solids — should succeed as compound solid
+    let union_result = k.boolean_union(&revolve, &box_solid)
+        .expect("Disjoint revolve+box union should succeed (compound solid)");
+    let union_mesh = k.tessellate(&union_result, 0.01).expect("tessellate union");
+    let union_vol = mesh_volume(&union_mesh);
+    let expected = revolve_vol + box_vol;
+    let rel_err = (union_vol - expected).abs() / expected;
     assert!(
-        union_result.is_err(),
-        "Disjoint revolve+box union should return an error, got Ok",
+        rel_err < 0.10,
+        "Disjoint revolve+box union volume: expected ~{:.1}, got {:.1} (rel_err={:.4})",
+        expected, union_vol, rel_err
     );
 }
 
@@ -6390,11 +6405,12 @@ fn i1_chained_union_accepts_large_product() {
     let f2 = k.make_faces_from_profiles(&p2, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos2).unwrap();
     let cyl2 = k.extrude_face(f2[0], Z_DIR, 5.0).unwrap();
 
-    // All three cylinders are disjoint (spacing=5 > 2r=4), so the first union should fail
+    // All three cylinders are disjoint (spacing=5 > 2r=4), but disjoint union
+    // now succeeds by producing a compound solid with both shells.
     let union12 = k.boolean_union(&cyl1, &cyl2);
     assert!(
-        union12.is_err(),
-        "Disjoint cyl1+cyl2 union should return an error, got Ok",
+        union12.is_ok(),
+        "Disjoint cyl1+cyl2 union should succeed as compound solid",
     );
 }
 
@@ -9558,8 +9574,8 @@ fn test_mesh_repair_convergence_gear_circle_union() {
 
     let result = k.boolean_union(&gear_solid, &cir_solid);
     assert!(
-        result.is_err(),
-        "Disjoint gear-circle union should return an error, got Ok",
+        result.is_ok(),
+        "Disjoint gear-circle union should succeed as compound solid",
     );
 }
 
@@ -12064,9 +12080,9 @@ fn adaptive_welding_micro_scale_box_cyl_subtract() {
 
 #[test]
 fn chained_union_three_disjoint_boxes_volume() {
-    // Three disjoint boxes (10×10×10) at x=-30, x=0, x=30.
+    // Three disjoint boxes (10x10x10) at x=-30, x=0, x=30.
     // Chain: box1 ∪ box2, then (box1∪box2) ∪ box3.
-    // Expected volume ≈ 3 × 1000 = 3000
+    // Expected volume = 3 x 1000 = 3000
     // Uses boxes (all-planar faces) to test chained boolean pipeline
     // without the polygon-soup cylindrical tessellation limitation.
     let mut k = WaffleKernel::new();
@@ -12083,11 +12099,26 @@ fn chained_union_three_disjoint_boxes_volume() {
         .unwrap();
     let box2 = k.extrude_face(f2[0], Z_DIR, 10.0).unwrap();
 
-    // All three boxes are disjoint, so the first union should fail
-    let union_12 = k.boolean_union(&box1, &box2);
+    let (p3, pos3) = make_rect_profile(30.0, 0.0, 10.0, 10.0);
+    let f3 = k
+        .make_faces_from_profiles(&p3, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &pos3)
+        .unwrap();
+    let box3 = k.extrude_face(f3[0], Z_DIR, 10.0).unwrap();
+
+    // All three boxes are disjoint — union produces compound solids
+    let union_12 = k.boolean_union(&box1, &box2)
+        .expect("Disjoint box1+box2 union should succeed (compound solid)");
+    let result = k.boolean_union(&union_12, &box3)
+        .expect("Disjoint (box1+box2)+box3 union should succeed (compound solid)");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+    let vol = mesh_volume(&mesh);
+    let expected = 3000.0;
+    let rel_err = (vol - expected).abs() / expected;
     assert!(
-        union_12.is_err(),
-        "Disjoint box1+box2 union should return an error, got Ok",
+        rel_err < 0.05,
+        "Three disjoint boxes union volume: expected {:.0}, got {:.1} (rel_err={:.4})",
+        expected, vol, rel_err
     );
 }
 
@@ -12407,15 +12438,33 @@ fn ssi_sphere_04_concentric_sphere_subtract() {
 // Volume ≈ 2 × 4/3π·8 ≈ 67.0
 #[test]
 fn ssi_sphere_05_disjoint_sphere_union() {
+    use std::f64::consts::PI;
+
     let mut k = WaffleKernel::new();
 
     let sphere_a = k.make_sphere([0.0, 0.0, 0.0], 2.0).expect("sphere A");
     let sphere_b = k.make_sphere([10.0, 0.0, 0.0], 2.0).expect("sphere B");
 
-    let result = k.boolean_union(&sphere_a, &sphere_b);
+    let result = k.boolean_union(&sphere_a, &sphere_b)
+        .expect("Disjoint sphere union should succeed (compound solid)");
+
+    let faces = k.list_faces(&result);
+    let faces_a = k.list_faces(&sphere_a).len();
+    let faces_b = k.list_faces(&sphere_b).len();
     assert!(
-        result.is_err(),
-        "Disjoint sphere union should return an error, got Ok",
+        faces.len() >= faces_a + faces_b,
+        "Disjoint sphere union should have >= {} faces ({}+{}), got {}",
+        faces_a + faces_b, faces_a, faces_b, faces.len()
+    );
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate");
+    let vol = mesh_volume(&mesh);
+    let expected = 2.0 * (4.0 / 3.0) * PI * 8.0; // two spheres r=2
+    let rel_err = (vol - expected).abs() / expected;
+    assert!(
+        rel_err < 0.05,
+        "Disjoint sphere union volume: expected {:.1}, got {:.1} (rel_err={:.4})",
+        expected, vol, rel_err
     );
 }
 
@@ -13714,4 +13763,64 @@ fn test_f0001_diagnostic_path() {
             println!("  boolean_union FAILED: {:?}", e);
         }
     }
+}
+
+// ── Assay-reproducer tests (F0001, F0031) ─────────────────────────────
+
+/// F0001 reproducer: Two identical rectangle extrudes → union → tessellate.
+/// The planar-planar boolean union of two identical boxes must produce a
+/// watertight mesh with no non-manifold edges.
+#[test]
+fn test_f0001_identical_box_union_watertight() {
+    let mut k = WaffleKernel::new();
+
+    // Box A: 0.5×0.5 rectangle extruded 0.3 in Z (matching F0001 case)
+    let (profiles_a, positions_a) = make_rect_profile(0.0, 0.0, 0.5, 0.5);
+    let face_a = k
+        .make_faces_from_profiles(&profiles_a, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions_a)
+        .unwrap();
+    let solid_a = k.extrude_face(face_a[0], Z_DIR, 0.3).unwrap();
+
+    // Box B: identical
+    let (profiles_b, positions_b) = make_rect_profile(0.0, 0.0, 0.5, 0.5);
+    let face_b = k
+        .make_faces_from_profiles(&profiles_b, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions_b)
+        .unwrap();
+    let solid_b = k.extrude_face(face_b[0], Z_DIR, 0.3).unwrap();
+
+    let result = k.boolean_union(&solid_a, &solid_b).expect("union should succeed");
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+
+    let n_tris = mesh.indices.len() / 3;
+    assert!(n_tris >= 12, "identical box union should have ≥12 triangles, got {n_tris}");
+
+    let unpaired = count_unpaired_edges(&mesh);
+    assert_eq!(unpaired, 0, "identical box union mesh should be watertight, got {unpaired} unpaired edges");
+
+    let nonmanifold = find_nonmanifold_edges(&mesh);
+    assert!(
+        nonmanifold.is_empty(),
+        "identical box union mesh has {} non-manifold edges",
+        nonmanifold.len()
+    );
+}
+
+/// F0031 reproducer: Box extruded, then cylinder cut (enclosed hole).
+/// Must produce a watertight mesh with genus-1 topology (through-hole).
+#[test]
+fn test_f0031_box_minus_cylinder_watertight() {
+    // Box 0.6×0.6×0.38, cylinder r=0.15 d=0.21 at center (enclosed)
+    let (mut k, result) = do_box_cyl_boolean(
+        0.0, 0.0, 0.6, 0.6, 0.38,
+        0.0, 0.0, 0.15, 0.21,
+        crate::boolean::BoolOp::Subtract,
+    ).expect("box-cyl subtract should succeed");
+
+    let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+
+    let n_tris = mesh.indices.len() / 3;
+    assert!(n_tris >= 32, "box-cyl subtract should have ≥32 triangles, got {n_tris}");
+
+    let unpaired = count_unpaired_edges(&mesh);
+    assert_eq!(unpaired, 0, "box-cyl subtract mesh should be watertight, got {unpaired} unpaired edges");
 }
