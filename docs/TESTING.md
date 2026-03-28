@@ -2,7 +2,7 @@
 
 ## Test Tiers
 
-### Rust Fast (~420 tests, <30s)
+### Rust Fast (~500 tests, <30s)
 
 Fast unit and integration tests using MockKernel and pure logic. Covers:
 
@@ -15,7 +15,7 @@ Fast unit and integration tests using MockKernel and pure logic. Covers:
 - **kernel** — Mock/types/primitives/tessellation modules
 - **test-harness** — Fast binaries: `scenarios_mock`, `workflow_tests`, `oracle_tests`, `report_tests`, `scenarios_advanced`, `stl_tests`
 
-### Rust Full (~910 tests, <5min)
+### Rust Full (~1200 tests, <5min)
 
 All Rust crates including slow tests:
 

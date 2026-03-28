@@ -167,13 +167,13 @@ All 3D rendering happens in JavaScript via three.js/Threlte on the main thread. 
 
 ## Current Kernel Status
 
-The clean-sheet kernel (`crates/kernel/`) is under active development. **710 kernel tests pass** (4 ignored). 190-case randomized assay corpus (seed 42) with analytical ground truth and Euler characteristic oracles.
+The clean-sheet kernel (`crates/kernel/`) is under active development. **717 kernel tests pass** (4 ignored). 190-case randomized assay corpus (seed 42) with analytical ground truth and Euler characteristic oracles.
 
 ### What exists:
 - Half-edge B-Rep topology data structure with arena-based storage
 - Euler operators (mvfs, mev, mef, kemr, kfmrh) with invariant validation
 - Analytic geometry types (Point3, Vector3, Plane, Cylinder, Cone, Sphere, Torus)
-- SSI solvers for all 15 quadric surface pairs (Ref: Patrikalakis Ch.5)
+- SSI solvers for all 15 quadric surface pairs (Ref: Patrikalakis Ch.5); plane-cylinder and cylinder-cylinder active in boolean pipeline, remainder awaiting integration
 - Analytical boolean pipeline: box×box, box×cyl, cyl×cyl (parallel + non-parallel), planar-planar, enclosed-hole
 - Geometry-driven tessellation for planar, cylindrical, conical, spherical, and toroidal faces
 - `MockKernel` (full deterministic test double, ~2,100 lines)
