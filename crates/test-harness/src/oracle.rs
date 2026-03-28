@@ -781,11 +781,65 @@ pub fn check_aabb_collapse(mesh: &RenderMesh) -> OracleVerdict {
     }
 
     if non_aabb_count == 0 {
+        // All vertices are on AABB faces, but this can be legitimate for
+        // prismatic through-extrusions where all z-values are at z_min/z_max
+        // and some vertices happen to touch x/y AABB faces (e.g., gear tips).
+        //
+        // Distinguish real AABB collapse from legitimate geometry by counting
+        // how many AABB faces each vertex touches. A real AABB-collapsed box
+        // has every vertex on ≥2 AABB faces simultaneously (edges and corners
+        // of the box). A prismatic solid has most vertices on only 1 AABB face
+        // (a z-face), with few vertices touching x/y faces.
+        let mut multi_face_count = 0usize;
+        for chunk in mesh.vertices.chunks(3) {
+            if chunk.len() < 3 {
+                continue;
+            }
+            let mut face_count = 0u32;
+            if (chunk[0] - bb_min[0]).abs() < tol {
+                face_count += 1;
+            }
+            if (chunk[0] - bb_max[0]).abs() < tol {
+                face_count += 1;
+            }
+            if (chunk[1] - bb_min[1]).abs() < tol {
+                face_count += 1;
+            }
+            if (chunk[1] - bb_max[1]).abs() < tol {
+                face_count += 1;
+            }
+            if (chunk[2] - bb_min[2]).abs() < tol {
+                face_count += 1;
+            }
+            if (chunk[2] - bb_max[2]).abs() < tol {
+                face_count += 1;
+            }
+            if face_count >= 2 {
+                multi_face_count += 1;
+            }
+        }
+        let total_verts = mesh.vertices.len() / 3;
+        // A true AABB-collapse has >50% of vertices on ≥2 AABB faces.
+        // A prismatic solid (gear extrusion) has most vertices on only 1 face.
+        let multi_face_ratio = if total_verts > 0 {
+            multi_face_count as f64 / total_verts as f64
+        } else {
+            0.0
+        };
+        if multi_face_ratio <= 0.5 {
+            return OracleVerdict::pass(
+                "aabb_collapse",
+                format!(
+                    "all {} unique vertices on AABB faces but only {:.0}% on ≥2 faces — prismatic solid, not collapse",
+                    total_unique, multi_face_ratio * 100.0
+                ),
+            );
+        }
         OracleVerdict::fail(
             "aabb_collapse",
             format!(
-                "all {} unique vertices lie on AABB faces — mesh collapsed to bounding box",
-                total_unique
+                "all {} unique vertices lie on AABB faces ({:.0}% on ≥2 faces) — mesh collapsed to bounding box",
+                total_unique, multi_face_ratio * 100.0
             ),
         )
     } else {
@@ -889,6 +943,106 @@ pub fn check_volume_magnitude(mesh: &RenderMesh, scale: f64) -> OracleVerdict {
                 "volume {:.6e} outside [{:.6e}, {:.6e}] for scale {:.6e}",
                 vol, min_vol, max_vol, scale
             ),
+        )
+    }
+}
+
+// ── Mesh Euler Characteristic ────────────────────────────────────────────────
+
+/// Check the mesh Euler characteristic χ = V - E + F against an expected value.
+///
+/// Uses position-quantized vertex/edge counting on the triangle mesh (same
+/// quantization as `check_watertight_mesh`). For a genus-g closed surface,
+/// χ = 2 - 2g. A simple solid has χ=2; a solid with one through-hole has χ=0.
+///
+/// Interior/residual faces from incomplete boolean operations shift χ away
+/// from the expected value, making this oracle effective at catching them.
+pub fn check_mesh_euler_characteristic(mesh: &RenderMesh, expected_chi: i64) -> OracleVerdict {
+    use std::collections::HashSet;
+
+    if mesh.vertices.is_empty() || mesh.indices.is_empty() {
+        return OracleVerdict::pass(
+            "mesh_euler_characteristic",
+            "skipped: empty mesh".to_string(),
+        );
+    }
+
+    // Scale-adaptive quantization (matches check_watertight_mesh)
+    let max_abs = mesh
+        .vertices
+        .iter()
+        .map(|v| v.abs())
+        .fold(0.0_f32, f32::max);
+    let grid_size = (max_abs as f64 * 1e-5).max(1e-10);
+    let inv_grid = 1.0 / grid_size;
+
+    let quantize = |v: f32| -> i64 { (v as f64 * inv_grid).round() as i64 };
+
+    let vert_key = |idx: u32| -> (i64, i64, i64) {
+        let i = idx as usize * 3;
+        (
+            quantize(mesh.vertices[i]),
+            quantize(mesh.vertices[i + 1]),
+            quantize(mesh.vertices[i + 2]),
+        )
+    };
+
+    // Collect unique vertices
+    let mut unique_verts: HashSet<(i64, i64, i64)> = HashSet::new();
+    for tri in mesh.indices.chunks(3) {
+        if tri.len() < 3 {
+            continue;
+        }
+        unique_verts.insert(vert_key(tri[0]));
+        unique_verts.insert(vert_key(tri[1]));
+        unique_verts.insert(vert_key(tri[2]));
+    }
+
+    // Collect unique edges (sorted pairs)
+    type PosEdge = ((i64, i64, i64), (i64, i64, i64));
+    fn make_edge(a: (i64, i64, i64), b: (i64, i64, i64)) -> PosEdge {
+        if a <= b {
+            (a, b)
+        } else {
+            (b, a)
+        }
+    }
+
+    let mut unique_edges: HashSet<PosEdge> = HashSet::new();
+    for tri in mesh.indices.chunks(3) {
+        if tri.len() < 3 {
+            continue;
+        }
+        let va = vert_key(tri[0]);
+        let vb = vert_key(tri[1]);
+        let vc = vert_key(tri[2]);
+        unique_edges.insert(make_edge(va, vb));
+        unique_edges.insert(make_edge(vb, vc));
+        unique_edges.insert(make_edge(vc, va));
+    }
+
+    let v = unique_verts.len() as i64;
+    let e = unique_edges.len() as i64;
+    let f = (mesh.indices.len() / 3) as i64;
+    let chi = v - e + f;
+
+    if chi == expected_chi {
+        OracleVerdict::pass_val(
+            "mesh_euler_characteristic",
+            format!(
+                "V({}) - E({}) + F({}) = {} (expected {})",
+                v, e, f, chi, expected_chi
+            ),
+            chi as f64,
+        )
+    } else {
+        OracleVerdict::fail_val(
+            "mesh_euler_characteristic",
+            format!(
+                "V({}) - E({}) + F({}) = {} (expected {})",
+                v, e, f, chi, expected_chi
+            ),
+            chi as f64,
         )
     }
 }
@@ -1292,5 +1446,104 @@ mod tests {
              but oracle currently requires {} regardless of cut/boss: {}",
             96, verdict.detail
         );
+    }
+
+    // ── Mesh Euler Characteristic Tests ──────────────────────────────────────
+
+    #[test]
+    fn mesh_euler_characteristic_cube_chi_2() {
+        let mesh = make_unit_cube_mesh();
+        let verdict = check_mesh_euler_characteristic(&mesh, 2);
+        assert!(
+            verdict.passed,
+            "unit cube should have χ=2: {}",
+            verdict.detail
+        );
+        assert_eq!(verdict.value, Some(2.0));
+    }
+
+    #[test]
+    fn mesh_euler_characteristic_wrong_expectation_fails() {
+        let mesh = make_unit_cube_mesh();
+        let verdict = check_mesh_euler_characteristic(&mesh, 0);
+        assert!(!verdict.passed, "cube with expected χ=0 should fail");
+    }
+
+    #[test]
+    fn mesh_euler_characteristic_empty_mesh_passes() {
+        let mesh = RenderMesh {
+            vertices: vec![],
+            normals: vec![],
+            indices: vec![],
+            face_ranges: vec![],
+        };
+        let verdict = check_mesh_euler_characteristic(&mesh, 2);
+        assert!(
+            verdict.passed,
+            "empty mesh should be skipped: {}",
+            verdict.detail
+        );
+    }
+
+    /// Build a torus-like mesh (genus 1, χ=0) from a 4×4 grid wrapped in both directions.
+    fn make_torus_mesh() -> RenderMesh {
+        // A torus can be parameterized on a grid [0..N) × [0..M) with both
+        // directions wrapped. We use N=M=4 for a minimal triangulation.
+        let n = 4usize;
+        let m = 4usize;
+        let major_r = 1.0f32;
+        let minor_r = 0.3f32;
+
+        let mut vertices = Vec::new();
+        let mut normals = Vec::new();
+
+        // Generate vertices on torus surface
+        for i in 0..n {
+            let theta = std::f32::consts::TAU * i as f32 / n as f32;
+            for j in 0..m {
+                let phi = std::f32::consts::TAU * j as f32 / m as f32;
+                let x = (major_r + minor_r * phi.cos()) * theta.cos();
+                let y = (major_r + minor_r * phi.cos()) * theta.sin();
+                let z = minor_r * phi.sin();
+                vertices.extend_from_slice(&[x, y, z]);
+                // Normal = position on minor circle, normalized
+                let nx = phi.cos() * theta.cos();
+                let ny = phi.cos() * theta.sin();
+                let nz = phi.sin();
+                normals.extend_from_slice(&[nx, ny, nz]);
+            }
+        }
+
+        // Triangulate: each quad (i,j)→(i+1,j)→(i+1,j+1)→(i,j+1) becomes 2 tris
+        let mut indices = Vec::new();
+        for i in 0..n {
+            for j in 0..m {
+                let v00 = (i * m + j) as u32;
+                let v10 = (((i + 1) % n) * m + j) as u32;
+                let v01 = (i * m + (j + 1) % m) as u32;
+                let v11 = (((i + 1) % n) * m + (j + 1) % m) as u32;
+                indices.extend_from_slice(&[v00, v10, v11]);
+                indices.extend_from_slice(&[v00, v11, v01]);
+            }
+        }
+
+        RenderMesh {
+            vertices,
+            normals,
+            indices,
+            face_ranges: vec![FaceRange {
+                face_id: KernelId(0),
+                start_index: 0,
+                end_index: (n * m * 6) as u32,
+            }],
+        }
+    }
+
+    #[test]
+    fn mesh_euler_characteristic_torus_chi_0() {
+        let mesh = make_torus_mesh();
+        let verdict = check_mesh_euler_characteristic(&mesh, 0);
+        assert!(verdict.passed, "torus should have χ=0: {}", verdict.detail);
+        assert_eq!(verdict.value, Some(0.0));
     }
 }
