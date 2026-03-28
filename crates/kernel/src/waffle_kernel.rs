@@ -1064,6 +1064,69 @@ impl WaffleKernel {
                 }
                 Err(e) => return Err(e),
             }
+        } else if b_is_prim_cyl && op == crate::boolean::BoolOp::Subtract {
+            // Complex solid minus enclosed cylinder primitive: use direct face
+            // construction (no clipping needed). Check if the cylinder axis center
+            // is inside solid_a at both ends via ray casting.
+            let cyl_b = solid_b.cylinder_params.as_ref().unwrap();
+            let a_faces = crate::boolean::extract_face_polys_general(solid_a);
+            let cyl_center_bot = cyl_b.center_bottom;
+            let cyl_center_top = [
+                cyl_b.center_bottom[0] + cyl_b.direction[0] * cyl_b.depth,
+                cyl_b.center_bottom[1] + cyl_b.direction[1] * cyl_b.depth,
+                cyl_b.center_bottom[2] + cyl_b.direction[2] * cyl_b.depth,
+            ];
+            let bot_inside = crate::boolean::classify::point_in_solid(cyl_center_bot, &a_faces);
+            let top_inside = crate::boolean::classify::point_in_solid(cyl_center_top, &a_faces);
+            if bot_inside || top_inside {
+                // At least one end is inside — try enclosed hole subtract.
+                // This avoids coplanar cap clipping errors by constructing
+                // the hole faces directly and splicing them into solid_a.
+                polygon_soup = true;
+                match crate::boolean::enclosed_hole_in_solid(solid_a, cyl_b, &mut id_alloc) {
+                    Ok(r) => r,
+                    Err(KernelError::NotSupported { .. }) => {
+                        // Fallback to polygon clipping
+                        let strict = crate::boolean::boolean_op(
+                            solid_a,
+                            solid_b,
+                            op,
+                            &BooleanOptions::default(),
+                            &mut id_alloc,
+                        );
+                        match strict {
+                            ok @ Ok(_) => ok?,
+                            Err(KernelError::BooleanFailed { .. }) => {
+                                crate::boolean::boolean_op_tolerant(
+                                    solid_a,
+                                    solid_b,
+                                    op,
+                                    &mut id_alloc,
+                                )?
+                            }
+                            Err(e) => return Err(e),
+                        }
+                    }
+                    Err(e) => return Err(e),
+                }
+            } else {
+                // Cylinder not inside solid — use standard polygon boolean
+                polygon_soup = true;
+                let strict = crate::boolean::boolean_op(
+                    solid_a,
+                    solid_b,
+                    op,
+                    &BooleanOptions::default(),
+                    &mut id_alloc,
+                );
+                match strict {
+                    ok @ Ok(_) => ok?,
+                    Err(KernelError::BooleanFailed { .. }) => {
+                        crate::boolean::boolean_op_tolerant(solid_a, solid_b, op, &mut id_alloc)?
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
         } else if a_all_quadric && b_all_quadric {
             // Both operands have only quadric faces (includes mixed planar+cylindrical
             // post-boolean results with preserved surface types, and chained

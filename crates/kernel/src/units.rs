@@ -173,3 +173,28 @@ pub const COS_NEAR_PARALLEL_CAP: f64 = 0.95;
 /// Dot-product threshold for axis-hint selection in plane basis construction: 0.9.
 /// When the reference axis has |dot| > this with the normal, an alternate axis is chosen.
 pub const BASIS_AXIS_ALIGNMENT: f64 = 0.9;
+
+// ── Hole-fill coherence thresholds ───────────────────────────────
+
+/// Minimum boundary cycle length for normal-coherence skip: 8 edges.
+/// Cycles shorter than this are always filled (likely S-H artifact gaps).
+pub const HOLE_FILL_COHERENCE_MIN_EDGES: usize = 8;
+
+/// Cosine threshold for coherent-normal boundary cycle detection: 0.999.
+/// If ALL adjacent triangle normals dot the average normal above this,
+/// the cycle is an intentional face opening (through-hole), not an artifact.
+/// Set very strict because through-holes are on planar faces (normals ~identical),
+/// while S-H gaps on curved surfaces have measurable normal variation.
+pub const COS_HOLE_COHERENCE: f64 = 0.999;
+
+/// Maximum out-of-plane distance as fraction of mean radius for through-hole
+/// planarity detection: 0.1%.
+/// Through-hole boundaries lie perfectly in-plane (float noise only).
+/// Curved-surface gaps deviate proportionally to curvature × span.
+pub const HOLE_PLANARITY_RATIO: f64 = 0.001;
+
+/// Maximum coefficient of variation of vertex-to-centroid distances for
+/// through-hole circularity detection: 5%.
+/// Through-hole boundaries from cylinder subtract are nearly perfect circles.
+/// Revolve caps and S-H gaps are irregular (wedge-shaped, non-circular).
+pub const HOLE_CIRCULARITY_CV: f64 = 0.05;

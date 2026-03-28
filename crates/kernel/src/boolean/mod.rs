@@ -6,13 +6,15 @@
 //! as inside, outside, or partial with respect to the opposing solid.
 
 pub(crate) mod analytical;
-mod classify;
+pub(crate) mod classify;
 mod clip;
 pub(crate) mod stitch;
 
 #[cfg(test)]
 pub(crate) use analytical::build_cyl_result;
-pub(crate) use analytical::{planar_planar_boolean, polygon_approx_boolean, ssi_boolean_op};
+pub(crate) use analytical::{
+    enclosed_hole_in_solid, planar_planar_boolean, polygon_approx_boolean, ssi_boolean_op,
+};
 
 #[cfg(test)]
 use classify::point_in_solid;
@@ -45,7 +47,7 @@ use std::collections::BTreeMap;
 // ── Public types ────────────────────────────────────────────────────────
 
 /// The boolean operation to perform.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BoolOp {
     Union,
     Subtract,

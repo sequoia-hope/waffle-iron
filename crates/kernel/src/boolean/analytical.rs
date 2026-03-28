@@ -380,6 +380,269 @@ pub(crate) fn polygon_approx_boolean(
     boolean_op_from_polys(a_faces, b_faces, op, id_alloc)
 }
 
+// ── Enclosed hole subtract (complex solid minus enclosed cylinder) ─────
+
+/// Subtract an enclosed cylinder from a complex solid by direct face construction.
+///
+/// Instead of clipping (which fails on coplanar caps), we:
+/// 1. Keep all non-cap faces from solid_a
+/// 2. For cap faces coplanar with cylinder ends, cut annular holes via triangulation
+/// 3. Add inner cylinder lateral faces (reversed normals)
+/// 4. Add inner bottom cap for blind holes
+///
+/// This is an A15-compliant analytical path that avoids polygon clipping entirely.
+pub(crate) fn enclosed_hole_in_solid(
+    solid_a: &WaffleSolid,
+    cyl_b: &CylinderParams,
+    id_alloc: &mut dyn FnMut() -> u64,
+) -> Result<BooleanResult, KernelError> {
+    let n = 32usize;
+    let dir = cyl_b.direction;
+    let neg_dir = [-dir[0], -dir[1], -dir[2]];
+
+    // Get solid_a's face polygons
+    let a_faces = extract_face_polys_general(solid_a);
+    if a_faces.is_empty() {
+        return Err(KernelError::NotSupported {
+            operation: "enclosed_hole_in_solid: solid_a has no faces".to_string(),
+        });
+    }
+
+    // Cylinder Z range
+    let cyl_z_bot = v3_dot(cyl_b.center_bottom, dir);
+    let cyl_z_top = cyl_z_bot + cyl_b.depth;
+
+    // Compute inner circle points at top and bottom of the SOLID (not cylinder)
+    // We need to find the Z range where the hole actually intersects the solid
+    // by looking at the cap faces of solid_a.
+
+    // Find the Z extents of solid_a along the cylinder direction
+    let mut a_z_min = f64::INFINITY;
+    let mut a_z_max = f64::NEG_INFINITY;
+    for face in &a_faces {
+        for v in &face.verts {
+            let z = v3_dot(*v, dir);
+            a_z_min = a_z_min.min(z);
+            a_z_max = a_z_max.max(z);
+        }
+    }
+
+    let hole_z_top = a_z_max; // hole always open at the top cap
+    let through_hole = cyl_z_bot <= a_z_min + TAU_COINCIDENT;
+    let hole_z_bot = if through_hole { a_z_min } else { cyl_z_bot };
+    let hole_height = hole_z_top - hole_z_bot;
+
+    if hole_height < TAU_MODEL {
+        return Err(KernelError::NotSupported {
+            operation: "enclosed_hole_in_solid: hole height too small".to_string(),
+        });
+    }
+
+    // Generate inner circle points
+    let center_bot_3d = v3_add(cyl_b.center_bottom, v3_scale(dir, hole_z_bot - cyl_z_bot));
+
+    let inner_bottom: Vec<[f64; 3]> = (0..n)
+        .map(|i| {
+            let theta = std::f64::consts::TAU * (i as f64) / (n as f64);
+            let cos_t = theta.cos();
+            let sin_t = theta.sin();
+            [
+                center_bot_3d[0]
+                    + cyl_b.radius * (cos_t * cyl_b.x_axis[0] + sin_t * cyl_b.y_axis[0]),
+                center_bot_3d[1]
+                    + cyl_b.radius * (cos_t * cyl_b.x_axis[1] + sin_t * cyl_b.y_axis[1]),
+                center_bot_3d[2]
+                    + cyl_b.radius * (cos_t * cyl_b.x_axis[2] + sin_t * cyl_b.y_axis[2]),
+            ]
+        })
+        .collect();
+
+    let inner_top: Vec<[f64; 3]> = inner_bottom
+        .iter()
+        .map(|p| {
+            [
+                p[0] + dir[0] * hole_height,
+                p[1] + dir[1] * hole_height,
+                p[2] + dir[2] * hole_height,
+            ]
+        })
+        .collect();
+
+    let inner_cyl_surface = SurfaceGeom::Cylindrical(Cylinder {
+        origin: Point3::from_array(cyl_b.center_bottom),
+        axis: Vector3::from_array(cyl_b.direction),
+        radius: cyl_b.radius,
+    });
+
+    let mut result_faces: Vec<FacePoly> = Vec::new();
+
+    // 1. Process existing faces: keep non-cap faces, replace caps with annular versions
+    for face in &a_faces {
+        let face_z = v3_dot(face.origin, dir);
+        let normal_dot = v3_dot(face.normal, dir);
+
+        // Check if this is a top cap (normal ≈ +dir, z ≈ a_z_max)
+        let is_top_cap = normal_dot > CAP_FACE_NORMAL_Z && (face_z - a_z_max).abs() < TAU_MODEL;
+
+        // Check if this is a bottom cap (normal ≈ -dir, z ≈ a_z_min)
+        let is_bottom_cap = normal_dot < -CAP_FACE_NORMAL_Z && (face_z - a_z_min).abs() < TAU_MODEL;
+
+        if is_top_cap {
+            // Replace with annular cap: triangulate outer polygon + inner circle hole
+            let outer_verts = &face.verts;
+            annular_cap_triangles(outer_verts, &inner_top, dir, face.origin, &mut result_faces);
+        } else if is_bottom_cap && through_hole {
+            // Through-hole: replace bottom cap with annular cap
+            let outer_verts = &face.verts;
+            annular_cap_triangles(
+                outer_verts,
+                &inner_bottom,
+                neg_dir,
+                face.origin,
+                &mut result_faces,
+            );
+        } else {
+            // Keep face as-is
+            result_faces.push(face.clone());
+        }
+    }
+
+    // 2. Inner lateral quads (reversed winding — normals point into hole)
+    for i in 0..n {
+        let j = (i + 1) % n;
+        let edge_bot = v3_sub(inner_bottom[i], inner_bottom[j]);
+        let edge_up = v3_sub(inner_top[j], inner_bottom[j]);
+        let normal = v3_normalize(v3_cross(edge_bot, edge_up));
+        result_faces.push(FacePoly {
+            verts: vec![inner_bottom[j], inner_bottom[i], inner_top[i], inner_top[j]],
+            normal,
+            origin: inner_bottom[j],
+            surface_geom: Some(inner_cyl_surface.clone()),
+        });
+    }
+
+    // 3. Inner bottom cap for blind holes
+    if !through_hole {
+        result_faces.push(FacePoly {
+            verts: inner_bottom.clone(), // CCW from +dir → faces up
+            normal: dir,
+            origin: center_bot_3d,
+            surface_geom: None,
+        });
+    }
+
+    build_brep_from_polygons_inner(&result_faces, TAU_MODEL, true, id_alloc)
+}
+
+/// Triangulate an annular cap (outer polygon with inner circular hole).
+///
+/// For each segment of the inner circle, finds the nearest outer polygon vertex
+/// and creates triangles connecting them. This produces a watertight annular surface
+/// without requiring polygon-with-holes support.
+fn annular_cap_triangles(
+    outer: &[[f64; 3]],
+    inner: &[[f64; 3]],
+    normal: [f64; 3],
+    origin: [f64; 3],
+    result: &mut Vec<FacePoly>,
+) {
+    let n_inner = inner.len();
+    let n_outer = outer.len();
+    if n_inner == 0 || n_outer == 0 {
+        return;
+    }
+
+    // For each inner edge (inner[i] → inner[j]), find the closest outer vertex
+    // and create a triangle fan connecting them. We walk both circles simultaneously.
+    let up = normal; // face normal
+
+    // Find the starting outer index closest to inner[0]
+    let mut best_outer = 0;
+    let mut best_dist = f64::INFINITY;
+    for (k, ov) in outer.iter().enumerate() {
+        let d = v3_length(v3_sub(*ov, inner[0]));
+        if d < best_dist {
+            best_dist = d;
+            best_outer = k;
+        }
+    }
+
+    // Walk both circles, creating triangles
+    let mut o = best_outer;
+    for i in 0..n_inner {
+        let j = (i + 1) % n_inner;
+
+        // Check if the winding direction matches the face normal
+        // The inner circle winding should be OPPOSITE to the outer (it's a hole)
+        // For normal=+Z: outer is CCW, inner should be CW (reversed)
+
+        // Triangle connecting outer[o] to inner edge
+        result.push(FacePoly {
+            verts: vec![outer[o], inner[i], inner[j]],
+            normal: up,
+            origin,
+            surface_geom: None,
+        });
+
+        // Advance outer vertices to cover the gap
+        let next_o = (o + 1) % n_outer;
+        let d_current = v3_length(v3_sub(outer[o], inner[j]));
+        let d_next = v3_length(v3_sub(outer[next_o], inner[j]));
+
+        if d_next < d_current {
+            // Add triangle to fill the gap between outer[o] and outer[next_o]
+            result.push(FacePoly {
+                verts: vec![outer[o], inner[j], outer[next_o]],
+                normal: up,
+                origin,
+                surface_geom: None,
+            });
+            o = next_o;
+
+            // May need to advance more outer vertices
+            loop {
+                let next2 = (o + 1) % n_outer;
+                let d_curr = v3_length(v3_sub(outer[o], inner[j]));
+                let d_nxt = v3_length(v3_sub(outer[next2], inner[j]));
+                if d_nxt < d_curr && next2 != best_outer {
+                    result.push(FacePoly {
+                        verts: vec![outer[o], inner[j], outer[next2]],
+                        normal: up,
+                        origin,
+                        surface_geom: None,
+                    });
+                    o = next2;
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    // Close the gap between the last outer vertex and the starting one
+    let mut remaining = (o + 1) % n_outer;
+    while remaining != best_outer {
+        let next = (remaining + 1) % n_outer;
+        if next == best_outer {
+            // Last triangle
+            result.push(FacePoly {
+                verts: vec![outer[remaining], inner[0], outer[best_outer]],
+                normal: up,
+                origin,
+                surface_geom: None,
+            });
+        } else {
+            result.push(FacePoly {
+                verts: vec![outer[remaining], inner[0], outer[next]],
+                normal: up,
+                origin,
+                surface_geom: None,
+            });
+        }
+        remaining = next;
+    }
+}
+
 // ── Box-cylinder boolean ────────────────────────────────────────────────
 
 /// Box-cylinder boolean dispatch with frame rotation for axis-generic support.
@@ -1363,12 +1626,10 @@ fn cyl_cyl_boolean_z_aligned(
         let h = (r1 * r1 - a * a).max(0.0).sqrt();
 
         // Enclosed case: when h ≈ 0, one cylinder is fully inside the other
-        // (no real 2D intersection). The analytical partial builder can't
-        // handle this — fall through to polygon approximation.
+        // (no real 2D intersection). Build result directly — no clipping needed
+        // since the inner boundary doesn't intersect the outer boundary.
         if h < TAU_COINCIDENT {
-            return Err(KernelError::NotSupported {
-                operation: "non-concentric enclosed cylinders (no 2D intersection)".to_string(),
-            });
+            return build_enclosed_cyl_subtract(cyl_a, cyl_b, op, z_min, z_max, id_alloc);
         }
 
         let ux = dx / d;
@@ -1568,6 +1829,278 @@ pub(crate) fn build_cyl_result(
         edge_geometry,
         cached_face_polys: None,
     })
+}
+
+// ── Build enclosed non-concentric cylinder subtract ──────────────────
+
+/// Build the result of subtracting a small enclosed cylinder from a larger one.
+///
+/// Since the inner cylinder is fully enclosed (no 2D boundary intersection),
+/// no polygon clipping is needed. We construct the result face polygons directly:
+///
+/// **Through-hole** (inner Z covers outer Z):
+///   - Outer lateral quads (kept)
+///   - Inner lateral quads (reversed winding — inward-facing normals)
+///   - Top annular cap (triangulated fan connecting outer + inner circles)
+///   - Bottom annular cap (triangulated fan)
+///
+/// **Blind hole** (inner Z shorter than outer):
+///   - Outer lateral quads (kept)
+///   - Inner lateral quads (reversed, partial height)
+///   - Top annular cap (triangulated fan)
+///   - Bottom cap (full circle, no hole)
+///   - Inner bottom cap (circular face at bottom of blind hole)
+///
+/// Ref: A15 — analytical primacy, no mesh fallback for quadric SSI.
+fn build_enclosed_cyl_subtract(
+    cyl_a: &CylinderParams,
+    cyl_b: &CylinderParams,
+    op: BoolOp,
+    z_min: f64,
+    z_max: f64,
+    id_alloc: &mut dyn FnMut() -> u64,
+) -> Result<BooleanResult, KernelError> {
+    // Determine which is outer vs inner
+    let (outer, inner) = if cyl_a.radius >= cyl_b.radius {
+        (cyl_a, cyl_b)
+    } else {
+        (cyl_b, cyl_a)
+    };
+
+    match op {
+        BoolOp::Subtract => {
+            if cyl_a.radius >= cyl_b.radius {
+                // A - B: big minus small = hole in big (the common case)
+                build_enclosed_hole(outer, inner, z_min, z_max, id_alloc)
+            } else {
+                // A - B where A is smaller: small minus big = empty
+                // (small is entirely inside big, subtracting big removes everything)
+                let mut arena = TopoArena::new();
+                let solid_idx = arena.add_solid();
+                let shell_idx = arena.add_shell(solid_idx);
+                arena.solids[solid_idx.0].outer_shell = shell_idx;
+                Ok(BooleanResult {
+                    arena,
+                    face_map: BTreeMap::new(),
+                    edge_map: BTreeMap::new(),
+                    vertex_map: BTreeMap::new(),
+                    face_geometry: BTreeMap::new(),
+                    edge_geometry: BTreeMap::new(),
+                    cached_face_polys: None,
+                })
+            }
+        }
+        BoolOp::Union => {
+            // Union of enclosed cylinders = the outer cylinder
+            build_cyl_result(outer, id_alloc)
+        }
+        BoolOp::Intersect => {
+            // Intersection of enclosed cylinders = the inner cylinder
+            build_cyl_result(inner, id_alloc)
+        }
+    }
+}
+
+/// Construct face polygons for a cylinder with a non-concentric hole drilled through it.
+fn build_enclosed_hole(
+    outer: &CylinderParams,
+    inner: &CylinderParams,
+    z_min: f64,
+    z_max: f64,
+    id_alloc: &mut dyn FnMut() -> u64,
+) -> Result<BooleanResult, KernelError> {
+    let n = 32usize; // polygon subdivision count
+    let dir = outer.direction;
+    let neg_dir = [-dir[0], -dir[1], -dir[2]];
+
+    // Z ranges
+    let (az_min, az_max) = ssi::cyl_z_range(outer);
+    let (bz_min, bz_max) = ssi::cyl_z_range(inner);
+    let through_hole = bz_min <= az_min + TAU_COINCIDENT && bz_max >= az_max - TAU_COINCIDENT;
+    // For blind hole, inner starts at outer's top and goes down
+    // The inner cylinder bottom is at bz_min (or bz_max if direction is flipped)
+    let inner_z_bottom = bz_min.max(az_min); // clamp to outer range
+    let inner_z_top = bz_max.min(az_max);
+
+    // ── Generate circle points ──
+    let outer_bottom: Vec<[f64; 3]> = (0..n)
+        .map(|i| {
+            let theta = std::f64::consts::TAU * (i as f64) / (n as f64);
+            let cos_t = theta.cos();
+            let sin_t = theta.sin();
+            [
+                outer.center_bottom[0]
+                    + outer.radius * (cos_t * outer.x_axis[0] + sin_t * outer.y_axis[0]),
+                outer.center_bottom[1]
+                    + outer.radius * (cos_t * outer.x_axis[1] + sin_t * outer.y_axis[1]),
+                outer.center_bottom[2]
+                    + outer.radius * (cos_t * outer.x_axis[2] + sin_t * outer.y_axis[2]),
+            ]
+        })
+        .collect();
+
+    let outer_top: Vec<[f64; 3]> = outer_bottom
+        .iter()
+        .map(|p| {
+            [
+                p[0] + dir[0] * outer.depth,
+                p[1] + dir[1] * outer.depth,
+                p[2] + dir[2] * outer.depth,
+            ]
+        })
+        .collect();
+
+    // Inner circle points (at the inner cylinder's center, which is offset from outer)
+    let inner_bottom_z = if through_hole { az_min } else { inner_z_bottom };
+    let inner_top_z = if through_hole { az_max } else { inner_z_top };
+    let inner_height = inner_top_z - inner_bottom_z;
+
+    let inner_bottom_center = [
+        inner.center_bottom[0] + dir[0] * (inner_bottom_z - ssi::cyl_z_range(inner).0),
+        inner.center_bottom[1] + dir[1] * (inner_bottom_z - ssi::cyl_z_range(inner).0),
+        inner.center_bottom[2] + dir[2] * (inner_bottom_z - ssi::cyl_z_range(inner).0),
+    ];
+
+    let inner_bottom: Vec<[f64; 3]> = (0..n)
+        .map(|i| {
+            let theta = std::f64::consts::TAU * (i as f64) / (n as f64);
+            let cos_t = theta.cos();
+            let sin_t = theta.sin();
+            [
+                inner_bottom_center[0]
+                    + inner.radius * (cos_t * inner.x_axis[0] + sin_t * inner.y_axis[0]),
+                inner_bottom_center[1]
+                    + inner.radius * (cos_t * inner.x_axis[1] + sin_t * inner.y_axis[1]),
+                inner_bottom_center[2]
+                    + inner.radius * (cos_t * inner.x_axis[2] + sin_t * inner.y_axis[2]),
+            ]
+        })
+        .collect();
+
+    let inner_top: Vec<[f64; 3]> = inner_bottom
+        .iter()
+        .map(|p| {
+            [
+                p[0] + dir[0] * inner_height,
+                p[1] + dir[1] * inner_height,
+                p[2] + dir[2] * inner_height,
+            ]
+        })
+        .collect();
+
+    // ── Build face polygons ──
+    let mut faces: Vec<FacePoly> = Vec::new();
+
+    // Surface geometry tags
+    let outer_cyl_surface = SurfaceGeom::Cylindrical(Cylinder {
+        origin: Point3::from_array(outer.center_bottom),
+        axis: Vector3::from_array(outer.direction),
+        radius: outer.radius,
+    });
+    let inner_cyl_surface = SurfaceGeom::Cylindrical(Cylinder {
+        origin: Point3::from_array(inner.center_bottom),
+        axis: Vector3::from_array(inner.direction),
+        radius: inner.radius,
+    });
+
+    // 1. Outer lateral quads (outward normals)
+    for i in 0..n {
+        let j = (i + 1) % n;
+        let edge_bot = v3_sub(outer_bottom[j], outer_bottom[i]);
+        let edge_up = v3_sub(outer_top[i], outer_bottom[i]);
+        let normal = v3_normalize(v3_cross(edge_bot, edge_up));
+        faces.push(FacePoly {
+            verts: vec![outer_bottom[i], outer_bottom[j], outer_top[j], outer_top[i]],
+            normal,
+            origin: outer_bottom[i],
+            surface_geom: Some(outer_cyl_surface.clone()),
+        });
+    }
+
+    // 2. Inner lateral quads (reversed winding — normals point INTO the hole)
+    for i in 0..n {
+        let j = (i + 1) % n;
+        // Reverse winding: i→j becomes j→i for inward normal
+        let edge_bot = v3_sub(inner_bottom[i], inner_bottom[j]);
+        let edge_up = v3_sub(inner_top[j], inner_bottom[j]);
+        let normal = v3_normalize(v3_cross(edge_bot, edge_up));
+        faces.push(FacePoly {
+            verts: vec![inner_bottom[j], inner_bottom[i], inner_top[i], inner_top[j]],
+            normal,
+            origin: inner_bottom[j],
+            surface_geom: Some(inner_cyl_surface.clone()),
+        });
+    }
+
+    // 3. Top annular cap — triangulated fan connecting outer and inner circles
+    //    Normal = +direction (outward = up)
+    let outer_top_center = [
+        outer.center_bottom[0] + dir[0] * outer.depth,
+        outer.center_bottom[1] + dir[1] * outer.depth,
+        outer.center_bottom[2] + dir[2] * outer.depth,
+    ];
+    for i in 0..n {
+        let j = (i + 1) % n;
+        // Triangle: outer_top[i] → outer_top[j] → inner_top[j]
+        faces.push(FacePoly {
+            verts: vec![outer_top[i], outer_top[j], inner_top[j]],
+            normal: dir,
+            origin: outer_top_center,
+            surface_geom: None,
+        });
+        // Triangle: outer_top[i] → inner_top[j] → inner_top[i]
+        faces.push(FacePoly {
+            verts: vec![outer_top[i], inner_top[j], inner_top[i]],
+            normal: dir,
+            origin: outer_top_center,
+            surface_geom: None,
+        });
+    }
+
+    // 4. Bottom cap
+    if through_hole {
+        // Bottom annular cap — same triangulated fan, normal = -direction
+        for i in 0..n {
+            let j = (i + 1) % n;
+            // Reversed winding for -direction normal
+            // Triangle: outer_bottom[j] → outer_bottom[i] → inner_bottom[i]
+            faces.push(FacePoly {
+                verts: vec![outer_bottom[j], outer_bottom[i], inner_bottom[i]],
+                normal: neg_dir,
+                origin: outer.center_bottom,
+                surface_geom: None,
+            });
+            // Triangle: outer_bottom[j] → inner_bottom[i] → inner_bottom[j]
+            faces.push(FacePoly {
+                verts: vec![outer_bottom[j], inner_bottom[i], inner_bottom[j]],
+                normal: neg_dir,
+                origin: outer.center_bottom,
+                surface_geom: None,
+            });
+        }
+    } else {
+        // Blind hole: full bottom cap (no hole at bottom)
+        let mut bottom_verts = outer_bottom.clone();
+        bottom_verts.reverse();
+        faces.push(FacePoly {
+            verts: bottom_verts,
+            normal: neg_dir,
+            origin: outer.center_bottom,
+            surface_geom: None,
+        });
+
+        // Inner bottom cap (circular face at bottom of blind hole)
+        // Normal = +direction (facing up, into the hole)
+        faces.push(FacePoly {
+            verts: inner_bottom.clone(), // CCW when viewed from +dir
+            normal: dir,
+            origin: inner_bottom_center,
+            surface_geom: None,
+        });
+    }
+
+    // ── Stitch into B-Rep ──
+    build_brep_from_polygons_inner(&faces, TAU_MODEL, true, id_alloc)
 }
 
 // ── Build concentric cylinder tube ────────────────────────────────────
@@ -5083,5 +5616,89 @@ mod tests {
             "bottom-only should have 1 inner loop (on bottom cap)"
         );
         assert_eq!(f, 8, "bottom-only: expected 8 faces, got {f}");
+    }
+
+    /// Test non-concentric enclosed cylinder subtract (through-hole).
+    ///
+    /// Big cylinder R=1.0 centered at origin, small cylinder r=0.2 centered at (0.3, 0.0).
+    /// Inner fully penetrates outer. Result should be a disc with an off-center hole.
+    #[test]
+    fn enclosed_cyl_subtract_through_hole() {
+        let outer = CylinderParams {
+            center_bottom: [0.0, 0.0, 0.0],
+            radius: 1.0,
+            depth: 0.5,
+            direction: [0.0, 0.0, 1.0],
+            x_axis: [1.0, 0.0, 0.0],
+            y_axis: [0.0, 1.0, 0.0],
+        };
+        let inner = CylinderParams {
+            center_bottom: [0.3, 0.0, -0.1], // offset, extends below
+            radius: 0.2,
+            depth: 0.8, // extends above: -0.1 to 0.7 covers [0, 0.5]
+            direction: [0.0, 0.0, 1.0],
+            x_axis: [1.0, 0.0, 0.0],
+            y_axis: [0.0, 1.0, 0.0],
+        };
+        let mut next_id = 1u64;
+        let mut id_alloc = || {
+            let id = next_id;
+            next_id += 1;
+            id
+        };
+
+        let result = cyl_cyl_boolean(&outer, &inner, BoolOp::Subtract, &mut id_alloc);
+        assert!(
+            result.is_ok(),
+            "enclosed through-hole should succeed: {:?}",
+            result.err()
+        );
+        let result = result.unwrap();
+
+        let f = count_faces(&result);
+        // Through-hole: 32 outer quads + 32 inner quads + 64 top tris + 64 bottom tris = 192
+        assert!(f > 100, "through-hole should produce many faces, got {f}");
+    }
+
+    /// Test non-concentric enclosed cylinder subtract (blind hole).
+    ///
+    /// Big cylinder R=1.0, small cylinder r=0.15 at (0.4, 0.2).
+    /// Inner only goes halfway through — produces blind pocket.
+    #[test]
+    fn enclosed_cyl_subtract_blind_hole() {
+        let outer = CylinderParams {
+            center_bottom: [0.0, 0.0, 0.0],
+            radius: 1.0,
+            depth: 1.0,
+            direction: [0.0, 0.0, 1.0],
+            x_axis: [1.0, 0.0, 0.0],
+            y_axis: [0.0, 1.0, 0.0],
+        };
+        let inner = CylinderParams {
+            center_bottom: [0.4, 0.2, 0.0],
+            radius: 0.15,
+            depth: 0.5, // only goes halfway
+            direction: [0.0, 0.0, 1.0],
+            x_axis: [1.0, 0.0, 0.0],
+            y_axis: [0.0, 1.0, 0.0],
+        };
+        let mut next_id = 1u64;
+        let mut id_alloc = || {
+            let id = next_id;
+            next_id += 1;
+            id
+        };
+
+        let result = cyl_cyl_boolean(&outer, &inner, BoolOp::Subtract, &mut id_alloc);
+        assert!(
+            result.is_ok(),
+            "enclosed blind-hole should succeed: {:?}",
+            result.err()
+        );
+        let result = result.unwrap();
+
+        let f = count_faces(&result);
+        // Blind hole: 32 outer quads + 32 inner quads + 64 top tris + 1 bottom cap + 1 inner cap = 130
+        assert!(f > 60, "blind-hole should produce many faces, got {f}");
     }
 }
