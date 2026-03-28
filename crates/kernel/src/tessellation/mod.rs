@@ -27,7 +27,7 @@ const CIRCLE_SEGMENTS: usize = 64;
 ///
 /// For polygon (box) solids: uses fan triangulation (same as before).
 /// For cylinder solids: uses geometry-driven circular cap + cylindrical side tessellation.
-#[allow(dead_code)]
+#[allow(dead_code)] // Used from #[cfg(test)] code in analytical.rs and waffle_kernel_tests.rs
 pub(crate) fn tessellate_solid(
     arena: &TopoArena,
     face_map: &BTreeMap<u64, FaceIdx>,
@@ -7162,7 +7162,6 @@ fn remove_isolated_triangles(
 ///
 /// Max position change: grid/2 ≈ 5e-5 at unit scale (0.05mm), well within
 /// manufacturing tolerance and f32 visual precision.
-#[allow(dead_code)]
 /// Snap boundary vertex positions to the oracle's quantization grid.
 /// Only vertices on unpaired edges are snapped, preserving interior mesh quality.
 fn snap_boundary_to_oracle_grid(vertices: &mut [f32], indices: &[u32]) {

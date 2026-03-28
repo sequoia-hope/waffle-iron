@@ -482,7 +482,6 @@ pub(crate) fn dedup_face_polys(polys: &[FacePoly], tau_weld: f64) -> Vec<FacePol
 }
 
 /// This avoids moving isolated vertices and preserves original face geometry.
-#[allow(dead_code)]
 pub(crate) fn merge_nearby_vertices(polys: &[FacePoly], tau_weld: f64) -> Vec<FacePoly> {
     // Compute merge tolerance directly from vertex coordinates to align with
     // the oracle's f32 quantization grid (max_abs * 1e-5). Use 2x grid to
