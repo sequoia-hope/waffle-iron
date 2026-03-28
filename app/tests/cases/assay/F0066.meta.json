@@ -170,6 +170,6 @@
     ],
     "expect_rebuild_error": false
   },
-  "generator_version": 3,
+  "generator_version": 4,
   "featured": true
 }

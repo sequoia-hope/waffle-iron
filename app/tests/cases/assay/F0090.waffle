@@ -1,0 +1,3217 @@
+{
+  "format": "waffle-iron",
+  "version": 3,
+  "document": {
+    "name": "Assay F0090",
+    "created": "2026-03-28T05:04:10.024033559Z",
+    "modified": "2026-03-28T05:04:10.024033559Z"
+  },
+  "tabs": [
+    {
+      "id": "9391a3f0-e56a-4bc6-9ea1-ed73cb4469d2",
+      "name": "Part 1",
+      "kind": {
+        "type": "Part",
+        "features": {
+          "features": [
+            {
+              "id": "629c9b8a-54bf-4855-b2b8-83b5504bbbc3",
+              "name": "Disc Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "629c9b8a-54bf-4855-b2b8-83b5504bbbc3",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "32cca6c5-ea98-4623-80c4-add0c6ba3645"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": 0.0,
+                      "y": 0.0,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 1.949952676445734,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      0.0,
+                      0.0
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": 0.0,
+                        "center_v": 0.0,
+                        "radius": 1.949952676445734
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "677cdc20-d208-4df2-b14b-12aba5a6690a",
+              "name": "Disc Extrude",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "629c9b8a-54bf-4855-b2b8-83b5504bbbc3",
+                  "profile_index": 0,
+                  "depth": 0.4640981207724759,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": false,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "cd6ffe9a-cde1-434a-9966-f69ccec79f84",
+              "name": "Hole 1 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "cd6ffe9a-cde1-434a-9966-f69ccec79f84",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "65c9e7b3-1aff-450a-8cbe-cf2b30fd418d"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": 0.27316509614628137,
+                      "y": 0.27144718566612946,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      0.27316509614628137,
+                      0.27144718566612946
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": 0.27316509614628137,
+                        "center_v": 0.27144718566612946,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "4368827f-b583-4b0a-ad9c-ec61788898fe",
+              "name": "Hole 1 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "cd6ffe9a-cde1-434a-9966-f69ccec79f84",
+                  "profile_index": 0,
+                  "depth": 1.0152352850121833,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "c6ac6e54-87fd-4a46-bb08-a7146639d3c3",
+              "name": "Hole 2 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "c6ac6e54-87fd-4a46-bb08-a7146639d3c3",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "fb123d08-2261-48c8-8236-9197ad838997"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": -0.53673080264824,
+                      "y": -1.4341425308476503,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      -0.53673080264824,
+                      -1.4341425308476503
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": -0.53673080264824,
+                        "center_v": -1.4341425308476503,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "03007bb0-7b99-4d5a-a910-c4e8c31730b1",
+              "name": "Hole 2 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "c6ac6e54-87fd-4a46-bb08-a7146639d3c3",
+                  "profile_index": 0,
+                  "depth": 1.1387439874959013,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "51db89c0-263c-40b7-855b-139ba8cd3720",
+              "name": "Hole 3 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "51db89c0-263c-40b7-855b-139ba8cd3720",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "ecb85577-befe-43c0-9086-b8a0673b0553"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": -1.3291095975787688,
+                      "y": 0.2274569468070904,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      -1.3291095975787688,
+                      0.2274569468070904
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": -1.3291095975787688,
+                        "center_v": 0.2274569468070904,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "d5c5bda4-257f-4850-b481-87b621a678e6",
+              "name": "Hole 3 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "51db89c0-263c-40b7-855b-139ba8cd3720",
+                  "profile_index": 0,
+                  "depth": 1.2789422323321724,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "c8c69a60-33da-4e6d-a37e-6e9dfa8a3f9e",
+              "name": "Hole 4 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "c8c69a60-33da-4e6d-a37e-6e9dfa8a3f9e",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "b9a309c3-491c-48cd-af44-790747c611b3"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": -0.3971281771685192,
+                      "y": 1.8292424007626322,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      -0.3971281771685192,
+                      1.8292424007626322
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": -0.3971281771685192,
+                        "center_v": 1.8292424007626322,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "3c49ab8c-51ca-47fd-927d-244cc8319ece",
+              "name": "Hole 4 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "c8c69a60-33da-4e6d-a37e-6e9dfa8a3f9e",
+                  "profile_index": 0,
+                  "depth": 1.0460475747493216,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "fefcc3ae-f926-4c4f-9ce6-4a130aef7ff5",
+              "name": "Hole 5 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "fefcc3ae-f926-4c4f-9ce6-4a130aef7ff5",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "a1a9c3ab-3016-4480-a3cd-b744bcf983e6"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": 0.09378079689674315,
+                      "y": 0.6628791953622455,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      0.09378079689674315,
+                      0.6628791953622455
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": 0.09378079689674315,
+                        "center_v": 0.6628791953622455,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "c76ef6ec-92a2-4da6-9fad-cdc53969edb5",
+              "name": "Hole 5 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "fefcc3ae-f926-4c4f-9ce6-4a130aef7ff5",
+                  "profile_index": 0,
+                  "depth": 1.3057819201236136,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "1764c603-88f4-49c8-8f02-41f95b360bc9",
+              "name": "Hole 6 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "1764c603-88f4-49c8-8f02-41f95b360bc9",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "709bb779-d970-4830-95d9-f92f0668496a"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": -0.005707830499044367,
+                      "y": 0.061132734513484076,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      -0.005707830499044367,
+                      0.061132734513484076
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": -0.005707830499044367,
+                        "center_v": 0.061132734513484076,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "dc7de992-9f02-43fd-ab5a-9745aa69d8ae",
+              "name": "Hole 6 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "1764c603-88f4-49c8-8f02-41f95b360bc9",
+                  "profile_index": 0,
+                  "depth": 1.3203995259758554,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "debeb600-b919-476f-a5c9-05f2b9ed582a",
+              "name": "Hole 7 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "debeb600-b919-476f-a5c9-05f2b9ed582a",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "e6ee001d-9bf3-4170-adf8-3746388fd36b"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": 1.5425033160829418,
+                      "y": 0.2390890943567454,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      1.5425033160829418,
+                      0.2390890943567454
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": 1.5425033160829418,
+                        "center_v": 0.2390890943567454,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "d54a9934-2d37-4e24-8318-08a3af1f6c6c",
+              "name": "Hole 7 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "debeb600-b919-476f-a5c9-05f2b9ed582a",
+                  "profile_index": 0,
+                  "depth": 1.292075306693227,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "6a34e0e9-d110-4bab-956c-af528050a792",
+              "name": "Hole 8 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "6a34e0e9-d110-4bab-956c-af528050a792",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "1aa118fe-9349-44d0-827f-68510938e555"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": 0.8353695813679471,
+                      "y": -1.1550339287066818,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      0.8353695813679471,
+                      -1.1550339287066818
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": 0.8353695813679471,
+                        "center_v": -1.1550339287066818,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "1eb80517-0dd9-4b92-b7a2-b806899a91bf",
+              "name": "Hole 8 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "6a34e0e9-d110-4bab-956c-af528050a792",
+                  "profile_index": 0,
+                  "depth": 1.2862636613518763,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "05ff5ace-0feb-42e1-b290-f548b10144ce",
+              "name": "Hole 9 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "05ff5ace-0feb-42e1-b290-f548b10144ce",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "4d9b1dd2-11cb-4c51-a94a-422eab617ff1"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": -0.05972179697584232,
+                      "y": -0.06600030180899857,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      -0.05972179697584232,
+                      -0.06600030180899857
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": -0.05972179697584232,
+                        "center_v": -0.06600030180899857,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "3180a559-e126-47e7-b49d-036d64396f1d",
+              "name": "Hole 9 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "05ff5ace-0feb-42e1-b290-f548b10144ce",
+                  "profile_index": 0,
+                  "depth": 0.8838535591508262,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "7c2e9518-46b6-4d8e-8b0f-1e11a38e142f",
+              "name": "Hole 10 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "7c2e9518-46b6-4d8e-8b0f-1e11a38e142f",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "58d0dd03-230b-4bc9-b9cc-5930f6d79212"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": -0.31092638665392425,
+                      "y": -1.5163530503383613,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      -0.31092638665392425,
+                      -1.5163530503383613
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": -0.31092638665392425,
+                        "center_v": -1.5163530503383613,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "bda19cb3-e6d3-4849-8fe8-10cbe397d64c",
+              "name": "Hole 10 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "7c2e9518-46b6-4d8e-8b0f-1e11a38e142f",
+                  "profile_index": 0,
+                  "depth": 1.2617048458207456,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "589789e6-74bc-46b9-b568-2fc2ee4a828e",
+              "name": "Hole 11 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "589789e6-74bc-46b9-b568-2fc2ee4a828e",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "bcb25b91-8279-41cb-b99c-81fd42d366fd"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": -0.8739997960030204,
+                      "y": 1.1114683148623188,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      -0.8739997960030204,
+                      1.1114683148623188
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": -0.8739997960030204,
+                        "center_v": 1.1114683148623188,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "d9b3814c-c243-4563-9c0d-eb78567d82e5",
+              "name": "Hole 11 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "589789e6-74bc-46b9-b568-2fc2ee4a828e",
+                  "profile_index": 0,
+                  "depth": 0.7934224656003068,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "6df27edd-02c6-441c-8f64-ceae8b28f72a",
+              "name": "Hole 12 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "6df27edd-02c6-441c-8f64-ceae8b28f72a",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "26cef7a6-f664-403e-8c69-7e95de97aa2a"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": -0.07183567963130161,
+                      "y": 1.052480508204534,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      -0.07183567963130161,
+                      1.052480508204534
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": -0.07183567963130161,
+                        "center_v": 1.052480508204534,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "4df986c9-7178-4aa7-85b5-ff466d5635f1",
+              "name": "Hole 12 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "6df27edd-02c6-441c-8f64-ceae8b28f72a",
+                  "profile_index": 0,
+                  "depth": 0.7025971473875108,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "bc7cbe52-abf3-4707-b3fb-570be4c1d55a",
+              "name": "Hole 13 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "bc7cbe52-abf3-4707-b3fb-570be4c1d55a",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "8983dc28-aa76-442e-a100-5f618db7efc1"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": 0.4666564947999144,
+                      "y": -0.4379564748975548,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      0.4666564947999144,
+                      -0.4379564748975548
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": 0.4666564947999144,
+                        "center_v": -0.4379564748975548,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "f7b2fec6-c832-43e1-8387-b5d7a7ba6053",
+              "name": "Hole 13 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "bc7cbe52-abf3-4707-b3fb-570be4c1d55a",
+                  "profile_index": 0,
+                  "depth": 0.8841446380865406,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "be5e5858-6288-42fe-8868-a9da6719eb1f",
+              "name": "Hole 14 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "be5e5858-6288-42fe-8868-a9da6719eb1f",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "a18c5ff4-863d-4281-9c03-1e2c93548cb9"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": -0.14428197977079135,
+                      "y": -0.4312308191790182,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      -0.14428197977079135,
+                      -0.4312308191790182
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": -0.14428197977079135,
+                        "center_v": -0.4312308191790182,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "132ad336-1b1c-413b-a17e-bb27207a76bf",
+              "name": "Hole 14 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "be5e5858-6288-42fe-8868-a9da6719eb1f",
+                  "profile_index": 0,
+                  "depth": 0.9848934771081088,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "4eba5c42-da82-4534-81d4-8a7f869a71e5",
+              "name": "Hole 15 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "4eba5c42-da82-4534-81d4-8a7f869a71e5",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "0a06a34e-7f33-4083-96be-ecadbc3da68d"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": -0.9468570246455923,
+                      "y": -0.7890757768431822,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      -0.9468570246455923,
+                      -0.7890757768431822
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": -0.9468570246455923,
+                        "center_v": -0.7890757768431822,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "c2d28de3-2ad1-4b5b-8d60-2d0d3e245b40",
+              "name": "Hole 15 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "4eba5c42-da82-4534-81d4-8a7f869a71e5",
+                  "profile_index": 0,
+                  "depth": 1.2917045467218717,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "1ed1cf63-c461-4114-9087-016647fc7b8a",
+              "name": "Hole 16 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "1ed1cf63-c461-4114-9087-016647fc7b8a",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "d4a09c7e-52e9-4a39-a67e-4ec2d00218cc"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": 0.3759224128561083,
+                      "y": -0.4954286717678849,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      0.3759224128561083,
+                      -0.4954286717678849
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": 0.3759224128561083,
+                        "center_v": -0.4954286717678849,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "104470f2-9320-465e-9c9d-b04ce87f2fe9",
+              "name": "Hole 16 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "1ed1cf63-c461-4114-9087-016647fc7b8a",
+                  "profile_index": 0,
+                  "depth": 0.36974099009531913,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "c0f9a7c3-02c7-4b83-8c15-5d2bc9e6ff74",
+              "name": "Hole 17 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "c0f9a7c3-02c7-4b83-8c15-5d2bc9e6ff74",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "55a146d7-018f-4975-a2f7-f44bf8da01ec"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": -0.16749887969035238,
+                      "y": 0.2839431769491636,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      -0.16749887969035238,
+                      0.2839431769491636
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": -0.16749887969035238,
+                        "center_v": 0.2839431769491636,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "c532b745-5907-48f3-824a-9dd08c073ea8",
+              "name": "Hole 17 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "c0f9a7c3-02c7-4b83-8c15-5d2bc9e6ff74",
+                  "profile_index": 0,
+                  "depth": 0.14315820300490303,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "792f0f36-99ab-4e8b-91bb-b20d5dc792e2",
+              "name": "Hole 18 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "792f0f36-99ab-4e8b-91bb-b20d5dc792e2",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "e75749d3-3a90-46b0-9749-688d129b8f97"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": -0.3608676585494947,
+                      "y": 0.09196455149858858,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      -0.3608676585494947,
+                      0.09196455149858858
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": -0.3608676585494947,
+                        "center_v": 0.09196455149858858,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "3d7ebf63-69d5-45cc-9518-dc6f90ca75c8",
+              "name": "Hole 18 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "792f0f36-99ab-4e8b-91bb-b20d5dc792e2",
+                  "profile_index": 0,
+                  "depth": 0.15941138130828916,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "93fdcdee-9f85-42d5-948a-5a07680668c4",
+              "name": "Hole 19 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "93fdcdee-9f85-42d5-948a-5a07680668c4",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "3b37af3e-9102-40c7-b523-1399a221b913"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": -0.040614348103886054,
+                      "y": 0.15433371810199578,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      -0.040614348103886054,
+                      0.15433371810199578
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": -0.040614348103886054,
+                        "center_v": 0.15433371810199578,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "b5a02b74-df7d-44ac-8b09-6195bb965d4a",
+              "name": "Hole 19 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "93fdcdee-9f85-42d5-948a-5a07680668c4",
+                  "profile_index": 0,
+                  "depth": 0.24333190023069468,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "206b1d9a-5d06-4770-aa60-a35dd564082c",
+              "name": "Hole 20 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "206b1d9a-5d06-4770-aa60-a35dd564082c",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "e30269cf-13a2-43f3-be4c-c55d5e301a92"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": 1.1081534258855548,
+                      "y": 1.0325615353854474,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      1.1081534258855548,
+                      1.0325615353854474
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": 1.1081534258855548,
+                        "center_v": 1.0325615353854474,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "6a196d6b-7526-41b7-940f-1880d463e345",
+              "name": "Hole 20 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "206b1d9a-5d06-4770-aa60-a35dd564082c",
+                  "profile_index": 0,
+                  "depth": 0.25050217008007053,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "4f426419-0ad3-49e0-b765-d6266cfca82b",
+              "name": "Hole 21 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "4f426419-0ad3-49e0-b765-d6266cfca82b",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "b1ddd8b8-16b0-409f-8cd8-48572ea05828"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": 1.3283853547701168,
+                      "y": 0.6741441197952974,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      1.3283853547701168,
+                      0.6741441197952974
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": 1.3283853547701168,
+                        "center_v": 0.6741441197952974,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "74b3eeae-4e80-4c10-ad01-66a6470cf309",
+              "name": "Hole 21 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "4f426419-0ad3-49e0-b765-d6266cfca82b",
+                  "profile_index": 0,
+                  "depth": 0.18914699574704927,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "d7f60f32-ddb7-456d-a0f4-f6bab3abc0a1",
+              "name": "Hole 22 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "d7f60f32-ddb7-456d-a0f4-f6bab3abc0a1",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "2da9a3fe-2b46-4d24-872d-7cea84c7d778"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": -0.09285699605166432,
+                      "y": 0.19749788818787017,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      -0.09285699605166432,
+                      0.19749788818787017
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": -0.09285699605166432,
+                        "center_v": 0.19749788818787017,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "d9a615a9-d038-450a-86a0-4b187c3bba80",
+              "name": "Hole 22 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "d7f60f32-ddb7-456d-a0f4-f6bab3abc0a1",
+                  "profile_index": 0,
+                  "depth": 0.2971542246427767,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "2e1cd720-65b8-476e-9448-a0afd685ffb3",
+              "name": "Hole 23 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "2e1cd720-65b8-476e-9448-a0afd685ffb3",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "016d1708-c3f7-46ee-801d-bd0410e67a5a"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": -0.20286176174215118,
+                      "y": 0.0785905231044705,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      -0.20286176174215118,
+                      0.0785905231044705
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": -0.20286176174215118,
+                        "center_v": 0.0785905231044705,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "60ddcefd-d9a5-4bc5-8a62-1027209c94ca",
+              "name": "Hole 23 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "2e1cd720-65b8-476e-9448-a0afd685ffb3",
+                  "profile_index": 0,
+                  "depth": 0.3302115676735805,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "5ec67031-bfb4-40fe-9542-4d601e268827",
+              "name": "Hole 24 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "5ec67031-bfb4-40fe-9542-4d601e268827",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "45d22848-2e6e-4615-a1f4-4991996b2190"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": 0.1228942903755248,
+                      "y": 1.7756496543333105,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      0.1228942903755248,
+                      1.7756496543333105
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": 0.1228942903755248,
+                        "center_v": 1.7756496543333105,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "38104799-d5b2-44ca-85f6-13dabe61332e",
+              "name": "Hole 24 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "5ec67031-bfb4-40fe-9542-4d601e268827",
+                  "profile_index": 0,
+                  "depth": 0.21627416373773015,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "e2a900cc-a757-47a3-936e-ab80c2645ef3",
+              "name": "Hole 25 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "e2a900cc-a757-47a3-936e-ab80c2645ef3",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "5233cc0c-d1a4-4475-8a96-0b03c6311088"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": 0.29416489763479653,
+                      "y": -1.1826254861755647,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      0.29416489763479653,
+                      -1.1826254861755647
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": 0.29416489763479653,
+                        "center_v": -1.1826254861755647,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "a4a60097-d654-4bbc-a1e2-2442567e3be7",
+              "name": "Hole 25 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "e2a900cc-a757-47a3-936e-ab80c2645ef3",
+                  "profile_index": 0,
+                  "depth": 0.2984333382209482,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "d6aaeb78-aa42-4bd9-a7f6-dc21b57e552f",
+              "name": "Hole 26 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "d6aaeb78-aa42-4bd9-a7f6-dc21b57e552f",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "f7698c8c-66aa-4452-86fb-e45cfb0577a7"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": 1.6009194567053628,
+                      "y": 0.14653126518735202,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      1.6009194567053628,
+                      0.14653126518735202
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": 1.6009194567053628,
+                        "center_v": 0.14653126518735202,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "1db559e2-cf24-4622-af6f-9393eecf1de8",
+              "name": "Hole 26 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "d6aaeb78-aa42-4bd9-a7f6-dc21b57e552f",
+                  "profile_index": 0,
+                  "depth": 0.14945563387239297,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "8005238d-3fb2-4ba0-b4d9-31c710e46180",
+              "name": "Hole 27 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "8005238d-3fb2-4ba0-b4d9-31c710e46180",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "b92b3b94-3873-4c5c-8514-4e9f080b88d5"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": -0.04274627747039319,
+                      "y": -0.46082999237250566,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      -0.04274627747039319,
+                      -0.46082999237250566
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": -0.04274627747039319,
+                        "center_v": -0.46082999237250566,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "a25e28f9-9a21-40fe-9744-9fecc0cbb691",
+              "name": "Hole 27 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "8005238d-3fb2-4ba0-b4d9-31c710e46180",
+                  "profile_index": 0,
+                  "depth": 0.1536907113410939,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "4e585305-7e51-4d79-9b26-12848e33550f",
+              "name": "Hole 28 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "4e585305-7e51-4d79-9b26-12848e33550f",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "874c357c-e370-40db-976f-ac6ec8625f2d"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": -1.4808951799819159,
+                      "y": -0.6919189780865233,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      -1.4808951799819159,
+                      -0.6919189780865233
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": -1.4808951799819159,
+                        "center_v": -0.6919189780865233,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "80eb76ff-68c9-4617-a355-4bc351077e87",
+              "name": "Hole 28 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "4e585305-7e51-4d79-9b26-12848e33550f",
+                  "profile_index": 0,
+                  "depth": 0.33073520103149445,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "61dc721c-83a7-49a5-8bcf-f0826c08f175",
+              "name": "Hole 29 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "61dc721c-83a7-49a5-8bcf-f0826c08f175",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "9b02e43c-8abd-4dae-adfd-47f58088a484"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": 1.586931662811778,
+                      "y": 0.5829116641223379,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      1.586931662811778,
+                      0.5829116641223379
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": 1.586931662811778,
+                        "center_v": 0.5829116641223379,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "785e1ba9-ae59-4fed-a4f9-570e97e5d810",
+              "name": "Hole 29 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "61dc721c-83a7-49a5-8bcf-f0826c08f175",
+                  "profile_index": 0,
+                  "depth": 0.36287540706444155,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "494df512-4892-4655-a4ba-9a961258f07d",
+              "name": "Hole 30 Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "494df512-4892-4655-a4ba-9a961258f07d",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "354762d5-0d65-4052-a01d-f60a46410d28"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": -0.3143507102645829,
+                      "y": -1.820690230291082,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 2,
+                      "center_id": 1,
+                      "radius": 0.024226758979155424,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      -0.3143507102645829,
+                      -1.820690230291082
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": -0.3143507102645829,
+                        "center_v": -1.820690230291082,
+                        "radius": 0.024226758979155424
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "a017b33c-5945-473a-8bc0-3f8e127979a8",
+              "name": "Hole 30 Cut",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "494df512-4892-4655-a4ba-9a961258f07d",
+                  "profile_index": 0,
+                  "depth": 0.35011693882599376,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            }
+          ],
+          "active_index": null
+        }
+      }
+    }
+  ],
+  "active_tab": "9391a3f0-e56a-4bc6-9ea1-ed73cb4469d2"
+}

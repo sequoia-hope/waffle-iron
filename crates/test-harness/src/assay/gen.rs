@@ -20,7 +20,7 @@ use file_format::save::save_project;
 use waffle_types::{CircleProfile, ClosedProfile, Sketch, SketchEntity, SolveStatus};
 
 /// Generator version — bump when output format changes.
-pub const GENERATOR_VERSION: u32 = 3;
+pub const GENERATOR_VERSION: u32 = 4;
 
 // ── Configuration ──────────────────────────────────────────────────────────
 
@@ -1058,6 +1058,12 @@ pub fn generate_featured_cases(output_dir: &std::path::Path) -> Vec<ManifestEntr
 
     // Append revolve self-intersection cases (F0073-F0075)
     entries.extend(generate_revolve_self_intersection_cases(output_dir));
+
+    // Append off-axis chained extrude cases (F0076-F0085)
+    entries.extend(generate_off_axis_chained_cases(output_dir));
+
+    // Append swiss cheese disc cases (F0086-F0090)
+    entries.extend(generate_swiss_cheese_disc_cases(output_dir));
 
     entries
 }
@@ -2712,6 +2718,336 @@ fn chained_profile_shape(rng: &mut impl Rng, s: f64, step: usize) -> (ProfileDat
     }
 }
 
+// ── Geometry Helpers ──────────────────────────────────────────────────────
+
+/// 3D cross product.
+fn cross3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
+/// Rotate a unit normal by a random angle up to `max_angle_deg` using Rodrigues' formula.
+///
+/// Returns the new unit normal.
+fn rotate_normal(normal: [f64; 3], rng: &mut impl Rng, max_angle_deg: f64) -> [f64; 3] {
+    let theta = rng.gen_range(0.0..max_angle_deg).to_radians();
+
+    // Find a random axis perpendicular to `normal` via rejection sampling
+    let k = loop {
+        let candidate = [
+            rng.gen_range(-1.0..1.0f64),
+            rng.gen_range(-1.0..1.0f64),
+            rng.gen_range(-1.0..1.0f64),
+        ];
+        let c = cross3(normal, candidate);
+        let len = (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]).sqrt();
+        if len > 1e-6 {
+            break [c[0] / len, c[1] / len, c[2] / len];
+        }
+    };
+
+    // Rodrigues: v_rot = v*cos(θ) + (k×v)*sin(θ) + k*(k·v)*(1-cos(θ))
+    let cos_t = theta.cos();
+    let sin_t = theta.sin();
+    let kxv = cross3(k, normal);
+    let kdv = k[0] * normal[0] + k[1] * normal[1] + k[2] * normal[2];
+
+    let r = [
+        normal[0] * cos_t + kxv[0] * sin_t + k[0] * kdv * (1.0 - cos_t),
+        normal[1] * cos_t + kxv[1] * sin_t + k[1] * kdv * (1.0 - cos_t),
+        normal[2] * cos_t + kxv[2] * sin_t + k[2] * kdv * (1.0 - cos_t),
+    ];
+
+    // Re-normalize
+    let len = (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt();
+    [r[0] / len, r[1] / len, r[2] / len]
+}
+
+/// Generate non-overlapping hole positions inside a disc via polar rejection sampling.
+///
+/// Returns up to `n_holes` positions as (x, y) pairs. May return fewer if placement fails.
+fn random_hole_positions(
+    rng: &mut impl Rng,
+    disc_radius: f64,
+    hole_radius: f64,
+    n_holes: usize,
+) -> Vec<(f64, f64)> {
+    let max_r = disc_radius - hole_radius;
+    if max_r <= 0.0 {
+        return vec![];
+    }
+    let max_attempts = n_holes * 1000;
+    let mut positions: Vec<(f64, f64)> = Vec::with_capacity(n_holes);
+    let mut attempts = 0;
+
+    while positions.len() < n_holes && attempts < max_attempts {
+        attempts += 1;
+        let r = rng.gen_range(0.0..max_r);
+        let angle = rng.gen_range(0.0..std::f64::consts::TAU);
+        let x = r * angle.cos();
+        let y = r * angle.sin();
+
+        // Check non-overlap with all previously placed holes
+        let overlaps = positions.iter().any(|&(px, py)| {
+            let dx = x - px;
+            let dy = y - py;
+            (dx * dx + dy * dy).sqrt() < 2.0 * hole_radius
+        });
+        if !overlaps {
+            positions.push((x, y));
+        }
+    }
+    positions
+}
+
+// ── Off-Axis Chained Extrude Cases (F0076-F0085) ────────────────────────
+
+/// Generate 10 off-axis chained extrude cases.
+///
+/// Like `generate_chained_extrude_cases` but each step tilts the extrusion
+/// normal by 0-5° from the previous step, creating near-coplanar boolean faces.
+fn generate_off_axis_chained_cases(output_dir: &std::path::Path) -> Vec<ManifestEntry> {
+    let mut entries = Vec::new();
+
+    let specs: [(u64, usize, u64); 10] = [
+        (76, 5, 20001),
+        (77, 5, 20002),
+        (78, 8, 20003),
+        (79, 8, 20004),
+        (80, 10, 20005),
+        (81, 12, 20006),
+        (82, 15, 20007),
+        (83, 15, 20008),
+        (84, 20, 20009),
+        (85, 20, 20010),
+    ];
+
+    for &(case_num, chain_length, seed) in &specs {
+        let case_id = format!("F{:04}", case_num);
+        let mut rng = <rand::rngs::StdRng as rand::SeedableRng>::seed_from_u64(seed);
+
+        let mut current_normal = [0.0, 0.0, 1.0];
+        let mut current_origin = [0.0, 0.0, 0.0];
+        let mut features: Vec<Feature> = Vec::new();
+        let mut op_metas: Vec<OpMeta> = Vec::new();
+        let mut volume_monotonicity: Vec<String> = Vec::new();
+
+        for step in 0..chain_length {
+            // Tilt normal by 0-5° from current
+            current_normal = rotate_normal(current_normal, &mut rng, 5.0);
+
+            let depth: f64 = rng.gen_range(0.1..0.3);
+            let scale_frac: f64 = rng.gen_range(0.15..0.5);
+            let (profile_data, profile_type, profile_size) =
+                chained_profile_shape(&mut rng, scale_frac, step);
+
+            let (_, pair) = build_sketch_extrude(
+                &format!("Sketch {}", step + 1),
+                &format!("Extrude {}", step + 1),
+                current_origin,
+                current_normal,
+                profile_data,
+                depth,
+                false,
+                false,
+            );
+            features.extend(pair);
+
+            op_metas.push(OpMeta {
+                kind: "extrude".to_string(),
+                profile_type,
+                profile_size,
+                depth_or_angle: depth,
+                is_cut: false,
+                plane_origin: Some(current_origin),
+                plane_normal: Some(current_normal),
+            });
+
+            volume_monotonicity.push("increase".to_string());
+
+            // Advance origin along current (tilted) normal
+            current_origin = [
+                current_origin[0] + current_normal[0] * depth,
+                current_origin[1] + current_normal[1] * depth,
+                current_origin[2] + current_normal[2] * depth,
+            ];
+        }
+
+        let max_bbox_extent = 4.0 + (chain_length as f64) * 0.5;
+        let description = format!(
+            "{} ops, off-axis chained extrudes (0-5° tilt/step) — seed {}",
+            chain_length, seed
+        );
+
+        let meta = AssayMeta {
+            id: case_id.clone(),
+            description: description.clone(),
+            master_seed: 0,
+            test_seed: seed,
+            scale: 1.0,
+            log_scale: 0.0,
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
+            operations: op_metas,
+            oracles: OracleExpectations {
+                euler_target: 2,
+                expect_watertight: true,
+                max_bbox_extent,
+                expect_positive_volume: true,
+                volume_monotonicity,
+                expect_rebuild_error: false,
+            },
+            generator_version: GENERATOR_VERSION,
+            featured: true,
+        };
+
+        entries.push(write_featured_case(output_dir, &case_id, features, meta));
+    }
+
+    entries
+}
+
+// ── Swiss Cheese Disc Cases (F0086-F0090) ────────────────────────────────
+
+/// Generate 5 swiss cheese disc cases: circular disc + many random holes.
+fn generate_swiss_cheese_disc_cases(output_dir: &std::path::Path) -> Vec<ManifestEntry> {
+    let mut entries = Vec::new();
+
+    // (case_num, n_holes, n_through, n_blind, seed)
+    let specs: [(u64, usize, usize, usize, u64); 5] = [
+        (86, 5, 3, 2, 30001),
+        (87, 10, 5, 5, 30002),
+        (88, 15, 8, 7, 30003),
+        (89, 20, 10, 10, 30004),
+        (90, 30, 15, 15, 30005),
+    ];
+
+    let origin = [0.0, 0.0, 0.0];
+    let normal = [0.0, 0.0, 1.0];
+
+    for &(case_num, n_holes, n_through, n_blind, seed) in &specs {
+        let case_id = format!("F{:04}", case_num);
+        let mut rng = <rand::rngs::StdRng as rand::SeedableRng>::seed_from_u64(seed);
+
+        let disc_radius: f64 = rng.gen_range(1.0..2.0);
+        let disc_depth: f64 = rng.gen_range(0.2..0.5);
+
+        // Scale hole radius down for high hole counts
+        let base_hole_radius: f64 = rng.gen_range(0.02..0.1);
+        let hole_radius = if n_holes >= 20 {
+            base_hole_radius / ((n_holes as f64) / 10.0).sqrt()
+        } else {
+            base_hole_radius
+        };
+
+        // Op 1: disc boss
+        let mut features: Vec<Feature> = Vec::new();
+        let mut op_metas: Vec<OpMeta> = Vec::new();
+        let mut volume_monotonicity: Vec<String> = Vec::new();
+
+        let disc_profile = true_circle_profile(0.0, 0.0, disc_radius);
+        let (_, disc_pair) = build_sketch_extrude(
+            "Disc Sketch",
+            "Disc Extrude",
+            origin,
+            normal,
+            disc_profile,
+            disc_depth,
+            false,
+            false,
+        );
+        features.extend(disc_pair);
+        op_metas.push(OpMeta {
+            kind: "extrude".to_string(),
+            profile_type: "circle".to_string(),
+            profile_size: disc_radius,
+            depth_or_angle: disc_depth,
+            is_cut: false,
+            plane_origin: Some(origin),
+            plane_normal: Some(normal),
+        });
+        volume_monotonicity.push("increase".to_string());
+
+        // Place holes
+        let positions = random_hole_positions(&mut rng, disc_radius, hole_radius, n_holes);
+        let actual_holes = positions.len();
+        let actual_through = n_through.min(actual_holes);
+        let _actual_blind = n_blind.min(actual_holes.saturating_sub(actual_through));
+
+        for (i, &(hx, hy)) in positions.iter().enumerate() {
+            let is_through = i < actual_through;
+            let hole_depth = if is_through {
+                disc_depth * rng.gen_range(1.5..3.0) // penetrates fully
+            } else {
+                disc_depth * rng.gen_range(0.3..0.8) // blind pocket
+            };
+
+            let hole_profile = true_circle_profile(hx, hy, hole_radius);
+            let (_, hole_pair) = build_sketch_extrude(
+                &format!("Hole {} Sketch", i + 1),
+                &format!("Hole {} Cut", i + 1),
+                origin,
+                normal,
+                hole_profile,
+                hole_depth,
+                true, // cut
+                false,
+            );
+            features.extend(hole_pair);
+            op_metas.push(OpMeta {
+                kind: "extrude".to_string(),
+                profile_type: "circle".to_string(),
+                profile_size: hole_radius,
+                depth_or_angle: hole_depth,
+                is_cut: true,
+                plane_origin: Some(origin),
+                plane_normal: Some(normal),
+            });
+            volume_monotonicity.push("decrease".to_string());
+        }
+
+        let euler_target = 2 - 2 * (actual_through as i64);
+        let max_bbox_extent = 2.0 * disc_radius + 1.0;
+        let description = format!(
+            "{} ops, swiss cheese disc (R={:.2}, {} through + {} blind holes) — seed {}",
+            1 + actual_holes,
+            disc_radius,
+            actual_through,
+            actual_holes - actual_through,
+            seed
+        );
+
+        let meta = AssayMeta {
+            id: case_id.clone(),
+            description: description.clone(),
+            master_seed: 0,
+            test_seed: seed,
+            scale: 1.0,
+            log_scale: 0.0,
+            plane_origin: origin,
+            plane_normal: normal,
+            operations: op_metas,
+            oracles: OracleExpectations {
+                euler_target,
+                expect_watertight: true,
+                max_bbox_extent,
+                expect_positive_volume: true,
+                volume_monotonicity,
+                expect_rebuild_error: false,
+            },
+            generator_version: GENERATOR_VERSION,
+            featured: true,
+        };
+
+        entries.push(write_featured_case(output_dir, &case_id, features, meta));
+    }
+
+    entries
+}
+
 // ── Revolve Self-Intersection Cases (F0073-F0075) ─────────────────────────
 
 /// Generate 3 revolve self-intersection test cases:
@@ -3266,12 +3602,12 @@ mod tests {
     }
 
     #[test]
-    fn featured_case_ids_f0026_to_f0075() {
+    fn featured_case_ids_f0026_to_f0090() {
         let dir = tempfile::tempdir().unwrap();
         let entries = generate_featured_cases(dir.path());
         let ids: Vec<&str> = entries.iter().map(|e| e.id.as_str()).collect();
-        // Check that F0026-F0075 are all present
-        for n in 26..=75 {
+        // Check that F0026-F0090 are all present
+        for n in 26..=90 {
             let expected = format!("F{:04}", n);
             assert!(
                 ids.contains(&expected.as_str()),
@@ -3279,8 +3615,9 @@ mod tests {
                 expected
             );
         }
-        // Total: F0001-F0010 (10) + F0011-F0015 (5) + F0016-F0025 (10) + F0026-F0062 (37) + F0063-F0072 (10) + F0073-F0075 (3) = 75
-        assert_eq!(entries.len(), 75, "expected 75 featured cases");
+        // Total: F0001-F0010 (10) + F0011-F0015 (5) + F0016-F0025 (10) + F0026-F0062 (37)
+        //      + F0063-F0072 (10) + F0073-F0075 (3) + F0076-F0085 (10) + F0086-F0090 (5) = 90
+        assert_eq!(entries.len(), 90, "expected 90 featured cases");
     }
 
     #[test]
@@ -3330,8 +3667,8 @@ mod tests {
     }
 
     #[test]
-    fn generator_version_is_3() {
-        assert_eq!(GENERATOR_VERSION, 3);
+    fn generator_version_is_4() {
+        assert_eq!(GENERATOR_VERSION, 4);
     }
 
     #[test]

@@ -456,6 +456,38 @@ fn batch_enclosed_subtract_fix() {
     );
 }
 
+/// Test off-axis chained extrude cases (F0076-F0085).
+///
+/// Run with: cargo test -p test-harness --test assay_randomized -- batch_off_axis_chained --ignored --nocapture
+#[test]
+#[ignore]
+fn batch_off_axis_chained() {
+    let ids: Vec<&str> = (76..=85)
+        .map(|i| Box::leak(format!("F{:04}", i).into_boxed_str()) as &str)
+        .collect();
+    let (passed, failed, errored) = run_batch(&ids, true);
+    println!(
+        "Off-axis chained: {}/10 passed, {} failed, {} errored",
+        passed, failed, errored
+    );
+}
+
+/// Test swiss cheese disc cases (F0086-F0090).
+///
+/// Run with: cargo test -p test-harness --test assay_randomized -- batch_swiss_cheese --ignored --nocapture
+#[test]
+#[ignore]
+fn batch_swiss_cheese() {
+    let ids: Vec<&str> = (86..=90)
+        .map(|i| Box::leak(format!("F{:04}", i).into_boxed_str()) as &str)
+        .collect();
+    let (passed, failed, errored) = run_batch(&ids, true);
+    println!(
+        "Swiss cheese: {}/5 passed, {} failed, {} errored",
+        passed, failed, errored
+    );
+}
+
 /// Verify revolve self-intersection detection (F0073-F0075).
 ///
 /// F0073: axis through center → expect_rebuild_error (should pass)
