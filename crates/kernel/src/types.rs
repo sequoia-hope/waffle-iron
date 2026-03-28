@@ -273,7 +273,7 @@ mod tests {
     #[test]
     fn test_boolean_options_default() {
         let opts = BooleanOptions::default();
-        assert!((opts.tau_model - 1e-7).abs() < 1e-15);
+        assert!((opts.tau_model - crate::units::TAU_MODEL).abs() < crate::units::TAU_NORMALIZE);
         assert!(opts.validate().is_ok());
     }
 
