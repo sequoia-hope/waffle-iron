@@ -34,16 +34,16 @@ Status codes: **W** = Working end-to-end, **P** = Partial, **DEFERRED** = Deferr
 
 | Crate / Suite | Tests | Notes |
 |---------------|------:|-------|
-| kernel | 38 | Euler ops, types, validation |
+| kernel | 710 | SSI solvers, booleans, tessellation, Euler ops, types |
 | sketch-solver | 31 | Constraint solving, profile extraction |
 | wasm-bridge | 22 | Message dispatch, pipeline tests |
 | feature-engine | 124 | Feature tree, rebuild, GeomRef, undo/redo |
 | modeling-ops | 54 | Extrude/revolve/fillet/chamfer/shell/boolean provenance |
 | file-format | 26 | Save/load round-trip, format validation |
 | test-harness | 270 | Cross-crate integration, multi-operation scenarios |
-| **Rust total** | **~700** | |
+| **Rust total** | **~1237** | |
 | GUI (Playwright) | 425 | 47 spec files; click-click + click-drag |
-| **Grand total** | **~1125** | |
+| **Grand total** | **~1662** | |
 
 ## What's Working
 
