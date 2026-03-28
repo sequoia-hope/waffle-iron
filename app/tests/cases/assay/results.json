@@ -1,6 +1,6 @@
 {
-  "errored": 22,
-  "failed": 101,
+  "errored": 21,
+  "failed": 102,
   "generated": "2026-03-28",
   "passed": 67,
   "results": [
@@ -1116,33 +1116,33 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 65 unpaired edges out of 1261 total; mesh_euler_characteristic: V(448) - E(1261) + F(819) = 6 (expected -4); bbox diagonal 4.131e0 exceeds max 3.904e0",
+      "detail": "partial rebuild (1 error(s)): fe61eb9d-9043-4347-8088-3d41dda0259b: operation error: kernel error: operation not supported: polygon boolean: 8658 total faces exceeds limit (8000); watertight_mesh: 165 unpaired edges out of 630 total (148 boundary, 17 non-manifold); mesh_euler_characteristic: V(294) - E(630) + F(382) = 46 (expected -4)",
       "id": "F0086",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 135 unpaired edges out of 2700 total; mesh_euler_characteristic: V(955) - E(2700) + F(1755) = 10 (expected -8); bbox diagonal 5.628e0 exceeds max 4.961e0",
+      "detail": "watertight_mesh: 35 unpaired edges out of 3367 total; mesh_euler_characteristic: V(1147) - E(3367) + F(2233) = 13 (expected -8); bbox diagonal 5.610e0 exceeds max 4.961e0",
       "id": "F0087",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 196 unpaired edges out of 3764 total; mesh_euler_characteristic: V(1330) - E(3764) + F(2444) = 10 (expected -14); bbox diagonal 3.643e0 exceeds max 3.557e0",
+      "detail": "watertight_mesh: 146 unpaired edges out of 4291 total; mesh_euler_characteristic: V(1492) - E(4291) + F(2812) = 13 (expected -14); bbox diagonal 3.624e0 exceeds max 3.557e0",
       "id": "F0088",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 170 unpaired edges out of 5620 total (168 boundary, 2 non-manifold); mesh_euler_characteristic: V(1948) - E(5620) + F(3692) = 20 (expected -18); bbox diagonal 4.835e0 exceeds max 4.407e0",
+      "detail": "watertight_mesh: 64 unpaired edges out of 6011 total; mesh_euler_characteristic: V(2047) - E(6011) + F(3986) = 22 (expected -18); bbox diagonal 4.825e0 exceeds max 4.407e0",
       "id": "F0089",
       "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 321 unpaired edges out of 7467 total (315 boundary, 6 non-manifold); mesh_euler_characteristic: V(2618) - E(7467) + F(4877) = 28 (expected -28); bbox diagonal 5.535e0 exceeds max 4.900e0",
       "id": "F0090",
-      "status": "error"
+      "status": "fail"
     }
   ],
   "total": 190

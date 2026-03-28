@@ -3010,7 +3010,8 @@ fn generate_swiss_cheese_disc_cases(output_dir: &std::path::Path) -> Vec<Manifes
         }
 
         let euler_target = 2 - 2 * (actual_through as i64);
-        let max_bbox_extent = 2.0 * disc_radius + 1.0;
+        let max_bbox_extent =
+            (8.0 * disc_radius * disc_radius + disc_depth * disc_depth).sqrt() + 0.5;
         let description = format!(
             "{} ops, swiss cheese disc (R={:.2}, {} through + {} blind holes) — seed {}",
             1 + actual_holes,
