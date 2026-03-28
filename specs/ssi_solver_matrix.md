@@ -86,12 +86,13 @@ A sub-case is "done" when:
 | Sub-case | Method | Status | Notes |
 |----------|--------|--------|-------|
 | Perpendicular (plane ⊥ axis) | analytical | done | Returns `Circle` at cut height (`plane_cone_ssi`) |
-| Oblique (ellipse) | not-supported | missing | Returns `KernelError::NotSupported` |
-| Oblique (parabola) | not-supported | missing | Requires `SSICurve::Conic` variant |
-| Oblique (hyperbola) | not-supported | missing | Requires `SSICurve::Conic` variant |
-| Through apex | not-supported | missing | Degenerate conic — pair of lines |
+| Oblique (ellipse, γ > β) | analytical | done | Returns `Ellipse` with exact semi-axes |
+| Oblique (parabola, γ ≈ β) | not-supported | missing | Requires `SSICurve::Conic` variant |
+| Oblique (hyperbola, γ < β) | not-supported | missing | Requires `SSICurve::Conic` variant |
+| Through apex (γ < β) | analytical | done | Returns 2 `Line` generator segments |
+| Through apex (γ > β) | analytical | done | Returns empty (degenerate point) |
 
-**Implementation**: `ssi.rs:plane_cone_ssi` (lines 559–597). Only perpendicular sub-case.
+**Implementation**: `ssi.rs:plane_cone_ssi` (lines 559–730). Perpendicular, oblique ellipse, and through-apex sub-cases.
 
 ---
 
@@ -275,7 +276,7 @@ Coaxial path is exact. General path scans 360 θ × 36 φ samples on torus A sur
 |---|------|----------------|---------------------|---------------------------|
 | 1 | Plane–Plane | **done** | All | — |
 | 2 | Plane–Cylinder | **done** | All (perp, parallel, oblique) | — |
-| 3 | Plane–Cone | **partial** | Perpendicular only | Oblique (conic sections) |
+| 3 | Plane–Cone | **partial** | Perpendicular + oblique ellipse + through-apex | Oblique parabola + hyperbola |
 | 4 | Plane–Sphere | **done** | All | — |
 | 5 | Cylinder–Cylinder | **partial** | Parallel + equal-R non-parallel ≥60° | Near-parallel, unequal-R, skew |
 | 6 | Plane–Torus | **partial** | Axis-perpendicular only | All other orientations |

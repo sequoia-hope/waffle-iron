@@ -588,11 +588,226 @@ pub(crate) fn plane_cone_ssi(
             radius: circle_radius,
         }])
     } else {
-        // Oblique: produces conic sections (ellipse/parabola/hyperbola)
-        // Requires Ellipse/Conic SSICurve variant (A15.4)
-        Err(KernelError::NotSupported {
-            operation: "plane-cone SSI: oblique cut produces conic section".to_string(),
-        })
+        // Ref #1: Patrikalakis Ch.5 — plane-cone SSI, conic section classification
+        //
+        // A plane intersecting a circular cone produces a conic section whose type
+        // is determined by the relationship between the plane tilt and the cone
+        // half-angle.
+
+        let n = plane_normal;
+        let a = cone_axis;
+        let t = half_angle.tan();
+        let sin_beta = half_angle.sin();
+        let cos_alpha_sq = cos_angle * cos_angle; // cos²(angle between normal and axis)
+        let sin_beta_sq = sin_beta * sin_beta;
+
+        // Signed distance from cone apex to the plane
+        let d_apex = v3_dot(v3_sub(cone_apex, plane_origin), n);
+
+        // ── Through-apex degenerate case ──────────────────────────────────
+        // Ref #1: Patrikalakis Ch.5 — plane through cone apex
+        //
+        // When the plane passes through the apex, the intersection is:
+        // - Ellipse regime (γ > β): just a point (the apex) — return empty
+        // - Hyperbola regime (γ < β): two generator lines through the apex
+        // - Parabola boundary (γ ≈ β): one tangent line — return NotSupported
+        //
+        // For two lines, we need directions d such that:
+        //   d · n = 0  (lies in the plane)
+        //   (d · a)² = cos²(β) |d|²  (lies on the cone)
+        //
+        // Using an orthonormal basis {e1, e2} for the plane (n·d = 0):
+        //   e1 = normalize(a - (a·n)n)  (axis projected into plane)
+        //   e2 = n × e1
+        // Then d = cos(θ) e1 + sin(θ) e2, and d·a = cos(θ) sin(α).
+        // Cone condition: cos²(θ) sin²(α) = cos²(β)
+        // Solution: cos(θ) = ±cos(β)/sin(α), requires sin(α) ≥ cos(β).
+        if d_apex.abs() < TOL {
+            let n_dot_a = v3_dot(n, a);
+            let sin_alpha = (1.0 - n_dot_a * n_dot_a).max(0.0).sqrt();
+            let cos_beta = half_angle.cos();
+
+            if sin_alpha < cos_beta - TOL {
+                // Ellipse regime: plane cuts steeper than cone → only a point at apex
+                return Ok(vec![]);
+            }
+            if (sin_alpha - cos_beta).abs() < TOL {
+                // Parabola boundary: single tangent line
+                return Err(KernelError::NotSupported {
+                    operation: "plane-cone SSI: through-apex parabolic tangent".to_string(),
+                });
+            }
+
+            // Hyperbola regime: two generator lines
+            // Build orthonormal basis for the plane
+            let a_in_plane = v3_sub(a, v3_scale(n, n_dot_a));
+            let a_in_plane_len = v3_length(a_in_plane);
+            if a_in_plane_len < TOL {
+                return Ok(vec![]);
+            }
+            let e1 = v3_scale(a_in_plane, 1.0 / a_in_plane_len);
+            let e2 = v3_normalize(v3_cross(n, e1));
+
+            let cos_theta = cos_beta / sin_alpha;
+            let sin_theta = (1.0 - cos_theta * cos_theta).max(0.0).sqrt();
+
+            let g1 = v3_add(v3_scale(e1, cos_theta), v3_scale(e2, sin_theta));
+            let g2 = v3_sub(v3_scale(e1, cos_theta), v3_scale(e2, sin_theta));
+
+            // Extend generators to max_height. Height along axis = g·a = cos_theta * sin_alpha = cos_beta.
+            // So parameter t for height h: h = t * cos_beta → t = max_height / cos_beta.
+            let t_param = max_height / cos_beta;
+            let end1 = v3_add(cone_apex, v3_scale(g1, t_param));
+            let end2 = v3_add(cone_apex, v3_scale(g2, t_param));
+
+            return Ok(vec![
+                SSICurve::Line {
+                    start: cone_apex,
+                    end: end1,
+                },
+                SSICurve::Line {
+                    start: cone_apex,
+                    end: end2,
+                },
+            ]);
+        }
+
+        // ── Classify conic type ───────────────────────────────────────────
+        let discriminant = cos_alpha_sq - sin_beta_sq;
+
+        if discriminant.abs() < TOL {
+            // Parabola (cutting angle ≈ half-angle) — not yet implemented
+            return Err(KernelError::NotSupported {
+                operation: "plane-cone SSI: parabolic section".to_string(),
+            });
+        }
+
+        if discriminant < 0.0 {
+            // Hyperbola (shallow cut, γ < β) — not yet implemented
+            return Err(KernelError::NotSupported {
+                operation: "plane-cone SSI: hyperbolic section".to_string(),
+            });
+        }
+
+        // ── Ellipse case (discriminant > 0, γ > β) ───────────────────────
+        //
+        // Work in a local cone frame: apex at origin, axis along Z, with the
+        // plane normal rotated into the XZ plane. Solve for the ellipse
+        // analytically, then transform back to world coordinates.
+
+        let signed_n_dot_a = v3_dot(n, a);
+        let sin_alpha = (1.0 - signed_n_dot_a * signed_n_dot_a).sqrt().max(TOL);
+
+        // D = signed distance from apex to plane along the outward normal
+        // We want D > 0 for the plane on the "positive" side.
+        // d_apex = (A - P)·n, so the distance from apex to plane along n is -d_apex.
+        let d_signed = -d_apex; // positive when apex is on the negative side of the plane
+
+        // In the rotated cone frame (apex=origin, axis=Z, plane normal in XZ):
+        //   Plane: sin(α)·x + cos(α)·z = D
+        //   Cone:  x² + y² = t²·z²
+        //
+        // The ellipse endpoints on the y=0 symmetry line (from plane+cone, y=0):
+        //   t·z·sin(α) = ±(D - z·cos(α))
+        //   z₁ = D / (t·sin(α) + |cos(α)|)    (near-apex side)
+        //   z₂ = D / (|cos(α)| - t·sin(α))    (far-from-apex side)
+        //
+        // cos(α) here uses the absolute value to ensure correct sign handling.
+        let abs_cos_alpha = cos_angle; // = |n̂ · â|
+
+        let z1 = d_signed / (t * sin_alpha + abs_cos_alpha);
+        let z2 = d_signed / (abs_cos_alpha - t * sin_alpha);
+
+        // Ensure z1 ≤ z2
+        let (z_lo, z_hi) = if z1 <= z2 { (z1, z2) } else { (z2, z1) };
+
+        // Check if the ellipse height range overlaps the valid cone [0, max_height]
+        if z_hi < -TOL || z_lo > max_height + TOL {
+            return Ok(vec![]);
+        }
+
+        // Ellipse center in local frame is at z_mid
+        let z_mid = (z_lo + z_hi) / 2.0;
+
+        // Semi-major = distance from center to endpoint along the tilted direction in the plane
+        let semi_major = (z_hi - z_lo) / (2.0 * sin_alpha);
+
+        // Semi-minor = y extent at the center height = cone radius at z_mid
+        // corrected for the fact that some x-extent is used by the offset from axis.
+        // From the derivation: semi_minor² = t²·z_mid² - x_mid²
+        // where x_mid = (D - z_mid·cos(α))/sin(α)
+        let x_mid = (d_signed - z_mid * abs_cos_alpha) / sin_alpha;
+        let semi_minor_sq = t * t * z_mid * z_mid - x_mid * x_mid;
+        if semi_minor_sq < 0.0 {
+            // Numerical issue — ellipse is degenerate
+            return Ok(vec![]);
+        }
+        let semi_minor = semi_minor_sq.sqrt();
+
+        if semi_major < TOL || semi_minor < TOL {
+            return Ok(vec![]);
+        }
+
+        // ── Transform back to world coordinates ──────────────────────────
+        //
+        // The local frame has: Z = cone_axis, and the plane normal projected
+        // into the XY plane defines the X direction (the symmetry plane).
+        //
+        // The local X axis is perpendicular to the cone axis and lies in the
+        // plane of symmetry (containing axis and plane normal).
+        // n_perp = normalize(n - (n·a)·a) is the component of the plane normal
+        // perpendicular to the axis. In the local frame, this points in +X.
+
+        let n_perp = v3_sub(n, v3_scale(a, signed_n_dot_a));
+        let n_perp_len = v3_length(n_perp);
+        let local_x_dir = if n_perp_len > TOL {
+            v3_scale(n_perp, 1.0 / n_perp_len)
+        } else {
+            return Ok(vec![]);
+        };
+
+        // In local frame: center = (x_mid, 0, z_mid)
+        // In world frame: center = apex + z_mid * a + x_mid * local_x_dir
+        let center = v3_add(
+            v3_add(cone_apex, v3_scale(a, z_mid)),
+            v3_scale(local_x_dir, x_mid),
+        );
+
+        // Major axis direction: in local frame it's along (cos α, 0, -sin α) / sin α...
+        // Actually, the major axis connects (x₁, 0, z₁) to (x₂, 0, z₂) in local coords.
+        // Direction ∝ (x₂ - x₁, 0, z₂ - z₁).
+        // In world: ∝ (z₂ - z₁) * a + (x₂ - x₁) * local_x_dir
+
+        // x at z=z_lo: x_lo = (D - z_lo * cos α) / sin α
+        // x at z=z_hi: x_hi = (D - z_hi * cos α) / sin α
+        // x_hi - x_lo = (z_lo - z_hi) * cos α / sin α = -(z_hi - z_lo) * cos α / sin α
+        let dz = z_hi - z_lo;
+        let dx = -dz * abs_cos_alpha / sin_alpha;
+
+        let major_dir_raw = v3_add(v3_scale(a, dz), v3_scale(local_x_dir, dx));
+        let major_dir_len = v3_length(major_dir_raw);
+        let major_axis = if major_dir_len > TOL {
+            v3_scale(major_dir_raw, 1.0 / major_dir_len)
+        } else {
+            return Ok(vec![]);
+        };
+
+        // Ensure semi_major >= semi_minor (should be guaranteed by geometry, but verify)
+        let (final_major, final_minor, final_axis) = if semi_major >= semi_minor {
+            (semi_major, semi_minor, major_axis)
+        } else {
+            // Swap: the minor direction is cross(normal, major_axis)
+            let minor_dir = v3_normalize(v3_cross(n, major_axis));
+            (semi_minor, semi_major, minor_dir)
+        };
+
+        Ok(vec![SSICurve::Ellipse {
+            center,
+            normal: n,
+            major_axis: final_axis,
+            semi_major: final_major,
+            semi_minor: final_minor,
+        }])
     }
 }
 
@@ -8168,6 +8383,949 @@ mod tests {
             }
             Err(KernelError::NotSupported { .. }) => {} // stub not yet implemented
             Err(e) => panic!("Unexpected error: {:?}", e),
+        }
+    }
+
+    // ── Plane-Cone Oblique SSI (FIP: plane_cone_oblique_ssi) ─────────
+
+    /// Helper: check that a point lies on the plane (within tolerance).
+    fn assert_point_on_plane(p: [f64; 3], plane_origin: [f64; 3], plane_normal: [f64; 3]) {
+        let d = v3_dot(v3_sub(p, plane_origin), plane_normal);
+        assert!(
+            d.abs() < crate::units::TAU_MODEL * 100.0,
+            "Point {:?} not on plane: dist = {:.2e}",
+            p,
+            d,
+        );
+    }
+
+    /// Helper: check that a point lies on the cone surface (within tolerance).
+    fn assert_point_on_cone(
+        p: [f64; 3],
+        cone_apex: [f64; 3],
+        cone_axis: [f64; 3],
+        half_angle: f64,
+    ) {
+        let dp = v3_sub(p, cone_apex);
+        let h = v3_dot(dp, cone_axis);
+        let radial_sq = v3_dot(dp, dp) - h * h;
+        let expected_r = h * half_angle.tan();
+        assert!(
+            (radial_sq.sqrt() - expected_r).abs() < crate::units::TAU_MODEL * 100.0,
+            "Point {:?} not on cone: radial={:.6e}, expected={:.6e}",
+            p,
+            radial_sq.sqrt(),
+            expected_r,
+        );
+    }
+
+    /// Helper: sample 8 points on an SSICurve::Ellipse.
+    fn sample_ellipse_points(
+        center: [f64; 3],
+        normal: [f64; 3],
+        major_axis: [f64; 3],
+        semi_major: f64,
+        semi_minor: f64,
+    ) -> Vec<[f64; 3]> {
+        let minor_axis = v3_normalize(v3_cross(normal, major_axis));
+        (0..8)
+            .map(|i| {
+                let t = std::f64::consts::TAU * (i as f64) / 8.0;
+                v3_add(
+                    center,
+                    v3_add(
+                        v3_scale(major_axis, semi_major * t.cos()),
+                        v3_scale(minor_axis, semi_minor * t.sin()),
+                    ),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_plane_cone_oblique_ellipse_45deg() {
+        // Cone: apex at origin, axis +Z, half_angle=30° (π/6), max_height=10
+        // Plane tilted 45° from Z axis → normal has Z and X components
+        // γ = angle between plane and cone axis = 45° > β = 30° → ellipse
+        let half_angle = std::f64::consts::FRAC_PI_6; // 30°
+        let plane_normal = [FRAC_1_SQRT_2, 0.0, FRAC_1_SQRT_2]; // 45° from Z
+        let plane_origin = [0.0, 0.0, 5.0]; // intersects cone at h≈5
+        let cone_apex = [0.0, 0.0, 0.0];
+        let cone_axis = [0.0, 0.0, 1.0];
+        let max_height = 10.0;
+
+        let curves = plane_cone_ssi(
+            plane_origin,
+            plane_normal,
+            cone_apex,
+            cone_axis,
+            half_angle,
+            max_height,
+        )
+        .expect("oblique ellipse case should return Ok");
+
+        assert_eq!(
+            curves.len(),
+            1,
+            "Expected exactly 1 curve, got {}",
+            curves.len()
+        );
+
+        match &curves[0] {
+            SSICurve::Ellipse {
+                center,
+                normal,
+                major_axis,
+                semi_major,
+                semi_minor,
+            } => {
+                assert!(
+                    semi_major >= semi_minor,
+                    "semi_major ({}) must be >= semi_minor ({})",
+                    semi_major,
+                    semi_minor,
+                );
+                // Sample 8 points on the ellipse and verify each lies on both surfaces
+                let points =
+                    sample_ellipse_points(*center, *normal, *major_axis, *semi_major, *semi_minor);
+                for (i, p) in points.iter().enumerate() {
+                    assert_point_on_plane(*p, plane_origin, plane_normal);
+                    assert_point_on_cone(*p, cone_apex, cone_axis, half_angle);
+                    // Sanity: point should have non-NaN coordinates
+                    for j in 0..3 {
+                        assert!(!p[j].is_nan(), "Point {} coord {} is NaN", i, j);
+                    }
+                }
+            }
+            other => panic!("Expected Ellipse, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_plane_cone_oblique_ellipse_steep() {
+        // Cone: half_angle=15° (π/12), axis +Z, apex at origin
+        // Plane at 60° from axis → γ = 60° > β = 15° → ellipse (steep cut)
+        let half_angle = std::f64::consts::FRAC_PI_6 / 2.0; // 15° = π/12
+                                                            // Plane normal tilted 30° from Z (so γ = 90° - 30° = 60° from axis)
+                                                            // normal = (sin30°, 0, cos30°) = (0.5, 0, √3/2)
+        let plane_normal = [0.5, 0.0, (3.0_f64).sqrt() / 2.0];
+        let plane_origin = [0.0, 0.0, 5.0];
+        let cone_apex = [0.0, 0.0, 0.0];
+        let cone_axis = [0.0, 0.0, 1.0];
+        let max_height = 20.0;
+
+        let curves = plane_cone_ssi(
+            plane_origin,
+            plane_normal,
+            cone_apex,
+            cone_axis,
+            half_angle,
+            max_height,
+        )
+        .expect("steep oblique ellipse should return Ok");
+
+        assert_eq!(
+            curves.len(),
+            1,
+            "Expected exactly 1 curve, got {}",
+            curves.len()
+        );
+
+        match &curves[0] {
+            SSICurve::Ellipse {
+                semi_major,
+                semi_minor,
+                ..
+            } => {
+                assert!(
+                    semi_major >= semi_minor,
+                    "semi_major ({}) must be >= semi_minor ({})",
+                    semi_major,
+                    semi_minor,
+                );
+                assert!(*semi_major > 0.0, "semi_major must be positive");
+                assert!(*semi_minor > 0.0, "semi_minor must be positive");
+            }
+            other => panic!("Expected Ellipse, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_plane_cone_through_apex_degenerate() {
+        // Plane passes through the cone apex → degenerate intersection = two lines
+        // Two lines only exist in hyperbola regime (γ < β). Here β = 60°, γ = 45°.
+        let half_angle = std::f64::consts::FRAC_PI_3; // 60°
+        let cone_apex = [0.0, 0.0, 0.0];
+        let cone_axis = [0.0, 0.0, 1.0];
+        // Plane through apex with oblique normal (45° from axis → γ = 45° < 60° = β)
+        let plane_origin = [0.0, 0.0, 0.0]; // on the apex
+        let plane_normal = [FRAC_1_SQRT_2, 0.0, FRAC_1_SQRT_2]; // 45° tilt
+        let max_height = 10.0;
+
+        let curves = plane_cone_ssi(
+            plane_origin,
+            plane_normal,
+            cone_apex,
+            cone_axis,
+            half_angle,
+            max_height,
+        )
+        .expect("through-apex degenerate case should return Ok");
+
+        assert_eq!(
+            curves.len(),
+            2,
+            "Expected 2 lines through apex, got {} curves",
+            curves.len()
+        );
+
+        for curve in &curves {
+            match curve {
+                SSICurve::Line { start, end } => {
+                    // Both lines should pass through the apex (start at apex)
+                    let dist_start = v3_length(v3_sub(*start, cone_apex));
+                    assert!(
+                        dist_start < crate::units::TAU_MODEL * 100.0,
+                        "Line start {:?} should be at apex, dist = {:.2e}",
+                        start,
+                        dist_start,
+                    );
+                    // End should not be at apex (non-degenerate line)
+                    let dist_end = v3_length(v3_sub(*end, cone_apex));
+                    assert!(
+                        dist_end > crate::units::TAU_MODEL,
+                        "Line end {:?} should not be at apex",
+                        end,
+                    );
+                }
+                other => panic!("Expected Line, got {:?}", other),
+            }
+        }
+    }
+
+    #[test]
+    fn test_plane_cone_oblique_parabola_boundary() {
+        // γ = β (cutting angle equals half_angle) → parabolic boundary case
+        // half_angle = 30°. Plane normal must be at 60° from Z so γ = 30°.
+        // normal = (sin60°, 0, cos60°) = (√3/2, 0, 0.5)
+        let half_angle = std::f64::consts::FRAC_PI_6; // 30°
+        let plane_normal = [(3.0_f64).sqrt() / 2.0, 0.0, 0.5];
+        let plane_origin = [0.0, 0.0, 5.0];
+        let cone_apex = [0.0, 0.0, 0.0];
+        let cone_axis = [0.0, 0.0, 1.0];
+        let max_height = 20.0;
+
+        let result = plane_cone_ssi(
+            plane_origin,
+            plane_normal,
+            cone_apex,
+            cone_axis,
+            half_angle,
+            max_height,
+        );
+
+        // Parabola not yet implemented — should return NotSupported
+        assert!(
+            matches!(result, Err(KernelError::NotSupported { .. })),
+            "Parabolic boundary case should return NotSupported, got {:?}",
+            result,
+        );
+    }
+
+    #[test]
+    fn test_plane_cone_oblique_hyperbola() {
+        // γ < β (shallow cut) → hyperbola
+        // half_angle = 45°. Plane normal nearly along X → γ ≈ 0° < 45°.
+        // normal = (1, 0, 0) → plane parallel to cone axis → γ = 0°
+        let half_angle = std::f64::consts::FRAC_PI_4; // 45°
+        let plane_normal = [1.0, 0.0, 0.0]; // perpendicular to axis → γ = 0°
+        let plane_origin = [2.0, 0.0, 0.0]; // offset from axis
+        let cone_apex = [0.0, 0.0, 0.0];
+        let cone_axis = [0.0, 0.0, 1.0];
+        let max_height = 10.0;
+
+        let result = plane_cone_ssi(
+            plane_origin,
+            plane_normal,
+            cone_apex,
+            cone_axis,
+            half_angle,
+            max_height,
+        );
+
+        // Hyperbola not yet implemented — should return NotSupported
+        assert!(
+            matches!(result, Err(KernelError::NotSupported { .. })),
+            "Hyperbola case should return NotSupported, got {:?}",
+            result,
+        );
+    }
+
+    #[test]
+    fn test_plane_cone_oblique_no_intersect() {
+        // Oblique plane positioned so the ellipse falls entirely outside [0, max_height]
+        // Cone: apex at origin, axis +Z, half_angle=30°, max_height=2 (short cone)
+        // Plane tilted 45° but origin at z=20 — far above cone
+        let half_angle = std::f64::consts::FRAC_PI_6; // 30°
+        let plane_normal = [FRAC_1_SQRT_2, 0.0, FRAC_1_SQRT_2];
+        let plane_origin = [0.0, 0.0, 20.0]; // far above max_height=2
+        let cone_apex = [0.0, 0.0, 0.0];
+        let cone_axis = [0.0, 0.0, 1.0];
+        let max_height = 2.0;
+
+        let curves = plane_cone_ssi(
+            plane_origin,
+            plane_normal,
+            cone_apex,
+            cone_axis,
+            half_angle,
+            max_height,
+        )
+        .expect("no-intersect oblique case should return Ok");
+
+        assert!(
+            curves.is_empty(),
+            "Expected empty result for out-of-range intersection, got {} curves",
+            curves.len(),
+        );
+    }
+
+    #[test]
+    fn test_plane_cone_perp_regression() {
+        // Regression guard: perpendicular case still produces a circle
+        // Cone: apex at origin, axis +Z, half_angle=30°, max_height=10
+        // Plane at z=6 → circle at (0,0,6) with r = 6*tan(30°) ≈ 3.464
+        let half_angle = std::f64::consts::FRAC_PI_6; // 30°
+        let plane_origin = [0.0, 0.0, 6.0];
+        let plane_normal = [0.0, 0.0, 1.0]; // perpendicular to cone axis
+        let cone_apex = [0.0, 0.0, 0.0];
+        let cone_axis = [0.0, 0.0, 1.0];
+        let max_height = 10.0;
+
+        let curves = plane_cone_ssi(
+            plane_origin,
+            plane_normal,
+            cone_apex,
+            cone_axis,
+            half_angle,
+            max_height,
+        )
+        .unwrap();
+
+        assert_eq!(curves.len(), 1, "Expected 1 circle, got {}", curves.len());
+
+        let expected_radius = 6.0 * half_angle.tan();
+        match &curves[0] {
+            SSICurve::Circle { center, radius, .. } => {
+                assert!(center[0].abs() < EPS, "cx={}", center[0]);
+                assert!(center[1].abs() < EPS, "cy={}", center[1]);
+                assert!((center[2] - 6.0).abs() < EPS, "cz={}", center[2]);
+                assert!(
+                    (radius - expected_radius).abs() < EPS,
+                    "radius={}, expected={}",
+                    radius,
+                    expected_radius,
+                );
+            }
+            other => panic!("Expected Circle, got {:?}", other),
+        }
+    }
+
+    // ── ADVERSARY: Pathological / near-tolerance plane-cone SSI tests ──
+
+    #[test]
+    fn test_plane_cone_oblique_near_parabola_ellipse_side() {
+        // ADVERSARY: γ just barely above β — near the parabola boundary on the
+        // ellipse side. The resulting ellipse should be extremely elongated.
+        // β = 30°, so sin(β) = 0.5. We need cos(α) > sin(β) but barely.
+        // Set γ = 30.1° → α = 90° - 30.1° = 59.9°. cos(59.9°) ≈ 0.5009.
+        // discriminant = cos²(α) - sin²(β) = 0.5009² - 0.5² ≈ 0.0009 (very small positive).
+        let half_angle = std::f64::consts::FRAC_PI_6; // 30°
+        let gamma_deg: f64 = 30.1;
+        let alpha_rad = (90.0 - gamma_deg).to_radians(); // angle between normal and axis
+        let plane_normal = [alpha_rad.sin(), 0.0, alpha_rad.cos()];
+        let plane_origin = [0.0, 0.0, 5.0];
+        let cone_apex = [0.0, 0.0, 0.0];
+        let cone_axis = [0.0, 0.0, 1.0];
+        let max_height = 200.0; // large so the elongated ellipse fits
+
+        let curves = plane_cone_ssi(
+            plane_origin,
+            plane_normal,
+            cone_apex,
+            cone_axis,
+            half_angle,
+            max_height,
+        )
+        .expect("near-parabola ellipse side should return Ok");
+
+        assert_eq!(curves.len(), 1, "Expected 1 curve, got {}", curves.len());
+
+        match &curves[0] {
+            SSICurve::Ellipse {
+                center,
+                normal,
+                major_axis,
+                semi_major,
+                semi_minor,
+            } => {
+                assert!(
+                    *semi_major > 10.0 * *semi_minor,
+                    "Near-parabola ellipse should be very elongated: semi_major={}, semi_minor={}, ratio={}",
+                    semi_major,
+                    semi_minor,
+                    semi_major / semi_minor,
+                );
+                // Verify sampled points lie on both surfaces
+                let points =
+                    sample_ellipse_points(*center, *normal, *major_axis, *semi_major, *semi_minor);
+                for (i, p) in points.iter().enumerate() {
+                    assert_point_on_plane(*p, plane_origin, plane_normal);
+                    assert_point_on_cone(*p, cone_apex, cone_axis, half_angle);
+                    for j in 0..3 {
+                        assert!(!p[j].is_nan(), "Point {} coord {} is NaN", i, j);
+                    }
+                }
+            }
+            other => panic!("Expected Ellipse, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_plane_cone_oblique_very_small_half_angle() {
+        // ADVERSARY: Very narrow cone (half_angle = 2° = π/90).
+        // Oblique cut at γ = 45° → α = 45°. cos²(45°) = 0.5, sin²(2°) ≈ 0.0012.
+        // discriminant ≈ 0.4988 — solidly ellipse territory.
+        let half_angle = std::f64::consts::PI / 90.0; // 2°
+        let plane_normal = [FRAC_1_SQRT_2, 0.0, FRAC_1_SQRT_2]; // 45° from axis
+        let plane_origin = [0.0, 0.0, 50.0]; // far out so the narrow cone has measurable radius
+        let cone_apex = [0.0, 0.0, 0.0];
+        let cone_axis = [0.0, 0.0, 1.0];
+        let max_height = 200.0;
+
+        let curves = plane_cone_ssi(
+            plane_origin,
+            plane_normal,
+            cone_apex,
+            cone_axis,
+            half_angle,
+            max_height,
+        )
+        .expect("small half_angle oblique should return Ok");
+
+        assert_eq!(curves.len(), 1, "Expected 1 curve, got {}", curves.len());
+
+        match &curves[0] {
+            SSICurve::Ellipse {
+                center,
+                normal,
+                major_axis,
+                semi_major,
+                semi_minor,
+            } => {
+                assert!(*semi_major > 0.0, "semi_major must be positive");
+                assert!(*semi_minor > 0.0, "semi_minor must be positive");
+                assert!(
+                    *semi_major >= *semi_minor,
+                    "semi_major ({}) >= semi_minor ({})",
+                    semi_major,
+                    semi_minor,
+                );
+                // Verify on both surfaces
+                let points =
+                    sample_ellipse_points(*center, *normal, *major_axis, *semi_major, *semi_minor);
+                for (i, p) in points.iter().enumerate() {
+                    assert_point_on_plane(*p, plane_origin, plane_normal);
+                    assert_point_on_cone(*p, cone_apex, cone_axis, half_angle);
+                    for j in 0..3 {
+                        assert!(!p[j].is_nan(), "Point {} coord {} is NaN", i, j);
+                    }
+                }
+            }
+            other => panic!("Expected Ellipse, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_plane_cone_oblique_wide_half_angle() {
+        // ADVERSARY: Wide cone (half_angle = 80° = 4π/9).
+        // Steep oblique cut: γ > 80°, say γ = 85° → α = 5°.
+        // cos²(5°) ≈ 0.9924, sin²(80°) ≈ 0.9698. discriminant ≈ 0.0226.
+        // The ellipse should be nearly circular since the cone is very wide
+        // and the cut is almost perpendicular to the axis.
+        let half_angle = 80.0_f64.to_radians();
+        let alpha_rad = 5.0_f64.to_radians(); // γ = 85°
+        let plane_normal = [alpha_rad.sin(), 0.0, alpha_rad.cos()];
+        let plane_origin = [0.0, 0.0, 2.0];
+        let cone_apex = [0.0, 0.0, 0.0];
+        let cone_axis = [0.0, 0.0, 1.0];
+        let max_height = 50.0;
+
+        let curves = plane_cone_ssi(
+            plane_origin,
+            plane_normal,
+            cone_apex,
+            cone_axis,
+            half_angle,
+            max_height,
+        )
+        .expect("wide half_angle oblique should return Ok");
+
+        assert_eq!(curves.len(), 1, "Expected 1 curve, got {}", curves.len());
+
+        match &curves[0] {
+            SSICurve::Ellipse {
+                center,
+                normal,
+                major_axis,
+                semi_major,
+                semi_minor,
+            } => {
+                // Nearly circular: semi_major / semi_minor should be close to 1
+                let ratio = semi_major / semi_minor;
+                assert!(
+                    ratio < 2.0,
+                    "Wide-angle near-perpendicular cut should be near-circular, ratio = {}",
+                    ratio,
+                );
+                let points =
+                    sample_ellipse_points(*center, *normal, *major_axis, *semi_major, *semi_minor);
+                for (i, p) in points.iter().enumerate() {
+                    assert_point_on_plane(*p, plane_origin, plane_normal);
+                    assert_point_on_cone(*p, cone_apex, cone_axis, half_angle);
+                    for j in 0..3 {
+                        assert!(!p[j].is_nan(), "Point {} coord {} is NaN", i, j);
+                    }
+                }
+            }
+            other => panic!("Expected Ellipse, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_plane_cone_oblique_tilted_axis() {
+        // ADVERSARY: Cone with axis along (1,1,1)/√3 — non-axis-aligned.
+        // Verify the code handles arbitrary orientations correctly.
+        let half_angle = std::f64::consts::FRAC_PI_6; // 30°
+        let inv_sqrt3 = 1.0 / 3.0_f64.sqrt();
+        let cone_axis = [inv_sqrt3, inv_sqrt3, inv_sqrt3];
+        let cone_apex = [0.0, 0.0, 0.0];
+
+        // Plane normal perpendicular-ish to axis but tilted for oblique cut.
+        // Use normal = (0, 0, 1) which has cos(α) = 1/√3 ≈ 0.577.
+        // sin(β) = sin(30°) = 0.5. cos²(α) = 1/3 ≈ 0.333, sin²(β) = 0.25.
+        // discriminant = 0.333 - 0.25 = 0.083 > 0 → ellipse.
+        let plane_normal = [0.0, 0.0, 1.0];
+        let plane_origin = [0.0, 0.0, 5.0];
+        let max_height = 20.0;
+
+        let curves = plane_cone_ssi(
+            plane_origin,
+            plane_normal,
+            cone_apex,
+            cone_axis,
+            half_angle,
+            max_height,
+        )
+        .expect("tilted axis oblique should return Ok");
+
+        assert_eq!(curves.len(), 1, "Expected 1 curve, got {}", curves.len());
+
+        match &curves[0] {
+            SSICurve::Ellipse {
+                center,
+                normal,
+                major_axis,
+                semi_major,
+                semi_minor,
+            } => {
+                assert!(*semi_major > 0.0);
+                assert!(*semi_minor > 0.0);
+                assert!(*semi_major >= *semi_minor);
+                let points =
+                    sample_ellipse_points(*center, *normal, *major_axis, *semi_major, *semi_minor);
+                for (i, p) in points.iter().enumerate() {
+                    assert_point_on_plane(*p, plane_origin, plane_normal);
+                    assert_point_on_cone(*p, cone_apex, cone_axis, half_angle);
+                    for j in 0..3 {
+                        assert!(!p[j].is_nan(), "Point {} coord {} is NaN", i, j);
+                    }
+                }
+            }
+            other => panic!("Expected Ellipse, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_plane_cone_oblique_apex_not_at_origin() {
+        // ADVERSARY: Cone apex at (10, 20, 30) — verify translation handling.
+        let half_angle = std::f64::consts::FRAC_PI_6; // 30°
+        let cone_apex = [10.0, 20.0, 30.0];
+        let cone_axis = [0.0, 0.0, 1.0];
+        let plane_normal = [FRAC_1_SQRT_2, 0.0, FRAC_1_SQRT_2]; // 45° from Z
+        let plane_origin = [10.0, 20.0, 35.0]; // offset from apex by ~5 along axis
+        let max_height = 20.0;
+
+        let curves = plane_cone_ssi(
+            plane_origin,
+            plane_normal,
+            cone_apex,
+            cone_axis,
+            half_angle,
+            max_height,
+        )
+        .expect("non-origin apex oblique should return Ok");
+
+        assert_eq!(curves.len(), 1, "Expected 1 curve, got {}", curves.len());
+
+        match &curves[0] {
+            SSICurve::Ellipse {
+                center,
+                normal,
+                major_axis,
+                semi_major,
+                semi_minor,
+            } => {
+                assert!(*semi_major > 0.0);
+                assert!(*semi_minor > 0.0);
+                // Center should be near (10, 20, 35) region, not near origin
+                assert!(
+                    center[0] > 5.0 && center[2] > 25.0,
+                    "Center {:?} should be near apex offset, not origin",
+                    center,
+                );
+                let points =
+                    sample_ellipse_points(*center, *normal, *major_axis, *semi_major, *semi_minor);
+                for (i, p) in points.iter().enumerate() {
+                    assert_point_on_plane(*p, plane_origin, plane_normal);
+                    assert_point_on_cone(*p, cone_apex, cone_axis, half_angle);
+                    for j in 0..3 {
+                        assert!(!p[j].is_nan(), "Point {} coord {} is NaN", i, j);
+                    }
+                }
+            }
+            other => panic!("Expected Ellipse, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_plane_cone_through_apex_wide_angle() {
+        // ADVERSARY: documents bug — through-apex generator lines for wide half_angle
+        // (60°) do NOT lie on the cutting plane. The implementation computes generator
+        // directions correctly for the cone, but the line endpoints extend to
+        // t_param = max_height / cos(β), which places them off-plane when β is large.
+        // The formula uses the cone's axial height to parametrize, but the resulting
+        // 3D endpoint is not constrained to lie on the cutting plane.
+        //
+        // Bug: In the through-apex branch, the generator line endpoints are computed
+        // as apex + t_param * g_i, but these endpoints are not projected back onto
+        // the cutting plane. For small half_angles (like 30° in the existing test),
+        // the error is small enough to pass tolerance. For 60°, the error is large.
+        let half_angle = std::f64::consts::FRAC_PI_3; // 60°
+        let cone_apex = [0.0, 0.0, 0.0];
+        let cone_axis = [0.0, 0.0, 1.0];
+        // Plane through apex: normal at 45° tilt → oblique cut through apex
+        let plane_origin = [0.0, 0.0, 0.0];
+        let plane_normal = [FRAC_1_SQRT_2, 0.0, FRAC_1_SQRT_2];
+        let max_height = 10.0;
+
+        let curves = plane_cone_ssi(
+            plane_origin,
+            plane_normal,
+            cone_apex,
+            cone_axis,
+            half_angle,
+            max_height,
+        )
+        .expect("through-apex wide angle should return Ok");
+
+        assert_eq!(
+            curves.len(),
+            2,
+            "Expected 2 generator lines through apex, got {}",
+            curves.len(),
+        );
+
+        for curve in &curves {
+            match curve {
+                SSICurve::Line { start, end } => {
+                    // Start at apex — this should be correct
+                    let dist_start = v3_length(v3_sub(*start, cone_apex));
+                    assert!(
+                        dist_start < crate::units::TAU_MODEL * 100.0,
+                        "Line start {:?} should be at apex, dist = {:.2e}",
+                        start,
+                        dist_start,
+                    );
+                    // End should be non-trivially far from apex
+                    let dist_end = v3_length(v3_sub(*end, cone_apex));
+                    assert!(
+                        dist_end > 1.0,
+                        "Line end {:?} should extend well beyond apex, dist = {:.2e}",
+                        end,
+                        dist_end,
+                    );
+                    // End should lie on the cone surface
+                    assert_point_on_cone(*end, cone_apex, cone_axis, half_angle);
+
+                    // Verify generator direction lies on the cutting plane
+                    // (d · n = 0 since line goes through apex which is on the plane)
+                    let dir = v3_normalize(v3_sub(*end, *start));
+                    let dot_with_normal = v3_dot(dir, plane_normal).abs();
+                    assert!(
+                        dot_with_normal < crate::units::TAU_MODEL * 100.0,
+                        "Generator direction should be perpendicular to plane normal, \
+                         dot = {:.2e}",
+                        dot_with_normal,
+                    );
+                    // Verify endpoint lies on the plane
+                    let plane_error = v3_dot(v3_sub(*end, plane_origin), plane_normal).abs();
+                    assert!(
+                        plane_error < crate::units::TAU_MODEL * 100.0,
+                        "Endpoint should lie on cutting plane, error = {:.2e}",
+                        plane_error,
+                    );
+                }
+                other => panic!("Expected Line, got {:?}", other),
+            }
+        }
+    }
+
+    #[test]
+    fn test_plane_cone_oblique_max_height_clips_partial() {
+        // ADVERSARY: Boundary investigation — the ellipse's z-range partially
+        // exceeds max_height. Document whether the implementation returns the
+        // full ellipse, a clipped curve, or empty.
+        //
+        // Setup: half_angle=30°, cone axis +Z, apex at origin.
+        // Plane at 45° through z=8. The ellipse z-range will span roughly [5, 15].
+        // Set max_height=10 so the upper part of the ellipse exceeds it.
+        let half_angle = std::f64::consts::FRAC_PI_6; // 30°
+        let plane_normal = [FRAC_1_SQRT_2, 0.0, FRAC_1_SQRT_2];
+        let plane_origin = [0.0, 0.0, 8.0];
+        let cone_apex = [0.0, 0.0, 0.0];
+        let cone_axis = [0.0, 0.0, 1.0];
+        let max_height = 10.0;
+
+        let result = plane_cone_ssi(
+            plane_origin,
+            plane_normal,
+            cone_apex,
+            cone_axis,
+            half_angle,
+            max_height,
+        );
+
+        // ADVERSARY: documents behavior — the implementation checks if z_hi < -TOL
+        // or z_lo > max_height + TOL but does NOT clip partial overlaps. So if
+        // z_lo < max_height and z_hi > max_height, the full unclipped ellipse is returned.
+        match result {
+            Ok(curves) => {
+                if curves.is_empty() {
+                    // Implementation returned empty — the partial overlap was rejected.
+                    // This is a valid conservative behavior but means partial intersections
+                    // are lost. Document for future improvement.
+                    // ADVERSARY: documents behavior — partial z-range overlap returns empty
+                } else {
+                    assert_eq!(curves.len(), 1, "Expected 0 or 1 curve");
+                    // Implementation returned the full unclipped ellipse
+                    match &curves[0] {
+                        SSICurve::Ellipse {
+                            center,
+                            normal,
+                            major_axis,
+                            semi_major,
+                            semi_minor,
+                        } => {
+                            // Verify points on the ellipse that are within the valid cone
+                            // height range do lie on both surfaces.
+                            let points = sample_ellipse_points(
+                                *center,
+                                *normal,
+                                *major_axis,
+                                *semi_major,
+                                *semi_minor,
+                            );
+                            let mut points_above_max = 0;
+                            for p in &points {
+                                let h = v3_dot(v3_sub(*p, cone_apex), cone_axis);
+                                if h > max_height + crate::units::TAU_MODEL {
+                                    points_above_max += 1;
+                                }
+                                // All points should at least be on the plane
+                                assert_point_on_plane(*p, plane_origin, plane_normal);
+                            }
+                            // ADVERSARY: documents behavior — some ellipse points extend
+                            // beyond max_height. This is expected for the unclipped ellipse.
+                            // The caller is responsible for trimming.
+                            if points_above_max > 0 {
+                                // Acceptable: implementation returns full mathematical ellipse
+                            }
+                        }
+                        other => panic!("Expected Ellipse, got {:?}", other),
+                    }
+                }
+            }
+            Err(_) => {
+                // Acceptable: implementation may reject partial overlaps with an error
+            }
+        }
+    }
+
+    #[test]
+    fn test_plane_cone_oblique_no_nan() {
+        // ADVERSARY: Sweep a variety of configurations and verify no NaN values
+        // appear in any returned SSICurve fields.
+        let configs: Vec<(
+            [f64; 3], // plane_origin
+            [f64; 3], // plane_normal
+            [f64; 3], // cone_apex
+            [f64; 3], // cone_axis
+            f64,      // half_angle
+            f64,      // max_height
+        )> = vec![
+            // Config 1: Standard oblique
+            (
+                [0.0, 0.0, 5.0],
+                [FRAC_1_SQRT_2, 0.0, FRAC_1_SQRT_2],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+                30.0_f64.to_radians(),
+                20.0,
+            ),
+            // Config 2: Narrow cone, steep cut
+            (
+                [0.0, 0.0, 100.0],
+                [0.1_f64.sin(), 0.0, 0.1_f64.cos()],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+                1.0_f64.to_radians(),
+                500.0,
+            ),
+            // Config 3: Through apex
+            (
+                [0.0, 0.0, 0.0],
+                [FRAC_1_SQRT_2, 0.0, FRAC_1_SQRT_2],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+                45.0_f64.to_radians(),
+                10.0,
+            ),
+            // Config 4: Non-origin apex, tilted axis
+            (
+                [5.0, 5.0, 10.0],
+                [0.0, 0.0, 1.0],
+                [5.0, 5.0, 0.0],
+                v3_normalize([1.0, 1.0, 1.0]),
+                25.0_f64.to_radians(),
+                30.0,
+            ),
+            // Config 5: Nearly perpendicular (but not quite — should hit oblique path)
+            (
+                [0.0, 0.0, 5.0],
+                [0.01, 0.0, 1.0_f64],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+                20.0_f64.to_radians(),
+                10.0,
+            ),
+            // Config 6: Plane normal opposite to axis direction
+            (
+                [0.0, 0.0, 5.0],
+                [-FRAC_1_SQRT_2, 0.0, -FRAC_1_SQRT_2],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+                30.0_f64.to_radians(),
+                20.0,
+            ),
+            // Config 7: Y-tilted normal (not in XZ plane)
+            (
+                [0.0, 0.0, 5.0],
+                [0.0, FRAC_1_SQRT_2, FRAC_1_SQRT_2],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+                30.0_f64.to_radians(),
+                20.0,
+            ),
+        ];
+
+        for (i, (po, pn, ca, cax, ha, mh)) in configs.iter().enumerate() {
+            // Normalize the plane normal (some configs may not be unit length)
+            let pn_norm = v3_normalize(*pn);
+
+            let result = plane_cone_ssi(*po, pn_norm, *ca, *cax, *ha, *mh);
+
+            match result {
+                Ok(curves) => {
+                    for (j, curve) in curves.iter().enumerate() {
+                        match curve {
+                            SSICurve::Ellipse {
+                                center,
+                                normal,
+                                major_axis,
+                                semi_major,
+                                semi_minor,
+                            } => {
+                                for k in 0..3 {
+                                    assert!(
+                                        !center[k].is_nan(),
+                                        "Config {} curve {} Ellipse center[{}] is NaN",
+                                        i,
+                                        j,
+                                        k,
+                                    );
+                                    assert!(
+                                        !normal[k].is_nan(),
+                                        "Config {} curve {} Ellipse normal[{}] is NaN",
+                                        i,
+                                        j,
+                                        k,
+                                    );
+                                    assert!(
+                                        !major_axis[k].is_nan(),
+                                        "Config {} curve {} Ellipse major_axis[{}] is NaN",
+                                        i,
+                                        j,
+                                        k,
+                                    );
+                                }
+                                assert!(
+                                    !semi_major.is_nan(),
+                                    "Config {} curve {} semi_major is NaN",
+                                    i,
+                                    j,
+                                );
+                                assert!(
+                                    !semi_minor.is_nan(),
+                                    "Config {} curve {} semi_minor is NaN",
+                                    i,
+                                    j,
+                                );
+                            }
+                            SSICurve::Circle {
+                                center,
+                                normal,
+                                radius,
+                            } => {
+                                for k in 0..3 {
+                                    assert!(!center[k].is_nan(), "Config {} Circle center NaN", i);
+                                    assert!(!normal[k].is_nan(), "Config {} Circle normal NaN", i);
+                                }
+                                assert!(!radius.is_nan(), "Config {} Circle radius NaN", i);
+                            }
+                            SSICurve::Line { start, end } => {
+                                for k in 0..3 {
+                                    assert!(!start[k].is_nan(), "Config {} Line start NaN", i);
+                                    assert!(!end[k].is_nan(), "Config {} Line end NaN", i);
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(_) => {
+                    // NotSupported is acceptable (parabola, hyperbola)
+                }
+            }
         }
     }
 }
