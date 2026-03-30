@@ -2481,6 +2481,7 @@ fn p5_concentric_cyl_subtract_outer_smaller() {
     let (mut k, handle) = result.unwrap();
     let mesh = k.tessellate(&handle, 0.01).unwrap();
     assert_eq!(mesh.vertices.len(), 0, "Empty solid should produce empty mesh");
+    assert_eq!(mesh.indices.len(), 0, "Empty solid should produce zero triangles");
 }
 
 #[test]
@@ -2495,6 +2496,7 @@ fn p6_concentric_cyl_subtract_equal_radius() {
     let (mut k, handle) = result.unwrap();
     let mesh = k.tessellate(&handle, 0.01).unwrap();
     assert_eq!(mesh.vertices.len(), 0, "Empty solid should produce empty mesh");
+    assert_eq!(mesh.indices.len(), 0, "Empty solid should produce zero triangles");
 }
 
 // ── Group Q: Box-Cylinder Boss-on-Top Union ────────────────────────
@@ -6474,6 +6476,18 @@ fn i1_chained_union_accepts_large_product() {
         union12.is_ok(),
         "Disjoint cyl1+cyl2 union should succeed as compound solid",
     );
+    let handle = union12.unwrap();
+    let mesh = k.tessellate(&handle, 0.01).unwrap();
+    // Each cylinder: V = π * r² * h = π * 4 * 5 ≈ 62.83
+    // Two disjoint cylinders: total ≈ 125.66
+    let vol = mesh_volume(&mesh);
+    let expected = 2.0 * std::f64::consts::PI * 4.0 * 5.0;
+    assert!(
+        (vol - expected).abs() / expected < 0.15,
+        "i1: compound volume should be ~{expected:.1}, got {vol:.1}",
+    );
+    let n_tris = mesh.indices.len() / 3;
+    assert!(n_tris >= 24, "i1: compound mesh should have >=24 triangles, got {n_tris}");
 }
 
 #[test]
@@ -13592,6 +13606,15 @@ fn test_revolve_accepts_offset_profile() {
     // Axis along Y at origin — profile center at x=2, well clear
     let result = k.revolve_face(faces[0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], 90.0);
     assert!(result.is_ok(), "revolve with offset profile should succeed: {:?}", result.err());
+    let handle = result.unwrap();
+    let mesh = k.tessellate(&handle, 0.01).unwrap();
+    assert!(mesh.vertices.len() > 0, "revolve mesh should be non-empty");
+    let n_tris = mesh.indices.len() / 3;
+    assert!(n_tris >= 8, "revolve mesh should have >=8 triangles, got {n_tris}");
+    // Revolve of 0.5×0.5 rect at r=2, 90° sweep: V = (π/2) * (R_out² - R_in²) * h
+    // R_out = 2.25, R_in = 1.75, h = 0.5 → V ≈ π/2 * (5.0625 - 3.0625) * 0.5 ≈ 1.571
+    let vol = mesh_volume(&mesh);
+    assert!(vol > 0.5, "revolve volume should be >0.5, got {vol:.3}");
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
