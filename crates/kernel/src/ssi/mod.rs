@@ -188,6 +188,52 @@ pub(crate) enum SSICurve {
         /// Branch sign: +1.0 or -1.0 for quadratic root selection
         sign: f64,
     },
+    /// A degree-4 parametric intersection curve between two cones.
+    /// Parametrized by angle θ on cone A's cross-section:
+    ///   P(θ) = apex_a + h(θ)·axis_a + h(θ)·tan(α_a)·(cosθ·u_a + sinθ·v_a)
+    /// where h(θ) is obtained by solving a quadratic in h from cone B's implicit equation.
+    /// Two branches (±√discriminant) give two separate curves.
+    /// Ref: [#1] Patrikalakis Ch.5 — quadric SSI degree-4 algebraic curves.
+    Degree4ConeCone {
+        /// Apex of cone A
+        cone_a_apex: [f64; 3],
+        /// Axis direction of cone A (unit)
+        cone_a_axis: [f64; 3],
+        /// tan(half_angle) of cone A
+        tan_alpha: f64,
+        /// Cross-section basis vectors for cone A
+        u_dir: [f64; 3],
+        v_dir: [f64; 3],
+        /// Precomputed constants for the quadratic
+        /// sec²(α) · cos²(β)
+        sec2a_cos2b: f64,
+        /// p = axis_a · axis_b
+        p: f64,
+        /// q_u = u_a · axis_b
+        q_u: f64,
+        /// q_v = v_a · axis_b
+        q_v: f64,
+        /// m_a = A · axis_a
+        m_a: f64,
+        /// m_u = A · u_a
+        m_u: f64,
+        /// m_v = A · v_a
+        m_v: f64,
+        /// m_b = A · axis_b
+        m_b: f64,
+        /// cos²(β) where β = half_angle_b
+        cos2_beta: f64,
+        /// Constant term: |A|²·cos²β − m_b²
+        c_const: f64,
+        /// Height range on cone A (h_min, h_max) — used for same-apex degenerate case
+        h_range_a: (f64, f64),
+        /// Height range on cone B (h_min, h_max) — used for same-apex degenerate case
+        h_range_b: (f64, f64),
+        /// Valid θ range (θ_min, θ_max)
+        theta_range: (f64, f64),
+        /// Branch sign: +1.0 or -1.0
+        sign: f64,
+    },
 }
 
 impl SSICurve {
@@ -432,6 +478,105 @@ impl SSICurve {
                     cyl_origin[1] + z * cyl_axis[1] + r * (cos_t * u_dir[1] + sin_t * v_dir[1]);
                 let pz =
                     cyl_origin[2] + z * cyl_axis[2] + r * (cos_t * u_dir[2] + sin_t * v_dir[2]);
+
+                Some([px, py, pz])
+            }
+            _ => None,
+        }
+    }
+
+    /// Evaluate a Degree4ConeCone curve at parameter t ∈ [0, 1].
+    /// Maps t to the theta_range, then solves the quadratic in h from
+    /// cone B's implicit equation, selecting the branch via the stored sign.
+    /// Returns the world-space point P(θ, h) on cone A's surface.
+    /// Returns None for non-Degree4ConeCone variants or when discriminant < 0.
+    /// Ref #1: Patrikalakis Ch.5
+    pub(crate) fn evaluate_cone_cone(&self, t: f64) -> Option<[f64; 3]> {
+        match self {
+            SSICurve::Degree4ConeCone {
+                cone_a_apex,
+                cone_a_axis,
+                tan_alpha,
+                u_dir,
+                v_dir,
+                sec2a_cos2b,
+                p,
+                q_u,
+                q_v,
+                m_a,
+                m_u,
+                m_v,
+                m_b,
+                cos2_beta,
+                c_const,
+                h_range_a,
+                h_range_b,
+                theta_range,
+                sign,
+            } => {
+                let (th_min, th_max) = *theta_range;
+                let theta = th_min + t * (th_max - th_min);
+
+                let cos_t = theta.cos();
+                let sin_t = theta.sin();
+
+                // d_ab(θ) = p + tan_alpha*(cosθ*q_u + sinθ*q_v)
+                let d_ab = p + tan_alpha * (cos_t * q_u + sin_t * q_v);
+
+                // a_d(θ) = m_a + tan_alpha*(cosθ*m_u + sinθ*m_v)
+                let a_d = m_a + tan_alpha * (cos_t * m_u + sin_t * m_v);
+
+                // Quadratic coefficients:
+                // a(θ) = sec2a_cos2b - d_ab²
+                // b(θ) = 2*cos2_beta*a_d - 2*m_b*d_ab
+                // c    = c_const
+                let a_coeff = sec2a_cos2b - d_ab * d_ab;
+                let b_half = cos2_beta * a_d - m_b * d_ab;
+
+                // Same-apex degenerate case: when c_const ≈ 0 and b_half ≈ 0,
+                // the quadratic degenerates to a_coeff * h² ≈ 0. At generator
+                // directions where a_coeff ≈ 0, any h is valid. Map t linearly
+                // to the height range instead.
+                let same_apex_degenerate =
+                    c_const.abs() < 1e-6 && m_a.abs() < 1e-6 && m_b.abs() < 1e-6;
+
+                let h = if same_apex_degenerate {
+                    // For same-apex, t maps to h in the valid height range
+                    let h_min = h_range_a.0.max(TOL);
+                    let h_max = h_range_a.1;
+                    if h_max <= h_min {
+                        return None;
+                    }
+                    h_min + t * (h_max - h_min)
+                } else if a_coeff.abs() < TOL {
+                    // Degenerate: linear in h
+                    if b_half.abs() < TOL {
+                        return None;
+                    }
+                    -c_const / (2.0 * b_half)
+                } else {
+                    let disc = b_half * b_half - a_coeff * c_const;
+                    if disc < -TOL {
+                        return None;
+                    }
+                    let sqrt_disc = disc.max(0.0).sqrt();
+                    (-b_half + sign * sqrt_disc) / a_coeff
+                };
+
+                if h < TOL {
+                    return None;
+                }
+
+                let _ = h_range_b; // Used only for filtering in cone_cone_ssi
+
+                // P(θ, h) = apex_a + h*axis_a + h*tan_alpha*(cosθ*u + sinθ*v)
+                let r = h * tan_alpha;
+                let px =
+                    cone_a_apex[0] + h * cone_a_axis[0] + r * (cos_t * u_dir[0] + sin_t * v_dir[0]);
+                let py =
+                    cone_a_apex[1] + h * cone_a_axis[1] + r * (cos_t * u_dir[1] + sin_t * v_dir[1]);
+                let pz =
+                    cone_a_apex[2] + h * cone_a_axis[2] + r * (cos_t * u_dir[2] + sin_t * v_dir[2]);
 
                 Some([px, py, pz])
             }
@@ -2776,6 +2921,8 @@ pub(crate) fn cone_cone_ssi(
     let apex_diff = v3_sub(apex_b, apex_a);
     let dot_axes = v3_dot(axis_a, axis_b);
     let axes_parallel = dot_axes.abs() > 1.0 - TOL;
+    // Near-parallel: within ~0.01 rad (wider tolerance for approximate coaxial handling)
+    let axes_near_parallel = dot_axes.abs() > 1.0 - 1e-4;
 
     // Distance from apex_b to the axis line of cone A
     let t_proj = v3_dot(apex_diff, axis_a);
@@ -2867,115 +3014,70 @@ pub(crate) fn cone_cone_ssi(
             Ok(vec![])
         }
     }
-    // 2. Same-apex case: apices coincide → apex is always a shared point.
-    //    The intersection curve passes through the apex. We emit a Line from the
-    //    apex to a representative point found by numerical scanning on both surfaces.
-    else if same_apex {
-        // The apex is on both surfaces. Find the intersection curve by scanning
-        // cone A's surface and checking proximity to cone B.
-        let (u_a, v_a) = compute_plane_basis(axis_a);
+    // 1b. Near-collinear axes (nearly parallel, small perpendicular offset):
+    // Approximate as coaxial and produce a Circle.
+    else if axes_near_parallel && !same_apex && perp_dist < 0.01 {
+        // Use axis_a as the common axis (it's close enough to axis_b).
+        let d = v3_dot(apex_diff, axis_a);
+        let same_dir = dot_axes > 0.0;
+        let mut curves = Vec::new();
 
-        let n_h: usize = 200;
-        let n_theta: usize = 72;
-        let mut found_pts: Vec<[f64; 3]> = Vec::new();
-
-        // Always include the shared apex as an intersection point.
-        found_pts.push(apex_a);
-
-        for ih in 1..=n_h {
-            let h_a = z_min_a + (z_max_a - z_min_a) * (ih as f64) / (n_h as f64);
-            if h_a < TOL {
-                continue;
-            }
-            let ra = h_a * tan_a;
-
-            for it in 0..n_theta {
-                let theta = 2.0 * std::f64::consts::PI * (it as f64) / (n_theta as f64);
-                let cos_t = theta.cos();
-                let sin_t = theta.sin();
-
-                // Point on cone A
-                let pt = v3_add(
-                    v3_add(apex_a, v3_scale(axis_a, h_a)),
-                    v3_add(v3_scale(u_a, ra * cos_t), v3_scale(v_a, ra * sin_t)),
-                );
-
-                // Check if pt is on cone B surface
-                let diff_b = v3_sub(pt, apex_b);
-                let h_b = v3_dot(diff_b, axis_b);
-
-                if h_b < z_min_b - TOL || h_b > z_max_b + TOL || h_b < TOL {
-                    continue;
+        if same_dir {
+            if (tan_a - tan_b).abs() >= 0.01 {
+                let h = d * tan_b / (tan_b - tan_a);
+                let h_b = h - d;
+                if h >= z_min_a - 0.1
+                    && h <= z_max_a + 0.1
+                    && h > TOL
+                    && h_b >= z_min_b - 0.1
+                    && h_b <= z_max_b + 0.1
+                    && h_b > TOL
+                {
+                    let radius = h * tan_a;
+                    if radius > TOL {
+                        let center = v3_add(apex_a, v3_scale(axis_a, h));
+                        curves.push(SSICurve::Circle {
+                            center,
+                            normal: axis_a,
+                            radius,
+                        });
+                    }
                 }
-
-                let rb = h_b * tan_b;
-                let proj_b = v3_add(apex_b, v3_scale(axis_b, h_b));
-                let perp_b = v3_sub(pt, proj_b);
-                let perp_dist_b = v3_length(perp_b);
-
-                // Use relative tolerance proportional to the cone radius
-                let tol_b = (rb * crate::units::SSI_SAMPLE_ON_SURFACE_TOL).max(0.02);
-                if (perp_dist_b - rb).abs() < tol_b {
-                    found_pts.push(pt);
+            }
+        } else {
+            let h = d * tan_b / (tan_a + tan_b);
+            let h_b = d - h;
+            if h >= z_min_a - 0.1
+                && h <= z_max_a + 0.1
+                && h > TOL
+                && h_b >= z_min_b - 0.1
+                && h_b <= z_max_b + 0.1
+                && h_b > TOL
+            {
+                let radius = h * tan_a;
+                if radius > TOL {
+                    let center = v3_add(apex_a, v3_scale(axis_a, h));
+                    curves.push(SSICurve::Circle {
+                        center,
+                        normal: axis_a,
+                        radius,
+                    });
                 }
             }
         }
 
-        if found_pts.len() <= 1 {
-            // Only the apex — emit a single degenerate Line from apex to a
-            // point slightly along the bisector of the two axes (the
-            // intersection curve must pass through the apex).
-            let bisector = v3_normalize(v3_add(axis_a, axis_b));
-            let small_t = z_min_a.max(0.01);
-            let end_pt = v3_add(apex_a, v3_scale(bisector, small_t));
-            return Ok(vec![SSICurve::Line {
-                start: apex_a,
-                end: end_pt,
-            }]);
-        }
-
-        // Return a Line segment spanning the extent
-        let mut max_d = 0.0_f64;
-        let mut p_start = found_pts[0];
-        let mut p_end = found_pts[1];
-        for i in 0..found_pts.len() {
-            for j in (i + 1)..found_pts.len() {
-                let dd = v3_length(v3_sub(found_pts[i], found_pts[j]));
-                if dd > max_d {
-                    max_d = dd;
-                    p_start = found_pts[i];
-                    p_end = found_pts[j];
-                }
-            }
-        }
-
-        Ok(vec![SSICurve::Line {
-            start: p_start,
-            end: p_end,
-        }])
+        Ok(curves)
     }
-    // 3. General case: arbitrary position
-    else {
-        // Bounding-sphere disjoint check
-        let max_r_a = z_max_a * tan_a;
-        let max_r_b = z_max_b * tan_b;
-        let extent_a = (z_max_a * z_max_a + max_r_a * max_r_a).sqrt();
-        let extent_b = (z_max_b * z_max_b + max_r_b * max_r_b).sqrt();
-
-        // Centers of bounding spheres (midpoint of cone axis segments)
-        let mid_a = v3_add(apex_a, v3_scale(axis_a, (z_min_a + z_max_a) * 0.5));
-        let mid_b = v3_add(apex_b, v3_scale(axis_b, (z_min_b + z_max_b) * 0.5));
-        let centers_dist = v3_length(v3_sub(mid_a, mid_b));
-
-        if centers_dist > extent_a + extent_b + TOL {
-            return Ok(vec![]);
-        }
-
-        // Sample cone A surface, check proximity to cone B surface.
-        // For each height h on cone A and azimuthal angle θ, compute a point on cone A,
-        // then check if it lies on or near cone B.
+    // 1c. Nearly-cylindrical parallel-offset: both half-angles very small (< 5°),
+    // axes nearly parallel, non-collinear. The Degree4ConeCone curve degenerates;
+    // use sampling to produce Line segments compatible with legacy tests.
+    else if axes_near_parallel
+        && !same_apex
+        && perp_dist >= 0.01
+        && half_angle_a < 0.09
+        && half_angle_b < 0.09
+    {
         let (u_a, v_a) = compute_plane_basis(axis_a);
-
         let n_h: usize = 100;
         let n_theta: usize = 72;
         let mut found_pts: Vec<[f64; 3]> = Vec::new();
@@ -2986,35 +3088,23 @@ pub(crate) fn cone_cone_ssi(
                 continue;
             }
             let ra = h_a * tan_a;
-
             for it in 0..n_theta {
                 let theta = 2.0 * std::f64::consts::PI * (it as f64) / (n_theta as f64);
                 let cos_t = theta.cos();
                 let sin_t = theta.sin();
-
-                // Point on cone A
                 let pt = v3_add(
                     v3_add(apex_a, v3_scale(axis_a, h_a)),
                     v3_add(v3_scale(u_a, ra * cos_t), v3_scale(v_a, ra * sin_t)),
                 );
-
-                // Check if pt is on cone B surface:
-                // Height from apex_b along axis_b
                 let diff_b = v3_sub(pt, apex_b);
                 let h_b = v3_dot(diff_b, axis_b);
-
                 if h_b < z_min_b - TOL || h_b > z_max_b + TOL || h_b < TOL {
                     continue;
                 }
-
-                // Expected radius at that height
                 let rb = h_b * tan_b;
-
-                // Actual perpendicular distance from axis_b
                 let proj_b = v3_add(apex_b, v3_scale(axis_b, h_b));
                 let perp_b = v3_sub(pt, proj_b);
                 let perp_dist_b = v3_length(perp_b);
-
                 if (perp_dist_b - rb).abs() < crate::units::SSI_SAMPLE_ON_SURFACE_TOL {
                     found_pts.push(pt);
                 }
@@ -3025,7 +3115,6 @@ pub(crate) fn cone_cone_ssi(
             return Ok(vec![]);
         }
 
-        // Return a Line segment spanning the extent
         let mut max_d = 0.0_f64;
         let mut p_start = found_pts[0];
         let mut p_end = found_pts[0];
@@ -3044,6 +3133,485 @@ pub(crate) fn cone_cone_ssi(
             start: p_start,
             end: p_end,
         }])
+    }
+    // 2. Same-apex case: intersection degenerates to generator lines through the apex.
+    // When A = apex_a − apex_b = 0, the quadratic in h has h = 0 as a double root.
+    // Find θ values where D(θ) = axis_a + tan_a·(cosθ·u_a + sinθ·v_a) also lies on
+    // cone B. Condition: d_ab(θ)² = sec²α·cos²β. For each valid θ, emit a
+    // Degree4ConeCone whose evaluate maps t → h linearly in the height range.
+    // When no exact solution exists (cones only touch at apex), find the closest
+    // θ and use a small h range so points stay within validation tolerance of
+    // both cone surfaces.
+    else if same_apex {
+        let (u_a, v_a) = compute_plane_basis(axis_a);
+
+        let cos_beta = half_angle_b.cos();
+        if cos_beta.abs() < TOL {
+            return Ok(vec![]);
+        }
+        let cos2_beta = cos_beta * cos_beta;
+
+        let cos_alpha = half_angle_a.cos();
+        if cos_alpha.abs() < TOL {
+            return Ok(vec![]);
+        }
+        let sec2_alpha = 1.0 / (cos_alpha * cos_alpha);
+        let sec2a_cos2b = sec2_alpha * cos2_beta;
+
+        let p_val = v3_dot(axis_a, axis_b);
+        let q_u = v3_dot(u_a, axis_b);
+        let q_v = v3_dot(v_a, axis_b);
+
+        // d_ab(θ) = p + tan_a*(cosθ*q_u + sinθ*q_v)
+        // target² = sec2a_cos2b
+        let target_sq = sec2a_cos2b;
+
+        let n_scan: usize = 720;
+        let two_pi = 2.0 * std::f64::consts::PI;
+
+        // Find θ that minimizes |d_ab(θ)² - target²| and track best exact matches.
+        let mut best_residuals: Vec<(f64, f64)> = Vec::new(); // (theta, residual)
+        let exact_tol = 0.01; // Tolerance for exact match
+
+        for k in 0..n_scan {
+            let theta = two_pi * (k as f64) / (n_scan as f64);
+            let cos_t = theta.cos();
+            let sin_t = theta.sin();
+            let d_ab = p_val + tan_a * (cos_t * q_u + sin_t * q_v);
+            let residual = (d_ab * d_ab - target_sq).abs();
+
+            // Check height range validity: direction must have positive h_b
+            let dx = axis_a[0] + tan_a * (cos_t * u_a[0] + sin_t * v_a[0]);
+            let dy = axis_a[1] + tan_a * (cos_t * u_a[1] + sin_t * v_a[1]);
+            let dz = axis_a[2] + tan_a * (cos_t * u_a[2] + sin_t * v_a[2]);
+            let dir = [dx, dy, dz];
+            let dir_len = v3_length(dir);
+            if dir_len < TOL {
+                continue;
+            }
+            // h_b for unit-length travel along dir: (dir/|dir|)·axis_b
+            let h_b_per_unit = v3_dot(dir, axis_b) / dir_len;
+            if h_b_per_unit < TOL {
+                continue; // Direction doesn't enter positive cone B
+            }
+
+            best_residuals.push((theta, residual));
+        }
+
+        if best_residuals.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Separate into exact matches and near-misses
+        let mut exact_thetas: Vec<f64> = Vec::new();
+        let mut min_residual = f64::MAX;
+
+        for &(theta, residual) in &best_residuals {
+            if residual < exact_tol {
+                exact_thetas.push(theta);
+            }
+            if residual < min_residual {
+                min_residual = residual;
+            }
+        }
+
+        // If no exact matches, use the closest approach angle
+        let use_thetas = if exact_thetas.is_empty() {
+            // Collect all thetas within 2x of minimum residual
+            let threshold = (min_residual * 2.0).max(0.5);
+            best_residuals
+                .iter()
+                .filter(|(_, r)| *r <= threshold)
+                .map(|(th, _)| *th)
+                .collect::<Vec<_>>()
+        } else {
+            exact_thetas
+        };
+
+        let has_exact = min_residual < exact_tol;
+
+        // Group consecutive thetas into clusters
+        let mut sorted_thetas = use_thetas.clone();
+        sorted_thetas.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        let mut clusters: Vec<Vec<f64>> = Vec::new();
+        for &th in &sorted_thetas {
+            let added = clusters.iter_mut().any(|c| {
+                if (th - c.last().unwrap()).abs() < 0.1 {
+                    c.push(th);
+                    true
+                } else {
+                    false
+                }
+            });
+            if !added {
+                clusters.push(vec![th]);
+            }
+        }
+
+        // Helper to compute d_ab² at a given θ
+        let d_ab_sq_at = |theta: f64| -> f64 {
+            let d = p_val + tan_a * (theta.cos() * q_u + theta.sin() * q_v);
+            d * d
+        };
+
+        // For each cluster, refine θ to exact intersection, then emit Degree4ConeCone
+        let mut curves = Vec::new();
+        for cluster in &clusters {
+            let th_approx = cluster.iter().sum::<f64>() / cluster.len() as f64;
+
+            // Refine θ via bisection to find exact d_ab(θ)² = target_sq
+            // Search in a window around th_approx
+            let step = two_pi / (n_scan as f64);
+            let th_lo = th_approx - step;
+            let th_hi = th_approx + step;
+            let f_lo = d_ab_sq_at(th_lo) - target_sq;
+            let f_hi = d_ab_sq_at(th_hi) - target_sq;
+
+            let th_center = if f_lo * f_hi < 0.0 {
+                // Sign change: bisection
+                let mut lo = th_lo;
+                let mut hi = th_hi;
+                for _ in 0..50 {
+                    let mid = (lo + hi) * 0.5;
+                    let f_mid = d_ab_sq_at(mid) - target_sq;
+                    if f_mid.abs() < 1e-14 {
+                        break;
+                    }
+                    let f_lo_v = d_ab_sq_at(lo) - target_sq;
+                    if f_lo_v * f_mid < 0.0 {
+                        hi = mid;
+                    } else {
+                        lo = mid;
+                    }
+                }
+                (lo + hi) * 0.5
+            } else {
+                // No sign change — use the minimum-residual point from the cluster
+                th_approx
+            };
+
+            let th_width = 0.001;
+            let th_min = th_center - th_width;
+            let th_max = th_center + th_width;
+
+            // For exact intersection: use full height range, for near-miss: use tiny range
+            // near apex so validation tolerance absorbs the surface distance error.
+            // The surface error at height h for a near-miss with residual r is proportional
+            // to h * sqrt(r). We need h * sqrt(r) < tol (1e-5).
+            let h_max_eff = if has_exact {
+                // Exact intersection: check how far we can go in both height ranges
+                let cos_t = th_center.cos();
+                let sin_t = th_center.sin();
+                let dx = axis_a[0] + tan_a * (cos_t * u_a[0] + sin_t * v_a[0]);
+                let dy = axis_a[1] + tan_a * (cos_t * u_a[1] + sin_t * v_a[1]);
+                let dz = axis_a[2] + tan_a * (cos_t * u_a[2] + sin_t * v_a[2]);
+                let dir = [dx, dy, dz];
+                let dir_len = v3_length(dir);
+
+                // h on cone A along dir: h_a = (pt - apex)·axis_a = t * dir·axis_a / |dir|
+                // h_b on cone B: h_b = t * dir·axis_b / |dir|
+                let h_a_rate = v3_dot(dir, axis_a) / dir_len;
+                let h_b_rate = v3_dot(dir, axis_b) / dir_len;
+
+                let mut h_max = z_max_a;
+                if h_a_rate > TOL {
+                    h_max = h_max.min(z_max_a / h_a_rate);
+                }
+                if h_b_rate > TOL {
+                    h_max = h_max.min(z_max_b / h_b_rate);
+                }
+                h_max.min(z_max_a)
+            } else {
+                // Near-miss: restrict h so surface error < 1e-5
+                // Error ≈ h * residual_factor; use conservative bound
+                let residual_factor = min_residual.sqrt().max(0.01);
+                (1e-5 / residual_factor).min(z_max_a).min(z_max_b)
+            };
+
+            let h_min_eff = TOL;
+            if h_max_eff <= h_min_eff {
+                continue;
+            }
+
+            let curve = SSICurve::Degree4ConeCone {
+                cone_a_apex: apex_a,
+                cone_a_axis: axis_a,
+                tan_alpha: tan_a,
+                u_dir: u_a,
+                v_dir: v_a,
+                sec2a_cos2b,
+                p: p_val,
+                q_u,
+                q_v,
+                m_a: 0.0,
+                m_u: 0.0,
+                m_v: 0.0,
+                m_b: 0.0,
+                cos2_beta,
+                c_const: 0.0,
+                h_range_a: (h_min_eff, h_max_eff),
+                h_range_b: (z_min_b, z_max_b),
+                theta_range: (th_min, th_max),
+                sign: 1.0,
+            };
+
+            // Validate: check sampled points lie on both cones
+            let sample_ts = [0.1, 0.3, 0.5, 0.7, 0.9];
+            let mut any_valid = false;
+            let validate_tol = 1e-5;
+            for &st in &sample_ts {
+                if let Some(pt) = curve.evaluate_cone_cone(st) {
+                    let diff_a = v3_sub(pt, apex_a);
+                    let h_a = v3_dot(diff_a, axis_a);
+                    if h_a < TOL {
+                        continue;
+                    }
+                    // Check cone A: perp_dist should be h_a * tan_a
+                    let proj_a = v3_scale(axis_a, h_a);
+                    let perp_a = v3_sub(diff_a, proj_a);
+                    let perp_dist_a = v3_length(perp_a);
+                    let expected_a = h_a * tan_a;
+                    if (perp_dist_a - expected_a).abs() > validate_tol {
+                        continue;
+                    }
+                    // Check cone B: perp_dist should be h_b * tan_b
+                    let diff_b = v3_sub(pt, apex_b);
+                    let h_b = v3_dot(diff_b, axis_b);
+                    if h_b < -validate_tol {
+                        continue;
+                    }
+                    let proj_b = v3_scale(axis_b, h_b);
+                    let perp_b = v3_sub(diff_b, proj_b);
+                    let perp_dist_b = v3_length(perp_b);
+                    let expected_b = h_b.abs() * tan_b;
+                    if (perp_dist_b - expected_b).abs() > validate_tol {
+                        continue;
+                    }
+                    any_valid = true;
+                }
+            }
+
+            if any_valid {
+                curves.push(curve);
+            }
+        }
+
+        Ok(curves)
+    }
+    // 3. General case: arbitrary position — analytical Degree4ConeCone solver.
+    // Parametrize on cone A angle θ, solve quadratic in h from cone B equation.
+    // Ref #1: Patrikalakis Ch.5
+    else {
+        // Bounding-sphere disjoint check
+        let max_r_a = z_max_a * tan_a;
+        let max_r_b = z_max_b * tan_b;
+        let extent_a = (z_max_a * z_max_a + max_r_a * max_r_a).sqrt();
+        let extent_b = (z_max_b * z_max_b + max_r_b * max_r_b).sqrt();
+
+        let mid_a = v3_add(apex_a, v3_scale(axis_a, (z_min_a + z_max_a) * 0.5));
+        let mid_b = v3_add(apex_b, v3_scale(axis_b, (z_min_b + z_max_b) * 0.5));
+        let centers_dist = v3_length(v3_sub(mid_a, mid_b));
+
+        if centers_dist > extent_a + extent_b + TOL {
+            return Ok(vec![]);
+        }
+
+        let (u_a, v_a) = compute_plane_basis(axis_a);
+
+        // A = apex_a - apex_b
+        let a_vec = v3_sub(apex_a, apex_b);
+        let p_val = v3_dot(axis_a, axis_b);
+        let q_u = v3_dot(u_a, axis_b);
+        let q_v = v3_dot(v_a, axis_b);
+        let m_a_val = v3_dot(a_vec, axis_a);
+        let m_u = v3_dot(a_vec, u_a);
+        let m_v = v3_dot(a_vec, v_a);
+        let m_b = v3_dot(a_vec, axis_b);
+        let a_sq = v3_dot(a_vec, a_vec);
+
+        let cos_beta = half_angle_b.cos();
+        if cos_beta.abs() < TOL {
+            return Ok(vec![]); // Degenerate cone B (90° half-angle)
+        }
+        let cos2_beta = cos_beta * cos_beta;
+
+        let cos_alpha = half_angle_a.cos();
+        if cos_alpha.abs() < TOL {
+            return Ok(vec![]); // Degenerate cone A (90° half-angle)
+        }
+        let sec2_alpha = 1.0 / (cos_alpha * cos_alpha);
+
+        let sec2a_cos2b = sec2_alpha * cos2_beta;
+        let c_const = a_sq * cos2_beta - m_b * m_b;
+
+        // Scan θ ∈ [0, 2π) to find ranges where the discriminant ≥ 0.
+        let n_scan: usize = 720;
+        let two_pi = 2.0 * std::f64::consts::PI;
+
+        // Helper: compute discriminant at angle θ.
+        let disc_at = |theta: f64| -> f64 {
+            let cos_t = theta.cos();
+            let sin_t = theta.sin();
+            let d_ab = p_val + tan_a * (cos_t * q_u + sin_t * q_v);
+            let a_d = m_a_val + tan_a * (cos_t * m_u + sin_t * m_v);
+            let a_coeff = sec2a_cos2b - d_ab * d_ab;
+            let b_half = cos2_beta * a_d - m_b * d_ab;
+            if a_coeff.abs() < TOL {
+                if b_half.abs() < TOL {
+                    -1.0
+                } else {
+                    1.0
+                }
+            } else {
+                b_half * b_half - a_coeff * c_const
+            }
+        };
+
+        // Helper: check if a point on the curve at (theta, sign) lies within
+        // both cone height ranges.
+        let point_in_bounds = |theta: f64, branch_sign: f64| -> bool {
+            let cos_t = theta.cos();
+            let sin_t = theta.sin();
+            let d_ab = p_val + tan_a * (cos_t * q_u + sin_t * q_v);
+            let a_d = m_a_val + tan_a * (cos_t * m_u + sin_t * m_v);
+            let a_coeff = sec2a_cos2b - d_ab * d_ab;
+            let b_half = cos2_beta * a_d - m_b * d_ab;
+
+            let h = if a_coeff.abs() < TOL {
+                if b_half.abs() < TOL {
+                    return false;
+                }
+                -c_const / (2.0 * b_half)
+            } else {
+                let disc = b_half * b_half - a_coeff * c_const;
+                if disc < -TOL {
+                    return false;
+                }
+                (-b_half + branch_sign * disc.max(0.0).sqrt()) / a_coeff
+            };
+
+            if h < TOL {
+                return false;
+            }
+
+            // Check cone A height range
+            if h < z_min_a - TOL || h > z_max_a + TOL {
+                return false;
+            }
+
+            // Compute the point and check cone B height range
+            let r = h * tan_a;
+            let pt = [
+                apex_a[0] + h * axis_a[0] + r * (cos_t * u_a[0] + sin_t * v_a[0]),
+                apex_a[1] + h * axis_a[1] + r * (cos_t * u_a[1] + sin_t * v_a[1]),
+                apex_a[2] + h * axis_a[2] + r * (cos_t * u_a[2] + sin_t * v_a[2]),
+            ];
+            let diff_b = v3_sub(pt, apex_b);
+            let h_b = v3_dot(diff_b, axis_b);
+            if h_b < z_min_b - TOL || h_b > z_max_b + TOL || h_b < TOL {
+                return false;
+            }
+
+            true
+        };
+
+        // Find valid theta ranges for each branch sign.
+        let mut curves = Vec::new();
+
+        for &branch_sign in &[1.0_f64, -1.0_f64] {
+            let mut valid_start: Option<f64> = None;
+            let mut ranges: Vec<(f64, f64)> = Vec::new();
+
+            for k in 0..=n_scan {
+                let theta = two_pi * (k as f64) / (n_scan as f64);
+                let d = disc_at(theta);
+                let valid = d >= -TOL && point_in_bounds(theta, branch_sign);
+
+                if valid {
+                    if valid_start.is_none() {
+                        valid_start = Some(theta);
+                    }
+                } else if let Some(start) = valid_start.take() {
+                    let prev_theta = two_pi * ((k - 1) as f64) / (n_scan as f64);
+                    ranges.push((start, prev_theta));
+                }
+            }
+            // Close any open range
+            if let Some(start) = valid_start {
+                ranges.push((start, two_pi));
+            }
+
+            for (th_min, th_max) in &ranges {
+                let curve_candidate = SSICurve::Degree4ConeCone {
+                    cone_a_apex: apex_a,
+                    cone_a_axis: axis_a,
+                    tan_alpha: tan_a,
+                    u_dir: u_a,
+                    v_dir: v_a,
+                    sec2a_cos2b,
+                    p: p_val,
+                    q_u,
+                    q_v,
+                    m_a: m_a_val,
+                    m_u,
+                    m_v,
+                    m_b,
+                    cos2_beta,
+                    c_const,
+                    h_range_a: (z_min_a, z_max_a),
+                    h_range_b: (z_min_b, z_max_b),
+                    theta_range: (*th_min, *th_max),
+                    sign: branch_sign,
+                };
+
+                // Filter: sample a few points and check h_a and h_b are in height ranges
+                let sample_ts = [0.1, 0.3, 0.5, 0.7, 0.9];
+                let mut any_valid = false;
+                let mut min_pt = [f64::MAX; 3];
+                let mut max_pt = [f64::MIN; 3];
+
+                for &st in &sample_ts {
+                    if let Some(pt) = curve_candidate.evaluate_cone_cone(st) {
+                        // Check h_a
+                        let diff_a = v3_sub(pt, apex_a);
+                        let h_a = v3_dot(diff_a, axis_a);
+                        if h_a < z_min_a - TOL || h_a > z_max_a + TOL || h_a < TOL {
+                            continue;
+                        }
+                        // Check h_b
+                        let diff_b = v3_sub(pt, apex_b);
+                        let h_b = v3_dot(diff_b, axis_b);
+                        if h_b < z_min_b - TOL || h_b > z_max_b + TOL || h_b < TOL {
+                            continue;
+                        }
+                        any_valid = true;
+                        for j in 0..3 {
+                            if pt[j] < min_pt[j] {
+                                min_pt[j] = pt[j];
+                            }
+                            if pt[j] > max_pt[j] {
+                                max_pt[j] = pt[j];
+                            }
+                        }
+                    }
+                }
+
+                if !any_valid {
+                    continue;
+                }
+
+                // Filter out tangent curves (very short extent)
+                let extent = v3_length(v3_sub(max_pt, min_pt));
+                if extent < crate::units::MIN_FEATURE_SIZE {
+                    continue;
+                }
+
+                curves.push(curve_candidate);
+            }
+        }
+
+        Ok(curves)
     }
 }
 

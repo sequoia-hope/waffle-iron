@@ -10627,3 +10627,621 @@ fn test_cyl_cyl_unequal_r_small_rb_second_arc() {
         }
     }
 }
+
+// ── Cone-Cone SSI: Degree4ConeCone analytical tests ─────────────────────
+
+/// Helper: validate that every sampled point on a Degree4ConeCone curve lies on both cones.
+///
+/// For each cone, a point P on the cone surface satisfies:
+///   h = (P - apex) · axis  (axial height, must be > 0)
+///   perp_dist = |P - apex - h·axis|
+///   perp_dist == h * tan(half_angle)
+fn validate_degree4_cone_cone(
+    curve: &SSICurve,
+    apex_a: [f64; 3],
+    axis_a: [f64; 3],
+    half_angle_a: f64,
+    apex_b: [f64; 3],
+    axis_b: [f64; 3],
+    half_angle_b: f64,
+    n_samples: usize,
+) {
+    let tan_a = half_angle_a.tan();
+    let tan_b = half_angle_b.tan();
+    let tol = 1e-5;
+
+    for i in 0..n_samples {
+        let t = (i as f64 + 0.5) / (n_samples as f64);
+        let pt = curve
+            .evaluate_cone_cone(t)
+            .unwrap_or_else(|| panic!("evaluate_cone_cone returned None at t={t}"));
+
+        // Check no NaN
+        assert!(
+            !pt[0].is_nan() && !pt[1].is_nan() && !pt[2].is_nan(),
+            "NaN in point at t={t}"
+        );
+
+        // Cone A: h_a = (pt - apex_a) · axis_a
+        let diff_a = v3_sub(pt, apex_a);
+        let h_a = v3_dot(diff_a, axis_a);
+        assert!(h_a > -tol, "h_a={h_a} should be >= 0 at t={t}");
+        let proj_a = v3_scale(axis_a, h_a);
+        let perp_a = v3_sub(diff_a, proj_a);
+        let perp_dist_a = v3_length(perp_a);
+        let expected_a = h_a.abs() * tan_a;
+        assert!(
+            (perp_dist_a - expected_a).abs() < tol,
+            "Cone A: perp_dist={perp_dist_a}, expected={expected_a}, diff={} at t={t}",
+            (perp_dist_a - expected_a).abs()
+        );
+
+        // Cone B: h_b = (pt - apex_b) · axis_b
+        let diff_b = v3_sub(pt, apex_b);
+        let h_b = v3_dot(diff_b, axis_b);
+        assert!(h_b > -tol, "h_b={h_b} should be >= 0 at t={t}");
+        let proj_b = v3_scale(axis_b, h_b);
+        let perp_b = v3_sub(diff_b, proj_b);
+        let perp_dist_b = v3_length(perp_b);
+        let expected_b = h_b.abs() * tan_b;
+        assert!(
+            (perp_dist_b - expected_b).abs() < tol,
+            "Cone B: perp_dist={perp_dist_b}, expected={expected_b}, diff={} at t={t}",
+            (perp_dist_b - expected_b).abs()
+        );
+    }
+}
+
+#[test]
+fn test_cone_cone_same_apex_analytical_oracle() {
+    // Same apex at origin, axes at 90°, half-angles 30° and 45°.
+    let half_30 = std::f64::consts::FRAC_PI_6;
+    let half_45 = std::f64::consts::FRAC_PI_4;
+    let apex = [0.0, 0.0, 0.0];
+    let axis_a = [0.0, 0.0, 1.0];
+    let axis_b = [1.0, 0.0, 0.0];
+
+    let curves = cone_cone_ssi(
+        apex,
+        axis_a,
+        half_30,
+        (0.0, 10.0),
+        apex,
+        axis_b,
+        half_45,
+        (0.0, 10.0),
+    )
+    .unwrap();
+
+    assert!(!curves.is_empty(), "Same-apex cones must intersect");
+
+    let mut found_degree4 = false;
+    for curve in &curves {
+        if matches!(curve, SSICurve::Degree4ConeCone { .. }) {
+            found_degree4 = true;
+            validate_degree4_cone_cone(curve, apex, axis_a, half_30, apex, axis_b, half_45, 32);
+        }
+    }
+    assert!(
+        found_degree4,
+        "Expected at least one Degree4ConeCone curve, got: {curves:?}"
+    );
+}
+
+#[test]
+fn test_cone_cone_general_offset_analytical_oracle() {
+    // Cone A at origin axis Z, cone B apex at [2,0,0] axis Z, both half-angle 45°.
+    let half_45 = std::f64::consts::FRAC_PI_4;
+    let apex_a = [0.0, 0.0, 0.0];
+    let axis_a = [0.0, 0.0, 1.0];
+    let apex_b = [2.0, 0.0, 0.0];
+    let axis_b = [0.0, 0.0, 1.0];
+
+    let curves = cone_cone_ssi(
+        apex_a,
+        axis_a,
+        half_45,
+        (0.0, 5.0),
+        apex_b,
+        axis_b,
+        half_45,
+        (0.0, 5.0),
+    )
+    .unwrap();
+
+    assert!(
+        !curves.is_empty(),
+        "Offset cones with half-angle 45° and separation 2 must intersect"
+    );
+
+    let mut found_degree4 = false;
+    for curve in &curves {
+        if matches!(curve, SSICurve::Degree4ConeCone { .. }) {
+            found_degree4 = true;
+            validate_degree4_cone_cone(curve, apex_a, axis_a, half_45, apex_b, axis_b, half_45, 32);
+        }
+    }
+    assert!(
+        found_degree4,
+        "Expected at least one Degree4ConeCone curve, got: {curves:?}"
+    );
+}
+
+#[test]
+fn test_cone_cone_oblique_axes_analytical_oracle() {
+    // Cone A axis [0,0,1], cone B axis [0,1,0] (perpendicular), apex B at [1,0,1].
+    // Half-angle 50° ensures intersection: for perpendicular axes, need α > 45° so
+    // cos²α + cos²α < 1 (at 50°: 0.413 + 0.413 = 0.826 < 1).
+    let half_50 = 50.0_f64.to_radians();
+    let apex_a = [0.0, 0.0, 0.0];
+    let axis_a = [0.0, 0.0, 1.0];
+    let apex_b = [1.0, 0.0, 1.0];
+    let axis_b = [0.0, 1.0, 0.0];
+
+    let curves = cone_cone_ssi(
+        apex_a,
+        axis_a,
+        half_50,
+        (0.0, 8.0),
+        apex_b,
+        axis_b,
+        half_50,
+        (0.0, 8.0),
+    )
+    .unwrap();
+
+    assert!(!curves.is_empty(), "Oblique-axis cones should intersect");
+
+    let mut found_degree4 = false;
+    for curve in &curves {
+        if matches!(curve, SSICurve::Degree4ConeCone { .. }) {
+            found_degree4 = true;
+            validate_degree4_cone_cone(curve, apex_a, axis_a, half_50, apex_b, axis_b, half_50, 32);
+        }
+    }
+    assert!(
+        found_degree4,
+        "Expected at least one Degree4ConeCone curve, got: {curves:?}"
+    );
+}
+
+#[test]
+fn test_cone_cone_general_unequal_angles_oracle() {
+    // Cone A half-angle 20°, cone B half-angle 50°, apex B offset [1,0,0], parallel axes.
+    let half_20 = 20.0_f64.to_radians();
+    let half_50 = 50.0_f64.to_radians();
+    let apex_a = [0.0, 0.0, 0.0];
+    let axis_a = [0.0, 0.0, 1.0];
+    let apex_b = [1.0, 0.0, 0.0];
+    let axis_b = [0.0, 0.0, 1.0];
+
+    let curves = cone_cone_ssi(
+        apex_a,
+        axis_a,
+        half_20,
+        (0.0, 6.0),
+        apex_b,
+        axis_b,
+        half_50,
+        (0.0, 6.0),
+    )
+    .unwrap();
+
+    assert!(
+        !curves.is_empty(),
+        "Parallel-axis cones with unequal angles should intersect"
+    );
+
+    let mut found_degree4 = false;
+    for curve in &curves {
+        if matches!(curve, SSICurve::Degree4ConeCone { .. }) {
+            found_degree4 = true;
+            validate_degree4_cone_cone(curve, apex_a, axis_a, half_20, apex_b, axis_b, half_50, 32);
+        }
+    }
+    assert!(
+        found_degree4,
+        "Expected at least one Degree4ConeCone curve, got: {curves:?}"
+    );
+}
+
+#[test]
+fn test_cone_cone_same_apex_oblique_analytical() {
+    // Same apex at [1,2,3], axis A along [0,0,1], axis B along [1,1,0]/sqrt(2).
+    let half_25 = 25.0_f64.to_radians();
+    let apex = [1.0, 2.0, 3.0];
+    let axis_a = [0.0, 0.0, 1.0];
+    let axis_b = [FRAC_1_SQRT_2, FRAC_1_SQRT_2, 0.0];
+
+    let curves = cone_cone_ssi(
+        apex,
+        axis_a,
+        half_25,
+        (0.0, 10.0),
+        apex,
+        axis_b,
+        half_25,
+        (0.0, 10.0),
+    )
+    .unwrap();
+
+    assert!(
+        !curves.is_empty(),
+        "Same-apex oblique cones should intersect"
+    );
+
+    let mut found_degree4 = false;
+    for curve in &curves {
+        if matches!(curve, SSICurve::Degree4ConeCone { .. }) {
+            found_degree4 = true;
+        }
+    }
+    assert!(
+        found_degree4,
+        "Expected at least one Degree4ConeCone curve, got: {curves:?}"
+    );
+}
+
+#[test]
+fn test_cone_cone_same_apex_wide_angles() {
+    // Same apex, half-angles 60° and 70°, perpendicular axes.
+    let half_60 = 60.0_f64.to_radians();
+    let half_70 = 70.0_f64.to_radians();
+    let apex = [0.0, 0.0, 0.0];
+    let axis_a = [0.0, 0.0, 1.0];
+    let axis_b = [1.0, 0.0, 0.0];
+
+    let curves = cone_cone_ssi(
+        apex,
+        axis_a,
+        half_60,
+        (0.0, 10.0),
+        apex,
+        axis_b,
+        half_70,
+        (0.0, 10.0),
+    )
+    .unwrap();
+
+    assert!(
+        !curves.is_empty(),
+        "Wide-angle same-apex cones should intersect"
+    );
+
+    let mut found_degree4 = false;
+    for curve in &curves {
+        if matches!(curve, SSICurve::Degree4ConeCone { .. }) {
+            found_degree4 = true;
+        }
+    }
+    assert!(
+        found_degree4,
+        "Expected at least one Degree4ConeCone curve, got: {curves:?}"
+    );
+}
+
+#[test]
+fn test_cone_cone_general_tilted_oracle() {
+    // Cone A axis [0,0,1], cone B axis [0.6, 0, 0.8] (normalized), apex B at [0.5, 0, 0].
+    let half_35 = 35.0_f64.to_radians();
+    let half_40 = 40.0_f64.to_radians();
+    let apex_a = [0.0, 0.0, 0.0];
+    let axis_a = [0.0, 0.0, 1.0];
+    let apex_b = [0.5, 0.0, 0.0];
+    let axis_b = [0.6, 0.0, 0.8]; // already unit length: 0.36 + 0.64 = 1.0
+
+    let curves = cone_cone_ssi(
+        apex_a,
+        axis_a,
+        half_35,
+        (0.0, 8.0),
+        apex_b,
+        axis_b,
+        half_40,
+        (0.0, 8.0),
+    )
+    .unwrap();
+
+    assert!(!curves.is_empty(), "Tilted-axis cones should intersect");
+
+    let mut found_degree4 = false;
+    for curve in &curves {
+        if matches!(curve, SSICurve::Degree4ConeCone { .. }) {
+            found_degree4 = true;
+            validate_degree4_cone_cone(curve, apex_a, axis_a, half_35, apex_b, axis_b, half_40, 32);
+        }
+    }
+    assert!(
+        found_degree4,
+        "Expected at least one Degree4ConeCone curve, got: {curves:?}"
+    );
+}
+
+// ── Adversarial cone-cone tests ─────────────────────────────────────
+// Stress edge cases: very narrow cones, near-coincident apices, near-tangent,
+// anti-parallel axes, large offsets, dense NaN sweeps, and mutation sign checks.
+
+#[test]
+fn test_cone_cone_adversarial_very_small_half_angle() {
+    // Very narrow cones (2°) with slight offset — should intersect at large h.
+    let half_2 = 2.0_f64.to_radians();
+    let apex_a = [0.0, 0.0, 0.0];
+    let apex_b = [0.1, 0.0, 0.0];
+    let axis = [0.0, 0.0, 1.0];
+
+    let curves = cone_cone_ssi(
+        apex_a,
+        axis,
+        half_2,
+        (0.0, 20.0),
+        apex_b,
+        axis,
+        half_2,
+        (0.0, 20.0),
+    )
+    .unwrap();
+
+    // If intersection found, verify no NaN in any curve points.
+    for curve in &curves {
+        if let SSICurve::Degree4ConeCone { .. } = curve {
+            for i in 0..100 {
+                let t = i as f64 / 100.0;
+                if let Some(pt) = curve.evaluate_cone_cone(t) {
+                    assert!(
+                        !pt[0].is_nan() && !pt[1].is_nan() && !pt[2].is_nan(),
+                        "NaN at t={t}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn test_cone_cone_adversarial_near_coincident_apices() {
+    // Nearly coincident apices (1e-8 apart).
+    let half_45 = std::f64::consts::FRAC_PI_4;
+    let apex_a = [0.0, 0.0, 0.0];
+    let apex_b = [1e-8, 0.0, 0.0];
+    let axis = [0.0, 0.0, 1.0];
+
+    let curves = cone_cone_ssi(
+        apex_a,
+        axis,
+        half_45,
+        (0.0, 5.0),
+        apex_b,
+        axis,
+        half_45,
+        (0.0, 5.0),
+    )
+    .unwrap();
+
+    // Should produce results — either Circle (coaxial path) or Degree4ConeCone.
+    // The key assertion: no NaN and no panic.
+    for curve in &curves {
+        match curve {
+            SSICurve::Degree4ConeCone { .. } => {
+                for i in 0..100 {
+                    let t = i as f64 / 100.0;
+                    if let Some(pt) = curve.evaluate_cone_cone(t) {
+                        assert!(
+                            !pt[0].is_nan() && !pt[1].is_nan() && !pt[2].is_nan(),
+                            "NaN at t={t}"
+                        );
+                    }
+                }
+            }
+            SSICurve::Circle { center, radius, .. } => {
+                assert!(!center[0].is_nan() && !center[1].is_nan() && !center[2].is_nan());
+                assert!(!radius.is_nan());
+            }
+            _ => {}
+        }
+    }
+}
+
+#[test]
+fn test_cone_cone_adversarial_near_tangent() {
+    // Cones just barely overlapping — near-tangent configuration.
+    // r(5) = 5*tan(30°) ≈ 2.887, tangent at d = 2*2.887 ≈ 5.774.
+    // Use d = 5.77 (just inside tangent).
+    let half_30 = std::f64::consts::FRAC_PI_6;
+    let apex_a = [0.0, 0.0, 0.0];
+    let apex_b = [5.77, 0.0, 0.0];
+    let axis = [0.0, 0.0, 1.0];
+
+    let result = cone_cone_ssi(
+        apex_a,
+        axis,
+        half_30,
+        (0.0, 5.0),
+        apex_b,
+        axis,
+        half_30,
+        (0.0, 5.0),
+    );
+
+    // May be Ok(empty) or Ok(curves) — the important thing is no panic.
+    if let Ok(curves) = result {
+        for curve in &curves {
+            if let SSICurve::Degree4ConeCone { .. } = curve {
+                for i in 0..100 {
+                    let t = i as f64 / 100.0;
+                    if let Some(pt) = curve.evaluate_cone_cone(t) {
+                        assert!(
+                            !pt[0].is_nan() && !pt[1].is_nan() && !pt[2].is_nan(),
+                            "NaN at t={t}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn test_cone_cone_adversarial_anti_parallel_axes() {
+    // Cones opening toward each other.
+    let half_40 = 40.0_f64.to_radians();
+    let apex_a = [0.0, 0.0, 0.0];
+    let axis_a = [0.0, 0.0, 1.0];
+    let apex_b = [0.0, 0.0, 3.0];
+    let axis_b = [0.0, 0.0, -1.0];
+
+    let curves = cone_cone_ssi(
+        apex_a,
+        axis_a,
+        half_40,
+        (0.0, 5.0),
+        apex_b,
+        axis_b,
+        half_40,
+        (0.0, 5.0),
+    )
+    .unwrap();
+
+    // Cones opening toward each other should intersect.
+    if !curves.is_empty() {
+        for curve in &curves {
+            if let SSICurve::Degree4ConeCone { .. } = curve {
+                validate_degree4_cone_cone(
+                    curve, apex_a, axis_a, half_40, apex_b, axis_b, half_40, 32,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn test_cone_cone_adversarial_large_offset() {
+    // Large offset but wide cones guarantee overlap.
+    // At h=10, r = 10*tan(60°) ≈ 17.3, offset 8 → definite overlap.
+    let half_60 = 60.0_f64.to_radians();
+    let apex_a = [0.0, 0.0, 0.0];
+    let apex_b = [8.0, 0.0, 0.0];
+    let axis = [0.0, 0.0, 1.0];
+
+    let curves = cone_cone_ssi(
+        apex_a,
+        axis,
+        half_60,
+        (0.0, 10.0),
+        apex_b,
+        axis,
+        half_60,
+        (0.0, 10.0),
+    )
+    .unwrap();
+
+    assert!(
+        !curves.is_empty(),
+        "Wide cones with offset 8 and r=17.3 at h=10 must intersect"
+    );
+
+    for curve in &curves {
+        if let SSICurve::Degree4ConeCone { .. } = curve {
+            validate_degree4_cone_cone(curve, apex_a, axis, half_60, apex_b, axis, half_60, 32);
+        }
+    }
+}
+
+#[test]
+fn test_cone_cone_no_nan_in_degree4_curves() {
+    // Dense NaN sweep: 100 samples on the [2,0,0] offset / 45° config.
+    let half_45 = std::f64::consts::FRAC_PI_4;
+    let apex_a = [0.0, 0.0, 0.0];
+    let axis = [0.0, 0.0, 1.0];
+    let apex_b = [2.0, 0.0, 0.0];
+
+    let curves = cone_cone_ssi(
+        apex_a,
+        axis,
+        half_45,
+        (0.0, 10.0),
+        apex_b,
+        axis,
+        half_45,
+        (0.0, 10.0),
+    )
+    .unwrap();
+
+    assert!(!curves.is_empty(), "Expected non-empty intersection");
+
+    for curve in &curves {
+        if let SSICurve::Degree4ConeCone { .. } = curve {
+            for i in 0..100 {
+                let t = i as f64 / 100.0;
+                if let Some(pt) = curve.evaluate_cone_cone(t) {
+                    assert!(
+                        !pt[0].is_nan() && !pt[1].is_nan() && !pt[2].is_nan(),
+                        "NaN at t={t}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn test_cone_cone_mutation_curve_varies() {
+    // Mutation sanity check: verify that Degree4ConeCone curves are non-degenerate.
+    // A curve that produces the same point for all t values would pass oracle tests
+    // vacuously. We verify the curve spans meaningful geometry.
+    let half_45 = std::f64::consts::FRAC_PI_4;
+    let apex_a = [0.0, 0.0, 0.0];
+    let axis_a = [0.0, 0.0, 1.0];
+    let apex_b = [2.0, 0.0, 0.0];
+
+    let curves = cone_cone_ssi(
+        apex_a,
+        axis_a,
+        half_45,
+        (0.0, 10.0),
+        apex_b,
+        axis_a, // parallel axes
+        half_45,
+        (0.0, 10.0),
+    )
+    .unwrap();
+
+    let degree4: Vec<_> = curves
+        .iter()
+        .filter(|c| matches!(c, SSICurve::Degree4ConeCone { .. }))
+        .collect();
+
+    assert!(
+        !degree4.is_empty(),
+        "Expected at least 1 Degree4ConeCone curve"
+    );
+
+    for (i, curve) in degree4.iter().enumerate() {
+        // Sample 5 points along the curve
+        let pts: Vec<_> = (0..5)
+            .filter_map(|j| curve.evaluate_cone_cone(j as f64 / 4.0))
+            .collect();
+
+        assert!(
+            pts.len() >= 3,
+            "Branch {i} should produce at least 3 evaluable points, got {}",
+            pts.len()
+        );
+
+        // Verify the curve spans a meaningful distance (not a single point)
+        let mut max_dist = 0.0_f64;
+        for a in 0..pts.len() {
+            for b in (a + 1)..pts.len() {
+                let d = v3_length(v3_sub(pts[a], pts[b]));
+                if d > max_dist {
+                    max_dist = d;
+                }
+            }
+        }
+
+        assert!(
+            max_dist > 0.01,
+            "Branch {i} curve extent is only {max_dist} — \
+             curve may be degenerate (mutation risk)"
+        );
+    }
+}

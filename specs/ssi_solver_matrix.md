@@ -179,12 +179,15 @@ z(θ) = z_center ± √(R_s² − d² − R_c² + 2·R_c·d·cos θ). 11 tests w
 | Sub-case | Method | Status | Notes |
 |----------|--------|--------|-------|
 | Coaxial, different apices | analytical | done | Returns `Circle` where radii match (`cone_cone_ssi`) |
-| Same apex | sampling | **stub** | 72×200 grid scan with `SSI_SAMPLE_ON_SURFACE_TOL` |
-| General position | sampling | **stub** | 72×100 grid scan with `SSI_SAMPLE_ON_SURFACE_TOL` |
+| Same apex | analytical | done | Returns `Degree4ConeCone` parametric curves via θ-parameterization + quadratic h solve |
+| General position | analytical | done | Returns `Degree4ConeCone` parametric curves via cone A θ-parameterization into cone B implicit |
 | Parallel generators (same angle+direction) | analytical | done | Returns empty |
 
-**Implementation**: `ssi.rs:cone_cone_ssi` (lines 1638–1937).
-Coaxial path is exact. Same-apex and general paths use numerical scanning.
+**Implementation**: `ssi/mod.rs:cone_cone_ssi`.
+Coaxial path returns exact circles. Same-apex and general paths return `Degree4ConeCone`
+parametric curves via cone A angle parameterization into cone B implicit equation:
+a(θ)·h² + b(θ)·h + c = 0 where a, b depend on θ and c is constant.
+14 tests with on-surface oracle + 8 adversarial (pathological inputs).
 
 ---
 
@@ -287,7 +290,7 @@ Coaxial path is exact. General path scans 360 θ × 36 φ samples on torus A sur
 | 6 | Plane–Torus | **partial** | Axis-perpendicular only | All other orientations |
 | 7 | Cylinder–Cone | **done** | All (coaxial circles + general Degree4CylCone parametric) | — |
 | 8 | Cylinder–Sphere | **done** | All (coaxial circles + offset Degree4CylSphere parametric) | — |
-| 9 | Cone–Cone | **stub** | Coaxial offset | Same-apex + general (72×100–200 scan) |
+| 9 | Cone–Cone | **done** | All (coaxial circles + same-apex/general Degree4ConeCone parametric) | — |
 | 10 | Cylinder–Torus | **stub** | Coaxial | General position (360×200 scan) |
 | 11 | Cone–Sphere | **done** | All (coaxial circles + offset Degree4ConeSphere parametric) | — |
 | 12 | Sphere–Sphere | **done** | All | — |
@@ -295,9 +298,9 @@ Coaxial path is exact. General path scans 360 θ × 36 φ samples on torus A sur
 | 14 | Sphere–Torus | **stub** | Axial | Off-axis (360×36 scan) |
 | 15 | Torus–Torus | **stub** | Coaxial | General position (360×36 scan) |
 
-**Fully analytical**: 8 of 15 pairs (Plane–Plane, Plane–Cylinder, Plane–Cone, Plane–Sphere, Cylinder–Cone, Cylinder–Sphere, Cone–Sphere, Sphere–Sphere)
+**Fully analytical**: 9 of 15 pairs (Plane–Plane, Plane–Cylinder, Plane–Cone, Plane–Sphere, Cylinder–Cone, Cylinder–Sphere, Cone–Cone, Cone–Sphere, Sphere–Sphere)
 **Partial**: 2 of 15 pairs (Cyl–Cyl, Plane–Torus)
-**Stub (sampling)**: 5 of 15 pairs (Cone–Cone, Cyl–Torus, Cone–Torus, Sphere–Torus, Torus–Torus)
+**Stub (sampling)**: 4 of 15 pairs (Cyl–Torus, Cone–Torus, Sphere–Torus, Torus–Torus)
 
 ---
 

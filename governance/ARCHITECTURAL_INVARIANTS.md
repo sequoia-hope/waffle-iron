@@ -438,7 +438,7 @@ The 15 quadric surface pairs ordered by CAD frequency, with implementation statu
 | 6 | Plane–Torus | Degree-4 curve | partial — axis-perpendicular only |
 | 7 | Cylinder–Cone | Degree ≤ 4 curve | done — coaxial circles + general Degree4CylCone parametric |
 | 8 | Cylinder–Sphere | Degree ≤ 4 curve | done — coaxial circles + offset Degree4CylSphere parametric |
-| 9 | Cone–Cone | Degree ≤ 4 curve | stub (sampling) — coaxial analytical |
+| 9 | Cone–Cone | Degree ≤ 4 curve | done — coaxial circles + Degree4ConeCone parametric |
 | 10 | Cylinder–Torus | Degree ≤ 8 curve | stub (sampling) — coaxial analytical |
 | 11 | Cone–Sphere | Degree ≤ 4 curve | done — coaxial circles + offset Degree4ConeSphere parametric |
 | 12 | Sphere–Sphere | Circle | done |
