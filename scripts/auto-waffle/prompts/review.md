@@ -15,7 +15,9 @@ Audit checklist:
   and strengthen them with real assertions
 - A15 compliance: no silent boolean fallbacks — quadric operations must use
   exact SSI or return NotSupported
-- Dead code: unused functions, stale TODO comments, unreachable branches
+- Dead code: unused functions, stale TODO comments, unreachable branches.
+  EXCEPTION: code marked "deprecated, do not delete yet" in A15.6 must stay
+  until the Yang hybrid pipeline (specs/yang_hybrid_migration.md) is operational
 - Documentation freshness: do PLAN.md files, specs, and ARCHITECTURE.md
   reflect current reality? Update them if not
 - Assay triage: run the assay, categorize failures by root cause, write

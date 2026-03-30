@@ -110,11 +110,13 @@ See `docs/TESTING.md` for tier definitions and how to add tests.
 - **SSI solvers** (A15.1): Quadric SSI solvers remain essential — they provide
   the geometry refinement in stage 4 of the hybrid pipeline. Continue implementing
   missing solvers (see A15.4 matrix).
-- **DEPRECATED — do not improve**: The S-H clipping + tolerance escalation pipeline
-  (`classify_face`, `stitch.rs` progressive pairing, tessellation repair loops,
-  `fill_boundary_holes`, `close_near_boundary_chains`). These mask classification
-  errors with up to 5000× tolerance widening and synthetic fill triangles.
-  The self-intersection oracle confirms 0/10 R-series cases produce correct meshes.
+- **DEPRECATED — do not improve, do not delete yet**: The S-H clipping + tolerance
+  escalation pipeline (`classify_face`, `stitch.rs` progressive pairing, tessellation
+  repair loops, `fill_boundary_holes`, `close_near_boundary_chains`). These mask
+  classification errors with up to 5000× tolerance widening and synthetic fill
+  triangles. The self-intersection oracle confirms 0/10 R-series produce correct
+  meshes. **Removal requires the Yang pipeline to be operational first** — see the
+  migration plan in `specs/yang_hybrid_migration.md`.
 - See governance/ARCHITECTURAL_INVARIANTS.md A15 for the full invariant.
 
 ## GUI Test Rules
