@@ -147,6 +147,47 @@ pub(crate) enum SSICurve {
         /// Branch sign: +1.0 (upper) or -1.0 (lower)
         sign: f64,
     },
+    /// A degree-4 parametric intersection curve between a cylinder and a cone.
+    /// Parametrized by angle θ on the cylinder cross-section:
+    ///   P(θ) = cyl_origin + z(θ)·cyl_axis + R_c·(cosθ·u + sinθ·v)
+    /// where z(θ) is obtained by solving a quadratic in z from the cone equation.
+    /// Two branches (±√discriminant) give two separate curves.
+    /// Ref: [#1] Patrikalakis Ch.5 — quadric SSI degree-4 algebraic curves.
+    Degree4CylCone {
+        /// Point on cylinder axis
+        cyl_origin: [f64; 3],
+        /// Cylinder axis direction (unit)
+        cyl_axis: [f64; 3],
+        /// Cylinder radius
+        cyl_radius: f64,
+        /// Cylinder cross-section basis vectors
+        u_dir: [f64; 3],
+        v_dir: [f64; 3],
+        /// Quadratic z² coefficient: 1 - sec²α · a²
+        q_coeff: f64,
+        /// Constant part of linear z coefficient: A · cyl_axis
+        a_dot_cyl: f64,
+        /// sec²(half_angle)
+        sec2_alpha: f64,
+        /// cyl_axis · cone_axis
+        a_proj: f64,
+        /// A · cone_axis (where A = cyl_origin - cone_apex)
+        c_const: f64,
+        /// u · cone_axis
+        b_u: f64,
+        /// v · cone_axis
+        b_v: f64,
+        /// A · u
+        a_dot_u: f64,
+        /// A · v
+        a_dot_v: f64,
+        /// |A|² + R²
+        a_sq_plus_r_sq: f64,
+        /// Valid θ range (θ_min, θ_max)
+        theta_range: (f64, f64),
+        /// Branch sign: +1.0 or -1.0 for quadratic root selection
+        sign: f64,
+    },
 }
 
 impl SSICurve {
@@ -300,6 +341,97 @@ impl SSICurve {
                 let pz = cyl_origin[2]
                     + z * cyl_axis[2]
                     + cyl_radius * (cos_t * u_dir[2] + sin_t * v_dir[2]);
+
+                Some([px, py, pz])
+            }
+            _ => None,
+        }
+    }
+
+    /// Evaluate a Degree4CylCone curve at parameter t ∈ [0, 1].
+    /// Maps t to the theta_range, then solves the quadratic in z from the
+    /// cone implicit equation, selecting the branch via the stored sign.
+    /// Returns the world-space point P(θ, z) on the cylinder surface.
+    /// Returns None for non-Degree4CylCone variants or when discriminant < 0.
+    /// Ref #1: Patrikalakis Ch.5
+    pub(crate) fn evaluate_cyl_cone(&self, t: f64) -> Option<[f64; 3]> {
+        match self {
+            SSICurve::Degree4CylCone {
+                cyl_origin,
+                cyl_axis,
+                cyl_radius,
+                u_dir,
+                v_dir,
+                q_coeff,
+                a_dot_cyl,
+                sec2_alpha,
+                a_proj,
+                c_const,
+                b_u,
+                b_v,
+                a_dot_u,
+                a_dot_v,
+                a_sq_plus_r_sq,
+                theta_range,
+                sign,
+            } => {
+                let (th_min, th_max) = *theta_range;
+                let theta = th_min + t * (th_max - th_min);
+                let r = *cyl_radius;
+
+                let cos_t = theta.cos();
+                let sin_t = theta.sin();
+
+                // H₀(θ) = c_const + R·(cosθ·b_u + sinθ·b_v)
+                let h0 = c_const + r * (cos_t * b_u + sin_t * b_v);
+
+                // f(θ) = cosθ·(A·u) + sinθ·(A·v)
+                let f_theta = cos_t * a_dot_u + sin_t * a_dot_v;
+
+                // Quadratic: Q·z² + L·z + M = 0
+                // Q = 1 - sec²α·a²  (q_coeff)
+                // L = 2·(a_dot_cyl + R·f_cyl(θ) - sec²α·a·H₀(θ))
+                //   where f_cyl(θ) = cosθ·(A·u)_cyl + sinθ·(A·v)_cyl
+                //   but actually L = 2·(A·cyl_axis - sec²α·a·H₀(θ))  wait...
+                // Let me re-derive. We have:
+                // D = A + z·cyl_axis + R·(cosθ·u + sinθ·v)
+                // |D|² = |A|² + z² + R² + 2z·(A·cyl_axis) + 2R·f(θ) + 2zR·g(θ)
+                // where g(θ) = cosθ·(u·cyl_axis) + sinθ·(v·cyl_axis) = 0
+                // because u and v are perpendicular to cyl_axis.
+                // So |D|² = (a_sq_plus_r_sq + 2R·f(θ)) + 2z·a_dot_cyl + z²
+                //
+                // h = H₀(θ) + z·a_proj
+                //
+                // Cone condition: |D|² = h² · sec²α
+                // z² + 2·a_dot_cyl·z + (a_sq_plus_r_sq + 2R·f(θ)) = sec²α·(H₀² + 2·H₀·a_proj·z + a_proj²·z²)
+                // (1 - sec²α·a_proj²)·z² + 2·(a_dot_cyl - sec²α·a_proj·H₀)·z + (a_sq_plus_r_sq + 2R·f(θ) - sec²α·H₀²) = 0
+
+                let q = *q_coeff; // 1 - sec²α · a_proj²
+                let l_half = a_dot_cyl - sec2_alpha * a_proj * h0;
+                let m = a_sq_plus_r_sq + 2.0 * r * f_theta - sec2_alpha * h0 * h0;
+
+                let z = if q.abs() < TOL {
+                    // Degenerate: linear in z
+                    if l_half.abs() < TOL {
+                        return None;
+                    }
+                    -m / (2.0 * l_half)
+                } else {
+                    let disc = l_half * l_half - q * m;
+                    if disc < -TOL {
+                        return None;
+                    }
+                    let sqrt_disc = disc.max(0.0).sqrt();
+                    (-l_half + sign * sqrt_disc) / q
+                };
+
+                // World-space point: P = cyl_origin + z·cyl_axis + R·(cosθ·u + sinθ·v)
+                let px =
+                    cyl_origin[0] + z * cyl_axis[0] + r * (cos_t * u_dir[0] + sin_t * v_dir[0]);
+                let py =
+                    cyl_origin[1] + z * cyl_axis[1] + r * (cos_t * u_dir[1] + sin_t * v_dir[1]);
+                let pz =
+                    cyl_origin[2] + z * cyl_axis[2] + r * (cos_t * u_dir[2] + sin_t * v_dir[2]);
 
                 Some([px, py, pz])
             }
@@ -2436,98 +2568,178 @@ pub(crate) fn cylinder_cone_ssi(
         }
     }
 
-    // Numerical scanning: sample cylinder surface at (theta, z) grid points.
-    // For each sample point on the cylinder, compute signed distance to cone surface
-    // (positive = outside cone, negative = inside cone). Collect points where
-    // the sign changes between adjacent theta samples, indicating a true crossing
-    // (not a tangent touch).
+    // 3. Analytical Degree4CylCone solver.
+    // Parametrize on cylinder angle θ, solve quadratic in z from cone equation.
+    // Ref #1: Patrikalakis Ch.5
     let (u_cyl, v_cyl) = compute_plane_basis(cyl_axis);
 
-    let n_z: usize = 200;
-    let n_theta: usize = 72;
-    let mut found_pts: Vec<[f64; 3]> = Vec::new();
+    // A = cyl_origin - cone_apex
+    let a_vec = v3_sub(cyl_origin, cone_apex);
+    let a_proj = v3_dot(cyl_axis, cone_axis); // a = cyl_axis · cone_axis
+    let b_u = v3_dot(u_cyl, cone_axis); // u · cone_axis
+    let b_v = v3_dot(v_cyl, cone_axis); // v · cone_axis
+    let c_const = v3_dot(a_vec, cone_axis); // A · cone_axis
+    let a_dot_cyl = v3_dot(a_vec, cyl_axis); // A · cyl_axis
+    let a_dot_u = v3_dot(a_vec, u_cyl); // A · u
+    let a_dot_v = v3_dot(a_vec, v_cyl); // A · v
+    let a_sq = v3_dot(a_vec, a_vec); // |A|²
+    let a_sq_plus_r_sq = a_sq + cyl_radius * cyl_radius; // |A|² + R²
 
-    // Helper: compute signed distance from a point on the cylinder to cone surface.
-    // Returns None if the point is outside the cone's height range.
-    let signed_dist_to_cone = |pt: [f64; 3]| -> Option<f64> {
-        let diff_c = v3_sub(pt, cone_apex);
-        let h_c = v3_dot(diff_c, cone_axis);
-        if h_c < cone_z_min - TOL || h_c > cone_z_max + TOL {
-            return None;
-        }
-        let rc = h_c.abs() * tan_a;
-        let proj_c = v3_add(cone_apex, v3_scale(cone_axis, h_c));
-        let perp_c = v3_sub(pt, proj_c);
-        let perp_dist_c = v3_length(perp_c);
-        Some(perp_dist_c - rc)
+    let cos_alpha = cone_half_angle.cos();
+    let sec2_alpha = if cos_alpha.abs() < TOL {
+        return Ok(vec![]); // Degenerate cone (90° half-angle)
+    } else {
+        1.0 / (cos_alpha * cos_alpha)
     };
 
-    for iz in 0..=n_z {
-        let z = cyl_z_min + (cyl_z_max - cyl_z_min) * (iz as f64) / (n_z as f64);
-        let base = v3_add(cyl_origin, v3_scale(cyl_axis, z));
+    let q_coeff = 1.0 - sec2_alpha * a_proj * a_proj; // 1 - sec²α · a²
 
-        // Compute signed distances for all theta samples at this height
-        let mut samples: Vec<(f64, [f64; 3])> = Vec::with_capacity(n_theta);
-        for it in 0..n_theta {
-            let theta = 2.0 * std::f64::consts::PI * (it as f64) / (n_theta as f64);
-            let cos_t = theta.cos();
-            let sin_t = theta.sin();
-            let pt = v3_add(
-                base,
-                v3_add(
-                    v3_scale(u_cyl, cyl_radius * cos_t),
-                    v3_scale(v_cyl, cyl_radius * sin_t),
-                ),
-            );
-            if let Some(sd) = signed_dist_to_cone(pt) {
-                samples.push((sd, pt));
+    // Scan θ ∈ [0, 2π) to find ranges where the discriminant ≥ 0.
+    // Ref #1: Patrikalakis Ch.5 — parametric domain analysis
+    let n_scan: usize = 720;
+    let two_pi = 2.0 * std::f64::consts::PI;
+
+    // Helper: compute discriminant at angle θ.
+    let disc_at = |theta: f64| -> f64 {
+        let cos_t = theta.cos();
+        let sin_t = theta.sin();
+        let h0 = c_const + cyl_radius * (cos_t * b_u + sin_t * b_v);
+        let f_theta = cos_t * a_dot_u + sin_t * a_dot_v;
+        let l_half = a_dot_cyl - sec2_alpha * a_proj * h0;
+        let m = a_sq_plus_r_sq + 2.0 * cyl_radius * f_theta - sec2_alpha * h0 * h0;
+        if q_coeff.abs() < TOL {
+            // Linear case: discriminant is whether solution exists
+            if l_half.abs() < TOL {
+                -1.0 // No solution
+            } else {
+                1.0 // Always solvable
+            }
+        } else {
+            l_half * l_half - q_coeff * m
+        }
+    };
+
+    // Helper: check if a point on the cylinder at (theta, z) lies within
+    // both surface bounds (cylinder z-range and cone height-range).
+    let point_in_bounds = |theta: f64, sign: f64| -> bool {
+        let cos_t = theta.cos();
+        let sin_t = theta.sin();
+        let h0 = c_const + cyl_radius * (cos_t * b_u + sin_t * b_v);
+        let f_theta = cos_t * a_dot_u + sin_t * a_dot_v;
+        let l_half = a_dot_cyl - sec2_alpha * a_proj * h0;
+        let m = a_sq_plus_r_sq + 2.0 * cyl_radius * f_theta - sec2_alpha * h0 * h0;
+
+        let z = if q_coeff.abs() < TOL {
+            if l_half.abs() < TOL {
+                return false;
+            }
+            -m / (2.0 * l_half)
+        } else {
+            let disc = l_half * l_half - q_coeff * m;
+            if disc < -TOL {
+                return false;
+            }
+            (-l_half + sign * disc.max(0.0).sqrt()) / q_coeff
+        };
+
+        // Check cylinder z-range
+        if z < cyl_z_min - TOL || z > cyl_z_max + TOL {
+            return false;
+        }
+
+        // Check cone height-range: h = c_const + z·a_proj + R·(cosθ·b_u + sinθ·b_v)
+        let h = h0 + z * a_proj;
+        if h < cone_z_min - TOL || h > cone_z_max + TOL {
+            return false;
+        }
+
+        true
+    };
+
+    // Find valid theta ranges for each branch sign.
+    let mut curves = Vec::new();
+
+    for &branch_sign in &[1.0_f64, -1.0_f64] {
+        // Scan for contiguous valid regions
+        let mut valid_start: Option<f64> = None;
+        let mut ranges: Vec<(f64, f64)> = Vec::new();
+
+        for k in 0..=n_scan {
+            let theta = two_pi * (k as f64) / (n_scan as f64);
+            let d = disc_at(theta);
+            let valid = d >= -TOL && point_in_bounds(theta, branch_sign);
+
+            if valid {
+                if valid_start.is_none() {
+                    valid_start = Some(theta);
+                }
+            } else if let Some(start) = valid_start.take() {
+                let prev_theta = two_pi * ((k - 1) as f64) / (n_scan as f64);
+                ranges.push((start, prev_theta));
             }
         }
-
-        // Look for sign changes between adjacent samples (crossing detection)
-        if samples.len() < 2 {
-            continue;
+        // Close any open range
+        if let Some(start) = valid_start {
+            ranges.push((start, two_pi));
         }
-        for i in 0..samples.len() {
-            let j = (i + 1) % samples.len();
-            let (sd_i, pt_i) = samples[i];
-            let (sd_j, _pt_j) = samples[j];
-            if sd_i * sd_j < 0.0 {
-                // Sign change → true crossing. Interpolate to find approximate crossing point.
-                let t = sd_i.abs() / (sd_i.abs() + sd_j.abs());
-                let crossing = v3_add(v3_scale(pt_i, 1.0 - t), v3_scale(samples[j].1, t));
-                found_pts.push(crossing);
+
+        for (th_min, th_max) in &ranges {
+            // Filter tangent intersections: if the curve extent is below MIN_FEATURE_SIZE,
+            // skip it.
+            let n_check = 16;
+            let mut min_pt = [f64::MAX; 3];
+            let mut max_pt = [f64::MIN; 3];
+            let mut any_valid = false;
+
+            let curve_candidate = SSICurve::Degree4CylCone {
+                cyl_origin,
+                cyl_axis,
+                cyl_radius,
+                u_dir: u_cyl,
+                v_dir: v_cyl,
+                q_coeff,
+                a_dot_cyl,
+                sec2_alpha,
+                a_proj,
+                c_const,
+                b_u,
+                b_v,
+                a_dot_u,
+                a_dot_v,
+                a_sq_plus_r_sq,
+                theta_range: (*th_min, *th_max),
+                sign: branch_sign,
+            };
+
+            for k in 0..=n_check {
+                let t = k as f64 / n_check as f64;
+                if let Some(pt) = curve_candidate.evaluate_cyl_cone(t) {
+                    any_valid = true;
+                    for j in 0..3 {
+                        if pt[j] < min_pt[j] {
+                            min_pt[j] = pt[j];
+                        }
+                        if pt[j] > max_pt[j] {
+                            max_pt[j] = pt[j];
+                        }
+                    }
+                }
             }
-        }
-    }
 
-    if found_pts.is_empty() {
-        return Ok(vec![]);
-    }
-
-    // Find the Line segment spanning the extent of intersection
-    let mut max_d = 0.0_f64;
-    let mut p_start = found_pts[0];
-    let mut p_end = found_pts[0];
-    for i in 0..found_pts.len() {
-        for j in (i + 1)..found_pts.len() {
-            let dd = v3_length(v3_sub(found_pts[i], found_pts[j]));
-            if dd > max_d {
-                max_d = dd;
-                p_start = found_pts[i];
-                p_end = found_pts[j];
+            if !any_valid {
+                continue;
             }
+
+            let extent = v3_length(v3_sub(max_pt, min_pt));
+            if extent < crate::units::MIN_FEATURE_SIZE {
+                continue;
+            }
+
+            curves.push(curve_candidate);
         }
     }
 
-    if max_d < crate::units::MIN_FEATURE_SIZE {
-        return Ok(vec![]);
-    }
-
-    Ok(vec![SSICurve::Line {
-        start: p_start,
-        end: p_end,
-    }])
+    Ok(curves)
 }
 
 /// General case approximated with a Line segment.

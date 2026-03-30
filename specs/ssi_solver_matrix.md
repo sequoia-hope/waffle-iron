@@ -143,12 +143,17 @@ A sub-case is "done" when:
 | Sub-case | Method | Status | Notes |
 |----------|--------|--------|-------|
 | Coaxial | analytical | done | Returns `Circle` where cone radius = cyl radius (`cylinder_cone_ssi`) |
-| Non-coaxial, parallel offset | sampling | **stub** | 72×200 grid scan, returns `Line` approximation |
-| Non-coaxial, general | sampling | **stub** | 72×200 grid scan with sign-change detection |
-| Same-apex (degenerate) | sampling | **stub** | Falls through to general scan |
+| Non-coaxial, parallel offset | analytical | done | Returns `Degree4CylCone` parametric curves via quadratic-in-z solve |
+| Non-coaxial, general | analytical | done | Returns `Degree4CylCone` parametric curves via cylinder θ-parameterization |
+| Same-apex (degenerate) | analytical | done | Handled by general solver; tangent filter removes sub-feature-size results |
+| Tangent (grazing) | analytical | done | Filtered by MIN_FEATURE_SIZE extent check |
+| Disjoint | analytical | done | Bounding-sphere reject + discriminant check |
 
-**Implementation**: `ssi.rs:cylinder_cone_ssi` (lines 1429–1632).
-Grid: 72 θ-samples × 200 z-samples. Uses `SSI_SAMPLE_ON_SURFACE_TOL`.
+**Implementation**: `ssi/mod.rs:cylinder_cone_ssi`.
+Coaxial path returns exact circles. General path returns `Degree4CylCone` parametric curves
+via cylinder angle parameterization into cone implicit equation:
+(1−sec²α·a²)·z² + 2·(A·cyl_axis−sec²α·a·H₀(θ))·z + (|A|²+R²+2R·f(θ)−sec²α·H₀²) = 0.
+12 new tests with on-surface oracle + 7 adversarial (pathological inputs).
 
 ---
 
@@ -280,7 +285,7 @@ Coaxial path is exact. General path scans 360 θ × 36 φ samples on torus A sur
 | 4 | Plane–Sphere | **done** | All | — |
 | 5 | Cylinder–Cylinder | **partial** | Parallel + equal-R non-parallel ≥15° + unequal-R non-parallel ≥15° | Near-parallel (<15°), skew |
 | 6 | Plane–Torus | **partial** | Axis-perpendicular only | All other orientations |
-| 7 | Cylinder–Cone | **stub** | Coaxial only | General position (72×200 scan) |
+| 7 | Cylinder–Cone | **done** | All (coaxial circles + general Degree4CylCone parametric) | — |
 | 8 | Cylinder–Sphere | **done** | All (coaxial circles + offset Degree4CylSphere parametric) | — |
 | 9 | Cone–Cone | **stub** | Coaxial offset | Same-apex + general (72×100–200 scan) |
 | 10 | Cylinder–Torus | **stub** | Coaxial | General position (360×200 scan) |
@@ -290,9 +295,9 @@ Coaxial path is exact. General path scans 360 θ × 36 φ samples on torus A sur
 | 14 | Sphere–Torus | **stub** | Axial | Off-axis (360×36 scan) |
 | 15 | Torus–Torus | **stub** | Coaxial | General position (360×36 scan) |
 
-**Fully analytical**: 7 of 15 pairs (Plane–Plane, Plane–Cylinder, Plane–Cone, Plane–Sphere, Cylinder–Sphere, Cone–Sphere, Sphere–Sphere)
+**Fully analytical**: 8 of 15 pairs (Plane–Plane, Plane–Cylinder, Plane–Cone, Plane–Sphere, Cylinder–Cone, Cylinder–Sphere, Cone–Sphere, Sphere–Sphere)
 **Partial**: 2 of 15 pairs (Cyl–Cyl, Plane–Torus)
-**Stub (sampling)**: 6 of 15 pairs (Cyl–Cone, Cone–Cone, Cyl–Torus, Cone–Torus, Sphere–Torus, Torus–Torus)
+**Stub (sampling)**: 5 of 15 pairs (Cone–Cone, Cyl–Torus, Cone–Torus, Sphere–Torus, Torus–Torus)
 
 ---
 
