@@ -2,8 +2,8 @@
 //! classification, and pre-processing (dedup, merge, resolve T-junctions).
 
 use crate::units::{
-    TAU_CACHE_STEP_FACTOR, TAU_NORMALIZE, TAU_PARALLEL, TAU_SNAP_FACTOR, TAU_TESS_GRID_FACTOR,
-    TAU_TESS_GRID_MIN,
+    TAU_CACHE_STEP_FACTOR, TAU_CLASSIFY_FACTOR, TAU_NORMALIZE, TAU_PARALLEL,
+    TAU_SH_DIVERGENCE_FACTOR, TAU_SNAP_FACTOR, TAU_TESS_GRID_FACTOR, TAU_TESS_GRID_MIN,
 };
 use crate::vecmath::*;
 use std::collections::BTreeMap;
@@ -290,7 +290,7 @@ pub(crate) fn classify_coplanarity(
     let dot_n = v3_dot(face_normal, opp.normal);
     if dot_n.abs() > 1.0 - TAU_PARALLEL {
         let dist = v3_dot(v3_sub(face_point, opp.origin), opp.normal).abs();
-        if dist < tau * 100.0 {
+        if dist < tau * TAU_CLASSIFY_FACTOR {
             if dot_n > 0.0 {
                 CoplanarClass::SameDirection
             } else {
@@ -385,7 +385,7 @@ pub(crate) fn is_face_set_convex(faces: &[FacePoly], tau: f64) -> bool {
         let o = face.origin;
         for &v in &all_verts {
             let d = v3_dot(v3_sub(v, o), n);
-            if d > tau * 100.0 {
+            if d > tau * TAU_CLASSIFY_FACTOR {
                 return false; // Vertex is significantly outside this face plane
             }
         }
@@ -643,7 +643,7 @@ pub(crate) fn resolve_t_junctions(polys: &[FacePoly], tau: f64) -> Vec<FacePoly>
                 let proj = v3_add(a, v3_scale(edge_vec, t));
                 let diff = v3_sub(v, proj);
                 let dist_sq = v3_dot(diff, diff);
-                let abs_tol = tau * 1000.0; // ~tau_weld for S-H divergence
+                let abs_tol = tau * TAU_SH_DIVERGENCE_FACTOR;
                 let rel_tol_sq = edge_len_sq * TAU_SNAP_FACTOR * TAU_SNAP_FACTOR;
                 if dist_sq < abs_tol * abs_tol || dist_sq < rel_tol_sq {
                     // Use the original vertex position (not projection) to

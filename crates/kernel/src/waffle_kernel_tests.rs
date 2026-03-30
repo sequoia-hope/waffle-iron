@@ -10735,7 +10735,7 @@ fn adv4_cyl_cyl_subtract_no_nan_after_welding() {
 #[test]
 fn adv5_cyl_cyl_union_no_degenerate_triangles_after_welding() {
     // Welding can remap indices, collapsing some edges. Verify no fully
-    // degenerate (zero-area) triangles are created.
+    // degenerate (zero-area) triangles are created, and volume is correct.
     let (mut k, result) = do_cyl_cyl_boolean(
         0.0, 0.0, 3.0, 10.0,
         3.0, 0.0, 3.0, 10.0,
@@ -10744,7 +10744,17 @@ fn adv5_cyl_cyl_union_no_degenerate_triangles_after_welding() {
     .expect("cyl-cyl union should succeed");
 
     let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    check_no_nan_or_inf(&mesh);
     check_no_degenerate_triangles(&mesh);
+    // Volume oracle: two overlapping r=3 cylinders offset by 3, height 10.
+    // Union volume must be between one cylinder and two cylinders.
+    let one_cyl = PI * 9.0 * 10.0;
+    let vol = mesh_volume(&mesh);
+    assert!(
+        vol > one_cyl && vol < 2.0 * one_cyl,
+        "Union volume {:.1} must be in ({:.1}, {:.1})",
+        vol, one_cyl, 2.0 * one_cyl
+    );
 }
 
 #[test]
@@ -10757,7 +10767,17 @@ fn adv6_cyl_cyl_subtract_no_degenerate_triangles_after_welding() {
     .expect("cyl-cyl subtract should succeed");
 
     let mesh = k.tessellate(&result, 0.01).expect("tessellate should succeed");
+    check_no_nan_or_inf(&mesh);
     check_no_degenerate_triangles(&mesh);
+    // Volume oracle: r=3 cylinder minus overlapping r=3 cylinder offset by 3, height 10.
+    // Result must be positive and less than one full cylinder.
+    let one_cyl = PI * 9.0 * 10.0;
+    let vol = mesh_volume(&mesh);
+    assert!(
+        vol > 0.0 && vol < one_cyl,
+        "Subtract volume {:.1} must be in (0, {:.1})",
+        vol, one_cyl
+    );
 }
 
 #[test]
@@ -10791,6 +10811,7 @@ fn adv7_near_tolerance_barely_overlapping_cylinders() {
 #[test]
 fn adv8_near_tolerance_barely_overlapping_subtract() {
     // Same near-tolerance geometry but with subtract.
+    // Two r=3 cylinders offset by 5.999 (overlap ~0.001).
     let offset = 5.999;
     let result = do_cyl_cyl_boolean(
         0.0, 0.0, 3.0, 10.0,
@@ -10801,7 +10822,17 @@ fn adv8_near_tolerance_barely_overlapping_subtract() {
         let mesh = k.tessellate(&solid, 0.01).expect("tessellate should succeed");
         check_no_nan_or_inf(&mesh);
         check_no_degenerate_triangles(&mesh);
+        // Volume oracle: subtract removes a tiny sliver from a full cylinder.
+        // Result must be close to (but less than) one full cylinder.
+        let one_cyl = PI * 9.0 * 10.0;
+        let vol = mesh_volume(&mesh);
+        assert!(
+            vol > one_cyl * 0.8 && vol < one_cyl * 1.01,
+            "Near-tangent subtract volume should be close to one cylinder (~{:.1}), got {:.1}",
+            one_cyl, vol
+        );
     }
+    // If Err, that's acceptable for near-tolerance geometry — no assertion needed.
 }
 
 #[test]
@@ -10883,7 +10914,7 @@ fn adv11_small_radius_cylinders_near_min_feature_size() {
 
 #[test]
 fn adv12_small_radius_cylinder_subtract() {
-    // Subtract with very small cylinders.
+    // Subtract with very small cylinders (r=1e-5, depth=1e-4).
     let r = 1e-5;
     let depth = 1e-4;
     let offset = r * 0.5;
@@ -10896,7 +10927,17 @@ fn adv12_small_radius_cylinder_subtract() {
         let mesh = k.tessellate(&solid, 0.01).expect("tessellate should succeed");
         check_no_nan_or_inf(&mesh);
         check_no_degenerate_triangles(&mesh);
+        // Volume oracle: subtract removes overlapping part from a tiny cylinder.
+        // Result must be positive and less than one full cylinder.
+        let one_cyl = PI * r * r * depth;
+        let vol = mesh_volume(&mesh);
+        assert!(
+            vol > 0.0 && vol < one_cyl * 1.1,
+            "Small-radius subtract volume {:.2e} must be in (0, {:.2e})",
+            vol, one_cyl * 1.1
+        );
     }
+    // If Err, acceptable for near-minimum-feature-size geometry.
 }
 
 #[test]

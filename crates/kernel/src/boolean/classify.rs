@@ -7,7 +7,7 @@
 //! Ref #7: Jacobson et al. (2013) — Robust inside/outside via GWN.
 //! Ref #4: Shewchuk (1997) — Adaptive precision floating-point arithmetic.
 
-use crate::units::{MIN_FEATURE_SIZE, TAU_NORMALIZE, TAU_PARALLEL};
+use crate::units::{MIN_FEATURE_SIZE, TAU_CLASSIFY_FACTOR, TAU_NORMALIZE, TAU_PARALLEL};
 use crate::vecmath::*;
 
 use super::{
@@ -329,7 +329,7 @@ pub(crate) fn classify_face(
     // - If area ratio ≈ 0: Outside (centroid confirms)
     // - If area ratio ≈ 1: Inside/CoplanarTouching (centroid confirms)
     // - If partial (0 < ratio < 1): use S-H fragments (the centroid-only bug fix)
-    let inward_offset = v3_scale(face.normal, -tau * 100.0);
+    let inward_offset = v3_scale(face.normal, -tau * TAU_CLASSIFY_FACTOR);
 
     // Handle coplanar cases first
     if has_antiparallel_coplanar {
@@ -507,7 +507,7 @@ pub(crate) fn classify_face_nonconvex(
         }
     }
 
-    let inward_offset = v3_scale(face.normal, -tau * 100.0);
+    let inward_offset = v3_scale(face.normal, -tau * TAU_CLASSIFY_FACTOR);
 
     if cutting_planes.is_empty() {
         // No planes straddle — classify centroid
@@ -618,7 +618,7 @@ fn classify_coplanar_nonconvex(
         }
     }
 
-    let inward_offset = v3_scale(face.normal, -tau * 100.0);
+    let inward_offset = v3_scale(face.normal, -tau * TAU_CLASSIFY_FACTOR);
 
     if cutting_planes.is_empty() {
         // No non-coplanar faces cut us — fully inside or outside
@@ -734,7 +734,7 @@ fn classify_coplanar_nonconvex_antiparallel(
         }
     }
 
-    let inward_offset = v3_scale(face.normal, -tau * 100.0);
+    let inward_offset = v3_scale(face.normal, -tau * TAU_CLASSIFY_FACTOR);
 
     if cutting_planes.is_empty() {
         // No non-coplanar faces straddle us — no splitting possible.

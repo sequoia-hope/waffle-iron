@@ -220,6 +220,20 @@ pub const HOLE_PLANARITY_RATIO: f64 = 0.001;
 /// Revolve caps and S-H gaps are irregular (wedge-shaped, non-circular).
 pub const HOLE_CIRCULARITY_CV: f64 = 0.05;
 
+// ── Boolean classification multipliers ───────────────────────────────
+
+/// Inward-offset / coplanar-proximity multiplier applied to tau: 100×.
+/// Used in face classification (classify.rs) and coplanar detection (clip.rs)
+/// to probe whether a face centroid lies inside the opposing solid by offsetting
+/// along the inward normal, and to classify near-coplanar face pairs.
+pub const TAU_CLASSIFY_FACTOR: f64 = 100.0;
+
+/// S-H divergence tolerance multiplier applied to tau: 1000×.
+/// Sutherland-Hodgman clipping of adjacent faces produces independent
+/// floating-point intersection points that can diverge by much more than tau.
+/// Used in edge-split T-junction detection (clip.rs).
+pub const TAU_SH_DIVERGENCE_FACTOR: f64 = 1000.0;
+
 // ── Tessellation vertex welding ──────────────────────────────────────
 
 /// Cosine tolerance for normal similarity in vertex welding: 0.02.

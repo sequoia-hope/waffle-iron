@@ -2150,7 +2150,7 @@ mod tests {
     /// IntersectionCache deduplicates intersection points across faces.
     #[test]
     fn intersection_cache_deduplicates() {
-        let tau = 1e-7;
+        let tau = TAU_MODEL;
         let mut cache = IntersectionCache::new(tau);
 
         let a = [0.0, 0.0, 0.0];
@@ -2558,7 +2558,7 @@ mod tests {
         assert!(a_faces.len() > 12);
         assert!(b_faces.len() > 12);
 
-        let tau = 1e-7;
+        let tau = TAU_MODEL;
         let effective = count_aabb_overlapping_pairs(&a_faces, &b_faces, tau);
         let raw_product = a_faces.len() * b_faces.len();
         eprintln!(
@@ -2839,7 +2839,7 @@ mod tests {
             // At unit scale the adaptive tau is much smaller than 1e-7,
             // so the AABB disjoint check fires. Disjoint union now succeeds
             // as a compound solid.
-            let gap = 1e-7; // TAU_MODEL
+            let gap = TAU_MODEL;
             let a = make_box_face_polys([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
             let b = make_box_face_polys([1.0 + gap, 0.0, 0.0], [2.0 + gap, 1.0, 1.0]);
             let mut id = new_id_alloc();
