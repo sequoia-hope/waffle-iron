@@ -114,6 +114,39 @@ pub(crate) enum SSICurve {
         /// Valid h-range (h_min, h_max) where intersection exists
         h_range: (f64, f64),
     },
+    /// A degree-4 parametric intersection curve between a cylinder and a sphere (offset case).
+    /// Parametrized by angle θ on the cylinder cross-section:
+    ///   x(θ) = R_c·cos(θ)
+    ///   y(θ) = R_c·sin(θ)
+    ///   z(θ) = z_center ± √(R_s² − d² − R_c² + 2·R_c·d·cos(θ))
+    /// Points are in a local frame aligned with the cylinder axis; transform to world via
+    /// axis + u_dir + v_dir frame.
+    /// Two branches (±) give upper/lower halves; each is a separate curve.
+    /// Ref: [#1] Patrikalakis Ch.5 — quadric SSI via cylinder parameterization.
+    Degree4CylSphere {
+        /// Point on cylinder axis (at the axial projection of sphere center)
+        cyl_origin: [f64; 3],
+        /// Cylinder axis direction (unit)
+        cyl_axis: [f64; 3],
+        /// Cylinder radius
+        cyl_radius: f64,
+        /// Unit vector in the cylinder cross-section toward sphere center
+        u_dir: [f64; 3],
+        /// Unit vector = cyl_axis × u_dir (completes right-handed frame)
+        v_dir: [f64; 3],
+        /// Perpendicular distance from sphere center to cylinder axis
+        d: f64,
+        /// Axial position of sphere center (projection onto axis from cyl_origin)
+        z_center: f64,
+        /// Sphere radius
+        sphere_radius: f64,
+        /// Azimuthal offset angle φ₀ (always 0 in the canonical frame, but stored for generality)
+        phi0: f64,
+        /// Valid θ range: (θ_min, θ_max) where radicand ≥ 0. Full [0, 2π) when radicand always ≥ 0.
+        theta_range: (f64, f64),
+        /// Branch sign: +1.0 (upper) or -1.0 (lower)
+        sign: f64,
+    },
 }
 
 impl SSICurve {
@@ -213,6 +246,60 @@ impl SSICurve {
                 let pz = cone_apex[2]
                     + h * cone_axis[2]
                     + r_cone * (cos_theta_final * u_dir[2] + sin_theta * v_dir[2]);
+
+                Some([px, py, pz])
+            }
+            _ => None,
+        }
+    }
+
+    /// Evaluate a Degree4CylSphere curve at parameter t ∈ [0, 1].
+    /// Maps t to the theta_range, then evaluates the parametric form:
+    ///   z(θ) = z_center ± √(R_s² − d² − R_c² + 2·R_c·d·cos(θ − φ₀))
+    ///   P(θ) = cyl_origin + z·cyl_axis + R_c·(cos(θ)·u_dir + sin(θ)·v_dir)
+    /// Returns None for non-Degree4CylSphere variants or when radicand < 0.
+    pub(crate) fn evaluate_cyl_sphere(&self, t: f64) -> Option<[f64; 3]> {
+        match self {
+            SSICurve::Degree4CylSphere {
+                cyl_origin,
+                cyl_axis,
+                cyl_radius,
+                u_dir,
+                v_dir,
+                d,
+                z_center,
+                sphere_radius,
+                phi0,
+                theta_range,
+                sign,
+            } => {
+                let (th_min, th_max) = *theta_range;
+                let theta = th_min + t * (th_max - th_min);
+
+                // Radicand: R_s² − d² − R_c² + 2·R_c·d·cos(θ − φ₀)
+                let radicand = sphere_radius * sphere_radius - d * d - cyl_radius * cyl_radius
+                    + 2.0 * cyl_radius * d * (theta - phi0).cos();
+
+                if radicand < -TOL {
+                    return None;
+                }
+
+                let dz = sign * radicand.max(0.0).sqrt();
+                let z = z_center + dz;
+
+                // Point on cylinder at angle θ:
+                // P = cyl_origin + z * cyl_axis + R_c * (cos(θ) * u_dir + sin(θ) * v_dir)
+                let cos_t = theta.cos();
+                let sin_t = theta.sin();
+                let px = cyl_origin[0]
+                    + z * cyl_axis[0]
+                    + cyl_radius * (cos_t * u_dir[0] + sin_t * v_dir[0]);
+                let py = cyl_origin[1]
+                    + z * cyl_axis[1]
+                    + cyl_radius * (cos_t * u_dir[1] + sin_t * v_dir[1]);
+                let pz = cyl_origin[2]
+                    + z * cyl_axis[2]
+                    + cyl_radius * (cos_t * u_dir[2] + sin_t * v_dir[2]);
 
                 Some([px, py, pz])
             }
@@ -1654,41 +1741,71 @@ pub(crate) fn cylinder_sphere_ssi(
         return Ok(vec![]);
     }
 
-    // 5. General offset overlap: the intersection is a degree-4 space curve.
-    //    We approximate by finding the z-range of the intersection and returning
-    //    a representative Line segment (the true curve is not circular).
+    // 5. General offset case: compute analytical Degree4CylSphere parametric curve.
+    //    Ref: [#1] Patrikalakis Ch.5 — cylinder parameterization into sphere equation.
     //
-    //    The intersection exists at height h (relative to sphere center projection)
-    //    where the sphere cross-section circle (radius r_s = sqrt(R_sph^2 - h^2),
-    //    center at distance d from axis) intersects the cylinder circle (radius R_cyl,
-    //    on axis). This requires: |R_cyl - r_s(h)| <= d <= R_cyl + r_s(h).
-    //    The second condition gives r_s(h) >= d - R_cyl, i.e.,
-    //    R_sph^2 - h^2 >= (d - R_cyl)^2 -> h^2 <= R_sph^2 - (d - R_cyl)^2.
+    //    In the local frame where u_dir points from axis toward sphere center:
+    //      z(θ) = z_center ± √(R_s² - d² - R_c² + 2·R_c·d·cos θ)
+    //    The curve exists where the radicand ≥ 0:
+    //      cos θ ≥ (d² + R_c² - R_s²) / (2·R_c·d)
 
-    let h_sq_max = sphere_radius * sphere_radius - (d - cyl_radius) * (d - cyl_radius);
-    if h_sq_max < 0.0 {
-        return Ok(vec![]);
-    }
-    let h_max = h_sq_max.sqrt();
-
-    // The intersection curve spans from (t_proj - h_max) to (t_proj + h_max) along axis.
-    // Clip to z-range.
-    let z_lo = (t_proj - h_max).max(cyl_z_min);
-    let z_hi = (t_proj + h_max).min(cyl_z_max);
-
-    if z_lo > z_hi + TOL {
-        return Ok(vec![]);
-    }
-
-    // Return a representative Line segment along the intersection extent on the
-    // cylinder surface, in the direction of the sphere center offset from the axis.
     let perp_unit = v3_scale(perp_vec, 1.0 / d);
-    let surf_pt_base = v3_add(cyl_origin, v3_scale(perp_unit, cyl_radius));
+    let v_unit = v3_cross(cyl_axis, perp_unit);
 
-    let start = v3_add(surf_pt_base, v3_scale(cyl_axis, z_lo));
-    let end = v3_add(surf_pt_base, v3_scale(cyl_axis, z_hi));
+    // Compute θ range where radicand ≥ 0
+    let cos_theta_bound =
+        (d * d + cyl_radius * cyl_radius - sphere_radius * sphere_radius) / (2.0 * cyl_radius * d);
 
-    Ok(vec![SSICurve::Line { start, end }])
+    if cos_theta_bound > 1.0 + TOL {
+        // No valid θ range → disjoint (shouldn't reach here after disjoint check, but safety)
+        return Ok(vec![]);
+    }
+
+    let (theta_min, theta_max) = if cos_theta_bound <= -1.0 + TOL {
+        // Radicand ≥ 0 for all θ → full circle
+        (0.0, std::f64::consts::TAU)
+    } else {
+        let theta_crit = cos_theta_bound.clamp(-1.0, 1.0).acos();
+        (-theta_crit, theta_crit)
+    };
+
+    // z_center is the axial position of the sphere center projection
+    let z_center = t_proj;
+
+    // Check if the z-range of the curve intersects the cylinder's z-extent.
+    // Maximum z-extent: z_center ± √(max radicand)
+    // max radicand occurs at θ = 0 (closest approach): R_s² - (d - R_c)²
+    let max_radicand = sphere_radius * sphere_radius - (d - cyl_radius) * (d - cyl_radius);
+    if max_radicand < 0.0 {
+        return Ok(vec![]);
+    }
+    let max_dz = max_radicand.sqrt();
+
+    // Clip: if entire z-range is outside cylinder extent, return empty
+    if z_center - max_dz > cyl_z_max + TOL || z_center + max_dz < cyl_z_min - TOL {
+        return Ok(vec![]);
+    }
+
+    let mut curves = Vec::new();
+
+    // Two branches: upper (+) and lower (-)
+    for &sign in &[1.0_f64, -1.0_f64] {
+        curves.push(SSICurve::Degree4CylSphere {
+            cyl_origin,
+            cyl_axis,
+            cyl_radius,
+            u_dir: perp_unit,
+            v_dir: v_unit,
+            d,
+            z_center,
+            sphere_radius,
+            phi0: 0.0,
+            theta_range: (theta_min, theta_max),
+            sign,
+        });
+    }
+
+    Ok(curves)
 }
 
 // ── Cone-Sphere SSI ──────────────────────────────────────────────────────

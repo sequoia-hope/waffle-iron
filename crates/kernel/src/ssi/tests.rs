@@ -1801,6 +1801,567 @@ fn cs13_tilted_axis() {
     );
 }
 
+// ── Cylinder-Sphere Offset (Degree-4) Tests ─────────────────────────
+//
+// The offset cylinder-sphere intersection (sphere center not on cylinder axis)
+// produces a degree-4 algebraic space curve (Patrikalakis Ch.5).
+// These tests validate on-surface oracle properties that the current Line
+// approximation cannot satisfy, driving implementation of an analytical
+// Degree4CylSphere curve type.
+
+/// Helper: sample N evenly-spaced points from an SSICurve.
+/// For Line: linear interpolation of start→end.
+/// For Circle: angular sweep 0..2π.
+/// Returns the points so callers can run oracles on them.
+fn sample_curve_points(curve: &SSICurve, n: usize) -> Vec<[f64; 3]> {
+    let mut pts = Vec::with_capacity(n);
+    match curve {
+        SSICurve::Line { start, end } => {
+            for i in 0..n {
+                let t = (i as f64) / ((n - 1).max(1) as f64);
+                pts.push([
+                    start[0] + t * (end[0] - start[0]),
+                    start[1] + t * (end[1] - start[1]),
+                    start[2] + t * (end[2] - start[2]),
+                ]);
+            }
+        }
+        SSICurve::Circle { .. } => {
+            for i in 0..n {
+                let t = std::f64::consts::TAU * (i as f64) / (n as f64);
+                pts.push(eval_circle(curve, t));
+            }
+        }
+        SSICurve::Degree4CylSphere { .. } => {
+            for i in 0..n {
+                let t = (i as f64) / ((n - 1).max(1) as f64);
+                if let Some(pt) = curve.evaluate_cyl_sphere(t) {
+                    pts.push(pt);
+                } else {
+                    pts.push([f64::NAN, f64::NAN, f64::NAN]);
+                }
+            }
+        }
+        _ => {
+            // For future curve types, push sentinel that will fail oracles.
+            for i in 0..n {
+                let t = (i as f64) / ((n - 1).max(1) as f64);
+                let _ = t;
+                pts.push([f64::NAN, f64::NAN, f64::NAN]);
+            }
+        }
+    }
+    pts
+}
+
+/// Validate that every sampled point on a cylinder-sphere SSI curve lies on
+/// both surfaces within TAU_MODEL tolerance.
+fn validate_cyl_sphere_on_surface(
+    curve: &SSICurve,
+    cyl_origin: [f64; 3],
+    cyl_axis: [f64; 3],
+    cyl_radius: f64,
+    sphere_center: [f64; 3],
+    sphere_radius: f64,
+    tau: f64,
+    n_samples: usize,
+) {
+    let pts = sample_curve_points(curve, n_samples);
+    for (i, pt) in pts.iter().enumerate() {
+        assert!(
+            !pt[0].is_nan() && !pt[1].is_nan() && !pt[2].is_nan(),
+            "Curve point {} is NaN — curve type cannot be sampled",
+            i
+        );
+        let cyl_err = (dist_point_to_axis(*pt, cyl_origin, cyl_axis) - cyl_radius).abs();
+        assert!(
+            cyl_err < tau,
+            "Point {} = {:?} not on cylinder surface: |dist_to_axis - R| = {} (tau={})",
+            i,
+            pt,
+            cyl_err,
+            tau
+        );
+        let sph_err = sphere_surface_error(*pt, sphere_center, sphere_radius);
+        assert!(
+            sph_err < tau,
+            "Point {} = {:?} not on sphere surface: |dist_to_center - R| = {} (tau={})",
+            i,
+            pt,
+            sph_err,
+            tau
+        );
+    }
+}
+
+#[test]
+fn cs14_offset_on_surface_oracle() {
+    // Cylinder along Z, R=2, z in [-10, 10].
+    // Sphere at (1.5, 0, 0), R=2. Offset case: d=1.5 > 0.
+    // The intersection is a degree-4 space curve.
+    // Every point on the returned curves must lie on BOTH surfaces.
+    let cyl_origin = [0.0, 0.0, 0.0];
+    let cyl_axis = [0.0, 0.0, 1.0];
+    let cyl_radius = 2.0;
+    let sphere_center = [1.5, 0.0, 0.0];
+    let sphere_radius = 2.0;
+
+    let curves = cylinder_sphere_ssi(
+        cyl_origin,
+        cyl_axis,
+        cyl_radius,
+        -10.0,
+        10.0,
+        sphere_center,
+        sphere_radius,
+    )
+    .unwrap();
+
+    assert!(
+        !curves.is_empty(),
+        "Offset overlapping cylinder-sphere must produce curves"
+    );
+
+    let tau = crate::units::TAU_MODEL;
+    for (idx, curve) in curves.iter().enumerate() {
+        validate_cyl_sphere_on_surface(
+            curve,
+            cyl_origin,
+            cyl_axis,
+            cyl_radius,
+            sphere_center,
+            sphere_radius,
+            tau,
+            64,
+        );
+        // Verify no degenerate (zero-length) curves
+        let pts = sample_curve_points(curve, 4);
+        let span = v3_length(v3_sub(pts[0], pts[pts.len() - 1]));
+        assert!(
+            span > crate::units::MIN_FEATURE_SIZE,
+            "Curve {} is degenerate (span={})",
+            idx,
+            span
+        );
+    }
+}
+
+#[test]
+fn cs15_offset_large_sphere_oracle() {
+    // Cylinder along Z, R=1, z in [-10, 10].
+    // Sphere at (3.0, 0, 5.0), R=4. Large sphere, significantly offset.
+    // d = 3.0, R_cyl=1, R_sph=4.
+    // |d - R_cyl| = 2 < R_sph=4 and d < R_cyl + R_sph=5 → overlapping.
+    let cyl_origin = [0.0, 0.0, 0.0];
+    let cyl_axis = [0.0, 0.0, 1.0];
+    let cyl_radius = 1.0;
+    let sphere_center = [3.0, 0.0, 5.0];
+    let sphere_radius = 4.0;
+
+    let curves = cylinder_sphere_ssi(
+        cyl_origin,
+        cyl_axis,
+        cyl_radius,
+        -10.0,
+        10.0,
+        sphere_center,
+        sphere_radius,
+    )
+    .unwrap();
+
+    assert!(
+        !curves.is_empty(),
+        "Large sphere offset case must produce curves"
+    );
+
+    let tau = crate::units::TAU_MODEL;
+    for curve in &curves {
+        validate_cyl_sphere_on_surface(
+            curve,
+            cyl_origin,
+            cyl_axis,
+            cyl_radius,
+            sphere_center,
+            sphere_radius,
+            tau,
+            64,
+        );
+    }
+}
+
+#[test]
+fn cs16_offset_oblique_axis_oracle() {
+    // Cylinder along (1,1,1)/sqrt(3), origin (0,0,0), R=1, z in [-10, 10].
+    // Sphere at (2.0, 0, 0), R=2.
+    // Perpendicular distance from (2,0,0) to axis through origin along [1,1,1]/sqrt(3):
+    //   proj_t = (2,0,0)·(1,1,1)/√3 = 2/√3
+    //   proj = (2/3, 2/3, 2/3)
+    //   perp = (4/3, -2/3, -2/3), |perp| = √(24/9) ≈ 1.633
+    // d ≈ 1.633, R_cyl=1, R_sph=2.
+    // |d - R_cyl| ≈ 0.633 < R_sph=2 and d ≈ 1.633 < R_cyl+R_sph=3 → overlapping.
+    let inv_sqrt3 = 1.0 / 3.0_f64.sqrt();
+    let cyl_origin = [0.0, 0.0, 0.0];
+    let cyl_axis = [inv_sqrt3, inv_sqrt3, inv_sqrt3];
+    let cyl_radius = 1.0;
+    let sphere_center = [2.0, 0.0, 0.0];
+    let sphere_radius = 2.0;
+
+    let curves = cylinder_sphere_ssi(
+        cyl_origin,
+        cyl_axis,
+        cyl_radius,
+        -10.0,
+        10.0,
+        sphere_center,
+        sphere_radius,
+    )
+    .unwrap();
+
+    assert!(
+        !curves.is_empty(),
+        "Oblique-axis offset case must produce curves"
+    );
+
+    let tau = crate::units::TAU_MODEL;
+    for curve in &curves {
+        validate_cyl_sphere_on_surface(
+            curve,
+            cyl_origin,
+            cyl_axis,
+            cyl_radius,
+            sphere_center,
+            sphere_radius,
+            tau,
+            64,
+        );
+    }
+}
+
+#[test]
+fn cs17_offset_tangent_external_empty() {
+    // Cylinder along Z, R=1, z in [-10, 10].
+    // Sphere at (3.0, 0, 0), R=2.
+    // d = 3.0 = R_cyl + R_sph = 1 + 2 → exactly tangent externally.
+    // Tangent cases should produce empty (single contact point is degenerate).
+    let curves = cylinder_sphere_ssi(
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        1.0,
+        -10.0,
+        10.0,
+        [3.0, 0.0, 0.0],
+        2.0,
+    )
+    .unwrap();
+
+    assert!(
+        curves.is_empty(),
+        "Externally tangent cylinder-sphere (d = R_cyl + R_sph) should return empty, got {} curves",
+        curves.len()
+    );
+}
+
+#[test]
+fn cs18_offset_curve_symmetry() {
+    // Cylinder along Z, R=2, z in [-10, 10].
+    // Sphere at (1.5, 0, 0), R=2.
+    // The intersection curve is symmetric about the plane z = z_sphere_center = 0.
+    // Verify: the z-extents of the curve(s) are symmetric around 0.
+    let cyl_origin = [0.0, 0.0, 0.0];
+    let cyl_axis = [0.0, 0.0, 1.0];
+    let cyl_radius = 2.0;
+    let sphere_center = [1.5, 0.0, 0.0];
+    let sphere_radius = 2.0;
+
+    let curves = cylinder_sphere_ssi(
+        cyl_origin,
+        cyl_axis,
+        cyl_radius,
+        -10.0,
+        10.0,
+        sphere_center,
+        sphere_radius,
+    )
+    .unwrap();
+
+    assert!(!curves.is_empty(), "Offset case must produce curves");
+
+    // Collect all z-coordinates from sampled points
+    let mut z_values: Vec<f64> = Vec::new();
+    for curve in &curves {
+        let pts = sample_curve_points(curve, 64);
+        for pt in &pts {
+            z_values.push(z_along_axis(*pt, cyl_origin, cyl_axis));
+        }
+    }
+
+    let z_min = z_values.iter().cloned().fold(f64::INFINITY, f64::min);
+    let z_max = z_values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+
+    // With sphere center at z=0, the z-extent should be symmetric: z_min ≈ -z_max.
+    let tau = crate::units::TAU_MODEL;
+    assert!(
+        (z_min + z_max).abs() < tau,
+        "Z-extent should be symmetric about z=0: z_min={}, z_max={}, sum={}",
+        z_min,
+        z_max,
+        z_min + z_max
+    );
+}
+
+#[test]
+fn cs19_offset_not_line_type() {
+    // Cylinder along Z, R=2, z in [-10, 10].
+    // Sphere at (1.5, 0, 0), R=2. Offset case.
+    // The true intersection is a degree-4 space curve, NOT a line.
+    // This test asserts that the solver does NOT return SSICurve::Line
+    // for offset cylinder-sphere intersections (Line is only an approximation).
+    let curves = cylinder_sphere_ssi(
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        2.0,
+        -10.0,
+        10.0,
+        [1.5, 0.0, 0.0],
+        2.0,
+    )
+    .unwrap();
+
+    assert!(!curves.is_empty(), "Offset case must produce curves");
+
+    for (idx, curve) in curves.iter().enumerate() {
+        assert!(
+            !matches!(curve, SSICurve::Line { .. }),
+            "Curve {} is SSICurve::Line — offset cylinder-sphere intersection \
+             is a degree-4 curve, not a line. The solver must return an analytical \
+             curve type (e.g. Degree4CylSphere).",
+            idx
+        );
+    }
+}
+
+#[test]
+fn cs20_offset_near_coaxial_transition() {
+    // Sphere center barely offset from cylinder axis: d = 1e-8, just above
+    // TAU_COINCIDENT = 1e-9.  Should cleanly produce Degree4CylSphere (not
+    // fallback to coaxial circles) without panics or NaN.
+    let cyl_origin = [0.0, 0.0, 0.0];
+    let cyl_axis = [0.0, 0.0, 1.0];
+    let cyl_radius = 1.0;
+    let sphere_center = [1e-8, 0.0, 0.0]; // d ≈ 1e-8
+    let sphere_radius = 2.0;
+
+    let curves = cylinder_sphere_ssi(
+        cyl_origin,
+        cyl_axis,
+        cyl_radius,
+        -10.0,
+        10.0,
+        sphere_center,
+        sphere_radius,
+    )
+    .unwrap();
+
+    assert!(
+        !curves.is_empty(),
+        "Near-coaxial offset must produce curves"
+    );
+
+    // Verify no NaN in any sample point
+    for curve in &curves {
+        let pts = sample_curve_points(curve, 64);
+        for (i, pt) in pts.iter().enumerate() {
+            assert!(
+                !pt[0].is_nan() && !pt[1].is_nan() && !pt[2].is_nan(),
+                "NaN detected at sample {} — near-coaxial transition unstable",
+                i
+            );
+        }
+    }
+
+    // On-surface oracle must still hold
+    let tau = crate::units::TAU_MODEL;
+    for curve in &curves {
+        validate_cyl_sphere_on_surface(
+            curve,
+            cyl_origin,
+            cyl_axis,
+            cyl_radius,
+            sphere_center,
+            sphere_radius,
+            tau,
+            64,
+        );
+    }
+}
+
+#[test]
+fn cs21_offset_sphere_barely_overlapping() {
+    // Sphere center at d = R_cyl + R_sph - 1e-4 (barely overlapping from outside).
+    // R_cyl=1, R_sph=2 → d = 2.9999.  The intersection should be a very narrow
+    // curve (small θ range).  On-surface oracle must still hold.
+    let cyl_radius = 1.0;
+    let sphere_radius = 2.0;
+    let d = cyl_radius + sphere_radius - 1e-4; // 2.9999
+    let cyl_origin = [0.0, 0.0, 0.0];
+    let cyl_axis = [0.0, 0.0, 1.0];
+    let sphere_center = [d, 0.0, 0.0];
+
+    let curves = cylinder_sphere_ssi(
+        cyl_origin,
+        cyl_axis,
+        cyl_radius,
+        -10.0,
+        10.0,
+        sphere_center,
+        sphere_radius,
+    )
+    .unwrap();
+
+    assert!(
+        !curves.is_empty(),
+        "Barely-overlapping sphere must still produce curves"
+    );
+
+    let tau = crate::units::TAU_MODEL;
+    for curve in &curves {
+        validate_cyl_sphere_on_surface(
+            curve,
+            cyl_origin,
+            cyl_axis,
+            cyl_radius,
+            sphere_center,
+            sphere_radius,
+            tau,
+            64,
+        );
+    }
+}
+
+#[test]
+fn cs22_offset_micro_scale() {
+    // Very small geometry: R_cyl = 1e-4, R_sph = 2e-4, d = 1.5e-4.
+    // Tests numerical stability at micro scale.
+    let cyl_origin = [0.0, 0.0, 0.0];
+    let cyl_axis = [0.0, 0.0, 1.0];
+    let cyl_radius = 1e-4;
+    let sphere_center = [1.5e-4, 0.0, 0.0];
+    let sphere_radius = 2e-4;
+
+    let curves = cylinder_sphere_ssi(
+        cyl_origin,
+        cyl_axis,
+        cyl_radius,
+        -1e-3,
+        1e-3,
+        sphere_center,
+        sphere_radius,
+    )
+    .unwrap();
+
+    assert!(!curves.is_empty(), "Micro-scale offset must produce curves");
+
+    let tau = crate::units::TAU_MODEL;
+    for curve in &curves {
+        validate_cyl_sphere_on_surface(
+            curve,
+            cyl_origin,
+            cyl_axis,
+            cyl_radius,
+            sphere_center,
+            sphere_radius,
+            tau,
+            64,
+        );
+    }
+}
+
+#[test]
+fn cs23_offset_y_axis_offset() {
+    // Sphere at (0, 2.5, 0) instead of x-offset.  Validates that the
+    // u_dir/v_dir frame construction works for any azimuthal direction,
+    // not just the x-axis.
+    let cyl_origin = [0.0, 0.0, 0.0];
+    let cyl_axis = [0.0, 0.0, 1.0];
+    let cyl_radius = 1.0;
+    let sphere_center = [0.0, 2.5, 0.0];
+    let sphere_radius = 2.0;
+
+    let curves = cylinder_sphere_ssi(
+        cyl_origin,
+        cyl_axis,
+        cyl_radius,
+        -10.0,
+        10.0,
+        sphere_center,
+        sphere_radius,
+    )
+    .unwrap();
+
+    assert!(!curves.is_empty(), "Y-axis offset must produce curves");
+
+    let tau = crate::units::TAU_MODEL;
+    for curve in &curves {
+        validate_cyl_sphere_on_surface(
+            curve,
+            cyl_origin,
+            cyl_axis,
+            cyl_radius,
+            sphere_center,
+            sphere_radius,
+            tau,
+            64,
+        );
+    }
+}
+
+#[test]
+fn cs24_offset_mutation_branch_sign() {
+    // Validate that the two returned curves (upper and lower branches) produce
+    // DIFFERENT z-values at the same θ.  This catches bugs where both branches
+    // accidentally use the same sign in: z = z_center ± √(radicand).
+    let cyl_origin = [0.0, 0.0, 0.0];
+    let cyl_axis = [0.0, 0.0, 1.0];
+    let cyl_radius = 2.0;
+    let sphere_center = [1.5, 0.0, 0.0];
+    let sphere_radius = 2.0;
+
+    let curves = cylinder_sphere_ssi(
+        cyl_origin,
+        cyl_axis,
+        cyl_radius,
+        -10.0,
+        10.0,
+        sphere_center,
+        sphere_radius,
+    )
+    .unwrap();
+
+    assert!(
+        curves.len() >= 2,
+        "Offset case must produce at least 2 branches (upper/lower), got {}",
+        curves.len()
+    );
+
+    // Sample both curves at t=0.5 (midpoint of parameter range) and check that
+    // the z-coordinates differ.
+    let pt_a = sample_curve_points(&curves[0], 3)[1]; // t ≈ 0.5
+    let pt_b = sample_curve_points(&curves[1], 3)[1]; // t ≈ 0.5
+
+    let z_a = z_along_axis(pt_a, cyl_origin, cyl_axis);
+    let z_b = z_along_axis(pt_b, cyl_origin, cyl_axis);
+
+    let eps = crate::units::MIN_FEATURE_SIZE;
+    assert!(
+        (z_a - z_b).abs() > eps,
+        "Upper and lower branches must produce distinct z-values at the same θ, \
+         but got z_a={} and z_b={} (diff={}). Both branches may have the same sign.",
+        z_a,
+        z_b,
+        (z_a - z_b).abs()
+    );
+}
+
 // ── Cone-Sphere SSI ──────────────────────────────────────────────────
 
 /// Helper: distance from a point to the cone surface.
