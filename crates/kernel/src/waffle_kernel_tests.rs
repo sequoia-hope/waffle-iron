@@ -1801,9 +1801,9 @@ fn l11_revolve_circle_succeeds() {
         vol > 0.0,
         "Revolve circle volume should be positive, got {}", vol
     );
-    // N-gon approximation gives ~15-20% undershoot vs exact circle area, so use 25% tolerance
+    // N-gon approximation for circle area undershoots vs exact; use 20% tolerance
     assert!(
-        (vol - expected).abs() / expected < 0.25,
+        (vol - expected).abs() / expected < 0.20,
         "Revolve circle volume: got {:.2}, expected {:.2} (Pappus, N-gon approx)", vol, expected
     );
 }
@@ -1973,6 +1973,10 @@ fn m7_box_cyl_result_has_cylindrical_face() {
         sig.surface_type.as_deref() == Some("cylindrical")
     });
     assert!(has_cyl, "Subtract result should have at least one cylindrical face");
+    // Oracle: box(12×12×10) - cyl(r=3,h=10) should have ≥7 faces
+    // (6 box faces + 1 cylindrical hole wall, some box faces may be split)
+    assert!(faces.len() >= 7,
+        "m7: box-cyl subtract should have ≥7 faces, got {}", faces.len());
 }
 
 #[test]
@@ -2612,6 +2616,12 @@ fn vid1_vertex_ids_ordering_respected() {
         .expect("extrude should succeed with vertex_ids-ordered face");
     let mesh = k.tessellate(&solid, 0.01).unwrap();
     assert!(mesh.vertices.len() > 0, "Mesh should have vertices");
+    // Oracle: 10×10 base × 5 depth = 500 volume
+    let vol = mesh_volume(&mesh);
+    assert!(
+        (vol - 500.0).abs() / 500.0 < 0.01,
+        "vid1: extruded box volume should be ~500, got {:.2}", vol
+    );
 }
 
 #[test]
@@ -2639,6 +2649,15 @@ fn vid2_vertex_ids_preferred_over_entity_ids() {
         .expect("make_faces should use vertex_ids when entity_ids are invalid");
 
     assert_eq!(face_ids.len(), 1);
+    // Oracle: extrude and verify volume = 10×10×5 = 500
+    let solid = k.extrude_face(face_ids[0], Z_DIR, 5.0)
+        .expect("extrude should succeed");
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    let vol = mesh_volume(&mesh);
+    assert!(
+        (vol - 500.0).abs() / 500.0 < 0.01,
+        "vid2: extruded box volume should be ~500, got {:.2}", vol
+    );
 }
 
 #[test]
@@ -2666,6 +2685,15 @@ fn vid3_vertex_ids_skipped_when_ids_missing() {
         .expect("make_faces should fall back to entity_ids");
 
     assert_eq!(face_ids.len(), 1);
+    // Oracle: extrude and verify volume = 10×10×5 = 500
+    let solid = k.extrude_face(face_ids[0], Z_DIR, 5.0)
+        .expect("extrude should succeed");
+    let mesh = k.tessellate(&solid, 0.01).unwrap();
+    let vol = mesh_volume(&mesh);
+    assert!(
+        (vol - 500.0).abs() / 500.0 < 0.01,
+        "vid3: extruded box volume should be ~500, got {:.2}", vol
+    );
 }
 
 // ── Group R: Full-depth concentric cylinder cut regression tests ────────────
@@ -3355,6 +3383,11 @@ fn ec2_gear_earclip_no_degenerate_triangles() {
         "ec2: found {} degenerate (zero-area) triangles out of {}",
         degenerate_count, n_tris
     );
+    // Volume oracle: gear extrusion should have positive volume.
+    // 12-tooth gear with inner radius ~2 extruded to depth 5.
+    let vol = mesh_volume(&mesh);
+    assert!(vol > 10.0,
+        "ec2: gear extrusion volume should be substantial, got {:.2}", vol);
 }
 
 #[test]

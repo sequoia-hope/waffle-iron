@@ -4753,7 +4753,9 @@ fn test_sphere_torus_near_tangent_outer() {
         result.err()
     );
     let curves = result.unwrap();
-    // Verify no NaN in any returned curve
+    // Sphere (r=1) at x=6.99 overlaps torus outer rim at ρ=6 by 0.01.
+    // This is a near-tangent configuration — should produce intersection curves.
+    // Verify no NaN and that any returned curves have positive radii.
     for curve in &curves {
         match curve {
             SSICurve::Circle {
@@ -4769,7 +4771,11 @@ fn test_sphere_torus_near_tangent_outer() {
                     !normal[0].is_nan() && !normal[1].is_nan() && !normal[2].is_nan(),
                     "NaN in circle normal"
                 );
-                assert!(!radius.is_nan(), "NaN in circle radius");
+                assert!(
+                    !radius.is_nan() && *radius > 0.0,
+                    "Circle radius must be positive, got {}",
+                    radius
+                );
             }
             SSICurve::Ellipse {
                 center,
@@ -4790,8 +4796,22 @@ fn test_sphere_torus_near_tangent_outer() {
                     !major_axis[0].is_nan() && !major_axis[1].is_nan() && !major_axis[2].is_nan(),
                     "NaN in ellipse major_axis"
                 );
-                assert!(!semi_major.is_nan(), "NaN in semi_major");
-                assert!(!semi_minor.is_nan(), "NaN in semi_minor");
+                assert!(
+                    !semi_major.is_nan() && *semi_major > 0.0,
+                    "semi_major must be positive, got {}",
+                    semi_major
+                );
+                assert!(
+                    !semi_minor.is_nan() && *semi_minor > 0.0,
+                    "semi_minor must be positive, got {}",
+                    semi_minor
+                );
+                assert!(
+                    semi_major >= semi_minor,
+                    "semi_major ({}) must be >= semi_minor ({})",
+                    semi_major,
+                    semi_minor
+                );
             }
             SSICurve::Line { start, end } => {
                 assert!(
@@ -4802,6 +4822,12 @@ fn test_sphere_torus_near_tangent_outer() {
                     !end[0].is_nan() && !end[1].is_nan() && !end[2].is_nan(),
                     "NaN in line end"
                 );
+                // Line segment must have non-zero length
+                let dx = end[0] - start[0];
+                let dy = end[1] - start[1];
+                let dz = end[2] - start[2];
+                let len = (dx * dx + dy * dy + dz * dz).sqrt();
+                assert!(len > 1e-12, "Line segment has near-zero length: {}", len);
             }
             _ => panic!("Unexpected SSICurve variant: {:?}", curve),
         }
@@ -4830,7 +4856,7 @@ fn test_sphere_torus_extreme_radii() {
     let curves = result.unwrap();
     // Sphere (r=0.02) centered on tube center (r=0.01) → sphere encloses tube cross-section
     // locally, so intersection should produce curves (two circles in axial case).
-    // Main check: no panic, no NaN.
+    // Verify all returned curves have valid geometry with positive dimensions.
     for curve in &curves {
         match curve {
             SSICurve::Circle {
@@ -4846,12 +4872,25 @@ fn test_sphere_torus_extreme_radii() {
                     !normal[0].is_nan() && !normal[1].is_nan() && !normal[2].is_nan(),
                     "NaN in circle normal"
                 );
-                assert!(!radius.is_nan(), "NaN in circle radius");
                 assert!(
-                    *radius > 0.0,
-                    "Circle radius should be positive, got {}",
+                    !radius.is_nan() && *radius > 0.0,
+                    "Circle radius must be positive, got {}",
                     radius
                 );
+                // Circle center should be near x≈1000, y≈0 (on the tube center circle)
+                let dist_from_axis = (center[0] * center[0] + center[1] * center[1]).sqrt();
+                assert!(
+                    (dist_from_axis - 1000.0).abs() < 1.0,
+                    "Circle center should be near major radius 1000, got dist={}",
+                    dist_from_axis
+                );
+            }
+            SSICurve::Line { start, end } => {
+                let dx = end[0] - start[0];
+                let dy = end[1] - start[1];
+                let dz = end[2] - start[2];
+                let len = (dx * dx + dy * dy + dz * dz).sqrt();
+                assert!(len > 1e-12, "Line segment has near-zero length: {}", len);
             }
             _ => {} // Other curve types acceptable
         }
@@ -4974,7 +5013,8 @@ fn test_cone_cone_near_coaxial() {
         result.err()
     );
     let curves = result.unwrap();
-    // Verify no NaN
+    // Near-coaxial cones with similar half-angles should produce intersection curves.
+    // Verify no NaN and that all curve dimensions are positive.
     for curve in &curves {
         match curve {
             SSICurve::Circle {
@@ -4990,39 +5030,45 @@ fn test_cone_cone_near_coaxial() {
                     !normal[0].is_nan() && !normal[1].is_nan() && !normal[2].is_nan(),
                     "NaN in circle normal"
                 );
-                assert!(!radius.is_nan(), "NaN in circle radius");
+                assert!(
+                    !radius.is_nan() && *radius > 0.0,
+                    "Circle radius must be positive, got {}",
+                    radius
+                );
             }
             SSICurve::Line { start, end } => {
-                assert!(
-                    !start[0].is_nan() && !start[1].is_nan() && !start[2].is_nan(),
-                    "NaN in line start"
-                );
-                assert!(
-                    !end[0].is_nan() && !end[1].is_nan() && !end[2].is_nan(),
-                    "NaN in line end"
-                );
+                let dx = end[0] - start[0];
+                let dy = end[1] - start[1];
+                let dz = end[2] - start[2];
+                let len = (dx * dx + dy * dy + dz * dz).sqrt();
+                assert!(len > 1e-12, "Line segment has near-zero length: {}", len);
             }
             SSICurve::Ellipse {
                 center,
-                normal,
-                major_axis,
                 semi_major,
                 semi_minor,
+                ..
             } => {
                 assert!(
                     !center[0].is_nan() && !center[1].is_nan() && !center[2].is_nan(),
                     "NaN in ellipse center"
                 );
                 assert!(
-                    !normal[0].is_nan() && !normal[1].is_nan() && !normal[2].is_nan(),
-                    "NaN in ellipse normal"
+                    !semi_major.is_nan() && *semi_major > 0.0,
+                    "semi_major must be positive, got {}",
+                    semi_major
                 );
                 assert!(
-                    !major_axis[0].is_nan() && !major_axis[1].is_nan() && !major_axis[2].is_nan(),
-                    "NaN in ellipse major_axis"
+                    !semi_minor.is_nan() && *semi_minor > 0.0,
+                    "semi_minor must be positive, got {}",
+                    semi_minor
                 );
-                assert!(!semi_major.is_nan(), "NaN in semi_major");
-                assert!(!semi_minor.is_nan(), "NaN in semi_minor");
+                assert!(
+                    semi_major >= semi_minor,
+                    "semi_major ({}) must be >= semi_minor ({})",
+                    semi_major,
+                    semi_minor
+                );
             }
             _ => panic!("Unexpected SSICurve variant: {:?}", curve),
         }
@@ -5048,17 +5094,28 @@ fn test_cone_cone_very_small_half_angle() {
         "Very small half-angle should not error: {:?}",
         result.err()
     );
-    // No panic is the main assertion. Also check no NaN.
     let curves = result.unwrap();
+    // 1° half-angle cones offset by 0.5 along X: nearly cylindrical,
+    // should produce intersection curves with positive dimensions.
     for curve in &curves {
         match curve {
             SSICurve::Circle { center, radius, .. } => {
-                assert!(!center[0].is_nan() && !center[1].is_nan() && !center[2].is_nan());
-                assert!(!radius.is_nan());
+                assert!(
+                    !center[0].is_nan() && !center[1].is_nan() && !center[2].is_nan(),
+                    "NaN in circle center"
+                );
+                assert!(
+                    !radius.is_nan() && *radius > 0.0,
+                    "Circle radius must be positive, got {}",
+                    radius
+                );
             }
             SSICurve::Line { start, end } => {
-                assert!(!start[0].is_nan() && !start[1].is_nan() && !start[2].is_nan());
-                assert!(!end[0].is_nan() && !end[1].is_nan() && !end[2].is_nan());
+                let dx = end[0] - start[0];
+                let dy = end[1] - start[1];
+                let dz = end[2] - start[2];
+                let len = (dx * dx + dy * dy + dz * dz).sqrt();
+                assert!(len > 1e-12, "Line segment has near-zero length: {}", len);
             }
             SSICurve::Ellipse {
                 center,
@@ -5066,8 +5123,20 @@ fn test_cone_cone_very_small_half_angle() {
                 semi_minor,
                 ..
             } => {
-                assert!(!center[0].is_nan() && !center[1].is_nan() && !center[2].is_nan());
-                assert!(!semi_major.is_nan() && !semi_minor.is_nan());
+                assert!(
+                    !center[0].is_nan() && !center[1].is_nan() && !center[2].is_nan(),
+                    "NaN in ellipse center"
+                );
+                assert!(
+                    !semi_major.is_nan() && *semi_major > 0.0,
+                    "semi_major must be positive, got {}",
+                    semi_major
+                );
+                assert!(
+                    !semi_minor.is_nan() && *semi_minor > 0.0,
+                    "semi_minor must be positive, got {}",
+                    semi_minor
+                );
             }
             _ => panic!("Unexpected SSICurve variant: {:?}", curve),
         }
@@ -5100,9 +5169,31 @@ fn test_cone_cone_opposing_directions() {
     // At height z from A: r_a = z * tan(45°) = z
     // From B pointing down: at height z, distance from apex B is 5-z, r_b = (5-z)*tan(45°) = 5-z
     // Equal when z = 5-z → z = 2.5, r = 2.5
+    // Intersection is a circle at z=2.5 with radius 2.5.
     assert!(
         !curves.is_empty(),
         "Opposing 45° cones facing each other should intersect"
+    );
+    // Verify the intersection geometry: expect a circle at z=2.5 with radius=2.5
+    let has_expected_circle = curves.iter().any(|c| {
+        if let SSICurve::Circle {
+            center,
+            normal,
+            radius,
+        } = c
+        {
+            let z_ok = (center[2] - 2.5).abs() < 0.5;
+            let r_ok = (*radius - 2.5).abs() < 0.5;
+            let n_ok = normal[2].abs() > 0.5; // normal roughly along Z
+            z_ok && r_ok && n_ok
+        } else {
+            false
+        }
+    });
+    assert!(
+        has_expected_circle,
+        "Expected a circle near z=2.5, r=2.5; got: {:?}",
+        curves
     );
 }
 
