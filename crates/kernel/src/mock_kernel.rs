@@ -5,7 +5,7 @@
 
 use crate::traits::{Kernel, KernelIntrospect};
 use crate::types::*;
-use crate::units::TAU_WORK;
+use crate::units::{TAU_MODEL, TAU_WORK};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// Face definition tuple: (edge_indices, normal, centroid, area, surface_type).
@@ -289,7 +289,7 @@ impl MockKernel {
         // Remove coincident face pairs from the union result:
         // - Two faces at the same centroid with opposite normals: both removed (internal)
         // - Two faces at the same centroid with same normal: keep one (external duplicate)
-        let tau = 1e-7;
+        let tau = TAU_MODEL;
         let n_a = a.faces.len();
         let mut remove_set: HashSet<usize> = HashSet::new();
 
@@ -1470,6 +1470,7 @@ impl KernelIntrospect for MockKernel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::units::{TAU_TESS_GRID_FACTOR, TAU_TESS_GRID_MIN};
 
     #[test]
     fn test_make_faces_and_extrude_produces_box_topology() {
@@ -1873,7 +1874,7 @@ mod tests {
         let mesh = kernel.tessellate(&handle, 0.1).unwrap();
 
         // Check every triangle has non-zero area
-        let epsilon = 1e-12_f32;
+        let epsilon = TAU_WORK as f32;
         assert_eq!(mesh.indices.len() % 3, 0, "Indices should be multiple of 3");
         for tri in mesh.indices.chunks(3) {
             let i0 = tri[0] as usize;
@@ -1989,7 +1990,7 @@ mod tests {
             .iter()
             .map(|v| v.abs())
             .fold(0.0_f32, f32::max);
-        let grid = (max_abs as f64 * 1e-5).max(1e-10);
+        let grid = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
         let inv_grid = 1.0 / grid;
         let quantize = |idx: u32| -> (i64, i64, i64) {
             let base = idx as usize * 3;
@@ -2051,7 +2052,7 @@ mod tests {
             .iter()
             .map(|v| v.abs())
             .fold(0.0_f32, f32::max);
-        let grid = (max_abs as f64 * 1e-5).max(1e-10);
+        let grid = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
         let inv_grid = 1.0 / grid;
         let quantize = |idx: u32| -> (i64, i64, i64) {
             let base = idx as usize * 3;

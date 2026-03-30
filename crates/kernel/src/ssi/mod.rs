@@ -458,7 +458,7 @@ pub(crate) fn cylinder_cylinder_ssi(
 /// Ref: [#1] Patrikalakis Ch.5 — quadric SSI degree-4 algebraic curves.
 ///
 /// Guard conditions:
-/// - Parallel axes (|cos| > 1-1e-6) → Ok(vec![])
+/// - Parallel axes (|cos| > 1 - TAU_PARALLEL) → Ok(vec![])
 /// - Near-parallel (angle < 15°) → NotSupported
 /// - Zero radius → NotSupported
 /// - Skew axes (closest distance >= 0.05×max(R_A,R_B)) → NotSupported
