@@ -537,8 +537,9 @@ impl SSICurve {
                 // the quadratic degenerates to a_coeff * h² ≈ 0. At generator
                 // directions where a_coeff ≈ 0, any h is valid. Map t linearly
                 // to the height range instead.
-                let same_apex_degenerate =
-                    c_const.abs() < 1e-6 && m_a.abs() < 1e-6 && m_b.abs() < 1e-6;
+                let same_apex_degenerate = c_const.abs() < crate::units::SSI_CONE_COEFF_DEGENERATE
+                    && m_a.abs() < crate::units::SSI_CONE_COEFF_DEGENERATE
+                    && m_b.abs() < crate::units::SSI_CONE_COEFF_DEGENERATE;
 
                 let h = if same_apex_degenerate {
                     // For same-apex, t maps to h in the valid height range
@@ -1723,32 +1724,6 @@ pub(crate) fn sphere_sphere_ssi(
 }
 
 // ── Point-in-solid classification ──────────────────────────────────────────
-
-/// Test if a point is strictly inside an axis-aligned box.
-pub(crate) fn point_in_box(pt: [f64; 3], aabb: &Aabb) -> bool {
-    pt[0] > aabb.min[0] + TOL
-        && pt[0] < aabb.max[0] - TOL
-        && pt[1] > aabb.min[1] + TOL
-        && pt[1] < aabb.max[1] - TOL
-        && pt[2] > aabb.min[2] + TOL
-        && pt[2] < aabb.max[2] - TOL
-}
-
-/// Test if a point is strictly inside a cylinder (axis-generic).
-///
-/// Projects the point onto the cylinder's actual axis direction to check both
-/// axial containment (within [0, depth]) and radial distance (within radius).
-pub(crate) fn point_in_cylinder(pt: [f64; 3], cyl: &CylinderParams) -> bool {
-    let dp = v3_sub(pt, cyl.center_bottom);
-    let d = cyl.direction;
-    let axial = v3_dot(dp, d);
-    if axial < TOL || axial > cyl.depth - TOL {
-        return false;
-    }
-    let proj = v3_sub(dp, v3_scale(d, axial));
-    let dist_radial = v3_length(proj);
-    dist_radial < cyl.radius - TOL
-}
 
 /// Test if a point is strictly inside a sphere.
 pub(crate) fn point_in_sphere(pt: [f64; 3], center: [f64; 3], radius: f64) -> bool {
@@ -3016,21 +2991,22 @@ pub(crate) fn cone_cone_ssi(
     }
     // 1b. Near-collinear axes (nearly parallel, small perpendicular offset):
     // Approximate as coaxial and produce a Circle.
-    else if axes_near_parallel && !same_apex && perp_dist < 0.01 {
+    else if axes_near_parallel && !same_apex && perp_dist < crate::units::SSI_CONE_COLLINEAR_DIST
+    {
         // Use axis_a as the common axis (it's close enough to axis_b).
         let d = v3_dot(apex_diff, axis_a);
         let same_dir = dot_axes > 0.0;
         let mut curves = Vec::new();
 
         if same_dir {
-            if (tan_a - tan_b).abs() >= 0.01 {
+            if (tan_a - tan_b).abs() >= crate::units::SSI_CONE_TAN_DIFF {
                 let h = d * tan_b / (tan_b - tan_a);
                 let h_b = h - d;
-                if h >= z_min_a - 0.1
-                    && h <= z_max_a + 0.1
+                if h >= z_min_a - crate::units::SSI_CONE_Z_MARGIN
+                    && h <= z_max_a + crate::units::SSI_CONE_Z_MARGIN
                     && h > TOL
-                    && h_b >= z_min_b - 0.1
-                    && h_b <= z_max_b + 0.1
+                    && h_b >= z_min_b - crate::units::SSI_CONE_Z_MARGIN
+                    && h_b <= z_max_b + crate::units::SSI_CONE_Z_MARGIN
                     && h_b > TOL
                 {
                     let radius = h * tan_a;
@@ -3047,11 +3023,11 @@ pub(crate) fn cone_cone_ssi(
         } else {
             let h = d * tan_b / (tan_a + tan_b);
             let h_b = d - h;
-            if h >= z_min_a - 0.1
-                && h <= z_max_a + 0.1
+            if h >= z_min_a - crate::units::SSI_CONE_Z_MARGIN
+                && h <= z_max_a + crate::units::SSI_CONE_Z_MARGIN
                 && h > TOL
-                && h_b >= z_min_b - 0.1
-                && h_b <= z_max_b + 0.1
+                && h_b >= z_min_b - crate::units::SSI_CONE_Z_MARGIN
+                && h_b <= z_max_b + crate::units::SSI_CONE_Z_MARGIN
                 && h_b > TOL
             {
                 let radius = h * tan_a;
@@ -3073,9 +3049,9 @@ pub(crate) fn cone_cone_ssi(
     // use sampling to produce Line segments compatible with legacy tests.
     else if axes_near_parallel
         && !same_apex
-        && perp_dist >= 0.01
-        && half_angle_a < 0.09
-        && half_angle_b < 0.09
+        && perp_dist >= crate::units::SSI_CONE_COLLINEAR_DIST
+        && half_angle_a < crate::units::SSI_CONE_NARROW_HALF_ANGLE
+        && half_angle_b < crate::units::SSI_CONE_NARROW_HALF_ANGLE
     {
         let (u_a, v_a) = compute_plane_basis(axis_a);
         let n_h: usize = 100;
@@ -3237,7 +3213,7 @@ pub(crate) fn cone_cone_ssi(
         let mut clusters: Vec<Vec<f64>> = Vec::new();
         for &th in &sorted_thetas {
             let added = clusters.iter_mut().any(|c| {
-                if (th - c.last().unwrap()).abs() < 0.1 {
+                if (th - c.last().unwrap()).abs() < crate::units::SSI_THETA_CLUSTER_TOL {
                     c.push(th);
                     true
                 } else {
@@ -3275,7 +3251,7 @@ pub(crate) fn cone_cone_ssi(
                 for _ in 0..50 {
                     let mid = (lo + hi) * 0.5;
                     let f_mid = d_ab_sq_at(mid) - target_sq;
-                    if f_mid.abs() < 1e-14 {
+                    if f_mid.abs() < crate::units::SSI_BISECTION_CONV {
                         break;
                     }
                     let f_lo_v = d_ab_sq_at(lo) - target_sq;
@@ -3323,10 +3299,14 @@ pub(crate) fn cone_cone_ssi(
                 }
                 h_max.min(z_max_a)
             } else {
-                // Near-miss: restrict h so surface error < 1e-5
+                // Near-miss: restrict h so surface error < SSI_SURFACE_ERROR_BOUND
                 // Error ≈ h * residual_factor; use conservative bound
-                let residual_factor = min_residual.sqrt().max(0.01);
-                (1e-5 / residual_factor).min(z_max_a).min(z_max_b)
+                let residual_factor = min_residual
+                    .sqrt()
+                    .max(crate::units::SSI_RESIDUAL_FACTOR_FLOOR);
+                (crate::units::SSI_SURFACE_ERROR_BOUND / residual_factor)
+                    .min(z_max_a)
+                    .min(z_max_b)
             };
 
             let h_min_eff = TOL;

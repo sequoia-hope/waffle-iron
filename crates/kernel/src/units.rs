@@ -166,6 +166,53 @@ pub const SSI_CYL_CYL_MIN_ANGLE_COS: f64 = 0.9660;
 /// to classify sample points as on the intersection surface.
 pub const SSI_SAMPLE_ON_SURFACE_TOL: f64 = 0.05;
 
+// ── Cone-cone SSI solver thresholds ──────────────────────────────────
+
+/// Coefficient degeneracy threshold for same-apex cone-cone detection: 1e-6.
+/// When quadratic coefficients (c_const, m_a, m_b) are all below this,
+/// the solver treats the cones as sharing an apex.
+pub const SSI_CONE_COEFF_DEGENERATE: f64 = 1e-6;
+
+/// Perpendicular distance threshold for near-collinear cone axes: 0.01.
+/// Axes separated by less than this are approximated as coaxial.
+pub const SSI_CONE_COLLINEAR_DIST: f64 = 0.01;
+
+/// Half-angle tangent difference threshold for same-direction coaxial cones: 0.01.
+/// Cones with tangent difference below this have nearly-identical half-angles.
+pub const SSI_CONE_TAN_DIFF: f64 = 0.01;
+
+/// Height range margin for coaxial cone intersection checks: 0.1.
+/// Allows intersection points slightly outside the strict z-range.
+pub const SSI_CONE_Z_MARGIN: f64 = 0.1;
+
+/// Maximum half-angle (radians) for near-cylindrical cone fallback: 0.09 (~5°).
+/// Cones with half-angle below this are treated as nearly cylindrical
+/// for the parallel-offset sampling path.
+pub const SSI_CONE_NARROW_HALF_ANGLE: f64 = 0.09;
+
+/// Angular clustering tolerance (radians) for theta grouping in cone-cone SSI: 0.1 (~5.7°).
+/// Nearby intersection angles within this window are merged into a single cluster.
+pub const SSI_THETA_CLUSTER_TOL: f64 = 0.1;
+
+/// Bisection convergence tolerance for cone-cone SSI refinement: 1e-14.
+/// Controls when the iterative bisection solver declares convergence.
+/// Tighter than TAU_WORK because this operates in squared-distance space.
+pub const SSI_BISECTION_CONV: f64 = 1e-14;
+
+/// Surface error bound for near-miss cone-cone intersection: 1e-5.
+/// Limits the parametric range to keep surface deviation below this threshold.
+pub const SSI_SURFACE_ERROR_BOUND: f64 = 1e-5;
+
+/// Minimum residual factor floor for near-miss cone-cone height limiting: 0.01.
+/// Prevents division-by-near-zero when computing error-bounded height ranges.
+pub const SSI_RESIDUAL_FACTOR_FLOOR: f64 = 0.01;
+
+// ── Mock kernel thresholds ──────────────────────────────────────────────
+
+/// Cosine threshold for face-normal similarity in mock kernel face merging: 0.9.
+/// Used in MockKernel boolean simulation to detect duplicate/opposite face pairs.
+pub const COS_MOCK_FACE_SIMILARITY: f64 = 0.9;
+
 // ── Analytical boolean dispatch threshold ──────────────────────────────
 
 /// Curvature subdivision threshold for polygon-to-triangle decomposition: 5%.
