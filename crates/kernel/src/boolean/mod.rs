@@ -1119,6 +1119,16 @@ pub(super) fn collect_fragments(
                     }
                 }
             }
+            FaceClass::TrimmedInside { inside_frags } => {
+                // Face was trimmed by progressive splitting (lost >5% area).
+                // Emit trimmed fragments instead of original face to avoid
+                // self-intersections from oversized faces (R0098).
+                if include_fully_inside {
+                    for frag in inside_frags {
+                        emit(output, frag.clone(), face.normal, face.origin, sg.clone());
+                    }
+                }
+            }
         }
     }
 }
@@ -1208,6 +1218,9 @@ pub(super) fn collect_union_fragments(
                 // Anti-parallel coplanar: shared internal boundary.
                 // Discard from both primary and secondary in union
                 // (same as CoplanarTouching).
+            }
+            FaceClass::TrimmedInside { .. } => {
+                // Trimmed-to-inside: hidden in union, same as Inside.
             }
         }
     }

@@ -488,6 +488,84 @@ fn batch_swiss_cheese() {
     );
 }
 
+/// Deep-verify R0098: gear boss + oversized rectangle cut on tilted plane.
+///
+/// R0098 passes all 8 original mesh oracles but has bad faces in the cut pocket
+/// where the rectangle extends beyond the gear boundary. The new
+/// `check_no_self_intersection` oracle should catch this.
+///
+/// Run with: cargo test -p test-harness --test assay_randomized -- spotlight_r0098 --ignored --nocapture
+#[test]
+#[ignore]
+fn spotlight_r0098_self_intersection() {
+    let dir = Path::new(ASSAY_DIR);
+    if !dir.exists() {
+        eprintln!("Assay corpus not generated yet");
+        return;
+    }
+
+    let result = run_single_case(dir, "R0098", true);
+    match result {
+        Some(r) => {
+            println!("\n=== R0098 Self-Intersection Spotlight ===");
+            println!("Description: {}", r.description);
+            println!("Status: {:?}", r.status);
+            println!("Detail: {}", r.detail);
+
+            // Also run oracle suite directly for detailed diagnostics
+            let cases = discover_cases(dir);
+            let case = cases
+                .iter()
+                .find(|c| c.id == "R0098")
+                .expect("R0098 in corpus");
+            let waffle_json = std::fs::read_to_string(&case.waffle_path).expect("read waffle");
+            let mut builder = test_harness::workflow::ModelBuilder::kernel();
+            if let Err(e) = builder.load(&waffle_json) {
+                println!("  Load failed: {}", e);
+                return;
+            }
+            match builder.tessellate_last() {
+                Ok(mesh) => {
+                    let verdicts = test_harness::oracle::run_all_mesh_checks(&mesh);
+                    let mut original_all_pass = true;
+                    for v in &verdicts {
+                        let marker = if v.passed { "PASS" } else { "FAIL" };
+                        println!("    {}: {} — {}", v.oracle_name, marker, v.detail);
+                        if v.oracle_name != "no_self_intersection" && !v.passed {
+                            original_all_pass = false;
+                        }
+                    }
+
+                    // The premise: original 8 oracles all pass
+                    if !original_all_pass {
+                        println!("  NOTE: Some original oracles failed — premise not met");
+                    }
+
+                    // The new oracle should catch the defect
+                    let si_verdict = verdicts
+                        .iter()
+                        .find(|v| v.oracle_name == "no_self_intersection")
+                        .expect("no_self_intersection oracle should be in results");
+                    println!(
+                        "\n  Self-intersection oracle: {} — {}",
+                        if si_verdict.passed { "PASS" } else { "FAIL" },
+                        si_verdict.detail
+                    );
+                    // Assert the oracle catches R0098's geometric defect
+                    assert!(
+                        !si_verdict.passed,
+                        "R0098 should FAIL the self-intersection oracle (has bad pocket faces)"
+                    );
+                }
+                Err(e) => {
+                    println!("  Tessellate failed: {}", e);
+                }
+            }
+        }
+        None => panic!("R0098 not found in corpus"),
+    }
+}
+
 /// Verify revolve self-intersection detection (F0073-F0075).
 ///
 /// F0073: axis through center → expect_rebuild_error (should pass)

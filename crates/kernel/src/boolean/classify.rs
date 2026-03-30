@@ -235,6 +235,13 @@ pub(crate) enum FaceClass {
         inside_frags: Vec<Vec<[f64; 3]>>,
         outside_frags: Vec<Vec<[f64; 3]>>,
     },
+    /// All fragments are inside, but progressive splitting trimmed the face
+    /// (lost >5% area). Emitted like Inside (when include_fully_inside is
+    /// true), but uses trimmed fragments instead of the original face to
+    /// avoid self-intersections from oversized faces (see R0098).
+    /// Currently unused — infrastructure for future classify improvements.
+    #[allow(dead_code)]
+    TrimmedInside { inside_frags: Vec<Vec<[f64; 3]>> },
 }
 
 /// Classify a face polygon against the opposing solid's faces.

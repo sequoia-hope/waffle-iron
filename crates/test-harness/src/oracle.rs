@@ -1047,6 +1047,290 @@ pub fn check_mesh_euler_characteristic(mesh: &RenderMesh, expected_chi: i64) -> 
     }
 }
 
+// ── Inter-Face Self-Intersection Oracle ──────────────────────────────────────
+
+/// Check that triangles from different B-Rep faces do not penetrate each other.
+///
+/// Uses Möller's separating-axis triangle-triangle intersection test (1997)
+/// with AABB broad-phase per face and a penetration depth threshold to reject
+/// grazing contacts at shared boundaries. See specs/inter_face_self_intersection_oracle.md.
+pub fn check_no_self_intersection(mesh: &RenderMesh) -> OracleVerdict {
+    if mesh.face_ranges.len() <= 1 || mesh.indices.is_empty() {
+        return OracleVerdict::pass("no_self_intersection", "skipped: ≤1 face range".to_string());
+    }
+
+    // Scale-adaptive quantization for shared-vertex detection
+    let max_abs = mesh
+        .vertices
+        .iter()
+        .map(|v| v.abs())
+        .fold(0.0_f32, f32::max);
+    let grid_size = (max_abs as f64 * 1e-5).max(1e-10);
+    let inv_grid = 1.0 / grid_size;
+    let quantize = |v: f32| -> i64 { (v as f64 * inv_grid).round() as i64 };
+
+    let vert_pos = |idx: u32| -> [f64; 3] {
+        let i = idx as usize * 3;
+        [
+            mesh.vertices[i] as f64,
+            mesh.vertices[i + 1] as f64,
+            mesh.vertices[i + 2] as f64,
+        ]
+    };
+
+    let vert_quant = |idx: u32| -> (i64, i64, i64) {
+        let i = idx as usize * 3;
+        (
+            quantize(mesh.vertices[i]),
+            quantize(mesh.vertices[i + 1]),
+            quantize(mesh.vertices[i + 2]),
+        )
+    };
+
+    // Penetration depth threshold for grazing rejection
+    let depth_threshold = (max_abs as f64 * 1e-4).max(1e-9);
+
+    // Partition triangles into per-face groups and compute AABBs
+    struct FaceGroup {
+        tri_indices: Vec<[u32; 3]>, // index triples
+        aabb_min: [f64; 3],
+        aabb_max: [f64; 3],
+    }
+
+    let mut faces: Vec<FaceGroup> = Vec::with_capacity(mesh.face_ranges.len());
+
+    for fr in &mesh.face_ranges {
+        let start = fr.start_index as usize;
+        let end = fr.end_index as usize;
+        let mut aabb_min = [f64::MAX; 3];
+        let mut aabb_max = [f64::MIN; 3];
+        let mut tris = Vec::new();
+
+        for tri in mesh.indices[start..end].chunks(3) {
+            if tri.len() < 3 {
+                continue;
+            }
+            tris.push([tri[0], tri[1], tri[2]]);
+            for &idx in tri {
+                let p = vert_pos(idx);
+                for d in 0..3 {
+                    aabb_min[d] = aabb_min[d].min(p[d]);
+                    aabb_max[d] = aabb_max[d].max(p[d]);
+                }
+            }
+        }
+
+        faces.push(FaceGroup {
+            tri_indices: tris,
+            aabb_min,
+            aabb_max,
+        });
+    }
+
+    let aabbs_overlap = |a: &FaceGroup, b: &FaceGroup| -> bool {
+        for d in 0..3 {
+            if a.aabb_max[d] < b.aabb_min[d] || b.aabb_max[d] < a.aabb_min[d] {
+                return false;
+            }
+        }
+        true
+    };
+
+    let mut violations = 0usize;
+    let mut violation_pairs: Vec<(usize, usize)> = Vec::new();
+    const MAX_VIOLATIONS: usize = 10;
+
+    'outer: for i in 0..faces.len() {
+        for j in (i + 1)..faces.len() {
+            if !aabbs_overlap(&faces[i], &faces[j]) {
+                continue;
+            }
+
+            // Test all triangle pairs between face i and face j
+            for tri_a in &faces[i].tri_indices {
+                for tri_b in &faces[j].tri_indices {
+                    // Skip if shared edge (≥2 common quantized vertices)
+                    let qa: [(i64, i64, i64); 3] = [
+                        vert_quant(tri_a[0]),
+                        vert_quant(tri_a[1]),
+                        vert_quant(tri_a[2]),
+                    ];
+                    let qb: [(i64, i64, i64); 3] = [
+                        vert_quant(tri_b[0]),
+                        vert_quant(tri_b[1]),
+                        vert_quant(tri_b[2]),
+                    ];
+                    let shared = qa.iter().filter(|v| qb.contains(v)).count();
+                    if shared >= 2 {
+                        continue;
+                    }
+
+                    let pa: [[f64; 3]; 3] =
+                        [vert_pos(tri_a[0]), vert_pos(tri_a[1]), vert_pos(tri_a[2])];
+                    let pb: [[f64; 3]; 3] =
+                        [vert_pos(tri_b[0]), vert_pos(tri_b[1]), vert_pos(tri_b[2])];
+
+                    if triangles_intersect(&pa, &pb, depth_threshold) {
+                        violations += 1;
+                        if violation_pairs.len() < MAX_VIOLATIONS {
+                            violation_pairs.push((i, j));
+                        }
+                        if violations >= MAX_VIOLATIONS {
+                            break 'outer;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if violations == 0 {
+        OracleVerdict::pass(
+            "no_self_intersection",
+            format!(
+                "no inter-face triangle penetrations ({} face pairs tested)",
+                faces.len() * (faces.len() - 1) / 2
+            ),
+        )
+    } else {
+        let pairs_str: Vec<String> = violation_pairs
+            .iter()
+            .take(5)
+            .map(|(a, b)| format!("({},{})", a, b))
+            .collect();
+        OracleVerdict::fail(
+            "no_self_intersection",
+            format!(
+                "{} inter-face triangle penetrations, face pairs: {}{}",
+                violations,
+                pairs_str.join(", "),
+                if violations > 5 { ", ..." } else { "" }
+            ),
+        )
+    }
+}
+
+/// Möller-style triangle-triangle intersection test using separating axes.
+///
+/// Returns true if the two triangles geometrically penetrate each other
+/// beyond `depth_threshold`. Coplanar triangles are treated as non-intersecting.
+///
+/// Reference: Möller, "A Fast Triangle-Triangle Intersection Test", JGT 2(2), 1997.
+fn triangles_intersect(a: &[[f64; 3]; 3], b: &[[f64; 3]; 3], depth_threshold: f64) -> bool {
+    // Compute plane of triangle A: normal = (a1-a0) × (a2-a0)
+    let cross = |u: [f64; 3], v: [f64; 3]| -> [f64; 3] {
+        [
+            u[1] * v[2] - u[2] * v[1],
+            u[2] * v[0] - u[0] * v[2],
+            u[0] * v[1] - u[1] * v[0],
+        ]
+    };
+    let sub = |p: [f64; 3], q: [f64; 3]| -> [f64; 3] { [p[0] - q[0], p[1] - q[1], p[2] - q[2]] };
+    let dot = |u: [f64; 3], v: [f64; 3]| -> f64 { u[0] * v[0] + u[1] * v[1] + u[2] * v[2] };
+
+    let na = cross(sub(a[1], a[0]), sub(a[2], a[0]));
+    let da = dot(na, a[0]);
+
+    // Signed distances of B's vertices from A's plane
+    let db: [f64; 3] = [dot(na, b[0]) - da, dot(na, b[1]) - da, dot(na, b[2]) - da];
+
+    // All B on one side of A's plane?
+    if (db[0] > depth_threshold && db[1] > depth_threshold && db[2] > depth_threshold)
+        || (db[0] < -depth_threshold && db[1] < -depth_threshold && db[2] < -depth_threshold)
+    {
+        return false;
+    }
+
+    let nb = cross(sub(b[1], b[0]), sub(b[2], b[0]));
+    let d_b_plane = dot(nb, b[0]);
+
+    // Signed distances of A's vertices from B's plane
+    let d_a: [f64; 3] = [
+        dot(nb, a[0]) - d_b_plane,
+        dot(nb, a[1]) - d_b_plane,
+        dot(nb, a[2]) - d_b_plane,
+    ];
+
+    // All A on one side of B's plane?
+    if (d_a[0] > depth_threshold && d_a[1] > depth_threshold && d_a[2] > depth_threshold)
+        || (d_a[0] < -depth_threshold && d_a[1] < -depth_threshold && d_a[2] < -depth_threshold)
+    {
+        return false;
+    }
+
+    // Intersection line direction
+    let dir = cross(na, nb);
+    let dir_len_sq = dot(dir, dir);
+    if dir_len_sq < 1e-30 {
+        // Planes are (near-)parallel / coplanar — treat as non-intersecting
+        return false;
+    }
+
+    // Project vertices onto the intersection line and compute intervals
+    // Pick the axis with largest |dir| component for projection
+    let abs_dir = [dir[0].abs(), dir[1].abs(), dir[2].abs()];
+    let axis = if abs_dir[0] >= abs_dir[1] && abs_dir[0] >= abs_dir[2] {
+        0
+    } else if abs_dir[1] >= abs_dir[2] {
+        1
+    } else {
+        2
+    };
+
+    let proj_a: [f64; 3] = [a[0][axis], a[1][axis], a[2][axis]];
+    let proj_b: [f64; 3] = [b[0][axis], b[1][axis], b[2][axis]];
+
+    // Compute interval for triangle A on the intersection line
+    // Find the edge(s) that cross B's plane (d_a sign changes)
+    let interval_a = compute_interval(&proj_a, &d_a);
+    let interval_b = compute_interval(&proj_b, &db);
+
+    match (interval_a, interval_b) {
+        (Some((a_min, a_max)), Some((b_min, b_max))) => {
+            // Check if intervals overlap
+            a_min < b_max && b_min < a_max
+        }
+        _ => false,
+    }
+}
+
+/// Compute the interval [t_min, t_max] where a triangle's edges cross the
+/// opposing plane. `proj` are vertex projections onto the intersection line axis,
+/// `dists` are signed distances from the opposing plane.
+fn compute_interval(proj: &[f64; 3], dists: &[f64; 3]) -> Option<(f64, f64)> {
+    let mut ts = Vec::with_capacity(2);
+
+    // For each edge, if the endpoints straddle (or touch) the plane, compute crossing parameter
+    for &(i, j) in &[(0usize, 1usize), (1, 2), (2, 0)] {
+        let di = dists[i];
+        let dj = dists[j];
+        if (di > 0.0 && dj < 0.0) || (di < 0.0 && dj > 0.0) {
+            // Edge crosses the plane
+            let t = proj[i] + (proj[j] - proj[i]) * di / (di - dj);
+            ts.push(t);
+        } else if di.abs() < 1e-30 {
+            // Vertex i is on the plane
+            ts.push(proj[i]);
+        }
+    }
+    // Also check if vertex 2 is on the plane (handled in edge (2,0) start but
+    // not if vertex 0 was also zero)
+    if ts.len() < 2 && dists[2].abs() < 1e-30 && (ts.is_empty() || (ts[0] - proj[2]).abs() > 1e-30)
+    {
+        ts.push(proj[2]);
+    }
+
+    if ts.len() >= 2 {
+        let (a, b) = (ts[0], ts[1]);
+        Some(if a <= b { (a, b) } else { (b, a) })
+    } else if ts.len() == 1 {
+        // Degenerate: single point contact — not a real intersection
+        None
+    } else {
+        None
+    }
+}
+
 // ── Composite ───────────────────────────────────────────────────────────────
 
 /// Run all applicable checks on a solid + mesh + op_result combination.
@@ -1060,6 +1344,7 @@ pub fn run_all_mesh_checks(mesh: &RenderMesh) -> Vec<OracleVerdict> {
         check_valid_indices(mesh),
         check_outward_normals(mesh, 0.95),
         check_positive_signed_volume(mesh),
+        check_no_self_intersection(mesh),
     ]
 }
 
@@ -1545,5 +1830,106 @@ mod tests {
         let verdict = check_mesh_euler_characteristic(&mesh, 0);
         assert!(verdict.passed, "torus should have χ=0: {}", verdict.detail);
         assert_eq!(verdict.value, Some(0.0));
+    }
+
+    // ── Self-Intersection Oracle Tests ──────────────────────────────────────
+
+    #[test]
+    fn self_intersection_passes_clean_cube() {
+        let mesh = make_unit_cube_mesh();
+        let verdict = check_no_self_intersection(&mesh);
+        assert!(
+            verdict.passed,
+            "clean cube should pass self-intersection check: {}",
+            verdict.detail
+        );
+    }
+
+    #[test]
+    fn self_intersection_catches_penetrating_faces() {
+        // Build a mesh with two face groups whose triangles cross each other.
+        // Face 0: a large triangle in the XY plane at z=0
+        // Face 1: a large triangle in the XZ plane at y=0 — they intersect
+        // along the x-axis.
+        let vertices = vec![
+            // Face 0: XY plane triangle (z=0), spanning [-1,1] in x and y
+            -1.0f32, -1.0, 0.0, 1.0, -1.0, 0.0, 0.0, 1.0, 0.0,
+            // Face 1: XZ plane triangle (y=0), spanning [-1,1] in x, [-1,1] in z
+            -1.0, 0.0, -1.0, 1.0, 0.0, -1.0, 0.0, 0.0, 1.0,
+        ];
+        let normals = vec![
+            0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0,
+            0.0,
+        ];
+        let indices = vec![0, 1, 2, 3, 4, 5];
+        let face_ranges = vec![
+            FaceRange {
+                face_id: KernelId(0),
+                start_index: 0,
+                end_index: 3,
+            },
+            FaceRange {
+                face_id: KernelId(1),
+                start_index: 3,
+                end_index: 6,
+            },
+        ];
+
+        let mesh = RenderMesh {
+            vertices,
+            normals,
+            indices,
+            face_ranges,
+        };
+
+        let verdict = check_no_self_intersection(&mesh);
+        assert!(
+            !verdict.passed,
+            "penetrating faces should fail: {}",
+            verdict.detail
+        );
+    }
+
+    #[test]
+    fn self_intersection_allows_shared_edges() {
+        // Two face groups sharing an edge — should NOT be flagged.
+        // Face 0: triangle (0,0,0)-(1,0,0)-(0,1,0)
+        // Face 1: triangle (0,0,0)-(1,0,0)-(0,0,1) — shares edge (0,0,0)-(1,0,0)
+        let vertices = vec![
+            // Face 0
+            0.0f32, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, // Face 1
+            0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+        ];
+        let normals = vec![
+            0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, -1.0, 0.0, 0.0, -1.0, 0.0, 0.0, -1.0,
+            0.0,
+        ];
+        let indices = vec![0, 1, 2, 3, 4, 5];
+        let face_ranges = vec![
+            FaceRange {
+                face_id: KernelId(0),
+                start_index: 0,
+                end_index: 3,
+            },
+            FaceRange {
+                face_id: KernelId(1),
+                start_index: 3,
+                end_index: 6,
+            },
+        ];
+
+        let mesh = RenderMesh {
+            vertices,
+            normals,
+            indices,
+            face_ranges,
+        };
+
+        let verdict = check_no_self_intersection(&mesh);
+        assert!(
+            verdict.passed,
+            "adjacent faces sharing an edge should pass: {}",
+            verdict.detail
+        );
     }
 }

@@ -16,8 +16,7 @@ fn debug_f0001_pipeline() {
         .join("app/tests/cases/assay");
 
     let waffle_path = assay_dir.join("F0001.waffle");
-    let waffle_json =
-        std::fs::read_to_string(&waffle_path).expect("read F0001.waffle");
+    let waffle_json = std::fs::read_to_string(&waffle_path).expect("read F0001.waffle");
 
     let mut builder = ModelBuilder::kernel();
     builder.load(&waffle_json).expect("load F0001");
@@ -53,9 +52,7 @@ fn debug_f0001_pipeline() {
     }
 
     // Tessellate last feature with finer tolerance
-    let mesh = builder
-        .tessellate_last_with_tol(0.01)
-        .expect("tessellate");
+    let mesh = builder.tessellate_last_with_tol(0.01).expect("tessellate");
 
     let n_verts = mesh.vertices.len() / 3;
     let n_tris = mesh.indices.len() / 3;
@@ -125,7 +122,10 @@ fn debug_f0001_pipeline() {
 
     // Also check via oracle helper
     let wt = check_watertight_mesh(&mesh);
-    println!("Oracle watertight check: passed={}, detail={}", wt.passed, wt.detail);
+    println!(
+        "Oracle watertight check: passed={}, detail={}",
+        wt.passed, wt.detail
+    );
 
     // Check for auto-union warning
     let auto_union_failed = warnings.iter().any(|w| w.contains("Auto-union failed"));
