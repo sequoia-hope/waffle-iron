@@ -3946,7 +3946,6 @@ fn pt_04_perpendicular_offset() {
 fn pt_05_oblique_returns_analytical_curves() {
     // Plane with normal at 45° to torus axis → analytical Degree4PlaneTorus curves.
     // (Previously returned NotSupported; now solved analytically per A15.1)
-    let tau = crate::units::TAU_MODEL;
     let curves = plane_torus_ssi(
         [0.0, 0.0, 0.0],
         [FRAC_1_SQRT_2, 0.0, FRAC_1_SQRT_2], // 45° to Z

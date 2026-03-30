@@ -30,7 +30,20 @@ fn full_chain_sketch_extrude_tessellate() {
         .unwrap();
     m.extrude("box", "sk", 10.0).unwrap();
     let mesh = m.tessellate("box").unwrap();
-    assert_eq!(mesh.indices.len(), 36, "Box should have 12 triangles");
+    assert_eq!(mesh.indices.len(), 36, "Box should have 12 triangles (36 indices)");
+    // Box has 8 unique corners; MockKernel may use per-face vertices (up to 24)
+    assert!(
+        mesh.vertices.len() >= 8 * 3,
+        "Box needs at least 8 vertices (got {} floats = {} verts)",
+        mesh.vertices.len(),
+        mesh.vertices.len() / 3
+    );
+    // Normals buffer should match vertices buffer
+    assert_eq!(
+        mesh.normals.len(),
+        mesh.vertices.len(),
+        "Normals count must match vertices count"
+    );
 }
 
 #[test]
@@ -51,7 +64,14 @@ fn duplicate_name_returns_error() {
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     let result = m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5., 5.);
-    assert!(result.is_err(), "Duplicate name should error");
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.to_lowercase().contains("duplicate") || err_msg.to_lowercase().contains("already"),
+        "Error should mention duplicate/already-exists, got: {}",
+        err_msg
+    );
+    // Feature count should still be 1 (the original sketch)
+    assert_eq!(m.feature_count(), 1);
 }
 
 #[test]

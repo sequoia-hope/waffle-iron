@@ -281,17 +281,47 @@ mod tests {
     fn test_boolean_options_for_scale() {
         let small = BooleanOptions::for_scale(0.001);
         assert!(small.validate().is_ok());
+        // Small scale should yield tighter tolerances than default
+        assert!(small.tau_model < BooleanOptions::default().tau_model);
+        assert!(small.tau_model > 0.0);
+        // Weld must be sub-model-tolerance
+        assert!(small.tau_weld < small.tau_model);
+        assert!(small.tau_weld >= crate::units::TAU_WELD_MODEL_MIN_RATIO * small.tau_model);
+
         let large = BooleanOptions::for_scale(100.0);
         assert!(large.validate().is_ok());
+        // Large scale should yield looser tolerances than default
+        assert!(large.tau_model > BooleanOptions::default().tau_model);
+        // Hierarchy preserved: tau_work < tau_weld < tau_model
+        assert!(large.tau_work < large.tau_weld);
+        assert!(large.tau_weld < large.tau_model);
     }
 
     #[test]
     fn test_boolean_options_validate_rejects_bad() {
+        // tau_mesh must be <= tau_model (1e-6 > 1e-7 default)
         let bad = BooleanOptions {
             tau_mesh: 1e-6,
             ..BooleanOptions::default()
         };
-        assert!(bad.validate().is_err());
+        let err = bad.validate().unwrap_err();
+        assert!(err.contains("tau_mesh"), "Expected tau_mesh error, got: {}", err);
+
+        // Negative tau_model must be rejected
+        let bad2 = BooleanOptions {
+            tau_model: -1.0,
+            ..BooleanOptions::default()
+        };
+        let err2 = bad2.validate().unwrap_err();
+        assert!(err2.contains("tau_model"), "Expected tau_model error, got: {}", err2);
+
+        // tau_weld below minimum ratio must be rejected
+        let bad3 = BooleanOptions {
+            tau_weld: 1e-20,
+            ..BooleanOptions::default()
+        };
+        let err3 = bad3.validate().unwrap_err();
+        assert!(err3.contains("tau_weld"), "Expected tau_weld error, got: {}", err3);
     }
 
     #[test]
