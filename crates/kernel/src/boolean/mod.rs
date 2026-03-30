@@ -37,12 +37,12 @@ use crate::geometry::surface::{Cylinder, SurfaceGeom};
 use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::*;
 use crate::types::*;
+#[cfg(test)]
+use crate::units::TAU_COINCIDENT;
 use crate::units::{
     CURVATURE_SUBDIV_THRESHOLD, TAU_CLIP_FACTOR, TAU_MODEL, TAU_NORMALIZE, TAU_WELD_FACTOR,
     TAU_WELD_MAX, TAU_WELD_MIN,
 };
-#[cfg(test)]
-use crate::units::TAU_COINCIDENT;
 use crate::vecmath::*;
 use crate::waffle_kernel::{rotate_point_around_axis, CylinderParams, RevolveParams, WaffleSolid};
 use std::collections::BTreeMap;
