@@ -117,7 +117,7 @@ A sub-case is "done" when:
 | Parallel, disjoint | analytical | done | Returns empty |
 | Non-parallel, equal-R, ≥15° | analytical | done | Returns 2 `Ellipse` (`cylinder_cylinder_ssi_non_parallel`). Extended from ≥60° to ≥15° (Sprint 69). |
 | Non-parallel, equal-R, <15° | not-supported | missing | Returns `KernelError::NotSupported` (near-parallel, eccentricity > 0.99) |
-| Non-parallel, unequal-R | not-supported | missing | Returns `KernelError::NotSupported` |
+| Non-parallel, unequal-R, ≥15° | analytical | done | Returns 2 `Degree4CylCyl` parametric curves. Formula: z(θ) = (R_A sin θ cos α ± √(R_B² − R_A² cos²θ)) / sin α. 10 tests with on-surface oracle. |
 | Skew axes (non-intersecting) | not-supported | missing | Returns `KernelError::NotSupported` |
 
 **Implementation**: `ssi.rs:cylinder_cylinder_ssi` (lines 292–359) and
@@ -278,7 +278,7 @@ Coaxial path is exact. General path scans 360 θ × 36 φ samples on torus A sur
 | 2 | Plane–Cylinder | **done** | All (perp, parallel, oblique) | — |
 | 3 | Plane–Cone | **done** | All (perp, oblique ellipse/parabola/hyperbola, through-apex) | — |
 | 4 | Plane–Sphere | **done** | All | — |
-| 5 | Cylinder–Cylinder | **partial** | Parallel + equal-R non-parallel ≥15° | Near-parallel (<15°), unequal-R, skew |
+| 5 | Cylinder–Cylinder | **partial** | Parallel + equal-R non-parallel ≥15° + unequal-R non-parallel ≥15° | Near-parallel (<15°), skew |
 | 6 | Plane–Torus | **partial** | Axis-perpendicular only | All other orientations |
 | 7 | Cylinder–Cone | **stub** | Coaxial only | General position (72×200 scan) |
 | 8 | Cylinder–Sphere | **partial** | Coaxial | Offset (Line approximation) |

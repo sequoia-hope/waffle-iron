@@ -476,7 +476,10 @@ mod tests {
 
         // Verify non-origin (u,v) stays on plane (z = 3.0)
         let pt2 = p.evaluate(7.0, -3.0);
-        assert!((pt2.z - 3.0).abs() < EPS, "off-origin evaluate must stay on plane");
+        assert!(
+            (pt2.z - 3.0).abs() < EPS,
+            "off-origin evaluate must stay on plane"
+        );
     }
 
     #[test]
@@ -543,7 +546,10 @@ mod tests {
         for &(u, v) in &[(0.5, 0.3), (1.0, -0.7), (3.14, 1.2)] {
             let p = s.evaluate(u, v);
             let dist = ((p.x * p.x) + (p.y * p.y) + (p.z * p.z)).sqrt();
-            assert!((dist - 5.0).abs() < EPS, "evaluate({u},{v}) not on sphere: dist={dist}");
+            assert!(
+                (dist - 5.0).abs() < EPS,
+                "evaluate({u},{v}) not on sphere: dist={dist}"
+            );
         }
     }
 

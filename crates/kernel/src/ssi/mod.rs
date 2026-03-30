@@ -60,6 +60,71 @@ pub(crate) enum SSICurve {
         semi_conjugate: f64,
         t_range: (f64, f64),
     },
+    /// A degree-4 parametric intersection curve between two unequal-radius cylinders.
+    /// Parametrized by angle θ on cylinder A:
+    ///   x(θ) = r_a cos θ
+    ///   y(θ) = r_a sin θ
+    ///   z(θ) = (r_a sin θ cos_alpha + sign·√(r_b² − r_a² cos²θ)) / sin_alpha
+    /// Points are in a local frame; transform to world via frame matrix + center.
+    /// Ref: [#1] Patrikalakis Ch.5 — quadric SSI degree-4 algebraic curves.
+    Degree4CylCyl {
+        /// Center point (midpoint of closest approach between axes)
+        center: [f64; 3],
+        /// Orthonormal frame columns [e3, e2, e1] for local-to-world transform.
+        /// e1 = cyl_a_axis, e2 = perp component of cyl_b_axis, e3 = e1 × e2.
+        frame: [[f64; 3]; 3],
+        /// Cylinder A radius
+        r_a: f64,
+        /// Cylinder B radius
+        r_b: f64,
+        /// Cosine of inter-axis angle α
+        cos_alpha: f64,
+        /// Sine of inter-axis angle α (always positive)
+        sin_alpha: f64,
+        /// Branch sign: +1.0 or -1.0
+        sign: f64,
+        /// Valid θ range (θ_min, θ_max). Full [0, 2π) when r_b ≥ r_a.
+        theta_range: (f64, f64),
+    },
+}
+
+impl SSICurve {
+    /// Evaluate a Degree4CylCyl curve at parameter θ, returning the world-space point.
+    /// Returns None for non-Degree4CylCyl variants.
+    pub(crate) fn evaluate_degree4(&self, theta: f64) -> Option<[f64; 3]> {
+        match self {
+            SSICurve::Degree4CylCyl {
+                center,
+                frame,
+                r_a,
+                r_b,
+                cos_alpha,
+                sin_alpha,
+                sign,
+                ..
+            } => {
+                let (cos_t, sin_t) = (theta.cos(), theta.sin());
+                // Discriminant: R_B² − R_A² cos²θ ≥ 0 for valid θ
+                let disc = r_b * r_b - r_a * r_a * cos_t * cos_t;
+                if disc < 0.0 {
+                    return None;
+                }
+                // Local coordinates in frame {e3, e2, e1}
+                let lx = r_a * cos_t;
+                let ly = r_a * sin_t;
+                // Ref: [#1] Patrikalakis Ch.5 — derived from cylinder B implicit equation
+                // x² + (y cos α − z sin α)² = R_B², solving quadratic in z.
+                let lz = (r_a * sin_t * cos_alpha + sign * disc.sqrt()) / sin_alpha;
+
+                // Transform to world: P = center + lx*frame[0] + ly*frame[1] + lz*frame[2]
+                let wx = center[0] + lx * frame[0][0] + ly * frame[1][0] + lz * frame[2][0];
+                let wy = center[1] + lx * frame[0][1] + ly * frame[1][1] + lz * frame[2][1];
+                let wz = center[2] + lx * frame[0][2] + ly * frame[1][2] + lz * frame[2][2];
+                Some([wx, wy, wz])
+            }
+            _ => None,
+        }
+    }
 }
 
 /// Axis-aligned bounding box.
@@ -380,16 +445,23 @@ pub(crate) fn cylinder_cylinder_ssi(
     ])
 }
 
-/// Compute SSI curves for two non-parallel equal-radius cylinders with intersecting axes.
+/// Compute SSI curves for two non-parallel cylinders with intersecting axes.
 ///
-/// Returns two `SSICurve::Ellipse` for the intersection curves of equal-radius
-/// cylinders at angle α > 60°. The curves have semi-axes R/sin(α/2) and R/cos(α/2).
+/// For equal radii (within SSI_RADII_RELATIVE_TOL), returns two `SSICurve::Ellipse`
+/// with semi-axes R/sin(α/2) and R/cos(α/2) (dual-ellipse formula).
+///
+/// For unequal radii, returns two `SSICurve::Degree4CylCyl` parametric curves.
+/// The intersection of unequal-radius cylinders is a degree-4 algebraic curve
+/// parametrized by angle θ on cylinder A:
+///   x(θ) = R_A cos θ,  y(θ) = R_A sin θ,
+///   z(θ) = (R_A cos θ cos α ± √(R_B² − R_A² sin²θ)) / sin α
+/// Ref: [#1] Patrikalakis Ch.5 — quadric SSI degree-4 algebraic curves.
 ///
 /// Guard conditions:
-/// - Parallel axes (|cos| > 1-1e-6) → Ok(vec![]) (handled by existing parallel path)
-/// - Near-parallel (|cos| >= 0.5, angle < 60°) → NotSupported
-/// - Unequal radii (>1% relative) → NotSupported
-/// - Skew axes (closest distance >= 0.05×R) → NotSupported
+/// - Parallel axes (|cos| > 1-1e-6) → Ok(vec![])
+/// - Near-parallel (angle < 15°) → NotSupported
+/// - Zero radius → NotSupported
+/// - Skew axes (closest distance >= 0.05×max(R_A,R_B)) → NotSupported
 ///
 /// Ref: Patrikalakis Ch.5 — SSI algorithms for analytic surfaces.
 /// Ref: Yang et al. (2023) — topology-guaranteed SSI.
@@ -409,16 +481,16 @@ pub(crate) fn cylinder_cylinder_ssi_non_parallel(
     }
 
     // Near-parallel (angle < 15°) → not supported
-    // Dual-ellipse formula is valid for any α > 0°, but below 15° the ellipses
-    // become too eccentric (semi_major > 7.7×R) for reliable downstream use.
-    // Ref: Patrikalakis Ch.5 — equal-R cylinder SSI dual-ellipse formula.
+    // Both dual-ellipse (equal-R) and degree-4 (unequal-R) formulas produce
+    // curves that are too eccentric for reliable downstream use below 15°.
+    // Ref: Patrikalakis Ch.5.
     if cos_angle > crate::units::SSI_CYL_CYL_MIN_ANGLE_COS {
         return Err(KernelError::NotSupported {
             operation: "cylinder-cylinder SSI: near-parallel axes (angle < 15°)".to_string(),
         });
     }
 
-    // Unequal radii check (>1% relative difference)
+    // Zero-radius check
     let r_max = cyl_a_radius.max(cyl_b_radius);
     let r_min = cyl_a_radius.min(cyl_b_radius);
     if r_max < TAU_NORMALIZE {
@@ -426,14 +498,9 @@ pub(crate) fn cylinder_cylinder_ssi_non_parallel(
             operation: "cylinder-cylinder SSI: zero radius".to_string(),
         });
     }
-    if (r_max - r_min) / r_max >= crate::units::SSI_RADII_RELATIVE_TOL {
-        return Err(KernelError::NotSupported {
-            operation: "cylinder-cylinder SSI: unequal radii".to_string(),
-        });
-    }
 
-    // Use average radius for nearly-equal radii
-    let r = (cyl_a_radius + cyl_b_radius) / 2.0;
+    // Determine if radii are equal (within tolerance) for solver dispatch
+    let radii_equal = (r_max - r_min) / r_max < crate::units::SSI_RADII_RELATIVE_TOL;
 
     // Compute closest points between the two axis lines to find intersection.
     // Line 1: P1 + t*d1, Line 2: P2 + s*d2
@@ -459,8 +526,8 @@ pub(crate) fn cylinder_cylinder_ssi_non_parallel(
     let p2_closest = v3_add(cyl_b_origin, v3_scale(d2, s_closest));
     let closest_dist = v3_length(v3_sub(p1_closest, p2_closest));
 
-    // Skew axes check
-    if closest_dist >= crate::units::SSI_SKEW_FACTOR * r {
+    // Skew axes check — use r_max for scale-appropriate threshold
+    if closest_dist >= crate::units::SSI_SKEW_FACTOR * r_max {
         return Err(KernelError::NotSupported {
             operation: "cylinder-cylinder SSI: skew (non-intersecting) axes".to_string(),
         });
@@ -470,14 +537,8 @@ pub(crate) fn cylinder_cylinder_ssi_non_parallel(
     let center = v3_scale(v3_add(p1_closest, p2_closest), 0.5);
 
     // Compute angle between axes
-    // cos_angle already computed above (absolute value)
-    // We need the actual angle α between the axes (0..π)
     let raw_cos = v3_dot(cyl_a_axis, cyl_b_axis);
     let alpha = raw_cos.abs().acos(); // angle in [0, π/2]
-
-    let half_alpha = alpha / 2.0;
-    let sin_half = half_alpha.sin();
-    let cos_half = half_alpha.cos();
 
     // Local frame: e1 = a1, e2 = component of a2 perpendicular to a1, e3 = e1 × e2
     let e1 = cyl_a_axis;
@@ -496,53 +557,131 @@ pub(crate) fn cylinder_cylinder_ssi_non_parallel(
     let e2 = v3_scale(a2_perp, 1.0 / a2_perp_len);
     let e3 = v3_cross(e1, e2);
 
-    // Curve 1: major direction = cot(α/2)*e1 + e2, semi_u = R/sin(α/2)
-    let cot_half = cos_half / sin_half;
-    let major_dir_1 = v3_add(v3_scale(e1, cot_half), e2);
-    let major_dir_1_len = v3_length(major_dir_1);
-    let major_axis_1 = v3_scale(major_dir_1, 1.0 / major_dir_1_len);
-    let semi_major_1 = r / sin_half;
-    let semi_minor_1 = r;
-    // Normal = major_axis × e3 (normalized)
-    let normal_1 = v3_cross(major_axis_1, v3_scale(e3, 1.0 / v3_length(e3)));
-    let normal_1_len = v3_length(normal_1);
-    let normal_1 = if normal_1_len > TAU_WORK {
-        v3_scale(normal_1, 1.0 / normal_1_len)
-    } else {
-        e1
-    };
+    if radii_equal {
+        // ── Equal-R path: dual-ellipse formula ──────────────────────────
+        let r = (cyl_a_radius + cyl_b_radius) / 2.0;
+        let half_alpha = alpha / 2.0;
+        let sin_half = half_alpha.sin();
+        let cos_half = half_alpha.cos();
 
-    // Curve 2: major direction = -tan(α/2)*e1 + e2, semi_u = R/cos(α/2)
-    let tan_half = sin_half / cos_half;
-    let major_dir_2 = v3_add(v3_scale(e1, -tan_half), e2);
-    let major_dir_2_len = v3_length(major_dir_2);
-    let major_axis_2 = v3_scale(major_dir_2, 1.0 / major_dir_2_len);
-    let semi_major_2 = r / cos_half;
-    let semi_minor_2 = r;
-    let normal_2 = v3_cross(major_axis_2, v3_scale(e3, 1.0 / v3_length(e3)));
-    let normal_2_len = v3_length(normal_2);
-    let normal_2 = if normal_2_len > TAU_WORK {
-        v3_scale(normal_2, 1.0 / normal_2_len)
-    } else {
-        e1
-    };
+        // Curve 1: major direction = cot(α/2)*e1 + e2, semi_u = R/sin(α/2)
+        let cot_half = cos_half / sin_half;
+        let major_dir_1 = v3_add(v3_scale(e1, cot_half), e2);
+        let major_dir_1_len = v3_length(major_dir_1);
+        let major_axis_1 = v3_scale(major_dir_1, 1.0 / major_dir_1_len);
+        let semi_major_1 = r / sin_half;
+        let semi_minor_1 = r;
+        let normal_1 = v3_cross(major_axis_1, v3_scale(e3, 1.0 / v3_length(e3)));
+        let normal_1_len = v3_length(normal_1);
+        let normal_1 = if normal_1_len > TAU_WORK {
+            v3_scale(normal_1, 1.0 / normal_1_len)
+        } else {
+            e1
+        };
 
-    Ok(vec![
-        SSICurve::Ellipse {
-            center,
-            normal: normal_1,
-            major_axis: major_axis_1,
-            semi_major: semi_major_1,
-            semi_minor: semi_minor_1,
-        },
-        SSICurve::Ellipse {
-            center,
-            normal: normal_2,
-            major_axis: major_axis_2,
-            semi_major: semi_major_2,
-            semi_minor: semi_minor_2,
-        },
-    ])
+        // Curve 2: major direction = -tan(α/2)*e1 + e2, semi_u = R/cos(α/2)
+        let tan_half = sin_half / cos_half;
+        let major_dir_2 = v3_add(v3_scale(e1, -tan_half), e2);
+        let major_dir_2_len = v3_length(major_dir_2);
+        let major_axis_2 = v3_scale(major_dir_2, 1.0 / major_dir_2_len);
+        let semi_major_2 = r / cos_half;
+        let semi_minor_2 = r;
+        let normal_2 = v3_cross(major_axis_2, v3_scale(e3, 1.0 / v3_length(e3)));
+        let normal_2_len = v3_length(normal_2);
+        let normal_2 = if normal_2_len > TAU_WORK {
+            v3_scale(normal_2, 1.0 / normal_2_len)
+        } else {
+            e1
+        };
+
+        Ok(vec![
+            SSICurve::Ellipse {
+                center,
+                normal: normal_1,
+                major_axis: major_axis_1,
+                semi_major: semi_major_1,
+                semi_minor: semi_minor_1,
+            },
+            SSICurve::Ellipse {
+                center,
+                normal: normal_2,
+                major_axis: major_axis_2,
+                semi_major: semi_major_2,
+                semi_minor: semi_minor_2,
+            },
+        ])
+    } else {
+        // ── Unequal-R path: degree-4 parametric curves ──────────────────
+        // Ref: [#1] Patrikalakis Ch.5 — quadric SSI.
+        //
+        // In the local frame {e3, e2, e1} centered at `center`:
+        //   Cyl A along e1 with radius R_A → x² + y² = R_A²
+        //   Cyl B at angle α from e1 in the e1-e2 plane with radius R_B
+        //
+        // Parametrize on Cyl A: x = R_A cos θ, y = R_A sin θ
+        // Substitute into Cyl B implicit equation to get:
+        //   z(θ) = (R_A cos θ cos α ± √(R_B² − R_A² sin²θ)) / sin α
+        //
+        // The ± gives two branches (two intersection curves).
+        // When R_B < R_A, the discriminant R_B² − R_A² sin²θ can go negative,
+        // restricting θ to arcs where |sin θ| ≤ R_B/R_A.
+
+        let r_a = cyl_a_radius;
+        let r_b = cyl_b_radius;
+        let cos_alpha = alpha.cos();
+        let sin_alpha = alpha.sin();
+
+        // Invariant: sin_alpha > 0 because we rejected parallel (α ≈ 0) above
+        debug_assert!(sin_alpha > TAU_WORK);
+
+        // Frame columns for local-to-world transform: [e3, e2, e1]
+        // Local x maps to e3, local y maps to e2, local z maps to e1
+        let frame = [e3, e2, e1];
+
+        // Compute valid θ range
+        // Discriminant: R_B² − R_A² cos²θ ≥ 0  ⟺  |cos θ| ≤ R_B/R_A
+        let theta_range = if r_b >= r_a {
+            // Full revolution — discriminant always non-negative
+            (0.0, std::f64::consts::TAU)
+        } else {
+            // Restricted domain: |cos θ| ≤ R_B/R_A
+            // cos θ ≤ R_B/R_A when θ ≥ arccos(R_B/R_A)
+            // The valid arcs are centered at θ = π/2 and θ = 3π/2 (where cos θ = 0).
+            // Arc 1: [arccos(R_B/R_A), π - arccos(R_B/R_A)]
+            // Arc 2: [π + arccos(R_B/R_A), 2π - arccos(R_B/R_A)]
+            // Store the first arc; the second is symmetric.
+            let theta_min = (r_b / r_a).acos();
+            let theta_max = std::f64::consts::PI - theta_min;
+            (theta_min, theta_max)
+        };
+
+        // Check if the curves actually exist — verify discriminant at θ=0
+        // (cos θ = 1, sin θ = 0 → discriminant = R_B², always ≥ 0)
+        // So curves always exist when axes intersect, but may be partial.
+
+        Ok(vec![
+            SSICurve::Degree4CylCyl {
+                center,
+                frame,
+                r_a,
+                r_b,
+                cos_alpha,
+                sin_alpha,
+                sign: 1.0,
+                theta_range,
+            },
+            SSICurve::Degree4CylCyl {
+                center,
+                frame,
+                r_a,
+                r_b,
+                cos_alpha,
+                sin_alpha,
+                sign: -1.0,
+                theta_range,
+            },
+        ])
+    }
 }
 
 /// Compute SSI between a plane and a sphere.

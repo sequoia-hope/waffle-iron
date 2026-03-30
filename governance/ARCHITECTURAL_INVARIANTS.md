@@ -434,7 +434,7 @@ The 15 quadric surface pairs ordered by CAD frequency, with implementation statu
 | 2 | Plane–Cylinder | Ellipse/circle/lines | done |
 | 3 | Plane–Cone | Conic section | partial — perpendicular only |
 | 4 | Plane–Sphere | Circle | done |
-| 5 | Cylinder–Cylinder | Line or degree-4 | partial — parallel + equal-R non-parallel ≥15° |
+| 5 | Cylinder–Cylinder | Line or degree-4 | partial — parallel + equal-R ≥15° + unequal-R ≥15° |
 | 6 | Plane–Torus | Degree-4 curve | partial — axis-perpendicular only |
 | 7 | Cylinder–Cone | Degree ≤ 4 curve | stub (sampling) — coaxial analytical |
 | 8 | Cylinder–Sphere | Degree ≤ 4 curve | partial — coaxial analytical, offset approximate |

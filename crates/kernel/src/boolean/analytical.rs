@@ -12,7 +12,9 @@ use crate::ssi::{self, Aabb};
 use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::*;
 use crate::types::*;
-use crate::units::{CAP_FACE_NORMAL_Z, ON_CYLINDER_RADIUS_TOL, TAU_COINCIDENT, TAU_MODEL, TAU_WORK};
+use crate::units::{
+    CAP_FACE_NORMAL_Z, ON_CYLINDER_RADIUS_TOL, TAU_COINCIDENT, TAU_MODEL, TAU_WORK,
+};
 use crate::vecmath::*;
 use crate::waffle_kernel::{CylinderParams, SphereParams, WaffleSolid};
 use std::collections::BTreeMap;
