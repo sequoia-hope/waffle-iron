@@ -38,9 +38,11 @@ use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::*;
 use crate::types::*;
 use crate::units::{
-    CURVATURE_SUBDIV_THRESHOLD, TAU_MODEL, TAU_NORMALIZE, TAU_WELD_FACTOR, TAU_WELD_MAX,
-    TAU_WELD_MIN,
+    CURVATURE_SUBDIV_THRESHOLD, TAU_CLIP_FACTOR, TAU_MODEL, TAU_NORMALIZE, TAU_WELD_FACTOR,
+    TAU_WELD_MAX, TAU_WELD_MIN,
 };
+#[cfg(test)]
+use crate::units::TAU_COINCIDENT;
 use crate::vecmath::*;
 use crate::waffle_kernel::{rotate_point_around_axis, CylinderParams, RevolveParams, WaffleSolid};
 use std::collections::BTreeMap;
@@ -863,7 +865,7 @@ pub(super) fn compute_adaptive_tau_weld(a_faces: &[FacePoly], b_faces: &[FacePol
     // Use TAU_WELD_FACTOR relative to the model diagonal, clamped to [TAU_WELD_MIN, TAU_WELD_MAX].
     // This matches TAU_MODEL for unit-scale models.
     let tau_weld = (diag * TAU_WELD_FACTOR).clamp(TAU_WELD_MIN, TAU_WELD_MAX);
-    let tau = tau_weld * 0.01;
+    let tau = tau_weld * TAU_CLIP_FACTOR;
     (tau, tau_weld)
 }
 
@@ -1656,11 +1658,11 @@ mod tests {
             &square,
             [0.5, 0.0, 0.0], // plane point
             [1.0, 0.0, 0.0], // inward normal (keep x >= 0.5)
-            1e-9,
+            TAU_COINCIDENT,
         );
         let area = polygon_area_3d(&clipped);
         assert!(
-            (area - 0.5).abs() < 1e-9,
+            (area - 0.5).abs() < TAU_COINCIDENT,
             "Clipped area should be ~0.5, got {}",
             area
         );
@@ -1678,7 +1680,7 @@ mod tests {
             &square,
             [0.0, 0.0, 0.0],
             [1.0, 0.0, 0.0], // keep x >= 0
-            1e-9,
+            TAU_COINCIDENT,
         );
         let orig_area = polygon_area_3d(&square);
         let clip_area = polygon_area_3d(&clipped);
@@ -1700,7 +1702,7 @@ mod tests {
             &square,
             [2.0, 0.0, 0.0],
             [1.0, 0.0, 0.0], // keep x >= 2
-            1e-9,
+            TAU_COINCIDENT,
         );
         assert!(
             clipped.is_empty() || polygon_area_3d(&clipped) < 1e-15,
@@ -2093,7 +2095,7 @@ mod tests {
 
         let plane_pt = [0.0, 0.3, 0.0];
         let inward_n = [0.0, -1.0, 0.0]; // keep y <= 0.3
-        let tau = 1e-9;
+        let tau = TAU_COINCIDENT;
 
         let clipped1 = clip_polygon_by_plane(&face1, plane_pt, inward_n, tau);
         let clipped2 = clip_polygon_by_plane(&face2, plane_pt, inward_n, tau);
@@ -3109,7 +3111,7 @@ mod tests {
             id_counter += 1;
             id_counter
         };
-        let result = stitch::build_brep_from_polygons(&polys, 1e-9, &mut id_alloc)
+        let result = stitch::build_brep_from_polygons(&polys, TAU_COINCIDENT, &mut id_alloc)
             .expect("build_brep_from_polygons should succeed for a valid box");
         WaffleSolid {
             arena: result.arena,

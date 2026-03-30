@@ -72,6 +72,17 @@ pub const TAU_TESS_WELD_MIN: f64 = 1e-8;
 /// Maximum clamp for scale-adaptive tessellation welding: 1e-2.
 pub const TAU_TESS_WELD_MAX: f64 = 1e-2;
 
+/// Fraction of tau_model used to derive tau_weld in BooleanOptions: 0.4.
+/// tau_weld = tau_model * TAU_WELD_MODEL_RATIO.
+/// Ensures weld tolerance is sub-model-tolerance to avoid premature vertex merging
+/// while remaining coarser than working precision.
+pub const TAU_WELD_MODEL_RATIO: f64 = 0.4;
+
+/// Down-scaling factor from tau_weld to polygon-clipping intersection tolerance: 0.01.
+/// The clip tolerance must be much tighter than vertex welding to avoid
+/// misclassifying near-coincident intersection points.
+pub const TAU_CLIP_FACTOR: f64 = 0.01;
+
 // ── Topological & geometric classification thresholds ──────────────────
 
 /// Cosine threshold for "nearly perpendicular" face classification: 0.1.

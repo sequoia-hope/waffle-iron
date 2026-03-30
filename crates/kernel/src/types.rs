@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::units::{MIN_FEATURE_SIZE, TAU_MODEL, TAU_WORK};
+use crate::units::{MIN_FEATURE_SIZE, TAU_MODEL, TAU_WELD_MODEL_RATIO, TAU_WORK};
 
 // Re-export shared types from waffle-types
 pub use waffle_types::{CircleProfile, ClosedProfile, SplineSegment, TopoKind, TopoSignature};
@@ -147,7 +147,7 @@ impl Default for BooleanOptions {
         Self {
             tau_model: TAU_MODEL,
             tau_mesh: TAU_MODEL,
-            tau_weld: 0.4 * TAU_MODEL,
+            tau_weld: TAU_WELD_MODEL_RATIO * TAU_MODEL,
             tau_work: TAU_WORK,
             tau_coplanar: TAU_MODEL,
             min_feature_size: MIN_FEATURE_SIZE,
@@ -164,7 +164,7 @@ impl BooleanOptions {
         Self {
             tau_model,
             tau_mesh: tau_model,
-            tau_weld: 0.4 * tau_model,
+            tau_weld: TAU_WELD_MODEL_RATIO * tau_model,
             tau_work: TAU_WORK,
             tau_coplanar: tau_model,
             min_feature_size: 10.0 * tau_model,
@@ -232,7 +232,7 @@ impl BooleanOptions {
         Self {
             tau_model: tol,
             tau_mesh: tol,
-            tau_weld: tol * 0.4,
+            tau_weld: tol * TAU_WELD_MODEL_RATIO,
             tau_work: TAU_WORK,
             tau_coplanar: tol,
             min_feature_size: tol * 10.0,
