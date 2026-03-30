@@ -830,14 +830,29 @@ fn cd2_circular_edge_has_many_vertices() {
         .extract_edges(&solid, 0.01)
         .expect("extract_edges should succeed");
     // At least one edge range should span many vertices (a circle polyline, N>=16)
-    let has_circle_edge = edges.edge_ranges.iter().any(|er| {
+    let circle_edge = edges.edge_ranges.iter().find(|er| {
         let vert_count = (er.end_vertex - er.start_vertex) / 3;
         vert_count >= 16
     });
     assert!(
-        has_circle_edge,
+        circle_edge.is_some(),
         "At least one edge should be a circular polyline with ≥16 vertices"
     );
+    // Verify all vertices on the circular edge are at approximately the same
+    // radius from the Z axis (unit cylinder has radius 1.0)
+    let er = circle_edge.unwrap();
+    let start = er.start_vertex as usize;
+    let end = er.end_vertex as usize;
+    let vert_count = (end - start) / 3;
+    for i in 0..vert_count {
+        let x = edges.vertices[start + i * 3] as f64;
+        let y = edges.vertices[start + i * 3 + 1] as f64;
+        let r = (x * x + y * y).sqrt();
+        assert!(
+            (r - 1.0).abs() < 0.05,
+            "Circle vertex {i} should be at radius ~1.0, got {r}"
+        );
+    }
 }
 
 // ── Group CE: introspection (cylinder) ─────────────────────────
@@ -1028,6 +1043,19 @@ fn g6_union_tessellation_face_ranges() {
         "Union mesh should have >= 10 face_ranges, got {}",
         mesh.face_ranges.len()
     );
+    // Verify face_ranges cover all indices without gaps
+    let total_indices: usize = mesh
+        .face_ranges
+        .iter()
+        .map(|r| (r.end_index - r.start_index) as usize)
+        .sum();
+    assert_eq!(
+        total_indices,
+        mesh.indices.len(),
+        "Face ranges must cover all {} indices, but sum to {}",
+        mesh.indices.len(),
+        total_indices
+    );
 }
 
 // ── Group H: Boolean Subtract (box-box) ─────────────────────────
@@ -1178,8 +1206,16 @@ fn i5_intersect_bbox() {
 fn j1_invalid_handle_errors() {
     let (mut k, a, _b) = make_overlapping_boxes();
     let bad = KernelSolidHandle(99999);
-    assert!(k.boolean_union(&a, &bad).is_err(), "bad handle B → error");
-    assert!(k.boolean_union(&bad, &a).is_err(), "bad handle A → error");
+    let err_b = k.boolean_union(&a, &bad).unwrap_err();
+    assert!(
+        matches!(err_b, KernelError::EntityNotFound { .. }),
+        "bad handle B should give EntityNotFound, got: {err_b:?}"
+    );
+    let err_a = k.boolean_union(&bad, &a).unwrap_err();
+    assert!(
+        matches!(err_a, KernelError::EntityNotFound { .. }),
+        "bad handle A should give EntityNotFound, got: {err_a:?}"
+    );
 }
 
 #[test]
@@ -1203,11 +1239,22 @@ fn j2_box_cyl_union_basic() {
     // so union volume = box volume = 1000.0
     let expected = 1000.0;
     assert!(
-        (vol - expected).abs() / expected < 0.05,
+        (vol - expected).abs() / expected < 0.02,
         "Union volume should be ~{}, got {} ({}% error)",
         expected,
         vol,
         ((vol - expected).abs() / expected * 100.0)
+    );
+    // Verify mesh has reasonable structure
+    assert!(
+        mesh.vertices.len() >= 24, // at least 8 box corners × 3 components
+        "Union mesh should have substantial vertices, got {}",
+        mesh.vertices.len() / 3
+    );
+    assert!(
+        mesh.indices.len() >= 36, // at least 12 box triangles × 3 indices
+        "Union mesh should have substantial triangles, got {}",
+        mesh.indices.len() / 3
     );
 }
 
