@@ -207,6 +207,21 @@ pub const SSI_SURFACE_ERROR_BOUND: f64 = 1e-5;
 /// Prevents division-by-near-zero when computing error-bounded height ranges.
 pub const SSI_RESIDUAL_FACTOR_FLOOR: f64 = 0.01;
 
+/// Near-parallel cone axis threshold: 1e-4 (~0.01 rad).
+/// Wider than TAU_PARALLEL for approximate coaxial handling in cone-cone SSI.
+/// Axes with |dot| > 1.0 − this are treated as near-parallel.
+pub const SSI_CONE_NEAR_PARALLEL: f64 = 1e-4;
+
+/// Angular half-width (radians) for theta range in near-miss cone-cone SSI: 0.001.
+/// Restricts height-limited curves to a narrow angular band around the
+/// intersection angle center.
+pub const SSI_CONE_THETA_HALF_WIDTH: f64 = 0.001;
+
+/// Validation tolerance for sampled SSI points on cone surfaces: 1e-5.
+/// Checks that sampled points on intersection curves lie within this
+/// distance of both cone surfaces (proportional to h × √r).
+pub const SSI_CONE_VALIDATE_TOL: f64 = 1e-5;
+
 // ── Mock kernel thresholds ──────────────────────────────────────────────
 
 /// Cosine threshold for face-normal similarity in mock kernel face merging: 0.9.

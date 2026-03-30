@@ -3235,7 +3235,7 @@ pub(crate) fn cone_cone_ssi(
     let dot_axes = v3_dot(axis_a, axis_b);
     let axes_parallel = dot_axes.abs() > 1.0 - TOL;
     // Near-parallel: within ~0.01 rad (wider tolerance for approximate coaxial handling)
-    let axes_near_parallel = dot_axes.abs() > 1.0 - 1e-4;
+    let axes_near_parallel = dot_axes.abs() > 1.0 - crate::units::SSI_CONE_NEAR_PARALLEL;
 
     // Distance from apex_b to the axis line of cone A
     let t_proj = v3_dot(apex_diff, axis_a);
@@ -3605,7 +3605,7 @@ pub(crate) fn cone_cone_ssi(
                 th_approx
             };
 
-            let th_width = 0.001;
+            let th_width = crate::units::SSI_CONE_THETA_HALF_WIDTH;
             let th_min = th_center - th_width;
             let th_max = th_center + th_width;
 
@@ -3677,7 +3677,7 @@ pub(crate) fn cone_cone_ssi(
             // Validate: check sampled points lie on both cones
             let sample_ts = [0.1, 0.3, 0.5, 0.7, 0.9];
             let mut any_valid = false;
-            let validate_tol = 1e-5;
+            let validate_tol = crate::units::SSI_CONE_VALIDATE_TOL;
             for &st in &sample_ts {
                 if let Some(pt) = curve.evaluate_cone_cone(st) {
                     let diff_a = v3_sub(pt, apex_a);
