@@ -471,6 +471,44 @@ forward the original `SurfaceGeom` when assembling unmodified faces into the
 result solid. Only faces generated from SSI intersection curves receive new
 surface geometry. See `specs/surface_type_taxonomy.md` and ADR-11.
 
+### A15.6 Hybrid B-Rep/Mesh Boolean Pipeline (Yang et al. 2025)
+
+The target boolean architecture is the **hybrid B-Rep/mesh approach** from [#24]
+Yang, Jia & Yan (SIGGRAPH 2025). This is NOT a "mesh fallback" — it uses meshes
+as an **exact computational tool** to derive correct B-Rep topology:
+
+1. **Tessellate** B-Rep faces with bijective mapping (each triangle maps to one face)
+2. **Exact mesh boolean** via indirect predicates [#9 Cherchi] — topology is provably correct
+3. **Extract topology** from result mesh + bijective maps — unambiguous face trimming
+4. **Refine** intersection edges to true SSI curves (reuses A15.1 quadric solvers)
+5. **Assemble** final B-Rep — analytical surfaces preserved, only re-trimmed
+
+**Why this does not violate A15.1–A15.2**: The mesh intermediate is never the final
+representation. Analytical surface types survive through the pipeline (A15.5).
+SSI solvers refine intersection geometry in stage 4. The mesh boolean provides
+exact *topology* (which faces survive, how they connect) — a problem that
+Sutherland-Hodgman clipping with tolerance escalation cannot solve reliably.
+
+**What this replaces**: The current polygon-clipping pipeline (S-H clipping,
+`classify_face`/`classify_face_nonconvex`, tolerance escalation in `stitch.rs`,
+synthetic mesh repair in tessellation). These are tolerance-based heuristics
+that mask classification errors rather than solving them. The tolerance
+escalation (up to 5000× tau_weld in edge pairing) and synthetic fill triangles
+(hole filling, boundary chain closing) produce watertight but geometrically
+incorrect meshes. The self-intersection oracle [specs/inter_face_self_intersection_oracle.md]
+confirms this: 0/10 R-series and 19/25 F-series assay cases have inter-face
+self-intersections hidden by the repair pipeline.
+
+**Deprecation**: The S-H clipping + tolerance escalation pipeline is deprecated.
+New work should implement the Yang hybrid pipeline. Do not invest in improving
+the tolerance-based repair stages (stitch.rs progressive pairing, tessellation
+convergence loops, fill_boundary_holes, close_near_boundary_chains). These will
+be removed when the hybrid pipeline is operational.
+
+**Implementation references**: [#24] Yang 2025 (pipeline), [#9] Cherchi 2020
+(indirect predicates), [#10] Levy 2025 (exact constructions + radial sort),
+[#4] Shewchuk 1997 (adaptive precision predicates).
+
 ---
 
 ## A12. Change Control

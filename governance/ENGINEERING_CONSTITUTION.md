@@ -91,11 +91,19 @@ Implementation comments must cite reference numbers for non-obvious algorithmic 
 Ad-hoc algorithmic invention is not acceptable when a published, peer-reviewed solution exists.
 
 **Analytical primacy corollary**: When a closed-form algorithm exists for a geometric
-computation on analytical surfaces, using a mesh approximation is a violation of P8.
-Closed-form SSI solutions exist for all quadric surface pairs (plane, cylinder, cone,
-sphere, torus) [#1 Patrikalakis Ch.5, #25 Yang et al.]. The kernel must implement
-these solvers rather than routing through tessellation fallbacks. See
-ARCHITECTURAL_INVARIANTS.md A15.
+computation on analytical surfaces, using a mesh approximation as the *final
+representation* is a violation of P8. Closed-form SSI solutions exist for all
+quadric surface pairs (plane, cylinder, cone, sphere, torus) [#1 Patrikalakis Ch.5,
+#25 Yang et al.]. The kernel must implement these solvers.
+
+**Hybrid boolean corollary**: Using meshes as an *exact computational intermediate*
+to derive correct B-Rep topology is NOT a violation of P8 — it is the recommended
+approach [#24 Yang et al. 2025]. The Yang hybrid pipeline uses exact mesh boolean
+(indirect predicates, provably correct topology) as stage 2, then refines to
+analytical SSI curves in stage 4. The mesh is never the final representation.
+Tolerance-based heuristics (S-H clipping + progressive escalation + synthetic
+mesh repair) are deprecated — they mask errors rather than solving them. See
+ARCHITECTURAL_INVARIANTS.md A15.6.
 
 ---
 

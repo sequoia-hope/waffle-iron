@@ -24,14 +24,14 @@ Experimental implementations exist (Sprint 18) and MockKernel tests pass, but th
 
 When asked "what should I work on?", choose from these areas:
 
-1. **Kernel implementation** — Build the clean-sheet kernel in `crates/kernel/`. Track progress via assay score (target: 400/400).
-   - Surface type taxonomy: See `specs/surface_type_taxonomy.md` for planned surface
-     types. Current kernel supports all Tier-1 analytic surfaces (Planar, Cylindrical,
-     Conical, Spherical, Toroidal). Next: procedural surface types (Swept, Revolved),
-     then BSpline fallback.
-2. **GUI test coverage** — Expand Playwright tests in `app/tests/gui/`. Cover all drawing modes, feature dialogs, and viewport interactions with both click-click and click-drag.
-3. **Cross-crate integration tests** — Expand `crates/test-harness/` with multi-operation scenarios: sketch → extrude → boolean → tessellation → verify.
-4. **Extrude/revolve pipeline polish** — Improve reliability and UX of the working feature creation operations.
+1. **Hybrid boolean pipeline (Yang 2025)** — Replace the S-H clipping + tolerance
+   escalation pipeline with the Yang hybrid B-Rep/mesh approach [#24]. See A15.6.
+   Sub-tasks: bijective tessellation mapping, exact mesh boolean (indirect predicates),
+   topology extraction, SSI refinement integration, B-Rep reassembly.
+2. **SSI solvers** — Complete the A15.4 matrix. Solvers feed stage 4 (geometry
+   refinement) of the hybrid pipeline. Priority: pairs #5, #6, #10 (partial status).
+3. **GUI test coverage** — Expand Playwright tests in `app/tests/gui/`. Cover all drawing modes, feature dialogs, and viewport interactions with both click-click and click-drag.
+4. **Cross-crate integration tests** — Expand `crates/test-harness/` with multi-operation scenarios: sketch → extrude → boolean → tessellation → verify.
 
 ## Session Start Checklist
 
@@ -100,16 +100,22 @@ See `docs/TESTING.md` for tier definitions and how to add tests.
 - **If the plan's diagnosis is wrong, abort the fix and report what you learned.**
   Do not improvise an alternative. Plans are cheap; reverting hacks is expensive.
 
-## Analytical Primacy (Invariant A15)
+## Analytical Primacy & Hybrid Boolean Pipeline (Invariant A15)
 
-- Boolean operations on quadric surfaces (plane, cylinder, cone, sphere, torus)
-  MUST use exact surface-surface intersection (SSI). Do not route these through
-  the mesh/polygon boolean fallback.
-- If an SSI solver for a quadric pair is missing, implement it — do not add a
-  "temporary" mesh fallback. Return KernelError::NotSupported until the solver exists.
-- The mesh/polygon boolean path exists solely for freeform (NURBS/BSpline) surfaces
-  that lack closed-form SSI.
-- See governance/ARCHITECTURAL_INVARIANTS.md A15 for the full invariant and rationale.
+- **Target architecture**: Yang et al. 2025 hybrid B-Rep/mesh boolean [#24].
+  Meshes are an *exact computational tool* for deriving correct B-Rep topology,
+  not a degradation. The six-stage pipeline: tessellate with bijective mapping →
+  exact mesh boolean (Cherchi indirect predicates) → extract topology → refine
+  to SSI curves → assemble B-Rep. Analytical surfaces survive through the pipeline.
+- **SSI solvers** (A15.1): Quadric SSI solvers remain essential — they provide
+  the geometry refinement in stage 4 of the hybrid pipeline. Continue implementing
+  missing solvers (see A15.4 matrix).
+- **DEPRECATED — do not improve**: The S-H clipping + tolerance escalation pipeline
+  (`classify_face`, `stitch.rs` progressive pairing, tessellation repair loops,
+  `fill_boundary_holes`, `close_near_boundary_chains`). These mask classification
+  errors with up to 5000× tolerance widening and synthetic fill triangles.
+  The self-intersection oracle confirms 0/10 R-series cases produce correct meshes.
+- See governance/ARCHITECTURAL_INVARIANTS.md A15 for the full invariant.
 
 ## GUI Test Rules
 
