@@ -432,7 +432,7 @@ The 15 quadric surface pairs ordered by CAD frequency, with implementation statu
 |---|------|----------------|--------|
 | 1 | Plane–Plane | Line (or overlap) | done |
 | 2 | Plane–Cylinder | Ellipse/circle/lines | done |
-| 3 | Plane–Cone | Conic section | partial — perpendicular only |
+| 3 | Plane–Cone | Conic section | done — all six sub-cases (circle, ellipse, parabola, hyperbola, through-apex lines, empty) |
 | 4 | Plane–Sphere | Circle | done |
 | 5 | Cylinder–Cylinder | Line or degree-4 | partial — parallel + equal-R ≥15° + unequal-R ≥15° |
 | 6 | Plane–Torus | Degree-4 curve | partial — axis-perpendicular only |

@@ -203,12 +203,12 @@ Coaxial path is exact. General path uses `torus_signed_distance` + 360×200 grid
 |----------|--------|--------|-------|
 | Coaxial (sphere center on axis) | analytical | done | Returns 0–2 `Circle` via quadratic (`cone_sphere_ssi`) |
 | Coaxial, tangent | analytical | done | Returns empty |
-| Offset, overlapping | sampling | **stub** | 200 h-samples scanning for distance threshold |
+| Offset, overlapping | analytical | done | Exact `Degree4ConeSphere` parametric curve via coplanar circle intersection at each axial height |
 | Disjoint | analytical | done | Returns empty |
 
-**Implementation**: `ssi.rs:cone_sphere_ssi` (lines 992–1124).
-Coaxial path is exact (quadratic in h). Offset path scans 200 height samples
-and returns a `Line` approximation.
+**Implementation**: `ssi.rs:cone_sphere_ssi`.
+Coaxial path is exact (quadratic in h). Offset path uses an exact
+`Degree4ConeSphere` parametric curve — no sampling or mesh fallback.
 
 ---
 
@@ -284,15 +284,15 @@ Coaxial path is exact. General path scans 360 θ × 36 φ samples on torus A sur
 | 8 | Cylinder–Sphere | **partial** | Coaxial | Offset (Line approximation) |
 | 9 | Cone–Cone | **stub** | Coaxial offset | Same-apex + general (72×100–200 scan) |
 | 10 | Cylinder–Torus | **stub** | Coaxial | General position (360×200 scan) |
-| 11 | Cone–Sphere | **stub** | Coaxial | Offset (200 h-samples scan) |
+| 11 | Cone–Sphere | **done** | All (coaxial circles + offset Degree4ConeSphere parametric) | — |
 | 12 | Sphere–Sphere | **done** | All | — |
 | 13 | Cone–Torus | **stub** | Coaxial | General position (360×200 scan) |
 | 14 | Sphere–Torus | **stub** | Axial | Off-axis (360×36 scan) |
 | 15 | Torus–Torus | **stub** | Coaxial | General position (360×36 scan) |
 
-**Fully analytical**: 5 of 15 pairs (Plane–Plane, Plane–Cylinder, Plane–Cone, Plane–Sphere, Sphere–Sphere)
+**Fully analytical**: 6 of 15 pairs (Plane–Plane, Plane–Cylinder, Plane–Cone, Plane–Sphere, Cone–Sphere, Sphere–Sphere)
 **Partial**: 3 of 15 pairs (Cyl–Cyl, Plane–Torus, Cyl–Sphere)
-**Stub (sampling)**: 7 of 15 pairs (Cyl–Cone, Cone–Cone, Cyl–Torus, Cone–Sphere, Cone–Torus, Sphere–Torus, Torus–Torus)
+**Stub (sampling)**: 6 of 15 pairs (Cyl–Cone, Cone–Cone, Cyl–Torus, Cone–Torus, Sphere–Torus, Torus–Torus)
 
 ---
 
