@@ -86,6 +86,34 @@ pub(crate) enum SSICurve {
         /// Valid θ range (θ_min, θ_max). Full [0, 2π) when r_b ≥ r_a.
         theta_range: (f64, f64),
     },
+    /// A degree-4 parametric intersection curve between a cone and a sphere (offset case).
+    /// Parametrized by axial height h on the cone. At each valid h, the cone cross-section
+    /// circle and sphere cross-section circle intersect at angle ±θ(h):
+    ///   cos θ(h) = [h²·tan²α + d² + (h−h₀)² − R²] / (2·d·h·tan α)
+    ///   P(h) = apex + h·axis + h·tan(α)·(cos(θ)·u ± sin(θ)·v)
+    /// where u points toward the sphere center projection and v = axis × u.
+    /// The two branches (±θ) together form a closed curve.
+    /// Ref: [#1] Patrikalakis Ch.5 — coplanar circle intersection on quadric surfaces.
+    Degree4ConeSphere {
+        /// Cone apex point
+        cone_apex: [f64; 3],
+        /// Cone axis direction (unit)
+        cone_axis: [f64; 3],
+        /// tan(half_angle) of the cone
+        tan_alpha: f64,
+        /// Unit vector from cone axis toward sphere center (perpendicular to axis)
+        u_dir: [f64; 3],
+        /// Unit vector = axis × u_dir (completes right-handed frame)
+        v_dir: [f64; 3],
+        /// Perpendicular distance from sphere center to cone axis
+        d: f64,
+        /// Projection of sphere center onto cone axis (distance from apex)
+        h_proj: f64,
+        /// Sphere radius
+        sphere_radius: f64,
+        /// Valid h-range (h_min, h_max) where intersection exists
+        h_range: (f64, f64),
+    },
 }
 
 impl SSICurve {
@@ -121,6 +149,72 @@ impl SSICurve {
                 let wy = center[1] + lx * frame[0][1] + ly * frame[1][1] + lz * frame[2][1];
                 let wz = center[2] + lx * frame[0][2] + ly * frame[1][2] + lz * frame[2][2];
                 Some([wx, wy, wz])
+            }
+            _ => None,
+        }
+    }
+
+    /// Evaluate a Degree4ConeSphere curve at parameter t ∈ [0, 1].
+    /// Maps t to the h-range, computes both branches (±θ), and traces the
+    /// closed curve: t ∈ [0, 0.5] traces the +θ branch forward,
+    /// t ∈ [0.5, 1] traces the −θ branch backward.
+    /// Returns None for non-Degree4ConeSphere variants or when cos_theta is out of range.
+    pub(crate) fn evaluate_cone_sphere(&self, t: f64) -> Option<[f64; 3]> {
+        match self {
+            SSICurve::Degree4ConeSphere {
+                cone_apex,
+                cone_axis,
+                tan_alpha,
+                u_dir,
+                v_dir,
+                d,
+                h_proj,
+                sphere_radius,
+                h_range,
+            } => {
+                let (h_min, h_max) = *h_range;
+                // Map t ∈ [0, 1] to h and branch sign:
+                // t ∈ [0, 0.5] → +θ branch, h from h_min to h_max
+                // t ∈ [0.5, 1] → −θ branch, h from h_max to h_min
+                let (h, sign) = if t <= 0.5 {
+                    let s = t * 2.0; // s ∈ [0, 1]
+                    (h_min + s * (h_max - h_min), 1.0)
+                } else {
+                    let s = (t - 0.5) * 2.0; // s ∈ [0, 1]
+                    (h_max - s * (h_max - h_min), -1.0)
+                };
+
+                if h < TOL {
+                    return None;
+                }
+
+                let r_cone = h * tan_alpha;
+                // cos θ(h) = [h²·tan²α + d² + (h−h₀)² − R²] / (2·d·h·tan α)
+                let numerator = r_cone * r_cone + d * d + (h - h_proj) * (h - h_proj)
+                    - sphere_radius * sphere_radius;
+                let denominator = 2.0 * d * r_cone;
+
+                if denominator.abs() < TOL {
+                    return None;
+                }
+
+                let cos_theta = (numerator / denominator).clamp(-1.0, 1.0);
+                let theta = cos_theta.acos();
+                let sin_theta = (sign * theta).sin();
+                let cos_theta_final = (sign * theta).cos();
+
+                // P(h) = apex + h·axis + r_cone·(cos(θ)·u + sin(θ)·v)
+                let px = cone_apex[0]
+                    + h * cone_axis[0]
+                    + r_cone * (cos_theta_final * u_dir[0] + sin_theta * v_dir[0]);
+                let py = cone_apex[1]
+                    + h * cone_axis[1]
+                    + r_cone * (cos_theta_final * u_dir[1] + sin_theta * v_dir[1]);
+                let pz = cone_apex[2]
+                    + h * cone_axis[2]
+                    + r_cone * (cos_theta_final * u_dir[2] + sin_theta * v_dir[2]);
+
+                Some([px, py, pz])
             }
             _ => None,
         }
@@ -1671,71 +1765,144 @@ pub(crate) fn cone_sphere_ssi(
         return Ok(curves);
     }
 
-    // 3. General offset case: degree-4 intersection.
-    //    At height h along the axis, the cone radius is r_c = h·tan(α).
-    //    The closest point on the cone circle (at height h) to the sphere center
-    //    is at distance sqrt((d − r_c)² + (h − t_proj)²) from the sphere center.
-    //    Intersection exists where this distance < sphere_radius.
+    // 3. General offset case: analytical degree-4 parametric curve.
+    //    Ref: [#1] Patrikalakis Ch.5 — coplanar circle intersection on quadric surfaces.
+    //
+    //    At height h, the cone has a circle of radius r_c = h·tan(α) centered on the axis.
+    //    The sphere's cross-section at height h is a circle of radius ρ(h) = √(R²−(h−h₀)²)
+    //    centered at offset d from the axis. The two coplanar circles intersect when:
+    //        cos θ(h) = [r_c² + d² + (h−h₀)² − R²] / (2·d·r_c)
+    //    is in [−1, 1]. The valid h-range is found by solving cos θ = ±1.
 
-    // Determine h-range where sphere could reach the axis neighbourhood.
-    let h_lo = (t_proj - sphere_radius).max(z_min);
-    let h_hi = (t_proj + sphere_radius).min(z_max);
+    // Build local frame: u_dir points from axis toward sphere center, v_dir completes frame.
+    let perp_unit = v3_scale(perp_vec, 1.0 / d);
+    let v_dir = v3_cross(cone_axis, perp_unit);
 
-    if h_lo >= h_hi {
+    // Near-side boundary (cos θ = +1): closest points of coplanar circles coincide.
+    // (h·tanα − d)² + (h − h₀)² = R²
+    // Expanding: (tan²α + 1)·h² − 2(d·tanα + h₀)·h + (d² + h₀² − R²) = 0
+    let sec2 = 1.0 + tan_a * tan_a;
+    let c_const = d * d + t_proj * t_proj - sphere_radius * sphere_radius;
+
+    let a_near = sec2;
+    let b_near = -2.0 * (d * tan_a + t_proj);
+    let c_near = c_const;
+
+    // Far-side boundary (cos θ = −1): farthest points of coplanar circles coincide.
+    // (h·tanα + d)² + (h − h₀)² = R²
+    // Expanding: (tan²α + 1)·h² + 2(d·tanα − h₀)·h + (d² + h₀² − R²) = 0
+    let a_far = sec2;
+    let b_far = 2.0 * (d * tan_a - t_proj);
+    let c_far = c_const;
+
+    // Collect all critical h-values from both quadratics.
+    let mut h_roots = Vec::with_capacity(4);
+    for (a, b, c) in [(a_near, b_near, c_near), (a_far, b_far, c_far)] {
+        let disc = b * b - 4.0 * a * c;
+        if disc >= 0.0 {
+            let sqrt_d = disc.sqrt();
+            h_roots.push((-b + sqrt_d) / (2.0 * a));
+            h_roots.push((-b - sqrt_d) / (2.0 * a));
+        }
+    }
+
+    if h_roots.is_empty() {
         return Ok(vec![]);
     }
 
-    // Scan for the h-range where the minimum distance from cone to sphere < R.
-    let n_samples: usize = 200;
-    let mut h_start = f64::MAX;
-    let mut h_end = f64::MIN;
-    let mut found = false;
+    // Sort roots and find valid h-intervals where cos θ(h) ∈ [−1, 1].
+    h_roots.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    h_roots.dedup_by(|a, b| (*a - *b).abs() < TOL);
 
-    for i in 0..=n_samples {
-        let h = h_lo + (h_hi - h_lo) * (i as f64) / (n_samples as f64);
-        if h <= TOL {
+    // Determine valid intervals by sampling midpoints between consecutive roots.
+    // Also check before the first root and after the last root (within z-range).
+    let mut test_points = Vec::with_capacity(h_roots.len() + 2);
+    let effective_z_min = z_min.max(TOL); // cone only valid for h > 0
+    let effective_z_max = z_max;
+
+    // Add boundary test points
+    if !h_roots.is_empty() {
+        if h_roots[0] > effective_z_min + TOL {
+            test_points.push((h_roots[0] + effective_z_min) / 2.0);
+        }
+        for w in h_roots.windows(2) {
+            test_points.push((w[0] + w[1]) / 2.0);
+        }
+        if *h_roots.last().unwrap() < effective_z_max - TOL {
+            test_points.push((*h_roots.last().unwrap() + effective_z_max) / 2.0);
+        }
+    }
+
+    // Check which intervals are valid (cos_theta in [-1, 1])
+    let is_valid_h = |h: f64| -> bool {
+        if h <= TOL || h < effective_z_min || h > effective_z_max {
+            return false;
+        }
+        let r_cone = h * tan_a;
+        let denom = 2.0 * d * r_cone;
+        if denom.abs() < TOL {
+            return false;
+        }
+        let numer =
+            r_cone * r_cone + d * d + (h - t_proj) * (h - t_proj) - sphere_radius * sphere_radius;
+        let cos_theta = numer / denom;
+        (-1.0 - TOL..=1.0 + TOL).contains(&cos_theta)
+    };
+
+    // Build valid h-intervals from the sorted roots
+    let mut intervals: Vec<(f64, f64)> = Vec::new();
+    let all_boundaries: Vec<f64> = std::iter::once(effective_z_min)
+        .chain(
+            h_roots
+                .iter()
+                .copied()
+                .filter(|&h| h > effective_z_min && h < effective_z_max),
+        )
+        .chain(std::iter::once(effective_z_max))
+        .collect();
+
+    for w in all_boundaries.windows(2) {
+        let (lo, hi) = (w[0], w[1]);
+        if hi - lo < TOL {
             continue;
         }
-        let cone_r = h * tan_a;
-        let dh = h - t_proj;
-        let min_dist_sq = (d - cone_r) * (d - cone_r) + dh * dh;
-        if min_dist_sq < sphere_radius * sphere_radius {
-            h_start = h_start.min(h);
-            h_end = h_end.max(h);
-            found = true;
+        let mid = (lo + hi) / 2.0;
+        if is_valid_h(mid) {
+            // Merge with previous interval if contiguous
+            if let Some(last) = intervals.last_mut() {
+                if (last.1 - lo).abs() < TOL {
+                    last.1 = hi;
+                    continue;
+                }
+            }
+            intervals.push((lo, hi));
         }
     }
 
-    if !found {
+    if intervals.is_empty() {
         return Ok(vec![]);
     }
 
-    // Check for tangent (very thin intersection band).
-    if h_end - h_start < TOL {
-        return Ok(vec![]);
+    // Filter out tangent intervals (very thin)
+    let mut curves = Vec::new();
+    for (h_min, h_max) in intervals {
+        if h_max - h_min < TOL {
+            continue;
+        }
+        curves.push(SSICurve::Degree4ConeSphere {
+            cone_apex,
+            cone_axis,
+            tan_alpha: tan_a,
+            u_dir: perp_unit,
+            v_dir,
+            d,
+            h_proj: t_proj,
+            sphere_radius,
+            h_range: (h_min, h_max),
+        });
     }
 
-    // Clip to z-range.
-    let h_start = h_start.max(z_min);
-    let h_end = h_end.min(z_max);
-    if h_end - h_start < TOL {
-        return Ok(vec![]);
-    }
-
-    // Return a Line segment on the cone surface in the direction of the offset.
-    let perp_unit = v3_scale(perp_vec, 1.0 / d);
-    let start_r = h_start * tan_a;
-    let end_r = h_end * tan_a;
-    let start = v3_add(
-        v3_add(cone_apex, v3_scale(cone_axis, h_start)),
-        v3_scale(perp_unit, start_r),
-    );
-    let end = v3_add(
-        v3_add(cone_apex, v3_scale(cone_axis, h_end)),
-        v3_scale(perp_unit, end_r),
-    );
-
-    Ok(vec![SSICurve::Line { start, end }])
+    Ok(curves)
 }
 
 // ── Plane-Torus SSI ───────────────────────────────────────────────────────

@@ -1,8 +1,8 @@
 # Spec: `cone_sphere_ssi` Solver
 
-**Status**: Spec phase
-**Author**: Spec Writer (auto-waffle session 4)
-**Date**: 2026-03-19
+**Status**: Implementation phase
+**Author**: Spec Writer (auto-waffle session 4), updated session 3 (2026-03-30)
+**Date**: 2026-03-19 (updated 2026-03-30)
 **A15 pair**: #11 (Cone–Sphere)
 
 ---
@@ -44,7 +44,7 @@ height. For the general offset case, the curves are degree-4 space curves.
 | Coaxial | Sphere center on cone axis, overlapping | 1 or 2 circles | Circle(s) at constant h |
 | Tangent (external) | Sphere grazes cone surface | Single point/curve | Empty (within TOL) |
 | Sphere enclosing apex | Sphere contains the cone apex | 0 or 1 curve | Circle or empty |
-| General overlap (offset) | Sphere center off-axis, overlapping | Degree ≤ 4 curves | Circle approximation(s) |
+| General overlap (offset) | Sphere center off-axis, overlapping | Degree-4 closed curve(s) | Degree4ConeSphere parametric curve(s) |
 | Outside Z range | Intersection exists but outside [z_min, z_max] | None | Empty vec |
 
 **Key geometric insight**: Project the sphere center onto the cone axis line.
@@ -111,21 +111,46 @@ The SSI solver is an internal function; input validation happens at the Kernel A
 - [#33] Stroud — Boundary representation and geometric modelling: cone-sphere
   intersection classification.
 
-**Simplification**: For the initial implementation, we handle the coaxial case
-exactly (closed-form circles) and use circle approximation for the general offset
-case where the degree-4 curve is nearly circular. This covers the majority of
-practical CAD configurations (countersinks, conical seats, tapered fits).
+**Analytical offset method**: For the general (offset) case where the sphere
+center is at perpendicular distance d > 0 from the cone axis, we use a
+parametric representation based on coplanar circle intersection at each height h.
+
+In the cone's local frame (apex at origin, axis = Z, sphere center projected
+to (d, 0, h₀)):
+
+At height h, the cone cross-section is a circle of radius r_c = h·tan(α)
+centered at the origin, and the sphere cross-section is a circle of radius
+ρ(h) = √(R² − (h−h₀)²) centered at (d, 0). Their intersection angles satisfy:
+
+    cos θ(h) = [h²·tan²α + d² + (h−h₀)² − R²] / (2·d·h·tan α)
+
+When |cos θ| ≤ 1, there are two points at ±θ on the cone circle. The valid
+h-range is bounded by cos θ = ±1, yielding two quadratics:
+
+- Near side (cos θ = +1): (1+tan²α)·h² − 2(d·tanα + h₀)·h + (d² + h₀² − R²) = 0
+- Far side (cos θ = −1): (1+tan²α)·h² + 2(d·tanα − h₀)·h + (d² + h₀² − R²) = 0
+
+Up to 4 roots define the h-extent(s). The parametric curve evaluates as:
+
+    P(h) = apex + h·axis + h·tan(α)·(cos(θ(h))·u + sin(θ(h))·v)
+
+where u points toward the sphere center projection and v = axis × u.
+
+This is exact — no sampling, no mesh fallback. Ref: [#1] Patrikalakis Ch.5.
 
 ---
 
 ## 7a. Analytical vs. Approximate Method Justification
 
-**Method**: Exact (closed-form) for coaxial cases; circle approximation for
-general offset cases where the degree-4 curve is nearly circular.
+**Method**: Exact (closed-form) for all cases. Coaxial: quadratic → circles.
+Offset: analytical parametric degree-4 curve via coplanar circle intersection.
 
 **Surface pair**: Cone–Sphere (A15 pair #11). This is a quadric pair requiring
-exact SSI per A15. The coaxial case reduces to a quadratic equation with exact
-circle solutions. For the general offset case, the quartic can be solved
-analytically (Ferrari's method) or numerically (Newton iteration on the quartic
-coefficients). The circle approximation provides excellent accuracy for typical
-mechanical CAD configurations where the sphere center is close to the cone axis.
+exact SSI per A15.1. The coaxial case reduces to a quadratic with exact circle
+solutions. The offset case uses the h-parametric formulation where cos θ(h) is
+a rational function of h, and the valid h-range is determined by two quadratics
+(cos θ = ±1 boundaries). No sampling, no mesh approximation.
+
+**New SSICurve variant**: `Degree4ConeSphere` stores cone geometry, offset
+parameters, local frame, and h-range(s). Provides `evaluate(h)` returning
+world-space points on both branches of the curve.

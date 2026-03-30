@@ -1995,16 +1995,22 @@ fn cs_cone_04_sphere_enclosing_apex() {
 fn cs_cone_05_general_offset() {
     // Cone: apex at origin, axis +Z, half-angle 30°, z in [0, 10].
     // Sphere: center off-axis at (2, 0, 4), radius 3.
-    // General offset case: intersection is a degree-4 curve,
-    // approximated as a Line segment or circle.
+    // General offset case: intersection is a degree-4 parametric curve.
+    let tau = crate::units::TAU_MODEL;
+    let apex = [0.0, 0.0, 0.0];
+    let axis = [0.0, 0.0, 1.0];
+    let half_angle = std::f64::consts::FRAC_PI_6;
+    let sphere_center = [2.0, 0.0, 4.0];
+    let sphere_radius = 3.0;
+
     let curves = cone_sphere_ssi(
-        [0.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0],
-        std::f64::consts::FRAC_PI_6,
+        apex,
+        axis,
+        half_angle,
         0.0,
         10.0,
-        [2.0, 0.0, 4.0],
-        3.0,
+        sphere_center,
+        sphere_radius,
     )
     .unwrap();
 
@@ -2014,24 +2020,24 @@ fn cs_cone_05_general_offset() {
         "General offset cone-sphere should produce intersection curves"
     );
 
-    // Verify each curve is a recognized SSICurve variant
+    // All offset curves must be Degree4ConeSphere
     for curve in &curves {
         match curve {
-            SSICurve::Circle { radius, .. } => {
-                assert!(*radius > 0.0, "Circle radius must be positive");
+            SSICurve::Degree4ConeSphere { .. } => {
+                validate_cone_sphere_degree4(
+                    curve,
+                    apex,
+                    axis,
+                    half_angle,
+                    sphere_center,
+                    sphere_radius,
+                    tau,
+                );
             }
-            SSICurve::Line { start, end } => {
-                let len = v3_length(v3_sub(*end, *start));
-                assert!(len > 0.0, "Line segment must have nonzero length");
-            }
-            SSICurve::Ellipse {
-                semi_major,
-                semi_minor,
-                ..
-            } => {
-                assert!(*semi_major > 0.0 && *semi_minor > 0.0);
-            }
-            _ => panic!("Unexpected SSICurve variant: {:?}", curve),
+            _ => panic!(
+                "Expected Degree4ConeSphere for offset cone-sphere, got {:?}",
+                curve
+            ),
         }
     }
 }
@@ -2252,8 +2258,61 @@ fn validate_cone_sphere_results(
                 assert!(!semi_major.is_nan() && !semi_minor.is_nan());
                 assert!(*semi_major > 0.0 && *semi_minor > 0.0);
             }
+            SSICurve::Degree4ConeSphere { .. } => {
+                validate_cone_sphere_degree4(
+                    curve,
+                    apex,
+                    axis,
+                    half_angle,
+                    sphere_center,
+                    sphere_radius,
+                    tau,
+                );
+            }
             _ => panic!("Unexpected SSICurve variant: {:?}", curve),
         }
+    }
+}
+
+/// Validate a Degree4ConeSphere curve by sampling 32 points and checking
+/// that each lies on both the cone and sphere surfaces within tolerance.
+fn validate_cone_sphere_degree4(
+    curve: &SSICurve,
+    apex: [f64; 3],
+    axis: [f64; 3],
+    half_angle: f64,
+    sphere_center: [f64; 3],
+    sphere_radius: f64,
+    tau: f64,
+) {
+    for i in 0..32 {
+        let t = (i as f64) / 31.0;
+        let pt = curve
+            .evaluate_cone_sphere(t)
+            .unwrap_or_else(|| panic!("evaluate_cone_sphere returned None at t={}", t));
+        // No NaN
+        assert!(
+            !pt[0].is_nan() && !pt[1].is_nan() && !pt[2].is_nan(),
+            "Degree4ConeSphere point contains NaN at t={}: {:?}",
+            t,
+            pt
+        );
+        let cone_err = cone_surface_error(pt, apex, axis, half_angle);
+        assert!(
+            cone_err < tau,
+            "Degree4ConeSphere point {:?} not on cone surface at t={}, error={}",
+            pt,
+            t,
+            cone_err
+        );
+        let sphere_err = sphere_surface_error(pt, sphere_center, sphere_radius);
+        assert!(
+            sphere_err < tau,
+            "Degree4ConeSphere point {:?} not on sphere surface at t={}, error={}",
+            pt,
+            t,
+            sphere_err
+        );
     }
 }
 
@@ -2556,6 +2615,576 @@ fn cs_cone_12_negative_z_range() {
         sphere_center,
         sphere_radius,
     );
+}
+
+// ── Cone-Sphere offset Degree4 tests ─────────────────────────────────
+
+#[test]
+fn cs_cone_13_offset_moderate() {
+    // Cone: apex (0,0,0), axis +Z, half-angle 30°, z in [0, 10].
+    // Sphere: center (1.5, 0, 5), radius 2.5.
+    // Moderate offset — should produce 1 Degree4ConeSphere curve.
+    let tau = crate::units::TAU_MODEL;
+    let apex = [0.0, 0.0, 0.0];
+    let axis = [0.0, 0.0, 1.0];
+    let half_angle = std::f64::consts::FRAC_PI_6; // 30°
+
+    let sphere_center = [1.5, 0.0, 5.0];
+    let sphere_radius = 2.5;
+
+    let curves = cone_sphere_ssi(
+        apex,
+        axis,
+        half_angle,
+        0.0,
+        10.0,
+        sphere_center,
+        sphere_radius,
+    )
+    .unwrap();
+
+    assert!(
+        !curves.is_empty(),
+        "Moderate offset cone-sphere should produce intersection curves"
+    );
+
+    for curve in &curves {
+        match curve {
+            SSICurve::Degree4ConeSphere { .. } => {
+                validate_cone_sphere_degree4(
+                    curve,
+                    apex,
+                    axis,
+                    half_angle,
+                    sphere_center,
+                    sphere_radius,
+                    tau,
+                );
+            }
+            _ => panic!(
+                "Expected Degree4ConeSphere for offset cone-sphere, got {:?}",
+                curve
+            ),
+        }
+    }
+}
+
+#[test]
+fn cs_cone_14_offset_large() {
+    // Cone: apex (0,0,0), axis +Z, half-angle 45°, z in [0, 10].
+    // Sphere: center (3, 0, 5), radius 4.
+    // Large offset — should produce 1 Degree4ConeSphere curve.
+    let tau = crate::units::TAU_MODEL;
+    let apex = [0.0, 0.0, 0.0];
+    let axis = [0.0, 0.0, 1.0];
+    let half_angle = std::f64::consts::FRAC_PI_4; // 45°
+
+    let sphere_center = [3.0, 0.0, 5.0];
+    let sphere_radius = 4.0;
+
+    let curves = cone_sphere_ssi(
+        apex,
+        axis,
+        half_angle,
+        0.0,
+        10.0,
+        sphere_center,
+        sphere_radius,
+    )
+    .unwrap();
+
+    assert!(
+        !curves.is_empty(),
+        "Large offset cone-sphere should produce intersection curves"
+    );
+
+    for curve in &curves {
+        match curve {
+            SSICurve::Degree4ConeSphere { .. } => {
+                validate_cone_sphere_degree4(
+                    curve,
+                    apex,
+                    axis,
+                    half_angle,
+                    sphere_center,
+                    sphere_radius,
+                    tau,
+                );
+            }
+            _ => panic!(
+                "Expected Degree4ConeSphere for offset cone-sphere, got {:?}",
+                curve
+            ),
+        }
+    }
+}
+
+#[test]
+fn cs_cone_15_offset_general_position() {
+    // Cone: apex (1,2,3), axis (0, 0.6, 0.8) normalized, half-angle 25°, z in [0, 8].
+    // Sphere: center (2, 3, 6), radius 2.5.
+    // General position (non-axis-aligned).
+    let tau = crate::units::TAU_MODEL;
+    let apex = [1.0, 2.0, 3.0];
+    let raw_axis = [0.0, 0.6, 0.8];
+    let axis = v3_normalize(raw_axis);
+    let half_angle = 25.0_f64.to_radians();
+
+    let sphere_center = [2.0, 3.0, 6.0];
+    let sphere_radius = 2.5;
+
+    let curves = cone_sphere_ssi(
+        apex,
+        axis,
+        half_angle,
+        0.0,
+        8.0,
+        sphere_center,
+        sphere_radius,
+    )
+    .unwrap();
+
+    assert!(
+        !curves.is_empty(),
+        "General-position offset cone-sphere should produce intersection curves"
+    );
+
+    for curve in &curves {
+        match curve {
+            SSICurve::Degree4ConeSphere { .. } => {
+                validate_cone_sphere_degree4(
+                    curve,
+                    apex,
+                    axis,
+                    half_angle,
+                    sphere_center,
+                    sphere_radius,
+                    tau,
+                );
+            }
+            // Coaxial special cases still valid as Circle
+            SSICurve::Circle { .. } => {}
+            _ => panic!(
+                "Expected Degree4ConeSphere or Circle for general-position cone-sphere, got {:?}",
+                curve
+            ),
+        }
+    }
+}
+
+#[test]
+fn cs_cone_16_offset_disjoint() {
+    // Cone: apex (0,0,0), axis +Z, half-angle 20°, z in [0, 5].
+    // Sphere: center (20, 0, 3), radius 1.
+    // Sphere is far from cone — should return empty.
+    let curves = cone_sphere_ssi(
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        20.0_f64.to_radians(),
+        0.0,
+        5.0,
+        [20.0, 0.0, 3.0],
+        1.0,
+    )
+    .unwrap();
+
+    assert!(
+        curves.is_empty(),
+        "Disjoint cone-sphere should return empty, got {} curves",
+        curves.len()
+    );
+}
+
+#[test]
+fn cs_cone_17_offset_oblique_axis() {
+    // Cone: apex (0,0,0), axis (1/√3, 1/√3, 1/√3) normalized, half-angle 35°, z in [0, 10].
+    // Sphere: center (2, 0, 2), radius 3.
+    // Tests non-axis-aligned cone with oblique axis.
+    let tau = crate::units::TAU_MODEL;
+    let inv_sqrt3 = 1.0 / 3.0_f64.sqrt();
+    let apex = [0.0, 0.0, 0.0];
+    let axis = [inv_sqrt3, inv_sqrt3, inv_sqrt3];
+    let half_angle = 35.0_f64.to_radians();
+
+    let sphere_center = [2.0, 0.0, 2.0];
+    let sphere_radius = 3.0;
+
+    let curves = cone_sphere_ssi(
+        apex,
+        axis,
+        half_angle,
+        0.0,
+        10.0,
+        sphere_center,
+        sphere_radius,
+    )
+    .unwrap();
+
+    assert!(
+        !curves.is_empty(),
+        "Oblique-axis offset cone-sphere should produce intersection curves"
+    );
+
+    for curve in &curves {
+        match curve {
+            SSICurve::Degree4ConeSphere { .. } => {
+                validate_cone_sphere_degree4(
+                    curve,
+                    apex,
+                    axis,
+                    half_angle,
+                    sphere_center,
+                    sphere_radius,
+                    tau,
+                );
+            }
+            SSICurve::Circle { .. } => {}
+            _ => panic!(
+                "Expected Degree4ConeSphere or Circle for oblique-axis cone-sphere, got {:?}",
+                curve
+            ),
+        }
+    }
+}
+
+// ── Adversarial Cone-Sphere offset tests ──────────────────────────────
+
+#[test]
+fn cs_cone_18_offset_near_tangent() {
+    // Cone: apex (0,0,0), axis +Z, half-angle 30°, z in [0, 10].
+    // Sphere: center (3.0, 0, 5.0), radius 0.15 — barely overlapping the cone surface.
+    // At h=5, cone_r = 5·tan(30°) ≈ 2.887. The horizontal distance from sphere center
+    // to the cone at that height is |3.0 - 2.887| ≈ 0.113, so R=0.15 just barely overlaps.
+    // Should produce either empty (tangent) or a very narrow Degree4ConeSphere curve.
+    let tau = crate::units::TAU_MODEL;
+    let apex = [0.0, 0.0, 0.0];
+    let axis = [0.0, 0.0, 1.0];
+    let half_angle = std::f64::consts::FRAC_PI_6; // 30°
+
+    let sphere_center = [3.0, 0.0, 5.0];
+    let sphere_radius = 0.15;
+
+    let curves = cone_sphere_ssi(
+        apex,
+        axis,
+        half_angle,
+        0.0,
+        10.0,
+        sphere_center,
+        sphere_radius,
+    )
+    .unwrap();
+
+    // May be empty (near-tangent) or contain a narrow curve.
+    for curve in &curves {
+        match curve {
+            SSICurve::Degree4ConeSphere { .. } => {
+                validate_cone_sphere_degree4(
+                    curve,
+                    apex,
+                    axis,
+                    half_angle,
+                    sphere_center,
+                    sphere_radius,
+                    tau,
+                );
+            }
+            SSICurve::Circle { .. } => {
+                // Tangent circle is also acceptable
+            }
+            _ => panic!(
+                "Expected Degree4ConeSphere or Circle for near-tangent cone-sphere, got {:?}",
+                curve
+            ),
+        }
+    }
+}
+
+#[test]
+fn cs_cone_19_offset_sphere_straddling_apex() {
+    // Cone: apex (0,0,0), axis +Z, half-angle 45°, z in [0, 10].
+    // Sphere: center (1.0, 0, 0.5), radius 2.0 — straddles the apex region.
+    // Tests the tricky region near h=0 where the cone radius approaches zero.
+    let tau = crate::units::TAU_MODEL;
+    let apex = [0.0, 0.0, 0.0];
+    let axis = [0.0, 0.0, 1.0];
+    let half_angle = std::f64::consts::FRAC_PI_4; // 45°
+
+    let sphere_center = [1.0, 0.0, 0.5];
+    let sphere_radius = 2.0;
+
+    let curves = cone_sphere_ssi(
+        apex,
+        axis,
+        half_angle,
+        0.0,
+        10.0,
+        sphere_center,
+        sphere_radius,
+    )
+    .unwrap();
+
+    assert!(
+        !curves.is_empty(),
+        "Sphere straddling apex should produce intersection curves"
+    );
+
+    for curve in &curves {
+        match curve {
+            SSICurve::Degree4ConeSphere { .. } => {
+                validate_cone_sphere_degree4(
+                    curve,
+                    apex,
+                    axis,
+                    half_angle,
+                    sphere_center,
+                    sphere_radius,
+                    tau,
+                );
+            }
+            SSICurve::Circle { .. } => {
+                // Circle also acceptable
+            }
+            _ => panic!(
+                "Expected Degree4ConeSphere or Circle for apex-straddling case, got {:?}",
+                curve
+            ),
+        }
+    }
+}
+
+#[test]
+fn cs_cone_20_offset_y_axis_offset() {
+    // Cone: apex (0,0,0), axis +Z, half-angle 30°, z in [0, 10].
+    // Sphere: center (0, 2.0, 5.0), radius 3.0 — offset in Y direction.
+    // Tests that the local frame construction works correctly for any offset direction.
+    let tau = crate::units::TAU_MODEL;
+    let apex = [0.0, 0.0, 0.0];
+    let axis = [0.0, 0.0, 1.0];
+    let half_angle = std::f64::consts::FRAC_PI_6; // 30°
+
+    let sphere_center = [0.0, 2.0, 5.0];
+    let sphere_radius = 3.0;
+
+    let curves = cone_sphere_ssi(
+        apex,
+        axis,
+        half_angle,
+        0.0,
+        10.0,
+        sphere_center,
+        sphere_radius,
+    )
+    .unwrap();
+
+    assert!(
+        !curves.is_empty(),
+        "Y-axis offset cone-sphere should produce intersection curves"
+    );
+
+    for curve in &curves {
+        match curve {
+            SSICurve::Degree4ConeSphere { .. } => {
+                validate_cone_sphere_degree4(
+                    curve,
+                    apex,
+                    axis,
+                    half_angle,
+                    sphere_center,
+                    sphere_radius,
+                    tau,
+                );
+            }
+            _ => panic!(
+                "Expected Degree4ConeSphere for Y-axis offset cone-sphere, got {:?}",
+                curve
+            ),
+        }
+    }
+}
+
+#[test]
+fn cs_cone_21_mutation_branch_inversion() {
+    // Same parameters as cs_cone_13: cone apex (0,0,0), axis +Z, half-angle 30°,
+    // z [0,10], sphere (1.5, 0, 5) R=2.5.
+    // Verify that the ±θ branches produce distinct points.
+    let tau = crate::units::TAU_MODEL;
+    let apex = [0.0, 0.0, 0.0];
+    let axis = [0.0, 0.0, 1.0];
+    let half_angle = std::f64::consts::FRAC_PI_6; // 30°
+
+    let sphere_center = [1.5, 0.0, 5.0];
+    let sphere_radius = 2.5;
+
+    let curves = cone_sphere_ssi(
+        apex,
+        axis,
+        half_angle,
+        0.0,
+        10.0,
+        sphere_center,
+        sphere_radius,
+    )
+    .unwrap();
+
+    assert!(
+        !curves.is_empty(),
+        "Should produce at least one Degree4ConeSphere curve"
+    );
+
+    for curve in &curves {
+        match curve {
+            SSICurve::Degree4ConeSphere { .. } => {
+                // Evaluate at t=0.25 (+θ branch) and t=0.75 (−θ branch)
+                let pt_a = curve
+                    .evaluate_cone_sphere(0.25)
+                    .expect("evaluate_cone_sphere returned None at t=0.25");
+                let pt_b = curve
+                    .evaluate_cone_sphere(0.75)
+                    .expect("evaluate_cone_sphere returned None at t=0.75");
+
+                // Both must lie on both surfaces
+                let cone_err_a = cone_surface_error(pt_a, apex, axis, half_angle);
+                assert!(
+                    cone_err_a < tau,
+                    "Branch +θ point {:?} not on cone, error={}",
+                    pt_a,
+                    cone_err_a
+                );
+                let sphere_err_a = sphere_surface_error(pt_a, sphere_center, sphere_radius);
+                assert!(
+                    sphere_err_a < tau,
+                    "Branch +θ point {:?} not on sphere, error={}",
+                    pt_a,
+                    sphere_err_a
+                );
+                let cone_err_b = cone_surface_error(pt_b, apex, axis, half_angle);
+                assert!(
+                    cone_err_b < tau,
+                    "Branch −θ point {:?} not on cone, error={}",
+                    pt_b,
+                    cone_err_b
+                );
+                let sphere_err_b = sphere_surface_error(pt_b, sphere_center, sphere_radius);
+                assert!(
+                    sphere_err_b < tau,
+                    "Branch −θ point {:?} not on sphere, error={}",
+                    pt_b,
+                    sphere_err_b
+                );
+
+                // Points must be DIFFERENT (proving both branches are evaluated)
+                let dx = pt_a[0] - pt_b[0];
+                let dy = pt_a[1] - pt_b[1];
+                let dz = pt_a[2] - pt_b[2];
+                let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+                assert!(
+                    dist > 1e-6,
+                    "Branch points at t=0.25 and t=0.75 are the same: {:?} vs {:?}, dist={}",
+                    pt_a,
+                    pt_b,
+                    dist
+                );
+
+                // The ±θ branches should be mirror-symmetric about the u_dir plane,
+                // so they must have different Y coordinates.
+                assert!(
+                    (pt_a[1] - pt_b[1]).abs() > 1e-6,
+                    "Branch points should have different Y coords (±θ mirror symmetry): \
+                     pt_a.y={}, pt_b.y={}",
+                    pt_a[1],
+                    pt_b[1]
+                );
+            }
+            _ => panic!("Expected Degree4ConeSphere, got {:?}", curve),
+        }
+    }
+}
+
+#[test]
+fn cs_cone_22_h_range_clipping() {
+    // Cone: apex (0,0,0), axis +Z, half-angle 30°, z in [2, 4] — restricted z-range.
+    // Sphere: center (1.5, 0, 3.0), radius 2.0.
+    // The intersection h-range should be clipped to [2, 4].
+    let tau = crate::units::TAU_MODEL;
+    let apex = [0.0, 0.0, 0.0];
+    let axis = [0.0, 0.0, 1.0];
+    let half_angle = std::f64::consts::FRAC_PI_6; // 30°
+
+    let sphere_center = [1.5, 0.0, 3.0];
+    let sphere_radius = 2.0;
+
+    let curves = cone_sphere_ssi(
+        apex,
+        axis,
+        half_angle,
+        2.0,
+        4.0,
+        sphere_center,
+        sphere_radius,
+    )
+    .unwrap();
+
+    assert!(
+        !curves.is_empty(),
+        "Clipped cone-sphere should produce intersection curves"
+    );
+
+    for curve in &curves {
+        match curve {
+            SSICurve::Degree4ConeSphere { h_range, .. } => {
+                // The h_range stored in the curve must be within [2, 4]
+                assert!(
+                    h_range.0 >= 2.0 - tau && h_range.1 <= 4.0 + tau,
+                    "h_range {:?} exceeds cone z-limits [2, 4]",
+                    h_range
+                );
+
+                // Evaluate all sample points and check the axial height h
+                for i in 0..32 {
+                    let t = (i as f64) / 31.0;
+                    let pt = curve
+                        .evaluate_cone_sphere(t)
+                        .unwrap_or_else(|| panic!("evaluate_cone_sphere returned None at t={}", t));
+
+                    // Compute axial height h = dot(pt - apex, axis)
+                    let h = pt[0] * axis[0] + pt[1] * axis[1] + pt[2] * axis[2];
+                    assert!(
+                        h >= 2.0 - tau && h <= 4.0 + tau,
+                        "Point {:?} at t={} has h={} outside [2, 4]",
+                        pt,
+                        t,
+                        h
+                    );
+
+                    // Surface oracle checks
+                    let cone_err = cone_surface_error(pt, apex, axis, half_angle);
+                    assert!(
+                        cone_err < tau,
+                        "Clipped point {:?} not on cone at t={}, error={}",
+                        pt,
+                        t,
+                        cone_err
+                    );
+                    let sphere_err = sphere_surface_error(pt, sphere_center, sphere_radius);
+                    assert!(
+                        sphere_err < tau,
+                        "Clipped point {:?} not on sphere at t={}, error={}",
+                        pt,
+                        t,
+                        sphere_err
+                    );
+                }
+            }
+            SSICurve::Circle { .. } => {
+                // Circle is also acceptable if it happens to fall within range
+            }
+            _ => panic!(
+                "Expected Degree4ConeSphere or Circle for clipped cone-sphere, got {:?}",
+                curve
+            ),
+        }
+    }
 }
 
 // ── Plane-Torus SSI tests ─────────────────────────────────────────────
