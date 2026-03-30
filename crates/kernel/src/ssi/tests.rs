@@ -3943,41 +3943,119 @@ fn pt_04_perpendicular_offset() {
 }
 
 #[test]
-fn pt_05_oblique_not_supported() {
-    // Plane with normal at 45° to torus axis → NotSupported.
-    let result = plane_torus_ssi(
+fn pt_05_oblique_returns_analytical_curves() {
+    // Plane with normal at 45° to torus axis → analytical Degree4PlaneTorus curves.
+    // (Previously returned NotSupported; now solved analytically per A15.1)
+    let tau = crate::units::TAU_MODEL;
+    let curves = plane_torus_ssi(
         [0.0, 0.0, 0.0],
         [FRAC_1_SQRT_2, 0.0, FRAC_1_SQRT_2], // 45° to Z
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
         5.0,
         2.0,
-    );
+    )
+    .expect("Oblique plane-torus SSI should succeed");
 
     assert!(
-        matches!(result, Err(KernelError::NotSupported { .. })),
-        "Oblique plane should return NotSupported, got {:?}",
-        result
+        curves.len() >= 2,
+        "45° oblique plane through torus center should produce 2 curves, got {}",
+        curves.len()
     );
+    assert_no_line_approximations(&curves, "pt_05 oblique");
+
+    // Oracle: every sampled point must lie on both plane and torus
+    let plane_origin = [0.0, 0.0, 0.0];
+    let plane_normal = [FRAC_1_SQRT_2, 0.0, FRAC_1_SQRT_2];
+    for curve in &curves {
+        for i in 0..100 {
+            let t = i as f64 / 100.0;
+            if let Some(pt) = curve.evaluate_degree4(t) {
+                assert_point_on_plane(pt, plane_origin, plane_normal);
+                assert_point_on_torus(
+                    pt,
+                    [0.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                    5.0,
+                    2.0,
+                    "pt_05 oblique",
+                    i,
+                );
+            }
+        }
+    }
 }
 
 #[test]
 fn pt_06_parallel_to_axis() {
-    // Plane normal ⊥ torus axis (plane parallel to axis) → NotSupported.
-    let result = plane_torus_ssi(
+    // Plane normal ⊥ torus axis (plane parallel to axis, through center).
+    // Degenerate case: intersection is 2 tube cross-section circles.
+    // (Previously returned NotSupported; now solved analytically per A15.1)
+    let tau = crate::units::TAU_MODEL;
+    let curves = plane_torus_ssi(
         [0.0, 0.0, 0.0],
         [1.0, 0.0, 0.0], // normal ⊥ Z axis
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
         5.0,
         2.0,
+    )
+    .expect("Plane parallel to torus axis should succeed");
+
+    // Plane x=0 through torus center with R=5, r=2: cuts two tube cross-sections
+    // producing 2 circles of radius r=2
+    assert_eq!(
+        curves.len(),
+        2,
+        "Plane through torus center perpendicular to axis should produce 2 circles"
     );
 
-    assert!(
-        matches!(result, Err(KernelError::NotSupported { .. })),
-        "Plane parallel to torus axis should return NotSupported, got {:?}",
-        result
-    );
+    // Both should be circles with radius = minor radius
+    for curve in &curves {
+        match curve {
+            SSICurve::Circle { radius, .. } => {
+                assert!(
+                    (*radius - 2.0).abs() < tau,
+                    "Circle radius should be minor radius r=2, got {}",
+                    radius
+                );
+            }
+            _ => panic!("Expected Circle, got {:?}", curve),
+        }
+    }
+
+    // Oracle: circle points lie on both plane and torus
+    let plane_origin = [0.0, 0.0, 0.0];
+    let plane_normal = [1.0, 0.0, 0.0];
+    for curve in &curves {
+        if let SSICurve::Circle {
+            center,
+            normal,
+            radius,
+        } = curve
+        {
+            // Build circle basis perpendicular to circle normal
+            let (cu, cv) = compute_plane_basis(*normal);
+            for i in 0..100 {
+                let angle = std::f64::consts::TAU * (i as f64) / 100.0;
+                let pt = [
+                    center[0] + radius * (angle.cos() * cu[0] + angle.sin() * cv[0]),
+                    center[1] + radius * (angle.cos() * cu[1] + angle.sin() * cv[1]),
+                    center[2] + radius * (angle.cos() * cu[2] + angle.sin() * cv[2]),
+                ];
+                assert_point_on_plane(pt, plane_origin, plane_normal);
+                assert_point_on_torus(
+                    pt,
+                    [0.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                    5.0,
+                    2.0,
+                    "pt_06 circle",
+                    i,
+                );
+            }
+        }
+    }
 }
 
 #[test]
@@ -4351,6 +4429,760 @@ fn pt_12_spindle_torus() {
         assert!((dot - 1.0).abs() < tau, "Normal should be parallel to +Z");
     } else {
         panic!("Expected Circle, got {:?}", curves[0]);
+    }
+}
+
+// ── Plane-Torus General (Oblique) SSI ─────────────────────────────
+//
+// These tests cover the general-position plane-torus SSI solver (FIP Phase 2).
+// Currently, non-perpendicular planes return NotSupported, so the intersecting
+// cases are RED (expected to fail). Once the Degree4PlaneTorus implementation
+// lands, these tests should turn GREEN.
+//
+// Test pt_07 (perpendicular regression) already exists above and is not
+// duplicated here. The existing perpendicular tests (pt_01 through pt_12)
+// must continue to pass unchanged.
+
+/// Helper: assert a point lies on the torus surface within tolerance.
+fn assert_point_on_torus(
+    pt: [f64; 3],
+    torus_center: [f64; 3],
+    torus_axis: [f64; 3],
+    big_r: f64,
+    small_r: f64,
+    context: &str,
+    idx: usize,
+) {
+    let sd = torus_signed_distance(pt, torus_center, torus_axis, big_r, small_r);
+    assert!(
+        sd.abs() < crate::units::TAU_MODEL * 100.0,
+        "{}: point {} not on torus: signed_dist = {:.2e}, pt = {:?}",
+        context,
+        idx,
+        sd,
+        pt,
+    );
+}
+
+#[test]
+fn pt_oblique_01_45deg_through_center() {
+    // Canonical: 45° oblique plane through torus center.
+    // Torus: center (0,0,0), axis [0,0,1], R=5, r=2.
+    // Plane: origin (0,0,0), normal [0, 1/√2, 1/√2].
+    // This is NOT perpendicular (dot(normal, axis) = 1/√2 ≈ 0.707),
+    // so the current solver returns NotSupported.
+    // Once implemented, should return 2 Degree4PlaneTorus curves.
+    let plane_origin = [0.0, 0.0, 0.0];
+    let plane_normal = [0.0, FRAC_1_SQRT_2, FRAC_1_SQRT_2];
+    let torus_center = [0.0, 0.0, 0.0];
+    let torus_axis = [0.0, 0.0, 1.0];
+    let big_r = 5.0;
+    let small_r = 2.0;
+
+    let curves = plane_torus_ssi(
+        plane_origin,
+        plane_normal,
+        torus_center,
+        torus_axis,
+        big_r,
+        small_r,
+    )
+    .expect("45° oblique plane-torus should return Ok, not NotSupported");
+
+    assert!(
+        curves.len() >= 2,
+        "45° oblique plane through torus center should produce at least 2 curves, got {}",
+        curves.len()
+    );
+
+    assert_no_line_approximations(&curves, "pt_oblique_01_45deg");
+
+    // Oracle: sample 100 points per curve, verify on-plane and on-torus.
+    for (ci, curve) in curves.iter().enumerate() {
+        for i in 0..100 {
+            let t = i as f64 / 100.0;
+            if let Some(pt) = curve.evaluate_degree4(t) {
+                assert_point_on_plane(pt, plane_origin, plane_normal);
+                assert_point_on_torus(
+                    pt,
+                    torus_center,
+                    torus_axis,
+                    big_r,
+                    small_r,
+                    &format!("pt_oblique_01 curve {ci}"),
+                    i,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn pt_oblique_02_45deg_offset() {
+    // Oblique plane offset from center.
+    // Plane: origin (0,0,1), normal [0, 1/√2, 1/√2].
+    // Same torus: center (0,0,0), axis +Z, R=5, r=2.
+    // The offset plane still intersects the torus (d' = n · (plane_origin - center) =
+    //   [0, 1/√2, 1/√2] · [0,0,1] = 1/√2 ≈ 0.707, which is < R+r = 7).
+    let plane_origin = [0.0, 0.0, 1.0];
+    let plane_normal = [0.0, FRAC_1_SQRT_2, FRAC_1_SQRT_2];
+    let torus_center = [0.0, 0.0, 0.0];
+    let torus_axis = [0.0, 0.0, 1.0];
+    let big_r = 5.0;
+    let small_r = 2.0;
+
+    let curves = plane_torus_ssi(
+        plane_origin,
+        plane_normal,
+        torus_center,
+        torus_axis,
+        big_r,
+        small_r,
+    )
+    .expect("45° oblique offset plane-torus should return Ok, not NotSupported");
+
+    assert!(
+        !curves.is_empty(),
+        "Offset oblique plane should still intersect torus, got 0 curves"
+    );
+
+    assert_no_line_approximations(&curves, "pt_oblique_02_offset");
+
+    // Oracle: on-plane and on-torus checks.
+    for (ci, curve) in curves.iter().enumerate() {
+        for i in 0..100 {
+            let t = i as f64 / 100.0;
+            if let Some(pt) = curve.evaluate_degree4(t) {
+                assert_point_on_plane(pt, plane_origin, plane_normal);
+                assert_point_on_torus(
+                    pt,
+                    torus_center,
+                    torus_axis,
+                    big_r,
+                    small_r,
+                    &format!("pt_oblique_02 curve {ci}"),
+                    i,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn pt_oblique_03_30deg_through_center() {
+    // Through-center plane (d' = 0) at 30° to torus axis.
+    // Plane: origin (0,0,0), normal at 30° from Z in YZ plane.
+    //   cos(30°) = √3/2 ≈ 0.866, sin(30°) = 0.5.
+    //   normal = [0, sin(30°), cos(30°)] = [0, 0.5, √3/2].
+    // Torus: center (0,0,0), axis +Z, R=5, r=2.
+    let cos30 = (3.0_f64).sqrt() / 2.0;
+    let sin30 = 0.5_f64;
+    let plane_origin = [0.0, 0.0, 0.0];
+    let plane_normal = [0.0, sin30, cos30];
+    let torus_center = [0.0, 0.0, 0.0];
+    let torus_axis = [0.0, 0.0, 1.0];
+    let big_r = 5.0;
+    let small_r = 2.0;
+
+    let curves = plane_torus_ssi(
+        plane_origin,
+        plane_normal,
+        torus_center,
+        torus_axis,
+        big_r,
+        small_r,
+    )
+    .expect("30° oblique through-center plane-torus should return Ok");
+
+    assert!(
+        curves.len() >= 2,
+        "30° oblique through-center plane should produce at least 2 curves, got {}",
+        curves.len()
+    );
+
+    assert_no_line_approximations(&curves, "pt_oblique_03_30deg");
+
+    // Oracle: on-plane and on-torus checks.
+    for (ci, curve) in curves.iter().enumerate() {
+        for i in 0..100 {
+            let t = i as f64 / 100.0;
+            if let Some(pt) = curve.evaluate_degree4(t) {
+                assert_point_on_plane(pt, plane_origin, plane_normal);
+                assert_point_on_torus(
+                    pt,
+                    torus_center,
+                    torus_axis,
+                    big_r,
+                    small_r,
+                    &format!("pt_oblique_03 curve {ci}"),
+                    i,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn pt_oblique_04_disjoint() {
+    // Plane far away from torus, oblique orientation.
+    // Plane: origin (0, 0, 100), normal [0, 1/√2, 1/√2].
+    // Torus: center (0,0,0), axis +Z, R=5, r=2.
+    // The torus extends at most to z = r = 2 and y in [-R-r, R+r] = [-7, 7].
+    // Plane at (0,0,100) with normal [0, 1/√2, 1/√2] is well beyond the torus.
+    let plane_origin = [0.0, 0.0, 100.0];
+    let plane_normal = [0.0, FRAC_1_SQRT_2, FRAC_1_SQRT_2];
+    let torus_center = [0.0, 0.0, 0.0];
+    let torus_axis = [0.0, 0.0, 1.0];
+    let big_r = 5.0;
+    let small_r = 2.0;
+
+    let result = plane_torus_ssi(
+        plane_origin,
+        plane_normal,
+        torus_center,
+        torus_axis,
+        big_r,
+        small_r,
+    );
+
+    // The disjoint case should either:
+    // - Return Ok(empty) if the solver handles it, or
+    // - Return Err(NotSupported) in the current stub.
+    // Once implemented, it MUST return Ok(empty).
+    match result {
+        Ok(curves) => {
+            assert!(
+                curves.is_empty(),
+                "Disjoint oblique plane should produce 0 curves, got {}",
+                curves.len()
+            );
+        }
+        Err(KernelError::NotSupported { .. }) => {
+            // Current stub returns NotSupported for oblique planes.
+            // This is acceptable in the red phase but must become Ok(empty)
+            // once the general solver is implemented.
+            panic!(
+                "Disjoint oblique plane returned NotSupported — \
+                 general solver not yet implemented"
+            );
+        }
+        Err(e) => panic!("Unexpected error for disjoint case: {:?}", e),
+    }
+}
+
+#[test]
+fn pt_oblique_05_nearly_tangent() {
+    // Plane that just barely clips the torus.
+    // Torus: center (0,0,0), axis +Z, R=5, r=2. Max extent from center = R+r = 7.
+    // Use a plane that is oblique and nearly tangent to the outermost tube.
+    // Plane at origin (0, 6.99, 0), normal [0, 1, 0] (horizontal plane at y=6.99).
+    // Wait — that's perpendicular to [0,1,0], not oblique to torus axis.
+    // Instead: oblique plane normal [0, 1/√2, 1/√2], origin displaced so the plane
+    // barely touches the torus.
+    // The torus has all points P satisfying: (√(Px²+Py²) - 5)² + Pz² = 4.
+    // For normal n = [0, 1/√2, 1/√2], plane eq: n·P = d where d = n·origin.
+    // Max value of n·P on torus: we need max of (Py + Pz)/√2 over the torus.
+    // On the torus, Py = (5 + 2cos(φ)) sin(θ), Pz = 2sin(φ).
+    // n·P = [(5+2cosφ)sinθ + 2sinφ]/√2.
+    // Max when sinθ=1, then = [(5+2cosφ) + 2sinφ]/√2.
+    // Maximize f(φ) = 5 + 2cosφ + 2sinφ. f'(φ) = -2sinφ + 2cosφ = 0 → φ=π/4.
+    // f(π/4) = 5 + 2cos(π/4) + 2sin(π/4) = 5 + 2√2 ≈ 7.828.
+    // Max n·P = 7.828/√2 ≈ 5.535.
+    // So a plane with d slightly less than 5.535 barely clips the torus.
+    let max_d = (5.0 + 2.0 * std::f64::consts::SQRT_2) / std::f64::consts::SQRT_2;
+    let d = max_d - 0.01; // just barely intersecting
+                          // Plane origin: along normal direction at distance d.
+    let plane_normal = [0.0, FRAC_1_SQRT_2, FRAC_1_SQRT_2];
+    let plane_origin = [0.0, d * FRAC_1_SQRT_2, d * FRAC_1_SQRT_2];
+    let torus_center = [0.0, 0.0, 0.0];
+    let torus_axis = [0.0, 0.0, 1.0];
+    let big_r = 5.0;
+    let small_r = 2.0;
+
+    let curves = plane_torus_ssi(
+        plane_origin,
+        plane_normal,
+        torus_center,
+        torus_axis,
+        big_r,
+        small_r,
+    )
+    .expect("Nearly-tangent oblique plane-torus should return Ok");
+
+    // Could return a small curve or empty if below MIN_FEATURE_SIZE.
+    // Either way, no Line approximations allowed.
+    if !curves.is_empty() {
+        assert_no_line_approximations(&curves, "pt_oblique_05_nearly_tangent");
+
+        // Oracle: verify any returned points lie on both surfaces.
+        for (ci, curve) in curves.iter().enumerate() {
+            for i in 0..100 {
+                let t = i as f64 / 100.0;
+                if let Some(pt) = curve.evaluate_degree4(t) {
+                    assert_point_on_plane(pt, plane_origin, plane_normal);
+                    assert_point_on_torus(
+                        pt,
+                        torus_center,
+                        torus_axis,
+                        big_r,
+                        small_r,
+                        &format!("pt_oblique_05 curve {ci}"),
+                        i,
+                    );
+                }
+            }
+        }
+    }
+    // If empty, that's also acceptable for nearly-tangent (below MIN_FEATURE_SIZE extent).
+}
+
+#[test]
+fn pt_oblique_06_spindle_torus() {
+    // Spindle torus: r > R. R=2, r=5.
+    // Oblique plane at 45° through center.
+    // The algorithm should still produce analytical curves.
+    let plane_origin = [0.0, 0.0, 0.0];
+    let plane_normal = [0.0, FRAC_1_SQRT_2, FRAC_1_SQRT_2];
+    let torus_center = [0.0, 0.0, 0.0];
+    let torus_axis = [0.0, 0.0, 1.0];
+    let big_r = 2.0; // major radius (small)
+    let small_r = 5.0; // minor radius (large) — spindle torus
+
+    let curves = plane_torus_ssi(
+        plane_origin,
+        plane_normal,
+        torus_center,
+        torus_axis,
+        big_r,
+        small_r,
+    )
+    .expect("Spindle torus oblique plane should return Ok, not NotSupported");
+
+    assert!(
+        !curves.is_empty(),
+        "Spindle torus oblique plane through center should produce curves, got 0"
+    );
+
+    assert_no_line_approximations(&curves, "pt_oblique_06_spindle");
+
+    // Oracle: on-plane and on-torus checks.
+    for (ci, curve) in curves.iter().enumerate() {
+        for i in 0..100 {
+            let t = i as f64 / 100.0;
+            if let Some(pt) = curve.evaluate_degree4(t) {
+                assert_point_on_plane(pt, plane_origin, plane_normal);
+                assert_point_on_torus(
+                    pt,
+                    torus_center,
+                    torus_axis,
+                    big_r,
+                    small_r,
+                    &format!("pt_oblique_06 curve {ci}"),
+                    i,
+                );
+            }
+        }
+    }
+}
+
+// ── Plane-Torus Adversarial Tests ───────────────────────────────
+
+#[test]
+fn pt_adversarial_01_near_perpendicular() {
+    // Plane nearly perpendicular to axis: normal at 89° to equatorial plane.
+    // This means dot(normal, axis) is very close to 1 (cos 1° ≈ 0.99985).
+    // n_perp = sin(1°) ≈ 0.01745, which is above TAU_PARALLEL (1e-6),
+    // so it should take the oblique path.
+    let angle = 89.0_f64.to_radians(); // angle from equatorial plane
+    let cos_a = angle.cos(); // ≈ 0.01745 (component in equatorial plane)
+    let sin_a = angle.sin(); // ≈ 0.99985 (component along axis)
+    let plane_origin = [0.0, 0.0, 0.0];
+    let plane_normal = [0.0, cos_a, sin_a]; // nearly parallel to +Z axis
+    let torus_center = [0.0, 0.0, 0.0];
+    let torus_axis = [0.0, 0.0, 1.0];
+    let big_r = 5.0;
+    let small_r = 2.0;
+
+    let curves = plane_torus_ssi(
+        plane_origin,
+        plane_normal,
+        torus_center,
+        torus_axis,
+        big_r,
+        small_r,
+    )
+    .expect("Near-perpendicular plane-torus should return Ok");
+
+    // Through center, should get curves (either circles from perp path or degree4).
+    assert!(
+        !curves.is_empty(),
+        "Near-perpendicular plane through torus center should produce curves, got 0"
+    );
+
+    assert_no_line_approximations(&curves, "pt_adversarial_01");
+
+    // Oracle: on-plane and on-torus.
+    for (ci, curve) in curves.iter().enumerate() {
+        for i in 0..100 {
+            let t = i as f64 / 100.0;
+            if let Some(pt) = curve.evaluate_degree4(t) {
+                assert_point_on_plane(pt, plane_origin, plane_normal);
+                assert_point_on_torus(
+                    pt,
+                    torus_center,
+                    torus_axis,
+                    big_r,
+                    small_r,
+                    &format!("pt_adversarial_01 curve {ci}"),
+                    i,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn pt_adversarial_02_micro_torus() {
+    // Very small torus: R=1e-4, r=5e-5 (both above MIN_FEATURE_SIZE=1e-6).
+    // Oblique plane through center at 45°.
+    let plane_origin = [0.0, 0.0, 0.0];
+    let plane_normal = [0.0, FRAC_1_SQRT_2, FRAC_1_SQRT_2];
+    let torus_center = [0.0, 0.0, 0.0];
+    let torus_axis = [0.0, 0.0, 1.0];
+    let big_r = 1e-4;
+    let small_r = 5e-5;
+
+    let curves = plane_torus_ssi(
+        plane_origin,
+        plane_normal,
+        torus_center,
+        torus_axis,
+        big_r,
+        small_r,
+    )
+    .expect("Micro torus plane-torus should return Ok");
+
+    // The torus is tiny but above MIN_FEATURE_SIZE.
+    // Through center should produce curves (extent ~ 2*(R+r) = 3e-4 > MIN_FEATURE_SIZE).
+    if !curves.is_empty() {
+        assert_no_line_approximations(&curves, "pt_adversarial_02");
+
+        for (ci, curve) in curves.iter().enumerate() {
+            for i in 0..100 {
+                let t = i as f64 / 100.0;
+                if let Some(pt) = curve.evaluate_degree4(t) {
+                    assert_point_on_plane(pt, plane_origin, plane_normal);
+                    assert_point_on_torus(
+                        pt,
+                        torus_center,
+                        torus_axis,
+                        big_r,
+                        small_r,
+                        &format!("pt_adversarial_02 curve {ci}"),
+                        i,
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn pt_adversarial_03_extreme_aspect_ratio() {
+    // Flat torus: R=100, r=0.01 (aspect ratio 10000:1).
+    // 45° oblique plane through center.
+    let plane_origin = [0.0, 0.0, 0.0];
+    let plane_normal = [0.0, FRAC_1_SQRT_2, FRAC_1_SQRT_2];
+    let torus_center = [0.0, 0.0, 0.0];
+    let torus_axis = [0.0, 0.0, 1.0];
+    let big_r = 100.0;
+    let small_r = 0.01;
+
+    let curves = plane_torus_ssi(
+        plane_origin,
+        plane_normal,
+        torus_center,
+        torus_axis,
+        big_r,
+        small_r,
+    )
+    .expect("Extreme aspect ratio torus should return Ok");
+
+    // Through center, the torus tube is tiny but R is large.
+    // Should still produce curves.
+    assert!(
+        !curves.is_empty(),
+        "Extreme aspect ratio torus oblique through center should produce curves, got 0"
+    );
+
+    assert_no_line_approximations(&curves, "pt_adversarial_03");
+
+    for (ci, curve) in curves.iter().enumerate() {
+        for i in 0..100 {
+            let t = i as f64 / 100.0;
+            if let Some(pt) = curve.evaluate_degree4(t) {
+                assert_point_on_plane(pt, plane_origin, plane_normal);
+                assert_point_on_torus(
+                    pt,
+                    torus_center,
+                    torus_axis,
+                    big_r,
+                    small_r,
+                    &format!("pt_adversarial_03 curve {ci}"),
+                    i,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn pt_adversarial_04_plane_tangent_to_outer() {
+    // Plane tangent to the outer equator of the torus.
+    // Torus: center (0,0,0), axis +Z, R=5, r=2. Outer radius = R+r = 7.
+    // Oblique plane with normal [0, 1/√2, 1/√2].
+    // Max of n·P on torus was computed in pt_oblique_05: (5 + 2√2)/√2 ≈ 5.535.
+    // Set d = max_d exactly (tangent).
+    let max_d = (5.0 + 2.0 * std::f64::consts::SQRT_2) / std::f64::consts::SQRT_2;
+    let plane_normal = [0.0, FRAC_1_SQRT_2, FRAC_1_SQRT_2];
+    let plane_origin = [0.0, max_d * FRAC_1_SQRT_2, max_d * FRAC_1_SQRT_2];
+    let torus_center = [0.0, 0.0, 0.0];
+    let torus_axis = [0.0, 0.0, 1.0];
+    let big_r = 5.0;
+    let small_r = 2.0;
+
+    let curves = plane_torus_ssi(
+        plane_origin,
+        plane_normal,
+        torus_center,
+        torus_axis,
+        big_r,
+        small_r,
+    )
+    .expect("Tangent-to-outer plane-torus should return Ok");
+
+    // Tangent plane: should return empty or very small curves filtered by MIN_FEATURE_SIZE.
+    // Either outcome is acceptable.
+    if !curves.is_empty() {
+        assert_no_line_approximations(&curves, "pt_adversarial_04");
+        for (ci, curve) in curves.iter().enumerate() {
+            for i in 0..100 {
+                let t = i as f64 / 100.0;
+                if let Some(pt) = curve.evaluate_degree4(t) {
+                    assert_point_on_plane(pt, plane_origin, plane_normal);
+                    assert_point_on_torus(
+                        pt,
+                        torus_center,
+                        torus_axis,
+                        big_r,
+                        small_r,
+                        &format!("pt_adversarial_04 curve {ci}"),
+                        i,
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn pt_adversarial_05_plane_tangent_to_hole() {
+    // Plane tangent to the inner hole of the torus.
+    // Torus: center (0,0,0), axis +Z, R=5, r=2. Inner radius = R-r = 3.
+    // For an oblique plane with normal [1/√2, 0, 1/√2], the max of n·P
+    // considering only x-component radial direction:
+    // P_x = (5 + 2cosφ)cosθ, P_z = 2sinφ
+    // n·P = [(5+2cosφ)cosθ + 2sinφ]/√2
+    // For the inner hole tangent, use a plane that passes through (R-r, 0, 0) = (3, 0, 0)
+    // with normal along [1, 0, 0] (perpendicular to torus equator at inner edge).
+    // But we want oblique, so use normal [1/√2, 0, 1/√2] and shift the plane to
+    // be tangent to the inner equator ring.
+    // Inner equator: circle at z=0, radius R-r=3.
+    // The point (3, 0, 0) is on the inner equator.
+    // n · (3, 0, 0) = 3/√2 ≈ 2.121.
+    // But to be truly tangent, we need to find the max n·P on the torus surface
+    // that touches the inner region. This is tricky to compute exactly.
+    // Instead, use a simpler approach: offset the plane so d' = (R-r)*n_perp
+    // which places it tangent to the inner hole in the perpendicular case.
+    let plane_normal = [FRAC_1_SQRT_2, 0.0, FRAC_1_SQRT_2];
+    // For perpendicular inner tangent: d = R - r = 3.
+    // For oblique, we approximate by placing origin at scaled inner radius.
+    let d_approx = 3.0 * FRAC_1_SQRT_2; // scale by n_perp component
+    let plane_origin = [d_approx * FRAC_1_SQRT_2, 0.0, d_approx * FRAC_1_SQRT_2];
+    let torus_center = [0.0, 0.0, 0.0];
+    let torus_axis = [0.0, 0.0, 1.0];
+    let big_r = 5.0;
+    let small_r = 2.0;
+
+    let result = plane_torus_ssi(
+        plane_origin,
+        plane_normal,
+        torus_center,
+        torus_axis,
+        big_r,
+        small_r,
+    );
+
+    match result {
+        Ok(curves) => {
+            // May return curves or empty depending on exact tangency.
+            if !curves.is_empty() {
+                assert_no_line_approximations(&curves, "pt_adversarial_05");
+                for (ci, curve) in curves.iter().enumerate() {
+                    for i in 0..100 {
+                        let t = i as f64 / 100.0;
+                        if let Some(pt) = curve.evaluate_degree4(t) {
+                            assert_point_on_plane(pt, plane_origin, plane_normal);
+                            assert_point_on_torus(
+                                pt,
+                                torus_center,
+                                torus_axis,
+                                big_r,
+                                small_r,
+                                &format!("pt_adversarial_05 curve {ci}"),
+                                i,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        Err(e) => panic!("Tangent-to-hole plane returned error: {:?}", e),
+    }
+}
+
+#[test]
+fn pt_adversarial_06_degenerate_through_axis_offset() {
+    // Plane perpendicular to torus axis (n_a ≈ 1) but NOT through center (d' ≠ 0).
+    // Normal = [0, 0, 1] (parallel to axis), but plane at z=1.
+    // This should hit the perpendicular path (n_perp < TAU_PARALLEL) since
+    // normal is exactly along axis.
+    // The plane at z=1 intersects a torus with r=2, so |d|=1 < r → 2 circles.
+    //
+    // Now test a DIFFERENT degenerate case: normal nearly along axis but slightly off.
+    // normal = [1e-7, 0, 1-epsilon] (nearly +Z). n_perp ≈ 1e-7, barely at TAU_PARALLEL.
+    // d' ≠ 0 (offset from center).
+    let tiny = 1e-7; // at TAU_PARALLEL boundary
+    let nz = (1.0_f64 - tiny * tiny).sqrt();
+    let plane_normal = [tiny, 0.0, nz];
+    let plane_origin = [0.0, 0.0, 1.0]; // offset by z=1
+    let torus_center = [0.0, 0.0, 0.0];
+    let torus_axis = [0.0, 0.0, 1.0];
+    let big_r = 5.0;
+    let small_r = 2.0;
+
+    // n_perp ≈ tiny ≈ 1e-7. Since TAU_PARALLEL = 1e-6,
+    // n_perp < TAU_PARALLEL → perpendicular path.
+    // d = axis · (plane_origin - center) = 1.0, |d| < r=2 → 2 circles.
+    let curves = plane_torus_ssi(
+        plane_origin,
+        plane_normal,
+        torus_center,
+        torus_axis,
+        big_r,
+        small_r,
+    )
+    .expect("Near-axis offset plane should return Ok");
+
+    assert!(
+        !curves.is_empty(),
+        "Near-axis offset plane should intersect torus, got 0 curves"
+    );
+
+    // Points should lie approximately on both surfaces.
+    // For circles, use evaluate_circle; for degree4, use evaluate_degree4.
+    for curve in &curves {
+        match curve {
+            SSICurve::Circle {
+                center,
+                radius,
+                normal,
+            } => {
+                // Verify circle lies approximately on plane and torus
+                // Circle center should be near z=1 (the plane offset)
+                let dot = plane_normal[0] * (center[0] - plane_origin[0])
+                    + plane_normal[1] * (center[1] - plane_origin[1])
+                    + plane_normal[2] * (center[2] - plane_origin[2]);
+                assert!(dot.abs() < 0.01, "Circle center off-plane by {dot}");
+                assert!(*radius > 0.0, "Circle radius should be positive");
+                let _ = normal; // suppress unused warning
+            }
+            _ => {
+                // Degree4 curves also acceptable at boundary
+                for i in 0..100 {
+                    let t = i as f64 / 100.0;
+                    if let Some(pt) = curve.evaluate_degree4(t) {
+                        assert_point_on_torus(
+                            pt,
+                            torus_center,
+                            torus_axis,
+                            big_r,
+                            small_r,
+                            "pt_adversarial_06",
+                            i,
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn pt_adversarial_07_no_nan() {
+    // Sweep 12 evenly-spaced plane orientations and assert no NaN in any result.
+    let torus_center = [0.0, 0.0, 0.0];
+    let torus_axis = [0.0, 0.0, 1.0];
+    let big_r = 5.0;
+    let small_r = 2.0;
+
+    for k in 0..12 {
+        let angle = (k as f64) * std::f64::consts::TAU / 12.0;
+        // Rotate normal in the YZ plane from [0,0,1] toward [0,1,0]
+        let ny = angle.sin();
+        let nz = angle.cos();
+        // Ensure unit length (it already is since sin²+cos²=1)
+        let plane_normal = [0.0, ny, nz];
+        let plane_origin = [0.0, 0.0, 0.0]; // through center
+
+        let result = plane_torus_ssi(
+            plane_origin,
+            plane_normal,
+            torus_center,
+            torus_axis,
+            big_r,
+            small_r,
+        );
+
+        match result {
+            Ok(curves) => {
+                for (ci, curve) in curves.iter().enumerate() {
+                    for i in 0..50 {
+                        let t = i as f64 / 50.0;
+                        // Try both degree4 and circle evaluations
+                        if let Some(pt) = curve.evaluate_degree4(t) {
+                            assert!(
+                                !pt[0].is_nan() && !pt[1].is_nan() && !pt[2].is_nan(),
+                                "NaN in pt_adversarial_07: orientation k={k}, \
+                                 curve {ci}, sample {i}, pt={pt:?}"
+                            );
+                            assert!(
+                                pt[0].is_finite() && pt[1].is_finite() && pt[2].is_finite(),
+                                "Inf in pt_adversarial_07: orientation k={k}, \
+                                 curve {ci}, sample {i}, pt={pt:?}"
+                            );
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                panic!(
+                    "pt_adversarial_07: orientation k={k} (angle={:.1}°) returned error: {:?}",
+                    angle.to_degrees(),
+                    e
+                );
+            }
+        }
     }
 }
 

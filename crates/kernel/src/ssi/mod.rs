@@ -234,6 +234,37 @@ pub(crate) enum SSICurve {
         /// Branch sign: +1.0 or -1.0
         sign: f64,
     },
+    /// A degree-4 parametric intersection curve between a plane and a torus (spiric section).
+    /// Parametrized by angle θ on the torus major circle. At each valid θ, the harmonic
+    /// equation p·cos φ + q·sin φ = c is solved for φ, giving two branches (±Δφ).
+    /// P(θ, φ) = center + (R + r·cos φ)·(cos θ·u + sin θ·v) + r·sin φ·axis
+    /// Ref #1: Patrikalakis Ch.5 — plane-torus spiric section.
+    Degree4PlaneTorus {
+        /// Torus center point
+        torus_center: [f64; 3],
+        /// Torus axis direction (unit)
+        torus_axis: [f64; 3],
+        /// Torus major radius R
+        torus_major_radius: f64,
+        /// Torus minor radius r
+        torus_minor_radius: f64,
+        /// Basis vector perpendicular to torus axis
+        u_dir: [f64; 3],
+        /// Second basis vector (axis × u_dir)
+        v_dir: [f64; 3],
+        /// plane_normal · u_dir
+        n_u: f64,
+        /// plane_normal · v_dir
+        n_v: f64,
+        /// plane_normal · torus_axis
+        n_a: f64,
+        /// Signed distance: n · plane_origin - n · torus_center
+        d_prime: f64,
+        /// Valid θ range where discriminant ≥ 0
+        theta_range: (f64, f64),
+        /// Branch sign: +1.0 or -1.0 for ±Δφ
+        sign: f64,
+    },
 }
 
 impl SSICurve {
@@ -269,6 +300,77 @@ impl SSICurve {
                 let wy = center[1] + lx * frame[0][1] + ly * frame[1][1] + lz * frame[2][1];
                 let wz = center[2] + lx * frame[0][2] + ly * frame[1][2] + lz * frame[2][2];
                 Some([wx, wy, wz])
+            }
+            SSICurve::Degree4PlaneTorus {
+                torus_center,
+                torus_axis,
+                torus_major_radius,
+                torus_minor_radius,
+                u_dir,
+                v_dir,
+                n_u,
+                n_v,
+                n_a,
+                d_prime,
+                theta_range,
+                sign,
+            } => {
+                // Ref #1: Patrikalakis Ch.5 — plane-torus spiric section
+                // Map t ∈ [0, 1] to θ within theta_range
+                let (th_min, th_max) = *theta_range;
+                let theta = th_min + theta * (th_max - th_min);
+                let big_r = *torus_major_radius;
+                let r = *torus_minor_radius;
+
+                let cos_t = theta.cos();
+                let sin_t = theta.sin();
+
+                // A(θ) = n_u·cos θ + n_v·sin θ
+                let a_theta = n_u * cos_t + n_v * sin_t;
+
+                // Harmonic equation: p·cos φ + q·sin φ = c
+                let p = r * a_theta;
+                let q = r * n_a;
+                let c = d_prime - big_r * a_theta;
+
+                let mag_sq = p * p + q * q;
+                if mag_sq < TOL * TOL {
+                    return None;
+                }
+                let mag = mag_sq.sqrt();
+
+                let raw_ratio = c / mag;
+                // Discriminant check: |c/mag| > 1 means no solution at this θ
+                if raw_ratio.abs() > 1.0 + TOL {
+                    return None;
+                }
+                let ratio = raw_ratio.clamp(-1.0, 1.0);
+                let phi0 = q.atan2(p);
+                let delta_phi = ratio.acos();
+                let phi = phi0 + sign * delta_phi;
+
+                // P(θ, φ) = center + (R + r·cos φ)·(cos θ·u + sin θ·v) + r·sin φ·axis
+                let cos_phi = phi.cos();
+                let sin_phi = phi.sin();
+                let rho = big_r + r * cos_phi;
+
+                // For spindle torus (r > R), ρ < 0 means the parametric point
+                // wraps through the axis and is not on the implicit torus surface.
+                if rho < -TOL {
+                    return None;
+                }
+
+                let px = torus_center[0]
+                    + rho * (cos_t * u_dir[0] + sin_t * v_dir[0])
+                    + r * sin_phi * torus_axis[0];
+                let py = torus_center[1]
+                    + rho * (cos_t * u_dir[1] + sin_t * v_dir[1])
+                    + r * sin_phi * torus_axis[1];
+                let pz = torus_center[2]
+                    + rho * (cos_t * u_dir[2] + sin_t * v_dir[2])
+                    + r * sin_phi * torus_axis[2];
+
+                Some([px, py, pz])
             }
             _ => None,
         }
@@ -2276,12 +2378,28 @@ pub(crate) fn cone_sphere_ssi(
 
 // ── Plane-Torus SSI ───────────────────────────────────────────────────────
 
+/// Map a valid A range [a_lo, a_hi] to a θ range, given A(θ) = n_perp·cos(θ - θ₀).
+/// Returns Some((θ_min, θ_max)) or None if the range is empty.
+///
+/// Since the valid θ values may form a non-contiguous set (two arcs), we always
+/// return the full [0, 2π] and let the evaluator return None for invalid θ values.
+/// This is correct because evaluate_degree4 checks the discriminant at each θ.
+fn a_range_to_theta_range(
+    _a_lo: f64,
+    _a_hi: f64,
+    _n_perp: f64,
+    _theta0: f64,
+) -> Option<(f64, f64)> {
+    Some((0.0, std::f64::consts::TAU))
+}
+
 /// Compute SSI between a plane and a torus.
 ///
-/// Supports perpendicular planes (normal ∥ torus axis) with exact circle solutions.
-/// Non-perpendicular orientations return NotSupported (degree-4 curves deferred).
+/// Supports all orientations:
+/// - Perpendicular planes (normal ∥ torus axis): exact circle solutions.
+/// - Oblique planes: degree-4 spiric section curves (Degree4PlaneTorus).
 ///
-/// Reference: Patrikalakis Ch.5 — Torus-plane SSI.
+/// Ref #1: Patrikalakis Ch.5 — plane-torus spiric section.
 pub(crate) fn plane_torus_ssi(
     plane_origin: [f64; 3],
     plane_normal: [f64; 3],
@@ -2290,57 +2408,277 @@ pub(crate) fn plane_torus_ssi(
     torus_major_radius: f64,
     torus_minor_radius: f64,
 ) -> Result<Vec<SSICurve>, KernelError> {
-    // Step 1: Check if plane normal is parallel to torus axis
-    let dot_na = v3_dot(plane_normal, torus_axis).abs();
-    if dot_na < 1.0 - TOL {
-        return Err(KernelError::NotSupported {
-            operation: "plane_torus_ssi: non-perpendicular plane".into(),
-        });
-    }
-
-    // Step 2: Perpendicular plane — compute signed distance along axis
-    let diff = v3_sub(plane_origin, torus_center);
-    let d = v3_dot(diff, torus_axis);
-    let r = torus_minor_radius;
     let big_r = torus_major_radius;
+    let r = torus_minor_radius;
 
-    // Disjoint: plane misses the torus tube entirely
-    if d.abs() > r + TOL {
-        return Ok(vec![]);
-    }
+    // Build orthonormal basis perpendicular to torus axis
+    let (u_dir, v_dir) = compute_plane_basis(torus_axis);
 
-    let mut curves = Vec::new();
+    // Compute projections of plane normal onto torus frame
+    let n_u = v3_dot(plane_normal, u_dir);
+    let n_v = v3_dot(plane_normal, v_dir);
+    let n_a = v3_dot(plane_normal, torus_axis);
+    let n_perp = (n_u * n_u + n_v * n_v).sqrt();
 
-    // Circle center: project torus center onto plane along axis at height d
-    let circle_center = v3_add(torus_center, v3_scale(torus_axis, d));
+    // d' = n · plane_origin - n · torus_center
+    let d_prime = v3_dot(plane_normal, plane_origin) - v3_dot(plane_normal, torus_center);
 
-    if (d.abs() - r).abs() < TOL {
-        // Tangent case: |d| ≈ r → single circle at radius R
-        curves.push(SSICurve::Circle {
-            center: circle_center,
-            normal: torus_axis,
-            radius: big_r,
-        });
-    } else {
-        // General case: 2 circles at radii R ± sqrt(r² - d²)
-        let s = (r * r - d * d).sqrt();
-        let r_outer = big_r + s;
-        let r_inner = big_r - s;
+    // ── Perpendicular case: n_perp ≈ 0 (plane normal ∥ torus axis) ──
+    if n_perp < TAU_PARALLEL {
+        // Signed distance along axis
+        let diff = v3_sub(plane_origin, torus_center);
+        let d = v3_dot(diff, torus_axis);
 
-        // Only emit inner circle if its radius is positive (handles spindle torus)
-        if r_inner > TOL {
+        // Disjoint: plane misses the torus tube entirely
+        if d.abs() > r + TOL {
+            return Ok(vec![]);
+        }
+
+        let mut curves = Vec::new();
+        let circle_center = v3_add(torus_center, v3_scale(torus_axis, d));
+
+        if (d.abs() - r).abs() < TOL {
+            // Tangent case: |d| ≈ r → single circle at radius R
             curves.push(SSICurve::Circle {
                 center: circle_center,
                 normal: torus_axis,
-                radius: r_inner,
+                radius: big_r,
+            });
+        } else {
+            // General case: 2 circles at radii R ± sqrt(r² - d²)
+            let s = (r * r - d * d).sqrt();
+            let r_outer = big_r + s;
+            let r_inner = big_r - s;
+
+            if r_inner > TOL {
+                curves.push(SSICurve::Circle {
+                    center: circle_center,
+                    normal: torus_axis,
+                    radius: r_inner,
+                });
+            }
+
+            curves.push(SSICurve::Circle {
+                center: circle_center,
+                normal: torus_axis,
+                radius: r_outer,
             });
         }
 
-        curves.push(SSICurve::Circle {
-            center: circle_center,
-            normal: torus_axis,
-            radius: r_outer,
-        });
+        return Ok(curves);
+    }
+
+    // ── Degenerate case: n_a ≈ 0 AND d' ≈ 0 ──
+    // When the plane contains the torus center and is perpendicular to the axis,
+    // the intersection degenerates to 2 tube cross-section circles at the θ values
+    // where A(θ) = 0 (the plane crosses the centerline circle).
+    // Ref #1: Patrikalakis Ch.5 — degenerate spiric section
+    if n_a.abs() < TAU_PARALLEL && d_prime.abs() < TOL {
+        let mut curves = Vec::new();
+        let theta0 = n_v.atan2(n_u);
+        // A(θ) = 0 at θ = θ₀ + π/2 and θ = θ₀ + 3π/2
+        for &offset in &[
+            std::f64::consts::FRAC_PI_2,
+            3.0 * std::f64::consts::FRAC_PI_2,
+        ] {
+            let theta = theta0 + offset;
+            let ct = theta.cos();
+            let st = theta.sin();
+            // Radial direction at this θ
+            let e_r = [
+                ct * u_dir[0] + st * v_dir[0],
+                ct * u_dir[1] + st * v_dir[1],
+                ct * u_dir[2] + st * v_dir[2],
+            ];
+            // Tube center
+            let center = v3_add(torus_center, v3_scale(e_r, big_r));
+            // Circle normal = tangent to centerline = e_θ = -sin θ·u + cos θ·v
+            // But for the tube cross-section circle lying in the plane spanned by
+            // e_r and axis, the normal is perpendicular to that plane: e_r × axis.
+            let normal = v3_cross(e_r, torus_axis);
+            let nlen = v3_length(normal);
+            let normal = if nlen > TAU_NORMALIZE {
+                v3_scale(normal, 1.0 / nlen)
+            } else {
+                // Fallback (shouldn't happen since e_r ⊥ axis)
+                torus_axis
+            };
+            curves.push(SSICurve::Circle {
+                center,
+                normal,
+                radius: r,
+            });
+        }
+        return Ok(curves);
+    }
+
+    // ── Oblique case: general plane-torus intersection ──
+    // Ref #1: Patrikalakis Ch.5 — plane-torus spiric section
+    //
+    // A(θ) = n_u·cos θ + n_v·sin θ = n_perp·cos(θ - θ₀)
+    // The discriminant condition: r²·(A² + n_a²) ≥ (d' - R·A)²
+    // Expands to quadratic in A: (r² - R²)·A² + 2d'R·A + r²·n_a² - d'² ≥ 0
+    //
+    // Since A ∈ [-n_perp, n_perp], we find the valid A range, then map to θ range.
+
+    let theta0 = n_v.atan2(n_u);
+
+    // Quadratic in A: alpha·A² + beta·A + gamma ≥ 0
+    let alpha = r * r - big_r * big_r;
+    let beta = 2.0 * d_prime * big_r;
+    let gamma = r * r * n_a * n_a - d_prime * d_prime;
+
+    // Find valid θ range by analyzing the quadratic f(A) = alpha·A² + beta·A + gamma
+    // over A ∈ [-n_perp, n_perp].
+    let theta_range = {
+        // Evaluate f at the endpoints and check discriminant of the quadratic
+        let f_at = |a: f64| -> f64 { alpha * a * a + beta * a + gamma };
+
+        let _f_neg = f_at(-n_perp);
+        let _f_pos = f_at(n_perp);
+
+        // Discriminant of the quadratic in A
+        let disc_a = beta * beta - 4.0 * alpha * gamma;
+
+        if disc_a < 0.0 {
+            // Quadratic has no real roots
+            // Check sign at any point in range
+            let f_mid = f_at(0.0);
+            if f_mid >= 0.0 {
+                // Always non-negative → full range
+                Some((0.0, std::f64::consts::TAU))
+            } else {
+                // Always negative → disjoint
+                None
+            }
+        } else {
+            let sqrt_disc = disc_a.sqrt();
+            let a_root1 = (-beta - sqrt_disc) / (2.0 * alpha.max(TAU_WORK).copysign(alpha));
+            let a_root2 = (-beta + sqrt_disc) / (2.0 * alpha.max(TAU_WORK).copysign(alpha));
+
+            // Handle degenerate alpha ≈ 0 (linear in A)
+            if alpha.abs() < TAU_WORK {
+                // Linear: beta·A + gamma ≥ 0
+                if beta.abs() < TAU_WORK {
+                    // Constant: gamma ≥ 0?
+                    if gamma >= -TOL {
+                        Some((0.0, std::f64::consts::TAU))
+                    } else {
+                        None
+                    }
+                } else {
+                    // A ≥ -gamma/beta (if beta > 0) or A ≤ -gamma/beta (if beta < 0)
+                    let a_boundary = -gamma / beta;
+                    let (a_lo, a_hi) = if beta > 0.0 {
+                        (a_boundary, n_perp)
+                    } else {
+                        (-n_perp, a_boundary)
+                    };
+                    if a_lo > n_perp + TOL || a_hi < -n_perp - TOL {
+                        None
+                    } else {
+                        let a_lo = a_lo.clamp(-n_perp, n_perp);
+                        let a_hi = a_hi.clamp(-n_perp, n_perp);
+                        a_range_to_theta_range(a_lo, a_hi, n_perp, theta0)
+                    }
+                }
+            } else {
+                let (a_lo_root, a_hi_root) = if a_root1 <= a_root2 {
+                    (a_root1, a_root2)
+                } else {
+                    (a_root2, a_root1)
+                };
+
+                if alpha > 0.0 {
+                    // Parabola opens up: f ≥ 0 outside [a_lo_root, a_hi_root]
+                    // Valid A: [-n_perp, a_lo_root] ∪ [a_hi_root, n_perp]
+                    // For simplicity, take the full range if the gap is small,
+                    // or the union. Since our parametric curves need contiguous ranges,
+                    // we take the full [0, 2π] and let the evaluator handle
+                    // the points where discriminant dips negative by returning None.
+                    if a_lo_root > n_perp + TOL || a_hi_root < -n_perp - TOL {
+                        // Roots outside range → always positive
+                        Some((0.0, std::f64::consts::TAU))
+                    } else if a_lo_root >= n_perp - TOL && a_hi_root <= -n_perp + TOL {
+                        // Both roots at boundary → tangent, likely thin
+                        Some((0.0, std::f64::consts::TAU))
+                    } else {
+                        // There's a gap in the middle. Use full range, evaluator
+                        // returns None for invalid θ.
+                        Some((0.0, std::f64::consts::TAU))
+                    }
+                } else {
+                    // Parabola opens down: f ≥ 0 inside [a_lo_root, a_hi_root]
+                    // Intersect with [-n_perp, n_perp]
+                    let a_lo = a_lo_root.max(-n_perp);
+                    let a_hi = a_hi_root.min(n_perp);
+
+                    if a_lo > a_hi + TOL {
+                        // No valid range
+                        None
+                    } else {
+                        a_range_to_theta_range(a_lo.min(a_hi), a_hi.max(a_lo), n_perp, theta0)
+                    }
+                }
+            }
+        }
+    };
+
+    let theta_range = match theta_range {
+        Some(range) => range,
+        None => return Ok(vec![]), // Disjoint
+    };
+
+    // Emit two branches: sign = +1 and -1
+    let mut curves = Vec::new();
+    for &branch_sign in &[1.0_f64, -1.0_f64] {
+        // Check if this branch produces a curve with meaningful extent
+        // by sampling a few points and checking if any are valid.
+        let mut has_valid = false;
+        let mut min_pt = [f64::MAX; 3];
+        let mut max_pt = [f64::MIN; 3];
+        let n_samples = 32;
+
+        let candidate = SSICurve::Degree4PlaneTorus {
+            torus_center,
+            torus_axis,
+            torus_major_radius: big_r,
+            torus_minor_radius: r,
+            u_dir,
+            v_dir,
+            n_u,
+            n_v,
+            n_a,
+            d_prime,
+            theta_range,
+            sign: branch_sign,
+        };
+
+        for i in 0..n_samples {
+            let t = i as f64 / n_samples as f64;
+            if let Some(pt) = candidate.evaluate_degree4(t) {
+                has_valid = true;
+                for k in 0..3 {
+                    if pt[k] < min_pt[k] {
+                        min_pt[k] = pt[k];
+                    }
+                    if pt[k] > max_pt[k] {
+                        max_pt[k] = pt[k];
+                    }
+                }
+            }
+        }
+
+        if has_valid {
+            // Check extent (bounding box diagonal)
+            let dx = max_pt[0] - min_pt[0];
+            let dy = max_pt[1] - min_pt[1];
+            let dz = max_pt[2] - min_pt[2];
+            let extent = (dx * dx + dy * dy + dz * dz).sqrt();
+            if extent >= crate::units::MIN_FEATURE_SIZE {
+                curves.push(candidate);
+            }
+        }
     }
 
     Ok(curves)
