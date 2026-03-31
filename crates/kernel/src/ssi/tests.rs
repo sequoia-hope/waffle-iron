@@ -8330,7 +8330,9 @@ fn adv2_sample_and_validate(
                         // Verify on both surfaces (relaxed tolerance for extreme configs).
                         // Scale-adaptive: use TAU_MODEL or radius-relative, clamped to MIN_FEATURE_SIZE.
                         use crate::units::MIN_FEATURE_SIZE;
-                        let tol = TAU_MODEL.max(cyl_radius * TAU_MODEL).max(MIN_FEATURE_SIZE * 0.1);
+                        let tol = TAU_MODEL
+                            .max(cyl_radius * TAU_MODEL)
+                            .max(MIN_FEATURE_SIZE * 0.1);
                         assert_on_cylinder(
                             pt,
                             cyl_origin,
@@ -12832,9 +12834,7 @@ fn test_cone_cone_adversarial_anti_parallel_axes() {
     );
     for curve in &curves {
         if let SSICurve::Degree4ConeCone { .. } = curve {
-            validate_degree4_cone_cone(
-                curve, apex_a, axis_a, half_40, apex_b, axis_b, half_40, 32,
-            );
+            validate_degree4_cone_cone(curve, apex_a, axis_a, half_40, apex_b, axis_b, half_40, 32);
         }
     }
 }
