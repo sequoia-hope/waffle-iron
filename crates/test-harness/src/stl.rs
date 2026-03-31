@@ -2,6 +2,7 @@
 
 use crate::helpers::HarnessError;
 use kernel::types::RenderMesh;
+use kernel::units::TAU_WORK;
 
 /// Export a RenderMesh as a binary STL file.
 ///
@@ -63,7 +64,7 @@ pub fn export_binary_stl(mesh: &RenderMesh, name: &str) -> Result<Vec<u8>, Harne
         let ny = az * bx - ax * bz;
         let nz = ax * by - ay * bx;
         let len = (nx * nx + ny * ny + nz * nz).sqrt();
-        let (nx, ny, nz) = if len > 1e-12 {
+        let (nx, ny, nz) = if len > TAU_WORK as f32 {
             (nx / len, ny / len, nz / len)
         } else {
             (0.0f32, 0.0, 1.0)
@@ -133,7 +134,7 @@ pub fn export_ascii_stl(mesh: &RenderMesh, name: &str) -> Result<String, Harness
         let ny = az * bx - ax * bz;
         let nz = ax * by - ay * bx;
         let len = (nx * nx + ny * ny + nz * nz).sqrt();
-        let (nx, ny, nz) = if len > 1e-12 {
+        let (nx, ny, nz) = if len > TAU_WORK as f32 {
             (nx / len, ny / len, nz / len)
         } else {
             (0.0f32, 0.0, 1.0)

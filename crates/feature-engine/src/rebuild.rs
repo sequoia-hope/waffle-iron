@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use kernel::units::TAU_WORK;
 use modeling_ops::{
     execute_boolean, execute_chamfer, execute_extrude, execute_fillet, execute_revolve,
     execute_shell, BooleanKind, OpResult,
@@ -625,7 +626,7 @@ fn resolve_depth(
                 + direction[1] * direction[1]
                 + direction[2] * direction[2])
                 .sqrt();
-            if dir_len < 1e-12 {
+            if dir_len < TAU_WORK {
                 return Err(EngineError::ResolutionFailed {
                     reason: "Extrude direction is zero-length".into(),
                 });
@@ -668,7 +669,7 @@ fn compute_solid_extent(
     let dir_len =
         (direction[0] * direction[0] + direction[1] * direction[1] + direction[2] * direction[2])
             .sqrt();
-    if dir_len < 1e-12 {
+    if dir_len < TAU_WORK {
         return 0.0;
     }
     let dir_norm = [
@@ -942,7 +943,7 @@ fn resolve_plane_definition(
         PlaneDefinition::PointNormal { origin, normal } => {
             let len =
                 (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
-            if len < 1e-12 {
+            if len < TAU_WORK {
                 return Err(EngineError::ResolutionFailed {
                     reason: "Datum plane normal is zero-length".into(),
                 });
@@ -1019,7 +1020,7 @@ fn tangent_x_from_normal(n: [f64; 3]) -> [f64; 3] {
         ref_vec[0] * n[1] - ref_vec[1] * n[0],
     ];
     let len = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
-    if len < 1e-12 {
+    if len < TAU_WORK {
         return [1.0, 0.0, 0.0];
     }
     [cx[0] / len, cx[1] / len, cx[2] / len]

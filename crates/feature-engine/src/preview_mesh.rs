@@ -1,3 +1,4 @@
+use kernel::units::TAU_WORK;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -112,7 +113,7 @@ pub fn decimate_mesh(
         let ny = accum.nrm_sum[1] / c;
         let nz = accum.nrm_sum[2] / c;
         let len = (nx * nx + ny * ny + nz * nz).sqrt();
-        if len > 1e-12 {
+        if len > TAU_WORK {
             out_normals.push((nx / len) as f32);
             out_normals.push((ny / len) as f32);
             out_normals.push((nz / len) as f32);
