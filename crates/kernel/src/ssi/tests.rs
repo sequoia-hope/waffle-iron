@@ -550,11 +550,73 @@ fn test_plane_cone_oblique_empty() {
     );
     let curves = result.expect("Parabola case should return Ok");
     assert_eq!(curves.len(), 1, "Should return one parabola");
-    assert!(
-        matches!(curves[0], SSICurve::Parabola { .. }),
-        "Expected Parabola, got {:?}",
-        curves[0]
-    );
+    if let SSICurve::Parabola {
+        vertex,
+        axis_dir,
+        normal: n,
+        focal_length,
+        t_range,
+    } = &curves[0]
+    {
+        // Verify focal_length is positive and finite
+        assert!(
+            *focal_length > 0.0 && focal_length.is_finite(),
+            "focal_length={}",
+            focal_length
+        );
+
+        // Sample 5 points along the parabola and verify each lies on both surfaces:
+        // - Plane: dot(pt - plane_origin, plane_normal) ≈ 0
+        // - Cone: distance from axis ≈ z · tan(half_angle)
+        let perp = {
+            let cx = n[1] * axis_dir[2] - n[2] * axis_dir[1];
+            let cy = n[2] * axis_dir[0] - n[0] * axis_dir[2];
+            let cz = n[0] * axis_dir[1] - n[1] * axis_dir[0];
+            let len = (cx * cx + cy * cy + cz * cz).sqrt();
+            [cx / len, cy / len, cz / len]
+        };
+        let plane_origin = [0.0, 0.0, 5.0];
+        let plane_normal = normal;
+        let cone_apex = [0.0, 0.0, 0.0];
+        let half_angle = FRAC_PI_4;
+
+        for i in 0..5 {
+            let frac = i as f64 / 4.0;
+            let t = t_range.0 + frac * (t_range.1 - t_range.0);
+            let pt = [
+                vertex[0] + t * perp[0] + (t * t / (4.0 * focal_length)) * axis_dir[0],
+                vertex[1] + t * perp[1] + (t * t / (4.0 * focal_length)) * axis_dir[1],
+                vertex[2] + t * perp[2] + (t * t / (4.0 * focal_length)) * axis_dir[2],
+            ];
+            // Check point lies on plane
+            let dx = pt[0] - plane_origin[0];
+            let dy = pt[1] - plane_origin[1];
+            let dz = pt[2] - plane_origin[2];
+            let plane_dist =
+                (dx * plane_normal[0] + dy * plane_normal[1] + dz * plane_normal[2]).abs();
+            assert!(
+                plane_dist < EPS,
+                "Sample t={:.3}: plane distance {:.2e} exceeds EPS",
+                t,
+                plane_dist
+            );
+            // Check point lies on cone surface: r / z ≈ tan(half_angle)
+            let rx = pt[0] - cone_apex[0];
+            let ry = pt[1] - cone_apex[1];
+            let z = pt[2] - cone_apex[2];
+            let r = (rx * rx + ry * ry).sqrt();
+            let expected_r = z * half_angle.tan();
+            let cone_err = (r - expected_r).abs();
+            assert!(
+                cone_err < EPS,
+                "Sample t={:.3}: cone error {:.2e} exceeds EPS",
+                t,
+                cone_err
+            );
+        }
+    } else {
+        panic!("Expected Parabola, got {:?}", curves[0]);
+    }
 }
 
 // ── Point-in-Sphere ───────────────────────────────────────────────
@@ -12280,9 +12342,10 @@ fn validate_degree4_cone_cone(
     half_angle_b: f64,
     n_samples: usize,
 ) {
+    use crate::units::SSI_SURFACE_ERROR_BOUND;
     let tan_a = half_angle_a.tan();
     let tan_b = half_angle_b.tan();
-    let tol = 1e-5;
+    let tol = SSI_SURFACE_ERROR_BOUND;
 
     for i in 0..n_samples {
         let t = (i as f64 + 0.5) / (n_samples as f64);
@@ -12508,6 +12571,10 @@ fn test_cone_cone_same_apex_oblique_analytical() {
     for curve in &curves {
         if matches!(curve, SSICurve::Degree4ConeCone { .. }) {
             found_degree4 = true;
+            // NOTE(audit 2026-03-31): validate_degree4_cone_cone not called here because
+            // the same-apex oblique solver produces surface errors ~7.5e-4, well above
+            // SSI_SURFACE_ERROR_BOUND (1e-5). The solver needs accuracy improvement before
+            // oracle validation can be enabled. See A15.4 cone-cone partial status.
         }
     }
     assert!(
@@ -12546,6 +12613,8 @@ fn test_cone_cone_same_apex_wide_angles() {
     for curve in &curves {
         if matches!(curve, SSICurve::Degree4ConeCone { .. }) {
             found_degree4 = true;
+            // NOTE(audit 2026-03-31): same-apex wide-angle solver also exceeds
+            // SSI_SURFACE_ERROR_BOUND. See note on test_cone_cone_same_apex_oblique_analytical.
         }
     }
     assert!(
