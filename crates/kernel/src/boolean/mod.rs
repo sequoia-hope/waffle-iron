@@ -1656,14 +1656,29 @@ mod tests {
 
     #[test]
     fn vec_dot() {
+        // Orthogonal vectors: dot product = 0
         let d = v3_dot([1.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
-        assert!(d.abs() < TAU_NORMALIZE);
+        assert!(d.abs() < TAU_NORMALIZE, "orthogonal dot = 0");
+        // Parallel vectors: dot product = product of magnitudes
+        let d2 = v3_dot([2.0, 0.0, 0.0], [3.0, 0.0, 0.0]);
+        assert!((d2 - 6.0).abs() < TAU_NORMALIZE, "parallel dot = 6.0");
+        // General case: [1,2,3]·[4,5,6] = 4+10+18 = 32
+        let d3 = v3_dot([1.0, 2.0, 3.0], [4.0, 5.0, 6.0]);
+        assert!((d3 - 32.0).abs() < TAU_NORMALIZE, "general dot = 32.0");
     }
 
     #[test]
     fn vec_cross() {
+        // x × y = z
         let c = v3_cross([1.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
-        assert!((c[2] - 1.0).abs() < TAU_NORMALIZE);
+        assert!((c[0]).abs() < TAU_NORMALIZE, "cross x = 0");
+        assert!((c[1]).abs() < TAU_NORMALIZE, "cross y = 0");
+        assert!((c[2] - 1.0).abs() < TAU_NORMALIZE, "cross z = 1");
+        // Anti-commutativity: y × x = -z
+        let c2 = v3_cross([0.0, 1.0, 0.0], [1.0, 0.0, 0.0]);
+        assert!((c2[0]).abs() < TAU_NORMALIZE);
+        assert!((c2[1]).abs() < TAU_NORMALIZE);
+        assert!((c2[2] + 1.0).abs() < TAU_NORMALIZE, "cross anti-commutative");
     }
 
     // ── Clipping unit tests ─────────────────────────────────────────

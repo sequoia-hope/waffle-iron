@@ -483,7 +483,7 @@ fn e1_list_faces_returns_6() {
 }
 
 #[test]
-fn e2_each_face_has_4_neighbors() {
+fn e2_each_face_has_4_distinct_neighbors() {
     let (k, solid) = make_unit_box();
     let faces = k.list_faces(&solid);
     for face in &faces {
@@ -495,11 +495,18 @@ fn e2_each_face_has_4_neighbors() {
             face,
             neighbors.len()
         );
+        // Neighbors must be distinct
+        let mut unique: Vec<u64> = neighbors.iter().map(|id| id.0).collect();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), 4, "Box face {:?} neighbors must be distinct", face);
+        // A face must not be its own neighbor
+        assert!(!neighbors.contains(face), "Face {:?} must not be its own neighbor", face);
     }
 }
 
 #[test]
-fn e3_each_face_has_4_edges() {
+fn e3_each_face_has_4_distinct_edges() {
     let (k, solid) = make_unit_box();
     let faces = k.list_faces(&solid);
     for face in &faces {
@@ -511,11 +518,16 @@ fn e3_each_face_has_4_edges() {
             face,
             edges.len()
         );
+        // Edges must be distinct
+        let mut unique: Vec<u64> = edges.iter().map(|id| id.0).collect();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), 4, "Box face {:?} edges must be distinct", face);
     }
 }
 
 #[test]
-fn e4_each_edge_has_2_faces() {
+fn e4_each_edge_has_2_distinct_faces() {
     let (k, solid) = make_unit_box();
     let edges = k.list_edges(&solid);
     for edge in &edges {
@@ -527,6 +539,8 @@ fn e4_each_edge_has_2_faces() {
             edge,
             faces.len()
         );
+        // The two adjacent faces must be different
+        assert_ne!(faces[0], faces[1], "Box edge {:?} must have 2 distinct adjacent faces", edge);
     }
 }
 
