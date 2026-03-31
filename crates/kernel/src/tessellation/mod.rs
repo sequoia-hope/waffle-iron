@@ -8238,23 +8238,22 @@ mod tests {
         );
 
         // Volume oracle: each cylinder volume = π*r²*h = π*25*10 ≈ 785.4.
-        // Union volume < 2 * single < 1571; union volume > single > 785.
         // Inclusion-exclusion: V_union = V_a + V_b - V_intersection.
         // For two r=5 cylinders offset by 4, intersection ≈ 538.
-        // Expected: ~1033 (but mesh approximation may differ by up to 10%).
+        // Expected V_union ≈ 1033 (mesh approximation may differ by up to 15%).
         let vol = mesh_volume_flat(&mesh.vertices, &mesh.indices);
         let single_cyl_vol = std::f64::consts::PI * 25.0 * 10.0;
         assert!(
-            vol > single_cyl_vol * 0.8,
-            "cyl-cyl union volume ({:.1}) should exceed 80% of a single cylinder ({:.1})",
+            vol > single_cyl_vol,
+            "cyl-cyl union volume ({:.1}) must exceed a single cylinder ({:.1})",
             vol,
             single_cyl_vol
         );
         assert!(
-            vol < 2.0 * single_cyl_vol,
-            "cyl-cyl union volume ({:.1}) should be less than two separate cylinders ({:.1})",
+            vol < 1.85 * single_cyl_vol,
+            "cyl-cyl union volume ({:.1}) must be less than 1.85× a single cylinder ({:.1})",
             vol,
-            2.0 * single_cyl_vol
+            1.85 * single_cyl_vol
         );
 
         // Watertightness: zero boundary edges
@@ -8302,8 +8301,8 @@ mod tests {
         let cyl_vol = std::f64::consts::PI * 9.0 * 10.0;
         let expected = box_vol - cyl_vol;
         assert!(
-            vol > expected * 0.85,
-            "box-minus-cyl volume ({:.1}) should be > 85% of expected ({:.1})",
+            vol > expected * 0.90,
+            "box-minus-cyl volume ({:.1}) should be > 90% of expected ({:.1})",
             vol,
             expected
         );

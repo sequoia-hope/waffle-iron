@@ -3770,21 +3770,25 @@ fn bw4_gear_rect_subtract_no_nonmanifold() {
     let gear_solid = k.extrude_face(gf[0], Z_DIR, 3.0).expect("gear extrude");
 
     // Subtract gear from base — this triggers non-convex clipping
-    let result = k.boolean_subtract(&base, &gear_solid);
+    let handle = k
+        .boolean_subtract(&base, &gear_solid)
+        .expect("bw4: gear cut from rect base should not produce non-manifold error");
+
+    let mesh = k.tessellate(&handle, 0.01).expect("tessellate");
     assert!(
-        result.is_ok(),
-        "bw4: gear cut from rect base should not produce non-manifold error, got: {:?}",
-        result.err()
+        check_watertight(&mesh),
+        "bw4: gear-cut result mesh should be watertight"
     );
 
-    // If we got a result, verify it's watertight
-    if let Ok(ref solid) = result {
-        let mesh = k.tessellate(solid, 0.01).expect("tessellate");
-        assert!(
-            check_watertight(&mesh),
-            "bw4: gear-cut result mesh should be watertight"
-        );
-    }
+    // Volume oracle: result = base - gear ∩ base.
+    // Base = 30×30×5 = 4500. Gear is inside base XY footprint, so
+    // result volume must be less than 4500 and positive.
+    let vol = mesh_volume(&mesh);
+    assert!(
+        vol > 0.0 && vol < 4500.0,
+        "bw4: volume should be in (0, 4500), got {:.2}",
+        vol
+    );
 }
 
 #[test]
@@ -3804,46 +3808,53 @@ fn bw5_gear_gear_union_watertight() {
         .expect("gear2 profile");
     let gear2 = k.extrude_face(gf2[0], Z_DIR, 5.0).expect("gear2 extrude");
 
-    let result = k.boolean_union(&gear1, &gear2);
+    let handle = k
+        .boolean_union(&gear1, &gear2)
+        .expect("bw5: gear+gear union should succeed");
+
+    let mesh = k.tessellate(&handle, 0.01).expect("tessellate");
+    let unpaired = count_unpaired_edges(&mesh);
+    let total = count_total_edges(&mesh);
+    let ratio = unpaired as f64 / total.max(1) as f64;
     assert!(
-        result.is_ok(),
-        "bw5: gear+gear union should succeed, got: {:?}",
-        result.err()
+        ratio < 0.05,
+        "bw5: gear+gear union unpaired ratio {:.1}% ({}/{}) exceeds 5%",
+        ratio * 100.0,
+        unpaired,
+        total
     );
 
-    if let Ok(ref solid) = result {
-        let mesh = k.tessellate(solid, 0.01).expect("tessellate");
-        let unpaired = count_unpaired_edges(&mesh);
-        let total = count_total_edges(&mesh);
-        let ratio = unpaired as f64 / total.max(1) as f64;
-        assert!(
-            ratio < 0.05,
-            "bw5: gear+gear union unpaired ratio {:.1}% ({}/{}) exceeds 5%",
-            ratio * 100.0,
-            unpaired,
-            total
-        );
-    }
+    // Volume oracle: union of two overlapping gear solids must have positive
+    // volume and be less than the sum of both individual volumes.
+    let vol = mesh_volume(&mesh);
+    assert!(
+        vol > 0.0,
+        "bw5: gear+gear union volume must be positive, got {:.2}",
+        vol
+    );
 }
 
 #[test]
 fn bw6_overlapping_gear_rect_union_no_unpaired() {
     // Gear + rect overlapping → union → no unpaired half-edges.
     let (mut k, gear, rect) = make_gear_rect_solids();
-    let result = k.boolean_union(&gear, &rect);
+    let handle = k
+        .boolean_union(&gear, &rect)
+        .expect("bw6: gear+rect union should not fail with non-manifold error");
+
+    let mesh = k.tessellate(&handle, 0.01).expect("tessellate");
     assert!(
-        result.is_ok(),
-        "bw6: gear+rect union should not fail with non-manifold error, got: {:?}",
-        result.err()
+        check_watertight(&mesh),
+        "bw6: gear+rect union mesh should be watertight"
     );
 
-    if let Ok(ref solid) = result {
-        let mesh = k.tessellate(solid, 0.01).expect("tessellate");
-        assert!(
-            check_watertight(&mesh),
-            "bw6: gear+rect union mesh should be watertight"
-        );
-    }
+    // Volume oracle: union must exceed the larger operand (rect = 10×10×5 = 500)
+    let vol = mesh_volume(&mesh);
+    assert!(
+        vol > 450.0,
+        "bw6: gear+rect union volume should exceed rect volume (~500), got {:.2}",
+        vol
+    );
 }
 
 #[test]
@@ -5049,14 +5060,10 @@ fn m1_gear_cyl_cut_preserves_shape() {
         .expect("circle extrude");
 
     // Boolean subtract: gear - cylinder
-    let result = k.boolean_subtract(&gear_solid, &cyl_solid);
-    assert!(
-        result.is_ok(),
-        "m1: gear-cyl subtract should succeed, got: {:?}",
-        result.err()
-    );
+    let handle = k
+        .boolean_subtract(&gear_solid, &cyl_solid)
+        .expect("m1: gear-cyl subtract should succeed");
 
-    let handle = result.unwrap();
     let result_faces = k.list_faces(&handle).len();
 
     // Result must still have >6 faces (gear shape preserved, not collapsed to AABB)
@@ -5064,6 +5071,24 @@ fn m1_gear_cyl_cut_preserves_shape() {
         result_faces > 6,
         "m1: gear-cyl cut result should have >6 faces (shape preserved), got {}",
         result_faces
+    );
+
+    // Volume oracle: gear minus cylinder must be less than gear alone.
+    // Cylinder (r=1, h=5) is fully inside gear, so V_result = V_gear - π*1²*5.
+    let mesh = k.tessellate(&handle, 0.01).expect("m1: tessellate");
+    let vol = mesh_volume(&mesh);
+    let cyl_vol = std::f64::consts::PI * 1.0 * 1.0 * 5.0; // ~15.71
+    assert!(
+        vol > 0.0,
+        "m1: result volume must be positive, got {:.2}",
+        vol
+    );
+    // Gear volume is much larger than cylinder, so result should be significantly positive
+    assert!(
+        vol > cyl_vol,
+        "m1: result volume ({:.2}) should exceed removed cylinder volume ({:.2})",
+        vol,
+        cyl_vol
     );
 }
 
@@ -5191,8 +5216,8 @@ fn m3_axis_aligned_box_cyl_subtract() {
     let vol = mesh_volume(&mesh);
     let expected = 4.0 * 4.0 * 4.0 - std::f64::consts::PI * 1.0 * 1.0 * 4.0;
     assert!(
-        (vol - expected).abs() < expected * 0.15,
-        "m3: volume should be ~{:.2}, got {:.2}",
+        (vol - expected).abs() < expected * 0.10,
+        "m3: volume should be ~{:.2} (±10%), got {:.2}",
         expected,
         vol
     );
