@@ -24,6 +24,8 @@
 
 use geometry_predicates::{orient2d, orient3d};
 
+use crate::units::{TAU_EXACT_MESH_CLASSIFY, TAU_EXACT_MESH_VERTEX_NUDGE, TAU_NORMALIZE_SQ};
+
 /// Which mesh a triangle belongs to in a boolean operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)] // Phase 2 building block — task 2b
@@ -300,7 +302,7 @@ fn materialize_ip(ip: &IndirectPoint, verts: &[[f64; 3]]) -> [f64; 3] {
     let d_a = n[0] * ap[0] + n[1] * ap[1] + n[2] * ap[2];
     let dir = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
     let denom = n[0] * dir[0] + n[1] * dir[1] + n[2] * dir[2];
-    let t = if denom.abs() > 1e-30 {
+    let t = if denom.abs() > TAU_NORMALIZE_SQ {
         -d_a / denom
     } else {
         0.5
@@ -619,7 +621,7 @@ enum PointLocation {
 /// when both endpoints are on different edges, even if one endpoint is at a vertex).
 #[allow(dead_code)]
 fn classify_point_on_triangle(tri_verts: &[[f64; 3]; 3], point: &[f64; 3]) -> PointLocation {
-    let eps = 1e-10;
+    let eps = TAU_EXACT_MESH_CLASSIFY;
 
     // Check edges first — a point at a vertex endpoint of an edge is still "on" that edge.
     // This ensures correct subdivision: edge-edge splits always produce 3 sub-triangles.
@@ -694,7 +696,7 @@ fn line_segment_intersect_3d(
     let ay = cross[1].abs();
     let az = cross[2].abs();
 
-    if ax < 1e-30 && ay < 1e-30 && az < 1e-30 {
+    if ax < TAU_NORMALIZE_SQ && ay < TAU_NORMALIZE_SQ && az < TAU_NORMALIZE_SQ {
         return None; // parallel
     }
 
@@ -714,7 +716,7 @@ fn line_segment_intersect_3d(
     // => s*d1[i] - t*d2[i] = a[i] - p0[i] = -r[i]
     // => s*d1[j] - t*d2[j] = a[j] - p0[j] = -r[j]
     let det = d1[i] * (-d2[j]) - d1[j] * (-d2[i]);
-    if det.abs() < 1e-30 {
+    if det.abs() < TAU_NORMALIZE_SQ {
         return None;
     }
     let t = (d1[i] * (-r[j]) - d1[j] * (-r[i])) / det;
@@ -749,7 +751,7 @@ fn split_triangle_by_segment(
 
     let p0 = all_verts[seg[0]];
     let p1 = all_verts[seg[1]];
-    let eps = 1e-10;
+    let eps = TAU_EXACT_MESH_CLASSIFY;
 
     // Find where the constraint LINE intersects each triangle edge.
     // Each hit records (edge_index, parameter_t on edge, vertex_index in all_verts).
@@ -769,7 +771,7 @@ fn split_triangle_by_segment(
     // conservation within any reasonable tolerance. Ref #9: Cherchi 2020
     // handles this via exact symbolic perturbation; our f64 nudge achieves
     // the same topological result for materialized coordinates.
-    let vertex_nudge = 1e-14;
+    let vertex_nudge = TAU_EXACT_MESH_VERTEX_NUDGE;
 
     for edge_idx in 0..3 {
         let ei_v0 = edge_idx;
@@ -1082,6 +1084,7 @@ pub(crate) fn subdivide_mesh_pair(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::units::TAU_WORK;
 
     // ── Smoke tests: verify geometry-predicates crate integration ──
 
@@ -1191,7 +1194,7 @@ mod tests {
         // direction = b - a
         let dir = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
         let denom = n[0] * dir[0] + n[1] * dir[1] + n[2] * dir[2];
-        let t = if denom.abs() > 1e-30 {
+        let t = if denom.abs() > TAU_NORMALIZE_SQ {
             -d_a / denom
         } else {
             0.5 // degenerate — shouldn't happen for valid indirect points
@@ -1451,7 +1454,7 @@ mod tests {
                     let mut t_val = None;
                     for axis in 0..3 {
                         let denom = b[axis] - a[axis];
-                        if denom.abs() > 1e-12 {
+                        if denom.abs() > TAU_WORK {
                             let t = (pt[axis] - a[axis]) / denom;
                             t_val = Some(t);
                             break;

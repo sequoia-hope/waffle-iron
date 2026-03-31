@@ -10,7 +10,7 @@
 //! Reference: Patrikalakis Ch.5 — SSI algorithms for analytic surfaces.
 
 use crate::types::KernelError;
-use crate::units::{TAU_COINCIDENT, TAU_NORMALIZE, TAU_PARALLEL, TAU_WORK};
+use crate::units::{SSI_CONE_TAN_DIFF, TAU_COINCIDENT, TAU_NORMALIZE, TAU_PARALLEL, TAU_WORK};
 use crate::vecmath::{
     compute_plane_basis, mat3_mul_vec, v3_add, v3_cross, v3_dot, v3_length, v3_normalize, v3_scale,
     v3_sub, Mat3,
@@ -3594,7 +3594,7 @@ pub(crate) fn cone_cone_ssi(
 
         // Find θ that minimizes |d_ab(θ)² - target²| and track best exact matches.
         let mut best_residuals: Vec<(f64, f64)> = Vec::new(); // (theta, residual)
-        let exact_tol = 0.01; // Tolerance for exact match
+        let exact_tol = SSI_CONE_TAN_DIFF; // Tolerance for exact match (A14.3)
 
         for k in 0..n_scan {
             let theta = two_pi * (k as f64) / (n_scan as f64);

@@ -28,6 +28,13 @@ pub const TAU_WORK: f64 = 1e-12;
 /// Also used as TAU_NORMALIZE² ≈ 1e-30 for cross-product magnitude checks.
 pub const TAU_NORMALIZE: f64 = 1e-15;
 
+/// Squared TAU_NORMALIZE: 1e-30.
+/// Used as denominator guard for cross-product magnitude checks, line-plane
+/// intersection denominators, and parallel-detection in exact mesh operations.
+/// Equivalent to TAU_NORMALIZE * TAU_NORMALIZE but expressed as a constant
+/// to avoid runtime multiplication and clarify intent.
+pub const TAU_NORMALIZE_SQ: f64 = 1e-30;
+
 /// Near-parallel / coplanar threshold: 1e-6.
 /// Used for dot-product checks against 1.0 (parallel) or 0.0 (perpendicular).
 pub const TAU_PARALLEL: f64 = 1e-6;
@@ -221,6 +228,29 @@ pub const SSI_CONE_THETA_HALF_WIDTH: f64 = 0.001;
 /// Checks that sampled points on intersection curves lie within this
 /// distance of both cone surfaces (proportional to h × √r).
 pub const SSI_CONE_VALIDATE_TOL: f64 = 1e-5;
+
+// ── Exact mesh (Cherchi) thresholds ─────────────────────────────────────
+
+/// Edge proximity tolerance for point-on-triangle classification in exact
+/// mesh operations: 1e-10.
+/// Used in `classify_point_on_triangle` and `split_triangle_by_segment` to
+/// determine whether a point lies on a triangle edge vs. in the interior.
+/// Coarser than TAU_WORK because exact mesh operates on materialized f64
+/// coordinates where accumulated error exceeds working precision.
+pub const TAU_EXACT_MESH_CLASSIFY: f64 = 1e-10;
+
+/// Vertex nudge distance for degenerate constrained subdivision: 1e-14.
+/// When a constraint endpoint coincides with a triangle vertex, the point is
+/// nudged slightly along the edge interior to produce non-degenerate
+/// sub-triangles. Small enough to maintain area conservation within any
+/// reasonable tolerance. Ref #9: Cherchi 2020 uses exact symbolic perturbation;
+/// our f64 nudge achieves the same topological result for materialized coords.
+pub const TAU_EXACT_MESH_VERTEX_NUDGE: f64 = 1e-14;
+
+/// AABB vertex containment tolerance for mesh face classification (f32): 1e-4.
+/// Used in analytical boolean post-processing to detect whether mesh vertices
+/// lie on bounding-box faces. Matches TAU_WELD_MAX but in f32 space.
+pub const TAU_AABB_CONTAIN_F32: f32 = 1e-4;
 
 // ── Mock kernel thresholds ──────────────────────────────────────────────
 

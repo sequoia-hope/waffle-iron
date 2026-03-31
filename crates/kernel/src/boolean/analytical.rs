@@ -4846,7 +4846,7 @@ fn classify_face_nonconvex_planar(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::units::{MIN_FEATURE_SIZE, TAU_NORMALIZE};
+    use crate::units::{MIN_FEATURE_SIZE, TAU_AABB_CONTAIN_F32, TAU_NORMALIZE};
     use crate::waffle_kernel::CylinderParams;
 
     #[test]
@@ -5225,7 +5225,7 @@ mod tests {
                 bmax[d] = bmax[d].max(mesh.vertices[i * 3 + d]);
             }
         }
-        let tol = 1e-4_f32;
+        let tol = TAU_AABB_CONTAIN_F32;
         let mut non_aabb = 0;
         for i in 0..vert_count {
             let x = mesh.vertices[i * 3];
