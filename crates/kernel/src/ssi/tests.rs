@@ -8327,8 +8327,10 @@ fn adv2_sample_and_validate(
                                 pt[j]
                             );
                         }
-                        // Verify on both surfaces (relaxed tolerance for extreme configs)
-                        let tol = TAU_MODEL.max(cyl_radius * 1e-6).max(1e-4);
+                        // Verify on both surfaces (relaxed tolerance for extreme configs).
+                        // Scale-adaptive: use TAU_MODEL or radius-relative, clamped to MIN_FEATURE_SIZE.
+                        use crate::units::MIN_FEATURE_SIZE;
+                        let tol = TAU_MODEL.max(cyl_radius * TAU_MODEL).max(MIN_FEATURE_SIZE * 0.1);
                         assert_on_cylinder(
                             pt,
                             cyl_origin,
@@ -8609,7 +8611,12 @@ fn cyl_cone_ssi_adv2_large_scale() {
         (100.0, 7000.0),    // cone_height_range
     )
     .unwrap();
-    // Geometrically these should intersect
+    // Geometrically these must intersect: at h=5000, cone_r ≈ 2887 > cyl_R=1000
+    // and the cylinder center lies on the cone axis extension.
+    assert!(
+        !curves.is_empty(),
+        "Large-scale cylinder-cone must produce intersection curves (got 0)"
+    );
     adv2_sample_and_validate(
         &curves,
         [5000.0, 0.0, 0.0],
@@ -12816,14 +12823,18 @@ fn test_cone_cone_adversarial_anti_parallel_axes() {
     )
     .unwrap();
 
-    // Cones opening toward each other should intersect.
-    if !curves.is_empty() {
-        for curve in &curves {
-            if let SSICurve::Degree4ConeCone { .. } = curve {
-                validate_degree4_cone_cone(
-                    curve, apex_a, axis_a, half_40, apex_b, axis_b, half_40, 32,
-                );
-            }
+    // Cones opening toward each other must intersect: both have 40° half-angle,
+    // apices 3 units apart on the same axis, opening toward each other.
+    // At h=1.5 (midpoint), each cone has r = 1.5·tan(40°) ≈ 1.26 — overlap is certain.
+    assert!(
+        !curves.is_empty(),
+        "Anti-parallel cones opening toward each other must produce intersection curves"
+    );
+    for curve in &curves {
+        if let SSICurve::Degree4ConeCone { .. } = curve {
+            validate_degree4_cone_cone(
+                curve, apex_a, axis_a, half_40, apex_b, axis_b, half_40, 32,
+            );
         }
     }
 }

@@ -296,6 +296,13 @@ pub const TAU_CLASSIFY_FACTOR: f64 = 100.0;
 /// Used in edge-split T-junction detection (clip.rs).
 pub const TAU_SH_DIVERGENCE_FACTOR: f64 = 1000.0;
 
+// ── Intersection cache quantization ──────────────────────────────────
+
+/// Scale factor for normal vector quantization in IntersectionCache: 1e3.
+/// Unit normals (components in [-1, 1]) are multiplied by this factor before
+/// integer quantization, giving ~0.001 angular resolution in the cache key.
+pub const CACHE_NORMAL_QUANTIZE_SCALE: f64 = 1e3;
+
 // ── Tessellation vertex welding ──────────────────────────────────────
 
 /// Cosine tolerance for normal similarity in vertex welding: 0.02.

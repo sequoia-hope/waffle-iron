@@ -70,10 +70,11 @@ impl IntersectionCache {
         // Quantize plane by normal direction + signed distance from origin
         let plane_d =
             plane_n[0] * plane_pt[0] + plane_n[1] * plane_pt[1] + plane_n[2] * plane_pt[2];
+        let nq = crate::units::CACHE_NORMAL_QUANTIZE_SCALE;
         let plane_key = [
-            q(plane_n[0] * 1e3),
-            q(plane_n[1] * 1e3),
-            q(plane_n[2] * 1e3),
+            q(plane_n[0] * nq),
+            q(plane_n[1] * nq),
+            q(plane_n[2] * nq),
             q(plane_d),
         ];
 
