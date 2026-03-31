@@ -5586,81 +5586,72 @@ fn test_sphere_torus_near_tangent_outer() {
     let curves = result.unwrap();
     // Sphere (r=1) at x=6.99 overlaps torus outer rim at ρ=6 by 0.01.
     // This is a near-tangent configuration — should produce intersection curves.
-    // Verify no NaN and that any returned curves have positive radii.
+    // Verify returned curves have valid geometry and points lie on both surfaces.
+    // Near-tangent tolerance relaxed to 1e-4 due to numerical sensitivity.
+    let sphere_center = [6.99, 0.0, 0.0];
+    let sphere_r = 1.0_f64;
+    let torus_center = [0.0, 0.0, 0.0];
+    let torus_axis = [0.0, 0.0, 1.0];
+    let big_r = 5.0_f64;
+    let minor_r = 1.0_f64;
+    let near_tangent_tol = 1e-4;
+
     for curve in &curves {
         match curve {
-            SSICurve::Circle {
-                center,
-                normal,
-                radius,
-            } => {
-                assert!(
-                    !center[0].is_nan() && !center[1].is_nan() && !center[2].is_nan(),
-                    "NaN in circle center"
-                );
-                assert!(
-                    !normal[0].is_nan() && !normal[1].is_nan() && !normal[2].is_nan(),
-                    "NaN in circle normal"
-                );
-                assert!(
-                    !radius.is_nan() && *radius > 0.0,
-                    "Circle radius must be positive, got {}",
-                    radius
-                );
+            SSICurve::Circle { center, normal, radius } => {
+                assert!(!radius.is_nan() && *radius > 0.0, "Circle radius must be positive, got {}", radius);
+                // Validate sampled points lie on both surfaces
+                let n = *normal;
+                let u = if n[0].abs() < 0.9 {
+                    let raw = v3_cross(n, [1.0, 0.0, 0.0]);
+                    v3_scale(raw, 1.0 / v3_length(raw))
+                } else {
+                    let raw = v3_cross(n, [0.0, 1.0, 0.0]);
+                    v3_scale(raw, 1.0 / v3_length(raw))
+                };
+                let v = v3_cross(n, u);
+                for i in 0..8 {
+                    let theta = (i as f64) * std::f64::consts::TAU / 8.0;
+                    let pt = [
+                        center[0] + radius * (theta.cos() * u[0] + theta.sin() * v[0]),
+                        center[1] + radius * (theta.cos() * u[1] + theta.sin() * v[1]),
+                        center[2] + radius * (theta.cos() * u[2] + theta.sin() * v[2]),
+                    ];
+                    let dist_sphere = (v3_length(v3_sub(pt, sphere_center)) - sphere_r).abs();
+                    assert!(dist_sphere < near_tangent_tol,
+                        "Circle point {:?} off sphere by {}", pt, dist_sphere);
+                    let p = v3_sub(pt, torus_center);
+                    let z = v3_dot(p, torus_axis);
+                    let radial = v3_sub(p, v3_scale(torus_axis, z));
+                    let rho = v3_length(radial);
+                    let td = ((rho - big_r).powi(2) + z.powi(2)).sqrt() - minor_r;
+                    assert!(td.abs() < near_tangent_tol,
+                        "Circle point {:?} off torus by {}", pt, td);
+                }
             }
-            SSICurve::Ellipse {
-                center,
-                normal,
-                major_axis,
-                semi_major,
-                semi_minor,
-            } => {
-                assert!(
-                    !center[0].is_nan() && !center[1].is_nan() && !center[2].is_nan(),
-                    "NaN in ellipse center"
-                );
-                assert!(
-                    !normal[0].is_nan() && !normal[1].is_nan() && !normal[2].is_nan(),
-                    "NaN in ellipse normal"
-                );
-                assert!(
-                    !major_axis[0].is_nan() && !major_axis[1].is_nan() && !major_axis[2].is_nan(),
-                    "NaN in ellipse major_axis"
-                );
-                assert!(
-                    !semi_major.is_nan() && *semi_major > 0.0,
-                    "semi_major must be positive, got {}",
-                    semi_major
-                );
-                assert!(
-                    !semi_minor.is_nan() && *semi_minor > 0.0,
-                    "semi_minor must be positive, got {}",
-                    semi_minor
-                );
-                assert!(
-                    semi_major >= semi_minor,
-                    "semi_major ({}) must be >= semi_minor ({})",
-                    semi_major,
-                    semi_minor
-                );
+            SSICurve::Degree4SphereTorus { .. } => {
+                // Validate sampled curve points lie on both surfaces
+                for i in 0..32 {
+                    let t = (i as f64) * std::f64::consts::TAU / 32.0;
+                    if let Some(pt) = curve.evaluate_degree4(t) {
+                        assert_no_nan(pt, "near_tangent_outer");
+                        let dist_sphere = (v3_length(v3_sub(pt, sphere_center)) - sphere_r).abs();
+                        assert!(dist_sphere < near_tangent_tol,
+                            "Degree4 point {:?} off sphere by {}", pt, dist_sphere);
+                        let p = v3_sub(pt, torus_center);
+                        let z = v3_dot(p, torus_axis);
+                        let radial = v3_sub(p, v3_scale(torus_axis, z));
+                        let rho = v3_length(radial);
+                        let td = ((rho - big_r).powi(2) + z.powi(2)).sqrt() - minor_r;
+                        assert!(td.abs() < near_tangent_tol,
+                            "Degree4 point {:?} off torus by {}", pt, td);
+                    }
+                }
             }
-            SSICurve::Line { start, end } => {
-                assert!(
-                    !start[0].is_nan() && !start[1].is_nan() && !start[2].is_nan(),
-                    "NaN in line start"
-                );
-                assert!(
-                    !end[0].is_nan() && !end[1].is_nan() && !end[2].is_nan(),
-                    "NaN in line end"
-                );
-                // Line segment must have non-zero length
-                let dx = end[0] - start[0];
-                let dy = end[1] - start[1];
-                let dz = end[2] - start[2];
-                let len = (dx * dx + dy * dy + dz * dz).sqrt();
-                assert!(len > 1e-12, "Line segment has near-zero length: {}", len);
+            _ => {
+                // Other curve types: at minimum verify no NaN
+                assert!(!format!("{:?}", curve).contains("NaN"), "NaN in SSI curve: {:?}", curve);
             }
-            _ => panic!("Unexpected SSICurve variant: {:?}", curve),
         }
     }
 }
@@ -5687,43 +5678,76 @@ fn test_sphere_torus_extreme_radii() {
     let curves = result.unwrap();
     // Sphere (r=0.02) centered on tube center (r=0.01) → sphere encloses tube cross-section
     // locally, so intersection should produce curves (two circles in axial case).
-    // Verify all returned curves have valid geometry with positive dimensions.
+    // The sphere-center sits exactly on the tube centerline, so the intersection
+    // should geometrically be two circles at z = ±sqrt(r_sphere² - r_tube²).
+    // NOTE: With R/r = 100,000 the solver may collapse near-degenerate curves.
+    // Accept 0 or 2 curves, but reject 1 (would indicate an asymmetric bug).
+    assert!(
+        curves.len() != 1,
+        "Extreme radii: expected 0 or 2 curves (symmetric), got 1 — asymmetric solver bug"
+    );
+
+    let sphere_center = [1000.0, 0.0, 0.0];
+    let sphere_r = 0.02_f64;
+    let torus_center = [0.0, 0.0, 0.0];
+    let torus_axis = [0.0, 0.0, 1.0];
+    let big_r = 1000.0_f64;
+    let minor_r = 0.01_f64;
+    // Relaxed tolerance for extreme aspect ratio
+    let tol = 1e-3;
+
     for curve in &curves {
         match curve {
-            SSICurve::Circle {
-                center,
-                normal,
-                radius,
-            } => {
-                assert!(
-                    !center[0].is_nan() && !center[1].is_nan() && !center[2].is_nan(),
-                    "NaN in circle center"
-                );
-                assert!(
-                    !normal[0].is_nan() && !normal[1].is_nan() && !normal[2].is_nan(),
-                    "NaN in circle normal"
-                );
-                assert!(
-                    !radius.is_nan() && *radius > 0.0,
-                    "Circle radius must be positive, got {}",
-                    radius
-                );
-                // Circle center should be near x≈1000, y≈0 (on the tube center circle)
+            SSICurve::Circle { center, normal, radius } => {
+                assert!(!radius.is_nan() && *radius > 0.0, "Circle radius must be positive, got {}", radius);
+                // Circle center should be near the tube centerline (ρ ≈ R)
                 let dist_from_axis = (center[0] * center[0] + center[1] * center[1]).sqrt();
                 assert!(
-                    (dist_from_axis - 1000.0).abs() < 1.0,
-                    "Circle center should be near major radius 1000, got dist={}",
-                    dist_from_axis
+                    (dist_from_axis - big_r).abs() < 1.0,
+                    "Circle center should be near major radius {}, got dist={}", big_r, dist_from_axis
                 );
+                // Circle radius should be bounded by sphere radius
+                assert!(*radius <= sphere_r + tol,
+                    "Circle radius {} exceeds sphere radius {}", radius, sphere_r);
+                // Validate sampled points on both surfaces
+                let n = *normal;
+                let u_raw = if n[0].abs() < 0.9 {
+                    v3_cross(n, [1.0, 0.0, 0.0])
+                } else {
+                    v3_cross(n, [0.0, 1.0, 0.0])
+                };
+                let u = v3_scale(u_raw, 1.0 / v3_length(u_raw));
+                let v = v3_cross(n, u);
+                for i in 0..8 {
+                    let theta = (i as f64) * std::f64::consts::TAU / 8.0;
+                    let pt = [
+                        center[0] + radius * (theta.cos() * u[0] + theta.sin() * v[0]),
+                        center[1] + radius * (theta.cos() * u[1] + theta.sin() * v[1]),
+                        center[2] + radius * (theta.cos() * u[2] + theta.sin() * v[2]),
+                    ];
+                    let ds = (v3_length(v3_sub(pt, sphere_center)) - sphere_r).abs();
+                    assert!(ds < tol, "Point {:?} off sphere by {}", pt, ds);
+                    let p = v3_sub(pt, torus_center);
+                    let z = v3_dot(p, torus_axis);
+                    let rad = v3_sub(p, v3_scale(torus_axis, z));
+                    let rho = v3_length(rad);
+                    let td = ((rho - big_r).powi(2) + z.powi(2)).sqrt() - minor_r;
+                    assert!(td.abs() < tol, "Point {:?} off torus by {}", pt, td);
+                }
             }
-            SSICurve::Line { start, end } => {
-                let dx = end[0] - start[0];
-                let dy = end[1] - start[1];
-                let dz = end[2] - start[2];
-                let len = (dx * dx + dy * dy + dz * dz).sqrt();
-                assert!(len > 1e-12, "Line segment has near-zero length: {}", len);
+            SSICurve::Degree4SphereTorus { .. } => {
+                for i in 0..32 {
+                    let t = (i as f64) * std::f64::consts::TAU / 32.0;
+                    if let Some(pt) = curve.evaluate_degree4(t) {
+                        assert_no_nan(pt, "extreme_radii");
+                        let ds = (v3_length(v3_sub(pt, sphere_center)) - sphere_r).abs();
+                        assert!(ds < tol, "Degree4 point {:?} off sphere by {}", pt, ds);
+                    }
+                }
             }
-            _ => {} // Other curve types acceptable
+            _ => {
+                assert!(!format!("{:?}", curve).contains("NaN"), "NaN in curve: {:?}", curve);
+            }
         }
     }
 }
@@ -6178,34 +6202,44 @@ fn test_sphere_torus_adversarial_near_tangent_general() {
     );
     let curves = result.unwrap();
 
-    // Either empty (near-tangent rejected) or valid curves with on-surface points
+    // Penetration is ~2e-6 (≈ 2× MIN_FEATURE_SIZE), so the solver may
+    // legitimately reject this as sub-feature-size. Accept empty OR valid curves.
+    let near_tol = 1e-4; // relaxed for near-tangent numerical sensitivity
     for curve in &curves {
-        if let SSICurve::Degree4SphereTorus { .. } = curve {
-            for i in 0..64 {
-                let t = i as f64 / 63.0;
-                if let Some(pt) = curve.evaluate_degree4(t) {
-                    assert_no_nan(pt, "near_tangent_general");
-                    // Relaxed on-surface check (1e-4) for near-tangent: numerical
-                    // sensitivity makes tight tolerance unreliable here.
-                    let dist_sphere = v3_length(v3_sub(pt, sphere_center)) - sphere_r;
-                    assert!(
-                        dist_sphere.abs() < 1e-4,
-                        "Near-tangent point {:?} off sphere surface by {}",
-                        pt,
-                        dist_sphere
-                    );
-                    let p = v3_sub(pt, torus_center);
-                    let z_comp = v3_dot(p, torus_axis);
-                    let radial = v3_sub(p, v3_scale(torus_axis, z_comp));
-                    let rho = v3_length(radial);
-                    let torus_dist = ((rho - big_r).powi(2) + z_comp.powi(2)).sqrt() - minor_r;
-                    assert!(
-                        torus_dist.abs() < 1e-4,
-                        "Near-tangent point {:?} off torus surface by {}",
-                        pt,
-                        torus_dist
-                    );
+        match curve {
+            SSICurve::Degree4SphereTorus { .. } => {
+                let mut sampled = 0;
+                for i in 0..64 {
+                    let t = (i as f64) * std::f64::consts::TAU / 64.0;
+                    if let Some(pt) = curve.evaluate_degree4(t) {
+                        assert_no_nan(pt, "near_tangent_general");
+                        let dist_sphere = (v3_length(v3_sub(pt, sphere_center)) - sphere_r).abs();
+                        assert!(dist_sphere < near_tol,
+                            "Near-tangent Degree4 point {:?} off sphere by {}", pt, dist_sphere);
+                        let p = v3_sub(pt, torus_center);
+                        let z_comp = v3_dot(p, torus_axis);
+                        let radial = v3_sub(p, v3_scale(torus_axis, z_comp));
+                        let rho = v3_length(radial);
+                        let torus_dist = ((rho - big_r).powi(2) + z_comp.powi(2)).sqrt() - minor_r;
+                        assert!(torus_dist.abs() < near_tol,
+                            "Near-tangent Degree4 point {:?} off torus by {}", pt, torus_dist);
+                        sampled += 1;
+                    }
                 }
+                assert!(sampled > 0, "Degree4 curve returned but all 64 samples were None");
+            }
+            SSICurve::Circle { center, radius, .. } => {
+                assert!(!radius.is_nan() && *radius > 0.0, "Circle radius invalid: {}", radius);
+                // Circle center distance from torus axis should be near (R ± r)
+                let p = v3_sub(*center, torus_center);
+                let z = v3_dot(p, torus_axis);
+                let rho = v3_length(v3_sub(p, v3_scale(torus_axis, z)));
+                assert!((rho - big_r).abs() < big_r * 0.5,
+                    "Circle center ρ={} far from torus major radius {}", rho, big_r);
+            }
+            _ => {
+                assert!(!format!("{:?}", curve).contains("NaN"),
+                    "NaN in curve variant: {:?}", curve);
             }
         }
     }

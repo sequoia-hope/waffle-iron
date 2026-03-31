@@ -251,7 +251,12 @@ fn a2_zero_width_rect_errors() {
     let mut k = WaffleKernel::new();
     let (profiles, positions) = make_rect_profile(0.0, 0.0, 0.0, 1.0);
     let result = k.make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions);
-    assert!(result.is_err(), "Zero-width rect should produce an error");
+    let err = result.expect_err("Zero-width rect should produce an error");
+    let msg = format!("{}", err);
+    assert!(
+        msg.contains("degenerate") || msg.contains("zero") || msg.contains("width"),
+        "Error should mention degenerate/zero geometry, got: {}", msg
+    );
 }
 
 #[test]
@@ -259,7 +264,12 @@ fn a3_zero_height_rect_errors() {
     let mut k = WaffleKernel::new();
     let (profiles, positions) = make_rect_profile(0.0, 0.0, 1.0, 0.0);
     let result = k.make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions);
-    assert!(result.is_err(), "Zero-height rect should produce an error");
+    let err = result.expect_err("Zero-height rect should produce an error");
+    let msg = format!("{}", err);
+    assert!(
+        msg.contains("degenerate") || msg.contains("zero") || msg.contains("height"),
+        "Error should mention degenerate/zero geometry, got: {}", msg
+    );
 }
 
 // ── Group B: extrude_face ──────────────────────────────────────
@@ -328,7 +338,12 @@ fn b5_extrude_zero_depth_errors() {
         .make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
         .unwrap();
     let result = k.extrude_face(face_ids[0], Z_DIR, 0.0);
-    assert!(result.is_err(), "Zero-depth extrude must produce an error");
+    let err = result.expect_err("Zero-depth extrude must produce an error");
+    let msg = format!("{}", err);
+    assert!(
+        msg.contains("depth") || msg.contains("positive") || msg.contains("zero"),
+        "Error should mention depth/positive/zero, got: {}", msg
+    );
 }
 
 // ── Group C: tessellate ────────────────────────────────────────
@@ -642,7 +657,12 @@ fn ca2_zero_radius_errors() {
     let (profiles, positions) = make_circle_profile(0.0, 0.0, 0.0);
     let result =
         k.make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions);
-    assert!(result.is_err(), "Zero-radius circle should produce an error");
+    let err = result.expect_err("Zero-radius circle should produce an error");
+    let msg = format!("{}", err);
+    assert!(
+        msg.contains("radius") || msg.contains("degenerate") || msg.contains("zero"),
+        "Error should mention radius/degenerate/zero, got: {}", msg
+    );
 }
 
 #[test]
@@ -651,9 +671,11 @@ fn ca3_negative_radius_errors() {
     let (profiles, positions) = make_circle_profile(0.0, 0.0, -1.0);
     let result =
         k.make_faces_from_profiles(&profiles, XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions);
+    let err = result.expect_err("Negative-radius circle should produce an error");
+    let msg = format!("{}", err);
     assert!(
-        result.is_err(),
-        "Negative-radius circle should produce an error"
+        msg.contains("radius") || msg.contains("negative") || msg.contains("degenerate"),
+        "Error should mention radius/negative/degenerate, got: {}", msg
     );
 }
 
@@ -2217,7 +2239,16 @@ fn n9_cyl_cyl_cut_no_overlap() {
         3.0, 0.0, 3.0, 0.0, [0.0, 0.0, -1.0], 10.0,
         crate::boolean::BoolOp::Subtract,
     );
-    assert!(result.is_err(), "Non-overlapping Z ranges should fail");
+    match result {
+        Ok(_) => panic!("Non-overlapping Z ranges should fail"),
+        Err(err) => {
+            let msg = format!("{}", err);
+            assert!(
+                msg.contains("overlap") || msg.contains("disjoint") || msg.contains("no Z"),
+                "Error should mention overlap/disjoint, got: {}", msg
+            );
+        }
+    }
 }
 
 // ── Group O: Edge Cases + SSI Unit Tests ──────────────────────────
@@ -2856,7 +2887,12 @@ fn r6_zero_depth_cut() {
         .unwrap();
     let result = k.extrude_face(face_ids[0], Z_DIR, 0.0);
     // Should fail with an error, not panic
-    assert!(result.is_err(), "Zero-depth extrude should produce an error, not succeed");
+    let err = result.expect_err("Zero-depth extrude should produce an error, not succeed");
+    let msg = format!("{}", err);
+    assert!(
+        msg.contains("depth") || msg.contains("positive") || msg.contains("zero"),
+        "Error should mention depth/positive/zero, got: {}", msg
+    );
 }
 
 // ── Group R (continued): Non-Z-Axis Cyl-Cyl Booleans ──────────────────
