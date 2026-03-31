@@ -181,10 +181,11 @@ The clean-sheet kernel (`crates/kernel/`) is under active development. **905 ker
 - 190-case randomized assay test suite (seed 42) with analytical ground truth and Euler characteristic oracle
 
 ### What's next (in priority order):
-1. Fix enclosed-hole boolean for coaxial multi-hole patterns (swiss cheese disc — F0086 investigation)
-2. Improve chained extrude reliability (F0063-F0090 cases)
-3. Eliminate remaining polygon fallback for quadric boolean pairs (A15 compliance)
-4. Fix non-manifold edges from earcut diagonal overlaps
+1. **Yang hybrid boolean pipeline** — Phase 3 task 3d (full pipeline integration tests), then Phase 4 (SSI refinement). See `specs/yang_hybrid_migration.md`
+2. Remove A15.2 violation: eliminate polygon_approx_boolean fallback for quadric pairs that return NotSupported (propagate error instead)
+3. Extend SSI dispatch to cone and torus primitives (currently only box, cylinder, sphere)
+4. Fix enclosed-hole boolean for coaxial multi-hole patterns (swiss cheese disc — F0086)
+5. Improve chained extrude reliability (F0063-F0090 cases)
 
 ### Deferred indefinitely:
 - Fillet, chamfer, shell operations
