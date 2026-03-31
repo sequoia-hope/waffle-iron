@@ -18,6 +18,7 @@ pub(crate) mod analytical;
 pub(crate) mod classify;
 mod clip;
 pub(crate) mod exact_mesh;
+pub(crate) mod ssi_refinement;
 pub(crate) mod stitch;
 pub(crate) mod topology_extract;
 

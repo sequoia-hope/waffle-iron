@@ -103,7 +103,7 @@ approximation to true SSI curves using existing quadric solvers.
 
 **Tasks**:
 
-- [ ] **4a**: Identify intersection edges that lie on curved surfaces (cylindrical, conical, spherical, toroidal) using the bijective map.
+- [x] **4a**: Identify intersection edges that lie on curved surfaces (cylindrical, conical, spherical, toroidal) using the bijective map.
 - [ ] **4b**: For each such edge, call the appropriate A15.4 SSI solver to compute the exact intersection curve. Replace mesh-derived edge geometry with the analytical curve.
 - [ ] **4c**: For planar-planar intersections, the mesh result is already exact (intersection is a line). No refinement needed.
 - [ ] **4d**: Tests: box-cylinder subtract via full pipeline. Verify the circular intersection edge is refined from mesh approximation to exact circle.
