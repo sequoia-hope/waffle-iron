@@ -6652,6 +6652,8 @@ fn test_sphere_torus_adversarial_symmetry_check() {
 
     // With sphere at z=0, torus axis z, the two branches (±sign) should be
     // mirror images across z=0. If we have exactly 2 branches, check pairing.
+    // Use TAU_PARALLEL (1e-6) from units.rs for geometric symmetry comparisons.
+    use crate::units::TAU_PARALLEL;
     if d4_curves.len() == 2 {
         for i in 0..32 {
             let t = i as f64 / 31.0;
@@ -6662,14 +6664,14 @@ fn test_sphere_torus_adversarial_symmetry_check() {
                 assert_no_nan(b, "symmetry branch 1");
                 // x and y should match (same θ, same azimuthal position)
                 assert!(
-                    (a[0] - b[0]).abs() < 1e-6,
+                    (a[0] - b[0]).abs() < TAU_PARALLEL,
                     "Symmetric branches x mismatch at t={}: {} vs {}",
                     t,
                     a[0],
                     b[0]
                 );
                 assert!(
-                    (a[1] - b[1]).abs() < 1e-6,
+                    (a[1] - b[1]).abs() < TAU_PARALLEL,
                     "Symmetric branches y mismatch at t={}: {} vs {}",
                     t,
                     a[1],
@@ -6677,7 +6679,7 @@ fn test_sphere_torus_adversarial_symmetry_check() {
                 );
                 // z should have opposite signs (reflection across z=0)
                 assert!(
-                    (a[2] + b[2]).abs() < 1e-6,
+                    (a[2] + b[2]).abs() < TAU_PARALLEL,
                     "Symmetric branches z not mirrored at t={}: {} vs {} (sum={})",
                     t,
                     a[2],

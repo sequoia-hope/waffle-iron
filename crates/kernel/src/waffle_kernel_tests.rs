@@ -3636,6 +3636,13 @@ fn c9_signed_volume_positive() {
         "Signed mesh volume must be positive (outward normals), got {}",
         vol
     );
+    // Unit box (1×1×1) has volume exactly 1.0; tessellation is planar so
+    // the signed-volume integral should match to working precision.
+    assert!(
+        (vol - 1.0).abs() < 0.01,
+        "Unit box signed volume should be ~1.0, got {}",
+        vol
+    );
 }
 
 #[test]
@@ -7504,6 +7511,17 @@ fn n2_partial_box_cyl_union_no_non_manifold() {
 
     let handle = k.boolean_union(&box_solid, &cyl_solid).expect("union");
     let mesh = k.tessellate(&handle, 0.01).expect("tessellate");
+
+    // Verify mesh is non-empty and well-formed before structural checks
+    assert!(
+        !mesh.vertices.is_empty(),
+        "Union mesh must have vertices"
+    );
+    assert!(
+        !mesh.indices.is_empty() && mesh.indices.len() % 3 == 0,
+        "Union mesh must have a valid triangle index buffer (len={})",
+        mesh.indices.len()
+    );
 
     // Count non-manifold edges (shared by >2 triangles)
     let mut edge_counts: std::collections::HashMap<(u32, u32), u32> =
