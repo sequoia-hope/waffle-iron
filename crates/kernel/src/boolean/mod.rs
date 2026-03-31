@@ -4,6 +4,15 @@
 //! produced by the WaffleKernel extrude pipeline. Uses Sutherland-Hodgman
 //! polygon clipping against convex half-spaces to classify face fragments
 //! as inside, outside, or partial with respect to the opposing solid.
+//!
+//! ## Deprecation notice (A15.6)
+//!
+//! The S-H clipping + tolerance escalation pipeline (this module, classify,
+//! clip, stitch) is **DEPRECATED**. It masks classification errors with up to
+//! 5000× tolerance escalation and synthetic fill triangles rather than solving
+//! them. It will be replaced by the Yang et al. 2025 hybrid B-Rep/mesh boolean
+//! pipeline (exact_mesh + topology extraction + SSI refinement). Do NOT invest
+//! in improving these paths — see `specs/yang_hybrid_migration.md`.
 
 pub(crate) mod analytical;
 pub(crate) mod classify;

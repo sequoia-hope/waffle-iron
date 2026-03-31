@@ -3,6 +3,11 @@
 //! Takes classified face polygons and builds a half-edge B-Rep topology:
 //! vertex welding, face/loop/half-edge creation, twin pairing with
 //! tolerance escalation, and KernelId allocation.
+//!
+//! **DEPRECATED (A15.6):** Progressive tolerance escalation (up to 5000×
+//! tau_weld) masks upstream classification errors in the S-H clipping
+//! pipeline. Will be replaced by Yang hybrid pipeline topology extraction.
+//! Do NOT improve — see `specs/yang_hybrid_migration.md`.
 
 use crate::geometry::curve::{Circle3D, CurveGeom, Line3D};
 use crate::geometry::point::{Point3, Vector3};
@@ -395,7 +400,7 @@ pub(crate) fn build_brep_from_polygons_inner(
     // same geometric edge. Use progressively relaxing tolerance to pair these edges:
     // - Round 1: tight tolerance catches near-exact matches
     // - Round 2-3: looser tolerances catch larger floating-point deviations
-    for &tol_mult in &[100.0_f64, 500.0, 2000.0, 5000.0] {
+    for &tol_mult in crate::units::STITCH_ESCALATION_FACTORS {
         let remaining_unpaired: Vec<HalfEdgeIdx> = unpaired_hes
             .iter()
             .filter(|he| !paired.contains(he))

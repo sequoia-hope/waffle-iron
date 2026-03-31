@@ -6404,6 +6404,9 @@ fn boundary_cycle_is_coherent(
 ///
 /// Only fills holes with ≤ 128 edges (small to medium polygonal holes).
 /// Larger holes indicate structural issues that shouldn't be auto-filled.
+///
+/// **DEPRECATED (A15.6):** Synthetic fill triangles mask S-H classification
+/// errors. Will be removed when Yang hybrid pipeline is operational.
 fn fill_boundary_holes(
     vertices: &[f32],
     _normals: &[f32],
@@ -6589,6 +6592,9 @@ fn fill_boundary_holes(
 ///
 /// This function finds such chains, snaps the endpoint vertex positions to
 /// match the start vertex, and fills the resulting closed cycle with triangles.
+///
+/// **DEPRECATED (A15.6):** Vertex-snapping repair masks S-H classification
+/// errors. Will be removed when Yang hybrid pipeline is operational.
 fn close_near_boundary_chains(
     vertices: &mut [f32],
     normals: &[f32],

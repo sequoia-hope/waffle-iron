@@ -282,6 +282,35 @@ pub const HOLE_PLANARITY_RATIO: f64 = 0.001;
 /// Revolve caps and S-H gaps are irregular (wedge-shaped, non-circular).
 pub const HOLE_CIRCULARITY_CV: f64 = 0.05;
 
+// ── Stitch tolerance escalation (DEPRECATED — S-H pipeline, A15.6) ──
+
+/// Progressive tolerance escalation factors for proximity-based twin pairing
+/// in the S-H polygon stitching pipeline. Independent S-H clipping produces
+/// slightly different intersection points for the same geometric edge; these
+/// multipliers are applied to tau_weld in increasing order until edges pair.
+///
+/// DEPRECATED: Part of the S-H clipping + tolerance escalation pipeline that
+/// masks classification errors. Will be removed when Yang hybrid pipeline
+/// (A15.6) is operational.
+pub const STITCH_ESCALATION_FACTORS: &[f64] = &[100.0, 500.0, 2000.0, 5000.0];
+
+// ── Duplicate-face / vertex-merge multipliers ──────────────────────
+
+/// Centroid proximity multiplier for duplicate-face detection: 10×.
+/// Applied to tau_weld in dedup_face_polys() to identify face fragments
+/// with nearly identical centroids.
+pub const DEDUP_CENTROID_FACTOR: f64 = 10.0;
+
+/// Oracle grid multiplier for vertex merge tolerance: 2×.
+/// Applied to the tessellation oracle grid size in merge_nearby_vertices()
+/// to ensure vertices within one oracle grid cell always merge.
+pub const MERGE_ORACLE_FACTOR: f64 = 2.0;
+
+/// Weld multiplier for vertex merge tolerance floor: 10×.
+/// Applied to tau_weld in merge_nearby_vertices() as the minimum merge
+/// tolerance when the oracle grid is very small.
+pub const MERGE_WELD_FACTOR: f64 = 10.0;
+
 // ── Boolean classification multipliers ───────────────────────────────
 
 /// Inward-offset / coplanar-proximity multiplier applied to tau: 100×.

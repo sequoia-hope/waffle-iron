@@ -1,5 +1,9 @@
 //! Sutherland-Hodgman polygon clipping, intersection caching, coplanarity
 //! classification, and pre-processing (dedup, merge, resolve T-junctions).
+//!
+//! **DEPRECATED (A15.6):** Part of the S-H clipping pipeline. Will be replaced
+//! by exact mesh boolean (Cherchi indirect predicates). Do NOT improve — see
+//! `specs/yang_hybrid_migration.md`.
 
 use crate::units::{
     TAU_CACHE_STEP_FACTOR, TAU_CLASSIFY_FACTOR, TAU_NORMALIZE, TAU_PARALLEL,
@@ -416,7 +420,8 @@ pub(crate) fn dedup_face_polys(polys: &[FacePoly], tau_weld: f64) -> Vec<FacePol
         return polys.to_vec();
     }
 
-    let tol_sq = (tau_weld * 10.0) * (tau_weld * 10.0);
+    let dedup_tol = tau_weld * crate::units::DEDUP_CENTROID_FACTOR;
+    let tol_sq = dedup_tol * dedup_tol;
 
     let centroid = |p: &FacePoly| -> [f64; 3] {
         let n = p.verts.len() as f64;
@@ -494,7 +499,8 @@ pub(crate) fn merge_nearby_vertices(polys: &[FacePoly], tau_weld: f64) -> Vec<Fa
         .map(|c| c.abs())
         .fold(0.0_f64, f64::max);
     let oracle_grid = (max_coord * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
-    let merge_tol = (oracle_grid * 2.0).max(tau_weld * 10.0);
+    let merge_tol = (oracle_grid * crate::units::MERGE_ORACLE_FACTOR)
+        .max(tau_weld * crate::units::MERGE_WELD_FACTOR);
     let inv_tau = 1.0 / merge_tol;
     let weld_dist_sq = merge_tol * merge_tol;
 

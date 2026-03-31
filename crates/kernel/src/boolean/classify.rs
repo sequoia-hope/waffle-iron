@@ -6,6 +6,10 @@
 //!
 //! Ref #7: Jacobson et al. (2013) — Robust inside/outside via GWN.
 //! Ref #4: Shewchuk (1997) — Adaptive precision floating-point arithmetic.
+//!
+//! **DEPRECATED (A15.6):** Part of the S-H clipping pipeline. Will be replaced
+//! by exact mesh boolean topology extraction. Do NOT improve — see
+//! `specs/yang_hybrid_migration.md`.
 
 use crate::units::{MIN_FEATURE_SIZE, TAU_CLASSIFY_FACTOR, TAU_NORMALIZE, TAU_PARALLEL};
 use crate::vecmath::*;

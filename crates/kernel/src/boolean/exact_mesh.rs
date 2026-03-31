@@ -484,6 +484,13 @@ fn compute_segment_overlap(
         // Distinguish Point from Segment: if both endpoints reference the same
         // edge-plane pair, they are the same geometric point. Otherwise, use
         // the parameterization — if start == end exactly in f64, it's a Point.
+        //
+        // Known limitation: point_in_triangle_3d uses exact orient2d on
+        // *materialized* (f64) coordinates, which can reject valid intersection
+        // points at small scales or grazing angles. This causes the code to
+        // fall through to the single-Point paths below. The proper fix is
+        // exact containment testing via indirect predicates (Cherchi 2020,
+        // Ref #9), which requires evaluating orient2d on symbolic coordinates.
         if (start_ip.edge == end_ip.edge && start_ip.plane_tri == end_ip.plane_tri)
             || overlap_start == overlap_end
         {
@@ -998,8 +1005,12 @@ mod tests {
     }
 
     /// Adversarial 2: Two triangles sharing an entire edge (like two faces of
-    /// a tetrahedron). They share vertices 0 and 1 as a common edge. Must
-    /// handle gracefully — NOT panic.
+    /// a tetrahedron). They share vertices 0 and 1 as a common edge. The
+    /// shared edge is the intersection — ideally returns Segment. Point is
+    /// accepted because point_in_triangle_3d may reject one endpoint when
+    /// materialized f64 coordinates lose precision (see known limitation in
+    /// compute_segment_overlap). Requires exact containment via indirect
+    /// predicates (Ref #9 Cherchi) to fix.
     #[test]
     fn adversarial_shared_edge() {
         // Shared edge: vertex 0 → vertex 1
@@ -1011,14 +1022,15 @@ mod tests {
             [0.5, 1.0, -1.0], // 3: T2 apex (below)
         ];
         let result = tri_tri_intersect([0, 1, 2], [0, 1, 3], &verts);
-        // The shared edge is the intersection. Segment, Point, or Coplanar
-        // are acceptable. Must NOT panic.
+        // When triangles share vertex indices, the orient3d classification
+        // may see both triangles as on the same side of each other's plane
+        // (shared vertices have zero signed volume). None, Segment, or Point
+        // are all acceptable — Coplanar is not (they are not coplanar).
         assert!(
-            !matches!(result, TriTriIsect::None) || true, // any result is ok
-            "Shared edge: must not panic. Got {:?}",
+            !is_coplanar(&result),
+            "Shared edge: must not be Coplanar, got {:?}",
             result
         );
-        // The real assertion: we got here without panicking.
     }
 
     /// Adversarial 3: Near-degenerate very thin triangle (aspect ratio ~1e6:1)
@@ -1066,14 +1078,10 @@ mod tests {
     }
 
     /// Adversarial 5: Small coordinate values (1e-6 range). Exact predicates
-    /// should still work correctly at small scales.
-    ///
-    /// BUG FOUND: Returns Point instead of Segment at small scales. The
-    /// `compute_segment_overlap` function uses a 1e-15 tolerance for overlap
-    /// detection (`overlap_end - overlap_start < 1e-15`), which is larger than
-    /// the actual segment length at 1e-6 scale. This collapses valid segments
-    /// into points. The tolerance should scale with the geometry or be removed
-    /// in favor of exact predicates.
+    /// (orient3d) correctly classify the crossing, but point_in_triangle_3d
+    /// rejects one endpoint because it applies exact orient2d to materialized
+    /// (f64) intersection coordinates that lose precision at small scales.
+    /// Requires exact containment via indirect predicates (Ref #9 Cherchi).
     #[test]
     fn adversarial_small_coordinates() {
         let s = 1e-6;
@@ -1086,20 +1094,12 @@ mod tests {
             [2.0 * s, 0.5 * s, 1.0 * s],  // 5: T2 above
         ];
         let result = tri_tri_intersect([0, 1, 2], [3, 4, 5], &verts);
-        // BUG: Returns Point due to absolute 1e-15 tolerance in compute_segment_overlap.
-        // Ideally should return Segment, but accepting Point to document the bug.
+        // Ideal: Segment. Actual: Point due to containment test on f64.
         assert!(
             is_segment(&result) || is_point(&result),
             "Small coords crossing must return Segment or Point, got {:?}",
             result
         );
-        // Flag that we got the buggy result so it's visible in test output
-        if is_point(&result) {
-            eprintln!(
-                "KNOWN BUG: adversarial_small_coordinates returns Point instead of Segment \
-                 due to absolute 1e-15 tolerance in compute_segment_overlap"
-            );
-        }
     }
 
     /// Adversarial 6: T-junction — one vertex of T2 lies exactly on the
@@ -1126,16 +1126,11 @@ mod tests {
     }
 
     /// Adversarial 7: Grazing intersection — T2 barely crosses T1's plane
-    /// with very small penetration depth (1e-8). Tests that orient3d correctly
-    /// distinguishes this from coplanar.
-    ///
-    /// BUG FOUND: Returns Point instead of Segment. The orient3d predicate
-    /// correctly classifies the tiny penetration, but `compute_segment_overlap`
-    /// collapses the resulting segment to a Point because the overlap length
-    /// falls below the absolute 1e-15 tolerance. Same root cause as the
-    /// small-coordinates bug: the hardcoded tolerance in `compute_segment_overlap`
-    /// (line `if (overlap_end - overlap_start).abs() < 1e-15`) is not
-    /// scale-invariant.
+    /// with very small penetration depth (1e-8). orient3d correctly classifies
+    /// the tiny penetration, but point_in_triangle_3d rejects one endpoint
+    /// due to containment testing on materialized f64 coordinates. Same root
+    /// cause as adversarial_small_coordinates. Requires exact containment
+    /// via indirect predicates (Ref #9 Cherchi).
     #[test]
     fn adversarial_grazing_intersection() {
         // T1 in z=0, T2 has one vertex barely below z=0
@@ -1148,19 +1143,12 @@ mod tests {
             [2.0, 0.5, 1.0],   // 5: T2 — above
         ];
         let result = tri_tri_intersect([0, 1, 2], [3, 4, 5], &verts);
-        // BUG: Returns Point due to absolute 1e-15 tolerance in compute_segment_overlap.
-        // Ideally should return Segment, but accepting Point to document the bug.
+        // Ideal: Segment. Actual: Point due to containment test on f64.
         assert!(
             is_segment(&result) || is_point(&result),
             "Grazing intersection must return Segment or Point, got {:?}",
             result
         );
-        if is_point(&result) {
-            eprintln!(
-                "KNOWN BUG: adversarial_grazing_intersection returns Point instead of Segment \
-                 due to absolute 1e-15 tolerance in compute_segment_overlap"
-            );
-        }
     }
 
     /// Adversarial 8: Two perpendicular axis-aligned faces of a unit cube that
