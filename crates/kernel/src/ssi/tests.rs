@@ -5598,8 +5598,16 @@ fn test_sphere_torus_near_tangent_outer() {
 
     for curve in &curves {
         match curve {
-            SSICurve::Circle { center, normal, radius } => {
-                assert!(!radius.is_nan() && *radius > 0.0, "Circle radius must be positive, got {}", radius);
+            SSICurve::Circle {
+                center,
+                normal,
+                radius,
+            } => {
+                assert!(
+                    !radius.is_nan() && *radius > 0.0,
+                    "Circle radius must be positive, got {}",
+                    radius
+                );
                 // Validate sampled points lie on both surfaces
                 let n = *normal;
                 let u = if n[0].abs() < 0.9 {
@@ -5618,15 +5626,23 @@ fn test_sphere_torus_near_tangent_outer() {
                         center[2] + radius * (theta.cos() * u[2] + theta.sin() * v[2]),
                     ];
                     let dist_sphere = (v3_length(v3_sub(pt, sphere_center)) - sphere_r).abs();
-                    assert!(dist_sphere < near_tangent_tol,
-                        "Circle point {:?} off sphere by {}", pt, dist_sphere);
+                    assert!(
+                        dist_sphere < near_tangent_tol,
+                        "Circle point {:?} off sphere by {}",
+                        pt,
+                        dist_sphere
+                    );
                     let p = v3_sub(pt, torus_center);
                     let z = v3_dot(p, torus_axis);
                     let radial = v3_sub(p, v3_scale(torus_axis, z));
                     let rho = v3_length(radial);
                     let td = ((rho - big_r).powi(2) + z.powi(2)).sqrt() - minor_r;
-                    assert!(td.abs() < near_tangent_tol,
-                        "Circle point {:?} off torus by {}", pt, td);
+                    assert!(
+                        td.abs() < near_tangent_tol,
+                        "Circle point {:?} off torus by {}",
+                        pt,
+                        td
+                    );
                 }
             }
             SSICurve::Degree4SphereTorus { .. } => {
@@ -5636,21 +5652,33 @@ fn test_sphere_torus_near_tangent_outer() {
                     if let Some(pt) = curve.evaluate_degree4(t) {
                         assert_no_nan(pt, "near_tangent_outer");
                         let dist_sphere = (v3_length(v3_sub(pt, sphere_center)) - sphere_r).abs();
-                        assert!(dist_sphere < near_tangent_tol,
-                            "Degree4 point {:?} off sphere by {}", pt, dist_sphere);
+                        assert!(
+                            dist_sphere < near_tangent_tol,
+                            "Degree4 point {:?} off sphere by {}",
+                            pt,
+                            dist_sphere
+                        );
                         let p = v3_sub(pt, torus_center);
                         let z = v3_dot(p, torus_axis);
                         let radial = v3_sub(p, v3_scale(torus_axis, z));
                         let rho = v3_length(radial);
                         let td = ((rho - big_r).powi(2) + z.powi(2)).sqrt() - minor_r;
-                        assert!(td.abs() < near_tangent_tol,
-                            "Degree4 point {:?} off torus by {}", pt, td);
+                        assert!(
+                            td.abs() < near_tangent_tol,
+                            "Degree4 point {:?} off torus by {}",
+                            pt,
+                            td
+                        );
                     }
                 }
             }
             _ => {
                 // Other curve types: at minimum verify no NaN
-                assert!(!format!("{:?}", curve).contains("NaN"), "NaN in SSI curve: {:?}", curve);
+                assert!(
+                    !format!("{:?}", curve).contains("NaN"),
+                    "NaN in SSI curve: {:?}",
+                    curve
+                );
             }
         }
     }
@@ -5698,17 +5726,31 @@ fn test_sphere_torus_extreme_radii() {
 
     for curve in &curves {
         match curve {
-            SSICurve::Circle { center, normal, radius } => {
-                assert!(!radius.is_nan() && *radius > 0.0, "Circle radius must be positive, got {}", radius);
+            SSICurve::Circle {
+                center,
+                normal,
+                radius,
+            } => {
+                assert!(
+                    !radius.is_nan() && *radius > 0.0,
+                    "Circle radius must be positive, got {}",
+                    radius
+                );
                 // Circle center should be near the tube centerline (ρ ≈ R)
                 let dist_from_axis = (center[0] * center[0] + center[1] * center[1]).sqrt();
                 assert!(
                     (dist_from_axis - big_r).abs() < 1.0,
-                    "Circle center should be near major radius {}, got dist={}", big_r, dist_from_axis
+                    "Circle center should be near major radius {}, got dist={}",
+                    big_r,
+                    dist_from_axis
                 );
                 // Circle radius should be bounded by sphere radius
-                assert!(*radius <= sphere_r + tol,
-                    "Circle radius {} exceeds sphere radius {}", radius, sphere_r);
+                assert!(
+                    *radius <= sphere_r + tol,
+                    "Circle radius {} exceeds sphere radius {}",
+                    radius,
+                    sphere_r
+                );
                 // Validate sampled points on both surfaces
                 let n = *normal;
                 let u_raw = if n[0].abs() < 0.9 {
@@ -5746,7 +5788,11 @@ fn test_sphere_torus_extreme_radii() {
                 }
             }
             _ => {
-                assert!(!format!("{:?}", curve).contains("NaN"), "NaN in curve: {:?}", curve);
+                assert!(
+                    !format!("{:?}", curve).contains("NaN"),
+                    "NaN in curve: {:?}",
+                    curve
+                );
             }
         }
     }
@@ -6214,32 +6260,54 @@ fn test_sphere_torus_adversarial_near_tangent_general() {
                     if let Some(pt) = curve.evaluate_degree4(t) {
                         assert_no_nan(pt, "near_tangent_general");
                         let dist_sphere = (v3_length(v3_sub(pt, sphere_center)) - sphere_r).abs();
-                        assert!(dist_sphere < near_tol,
-                            "Near-tangent Degree4 point {:?} off sphere by {}", pt, dist_sphere);
+                        assert!(
+                            dist_sphere < near_tol,
+                            "Near-tangent Degree4 point {:?} off sphere by {}",
+                            pt,
+                            dist_sphere
+                        );
                         let p = v3_sub(pt, torus_center);
                         let z_comp = v3_dot(p, torus_axis);
                         let radial = v3_sub(p, v3_scale(torus_axis, z_comp));
                         let rho = v3_length(radial);
                         let torus_dist = ((rho - big_r).powi(2) + z_comp.powi(2)).sqrt() - minor_r;
-                        assert!(torus_dist.abs() < near_tol,
-                            "Near-tangent Degree4 point {:?} off torus by {}", pt, torus_dist);
+                        assert!(
+                            torus_dist.abs() < near_tol,
+                            "Near-tangent Degree4 point {:?} off torus by {}",
+                            pt,
+                            torus_dist
+                        );
                         sampled += 1;
                     }
                 }
-                assert!(sampled > 0, "Degree4 curve returned but all 64 samples were None");
+                assert!(
+                    sampled > 0,
+                    "Degree4 curve returned but all 64 samples were None"
+                );
             }
             SSICurve::Circle { center, radius, .. } => {
-                assert!(!radius.is_nan() && *radius > 0.0, "Circle radius invalid: {}", radius);
+                assert!(
+                    !radius.is_nan() && *radius > 0.0,
+                    "Circle radius invalid: {}",
+                    radius
+                );
                 // Circle center distance from torus axis should be near (R ± r)
                 let p = v3_sub(*center, torus_center);
                 let z = v3_dot(p, torus_axis);
                 let rho = v3_length(v3_sub(p, v3_scale(torus_axis, z)));
-                assert!((rho - big_r).abs() < big_r * 0.5,
-                    "Circle center ρ={} far from torus major radius {}", rho, big_r);
+                assert!(
+                    (rho - big_r).abs() < big_r * 0.5,
+                    "Circle center ρ={} far from torus major radius {}",
+                    rho,
+                    big_r
+                );
             }
             _ => {
-                assert!(!format!("{:?}", curve).contains("NaN"),
-                    "NaN in curve variant: {:?}", curve);
+                assert!(
+                    !format!("{:?}", curve).contains("NaN"),
+                    "NaN in curve variant: {:?}",
+                    curve
+                );
             }
         }
     }
@@ -11276,26 +11344,46 @@ fn test_cyl_cyl_adversarial_15deg_boundary_exact() {
 }
 
 #[test]
-fn test_cyl_cyl_adversarial_14_99deg_rejected() {
-    // 14.9° — below the effective threshold (~14.98°, since SSI_CYL_CYL_MIN_ANGLE_COS
-    // is rounded up to 0.9660 to give 15° margin). Must be rejected as NotSupported.
+fn test_cyl_cyl_adversarial_14_99deg_accepted() {
+    // 14.9° with equal radii — the 15° guard has been removed, so this should
+    // succeed and return 2 ellipses.
     let r = 1.0;
     let angle = (14.9_f64).to_radians();
     let axis_b = [angle.sin(), 0.0, angle.cos()];
 
-    let result = cylinder_cylinder_ssi_non_parallel(
+    let curves = cylinder_cylinder_ssi_non_parallel(
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
         r,
         [0.0, 0.0, 0.0],
         axis_b,
         r,
+    )
+    .expect("14.9 deg equal-R should succeed after removing the 15° guard");
+
+    assert_eq!(
+        curves.len(),
+        2,
+        "Expected 2 ellipses at 14.9 degrees equal-R"
     );
 
-    assert!(
-        matches!(result, Err(KernelError::NotSupported { .. })),
-        "14.9 deg must be rejected (cos(14.9) > threshold 0.9660), got {result:?}"
-    );
+    for curve in &curves {
+        if let SSICurve::Ellipse {
+            center,
+            semi_major,
+            semi_minor,
+            ..
+        } = curve
+        {
+            for v in center {
+                assert!(v.is_finite(), "ellipse center has NaN/inf");
+            }
+            assert!(semi_major.is_finite() && *semi_major > 0.0);
+            assert!(semi_minor.is_finite() && *semi_minor > 0.0);
+        } else {
+            panic!("Expected Ellipse for equal-R at 14.9 degrees, got {curve:?}");
+        }
+    }
 }
 
 #[test]
@@ -12827,6 +12915,579 @@ fn test_cone_cone_mutation_curve_varies() {
             max_dist > 0.01,
             "Branch {i} curve extent is only {max_dist} — \
              curve may be degenerate (mutation risk)"
+        );
+    }
+}
+
+// ── Near-parallel cylinder-cylinder SSI (sub-15° angle guard removal) ──────
+
+/// Assert that a point lies on both cylinders (distance from axis ≈ radius).
+fn assert_point_on_both_cylinders(
+    p: [f64; 3],
+    origin_a: [f64; 3],
+    axis_a: [f64; 3],
+    r_a: f64,
+    origin_b: [f64; 3],
+    axis_b: [f64; 3],
+    r_b: f64,
+    tol: f64,
+) {
+    let da = dist_to_axis(p, origin_a, axis_a);
+    let db = dist_to_axis(p, origin_b, axis_b);
+    assert!(
+        (da - r_a).abs() < tol,
+        "Point {p:?}: dist to cyl A axis = {da}, expected {r_a} (tol {tol})"
+    );
+    assert!(
+        (db - r_b).abs() < tol,
+        "Point {p:?}: dist to cyl B axis = {db}, expected {r_b} (tol {tol})"
+    );
+}
+
+#[test]
+fn test_cyl_cyl_equal_r_10deg() {
+    // Equal-R cylinders at 10° — currently rejected by the 15° guard.
+    let r = 1.0;
+    let angle = (10.0_f64).to_radians();
+    let half = angle / 2.0;
+    let axis_a = [0.0, 0.0, 1.0];
+    let axis_b = [angle.sin(), 0.0, angle.cos()];
+    let origin = [0.0, 0.0, 0.0];
+
+    let curves = cylinder_cylinder_ssi_non_parallel(origin, axis_a, r, origin, axis_b, r)
+        .expect("10 degrees equal-R should be supported");
+    assert_eq!(curves.len(), 2, "Expected 2 ellipses at 10 degrees");
+
+    // Semi-major ≈ R/sin(half) ≈ R/sin(5°) ≈ 11.47R for the larger ellipse
+    let expected_sm_large = r / half.sin(); // R/sin(5°) ≈ 11.474
+    let expected_sm_small = r / half.cos(); // R/cos(5°) ≈ 1.004
+
+    let mut semi_majors: Vec<f64> = Vec::new();
+    for (ci, curve) in curves.iter().enumerate() {
+        if let SSICurve::Ellipse {
+            center,
+            normal,
+            major_axis,
+            semi_major,
+            semi_minor,
+            ..
+        } = curve
+        {
+            // All coordinates must be finite
+            for v in center.iter().chain(normal.iter()).chain(major_axis.iter()) {
+                assert!(v.is_finite(), "curve {ci}: NaN/inf in coordinate: {v}");
+            }
+            assert!(semi_major.is_finite(), "curve {ci}: semi_major not finite");
+            assert!(semi_minor.is_finite(), "curve {ci}: semi_minor not finite");
+
+            // Semi-minor ≈ R
+            assert!(
+                (*semi_minor - r).abs() / r < 0.01,
+                "curve {ci}: semi_minor {semi_minor} not within 1% of R={r}"
+            );
+            semi_majors.push(*semi_major);
+
+            // 32 sample points must lie on both cylinders
+            for i in 0..32 {
+                let t = std::f64::consts::TAU * (i as f64) / 32.0;
+                let pt = eval_ellipse(curve, t);
+                assert_point_on_both_cylinders(pt, origin, axis_a, r, origin, axis_b, r, 0.01);
+            }
+        } else {
+            panic!("curve {ci}: expected Ellipse at 10 degrees, got {curve:?}");
+        }
+    }
+
+    semi_majors.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let mut expected = [expected_sm_large, expected_sm_small];
+    expected.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    assert!(
+        (semi_majors[0] - expected[0]).abs() / expected[0] < 0.01,
+        "Smaller semi_major: got {}, expected {} (within 1%)",
+        semi_majors[0],
+        expected[0]
+    );
+    assert!(
+        (semi_majors[1] - expected[1]).abs() / expected[1] < 0.01,
+        "Larger semi_major: got {}, expected {} (within 1%)",
+        semi_majors[1],
+        expected[1]
+    );
+}
+
+#[test]
+fn test_cyl_cyl_equal_r_5deg() {
+    // Equal-R cylinders at 5° — currently rejected by the 15° guard.
+    let r = 1.0;
+    let angle = (5.0_f64).to_radians();
+    let half = angle / 2.0;
+    let axis_a = [0.0, 0.0, 1.0];
+    let axis_b = [angle.sin(), 0.0, angle.cos()];
+    let origin = [0.0, 0.0, 0.0];
+
+    let curves = cylinder_cylinder_ssi_non_parallel(origin, axis_a, r, origin, axis_b, r)
+        .expect("5 degrees equal-R should be supported");
+    assert_eq!(curves.len(), 2, "Expected 2 ellipses at 5 degrees");
+
+    // Semi-major ≈ R/sin(2.5°) ≈ 22.93R for the larger ellipse
+    let expected_sm_large = r / half.sin(); // R/sin(2.5°) ≈ 22.926
+
+    let mut semi_majors: Vec<f64> = Vec::new();
+    for (ci, curve) in curves.iter().enumerate() {
+        if let SSICurve::Ellipse {
+            semi_major,
+            semi_minor,
+            ..
+        } = curve
+        {
+            assert!(semi_major.is_finite(), "curve {ci}: semi_major not finite");
+            assert!(semi_minor.is_finite(), "curve {ci}: semi_minor not finite");
+            assert!(
+                (*semi_minor - r).abs() / r < 0.01,
+                "curve {ci}: semi_minor {semi_minor} not within 1% of R={r}"
+            );
+            semi_majors.push(*semi_major);
+        } else {
+            panic!("curve {ci}: expected Ellipse at 5 degrees, got {curve:?}");
+        }
+    }
+
+    semi_majors.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let max_sm = semi_majors[1];
+    assert!(
+        (max_sm - expected_sm_large).abs() / expected_sm_large < 0.01,
+        "Larger semi_major: got {max_sm}, expected {expected_sm_large} (within 1%)"
+    );
+}
+
+#[test]
+fn test_cyl_cyl_equal_r_1deg() {
+    // Equal-R cylinders at 1° — currently rejected by the 15° guard.
+    let r = 1.0;
+    let angle = (1.0_f64).to_radians();
+    let half = angle / 2.0;
+    let axis_a = [0.0, 0.0, 1.0];
+    let axis_b = [angle.sin(), 0.0, angle.cos()];
+    let origin = [0.0, 0.0, 0.0];
+
+    let curves = cylinder_cylinder_ssi_non_parallel(origin, axis_a, r, origin, axis_b, r)
+        .expect("1 degree equal-R should be supported");
+    assert_eq!(curves.len(), 2, "Expected 2 ellipses at 1 degree");
+
+    // Semi-major ≈ R/sin(0.5°) ≈ 114.6R for the larger ellipse
+    let expected_sm_large = r / half.sin(); // R/sin(0.5°) ≈ 114.59
+
+    let mut semi_majors: Vec<f64> = Vec::new();
+    for (ci, curve) in curves.iter().enumerate() {
+        if let SSICurve::Ellipse {
+            center,
+            normal,
+            major_axis,
+            semi_major,
+            semi_minor,
+            ..
+        } = curve
+        {
+            // All coordinates must be finite
+            for v in center.iter().chain(normal.iter()).chain(major_axis.iter()) {
+                assert!(v.is_finite(), "curve {ci}: NaN/inf in coordinate: {v}");
+            }
+            assert!(semi_major.is_finite(), "curve {ci}: semi_major not finite");
+            assert!(semi_minor.is_finite(), "curve {ci}: semi_minor not finite");
+            semi_majors.push(*semi_major);
+        } else {
+            panic!("curve {ci}: expected Ellipse at 1 degree, got {curve:?}");
+        }
+    }
+
+    semi_majors.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let max_sm = semi_majors[1];
+    assert!(
+        (max_sm - expected_sm_large).abs() / expected_sm_large < 0.01,
+        "Larger semi_major: got {max_sm}, expected {expected_sm_large} (within 1%)"
+    );
+}
+
+#[test]
+fn test_cyl_cyl_unequal_r_10deg() {
+    // Unequal-R cylinders at 10° — currently rejected by the 15° guard.
+    let r_a = 1.0;
+    let r_b = 0.7;
+    let angle = (10.0_f64).to_radians();
+    let axis_a = [0.0, 0.0, 1.0];
+    let axis_b = [angle.sin(), 0.0, angle.cos()];
+    let origin = [0.0, 0.0, 0.0];
+
+    let curves = cylinder_cylinder_ssi_non_parallel(origin, axis_a, r_a, origin, axis_b, r_b)
+        .expect("10 degrees unequal-R should be supported");
+    assert_eq!(
+        curves.len(),
+        2,
+        "Expected 2 Degree4CylCyl branches at 10 degrees"
+    );
+
+    for (ci, curve) in curves.iter().enumerate() {
+        if let SSICurve::Degree4CylCyl { theta_range, .. } = curve {
+            let n_samples = 16;
+            let (t0, t1) = *theta_range;
+            let mut valid_count = 0;
+            for i in 0..n_samples {
+                let theta = t0 + (t1 - t0) * (i as f64) / (n_samples as f64);
+                if let Some(pt) = curve.evaluate_degree4(theta) {
+                    for v in &pt {
+                        assert!(v.is_finite(), "curve {ci} θ={theta}: NaN/inf in point");
+                    }
+                    assert_point_on_both_cylinders(
+                        pt, origin, axis_a, r_a, origin, axis_b, r_b, 0.01,
+                    );
+                    valid_count += 1;
+                }
+            }
+            assert!(
+                valid_count >= 8,
+                "curve {ci}: only {valid_count}/16 samples evaluable"
+            );
+        } else {
+            panic!("curve {ci}: expected Degree4CylCyl at 10 degrees, got {curve:?}");
+        }
+    }
+}
+
+#[test]
+fn test_cyl_cyl_unequal_r_5deg() {
+    // Unequal-R cylinders at 5° — currently rejected by the 15° guard.
+    let r_a = 1.0;
+    let r_b = 0.7;
+    let angle = (5.0_f64).to_radians();
+    let axis_a = [0.0, 0.0, 1.0];
+    let axis_b = [angle.sin(), 0.0, angle.cos()];
+    let origin = [0.0, 0.0, 0.0];
+
+    let curves = cylinder_cylinder_ssi_non_parallel(origin, axis_a, r_a, origin, axis_b, r_b)
+        .expect("5 degrees unequal-R should be supported");
+    assert_eq!(
+        curves.len(),
+        2,
+        "Expected 2 Degree4CylCyl branches at 5 degrees"
+    );
+
+    for (ci, curve) in curves.iter().enumerate() {
+        if let SSICurve::Degree4CylCyl { theta_range, .. } = curve {
+            let n_samples = 16;
+            let (t0, t1) = *theta_range;
+            let mut valid_count = 0;
+            for i in 0..n_samples {
+                let theta = t0 + (t1 - t0) * (i as f64) / (n_samples as f64);
+                if let Some(pt) = curve.evaluate_degree4(theta) {
+                    for v in &pt {
+                        assert!(v.is_finite(), "curve {ci} θ={theta}: NaN/inf in point");
+                    }
+                    assert_point_on_both_cylinders(
+                        pt, origin, axis_a, r_a, origin, axis_b, r_b, 0.01,
+                    );
+                    valid_count += 1;
+                }
+            }
+            assert!(
+                valid_count >= 8,
+                "curve {ci}: only {valid_count}/16 samples evaluable"
+            );
+        } else {
+            panic!("curve {ci}: expected Degree4CylCyl at 5 degrees, got {curve:?}");
+        }
+    }
+}
+
+#[test]
+fn test_cyl_cyl_unequal_r_1deg() {
+    // Unequal-R cylinders at 1° — currently rejected by the 15° guard.
+    let r_a = 1.0;
+    let r_b = 0.7;
+    let angle = (1.0_f64).to_radians();
+    let axis_a = [0.0, 0.0, 1.0];
+    let axis_b = [angle.sin(), 0.0, angle.cos()];
+    let origin = [0.0, 0.0, 0.0];
+
+    let curves = cylinder_cylinder_ssi_non_parallel(origin, axis_a, r_a, origin, axis_b, r_b)
+        .expect("1 degree unequal-R should be supported");
+    assert_eq!(
+        curves.len(),
+        2,
+        "Expected 2 Degree4CylCyl branches at 1 degree"
+    );
+
+    for (ci, curve) in curves.iter().enumerate() {
+        if let SSICurve::Degree4CylCyl { theta_range, .. } = curve {
+            let n_samples = 16;
+            let (t0, t1) = *theta_range;
+            let mut valid_count = 0;
+            for i in 0..n_samples {
+                let theta = t0 + (t1 - t0) * (i as f64) / (n_samples as f64);
+                if let Some(pt) = curve.evaluate_degree4(theta) {
+                    for v in &pt {
+                        assert!(v.is_finite(), "curve {ci} θ={theta}: NaN/inf in point");
+                    }
+                    assert_point_on_both_cylinders(
+                        pt, origin, axis_a, r_a, origin, axis_b, r_b, 0.01,
+                    );
+                    valid_count += 1;
+                }
+            }
+            assert!(
+                valid_count >= 8,
+                "curve {ci}: only {valid_count}/16 samples evaluable"
+            );
+        } else {
+            panic!("curve {ci}: expected Degree4CylCyl at 1 degree, got {curve:?}");
+        }
+    }
+}
+
+// ── Adversarial cylinder-cylinder SSI tests (FIP Phase 4) ──────────────────
+
+#[test]
+fn test_cyl_cyl_adversarial_half_degree_equal_r() {
+    // Equal-R cylinders at 0.5° — very near-parallel, large semi-major expected.
+    let r = 1.0;
+    let angle = (0.5_f64).to_radians();
+    let half = angle / 2.0; // 0.25°
+    let axis_a = [0.0, 0.0, 1.0];
+    let axis_b = [angle.sin(), 0.0, angle.cos()];
+    let origin = [0.0, 0.0, 0.0];
+
+    let curves = cylinder_cylinder_ssi_non_parallel(origin, axis_a, r, origin, axis_b, r)
+        .expect("0.5 degrees equal-R should be supported");
+    assert_eq!(curves.len(), 2, "Expected 2 ellipses at 0.5 degrees");
+
+    // Semi-major ≈ R/sin(0.25°) ≈ 229.2R for the larger ellipse
+    let expected_sm_large = r / half.sin(); // ≈ 229.18
+
+    let mut semi_majors: Vec<f64> = Vec::new();
+    for (ci, curve) in curves.iter().enumerate() {
+        if let SSICurve::Ellipse {
+            center,
+            normal,
+            major_axis,
+            semi_major,
+            semi_minor,
+            ..
+        } = curve
+        {
+            // All coordinates must be finite
+            for v in center.iter().chain(normal.iter()).chain(major_axis.iter()) {
+                assert!(v.is_finite(), "curve {ci}: NaN/inf in coordinate: {v}");
+            }
+            assert!(semi_major.is_finite(), "curve {ci}: semi_major not finite");
+            assert!(semi_minor.is_finite(), "curve {ci}: semi_minor not finite");
+            semi_majors.push(*semi_major);
+        } else {
+            panic!("curve {ci}: expected Ellipse at 0.5 degrees, got {curve:?}");
+        }
+    }
+
+    semi_majors.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let max_sm = semi_majors[1];
+    assert!(
+        (max_sm - expected_sm_large).abs() / expected_sm_large < 0.02,
+        "Larger semi_major: got {max_sm}, expected {expected_sm_large} (within 2%)"
+    );
+}
+
+#[test]
+fn test_cyl_cyl_adversarial_half_degree_unequal_r() {
+    // R_A=1.0, R_B=0.5 at 0.5° — unequal radii near-parallel.
+    let r_a = 1.0;
+    let r_b = 0.5;
+    let angle = (0.5_f64).to_radians();
+    let axis_a = [0.0, 0.0, 1.0];
+    let axis_b = [angle.sin(), 0.0, angle.cos()];
+    let origin = [0.0, 0.0, 0.0];
+
+    let curves = cylinder_cylinder_ssi_non_parallel(origin, axis_a, r_a, origin, axis_b, r_b)
+        .expect("0.5 degrees unequal-R should be supported");
+    assert_eq!(
+        curves.len(),
+        2,
+        "Expected 2 Degree4CylCyl branches at 0.5 degrees"
+    );
+
+    for (ci, curve) in curves.iter().enumerate() {
+        if let SSICurve::Degree4CylCyl { theta_range, .. } = curve {
+            let n_samples = 16;
+            let (t0, t1) = *theta_range;
+            let mut valid_count = 0;
+            for i in 0..n_samples {
+                let theta = t0 + (t1 - t0) * (i as f64) / (n_samples as f64);
+                if let Some(pt) = curve.evaluate_degree4(theta) {
+                    for v in &pt {
+                        assert!(v.is_finite(), "curve {ci} θ={theta}: NaN/inf in point");
+                    }
+                    assert_point_on_both_cylinders(
+                        pt, origin, axis_a, r_a, origin, axis_b, r_b, 0.05,
+                    );
+                    valid_count += 1;
+                }
+            }
+            assert!(
+                valid_count >= 8,
+                "curve {ci}: only {valid_count}/16 samples evaluable"
+            );
+        } else {
+            panic!("curve {ci}: expected Degree4CylCyl at 0.5 degrees unequal-R, got {curve:?}");
+        }
+    }
+}
+
+#[test]
+fn test_cyl_cyl_adversarial_near_parallel_no_nan_sweep() {
+    // Sweep angles from 0.5° to 14° in 0.5° steps — 28 angles total.
+    // All must produce Ok with 2 Ellipses, no NaN, no infinity.
+    let r = 1.0;
+    let origin = [0.0, 0.0, 0.0];
+    let axis_a = [0.0, 0.0, 1.0];
+
+    for step in 1..=28 {
+        let deg = step as f64 * 0.5;
+        let angle = deg.to_radians();
+        let axis_b = [angle.sin(), 0.0, angle.cos()];
+
+        let curves = cylinder_cylinder_ssi_non_parallel(origin, axis_a, r, origin, axis_b, r)
+            .unwrap_or_else(|e| panic!("{deg}°: solver returned Err: {e}"));
+
+        assert_eq!(
+            curves.len(),
+            2,
+            "{deg}°: expected 2 curves, got {}",
+            curves.len()
+        );
+
+        for (ci, curve) in curves.iter().enumerate() {
+            if let SSICurve::Ellipse {
+                center,
+                normal,
+                major_axis,
+                semi_major,
+                semi_minor,
+                ..
+            } = curve
+            {
+                for v in center.iter().chain(normal.iter()).chain(major_axis.iter()) {
+                    assert!(
+                        v.is_finite(),
+                        "{deg}° curve {ci}: NaN/inf in coordinate: {v}"
+                    );
+                }
+                assert!(
+                    semi_major.is_finite(),
+                    "{deg}° curve {ci}: semi_major not finite"
+                );
+                assert!(
+                    semi_minor.is_finite(),
+                    "{deg}° curve {ci}: semi_minor not finite"
+                );
+            } else {
+                panic!("{deg}° curve {ci}: expected Ellipse for equal-R, got {curve:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn test_cyl_cyl_adversarial_unequal_r_ratio_10x() {
+    // Extreme radius ratio: R_A=1.0, R_B=0.1 at 5°.
+    let r_a = 1.0;
+    let r_b = 0.1;
+    let angle = (5.0_f64).to_radians();
+    let axis_a = [0.0, 0.0, 1.0];
+    let axis_b = [angle.sin(), 0.0, angle.cos()];
+    let origin = [0.0, 0.0, 0.0];
+
+    let curves = cylinder_cylinder_ssi_non_parallel(origin, axis_a, r_a, origin, axis_b, r_b)
+        .expect("5 degrees 10:1 radius ratio should be supported");
+    assert_eq!(curves.len(), 2, "Expected 2 Degree4CylCyl branches");
+
+    for (ci, curve) in curves.iter().enumerate() {
+        if let SSICurve::Degree4CylCyl { theta_range, .. } = curve {
+            let (t0, t1) = *theta_range;
+            // theta_range must be restricted (R_B < R_A means not full circle)
+            let range_width = (t1 - t0).abs();
+            assert!(
+                range_width < std::f64::consts::TAU,
+                "curve {ci}: theta_range [{t0}, {t1}] should be restricted for R_B < R_A"
+            );
+
+            let n_samples = 8;
+            let mut valid_count = 0;
+            for i in 0..n_samples {
+                let theta = t0 + (t1 - t0) * (i as f64) / (n_samples as f64);
+                if let Some(pt) = curve.evaluate_degree4(theta) {
+                    for v in &pt {
+                        assert!(v.is_finite(), "curve {ci} θ={theta}: NaN/inf in point");
+                    }
+                    assert_point_on_both_cylinders(
+                        pt, origin, axis_a, r_a, origin, axis_b, r_b, 0.05,
+                    );
+                    valid_count += 1;
+                }
+            }
+            assert!(
+                valid_count >= 4,
+                "curve {ci}: only {valid_count}/8 samples evaluable"
+            );
+        } else {
+            panic!("curve {ci}: expected Degree4CylCyl for 10:1 ratio, got {curve:?}");
+        }
+    }
+}
+
+#[test]
+fn test_cyl_cyl_adversarial_near_parallel_symmetry() {
+    // Equal-R at 3°: swapping cylinders A and B must give same results.
+    let r = 1.0;
+    let angle = (3.0_f64).to_radians();
+    let axis_a = [0.0, 0.0, 1.0];
+    let axis_b = [angle.sin(), 0.0, angle.cos()];
+    let origin = [0.0, 0.0, 0.0];
+
+    let curves_ab = cylinder_cylinder_ssi_non_parallel(origin, axis_a, r, origin, axis_b, r)
+        .expect("3 degrees equal-R (A,B) should be supported");
+    let curves_ba = cylinder_cylinder_ssi_non_parallel(origin, axis_b, r, origin, axis_a, r)
+        .expect("3 degrees equal-R (B,A) should be supported");
+
+    assert_eq!(
+        curves_ab.len(),
+        curves_ba.len(),
+        "Swapped cylinders must produce same number of curves"
+    );
+
+    // Collect semi-majors from both orderings
+    let mut sm_ab: Vec<f64> = Vec::new();
+    let mut sm_ba: Vec<f64> = Vec::new();
+
+    for curve in &curves_ab {
+        if let SSICurve::Ellipse { semi_major, .. } = curve {
+            sm_ab.push(*semi_major);
+        } else {
+            panic!("Expected Ellipse for equal-R at 3 degrees (A,B), got {curve:?}");
+        }
+    }
+    for curve in &curves_ba {
+        if let SSICurve::Ellipse { semi_major, .. } = curve {
+            sm_ba.push(*semi_major);
+        } else {
+            panic!("Expected Ellipse for equal-R at 3 degrees (B,A), got {curve:?}");
+        }
+    }
+
+    sm_ab.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    sm_ba.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+    for (i, (a, b)) in sm_ab.iter().zip(sm_ba.iter()).enumerate() {
+        let rel_err = (a - b).abs() / a.max(*b);
+        assert!(
+            rel_err < 0.01,
+            "Semi-major {i}: A,B={a} vs B,A={b} differ by {:.2}% (> 1%)",
+            rel_err * 100.0
         );
     }
 }

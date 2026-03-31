@@ -434,8 +434,8 @@ The 15 quadric surface pairs ordered by CAD frequency, with implementation statu
 | 2 | Plane–Cylinder | Ellipse/circle/lines | done |
 | 3 | Plane–Cone | Conic section | done — all six sub-cases (circle, ellipse, parabola, hyperbola, through-apex lines, empty) |
 | 4 | Plane–Sphere | Circle | done |
-| 5 | Cylinder–Cylinder | Line or degree-4 | partial — parallel + equal-R ≥15° + unequal-R ≥15° |
-| 6 | Plane–Torus | Degree-4 curve | partial — axis-perpendicular only |
+| 5 | Cylinder–Cylinder | Line or degree-4 | done — parallel lines + dual-ellipse (equal-R) + Degree4CylCyl (unequal-R), all angles |
+| 6 | Plane–Torus | Degree-4 curve | done — perpendicular circles + axial circles + oblique Degree4PlaneTorus parametric |
 | 7 | Cylinder–Cone | Degree ≤ 4 curve | done — coaxial circles + general Degree4CylCone parametric |
 | 8 | Cylinder–Sphere | Degree ≤ 4 curve | done — coaxial circles + offset Degree4CylSphere parametric |
 | 9 | Cone–Cone | Degree ≤ 4 curve | done — coaxial circles + Degree4ConeCone parametric |

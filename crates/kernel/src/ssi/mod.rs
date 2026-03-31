@@ -1121,7 +1121,6 @@ pub(crate) fn cylinder_cylinder_ssi(
 ///
 /// Guard conditions:
 /// - Parallel axes (|cos| > 1 - TAU_PARALLEL) → Ok(vec![])
-/// - Near-parallel (angle < 15°) → NotSupported
 /// - Zero radius → NotSupported
 /// - Skew axes (closest distance >= 0.05×max(R_A,R_B)) → NotSupported
 ///
@@ -1140,16 +1139,6 @@ pub(crate) fn cylinder_cylinder_ssi_non_parallel(
     // Parallel → handled by existing parallel SSI path
     if cos_angle > 1.0 - TAU_PARALLEL {
         return Ok(vec![]);
-    }
-
-    // Near-parallel (angle < 15°) → not supported
-    // Both dual-ellipse (equal-R) and degree-4 (unequal-R) formulas produce
-    // curves that are too eccentric for reliable downstream use below 15°.
-    // Ref: Patrikalakis Ch.5.
-    if cos_angle > crate::units::SSI_CYL_CYL_MIN_ANGLE_COS {
-        return Err(KernelError::NotSupported {
-            operation: "cylinder-cylinder SSI: near-parallel axes (angle < 15°)".to_string(),
-        });
     }
 
     // Zero-radius check
