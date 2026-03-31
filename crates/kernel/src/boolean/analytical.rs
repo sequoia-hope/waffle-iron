@@ -225,8 +225,8 @@ pub(crate) fn ssi_boolean_op(
     let a_is_sphere = solid_a.sphere_params.is_some();
     let b_is_sphere = solid_b.sphere_params.is_some();
 
-    // Try analytical SSI pipeline first; fall back to polygon approximation
-    // for unsupported cases (partial overlaps, cylinder-minus-box, etc.)
+    // Dispatch to the appropriate analytical SSI solver based on primitive types.
+    // Returns NotSupported for unsupported configurations per A15.2.
     let analytical_result = if a_is_cyl && b_is_cyl {
         let cyl_a = solid_a.cylinder_params.as_ref().unwrap();
         let cyl_b = solid_b.cylinder_params.as_ref().unwrap();
