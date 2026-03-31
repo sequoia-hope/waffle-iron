@@ -133,6 +133,12 @@ pub const TJUNCTION_GRID_FRACTION: f64 = 0.6;
 /// Both sub-triangles must exceed this area to avoid creating degenerate geometry.
 pub const TJUNCTION_AREA_FRACTION: f64 = 0.1;
 
+/// Parametric endpoint margin for T-junction interior detection: 0.05.
+/// When checking whether a vertex lies clearly in the interior of an edge
+/// (not at an endpoint), the parametric position t must satisfy
+/// TJUNCTION_ENDPOINT_MARGIN <= t <= (1 - TJUNCTION_ENDPOINT_MARGIN).
+pub const TJUNCTION_ENDPOINT_MARGIN: f64 = 0.05;
+
 /// Minimum tau_weld-to-tau_model ratio for BooleanOptions validation: 0.1.
 /// Ensures the weld tolerance is at least 10% of model tolerance.
 pub const TAU_WELD_MODEL_MIN_RATIO: f64 = 0.1;

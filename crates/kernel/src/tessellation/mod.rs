@@ -6077,7 +6077,9 @@ fn resolve_mesh_t_junctions(
                 let avy = vy - ay;
                 let avz = vz - az;
                 let t_param = (avx * dx + avy * dy + avz * dz) / edge_len_sq;
-                if t_param <= 0.05 || t_param >= 0.95 {
+                if t_param <= crate::units::TJUNCTION_ENDPOINT_MARGIN
+                    || t_param >= 1.0 - crate::units::TJUNCTION_ENDPOINT_MARGIN
+                {
                     continue; // not clearly in interior
                 }
 

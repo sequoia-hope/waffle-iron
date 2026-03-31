@@ -1336,7 +1336,7 @@ pub(crate) fn radial_sort_around_edge(
     let axis_len_sq = axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2];
 
     // Zero-length edge — cannot define angular ordering.
-    if axis_len_sq < 1e-30 {
+    if axis_len_sq < crate::units::TAU_NORMALIZE_SQ {
         return (0..n).collect();
     }
 
@@ -1349,7 +1349,7 @@ pub(crate) fn radial_sort_around_edge(
 
     // Build orthonormal frame perpendicular to edge axis.
     // Pick reference direction not parallel to axis. Ref #10: Levy 2025.
-    let ref_dir = if axis_n[0].abs() < 0.9 {
+    let ref_dir = if axis_n[0].abs() < crate::units::BASIS_AXIS_ALIGNMENT {
         [1.0, 0.0, 0.0]
     } else {
         [0.0, 1.0, 0.0]
