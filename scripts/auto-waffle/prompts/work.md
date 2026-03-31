@@ -4,10 +4,10 @@ for the Waffle Iron CAD system.
 Read the governance model. Look at the project status. Use the research
 documents in this repo. Use agent teams for role separation.
 
-What kernel features can we work on next to meet our long-term goals of a
-production-ready modeling kernel? Using your best judgement, write a plan to
-the file path in the AUTO_WAFFLE_PLAN_PATH environment variable, then execute
-on it.
+Read CLAUDE.md "Current Priorities" — that list is in strict priority order.
+Work on item #1 unless it is genuinely blocked, then item #2, etc. Do not
+skip to easier lower-priority items. Write a plan to the file path in the
+AUTO_WAFFLE_PLAN_PATH environment variable, then execute on it.
 
 Key rules:
 - Follow the Feature Implementation Protocol (full FIP cycle)
