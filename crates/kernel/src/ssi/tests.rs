@@ -11756,6 +11756,36 @@ fn test_cyl_cyl_adversarial_no_nan_sweep() {
                     *semi_major >= *semi_minor - 1e-12,
                     "{deg} deg curve{ci}: semi_major ({semi_major}) < semi_minor ({semi_minor})"
                 );
+
+                // O5: On-surface oracle — sample 8 points on the ellipse and verify
+                // they lie on both cylinder surfaces (distance from axis ≈ r).
+                let n = v3_normalize(*normal);
+                let u = v3_normalize(*major_axis);
+                let v = v3_cross(n, u);
+                for si in 0..8 {
+                    let theta = std::f64::consts::TAU * (si as f64) / 8.0;
+                    let pt = [
+                        center[0]
+                            + semi_major * theta.cos() * u[0]
+                            + semi_minor * theta.sin() * v[0],
+                        center[1]
+                            + semi_major * theta.cos() * u[1]
+                            + semi_minor * theta.sin() * v[1],
+                        center[2]
+                            + semi_major * theta.cos() * u[2]
+                            + semi_minor * theta.sin() * v[2],
+                    ];
+                    let d_a = dist_to_axis(pt, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
+                    let d_b = dist_to_axis(pt, [0.0, 0.0, 0.0], axis_b);
+                    assert!(
+                        (d_a - r).abs() < 0.05,
+                        "{deg} deg curve{ci} sample{si}: dist to cyl A = {d_a:.6}, expected {r}"
+                    );
+                    assert!(
+                        (d_b - r).abs() < 0.05,
+                        "{deg} deg curve{ci} sample{si}: dist to cyl B = {d_b:.6}, expected {r}"
+                    );
+                }
             } else {
                 panic!("{deg} deg curve{ci}: expected Ellipse, got {curve:?}");
             }

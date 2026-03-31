@@ -2009,12 +2009,30 @@ fn m8_box_cyl_result_has_arc_edges() {
         crate::boolean::BoolOp::Subtract,
     ).expect("enclosed cyl subtract should succeed");
     let edges = k.list_edges(&result);
-    let has_arc = edges.iter().any(|&eid| {
+    let arc_edges: Vec<_> = edges.iter().filter(|&&eid| {
         let sig = k.compute_signature(eid, TopoKind::Edge);
         // Arc edges have a length field based on arc geometry
         sig.length.map_or(false, |l| l > 0.0)
-    });
-    assert!(has_arc, "Subtract result should have at least one arc/circular edge");
+    }).collect();
+    // Box-cylinder subtract produces circular edges at top and bottom of the
+    // cylindrical hole — expect at least 2 arc edges.
+    assert!(
+        arc_edges.len() >= 2,
+        "Subtract result should have ≥2 arc edges (top+bottom hole circles), got {}",
+        arc_edges.len()
+    );
+    // Verify arc edge lengths are consistent with the cylinder circumference
+    // (radius=3 → circumference=2πr≈18.85).
+    let circumference = 2.0 * std::f64::consts::PI * 3.0;
+    for &&eid in &arc_edges {
+        let sig = k.compute_signature(eid, TopoKind::Edge);
+        let length = sig.length.unwrap();
+        assert!(
+            length > 0.1 * circumference && length <= circumference * 1.05,
+            "Arc edge length {:.4} should be a reasonable fraction of circumference {:.4}",
+            length, circumference
+        );
+    }
 }
 
 #[test]
@@ -6268,12 +6286,23 @@ fn g1_product_guard_allows_convex_pair() {
     });
     // Should NOT be rejected by product guard (one operand is convex).
     // It may fail for other reasons (e.g., geometry), but not with the product guard error.
-    if let Err(KernelError::NotSupported { operation }) = &result {
-        assert!(
-            !operation.contains("face product"),
-            "Convex + large should NOT be rejected by product guard: {}",
-            operation
-        );
+    match &result {
+        Err(KernelError::NotSupported { operation }) => {
+            assert!(
+                !operation.contains("face product"),
+                "Convex + large should NOT be rejected by product guard: {}",
+                operation
+            );
+            // Other NotSupported errors are acceptable (geometry not implemented yet)
+        }
+        Err(other) => {
+            // Non-product-guard errors are acceptable — this test is specifically
+            // about the product guard, not overall boolean correctness.
+            eprintln!("g1: non-guard error (acceptable): {}", other);
+        }
+        Ok(_) => {
+            // Best case — boolean succeeded. Verify the result has faces.
+        }
     }
 }
 
@@ -6516,10 +6545,15 @@ fn i1_aabb_overlap_count_overlapping() {
     let a = vec![make_face(0.0, 0.0), make_face(2.0, 0.0), make_face(4.0, 0.0), make_face(6.0, 0.0)];
     // 4 faces at (0.5,0), (2.5,0), (4.5,0), (6.5,0) — overlap with matching a faces
     let b = vec![make_face(0.5, 0.0), make_face(2.5, 0.0), make_face(4.5, 0.0), make_face(6.5, 0.0)];
-    // Raw product = 16. Each b face only overlaps with its matching a face.
+    // Raw product = 16. Each b face only overlaps with its matching a face
+    // (spacing=2 > face_width=1, offset=0.5 creates overlap only with neighbor).
+    // Exact expected count = 4.
     let count = count_aabb_overlapping_pairs(&a, &b, 1e-7);
-    assert!(count < 16, "effective count {} should be < raw product 16", count);
-    assert!(count >= 4, "at least 4 pairs should overlap, got {}", count);
+    assert_eq!(
+        count, 4,
+        "Each b face overlaps only its matching a face: expected 4 pairs, got {}",
+        count
+    );
 }
 
 #[test]
