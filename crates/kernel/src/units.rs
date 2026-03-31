@@ -161,8 +161,9 @@ pub const SSI_RADII_RELATIVE_TOL: f64 = 0.01;
 pub const SSI_SKEW_FACTOR: f64 = 0.05;
 
 /// Absolute tolerance for point-on-surface checks in SSI sampling: 0.05.
-/// Used in cone-cone, cone-sphere, cylinder-sphere, and torus SSI solvers
-/// to classify sample points as on the intersection surface.
+/// Currently unused — all sampling stubs have been replaced with NotSupported
+/// per A15.2. Retained for potential use in future validation/testing.
+#[allow(dead_code)]
 pub const SSI_SAMPLE_ON_SURFACE_TOL: f64 = 0.05;
 
 // ── Cone-cone SSI solver thresholds ──────────────────────────────────

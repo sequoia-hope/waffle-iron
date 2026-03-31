@@ -3543,70 +3543,19 @@ pub(crate) fn cone_cone_ssi(
         Ok(curves)
     }
     // 1c. Nearly-cylindrical parallel-offset: both half-angles very small (< 5°),
-    // axes nearly parallel, non-collinear. The Degree4ConeCone curve degenerates;
-    // use sampling to produce Line segments compatible with legacy tests.
+    // axes nearly parallel, non-collinear. The Degree4ConeCone curve degenerates.
+    // A15.2: return NotSupported until a degenerate-case analytical solver exists.
     else if axes_near_parallel
         && !same_apex
         && perp_dist >= crate::units::SSI_CONE_COLLINEAR_DIST
         && half_angle_a < crate::units::SSI_CONE_NARROW_HALF_ANGLE
         && half_angle_b < crate::units::SSI_CONE_NARROW_HALF_ANGLE
     {
-        let (u_a, v_a) = compute_plane_basis(axis_a);
-        let n_h: usize = 100;
-        let n_theta: usize = 72;
-        let mut found_pts: Vec<[f64; 3]> = Vec::new();
-
-        for ih in 0..=n_h {
-            let h_a = z_min_a + (z_max_a - z_min_a) * (ih as f64) / (n_h as f64);
-            if h_a < TOL {
-                continue;
-            }
-            let ra = h_a * tan_a;
-            for it in 0..n_theta {
-                let theta = 2.0 * std::f64::consts::PI * (it as f64) / (n_theta as f64);
-                let cos_t = theta.cos();
-                let sin_t = theta.sin();
-                let pt = v3_add(
-                    v3_add(apex_a, v3_scale(axis_a, h_a)),
-                    v3_add(v3_scale(u_a, ra * cos_t), v3_scale(v_a, ra * sin_t)),
-                );
-                let diff_b = v3_sub(pt, apex_b);
-                let h_b = v3_dot(diff_b, axis_b);
-                if h_b < z_min_b - TOL || h_b > z_max_b + TOL || h_b < TOL {
-                    continue;
-                }
-                let rb = h_b * tan_b;
-                let proj_b = v3_add(apex_b, v3_scale(axis_b, h_b));
-                let perp_b = v3_sub(pt, proj_b);
-                let perp_dist_b = v3_length(perp_b);
-                if (perp_dist_b - rb).abs() < crate::units::SSI_SAMPLE_ON_SURFACE_TOL {
-                    found_pts.push(pt);
-                }
-            }
-        }
-
-        if found_pts.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let mut max_d = 0.0_f64;
-        let mut p_start = found_pts[0];
-        let mut p_end = found_pts[0];
-        for i in 0..found_pts.len() {
-            for j in (i + 1)..found_pts.len() {
-                let dd = v3_length(v3_sub(found_pts[i], found_pts[j]));
-                if dd > max_d {
-                    max_d = dd;
-                    p_start = found_pts[i];
-                    p_end = found_pts[j];
-                }
-            }
-        }
-
-        Ok(vec![SSICurve::Line {
-            start: p_start,
-            end: p_end,
-        }])
+        Err(KernelError::NotSupported {
+            operation:
+                "SSI solver missing: cone-cone narrow parallel-offset (A15 pair #9 sub-case 1c)"
+                    .into(),
+        })
     }
     // 2. Same-apex case: intersection degenerates to generator lines through the apex.
     // When A = apex_a − apex_b = 0, the quadratic in h has h = 0 as a double root.

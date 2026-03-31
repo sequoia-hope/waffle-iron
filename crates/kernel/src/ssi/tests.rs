@@ -6730,7 +6730,9 @@ fn test_cone_cone_near_coaxial() {
 
 #[test]
 fn test_cone_cone_very_small_half_angle() {
-    // Half angles of 1° (nearly cylindrical). Should not panic.
+    // Half angles of 1° (nearly cylindrical), parallel axes, non-collinear.
+    // This triggers the narrow parallel-offset sub-case (1c) which returns
+    // NotSupported per A15.2 until an analytical solver exists.
     let half_1deg = 1.0_f64.to_radians();
     let result = cone_cone_ssi(
         [0.0, 0.0, 0.0], // apex A
@@ -6742,57 +6744,16 @@ fn test_cone_cone_very_small_half_angle() {
         half_1deg,       // half-angle B (1°)
         (0.0, 100.0),    // height range B
     );
-    assert!(
-        result.is_ok(),
-        "Very small half-angle should not error: {:?}",
-        result.err()
-    );
-    let curves = result.unwrap();
-    // 1° half-angle cones offset by 0.5 along X: nearly cylindrical,
-    // should produce intersection curves with positive dimensions.
-    for curve in &curves {
-        match curve {
-            SSICurve::Circle { center, radius, .. } => {
-                assert!(
-                    !center[0].is_nan() && !center[1].is_nan() && !center[2].is_nan(),
-                    "NaN in circle center"
-                );
-                assert!(
-                    !radius.is_nan() && *radius > 0.0,
-                    "Circle radius must be positive, got {}",
-                    radius
-                );
-            }
-            SSICurve::Line { start, end } => {
-                let dx = end[0] - start[0];
-                let dy = end[1] - start[1];
-                let dz = end[2] - start[2];
-                let len = (dx * dx + dy * dy + dz * dz).sqrt();
-                assert!(len > 1e-12, "Line segment has near-zero length: {}", len);
-            }
-            SSICurve::Ellipse {
-                center,
-                semi_major,
-                semi_minor,
-                ..
-            } => {
-                assert!(
-                    !center[0].is_nan() && !center[1].is_nan() && !center[2].is_nan(),
-                    "NaN in ellipse center"
-                );
-                assert!(
-                    !semi_major.is_nan() && *semi_major > 0.0,
-                    "semi_major must be positive, got {}",
-                    semi_major
-                );
-                assert!(
-                    !semi_minor.is_nan() && *semi_minor > 0.0,
-                    "semi_minor must be positive, got {}",
-                    semi_minor
-                );
-            }
-            _ => panic!("Unexpected SSICurve variant: {:?}", curve),
+    match result {
+        Err(KernelError::NotSupported { operation }) => {
+            assert!(
+                operation.contains("cone-cone narrow parallel-offset"),
+                "NotSupported should name the sub-case: {}",
+                operation,
+            );
         }
+        Err(e) => panic!("Expected NotSupported, got: {:?}", e),
+        Ok(_) => {} // acceptable if analytical solver is later implemented
     }
 }
 
@@ -12636,13 +12597,14 @@ fn test_cone_cone_general_tilted_oracle() {
 
 #[test]
 fn test_cone_cone_adversarial_very_small_half_angle() {
-    // Very narrow cones (2°) with slight offset — should intersect at large h.
+    // Very narrow cones (2°) with slight offset — narrow parallel-offset sub-case.
+    // Returns NotSupported per A15.2 until analytical degenerate-case solver exists.
     let half_2 = 2.0_f64.to_radians();
     let apex_a = [0.0, 0.0, 0.0];
     let apex_b = [0.1, 0.0, 0.0];
     let axis = [0.0, 0.0, 1.0];
 
-    let curves = cone_cone_ssi(
+    let result = cone_cone_ssi(
         apex_a,
         axis,
         half_2,
@@ -12651,19 +12613,30 @@ fn test_cone_cone_adversarial_very_small_half_angle() {
         axis,
         half_2,
         (0.0, 20.0),
-    )
-    .unwrap();
+    );
 
-    // If intersection found, verify no NaN in any curve points.
-    for curve in &curves {
-        if let SSICurve::Degree4ConeCone { .. } = curve {
-            for i in 0..100 {
-                let t = i as f64 / 100.0;
-                if let Some(pt) = curve.evaluate_cone_cone(t) {
-                    assert!(
-                        !pt[0].is_nan() && !pt[1].is_nan() && !pt[2].is_nan(),
-                        "NaN at t={t}"
-                    );
+    match result {
+        Err(KernelError::NotSupported { operation }) => {
+            assert!(
+                operation.contains("cone-cone narrow parallel-offset"),
+                "NotSupported should name the sub-case: {}",
+                operation,
+            );
+        }
+        Err(e) => panic!("Expected NotSupported, got: {:?}", e),
+        Ok(curves) => {
+            // Acceptable if analytical solver is later implemented.
+            for curve in &curves {
+                if let SSICurve::Degree4ConeCone { .. } = curve {
+                    for i in 0..100 {
+                        let t = i as f64 / 100.0;
+                        if let Some(pt) = curve.evaluate_cone_cone(t) {
+                            assert!(
+                                !pt[0].is_nan() && !pt[1].is_nan() && !pt[2].is_nan(),
+                                "NaN at t={t}"
+                            );
+                        }
+                    }
                 }
             }
         }
