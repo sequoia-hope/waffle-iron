@@ -1,3 +1,4 @@
+use kernel::units::TAU_WORK;
 use kernel::{KernelId, KernelSolidHandle};
 use waffle_types::{OutputKey, Role, TopoKind};
 
@@ -68,7 +69,7 @@ fn assign_revolve_roles(
     // Normalize axis direction
     let dir_len =
         (axis_direction[0].powi(2) + axis_direction[1].powi(2) + axis_direction[2].powi(2)).sqrt();
-    let norm_axis = if dir_len > 1e-12 {
+    let norm_axis = if dir_len > TAU_WORK {
         [
             axis_direction[0] / dir_len,
             axis_direction[1] / dir_len,

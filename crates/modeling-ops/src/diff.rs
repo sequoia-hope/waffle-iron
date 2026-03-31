@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use kernel::units::TAU_WORK;
 use kernel::{KernelId, KernelIntrospect, KernelSolidHandle};
 use waffle_types::{TopoKind, TopoSignature};
 
@@ -172,7 +173,7 @@ pub fn signature_similarity(a: &TopoSignature, b: &TopoSignature) -> f64 {
     if let (Some(area_a), Some(area_b)) = (a.area, b.area) {
         weight += 2.0;
         let max_area = area_a.max(area_b);
-        if max_area > 1e-12 {
+        if max_area > TAU_WORK {
             let diff = (area_a - area_b).abs() / max_area;
             score += 2.0 * (1.0 - diff.min(1.0));
         } else {
@@ -202,7 +203,7 @@ pub fn signature_similarity(a: &TopoSignature, b: &TopoSignature) -> f64 {
     if let (Some(len_a), Some(len_b)) = (a.length, b.length) {
         weight += 2.0;
         let max_len = len_a.max(len_b);
-        if max_len > 1e-12 {
+        if max_len > TAU_WORK {
             let diff = (len_a - len_b).abs() / max_len;
             score += 2.0 * (1.0 - diff.min(1.0));
         } else {

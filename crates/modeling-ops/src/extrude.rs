@@ -1,3 +1,4 @@
+use kernel::units::TAU_WORK;
 use kernel::{KernelId, KernelSolidHandle};
 use waffle_types::{OutputKey, Role, TopoKind};
 
@@ -143,7 +144,7 @@ fn assign_extrude_roles(
 
     // Normalize direction
     let dir_len = (direction[0].powi(2) + direction[1].powi(2) + direction[2].powi(2)).sqrt();
-    let norm_dir = if dir_len > 1e-12 {
+    let norm_dir = if dir_len > TAU_WORK {
         [
             direction[0] / dir_len,
             direction[1] / dir_len,

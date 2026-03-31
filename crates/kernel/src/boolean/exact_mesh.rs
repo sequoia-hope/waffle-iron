@@ -1648,7 +1648,7 @@ mod tests {
                     }
                     if let Some(t) = t_val {
                         assert!(
-                            t >= -1e-10 && t <= 1.0 + 1e-10,
+                            t >= -TAU_EXACT_MESH_CLASSIFY && t <= 1.0 + TAU_EXACT_MESH_CLASSIFY,
                             "Materialized point must have 0 <= t <= 1, got t={}",
                             t
                         );
@@ -1661,7 +1661,7 @@ mod tests {
                     ];
                     let det = orient3d(plane_tri[0], plane_tri[1], plane_tri[2], pt);
                     assert!(
-                        det.abs() < 1e-10,
+                        det.abs() < TAU_EXACT_MESH_CLASSIFY,
                         "Materialized point must lie on the plane, orient3d = {}",
                         det
                     );

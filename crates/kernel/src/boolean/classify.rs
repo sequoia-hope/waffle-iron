@@ -56,7 +56,7 @@ fn lazy_exact_triple_sign(
     }
 
     // Error bound: O(eps * max_coord^3) with conservative factor 24
-    let eps = f64::EPSILON;
+    let eps = f64::EPSILON; // IEEE 754 machine epsilon for Shewchuk error bound (Ref #4)
     let error_bound = 24.0 * eps * max_abs * max_abs * max_abs;
 
     if fp_value.abs() > error_bound {
