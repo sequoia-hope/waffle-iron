@@ -10,3 +10,4 @@ serde = { version = "1", features = ["derive"] }
 thiserror = "1"
 earcutr = "0.4"
 robust = "1.1"
+geometry-predicates = "0.3"

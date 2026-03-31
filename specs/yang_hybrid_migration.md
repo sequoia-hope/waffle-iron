@@ -68,7 +68,7 @@ crate (add to Cargo.toml for expansion arithmetic primitives).
 
 **Tasks**:
 
-- [ ] **2a**: Add `geometry-predicates` crate dependency. Verify WASM compilation.
+- [x] **2a**: Add `geometry-predicates` crate dependency. Verify WASM compilation.
 - [ ] **2b**: Implement triangle-triangle intersection using exact `orient3d`. Produce intersection segments as indirect points (symbolic references to input triangles, not materialized coordinates). File: `crates/kernel/src/boolean/exact_mesh.rs`
 - [ ] **2c**: Implement constrained triangulation of intersected faces — subdivide each input triangle along intersection segments. Each sub-triangle inherits the bijective mapping of its parent.
 - [ ] **2d**: Implement cell labeling via generalized winding numbers. Each cell (region bounded by sub-triangles) gets a winding number vector. Boolean ops extract cells by winding number condition.

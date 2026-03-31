@@ -8,6 +8,7 @@
 pub(crate) mod analytical;
 pub(crate) mod classify;
 mod clip;
+pub(crate) mod exact_mesh;
 pub(crate) mod stitch;
 
 #[cfg(test)]
