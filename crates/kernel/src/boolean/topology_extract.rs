@@ -11,7 +11,10 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use crate::boolean::exact_mesh::{CellLabel, CellLabeling, MeshBooleanOp, MeshId, SubdividedMesh};
+use crate::boolean::exact_mesh::{
+    label_cells, subdivide_mesh_pair, CellLabel, CellLabeling, MeshBooleanOp, MeshId,
+    SubdividedMesh,
+};
 use crate::tessellation::bijective::BijectiveMap;
 use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::{EdgeIdx, FaceIdx};
@@ -421,6 +424,51 @@ pub(crate) fn face_survival_detect(
     }
 
     FaceSurvivalMap { groups }
+}
+
+/// Run the full Yang hybrid boolean pipeline (stages 1-3).
+///
+/// Chains tessellation subdivision -> cell labeling -> face survival ->
+/// trim boundary extraction -> B-Rep construction.
+///
+/// # Pipeline stages
+///
+/// 1. `subdivide_mesh_pair` — subdivide both input meshes along their
+///    mutual intersections using exact predicates [#9 Cherchi 2020].
+/// 2. `label_cells` — classify each sub-triangle as inside/outside
+///    the opposite mesh via generalized winding numbers [#7 Jacobson 2013].
+/// 3. `face_survival_detect` — select surviving sub-triangles per the
+///    boolean operation and group them by source B-Rep face.
+/// 4. `extract_trim_boundaries` — extract oriented trim loops from
+///    the boundary edges of each surviving face group.
+/// 5. `build_result_brep` — construct a half-edge B-Rep from the
+///    trim boundaries.
+///
+/// Ref [#24]: Yang, Jia & Yan (2025) — stages 1-3 of the hybrid pipeline.
+#[allow(dead_code)] // Phase 3 building block — task 3d
+pub(crate) fn yang_boolean_pipeline(
+    verts_a: &[[f64; 3]],
+    tris_a: &[[usize; 3]],
+    verts_b: &[[f64; 3]],
+    tris_b: &[[usize; 3]],
+    bijective_a: &BijectiveMap,
+    bijective_b: &BijectiveMap,
+    op: MeshBooleanOp,
+) -> ResultTopology {
+    // Stage 1: Subdivide both meshes along their mutual intersections.
+    let subdivided = subdivide_mesh_pair(verts_a, tris_a, verts_b, tris_b);
+
+    // Stage 2: Label each sub-triangle as inside/outside the opposite mesh.
+    let labeling = label_cells(&subdivided, verts_a, tris_a, verts_b, tris_b);
+
+    // Stage 3a: Determine which sub-triangles survive the boolean op.
+    let survival = face_survival_detect(&subdivided, &labeling, op, bijective_a, bijective_b);
+
+    // Stage 3b: Extract trim boundary loops from surviving face groups.
+    let trim_map = extract_trim_boundaries(&subdivided, &survival);
+
+    // Stage 3c: Build half-edge B-Rep from trim boundaries.
+    build_result_brep(&trim_map, &subdivided)
 }
 
 #[cfg(test)]
@@ -1973,6 +2021,269 @@ mod tests {
             "Manifold invariant: half_edge count ({half_edge_count}) must equal \
              2 * edge count (2 * {edge_count} = {})",
             2 * edge_count,
+        );
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Task 3d — Full yang_boolean_pipeline integration tests
+    // Spec: specs/yang_pipeline_integration_3d.md
+    // ══════════════════════════════════════════════════════════════════
+
+    /// Run the full yang_boolean_pipeline for two overlapping boxes.
+    fn run_full_pipeline(op: MeshBooleanOp) -> ResultTopology {
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
+        // Box mesh: 12 tris, 2 per face -> face = tri / 2
+        let bijective_a = BijectiveMap {
+            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
+        };
+        let bijective_b = BijectiveMap {
+            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
+        };
+        yang_boolean_pipeline(
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            &bijective_a,
+            &bijective_b,
+            op,
+        )
+    }
+
+    // ── 3d-Test 1: Subtract produces non-empty topology ──
+
+    #[test]
+    fn test_full_pipeline_subtract_nonempty() {
+        let result = run_full_pipeline(MeshBooleanOp::Subtract);
+
+        let v = result.arena.vertices.len();
+        let e = result.arena.edges.len();
+        let f = result.arena.faces.len();
+
+        assert!(v > 0, "Full pipeline subtract must produce vertices, got 0");
+        assert!(e > 0, "Full pipeline subtract must produce edges, got 0");
+        assert!(f > 0, "Full pipeline subtract must produce faces, got 0");
+    }
+
+    // ── 3d-Test 2: All ops produce non-empty topology with correct map sizes ──
+
+    #[test]
+    fn test_full_pipeline_all_ops_nonempty() {
+        for op in [
+            MeshBooleanOp::Union,
+            MeshBooleanOp::Subtract,
+            MeshBooleanOp::Intersect,
+        ] {
+            let result = run_full_pipeline(op);
+
+            let v = result.arena.vertices.len();
+            let e = result.arena.edges.len();
+            let f = result.arena.faces.len();
+
+            assert!(v > 0, "{op:?}: full pipeline must produce vertices, got 0");
+            assert!(e > 0, "{op:?}: full pipeline must produce edges, got 0");
+            assert!(f > 0, "{op:?}: full pipeline must produce faces, got 0");
+
+            assert_eq!(
+                result.face_provenance.len(),
+                f,
+                "{op:?}: face_provenance.len() ({}) must equal faces.len() ({f})",
+                result.face_provenance.len(),
+            );
+            assert_eq!(
+                result.edge_is_intersection.len(),
+                e,
+                "{op:?}: edge_is_intersection.len() ({}) must equal edges.len() ({e})",
+                result.edge_is_intersection.len(),
+            );
+        }
+    }
+
+    // ── 3d-Test 3: Subtract has intersection edges ──
+
+    #[test]
+    fn test_full_pipeline_subtract_has_intersection_edges() {
+        let result = run_full_pipeline(MeshBooleanOp::Subtract);
+
+        let intersection_count = result.edge_is_intersection.values().filter(|&&v| v).count();
+
+        assert!(
+            intersection_count > 0,
+            "Full pipeline subtract of overlapping boxes must have at least one \
+             intersection edge, got 0 out of {} edges",
+            result.arena.edges.len(),
+        );
+    }
+
+    // ── 3d-Test 4: Subtract provenance validity ──
+
+    #[test]
+    fn test_full_pipeline_subtract_provenance_validity() {
+        let result = run_full_pipeline(MeshBooleanOp::Subtract);
+
+        assert!(
+            !result.face_provenance.is_empty(),
+            "Precondition: subtract must produce face provenance entries"
+        );
+
+        // Every face's source must reference a valid box face index (0..=5).
+        for (face_idx, source) in &result.face_provenance {
+            assert!(
+                source.face_idx.0 <= 5,
+                "Face {:?}: source face_idx {} exceeds max box face index 5",
+                face_idx,
+                source.face_idx.0,
+            );
+        }
+
+        // Both meshes must contribute faces to the subtract result.
+        let has_a = result
+            .face_provenance
+            .values()
+            .any(|s| s.mesh_id == MeshId::A);
+        let has_b = result
+            .face_provenance
+            .values()
+            .any(|s| s.mesh_id == MeshId::B);
+
+        assert!(
+            has_a,
+            "Full pipeline subtract provenance must include faces from mesh A"
+        );
+        assert!(
+            has_b,
+            "Full pipeline subtract provenance must include faces from mesh B"
+        );
+    }
+
+    // ── 3d-Test 5: Subtract has faces from both meshes ──
+
+    #[test]
+    fn test_full_pipeline_subtract_faces_from_both_meshes() {
+        let result = run_full_pipeline(MeshBooleanOp::Subtract);
+
+        let a_count = result
+            .face_provenance
+            .values()
+            .filter(|s| s.mesh_id == MeshId::A)
+            .count();
+        let b_count = result
+            .face_provenance
+            .values()
+            .filter(|s| s.mesh_id == MeshId::B)
+            .count();
+
+        assert!(
+            a_count > 0,
+            "Subtract must have faces from mesh A (outer shell), got 0"
+        );
+        assert!(
+            b_count > 0,
+            "Subtract must have faces from mesh B (cut pocket), got 0"
+        );
+
+        // Total faces must equal a_count + b_count (no unprovenanced faces).
+        assert_eq!(
+            a_count + b_count,
+            result.arena.faces.len(),
+            "Sum of A-faces ({a_count}) + B-faces ({b_count}) must equal total faces ({})",
+            result.arena.faces.len(),
+        );
+    }
+
+    // ── 3d-Test 6: Empty input produces empty ResultTopology ──
+
+    #[test]
+    fn test_full_pipeline_empty_input() {
+        let verts_empty: Vec<[f64; 3]> = vec![];
+        let tris_empty: Vec<[usize; 3]> = vec![];
+        let bij_empty = BijectiveMap {
+            tri_face_ids: vec![],
+        };
+
+        let result = yang_boolean_pipeline(
+            &verts_empty,
+            &tris_empty,
+            &verts_empty,
+            &tris_empty,
+            &bij_empty,
+            &bij_empty,
+            MeshBooleanOp::Subtract,
+        );
+
+        assert_eq!(
+            result.arena.vertices.len(),
+            0,
+            "Empty input must produce 0 vertices"
+        );
+        assert_eq!(
+            result.arena.edges.len(),
+            0,
+            "Empty input must produce 0 edges"
+        );
+        assert_eq!(
+            result.arena.faces.len(),
+            0,
+            "Empty input must produce 0 faces"
+        );
+        assert!(
+            result.face_provenance.is_empty(),
+            "Empty input must produce empty face provenance"
+        );
+        assert!(
+            result.edge_is_intersection.is_empty(),
+            "Empty input must produce empty edge classification"
+        );
+    }
+
+    // ── 3d-Test 7: Conservation — face count equals survival face group count ──
+
+    #[test]
+    fn test_full_pipeline_conservation() {
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
+        let bijective_a = BijectiveMap {
+            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
+        };
+        let bijective_b = BijectiveMap {
+            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
+        };
+
+        // Run intermediate stages to get face survival count.
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+        let survival = face_survival_detect(
+            &subdivided,
+            &labeling,
+            MeshBooleanOp::Subtract,
+            &bijective_a,
+            &bijective_b,
+        );
+        let survival_face_count = survival.groups.len();
+
+        // Run the full pipeline.
+        let result = yang_boolean_pipeline(
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            &bijective_a,
+            &bijective_b,
+            MeshBooleanOp::Subtract,
+        );
+
+        assert!(
+            survival_face_count > 0,
+            "Precondition: survival must have face groups for overlapping box subtract"
+        );
+
+        assert_eq!(
+            result.arena.faces.len(),
+            survival_face_count,
+            "Conservation: ResultTopology face count ({}) must equal \
+             FaceSurvivalMap group count ({survival_face_count})",
+            result.arena.faces.len(),
         );
     }
 }
