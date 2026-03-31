@@ -167,7 +167,7 @@ All 3D rendering happens in JavaScript via three.js/Threlte on the main thread. 
 
 ## Current Kernel Status
 
-The clean-sheet kernel (`crates/kernel/`) is under active development. **862 kernel tests pass** (4 ignored). 190-case randomized assay corpus (seed 42) with analytical ground truth and Euler characteristic oracles.
+The clean-sheet kernel (`crates/kernel/`) is under active development. **874 kernel tests pass** (4 ignored). 190-case randomized assay corpus (seed 42) with analytical ground truth and Euler characteristic oracles.
 
 ### What exists:
 - Half-edge B-Rep topology data structure with arena-based storage
