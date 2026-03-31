@@ -6,6 +6,9 @@
 use std::collections::HashMap;
 
 use kernel::types::RenderMesh;
+use kernel::units::{
+    TAU_COINCIDENT, TAU_NORMALIZE_SQ, TAU_TESS_GRID_FACTOR, TAU_TESS_GRID_MIN, TAU_WELD_MAX,
+};
 use kernel::{KernelIntrospect, KernelSolidHandle};
 use modeling_ops::types::OpResult;
 use waffle_types::Role;
@@ -190,7 +193,7 @@ pub fn check_watertight_mesh(mesh: &RenderMesh) -> OracleVerdict {
         .iter()
         .map(|v| v.abs())
         .fold(0.0_f32, f32::max);
-    let grid_size = (max_abs as f64 * 1e-5).max(1e-10);
+    let grid_size = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
     let inv_grid = 1.0 / grid_size;
 
     // Quantize vertex positions to allow position-based matching
@@ -973,7 +976,7 @@ pub fn check_mesh_euler_characteristic(mesh: &RenderMesh, expected_chi: i64) -> 
         .iter()
         .map(|v| v.abs())
         .fold(0.0_f32, f32::max);
-    let grid_size = (max_abs as f64 * 1e-5).max(1e-10);
+    let grid_size = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
     let inv_grid = 1.0 / grid_size;
 
     let quantize = |v: f32| -> i64 { (v as f64 * inv_grid).round() as i64 };
@@ -1065,7 +1068,7 @@ pub fn check_no_self_intersection(mesh: &RenderMesh) -> OracleVerdict {
         .iter()
         .map(|v| v.abs())
         .fold(0.0_f32, f32::max);
-    let grid_size = (max_abs as f64 * 1e-5).max(1e-10);
+    let grid_size = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
     let inv_grid = 1.0 / grid_size;
     let quantize = |v: f32| -> i64 { (v as f64 * inv_grid).round() as i64 };
 
@@ -1088,7 +1091,7 @@ pub fn check_no_self_intersection(mesh: &RenderMesh) -> OracleVerdict {
     };
 
     // Penetration depth threshold for grazing rejection
-    let depth_threshold = (max_abs as f64 * 1e-4).max(1e-9);
+    let depth_threshold = (max_abs as f64 * TAU_WELD_MAX).max(TAU_COINCIDENT);
 
     // Partition triangles into per-face groups and compute AABBs
     struct FaceGroup {
@@ -1261,7 +1264,7 @@ fn triangles_intersect(a: &[[f64; 3]; 3], b: &[[f64; 3]; 3], depth_threshold: f6
     // Intersection line direction
     let dir = cross(na, nb);
     let dir_len_sq = dot(dir, dir);
-    if dir_len_sq < 1e-30 {
+    if dir_len_sq < TAU_NORMALIZE_SQ {
         // Planes are (near-)parallel / coplanar — treat as non-intersecting
         return false;
     }
@@ -1308,14 +1311,14 @@ fn compute_interval(proj: &[f64; 3], dists: &[f64; 3]) -> Option<(f64, f64)> {
             // Edge crosses the plane
             let t = proj[i] + (proj[j] - proj[i]) * di / (di - dj);
             ts.push(t);
-        } else if di.abs() < 1e-30 {
+        } else if di.abs() < TAU_NORMALIZE_SQ {
             // Vertex i is on the plane
             ts.push(proj[i]);
         }
     }
     // Also check if vertex 2 is on the plane (handled in edge (2,0) start but
     // not if vertex 0 was also zero)
-    if ts.len() < 2 && dists[2].abs() < 1e-30 && (ts.is_empty() || (ts[0] - proj[2]).abs() > 1e-30)
+    if ts.len() < 2 && dists[2].abs() < TAU_NORMALIZE_SQ && (ts.is_empty() || (ts[0] - proj[2]).abs() > TAU_NORMALIZE_SQ)
     {
         ts.push(proj[2]);
     }
