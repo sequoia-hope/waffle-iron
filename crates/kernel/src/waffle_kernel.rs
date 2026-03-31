@@ -1037,7 +1037,7 @@ impl WaffleKernel {
             // fall through to polygon clipping with geometry preservation.
             match crate::boolean::ssi_boolean_op(solid_a, solid_b, op, &mut id_alloc) {
                 Ok(r) => r,
-                Err(KernelError::NotSupported { .. }) => {
+                Err(KernelError::NotSupported { ref operation }) => {
                     // A15 VIOLATION: quadric primitive pairs should NOT fall back
                     // to polygon approximation (see governance/ARCHITECTURAL_INVARIANTS.md
                     // A15.2). This fallback silently degrades analytical surface types
@@ -1045,6 +1045,10 @@ impl WaffleKernel {
                     // handle all quadric configurations (partial overlaps, sphere-box
                     // subtract, concentric tubes). Fix: implement the missing SSI
                     // sub-cases, then remove this fallback and propagate the error.
+                    eprintln!(
+                        "[A15 WARN] SSI primitive boolean fell back to polygon approximation: {}",
+                        operation
+                    );
                     polygon_soup = true;
                     crate::boolean::polygon_approx_boolean(solid_a, solid_b, op, &mut id_alloc)?
                 }
@@ -1092,6 +1096,9 @@ impl WaffleKernel {
                     // Safety fallback: use the general polygon-clipping path.
                     // Mark as polygon_soup so tessellation uses the fan path
                     // which can remove internal face fragments.
+                    eprintln!(
+                        "[A15 WARN] planar boolean fell back to polygon-clipping pipeline"
+                    );
                     polygon_soup = true;
                     let strict = crate::boolean::boolean_op(
                         solid_a,
@@ -1103,6 +1110,9 @@ impl WaffleKernel {
                     match strict {
                         ok @ Ok(_) => ok?,
                         Err(KernelError::BooleanFailed { .. }) => {
+                            eprintln!(
+                                "[A15 WARN] polygon-clipping failed, escalating to tolerant pipeline"
+                            );
                             crate::boolean::boolean_op_tolerant(
                                 solid_a,
                                 solid_b,
@@ -1138,6 +1148,9 @@ impl WaffleKernel {
                     Ok(r) => r,
                     Err(KernelError::NotSupported { .. }) => {
                         // Fallback to polygon clipping
+                        eprintln!(
+                            "[A15 WARN] enclosed-hole subtract fell back to polygon-clipping"
+                        );
                         let strict = crate::boolean::boolean_op(
                             solid_a,
                             solid_b,
@@ -1148,6 +1161,9 @@ impl WaffleKernel {
                         match strict {
                             ok @ Ok(_) => ok?,
                             Err(KernelError::BooleanFailed { .. }) => {
+                                eprintln!(
+                                    "[A15 WARN] enclosed-hole polygon-clipping failed, escalating to tolerant pipeline"
+                                );
                                 crate::boolean::boolean_op_tolerant(
                                     solid_a,
                                     solid_b,
@@ -1173,6 +1189,9 @@ impl WaffleKernel {
                 match strict {
                     ok @ Ok(_) => ok?,
                     Err(KernelError::BooleanFailed { .. }) => {
+                        eprintln!(
+                            "[A15 WARN] cylinder polygon-clipping failed, escalating to tolerant pipeline"
+                        );
                         crate::boolean::boolean_op_tolerant(solid_a, solid_b, op, &mut id_alloc)?
                     }
                     Err(e) => return Err(e),
@@ -1185,6 +1204,9 @@ impl WaffleKernel {
             // routes through polygon path because ssi_boolean_op only handles
             // primitive-primitive pairs, not post-boolean complex solids.
             // Fix: extend SSI dispatch to handle complex quadric solids.
+            eprintln!(
+                "[A15 WARN] all-quadric chained boolean routed through polygon-clipping (A15 violation)"
+            );
             polygon_soup = true;
             let strict = crate::boolean::boolean_op(
                 solid_a,
@@ -1196,6 +1218,9 @@ impl WaffleKernel {
             match strict {
                 ok @ Ok(_) => ok?,
                 Err(KernelError::BooleanFailed { .. }) => {
+                    eprintln!(
+                        "[A15 WARN] all-quadric polygon-clipping failed, escalating to tolerant pipeline"
+                    );
                     crate::boolean::boolean_op_tolerant(solid_a, solid_b, op, &mut id_alloc)?
                 }
                 Err(e) => return Err(e),
