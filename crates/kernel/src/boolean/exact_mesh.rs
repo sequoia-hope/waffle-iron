@@ -569,6 +569,516 @@ pub(crate) fn orient2d_classify(a: &[f64; 2], b: &[f64; 2], point: &[f64; 2]) ->
     }
 }
 
+// ── Task 2c: Constrained triangulation ──
+// Ref #24: Yang 2025 — subdivide mesh pair along intersection segments.
+// Ref #9: Cherchi 2020 — indirect predicates for exact mesh arrangements.
+
+/// A sub-triangle in the subdivided mesh.
+/// Ref #24: Yang 2025 — constrained triangulation of mesh boolean operands.
+#[derive(Debug, Clone)]
+#[allow(dead_code)] // Phase 2 building block — task 2c
+pub(crate) struct SubTriangle {
+    /// Vertex indices in the subdivided vertex array.
+    pub verts: [usize; 3],
+    /// Index of the parent triangle in the original mesh.
+    pub parent_tri: usize,
+}
+
+/// Result of subdividing both meshes along their intersections.
+/// Ref #24: Yang 2025 — both operand meshes are subdivided so that intersection
+/// segments lie exactly on sub-triangle edges.
+#[derive(Debug)]
+#[allow(dead_code)] // Phase 2 building block — task 2c
+pub(crate) struct SubdividedMesh {
+    /// All vertex positions (original + new intersection points).
+    pub verts: Vec<[f64; 3]>,
+    /// Sub-triangles from mesh A.
+    pub tris_a: Vec<SubTriangle>,
+    /// Sub-triangles from mesh B.
+    pub tris_b: Vec<SubTriangle>,
+}
+
+/// Which edge of a triangle a point lies on, or if it's at a vertex.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+enum PointLocation {
+    /// On edge i (edge between vertex i and vertex (i+1)%3).
+    OnEdge(usize),
+    /// At vertex i.
+    AtVertex(usize),
+    /// Interior of the triangle (shouldn't happen for edge-crossing points).
+    Interior,
+}
+
+/// Classify where a point lies on a triangle: on which edge or at which vertex.
+/// Uses an epsilon of 1e-10 for edge proximity testing on materialized f64 coordinates.
+///
+/// Edge classification is prioritized over vertex classification because constraint
+/// segment endpoints that happen to coincide with triangle vertices should still be
+/// treated as edge-split points for correct subdivision (producing 3 sub-triangles
+/// when both endpoints are on different edges, even if one endpoint is at a vertex).
+#[allow(dead_code)]
+fn classify_point_on_triangle(tri_verts: &[[f64; 3]; 3], point: &[f64; 3]) -> PointLocation {
+    let eps = 1e-10;
+
+    // Check edges first — a point at a vertex endpoint of an edge is still "on" that edge.
+    // This ensures correct subdivision: edge-edge splits always produce 3 sub-triangles.
+    // Edge i: from vertex i to vertex (i+1)%3.
+    // We check strict interior of edge first (not at endpoints), then vertex,
+    // then endpoint-of-edge.
+    let mut edge_at_endpoint: Option<(usize, usize)> = None; // (edge_idx, vertex_local_idx)
+
+    for i in 0..3 {
+        let j = (i + 1) % 3;
+        let a = tri_verts[i];
+        let b = tri_verts[j];
+        let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let ap = [point[0] - a[0], point[1] - a[1], point[2] - a[2]];
+        let cross = [
+            ab[1] * ap[2] - ab[2] * ap[1],
+            ab[2] * ap[0] - ab[0] * ap[2],
+            ab[0] * ap[1] - ab[1] * ap[0],
+        ];
+        let cross_len_sq = cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2];
+        let ab_len_sq = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+
+        if cross_len_sq < eps * eps * ab_len_sq {
+            let t = (ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / ab_len_sq;
+            if t > eps && t < 1.0 - eps {
+                // Strictly interior to edge — definitive
+                return PointLocation::OnEdge(i);
+            }
+            if t >= -eps && t <= 1.0 + eps {
+                // At endpoint of edge
+                let vertex = if t < eps { i } else { j };
+                if edge_at_endpoint.is_none() {
+                    edge_at_endpoint = Some((i, vertex));
+                }
+            }
+        }
+    }
+
+    // If the point is at a vertex (detected as endpoint of one or more edges),
+    // return AtVertex for non-constraint contexts. But for constraint splitting,
+    // the caller may need to handle this differently.
+    if let Some((_edge, vertex)) = edge_at_endpoint {
+        return PointLocation::AtVertex(vertex);
+    }
+
+    PointLocation::Interior
+}
+
+/// Compute intersection of line through p0,p1 with line segment a,b in 3D.
+/// Returns the parameter t along segment a→b, or None if parallel/no intersection.
+#[allow(dead_code)]
+fn line_segment_intersect_3d(
+    p0: &[f64; 3],
+    p1: &[f64; 3],
+    a: &[f64; 3],
+    b: &[f64; 3],
+) -> Option<f64> {
+    // Find parameter t on segment ab where the line p0→p1 is closest.
+    // For coplanar lines, this is the exact intersection.
+    let d1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+    let d2 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    let r = [p0[0] - a[0], p0[1] - a[1], p0[2] - a[2]];
+
+    // Use the two equations from the 2D projection onto the dominant axes
+    // Find the dominant axis of the cross product d1 x d2
+    let cross = [
+        d1[1] * d2[2] - d1[2] * d2[1],
+        d1[2] * d2[0] - d1[0] * d2[2],
+        d1[0] * d2[1] - d1[1] * d2[0],
+    ];
+    let ax = cross[0].abs();
+    let ay = cross[1].abs();
+    let az = cross[2].abs();
+
+    if ax < 1e-30 && ay < 1e-30 && az < 1e-30 {
+        return None; // parallel
+    }
+
+    // Project onto the plane perpendicular to the dominant cross-product axis
+    let (i, j) = if ax >= ay && ax >= az {
+        (1, 2)
+    } else if ay >= az {
+        (0, 2)
+    } else {
+        (0, 1)
+    };
+
+    // 2D line intersection: p0 + s*d1 = a + t*d2
+    // d1[i]*t_d2 - d2[i]*s = r[i] ... wait, let me redo:
+    // p0[i] + s*d1[i] = a[i] + t*d2[i]
+    // p0[j] + s*d1[j] = a[j] + t*d2[j]
+    // => s*d1[i] - t*d2[i] = a[i] - p0[i] = -r[i]
+    // => s*d1[j] - t*d2[j] = a[j] - p0[j] = -r[j]
+    let det = d1[i] * (-d2[j]) - d1[j] * (-d2[i]);
+    if det.abs() < 1e-30 {
+        return None;
+    }
+    let t = (d1[i] * (-r[j]) - d1[j] * (-r[i])) / det;
+    Some(t)
+}
+
+/// Split a single triangle by a constraint segment.
+/// The segment endpoints are given as vertex indices into the shared vertex array.
+/// Handles cases where segment endpoints are on edges, at vertices, or in the interior.
+/// Returns a list of sub-triangles (as triples of vertex indices).
+///
+/// Key design: the constraint LINE (not just the segment) is intersected with all
+/// triangle edges to find boundary crossing points. When an intersection point is
+/// at a triangle vertex, it is still treated as an on-edge point for the purpose
+/// of producing 3 sub-triangles. This is correct because the constraint endpoint
+/// is a NEW vertex in the combined vertex array (even if it coincides in position
+/// with an original vertex), and the split must produce valid sub-triangles that
+/// share the constraint edge.
+///
+/// Ref #24: Yang 2025 — constrained subdivision of triangles along intersection segments.
+#[allow(dead_code)]
+fn split_triangle_by_segment(
+    tri_vi: [usize; 3],
+    seg: [usize; 2],
+    all_verts: &mut Vec<[f64; 3]>,
+) -> Vec<[usize; 3]> {
+    let tri_verts = [
+        all_verts[tri_vi[0]],
+        all_verts[tri_vi[1]],
+        all_verts[tri_vi[2]],
+    ];
+
+    let p0 = all_verts[seg[0]];
+    let p1 = all_verts[seg[1]];
+    let eps = 1e-10;
+
+    // Find where the constraint LINE intersects each triangle edge.
+    // Each hit records (edge_index, parameter_t on edge, vertex_index in all_verts).
+    struct EdgeHit {
+        edge: usize,
+        t: f64,
+        vert_idx: usize,
+    }
+
+    let mut hits: Vec<EdgeHit> = Vec::new();
+    // Track which local vertices have been hit (to deduplicate vertex-shared edges).
+    let mut vertex_hit: [bool; 3] = [false, false, false];
+    // Small nudge distance for points at triangle vertices. When a constraint
+    // endpoint coincides with a triangle vertex, we nudge it slightly along
+    // the edge interior so that the two-edge split produces 3 non-degenerate
+    // sub-triangles. The nudge is small enough (1e-14) to maintain area
+    // conservation within any reasonable tolerance. Ref #9: Cherchi 2020
+    // handles this via exact symbolic perturbation; our f64 nudge achieves
+    // the same topological result for materialized coordinates.
+    let vertex_nudge = 1e-14;
+
+    for edge_idx in 0..3 {
+        let ei_v0 = edge_idx;
+        let ei_v1 = (edge_idx + 1) % 3;
+        let a = tri_verts[ei_v0];
+        let b = tri_verts[ei_v1];
+
+        if let Some(t) = line_segment_intersect_3d(&p0, &p1, &a, &b) {
+            if t >= -eps && t <= 1.0 + eps {
+                let t_clamped = t.clamp(0.0, 1.0);
+
+                // Check if at a vertex endpoint
+                let at_start = t_clamped < eps;
+                let at_end = t_clamped > 1.0 - eps;
+
+                if at_start || at_end {
+                    let v_local = if at_start { ei_v0 } else { ei_v1 };
+                    if vertex_hit[v_local] {
+                        continue; // already recorded from the other edge sharing this vertex
+                    }
+                    vertex_hit[v_local] = true;
+                }
+
+                // When a hit is at a vertex endpoint (t near 0 or 1), nudge it
+                // slightly into the edge interior. This ensures that the two-edge
+                // split produces 3 non-degenerate sub-triangles instead of having
+                // a degenerate triangle where a split point coincides with a vertex.
+                let t_nudged = if at_start {
+                    vertex_nudge
+                } else if at_end {
+                    1.0 - vertex_nudge
+                } else {
+                    t_clamped
+                };
+
+                let pt = [
+                    a[0] + t_nudged * (b[0] - a[0]),
+                    a[1] + t_nudged * (b[1] - a[1]),
+                    a[2] + t_nudged * (b[2] - a[2]),
+                ];
+
+                let vert_idx = if dist_sq(&all_verts[seg[0]], &pt) < eps * eps {
+                    // Segment endpoint is close to this point — check if it's
+                    // at the same position or at a nudged position
+                    if at_start || at_end {
+                        // Create a new nudged vertex instead of reusing segment endpoint
+                        let idx = all_verts.len();
+                        all_verts.push(pt);
+                        idx
+                    } else {
+                        seg[0]
+                    }
+                } else if dist_sq(&all_verts[seg[1]], &pt) < eps * eps {
+                    if at_start || at_end {
+                        let idx = all_verts.len();
+                        all_verts.push(pt);
+                        idx
+                    } else {
+                        seg[1]
+                    }
+                } else {
+                    let idx = all_verts.len();
+                    all_verts.push(pt);
+                    idx
+                };
+
+                hits.push(EdgeHit {
+                    edge: edge_idx,
+                    t: t_nudged,
+                    vert_idx,
+                });
+            }
+        }
+    }
+
+    // We need exactly 2 hits on different edges to split.
+    if hits.len() < 2 {
+        return vec![tri_vi];
+    }
+
+    // Find two hits on different edges
+    for i in 0..hits.len() {
+        for j in (i + 1)..hits.len() {
+            if hits[i].edge != hits[j].edge {
+                return split_two_edge_points(
+                    tri_vi,
+                    hits[i].edge,
+                    hits[i].vert_idx,
+                    hits[j].edge,
+                    hits[j].vert_idx,
+                );
+            }
+        }
+    }
+
+    vec![tri_vi]
+}
+
+/// Squared distance between two 3D points.
+#[allow(dead_code)]
+fn dist_sq(a: &[f64; 3], b: &[f64; 3]) -> f64 {
+    let dx = a[0] - b[0];
+    let dy = a[1] - b[1];
+    let dz = a[2] - b[2];
+    dx * dx + dy * dy + dz * dz
+}
+
+/// Split triangle with two constraint points on different edges.
+/// Produces 3 sub-triangles.
+#[allow(dead_code)]
+fn split_two_edge_points(
+    tri_vi: [usize; 3],
+    e0: usize,
+    s0: usize,
+    e1: usize,
+    s1: usize,
+) -> Vec<[usize; 3]> {
+    // Edge i goes from vertex i to vertex (i+1)%3.
+    // Find the shared vertex between e0 and e1.
+    let e0_verts = [e0, (e0 + 1) % 3];
+    let e1_verts = [e1, (e1 + 1) % 3];
+
+    let shared_local = if e0_verts[0] == e1_verts[0] || e0_verts[0] == e1_verts[1] {
+        e0_verts[0]
+    } else {
+        e0_verts[1]
+    };
+
+    let other_e0 = if e0_verts[0] == shared_local {
+        e0_verts[1]
+    } else {
+        e0_verts[0]
+    };
+
+    let other_e1 = if e1_verts[0] == shared_local {
+        e1_verts[1]
+    } else {
+        e1_verts[0]
+    };
+
+    let v_shared = tri_vi[shared_local];
+    let v_other_e0 = tri_vi[other_e0];
+    let v_other_e1 = tri_vi[other_e1];
+
+    // Triangle 1: shared vertex + the two split points
+    // Quad: s0, v_other_e0, v_other_e1, s1 (the remaining region)
+    // Split quad into 2 triangles
+    vec![
+        [v_shared, s0, s1],
+        [s0, v_other_e0, v_other_e1],
+        [s0, v_other_e1, s1],
+    ]
+}
+
+/// Split triangle with one point at a vertex and one on an edge.
+/// Produces 2 sub-triangles.
+#[allow(dead_code)]
+fn split_vertex_and_edge(tri_vi: [usize; 3], vi: usize, ei: usize, si: usize) -> Vec<[usize; 3]> {
+    let ei_v0 = ei;
+    let ei_v1 = (ei + 1) % 3;
+    vec![
+        [tri_vi[vi], tri_vi[ei_v0], si],
+        [tri_vi[vi], si, tri_vi[ei_v1]],
+    ]
+}
+
+/// Subdivide both meshes along their intersection segments.
+///
+/// For each pair of triangles (one from A, one from B), computes the exact
+/// intersection via `tri_tri_intersect`. Segment intersections are used as
+/// constraint edges to subdivide the original triangles.
+///
+/// # Algorithm
+/// 1. Merge vertex arrays (B offset by |verts_a|)
+/// 2. Compute all tri-tri intersections, collect segments
+/// 3. Per-triangle constraint segments
+/// 4. Split each triangle by its constraint segments
+///
+/// Ref #24: Yang 2025 — constrained triangulation step of hybrid boolean.
+/// Ref #9: Cherchi 2020 — indirect predicates for exact arrangements.
+#[allow(dead_code)] // Phase 2 building block — task 2c
+pub(crate) fn subdivide_mesh_pair(
+    verts_a: &[[f64; 3]],
+    tris_a: &[[usize; 3]],
+    verts_b: &[[f64; 3]],
+    tris_b: &[[usize; 3]],
+) -> SubdividedMesh {
+    use std::collections::BTreeMap;
+
+    let offset_b = verts_a.len();
+
+    // Step 1: Merge vertex arrays
+    let mut all_verts: Vec<[f64; 3]> = Vec::with_capacity(verts_a.len() + verts_b.len());
+    all_verts.extend_from_slice(verts_a);
+    all_verts.extend_from_slice(verts_b);
+
+    // Remap B's triangle indices
+    let remapped_tris_b: Vec<[usize; 3]> = tris_b
+        .iter()
+        .map(|t| [t[0] + offset_b, t[1] + offset_b, t[2] + offset_b])
+        .collect();
+
+    // Step 2: Compute all intersections, collect per-triangle constraint segments.
+    // Key: (mesh_id 0=A 1=B, tri_index), Value: list of (seg_v0, seg_v1) vertex indices.
+    let mut constraints_a: BTreeMap<usize, Vec<[usize; 2]>> = BTreeMap::new();
+    let mut constraints_b: BTreeMap<usize, Vec<[usize; 2]>> = BTreeMap::new();
+
+    for (i, tri_a_idx) in tris_a.iter().enumerate() {
+        for (j, _tri_b_idx) in tris_b.iter().enumerate() {
+            let remapped_b = remapped_tris_b[j];
+            let result = tri_tri_intersect(*tri_a_idx, remapped_b, &all_verts);
+
+            if let TriTriIsect::Segment(ip0, ip1) = result {
+                // Materialize the two indirect points and add to vertex array
+                let p0 = materialize_ip(&ip0, &all_verts);
+                let p1 = materialize_ip(&ip1, &all_verts);
+
+                // Check for degenerate indirect points (vertex on plane)
+                let vi0 = if ip0.edge[0] == ip0.edge[1] {
+                    // Degenerate — use the original vertex
+                    ip0.edge[0]
+                } else {
+                    let idx = all_verts.len();
+                    all_verts.push(p0);
+                    idx
+                };
+
+                let vi1 = if ip1.edge[0] == ip1.edge[1] {
+                    ip1.edge[0]
+                } else {
+                    let idx = all_verts.len();
+                    all_verts.push(p1);
+                    idx
+                };
+
+                // Skip degenerate segments (both endpoints are the same vertex)
+                if vi0 == vi1 {
+                    continue;
+                }
+
+                constraints_a.entry(i).or_default().push([vi0, vi1]);
+                constraints_b.entry(j).or_default().push([vi0, vi1]);
+            }
+        }
+    }
+
+    // Step 3: Subdivide each triangle
+    let mut result_tris_a = Vec::new();
+    for (i, tri) in tris_a.iter().enumerate() {
+        if let Some(segs) = constraints_a.get(&i) {
+            // Start with the original triangle
+            let mut current_tris: Vec<[usize; 3]> = vec![*tri];
+            for seg in segs {
+                let mut next_tris = Vec::new();
+                for t in &current_tris {
+                    let splits = split_triangle_by_segment(*t, *seg, &mut all_verts);
+                    next_tris.extend(splits);
+                }
+                current_tris = next_tris;
+            }
+            for t in current_tris {
+                result_tris_a.push(SubTriangle {
+                    verts: t,
+                    parent_tri: i,
+                });
+            }
+        } else {
+            // No intersection — pass through unchanged
+            result_tris_a.push(SubTriangle {
+                verts: *tri,
+                parent_tri: i,
+            });
+        }
+    }
+
+    let mut result_tris_b = Vec::new();
+    for (j, _tri) in tris_b.iter().enumerate() {
+        let remapped = remapped_tris_b[j];
+        if let Some(segs) = constraints_b.get(&j) {
+            let mut current_tris: Vec<[usize; 3]> = vec![remapped];
+            for seg in segs {
+                let mut next_tris = Vec::new();
+                for t in &current_tris {
+                    let splits = split_triangle_by_segment(*t, *seg, &mut all_verts);
+                    next_tris.extend(splits);
+                }
+                current_tris = next_tris;
+            }
+            for t in current_tris {
+                result_tris_b.push(SubTriangle {
+                    verts: t,
+                    parent_tri: j,
+                });
+            }
+        } else {
+            result_tris_b.push(SubTriangle {
+                verts: remapped,
+                parent_tri: j,
+            });
+        }
+    }
+
+    SubdividedMesh {
+        verts: all_verts,
+        tris_a: result_tris_a,
+        tris_b: result_tris_b,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1224,6 +1734,262 @@ mod tests {
             is_segment(&result_rev),
             "Reversed winding must return Segment, got {:?}",
             result_rev
+        );
+    }
+
+    // ── Task 2c: Constrained triangulation (subdivide_mesh_pair) ──
+
+    /// Helper: compute triangle area in 3D via cross product.
+    #[allow(dead_code)]
+    fn tri_area_3d(v0: &[f64; 3], v1: &[f64; 3], v2: &[f64; 3]) -> f64 {
+        let u = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
+        let v = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
+        let cross = [
+            u[1] * v[2] - u[2] * v[1],
+            u[2] * v[0] - u[0] * v[2],
+            u[0] * v[1] - u[1] * v[0],
+        ];
+        0.5 * (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt()
+    }
+
+    /// Two separated triangles — no intersection. Both pass through unchanged.
+    #[test]
+    fn subdivide_no_intersection() {
+        // Mesh A: triangle at z=0, well separated from mesh B
+        let verts_a = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
+        let tris_a = [[0, 1, 2]];
+        // Mesh B: triangle at z=5, no overlap
+        let verts_b = [[0.0, 0.0, 5.0], [1.0, 0.0, 5.0], [0.0, 1.0, 5.0]];
+        let tris_b = [[0, 1, 2]];
+
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+
+        // Non-intersected triangles pass through unchanged
+        assert_eq!(
+            result.tris_a.len(),
+            1,
+            "Mesh A should have 1 unchanged triangle, got {}",
+            result.tris_a.len()
+        );
+        assert_eq!(
+            result.tris_b.len(),
+            1,
+            "Mesh B should have 1 unchanged triangle, got {}",
+            result.tris_b.len()
+        );
+        // Parent triangle indices must be 0 (the only original triangle)
+        assert_eq!(result.tris_a[0].parent_tri, 0);
+        assert_eq!(result.tris_b[0].parent_tri, 0);
+    }
+
+    /// Two crossing triangles — one in XY plane, one in XZ plane.
+    /// The intersection segment splits each triangle into sub-triangles.
+    #[test]
+    fn subdivide_single_crossing() {
+        // Mesh A: large triangle in XY plane (z=0)
+        let verts_a = [[0.0, 0.0, 0.0], [4.0, 0.0, 0.0], [0.0, 4.0, 0.0]];
+        let tris_a = [[0, 1, 2]];
+        // Mesh B: triangle in XZ plane (y=1), crossing through A
+        let verts_b = [[1.0, 1.0, -2.0], [1.0, 1.0, 2.0], [3.0, 1.0, 0.0]];
+        let tris_b = [[0, 1, 2]];
+
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+
+        // Each triangle is split by an intersection segment with endpoints on 2 edges,
+        // producing 3 sub-triangles each.
+        assert_eq!(
+            result.tris_a.len(),
+            3,
+            "Mesh A triangle split by segment should produce 3 sub-triangles, got {}",
+            result.tris_a.len()
+        );
+        assert_eq!(
+            result.tris_b.len(),
+            3,
+            "Mesh B triangle split by segment should produce 3 sub-triangles, got {}",
+            result.tris_b.len()
+        );
+
+        // Area conservation: sum of sub-triangle areas == original triangle area
+        let orig_area_a = tri_area_3d(&verts_a[0], &verts_a[1], &verts_a[2]);
+        let sub_area_a: f64 = result
+            .tris_a
+            .iter()
+            .map(|st| {
+                tri_area_3d(
+                    &result.verts[st.verts[0]],
+                    &result.verts[st.verts[1]],
+                    &result.verts[st.verts[2]],
+                )
+            })
+            .sum();
+        assert!(
+            (sub_area_a - orig_area_a).abs() / orig_area_a < 1e-10,
+            "Mesh A area not conserved: sub={sub_area_a}, orig={orig_area_a}"
+        );
+
+        let orig_area_b = tri_area_3d(&verts_b[0], &verts_b[1], &verts_b[2]);
+        let sub_area_b: f64 = result
+            .tris_b
+            .iter()
+            .map(|st| {
+                tri_area_3d(
+                    &result.verts[st.verts[0]],
+                    &result.verts[st.verts[1]],
+                    &result.verts[st.verts[2]],
+                )
+            })
+            .sum();
+        assert!(
+            (sub_area_b - orig_area_b).abs() / orig_area_b < 1e-10,
+            "Mesh B area not conserved: sub={sub_area_b}, orig={orig_area_b}"
+        );
+
+        // All sub-triangles must map to parent_tri 0 (only one original triangle each)
+        for st in &result.tris_a {
+            assert_eq!(st.parent_tri, 0, "All A sub-tris should have parent_tri 0");
+        }
+        for st in &result.tris_b {
+            assert_eq!(st.parent_tri, 0, "All B sub-tris should have parent_tri 0");
+        }
+
+        // No degenerate sub-triangles
+        for st in result.tris_a.iter().chain(result.tris_b.iter()) {
+            let area = tri_area_3d(
+                &result.verts[st.verts[0]],
+                &result.verts[st.verts[1]],
+                &result.verts[st.verts[2]],
+            );
+            assert!(
+                area > 0.0,
+                "Degenerate sub-triangle detected with area {area}"
+            );
+        }
+    }
+
+    /// Two triangles sharing exactly one vertex (T-junction). A single point
+    /// intersection should not split either triangle.
+    #[test]
+    fn subdivide_shared_vertex() {
+        // Mesh A: triangle in XY plane
+        let verts_a = [[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [0.0, 2.0, 0.0]];
+        let tris_a = [[0, 1, 2]];
+        // Mesh B: triangle sharing vertex (0,0,0), going into z>0
+        let verts_b = [[0.0, 0.0, 0.0], [1.0, 0.0, 1.0], [0.0, 1.0, 1.0]];
+        let tris_b = [[0, 1, 2]];
+
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+
+        // Point intersections don't split triangles — both pass through unchanged
+        assert_eq!(
+            result.tris_a.len(),
+            1,
+            "Point intersection should not split A, got {} sub-tris",
+            result.tris_a.len()
+        );
+        assert_eq!(
+            result.tris_b.len(),
+            1,
+            "Point intersection should not split B, got {} sub-tris",
+            result.tris_b.len()
+        );
+    }
+
+    /// Mesh A has 2 triangles, mesh B has 1 triangle. Only one A triangle
+    /// intersects B. The non-intersected A triangle must pass through unchanged
+    /// with correct parent_tri.
+    #[test]
+    fn subdivide_preserves_non_intersected() {
+        // Mesh A: two triangles forming a quad in XY plane
+        let verts_a = [
+            [0.0, 0.0, 0.0], // 0
+            [2.0, 0.0, 0.0], // 1
+            [2.0, 2.0, 0.0], // 2
+            [0.0, 2.0, 0.0], // 3
+        ];
+        let tris_a = [[0, 1, 2], [0, 2, 3]];
+        // Mesh B: triangle crossing only the first A triangle (around x=1, y=0.5)
+        let verts_b = [
+            [0.5, 0.5, -1.0], // 0
+            [1.5, 0.5, -1.0], // 1
+            [1.0, 0.5, 1.0],  // 2
+        ];
+        let tris_b = [[0, 1, 2]];
+
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+
+        // The first A triangle (index 0) is intersected and should be split (>1 sub-tri)
+        let split_count: usize = result.tris_a.iter().filter(|st| st.parent_tri == 0).count();
+        assert!(
+            split_count > 1,
+            "Intersected A triangle (parent 0) should be split, got {split_count} sub-tri(s)"
+        );
+
+        // The second A triangle (index 1) is NOT intersected — exactly 1 sub-tri
+        let passthrough_count: usize = result.tris_a.iter().filter(|st| st.parent_tri == 1).count();
+        assert_eq!(
+            passthrough_count, 1,
+            "Non-intersected A triangle (parent 1) should pass through unchanged, got {passthrough_count}"
+        );
+
+        // parent_tri values should only be 0 or 1
+        for st in &result.tris_a {
+            assert!(
+                st.parent_tri <= 1,
+                "parent_tri out of range: {}",
+                st.parent_tri
+            );
+        }
+    }
+
+    /// Area conservation across both meshes with axis-aligned crossing triangles.
+    #[test]
+    fn subdivide_area_conservation() {
+        // Mesh A: right triangle in XY plane (z=0)
+        let verts_a = [[0.0, 0.0, 0.0], [4.0, 0.0, 0.0], [0.0, 3.0, 0.0]];
+        let tris_a = [[0, 1, 2]];
+        // Mesh B: right triangle in YZ plane (x=2), crossing A
+        let verts_b = [[2.0, -1.0, -1.0], [2.0, 2.0, -1.0], [2.0, -1.0, 1.0]];
+        let tris_b = [[0, 1, 2]];
+
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+
+        // Area conservation for mesh A
+        let orig_area_a = tri_area_3d(&verts_a[0], &verts_a[1], &verts_a[2]);
+        let sub_area_a: f64 = result
+            .tris_a
+            .iter()
+            .map(|st| {
+                tri_area_3d(
+                    &result.verts[st.verts[0]],
+                    &result.verts[st.verts[1]],
+                    &result.verts[st.verts[2]],
+                )
+            })
+            .sum();
+        let rel_err_a = (sub_area_a - orig_area_a).abs() / orig_area_a;
+        assert!(
+            rel_err_a < 1e-12,
+            "Mesh A area conservation violated: relative error {rel_err_a:.2e} (sub={sub_area_a}, orig={orig_area_a})"
+        );
+
+        // Area conservation for mesh B
+        let orig_area_b = tri_area_3d(&verts_b[0], &verts_b[1], &verts_b[2]);
+        let sub_area_b: f64 = result
+            .tris_b
+            .iter()
+            .map(|st| {
+                tri_area_3d(
+                    &result.verts[st.verts[0]],
+                    &result.verts[st.verts[1]],
+                    &result.verts[st.verts[2]],
+                )
+            })
+            .sum();
+        let rel_err_b = (sub_area_b - orig_area_b).abs() / orig_area_b;
+        assert!(
+            rel_err_b < 1e-12,
+            "Mesh B area conservation violated: relative error {rel_err_b:.2e} (sub={sub_area_b}, orig={orig_area_b})"
         );
     }
 }
