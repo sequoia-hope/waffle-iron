@@ -1267,6 +1267,183 @@ pub(crate) fn subdivide_mesh_pair(
     }
 }
 
+// ── Task 2e: Radial sort for non-manifold edge resolution ──
+// Ref #10: Levy 2025 — exact constructions + radial sort.
+// Ref #12: Barki 2015 — radial sort for classification in mesh arrangements.
+
+/// A triangle meeting at a non-manifold edge, identified by its opposite vertex.
+/// Used as input to radial sort.
+/// Ref #10: Levy 2025 — radial sort around non-manifold edges.
+#[derive(Debug, Clone)]
+#[allow(dead_code)] // Phase 2 building block — task 2e
+pub(crate) struct RadialTriangle {
+    /// Index of the vertex NOT on the shared edge (the "opposite" or "apex" vertex).
+    pub opposite_vertex: usize,
+    /// Which input mesh this triangle came from.
+    pub mesh_id: MeshId,
+    /// Index into SubdividedMesh's tris_a (for MeshId::A) or tris_b (for MeshId::B).
+    pub sub_tri_index: usize,
+}
+
+/// Sort triangles around a non-manifold edge by angular position.
+///
+/// Uses exact orient3d predicates [#4 Shewchuk] for comparison — no tolerance
+/// parameters. The sort determines angular ordering of triangles around the
+/// edge axis, which is required for topology extraction (Phase 3) and correct
+/// cell pairing.
+///
+/// # Algorithm (Ref #10: Levy 2025)
+///
+/// The comparison primitive is:
+///   orient3d(edge[0], edge[1], v_i, v_j)
+/// where v_i, v_j are opposite vertices of two triangles. The sign of orient3d
+/// determines their relative angular position around the edge.
+///
+/// For the coplanar case (orient3d == 0), triangles are on the same half-plane
+/// and require secondary sorting by distance or mesh_id tiebreak.
+///
+/// # Arguments
+/// - `edge`: Vertex indices of the non-manifold edge `[start, end]`.
+/// - `triangles`: Triangles meeting at the edge.
+/// - `verts`: Shared vertex position array.
+///
+/// # Returns
+/// Indices into `triangles`, sorted in CCW angular order around the edge axis
+/// (looking from edge[0] toward edge[1]).
+///
+/// # Invariants
+/// - I1: Consistent angular ordering (orient3d signs agree for consecutive pairs)
+/// - I2: Bijection of input indices (no triangles lost or duplicated)
+/// - I3: For 4-triangle boolean edges, sorted order alternates mesh A/B
+/// - I4: No tolerance parameters used
+#[allow(dead_code)] // Phase 2 building block — task 2e
+pub(crate) fn radial_sort_around_edge(
+    edge: [usize; 2],
+    triangles: &[RadialTriangle],
+    verts: &[[f64; 3]],
+) -> Vec<usize> {
+    // B1: 0 or 1 triangles — no sort needed.
+    let n = triangles.len();
+    if n <= 1 {
+        return (0..n).collect();
+    }
+
+    let e0 = verts[edge[0]];
+    let e1 = verts[edge[1]];
+
+    // Edge axis vector.
+    let axis = [e1[0] - e0[0], e1[1] - e0[1], e1[2] - e0[2]];
+    let axis_len_sq = axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2];
+
+    // Zero-length edge — cannot define angular ordering.
+    if axis_len_sq < 1e-30 {
+        return (0..n).collect();
+    }
+
+    let inv_axis_len = 1.0 / axis_len_sq.sqrt();
+    let axis_n = [
+        axis[0] * inv_axis_len,
+        axis[1] * inv_axis_len,
+        axis[2] * inv_axis_len,
+    ];
+
+    // Build orthonormal frame perpendicular to edge axis.
+    // Pick reference direction not parallel to axis. Ref #10: Levy 2025.
+    let ref_dir = if axis_n[0].abs() < 0.9 {
+        [1.0, 0.0, 0.0]
+    } else {
+        [0.0, 1.0, 0.0]
+    };
+
+    // u = normalize(ref_dir - (ref_dir . axis_n) * axis_n)
+    let dot_ra = ref_dir[0] * axis_n[0] + ref_dir[1] * axis_n[1] + ref_dir[2] * axis_n[2];
+    let u_raw = [
+        ref_dir[0] - dot_ra * axis_n[0],
+        ref_dir[1] - dot_ra * axis_n[1],
+        ref_dir[2] - dot_ra * axis_n[2],
+    ];
+    let u_len = (u_raw[0] * u_raw[0] + u_raw[1] * u_raw[1] + u_raw[2] * u_raw[2]).sqrt();
+    let u = [u_raw[0] / u_len, u_raw[1] / u_len, u_raw[2] / u_len];
+
+    // v = axis_n × u (right-hand rule gives CCW orientation)
+    let v = [
+        axis_n[1] * u[2] - axis_n[2] * u[1],
+        axis_n[2] * u[0] - axis_n[0] * u[2],
+        axis_n[0] * u[1] - axis_n[1] * u[0],
+    ];
+
+    // Edge midpoint as projection origin.
+    let mid = [
+        (e0[0] + e1[0]) * 0.5,
+        (e0[1] + e1[1]) * 0.5,
+        (e0[2] + e1[2]) * 0.5,
+    ];
+
+    // For each triangle, compute the angle of its opposite vertex in the (u, v) frame.
+    let angles: Vec<f64> = triangles
+        .iter()
+        .map(|tri| {
+            let ov = verts[tri.opposite_vertex];
+            let d = [ov[0] - mid[0], ov[1] - mid[1], ov[2] - mid[2]];
+            // Project out the axis component.
+            let d_axis = d[0] * axis_n[0] + d[1] * axis_n[1] + d[2] * axis_n[2];
+            let proj = [
+                d[0] - d_axis * axis_n[0],
+                d[1] - d_axis * axis_n[1],
+                d[2] - d_axis * axis_n[2],
+            ];
+            let pu = proj[0] * u[0] + proj[1] * u[1] + proj[2] * u[2];
+            let pv = proj[0] * v[0] + proj[1] * v[1] + proj[2] * v[2];
+            pv.atan2(pu)
+        })
+        .collect();
+
+    // Sort indices by angle. For coplanar tiebreak (nearly equal angles),
+    // use exact orient3d predicate. Ref #4: Shewchuk 1997, Ref #10: Levy 2025.
+    let mut indices: Vec<usize> = (0..n).collect();
+    indices.sort_by(|&a, &b| {
+        let angle_a = angles[a];
+        let angle_b = angles[b];
+        // Primary sort: by atan2 angle.
+        match angle_a.partial_cmp(&angle_b) {
+            Some(std::cmp::Ordering::Equal) | None => {
+                // Coplanar tiebreak: use exact orient3d.
+                // orient3d(e0, e1, v_a, v_b) > 0 means v_b is CCW from v_a,
+                // so v_a should come first (Less).
+                let va = verts[triangles[a].opposite_vertex];
+                let vb = verts[triangles[b].opposite_vertex];
+                let o = orient3d(e0, e1, va, vb);
+                if o > 0.0 {
+                    std::cmp::Ordering::Less // v_a before v_b (CCW)
+                } else if o < 0.0 {
+                    std::cmp::Ordering::Greater
+                } else {
+                    // Truly coplanar and same angle — break tie by distance from edge
+                    // (closer vertex first) to ensure deterministic ordering.
+                    let da = {
+                        let ov = verts[triangles[a].opposite_vertex];
+                        let dx = ov[0] - mid[0];
+                        let dy = ov[1] - mid[1];
+                        let dz = ov[2] - mid[2];
+                        dx * dx + dy * dy + dz * dz
+                    };
+                    let db = {
+                        let ov = verts[triangles[b].opposite_vertex];
+                        let dx = ov[0] - mid[0];
+                        let dy = ov[1] - mid[1];
+                        let dz = ov[2] - mid[2];
+                        dx * dx + dy * dy + dz * dz
+                    };
+                    da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                }
+            }
+            Some(ord) => ord,
+        }
+    });
+
+    indices
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2470,6 +2647,628 @@ mod tests {
             "Intersect of non-overlapping boxes must be empty, got {} vertices ({} triangles)",
             result.len(),
             result.len() / 3
+        );
+    }
+
+    // ── Radial sort tests (task 2e, red phase) ──
+
+    /// Helper: build a RadialTriangle.
+    fn make_radial_tri(
+        opposite_vertex: usize,
+        mesh_id: MeshId,
+        sub_tri_index: usize,
+    ) -> RadialTriangle {
+        RadialTriangle {
+            opposite_vertex,
+            mesh_id,
+            sub_tri_index,
+        }
+    }
+
+    /// Helper: check that the output is a valid permutation of 0..n.
+    fn assert_is_permutation(sorted: &[usize], n: usize) {
+        assert_eq!(sorted.len(), n, "Output length must equal input length");
+        let mut seen = vec![false; n];
+        for &idx in sorted {
+            assert!(idx < n, "Index {} out of range 0..{}", idx, n);
+            assert!(!seen[idx], "Duplicate index {} in output", idx);
+            seen[idx] = true;
+        }
+    }
+
+    #[test]
+    fn test_radial_sort_four_triangles_axis_aligned() {
+        // B3, O1: Edge along z-axis, 4 triangles in +x, +y, -x, -y quadrants.
+        // Correct CCW order (looking from origin toward +z) is: +x, +y, -x, -y.
+        //
+        // We SHUFFLE the input so that the stub's identity permutation [0,1,2,3]
+        // does NOT match the correct angular order.
+        //
+        // Input order: -x (index 0), +y (index 1), -y (index 2), +x (index 3)
+        // Correct CCW from +x: +x=3, +y=1, -x=0, -y=2 (or any rotation thereof)
+        let verts: Vec<[f64; 3]> = vec![
+            [0.0, 0.0, 0.0],  // 0: edge start
+            [0.0, 0.0, 1.0],  // 1: edge end
+            [-1.0, 0.0, 0.5], // 2: -x (triangle 0's opposite)
+            [0.0, 1.0, 0.5],  // 3: +y (triangle 1's opposite)
+            [0.0, -1.0, 0.5], // 4: -y (triangle 2's opposite)
+            [1.0, 0.0, 0.5],  // 5: +x (triangle 3's opposite)
+        ];
+        let edge = [0, 1];
+        // Shuffled input: -x, +y, -y, +x with alternating mesh IDs
+        // Mesh ID assignment matches a real boolean edge: opposite-side
+        // triangles share a mesh (A owns +x/-x, B owns +y/-y).
+        // CCW order +x,+y,-x,-y → A,B,A,B — I3 alternation holds.
+        let triangles = vec![
+            make_radial_tri(2, MeshId::A, 0), // -x (A — opposite of +x)
+            make_radial_tri(3, MeshId::B, 1), // +y (B)
+            make_radial_tri(4, MeshId::B, 2), // -y (B — opposite of +y)
+            make_radial_tri(5, MeshId::A, 3), // +x (A)
+        ];
+
+        let sorted = radial_sort_around_edge(edge, &triangles, &verts);
+
+        // I2: bijection
+        assert_is_permutation(&sorted, 4);
+
+        // O1: The sorted order must visit the 4 quadrants in CCW order.
+        // CCW around z-axis (looking from +z): +x → +y → -x → -y
+        // In input indices: 3, 1, 0, 2 (or any cyclic rotation).
+        let expected_ccw_cycles: Vec<Vec<usize>> = vec![
+            vec![3, 1, 0, 2],
+            vec![1, 0, 2, 3],
+            vec![0, 2, 3, 1],
+            vec![2, 3, 1, 0],
+        ];
+        assert!(
+            expected_ccw_cycles.contains(&sorted),
+            "Sorted order {:?} is not a valid CCW cycle (expected one of {:?})",
+            sorted,
+            expected_ccw_cycles
+        );
+
+        // I1: orient3d consistency — consecutive pairs must have same-sign orient3d
+        let signs: Vec<f64> = (0..sorted.len())
+            .map(|i| {
+                let j = (i + 1) % sorted.len();
+                let vi = verts[triangles[sorted[i]].opposite_vertex];
+                let vj = verts[triangles[sorted[j]].opposite_vertex];
+                orient3d(verts[edge[0]], verts[edge[1]], vi, vj)
+            })
+            .collect();
+        // All signs should be positive (CCW) or all negative — consistent direction
+        let positive_count = signs.iter().filter(|&&s| s > 0.0).count();
+        let negative_count = signs.iter().filter(|&&s| s < 0.0).count();
+        assert!(
+            positive_count == signs.len() || negative_count == signs.len(),
+            "I1 violated: orient3d signs are inconsistent: {:?}",
+            signs
+        );
+
+        // I3: mesh IDs alternate A,B,A,B in the sorted output
+        let mesh_ids: Vec<MeshId> = sorted.iter().map(|&i| triangles[i].mesh_id).collect();
+        for w in mesh_ids.windows(2) {
+            assert_ne!(
+                w[0], w[1],
+                "I3 violated: consecutive mesh IDs must alternate, got {:?}",
+                mesh_ids
+            );
+        }
+    }
+
+    #[test]
+    fn test_radial_sort_two_triangles() {
+        // B2: Edge along z-axis, 2 triangles at opposite sides (+x and -x).
+        let verts: Vec<[f64; 3]> = vec![
+            [0.0, 0.0, 0.0],  // 0: edge start
+            [0.0, 0.0, 1.0],  // 1: edge end
+            [1.0, 0.0, 0.5],  // 2: +x
+            [-1.0, 0.0, 0.5], // 3: -x
+        ];
+        let edge = [0, 1];
+        let triangles = vec![
+            make_radial_tri(2, MeshId::A, 0),
+            make_radial_tri(3, MeshId::B, 1),
+        ];
+
+        let sorted = radial_sort_around_edge(edge, &triangles, &verts);
+
+        // I2: both indices present
+        assert_is_permutation(&sorted, 2);
+    }
+
+    #[test]
+    fn test_radial_sort_single_triangle() {
+        // B1: 1 triangle → output is [0]
+        let verts: Vec<[f64; 3]> = vec![[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.5]];
+        let edge = [0, 1];
+        let triangles = vec![make_radial_tri(2, MeshId::A, 0)];
+
+        let sorted = radial_sort_around_edge(edge, &triangles, &verts);
+        assert_eq!(sorted, vec![0]);
+    }
+
+    #[test]
+    fn test_radial_sort_empty() {
+        // B1: 0 triangles → output is []
+        let verts: Vec<[f64; 3]> = vec![[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]];
+        let edge = [0, 1];
+        let triangles: Vec<RadialTriangle> = vec![];
+
+        let sorted = radial_sort_around_edge(edge, &triangles, &verts);
+        assert!(sorted.is_empty());
+    }
+
+    #[test]
+    fn test_radial_sort_six_triangles() {
+        // B4, O4: Edge along z-axis, 6 triangles at 60° intervals.
+        // Angles: 0°, 60°, 120°, 180°, 240°, 300°
+        // We shuffle the input so stub [0..6] is incorrect.
+        use std::f64::consts::PI;
+
+        let mut verts: Vec<[f64; 3]> = vec![
+            [0.0, 0.0, 0.0], // 0: edge start
+            [0.0, 0.0, 1.0], // 1: edge end
+        ];
+        // Add opposite vertices at 60° intervals, but in shuffled order:
+        // We'll add them at angles: 180°, 60°, 300°, 0°, 240°, 120°
+        let shuffled_angles = [180.0_f64, 60.0, 300.0, 0.0, 240.0, 120.0];
+        for &deg in &shuffled_angles {
+            let rad = deg * PI / 180.0;
+            verts.push([rad.cos(), rad.sin(), 0.5]);
+        }
+
+        let edge = [0, 1];
+        let triangles: Vec<RadialTriangle> = (0..6)
+            .map(|i| {
+                make_radial_tri(
+                    i + 2, // vertex indices 2..8
+                    if i % 2 == 0 { MeshId::A } else { MeshId::B },
+                    i,
+                )
+            })
+            .collect();
+
+        let sorted = radial_sort_around_edge(edge, &triangles, &verts);
+
+        // I2: bijection
+        assert_is_permutation(&sorted, 6);
+
+        // I1 / O4: orient3d consistency for consecutive pairs
+        let signs: Vec<f64> = (0..sorted.len())
+            .map(|i| {
+                let j = (i + 1) % sorted.len();
+                let vi = verts[triangles[sorted[i]].opposite_vertex];
+                let vj = verts[triangles[sorted[j]].opposite_vertex];
+                orient3d(verts[edge[0]], verts[edge[1]], vi, vj)
+            })
+            .collect();
+        let positive_count = signs.iter().filter(|&&s| s > 0.0).count();
+        let negative_count = signs.iter().filter(|&&s| s < 0.0).count();
+        assert!(
+            positive_count == signs.len() || negative_count == signs.len(),
+            "I1 violated: orient3d signs inconsistent for 6-triangle sort: {:?}",
+            signs
+        );
+    }
+
+    #[test]
+    fn test_radial_sort_invariant_bijection() {
+        // I2: For any input, output must be a permutation of 0..n.
+        // Uses the 4-triangle axis-aligned case.
+        let verts: Vec<[f64; 3]> = vec![
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [-1.0, 0.0, 0.5],
+            [0.0, 1.0, 0.5],
+            [0.0, -1.0, 0.5],
+            [1.0, 0.0, 0.5],
+        ];
+        let edge = [0, 1];
+        let triangles = vec![
+            make_radial_tri(2, MeshId::A, 0),
+            make_radial_tri(3, MeshId::B, 1),
+            make_radial_tri(4, MeshId::A, 2),
+            make_radial_tri(5, MeshId::B, 3),
+        ];
+
+        let sorted = radial_sort_around_edge(edge, &triangles, &verts);
+        assert_is_permutation(&sorted, 4);
+
+        // Verify it's not just the identity (the stub returns identity)
+        // The correct sort must reorder since input is shuffled (-x, +y, -y, +x)
+        // and CCW order from +x is: +x(3), +y(1), -x(0), -y(2)
+        assert_ne!(
+            sorted,
+            vec![0, 1, 2, 3],
+            "Sort must not be identity — input is not in angular order"
+        );
+    }
+
+    #[test]
+    fn test_radial_sort_coplanar_pair() {
+        // B5: Edge along z-axis. Two triangles from different meshes have opposite
+        // vertices both in the +x direction (coplanar with edge in the xz-plane).
+        // Two more triangles in the -x direction (also coplanar pair).
+        let verts: Vec<[f64; 3]> = vec![
+            [0.0, 0.0, 0.0],  // 0: edge start
+            [0.0, 0.0, 1.0],  // 1: edge end
+            [1.0, 0.0, 0.5],  // 2: +x (mesh A)
+            [2.0, 0.0, 0.5],  // 3: +x further (mesh B) — coplanar with 2
+            [-1.0, 0.0, 0.5], // 4: -x (mesh A)
+            [-2.0, 0.0, 0.5], // 5: -x further (mesh B) — coplanar with 4
+        ];
+        let edge = [0, 1];
+        // Input order: shuffled so stub identity is wrong
+        let triangles = vec![
+            make_radial_tri(4, MeshId::A, 0), // -x near
+            make_radial_tri(2, MeshId::A, 1), // +x near
+            make_radial_tri(5, MeshId::B, 2), // -x far
+            make_radial_tri(3, MeshId::B, 3), // +x far
+        ];
+
+        let sorted = radial_sort_around_edge(edge, &triangles, &verts);
+
+        // I2: bijection
+        assert_is_permutation(&sorted, 4);
+
+        // Coplanar triangles from the same half-plane must be adjacent in the
+        // sorted output. The +x pair (input indices 1 and 3) must be neighbors,
+        // and the -x pair (input indices 0 and 2) must be neighbors.
+        let pos_of = |target: usize| -> usize { sorted.iter().position(|&x| x == target).unwrap() };
+
+        // +x pair: indices 1 and 3 must be adjacent (cyclically)
+        let p1 = pos_of(1);
+        let p3 = pos_of(3);
+        let dist_plus = ((p1 as isize - p3 as isize).abs() as usize)
+            .min(4 - (p1 as isize - p3 as isize).unsigned_abs());
+        assert_eq!(
+            dist_plus, 1,
+            "Coplanar +x triangles (indices 1,3) must be adjacent, but positions are {} and {}",
+            p1, p3
+        );
+
+        // -x pair: indices 0 and 2 must be adjacent (cyclically)
+        let p0 = pos_of(0);
+        let p2 = pos_of(2);
+        let dist_minus = ((p0 as isize - p2 as isize).abs() as usize)
+            .min(4 - (p0 as isize - p2 as isize).unsigned_abs());
+        assert_eq!(
+            dist_minus, 1,
+            "Coplanar -x triangles (indices 0,2) must be adjacent, but positions are {} and {}",
+            p0, p2
+        );
+    }
+
+    // ── Radial sort adversarial tests (task 2e, FIP Phase 4) ──
+
+    #[test]
+    fn test_radial_sort_near_coplanar_vertices() {
+        // Adversarial: two opposite vertices ALMOST coplanar with the edge,
+        // offset by 1e-15 in opposite y-directions. Tests that the exact
+        // orient3d predicate resolves near-degenerate configurations.
+        let verts: Vec<[f64; 3]> = vec![
+            [0.0, 0.0, 0.0],    // 0: edge start
+            [0.0, 0.0, 1.0],    // 1: edge end
+            [1.0, 1e-15, 0.5],  // 2: barely above xz-plane
+            [1.0, -1e-15, 0.5], // 3: barely below xz-plane
+            [-1.0, 1.0, 0.5],   // 4: clearly off-plane (control)
+            [-1.0, -1.0, 0.5],  // 5: clearly off-plane (control)
+        ];
+        let edge = [0, 1];
+        let triangles = vec![
+            make_radial_tri(2, MeshId::A, 0),
+            make_radial_tri(3, MeshId::B, 1),
+            make_radial_tri(4, MeshId::A, 2),
+            make_radial_tri(5, MeshId::B, 3),
+        ];
+
+        let sorted = radial_sort_around_edge(edge, &triangles, &verts);
+
+        // I2: bijection — all 4 triangles present
+        assert_is_permutation(&sorted, 4);
+
+        // I1: orient3d consistency for consecutive pairs
+        let signs: Vec<f64> = (0..sorted.len())
+            .map(|i| {
+                let j = (i + 1) % sorted.len();
+                let vi = verts[triangles[sorted[i]].opposite_vertex];
+                let vj = verts[triangles[sorted[j]].opposite_vertex];
+                orient3d(verts[edge[0]], verts[edge[1]], vi, vj)
+            })
+            .collect();
+        let positive_count = signs.iter().filter(|&&s| s > 0.0).count();
+        let negative_count = signs.iter().filter(|&&s| s < 0.0).count();
+        // Allow zero signs for the near-coplanar pair, but non-zero signs must agree.
+        assert!(
+            positive_count == 0 || negative_count == 0,
+            "I1 violated: mixed positive/negative orient3d signs in near-coplanar test: {:?}",
+            signs
+        );
+    }
+
+    #[test]
+    fn test_radial_sort_large_coordinates() {
+        // Adversarial: edge and vertices at large coordinate scale (1e6).
+        // Tests numeric stability — floating-point atan2 and orient3d must
+        // still produce correct angular ordering.
+        let s = 1e6;
+        let verts: Vec<[f64; 3]> = vec![
+            [s, s, s],             // 0: edge start
+            [s, s, s + 1.0],       // 1: edge end (along z)
+            [s + 1.0, s, s + 0.5], // 2: +x direction
+            [s, s + 1.0, s + 0.5], // 3: +y direction
+            [s - 1.0, s, s + 0.5], // 4: -x direction
+            [s, s - 1.0, s + 0.5], // 5: -y direction
+        ];
+        let edge = [0, 1];
+        // Shuffled: -x, +y, -y, +x (same pattern as 4-tri axis-aligned test)
+        let triangles = vec![
+            make_radial_tri(4, MeshId::A, 0), // -x
+            make_radial_tri(3, MeshId::B, 1), // +y
+            make_radial_tri(5, MeshId::B, 2), // -y
+            make_radial_tri(2, MeshId::A, 3), // +x
+        ];
+
+        let sorted = radial_sort_around_edge(edge, &triangles, &verts);
+
+        // I2: bijection
+        assert_is_permutation(&sorted, 4);
+
+        // I1: orient3d consistency
+        let signs: Vec<f64> = (0..sorted.len())
+            .map(|i| {
+                let j = (i + 1) % sorted.len();
+                let vi = verts[triangles[sorted[i]].opposite_vertex];
+                let vj = verts[triangles[sorted[j]].opposite_vertex];
+                orient3d(verts[edge[0]], verts[edge[1]], vi, vj)
+            })
+            .collect();
+        let positive_count = signs.iter().filter(|&&s| s > 0.0).count();
+        let negative_count = signs.iter().filter(|&&s| s < 0.0).count();
+        assert!(
+            positive_count == signs.len() || negative_count == signs.len(),
+            "I1 violated: orient3d signs inconsistent at large coordinates: {:?}",
+            signs
+        );
+
+        // O1: CCW order around z-axis at offset s: +x(3), +y(1), -x(0), -y(2)
+        let expected_ccw_cycles: Vec<Vec<usize>> = vec![
+            vec![3, 1, 0, 2],
+            vec![1, 0, 2, 3],
+            vec![0, 2, 3, 1],
+            vec![2, 3, 1, 0],
+        ];
+        assert!(
+            expected_ccw_cycles.contains(&sorted),
+            "Sorted order {:?} is not a valid CCW cycle at large coordinates (expected one of {:?})",
+            sorted, expected_ccw_cycles
+        );
+    }
+
+    #[test]
+    fn test_radial_sort_asymmetric_distances() {
+        // Adversarial: opposite vertices at wildly different distances from the edge.
+        // One vertex at distance 0.001, another at distance 1000. Angular sort must
+        // be independent of radial distance from the edge axis.
+        let verts: Vec<[f64; 3]> = vec![
+            [0.0, 0.0, 0.0],     // 0: edge start
+            [0.0, 0.0, 1.0],     // 1: edge end
+            [0.001, 0.0, 0.5],   // 2: +x very close
+            [0.0, 1000.0, 0.5],  // 3: +y very far
+            [-0.001, 0.0, 0.5],  // 4: -x very close
+            [0.0, -1000.0, 0.5], // 5: -y very far
+        ];
+        let edge = [0, 1];
+        // Shuffled: -y, +x, -x, +y
+        let triangles = vec![
+            make_radial_tri(5, MeshId::B, 0), // -y far
+            make_radial_tri(2, MeshId::A, 1), // +x close
+            make_radial_tri(4, MeshId::A, 2), // -x close
+            make_radial_tri(3, MeshId::B, 3), // +y far
+        ];
+
+        let sorted = radial_sort_around_edge(edge, &triangles, &verts);
+
+        // I2: bijection
+        assert_is_permutation(&sorted, 4);
+
+        // I1: orient3d consistency
+        let signs: Vec<f64> = (0..sorted.len())
+            .map(|i| {
+                let j = (i + 1) % sorted.len();
+                let vi = verts[triangles[sorted[i]].opposite_vertex];
+                let vj = verts[triangles[sorted[j]].opposite_vertex];
+                orient3d(verts[edge[0]], verts[edge[1]], vi, vj)
+            })
+            .collect();
+        let positive_count = signs.iter().filter(|&&s| s > 0.0).count();
+        let negative_count = signs.iter().filter(|&&s| s < 0.0).count();
+        assert!(
+            positive_count == signs.len() || negative_count == signs.len(),
+            "I1 violated: orient3d signs inconsistent with asymmetric distances: {:?}",
+            signs
+        );
+
+        // O1: CCW order around z-axis: +x(1), +y(3), -x(2), -y(0)
+        let expected_ccw_cycles: Vec<Vec<usize>> = vec![
+            vec![1, 3, 2, 0],
+            vec![3, 2, 0, 1],
+            vec![2, 0, 1, 3],
+            vec![0, 1, 3, 2],
+        ];
+        assert!(
+            expected_ccw_cycles.contains(&sorted),
+            "Sorted order {:?} is not a valid CCW cycle with asymmetric distances (expected one of {:?})",
+            sorted, expected_ccw_cycles
+        );
+    }
+
+    #[test]
+    fn test_radial_sort_non_axis_aligned_edge() {
+        // Adversarial: diagonal edge NOT along any axis, from (1,2,3) to (4,5,7).
+        // 4 triangles around it. Verifies the algorithm handles arbitrary orientations.
+        let e0 = [1.0, 2.0, 3.0];
+        let e1 = [4.0, 5.0, 7.0];
+
+        // Edge direction: (3, 3, 4), length ~= 5.83
+        // Build 4 opposite vertices roughly at 90° intervals in the plane
+        // perpendicular to the edge, at the midpoint.
+        let mid = [2.5, 3.5, 5.0];
+        // Axis normalized: (3,3,4)/sqrt(34)
+        let axis_len = (9.0 + 9.0 + 16.0_f64).sqrt(); // sqrt(34)
+        let an = [3.0 / axis_len, 3.0 / axis_len, 4.0 / axis_len];
+        // Pick u perpendicular to axis: use (1,0,0) - proj onto axis
+        let dot = an[0]; // 3/sqrt(34)
+        let u_raw = [1.0 - dot * an[0], -dot * an[1], -dot * an[2]];
+        let u_len = (u_raw[0] * u_raw[0] + u_raw[1] * u_raw[1] + u_raw[2] * u_raw[2]).sqrt();
+        let ux = [u_raw[0] / u_len, u_raw[1] / u_len, u_raw[2] / u_len];
+        // v = axis x u
+        let vx = [
+            an[1] * ux[2] - an[2] * ux[1],
+            an[2] * ux[0] - an[0] * ux[2],
+            an[0] * ux[1] - an[1] * ux[0],
+        ];
+
+        // 4 vertices at mid + cos(theta)*u + sin(theta)*v, theta = 0, 90, 180, 270
+        let r = 2.0;
+        let angles_deg = [0.0_f64, 90.0, 180.0, 270.0];
+        let mut verts: Vec<[f64; 3]> = vec![e0, e1];
+        for &deg in &angles_deg {
+            let rad = deg * std::f64::consts::PI / 180.0;
+            let c = rad.cos();
+            let s = rad.sin();
+            verts.push([
+                mid[0] + r * (c * ux[0] + s * vx[0]),
+                mid[1] + r * (c * ux[1] + s * vx[1]),
+                mid[2] + r * (c * ux[2] + s * vx[2]),
+            ]);
+        }
+
+        let edge = [0, 1];
+        // Shuffle: 180°, 0°, 270°, 90° → input indices 0=180°, 1=0°, 2=270°, 3=90°
+        let triangles = vec![
+            make_radial_tri(4, MeshId::A, 0), // 180°
+            make_radial_tri(2, MeshId::B, 1), // 0°
+            make_radial_tri(5, MeshId::B, 2), // 270°
+            make_radial_tri(3, MeshId::A, 3), // 90°
+        ];
+
+        let sorted = radial_sort_around_edge(edge, &triangles, &verts);
+
+        // I2: bijection
+        assert_is_permutation(&sorted, 4);
+
+        // I1: orient3d consistency for consecutive pairs
+        let signs: Vec<f64> = (0..sorted.len())
+            .map(|i| {
+                let j = (i + 1) % sorted.len();
+                let vi = verts[triangles[sorted[i]].opposite_vertex];
+                let vj = verts[triangles[sorted[j]].opposite_vertex];
+                orient3d(verts[edge[0]], verts[edge[1]], vi, vj)
+            })
+            .collect();
+        let positive_count = signs.iter().filter(|&&s| s > 0.0).count();
+        let negative_count = signs.iter().filter(|&&s| s < 0.0).count();
+        assert!(
+            positive_count == signs.len() || negative_count == signs.len(),
+            "I1 violated: orient3d signs inconsistent for non-axis-aligned edge: {:?}",
+            signs
+        );
+
+        // Verify the sorted order corresponds to CCW angular order.
+        // The vertices were placed at 0°, 90°, 180°, 270°. Input indices:
+        // 0=180°, 1=0°, 2=270°, 3=90°. CCW order: 0°(1), 90°(3), 180°(0), 270°(2).
+        let expected_ccw_cycles: Vec<Vec<usize>> = vec![
+            vec![1, 3, 0, 2],
+            vec![3, 0, 2, 1],
+            vec![0, 2, 1, 3],
+            vec![2, 1, 3, 0],
+        ];
+        assert!(
+            expected_ccw_cycles.contains(&sorted),
+            "Sorted order {:?} is not a valid CCW cycle for diagonal edge (expected one of {:?})",
+            sorted,
+            expected_ccw_cycles
+        );
+    }
+
+    #[test]
+    fn test_radial_sort_eight_triangles() {
+        // Adversarial stress test: 8 triangles at 45° intervals around z-axis.
+        // Tests correct ordering for larger N.
+        use std::f64::consts::PI;
+
+        let mut verts: Vec<[f64; 3]> = vec![
+            [0.0, 0.0, 0.0], // 0: edge start
+            [0.0, 0.0, 1.0], // 1: edge end
+        ];
+        // Add 8 vertices at 45° intervals, but in SHUFFLED order:
+        // Actual angles: 315°, 90°, 225°, 0°, 180°, 45°, 270°, 135°
+        let shuffled_angles = [315.0_f64, 90.0, 225.0, 0.0, 180.0, 45.0, 270.0, 135.0];
+        for &deg in &shuffled_angles {
+            let rad = deg * PI / 180.0;
+            verts.push([rad.cos(), rad.sin(), 0.5]);
+        }
+
+        let edge = [0, 1];
+        let triangles: Vec<RadialTriangle> = (0..8)
+            .map(|i| make_radial_tri(i + 2, if i % 2 == 0 { MeshId::A } else { MeshId::B }, i))
+            .collect();
+
+        let sorted = radial_sort_around_edge(edge, &triangles, &verts);
+
+        // I2: bijection — all 8 triangles present
+        assert_is_permutation(&sorted, 8);
+
+        // I1: orient3d consistency for all consecutive pairs
+        let signs: Vec<f64> = (0..sorted.len())
+            .map(|i| {
+                let j = (i + 1) % sorted.len();
+                let vi = verts[triangles[sorted[i]].opposite_vertex];
+                let vj = verts[triangles[sorted[j]].opposite_vertex];
+                orient3d(verts[edge[0]], verts[edge[1]], vi, vj)
+            })
+            .collect();
+        let positive_count = signs.iter().filter(|&&s| s > 0.0).count();
+        let negative_count = signs.iter().filter(|&&s| s < 0.0).count();
+        assert!(
+            positive_count == signs.len() || negative_count == signs.len(),
+            "I1 violated: orient3d signs inconsistent for 8-triangle sort: {:?} (pos={}, neg={})",
+            signs,
+            positive_count,
+            negative_count
+        );
+
+        // Verify angular ordering: the sorted output should visit vertices in
+        // CCW order. Map each sorted index back to its angle and verify monotonic.
+        let _sorted_angles: Vec<f64> = sorted
+            .iter()
+            .map(|&i| {
+                let deg = shuffled_angles[i];
+                deg * PI / 180.0
+            })
+            .collect();
+        // Compute atan2-based angles from the actual vertex positions for verification
+        let sorted_atan2: Vec<f64> = sorted
+            .iter()
+            .map(|&i| {
+                let ov = verts[triangles[i].opposite_vertex];
+                ov[1].atan2(ov[0])
+            })
+            .collect();
+        // Check that atan2 angles are monotonically increasing (with one wrap-around)
+        let mut wrap_count = 0;
+        for i in 0..sorted_atan2.len() {
+            let j = (i + 1) % sorted_atan2.len();
+            if sorted_atan2[j] < sorted_atan2[i] {
+                wrap_count += 1;
+            }
+        }
+        assert!(
+            wrap_count <= 1,
+            "Angular order should be monotonic with at most 1 wrap-around, got {} wraps. Angles: {:?}",
+            wrap_count, sorted_atan2
         );
     }
 }

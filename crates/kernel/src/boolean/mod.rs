@@ -1678,7 +1678,10 @@ mod tests {
         let c2 = v3_cross([0.0, 1.0, 0.0], [1.0, 0.0, 0.0]);
         assert!((c2[0]).abs() < TAU_NORMALIZE);
         assert!((c2[1]).abs() < TAU_NORMALIZE);
-        assert!((c2[2] + 1.0).abs() < TAU_NORMALIZE, "cross anti-commutative");
+        assert!(
+            (c2[2] + 1.0).abs() < TAU_NORMALIZE,
+            "cross anti-commutative"
+        );
     }
 
     // ── Clipping unit tests ─────────────────────────────────────────

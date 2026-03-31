@@ -1612,17 +1612,23 @@ mod tests {
 
         // Face[0] is the bottom face (z=0) of a 2×3×4 box
         assert_eq!(sig.surface_type.as_deref(), Some("planar"));
-        assert!((sig.area.unwrap() - 6.0).abs() < 1e-12, "bottom face area = w*h = 2*3 = 6");
+        assert!(
+            (sig.area.unwrap() - 6.0).abs() < 1e-12,
+            "bottom face area = w*h = 2*3 = 6"
+        );
         let c = sig.centroid.unwrap();
         assert!((c[0] - 1.0).abs() < 1e-12, "centroid x = w/2 = 1.0");
         assert!((c[1] - 1.5).abs() < 1e-12, "centroid y = h/2 = 1.5");
         assert!((c[2] - 0.0).abs() < 1e-12, "centroid z = 0.0 (bottom)");
         let n = sig.normal.unwrap();
-        assert!((n[0]).abs() < 1e-12 && (n[1]).abs() < 1e-12 && (n[2] + 1.0).abs() < 1e-12,
-            "bottom face normal = [0, 0, -1]");
+        assert!(
+            (n[0]).abs() < 1e-12 && (n[1]).abs() < 1e-12 && (n[2] + 1.0).abs() < 1e-12,
+            "bottom face normal = [0, 0, -1]"
+        );
 
         // Verify all 6 faces have expected areas: two each of 6 (w*h), 8 (w*d), 12 (h*d)
-        let mut areas: Vec<f64> = faces.iter()
+        let mut areas: Vec<f64> = faces
+            .iter()
             .map(|&f| kernel.compute_signature(f, TopoKind::Face).area.unwrap())
             .collect();
         areas.sort_by(|a, b| a.partial_cmp(b).unwrap());

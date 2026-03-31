@@ -1096,9 +1096,7 @@ impl WaffleKernel {
                     // Safety fallback: use the general polygon-clipping path.
                     // Mark as polygon_soup so tessellation uses the fan path
                     // which can remove internal face fragments.
-                    eprintln!(
-                        "[A15 WARN] planar boolean fell back to polygon-clipping pipeline"
-                    );
+                    eprintln!("[A15 WARN] planar boolean fell back to polygon-clipping pipeline");
                     polygon_soup = true;
                     let strict = crate::boolean::boolean_op(
                         solid_a,
