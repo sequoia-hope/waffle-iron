@@ -8151,6 +8151,38 @@ mod tests {
     }
 
     /// Check whether all XY coordinates collapse to the AABB boundary.
+    /// Signed volume of a triangle mesh via divergence theorem.
+    /// Works on flat f32 vertex/index buffers (the RenderMesh layout).
+    fn mesh_volume_flat(vertices: &[f32], indices: &[u32]) -> f64 {
+        let mut vol = 0.0_f64;
+        let n_tris = indices.len() / 3;
+        for i in 0..n_tris {
+            let i0 = indices[i * 3] as usize;
+            let i1 = indices[i * 3 + 1] as usize;
+            let i2 = indices[i * 3 + 2] as usize;
+            let v0 = [
+                vertices[i0 * 3] as f64,
+                vertices[i0 * 3 + 1] as f64,
+                vertices[i0 * 3 + 2] as f64,
+            ];
+            let v1 = [
+                vertices[i1 * 3] as f64,
+                vertices[i1 * 3 + 1] as f64,
+                vertices[i1 * 3 + 2] as f64,
+            ];
+            let v2 = [
+                vertices[i2 * 3] as f64,
+                vertices[i2 * 3 + 1] as f64,
+                vertices[i2 * 3 + 2] as f64,
+            ];
+            // Signed volume of tetrahedron formed by triangle and origin
+            vol += v0[0] * (v1[1] * v2[2] - v2[1] * v1[2])
+                - v1[0] * (v0[1] * v2[2] - v2[1] * v0[2])
+                + v2[0] * (v0[1] * v1[2] - v1[1] * v0[2]);
+        }
+        (vol / 6.0).abs()
+    }
+
     /// For extruded solids, z always matches a face (top/bottom), so we only
     /// check XY — a proper cylinder mesh should have interior XY points.
     fn is_xy_aabb_collapsed(vertices: &[f32]) -> bool {
@@ -8181,7 +8213,8 @@ mod tests {
     #[test]
     fn test_cyl_cyl_union_tessellation_not_aabb_collapsed() {
         let mut kernel = WaffleKernel::new();
-        // Two parallel cylinders, overlapping
+        // Two parallel cylinders, overlapping: r=5 at (0,0) and r=5 at (4,0), depth=10
+        // Overlap distance = 2*5 - 4 = 6, so union is NOT disjoint
         let cyl_a = make_test_cylinder(&mut kernel, 0.0, 0.0, 5.0, 10.0);
         let cyl_b = make_test_cylinder(&mut kernel, 4.0, 0.0, 5.0, 10.0);
         let union_handle = kernel
@@ -8190,16 +8223,50 @@ mod tests {
         let mesh = kernel
             .tessellate(&union_handle, 0.1)
             .expect("tessellation should succeed");
+        let vertex_count = mesh.vertices.len() / 3;
         assert!(
-            mesh.vertices.len() >= 3 * 3,
+            vertex_count >= 3,
             "mesh should have at least 3 vertices, got {}",
-            mesh.vertices.len() / 3
+            vertex_count
         );
         assert!(
             !is_xy_aabb_collapsed(&mesh.vertices),
             "cyl-cyl union XY coords should NOT all collapse to AABB faces ({} verts)",
-            mesh.vertices.len() / 3
+            vertex_count
         );
+
+        // Volume oracle: each cylinder volume = π*r²*h = π*25*10 ≈ 785.4.
+        // Union volume < 2 * single < 1571; union volume > single > 785.
+        // Inclusion-exclusion: V_union = V_a + V_b - V_intersection.
+        // For two r=5 cylinders offset by 4, intersection ≈ 538.
+        // Expected: ~1033 (but mesh approximation may differ by up to 10%).
+        let vol = mesh_volume_flat(&mesh.vertices, &mesh.indices);
+        let single_cyl_vol = std::f64::consts::PI * 25.0 * 10.0;
+        assert!(
+            vol > single_cyl_vol * 0.8,
+            "cyl-cyl union volume ({:.1}) should exceed 80% of a single cylinder ({:.1})",
+            vol,
+            single_cyl_vol
+        );
+        assert!(
+            vol < 2.0 * single_cyl_vol,
+            "cyl-cyl union volume ({:.1}) should be less than two separate cylinders ({:.1})",
+            vol,
+            2.0 * single_cyl_vol
+        );
+
+        // Watertightness: zero boundary edges
+        let boundary = count_boundary_edges(&mesh.vertices, &mesh.indices);
+        let nm = count_nonmanifold_edges(&mesh.vertices, &mesh.indices);
+        // NOTE: deprecated S-H pipeline may produce boundary/non-manifold edges.
+        // Log for diagnostics but do not hard-fail (A15.6 — replacement pending).
+        if boundary > 0 || nm > 0 {
+            eprintln!(
+                "[audit] cyl-cyl union mesh: boundary_edges={}, nonmanifold_edges={} \
+                 (expected 0; S-H pipeline limitation, see A15.6)",
+                boundary, nm
+            );
+        }
     }
 
     #[test]
@@ -8225,6 +8292,36 @@ mod tests {
             "box-minus-cyl XY coords should NOT all collapse to AABB faces ({} verts)",
             vertex_count
         );
+
+        // Volume oracle: box = 20*20*10 = 4000, cylinder = π*9*10 ≈ 282.7
+        // Result ≈ 4000 - 282.7 = 3717.3 (mesh tolerance ~10%)
+        let vol = mesh_volume_flat(&mesh.vertices, &mesh.indices);
+        let box_vol = 20.0 * 20.0 * 10.0;
+        let cyl_vol = std::f64::consts::PI * 9.0 * 10.0;
+        let expected = box_vol - cyl_vol;
+        assert!(
+            vol > expected * 0.85,
+            "box-minus-cyl volume ({:.1}) should be > 85% of expected ({:.1})",
+            vol,
+            expected
+        );
+        assert!(
+            vol < box_vol,
+            "box-minus-cyl volume ({:.1}) should be less than the box alone ({:.1})",
+            vol,
+            box_vol
+        );
+
+        // Watertightness diagnostic (see A15.6 note in cyl-cyl test above)
+        let boundary = count_boundary_edges(&mesh.vertices, &mesh.indices);
+        let nm = count_nonmanifold_edges(&mesh.vertices, &mesh.indices);
+        if boundary > 0 || nm > 0 {
+            eprintln!(
+                "[audit] box-minus-cyl mesh: boundary_edges={}, nonmanifold_edges={} \
+                 (expected 0; S-H pipeline limitation, see A15.6)",
+                boundary, nm
+            );
+        }
     }
 
     /// Test that tessellate_solid_bounded resolves non-manifold earcut diagonals.
@@ -8834,6 +8931,17 @@ mod tests {
              zero non-manifold edges after Steiner-fan re-tessellation, \
              but found {} edges with count>2.",
             nonmanifold_edges.len()
+        );
+
+        // Triangle count oracle: Steiner-fan produces N triangles for an N-vertex
+        // polygon (centroid + N edges). Pentagon → 5 triangles. The quad face may
+        // be removed during opposite-winding deduplication because its shared
+        // vertices create degenerate topology. At minimum the pentagon's 5 Steiner
+        // fan triangles must survive.
+        assert!(
+            n_tris >= 5,
+            "Pentagon(5V) Steiner fan should produce at least 5 triangles, got {}",
+            n_tris
         );
     }
 
