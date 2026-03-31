@@ -22,14 +22,18 @@ Experimental implementations exist (Sprint 18) and MockKernel tests pass, but th
 
 ## Current Priorities
 
-When asked "what should I work on?", choose from these areas:
+When asked "what should I work on?", choose from these areas **in order**.
+Do NOT skip to lower-priority items because they are easier.
 
-1. **Hybrid boolean pipeline (Yang 2025)** — Replace the S-H clipping + tolerance
-   escalation pipeline with the Yang hybrid B-Rep/mesh approach [#24]. See A15.6.
-   Sub-tasks: bijective tessellation mapping, exact mesh boolean (indirect predicates),
-   topology extraction, SSI refinement integration, B-Rep reassembly.
+1. **Hybrid boolean pipeline (Yang 2025)** — This is the #1 priority. Replace the
+   S-H clipping + tolerance escalation pipeline with the Yang hybrid B-Rep/mesh
+   approach [#24]. See A15.6. The current pipeline is fundamentally broken (20
+   masking operations, 5000× tau_weld, self-intersections). SSI polishing will not
+   fix it. Sub-tasks: bijective tessellation mapping, exact mesh boolean (indirect
+   predicates), topology extraction, SSI refinement integration, B-Rep reassembly.
 2. **SSI solvers** — Complete the A15.4 matrix. Solvers feed stage 4 (geometry
-   refinement) of the hybrid pipeline. Priority: pairs #5, #6, #10 (partial status).
+   refinement) of the hybrid pipeline. Only work on SSI if Yang pipeline work is
+   blocked. Priority: pairs #5, #6, #10 (partial status).
 3. **GUI test coverage** — Expand Playwright tests in `app/tests/gui/`. Cover all drawing modes, feature dialogs, and viewport interactions with both click-click and click-drag.
 4. **Cross-crate integration tests** — Expand `crates/test-harness/` with multi-operation scenarios: sketch → extrude → boolean → tessellation → verify.
 
