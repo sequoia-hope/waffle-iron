@@ -37,12 +37,12 @@ use crate::geometry::surface::{Cylinder, SurfaceGeom};
 use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::*;
 use crate::types::*;
-#[cfg(test)]
-use crate::units::TAU_COINCIDENT;
 use crate::units::{
     CURVATURE_SUBDIV_THRESHOLD, TAU_CLIP_FACTOR, TAU_MODEL, TAU_NORMALIZE, TAU_WELD_FACTOR,
     TAU_WELD_MAX, TAU_WELD_MIN,
 };
+#[cfg(test)]
+use crate::units::{MIN_FEATURE_SIZE, TAU_COINCIDENT};
 use crate::vecmath::*;
 use crate::waffle_kernel::{rotate_point_around_axis, CylinderParams, RevolveParams, WaffleSolid};
 use std::collections::BTreeMap;
@@ -1639,21 +1639,21 @@ mod tests {
     #[test]
     fn vec_sub() {
         let r = v3_sub([3.0, 2.0, 1.0], [1.0, 1.0, 1.0]);
-        assert!((r[0] - 2.0).abs() < 1e-15);
-        assert!((r[1] - 1.0).abs() < 1e-15);
-        assert!((r[2] - 0.0).abs() < 1e-15);
+        assert!((r[0] - 2.0).abs() < TAU_NORMALIZE);
+        assert!((r[1] - 1.0).abs() < TAU_NORMALIZE);
+        assert!((r[2] - 0.0).abs() < TAU_NORMALIZE);
     }
 
     #[test]
     fn vec_dot() {
         let d = v3_dot([1.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
-        assert!(d.abs() < 1e-15);
+        assert!(d.abs() < TAU_NORMALIZE);
     }
 
     #[test]
     fn vec_cross() {
         let c = v3_cross([1.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
-        assert!((c[2] - 1.0).abs() < 1e-15);
+        assert!((c[2] - 1.0).abs() < TAU_NORMALIZE);
     }
 
     // ── Clipping unit tests ─────────────────────────────────────────
@@ -1698,7 +1698,7 @@ mod tests {
         let orig_area = polygon_area_3d(&square);
         let clip_area = polygon_area_3d(&clipped);
         assert!(
-            (clip_area - orig_area).abs() < 1e-10,
+            (clip_area - orig_area).abs() < TAU_COINCIDENT,
             "Fully-inside clip should preserve area"
         );
     }
@@ -1718,7 +1718,7 @@ mod tests {
             TAU_COINCIDENT,
         );
         assert!(
-            clipped.is_empty() || polygon_area_3d(&clipped) < 1e-15,
+            clipped.is_empty() || polygon_area_3d(&clipped) < TAU_NORMALIZE,
             "Fully-outside clip should produce empty polygon"
         );
     }
@@ -1728,7 +1728,7 @@ mod tests {
         let tri = vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
         let area = polygon_area_3d(&tri);
         assert!(
-            (area - 0.5).abs() < 1e-10,
+            (area - 0.5).abs() < TAU_COINCIDENT,
             "Right triangle area should be 0.5, got {}",
             area
         );
@@ -1744,7 +1744,7 @@ mod tests {
         ];
         let area = polygon_area_3d(&sq);
         assert!(
-            (area - 1.0).abs() < 1e-10,
+            (area - 1.0).abs() < TAU_COINCIDENT,
             "Unit square area should be 1.0, got {}",
             area
         );
@@ -2117,7 +2117,7 @@ mod tests {
         let find_at_y = |clipped: &[[f64; 3]]| -> Vec<[f64; 3]> {
             clipped
                 .iter()
-                .filter(|v| (v[1] - 0.3).abs() < 1e-6)
+                .filter(|v| (v[1] - 0.3).abs() < MIN_FEATURE_SIZE)
                 .copied()
                 .collect()
         };
@@ -2470,7 +2470,10 @@ mod tests {
             [2.0, 0.0, 0.0],
         );
         assert!(!sa.is_nan(), "Collinear triangle should not produce NaN");
-        assert!(sa.abs() < 1e-10, "Collinear triangle should give ~0");
+        assert!(
+            sa.abs() < TAU_COINCIDENT,
+            "Collinear triangle should give ~0"
+        );
     }
 
     #[test]

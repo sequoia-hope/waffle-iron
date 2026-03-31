@@ -4846,6 +4846,7 @@ fn classify_face_nonconvex_planar(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::units::{MIN_FEATURE_SIZE, TAU_NORMALIZE};
     use crate::waffle_kernel::CylinderParams;
 
     #[test]
@@ -4855,7 +4856,7 @@ mod tests {
             for j in 0..3 {
                 let expected = if i == j { 1.0 } else { 0.0 };
                 assert!(
-                    (m[i][j] - expected).abs() < 1e-15,
+                    (m[i][j] - expected).abs() < TAU_NORMALIZE,
                     "rotation_to_z([0,0,1]) should be identity, m[{}][{}] = {}",
                     i,
                     j,
@@ -4869,18 +4870,21 @@ mod tests {
     fn rotation_to_z_maps_x_to_z() {
         let m = rotation_to_z([1.0, 0.0, 0.0]);
         let result = mat3_mul_vec(&m, [1.0, 0.0, 0.0]);
-        assert!((result[0]).abs() < 1e-12, "x component should be ~0");
-        assert!((result[1]).abs() < 1e-12, "y component should be ~0");
-        assert!((result[2] - 1.0).abs() < 1e-12, "z component should be ~1");
+        assert!((result[0]).abs() < TAU_WORK, "x component should be ~0");
+        assert!((result[1]).abs() < TAU_WORK, "y component should be ~0");
+        assert!(
+            (result[2] - 1.0).abs() < TAU_WORK,
+            "z component should be ~1"
+        );
     }
 
     #[test]
     fn rotation_to_z_maps_y_to_z() {
         let m = rotation_to_z([0.0, 1.0, 0.0]);
         let result = mat3_mul_vec(&m, [0.0, 1.0, 0.0]);
-        assert!((result[0]).abs() < 1e-12);
-        assert!((result[1]).abs() < 1e-12);
-        assert!((result[2] - 1.0).abs() < 1e-12);
+        assert!((result[0]).abs() < TAU_WORK);
+        assert!((result[1]).abs() < TAU_WORK);
+        assert!((result[2] - 1.0).abs() < TAU_WORK);
     }
 
     #[test]
@@ -4889,18 +4893,18 @@ mod tests {
         let dir = [c, 0.0, c];
         let m = rotation_to_z(dir);
         let result = mat3_mul_vec(&m, dir);
-        assert!((result[0]).abs() < 1e-12);
-        assert!((result[1]).abs() < 1e-12);
-        assert!((result[2] - 1.0).abs() < 1e-12);
+        assert!((result[0]).abs() < TAU_WORK);
+        assert!((result[1]).abs() < TAU_WORK);
+        assert!((result[2] - 1.0).abs() < TAU_WORK);
     }
 
     #[test]
     fn rotation_to_z_anti_z() {
         let m = rotation_to_z([0.0, 0.0, -1.0]);
         let result = mat3_mul_vec(&m, [0.0, 0.0, -1.0]);
-        assert!((result[0]).abs() < 1e-12);
-        assert!((result[1]).abs() < 1e-12);
-        assert!((result[2] - 1.0).abs() < 1e-12);
+        assert!((result[0]).abs() < TAU_WORK);
+        assert!((result[1]).abs() < TAU_WORK);
+        assert!((result[2] - 1.0).abs() < TAU_WORK);
     }
 
     #[test]
@@ -4920,22 +4924,22 @@ mod tests {
 
         for i in 0..3 {
             assert!(
-                (back.center_bottom[i] - cyl.center_bottom[i]).abs() < 1e-12,
+                (back.center_bottom[i] - cyl.center_bottom[i]).abs() < TAU_WORK,
                 "center_bottom[{}] roundtrip: {} vs {}",
                 i,
                 back.center_bottom[i],
                 cyl.center_bottom[i]
             );
             assert!(
-                (back.direction[i] - cyl.direction[i]).abs() < 1e-12,
+                (back.direction[i] - cyl.direction[i]).abs() < TAU_WORK,
                 "direction[{}] roundtrip: {} vs {}",
                 i,
                 back.direction[i],
                 cyl.direction[i]
             );
         }
-        assert!((back.radius - cyl.radius).abs() < 1e-15);
-        assert!((back.depth - cyl.depth).abs() < 1e-15);
+        assert!((back.radius - cyl.radius).abs() < TAU_NORMALIZE);
+        assert!((back.depth - cyl.depth).abs() < TAU_NORMALIZE);
     }
 
     // ── Non-parallel cyl-cyl boolean integration tests ──────────────
@@ -5092,7 +5096,7 @@ mod tests {
         let dz = max_z - min_z;
         let volume = dx as f64 * dy as f64 * dz as f64;
         assert!(
-            volume > 1e-6,
+            volume > MIN_FEATURE_SIZE,
             "AABB volume too small (collapsed): {:.2e} (dims {:.4} x {:.4} x {:.4})",
             volume,
             dx,
@@ -5165,7 +5169,7 @@ mod tests {
         let dz = max_z - min_z;
         let aabb_vol = dx as f64 * dy as f64 * dz as f64;
         assert!(
-            aabb_vol > 1e-6,
+            aabb_vol > MIN_FEATURE_SIZE,
             "annular mesh AABB collapsed: vol={:.2e} (dims {:.4} x {:.4} x {:.4})",
             aabb_vol,
             dx,
@@ -5336,12 +5340,12 @@ mod tests {
             .arena
             .vertices
             .iter()
-            .any(|v| (v.position[2] - 0.2).abs() < 1e-10);
+            .any(|v| (v.position[2] - 0.2).abs() < TAU_COINCIDENT);
         let has_z_08 = result
             .arena
             .vertices
             .iter()
-            .any(|v| (v.position[2] - 0.8).abs() < 1e-10);
+            .any(|v| (v.position[2] - 0.8).abs() < TAU_COINCIDENT);
         assert!(has_z_02, "should have vertices at z=0.2 (box bottom)");
         assert!(has_z_08, "should have vertices at z=0.8 (box top)");
     }
