@@ -4,6 +4,8 @@
 //! or fan decomposition (convex fast-path), and geometry-driven tessellation
 //! for cylindrical faces and circular caps.
 
+pub mod bijective;
+
 use crate::geometry::curve::CurveGeom;
 use crate::geometry::surface::SurfaceGeom;
 use crate::topology::arena::TopoArena;

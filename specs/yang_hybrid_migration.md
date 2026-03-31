@@ -43,10 +43,10 @@ tests continue to pass. The mapping is the key enabler for topology extraction
 
 **Tasks**:
 
-- [ ] **1a**: Add `BijectiveMap` struct: maps mesh triangle index → (face_id, [u,v] parametric coords for each vertex). File: `crates/kernel/src/tessellation/bijective.rs`
-- [ ] **1b**: Extend `tessellate_solid_bounded` to populate `BijectiveMap` alongside the existing `RenderMesh`. Each face's triangulation already knows its face origin — thread that through.
-- [ ] **1c**: Extend fan tessellation path similarly. Each `FacePoly` carries `surface_geom` and `origin` — map these to the `BijectiveMap`.
-- [ ] **1d**: Tests: verify bijective property (every triangle maps to exactly one face, every face's triangles tile it completely). Use existing box/cylinder/gear test cases.
+- [x] **1a**: Add `BijectiveMap` struct: maps mesh triangle index → (face_id, [u,v] parametric coords for each vertex). File: `crates/kernel/src/tessellation/bijective.rs`
+- [x] **1b**: Extend `tessellate_solid_bounded` to populate `BijectiveMap` alongside the existing `RenderMesh`. Each face's triangulation already knows its face origin — thread that through.
+- [x] **1c**: Extend fan tessellation path similarly. Each `FacePoly` carries `surface_geom` and `origin` — map these to the `BijectiveMap`.
+- [x] **1d**: Tests: verify bijective property (every triangle maps to exactly one face, every face's triangles tile it completely). Use existing box/cylinder/gear test cases.
 
 **Acceptance**: `cargo test -p kernel` passes. `BijectiveMap` is populated for all tessellation paths. No behavioral change to existing boolean output.
 
