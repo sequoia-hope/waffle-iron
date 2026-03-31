@@ -10,6 +10,10 @@
 /// Used for coincidence decisions, join/weld admissibility, vertex welding.
 pub const TAU_MODEL: f64 = 1e-7;
 
+/// Reciprocal of TAU_MODEL (1e7). Used to quantize vertex positions to the
+/// model-tolerance grid for welding (position-map keys in tessellation).
+pub const TAU_MODEL_RECIP: f64 = 1.0 / TAU_MODEL;
+
 /// Minimum feature size: 1e-6 meters (1 micrometer).
 /// Features smaller than this may be collapsed.
 pub const MIN_FEATURE_SIZE: f64 = 1e-6;

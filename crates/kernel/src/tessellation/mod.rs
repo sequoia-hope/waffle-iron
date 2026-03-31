@@ -719,8 +719,8 @@ pub(crate) fn weld_shared_edge_vertices(
         return;
     }
 
-    // Build position map: quantize each vertex position to i64 grid at 1e7
-    // (resolution 1e-7 m, one order below MIN_FEATURE_SIZE).
+    // Build position map: quantize each vertex position to i64 grid at TAU_MODEL_RECIP
+    // (resolution TAU_MODEL = 1e-7 m, one order below MIN_FEATURE_SIZE).
     // Map each unique quantized position to the first vertex index at that position.
     // All co-located vertices are welded unconditionally — this creates cross-face
     // index sharing for watertight meshes. Normals at shared vertices may belong
@@ -729,11 +729,12 @@ pub(crate) fn weld_shared_edge_vertices(
     let mut position_map: BTreeMap<(i64, i64, i64), u32> = BTreeMap::new();
     let mut remap: Vec<u32> = (0..n_verts as u32).collect();
 
+    let q = crate::units::TAU_MODEL_RECIP;
     for vi in 0..n_verts {
         let key = (
-            (vertices[vi * 3] as f64 * 1e7).round() as i64,
-            (vertices[vi * 3 + 1] as f64 * 1e7).round() as i64,
-            (vertices[vi * 3 + 2] as f64 * 1e7).round() as i64,
+            (vertices[vi * 3] as f64 * q).round() as i64,
+            (vertices[vi * 3 + 1] as f64 * q).round() as i64,
+            (vertices[vi * 3 + 2] as f64 * q).round() as i64,
         );
         let first = *position_map.entry(key).or_insert(vi as u32);
         remap[vi] = first;

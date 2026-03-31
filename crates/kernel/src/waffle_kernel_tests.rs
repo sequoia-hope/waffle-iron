@@ -11170,15 +11170,15 @@ fn adv20_welding_indices_in_bounds() {
 mod welding_tests {
     use super::*;
 
-    /// Count unpaired edges in a RenderMesh using position-based quantization at 1e7.
+    /// Count unpaired edges in a RenderMesh using position-based quantization at TAU_MODEL_RECIP.
     ///
     /// For each triangle, extracts 3 directed edges as position pairs.
-    /// Positions are quantized to i64 at factor 1e7 (= 1e-7 m resolution).
+    /// Positions are quantized to i64 at TAU_MODEL resolution (1e-7 m).
     /// Each edge gets a canonical key (sorted vertex pair).
     /// Returns the number of edges that appear an odd number of times.
     fn count_unpaired_edges_strict(mesh: &RenderMesh) -> usize {
         use std::collections::HashMap as Map;
-        let inv_grid = 1e7_f64;
+        let inv_grid = crate::units::TAU_MODEL_RECIP;
         let quantize = |idx: u32| -> (i64, i64, i64) {
             let base = idx as usize * 3;
             (
@@ -11516,14 +11516,15 @@ mod welding_tests {
             .expect("box_b tessellation should succeed");
 
         // Count unique vertex positions (via quantization) in each mesh
+        let q = crate::units::TAU_MODEL_RECIP;
         let count_unique = |mesh: &RenderMesh| -> usize {
             let mut positions = std::collections::HashSet::new();
             let n_verts = mesh.vertices.len() / 3;
             for vi in 0..n_verts {
                 let key = (
-                    (mesh.vertices[vi * 3] as f64 * 1e7).round() as i64,
-                    (mesh.vertices[vi * 3 + 1] as f64 * 1e7).round() as i64,
-                    (mesh.vertices[vi * 3 + 2] as f64 * 1e7).round() as i64,
+                    (mesh.vertices[vi * 3] as f64 * q).round() as i64,
+                    (mesh.vertices[vi * 3 + 1] as f64 * q).round() as i64,
+                    (mesh.vertices[vi * 3 + 2] as f64 * q).round() as i64,
                 );
                 positions.insert(key);
             }
@@ -11540,9 +11541,9 @@ mod welding_tests {
             let n_verts = mesh.vertices.len() / 3;
             for vi in 0..n_verts {
                 let key = (
-                    (mesh.vertices[vi * 3] as f64 * 1e7).round() as i64,
-                    (mesh.vertices[vi * 3 + 1] as f64 * 1e7).round() as i64,
-                    (mesh.vertices[vi * 3 + 2] as f64 * 1e7).round() as i64,
+                    (mesh.vertices[vi * 3] as f64 * q).round() as i64,
+                    (mesh.vertices[vi * 3 + 1] as f64 * q).round() as i64,
+                    (mesh.vertices[vi * 3 + 2] as f64 * q).round() as i64,
                 );
                 all_positions.insert(key);
             }
