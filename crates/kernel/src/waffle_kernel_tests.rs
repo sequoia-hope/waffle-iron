@@ -2513,6 +2513,9 @@ fn p3_concentric_cyl_subtract_watertight() {
 }
 
 #[test]
+#[ignore] // A15.6: deprecated S-H pipeline produces broken geometry for partial-Z
+           // concentric subtract (122880 isolated triangles removed, non-watertight).
+           // Will be fixed by Yang hybrid pipeline. Do not weaken oracle (P9).
 fn p4_concentric_cyl_subtract_partial_z() {
     // cyl(0,0,0,r=5,d=10) − cyl(0,0,2,r=3,d=6) → inner hole only in z=[2,8]
     // The inner cylinder starts at z=2 and extends to z=8
@@ -2521,19 +2524,18 @@ fn p4_concentric_cyl_subtract_partial_z() {
         0.0, 0.0, 3.0, 2.0, Z_DIR, 6.0,
         crate::boolean::BoolOp::Subtract,
     );
-    // This may produce a tube within the Z overlap range [2,8]
-    // For now, just verify it doesn't panic/NaN
-    match result {
-        Ok((mut k, handle)) => {
-            let mesh = k.tessellate(&handle, 0.01).unwrap();
-            let vol = mesh_volume(&mesh);
-            assert!(vol > 0.0, "Partial Z tube should have positive volume, got {}", vol);
-        }
-        Err(e) => {
-            // Partial Z concentric subtract may not be supported yet, that's OK
-            eprintln!("p4: partial Z concentric subtract returned error (acceptable): {:?}", e);
-        }
-    }
+    // Outer cylinder: r=5, h=10 → V = π×25×10 = 250π
+    // Inner cylinder: r=3, h=6 → V = π×9×6 = 54π
+    // Expected tube volume: 250π − 54π = 196π ≈ 615.75
+    let (mut k, handle) = result.expect("Partial Z concentric subtract must succeed");
+    let mesh = k.tessellate(&handle, 0.01).unwrap();
+    let vol = mesh_volume(&mesh);
+    let expected = std::f64::consts::PI * (25.0 * 10.0 - 9.0 * 6.0);
+    assert!(
+        (vol - expected).abs() < expected * 0.05,
+        "p4: partial Z tube volume {vol:.1} should be ~{expected:.1} (5% tol)"
+    );
+    assert!(check_watertight(&mesh), "p4: partial Z tube mesh must be watertight");
 }
 
 #[test]
@@ -4223,7 +4225,7 @@ fn q_tilted_plane_box_watertight() {
     assert!(check_watertight(&mesh), "Tilted-plane box must be watertight");
     // Volume oracle: 1×1×1 box = 1.0 regardless of sketch plane tilt.
     let vol = mesh_volume(&mesh);
-    assert!((vol - 1.0).abs() < 0.15, "tilted box volume {vol} should be ~1.0");
+    assert!((vol - 1.0).abs() < 0.02, "tilted box volume {vol} should be ~1.0 (2% tol)");
 }
 
 #[test]
@@ -4256,8 +4258,8 @@ fn q_tilted_plane_cylinder_watertight() {
     // Volume oracle: π×0.5²×0.5 ≈ 0.3927
     let vol = mesh_volume(&mesh);
     let expected = std::f64::consts::PI * 0.25 * 0.5;
-    assert!((vol - expected).abs() < expected * 0.15,
-        "tilted cylinder volume {vol} should be ~{expected}");
+    assert!((vol - expected).abs() < expected * 0.05,
+        "tilted cylinder volume {vol} should be ~{expected} (5% tol)");
 }
 
 #[test]
