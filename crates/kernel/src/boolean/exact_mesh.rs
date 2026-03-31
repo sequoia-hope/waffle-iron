@@ -27,7 +27,7 @@ use geometry_predicates::{orient2d, orient3d};
 use crate::units::{TAU_EXACT_MESH_CLASSIFY, TAU_EXACT_MESH_VERTEX_NUDGE, TAU_NORMALIZE_SQ};
 
 /// Which mesh a triangle belongs to in a boolean operation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[allow(dead_code)] // Phase 2 building block — task 2b
 pub(crate) enum MeshId {
     A,

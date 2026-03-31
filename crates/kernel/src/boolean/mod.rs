@@ -19,6 +19,7 @@ pub(crate) mod classify;
 mod clip;
 pub(crate) mod exact_mesh;
 pub(crate) mod stitch;
+pub(crate) mod topology_extract;
 
 #[cfg(test)]
 pub(crate) use analytical::build_cyl_result;

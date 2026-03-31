@@ -87,7 +87,7 @@ intersection edges are created.
 
 **Tasks**:
 
-- [ ] **3a**: Implement face survival detection: for each cell in the result, use bijective map to determine which original B-Rep face it came from. Group cells by source face.
+- [x] **3a**: Implement face survival detection: for each cell in the result, use bijective map to determine which original B-Rep face it came from. Group cells by source face.
 - [ ] **3b**: Implement trim boundary extraction: for each surviving face, find the boundary edges that are intersection curves (not original face edges). These become trim curves on the original surface.
 - [ ] **3c**: Implement connectivity extraction: build half-edge topology from the result mesh. Each edge in the result maps to either an original edge (surviving) or an intersection edge (new). Use Euler operators to construct the result B-Rep.
 - [ ] **3d**: Tests: box-box subtract via full pipeline (tessellate → exact boolean → extract topology → build B-Rep). Verify result has correct face/edge/vertex counts. Verify `SurfaceGeom` types preserved on surviving faces.
