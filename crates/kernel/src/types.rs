@@ -305,7 +305,11 @@ mod tests {
             ..BooleanOptions::default()
         };
         let err = bad.validate().unwrap_err();
-        assert!(err.contains("tau_mesh"), "Expected tau_mesh error, got: {}", err);
+        assert!(
+            err.contains("tau_mesh"),
+            "Expected tau_mesh error, got: {}",
+            err
+        );
 
         // Negative tau_model must be rejected
         let bad2 = BooleanOptions {
@@ -313,7 +317,11 @@ mod tests {
             ..BooleanOptions::default()
         };
         let err2 = bad2.validate().unwrap_err();
-        assert!(err2.contains("tau_model"), "Expected tau_model error, got: {}", err2);
+        assert!(
+            err2.contains("tau_model"),
+            "Expected tau_model error, got: {}",
+            err2
+        );
 
         // tau_weld below minimum ratio must be rejected
         let bad3 = BooleanOptions {
@@ -321,7 +329,11 @@ mod tests {
             ..BooleanOptions::default()
         };
         let err3 = bad3.validate().unwrap_err();
-        assert!(err3.contains("tau_weld"), "Expected tau_weld error, got: {}", err3);
+        assert!(
+            err3.contains("tau_weld"),
+            "Expected tau_weld error, got: {}",
+            err3
+        );
     }
 
     #[test]

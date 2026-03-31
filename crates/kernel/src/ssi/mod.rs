@@ -265,6 +265,37 @@ pub(crate) enum SSICurve {
         /// Branch sign: +1.0 or -1.0 for ±Δφ
         sign: f64,
     },
+    /// A degree-4 parametric intersection curve between a sphere and a torus.
+    /// Parametrized by angle θ on the torus major circle. At each valid θ, the harmonic
+    /// equation p(θ)·cos φ + q·sin φ = c(θ) is solved for φ, giving two branches (±Δφ).
+    /// P(θ, φ) = center + (R + r·cos φ)·(cos θ·u + sin θ·v) + r·sin φ·axis
+    /// Ref #1: Patrikalakis Ch.5 — sphere-torus degree-4 intersection.
+    Degree4SphereTorus {
+        /// Torus center point
+        torus_center: [f64; 3],
+        /// Torus axis direction (unit)
+        torus_axis: [f64; 3],
+        /// Torus major radius R
+        torus_major_radius: f64,
+        /// Torus minor radius r
+        torus_minor_radius: f64,
+        /// Basis vector perpendicular to torus axis
+        u_dir: [f64; 3],
+        /// Second basis vector (axis × u_dir)
+        v_dir: [f64; 3],
+        /// Sphere center projected onto u_dir: d_u
+        d_u: f64,
+        /// Sphere center projected onto v_dir: d_v
+        d_v: f64,
+        /// Sphere center projected onto torus axis: d_a
+        d_a: f64,
+        /// Precomputed constant: s² - R² - r² - (d_u² + d_v² + d_a²)
+        k: f64,
+        /// Valid θ range where discriminant ≥ 0
+        theta_range: (f64, f64),
+        /// Branch sign: +1.0 or -1.0 for ±Δφ
+        sign: f64,
+    },
 }
 
 impl SSICurve {
@@ -350,6 +381,76 @@ impl SSICurve {
                 let phi = phi0 + sign * delta_phi;
 
                 // P(θ, φ) = center + (R + r·cos φ)·(cos θ·u + sin θ·v) + r·sin φ·axis
+                let cos_phi = phi.cos();
+                let sin_phi = phi.sin();
+                let rho = big_r + r * cos_phi;
+
+                // For spindle torus (r > R), ρ < 0 means the parametric point
+                // wraps through the axis and is not on the implicit torus surface.
+                if rho < -TOL {
+                    return None;
+                }
+
+                let px = torus_center[0]
+                    + rho * (cos_t * u_dir[0] + sin_t * v_dir[0])
+                    + r * sin_phi * torus_axis[0];
+                let py = torus_center[1]
+                    + rho * (cos_t * u_dir[1] + sin_t * v_dir[1])
+                    + r * sin_phi * torus_axis[1];
+                let pz = torus_center[2]
+                    + rho * (cos_t * u_dir[2] + sin_t * v_dir[2])
+                    + r * sin_phi * torus_axis[2];
+
+                Some([px, py, pz])
+            }
+            SSICurve::Degree4SphereTorus {
+                torus_center,
+                torus_axis,
+                torus_major_radius,
+                torus_minor_radius,
+                u_dir,
+                v_dir,
+                d_u,
+                d_v,
+                d_a,
+                k,
+                theta_range,
+                sign,
+            } => {
+                let big_r = *torus_major_radius;
+                let r = *torus_minor_radius;
+
+                // Map input t ∈ [0, 1] to actual θ within range
+                let (th_min, th_max) = *theta_range;
+                let theta_actual = th_min + theta * (th_max - th_min);
+                let cos_t = theta_actual.cos();
+                let sin_t = theta_actual.sin();
+
+                // D(θ) = d_u·cos θ + d_v·sin θ
+                let d_theta = d_u * cos_t + d_v * sin_t;
+
+                // Harmonic equation: p·cos φ + q·sin φ = c
+                let p = 2.0 * r * (big_r - d_theta);
+                let q = -2.0 * r * d_a;
+                let c = k + 2.0 * big_r * d_theta;
+
+                let mag_sq = p * p + q * q;
+                if mag_sq < TOL * TOL {
+                    return None;
+                }
+                let mag = mag_sq.sqrt();
+
+                let raw_ratio = c / mag;
+                if raw_ratio.abs() > 1.0 + TOL {
+                    return None;
+                }
+                let ratio = raw_ratio.clamp(-1.0, 1.0);
+
+                let phi0 = q.atan2(p);
+                let delta_phi = ratio.acos();
+                let phi = phi0 + sign * delta_phi;
+
+                // Reconstruct 3D point from torus parameterization
                 let cos_phi = phi.cos();
                 let sin_phi = phi.sin();
                 let rho = big_r + r * cos_phi;
@@ -2690,7 +2791,7 @@ pub(crate) fn plane_torus_ssi(
 ///
 /// Returns intersection curves between a sphere and a torus.
 /// Axial case (sphere center on torus axis) yields exact circles.
-/// General case approximated with a Line segment.
+/// General case yields analytical Degree4SphereTorus parametric curves.
 ///
 /// Ref #1: Patrikalakis Ch.5
 pub(crate) fn sphere_torus_ssi(
@@ -2807,97 +2908,167 @@ pub(crate) fn sphere_torus_ssi(
     }
 
     // 4. General offset case: sphere center off-axis.
-    //    The intersection is a degree-4 space curve. We approximate by scanning
-    //    azimuthally and returning a representative Line segment.
+    //    Analytical degree-4 parametric curve (Degree4SphereTorus).
+    //    At each toroidal angle θ, solve a harmonic equation for poloidal angle φ.
     let perp_unit = v3_scale(perp_vec, 1.0 / d);
-
-    // Scan azimuthally around the torus to find intersection extent.
-    // For each azimuthal angle θ, the torus tube center is at:
-    //   C(θ) = torus_center + R*(cos(θ)*perp_unit + sin(θ)*tang_unit)
-    // where tang_unit is perpendicular to both axis and perp_unit.
     let tang_unit = v3_cross(torus_axis, perp_unit);
 
-    let n_theta: usize = 360;
-    let n_phi: usize = 36;
-    let mut found_pts: Vec<[f64; 3]> = Vec::new();
+    // Build torus-centered frame
+    let u_dir = perp_unit;
+    let v_dir = tang_unit;
 
-    for i in 0..n_theta {
-        let theta = 2.0 * std::f64::consts::PI * (i as f64) / (n_theta as f64);
+    // Sphere center projections onto torus frame
+    let d_u = v3_dot(diff, u_dir);
+    let d_v = v3_dot(diff, v_dir);
+    let d_a = h;
+
+    // Precomputed constant
+    let k = s * s - big_r * big_r - r * r - (d_u * d_u + d_v * d_v + d_a * d_a);
+
+    // Find valid θ range by scanning discriminant: p² + q² - c² ≥ 0
+    // where p = 2r(R - D(θ)), q = -2r·d_a, c = k + 2R·D(θ), D(θ) = d_u·cos θ + d_v·sin θ
+    let n_scan: usize = 1024;
+    let tau = std::f64::consts::TAU;
+    let mut first_valid: Option<usize> = None;
+    let mut last_valid: Option<usize> = None;
+    let mut all_valid = true;
+    let mut any_valid = false;
+
+    for i in 0..n_scan {
+        let theta = tau * (i as f64) / (n_scan as f64);
         let cos_t = theta.cos();
         let sin_t = theta.sin();
-
-        // Tube center at this azimuthal angle
-        let tube_c = v3_add(
-            torus_center,
-            v3_add(
-                v3_scale(perp_unit, big_r * cos_t),
-                v3_scale(tang_unit, big_r * sin_t),
-            ),
-        );
-
-        // Distance from sphere center to tube center
-        let tc_diff = v3_sub(tube_c, sphere_center);
-        let tc_dist = v3_length(tc_diff);
-
-        // Check if sphere intersects the tube cross-section at this azimuth
-        // The tube cross-section is a circle of radius r centered at tube_c.
-        // Intersection exists if |tc_dist - s| <= r (approximately).
-        if tc_dist > s + r + TOL || tc_dist + r < s - TOL {
-            continue;
-        }
-        if s + tc_dist < r - TOL {
-            continue;
-        }
-
-        // Scan the tube cross-section (poloidal angle φ) to find intersection points
-        let tube_radial = v3_normalize(v3_sub(tube_c, torus_center));
-        // tube_radial is in the torus midplane; the other basis vector is the torus axis
-        for j in 0..n_phi {
-            let phi = 2.0 * std::f64::consts::PI * (j as f64) / (n_phi as f64);
-            let cos_p = phi.cos();
-            let sin_p = phi.sin();
-
-            // Point on torus surface
-            let pt = v3_add(
-                tube_c,
-                v3_add(
-                    v3_scale(tube_radial, r * cos_p),
-                    v3_scale(torus_axis, r * sin_p),
-                ),
-            );
-
-            // Check if this point is on the sphere surface
-            let dist_to_sphere = v3_length(v3_sub(pt, sphere_center));
-            if (dist_to_sphere - s).abs() < crate::units::SSI_SAMPLE_ON_SURFACE_TOL {
-                found_pts.push(pt);
+        let d_theta = d_u * cos_t + d_v * sin_t;
+        let p = 2.0 * r * (big_r - d_theta);
+        let q = -2.0 * r * d_a;
+        let c = k + 2.0 * big_r * d_theta;
+        let disc = p * p + q * q - c * c;
+        if disc >= -TOL {
+            any_valid = true;
+            if first_valid.is_none() {
+                first_valid = Some(i);
             }
+            last_valid = Some(i);
+        } else {
+            all_valid = false;
         }
     }
 
-    if found_pts.is_empty() {
+    if !any_valid {
         return Ok(vec![]);
     }
 
-    // Return a Line segment spanning the extent of found points
-    // Find the two most distant points
-    let mut max_dist = 0.0_f64;
-    let mut p_start = found_pts[0];
-    let mut p_end = found_pts[0];
-    for i in 0..found_pts.len() {
-        for j in (i + 1)..found_pts.len() {
-            let dd = v3_length(v3_sub(found_pts[i], found_pts[j]));
-            if dd > max_dist {
-                max_dist = dd;
-                p_start = found_pts[i];
-                p_end = found_pts[j];
+    let theta_range = if all_valid {
+        (0.0, tau)
+    } else {
+        // Refine bounds by bisection
+        let first_i = first_valid.unwrap();
+        let last_i = last_valid.unwrap();
+
+        let theta_of = |i: usize| tau * (i as f64) / (n_scan as f64);
+
+        // Refine lower bound: bisect between (first_i - 1) and first_i
+        let mut lo = if first_i > 0 {
+            theta_of(first_i - 1)
+        } else {
+            0.0
+        };
+        let mut hi = theta_of(first_i);
+        for _ in 0..50 {
+            let mid = 0.5 * (lo + hi);
+            let cos_t = mid.cos();
+            let sin_t = mid.sin();
+            let d_theta = d_u * cos_t + d_v * sin_t;
+            let p = 2.0 * r * (big_r - d_theta);
+            let q = -2.0 * r * d_a;
+            let c = k + 2.0 * big_r * d_theta;
+            let disc = p * p + q * q - c * c;
+            if disc >= -TOL {
+                hi = mid;
+            } else {
+                lo = mid;
+            }
+        }
+        let th_min = hi;
+
+        // Refine upper bound: bisect between last_i and (last_i + 1)
+        let mut lo = theta_of(last_i);
+        let mut hi = if last_i + 1 < n_scan {
+            theta_of(last_i + 1)
+        } else {
+            tau
+        };
+        for _ in 0..50 {
+            let mid = 0.5 * (lo + hi);
+            let cos_t = mid.cos();
+            let sin_t = mid.sin();
+            let d_theta = d_u * cos_t + d_v * sin_t;
+            let p = 2.0 * r * (big_r - d_theta);
+            let q = -2.0 * r * d_a;
+            let c = k + 2.0 * big_r * d_theta;
+            let disc = p * p + q * q - c * c;
+            if disc >= -TOL {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        let th_max = lo;
+
+        (th_min, th_max)
+    };
+
+    // Emit two branches: sign = +1 and -1
+    let mut curves = Vec::new();
+    for &branch_sign in &[1.0_f64, -1.0_f64] {
+        let candidate = SSICurve::Degree4SphereTorus {
+            torus_center,
+            torus_axis,
+            torus_major_radius: big_r,
+            torus_minor_radius: r,
+            u_dir,
+            v_dir,
+            d_u,
+            d_v,
+            d_a,
+            k,
+            theta_range,
+            sign: branch_sign,
+        };
+
+        // Check if this branch produces a curve with meaningful extent
+        let mut has_valid = false;
+        let mut min_pt = [f64::MAX; 3];
+        let mut max_pt = [f64::MIN; 3];
+        let n_samples = 32;
+
+        for i in 0..n_samples {
+            let t = i as f64 / n_samples as f64;
+            if let Some(pt) = candidate.evaluate_degree4(t) {
+                has_valid = true;
+                for idx in 0..3 {
+                    if pt[idx] < min_pt[idx] {
+                        min_pt[idx] = pt[idx];
+                    }
+                    if pt[idx] > max_pt[idx] {
+                        max_pt[idx] = pt[idx];
+                    }
+                }
+            }
+        }
+
+        if has_valid {
+            let dx = max_pt[0] - min_pt[0];
+            let dy = max_pt[1] - min_pt[1];
+            let dz = max_pt[2] - min_pt[2];
+            let extent = (dx * dx + dy * dy + dz * dz).sqrt();
+            if extent >= crate::units::MIN_FEATURE_SIZE {
+                curves.push(candidate);
             }
         }
     }
 
-    Ok(vec![SSICurve::Line {
-        start: p_start,
-        end: p_end,
-    }])
+    Ok(curves)
 }
 
 // ── Cone-Cone SSI ────────────────────────────────────────────────────────

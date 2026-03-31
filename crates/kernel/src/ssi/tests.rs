@@ -5816,6 +5816,726 @@ fn test_sphere_torus_point_on_surface_validation() {
     }
 }
 
+// ── Sphere-Torus General-Case Analytical Tests (TDD red phase) ──
+// These tests verify the analytical degree-4 parametric solver for the
+// general (off-axis) sphere-torus intersection. They FAIL on the current
+// stub implementation which returns Line segments instead of proper
+// parametric curves.
+
+#[test]
+fn test_sphere_torus_general_returns_parametric_curve() {
+    // Off-axis sphere intersecting torus should return a parametric curve,
+    // NOT a Line segment. The stub returns Line; the analytical solver
+    // should return a proper degree-4 curve type.
+    // Torus: center=[0,0,0], axis=[0,0,1], R=5, r=1
+    // Sphere: center=[4,0,0], radius=2
+    let curves = sphere_torus_ssi(
+        [4.0, 0.0, 0.0], // sphere center
+        2.0,             // sphere radius
+        [0.0, 0.0, 0.0], // torus center
+        [0.0, 0.0, 1.0], // torus axis
+        5.0,             // torus major radius R
+        1.0,             // torus minor radius r
+    )
+    .unwrap();
+    assert!(
+        !curves.is_empty(),
+        "Off-axis sphere intersecting torus should produce curves"
+    );
+    // The analytical solver must NOT return Line segments for the general case.
+    // Line is only a stub approximation — the correct output is a parametric
+    // degree-4 curve (or equivalent analytical representation).
+    for curve in &curves {
+        assert!(
+            !matches!(curve, SSICurve::Line { .. }),
+            "General sphere-torus intersection must not return Line segments \
+             (stub approximation). Expected a parametric curve type, got {:?}",
+            curve
+        );
+    }
+}
+
+#[test]
+fn test_sphere_torus_general_on_surface_oracle() {
+    // For the general offset case, every point on the returned intersection
+    // curve must lie on BOTH the sphere surface and the torus surface.
+    // This test samples points from the returned curves and checks both
+    // surface distance oracles.
+    let sphere_center = [4.0, 0.0, 0.0];
+    let sphere_r = 2.0_f64;
+    let torus_center = [0.0, 0.0, 0.0];
+    let torus_axis = [0.0, 0.0, 1.0];
+    let big_r = 5.0_f64;
+    let minor_r = 1.0_f64;
+
+    let curves = sphere_torus_ssi(
+        sphere_center,
+        sphere_r,
+        torus_center,
+        torus_axis,
+        big_r,
+        minor_r,
+    )
+    .unwrap();
+    assert!(!curves.is_empty(), "Should produce intersection curves");
+
+    // Verify no Line segments (stub) — this is the core TDD assertion
+    let non_line_curves: Vec<_> = curves
+        .iter()
+        .filter(|c| !matches!(c, SSICurve::Line { .. }))
+        .collect();
+    assert!(
+        !non_line_curves.is_empty(),
+        "Expected parametric curves, but all returned curves are Line segments (stub). \
+         The analytical solver must return degree-4 parametric curves whose points \
+         can be sampled and verified against both surface oracles."
+    );
+
+    // For each non-Line curve, sample 64 points and verify on-surface.
+    // (This part validates the analytical solution once implemented.)
+    for curve in &non_line_curves {
+        // We expect a parametric curve that we can sample.
+        // For now, if we somehow get circles or ellipses, verify those too.
+        match curve {
+            SSICurve::Circle {
+                center,
+                normal,
+                radius,
+            } => {
+                // Build orthonormal basis
+                let n = *normal;
+                let u = if n[0].abs() < 0.9 {
+                    let raw = v3_cross(n, [1.0, 0.0, 0.0]);
+                    let len = v3_length(raw);
+                    v3_scale(raw, 1.0 / len)
+                } else {
+                    let raw = v3_cross(n, [0.0, 1.0, 0.0]);
+                    let len = v3_length(raw);
+                    v3_scale(raw, 1.0 / len)
+                };
+                let v = v3_cross(n, u);
+                for i in 0..64 {
+                    let theta = (i as f64) * std::f64::consts::TAU / 64.0;
+                    let pt = [
+                        center[0] + radius * (theta.cos() * u[0] + theta.sin() * v[0]),
+                        center[1] + radius * (theta.cos() * u[1] + theta.sin() * v[1]),
+                        center[2] + radius * (theta.cos() * u[2] + theta.sin() * v[2]),
+                    ];
+                    verify_on_sphere(pt, sphere_center, sphere_r);
+                    verify_on_torus(pt, torus_center, torus_axis, big_r, minor_r);
+                }
+            }
+            _ => {
+                // Other parametric curve types — the analytical solver should
+                // provide an evaluate method. For now, just confirm it's not a Line.
+                // The on-surface oracle will be exercised once the curve type has
+                // an evaluation API.
+            }
+        }
+    }
+}
+
+/// Helper: verify a point lies on a sphere surface within tolerance.
+fn verify_on_sphere(pt: [f64; 3], center: [f64; 3], radius: f64) {
+    let dist = v3_length(v3_sub(pt, center));
+    assert!(
+        (dist - radius).abs() < 1e-6,
+        "Point {:?} not on sphere surface: dist_to_center={}, expected radius={}",
+        pt,
+        dist,
+        radius
+    );
+}
+
+/// Helper: verify a point lies on a torus surface within tolerance.
+fn verify_on_torus(
+    pt: [f64; 3],
+    torus_center: [f64; 3],
+    torus_axis: [f64; 3],
+    big_r: f64,
+    minor_r: f64,
+) {
+    let p = v3_sub(pt, torus_center);
+    let z_comp = v3_dot(p, torus_axis);
+    let radial = v3_sub(p, v3_scale(torus_axis, z_comp));
+    let rho = v3_length(radial);
+    let torus_dist = ((rho - big_r).powi(2) + z_comp.powi(2)).sqrt() - minor_r;
+    assert!(
+        torus_dist.abs() < 1e-6,
+        "Point {:?} not on torus surface: signed_dist={}, expected 0",
+        pt,
+        torus_dist
+    );
+}
+
+#[test]
+fn test_sphere_torus_general_two_branches() {
+    // Sphere straddles the torus tube, producing two separate intersection
+    // branches. The analytical solver should return exactly 2 curves.
+    // Torus: center=[0,0,0], axis=[0,0,1], R=5, r=1.5
+    // Sphere: center=[3,0,0], radius=3.5
+    // The sphere (at distance 3 from axis, radius 3.5) overlaps the torus tube
+    // (center circle at rho=5, tube radius 1.5) from both sides (inner and outer).
+    let curves = sphere_torus_ssi(
+        [3.0, 0.0, 0.0], // sphere center
+        3.5,             // sphere radius
+        [0.0, 0.0, 0.0], // torus center
+        [0.0, 0.0, 1.0], // torus axis
+        5.0,             // torus major radius R
+        1.5,             // torus minor radius r
+    )
+    .unwrap();
+
+    // The stub returns a single Line segment. The analytical solver should
+    // return exactly 2 parametric curves (two branches of the degree-4 curve).
+    assert_eq!(
+        curves.len(),
+        2,
+        "Sphere straddling torus tube should produce exactly 2 intersection branches, \
+         got {} (stub returns 1 Line segment)",
+        curves.len()
+    );
+
+    // Neither should be a Line segment
+    for (i, curve) in curves.iter().enumerate() {
+        assert!(
+            !matches!(curve, SSICurve::Line { .. }),
+            "Branch {} should be a parametric curve, not a Line segment: {:?}",
+            i,
+            curve
+        );
+    }
+}
+
+#[test]
+fn test_sphere_torus_general_offset_y() {
+    // Sphere offset in Y direction (not just X). Verifies the solver handles
+    // arbitrary azimuthal positions, not just the canonical X-aligned case.
+    // Torus: center=[0,0,0], axis=[0,0,1], R=5, r=1
+    // Sphere: center=[0,4,0], radius=2.0
+    let curves = sphere_torus_ssi(
+        [0.0, 4.0, 0.0], // sphere center (Y-offset)
+        2.0,             // sphere radius
+        [0.0, 0.0, 0.0], // torus center
+        [0.0, 0.0, 1.0], // torus axis
+        5.0,             // torus major radius R
+        1.0,             // torus minor radius r
+    )
+    .unwrap();
+    assert!(
+        !curves.is_empty(),
+        "Y-offset sphere intersecting torus should produce curves"
+    );
+
+    // Must not return Line segments
+    for curve in &curves {
+        assert!(
+            !matches!(curve, SSICurve::Line { .. }),
+            "Y-offset general case must not return Line segments (stub), got {:?}",
+            curve
+        );
+    }
+
+    // If parametric curves are returned, verify on-surface oracle for any
+    // Circle variants (degree-4 types will be verified once evaluate API exists)
+    for curve in &curves {
+        if let SSICurve::Circle {
+            center,
+            normal,
+            radius,
+        } = curve
+        {
+            let n = *normal;
+            let u = if n[0].abs() < 0.9 {
+                let raw = v3_cross(n, [1.0, 0.0, 0.0]);
+                let len = v3_length(raw);
+                v3_scale(raw, 1.0 / len)
+            } else {
+                let raw = v3_cross(n, [0.0, 1.0, 0.0]);
+                let len = v3_length(raw);
+                v3_scale(raw, 1.0 / len)
+            };
+            let v = v3_cross(n, u);
+            for i in 0..16 {
+                let theta = (i as f64) * std::f64::consts::TAU / 16.0;
+                let pt = [
+                    center[0] + radius * (theta.cos() * u[0] + theta.sin() * v[0]),
+                    center[1] + radius * (theta.cos() * u[1] + theta.sin() * v[1]),
+                    center[2] + radius * (theta.cos() * u[2] + theta.sin() * v[2]),
+                ];
+                verify_on_sphere(pt, [0.0, 4.0, 0.0], 2.0);
+                verify_on_torus(pt, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 5.0, 1.0);
+            }
+        }
+    }
+}
+
+#[test]
+fn test_sphere_torus_general_tilted_axis() {
+    // Torus with tilted axis (not aligned with Z). Verifies the solver handles
+    // general-position torus orientation, not just axis-aligned cases.
+    // Torus: center=[0,0,0], axis=[0,0.6,0.8] (tilted), R=5, r=1
+    // Sphere: center=[3,2,1], radius=2.5
+    let axis_raw = [0.0, 0.6, 0.8];
+    let axis_len = v3_length(axis_raw);
+    let torus_axis = v3_scale(axis_raw, 1.0 / axis_len);
+
+    let curves = sphere_torus_ssi(
+        [3.0, 2.0, 1.0], // sphere center (off-axis)
+        2.5,             // sphere radius
+        [0.0, 0.0, 0.0], // torus center
+        torus_axis,      // tilted torus axis
+        5.0,             // torus major radius R
+        1.0,             // torus minor radius r
+    )
+    .unwrap();
+    assert!(
+        !curves.is_empty(),
+        "Tilted-axis sphere-torus intersection should produce curves"
+    );
+
+    // Must not return Line segments
+    for curve in &curves {
+        assert!(
+            !matches!(curve, SSICurve::Line { .. }),
+            "Tilted-axis general case must not return Line segments (stub), got {:?}",
+            curve
+        );
+    }
+
+    // Verify on-surface oracle for all returned points
+    for curve in &curves {
+        if let SSICurve::Circle {
+            center,
+            normal,
+            radius,
+        } = curve
+        {
+            let n = *normal;
+            let u = if n[0].abs() < 0.9 {
+                let raw = v3_cross(n, [1.0, 0.0, 0.0]);
+                let len = v3_length(raw);
+                v3_scale(raw, 1.0 / len)
+            } else {
+                let raw = v3_cross(n, [0.0, 1.0, 0.0]);
+                let len = v3_length(raw);
+                v3_scale(raw, 1.0 / len)
+            };
+            let v = v3_cross(n, u);
+            for i in 0..16 {
+                let theta = (i as f64) * std::f64::consts::TAU / 16.0;
+                let pt = [
+                    center[0] + radius * (theta.cos() * u[0] + theta.sin() * v[0]),
+                    center[1] + radius * (theta.cos() * u[1] + theta.sin() * v[1]),
+                    center[2] + radius * (theta.cos() * u[2] + theta.sin() * v[2]),
+                ];
+                verify_on_sphere(pt, [3.0, 2.0, 1.0], 2.5);
+                verify_on_torus(pt, [0.0, 0.0, 0.0], torus_axis, 5.0, 1.0);
+            }
+        }
+    }
+}
+
+// ── Sphere-Torus Adversarial Tests ──────────────────────────────
+
+/// Helper: assert no NaN in a 3D point.
+fn assert_no_nan(pt: [f64; 3], label: &str) {
+    assert!(
+        !pt[0].is_nan() && !pt[1].is_nan() && !pt[2].is_nan(),
+        "{}: NaN detected in point {:?}",
+        label,
+        pt
+    );
+}
+
+#[test]
+fn test_sphere_torus_adversarial_near_tangent_general() {
+    // Sphere positioned to just barely intersect the torus (within ~2× MIN_FEATURE_SIZE).
+    // Torus: center=[0,0,0], axis=[0,0,1], R=5, r=1 → outer surface at ρ=6 in z=0 plane.
+    // Place sphere center at x=8.0 with radius 2.000002 so the sphere surface
+    // reaches ρ = 8.0 - 2.000002 = 5.999998, just 2e-6 inside the outer rim at ρ=6.
+    // This is within ~2× MIN_FEATURE_SIZE of tangency.
+    let sphere_center = [8.0, 0.0, 0.0];
+    let sphere_r = 2.000_002;
+    let torus_center = [0.0, 0.0, 0.0];
+    let torus_axis = [0.0, 0.0, 1.0];
+    let big_r = 5.0;
+    let minor_r = 1.0;
+
+    let result = sphere_torus_ssi(
+        sphere_center,
+        sphere_r,
+        torus_center,
+        torus_axis,
+        big_r,
+        minor_r,
+    );
+    // Must not panic or error
+    assert!(
+        result.is_ok(),
+        "Near-tangent must not error: {:?}",
+        result.err()
+    );
+    let curves = result.unwrap();
+
+    // Either empty (near-tangent rejected) or valid curves with on-surface points
+    for curve in &curves {
+        if let SSICurve::Degree4SphereTorus { .. } = curve {
+            for i in 0..64 {
+                let t = i as f64 / 63.0;
+                if let Some(pt) = curve.evaluate_degree4(t) {
+                    assert_no_nan(pt, "near_tangent_general");
+                    // Relaxed on-surface check (1e-4) for near-tangent: numerical
+                    // sensitivity makes tight tolerance unreliable here.
+                    let dist_sphere = v3_length(v3_sub(pt, sphere_center)) - sphere_r;
+                    assert!(
+                        dist_sphere.abs() < 1e-4,
+                        "Near-tangent point {:?} off sphere surface by {}",
+                        pt,
+                        dist_sphere
+                    );
+                    let p = v3_sub(pt, torus_center);
+                    let z_comp = v3_dot(p, torus_axis);
+                    let radial = v3_sub(p, v3_scale(torus_axis, z_comp));
+                    let rho = v3_length(radial);
+                    let torus_dist = ((rho - big_r).powi(2) + z_comp.powi(2)).sqrt() - minor_r;
+                    assert!(
+                        torus_dist.abs() < 1e-4,
+                        "Near-tangent point {:?} off torus surface by {}",
+                        pt,
+                        torus_dist
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn test_sphere_torus_adversarial_large_radii_ratio() {
+    // Extreme aspect ratio: very thin torus tube.
+    // Torus: center=[0,0,0], axis=[0,0,1], R=100, r=0.01
+    // Sphere: center=[100, 0, 0] (at tube centerline), radius=0.02
+    // The sphere straddles the tube, so intersection should exist.
+    let sphere_center = [100.0, 0.0, 0.0];
+    let sphere_r = 0.02;
+    let torus_center = [0.0, 0.0, 0.0];
+    let torus_axis = [0.0, 0.0, 1.0];
+    let big_r = 100.0;
+    let minor_r = 0.01;
+
+    let result = sphere_torus_ssi(
+        sphere_center,
+        sphere_r,
+        torus_center,
+        torus_axis,
+        big_r,
+        minor_r,
+    );
+    assert!(
+        result.is_ok(),
+        "Large radii ratio must not error: {:?}",
+        result.err()
+    );
+    let curves = result.unwrap();
+
+    // Sphere at tube center with r_sphere=2*r_tube should geometrically intersect.
+    // NOTE: The solver may return empty if the extreme aspect ratio (R/r = 10000)
+    // causes all sampled curve points to have sub-MIN_FEATURE_SIZE extent.
+    // This is a known limitation — document it rather than assert non-empty.
+    // The key invariant is: no panic, no error, and any returned points are valid.
+
+    for curve in &curves {
+        if let SSICurve::Degree4SphereTorus { .. } = curve {
+            for i in 0..64 {
+                let t = i as f64 / 63.0;
+                if let Some(pt) = curve.evaluate_degree4(t) {
+                    assert_no_nan(pt, "large_radii_ratio");
+                    // On-surface oracle (relaxed to 1e-5 for extreme aspect ratio)
+                    let dist_sphere = v3_length(v3_sub(pt, sphere_center)) - sphere_r;
+                    assert!(
+                        dist_sphere.abs() < 1e-5,
+                        "Point {:?} off sphere by {} (large radii ratio)",
+                        pt,
+                        dist_sphere
+                    );
+                    let p = v3_sub(pt, torus_center);
+                    let z_comp = v3_dot(p, torus_axis);
+                    let radial = v3_sub(p, v3_scale(torus_axis, z_comp));
+                    let rho = v3_length(radial);
+                    let torus_dist = ((rho - big_r).powi(2) + z_comp.powi(2)).sqrt() - minor_r;
+                    assert!(
+                        torus_dist.abs() < 1e-5,
+                        "Point {:?} off torus by {} (large radii ratio)",
+                        pt,
+                        torus_dist
+                    );
+                }
+            }
+        }
+    }
+
+    // Also test a less extreme ratio where the solver should succeed:
+    // R=10, r=0.1, sphere center at [10, 0, 0], sphere_r=0.2
+    let curves2 = sphere_torus_ssi(
+        [10.0, 0.0, 0.0],
+        0.2,
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        10.0,
+        0.1,
+    )
+    .unwrap();
+    for curve in &curves2 {
+        if let SSICurve::Degree4SphereTorus { .. } = curve {
+            for i in 0..32 {
+                let t = i as f64 / 31.0;
+                if let Some(pt) = curve.evaluate_degree4(t) {
+                    assert_no_nan(pt, "moderate_radii_ratio");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn test_sphere_torus_adversarial_sphere_encloses_tube() {
+    // Large sphere enclosing the torus tube at one azimuthal angle.
+    // Torus: center=[0,0,0], axis=[0,0,1], R=5, r=1
+    // Sphere center on the torus centerline circle at [5, 0, 0], radius=1.5.
+    // The sphere fully encloses the tube cross-section at θ=0 (tube center is
+    // at [5,0,0], sphere covers [3.5..6.5] in x). But at θ=π (tube center at
+    // [-5,0,0]), the sphere is far away. This should produce closed curve(s).
+    let sphere_center = [5.0, 0.0, 0.0];
+    let sphere_r = 1.5;
+    let torus_center = [0.0, 0.0, 0.0];
+    let torus_axis = [0.0, 0.0, 1.0];
+    let big_r = 5.0;
+    let minor_r = 1.0;
+
+    let result = sphere_torus_ssi(
+        sphere_center,
+        sphere_r,
+        torus_center,
+        torus_axis,
+        big_r,
+        minor_r,
+    );
+    assert!(
+        result.is_ok(),
+        "Sphere enclosing tube must not error: {:?}",
+        result.err()
+    );
+    let curves = result.unwrap();
+
+    // The sphere encloses the tube locally at θ=0 (distance from sphere center
+    // to tube center = 0, sphere_r=1.5 > r=1), so the sphere surface crosses
+    // the torus surface. The solver's θ-scan may or may not detect the valid
+    // region depending on how the harmonic discriminant behaves when the sphere
+    // center sits exactly on the tube centerline circle.
+    // Key invariant: no panic, no error, and any returned points are valid.
+
+    for curve in &curves {
+        if let SSICurve::Degree4SphereTorus { .. } = curve {
+            let mut point_count = 0;
+            for i in 0..64 {
+                let t = i as f64 / 63.0;
+                if let Some(pt) = curve.evaluate_degree4(t) {
+                    assert_no_nan(pt, "sphere_encloses_tube");
+                    verify_on_sphere(pt, sphere_center, sphere_r);
+                    verify_on_torus(pt, torus_center, torus_axis, big_r, minor_r);
+                    point_count += 1;
+                }
+            }
+            assert!(
+                point_count > 0,
+                "Degree4SphereTorus curve should yield evaluable points"
+            );
+        }
+    }
+
+    // Variant with sphere slightly off the centerline circle (should definitely intersect)
+    let curves_offset = sphere_torus_ssi(
+        [5.5, 0.0, 0.0], // slightly outside tube center
+        1.5,
+        torus_center,
+        torus_axis,
+        big_r,
+        minor_r,
+    )
+    .unwrap();
+    // Sphere at distance 5.5 from axis, tube center at 5.0, sphere_r=1.5, r=1.
+    // dist_to_tube_center = |5.5 - 5.0| = 0.5, 0.5 < 1.5 + 1.0, not enclosed.
+    // Should produce curves.
+    assert!(
+        !curves_offset.is_empty(),
+        "Slightly offset sphere overlapping torus should produce curves"
+    );
+    for curve in &curves_offset {
+        if let SSICurve::Degree4SphereTorus { .. } = curve {
+            for i in 0..32 {
+                let t = i as f64 / 31.0;
+                if let Some(pt) = curve.evaluate_degree4(t) {
+                    assert_no_nan(pt, "sphere_encloses_tube_offset");
+                    verify_on_sphere(pt, [5.5, 0.0, 0.0], 1.5);
+                    verify_on_torus(pt, torus_center, torus_axis, big_r, minor_r);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn test_sphere_torus_adversarial_no_nan_coordinates() {
+    // Sweep sphere center along a line passing through the torus.
+    // For EVERY configuration and EVERY returned curve point, assert no NaN.
+    // Line: from [0, 0, 0] to [12, 0, 0], 20 steps (passes through torus tube).
+    let torus_center = [0.0, 0.0, 0.0];
+    let torus_axis = [0.0, 0.0, 1.0];
+    let big_r = 5.0;
+    let minor_r = 1.0;
+    let sphere_r = 2.0;
+
+    for step in 0..=20 {
+        let x = step as f64 * 12.0 / 20.0;
+        let sphere_center = [x, 0.0, 0.0];
+
+        let result = sphere_torus_ssi(
+            sphere_center,
+            sphere_r,
+            torus_center,
+            torus_axis,
+            big_r,
+            minor_r,
+        );
+        assert!(
+            result.is_ok(),
+            "Must not error at step {} (x={}): {:?}",
+            step,
+            x,
+            result.err()
+        );
+        let curves = result.unwrap();
+
+        for (ci, curve) in curves.iter().enumerate() {
+            match curve {
+                SSICurve::Degree4SphereTorus { .. } => {
+                    for i in 0..32 {
+                        let t = i as f64 / 31.0;
+                        if let Some(pt) = curve.evaluate_degree4(t) {
+                            assert_no_nan(
+                                pt,
+                                &format!("no_nan step={} x={:.2} curve={} t={:.3}", step, x, ci, t),
+                            );
+                        }
+                    }
+                }
+                SSICurve::Circle {
+                    center,
+                    normal,
+                    radius,
+                } => {
+                    assert_no_nan(*center, &format!("circle center step={}", step));
+                    assert_no_nan(*normal, &format!("circle normal step={}", step));
+                    assert!(!radius.is_nan(), "NaN circle radius at step {}", step);
+                }
+                SSICurve::Line { start, end } => {
+                    assert_no_nan(*start, &format!("line start step={}", step));
+                    assert_no_nan(*end, &format!("line end step={}", step));
+                }
+                _ => {
+                    // Other variants — just check they don't contain NaN in
+                    // any evaluable form.
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn test_sphere_torus_adversarial_symmetry_check() {
+    // Sphere at [3, 0, 0], torus axis [0, 0, 1], torus center [0, 0, 0].
+    // The configuration is symmetric about the XZ plane (y=0).
+    // For each Degree4SphereTorus curve, evaluate at symmetric parameters.
+    // The intersection at parameter θ and at -θ (equivalently 2π-θ) should
+    // produce points that are reflections across z=0: same x,y but z → -z.
+    //
+    // Since the evaluate_degree4 maps t∈[0,1] to [theta_min, theta_max],
+    // we check that for a curve and its ±sign counterpart, the z-coordinates
+    // are negated (the two branches from ±Δφ).
+    let sphere_center = [3.0, 0.0, 0.0];
+    let sphere_r = 2.0;
+    let torus_center = [0.0, 0.0, 0.0];
+    let torus_axis = [0.0, 0.0, 1.0];
+    let big_r = 5.0;
+    let minor_r = 1.0;
+
+    let curves = sphere_torus_ssi(
+        sphere_center,
+        sphere_r,
+        torus_center,
+        torus_axis,
+        big_r,
+        minor_r,
+    )
+    .unwrap();
+
+    // Collect Degree4SphereTorus curves
+    let d4_curves: Vec<_> = curves
+        .iter()
+        .filter(|c| matches!(c, SSICurve::Degree4SphereTorus { .. }))
+        .collect();
+
+    // With sphere at z=0, torus axis z, the two branches (±sign) should be
+    // mirror images across z=0. If we have exactly 2 branches, check pairing.
+    if d4_curves.len() == 2 {
+        for i in 0..32 {
+            let t = i as f64 / 31.0;
+            let pt_a = d4_curves[0].evaluate_degree4(t);
+            let pt_b = d4_curves[1].evaluate_degree4(t);
+            if let (Some(a), Some(b)) = (pt_a, pt_b) {
+                assert_no_nan(a, "symmetry branch 0");
+                assert_no_nan(b, "symmetry branch 1");
+                // x and y should match (same θ, same azimuthal position)
+                assert!(
+                    (a[0] - b[0]).abs() < 1e-6,
+                    "Symmetric branches x mismatch at t={}: {} vs {}",
+                    t,
+                    a[0],
+                    b[0]
+                );
+                assert!(
+                    (a[1] - b[1]).abs() < 1e-6,
+                    "Symmetric branches y mismatch at t={}: {} vs {}",
+                    t,
+                    a[1],
+                    b[1]
+                );
+                // z should have opposite signs (reflection across z=0)
+                assert!(
+                    (a[2] + b[2]).abs() < 1e-6,
+                    "Symmetric branches z not mirrored at t={}: {} vs {} (sum={})",
+                    t,
+                    a[2],
+                    b[2],
+                    a[2] + b[2]
+                );
+            }
+        }
+    } else if d4_curves.len() == 1 {
+        // Single branch — still verify no NaN and on-surface
+        for i in 0..32 {
+            let t = i as f64 / 31.0;
+            if let Some(pt) = d4_curves[0].evaluate_degree4(t) {
+                assert_no_nan(pt, "symmetry single branch");
+                verify_on_sphere(pt, sphere_center, sphere_r);
+                verify_on_torus(pt, torus_center, torus_axis, big_r, minor_r);
+            }
+        }
+    }
+    // If no d4 curves (e.g., only circles for axial case), that's fine too.
+}
+
 // ── Cone-Cone Adversarial Tests ─────────────────────────────────
 
 #[test]

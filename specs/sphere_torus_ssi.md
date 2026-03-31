@@ -46,7 +46,7 @@ The intersection of a sphere with a torus is a degree-4 algebraic space curve. I
 | **Tangent (external)** | Sphere just touches torus outer surface | Single tangent point (empty — below feature size) |
 | **Tangent (internal)** | Sphere just touches torus inner surface | Single tangent point (empty — below feature size) |
 | **Axial symmetric** | Sphere center lies on torus axis | 1 or 2 circles (axis of symmetry reduces quartic to quadratic in r²) |
-| **General intersection** | Sphere intersects torus, non-axial | 1 or 2 closed curves (degree-4 algebraic) represented as sampled polylines |
+| **General intersection** | Sphere intersects torus, non-axial | 1 or 2 `Degree4SphereTorus` parametric curves (harmonic equation in φ at each θ) |
 | **Sphere encloses torus** | Sphere fully contains torus | Empty vec (no surface intersection) |
 | **Torus encloses sphere** | Torus tube fully contains sphere | Empty vec |
 
@@ -66,28 +66,58 @@ This yields a quadratic in z², giving 0, 1, or 2 circles.
 
 Each circle: center on the torus axis, normal = torus axis, radius from cylindrical ρ.
 
-### General case
+### General case (Degree4SphereTorus parametric curve)
 
-Transform both surfaces to torus-centered frame (torus axis = Z, torus center = origin).
+Use the torus parameterization (θ = azimuthal, φ = poloidal):
 
-Sphere implicit: `(x-cx)² + (y-cy)² + (z-cz)² = s²`
-Torus implicit: `(√(x²+y²) - R)² + z² = r²`
-Expanded torus: `x² + y² + z² - 2R√(x²+y²) + R² = r²`
+```
+P(θ, φ) = center + (R + r·cos φ)·(cos θ·u + sin θ·v) + r·sin φ·axis
+```
 
-Let `Σ = x² + y² + z²`. Sphere gives `Σ = s² + 2cx·x + 2cy·y + 2cz·z - cx² - cy² - cz² + Σ_correction`.
+where `u, v` are orthonormal vectors in the torus equatorial plane.
 
-Subtracting sphere from torus equation eliminates the Σ term, leaving:
-`-2R√(x²+y²) + R² - r² = s² - 2cx·x - 2cy·y - 2cz·z + (sphere const terms)`
+Transform sphere center to torus frame: let `d_u, d_v, d_a` be the projections of
+`(sphere_center - torus_center)` onto `u, v, axis` respectively.
 
-This is `√(x²+y²) = (linear in x,y,z + constant) / (2R)`.
+Substituting the torus parameterization into the sphere equation `|P - S|² = s²`
+and simplifying yields a **harmonic equation** in φ at each θ:
 
-Squaring: `x² + y² = [(linear in x,y,z + constant)]² / (4R²)`
+```
+p(θ)·cos φ + q·sin φ = c(θ)
+```
 
-This is a degree-2 equation in x,y,z — combined with the sphere equation (also degree 2), the system reduces to the intersection of two quadrics, yielding a degree-4 curve.
+where:
+- `D(θ) = d_u·cos θ + d_v·sin θ` (projection of sphere center onto torus equatorial direction at angle θ)
+- `p(θ) = 2r·(R - D(θ))` (cosine coefficient — depends on θ)
+- `q = -2r·d_a` (sine coefficient — constant w.r.t. θ)
+- `c(θ) = s² - R² - r² - |d|² + 2R·D(θ)` (right-hand side — depends on θ)
+- `|d|² = d_u² + d_v² + d_a²`
 
-Sample the curve by sweeping the azimuthal angle θ around the torus axis, solving the resulting 1D equation at each θ to get z values. Return sampled polyline(s).
+This is the **same harmonic form** as the plane-torus solver (`Degree4PlaneTorus`).
+Solution: `φ = atan2(q, p(θ)) ± acos(c(θ) / √(p(θ)² + q²))`.
 
-**Sampling resolution**: N = max(32, ceil(2π·R / TAU_MODEL)) points around the azimuth.
+The valid θ range is where the discriminant `p(θ)² + q² - c(θ)² ≥ 0`.
+
+Two branches (± sign on the acos) produce two separate degree-4 parametric curves,
+stored as `SSICurve::Degree4SphereTorus`. The `evaluate_degree4` method evaluates
+at any θ within the valid range to produce a world-space point.
+
+**Derivation**: Expanding `|P(θ,φ) - S|² = s²` with the torus parameterization:
+
+```
+(R + r·cos φ)² - 2(R + r·cos φ)·D(θ) + D(θ)² + (d_a - r·sin φ)²
+  + (sphere center perp component)² = s²  [after grouping]
+```
+
+Using `(R + r·cos φ)² + r²·sin²φ = R² + 2Rr·cos φ + r²` and collecting terms
+yields the harmonic equation above.
+
+**Precomputed constants** stored in `Degree4SphereTorus`:
+- Torus geometry: `torus_center, torus_axis, R, r, u_dir, v_dir`
+- Sphere center projections: `d_u, d_v, d_a`
+- Derived constant: `k = s² - R² - r² - (d_u² + d_v² + d_a²)` (θ-independent part of c)
+- Valid θ range: `(theta_min, theta_max)` where discriminant ≥ 0
+- Branch sign: `+1.0` or `-1.0`
 
 ---
 
@@ -96,7 +126,7 @@ Sample the curve by sweeping the azimuthal angle θ around the torus axis, solvi
 1. **Symmetry**: If sphere center is on torus axis, result curves must be exact circles (not sampled polylines).
 2. **Containment**: Every returned curve point must lie on both surfaces within TAU_MODEL tolerance.
 3. **Separation**: If distance(sphere_boundary, torus_boundary) > TAU_MODEL, result must be empty.
-4. **Closure**: Each returned curve must be closed (start ≈ end within TAU_MODEL for polylines, exact for circles).
+4. **Closure**: Each returned curve must be closed (parametric curves are periodic in θ, exact for circles).
 
 ---
 
@@ -127,6 +157,6 @@ Sample the curve by sweeping the azimuthal angle θ around the torus axis, solvi
 
 ### Analytical vs. Approximate Method Justification
 
-- **Method**: Exact (closed-form) for axial-symmetric case; semi-analytical (algebraic reduction + 1D numerical sweep) for general case.
-- **Justification**: The sphere-torus pair is a quadric pair (A15.1). Mesh approximation is prohibited. The axial case admits exact circle solutions. The general case uses algebraic elimination to reduce to a 1D sweep, which is analytical in spirit but uses numerical root-finding at each azimuthal sample.
+- **Method**: Exact (closed-form) for axial-symmetric case; analytical parametric (`Degree4SphereTorus`) for general case.
+- **Justification**: The sphere-torus pair is a quadric pair (A15.1). Mesh approximation is prohibited. The axial case admits exact circle solutions. The general case uses algebraic elimination to reduce the sphere-torus system to a harmonic equation `p(θ)·cos φ + q·sin φ = c(θ)` — the same form used by the completed plane-torus solver. The result is stored as a parametric curve type with exact evaluation at any parameter value.
 - **Surface pair coverage**: Sphere–Torus only.

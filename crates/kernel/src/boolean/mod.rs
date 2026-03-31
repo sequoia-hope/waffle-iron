@@ -2550,7 +2550,9 @@ mod tests {
                 let nx = ab[1] * ac[2] - ab[2] * ac[1];
                 let ny = ab[2] * ac[0] - ab[0] * ac[2];
                 let nz = ab[0] * ac[1] - ab[1] * ac[0];
-                let len = (nx * nx + ny * ny + nz * nz).sqrt().max(crate::units::TAU_WORK);
+                let len = (nx * nx + ny * ny + nz * nz)
+                    .sqrt()
+                    .max(crate::units::TAU_WORK);
 
                 faces.push(FacePoly {
                     verts: vec![corner_a, corner_b, v3],

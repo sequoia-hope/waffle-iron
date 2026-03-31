@@ -262,12 +262,15 @@ Coaxial path solves sec²(α)·h² + … = 0. General path scans cone surface wi
 |----------|--------|--------|-------|
 | Axial (sphere center on torus axis) | analytical | done | Returns 0–2 `Circle` via quadratic (`sphere_torus_ssi`) |
 | Axial, tangent | analytical | done | Returns single `Circle` |
-| Off-axis, overlapping | sampling | **stub** | 360×36 grid scan with `SSI_SAMPLE_ON_SURFACE_TOL` |
+| Off-axis, overlapping | analytical | done | Returns 2 `Degree4SphereTorus` parametric curves via harmonic equation φ(θ) |
 | Disjoint | analytical | done | Distance check |
 | Enclosed | analytical | done | Returns empty |
 
-**Implementation**: `ssi.rs:sphere_torus_ssi` (lines 1207–1412).
-Axial path is exact. Off-axis path scans 360 θ × 36 φ samples on torus surface.
+**Implementation**: `ssi/mod.rs:sphere_torus_ssi`.
+Axial path returns exact circles. Off-axis path returns `Degree4SphereTorus` parametric
+curves via harmonic equation: p(θ)·cos φ + q·sin φ = c(θ), where p(θ) = 2r·(R - D(θ)),
+q = -2r·d_a, c(θ) = s² - R² - r² - |d|² + 2R·D(θ). 19 tests with on-surface oracle
++ 5 adversarial (near-tangent, extreme radii, symmetry, no-NaN sweep).
 
 ---
 
@@ -302,12 +305,12 @@ Coaxial path is exact. General path scans 360 θ × 36 φ samples on torus A sur
 | 11 | Cone–Sphere | **done** | All (coaxial circles + offset Degree4ConeSphere parametric) | — |
 | 12 | Sphere–Sphere | **done** | All | — |
 | 13 | Cone–Torus | **stub** | Coaxial | General position (360×200 scan) |
-| 14 | Sphere–Torus | **stub** | Axial | Off-axis (360×36 scan) |
+| 14 | Sphere–Torus | **done** | All (axial circles + off-axis Degree4SphereTorus parametric) | — |
 | 15 | Torus–Torus | **stub** | Coaxial | General position (360×36 scan) |
 
-**Fully analytical**: 10 of 15 pairs (Plane–Plane, Plane–Cylinder, Plane–Cone, Plane–Sphere, Plane–Torus, Cylinder–Cone, Cylinder–Sphere, Cone–Cone, Cone–Sphere, Sphere–Sphere)
+**Fully analytical**: 11 of 15 pairs (Plane–Plane, Plane–Cylinder, Plane–Cone, Plane–Sphere, Plane–Torus, Cylinder–Cone, Cylinder–Sphere, Cone–Cone, Cone–Sphere, Sphere–Sphere, Sphere–Torus)
 **Partial**: 1 of 15 pairs (Cyl–Cyl)
-**Stub (sampling)**: 4 of 15 pairs (Cyl–Torus, Cone–Torus, Sphere–Torus, Torus–Torus)
+**Stub (sampling)**: 3 of 15 pairs (Cyl–Torus, Cone–Torus, Torus–Torus)
 
 ---
 
