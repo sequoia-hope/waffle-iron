@@ -439,16 +439,16 @@ The 15 quadric surface pairs ordered by CAD frequency, with implementation statu
 | 7 | Cylinder–Cone | Degree ≤ 4 curve | done — coaxial circles + general Degree4CylCone parametric |
 | 8 | Cylinder–Sphere | Degree ≤ 4 curve | done — coaxial circles + offset Degree4CylSphere parametric |
 | 9 | Cone–Cone | Degree ≤ 4 curve | done — coaxial circles + Degree4ConeCone parametric |
-| 10 | Cylinder–Torus | Degree ≤ 8 curve | stub (sampling) — coaxial analytical |
+| 10 | Cylinder–Torus | Degree ≤ 8 curve | partial — coaxial analytical, general returns NotSupported |
 | 11 | Cone–Sphere | Degree ≤ 4 curve | done — coaxial circles + offset Degree4ConeSphere parametric |
 | 12 | Sphere–Sphere | Circle | done |
-| 13 | Cone–Torus | Degree ≤ 8 curve | stub (sampling) — coaxial analytical |
+| 13 | Cone–Torus | Degree ≤ 8 curve | partial — coaxial analytical, general returns NotSupported |
 | 14 | Sphere–Torus | Degree ≤ 4 curve | done — axial circles + off-axis Degree4SphereTorus parametric |
-| 15 | Torus–Torus | Degree ≤ 8 curve | stub (sampling) — coaxial analytical |
+| 15 | Torus–Torus | Degree ≤ 8 curve | partial — coaxial analytical, general returns NotSupported |
 
 Detailed sub-case enumeration and acceptance criteria in `/specs/ssi_solver_matrix.md`.
-Status `stub` indicates a sampling-based approximation exists but violates A15.1;
-analytical solver required.
+Status `partial` indicates coaxial sub-cases are analytical but general position
+returns `NotSupported` per A15.2; analytical degree-8 solver required.
 
 ### A15.5 Surface tier preservation
 

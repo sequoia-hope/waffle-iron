@@ -296,23 +296,23 @@ Coaxial path is exact. General path scans 360 θ × 36 φ samples on torus A sur
 | 2 | Plane–Cylinder | **done** | All (perp, parallel, oblique) | — |
 | 3 | Plane–Cone | **done** | All (perp, oblique ellipse/parabola/hyperbola, through-apex) | — |
 | 4 | Plane–Sphere | **done** | All | — |
-| 5 | Cylinder–Cylinder | **partial** | Parallel + equal-R non-parallel ≥15° + unequal-R non-parallel ≥15° | Near-parallel (<15°), skew |
+| 5 | Cylinder–Cylinder | **done** | Parallel lines + dual-ellipse (equal-R) + Degree4CylCyl (unequal-R), all angles | Skew axes (returns NotSupported) |
 | 6 | Plane–Torus | **done** | All (perpendicular circles + axial-plane circles + oblique Degree4PlaneTorus parametric) | — |
 | 7 | Cylinder–Cone | **done** | All (coaxial circles + general Degree4CylCone parametric) | — |
 | 8 | Cylinder–Sphere | **done** | All (coaxial circles + offset Degree4CylSphere parametric) | — |
 | 9 | Cone–Cone | **done** | All (coaxial circles + same-apex/general Degree4ConeCone parametric) | — |
-| 10 | Cylinder–Torus | **stub** | Coaxial | General position (360×200 scan) |
+| 10 | Cylinder–Torus | **partial** | Coaxial circles | General position (returns NotSupported) |
 | 11 | Cone–Sphere | **done** | All (coaxial circles + offset Degree4ConeSphere parametric) | — |
 | 12 | Sphere–Sphere | **done** | All | — |
-| 13 | Cone–Torus | **stub** | Coaxial | General position (360×200 scan) |
+| 13 | Cone–Torus | **partial** | Coaxial circles | General position (returns NotSupported) |
 | 14 | Sphere–Torus | **done** | All (axial circles + off-axis Degree4SphereTorus parametric) | — |
-| 15 | Torus–Torus | **stub** | Coaxial | General position (360×36 scan) |
+| 15 | Torus–Torus | **partial** | Coaxial circles | General position (returns NotSupported) |
 
-**Fully analytical**: 11 of 15 pairs (Plane–Plane, Plane–Cylinder, Plane–Cone, Plane–Sphere, Plane–Torus, Cylinder–Cone, Cylinder–Sphere, Cone–Cone, Cone–Sphere, Sphere–Sphere, Sphere–Torus)
-**Partial**: 1 of 15 pairs (Cyl–Cyl)
-**Stub (sampling)**: 3 of 15 pairs (Cyl–Torus, Cone–Torus, Torus–Torus)
+**Fully analytical**: 12 of 15 pairs (Plane–Plane, Plane–Cylinder, Plane–Cone, Plane–Sphere, Cyl–Cyl, Plane–Torus, Cylinder–Cone, Cylinder–Sphere, Cone–Cone, Cone–Sphere, Sphere–Sphere, Sphere–Torus)
+**Partial (coaxial only)**: 3 of 15 pairs (Cyl–Torus, Cone–Torus, Torus–Torus) — general position returns NotSupported per A15.2
 
 ---
 
 *Created: Sprint 68, 2026-03-25*
+*Updated: 2026-03-31 — Pair #5 (Cyl–Cyl) upgraded to done (angle guard removed); pairs #10, #13, #15 sampling stubs replaced with NotSupported.*
 *Source of truth for SSI solver status. Governance table (A15.4) links here.*
