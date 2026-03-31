@@ -4095,6 +4095,9 @@ pub(crate) fn cone_cone_ssi(
 
 /// Signed distance from a point to a torus surface.
 /// Positive outside, negative inside the tube.
+/// Currently unused after removing sampling stubs (A15.2 compliance), but will be
+/// needed for analytical torus SSI solver validation.
+#[allow(dead_code)]
 fn torus_signed_distance(
     pt: [f64; 3],
     torus_center: [f64; 3],
@@ -4113,8 +4116,9 @@ fn torus_signed_distance(
 
 /// Cylinder-Torus surface-surface intersection (A15 pair #10).
 ///
-/// Computes intersection curves between a cylinder and a torus in general position.
-/// Coaxial case yields circles; general position yields Line approximations.
+/// Coaxial case yields exact circles analytically.
+/// General position returns `NotSupported` per A15.2 — analytical solver not yet
+/// implemented (degree-8 algebraic curve, Ref #1 Patrikalakis Ch.5).
 ///
 /// Ref #1: Patrikalakis Ch.5
 #[allow(clippy::too_many_arguments)]
@@ -4198,8 +4202,10 @@ pub(crate) fn cylinder_torus_ssi(
     }
 
     // ── 2. General case (non-coaxial) ──
+    // A15.2: no sampling fallback for quadric pairs. Return NotSupported until
+    // an analytical degree-8 solver is implemented (Ref #1: Patrikalakis Ch.5).
 
-    // Bounding sphere disjoint check
+    // Bounding sphere disjoint check — can still report empty cheaply.
     let cyl_half_h = (cyl_z_max - cyl_z_min) / 2.0;
     let cyl_mid_z = (cyl_z_max + cyl_z_min) / 2.0;
     let cyl_mid = v3_add(cyl_origin, v3_scale(cyl_ax, cyl_mid_z));
@@ -4210,88 +4216,16 @@ pub(crate) fn cylinder_torus_ssi(
         return Ok(vec![]);
     }
 
-    // Numerical scanning: sample cylinder surface at (theta, z) grid
-    // For each sample point, compute signed distance to torus surface.
-    // Collect zero-crossing points.
-    let (cyl_u, cyl_v) = compute_plane_basis(cyl_ax);
-
-    let n_theta: usize = 360;
-    let n_z: usize = 200;
-    let mut found_pts: Vec<[f64; 3]> = Vec::new();
-
-    for i in 0..n_theta {
-        let theta = 2.0 * std::f64::consts::PI * (i as f64) / (n_theta as f64);
-        let cos_t = theta.cos();
-        let sin_t = theta.sin();
-
-        // Direction on cylinder cross-section
-        let radial = v3_add(v3_scale(cyl_u, cos_t), v3_scale(cyl_v, sin_t));
-
-        let mut prev_sd = f64::NAN;
-
-        for j in 0..=n_z {
-            let t = j as f64 / n_z as f64;
-            let z = cyl_z_min + t * (cyl_z_max - cyl_z_min);
-
-            // Point on cylinder surface
-            let pt = v3_add(
-                v3_add(cyl_origin, v3_scale(cyl_ax, z)),
-                v3_scale(radial, r_cyl),
-            );
-
-            // Signed distance from pt to torus surface
-            let sd = torus_signed_distance(pt, torus_center, tor_ax, big_r, small_r);
-
-            // Check for sign change (zero crossing)
-            if !prev_sd.is_nan() && prev_sd * sd < 0.0 {
-                // Linear interpolation to find approximate crossing
-                let frac = prev_sd.abs() / (prev_sd.abs() + sd.abs());
-                let z_prev = cyl_z_min + ((j as f64 - 1.0) / n_z as f64) * (cyl_z_max - cyl_z_min);
-                let z_cross = z_prev + frac * (z - z_prev);
-                let cross_pt = v3_add(
-                    v3_add(cyl_origin, v3_scale(cyl_ax, z_cross)),
-                    v3_scale(radial, r_cyl),
-                );
-                found_pts.push(cross_pt);
-            }
-
-            prev_sd = sd;
-        }
-    }
-
-    if found_pts.is_empty() {
-        return Ok(vec![]);
-    }
-
-    // Find maximum-extent pair for Line segment
-    let mut max_dist = 0.0_f64;
-    let mut p_start = found_pts[0];
-    let mut p_end = found_pts[0];
-    for i in 0..found_pts.len() {
-        for j in (i + 1)..found_pts.len() {
-            let dd = v3_length(v3_sub(found_pts[i], found_pts[j]));
-            if dd > max_dist {
-                max_dist = dd;
-                p_start = found_pts[i];
-                p_end = found_pts[j];
-            }
-        }
-    }
-
-    if max_dist < crate::units::MIN_FEATURE_SIZE {
-        return Ok(vec![]);
-    }
-
-    Ok(vec![SSICurve::Line {
-        start: p_start,
-        end: p_end,
-    }])
+    Err(KernelError::NotSupported {
+        operation: "SSI solver missing: cylinder-torus general position (A15 pair #10)".into(),
+    })
 }
 
 /// Cone-Torus surface-surface intersection (A15 pair #13).
 ///
-/// Computes intersection curves between a cone and a torus in general position.
-/// Coaxial case yields circles; general position yields Line approximations.
+/// Coaxial case yields exact circles analytically.
+/// General position returns `NotSupported` per A15.2 — analytical solver not yet
+/// implemented (degree-8 algebraic curve, Ref #1 Patrikalakis Ch.5).
 ///
 /// Ref #1: Patrikalakis Ch.5
 #[allow(clippy::too_many_arguments)]
@@ -4396,84 +4330,19 @@ pub(crate) fn cone_torus_ssi(
         return Ok(vec![]);
     }
 
-    // ── 3. General case: numerical scanning ──
-    let (cone_u, cone_v) = compute_plane_basis(cone_ax);
-
-    let n_theta: usize = 360;
-    let n_h: usize = 200;
-    let mut found_pts: Vec<[f64; 3]> = Vec::new();
-
-    for i in 0..n_theta {
-        let theta = 2.0 * std::f64::consts::PI * (i as f64) / (n_theta as f64);
-        let cos_t = theta.cos();
-        let sin_t = theta.sin();
-
-        let radial = v3_add(v3_scale(cone_u, cos_t), v3_scale(cone_v, sin_t));
-
-        let mut prev_sd = f64::NAN;
-
-        for j in 0..=n_h {
-            let t = j as f64 / n_h as f64;
-            let h = h_min + t * (h_max - h_min);
-
-            // Point on cone surface: apex + h*axis + h*tan(α)*radial
-            let rho = h * tan_a;
-            let pt = v3_add(
-                v3_add(cone_apex, v3_scale(cone_ax, h)),
-                v3_scale(radial, rho),
-            );
-
-            let sd = torus_signed_distance(pt, torus_center, tor_ax, big_r, small_r);
-
-            if !prev_sd.is_nan() && prev_sd * sd < 0.0 {
-                let frac = prev_sd.abs() / (prev_sd.abs() + sd.abs());
-                let h_prev = h_min + ((j as f64 - 1.0) / n_h as f64) * (h_max - h_min);
-                let h_cross = h_prev + frac * (h - h_prev);
-                let rho_cross = h_cross * tan_a;
-                let cross_pt = v3_add(
-                    v3_add(cone_apex, v3_scale(cone_ax, h_cross)),
-                    v3_scale(radial, rho_cross),
-                );
-                found_pts.push(cross_pt);
-            }
-
-            prev_sd = sd;
-        }
-    }
-
-    if found_pts.is_empty() {
-        return Ok(vec![]);
-    }
-
-    // Find maximum-extent pair for Line segment
-    let mut max_dist = 0.0_f64;
-    let mut p_start = found_pts[0];
-    let mut p_end = found_pts[0];
-    for i in 0..found_pts.len() {
-        for j in (i + 1)..found_pts.len() {
-            let dd = v3_length(v3_sub(found_pts[i], found_pts[j]));
-            if dd > max_dist {
-                max_dist = dd;
-                p_start = found_pts[i];
-                p_end = found_pts[j];
-            }
-        }
-    }
-
-    if max_dist < crate::units::MIN_FEATURE_SIZE {
-        return Ok(vec![]);
-    }
-
-    Ok(vec![SSICurve::Line {
-        start: p_start,
-        end: p_end,
-    }])
+    // ── 3. General case (non-coaxial) ──
+    // A15.2: no sampling fallback for quadric pairs. Return NotSupported until
+    // an analytical degree-8 solver is implemented (Ref #1: Patrikalakis Ch.5).
+    Err(KernelError::NotSupported {
+        operation: "SSI solver missing: cone-torus general position (A15 pair #13)".into(),
+    })
 }
 
 /// Torus-Torus surface-surface intersection (A15 pair #15).
 ///
-/// Computes intersection curves between two tori in general position.
-/// Coaxial case yields circles; general position yields Line approximations.
+/// Coaxial case yields exact circles analytically.
+/// General position returns `NotSupported` per A15.2 — analytical solver not yet
+/// implemented (degree-8 algebraic curve, Ref #1 Patrikalakis Ch.5).
 ///
 /// Ref #1: Patrikalakis Ch.5
 #[allow(clippy::too_many_arguments)]
@@ -4601,76 +4470,12 @@ pub(crate) fn torus_torus_ssi(
         return Ok(vec![]);
     }
 
-    // ── 3. General case: scan torus A surface, evaluate distance to torus B ──
-    let (u_a, v_a) = compute_plane_basis(ax_a);
-
-    let n_theta: usize = 360;
-    let n_phi: usize = 36;
-    let mut found_pts: Vec<[f64; 3]> = Vec::new();
-
-    for i in 0..n_theta {
-        let theta = 2.0 * std::f64::consts::PI * (i as f64) / (n_theta as f64);
-        let cos_t = theta.cos();
-        let sin_t = theta.sin();
-
-        // Tube center at this azimuthal angle on torus A
-        let tube_c = v3_add(
-            torus_a_center,
-            v3_add(v3_scale(u_a, r_a * cos_t), v3_scale(v_a, r_a * sin_t)),
-        );
-
-        // Tube radial direction (from axis toward tube center)
-        let tube_radial = v3_normalize(v3_sub(tube_c, torus_a_center));
-
-        for j in 0..n_phi {
-            let phi = 2.0 * std::f64::consts::PI * (j as f64) / (n_phi as f64);
-            let cos_p = phi.cos();
-            let sin_p = phi.sin();
-
-            // Point on torus A surface
-            let pt = v3_add(
-                tube_c,
-                v3_add(
-                    v3_scale(tube_radial, sr_a * cos_p),
-                    v3_scale(ax_a, sr_a * sin_p),
-                ),
-            );
-
-            // Check distance to torus B surface
-            let sd = torus_signed_distance(pt, torus_b_center, ax_b, r_b, sr_b);
-            if sd.abs() < crate::units::SSI_SAMPLE_ON_SURFACE_TOL {
-                found_pts.push(pt);
-            }
-        }
-    }
-
-    if found_pts.is_empty() {
-        return Ok(vec![]);
-    }
-
-    // Find maximum-extent pair for Line segment
-    let mut max_dist = 0.0_f64;
-    let mut p_start = found_pts[0];
-    let mut p_end = found_pts[0];
-    for i in 0..found_pts.len() {
-        for j in (i + 1)..found_pts.len() {
-            let dd = v3_length(v3_sub(found_pts[i], found_pts[j]));
-            if dd > max_dist {
-                max_dist = dd;
-                p_start = found_pts[i];
-                p_end = found_pts[j];
-            }
-        }
-    }
-
-    if max_dist < crate::units::MIN_FEATURE_SIZE {
-        return Ok(vec![]);
-    }
-
-    Ok(vec![SSICurve::Line {
-        start: p_start,
-        end: p_end,
-    }])
+    // ── 3. General case (non-coaxial) ──
+    // A15.2: no sampling fallback for quadric pairs. Return NotSupported until
+    // an analytical degree-8 solver is implemented (Ref #1: Patrikalakis Ch.5).
+    Err(KernelError::NotSupported {
+        operation: "SSI solver missing: torus-torus general position (A15 pair #15)".into(),
+    })
 }
 
 #[cfg(test)]
