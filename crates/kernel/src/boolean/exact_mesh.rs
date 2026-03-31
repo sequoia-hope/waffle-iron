@@ -600,6 +600,192 @@ pub(crate) struct SubdividedMesh {
     pub tris_b: Vec<SubTriangle>,
 }
 
+// ── Task 2d: Cell labeling via generalized winding numbers ──
+
+/// Classification of a sub-triangle relative to the other mesh.
+/// Ref #7: Jacobson et al. 2013 — generalized winding numbers for
+/// robust inside/outside classification without requiring watertight meshes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // Phase 2 building block — task 2d
+pub(crate) enum CellLabel {
+    Inside,
+    Outside,
+}
+
+/// Boolean operation to perform on the labeled cells.
+/// Ref #24: Yang 2025 — cell selection determines which sub-triangles
+/// appear in the final result mesh.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // Phase 2 building block — task 2d
+pub(crate) enum MeshBooleanOp {
+    Union,
+    Subtract,
+    Intersect,
+}
+
+/// Result of labeling all sub-triangles in a subdivided mesh pair.
+/// Each sub-triangle gets an Inside/Outside label relative to the other mesh.
+#[derive(Debug)]
+#[allow(dead_code)] // Phase 2 building block — task 2d
+pub(crate) struct CellLabeling {
+    /// One label per sub-triangle in `SubdividedMesh::tris_a`.
+    pub labels_a: Vec<CellLabel>,
+    /// One label per sub-triangle in `SubdividedMesh::tris_b`.
+    pub labels_b: Vec<CellLabel>,
+}
+
+/// Compute generalized winding number of point `p` w.r.t. a triangle mesh.
+///
+/// Sums solid angles of all triangles as seen from `p`. Returns ~1.0 for
+/// inside a closed mesh, ~0.0 for outside. Ref #7 Jacobson et al. (2013).
+/// Ref #4 Shewchuk — solid angle uses adaptive predicates via `lazy_exact_triple_sign`.
+#[allow(dead_code)] // Phase 2 building block — task 2d
+fn winding_number_mesh(p: [f64; 3], verts: &[[f64; 3]], tris: &[[usize; 3]]) -> f64 {
+    let mut total = 0.0;
+    for tri in tris {
+        let sa = super::classify::solid_angle(p, verts[tri[0]], verts[tri[1]], verts[tri[2]]);
+        if !sa.is_nan() {
+            total += sa;
+        }
+    }
+    total / (4.0 * std::f64::consts::PI)
+}
+
+/// Classify a winding number as Inside or Outside.
+///
+/// Threshold at 0.5: w >= 0.5 → Inside, w < 0.5 → Outside.
+/// Consistent with the units.rs WINDING_INSIDE_THRESHOLD = 0.5.
+/// Ref #7: Jacobson et al. 2013.
+#[allow(dead_code)] // Phase 2 building block — task 2d
+fn classify_winding(w: f64) -> CellLabel {
+    if w >= 0.5 {
+        CellLabel::Inside
+    } else {
+        CellLabel::Outside
+    }
+}
+
+/// Compute the centroid of a triangle in the subdivided vertex array.
+#[allow(dead_code)] // Phase 2 building block — task 2d
+fn sub_tri_centroid(verts: &[[f64; 3]], tri: &SubTriangle) -> [f64; 3] {
+    let v0 = verts[tri.verts[0]];
+    let v1 = verts[tri.verts[1]];
+    let v2 = verts[tri.verts[2]];
+    [
+        (v0[0] + v1[0] + v2[0]) / 3.0,
+        (v0[1] + v1[1] + v2[1]) / 3.0,
+        (v0[2] + v1[2] + v2[2]) / 3.0,
+    ]
+}
+
+/// Classify each sub-triangle as inside or outside the other mesh.
+///
+/// Uses generalized winding numbers [#7 Jacobson 2013] to determine whether
+/// the centroid of each sub-triangle in mesh A lies inside mesh B (and vice
+/// versa). The original (pre-subdivision) mesh geometry is used as the
+/// winding number source — the subdivided mesh provides the sub-triangles
+/// whose centroids are the query points.
+///
+/// # Arguments
+/// - `subdivided`: The subdivided mesh pair from `subdivide_mesh_pair`.
+/// - `original_verts_a`: Vertex positions of the original mesh A.
+/// - `original_tris_a`: Triangle indices of the original mesh A.
+/// - `original_verts_b`: Vertex positions of the original mesh B.
+/// - `original_tris_b`: Triangle indices of the original mesh B.
+#[allow(dead_code)] // Phase 2 building block — task 2d
+pub(crate) fn label_cells(
+    subdivided: &SubdividedMesh,
+    original_verts_a: &[[f64; 3]],
+    original_tris_a: &[[usize; 3]],
+    original_verts_b: &[[f64; 3]],
+    original_tris_b: &[[usize; 3]],
+) -> CellLabeling {
+    // Label A sub-triangles: is each one inside mesh B?
+    // Ref #24: Yang 2025 — evaluate GWN at sub-triangle centroids.
+    let labels_a = subdivided
+        .tris_a
+        .iter()
+        .map(|sub_tri| {
+            let centroid = sub_tri_centroid(&subdivided.verts, sub_tri);
+            let w = winding_number_mesh(centroid, original_verts_b, original_tris_b);
+            classify_winding(w)
+        })
+        .collect();
+
+    // Label B sub-triangles: is each one inside mesh A?
+    let labels_b = subdivided
+        .tris_b
+        .iter()
+        .map(|sub_tri| {
+            let centroid = sub_tri_centroid(&subdivided.verts, sub_tri);
+            let w = winding_number_mesh(centroid, original_verts_a, original_tris_a);
+            classify_winding(w)
+        })
+        .collect();
+
+    CellLabeling { labels_a, labels_b }
+}
+
+/// Select sub-triangles from the labeled subdivided mesh based on the boolean operation.
+///
+/// Ref #24: Yang 2025 — cell selection rules:
+/// - **Union**: A-outside-B + B-outside-A
+/// - **Subtract**: A-outside-B + B-inside-A (with flipped winding order)
+/// - **Intersect**: A-inside-B + B-inside-A
+///
+/// Returns a flat list of triangle vertices (3 consecutive [f64; 3] per triangle).
+/// For Subtract, B triangles that are inside A have their winding order reversed
+/// (vertices emitted in v2, v1, v0 order) to flip the surface normal outward.
+#[allow(dead_code)] // Phase 2 building block — task 2d
+pub(crate) fn select_boolean_result(
+    subdivided: &SubdividedMesh,
+    labeling: &CellLabeling,
+    op: MeshBooleanOp,
+) -> Vec<[f64; 3]> {
+    let mut result = Vec::new();
+
+    // Determine which labels to keep for A and B sub-triangles.
+    // Ref #24: Yang 2025 — boolean op cell selection table.
+    let (keep_a, keep_b, flip_b) = match op {
+        MeshBooleanOp::Union => (CellLabel::Outside, CellLabel::Outside, false),
+        MeshBooleanOp::Subtract => (CellLabel::Outside, CellLabel::Inside, true),
+        MeshBooleanOp::Intersect => (CellLabel::Inside, CellLabel::Inside, false),
+    };
+
+    // Emit selected A sub-triangles (normal winding order)
+    for (sub_tri, label) in subdivided.tris_a.iter().zip(labeling.labels_a.iter()) {
+        if *label == keep_a {
+            let v0 = subdivided.verts[sub_tri.verts[0]];
+            let v1 = subdivided.verts[sub_tri.verts[1]];
+            let v2 = subdivided.verts[sub_tri.verts[2]];
+            result.push(v0);
+            result.push(v1);
+            result.push(v2);
+        }
+    }
+
+    // Emit selected B sub-triangles (possibly flipped for Subtract)
+    for (sub_tri, label) in subdivided.tris_b.iter().zip(labeling.labels_b.iter()) {
+        if *label == keep_b {
+            let v0 = subdivided.verts[sub_tri.verts[0]];
+            let v1 = subdivided.verts[sub_tri.verts[1]];
+            let v2 = subdivided.verts[sub_tri.verts[2]];
+            if flip_b {
+                // Reverse winding to flip normal outward for subtracted solid
+                result.push(v2);
+                result.push(v1);
+                result.push(v0);
+            } else {
+                result.push(v0);
+                result.push(v1);
+                result.push(v2);
+            }
+        }
+    }
+
+    result
+}
+
 /// Which edge of a triangle a point lies on, or if it's at a vertex.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
@@ -1993,6 +2179,297 @@ mod tests {
         assert!(
             rel_err_b < 1e-12,
             "Mesh B area conservation violated: relative error {rel_err_b:.2e} (sub={sub_area_b}, orig={orig_area_b})"
+        );
+    }
+
+    // ── Task 2d: Cell labeling via generalized winding numbers ──
+
+    /// Helper: build a closed box mesh (12 triangles, outward-facing normals).
+    /// Returns (vertices, triangles) for an axis-aligned box from `min` to `max`.
+    fn make_box_mesh(min: [f64; 3], max: [f64; 3]) -> (Vec<[f64; 3]>, Vec<[usize; 3]>) {
+        let [x0, y0, z0] = min;
+        let [x1, y1, z1] = max;
+        let verts = vec![
+            [x0, y0, z0], // 0: left-bottom-back
+            [x1, y0, z0], // 1: right-bottom-back
+            [x1, y1, z0], // 2: right-top-back
+            [x0, y1, z0], // 3: left-top-back
+            [x0, y0, z1], // 4: left-bottom-front
+            [x1, y0, z1], // 5: right-bottom-front
+            [x1, y1, z1], // 6: right-top-front
+            [x0, y1, z1], // 7: left-top-front
+        ];
+        // 12 triangles, 2 per face, outward-facing (CCW from outside)
+        let tris = vec![
+            // Back face (z=z0) — normal -Z
+            [0, 2, 1],
+            [0, 3, 2],
+            // Front face (z=z1) — normal +Z
+            [4, 5, 6],
+            [4, 6, 7],
+            // Bottom face (y=y0) — normal -Y
+            [0, 1, 5],
+            [0, 5, 4],
+            // Top face (y=y1) — normal +Y
+            [3, 6, 2],
+            [3, 7, 6],
+            // Left face (x=x0) — normal -X
+            [0, 4, 7],
+            [0, 7, 3],
+            // Right face (x=x1) — normal +X
+            [1, 2, 6],
+            [1, 6, 5],
+        ];
+        (verts, tris)
+    }
+
+    /// Test 2d-1: Non-overlapping boxes — all sub-triangles should be Outside.
+    /// Stub labels everything Outside, so this test should PASS against the stub
+    /// for label_cells. But select_union returns empty (stub), which should FAIL
+    /// the union count check.
+    #[test]
+    fn label_cells_non_overlapping_boxes() {
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (verts_b, tris_b) = make_box_mesh([5.0, 0.0, 0.0], [7.0, 2.0, 2.0]);
+
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+
+        // Labels must have correct length
+        assert_eq!(
+            labeling.labels_a.len(),
+            subdivided.tris_a.len(),
+            "labels_a length must match tris_a length"
+        );
+        assert_eq!(
+            labeling.labels_b.len(),
+            subdivided.tris_b.len(),
+            "labels_b length must match tris_b length"
+        );
+
+        // All A sub-tris should be Outside w.r.t. B (boxes don't overlap)
+        for (i, label) in labeling.labels_a.iter().enumerate() {
+            assert_eq!(
+                *label,
+                CellLabel::Outside,
+                "Non-overlapping: A sub-tri {i} should be Outside, got {:?}",
+                label
+            );
+        }
+        // All B sub-tris should be Outside w.r.t. A
+        for (i, label) in labeling.labels_b.iter().enumerate() {
+            assert_eq!(
+                *label,
+                CellLabel::Outside,
+                "Non-overlapping: B sub-tri {i} should be Outside, got {:?}",
+                label
+            );
+        }
+    }
+
+    /// Test 2d-2: Overlapping boxes — some sub-triangles must be Inside.
+    /// Stub labels everything Outside, so this MUST FAIL.
+    #[test]
+    fn label_cells_overlapping_boxes() {
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
+
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+
+        assert_eq!(
+            labeling.labels_a.len(),
+            subdivided.tris_a.len(),
+            "labels_a length must match tris_a length"
+        );
+        assert_eq!(
+            labeling.labels_b.len(),
+            subdivided.tris_b.len(),
+            "labels_b length must match tris_b length"
+        );
+
+        // Box A: [0,0,0]-[2,2,2], Box B: [1,0,0]-[3,2,2]
+        // Sub-triangles of A in the region x∈[1,2] are inside B.
+        // There MUST be at least one Inside label in A.
+        let inside_a_count = labeling
+            .labels_a
+            .iter()
+            .filter(|l| **l == CellLabel::Inside)
+            .count();
+        assert!(
+            inside_a_count > 0,
+            "Overlapping boxes: at least one A sub-tri must be Inside B, found 0 Inside out of {}",
+            labeling.labels_a.len()
+        );
+
+        // Similarly, sub-triangles of B in region x∈[1,2] are inside A.
+        let inside_b_count = labeling
+            .labels_b
+            .iter()
+            .filter(|l| **l == CellLabel::Inside)
+            .count();
+        assert!(
+            inside_b_count > 0,
+            "Overlapping boxes: at least one B sub-tri must be Inside A, found 0 Inside out of {}",
+            labeling.labels_b.len()
+        );
+
+        // Not ALL should be Inside — some parts of each box are outside the other
+        let outside_a_count = labeling
+            .labels_a
+            .iter()
+            .filter(|l| **l == CellLabel::Outside)
+            .count();
+        assert!(
+            outside_a_count > 0,
+            "Overlapping boxes: at least one A sub-tri must be Outside B"
+        );
+        let outside_b_count = labeling
+            .labels_b
+            .iter()
+            .filter(|l| **l == CellLabel::Outside)
+            .count();
+        assert!(
+            outside_b_count > 0,
+            "Overlapping boxes: at least one B sub-tri must be Outside A"
+        );
+    }
+
+    /// Test 2d-3: Union of non-overlapping boxes keeps all triangles from both.
+    /// Stub select_boolean_result returns empty, so this MUST FAIL.
+    #[test]
+    fn select_union_non_overlapping() {
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (verts_b, tris_b) = make_box_mesh([5.0, 0.0, 0.0], [7.0, 2.0, 2.0]);
+
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+        let result = select_boolean_result(&subdivided, &labeling, MeshBooleanOp::Union);
+
+        // Union of non-overlapping: all A triangles + all B triangles.
+        // Each box has 12 triangles, each triangle produces 3 vertices in the flat list.
+        let total_sub_tris = subdivided.tris_a.len() + subdivided.tris_b.len();
+        let result_tri_count = result.len() / 3;
+
+        assert!(
+            !result.is_empty(),
+            "Union of two non-overlapping boxes must not be empty"
+        );
+        assert_eq!(
+            result.len() % 3,
+            0,
+            "Result vertex count must be a multiple of 3, got {}",
+            result.len()
+        );
+        // All sub-triangles are Outside (non-overlapping), union keeps all Outside tris
+        assert_eq!(
+            result_tri_count, total_sub_tris,
+            "Union of non-overlapping boxes: expected {total_sub_tris} triangles, got {result_tri_count}"
+        );
+    }
+
+    /// Test 2d-4: Subtract overlapping boxes. A-outside-B kept, B-inside-A kept (flipped).
+    /// Stub returns empty, so this MUST FAIL.
+    #[test]
+    fn select_subtract_overlapping() {
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
+
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+        let result = select_boolean_result(&subdivided, &labeling, MeshBooleanOp::Subtract);
+
+        assert!(
+            !result.is_empty(),
+            "Subtract of overlapping boxes must not be empty"
+        );
+        assert_eq!(
+            result.len() % 3,
+            0,
+            "Result vertex count must be a multiple of 3, got {}",
+            result.len()
+        );
+
+        // Subtract: keep A-outside-B + B-inside-A (flipped).
+        // The result should have fewer triangles than the total (overlap region removed from A,
+        // replaced by inner B faces).
+        let result_tri_count = result.len() / 3;
+        let total_sub_tris = subdivided.tris_a.len() + subdivided.tris_b.len();
+        assert!(
+            result_tri_count < total_sub_tris,
+            "Subtract result should have fewer triangles than union ({result_tri_count} >= {total_sub_tris})"
+        );
+        assert!(
+            result_tri_count > 0,
+            "Subtract result must contain at least some triangles"
+        );
+    }
+
+    /// Test 2d-5: Intersect overlapping boxes — only the overlap region survives.
+    /// Stub returns empty, so this MUST FAIL.
+    #[test]
+    fn select_intersect_overlapping() {
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
+
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+        let result = select_boolean_result(&subdivided, &labeling, MeshBooleanOp::Intersect);
+
+        assert!(
+            !result.is_empty(),
+            "Intersect of overlapping boxes must not be empty"
+        );
+        assert_eq!(
+            result.len() % 3,
+            0,
+            "Result vertex count must be a multiple of 3, got {}",
+            result.len()
+        );
+
+        // Intersect: keep A-inside-B + B-inside-A.
+        // The result should have fewer triangles than either individual mesh.
+        let result_tri_count = result.len() / 3;
+        assert!(
+            result_tri_count < subdivided.tris_a.len() + subdivided.tris_b.len(),
+            "Intersect result should have fewer triangles than union"
+        );
+        assert!(
+            result_tri_count > 0,
+            "Intersect of overlapping boxes must produce at least one triangle"
+        );
+    }
+
+    /// Test 2d-6: Intersect of non-overlapping boxes — result should be empty.
+    /// Stub returns empty, which happens to be correct. But we also verify
+    /// that label_cells produces all-Outside labels (stub does this correctly).
+    /// This test exercises the label→select pipeline end-to-end.
+    #[test]
+    fn select_intersect_non_overlapping() {
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (verts_b, tris_b) = make_box_mesh([5.0, 0.0, 0.0], [7.0, 2.0, 2.0]);
+
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+
+        // Verify all labels are Outside (non-overlapping)
+        assert!(
+            labeling.labels_a.iter().all(|l| *l == CellLabel::Outside),
+            "Non-overlapping: all A labels must be Outside"
+        );
+        assert!(
+            labeling.labels_b.iter().all(|l| *l == CellLabel::Outside),
+            "Non-overlapping: all B labels must be Outside"
+        );
+
+        let result = select_boolean_result(&subdivided, &labeling, MeshBooleanOp::Intersect);
+
+        // Intersect of non-overlapping: no A-inside-B and no B-inside-A → empty result
+        assert!(
+            result.is_empty(),
+            "Intersect of non-overlapping boxes must be empty, got {} vertices ({} triangles)",
+            result.len(),
+            result.len() / 3
         );
     }
 }
