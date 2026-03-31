@@ -1,5 +1,10 @@
 # 01 — Kernel Fork: Architecture
 
+> **ARCHIVED (2026-03-28):** This document describes the truck-based kernel, which
+> has been replaced by the clean-sheet kernel at `crates/kernel/`. The truck source
+> is archived in `archive/truck/`. See the root-level `ARCHITECTURE.md` for the
+> current kernel design (Euler operators, analytical SSI, Yang 2025 hybrid pipeline).
+
 ## Purpose
 
 Wrap the [truck](https://github.com/ricosjp/truck) BREP geometry kernel behind Waffle Iron's `Kernel` and `KernelIntrospect` traits. No truck types may leak to other crates. This crate is the only crate that depends on truck directly.
