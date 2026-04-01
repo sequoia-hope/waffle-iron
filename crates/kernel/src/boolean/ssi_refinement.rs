@@ -513,6 +513,7 @@ mod tests {
     use crate::tessellation::bijective::BijectiveMap;
     use crate::topology::arena::TopoArena;
     use crate::topology::half_edge::FaceIdx;
+    use crate::units::TAU_MODEL;
 
     // ── Test helpers (reused from topology_extract tests) ──
 
@@ -1335,23 +1336,23 @@ mod tests {
                 normal,
                 radius,
             } => {
-                let tol = 1e-7;
+                // A14.3: use centralized tolerance constant from units.rs
                 assert!(
-                    (center[0]).abs() < tol
-                        && (center[1]).abs() < tol
-                        && (center[2] - 5.0).abs() < tol,
+                    (center[0]).abs() < TAU_MODEL
+                        && (center[1]).abs() < TAU_MODEL
+                        && (center[2] - 5.0).abs() < TAU_MODEL,
                     "Circle center should be near [0,0,5], got {:?}",
                     center,
                 );
                 assert!(
-                    (normal[0]).abs() < tol
-                        && (normal[1]).abs() < tol
-                        && (normal[2] - 1.0).abs() < tol,
+                    (normal[0]).abs() < TAU_MODEL
+                        && (normal[1]).abs() < TAU_MODEL
+                        && (normal[2] - 1.0).abs() < TAU_MODEL,
                     "Circle normal should be near [0,0,1], got {:?}",
                     normal,
                 );
                 assert!(
-                    (radius - 2.0).abs() < tol,
+                    (radius - 2.0).abs() < TAU_MODEL,
                     "Circle radius should be 2.0, got {}",
                     radius,
                 );
@@ -1458,23 +1459,23 @@ mod tests {
                 normal,
                 radius,
             } => {
-                let tol = 1e-7;
+                // A14.3: use centralized tolerance constant from units.rs
                 assert!(
-                    (center[0]).abs() < tol
-                        && (center[1]).abs() < tol
-                        && (center[2] - 3.0).abs() < tol,
+                    (center[0]).abs() < TAU_MODEL
+                        && (center[1]).abs() < TAU_MODEL
+                        && (center[2] - 3.0).abs() < TAU_MODEL,
                     "Circle center should be near [0,0,3], got {:?}",
                     center,
                 );
                 assert!(
-                    (normal[0]).abs() < tol
-                        && (normal[1]).abs() < tol
-                        && (normal[2] - 1.0).abs() < tol,
+                    (normal[0]).abs() < TAU_MODEL
+                        && (normal[1]).abs() < TAU_MODEL
+                        && (normal[2] - 1.0).abs() < TAU_MODEL,
                     "Circle normal should be near [0,0,1], got {:?}",
                     normal,
                 );
                 assert!(
-                    (radius - 4.0).abs() < tol,
+                    (radius - 4.0).abs() < TAU_MODEL,
                     "Circle radius should be 4.0 (sqrt(25-9)), got {}",
                     radius,
                 );
