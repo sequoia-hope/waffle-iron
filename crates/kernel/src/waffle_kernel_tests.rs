@@ -2042,8 +2042,8 @@ fn m8_box_cyl_result_has_arc_edges() {
         let sig = k.compute_signature(eid, TopoKind::Edge);
         let length = sig.length.unwrap();
         assert!(
-            length > 0.1 * circumference && length <= circumference * 1.05,
-            "Arc edge length {:.4} should be a reasonable fraction of circumference {:.4}",
+            length > 0.3 * circumference && length <= circumference * 1.05,
+            "Arc edge length {:.4} should be ≥30% of circumference {:.4}",
             length, circumference
         );
     }
@@ -2382,8 +2382,8 @@ fn o1d_revolve_disjoint_union_volume_preserved() {
     let expected = revolve_vol + box_vol;
     let rel_err = (union_vol - expected).abs() / expected;
     assert!(
-        rel_err < 0.10,
-        "Disjoint revolve+box union volume: expected ~{:.1}, got {:.1} (rel_err={:.4})",
+        rel_err < 0.05,
+        "Disjoint revolve+box union volume: expected ~{:.1}, got {:.1} (rel_err={:.4}, tol 5%)",
         expected, union_vol, rel_err
     );
 }
@@ -6147,11 +6147,29 @@ fn y6_tilted_gear_rect_union() {
         .unwrap();
     let rect = k.extrude_face(rf[0], normal, 1.0).unwrap();
 
+    let gear_mesh = k.tessellate(&gear, 0.01).unwrap();
+    let gear_vol = mesh_volume(&gear_mesh);
+    let rect_mesh = k.tessellate(&rect, 0.01).unwrap();
+    let rect_vol = mesh_volume(&rect_mesh);
+
     let u = k.boolean_union(&gear, &rect).expect("tilted gear-rect union");
     let mesh = k.tessellate(&u, 0.01).unwrap();
     assert!(check_watertight(&mesh), "Tilted gear-rect union must be watertight");
     let vol = mesh_volume(&mesh);
-    assert!(vol > 0.1, "Union volume {} should be positive", vol);
+    // Union volume must be at least as large as the larger operand
+    let max_operand = gear_vol.max(rect_vol);
+    assert!(
+        vol >= max_operand * 0.95,
+        "Union volume {:.4} must be >= max operand {:.4} (gear={:.4}, rect={:.4})",
+        vol, max_operand, gear_vol, rect_vol
+    );
+    // Union volume must not exceed sum of operands (no overlap double-count)
+    let sum_operands = gear_vol + rect_vol;
+    assert!(
+        vol <= sum_operands * 1.05,
+        "Union volume {:.4} must be <= sum {:.4} (gear={:.4} + rect={:.4})",
+        vol, sum_operands, gear_vol, rect_vol
+    );
 }
 
 // ── Group Z: Additional property tests ──────────────────────
@@ -7149,10 +7167,10 @@ fn j3_box_primitive_bounded_tess() {
     assert_eq!(unpaired, 0, "Box primitive must be watertight");
 
     let vol = mesh_volume(&mesh);
-    let expected = 4.0 * 3.0 * 2.0;
+    let expected = 4.0 * 3.0 * 2.0; // 24.0 — exact for all-linear mesh
     assert!(
-        (vol - expected).abs() < 0.1,
-        "Box volume should be {}, got {:.2}",
+        (vol - expected).abs() < 1e-6,
+        "Box volume should be {}, got {:.10} (all-linear mesh should be exact)",
         expected, vol
     );
 }

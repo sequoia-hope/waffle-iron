@@ -226,10 +226,10 @@ fn test_plane_cylinder_oblique_near_perp() {
         assert!(*semi_major > *semi_minor);
         // sin(1°) ≈ 0.01745 → semi_major ≈ 3/0.01745 ≈ 171.9
         let sin_gamma = angle.sin();
-        let expected = 3.0 / sin_gamma;
+        let expected = 3.0 / sin_gamma; // ≈ 3.0005
         assert!(
-            (semi_major - expected).abs() < 0.1,
-            "a={} expected={}",
+            (semi_major - expected).abs() < 1e-3,
+            "a={} expected={} (tol 1e-3)",
             semi_major,
             expected
         );
