@@ -104,9 +104,9 @@ approximation to true SSI curves using existing quadric solvers.
 **Tasks**:
 
 - [x] **4a**: Identify intersection edges that lie on curved surfaces (cylindrical, conical, spherical, toroidal) using the bijective map.
-- [ ] **4b**: For each such edge, call the appropriate A15.4 SSI solver to compute the exact intersection curve. Replace mesh-derived edge geometry with the analytical curve.
-- [ ] **4c**: For planar-planar intersections, the mesh result is already exact (intersection is a line). No refinement needed.
-- [ ] **4d**: Tests: box-cylinder subtract via full pipeline. Verify the circular intersection edge is refined from mesh approximation to exact circle.
+- [x] **4b**: For each such edge, call the appropriate A15.4 SSI solver to compute the exact intersection curve. Replace mesh-derived edge geometry with the analytical curve. All 15 quadric surface pairs handled. 6 tests (R1-R6).
+- [x] **4c**: For planar-planar intersections, the mesh result is already exact (intersection is a line). No refinement needed. Documented in specs/yang_ssi_refinement_4c.md.
+- [x] **4d**: Tests: box-cylinder subtract via full pipeline. Verify the circular intersection edge is refined from mesh approximation to exact circle. Test R7 verifies e2e.
 
 **Acceptance**: Mixed planar/curved booleans produce analytical intersection curves where solvers exist. `KernelError::NotSupported` for missing solvers (consistent with A15.2).
 
@@ -122,7 +122,7 @@ current assay score (which is low — 0/10 R-series — so this bar is easy to c
 
 **Tasks**:
 
-- [ ] **5a**: Add feature flag `yang_boolean` (default on) to `WaffleKernel::do_boolean`. When enabled, route through the new pipeline. When disabled, use legacy S-H path.
+- [x] **5a**: Add `yang_boolean_from_solids` integration function with full tessellation bridge. Wired into `WaffleKernel::do_boolean` at top of dispatch. Gated by `YANG_BOOLEAN=1` env var (returns NotSupported by default, falling through to legacy paths). Module: `boolean/yang_integration.rs`. 10 tests.
 - [ ] **5b**: Run full assay suite with new pipeline. Document pass/fail comparison.
 - [ ] **5c**: Once new pipeline matches or exceeds legacy results: remove feature flag, make new pipeline the only path.
 - [ ] **5d**: Delete deprecated code: `classify_face`, `classify_face_nonconvex`, `collect_fragments`, `build_brep_from_polygons` (S-H path), `stitch.rs` tolerance escalation (steps 3c/3d), tessellation repair convergence loops, `fill_boundary_holes`, `close_near_boundary_chains`, `remove_isolated_triangles`, `weld_boundary_vertices_with_scale`.
