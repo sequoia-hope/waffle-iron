@@ -2247,6 +2247,12 @@ fn n7_cyl_cyl_union_stacked() {
         crate::boolean::BoolOp::Union,
     );
     assert!(result.is_err(), "Touching-only Z overlap should fail");
+    let err = result.err().unwrap();
+    let msg = format!("{:?}", err);
+    assert!(
+        msg.contains("overlap") || msg.contains("Z range"),
+        "error should mention overlap or Z range: {}", msg
+    );
 }
 
 #[test]
@@ -5320,6 +5326,11 @@ fn n4_revolve_over_360_rejected() {
         .unwrap();
     let result = k.revolve_face(faces[0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], 361.0);
     assert!(result.is_err(), "Angle > 360° should be rejected");
+    let msg = format!("{:?}", result.unwrap_err());
+    assert!(
+        msg.contains("angle") || msg.contains("360"),
+        "error should mention angle or 360: {}", msg
+    );
 }
 
 #[test]
@@ -8625,6 +8636,11 @@ fn cn13_make_cone_zero_axis() {
         result.is_err(),
         "Zero axis vector should produce an error (no direction defined)"
     );
+    let msg = format!("{:?}", result.unwrap_err());
+    assert!(
+        msg.contains("degenerate") || msg.contains("zero") || msg.contains("axis"),
+        "error should mention degenerate/zero/axis: {}", msg
+    );
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -9164,31 +9180,23 @@ fn tr16_make_torus_nan_center() {
 
     // NaN in x component
     let result = k.make_torus([f64::NAN, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 0.3);
-    assert!(
-        result.is_err(),
-        "NaN center[0] should produce an error"
-    );
+    assert!(result.is_err(), "NaN center[0] should produce an error");
+    assert!(matches!(result.unwrap_err(), KernelError::Other { .. }), "NaN should produce Other error");
 
     // NaN in y component
     let result = k.make_torus([0.0, f64::NAN, 0.0], [0.0, 0.0, 1.0], 1.0, 0.3);
-    assert!(
-        result.is_err(),
-        "NaN center[1] should produce an error"
-    );
+    assert!(result.is_err(), "NaN center[1] should produce an error");
+    assert!(matches!(result.unwrap_err(), KernelError::Other { .. }), "NaN should produce Other error");
 
     // NaN in z component
     let result = k.make_torus([0.0, 0.0, f64::NAN], [0.0, 0.0, 1.0], 1.0, 0.3);
-    assert!(
-        result.is_err(),
-        "NaN center[2] should produce an error"
-    );
+    assert!(result.is_err(), "NaN center[2] should produce an error");
+    assert!(matches!(result.unwrap_err(), KernelError::Other { .. }), "NaN should produce Other error");
 
     // Infinity in center
     let result = k.make_torus([f64::INFINITY, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 0.3);
-    assert!(
-        result.is_err(),
-        "Infinity center[0] should produce an error"
-    );
+    assert!(result.is_err(), "Infinity center[0] should produce an error");
+    assert!(matches!(result.unwrap_err(), KernelError::Other { .. }), "Inf should produce Other error");
 }
 
 // ── TR17: NaN radius ────────────────────────────────────────────
@@ -9199,31 +9207,23 @@ fn tr17_make_torus_nan_radius() {
 
     // NaN major radius
     let result = k.make_torus([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], f64::NAN, 0.3);
-    assert!(
-        result.is_err(),
-        "NaN major_radius should produce an error"
-    );
+    assert!(result.is_err(), "NaN major_radius should produce an error");
+    assert!(matches!(result.unwrap_err(), KernelError::Other { .. }), "NaN should produce Other error");
 
     // NaN minor radius
     let result = k.make_torus([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, f64::NAN);
-    assert!(
-        result.is_err(),
-        "NaN minor_radius should produce an error"
-    );
+    assert!(result.is_err(), "NaN minor_radius should produce an error");
+    assert!(matches!(result.unwrap_err(), KernelError::Other { .. }), "NaN should produce Other error");
 
     // Infinity major radius
     let result = k.make_torus([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], f64::INFINITY, 0.3);
-    assert!(
-        result.is_err(),
-        "Infinity major_radius should produce an error"
-    );
+    assert!(result.is_err(), "Infinity major_radius should produce an error");
+    assert!(matches!(result.unwrap_err(), KernelError::Other { .. }), "Inf should produce Other error");
 
     // Infinity minor radius
     let result = k.make_torus([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, f64::INFINITY);
-    assert!(
-        result.is_err(),
-        "Infinity minor_radius should produce an error"
-    );
+    assert!(result.is_err(), "Infinity minor_radius should produce an error");
+    assert!(matches!(result.unwrap_err(), KernelError::Other { .. }), "Inf should produce Other error");
 }
 
 // ── TR18: Negative axis direction ───────────────────────────────
@@ -13816,6 +13816,8 @@ fn test_revolve_rejects_profile_crossing_axis() {
     // Axis along Z through corner (0.5, 0.5) — that vertex is ON the axis
     let result = k.revolve_face(faces[0], [0.5, 0.5, 0.0], [0.0, 0.0, 1.0], 180.0);
     assert!(result.is_err(), "revolve with vertex on axis should fail");
+    let msg = format!("{:?}", result.unwrap_err());
+    assert!(msg.contains("self-intersection"), "error should mention self-intersection: {}", msg);
 }
 
 #[test]
