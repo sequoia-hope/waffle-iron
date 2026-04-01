@@ -984,13 +984,18 @@ impl WaffleKernel {
 
         // Yang hybrid pipeline (A15.6): try first when both solids have face geometry.
         // Returns NotSupported to fall through when the pipeline isn't ready yet.
-        match crate::boolean::yang_integration::yang_boolean_from_solids(
-            solid_a,
-            solid_b,
-            op,
-            &mut id_alloc,
-        ) {
-            Ok(result) => {
+        // Wrap in catch_unwind so panics in the Yang pipeline cannot propagate —
+        // they fall through to the legacy dispatch instead.
+        let yang_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            crate::boolean::yang_integration::yang_boolean_from_solids(
+                solid_a,
+                solid_b,
+                op,
+                &mut id_alloc,
+            )
+        }));
+        match yang_result {
+            Ok(Ok(result)) => {
                 self.next_id = next_id;
                 let handle_id = self.alloc_handle();
                 self.solids.insert(
@@ -1013,7 +1018,7 @@ impl WaffleKernel {
                 );
                 return Ok(KernelSolidHandle(handle_id));
             }
-            Err(_) => {
+            Ok(Err(_)) | Err(_) => {
                 // Yang pipeline is env-var gated (Phase 5a). Any error —
                 // NotSupported, panics caught by catch_unwind, empty results —
                 // falls through to legacy dispatch. This ensures YANG_BOOLEAN=1

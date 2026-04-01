@@ -380,3 +380,14 @@ pub const CACHE_NORMAL_QUANTIZE_SCALE: f64 = 1e3;
 /// When deduplicating co-located vertices, normals must differ by less than
 /// this cosine distance to be merged. Preserves hard edges on curved surfaces.
 pub const COS_NORMAL_SIMILARITY: f32 = 0.02;
+
+// ── Yang hybrid boolean pipeline limits ─────────────────────────────
+
+/// Maximum triangle-pair product for the Yang exact mesh boolean pipeline.
+/// The exact mesh boolean is O(n*m) in triangles. If tris_a.len() * tris_b.len()
+/// exceeds this limit, `yang_boolean_from_solids` returns `NotSupported` to
+/// prevent timeouts. The caller can then fall back to the legacy pipeline or
+/// report the error.
+///
+/// 50,000 pairs corresponds to e.g. ~224 × 224 triangles or ~50 × 1000.
+pub const MAX_YANG_TRI_PAIRS: usize = 50_000;

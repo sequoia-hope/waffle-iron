@@ -4217,7 +4217,8 @@ mod tests {
             &bijective_a,
             &bijective_b,
             MeshBooleanOp::Union,
-        );
+        )
+        .unwrap();
 
         let edge_count = result.arena.edges.len();
         let half_edge_count = result.arena.half_edges.len();

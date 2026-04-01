@@ -573,6 +573,7 @@ mod tests {
             &bijective_b,
             op,
         )
+        .unwrap()
     }
 
     /// Build an all-planar surface map for two boxes.
@@ -1738,7 +1739,8 @@ mod tests {
             &bijective_a,
             &bijective_b,
             MeshBooleanOp::Subtract,
-        );
+        )
+        .unwrap();
 
         // Build surface map
         let mut surface_map: BTreeMap<(MeshId, FaceIdx), SurfaceGeom> = BTreeMap::new();

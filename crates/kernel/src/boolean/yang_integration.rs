@@ -287,6 +287,9 @@ pub(crate) fn yang_boolean_from_solids(
         });
     }
 
+    // Step 2b: Guard against excessive triangle counts (O(n*m) complexity).
+    check_yang_triangle_count(tris_a.len(), tris_b.len())?;
+
     // Step 3: Build bijective maps (mesh triangle → B-Rep face).
     let bijective_a = BijectiveMap::from_render_mesh(&mesh_a, &solid_a.face_map);
     let bijective_b = BijectiveMap::from_render_mesh(&mesh_b, &solid_b.face_map);
@@ -306,7 +309,7 @@ pub(crate) fn yang_boolean_from_solids(
         &bijective_a,
         &bijective_b,
         mesh_op,
-    );
+    )?;
 
     // Step 5: Phase 4a — classify intersection edges by surface pair type.
     // This may fail if face provenance references faces not in the surface map
@@ -344,6 +347,17 @@ pub(crate) fn yang_boolean_from_solids(
 
     // Step 7: Convert ResultTopology → WaffleSolid → BooleanResult.
     let waffle = result_topology_to_waffle_solid(result_topo, &refinement, &surface_map, id_alloc);
+
+    // Step 8: Validate result topology before accepting. The Yang pipeline may
+    // produce invalid B-Rep (dangling edge references, invalid indices) that would
+    // panic in downstream tessellation. Detect this early and fall through to
+    // legacy instead. Ref: specs/yang_panic_safety.md
+    if let Err(msg) = validate_yang_result_topology(&waffle.arena) {
+        return Err(KernelError::NotSupported {
+            operation: format!("yang_boolean: result validation failed: {msg}"),
+        });
+    }
+
     Ok(waffle_solid_to_boolean_result(waffle))
 }
 
@@ -361,6 +375,121 @@ fn tessellate_waffle_solid(solid: &WaffleSolid) -> Result<RenderMesh, KernelErro
         solid.torus_params.as_ref(),
         solid.is_polygon_soup,
     )
+}
+
+// ── Triangle-count guard (to be implemented) ────────────────────────────
+//
+// Bug 1 red-phase: This function must be implemented to check whether the
+// triangle-pair product exceeds MAX_YANG_TRI_PAIRS. It should also be called
+// inside `yang_boolean_from_solids` after tessellation (between steps 2 and 3).
+//
+// The implementer must:
+// 1. Implement this function body (currently unimplemented!()).
+// 2. Call it from `yang_boolean_from_solids` after computing tris_a and tris_b.
+
+// ── Result topology validation ──────────────────────────────────────────
+
+/// Validate that a TopoArena produced by the Yang pipeline has consistent
+/// topology: all half-edge references (edge, twin, next, prev, origin) point
+/// to valid indices. Returns Ok(()) if valid, Err(message) if not.
+///
+/// This catches malformed B-Rep output before it reaches downstream consumers
+/// (tessellation, rendering) where it would cause index-out-of-bounds panics.
+fn validate_yang_result_topology(arena: &crate::topology::arena::TopoArena) -> Result<(), String> {
+    let n_he = arena.half_edges.len();
+    let n_edges = arena.edges.len();
+    let n_verts = arena.vertices.len();
+    let n_loops = arena.loops.len();
+    let n_faces = arena.faces.len();
+
+    for (i, he) in arena.half_edges.iter().enumerate() {
+        if he.edge.0 >= n_edges {
+            return Err(format!(
+                "half_edge[{i}].edge = {} but only {n_edges} edges exist",
+                he.edge.0
+            ));
+        }
+        if he.twin.0 >= n_he {
+            return Err(format!(
+                "half_edge[{i}].twin = {} but only {n_he} half_edges exist",
+                he.twin.0
+            ));
+        }
+        if he.next.0 >= n_he {
+            return Err(format!(
+                "half_edge[{i}].next = {} but only {n_he} half_edges exist",
+                he.next.0
+            ));
+        }
+        if he.prev.0 >= n_he {
+            return Err(format!(
+                "half_edge[{i}].prev = {} but only {n_he} half_edges exist",
+                he.prev.0
+            ));
+        }
+        if he.origin.0 >= n_verts {
+            return Err(format!(
+                "half_edge[{i}].origin = {} but only {n_verts} vertices exist",
+                he.origin.0
+            ));
+        }
+        if he.loop_.0 >= n_loops {
+            return Err(format!(
+                "half_edge[{i}].loop_ = {} but only {n_loops} loops exist",
+                he.loop_.0
+            ));
+        }
+    }
+
+    for (i, face) in arena.faces.iter().enumerate() {
+        if face.outer_loop.0 >= n_loops {
+            return Err(format!(
+                "face[{i}].outer_loop = {} but only {n_loops} loops exist",
+                face.outer_loop.0
+            ));
+        }
+    }
+
+    for (i, loop_) in arena.loops.iter().enumerate() {
+        if loop_.half_edge.0 >= n_he {
+            return Err(format!(
+                "loop[{i}].half_edge = {} but only {n_he} half_edges exist",
+                loop_.half_edge.0
+            ));
+        }
+        if loop_.face.0 >= n_faces {
+            return Err(format!(
+                "loop[{i}].face = {} but only {n_faces} faces exist",
+                loop_.face.0
+            ));
+        }
+    }
+
+    for (i, edge) in arena.edges.iter().enumerate() {
+        if edge.half_edge.0 >= n_he {
+            return Err(format!(
+                "edge[{i}].half_edge = {} but only {n_he} half_edges exist",
+                edge.half_edge.0
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+/// Check whether the triangle-pair product `n_a * n_b` exceeds
+/// `MAX_YANG_TRI_PAIRS`. Returns `Err(NotSupported)` if so.
+pub(crate) fn check_yang_triangle_count(n_a: usize, n_b: usize) -> Result<(), KernelError> {
+    use crate::units::MAX_YANG_TRI_PAIRS;
+    let product = n_a * n_b;
+    if product > MAX_YANG_TRI_PAIRS {
+        return Err(KernelError::NotSupported {
+            operation: format!(
+                "yang_boolean: triangle-pair count {product} exceeds limit {MAX_YANG_TRI_PAIRS}"
+            ),
+        });
+    }
+    Ok(())
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────
@@ -714,6 +843,64 @@ mod tests {
             cached_face_polys: None,
             is_polygon_soup: false,
         }
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Bug 1: Triangle-count guard (red phase)
+    // ══════════════════════════════════════════════════════════════════
+
+    /// Bug: `yang_boolean_from_solids` has no guard on triangle count.
+    /// The exact mesh boolean is O(n*m) in triangles. Large meshes timeout.
+    /// After tessellation produces `tris_a` and `tris_b`, if
+    /// `tris_a.len() * tris_b.len() > MAX_YANG_TRI_PAIRS`, the function
+    /// must return `Err(KernelError::NotSupported { .. })`.
+    ///
+    /// This test verifies the constant exists in units.rs and has the expected value.
+    #[test]
+    fn max_yang_tri_pairs_constant_exists_and_is_50000() {
+        use crate::units::MAX_YANG_TRI_PAIRS;
+        assert_eq!(MAX_YANG_TRI_PAIRS, 50_000);
+    }
+
+    /// Bug: `yang_boolean_from_solids` should reject operands whose combined
+    /// triangle count exceeds `MAX_YANG_TRI_PAIRS`. This test calls the
+    /// `check_yang_triangle_count` helper (which the implementer must wire into
+    /// `yang_boolean_from_solids` between steps 2 and 3).
+    ///
+    /// This test currently FAILS because the helper is `unimplemented!()`.
+    #[test]
+    fn yang_boolean_rejects_high_triangle_count() {
+        use crate::units::MAX_YANG_TRI_PAIRS;
+
+        // Test: product exceeding threshold should error.
+        let n_a = 300;
+        let n_b = 200;
+        assert!(
+            n_a * n_b > MAX_YANG_TRI_PAIRS,
+            "precondition: product exceeds limit"
+        );
+
+        let result = check_yang_triangle_count(n_a, n_b);
+        match result {
+            Err(KernelError::NotSupported { operation }) => {
+                assert!(
+                    operation.contains("triangle"),
+                    "Error message should mention triangles, got: {operation}"
+                );
+            }
+            Err(other) => panic!("expected NotSupported, got: {other:?}"),
+            Ok(()) => panic!(
+                "expected NotSupported for {n_a}×{n_b}={} pairs (limit {MAX_YANG_TRI_PAIRS}), but got Ok",
+                n_a * n_b
+            ),
+        }
+
+        // Test: product under threshold should be Ok.
+        let result_ok = check_yang_triangle_count(10, 10);
+        assert!(
+            result_ok.is_ok(),
+            "10×10=100 pairs should be under the limit"
+        );
     }
 
     /// Bug: when `yang_boolean_from_solids` produces an empty boolean result
