@@ -937,21 +937,99 @@ fn cc2_60deg_angle() {
 fn cc3_unequal_radii() {
     // Previously returned NotSupported; now returns degree-4 curves.
     // R_A=1.0, R_B=2.0, perpendicular axes through origin.
-    let curves = cylinder_cylinder_ssi_non_parallel(
-        [0.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0],
-        1.0,
-        [0.0, 0.0, 0.0],
-        [1.0, 0.0, 0.0],
-        2.0,
-    )
-    .expect("unequal-R SSI should now succeed");
+    let origin_a = [0.0, 0.0, 0.0];
+    let axis_a = [0.0, 0.0, 1.0];
+    let r_a = 1.0;
+    let origin_b = [0.0, 0.0, 0.0];
+    let axis_b = [1.0, 0.0, 0.0];
+    let r_b = 2.0;
+    let curves =
+        cylinder_cylinder_ssi_non_parallel(origin_a, axis_a, r_a, origin_b, axis_b, r_b)
+            .expect("unequal-R SSI should now succeed");
     assert_eq!(curves.len(), 2, "should return 2 degree-4 curves");
     for curve in &curves {
-        assert!(
-            matches!(curve, SSICurve::Degree4CylCyl { .. }),
-            "expected Degree4CylCyl, got {curve:?}"
-        );
+        if let SSICurve::Degree4CylCyl {
+            center,
+            frame,
+            r_a: stored_r_a,
+            r_b: stored_r_b,
+            cos_alpha,
+            sin_alpha,
+            sign,
+            theta_range,
+        } = curve
+        {
+            // Validate stored radii match inputs
+            assert!(
+                (*stored_r_a - r_a).abs() < EPS,
+                "stored r_a={}, expected {}",
+                stored_r_a,
+                r_a
+            );
+            assert!(
+                (*stored_r_b - r_b).abs() < EPS,
+                "stored r_b={}, expected {}",
+                stored_r_b,
+                r_b
+            );
+            // 90° between axes: cos(90°)=0, sin(90°)=1
+            assert!(cos_alpha.abs() < EPS, "cos_alpha={}, expected 0", cos_alpha);
+            assert!(
+                (*sin_alpha - 1.0).abs() < EPS,
+                "sin_alpha={}, expected 1",
+                sin_alpha
+            );
+            // sign must be +1 or -1
+            assert!(
+                (*sign - 1.0).abs() < EPS || (*sign + 1.0).abs() < EPS,
+                "sign={}, expected ±1",
+                sign
+            );
+            // Sample points and verify they lie on both cylinders (P1: numeric oracle)
+            let n_samples = 50;
+            let (t_min, t_max) = *theta_range;
+            for i in 0..n_samples {
+                let t = t_min + (t_max - t_min) * (i as f64) / (n_samples as f64);
+                // Evaluate parametric curve: local coords then transform
+                let x_local = stored_r_a * t.cos();
+                let y_local = stored_r_a * t.sin();
+                let disc = stored_r_b * stored_r_b - stored_r_a * stored_r_a * t.cos() * t.cos();
+                if disc < 0.0 {
+                    continue;
+                }
+                let z_local =
+                    (stored_r_a * t.sin() * cos_alpha + sign * disc.sqrt()) / sin_alpha;
+                // Transform to world: P = center + frame[0]*x + frame[1]*y + frame[2]*z
+                let world = v3_add(
+                    *center,
+                    v3_add(
+                        v3_add(
+                            v3_scale(frame[0], x_local),
+                            v3_scale(frame[1], y_local),
+                        ),
+                        v3_scale(frame[2], z_local),
+                    ),
+                );
+                let da = dist_to_line(world, origin_a, axis_a);
+                let db = dist_to_line(world, origin_b, axis_b);
+                assert!(
+                    (da - r_a).abs() < 1e-5,
+                    "θ={:.3}: dist to cyl_a = {}, expected {}",
+                    t,
+                    da,
+                    r_a
+                );
+                assert!(
+                    (db - r_b).abs() < 1e-5,
+                    "θ={:.3}: dist to cyl_b = {}, expected {}",
+                    t,
+                    db,
+                    r_b
+                );
+            }
+        } else {
+            panic!("expected Degree4CylCyl, got {curve:?}");
+        }
     }
 }
 
@@ -6978,6 +7056,67 @@ fn test_cone_cone_no_nan_in_results() {
 
 // ── Cylinder-Cone SSI ──────────────────────────────────────────────
 
+/// Oracle helper: validate sampled points on a Degree4CylCone curve lie on both
+/// the cylinder surface (dist to axis == cyl_radius) and the cone surface
+/// (perp_dist == h * tan(half_angle)). P1 compliance: numeric oracle.
+fn validate_degree4_cyl_cone_on_surfaces(
+    curve: &SSICurve,
+    cyl_origin: [f64; 3],
+    cyl_axis: [f64; 3],
+    cyl_radius: f64,
+    cone_apex: [f64; 3],
+    cone_axis: [f64; 3],
+    half_angle: f64,
+    n_samples: usize,
+) {
+    use crate::units::SSI_SURFACE_ERROR_BOUND;
+    let tol = SSI_SURFACE_ERROR_BOUND;
+    let tan_alpha = half_angle.tan();
+    let mut valid_count = 0;
+    for i in 0..n_samples {
+        let t = (i as f64 + 0.5) / (n_samples as f64);
+        if let Some(pt) = curve.evaluate_cyl_cone(t) {
+            assert!(
+                !pt[0].is_nan() && !pt[1].is_nan() && !pt[2].is_nan(),
+                "NaN in Degree4CylCone point at t={}",
+                t
+            );
+            // Check on cylinder surface
+            let d_cyl = dist_to_line(pt, cyl_origin, cyl_axis);
+            assert!(
+                (d_cyl - cyl_radius).abs() < tol,
+                "t={}: dist to cyl axis = {}, expected {}, err={}",
+                t,
+                d_cyl,
+                cyl_radius,
+                (d_cyl - cyl_radius).abs()
+            );
+            // Check on cone surface
+            let diff = v3_sub(pt, cone_apex);
+            let h = v3_dot(diff, cone_axis);
+            if h > tol {
+                let proj = v3_scale(cone_axis, h);
+                let perp = v3_sub(diff, proj);
+                let perp_dist = v3_length(perp);
+                let expected_r = h * tan_alpha;
+                assert!(
+                    (perp_dist - expected_r).abs() < tol,
+                    "t={}: cone perp_dist={}, expected h*tan(α)={}, err={}",
+                    t,
+                    perp_dist,
+                    expected_r,
+                    (perp_dist - expected_r).abs()
+                );
+            }
+            valid_count += 1;
+        }
+    }
+    assert!(
+        valid_count > 0,
+        "Degree4CylCone produced zero evaluable sample points"
+    );
+}
+
 #[test]
 fn cyl_cone_ssi_disjoint() {
     // Cylinder far from cone — no intersection expected.
@@ -7323,6 +7462,17 @@ fn cyl_cone_ssi_parallel_offset_overlap() {
             }
             SSICurve::Degree4CylCone { cyl_radius, .. } => {
                 assert!(*cyl_radius > 0.0, "Curve {}: non-positive cyl_radius", i);
+                // P1: point-on-surface oracle for degree-4 curves
+                validate_degree4_cyl_cone_on_surfaces(
+                    curve,
+                    [0.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                    3.0,
+                    [4.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                    std::f64::consts::FRAC_PI_4,
+                    32,
+                );
             }
             _ => panic!("Unexpected SSICurve variant: {:?}", curve),
         }
@@ -7410,6 +7560,17 @@ fn cyl_cone_ssi_general_position() {
             }
             SSICurve::Degree4CylCone { cyl_radius, .. } => {
                 assert!(*cyl_radius > 0.0, "Curve {}: non-positive cyl_radius", i);
+                // P1: point-on-surface oracle for degree-4 curves
+                validate_degree4_cyl_cone_on_surfaces(
+                    curve,
+                    [0.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                    2.0,
+                    [0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                    half_30,
+                    32,
+                );
             }
             _ => panic!("Unexpected SSICurve variant: {:?}", curve),
         }
@@ -7481,6 +7642,17 @@ fn cyl_cone_ssi_perpendicular() {
             }
             SSICurve::Degree4CylCone { cyl_radius, .. } => {
                 assert!(*cyl_radius > 0.0, "Degree4CylCone: non-positive cyl_radius");
+                // P1: point-on-surface oracle for degree-4 curves
+                validate_degree4_cyl_cone_on_surfaces(
+                    curve,
+                    [0.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                    1.0,
+                    [0.0, -3.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                    std::f64::consts::FRAC_PI_4,
+                    32,
+                );
             }
             _ => panic!("Unexpected SSICurve variant: {:?}", curve),
         }
