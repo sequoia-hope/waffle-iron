@@ -1,32 +1,32 @@
 {
-  "errored": 21,
-  "failed": 116,
-  "generated": "2026-03-30",
-  "passed": 53,
+  "errored": 169,
+  "failed": 21,
+  "generated": "2026-04-01",
+  "passed": 0,
   "results": [
     {
-      "category": "multiple-failures",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,307), (1,5), (1,307), (3,7), (3,366), ...; mesh_euler_characteristic: V(1407) - E(4203) + F(2802) = 6 (expected 2)",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 1 unpaired edges out of 56 total (0 boundary, 1 non-manifold); consistent_normals: 18 of 38 triangles have reversed normals; no_degenerate_triangles: 4 of 38 triangles are degenerate; outward_normals: only 18 of 36 triangles (50.0%) have outward normals (need 95%); positive_signed_volume: signed volume = -5.149960e-19 (should be > 0); minimum_triangle_count: 38 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"circle\")]; volume_magnitude: volume 5.149960e-19 outside [9.359930e-10, 9.359930e6] for scale 4.540366e-1; mesh_euler_characteristic: V(38) - E(56) + F(38) = 20 (expected 2)",
       "id": "R0001",
       "status": "fail"
     },
     {
-      "category": "revolve-normals",
-      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; unit_normals: 16 of 73744 normals are not unit length; face_range_coverage: no face ranges defined; outward_normals: no valid triangles; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"revolve\", \"gear\")]; volume_magnitude: volume 0.000000e0 outside [1.224280e-7, 1.224280e9] for scale 2.304767e0",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0002",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 259406cd-eccc-4440-971a-5c6dea416995: operation error: kernel error: operation not supported: polygon boolean: 13448 total faces exceeds limit (8000); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0003",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 196 unpaired edges out of 386 total; unit_normals: 32 of 36640 normals are not unit length; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,3), (0,8), (0,12), (0,14), ...; mesh_euler_characteristic: V(132) - E(386) + F(192) = -62 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0004",
-      "status": "fail"
+      "status": "error"
     },
     {
       "category": "cascading-failure",
@@ -35,62 +35,62 @@
       "status": "error"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0006",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "revolve-normals",
-      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"gear\")]",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0007",
-      "status": "fail"
+      "status": "error"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "R0008",
+      "status": "error"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "R0009",
+      "status": "error"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "R0010",
+      "status": "error"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 44 unpaired edges out of 5839 total; mesh_euler_characteristic: V(1939) - E(5839) + F(3878) = -22 (expected 2)",
-      "id": "R0008",
-      "status": "fail"
-    },
-    {
-      "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(32) - E(84) + F(56) = 4 (expected 2)",
-      "id": "R0009",
-      "status": "fail"
-    },
-    {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); volume_magnitude: volume 3.254130e-3 outside [2.281929e-2, 2.281929e14] for scale 1.316540e2",
-      "id": "R0010",
-      "status": "fail"
-    },
-    {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
+      "detail": "watertight_mesh: 1 unpaired edges out of 23 total (0 boundary, 1 non-manifold); consistent_normals: 7 of 16 triangles have reversed normals; no_degenerate_triangles: 2 of 16 triangles are degenerate; outward_normals: only 7 of 14 triangles (50.0%) have outward normals (need 95%); minimum_triangle_count: 16 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"gear\")]; volume_magnitude: volume 6.357829e-7 outside [3.652063e3, 3.652063e19] for scale 7.147916e3; mesh_euler_characteristic: V(16) - E(23) + F(16) = 9 (expected 2)",
       "id": "R0011",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1559 unpaired edges out of 9652 total; mesh_euler_characteristic: V(3765) - E(9652) + F(5915) = 28 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0012",
-      "status": "fail"
-    },
-    {
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed",
-      "id": "R0013",
-      "status": "pass"
-    },
-    {
-      "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(1268) - E(3792) + F(2528) = 4 (expected 2)",
-      "id": "R0014",
-      "status": "fail"
+      "status": "error"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 384b6c5d-038b-4870-a05f-a98e473b4069: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 1.92e-20 from axis (min 1.00e-7); watertight_mesh: 559 unpaired edges out of 23184 total (431 boundary, 128 non-manifold); no_degenerate_triangles: 10 of 15644 triangles are degenerate; unit_normals: 20 of 223862 normals are not unit length; mesh_euler_characteristic: V(8672) - E(23184) + F(15644) = 1132 (expected 2)",
+      "detail": "watertight_mesh: 1 unpaired edges out of 29 total (0 boundary, 1 non-manifold); consistent_normals: 9 of 20 triangles have reversed normals; no_degenerate_triangles: 2 of 20 triangles are degenerate; outward_normals: only 9 of 18 triangles (50.0%) have outward normals (need 95%); positive_signed_volume: signed volume = -7.342275e-14 (should be > 0); minimum_triangle_count: 20 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\")]; volume_magnitude: volume 7.342275e-14 outside [3.814675e-3, 3.814675e13] for scale 7.252468e1; mesh_euler_characteristic: V(20) - E(29) + F(20) = 11 (expected 2)",
+      "id": "R0013",
+      "status": "fail"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "R0014",
+      "status": "error"
+    },
+    {
+      "category": "boolean-normals",
+      "detail": "partial rebuild (1 error(s)): 740c9104-1438-4927-bfcf-c915425691f0: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 1.92e-20 from axis (min 1.00e-7); watertight_mesh: 1 unpaired edges out of 1 total (0 boundary, 1 non-manifold); no_degenerate_triangles: 1 of 1 triangles are degenerate; outward_normals: no valid triangles; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); minimum_triangle_count: 1 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"circle\"), (\"revolve\", \"circle\")]; volume_magnitude: volume 0.000000e0 outside [1.409330e-20, 1.409330e-4] for scale 1.121169e-4; mesh_euler_characteristic: V(1) - E(1) + F(1) = 1 (expected 2)",
       "id": "R0015",
       "status": "fail"
     },
@@ -101,52 +101,52 @@
       "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 9 unpaired edges out of 651 total; mesh_euler_characteristic: V(161) - E(651) + F(431) = -59 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0017",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0018",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 0f192683-915e-4b61-a97a-e705379c25bc: operation error: kernel error: operation not supported: polygon boolean: 20644 total faces exceeds limit (8000)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0019",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0020",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(104) - E(300) + F(200) = 4 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0021",
+      "status": "error"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 14 of 30 triangles have reversed normals; no_degenerate_triangles: 4 of 30 triangles are degenerate; outward_normals: only 14 of 28 triangles (50.0%) have outward normals (need 95%); minimum_triangle_count: 30 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"circle\")]; volume_magnitude: volume 5.004553e-20 outside [2.421393e-10, 2.421393e6] for scale 2.893044e-1; mesh_euler_characteristic: V(31) - E(45) + F(30) = 16 (expected 2)",
+      "id": "R0022",
       "status": "fail"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
-      "id": "R0022",
-      "status": "pass"
-    },
-    {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0023",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 1 unpaired edges out of 29 total (0 boundary, 1 non-manifold); consistent_normals: 9 of 20 triangles have reversed normals; no_degenerate_triangles: 2 of 20 triangles are degenerate; outward_normals: only 9 of 18 triangles (50.0%) have outward normals (need 95%); minimum_triangle_count: 20 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"circle\")]; volume_magnitude: volume 1.924387e-15 outside [7.027310e-5, 7.027310e11] for scale 1.915416e1; mesh_euler_characteristic: V(20) - E(29) + F(20) = 11 (expected 2)",
       "id": "R0024",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "cascading-failure",
@@ -155,358 +155,358 @@
       "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 99 unpaired edges out of 13374 total; unit_normals: 334 of 29227 normals are not unit length; mesh_euler_characteristic: V(4464) - E(13374) + F(8883) = -27 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0026",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "revolve-normals",
-      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 12 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"gear\"), (\"revolve\", \"circle\")]",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0027",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (2 warning(s)): Revolve 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0028",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0029",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (2 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0030",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 468 unpaired edges out of 5792 total (461 boundary, 7 non-manifold); mesh_euler_characteristic: V(2081) - E(5792) + F(3711) = 0 (expected 2)",
+      "category": "boolean-normals",
+      "detail": "watertight_mesh: 1 unpaired edges out of 35 total (0 boundary, 1 non-manifold); no_degenerate_triangles: 2 of 24 triangles are degenerate; outward_normals: no valid triangles; positive_signed_volume: signed volume = -1.579915e-22 (should be > 0); volume_magnitude: volume 1.579915e-22 outside [5.063419e-12, 5.063419e4] for scale 7.970421e-2; mesh_euler_characteristic: V(24) - E(35) + F(24) = 13 (expected 2)",
       "id": "R0031",
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; partial rebuild (1 error(s)): e894e798-958d-4519-932f-0dc0cf5b1d59: operation error: kernel error: operation not supported: polygon boolean: 20868 total faces exceeds limit (8000); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0032",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "revolve-normals",
-      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; unit_normals: 16 of 73744 normals are not unit length; face_range_coverage: no face ranges defined; outward_normals: no valid triangles; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"revolve\", \"gear\")]; volume_magnitude: volume 0.000000e0 outside [7.737396e-14, 7.737396e2] for scale 1.977872e-2",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0033",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 560 unpaired edges out of 27160 total; mesh_euler_characteristic: V(9240) - E(27160) + F(17920) = 0 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0034",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (2 warning(s)): Revolve 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0035",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0036",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0037",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "revolve-normals",
-      "detail": "partial rebuild (1 error(s)): f90700d2-26ca-4fe9-9168-67c3d30e5975: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 8.01e-16 from axis (min 1.00e-7); consistent_normals: 0 of 0 triangles have reversed normals; unit_normals: 8 of 71440 normals are not unit length; face_range_coverage: no face ranges defined; outward_normals: no valid triangles; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"revolve\", \"rectangle\"), (\"revolve\", \"circle\")]; volume_magnitude: volume 0.000000e0 outside [2.447684e-5, 2.447684e11] for scale 1.347675e1",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0038",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "boolean-normals",
+      "detail": "watertight_mesh: 1 unpaired edges out of 17 total (0 boundary, 1 non-manifold); no_degenerate_triangles: 6 of 12 triangles are degenerate; outward_normals: no valid triangles; positive_signed_volume: signed volume = -1.213198e-23 (should be > 0); minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"rectangle\")]; volume_magnitude: volume 1.213198e-23 outside [1.355151e-13, 1.355151e3] for scale 2.384126e-2; mesh_euler_characteristic: V(12) - E(17) + F(12) = 7 (expected 2)",
       "id": "R0039",
-      "status": "pass"
+      "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 131 unpaired edges out of 15852 total (2 boundary, 129 non-manifold); mesh_euler_characteristic: V(4944) - E(15852) + F(10926) = 18 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0040",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(9025) - E(28116) + F(18744) = -347 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0041",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(63) - E(177) + F(118) = 4 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0042",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); mesh_euler_characteristic: V(64) - E(180) + F(120) = 4 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0043",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: polygon boolean: 14468 total faces exceeds limit (8000). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 898 unpaired edges out of 43454 total; mesh_euler_characteristic: V(14784) - E(43454) + F(28670) = 0 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0044",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "multiple-failures",
-      "detail": "unit_normals: 256 of 8448 normals are not unit length",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0045",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 9aa1ae1e-3976-404a-8cbf-166dd0e2980f: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 2.78e-17 from axis (min 1.00e-7); mesh_euler_characteristic: V(68) - E(192) + F(128) = 4 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0046",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 6913b2bb-dac4-4fb6-9e80-ec5385c24d91: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 2.79e-20 from axis (min 1.00e-7)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0047",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0048",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "multiple-failures",
-      "detail": "unit_normals: 16 of 528 normals are not unit length",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0049",
-      "status": "fail"
+      "status": "error"
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (2 error(s)): 2d3137c4-5cd0-40fc-8dff-beafc3cf7ef8: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 4.44e-16 from axis (min 1.00e-7); 7b1f1bac-7538-4321-87e4-835da74dc346: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 1.78e-15 from axis (min 1.00e-7)",
+      "detail": "partial rebuild (2 error(s)): d705c7cd-dba5-4002-a9eb-71dbcf4421f3: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 4.44e-16 from axis (min 1.00e-7); 37332075-5977-4a54-bea6-400db50e7cbb: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 1.78e-15 from axis (min 1.00e-7); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,2), (0,2), ...",
       "id": "R0050",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 93639eaa-9363-4c44-8fc1-9b45945e190b: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 4.85e-19 from axis (min 1.00e-7); watertight_mesh: 18 unpaired edges out of 13383 total; unit_normals: 20 of 115682 normals are not unit length; mesh_euler_characteristic: V(6140) - E(13383) + F(8916) = 1673 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0051",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0052",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 14442 total faces exceeds limit (8000). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0053",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: polygon boolean: 17032 total faces exceeds limit (8000). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0054",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(871) - E(2601) + F(1734) = 4 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0055",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "tessellation-degenerate",
-      "detail": "no_degenerate_triangles: 42 of 2460 triangles are degenerate",
+      "category": "boolean-normals",
+      "detail": "watertight_mesh: 1 unpaired edges out of 53 total (0 boundary, 1 non-manifold); no_degenerate_triangles: 36 of 36 triangles are degenerate; outward_normals: no valid triangles; positive_signed_volume: signed volume = -3.538136e-25 (should be > 0); minimum_triangle_count: 36 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"circle\")]; volume_magnitude: volume 3.538136e-25 outside [5.531126e-16, 5.531126e0] for scale 3.810113e-3; mesh_euler_characteristic: V(36) - E(53) + F(36) = 19 (expected 2)",
       "id": "R0056",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): f02b3f4b-4712-4f25-ac53-86dc0d4bf72a: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 0.00e0 from axis (min 1.00e-7)",
+      "detail": "partial rebuild (1 error(s)): 8c590282-fbf5-4eff-a425-84e76ce82413: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 0.00e0 from axis (min 1.00e-7); no_self_intersection: 1 inter-face triangle penetrations, face pairs: (0,4)",
       "id": "R0057",
       "status": "fail"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0058",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 131 unpaired edges out of 18337 total; mesh_euler_characteristic: V(6161) - E(18337) + F(12181) = 5 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0059",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0060",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\"), (\"extrude\", \"rectangle\")]",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0061",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"revolve\", \"circle\"), (\"extrude\", \"rectangle\")]",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0062",
-      "status": "fail"
+      "status": "error"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "R0063",
+      "status": "error"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 354 unpaired edges out of 3873 total; mesh_euler_characteristic: V(1302) - E(3873) + F(2464) = -107 (expected 2)",
-      "id": "R0063",
-      "status": "fail"
-    },
-    {
-      "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(1648) - E(4944) + F(3296) = 0 (expected 2)",
+      "detail": "watertight_mesh: 1 unpaired edges out of 17 total (0 boundary, 1 non-manifold); consistent_normals: 5 of 12 triangles have reversed normals; no_degenerate_triangles: 2 of 12 triangles are degenerate; outward_normals: only 5 of 10 triangles (50.0%) have outward normals (need 95%); positive_signed_volume: signed volume = -1.164153e-10 (should be > 0); minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"rectangle\")]; volume_magnitude: volume 1.164153e-10 outside [3.591303e1, 3.591303e17] for scale 1.531384e3; mesh_euler_characteristic: V(12) - E(17) + F(12) = 7 (expected 2)",
       "id": "R0064",
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 1300 unpaired edges out of 56906 total; unit_normals: 2352 of 85552 normals are not unit length",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0065",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0066",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0067",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0068",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"rectangle\")]",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0069",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "revolve-normals",
-      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; unit_normals: 16 of 72592 normals are not unit length; face_range_coverage: no face ranges defined; outward_normals: no valid triangles; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"gear\"), (\"extrude\", \"circle\")]; volume_magnitude: volume 0.000000e0 outside [5.261258e-14, 5.261258e2] for scale 1.739255e-2",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0070",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "tessellation-degenerate",
-      "detail": "partial rebuild (1 error(s)): a78f2ebd-f74d-4d53-be6c-0eb9c7fb9950: operation error: kernel error: operation not supported: polygon boolean: 8572 total faces exceeds limit (8000); no_degenerate_triangles: 648 of 2012 triangles are degenerate",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0071",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0072",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 1 unpaired edges out of 20 total (0 boundary, 1 non-manifold); consistent_normals: 6 of 14 triangles have reversed normals; no_degenerate_triangles: 2 of 14 triangles are degenerate; outward_normals: only 6 of 12 triangles (50.0%) have outward normals (need 95%); volume_magnitude: volume 1.843243e-10 outside [6.245452e-1, 6.245452e15] for scale 3.967540e2; mesh_euler_characteristic: V(14) - E(20) + F(14) = 8 (expected 2)",
       "id": "R0073",
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (2 warning(s)): Revolve 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0074",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 32 unpaired edges out of 151 total; minimum_triangle_count: 90 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"circle\"), (\"extrude\", \"gear\")]; mesh_euler_characteristic: V(64) - E(151) + F(90) = 3 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0075",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0076",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"revolve\", \"circle\"), (\"extrude\", \"rectangle\")]",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0077",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "boolean-normals",
+      "detail": "watertight_mesh: 1 unpaired edges out of 1 total (0 boundary, 1 non-manifold); no_degenerate_triangles: 1 of 1 triangles are degenerate; outward_normals: no valid triangles; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); minimum_triangle_count: 1 triangles < expected minimum 12 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]; volume_magnitude: volume 0.000000e0 outside [2.587739e-11, 2.587739e5] for scale 1.372904e-1; mesh_euler_characteristic: V(1) - E(1) + F(1) = 1 (expected 0)",
       "id": "R0078",
-      "status": "pass"
+      "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(160) - E(462) + F(308) = 6 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0079",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0080",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: polygon boolean: 19420 total faces exceeds limit (8000). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); volume_magnitude: volume 1.483912e-11 outside [1.128408e-10, 1.128408e6] for scale 2.242963e-1",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0081",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 1 unpaired edges out of 32 total (0 boundary, 1 non-manifold); consistent_normals: 10 of 22 triangles have reversed normals; no_degenerate_triangles: 2 of 22 triangles are degenerate; outward_normals: only 10 of 20 triangles (50.0%) have outward normals (need 95%); minimum_triangle_count: 22 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\")]; volume_magnitude: volume 1.251465e-9 outside [2.623827e0, 2.623827e16] for scale 6.401942e2; mesh_euler_characteristic: V(22) - E(32) + F(22) = 12 (expected 2)",
       "id": "R0082",
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\")]",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0083",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0084",
-      "status": "fail"
+      "status": "error"
     },
     {
       "category": "cascading-failure",
@@ -515,46 +515,46 @@
       "status": "error"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0086",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0087",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "revolve-normals",
-      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\"), (\"extrude\", \"rectangle\")]",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0088",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0089",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (2 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0090",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"revolve\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0091",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0092",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "cascading-failure",
@@ -576,19 +576,19 @@
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): fdf780c2-4b09-4433-9361-5ce13d275753: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 2.74e-18 from axis (min 1.00e-7)",
+      "detail": "partial rebuild (1 error(s)): 7bf5b757-3fdc-4469-8933-b9e163797c2e: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 2.74e-18 from axis (min 1.00e-7); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...",
       "id": "R0096",
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 1 unpaired edges out of 41 total (0 boundary, 1 non-manifold); consistent_normals: 13 of 28 triangles have reversed normals; no_degenerate_triangles: 2 of 28 triangles are degenerate; outward_normals: only 13 of 26 triangles (50.0%) have outward normals (need 95%); volume_magnitude: volume 3.393582e-14 outside [2.635796e-5, 2.635796e11] for scale 1.381351e1; mesh_euler_characteristic: V(28) - E(41) + F(28) = 15 (expected 2)",
       "id": "R0097",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (4,8), (11,16), (12,17), (14,18), (17,269), ...; mesh_euler_characteristic: V(4467) - E(13398) + F(8932) = 1 (expected 2)",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 1 unpaired edges out of 50 total (0 boundary, 1 non-manifold); consistent_normals: 16 of 34 triangles have reversed normals; no_degenerate_triangles: 2 of 34 triangles are degenerate; outward_normals: only 16 of 32 triangles (50.0%) have outward normals (need 95%); positive_signed_volume: signed volume = -9.965152e-8 (should be > 0); minimum_triangle_count: 34 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"rectangle\")]; volume_magnitude: volume 9.965152e-8 outside [1.082968e2, 1.082968e18] for scale 2.212442e3; mesh_euler_characteristic: V(34) - E(50) + F(34) = 18 (expected 2)",
       "id": "R0098",
       "status": "fail"
     },
@@ -599,304 +599,304 @@
       "status": "error"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: boolean operation failed: operands are disjoint (bounding boxes do not overlap). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0100",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "9 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0001",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "9 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0002",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "tessellation-degenerate",
-      "detail": "no_degenerate_triangles: 1 of 52 triangles are degenerate; no_self_intersection: 1 inter-face triangle penetrations, face pairs: (7,12)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0003",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "9 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0004",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "9 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0005",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "tessellation-degenerate",
-      "detail": "no_degenerate_triangles: 4 of 44 triangles are degenerate; no_self_intersection: 4 inter-face triangle penetrations, face pairs: (3,5), (3,6), (4,5), (4,6)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0006",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "9 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0007",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "9 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0008",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "tessellation-degenerate",
-      "detail": "no_degenerate_triangles: 1 of 52 triangles are degenerate; no_self_intersection: 1 inter-face triangle penetrations, face pairs: (7,12)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0009",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "tessellation-degenerate",
-      "detail": "no_degenerate_triangles: 5 of 52 triangles are degenerate; no_self_intersection: 7 inter-face triangle penetrations, face pairs: (0,3), (0,10), (1,3), (15,16), (15,17), ...",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0010",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "multiple-failures",
-      "detail": "no_self_intersection: 1 inter-face triangle penetrations, face pairs: (0,4); mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0011",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "multiple-failures",
-      "detail": "no_self_intersection: 2 inter-face triangle penetrations, face pairs: (1,3), (1,5); mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0012",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "multiple-failures",
-      "detail": "no_self_intersection: 4 inter-face triangle penetrations, face pairs: (0,3), (3,5), (6,8), (8,10); mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0013",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0014",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0015",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "tessellation-degenerate",
-      "detail": "no_degenerate_triangles: 5 of 204 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (1,2), (1,10), (1,23), (1,23), ...",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0016",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "tessellation-degenerate",
-      "detail": "no_degenerate_triangles: 1 of 244 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,6), (6,46), (6,88), (12,96), (14,71), ...",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0017",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "tessellation-degenerate",
-      "detail": "no_degenerate_triangles: 3 of 260 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,4), (3,5), (3,17), (4,33), (9,71), ...",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0018",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "tessellation-degenerate",
-      "detail": "no_degenerate_triangles: 3 of 200 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,12), (0,13), (0,13), ...",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0019",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "tessellation-degenerate",
-      "detail": "no_degenerate_triangles: 6 of 222 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,5), (2,4), (4,14), (4,20), (6,12), ...",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0020",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "tessellation-degenerate",
-      "detail": "no_degenerate_triangles: 4 of 448 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (0,8), (1,2), (2,3), (2,3), ...",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0021",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "tessellation-degenerate",
-      "detail": "no_degenerate_triangles: 4 of 396 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (4,8), (6,119), (8,96), (9,24), (9,24), ...",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0022",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 7 unpaired edges out of 563 total; no_degenerate_triangles: 2 of 373 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,6), (0,6), (0,6), (0,7), (0,7), ...; mesh_euler_characteristic: V(190) - E(563) + F(373) = 0 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0023",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "tessellation-degenerate",
-      "detail": "no_degenerate_triangles: 2 of 358 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (0,3), (0,3), (0,4), (0,4), ...",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0024",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "tessellation-degenerate",
-      "detail": "no_degenerate_triangles: 7 of 332 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,12), (1,2), (2,6), (2,6), (3,6), ...",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0025",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0026",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0027",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0028",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0029",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0030",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0031",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0032",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0033",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0034",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0035",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0036",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0037",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0038",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0039",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0040",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0041",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0042",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0043",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(128) - E(360) + F(240) = 8 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0044",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0045",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 257 unpaired edges out of 52308 total (73 boundary, 184 non-manifold); mesh_euler_characteristic: V(17010) - E(52308) + F(35458) = 160 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0046",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 129 unpaired edges out of 47763 total (1 boundary, 128 non-manifold); consistent_normals: 473 of 32476 triangles have reversed normals; mesh_euler_characteristic: V(15446) - E(47763) + F(32476) = 159 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0047",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 130 unpaired edges out of 74754 total (1 boundary, 129 non-manifold); consistent_normals: 642 of 50684 triangles have reversed normals; mesh_euler_characteristic: V(24174) - E(74754) + F(50684) = 104 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0048",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 140 unpaired edges out of 124678 total (0 boundary, 140 non-manifold); mesh_euler_characteristic: V(40557) - E(124678) + F(84272) = 151 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0049",
-      "status": "fail"
+      "status": "error"
     },
     {
       "category": "cascading-failure",
@@ -905,112 +905,112 @@
       "status": "error"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0051",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "tessellation-degenerate",
-      "detail": "no_degenerate_triangles: 64 of 892 triangles are degenerate",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0052",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0053",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0054",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 12 unpaired edges out of 2130 total; mesh_euler_characteristic: V(712) - E(2130) + F(1416) = -2 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0055",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 94 unpaired edges out of 275 total; mesh_euler_characteristic: V(119) - E(275) + F(152) = -4 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0056",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 33 unpaired edges out of 330 total; consistent_normals: 4 of 209 triangles have reversed normals; mesh_euler_characteristic: V(118) - E(330) + F(209) = -3 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0057",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 73 unpaired edges out of 284 total; mesh_euler_characteristic: V(106) - E(284) + F(165) = -13 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0058",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 59 unpaired edges out of 316 total; consistent_normals: 2 of 191 triangles have reversed normals; mesh_euler_characteristic: V(122) - E(316) + F(191) = -3 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0059",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 9 unpaired edges out of 372 total; volume_magnitude: volume 1.152024e-18 outside [1.000000e-8, 1.000000e8] for scale 1.000000e0; mesh_euler_characteristic: V(126) - E(372) + F(245) = -1 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0060",
-      "status": "fail"
-    },
-    {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
-      "id": "F0061",
-      "status": "pass"
-    },
-    {
-      "category": "pass-genuine",
-      "detail": "8 oracles passed",
-      "id": "F0062",
-      "status": "pass"
-    },
-    {
-      "category": "boolean-normals",
-      "detail": "watertight_mesh: 624 unpaired edges out of 1452 total; outward_normals: only 716 of 760 triangles (94.2%) have outward normals (need 95%); mesh_euler_characteristic: V(700) - E(1452) + F(760) = 8 (expected 2)",
-      "id": "F0063",
-      "status": "fail"
-    },
-    {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 546 unpaired edges out of 3003 total; mesh_euler_characteristic: V(1190) - E(3003) + F(1820) = 7 (expected 2)",
-      "id": "F0064",
-      "status": "fail"
-    },
-    {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1664 unpaired edges out of 3592 total; mesh_euler_characteristic: V(1764) - E(3592) + F(1840) = 12 (expected 2)",
-      "id": "F0065",
-      "status": "fail"
+      "status": "error"
     },
     {
       "category": "revolve-normals",
-      "detail": "outward_normals: only 180 of 296 triangles (60.8%) have outward normals (need 95%); mesh_euler_characteristic: V(164) - E(444) + F(296) = 16 (expected 2)",
+      "detail": "no_degenerate_triangles: 2 of 2 triangles are degenerate; outward_normals: no valid triangles; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); minimum_triangle_count: 2 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"circle\")]; volume_magnitude: volume 0.000000e0 outside [1.000000e-8, 1.000000e8] for scale 1.000000e0; mesh_euler_characteristic: V(3) - E(3) + F(2) = 2 (expected 0)",
+      "id": "F0061",
+      "status": "fail"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "F0062",
+      "status": "error"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "F0063",
+      "status": "error"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "F0064",
+      "status": "error"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "F0065",
+      "status": "error"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0066",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1488 unpaired edges out of 3306 total; mesh_euler_characteristic: V(1608) - E(3306) + F(1708) = 10 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0067",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "boolean-normals",
-      "detail": "watertight_mesh: 1104 unpaired edges out of 3216 total; outward_normals: only 1567 of 1776 triangles (88.2%) have outward normals (need 95%); mesh_euler_characteristic: V(1454) - E(3216) + F(1776) = 14 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0068",
-      "status": "fail"
+      "status": "error"
     },
     {
       "category": "cascading-failure",
@@ -1025,10 +1025,10 @@
       "status": "error"
     },
     {
-      "category": "boolean-normals",
-      "detail": "watertight_mesh: 852 unpaired edges out of 2382 total; outward_normals: only 1152 of 1304 triangles (88.3%) have outward normals (need 95%); mesh_euler_characteristic: V(1108) - E(2382) + F(1304) = 30 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0071",
-      "status": "fail"
+      "status": "error"
     },
     {
       "category": "cascading-failure",
@@ -1037,28 +1037,28 @@
       "status": "error"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "expected rebuild error (disjoint operands): c66bcc4b-d182-4ba8-8f96-a2b4a3db0470: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 0.00e0 from axis (min 1.00e-7)",
+      "category": "multiple-failures",
+      "detail": "partial rebuild (1 error(s)): 6501b30c-18bd-4d77-b25c-db0d78301530: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 0.00e0 from axis (min 1.00e-7)",
       "id": "F0073",
-      "status": "pass"
+      "status": "fail"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "expected rebuild error (disjoint operands): ce9cc02d-b28c-4c4a-ad12-7ea6c2b2b95a: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 0.00e0 from axis (min 1.00e-7)",
+      "category": "multiple-failures",
+      "detail": "partial rebuild (1 error(s)): d924f183-475c-4a46-b678-147e171f3f68: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 0.00e0 from axis (min 1.00e-7)",
       "id": "F0074",
-      "status": "pass"
+      "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 4 unpaired edges out of 584 total; unit_normals: 32 of 19016 normals are not unit length; mesh_euler_characteristic: V(197) - E(584) + F(388) = 1 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0075",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 4 unpaired edges out of 841 total (2 boundary, 2 non-manifold); mesh_euler_characteristic: V(283) - E(841) + F(561) = 3 (expected 2)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0076",
-      "status": "fail"
+      "status": "error"
     },
     {
       "category": "cascading-failure",
@@ -1115,34 +1115,34 @@
       "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): fe61eb9d-9043-4347-8088-3d41dda0259b: operation error: kernel error: operation not supported: polygon boolean: 8658 total faces exceeds limit (8000); watertight_mesh: 165 unpaired edges out of 630 total (148 boundary, 17 non-manifold); mesh_euler_characteristic: V(294) - E(630) + F(382) = 46 (expected -4)",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0086",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 35 unpaired edges out of 3367 total; mesh_euler_characteristic: V(1147) - E(3367) + F(2233) = 13 (expected -8); bbox diagonal 5.610e0 exceeds max 4.961e0",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0087",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 146 unpaired edges out of 4291 total; mesh_euler_characteristic: V(1492) - E(4291) + F(2812) = 13 (expected -14); bbox diagonal 3.624e0 exceeds max 3.557e0",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0088",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 64 unpaired edges out of 6011 total; mesh_euler_characteristic: V(2047) - E(6011) + F(3986) = 22 (expected -18); bbox diagonal 4.825e0 exceeds max 4.407e0",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0089",
-      "status": "fail"
+      "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 321 unpaired edges out of 7467 total (315 boundary, 6 non-manifold); mesh_euler_characteristic: V(2618) - E(7467) + F(4877) = 28 (expected -28); bbox diagonal 5.535e0 exceeds max 4.900e0",
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "F0090",
-      "status": "fail"
+      "status": "error"
     }
   ],
   "total": 190

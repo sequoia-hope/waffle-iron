@@ -2,7 +2,8 @@ use std::path::Path;
 
 use test_harness::assay::randomized_runner::{
     build_catalog, catalog_summary, discover_cases, generate_catalog_markdown,
-    run_randomized_assay, run_single_case,
+    generate_comparison_markdown, run_randomized_assay, run_single_case, run_yang_comparison,
+    write_comparison_json, ComparisonChange,
 };
 use test_harness::assay::scoring::AssayStatus;
 
@@ -581,4 +582,94 @@ fn batch_revolve_self_intersection() {
         "Revolve self-intersection: {}/3 passed, {} failed, {} errored",
         passed, failed, errored
     );
+}
+
+// ── Yang Pipeline Comparison ──────────────────────────────────────────
+
+/// Phase 5b: Compare Yang pipeline vs. legacy pipeline on full assay corpus.
+///
+/// Runs every case twice — once with legacy boolean dispatch, once with
+/// `YANG_BOOLEAN=1`. Produces:
+/// - Console summary
+/// - `yang_comparison.json` in assay dir
+/// - `specs/yang_assay_5b_comparison.md` comparison report
+///
+/// Run with: cargo test -p test-harness --test assay_randomized -- yang_pipeline_comparison --ignored --nocapture
+#[test]
+#[ignore]
+fn yang_pipeline_comparison() {
+    let dir = Path::new(ASSAY_DIR);
+    if !dir.exists() {
+        eprintln!("Assay corpus not generated yet");
+        return;
+    }
+
+    let (legacy, yang, comparisons) = run_yang_comparison(dir);
+
+    // Write machine-readable comparison
+    write_comparison_json(dir, &legacy, &yang, &comparisons);
+
+    // Write human-readable markdown report
+    let markdown = generate_comparison_markdown(&legacy, &yang, &comparisons);
+    let spec_path = Path::new("../../specs/yang_assay_5b_comparison.md");
+    std::fs::write(spec_path, &markdown).expect("write comparison spec");
+
+    // Console summary
+    println!("\n{}", "=".repeat(70));
+    println!("YANG PIPELINE COMPARISON (Phase 5b)");
+    println!("{}", "=".repeat(70));
+    println!(
+        "\nLegacy: {}/{} passed ({} fail, {} error) in {:.1}s",
+        legacy.passed,
+        legacy.total,
+        legacy.failed,
+        legacy.errored,
+        legacy.total_duration.as_secs_f64()
+    );
+    println!(
+        "Yang:   {}/{} passed ({} fail, {} error) in {:.1}s",
+        yang.passed,
+        yang.total,
+        yang.failed,
+        yang.errored,
+        yang.total_duration.as_secs_f64()
+    );
+    println!(
+        "\nDelta: {:+} passed, {:+} failed, {:+} errored",
+        yang.passed as i64 - legacy.passed as i64,
+        yang.failed as i64 - legacy.failed as i64,
+        yang.errored as i64 - legacy.errored as i64,
+    );
+
+    let improved: Vec<_> = comparisons
+        .iter()
+        .filter(|c| c.change == ComparisonChange::Improved)
+        .collect();
+    let regressed: Vec<_> = comparisons
+        .iter()
+        .filter(|c| c.change == ComparisonChange::Regressed)
+        .collect();
+
+    println!(
+        "\nImproved: {}  Regressed: {}  Unchanged: {}",
+        improved.len(),
+        regressed.len(),
+        comparisons.len() - improved.len() - regressed.len()
+    );
+
+    if !improved.is_empty() {
+        println!("\nImproved cases:");
+        for c in &improved {
+            println!("  {} (was {:?})", c.id, c.legacy_status);
+        }
+    }
+
+    if !regressed.is_empty() {
+        println!("\nRegressed cases:");
+        for c in &regressed {
+            println!("  {} (now {:?}: {})", c.id, c.yang_status, c.yang_detail);
+        }
+    }
+
+    println!("\nWrote: yang_comparison.json + specs/yang_assay_5b_comparison.md");
 }
