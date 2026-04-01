@@ -462,7 +462,10 @@ fn clip_edge_on_plane(
             let t = (r[0] * d2[1] - r[1] * d2[0]) / det;
             let s = (r[0] * d1[1] - r[1] * d1[0]) / det;
 
-            if t > TAU_WORK && t < best_t && (-TAU_EXACT_MESH_CLASSIFY..=1.0 + TAU_EXACT_MESH_CLASSIFY).contains(&s) {
+            if t > TAU_WORK
+                && t < best_t
+                && (-TAU_EXACT_MESH_CLASSIFY..=1.0 + TAU_EXACT_MESH_CLASSIFY).contains(&s)
+            {
                 best_t = t;
             }
         }
