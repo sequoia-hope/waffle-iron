@@ -136,6 +136,11 @@ pub(crate) fn build_result_brep(
     let mut face_provenance: BTreeMap<FaceIdx, SourceFace> = BTreeMap::new();
 
     for (source_face, loops) in &trim_map.boundaries {
+        // Guard: skip faces with no trim loops (empty survival groups can
+        // produce entries with zero loops). Ref: specs/yang_error_fallback.md
+        if loops.is_empty() {
+            continue;
+        }
         let outer_loop = &loops[0];
         let n = outer_loop.edges.len();
         if n == 0 {
@@ -2283,6 +2288,87 @@ mod tests {
             survival_face_count,
             "Conservation: ResultTopology face count ({}) must equal \
              FaceSurvivalMap group count ({survival_face_count})",
+            result.arena.faces.len(),
+        );
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Bug-demonstrating tests (red phase) — empty-result handling
+    // ══════════════════════════════════════════════════════════════════
+
+    /// Bug: `build_result_brep` panics when a face maps to an empty Vec of
+    /// TrimLoops. Line 139 accesses `loops[0]` without bounds check.
+    /// The function should handle this gracefully (skip the face or return
+    /// an empty ResultTopology), not panic.
+    #[test]
+    fn test_build_result_brep_empty_loops() {
+        // Build a TrimBoundaryMap where one face has an empty Vec of TrimLoops.
+        let source_face = SourceFace {
+            mesh_id: MeshId::A,
+            face_idx: FaceIdx(0),
+        };
+        let mut boundaries = BTreeMap::new();
+        boundaries.insert(source_face, vec![]); // empty loops — triggers the bug
+
+        let trim_map = TrimBoundaryMap { boundaries };
+
+        // Build a minimal SubdividedMesh with at least one vertex so the
+        // function can index into it if needed.
+        let subdivided = SubdividedMesh {
+            verts: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            tris_a: vec![],
+            tris_b: vec![],
+        };
+
+        // This should NOT panic — it should return a valid (possibly empty)
+        // ResultTopology. Currently panics at `let outer_loop = &loops[0];`.
+        let result = build_result_brep(&trim_map, &subdivided);
+
+        // If we get here, the function handled the empty loops gracefully.
+        // The result should have zero faces (the face with empty loops was skipped).
+        assert_eq!(
+            result.arena.faces.len(),
+            0,
+            "A face with empty TrimLoops should be skipped, not produce a face"
+        );
+    }
+
+    /// Verify that `yang_boolean_pipeline` does not panic when
+    /// face_survival_detect produces zero groups (non-overlapping boxes with
+    /// Intersect). The empty survival map flows through extract_trim_boundaries
+    /// (producing empty boundaries) and then build_result_brep (which handles
+    /// empty boundaries correctly). The result should have zero faces.
+    #[test]
+    fn test_yang_pipeline_empty_survival() {
+        // Two non-overlapping boxes: A at [0,0,0]-[1,1,1], B at [5,5,5]-[6,6,6].
+        // Their intersection is empty.
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        let (verts_b, tris_b) = make_box_mesh([5.0, 5.0, 5.0], [6.0, 6.0, 6.0]);
+
+        let bijective_a = BijectiveMap {
+            tri_face_ids: (0..tris_a.len()).map(|i| FaceIdx(i / 2)).collect(),
+        };
+        let bijective_b = BijectiveMap {
+            tri_face_ids: (0..tris_b.len()).map(|i| FaceIdx(i / 2)).collect(),
+        };
+
+        // Intersect of non-overlapping boxes → empty result.
+        // This should NOT panic anywhere in the pipeline.
+        let result = yang_boolean_pipeline(
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            &bijective_a,
+            &bijective_b,
+            MeshBooleanOp::Intersect,
+        );
+
+        // The result should have zero faces (no overlap → no surviving faces).
+        assert_eq!(
+            result.arena.faces.len(),
+            0,
+            "Intersect of non-overlapping boxes must produce zero faces, got {}",
             result.arena.faces.len(),
         );
     }

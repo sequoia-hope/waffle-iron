@@ -334,6 +334,17 @@ pub(crate) fn yang_boolean_from_solids(
         },
     };
 
+    // Guard: if the Yang pipeline produced zero faces, return NotSupported so
+    // the legacy pipeline can handle this case. An empty topology means the
+    // boolean operation produced no surviving geometry (e.g., non-overlapping
+    // operands for Intersect). Ref: specs/yang_error_fallback.md
+    if result_topo.face_provenance.is_empty() {
+        return Err(KernelError::NotSupported {
+            operation: "yang_boolean: pipeline produced empty topology (zero surviving faces)"
+                .to_string(),
+        });
+    }
+
     // Step 7: Convert ResultTopology → WaffleSolid → BooleanResult.
     let waffle = result_topology_to_waffle_solid(result_topo, &refinement, &surface_map, id_alloc);
     Ok(waffle_solid_to_boolean_result(waffle))
@@ -577,5 +588,197 @@ mod tests {
             result.is_err(),
             "Yang pipeline should be disabled by default"
         );
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Bug-demonstrating tests (red phase) — empty result handling
+    // ══════════════════════════════════════════════════════════════════
+
+    /// Build a tetrahedron WaffleSolid at the given offset using Euler operators.
+    /// The tetrahedron has 4 vertices, 6 edges, 4 triangular faces, all tagged
+    /// as Planar in face_geometry so the Yang pipeline can process it.
+    fn make_tetra_solid(offset: [f64; 3]) -> WaffleSolid {
+        use crate::geometry::point::Point3;
+        use crate::geometry::surface::Plane;
+        use crate::topology::arena::TopoArena;
+        use crate::topology::euler_ops::{mef, mev, mvfs};
+        use crate::topology::half_edge::{FaceIdx, LoopIdx};
+
+        let [ox, oy, oz] = offset;
+        let mut arena = TopoArena::new();
+
+        // 4 vertices of a tetrahedron
+        let p0 = [ox, oy, oz];
+        let p1 = [ox + 1.0, oy, oz];
+        let p2 = [ox + 0.5, oy + 1.0, oz];
+        let p3 = [ox + 0.5, oy + 0.5, oz + 1.0];
+
+        // mvfs: create first vertex and face
+        let (_solid, _shell, face0, v0) = mvfs(&mut arena, p0);
+        let loop0 = arena.faces[face0.0].outer_loop;
+
+        // mev: add vertices to build a wire in loop0
+        let (_e01, v1) = mev(&mut arena, v0, loop0, p1);
+        let (_e12, v2) = mev(&mut arena, v1, loop0, p2);
+
+        // Close the base triangle: v2 → v0 via mef
+        let (_e20, face1) = mef(&mut arena, v2, v0, loop0);
+        // face0's loop0 = triangle (v0, v1, v2) — one orientation
+        // face1's loop1 = same three vertices — opposite orientation
+
+        // Fix vertex half-edge pointers for both loops (same pattern as sphere builder)
+        fn fix_loop_vertex_ptrs(arena: &mut TopoArena, loop_idx: LoopIdx) {
+            let start_he = arena.loops[loop_idx.0].half_edge;
+            let mut he = start_he;
+            loop {
+                let v = arena.half_edges[he.0].origin;
+                arena.vertices[v.0].half_edge = Some(he);
+                he = arena.half_edges[he.0].next;
+                if he == start_he {
+                    break;
+                }
+            }
+        }
+
+        let loop1 = arena.faces[face1.0].outer_loop;
+        fix_loop_vertex_ptrs(&mut arena, loop0);
+        fix_loop_vertex_ptrs(&mut arena, loop1);
+
+        // Add v3 as a spur from v0 into face1
+        let (_e03, v3) = mev(&mut arena, v0, loop1, p3);
+
+        // Fix vertex half-edge pointers for loop1 again
+        fix_loop_vertex_ptrs(&mut arena, loop1);
+
+        // Triangulate face1: mef(v3, v1, loop1) splits face1
+        let (_e31, face2) = mef(&mut arena, v3, v1, loop1);
+        let loop2 = arena.faces[face2.0].outer_loop;
+        fix_loop_vertex_ptrs(&mut arena, loop1);
+        fix_loop_vertex_ptrs(&mut arena, loop2);
+
+        // mef(v3, v2, ...) splits remaining quad into two triangles
+        // v3 is in loop2 (face2), and v2 is also in loop2
+        let (_e32, _face3) = mef(&mut arena, v3, v2, loop2);
+        let loop3 = arena.faces[_face3.0].outer_loop;
+        fix_loop_vertex_ptrs(&mut arena, loop2);
+        fix_loop_vertex_ptrs(&mut arena, loop3);
+
+        // Tetrahedron topology: V=4, E=6, F=4. Euler: 4-6+4=2. ✓
+
+        // Build face_map and face_geometry: all faces are planar
+        let mut face_map = BTreeMap::new();
+        let mut face_geometry = BTreeMap::new();
+        let mut next_kid = 100u64;
+
+        for idx in 0..arena.faces.len() {
+            let fi = FaceIdx(idx);
+            face_map.insert(next_kid, fi);
+            next_kid += 1;
+
+            // Use a dummy planar geometry — the exact normal doesn't matter
+            // for this test; we just need face_geometry to be non-empty.
+            face_geometry.insert(
+                fi,
+                SurfaceGeom::Planar(Plane {
+                    origin: Point3::new(ox + 0.5, oy + 0.5, oz + 0.5),
+                    normal: Vector3::new(0.0, 0.0, 1.0),
+                }),
+            );
+        }
+
+        // Build edge_map
+        let mut edge_map = BTreeMap::new();
+        for idx in 0..arena.edges.len() {
+            edge_map.insert(next_kid, EdgeIdx(idx));
+            next_kid += 1;
+        }
+
+        // Build vertex_map
+        let mut vertex_map = BTreeMap::new();
+        for idx in 0..arena.vertices.len() {
+            use crate::topology::half_edge::VertexIdx;
+            vertex_map.insert(next_kid, VertexIdx(idx));
+            next_kid += 1;
+        }
+
+        WaffleSolid {
+            arena,
+            face_map,
+            edge_map,
+            vertex_map,
+            face_geometry,
+            edge_geometry: BTreeMap::new(),
+            cylinder_params: None,
+            revolve_params: None,
+            sphere_params: None,
+            cone_params: None,
+            torus_params: None,
+            cached_face_polys: None,
+            is_polygon_soup: false,
+        }
+    }
+
+    /// Bug: when `yang_boolean_from_solids` produces an empty boolean result
+    /// (e.g., Intersect of non-overlapping solids), it should return
+    /// `Err(KernelError::NotSupported { .. })` to trigger the legacy fallback
+    /// in `do_boolean()`. Currently it returns `Ok` with an empty solid (zero
+    /// faces), which `do_boolean` accepts as a valid result and stores.
+    ///
+    /// This test sets YANG_BOOLEAN=1, creates two non-overlapping tetrahedra,
+    /// and verifies that the intersection returns NotSupported.
+    #[test]
+    fn test_yang_empty_result_returns_not_supported() {
+        // Enable the Yang pipeline for this test.
+        std::env::set_var("YANG_BOOLEAN", "1");
+
+        // Build two non-overlapping tetrahedra: one at origin, one far away.
+        let solid_a = make_tetra_solid([0.0, 0.0, 0.0]);
+        let solid_b = make_tetra_solid([100.0, 100.0, 100.0]);
+
+        // Verify preconditions: both have face_geometry.
+        assert!(
+            !solid_a.face_geometry.is_empty(),
+            "Precondition: solid_a must have face_geometry"
+        );
+        assert!(
+            !solid_b.face_geometry.is_empty(),
+            "Precondition: solid_b must have face_geometry"
+        );
+
+        let mut next_id = 1000u64;
+        let mut id_alloc = || {
+            let id = next_id;
+            next_id += 1;
+            id
+        };
+
+        let result = yang_boolean_from_solids(&solid_a, &solid_b, BoolOp::Intersect, &mut id_alloc);
+
+        // Clean up env var.
+        std::env::remove_var("YANG_BOOLEAN");
+
+        // The result should be Err(NotSupported) for an empty intersection,
+        // so that do_boolean can fall through to the legacy pipeline.
+        match &result {
+            Err(KernelError::NotSupported { .. }) => {
+                // Correct behavior — empty result triggers fallback.
+            }
+            Ok(boolean_result) => {
+                panic!(
+                    "Expected Err(NotSupported) for empty intersection, \
+                     but got Ok with {} faces. The pipeline should detect the \
+                     empty result and return NotSupported to trigger legacy fallback.",
+                    boolean_result.arena.faces.len(),
+                );
+            }
+            Err(other) => {
+                panic!(
+                    "Expected Err(NotSupported) for empty intersection, \
+                     but got Err({:?}). Any non-NotSupported error also prevents \
+                     the legacy fallback from running.",
+                    other,
+                );
+            }
+        }
     }
 }

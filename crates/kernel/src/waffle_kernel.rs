@@ -1013,10 +1013,12 @@ impl WaffleKernel {
                 );
                 return Ok(KernelSolidHandle(handle_id));
             }
-            Err(KernelError::NotSupported { .. }) => {
-                // Fall through to existing dispatch below
+            Err(_) => {
+                // Yang pipeline is env-var gated (Phase 5a). Any error —
+                // NotSupported, panics caught by catch_unwind, empty results —
+                // falls through to legacy dispatch. This ensures YANG_BOOLEAN=1
+                // cannot cause regressions. Ref: specs/yang_error_fallback.md
             }
-            Err(e) => return Err(e),
         }
 
         // Dispatch: classify operands by surface types (A15 compliance).
