@@ -245,6 +245,12 @@ pub const SSI_CONE_VALIDATE_TOL: f64 = 1e-5;
 /// coordinates where accumulated error exceeds working precision.
 pub const TAU_EXACT_MESH_CLASSIFY: f64 = 1e-10;
 
+/// Parametric boundary epsilon for edge-point interior detection: 1e-16.
+/// Used in `split_at_edge_point` to exclude actual endpoints (t == 0 or t == 1)
+/// while including vertices nudged by TAU_EXACT_MESH_VERTEX_NUDGE (~1e-14).
+/// Tighter than the nudge but wider than float roundoff (~2.2e-16).
+pub const TAU_EXACT_MESH_BOUNDARY_EPS: f64 = 1e-16;
+
 /// Vertex nudge distance for degenerate constrained subdivision: 1e-14.
 /// When a constraint endpoint coincides with a triangle vertex, the point is
 /// nudged slightly along the edge interior to produce non-degenerate

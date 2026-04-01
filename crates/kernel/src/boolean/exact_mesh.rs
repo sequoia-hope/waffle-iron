@@ -24,7 +24,9 @@
 
 use geometry_predicates::{orient2d, orient3d};
 
-use crate::units::{TAU_EXACT_MESH_CLASSIFY, TAU_NORMALIZE_SQ};
+use crate::units::{
+    TAU_EXACT_MESH_BOUNDARY_EPS, TAU_EXACT_MESH_CLASSIFY, TAU_NORMALIZE_SQ, TAU_WORK,
+};
 
 /// Which mesh a triangle belongs to in a boolean operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -453,19 +455,19 @@ fn clip_edge_on_plane(
             let d1 = [seg_b[0] - seg_a[0], seg_b[1] - seg_a[1]];
             let d2 = [eb[0] - ea[0], eb[1] - ea[1]];
             let det = d1[0] * d2[1] - d1[1] * d2[0];
-            if det.abs() < 1e-30 {
+            if det.abs() < TAU_NORMALIZE_SQ {
                 continue;
             } // parallel
             let r = [ea[0] - seg_a[0], ea[1] - seg_a[1]];
             let t = (r[0] * d2[1] - r[1] * d2[0]) / det;
             let s = (r[0] * d1[1] - r[1] * d1[0]) / det;
 
-            if t > 1e-12 && t < best_t && (-1e-10..=1.0 + 1e-10).contains(&s) {
+            if t > TAU_WORK && t < best_t && (-TAU_EXACT_MESH_CLASSIFY..=1.0 + TAU_EXACT_MESH_CLASSIFY).contains(&s) {
                 best_t = t;
             }
         }
 
-        if best_t < 1.0 - 1e-12 {
+        if best_t < 1.0 - TAU_WORK {
             // The edge exits the triangle at parameter t along inside→outside.
             // The exit point is a new intersection point (not a vertex).
             // For now, represent it as a materialized point. We create a
@@ -1364,7 +1366,7 @@ pub(crate) fn subdivide_mesh_pair(
         let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
         let ap = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
         let ab_len_sq = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
-        if ab_len_sq < 1e-30 {
+        if ab_len_sq < TAU_NORMALIZE_SQ {
             return None;
         }
         let cross = [
@@ -1381,7 +1383,7 @@ pub(crate) fn subdivide_mesh_pair(
         // Boundary tolerance: exclude actual endpoints (t == 0 or t == 1)
         // while including nudged points (t ≈ 1e-14, from vertex_nudge).
         // Use 1e-16 — tighter than the nudge but wider than float roundoff.
-        let boundary_eps = 1e-16;
+        let boundary_eps = TAU_EXACT_MESH_BOUNDARY_EPS;
         if t > boundary_eps && t < 1.0 - boundary_eps {
             Some(t)
         } else {
