@@ -1737,7 +1737,10 @@ mod tests {
         let result = kernel.fillet_edges(&handle, &[], -0.1);
         match &result {
             Err(KernelError::FilletFailed { reason }) => {
-                assert!(reason.contains("radius"), "expected radius diagnostic, got: {reason}");
+                assert!(
+                    reason.contains("radius"),
+                    "expected radius diagnostic, got: {reason}"
+                );
             }
             other => panic!("expected FilletFailed, got: {other:?}"),
         }
@@ -1752,7 +1755,10 @@ mod tests {
         let result = kernel.fillet_edges(&handle, &[KernelId(99999)], 0.1);
         match &result {
             Err(KernelError::FilletFailed { reason }) => {
-                assert!(reason.contains("not found"), "expected edge-not-found diagnostic, got: {reason}");
+                assert!(
+                    reason.contains("not found"),
+                    "expected edge-not-found diagnostic, got: {reason}"
+                );
             }
             other => panic!("expected FilletFailed, got: {other:?}"),
         }
@@ -1788,7 +1794,10 @@ mod tests {
         let result = kernel.chamfer_edges(&handle, &[], -0.1);
         match &result {
             Err(KernelError::Other { message }) => {
-                assert!(message.contains("distance"), "expected distance diagnostic, got: {message}");
+                assert!(
+                    message.contains("distance"),
+                    "expected distance diagnostic, got: {message}"
+                );
             }
             other => panic!("expected Other(chamfer distance), got: {other:?}"),
         }
@@ -1819,7 +1828,10 @@ mod tests {
         let result = kernel.shell(&handle, &[], -0.1);
         match &result {
             Err(KernelError::ShellFailed { reason }) => {
-                assert!(reason.contains("thickness"), "expected thickness diagnostic, got: {reason}");
+                assert!(
+                    reason.contains("thickness"),
+                    "expected thickness diagnostic, got: {reason}"
+                );
             }
             other => panic!("expected ShellFailed, got: {other:?}"),
         }
@@ -1834,7 +1846,10 @@ mod tests {
         let result = kernel.shell(&handle, &[KernelId(99999)], 0.1);
         match &result {
             Err(KernelError::ShellFailed { reason }) => {
-                assert!(reason.contains("not found"), "expected face-not-found diagnostic, got: {reason}");
+                assert!(
+                    reason.contains("not found"),
+                    "expected face-not-found diagnostic, got: {reason}"
+                );
             }
             other => panic!("expected ShellFailed, got: {other:?}"),
         }
