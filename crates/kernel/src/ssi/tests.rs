@@ -943,9 +943,8 @@ fn cc3_unequal_radii() {
     let origin_b = [0.0, 0.0, 0.0];
     let axis_b = [1.0, 0.0, 0.0];
     let r_b = 2.0;
-    let curves =
-        cylinder_cylinder_ssi_non_parallel(origin_a, axis_a, r_a, origin_b, axis_b, r_b)
-            .expect("unequal-R SSI should now succeed");
+    let curves = cylinder_cylinder_ssi_non_parallel(origin_a, axis_a, r_a, origin_b, axis_b, r_b)
+        .expect("unequal-R SSI should now succeed");
     assert_eq!(curves.len(), 2, "should return 2 degree-4 curves");
     for curve in &curves {
         if let SSICurve::Degree4CylCyl {
@@ -997,16 +996,12 @@ fn cc3_unequal_radii() {
                 if disc < 0.0 {
                     continue;
                 }
-                let z_local =
-                    (stored_r_a * t.sin() * cos_alpha + sign * disc.sqrt()) / sin_alpha;
+                let z_local = (stored_r_a * t.sin() * cos_alpha + sign * disc.sqrt()) / sin_alpha;
                 // Transform to world: P = center + frame[0]*x + frame[1]*y + frame[2]*z
                 let world = v3_add(
                     *center,
                     v3_add(
-                        v3_add(
-                            v3_scale(frame[0], x_local),
-                            v3_scale(frame[1], y_local),
-                        ),
+                        v3_add(v3_scale(frame[0], x_local), v3_scale(frame[1], y_local)),
                         v3_scale(frame[2], z_local),
                     ),
                 );
