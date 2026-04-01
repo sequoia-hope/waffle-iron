@@ -982,6 +982,43 @@ impl WaffleKernel {
             id
         };
 
+        // Yang hybrid pipeline (A15.6): try first when both solids have face geometry.
+        // Returns NotSupported to fall through when the pipeline isn't ready yet.
+        match crate::boolean::yang_integration::yang_boolean_from_solids(
+            solid_a,
+            solid_b,
+            op,
+            &mut id_alloc,
+        ) {
+            Ok(result) => {
+                self.next_id = next_id;
+                let handle_id = self.alloc_handle();
+                self.solids.insert(
+                    handle_id,
+                    WaffleSolid {
+                        arena: result.arena,
+                        face_map: result.face_map,
+                        edge_map: result.edge_map,
+                        vertex_map: result.vertex_map,
+                        face_geometry: result.face_geometry,
+                        edge_geometry: result.edge_geometry,
+                        cylinder_params: None,
+                        revolve_params: None,
+                        sphere_params: None,
+                        cone_params: None,
+                        torus_params: None,
+                        cached_face_polys: result.cached_face_polys,
+                        is_polygon_soup: false,
+                    },
+                );
+                return Ok(KernelSolidHandle(handle_id));
+            }
+            Err(KernelError::NotSupported { .. }) => {
+                // Fall through to existing dispatch below
+            }
+            Err(e) => return Err(e),
+        }
+
         // Dispatch: classify operands by surface types (A15 compliance).
         //
         // ssi_boolean_op handles primitive pairs: box+cylinder, cyl+cyl,

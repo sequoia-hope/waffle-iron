@@ -21,6 +21,7 @@ pub(crate) mod exact_mesh;
 pub(crate) mod ssi_refinement;
 pub(crate) mod stitch;
 pub(crate) mod topology_extract;
+pub(crate) mod yang_integration;
 
 #[cfg(test)]
 pub(crate) use analytical::build_cyl_result;
