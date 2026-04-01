@@ -18,6 +18,7 @@ use crate::boolean::exact_mesh::{
 use crate::tessellation::bijective::BijectiveMap;
 use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::{EdgeIdx, FaceIdx};
+use crate::types::KernelError;
 
 /// Key identifying a source B-Rep face in the boolean result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -459,7 +460,7 @@ pub(crate) fn yang_boolean_pipeline(
     bijective_a: &BijectiveMap,
     bijective_b: &BijectiveMap,
     op: MeshBooleanOp,
-) -> ResultTopology {
+) -> Result<ResultTopology, KernelError> {
     // Stage 1: Subdivide both meshes along their mutual intersections.
     let subdivided = subdivide_mesh_pair(verts_a, tris_a, verts_b, tris_b);
 
@@ -473,7 +474,7 @@ pub(crate) fn yang_boolean_pipeline(
     let trim_map = extract_trim_boundaries(&subdivided, &survival);
 
     // Stage 3c: Build half-edge B-Rep from trim boundaries.
-    build_result_brep(&trim_map, &subdivided)
+    Ok(build_result_brep(&trim_map, &subdivided))
 }
 
 #[cfg(test)]
@@ -2054,6 +2055,7 @@ mod tests {
             &bijective_b,
             op,
         )
+        .unwrap()
     }
 
     // ── 3d-Test 1: Subtract produces non-empty topology ──
@@ -2215,7 +2217,8 @@ mod tests {
             &bij_empty,
             &bij_empty,
             MeshBooleanOp::Subtract,
-        );
+        )
+        .unwrap();
 
         assert_eq!(
             result.arena.vertices.len(),
@@ -2276,7 +2279,8 @@ mod tests {
             &bijective_a,
             &bijective_b,
             MeshBooleanOp::Subtract,
-        );
+        )
+        .unwrap();
 
         assert!(
             survival_face_count > 0,
@@ -2362,7 +2366,8 @@ mod tests {
             &bijective_a,
             &bijective_b,
             MeshBooleanOp::Intersect,
-        );
+        )
+        .unwrap();
 
         // The result should have zero faces (no overlap → no surviving faces).
         assert_eq!(
@@ -2371,5 +2376,68 @@ mod tests {
             "Intersect of non-overlapping boxes must produce zero faces, got {}",
             result.arena.faces.len(),
         );
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Bug 2: yang_boolean_pipeline should return Result (red phase)
+    // ══════════════════════════════════════════════════════════════════
+
+    /// Bug: `yang_boolean_pipeline` returns `ResultTopology` directly, meaning
+    /// internal failures (e.g., degenerate meshes, invalid winding numbers)
+    /// cause panics that propagate to the caller. It should instead return
+    /// `Result<ResultTopology, KernelError>` so that callers can handle errors
+    /// gracefully.
+    ///
+    /// This test verifies the function's return type by checking that it
+    /// implements `Into<Result<ResultTopology, KernelError>>`. Currently
+    /// `yang_boolean_pipeline` returns bare `ResultTopology`, so the
+    /// `returns_result` check below will FAIL at runtime.
+    ///
+    /// The implementer must change the signature of `yang_boolean_pipeline` from
+    /// `-> ResultTopology` to `-> Result<ResultTopology, KernelError>` and wrap
+    /// the return value in `Ok(...)`, propagating internal errors with `?`.
+    #[test]
+    fn yang_boolean_pipeline_returns_result_type() {
+        use crate::topology::half_edge::FaceIdx;
+
+        // Two non-overlapping boxes.
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        let (verts_b, tris_b) = make_box_mesh([10.0, 10.0, 10.0], [11.0, 11.0, 11.0]);
+
+        // Build bijective maps: 12 triangles, 2 per face (6 faces per box).
+        let bijective_a = BijectiveMap {
+            tri_face_ids: (0..tris_a.len()).map(|i| FaceIdx(i / 2)).collect(),
+        };
+        let bijective_b = BijectiveMap {
+            tri_face_ids: (0..tris_b.len()).map(|i| FaceIdx(i / 2)).collect(),
+        };
+
+        let raw = yang_boolean_pipeline(
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            &bijective_a,
+            &bijective_b,
+            MeshBooleanOp::Intersect,
+        );
+
+        // Use std::any to check the return type at runtime.
+        // If the function returns Result<ResultTopology, KernelError>, this passes.
+        // If it returns bare ResultTopology, this fails.
+        let returns_result = is_result_type(&raw);
+        assert!(
+            returns_result,
+            "yang_boolean_pipeline must return Result<ResultTopology, KernelError>, \
+             not bare ResultTopology. The current signature causes panics to propagate \
+             instead of being converted to Err values."
+        );
+    }
+
+    /// Helper: check whether a value is a Result type using std::any::TypeId.
+    fn is_result_type<T: 'static>(_val: &T) -> bool {
+        use std::any::TypeId;
+        // Check if T is Result<ResultTopology, KernelError>
+        TypeId::of::<T>() == TypeId::of::<Result<ResultTopology, crate::types::KernelError>>()
     }
 }

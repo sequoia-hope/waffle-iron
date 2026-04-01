@@ -8613,7 +8613,11 @@ fn cyl_cone_ssi_adv2_near_zero_half_angle() {
     )
     .unwrap();
     // Near-degenerate 1° cone: at most 2 intersection curves (or empty).
-    assert!(curves.len() <= 2, "Expected ≤2 curves for 1° cone, got {}", curves.len());
+    assert!(
+        curves.len() <= 2,
+        "Expected ≤2 curves for 1° cone, got {}",
+        curves.len()
+    );
     adv2_sample_and_validate(
         &curves,
         [0.0, 0.0, 0.0],
@@ -8647,7 +8651,11 @@ fn cyl_cone_ssi_adv2_near_90_half_angle() {
     )
     .unwrap();
     // 89° cone nearly flat: plausible intersection or empty/coaxial.
-    assert!(curves.len() <= 2, "Expected ≤2 curves for 89° cone, got {}", curves.len());
+    assert!(
+        curves.len() <= 2,
+        "Expected ≤2 curves for 89° cone, got {}",
+        curves.len()
+    );
     adv2_sample_and_validate(
         &curves,
         [0.0, 0.0, 0.0],
@@ -8678,7 +8686,11 @@ fn cyl_cone_ssi_adv2_tiny_cylinder_radius() {
     )
     .unwrap();
     // Tiny cylinder near cone apex: at most 2 curves (or empty).
-    assert!(curves.len() <= 2, "Expected ≤2 curves for tiny-R cyl-cone, got {}", curves.len());
+    assert!(
+        curves.len() <= 2,
+        "Expected ≤2 curves for tiny-R cyl-cone, got {}",
+        curves.len()
+    );
     adv2_sample_and_validate(
         &curves,
         [0.0, 0.0, 0.0],
@@ -8710,7 +8722,11 @@ fn cyl_cone_ssi_adv2_axes_nearly_parallel() {
     )
     .unwrap();
     // Nearly parallel axes: intersection plausible, bounded curve count.
-    assert!(curves.len() <= 2, "Expected ≤2 curves for near-parallel axes, got {}", curves.len());
+    assert!(
+        curves.len() <= 2,
+        "Expected ≤2 curves for near-parallel axes, got {}",
+        curves.len()
+    );
     adv2_sample_and_validate(
         &curves,
         [0.0, 0.0, 0.0],
@@ -8754,7 +8770,11 @@ fn cyl_cone_ssi_adv2_apex_on_cylinder_surface() {
     )
     .unwrap();
     // Degenerate: apex on cylinder surface. Bounded curve count.
-    assert!(curves.len() <= 2, "Expected ≤2 curves for apex-on-surface, got {}", curves.len());
+    assert!(
+        curves.len() <= 2,
+        "Expected ≤2 curves for apex-on-surface, got {}",
+        curves.len()
+    );
     adv2_sample_and_validate(
         &curves,
         [0.0, 0.0, 0.0],

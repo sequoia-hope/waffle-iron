@@ -1,6 +1,6 @@
 {
-  "errored": 169,
-  "failed": 21,
+  "errored": 158,
+  "failed": 32,
   "generated": "2026-04-01",
   "passed": 0,
   "results": [
@@ -29,40 +29,40 @@
       "status": "error"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 1178 unpaired edges out of 57034 total; unit_normals: 2352 of 77616 normals are not unit length; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (3,4), (3,4), (4,36), (8,9), (8,40), ...; mesh_euler_characteristic: V(19404) - E(57034) + F(37630) = 0 (expected 2)",
       "id": "R0005",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "multiple-failures",
+      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (6,8), (6,8), (6,8), (6,8), ...; mesh_euler_characteristic: V(71) - E(195) + F(130) = 6 (expected 2)",
       "id": "R0006",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"gear\")]",
       "id": "R0007",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 44 unpaired edges out of 5839 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,19), (0,32), (0,32), (0,32), (0,32), ...; mesh_euler_characteristic: V(1939) - E(5839) + F(3878) = -22 (expected 2)",
       "id": "R0008",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "multiple-failures",
+      "detail": "mesh_euler_characteristic: V(32) - E(84) + F(56) = 4 (expected 2)",
       "id": "R0009",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 664 unpaired edges out of 32747 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,10754), (0,10754), (0,10754), (0,10754), (0,10754), ...; mesh_euler_characteristic: V(11141) - E(32747) + F(21610) = 4 (expected 2)",
       "id": "R0010",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "boolean-watertight",
@@ -77,8 +77,8 @@
       "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1 unpaired edges out of 29 total (0 boundary, 1 non-manifold); consistent_normals: 9 of 20 triangles have reversed normals; no_degenerate_triangles: 2 of 20 triangles are degenerate; outward_normals: only 9 of 18 triangles (50.0%) have outward normals (need 95%); positive_signed_volume: signed volume = -7.342275e-14 (should be > 0); minimum_triangle_count: 20 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\")]; volume_magnitude: volume 7.342275e-14 outside [3.814675e-3, 3.814675e13] for scale 7.252468e1; mesh_euler_characteristic: V(20) - E(29) + F(20) = 11 (expected 2)",
+      "category": "multiple-failures",
+      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,3), (0,4), ...",
       "id": "R0013",
       "status": "fail"
     },
@@ -113,10 +113,10 @@
       "status": "error"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "multiple-failures",
+      "detail": "partial rebuild (1 error(s)): 238dbbbb-0077-402a-8d68-7e87b8ad5604: operation error: kernel error: operation not supported: polygon boolean: 20644 total faces exceeds limit (8000); no_self_intersection: 9 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
       "id": "R0019",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "cascading-failure",
@@ -137,10 +137,10 @@
       "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "multiple-failures",
+      "detail": "no_self_intersection: 8 inter-face triangle penetrations, face pairs: (4,13), (6,13), (7,9), (7,9), (7,9), ...",
       "id": "R0023",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "boolean-watertight",
@@ -173,10 +173,10 @@
       "status": "error"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "multiple-failures",
+      "detail": "no_self_intersection: 3 inter-face triangle penetrations, face pairs: (1,2), (2,4), (3,4)",
       "id": "R0029",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "cascading-failure",
@@ -191,10 +191,10 @@
       "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "multiple-failures",
+      "detail": "partial rebuild (1 error(s)): 79f4ba08-037f-4c8d-9839-90dabad93713: operation error: kernel error: operation not supported: polygon boolean: 20868 total faces exceeds limit (8000); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,32), (0,1072), (0,1072), (0,1072), (0,1073), ...; mesh_euler_characteristic: V(2176) - E(6510) + F(4340) = 6 (expected 2)",
       "id": "R0032",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "cascading-failure",
@@ -227,10 +227,10 @@
       "status": "error"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "revolve-normals",
+      "detail": "partial rebuild (1 error(s)): 7145a15a-6e5b-444f-b984-d2ce5af43efd: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 8.01e-16 from axis (min 1.00e-7); consistent_normals: 0 of 0 triangles have reversed normals; unit_normals: 8 of 71440 normals are not unit length; face_range_coverage: no face ranges defined; outward_normals: no valid triangles; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"revolve\", \"rectangle\"), (\"revolve\", \"circle\")]; volume_magnitude: volume 0.000000e0 outside [2.447684e-5, 2.447684e11] for scale 1.347675e1",
       "id": "R0038",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "boolean-normals",
