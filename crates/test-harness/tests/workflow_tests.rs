@@ -30,7 +30,11 @@ fn full_chain_sketch_extrude_tessellate() {
         .unwrap();
     m.extrude("box", "sk", 10.0).unwrap();
     let mesh = m.tessellate("box").unwrap();
-    assert_eq!(mesh.indices.len(), 36, "Box should have 12 triangles (36 indices)");
+    assert_eq!(
+        mesh.indices.len(),
+        36,
+        "Box should have 12 triangles (36 indices)"
+    );
     // Box has 8 unique corners; MockKernel may use per-face vertices (up to 24)
     assert!(
         mesh.vertices.len() >= 8 * 3,

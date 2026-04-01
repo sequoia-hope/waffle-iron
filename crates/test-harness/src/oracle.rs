@@ -1318,7 +1318,9 @@ fn compute_interval(proj: &[f64; 3], dists: &[f64; 3]) -> Option<(f64, f64)> {
     }
     // Also check if vertex 2 is on the plane (handled in edge (2,0) start but
     // not if vertex 0 was also zero)
-    if ts.len() < 2 && dists[2].abs() < TAU_NORMALIZE_SQ && (ts.is_empty() || (ts[0] - proj[2]).abs() > TAU_NORMALIZE_SQ)
+    if ts.len() < 2
+        && dists[2].abs() < TAU_NORMALIZE_SQ
+        && (ts.is_empty() || (ts[0] - proj[2]).abs() > TAU_NORMALIZE_SQ)
     {
         ts.push(proj[2]);
     }
