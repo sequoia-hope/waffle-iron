@@ -40,7 +40,7 @@
 - [x] Main thread message handler (bridge.js Promise-based API + event handlers)
 - [x] Covered by M3 worker/bridge implementation
 
-### M6: Mesh Transfer ✅
+### M6: Mesh Transfer (partial) ✅
 - [x] Expose RenderMesh vertex/normal/index data as TypedArray views (get_mesh_vertices, get_mesh_normals, get_mesh_indices)
 - [x] Transfer via postMessage with Transferable objects (worker.js collectMeshes())
 - [x] Copy-from-WASM-view pattern (views invalidated by memory growth, copy to standalone ArrayBuffers)
@@ -87,4 +87,6 @@
 - The two-WASM-module approach (Rust + libslvs) is a short-term solution. Long-term: port solver to pure Rust.
 - sketch-solver is feature-gated (`native-solver`) because libslvs C++ code can't compile to wasm32-unknown-unknown without Emscripten.
 - Removed unused sketch-solver dependency from feature-engine crate.
-- WASM build command: `wasm-pack build crates/wasm-bridge --target web --no-typescript -- --no-default-features`
+- WASM build command: two-step process (wasm-pack can't do -Zbuild-std):
+  1. `cargo +nightly build -p wasm-bridge --target wasm32-unknown-unknown --release --no-default-features -Zbuild-std`
+  2. `wasm-bindgen target/wasm32-unknown-unknown/release/wasm_bridge.wasm --out-dir crates/wasm-bridge/pkg --target web --no-typescript`
