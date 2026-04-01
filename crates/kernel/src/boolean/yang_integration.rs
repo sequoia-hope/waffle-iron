@@ -22,8 +22,11 @@ use crate::topology::half_edge::{EdgeIdx, FaceIdx, VertexIdx};
 use crate::types::{KernelError, RenderMesh};
 use crate::waffle_kernel::WaffleSolid;
 
-#[allow(unused_imports)] // Will be used when tessellation bridge is completed
 use crate::boolean::exact_mesh::MeshBooleanOp;
+use crate::boolean::ssi_refinement::{classify_intersection_edges, refine_intersection_edges};
+use crate::boolean::topology_extract::yang_boolean_pipeline;
+use crate::tessellation;
+use crate::tessellation::bijective::BijectiveMap;
 
 // ── Mesh conversion helpers ─────────────────────────────────────────────
 
@@ -251,42 +254,105 @@ pub(crate) fn yang_boolean_from_solids(
     op: BoolOp,
     id_alloc: &mut dyn FnMut() -> u64,
 ) -> Result<BooleanResult, KernelError> {
-    // Guard: both solids must have complete face_geometry to run the Yang pipeline.
-    // Solids without face geometry (e.g., imported mesh data) cannot be mapped
-    // back to analytical surfaces after the boolean.
+    // Guard: Yang pipeline is not yet the default path. It produces correct
+    // topology but the WaffleSolid output format is not yet compatible with
+    // the kernel's tessellation and face-count expectations. Enable only
+    // when YANG_BOOLEAN=1 environment variable is set (for testing).
+    // Phase 5b will make this the default path.
+    if std::env::var("YANG_BOOLEAN").unwrap_or_default() != "1" {
+        return Err(KernelError::NotSupported {
+            operation: "yang_boolean: not enabled (set YANG_BOOLEAN=1 to activate)".to_string(),
+        });
+    }
+
+    // Guard: both solids must have face_geometry to run the Yang pipeline.
+    // Solids without face geometry cannot be mapped back to analytical surfaces.
     if solid_a.face_geometry.is_empty() || solid_b.face_geometry.is_empty() {
         return Err(KernelError::NotSupported {
             operation: "yang_boolean: one or both solids missing face_geometry".to_string(),
         });
     }
 
-    // Build the surface map that tracks provenance through the pipeline
-    let _surface_map = build_surface_map(solid_a, solid_b);
-    let _mesh_op = bool_op_to_mesh_op(op);
+    let mesh_op = bool_op_to_mesh_op(op);
+    let surface_map = build_surface_map(solid_a, solid_b);
 
-    // Phase 5a partial: tessellation bridge is not yet wired.
-    // The kernel's tessellate_solid_ext takes arena + face_map + geometry refs
-    // and produces a RenderMesh. We need to:
-    //   1. Tessellate solid_a → RenderMesh → render_mesh_to_arrays → (verts_a, tris_a)
-    //   2. Tessellate solid_b → RenderMesh → render_mesh_to_arrays → (verts_b, tris_b)
-    //   3. Build bijective maps (tessellation/bijective.rs)
-    //   4. subdivide_mesh_pair → SubdividedMesh
-    //   5. label_cells → CellLabeling
-    //   6. face_survival_detect → FaceSurvivalMap
-    //   7. extract_trim_boundaries → TrimBoundaryMap
-    //   8. build_result_brep → ResultTopology
-    //   9. classify_intersection_edges + refine_intersection_edges → EdgeRefinementMap
-    //  10. result_topology_to_waffle_solid → WaffleSolid → BooleanResult
-    //
-    // Steps 1-2 require calling tessellate_solid_ext which is available as a
-    // crate-internal function. The full wiring is Phase 5b.
+    // Step 1: Tessellate both solids via the kernel's internal tessellation.
+    let mesh_a = tessellate_waffle_solid(solid_a)?;
+    let mesh_b = tessellate_waffle_solid(solid_b)?;
 
-    // Suppress unused-variable warnings for the guard values
-    let _ = id_alloc;
+    // Step 2: Convert to pipeline format (f64 arrays).
+    let (verts_a, tris_a) = render_mesh_to_arrays(&mesh_a);
+    let (verts_b, tris_b) = render_mesh_to_arrays(&mesh_b);
 
-    Err(KernelError::NotSupported {
-        operation: "yang_boolean: full pipeline integration pending (Phase 5a partial)".to_string(),
-    })
+    if tris_a.is_empty() || tris_b.is_empty() {
+        return Err(KernelError::NotSupported {
+            operation: "yang_boolean: tessellation produced empty mesh".to_string(),
+        });
+    }
+
+    // Step 3: Build bijective maps (mesh triangle → B-Rep face).
+    let bijective_a = BijectiveMap::from_render_mesh(&mesh_a, &solid_a.face_map);
+    let bijective_b = BijectiveMap::from_render_mesh(&mesh_b, &solid_b.face_map);
+
+    if !bijective_a.is_complete() || !bijective_b.is_complete() {
+        return Err(KernelError::NotSupported {
+            operation: "yang_boolean: bijective map has unmapped triangles".to_string(),
+        });
+    }
+
+    // Step 4: Run Yang pipeline (Phases 1-3): mesh boolean → topology extract.
+    let result_topo = yang_boolean_pipeline(
+        &verts_a,
+        &tris_a,
+        &verts_b,
+        &tris_b,
+        &bijective_a,
+        &bijective_b,
+        mesh_op,
+    );
+
+    // Step 5: Phase 4a — classify intersection edges by surface pair type.
+    // This may fail if face provenance references faces not in the surface map
+    // (e.g., due to subdivision creating new face indices). In that case, skip
+    // refinement and use the topology as-is.
+    let refinement = match classify_intersection_edges(&result_topo, &surface_map) {
+        Ok(classification) => {
+            // Step 6: Phase 4b — refine intersection edges with SSI solvers.
+            match refine_intersection_edges(&result_topo, &classification, &surface_map) {
+                Ok(r) => r,
+                Err(_) => EdgeRefinementMap {
+                    edges: BTreeMap::new(),
+                    skipped_planar: 0,
+                    unsupported: vec![],
+                },
+            }
+        }
+        Err(_) => EdgeRefinementMap {
+            edges: BTreeMap::new(),
+            skipped_planar: 0,
+            unsupported: vec![],
+        },
+    };
+
+    // Step 7: Convert ResultTopology → WaffleSolid → BooleanResult.
+    let waffle = result_topology_to_waffle_solid(result_topo, &refinement, &surface_map, id_alloc);
+    Ok(waffle_solid_to_boolean_result(waffle))
+}
+
+/// Tessellate a WaffleSolid using the kernel's internal tessellation pipeline.
+fn tessellate_waffle_solid(solid: &WaffleSolid) -> Result<RenderMesh, KernelError> {
+    tessellation::tessellate_solid_ext(
+        &solid.arena,
+        &solid.face_map,
+        &solid.face_geometry,
+        &solid.edge_geometry,
+        solid.cylinder_params.as_ref(),
+        solid.revolve_params.as_ref(),
+        solid.sphere_params.as_ref(),
+        solid.cone_params.as_ref(),
+        solid.torus_params.as_ref(),
+        solid.is_polygon_soup,
+    )
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────
@@ -494,5 +560,22 @@ mod tests {
             cached_face_polys: None,
             is_polygon_soup: false,
         }
+    }
+
+    #[test]
+    fn yang_pipeline_disabled_by_default() {
+        // Without YANG_BOOLEAN=1, the pipeline should return NotSupported.
+        let solid = empty_waffle_solid();
+        let mut next_id = 1u64;
+        let mut id_alloc = || {
+            let id = next_id;
+            next_id += 1;
+            id
+        };
+        let result = yang_boolean_from_solids(&solid, &solid, BoolOp::Union, &mut id_alloc);
+        assert!(
+            result.is_err(),
+            "Yang pipeline should be disabled by default"
+        );
     }
 }

@@ -116,7 +116,7 @@ wasm-bridge → sketch-ui (update display, color by status)
 
 | # | Project | Purpose | Technology | Dependencies | Status |
 |---|---------|---------|------------|-------------|--------|
-| 01 | kernel | Clean-sheet B-Rep geometry kernel | Rust | None | In progress (936 tests, 11 ignored; assay 190 cases) |
+| 01 | kernel | Clean-sheet B-Rep geometry kernel | Rust | None | In progress (937 tests, 11 ignored; assay 190 cases) |
 | 02 | sketch-solver | 2D constraint solving via slvs | Rust + C (libslvs) | None | Complete (M1-M10 + Emscripten WASM) |
 | 03 | wasm-bridge | WASM↔JS communication protocol | Rust + JS | 01 | Complete (M1-M8) |
 | 04 | 3d-viewport | three.js rendering via Threlte | Svelte + JS | 01 | Complete |
