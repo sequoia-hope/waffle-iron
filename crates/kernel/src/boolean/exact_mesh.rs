@@ -4752,4 +4752,166 @@ mod tests {
             "Expected at least 2 parent triangles to be split, got {split_parents}"
         );
     }
+
+    // ── FIP Red Phase: Edge-on-plane intersection detection tests ──
+    // Ref: specs/edge_on_plane_intersection.md
+    // These test the n_coplanar==2 case in find_crossing_edges.
+    //
+    // IGNORED: Edge-on-plane detection is the next task for the Yang pipeline.
+    // The n_coplanar==2 branch in find_crossing_edges returns CrossingResult::None,
+    // so these tests demonstrate the gap. The implementation must also handle
+    // co-surface winding number ambiguity and conformal vertex sharing for
+    // axis-aligned box geometry. See specs/edge_on_plane_intersection.md.
+
+    /// When a triangle has one edge lying entirely on the other triangle's plane,
+    /// and that edge passes through the interior of the other triangle,
+    /// tri_tri_intersect must return a Segment (not None).
+    ///
+    /// Setup: T_A in XY plane, T_B has edge (v0, v1) in z=0 crossing through T_A.
+    /// The third vertex of T_B is above the plane.
+    #[test]
+    #[ignore = "Phase 2c: edge-on-plane detection not yet implemented"]
+    fn edge_on_plane_crossing_detected() {
+        // T_A: large triangle in z=0 plane
+        let verts = vec![
+            [0.0, 0.0, 0.0], // 0: T_A v0
+            [4.0, 0.0, 0.0], // 1: T_A v1
+            [2.0, 4.0, 0.0], // 2: T_A v2
+            // T_B: edge (3,4) lies in z=0 plane, crossing through T_A's interior.
+            // Vertex 5 is above the plane.
+            [1.0, 1.0, 0.0], // 3: T_B v0 (in z=0, inside T_A)
+            [3.0, 1.0, 0.0], // 4: T_B v1 (in z=0, inside T_A)
+            [2.0, 1.0, 2.0], // 5: T_B v2 (above z=0)
+        ];
+        let tri_a = [0, 1, 2];
+        let tri_b = [3, 4, 5];
+
+        let result = tri_tri_intersect(tri_a, tri_b, &verts);
+        match result {
+            TriTriIsect::Segment(_, _) => { /* correct */ }
+            other => panic!(
+                "Edge-on-plane with both endpoints inside T_A should return Segment, got {:?}",
+                std::mem::discriminant(&other)
+            ),
+        }
+    }
+
+    /// Edge-on-plane where one endpoint is inside and the other is outside the
+    /// opposing triangle. Should return a Segment from the inside point to the
+    /// boundary crossing.
+    #[test]
+    #[ignore = "Phase 2c: edge-on-plane detection not yet implemented"]
+    fn edge_on_plane_partial_crossing() {
+        let verts = vec![
+            [0.0, 0.0, 0.0], // 0: T_A v0
+            [4.0, 0.0, 0.0], // 1: T_A v1
+            [2.0, 4.0, 0.0], // 2: T_A v2
+            // T_B: edge (3,4) in z=0. v3 inside T_A, v4 outside.
+            [2.0, 1.0, 0.0], // 3: inside T_A
+            [6.0, 1.0, 0.0], // 4: outside T_A (x=6 > T_A boundary)
+            [2.0, 1.0, 2.0], // 5: above z=0
+        ];
+        let tri_a = [0, 1, 2];
+        let tri_b = [3, 4, 5];
+
+        let result = tri_tri_intersect(tri_a, tri_b, &verts);
+        match result {
+            TriTriIsect::Segment(_, _) => { /* correct */ }
+            TriTriIsect::Point(_) => { /* acceptable: at least detected */ }
+            other => panic!(
+                "Edge-on-plane (partial) should return Segment or Point, got {:?}",
+                std::mem::discriminant(&other)
+            ),
+        }
+    }
+
+    /// Edge-on-plane where both endpoints are outside the opposing triangle.
+    /// The edge passes entirely outside — should return None.
+    #[test]
+    fn edge_on_plane_no_crossing() {
+        let verts = vec![
+            [0.0, 0.0, 0.0], // 0: T_A v0
+            [4.0, 0.0, 0.0], // 1: T_A v1
+            [2.0, 4.0, 0.0], // 2: T_A v2
+            // T_B: edge (3,4) in z=0 but far from T_A.
+            [10.0, 10.0, 0.0], // 3: far outside T_A
+            [12.0, 10.0, 0.0], // 4: far outside T_A
+            [11.0, 10.0, 2.0], // 5: above z=0
+        ];
+        let tri_a = [0, 1, 2];
+        let tri_b = [3, 4, 5];
+
+        let result = tri_tri_intersect(tri_a, tri_b, &verts);
+        assert!(
+            matches!(result, TriTriIsect::None),
+            "Edge-on-plane fully outside should be None"
+        );
+    }
+
+    /// Axis-aligned boxes sharing a face plane: the classic case that the Yang
+    /// pipeline currently fails on. Two unit-offset boxes must produce a
+    /// subdivision with split triangles at the shared face.
+    #[test]
+    #[ignore = "Phase 2c: edge-on-plane detection + conformal subdivision not yet implemented"]
+    fn edge_on_plane_axis_aligned_boxes() {
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
+
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+
+        let total_a = subdivided.tris_a.len();
+        let total_b = subdivided.tris_b.len();
+
+        // Without edge-on-plane detection: exactly 12 each (no splitting).
+        // With edge-on-plane detection: > 12 for at least one mesh.
+        assert!(
+            total_a > 12 || total_b > 12,
+            "Axis-aligned overlapping boxes must have split triangles \
+             (got {total_a} A tris, {total_b} B tris — both == 12 means \
+             edge-on-plane intersections are being missed)"
+        );
+    }
+
+    /// Full Yang pipeline on axis-aligned boxes must produce manifold topology.
+    /// This is the key correctness test — if edge-on-plane is handled, the
+    /// boolean result should have V-E+F = 2.
+    #[test]
+    #[ignore = "Phase 2c: requires edge-on-plane detection + winding number boundary disambiguation"]
+    fn edge_on_plane_box_boolean_manifold() {
+        use crate::boolean::topology_extract::yang_boolean_pipeline;
+        use crate::tessellation::bijective::BijectiveMap;
+        use crate::topology::half_edge::FaceIdx;
+
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
+
+        let bijective_a = BijectiveMap {
+            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
+        };
+        let bijective_b = BijectiveMap {
+            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
+        };
+
+        let result = yang_boolean_pipeline(
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            &bijective_a,
+            &bijective_b,
+            MeshBooleanOp::Union,
+        )
+        .expect("Yang pipeline should succeed for overlapping boxes");
+
+        let n_edges = result.arena.edges.len();
+        let n_he = result.arena.half_edges.len();
+
+        assert!(n_edges > 0, "Result must have edges");
+        assert_eq!(
+            n_he,
+            2 * n_edges,
+            "Manifold invariant: half_edges ({n_he}) != 2 * edges ({})",
+            2 * n_edges
+        );
+    }
 }
