@@ -31,7 +31,6 @@ use crate::tessellation::bijective::BijectiveMap;
 // ── Mesh conversion helpers ─────────────────────────────────────────────
 
 /// Convert RenderMesh (f32 flat arrays) to the pipeline format (Vec<[f64;3]>, Vec<[usize;3]>).
-#[allow(dead_code)] // Phase 5b — used when tessellation bridge is wired
 pub(crate) fn render_mesh_to_arrays(mesh: &RenderMesh) -> (Vec<[f64; 3]>, Vec<[usize; 3]>) {
     let vert_count = mesh.vertices.len() / 3;
     let verts: Vec<[f64; 3]> = (0..vert_count)
@@ -150,7 +149,6 @@ pub(crate) fn ssi_curve_to_curve_geom(curve: &SSICurve) -> Option<CurveGeom> {
 /// via `id_alloc`. Surface geometry is propagated from the original solids via
 /// `surface_map` (face provenance). Edge geometry is derived from SSI refinement
 /// curves where available.
-#[allow(dead_code)] // Phase 5b — used when full pipeline is wired
 pub(crate) fn result_topology_to_waffle_solid(
     result: ResultTopology,
     refinement: &EdgeRefinementMap,
@@ -218,7 +216,6 @@ pub(crate) fn result_topology_to_waffle_solid(
 
 /// Convert a WaffleSolid from the Yang pipeline into a BooleanResult that
 /// integrates with the existing `do_boolean` result handling.
-#[allow(dead_code)] // Phase 5b — used when yang_boolean_from_solids returns Ok
 pub(crate) fn waffle_solid_to_boolean_result(solid: WaffleSolid) -> BooleanResult {
     BooleanResult {
         arena: solid.arena,
@@ -584,10 +581,11 @@ mod tests {
             id
         };
         let result = yang_boolean_from_solids(&solid, &solid, BoolOp::Union, &mut id_alloc);
-        assert!(
-            result.is_err(),
-            "Yang pipeline should be disabled by default"
-        );
+        match result {
+            Err(KernelError::NotSupported { .. }) => {} // expected
+            Err(other) => panic!("expected NotSupported, got error: {other}"),
+            Ok(_) => panic!("expected NotSupported, but pipeline succeeded"),
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════
