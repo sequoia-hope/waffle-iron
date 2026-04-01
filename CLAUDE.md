@@ -30,7 +30,10 @@ Do NOT skip to lower-priority items because they are easier.
    approach [#24]. See A15.6. Phases 1-4 are built. Phase 5 (B-Rep reassembly)
    produces invalid topology — fix it. The goal is `YANG_BOOLEAN=1` passing assay
    cases. Do NOT fix the old S-H pipeline — it is deprecated and will be removed.
-   Regressions on the S-H path are acceptable.
+   Regressions on the S-H path are acceptable. Do NOT add fallback paths from
+   Yang back to S-H — Yang errors should fail, not silently degrade to the broken
+   legacy path. The assay score for the legacy path has no value; only the Yang
+   path score matters.
 2. **SSI solvers** — Complete the A15.4 matrix. Solvers feed stage 4 (geometry
    refinement) of the hybrid pipeline. Only work on SSI if Yang pipeline work is
    blocked. Priority: pairs #5, #6, #10 (partial status).
