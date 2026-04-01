@@ -3571,7 +3571,12 @@ fn cs_cone_18_offset_near_tangent() {
     )
     .unwrap();
 
-    // May be empty (near-tangent) or contain a narrow curve.
+    // Near-tangent: at most one intersection curve (or empty if tangent).
+    assert!(
+        curves.len() <= 1,
+        "Near-tangent cone-sphere should produce at most 1 curve, got {}",
+        curves.len()
+    );
     for curve in &curves {
         match curve {
             SSICurve::Degree4ConeSphere { .. } => {
@@ -8607,7 +8612,8 @@ fn cyl_cone_ssi_adv2_near_zero_half_angle() {
         (0.0, 100.0),    // cone_height_range (tall cone to give it a chance)
     )
     .unwrap();
-    // Might be empty if tan(1°) is below TOL, that's fine
+    // Near-degenerate 1° cone: at most 2 intersection curves (or empty).
+    assert!(curves.len() <= 2, "Expected ≤2 curves for 1° cone, got {}", curves.len());
     adv2_sample_and_validate(
         &curves,
         [0.0, 0.0, 0.0],
@@ -8640,8 +8646,8 @@ fn cyl_cone_ssi_adv2_near_90_half_angle() {
         (0.01, 1.0),      // very short cone height range (keeps radii sane)
     )
     .unwrap();
-    // Intersection is plausible (the cone opens almost flat), or might be empty/coaxial.
-    // Key: no panic, no NaN.
+    // 89° cone nearly flat: plausible intersection or empty/coaxial.
+    assert!(curves.len() <= 2, "Expected ≤2 curves for 89° cone, got {}", curves.len());
     adv2_sample_and_validate(
         &curves,
         [0.0, 0.0, 0.0],
@@ -8671,7 +8677,8 @@ fn cyl_cone_ssi_adv2_tiny_cylinder_radius() {
         (0.0, 10.0),     // cone_height_range
     )
     .unwrap();
-    // The tiny cylinder might just touch the cone near the apex → likely empty or small curve
+    // Tiny cylinder near cone apex: at most 2 curves (or empty).
+    assert!(curves.len() <= 2, "Expected ≤2 curves for tiny-R cyl-cone, got {}", curves.len());
     adv2_sample_and_validate(
         &curves,
         [0.0, 0.0, 0.0],
@@ -8702,7 +8709,8 @@ fn cyl_cone_ssi_adv2_axes_nearly_parallel() {
         (0.0, 10.0),           // cone_height_range
     )
     .unwrap();
-    // Intersection is geometrically plausible — at least verify no crash
+    // Nearly parallel axes: intersection plausible, bounded curve count.
+    assert!(curves.len() <= 2, "Expected ≤2 curves for near-parallel axes, got {}", curves.len());
     adv2_sample_and_validate(
         &curves,
         [0.0, 0.0, 0.0],
@@ -8745,8 +8753,8 @@ fn cyl_cone_ssi_adv2_apex_on_cylinder_surface() {
         (0.1, 10.0),     // cone_height_range (skip apex itself)
     )
     .unwrap();
-    // The apex touching the surface is degenerate; solver may return curves or empty.
-    // Key invariant: no panic, no NaN.
+    // Degenerate: apex on cylinder surface. Bounded curve count.
+    assert!(curves.len() <= 2, "Expected ≤2 curves for apex-on-surface, got {}", curves.len());
     adv2_sample_and_validate(
         &curves,
         [0.0, 0.0, 0.0],
