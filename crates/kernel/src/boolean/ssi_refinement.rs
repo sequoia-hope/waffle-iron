@@ -12,6 +12,9 @@ use std::collections::BTreeMap;
 use crate::boolean::exact_mesh::MeshId;
 use crate::boolean::topology_extract::ResultTopology;
 use crate::geometry::surface::SurfaceGeom;
+use crate::geometry::surface::{Cone, Cylinder, Plane, Sphere, Torus};
+use crate::ssi;
+use crate::ssi::SSICurve;
 use crate::topology::half_edge::{EdgeIdx, FaceIdx};
 use crate::types::KernelError;
 
@@ -138,6 +141,366 @@ pub(crate) fn classify_intersection_edges(
     }
 
     Ok(IntersectionEdgeClassification { edges })
+}
+
+/// Result of Phase 4b SSI refinement — analytical curves for intersection edges.
+#[derive(Debug)]
+#[allow(dead_code)] // Phase 4 building block — task 4b
+pub(crate) struct EdgeRefinementMap {
+    /// Analytical SSI curve for each refined intersection edge.
+    pub edges: BTreeMap<EdgeIdx, SSICurve>,
+    /// Count of PlanarPlanar edges skipped (already exact).
+    pub skipped_planar: usize,
+    /// Edges where SSI solver returned NotSupported.
+    pub unsupported: Vec<(EdgeIdx, String)>,
+}
+
+/// Refine intersection edges by dispatching to SSI solvers.
+/// Phase 4b stub — implementation pending.
+///
+/// For each intersection edge classified by `classify_intersection_edges`:
+/// - `PlanarPlanar` edges are skipped (already exact line intersections).
+/// - `NeedsRefinement` edges are dispatched to the appropriate SSI solver
+///   based on the surface pair type.
+///
+/// # Arguments
+/// - `result` — Half-edge B-Rep from Phase 3 with face provenance and edge flags.
+/// - `classification` — Phase 4a output mapping intersection edges to surface pairs.
+/// - `surface_map` — Maps each original B-Rep face `(MeshId, FaceIdx)` to its
+///   analytical surface geometry.
+///
+/// # Returns
+/// `EdgeRefinementMap` with refined curves, skip counts, and unsupported pairs.
+///
+/// Ref [#24]: Yang 2025 — Stage 4 SSI refinement
+/// Ref [#1]: Patrikalakis et al. — SSI dispatch by surface type pair (Ch. 5)
+#[allow(dead_code)] // Phase 4 building block — task 4b
+pub(crate) fn refine_intersection_edges(
+    result: &ResultTopology,
+    classification: &IntersectionEdgeClassification,
+    _surface_map: &BTreeMap<(MeshId, FaceIdx), SurfaceGeom>,
+) -> Result<EdgeRefinementMap, KernelError> {
+    let mut edges = BTreeMap::new();
+    let mut skipped_planar: usize = 0;
+    let mut unsupported: Vec<(EdgeIdx, String)> = Vec::new();
+
+    for (&edge_idx, kind) in &classification.edges {
+        match kind {
+            SurfacePairKind::PlanarPlanar => {
+                skipped_planar += 1;
+            }
+            SurfacePairKind::NeedsRefinement {
+                surface_a,
+                surface_b,
+            } => {
+                let midpoint = edge_midpoint(result, edge_idx);
+
+                match dispatch_ssi(surface_a, surface_b) {
+                    Ok(curves) => {
+                        if curves.is_empty() {
+                            // Solver found no intersection curves for this edge.
+                            // This may indicate a tangent/degenerate case or a solver
+                            // that handles a sub-case analytically but finds the surfaces
+                            // disjoint. Record as unsupported so the caller knows.
+                            unsupported.push((
+                                edge_idx,
+                                "SSI solver returned no curves for intersection edge".to_string(),
+                            ));
+                            continue;
+                        }
+                        let curve = if curves.len() == 1 {
+                            curves.into_iter().next().unwrap()
+                        } else {
+                            select_nearest_curve(curves, midpoint)
+                        };
+                        edges.insert(edge_idx, curve);
+                    }
+                    Err(KernelError::NotSupported { operation }) => {
+                        unsupported.push((edge_idx, operation));
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+    }
+
+    Ok(EdgeRefinementMap {
+        edges,
+        skipped_planar,
+        unsupported,
+    })
+}
+
+/// Compute the midpoint of a mesh edge for curve selection.
+fn edge_midpoint(result: &ResultTopology, edge_idx: EdgeIdx) -> Option<[f64; 3]> {
+    let he = result.arena.edges[edge_idx.0].half_edge;
+    let twin = result.arena.half_edges[he.0].twin;
+    let v0_idx = result.arena.half_edges[he.0].origin;
+    let v1_idx = result.arena.half_edges[twin.0].origin;
+    let p0 = result.arena.vertices[v0_idx.0].position;
+    let p1 = result.arena.vertices[v1_idx.0].position;
+    Some([
+        (p0[0] + p1[0]) * 0.5,
+        (p0[1] + p1[1]) * 0.5,
+        (p0[2] + p1[2]) * 0.5,
+    ])
+}
+
+/// Helper: get a surface type discriminant for ordering.
+fn surface_order(s: &SurfaceGeom) -> u8 {
+    match s {
+        SurfaceGeom::Planar(_) => 0,
+        SurfaceGeom::Cylindrical(_) => 1,
+        SurfaceGeom::Conical(_) => 2,
+        SurfaceGeom::Spherical(_) => 3,
+        SurfaceGeom::Toroidal(_) => 4,
+    }
+}
+
+/// Dispatch to the correct SSI solver based on surface pair types.
+/// Normalizes ordering so the "lower" surface type comes first.
+fn dispatch_ssi(
+    surface_a: &SurfaceGeom,
+    surface_b: &SurfaceGeom,
+) -> Result<Vec<SSICurve>, KernelError> {
+    // Normalize order: lower discriminant first
+    let (sa, sb) = if surface_order(surface_a) <= surface_order(surface_b) {
+        (surface_a, surface_b)
+    } else {
+        (surface_b, surface_a)
+    };
+
+    const BIG: f64 = 1e6;
+
+    match (sa, sb) {
+        // Plane + Plane — should not reach here (handled as PlanarPlanar)
+        (SurfaceGeom::Planar(_), SurfaceGeom::Planar(_)) => Ok(vec![]),
+
+        // Plane + Cylinder
+        (SurfaceGeom::Planar(pl), SurfaceGeom::Cylindrical(cy)) => dispatch_plane_cylinder(pl, cy),
+
+        // Plane + Cone
+        (SurfaceGeom::Planar(pl), SurfaceGeom::Conical(co)) => dispatch_plane_cone(pl, co),
+
+        // Plane + Sphere
+        (SurfaceGeom::Planar(pl), SurfaceGeom::Spherical(sp)) => dispatch_plane_sphere(pl, sp),
+
+        // Plane + Torus
+        (SurfaceGeom::Planar(pl), SurfaceGeom::Toroidal(to)) => dispatch_plane_torus(pl, to),
+
+        // Cylinder + Cylinder
+        (SurfaceGeom::Cylindrical(ca), SurfaceGeom::Cylindrical(cb)) => ssi::cylinder_cylinder_ssi(
+            ca.origin.to_array(),
+            ca.axis.to_array(),
+            ca.radius,
+            cb.origin.to_array(),
+            cb.axis.to_array(),
+            cb.radius,
+            (-BIG, BIG),
+        ),
+
+        // Cylinder + Cone
+        (SurfaceGeom::Cylindrical(cy), SurfaceGeom::Conical(co)) => ssi::cylinder_cone_ssi(
+            cy.origin.to_array(),
+            cy.axis.to_array(),
+            cy.radius,
+            -BIG,
+            BIG,
+            co.apex.to_array(),
+            co.axis.to_array(),
+            co.half_angle,
+            (0.0, BIG),
+        ),
+
+        // Cylinder + Sphere
+        (SurfaceGeom::Cylindrical(cy), SurfaceGeom::Spherical(sp)) => ssi::cylinder_sphere_ssi(
+            cy.origin.to_array(),
+            cy.axis.to_array(),
+            cy.radius,
+            -BIG,
+            BIG,
+            sp.center.to_array(),
+            sp.radius,
+        ),
+
+        // Cylinder + Torus
+        (SurfaceGeom::Cylindrical(cy), SurfaceGeom::Toroidal(to)) => ssi::cylinder_torus_ssi(
+            cy.origin.to_array(),
+            cy.axis.to_array(),
+            cy.radius,
+            -BIG,
+            BIG,
+            to.center.to_array(),
+            to.axis.to_array(),
+            to.major_radius,
+            to.minor_radius,
+        ),
+
+        // Cone + Cone
+        (SurfaceGeom::Conical(ca), SurfaceGeom::Conical(cb)) => ssi::cone_cone_ssi(
+            ca.apex.to_array(),
+            ca.axis.to_array(),
+            ca.half_angle,
+            (0.0, BIG),
+            cb.apex.to_array(),
+            cb.axis.to_array(),
+            cb.half_angle,
+            (0.0, BIG),
+        ),
+
+        // Cone + Sphere
+        (SurfaceGeom::Conical(co), SurfaceGeom::Spherical(sp)) => ssi::cone_sphere_ssi(
+            co.apex.to_array(),
+            co.axis.to_array(),
+            co.half_angle,
+            0.0,
+            BIG,
+            sp.center.to_array(),
+            sp.radius,
+        ),
+
+        // Cone + Torus
+        (SurfaceGeom::Conical(co), SurfaceGeom::Toroidal(to)) => ssi::cone_torus_ssi(
+            co.apex.to_array(),
+            co.axis.to_array(),
+            co.half_angle,
+            (0.0, BIG),
+            to.center.to_array(),
+            to.axis.to_array(),
+            to.major_radius,
+            to.minor_radius,
+        ),
+
+        // Sphere + Sphere
+        (SurfaceGeom::Spherical(sa), SurfaceGeom::Spherical(sb)) => ssi::sphere_sphere_ssi(
+            sa.center.to_array(),
+            sa.radius,
+            sb.center.to_array(),
+            sb.radius,
+        ),
+
+        // Sphere + Torus
+        (SurfaceGeom::Spherical(sp), SurfaceGeom::Toroidal(to)) => ssi::sphere_torus_ssi(
+            sp.center.to_array(),
+            sp.radius,
+            to.center.to_array(),
+            to.axis.to_array(),
+            to.major_radius,
+            to.minor_radius,
+        ),
+
+        // Torus + Torus
+        (SurfaceGeom::Toroidal(ta), SurfaceGeom::Toroidal(tb)) => ssi::torus_torus_ssi(
+            ta.center.to_array(),
+            ta.axis.to_array(),
+            ta.major_radius,
+            ta.minor_radius,
+            tb.center.to_array(),
+            tb.axis.to_array(),
+            tb.major_radius,
+            tb.minor_radius,
+        ),
+
+        // Catch-all (should not occur with current surface types)
+        _ => Err(KernelError::NotSupported {
+            operation: format!(
+                "SSI for surface pair ({}, {})",
+                surface_order(sa),
+                surface_order(sb)
+            ),
+        }),
+    }
+}
+
+fn dispatch_plane_cylinder(pl: &Plane, cy: &Cylinder) -> Result<Vec<SSICurve>, KernelError> {
+    ssi::plane_cylinder_ssi(
+        pl.origin.to_array(),
+        pl.normal.to_array(),
+        cy.origin.to_array(),
+        cy.axis.to_array(),
+        cy.radius,
+        (-1e6, 1e6),
+    )
+}
+
+fn dispatch_plane_cone(pl: &Plane, co: &Cone) -> Result<Vec<SSICurve>, KernelError> {
+    ssi::plane_cone_ssi(
+        pl.origin.to_array(),
+        pl.normal.to_array(),
+        co.apex.to_array(),
+        co.axis.to_array(),
+        co.half_angle,
+        1e6,
+    )
+}
+
+fn dispatch_plane_sphere(pl: &Plane, sp: &Sphere) -> Result<Vec<SSICurve>, KernelError> {
+    ssi::plane_sphere_ssi(
+        pl.origin.to_array(),
+        pl.normal.to_array(),
+        sp.center.to_array(),
+        sp.radius,
+    )
+}
+
+fn dispatch_plane_torus(pl: &Plane, to: &Torus) -> Result<Vec<SSICurve>, KernelError> {
+    ssi::plane_torus_ssi(
+        pl.origin.to_array(),
+        pl.normal.to_array(),
+        to.center.to_array(),
+        to.axis.to_array(),
+        to.major_radius,
+        to.minor_radius,
+    )
+}
+
+/// Given multiple SSI curves, select the one whose representative point is
+/// closest to the mesh edge midpoint.
+fn select_nearest_curve(curves: Vec<SSICurve>, midpoint: Option<[f64; 3]>) -> SSICurve {
+    let mid = match midpoint {
+        Some(m) => m,
+        None => return curves.into_iter().next().unwrap(),
+    };
+
+    curves
+        .into_iter()
+        .min_by(|a, b| {
+            let da = dist_sq_to_curve_rep(a, &mid);
+            let db = dist_sq_to_curve_rep(b, &mid);
+            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .unwrap()
+}
+
+/// Squared distance from a point to a curve's representative point.
+fn dist_sq_to_curve_rep(curve: &SSICurve, pt: &[f64; 3]) -> f64 {
+    let rep = curve_representative_point(curve);
+    let dx = rep[0] - pt[0];
+    let dy = rep[1] - pt[1];
+    let dz = rep[2] - pt[2];
+    dx * dx + dy * dy + dz * dz
+}
+
+/// Get a representative point for a curve (center, vertex, or midpoint).
+fn curve_representative_point(curve: &SSICurve) -> [f64; 3] {
+    match curve {
+        SSICurve::Circle { center, .. } => *center,
+        SSICurve::Ellipse { center, .. } => *center,
+        SSICurve::Line { start, end } => [
+            (start[0] + end[0]) * 0.5,
+            (start[1] + end[1]) * 0.5,
+            (start[2] + end[2]) * 0.5,
+        ],
+        SSICurve::Parabola { vertex, .. } => *vertex,
+        SSICurve::Hyperbola { center, .. } => *center,
+        SSICurve::Degree4CylCyl { center, .. } => *center,
+        SSICurve::Degree4ConeSphere { cone_apex, .. } => *cone_apex,
+        SSICurve::Degree4CylSphere { cyl_origin, .. } => *cyl_origin,
+        SSICurve::Degree4CylCone { cyl_origin, .. } => *cyl_origin,
+        SSICurve::Degree4ConeCone { cone_a_apex, .. } => *cone_a_apex,
+        SSICurve::Degree4PlaneTorus { torus_center, .. } => *torus_center,
+        SSICurve::Degree4SphereTorus { torus_center, .. } => *torus_center,
+    }
 }
 
 #[cfg(test)]
@@ -798,5 +1161,458 @@ mod tests {
                 }
             }
         }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // Phase 4b — SSI Curve Refinement tests (R-series)
+    // These tests target `refine_intersection_edges` which is currently a
+    // `todo!()` stub. All are marked `#[should_panic]` because the stub
+    // panics at runtime.
+    // ══════════════════════════════════════════════════════════════════════
+
+    // ── R1: Empty classification returns empty refinement ──
+
+    #[test]
+    fn test_r1_empty_classification_returns_empty_refinement() {
+        let result = ResultTopology {
+            arena: TopoArena::new(),
+            face_provenance: BTreeMap::new(),
+            edge_is_intersection: BTreeMap::new(),
+        };
+        let classification = IntersectionEdgeClassification {
+            edges: BTreeMap::new(),
+        };
+        let surface_map = BTreeMap::new();
+
+        let refinement = refine_intersection_edges(&result, &classification, &surface_map)
+            .expect("Empty classification should return Ok with empty refinement");
+
+        assert!(
+            refinement.edges.is_empty(),
+            "Empty classification must produce empty refined edges, got {}",
+            refinement.edges.len(),
+        );
+        assert_eq!(
+            refinement.skipped_planar, 0,
+            "Empty classification must skip 0 planar edges",
+        );
+        assert!(
+            refinement.unsupported.is_empty(),
+            "Empty classification must have no unsupported edges",
+        );
+    }
+
+    // ── R2: Box-box subtract — all PlanarPlanar skipped ──
+
+    #[test]
+    fn test_r2_box_box_subtract_all_planar_skipped() {
+        let result = run_full_pipeline(MeshBooleanOp::Subtract);
+        let surface_map = planar_surface_map_for_boxes();
+
+        let classification = classify_intersection_edges(&result, &surface_map)
+            .expect("Classification should succeed for box-box subtract");
+
+        assert!(
+            !classification.edges.is_empty(),
+            "Box-box subtract must produce intersection edges to classify"
+        );
+
+        let refinement = refine_intersection_edges(&result, &classification, &surface_map)
+            .expect("Refinement should succeed for all-planar box-box subtract");
+
+        assert!(
+            refinement.edges.is_empty(),
+            "All-planar box-box subtract should produce no refined curves, got {}",
+            refinement.edges.len(),
+        );
+        assert!(
+            refinement.skipped_planar > 0,
+            "All-planar box-box subtract must skip at least one planar edge",
+        );
+        assert_eq!(
+            refinement.skipped_planar,
+            classification.edges.len(),
+            "skipped_planar ({}) must equal classification count ({})",
+            refinement.skipped_planar,
+            classification.edges.len(),
+        );
+    }
+
+    // ── R3: Plane-cylinder intersection → Circle SSICurve ──
+
+    #[test]
+    fn test_r3_plane_cylinder_produces_circle() {
+        // Build a minimal 2-face topology with one intersection edge.
+        // Face A: plane at z=5 with normal [0,0,1]
+        // Face B: cylinder at origin with axis [0,0,1], radius 2.0
+        // Expected SSI: circle at center [0,0,5], radius 2.0, normal [0,0,1]
+        let mut arena = TopoArena::new();
+
+        let solid = arena.add_solid();
+        let shell = arena.add_shell(solid);
+
+        let face0 = arena.add_face(shell);
+        let face1 = arena.add_face(shell);
+        let loop0 = arena.add_loop(face0);
+        let loop1 = arena.add_loop(face1);
+        arena.faces[face0.0].outer_loop = loop0;
+        arena.faces[face1.0].outer_loop = loop1;
+
+        // Vertices on the expected circle
+        let _v0 = arena.add_vertex([2.0, 0.0, 5.0]);
+        let _v1 = arena.add_vertex([-2.0, 0.0, 5.0]);
+
+        let (edge_shared, he_a, he_b) = arena.add_edge();
+        arena.half_edges[he_a.0].origin = _v0;
+        arena.half_edges[he_b.0].origin = _v1;
+        arena.half_edges[he_a.0].loop_ = loop0;
+        arena.half_edges[he_b.0].loop_ = loop1;
+        arena.half_edges[he_a.0].next = he_a;
+        arena.half_edges[he_a.0].prev = he_a;
+        arena.half_edges[he_b.0].next = he_b;
+        arena.half_edges[he_b.0].prev = he_b;
+        arena.loops[loop0.0].half_edge = he_a;
+        arena.loops[loop1.0].half_edge = he_b;
+
+        let mut face_provenance = BTreeMap::new();
+        face_provenance.insert(
+            face0,
+            SourceFace {
+                mesh_id: MeshId::A,
+                face_idx: FaceIdx(0),
+            },
+        );
+        face_provenance.insert(
+            face1,
+            SourceFace {
+                mesh_id: MeshId::B,
+                face_idx: FaceIdx(0),
+            },
+        );
+
+        let mut edge_is_intersection = BTreeMap::new();
+        edge_is_intersection.insert(edge_shared, true);
+
+        let result = ResultTopology {
+            arena,
+            face_provenance,
+            edge_is_intersection,
+        };
+
+        let mut surface_map = BTreeMap::new();
+        surface_map.insert(
+            (MeshId::A, FaceIdx(0)),
+            SurfaceGeom::Planar(Plane {
+                origin: Point3::new(0.0, 0.0, 5.0),
+                normal: Vector3::new(0.0, 0.0, 1.0),
+            }),
+        );
+        surface_map.insert(
+            (MeshId::B, FaceIdx(0)),
+            SurfaceGeom::Cylindrical(Cylinder {
+                origin: Point3::origin(),
+                axis: Vector3::new(0.0, 0.0, 1.0),
+                radius: 2.0,
+            }),
+        );
+
+        let classification = classify_intersection_edges(&result, &surface_map)
+            .expect("Classification should succeed");
+
+        let refinement = refine_intersection_edges(&result, &classification, &surface_map)
+            .expect("Plane-cylinder refinement should succeed");
+
+        assert_eq!(
+            refinement.edges.len(),
+            1,
+            "Plane-cylinder intersection should produce exactly 1 refined curve",
+        );
+
+        let curve = refinement.edges.values().next().unwrap();
+        match curve {
+            SSICurve::Circle {
+                center,
+                normal,
+                radius,
+            } => {
+                let tol = 1e-7;
+                assert!(
+                    (center[0]).abs() < tol
+                        && (center[1]).abs() < tol
+                        && (center[2] - 5.0).abs() < tol,
+                    "Circle center should be near [0,0,5], got {:?}",
+                    center,
+                );
+                assert!(
+                    (normal[0]).abs() < tol
+                        && (normal[1]).abs() < tol
+                        && (normal[2] - 1.0).abs() < tol,
+                    "Circle normal should be near [0,0,1], got {:?}",
+                    normal,
+                );
+                assert!(
+                    (radius - 2.0).abs() < tol,
+                    "Circle radius should be 2.0, got {}",
+                    radius,
+                );
+            }
+            other => panic!(
+                "Expected SSICurve::Circle for plane-cylinder intersection, got {:?}",
+                other,
+            ),
+        }
+    }
+
+    // ── R4: Plane-sphere intersection → Circle SSICurve ──
+
+    #[test]
+    fn test_r4_plane_sphere_produces_circle() {
+        // Face A: plane at z=3, normal [0,0,1]
+        // Face B: sphere at origin, radius 5.0
+        // Expected: circle at [0,0,3], normal [0,0,1], radius = sqrt(25 - 9) = 4.0
+        let mut arena = TopoArena::new();
+
+        let solid = arena.add_solid();
+        let shell = arena.add_shell(solid);
+
+        let face0 = arena.add_face(shell);
+        let face1 = arena.add_face(shell);
+        let loop0 = arena.add_loop(face0);
+        let loop1 = arena.add_loop(face1);
+        arena.faces[face0.0].outer_loop = loop0;
+        arena.faces[face1.0].outer_loop = loop1;
+
+        // Vertices on the expected circle (radius 4 at z=3)
+        let v0 = arena.add_vertex([4.0, 0.0, 3.0]);
+        let v1 = arena.add_vertex([-4.0, 0.0, 3.0]);
+
+        let (edge_shared, he_a, he_b) = arena.add_edge();
+        arena.half_edges[he_a.0].origin = v0;
+        arena.half_edges[he_b.0].origin = v1;
+        arena.half_edges[he_a.0].loop_ = loop0;
+        arena.half_edges[he_b.0].loop_ = loop1;
+        arena.half_edges[he_a.0].next = he_a;
+        arena.half_edges[he_a.0].prev = he_a;
+        arena.half_edges[he_b.0].next = he_b;
+        arena.half_edges[he_b.0].prev = he_b;
+        arena.loops[loop0.0].half_edge = he_a;
+        arena.loops[loop1.0].half_edge = he_b;
+
+        let mut face_provenance = BTreeMap::new();
+        face_provenance.insert(
+            face0,
+            SourceFace {
+                mesh_id: MeshId::A,
+                face_idx: FaceIdx(0),
+            },
+        );
+        face_provenance.insert(
+            face1,
+            SourceFace {
+                mesh_id: MeshId::B,
+                face_idx: FaceIdx(0),
+            },
+        );
+
+        let mut edge_is_intersection = BTreeMap::new();
+        edge_is_intersection.insert(edge_shared, true);
+
+        let result = ResultTopology {
+            arena,
+            face_provenance,
+            edge_is_intersection,
+        };
+
+        let mut surface_map = BTreeMap::new();
+        surface_map.insert(
+            (MeshId::A, FaceIdx(0)),
+            SurfaceGeom::Planar(Plane {
+                origin: Point3::new(0.0, 0.0, 3.0),
+                normal: Vector3::new(0.0, 0.0, 1.0),
+            }),
+        );
+        surface_map.insert(
+            (MeshId::B, FaceIdx(0)),
+            SurfaceGeom::Spherical(Sphere {
+                center: Point3::origin(),
+                radius: 5.0,
+            }),
+        );
+
+        let classification = classify_intersection_edges(&result, &surface_map)
+            .expect("Classification should succeed");
+
+        let refinement = refine_intersection_edges(&result, &classification, &surface_map)
+            .expect("Plane-sphere refinement should succeed");
+
+        assert_eq!(
+            refinement.edges.len(),
+            1,
+            "Plane-sphere intersection should produce exactly 1 refined curve",
+        );
+
+        let curve = refinement.edges.values().next().unwrap();
+        match curve {
+            SSICurve::Circle {
+                center,
+                normal,
+                radius,
+            } => {
+                let tol = 1e-7;
+                assert!(
+                    (center[0]).abs() < tol
+                        && (center[1]).abs() < tol
+                        && (center[2] - 3.0).abs() < tol,
+                    "Circle center should be near [0,0,3], got {:?}",
+                    center,
+                );
+                assert!(
+                    (normal[0]).abs() < tol
+                        && (normal[1]).abs() < tol
+                        && (normal[2] - 1.0).abs() < tol,
+                    "Circle normal should be near [0,0,1], got {:?}",
+                    normal,
+                );
+                assert!(
+                    (radius - 4.0).abs() < tol,
+                    "Circle radius should be 4.0 (sqrt(25-9)), got {}",
+                    radius,
+                );
+            }
+            other => panic!(
+                "Expected SSICurve::Circle for plane-sphere intersection, got {:?}",
+                other,
+            ),
+        }
+    }
+
+    // ── R5: NotSupported solver pair recorded ──
+
+    #[test]
+    fn test_r5_unsupported_solver_pair_recorded() {
+        // Face A: cylindrical, Face B: toroidal — currently unsupported SSI pair
+        let mut arena = TopoArena::new();
+
+        let solid = arena.add_solid();
+        let shell = arena.add_shell(solid);
+
+        let face0 = arena.add_face(shell);
+        let face1 = arena.add_face(shell);
+        let loop0 = arena.add_loop(face0);
+        let loop1 = arena.add_loop(face1);
+        arena.faces[face0.0].outer_loop = loop0;
+        arena.faces[face1.0].outer_loop = loop1;
+
+        let v0 = arena.add_vertex([1.0, 0.0, 0.0]);
+        let v1 = arena.add_vertex([0.0, 1.0, 0.0]);
+
+        let (edge_shared, he_a, he_b) = arena.add_edge();
+        arena.half_edges[he_a.0].origin = v0;
+        arena.half_edges[he_b.0].origin = v1;
+        arena.half_edges[he_a.0].loop_ = loop0;
+        arena.half_edges[he_b.0].loop_ = loop1;
+        arena.half_edges[he_a.0].next = he_a;
+        arena.half_edges[he_a.0].prev = he_a;
+        arena.half_edges[he_b.0].next = he_b;
+        arena.half_edges[he_b.0].prev = he_b;
+        arena.loops[loop0.0].half_edge = he_a;
+        arena.loops[loop1.0].half_edge = he_b;
+
+        let mut face_provenance = BTreeMap::new();
+        face_provenance.insert(
+            face0,
+            SourceFace {
+                mesh_id: MeshId::A,
+                face_idx: FaceIdx(0),
+            },
+        );
+        face_provenance.insert(
+            face1,
+            SourceFace {
+                mesh_id: MeshId::B,
+                face_idx: FaceIdx(0),
+            },
+        );
+
+        let mut edge_is_intersection = BTreeMap::new();
+        edge_is_intersection.insert(edge_shared, true);
+
+        let result = ResultTopology {
+            arena,
+            face_provenance,
+            edge_is_intersection,
+        };
+
+        let mut surface_map = BTreeMap::new();
+        surface_map.insert(
+            (MeshId::A, FaceIdx(0)),
+            SurfaceGeom::Cylindrical(Cylinder {
+                origin: Point3::origin(),
+                axis: Vector3::new(0.0, 0.0, 1.0),
+                radius: 3.0,
+            }),
+        );
+        surface_map.insert(
+            (MeshId::B, FaceIdx(0)),
+            SurfaceGeom::Toroidal(Torus {
+                center: Point3::origin(),
+                axis: Vector3::new(0.0, 0.0, 1.0),
+                major_radius: 5.0,
+                minor_radius: 1.0,
+            }),
+        );
+
+        let classification = classify_intersection_edges(&result, &surface_map)
+            .expect("Classification should succeed for cyl-torus pair");
+
+        let refinement = refine_intersection_edges(&result, &classification, &surface_map)
+            .expect("Refinement should return Ok even for unsupported pairs");
+
+        assert!(
+            refinement.edges.is_empty(),
+            "Unsupported solver pair should produce no refined curves, got {}",
+            refinement.edges.len(),
+        );
+        assert_eq!(
+            refinement.unsupported.len(),
+            1,
+            "Unsupported solver pair should record exactly 1 unsupported entry, got {}",
+            refinement.unsupported.len(),
+        );
+    }
+
+    // ── R6: Count conservation ──
+
+    #[test]
+    fn test_r6_count_conservation() {
+        // For box-box subtract (all planar), verify that:
+        // skipped_planar + edges.len() + unsupported.len() == classification.edges.len()
+        let result = run_full_pipeline(MeshBooleanOp::Subtract);
+        let surface_map = planar_surface_map_for_boxes();
+
+        let classification = classify_intersection_edges(&result, &surface_map)
+            .expect("Classification should succeed for box-box subtract");
+
+        let total_classified = classification.edges.len();
+        assert!(
+            total_classified > 0,
+            "Must have intersection edges to test conservation"
+        );
+
+        let refinement = refine_intersection_edges(&result, &classification, &surface_map)
+            .expect("Refinement should succeed for all-planar box-box subtract");
+
+        let total_accounted =
+            refinement.skipped_planar + refinement.edges.len() + refinement.unsupported.len();
+
+        assert_eq!(
+            total_accounted, total_classified,
+            "Count conservation violated: skipped({}) + refined({}) + unsupported({}) = {} != classified({})",
+            refinement.skipped_planar,
+            refinement.edges.len(),
+            refinement.unsupported.len(),
+            total_accounted,
+            total_classified,
+        );
     }
 }
