@@ -27,10 +27,10 @@ Do NOT skip to lower-priority items because they are easier.
 
 1. **Hybrid boolean pipeline (Yang 2025)** — This is the #1 priority. Replace the
    S-H clipping + tolerance escalation pipeline with the Yang hybrid B-Rep/mesh
-   approach [#24]. See A15.6. The current pipeline is fundamentally broken (20
-   masking operations, 5000× tau_weld, self-intersections). SSI polishing will not
-   fix it. Sub-tasks: bijective tessellation mapping, exact mesh boolean (indirect
-   predicates), topology extraction, SSI refinement integration, B-Rep reassembly.
+   approach [#24]. See A15.6. Phases 1-4 are built. Phase 5 (B-Rep reassembly)
+   produces invalid topology — fix it. The goal is `YANG_BOOLEAN=1` passing assay
+   cases. Do NOT fix the old S-H pipeline — it is deprecated and will be removed.
+   Regressions on the S-H path are acceptable.
 2. **SSI solvers** — Complete the A15.4 matrix. Solvers feed stage 4 (geometry
    refinement) of the hybrid pipeline. Only work on SSI if Yang pipeline work is
    blocked. Priority: pairs #5, #6, #10 (partial status).
