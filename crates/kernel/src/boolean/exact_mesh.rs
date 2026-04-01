@@ -4238,4 +4238,512 @@ mod tests {
             2 * edge_count,
         );
     }
+
+    // ── FIP Phase 4: Adversarial tests for conformal mesh subdivision ──
+
+    /// Adversarial: intersection segment passes within 1e-8 of a triangle
+    /// vertex but does NOT go through it.  The split point must be correctly
+    /// propagated to the adjacent triangle sharing that edge, and no
+    /// degenerate (zero-area) sub-triangles may be produced.
+    #[test]
+    fn test_conformal_near_vertex_intersection() {
+        // Mesh A: two triangles sharing edge (0)-(1) along the x-axis in z=0.
+        //   T0 = (0,0,0)-(2,0,0)-(1,1,0)
+        //   T1 = (0,0,0)-(1,-1,0)-(2,0,0)
+        let verts_a = [
+            [0.0, 0.0, 0.0],  // 0
+            [2.0, 0.0, 0.0],  // 1
+            [1.0, 1.0, 0.0],  // 2 — T0 apex
+            [1.0, -1.0, 0.0], // 3 — T1 apex
+        ];
+        let tris_a = [[0, 1, 2], [0, 3, 1]];
+
+        // Mesh B: a single triangle in the y=0 plane (XZ plane), crossing
+        // mesh A at z=0.  Placed so the intersection segment on mesh A's
+        // shared edge (0)-(1) passes within ~1e-8 of vertex 0 = (0,0,0).
+        // The segment will hit edge (0,1) at x ≈ 1e-8 and somewhere around
+        // x ≈ 1.5, giving a near-vertex split.
+        let verts_b = [
+            [1e-8, 0.0, -1.0], // 0 — just barely offset from x=0
+            [1.5, 0.0, 1.0],   // 1
+            [1.5, 0.0, -1.0],  // 2
+        ];
+        let tris_b = [[0, 1, 2]];
+
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+
+        // Area conservation for mesh A (both parent triangles combined).
+        let orig_area_a: f64 = tris_a
+            .iter()
+            .map(|t| tri_area_3d(&verts_a[t[0]], &verts_a[t[1]], &verts_a[t[2]]))
+            .sum();
+        let sub_area_a: f64 = result
+            .tris_a
+            .iter()
+            .map(|st| {
+                tri_area_3d(
+                    &result.verts[st.verts[0]],
+                    &result.verts[st.verts[1]],
+                    &result.verts[st.verts[2]],
+                )
+            })
+            .sum();
+        let rel_err = (sub_area_a - orig_area_a).abs() / orig_area_a;
+        assert!(
+            rel_err < 1e-10,
+            "Near-vertex: area conservation violated, relative error {rel_err:.2e}"
+        );
+
+        // No degenerate sub-triangles.
+        for (i, st) in result.tris_a.iter().enumerate() {
+            let area = tri_area_3d(
+                &result.verts[st.verts[0]],
+                &result.verts[st.verts[1]],
+                &result.verts[st.verts[2]],
+            );
+            assert!(
+                area > 1e-20,
+                "Near-vertex: degenerate A sub-triangle {i} with area {area:.2e}"
+            );
+        }
+        for (i, st) in result.tris_b.iter().enumerate() {
+            let area = tri_area_3d(
+                &result.verts[st.verts[0]],
+                &result.verts[st.verts[1]],
+                &result.verts[st.verts[2]],
+            );
+            assert!(
+                area > 1e-20,
+                "Near-vertex: degenerate B sub-triangle {i} with area {area:.2e}"
+            );
+        }
+
+        // Conformal check: if T0 was split on the shared edge (0)-(1), then
+        // T1 must also be split (propagation).  Both parent triangles must
+        // produce ≥ 1 sub-triangle each.
+        let t0_count = result.tris_a.iter().filter(|st| st.parent_tri == 0).count();
+        let t1_count = result.tris_a.iter().filter(|st| st.parent_tri == 1).count();
+        assert!(
+            t0_count >= 1,
+            "Near-vertex: T0 must have ≥1 sub-triangle, got {t0_count}"
+        );
+        assert!(
+            t1_count >= 1,
+            "Near-vertex: T1 must have ≥1 sub-triangle, got {t1_count}"
+        );
+
+        // If T0 was split into >1 sub-tri, T1 must also be split (conformal
+        // propagation across the shared edge).
+        if t0_count > 1 {
+            assert!(
+                t1_count > 1,
+                "Near-vertex: T0 split into {t0_count} sub-tris but T1 was not \
+                 split ({t1_count} sub-tri). Conformal propagation failed."
+            );
+        }
+    }
+
+    /// Adversarial: multiple intersection segments create multiple split points
+    /// on the SAME original mesh edge.  All split points must be propagated to
+    /// every adjacent triangle sharing that edge.
+    #[test]
+    fn test_conformal_multiple_splits_same_edge() {
+        // Mesh A: two triangles sharing edge (0)-(1) along x-axis in z=0.
+        //   T0 = (0,0,0)-(4,0,0)-(2,2,0)
+        //   T1 = (0,0,0)-(2,-2,0)-(4,0,0)
+        let verts_a = [
+            [0.0, 0.0, 0.0],  // 0
+            [4.0, 0.0, 0.0],  // 1
+            [2.0, 2.0, 0.0],  // 2
+            [2.0, -2.0, 0.0], // 3
+        ];
+        let tris_a = [[0, 1, 2], [0, 3, 1]];
+
+        // Mesh B: TWO triangles, each in a plane perpendicular to mesh A's z=0
+        // plane, crossing the shared edge (0)-(1) at different x-positions.
+        //   B-T0 crosses near x=1 on the shared edge
+        //   B-T1 crosses near x=3 on the shared edge
+        // Each B triangle spans y from -0.5 to +0.5, crossing through both
+        // T0 (positive y apex) and T1 (negative y apex).
+        let verts_b = [
+            // B-T0: blade at x≈1, perpendicular to z=0
+            [1.0, -0.5, -1.0], // 0
+            [1.0, 0.5, -1.0],  // 1
+            [1.0, 0.0, 1.0],   // 2
+            // B-T1: blade at x≈3, perpendicular to z=0
+            [3.0, -0.5, -1.0], // 3
+            [3.0, 0.5, -1.0],  // 4
+            [3.0, 0.0, 1.0],   // 5
+        ];
+        let tris_b = [[0, 1, 2], [3, 4, 5]];
+
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+
+        // Area conservation for mesh A.
+        let orig_area_a: f64 = tris_a
+            .iter()
+            .map(|t| tri_area_3d(&verts_a[t[0]], &verts_a[t[1]], &verts_a[t[2]]))
+            .sum();
+        let sub_area_a: f64 = result
+            .tris_a
+            .iter()
+            .map(|st| {
+                tri_area_3d(
+                    &result.verts[st.verts[0]],
+                    &result.verts[st.verts[1]],
+                    &result.verts[st.verts[2]],
+                )
+            })
+            .sum();
+        let rel_err = (sub_area_a - orig_area_a).abs() / orig_area_a;
+        assert!(
+            rel_err < 1e-10,
+            "Multi-split: area conservation violated, relative error {rel_err:.2e}"
+        );
+
+        // T0 must be split by at least one crossing.
+        let t0_count = result.tris_a.iter().filter(|st| st.parent_tri == 0).count();
+        assert!(
+            t0_count >= 2,
+            "Multi-split: T0 must be split into ≥2 sub-tris by the crossing(s), got {t0_count}"
+        );
+
+        // T1 must also be split — conformal propagation of the split point(s)
+        // on the shared edge (0,1) to the adjacent triangle.
+        let t1_count = result.tris_a.iter().filter(|st| st.parent_tri == 1).count();
+        assert!(
+            t1_count >= 2,
+            "Multi-split: T1 must be split into ≥2 sub-tris via propagation, got {t1_count}"
+        );
+
+        // Verify that the new vertices on the shared edge (0)-(1) (which lies
+        // along the x-axis) are referenced by BOTH T0 and T1's sub-triangles.
+        let t0_verts: std::collections::BTreeSet<usize> = result
+            .tris_a
+            .iter()
+            .filter(|st| st.parent_tri == 0)
+            .flat_map(|st| st.verts)
+            .collect();
+        let t1_verts: std::collections::BTreeSet<usize> = result
+            .tris_a
+            .iter()
+            .filter(|st| st.parent_tri == 1)
+            .flat_map(|st| st.verts)
+            .collect();
+        // New vertices (index ≥ 4 for A mesh, but also ≥ verts_a.len() + verts_b.len()
+        // for intersection-created verts) that are in T0 should also appear in T1.
+        let original_count = verts_a.len() + verts_b.len();
+        let shared_new: Vec<usize> = t0_verts
+            .iter()
+            .filter(|&&v| v >= original_count && t1_verts.contains(&v))
+            .copied()
+            .collect();
+        // At least one new split vertex must be shared between T0 and T1's
+        // sub-triangle sets (proving conformal propagation).
+        assert!(
+            !shared_new.is_empty(),
+            "Multi-split: no new vertices shared between T0 and T1 sub-tris. \
+             Conformal propagation failed. T0 verts: {:?}, T1 verts: {:?}",
+            t0_verts,
+            t1_verts
+        );
+
+        // No degenerate sub-triangles.
+        for (i, st) in result.tris_a.iter().enumerate() {
+            let area = tri_area_3d(
+                &result.verts[st.verts[0]],
+                &result.verts[st.verts[1]],
+                &result.verts[st.verts[2]],
+            );
+            assert!(
+                area > 1e-20,
+                "Multi-split: degenerate A sub-tri {i} with area {area:.2e}"
+            );
+        }
+    }
+
+    /// Adversarial: chain propagation across three triangles.
+    /// T0 is intersected by mesh B, creating a split on edge E01 shared with T1.
+    /// T1 is ALSO directly intersected, creating a split on edge E12 shared with T2.
+    /// T2 is NOT directly intersected but must receive the propagated split from T1.
+    #[test]
+    fn test_conformal_chain_propagation() {
+        // Mesh A: three triangles in a fan in the z=0 plane.
+        //   T0 = v0-v1-v3,  T1 = v1-v2-v3,  T2 = v2-v4-v3
+        //   Shared edges: (v1,v3) between T0 and T1, (v2,v3) between T1 and T2.
+        let verts_a = [
+            [0.0, 0.0, 0.0], // v0
+            [2.0, 0.0, 0.0], // v1
+            [4.0, 0.0, 0.0], // v2
+            [2.0, 3.0, 0.0], // v3 — shared apex
+            [4.0, 3.0, 0.0], // v4
+        ];
+        let tris_a = [[0, 1, 3], [1, 2, 3], [2, 4, 3]];
+
+        // Mesh B: a single triangle in the XZ plane (y = 1.5) that intersects
+        // T0 and T1, crossing their shared edge (v1,v3) and T1's other edge
+        // (v2,v3).  It does NOT directly intersect T2.
+        //
+        // The intersection line at y=1.5 in the z=0 plane crosses:
+        //   - T0: hits edge (v0,v3) and edge (v1,v3)
+        //   - T1: hits edge (v1,v3) and edge (v2,v3)
+        // So edge (v2,v3) gets a split from T1. T2 shares edge (v2,v3) but is
+        // NOT itself intersected → propagation must add the split to T2.
+        let verts_b = [
+            [-0.5, 1.5, -2.0], // 0
+            [4.5, 1.5, -2.0],  // 1
+            [2.0, 1.5, 2.0],   // 2
+        ];
+        let tris_b = [[0, 1, 2]];
+
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+
+        // Area conservation.
+        let orig_area_a: f64 = tris_a
+            .iter()
+            .map(|t| tri_area_3d(&verts_a[t[0]], &verts_a[t[1]], &verts_a[t[2]]))
+            .sum();
+        let sub_area_a: f64 = result
+            .tris_a
+            .iter()
+            .map(|st| {
+                tri_area_3d(
+                    &result.verts[st.verts[0]],
+                    &result.verts[st.verts[1]],
+                    &result.verts[st.verts[2]],
+                )
+            })
+            .sum();
+        let rel_err = (sub_area_a - orig_area_a).abs() / orig_area_a;
+        assert!(
+            rel_err < 1e-10,
+            "Chain: area conservation violated, relative error {rel_err:.2e}"
+        );
+
+        // T0 and T1 are directly intersected → each must produce ≥2 sub-tris.
+        let t0_count = result.tris_a.iter().filter(|st| st.parent_tri == 0).count();
+        let t1_count = result.tris_a.iter().filter(|st| st.parent_tri == 1).count();
+        assert!(
+            t0_count >= 2,
+            "Chain: T0 (directly intersected) must have ≥2 sub-tris, got {t0_count}"
+        );
+        assert!(
+            t1_count >= 2,
+            "Chain: T1 (directly intersected) must have ≥2 sub-tris, got {t1_count}"
+        );
+
+        // T2 is NOT directly intersected, but shares edge (v2,v3) with T1.
+        // If T1's intersection creates a split on edge (v2,v3), T2 must receive
+        // it via propagation.
+        let t2_count = result.tris_a.iter().filter(|st| st.parent_tri == 2).count();
+        // T2 should be split if edge (v2,v3) received a split point.
+        // Check if T1's sub-triangles introduce a new vertex on edge (v2,v3).
+        let original_count = verts_a.len() + verts_b.len();
+        let t1_new_verts: std::collections::BTreeSet<usize> = result
+            .tris_a
+            .iter()
+            .filter(|st| st.parent_tri == 1)
+            .flat_map(|st| st.verts)
+            .filter(|&v| v >= original_count)
+            .collect();
+
+        // Check if any new vertex lies on the line from v2=(4,0,0) to v3=(2,3,0).
+        let v2 = verts_a[2];
+        let v3 = verts_a[3];
+        let split_on_v2v3: Vec<usize> = t1_new_verts
+            .iter()
+            .filter(|&&vi| {
+                let p = result.verts[vi];
+                let ab = [v3[0] - v2[0], v3[1] - v2[1], v3[2] - v2[2]];
+                let ap = [p[0] - v2[0], p[1] - v2[1], p[2] - v2[2]];
+                let ab_sq = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+                let t = (ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / ab_sq;
+                let cross = [
+                    ab[1] * ap[2] - ab[2] * ap[1],
+                    ab[2] * ap[0] - ab[0] * ap[2],
+                    ab[0] * ap[1] - ab[1] * ap[0],
+                ];
+                let cross_sq = cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2];
+                t > 0.01 && t < 0.99 && cross_sq / ab_sq < 1e-10
+            })
+            .copied()
+            .collect();
+
+        if !split_on_v2v3.is_empty() {
+            // There IS a split on edge (v2,v3) from T1's intersection.
+            // T2 must have been split by propagation.
+            assert!(
+                t2_count >= 2,
+                "Chain: T1 created split on edge (v2,v3) = {:?}, but T2 was \
+                 not split ({t2_count} sub-tri). Propagation failed.",
+                split_on_v2v3
+            );
+            // The split vertex must appear in T2's sub-triangles.
+            let t2_verts: std::collections::BTreeSet<usize> = result
+                .tris_a
+                .iter()
+                .filter(|st| st.parent_tri == 2)
+                .flat_map(|st| st.verts)
+                .collect();
+            for &sv in &split_on_v2v3 {
+                assert!(
+                    t2_verts.contains(&sv),
+                    "Chain: split vertex {sv} on edge (v2,v3) not found in T2's \
+                     sub-triangles. Conformal propagation incomplete."
+                );
+            }
+        }
+
+        // No degenerate sub-triangles.
+        for (i, st) in result.tris_a.iter().enumerate() {
+            let area = tri_area_3d(
+                &result.verts[st.verts[0]],
+                &result.verts[st.verts[1]],
+                &result.verts[st.verts[2]],
+            );
+            assert!(
+                area > 1e-20,
+                "Chain: degenerate A sub-triangle {i} with area {area:.2e}"
+            );
+        }
+    }
+
+    /// Adversarial: after propagation, the sum of sub-triangle areas for each
+    /// INDIVIDUAL parent triangle must equal the original parent's area.
+    /// Tests per-parent conservation (not just global), which catches bugs
+    /// where a sub-triangle is assigned to the wrong parent or is duplicated.
+    #[test]
+    fn test_subdivision_area_conservation_after_propagation() {
+        // Mesh A: a strip of 4 triangles in z=0, sharing edges.
+        //   v0=(0,0,0)  v1=(1,0,0)  v2=(2,0,0)  v3=(3,0,0)
+        //   v4=(0,1,0)  v5=(1,1,0)  v6=(2,1,0)  v7=(3,1,0)
+        //   T0 = v0,v1,v4   T1 = v1,v5,v4   T2 = v1,v2,v5   T3 = v2,v6,v5
+        //   T4 = v2,v3,v6   T5 = v3,v7,v6
+        let verts_a = [
+            [0.0, 0.0, 0.0], // 0
+            [1.0, 0.0, 0.0], // 1
+            [2.0, 0.0, 0.0], // 2
+            [3.0, 0.0, 0.0], // 3
+            [0.0, 1.0, 0.0], // 4
+            [1.0, 1.0, 0.0], // 5
+            [2.0, 1.0, 0.0], // 6
+            [3.0, 1.0, 0.0], // 7
+        ];
+        let tris_a = [
+            [0, 1, 4],
+            [1, 5, 4],
+            [1, 2, 5],
+            [2, 6, 5],
+            [2, 3, 6],
+            [3, 7, 6],
+        ];
+
+        // Mesh B: a single large triangle in the XZ plane at y=0.5, spanning
+        // x from -0.5 to 3.5, cutting through ALL A triangles at y=0.5.
+        let verts_b = [
+            [-0.5, 0.5, -1.0], // 0
+            [3.5, 0.5, -1.0],  // 1
+            [1.5, 0.5, 1.0],   // 2
+        ];
+        let tris_b = [[0, 1, 2]];
+
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+
+        // Per-parent area conservation for mesh A.
+        for parent_idx in 0..tris_a.len() {
+            let orig_tri = &tris_a[parent_idx];
+            let orig_area = tri_area_3d(
+                &verts_a[orig_tri[0]],
+                &verts_a[orig_tri[1]],
+                &verts_a[orig_tri[2]],
+            );
+
+            let sub_area: f64 = result
+                .tris_a
+                .iter()
+                .filter(|st| st.parent_tri == parent_idx)
+                .map(|st| {
+                    tri_area_3d(
+                        &result.verts[st.verts[0]],
+                        &result.verts[st.verts[1]],
+                        &result.verts[st.verts[2]],
+                    )
+                })
+                .sum();
+
+            let rel_err = if orig_area > 0.0 {
+                (sub_area - orig_area).abs() / orig_area
+            } else {
+                sub_area.abs()
+            };
+            assert!(
+                rel_err < 1e-10,
+                "Per-parent area conservation failed for parent tri {parent_idx}: \
+                 original area = {orig_area:.6e}, sub-triangle sum = {sub_area:.6e}, \
+                 relative error = {rel_err:.2e}"
+            );
+        }
+
+        // Area conservation for mesh B as well.
+        let orig_area_b = tri_area_3d(&verts_b[0], &verts_b[1], &verts_b[2]);
+        let sub_area_b: f64 = result
+            .tris_b
+            .iter()
+            .map(|st| {
+                tri_area_3d(
+                    &result.verts[st.verts[0]],
+                    &result.verts[st.verts[1]],
+                    &result.verts[st.verts[2]],
+                )
+            })
+            .sum();
+        let rel_err_b = (sub_area_b - orig_area_b).abs() / orig_area_b;
+        assert!(
+            rel_err_b < 1e-10,
+            "Mesh B area conservation violated: relative error {rel_err_b:.2e}"
+        );
+
+        // Every parent triangle must produce at least 1 sub-triangle.
+        for parent_idx in 0..tris_a.len() {
+            let count = result
+                .tris_a
+                .iter()
+                .filter(|st| st.parent_tri == parent_idx)
+                .count();
+            assert!(
+                count >= 1,
+                "Parent tri {parent_idx} produced 0 sub-triangles"
+            );
+        }
+
+        // No degenerate sub-triangles anywhere.
+        for (i, st) in result.tris_a.iter().chain(result.tris_b.iter()).enumerate() {
+            let area = tri_area_3d(
+                &result.verts[st.verts[0]],
+                &result.verts[st.verts[1]],
+                &result.verts[st.verts[2]],
+            );
+            assert!(
+                area > 1e-20,
+                "Degenerate sub-triangle {i} with area {area:.2e}"
+            );
+        }
+
+        // At least some parent triangles must have been split (the intersection
+        // cuts through the strip).
+        let split_parents: usize = (0..tris_a.len())
+            .filter(|&pi| {
+                result
+                    .tris_a
+                    .iter()
+                    .filter(|st| st.parent_tri == pi)
+                    .count()
+                    > 1
+            })
+            .count();
+        assert!(
+            split_parents >= 2,
+            "Expected at least 2 parent triangles to be split, got {split_parents}"
+        );
+    }
 }
