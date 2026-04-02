@@ -1808,27 +1808,61 @@ pub(crate) fn subdivide_mesh_pair(
     // edges and propagate them to all adjacent triangles sharing those edges.
 
     // Build edge adjacency: original edge → list of triangle indices sharing it.
-    fn build_edge_adjacency(tris: &[[usize; 3]]) -> BTreeMap<(usize, usize), Vec<usize>> {
+    // Uses position-based vertex canonicalization so that per-face vertex meshes
+    // (where adjacent faces have different vertex indices at the same position)
+    // are correctly recognized as sharing edges.
+    // Build a global position→canonical vertex index map for edge matching.
+    // Used by build_edge_adjacency, detect_edge_splits, and conformal propagation
+    // to handle per-face vertex meshes where the same geometric position has
+    // multiple vertex indices.
+    fn build_vert_canon(all_verts: &[[f64; 3]]) -> Vec<usize> {
+        let mut pos_to_canon: std::collections::HashMap<[i64; 3], usize> =
+            std::collections::HashMap::new();
+        let scale = 1e9;
+        let mut vert_canon = Vec::with_capacity(all_verts.len());
+        for (i, p) in all_verts.iter().enumerate() {
+            let key = [
+                (p[0] * scale).round() as i64,
+                (p[1] * scale).round() as i64,
+                (p[2] * scale).round() as i64,
+            ];
+            let canon = *pos_to_canon.entry(key).or_insert(i);
+            vert_canon.push(canon);
+        }
+        vert_canon
+    }
+
+    let vert_canon = build_vert_canon(&all_verts);
+
+    fn build_edge_adjacency(
+        tris: &[[usize; 3]],
+        vert_canon: &[usize],
+    ) -> BTreeMap<(usize, usize), Vec<usize>> {
         let mut adj: BTreeMap<(usize, usize), Vec<usize>> = BTreeMap::new();
         for (ti, tri) in tris.iter().enumerate() {
             for &(a, b) in &[(tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])] {
-                adj.entry(edge_key(a, b)).or_default().push(ti);
+                let ca = vert_canon[a];
+                let cb = vert_canon[b];
+                adj.entry(edge_key(ca, cb)).or_default().push(ti);
             }
         }
         adj
     }
 
-    let edge_adj_a = build_edge_adjacency(tris_a);
-    let edge_adj_b = build_edge_adjacency(&remapped_tris_b);
+    let edge_adj_a = build_edge_adjacency(tris_a, &vert_canon);
+    let edge_adj_b = build_edge_adjacency(&remapped_tris_b, &vert_canon);
 
     // Scan sub-triangles to find new vertices on original edges.
     // Returns: edge → list of new vertex indices on that edge.
+    // Uses canonical vertex indices for edge keys so that per-face vertex
+    // meshes correctly match edges across face boundaries.
     fn detect_edge_splits(
         original_tris: &[[usize; 3]],
         raw_results: &[(usize, Vec<[usize; 3]>)],
         all_verts: &[[f64; 3]],
         _original_vert_count: usize,
         eps: f64,
+        vert_canon: &[usize],
     ) -> BTreeMap<(usize, usize), Vec<usize>> {
         let mut edge_splits: BTreeMap<(usize, usize), Vec<usize>> = BTreeMap::new();
         for &(parent_idx, ref sub_tris) in raw_results {
@@ -1840,13 +1874,13 @@ pub(crate) fn subdivide_mesh_pair(
             ];
             for sub_tri in sub_tris {
                 for &vi in sub_tri {
-                    // Skip vertices that belong to the parent triangle itself.
-                    // Do NOT skip based on original_vert_count — edge-on-plane
-                    // intersections insert existing vertices from the OTHER mesh
-                    // as split points on THIS mesh's edges. These must be
-                    // propagated to adjacent triangles for conformal subdivision.
-                    // Ref: specs/edge_on_plane_intersection.md — conformal vertex sharing.
-                    if vi == parent[0] || vi == parent[1] || vi == parent[2] {
+                    // Skip vertices that belong to the parent triangle itself
+                    // (using canonical comparison for per-face vertex meshes).
+                    let vi_canon = vert_canon[vi];
+                    if vi_canon == vert_canon[parent[0]]
+                        || vi_canon == vert_canon[parent[1]]
+                        || vi_canon == vert_canon[parent[2]]
+                    {
                         continue; // parent's own vertex
                     }
                     let p = &all_verts[vi];
@@ -1854,7 +1888,8 @@ pub(crate) fn subdivide_mesh_pair(
                         if let Some(_t) =
                             point_on_edge_interior(p, &all_verts[ev0], &all_verts[ev1], eps)
                         {
-                            let ek = edge_key(ev0, ev1);
+                            // Use canonical indices for edge key
+                            let ek = edge_key(vert_canon[ev0], vert_canon[ev1]);
                             let entry = edge_splits.entry(ek).or_default();
                             if !entry.contains(&vi) {
                                 entry.push(vi);
@@ -1867,8 +1902,14 @@ pub(crate) fn subdivide_mesh_pair(
         edge_splits
     }
 
-    let edge_splits_a =
-        detect_edge_splits(tris_a, &result_tris_a_raw, &all_verts, verts_a.len(), eps);
+    let edge_splits_a = detect_edge_splits(
+        tris_a,
+        &result_tris_a_raw,
+        &all_verts,
+        verts_a.len(),
+        eps,
+        &vert_canon,
+    );
     // Edge-split detection verified — propagation follows below.
     let edge_splits_b = detect_edge_splits(
         &remapped_tris_b,
@@ -1876,6 +1917,7 @@ pub(crate) fn subdivide_mesh_pair(
         &all_verts,
         offset_b + verts_b.len(),
         eps,
+        &vert_canon,
     );
 
     // Propagate edge splits to adjacent triangles that were also directly

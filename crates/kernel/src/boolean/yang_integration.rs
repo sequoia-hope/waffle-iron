@@ -987,4 +987,210 @@ mod tests {
             }
         }
     }
+
+    // ══════════════════════════════════════════════════════════════════
+    // E2E tests: Yang pipeline through yang_boolean_from_solids
+    // ══════════════════════════════════════════════════════════════════
+
+    /// Build a box WaffleSolid via WaffleKernel's extrude pipeline.
+    /// Returns (kernel, handle) — caller accesses solid via kernel.get_solid().
+    fn make_box_via_kernel(
+        cx: f64,
+        cy: f64,
+        w: f64,
+        h: f64,
+        depth: f64,
+    ) -> (
+        crate::waffle_kernel::WaffleKernel,
+        crate::types::KernelSolidHandle,
+    ) {
+        use crate::traits::Kernel;
+        use crate::waffle_kernel::WaffleKernel;
+        use std::collections::HashMap;
+
+        let mut k = WaffleKernel::new();
+        let mut positions = HashMap::new();
+        positions.insert(1, (cx - w / 2.0, cy - h / 2.0));
+        positions.insert(2, (cx + w / 2.0, cy - h / 2.0));
+        positions.insert(3, (cx + w / 2.0, cy + h / 2.0));
+        positions.insert(4, (cx - w / 2.0, cy + h / 2.0));
+
+        let profile = crate::types::ClosedProfile {
+            entity_ids: vec![10, 11, 12, 13],
+            is_outer: true,
+            vertex_ids: vec![],
+            circle: None,
+            spline_segments: vec![],
+            arc_segments: vec![],
+        };
+
+        let faces = k
+            .make_faces_from_profiles(
+                &[profile],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0],
+                &positions,
+            )
+            .expect("make_faces_from_profiles should succeed");
+        let solid = k
+            .extrude_face(faces[0], [0.0, 0.0, 1.0], depth)
+            .expect("extrude_face should succeed");
+
+        (k, solid)
+    }
+
+    /// E2E test: Two identical boxes through the full Yang pipeline via
+    /// yang_boolean_from_solids. This is the F0001 assay pattern.
+    #[test]
+    fn yang_e2e_identical_box_union() {
+        std::env::set_var("YANG_BOOLEAN", "1");
+
+        let (k_a, h_a) = make_box_via_kernel(0.5, 0.5, 1.0, 1.0, 1.0);
+        let (k_b, h_b) = make_box_via_kernel(0.5, 0.5, 1.0, 1.0, 1.0);
+
+        let solid_a = k_a.get_solid(&h_a).expect("solid_a must exist");
+        let solid_b = k_b.get_solid(&h_b).expect("solid_b must exist");
+
+        assert!(
+            !solid_a.face_geometry.is_empty(),
+            "solid_a must have face_geometry"
+        );
+        assert!(
+            !solid_b.face_geometry.is_empty(),
+            "solid_b must have face_geometry"
+        );
+
+        let mut next_id = 1000u64;
+        let mut id_alloc = || {
+            let id = next_id;
+            next_id += 1;
+            id
+        };
+
+        let result = yang_boolean_from_solids(solid_a, solid_b, BoolOp::Union, &mut id_alloc);
+
+        std::env::remove_var("YANG_BOOLEAN");
+
+        match &result {
+            Ok(boolean_result) => {
+                let n_faces = boolean_result.arena.faces.len();
+                let n_edges = boolean_result.arena.edges.len();
+                let n_verts = boolean_result.arena.vertices.len();
+                let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
+
+                eprintln!("Yang E2E identical box union: V={n_verts}, E={n_edges}, F={n_faces}, Euler={euler}");
+
+                assert!(
+                    n_faces >= 6,
+                    "Union of identical boxes should have >= 6 faces, got {n_faces}"
+                );
+                assert_eq!(euler, 2, "Euler V-E+F must equal 2");
+            }
+            Err(e) => {
+                panic!(
+                    "Yang E2E identical box union failed with error: {e:?}. \
+                     The pipeline should produce a valid solid for identical box union."
+                );
+            }
+        }
+    }
+
+    /// E2E test: Two overlapping boxes through the full Yang pipeline.
+    #[test]
+    fn yang_e2e_overlapping_box_union() {
+        std::env::set_var("YANG_BOOLEAN", "1");
+
+        // Box A centered at (0.5,0.5), 2×2, extruded 2 → x=[-0.5,1.5], y=[-0.5,1.5], z=[0,2]
+        let (k_a, h_a) = make_box_via_kernel(0.5, 0.5, 2.0, 2.0, 2.0);
+        // Box B centered at (1.5,0.5), 2×2, extruded 2 → x=[0.5,2.5], y=[-0.5,1.5], z=[0,2]
+        let (k_b, h_b) = make_box_via_kernel(1.5, 0.5, 2.0, 2.0, 2.0);
+
+        let solid_a = k_a.get_solid(&h_a).unwrap();
+        let solid_b = k_b.get_solid(&h_b).unwrap();
+
+        let mut next_id = 1000u64;
+        let mut id_alloc = || {
+            let id = next_id;
+            next_id += 1;
+            id
+        };
+
+        let result = yang_boolean_from_solids(solid_a, solid_b, BoolOp::Union, &mut id_alloc);
+
+        std::env::remove_var("YANG_BOOLEAN");
+
+        match &result {
+            Ok(boolean_result) => {
+                let n_faces = boolean_result.arena.faces.len();
+                let n_edges = boolean_result.arena.edges.len();
+                let n_verts = boolean_result.arena.vertices.len();
+                let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
+
+                eprintln!("Yang E2E overlapping box union: V={n_verts}, E={n_edges}, F={n_faces}, Euler={euler}");
+
+                assert!(
+                    n_faces >= 10,
+                    "Union should have >= 10 faces, got {n_faces}"
+                );
+                assert_eq!(euler, 2, "Euler V-E+F must equal 2");
+            }
+            Err(e) => {
+                panic!(
+                    "Yang E2E overlapping box union failed with error: {e:?}. \
+                     The pipeline should produce a valid solid."
+                );
+            }
+        }
+    }
+
+    /// E2E test: Box subtract through the full Yang pipeline.
+    #[test]
+    fn yang_e2e_offset_box_subtract() {
+        std::env::set_var("YANG_BOOLEAN", "1");
+
+        // Box A centered at (0.5,0.5), 2×2, depth 2 → x=[-0.5,1.5], y=[-0.5,1.5], z=[0,2]
+        // Box B centered at (1.5,0.5), 2×2, depth 2 → x=[0.5,2.5], y=[-0.5,1.5], z=[0,2]
+        // Overlapping in x=[0.5,1.5] — shared coplanar faces at z=0, z=2, y=±0.5
+        // but the subtract of overlapping boxes should still work (the overlapping
+        // box subtract diagnostic passes at mesh level)
+        let (k_a, h_a) = make_box_via_kernel(0.5, 0.5, 2.0, 2.0, 2.0);
+        let (k_b, h_b) = make_box_via_kernel(1.5, 0.5, 2.0, 2.0, 2.0);
+
+        let solid_a = k_a.get_solid(&h_a).unwrap();
+        let solid_b = k_b.get_solid(&h_b).unwrap();
+
+        let mut next_id = 1000u64;
+        let mut id_alloc = || {
+            let id = next_id;
+            next_id += 1;
+            id
+        };
+
+        let result = yang_boolean_from_solids(solid_a, solid_b, BoolOp::Subtract, &mut id_alloc);
+
+        std::env::remove_var("YANG_BOOLEAN");
+
+        match &result {
+            Ok(boolean_result) => {
+                let n_faces = boolean_result.arena.faces.len();
+                let n_edges = boolean_result.arena.edges.len();
+                let n_verts = boolean_result.arena.vertices.len();
+                let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
+
+                eprintln!(
+                    "Yang E2E subtract: V={n_verts}, E={n_edges}, F={n_faces}, Euler={euler}"
+                );
+
+                assert!(
+                    n_faces > 0,
+                    "Subtract should produce non-empty result, got 0 faces"
+                );
+                assert_eq!(euler, 2, "Euler V-E+F must equal 2");
+            }
+            Err(e) => {
+                panic!("Yang E2E offset box subtract failed with error: {e:?}.");
+            }
+        }
+    }
 }

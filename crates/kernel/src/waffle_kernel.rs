@@ -124,6 +124,12 @@ impl WaffleKernel {
         }
     }
 
+    /// Access a stored solid by handle ID (for internal crate tests).
+    #[cfg(test)]
+    pub(crate) fn get_solid(&self, handle: &KernelSolidHandle) -> Option<&WaffleSolid> {
+        self.solids.get(&handle.id())
+    }
+
     fn alloc_id(&mut self) -> u64 {
         let id = self.next_id;
         self.next_id += 1;

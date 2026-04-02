@@ -2518,4 +2518,561 @@ mod tests {
         // Check if T is Result<ResultTopology, KernelError>
         TypeId::of::<T>() == TypeId::of::<Result<ResultTopology, crate::types::KernelError>>()
     }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Diagnostic: identical box union (coplanar face handling)
+    // ══════════════════════════════════════════════════════════════════
+
+    /// Diagnostic test: Two identical boxes through the Yang pipeline.
+    /// This is the F0001 assay pattern. Both boxes share all 6 face planes,
+    /// producing coplanar triangle pairs. The pipeline must handle these
+    /// correctly: for Union, the result should be one box (same as either input).
+    #[test]
+    fn yang_identical_box_union_diagnostic() {
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        let (verts_b, tris_b) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+
+        // Stage 1: Subdivide
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+
+        // Diagnostic: Check if coplanar pairs created any new sub-triangles
+        let a_sub_count = subdivided.tris_a.len();
+        let b_sub_count = subdivided.tris_b.len();
+
+        // Stage 2: Label cells
+        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+
+        // Diagnostic: Count labels by type
+        let mut a_labels: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for label in &labeling.labels_a {
+            *a_labels.entry(format!("{:?}", label)).or_insert(0) += 1;
+        }
+        let mut b_labels: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for label in &labeling.labels_b {
+            *b_labels.entry(format!("{:?}", label)).or_insert(0) += 1;
+        }
+
+        // Build bijective maps
+        let bijective_a = build_bijective_from_subdivided(&subdivided.tris_a, tris_a.len());
+        let bijective_b = build_bijective_from_subdivided(&subdivided.tris_b, tris_b.len());
+
+        // Stage 3a: Face survival
+        let survival = face_survival_detect(
+            &subdivided,
+            &labeling,
+            MeshBooleanOp::Union,
+            &bijective_a,
+            &bijective_b,
+        );
+
+        let total_surviving: usize = survival.groups.values().map(|v| v.len()).sum();
+        let n_groups = survival.groups.len();
+
+        // Diagnostic: count A vs B surviving groups
+        let a_groups: usize = survival
+            .groups
+            .keys()
+            .filter(|k| k.mesh_id == MeshId::A)
+            .count();
+        let b_groups: usize = survival
+            .groups
+            .keys()
+            .filter(|k| k.mesh_id == MeshId::B)
+            .count();
+
+        // Stage 3b: Extract trim boundaries
+        let trim_map = extract_trim_boundaries(&subdivided, &survival);
+
+        // Count total trim loops
+        let total_loops: usize = trim_map.boundaries.values().map(|v| v.len()).sum();
+
+        // Stage 3c: Build B-Rep
+        let result = build_result_brep(&trim_map, &subdivided);
+
+        let n_faces = result.arena.faces.len();
+        let n_edges = result.arena.edges.len();
+        let n_verts = result.arena.vertices.len();
+        let n_he = result.arena.half_edges.len();
+
+        // Count unpaired half-edges
+        let unpaired = if n_he > 0 {
+            (0..n_he)
+                .filter(|&i| {
+                    let twin_idx = result.arena.half_edges[i].twin.0;
+                    twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+                })
+                .count()
+        } else {
+            0
+        };
+
+        // Print diagnostics for debugging
+        eprintln!("=== IDENTICAL BOX UNION DIAGNOSTIC ===");
+        eprintln!("Input: 2 identical unit boxes [0,1]^3");
+        eprintln!("Sub-tris A: {a_sub_count} (original: {})", tris_a.len());
+        eprintln!("Sub-tris B: {b_sub_count} (original: {})", tris_b.len());
+        eprintln!("Labels A: {:?}", a_labels);
+        eprintln!("Labels B: {:?}", b_labels);
+        eprintln!("Surviving groups: {n_groups} (A: {a_groups}, B: {b_groups})");
+        eprintln!("Total surviving sub-tris: {total_surviving}");
+        eprintln!("Trim loops: {total_loops}");
+        eprintln!("Result B-Rep: V={n_verts}, E={n_edges}, F={n_faces}, HE={n_he}");
+        eprintln!("Unpaired half-edges: {unpaired}");
+        eprintln!(
+            "Euler V-E+F: {}",
+            n_verts as i64 - n_edges as i64 + n_faces as i64
+        );
+        eprintln!("======================================");
+
+        // For identical box Union: result should be one box with 6 faces.
+        // If the B-Rep is empty (all zeros), it means unpaired HEs caused fallback.
+        // We assert the expected outcome and use failure diagnostics to understand why.
+        assert!(
+            n_faces > 0,
+            "Identical box union must produce non-empty B-Rep. \
+             Got 0 faces. A_sub={a_sub_count}, B_sub={b_sub_count}, \
+             labels_a={a_labels:?}, labels_b={b_labels:?}, \
+             surviving={total_surviving} in {n_groups} groups, \
+             unpaired_he={unpaired}"
+        );
+    }
+
+    /// Diagnostic: Subtract two overlapping boxes through Yang pipeline.
+    #[test]
+    fn yang_overlapping_box_subtract_diagnostic() {
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
+
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+
+        // Count labels
+        let mut a_labels: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for label in &labeling.labels_a {
+            *a_labels.entry(format!("{:?}", label)).or_insert(0) += 1;
+        }
+        let mut b_labels: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for label in &labeling.labels_b {
+            *b_labels.entry(format!("{:?}", label)).or_insert(0) += 1;
+        }
+
+        let bijective_a = build_bijective_from_subdivided(&subdivided.tris_a, tris_a.len());
+        let bijective_b = build_bijective_from_subdivided(&subdivided.tris_b, tris_b.len());
+
+        let survival = face_survival_detect(
+            &subdivided,
+            &labeling,
+            MeshBooleanOp::Subtract,
+            &bijective_a,
+            &bijective_b,
+        );
+
+        let total_surviving: usize = survival.groups.values().map(|v| v.len()).sum();
+        let a_groups: usize = survival
+            .groups
+            .keys()
+            .filter(|k| k.mesh_id == MeshId::A)
+            .count();
+        let b_groups: usize = survival
+            .groups
+            .keys()
+            .filter(|k| k.mesh_id == MeshId::B)
+            .count();
+
+        let trim_map = extract_trim_boundaries(&subdivided, &survival);
+        let total_loops: usize = trim_map.boundaries.values().map(|v| v.len()).sum();
+
+        let result = build_result_brep(&trim_map, &subdivided);
+        let n_faces = result.arena.faces.len();
+        let n_edges = result.arena.edges.len();
+        let n_verts = result.arena.vertices.len();
+        let n_he = result.arena.half_edges.len();
+        let unpaired = if n_he > 0 {
+            (0..n_he)
+                .filter(|&i| {
+                    let twin_idx = result.arena.half_edges[i].twin.0;
+                    twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+                })
+                .count()
+        } else {
+            0
+        };
+
+        eprintln!("=== SUBTRACT DIAGNOSTIC ===");
+        eprintln!(
+            "Sub-tris A: {}, B: {}",
+            subdivided.tris_a.len(),
+            subdivided.tris_b.len()
+        );
+        eprintln!("Labels A: {:?}", a_labels);
+        eprintln!("Labels B: {:?}", b_labels);
+        eprintln!("Surviving: {total_surviving} (A: {a_groups} groups, B: {b_groups} groups)");
+        eprintln!("Trim loops: {total_loops}");
+        eprintln!("B-Rep: V={n_verts}, E={n_edges}, F={n_faces}, HE={n_he}, unpaired={unpaired}");
+        eprintln!("===========================");
+
+        assert!(n_faces > 0, "Subtract should produce non-empty B-Rep");
+        assert_eq!(unpaired, 0, "All half-edges must be paired");
+    }
+
+    /// Diagnostic: B fully inside A subtract.
+    /// Currently fails because inner loops (holes) are not supported in
+    /// build_result_brep — only the outer loop is processed.
+    #[test]
+    #[ignore = "inner loop support needed for contained subtract (Task 4)"]
+    fn yang_contained_box_subtract_diagnostic() {
+        // A=[0,4]^3, B=[1,3]^2 × [0,2]
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [4.0, 4.0, 4.0]);
+        let (verts_b, tris_b) = make_box_mesh([1.0, 1.0, 0.0], [3.0, 3.0, 2.0]);
+
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+
+        let mut a_labels: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for label in &labeling.labels_a {
+            *a_labels.entry(format!("{:?}", label)).or_insert(0) += 1;
+        }
+        let mut b_labels: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for label in &labeling.labels_b {
+            *b_labels.entry(format!("{:?}", label)).or_insert(0) += 1;
+        }
+
+        let bijective_a = build_bijective_from_subdivided(&subdivided.tris_a, tris_a.len());
+        let bijective_b = build_bijective_from_subdivided(&subdivided.tris_b, tris_b.len());
+
+        let survival = face_survival_detect(
+            &subdivided,
+            &labeling,
+            MeshBooleanOp::Subtract,
+            &bijective_a,
+            &bijective_b,
+        );
+
+        let total_surviving: usize = survival.groups.values().map(|v| v.len()).sum();
+        let a_groups: usize = survival
+            .groups
+            .keys()
+            .filter(|k| k.mesh_id == MeshId::A)
+            .count();
+        let b_groups: usize = survival
+            .groups
+            .keys()
+            .filter(|k| k.mesh_id == MeshId::B)
+            .count();
+
+        let trim_map = extract_trim_boundaries(&subdivided, &survival);
+        let result = build_result_brep(&trim_map, &subdivided);
+        let n_faces = result.arena.faces.len();
+        let n_he = result.arena.half_edges.len();
+        let unpaired = if n_he > 0 {
+            (0..n_he)
+                .filter(|&i| {
+                    let twin_idx = result.arena.half_edges[i].twin.0;
+                    twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+                })
+                .count()
+        } else {
+            0
+        };
+
+        eprintln!("=== CONTAINED SUBTRACT DIAGNOSTIC ===");
+        eprintln!(
+            "Sub-tris A: {}, B: {}",
+            subdivided.tris_a.len(),
+            subdivided.tris_b.len()
+        );
+        eprintln!("Labels A: {:?}", a_labels);
+        eprintln!("Labels B: {:?}", b_labels);
+        eprintln!("Surviving: {total_surviving} (A: {a_groups}, B: {b_groups})");
+        eprintln!("B-Rep: F={n_faces}, HE={n_he}, unpaired={unpaired}");
+        eprintln!("======================================");
+
+        assert!(
+            n_faces > 0,
+            "Contained subtract should produce non-empty B-Rep"
+        );
+    }
+
+    /// Build a box mesh with PER-FACE vertices (non-shared), matching the output
+    /// format of WaffleKernel tessellation. Each face has its own 4 vertices.
+    /// Winding is CCW from outside (outward-facing normals via right-hand rule).
+    fn make_box_mesh_per_face(min: [f64; 3], max: [f64; 3]) -> (Vec<[f64; 3]>, Vec<[usize; 3]>) {
+        let [x0, y0, z0] = min;
+        let [x1, y1, z1] = max;
+
+        // Use the same vertex ordering and winding as make_box_mesh (shared version),
+        // but duplicate vertices per face. The shared-vertex mesh uses 8 vertices
+        // at indices 0-7 with specific winding per face. We replicate each face
+        // with its own copy of the corner vertices.
+
+        // Shared vertex positions (reference):
+        // 0: [x0,y0,z0], 1: [x1,y0,z0], 2: [x1,y1,z0], 3: [x0,y1,z0]
+        // 4: [x0,y0,z1], 5: [x1,y0,z1], 6: [x1,y1,z1], 7: [x0,y1,z1]
+        let corners = [
+            [x0, y0, z0],
+            [x1, y0, z0],
+            [x1, y1, z0],
+            [x0, y1, z0],
+            [x0, y0, z1],
+            [x1, y0, z1],
+            [x1, y1, z1],
+            [x0, y1, z1],
+        ];
+
+        // Shared-vertex triangles (from make_box_mesh):
+        let shared_tris: &[([usize; 3], [usize; 3])] = &[
+            ([0, 2, 1], [0, 3, 2]), // Back face (z=z0) — face 0
+            ([4, 5, 6], [4, 6, 7]), // Front face (z=z1) — face 1
+            ([0, 1, 5], [0, 5, 4]), // Bottom face (y=y0) — face 2
+            ([3, 6, 2], [3, 7, 6]), // Top face (y=y1) — face 3
+            ([0, 4, 7], [0, 7, 3]), // Left face (x=x0) — face 4
+            ([1, 2, 6], [1, 6, 5]), // Right face (x=x1) — face 5
+        ];
+
+        let mut verts = Vec::new();
+        let mut tris = Vec::new();
+
+        for &(t0, t1) in shared_tris {
+            // Collect unique vertex indices from both triangles
+            let mut face_verts: Vec<usize> = Vec::new();
+            for &vi in t0.iter().chain(t1.iter()) {
+                if !face_verts.contains(&vi) {
+                    face_verts.push(vi);
+                }
+            }
+
+            // Map shared indices → per-face indices
+            let base = verts.len();
+            let mut idx_map = std::collections::HashMap::new();
+            for (local, &shared) in face_verts.iter().enumerate() {
+                verts.push(corners[shared]);
+                idx_map.insert(shared, base + local);
+            }
+
+            tris.push([idx_map[&t0[0]], idx_map[&t0[1]], idx_map[&t0[2]]]);
+            tris.push([idx_map[&t1[0]], idx_map[&t1[1]], idx_map[&t1[2]]]);
+        }
+
+        (verts, tris)
+    }
+
+    /// Per-face vertex overlapping box union through full Yang pipeline.
+    /// Tests that the pipeline handles non-shared vertices correctly.
+    #[test]
+    fn yang_per_face_vertex_overlapping_union() {
+        // First, run detailed diagnostics at each pipeline stage
+        let (verts_a, tris_a) = make_box_mesh_per_face([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (verts_b, tris_b) = make_box_mesh_per_face([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
+
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        eprintln!(
+            "Per-face subdivide: tris_a={}, tris_b={}, verts={}",
+            subdivided.tris_a.len(),
+            subdivided.tris_b.len(),
+            subdivided.verts.len()
+        );
+
+        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+        let mut a_labels: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for label in &labeling.labels_a {
+            *a_labels.entry(format!("{:?}", label)).or_insert(0) += 1;
+        }
+        let mut b_labels: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for label in &labeling.labels_b {
+            *b_labels.entry(format!("{:?}", label)).or_insert(0) += 1;
+        }
+        eprintln!("Per-face labels A: {:?}", a_labels);
+        eprintln!("Per-face labels B: {:?}", b_labels);
+
+        let bijective_a_diag = BijectiveMap {
+            tri_face_ids: (0..tris_a.len()).map(|i| FaceIdx(i / 2)).collect(),
+        };
+        let bijective_b_diag = BijectiveMap {
+            tri_face_ids: (0..tris_b.len()).map(|i| FaceIdx(i / 2)).collect(),
+        };
+
+        let survival = face_survival_detect(
+            &subdivided,
+            &labeling,
+            MeshBooleanOp::Union,
+            &bijective_a_diag,
+            &bijective_b_diag,
+        );
+        let total_surviving: usize = survival.groups.values().map(|v| v.len()).sum();
+        eprintln!(
+            "Per-face surviving: {} sub-tris in {} groups",
+            total_surviving,
+            survival.groups.len()
+        );
+
+        let trim_map = extract_trim_boundaries(&subdivided, &survival);
+        let total_loops: usize = trim_map.boundaries.values().map(|v| v.len()).sum();
+        eprintln!("Per-face trim loops: {}", total_loops);
+
+        // Now run full pipeline
+        let (verts_a, tris_a) = make_box_mesh_per_face([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (verts_b, tris_b) = make_box_mesh_per_face([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
+
+        assert_eq!(verts_a.len(), 24, "Per-face box should have 24 vertices");
+        assert_eq!(tris_a.len(), 12, "Per-face box should have 12 triangles");
+
+        let bijective_a = BijectiveMap {
+            tri_face_ids: (0..tris_a.len()).map(|i| FaceIdx(i / 2)).collect(),
+        };
+        let bijective_b = BijectiveMap {
+            tri_face_ids: (0..tris_b.len()).map(|i| FaceIdx(i / 2)).collect(),
+        };
+
+        let result = yang_boolean_pipeline(
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            &bijective_a,
+            &bijective_b,
+            MeshBooleanOp::Union,
+        )
+        .expect("pipeline should not error");
+
+        let n_faces = result.arena.faces.len();
+        let n_edges = result.arena.edges.len();
+        let n_verts = result.arena.vertices.len();
+        let n_he = result.arena.half_edges.len();
+        let unpaired = if n_he > 0 {
+            (0..n_he)
+                .filter(|&i| {
+                    let twin_idx = result.arena.half_edges[i].twin.0;
+                    twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+                })
+                .count()
+        } else {
+            0
+        };
+        let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
+
+        eprintln!("=== PER-FACE VERTEX UNION ===");
+        eprintln!("B-Rep: V={n_verts}, E={n_edges}, F={n_faces}, HE={n_he}");
+        eprintln!("Unpaired: {unpaired}, Euler: {euler}");
+        eprintln!("=============================");
+
+        assert!(
+            n_faces > 0,
+            "Per-face vertex union must produce non-empty B-Rep (got {unpaired} unpaired HE)"
+        );
+        assert_eq!(unpaired, 0, "All half-edges must be paired");
+        assert_eq!(euler, 2, "Euler V-E+F must equal 2");
+    }
+
+    /// Per-face vertex identical box union (coplanar case).
+    #[test]
+    fn yang_per_face_vertex_identical_union() {
+        let (verts_a, tris_a) = make_box_mesh_per_face([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        let (verts_b, tris_b) = make_box_mesh_per_face([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+
+        let bijective_a = BijectiveMap {
+            tri_face_ids: (0..tris_a.len()).map(|i| FaceIdx(i / 2)).collect(),
+        };
+        let bijective_b = BijectiveMap {
+            tri_face_ids: (0..tris_b.len()).map(|i| FaceIdx(i / 2)).collect(),
+        };
+
+        let result = yang_boolean_pipeline(
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            &bijective_a,
+            &bijective_b,
+            MeshBooleanOp::Union,
+        )
+        .expect("pipeline should not error");
+
+        let n_faces = result.arena.faces.len();
+        let n_he = result.arena.half_edges.len();
+        let unpaired = if n_he > 0 {
+            (0..n_he)
+                .filter(|&i| {
+                    let twin_idx = result.arena.half_edges[i].twin.0;
+                    twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+                })
+                .count()
+        } else {
+            0
+        };
+
+        eprintln!("Per-face identical union: F={n_faces}, unpaired={unpaired}");
+
+        assert!(
+            n_faces > 0,
+            "Per-face identical union must produce non-empty B-Rep"
+        );
+        assert_eq!(unpaired, 0, "All half-edges must be paired");
+    }
+
+    /// Diagnostic: Two overlapping boxes (the standard test case) through
+    /// the full Yang pipeline. Box A=[0,2]^3, Box B=[1,0,0]->[3,2,2].
+    #[test]
+    fn yang_overlapping_box_union_full_pipeline() {
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
+
+        let bijective_a = BijectiveMap {
+            tri_face_ids: (0..tris_a.len()).map(|i| FaceIdx(i / 2)).collect(),
+        };
+        let bijective_b = BijectiveMap {
+            tri_face_ids: (0..tris_b.len()).map(|i| FaceIdx(i / 2)).collect(),
+        };
+
+        let result = yang_boolean_pipeline(
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            &bijective_a,
+            &bijective_b,
+            MeshBooleanOp::Union,
+        )
+        .expect("pipeline should not error");
+
+        let n_faces = result.arena.faces.len();
+        let n_edges = result.arena.edges.len();
+        let n_verts = result.arena.vertices.len();
+        let n_he = result.arena.half_edges.len();
+
+        // Count unpaired
+        let unpaired = if n_he > 0 {
+            (0..n_he)
+                .filter(|&i| {
+                    let twin_idx = result.arena.half_edges[i].twin.0;
+                    twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+                })
+                .count()
+        } else {
+            0
+        };
+
+        let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
+
+        eprintln!("=== OVERLAPPING BOX UNION DIAGNOSTIC ===");
+        eprintln!("Result B-Rep: V={n_verts}, E={n_edges}, F={n_faces}, HE={n_he}");
+        eprintln!("Unpaired half-edges: {unpaired}");
+        eprintln!("Euler V-E+F: {euler}");
+        eprintln!("========================================");
+
+        // The overlapping box union should produce valid topology
+        assert!(
+            n_faces > 0,
+            "Overlapping box union must produce non-empty B-Rep (got 0 faces, {unpaired} unpaired HE)"
+        );
+        assert_eq!(unpaired, 0, "All half-edges must be paired");
+        assert_eq!(euler, 2, "Euler formula V-E+F must equal 2");
+    }
 }
