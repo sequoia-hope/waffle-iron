@@ -4325,7 +4325,7 @@ fn q_tilted_gear_rect_subtract() {
             );
         }
         Err(e) => {
-            eprintln!("Boolean subtract failed: {:?}", e);
+            panic!("Boolean subtract failed: {:?}", e);
         }
     }
 }
@@ -4376,7 +4376,7 @@ fn r_z_aligned_box_box_union_watertight() {
             );
         }
         Err(e) => {
-            eprintln!("Box-box union failed: {:?}", e);
+            panic!("Box-box union failed: {:?}", e);
         }
     }
 }
@@ -4427,7 +4427,7 @@ fn r_z_aligned_gear_rect_subtract_watertight() {
             );
         }
         Err(e) => {
-            eprintln!("Gear-rect subtract failed: {:?}", e);
+            panic!("Gear-rect subtract failed: {:?}", e);
         }
     }
 }
@@ -4469,7 +4469,7 @@ fn r_rect_rect_boss_boss_union_watertight() {
             assert_eq!(unpaired, 0, "Identical box union must be watertight");
         }
         Err(e) => {
-            eprintln!("Identical box union failed: {:?}", e);
+            panic!("Identical box union failed: {:?}", e);
         }
     }
 }

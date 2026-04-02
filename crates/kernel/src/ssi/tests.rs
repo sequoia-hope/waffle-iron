@@ -6955,21 +6955,31 @@ fn test_cone_cone_opposing_directions() {
 
 #[test]
 fn test_cone_cone_no_nan_in_results() {
-    // General case: two cones at an angle, verify no NaN in any coordinate.
+    // General case: two cones at an angle, verify no NaN in any coordinate
+    // and that all curve points lie on both cone surfaces (P1: numeric oracle).
     // Cone A: apex=[0,0,0], axis=[0,0,1], 30°
     // Cone B: apex=[2,0,0], axis=[0,1,0] (perpendicular), 30°
     let half_30 = std::f64::consts::FRAC_PI_6;
+    let apex_a = [0.0, 0.0, 0.0];
+    let axis_a = [0.0, 0.0, 1.0];
+    let apex_b = [2.0, 0.0, 0.0];
+    let axis_b = [0.0, 1.0, 0.0];
     let curves = cone_cone_ssi(
-        [0.0, 0.0, 0.0], // apex A
-        [0.0, 0.0, 1.0], // axis A
-        half_30,         // half-angle A
-        (0.0, 10.0),     // height range A
-        [2.0, 0.0, 0.0], // apex B
-        [0.0, 1.0, 0.0], // axis B (perpendicular to A)
-        half_30,         // half-angle B
-        (0.0, 10.0),     // height range B
+        apex_a,      // apex A
+        axis_a,      // axis A
+        half_30,     // half-angle A
+        (0.0, 10.0), // height range A
+        apex_b,      // apex B
+        axis_b,      // axis B (perpendicular to A)
+        half_30,     // half-angle B
+        (0.0, 10.0), // height range B
     )
     .unwrap();
+
+    // The solver may return empty if the height/position analysis determines
+    // no geometric intersection exists in the bounded region. When curves ARE
+    // returned, validate them with on-surface oracles (P1 compliance).
+    let on_surface_tol = 0.01; // geometric oracle tolerance
 
     for (i, curve) in curves.iter().enumerate() {
         match curve {
@@ -6978,35 +6988,70 @@ fn test_cone_cone_no_nan_in_results() {
                 normal,
                 radius,
             } => {
+                assert_no_nan(*center, &format!("circle {} center", i));
+                assert_no_nan(*normal, &format!("circle {} normal", i));
                 assert!(
-                    !center[0].is_nan() && !center[1].is_nan() && !center[2].is_nan(),
-                    "Curve {}: NaN in circle center {:?}",
-                    i,
-                    center
-                );
-                assert!(
-                    !normal[0].is_nan() && !normal[1].is_nan() && !normal[2].is_nan(),
-                    "Curve {}: NaN in circle normal {:?}",
-                    i,
-                    normal
-                );
-                assert!(
-                    !radius.is_nan() && *radius >= 0.0,
-                    "Curve {}: invalid circle radius {}",
+                    !radius.is_nan() && *radius > 0.0,
+                    "Curve {}: circle radius must be positive, got {}",
                     i,
                     radius
                 );
+                // P1 oracle: sample points on the circle and verify on both cones
+                for j in 0..16 {
+                    let theta = 2.0 * std::f64::consts::PI * j as f64 / 16.0;
+                    // Build a local frame on the circle plane
+                    let u = if normal[0].abs() < 0.9 {
+                        v3_normalize(v3_cross(*normal, [1.0, 0.0, 0.0]))
+                    } else {
+                        v3_normalize(v3_cross(*normal, [0.0, 1.0, 0.0]))
+                    };
+                    let v = v3_cross(*normal, u);
+                    let pt = [
+                        center[0] + radius * (theta.cos() * u[0] + theta.sin() * v[0]),
+                        center[1] + radius * (theta.cos() * u[1] + theta.sin() * v[1]),
+                        center[2] + radius * (theta.cos() * u[2] + theta.sin() * v[2]),
+                    ];
+                    assert!(
+                        point_on_cone(pt, apex_a, axis_a, half_30, on_surface_tol),
+                        "Circle {} sample {} not on cone A: {:?}",
+                        i,
+                        j,
+                        pt
+                    );
+                    assert!(
+                        point_on_cone(pt, apex_b, axis_b, half_30, on_surface_tol),
+                        "Circle {} sample {} not on cone B: {:?}",
+                        i,
+                        j,
+                        pt
+                    );
+                }
             }
             SSICurve::Line { start, end } => {
+                assert_no_nan(*start, &format!("line {} start", i));
+                assert_no_nan(*end, &format!("line {} end", i));
+                // P1 oracle: both endpoints must lie on both cones
                 assert!(
-                    !start[0].is_nan() && !start[1].is_nan() && !start[2].is_nan(),
-                    "Curve {}: NaN in line start {:?}",
+                    point_on_cone(*start, apex_a, axis_a, half_30, on_surface_tol),
+                    "Line {} start not on cone A: {:?}",
                     i,
                     start
                 );
                 assert!(
-                    !end[0].is_nan() && !end[1].is_nan() && !end[2].is_nan(),
-                    "Curve {}: NaN in line end {:?}",
+                    point_on_cone(*start, apex_b, axis_b, half_30, on_surface_tol),
+                    "Line {} start not on cone B: {:?}",
+                    i,
+                    start
+                );
+                assert!(
+                    point_on_cone(*end, apex_a, axis_a, half_30, on_surface_tol),
+                    "Line {} end not on cone A: {:?}",
+                    i,
+                    end
+                );
+                assert!(
+                    point_on_cone(*end, apex_b, axis_b, half_30, on_surface_tol),
+                    "Line {} end not on cone B: {:?}",
                     i,
                     end
                 );
@@ -7018,36 +7063,58 @@ fn test_cone_cone_no_nan_in_results() {
                 semi_major,
                 semi_minor,
             } => {
+                assert_no_nan(*center, &format!("ellipse {} center", i));
+                assert_no_nan(*normal, &format!("ellipse {} normal", i));
+                assert_no_nan(*major_axis, &format!("ellipse {} major_axis", i));
                 assert!(
-                    !center[0].is_nan() && !center[1].is_nan() && !center[2].is_nan(),
-                    "Curve {}: NaN in ellipse center {:?}",
-                    i,
-                    center
-                );
-                assert!(
-                    !normal[0].is_nan() && !normal[1].is_nan() && !normal[2].is_nan(),
-                    "Curve {}: NaN in ellipse normal {:?}",
-                    i,
-                    normal
-                );
-                assert!(
-                    !major_axis[0].is_nan() && !major_axis[1].is_nan() && !major_axis[2].is_nan(),
-                    "Curve {}: NaN in ellipse major_axis {:?}",
-                    i,
-                    major_axis
-                );
-                assert!(
-                    !semi_major.is_nan() && *semi_major >= 0.0,
-                    "Curve {}: invalid semi_major {}",
+                    !semi_major.is_nan() && *semi_major > 0.0,
+                    "Curve {}: semi_major must be positive, got {}",
                     i,
                     semi_major
                 );
                 assert!(
-                    !semi_minor.is_nan() && *semi_minor >= 0.0,
-                    "Curve {}: invalid semi_minor {}",
+                    !semi_minor.is_nan() && *semi_minor > 0.0,
+                    "Curve {}: semi_minor must be positive, got {}",
                     i,
                     semi_minor
                 );
+                assert!(
+                    *semi_major >= *semi_minor,
+                    "Curve {}: semi_major ({}) < semi_minor ({})",
+                    i,
+                    semi_major,
+                    semi_minor
+                );
+                // P1 oracle: sample points on the ellipse and verify on both cones
+                let minor_axis = v3_cross(*normal, *major_axis);
+                for j in 0..16 {
+                    let theta = 2.0 * std::f64::consts::PI * j as f64 / 16.0;
+                    let pt = [
+                        center[0]
+                            + semi_major * theta.cos() * major_axis[0]
+                            + semi_minor * theta.sin() * minor_axis[0],
+                        center[1]
+                            + semi_major * theta.cos() * major_axis[1]
+                            + semi_minor * theta.sin() * minor_axis[1],
+                        center[2]
+                            + semi_major * theta.cos() * major_axis[2]
+                            + semi_minor * theta.sin() * minor_axis[2],
+                    ];
+                    assert!(
+                        point_on_cone(pt, apex_a, axis_a, half_30, on_surface_tol),
+                        "Ellipse {} sample {} not on cone A: {:?}",
+                        i,
+                        j,
+                        pt
+                    );
+                    assert!(
+                        point_on_cone(pt, apex_b, axis_b, half_30, on_surface_tol),
+                        "Ellipse {} sample {} not on cone B: {:?}",
+                        i,
+                        j,
+                        pt
+                    );
+                }
             }
             _ => panic!("Unexpected SSICurve variant: {:?}", curve),
         }
@@ -7866,25 +7933,34 @@ fn cyl_cone_ssi_adv_tiny_geometry() {
     )
     .unwrap();
 
-    // At this scale the intersection circle (h=1e-5, radius=1e-5) is above
-    // MIN_FEATURE_SIZE (1e-6), so we may get a circle. Either way, no panic/NaN.
-    for curve in &curves {
-        match curve {
-            SSICurve::Circle { center, radius, .. } => {
-                for j in 0..3 {
-                    assert!(!center[j].is_nan(), "NaN in tiny-geometry circle center");
-                }
-                assert!(
-                    *radius > 0.0 && !radius.is_nan(),
-                    "Invalid radius in tiny geometry"
-                );
-            }
-            SSICurve::Line { start, end } => {
-                for j in 0..3 {
-                    assert!(!start[j].is_nan() && !end[j].is_nan());
-                }
-            }
-            _ => {}
+    // P1 oracle: coaxial 45° cone-cylinder at scale 1e-5. The cone radius equals
+    // the cylinder radius at h=r=1e-5, so the intersection is a circle at z=1e-5
+    // with radius=1e-5 (above MIN_FEATURE_SIZE=1e-6). Validate geometry.
+    let circles: Vec<_> = curves
+        .iter()
+        .filter(|c| matches!(c, SSICurve::Circle { .. }))
+        .collect();
+    assert!(
+        !circles.is_empty(),
+        "Coaxial cone-cylinder at 1e-5 scale must produce at least one circle"
+    );
+    for curve in &circles {
+        if let SSICurve::Circle { center, radius, .. } = curve {
+            assert_no_nan(*center, "tiny-geometry circle center");
+            assert!(*radius > 0.0, "Invalid radius in tiny geometry: {}", radius);
+            // Circle should be at z ≈ r = 1e-5 with radius ≈ 1e-5
+            assert!(
+                (center[2] - r).abs() < r * 0.1,
+                "Circle center z={} expected near {} (10% tolerance)",
+                center[2],
+                r
+            );
+            assert!(
+                (*radius - r).abs() < r * 0.1,
+                "Circle radius={} expected near {} (10% tolerance)",
+                radius,
+                r
+            );
         }
     }
 }
