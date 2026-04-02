@@ -10,7 +10,7 @@ The system has four layers:
 
 ### Kernel Layer (Rust, compiled to WASM)
 
-**`crates/kernel/`** — Clean-sheet B-Rep geometry kernel informed by published research (see `REFERENCES.md` and `/docs/SYSTEM_DESIGN.md`). Half-edge topology with Euler operators [Ref #16: Mantyla, #33: Stroud Ch.4], analytic and NURBS geometry, hybrid B-Rep/mesh boolean pipeline [Ref #24: Barton et al.], exact adaptive predicates [Ref #4: Shewchuk], generalized winding numbers [Ref #7: Jacobson et al.], and topology-guaranteed SSI [Ref #25]. **Analytical primacy**: boolean operations on quadric surfaces (plane, cylinder, cone, sphere, torus) use exact SSI — the mesh/polygon path is reserved for freeform surfaces only (see governance/ARCHITECTURAL_INVARIANTS.md A15). Exposes `Kernel` and `KernelIntrospect` traits — no kernel internals leak to other layers. Progress tracked via assay score (current: 0/190 pass — legacy pipeline timing out, Yang pipeline under construction; target: 190/190 on Yang pipeline). The previous truck-based kernel served through Sprint 67 (see git history).
+**`crates/kernel/`** — Clean-sheet B-Rep geometry kernel informed by published research (see `REFERENCES.md` and `/docs/SYSTEM_DESIGN.md`). Half-edge topology with Euler operators [Ref #16: Mantyla, #33: Stroud Ch.4], analytic and NURBS geometry, hybrid B-Rep/mesh boolean pipeline [Ref #24: Barton et al.], exact adaptive predicates [Ref #4: Shewchuk], generalized winding numbers [Ref #7: Jacobson et al.], and topology-guaranteed SSI [Ref #25]. **Analytical primacy**: boolean operations on quadric surfaces (plane, cylinder, cone, sphere, torus) use exact SSI — the mesh/polygon path is reserved for freeform surfaces only (see governance/ARCHITECTURAL_INVARIANTS.md A15). Exposes `Kernel` and `KernelIntrospect` traits — no kernel internals leak to other layers. Progress tracked via assay score (see assay runner; target: 190/190 on Yang pipeline). The previous truck-based kernel served through Sprint 67 (see git history).
 
 ### Engine Layer (Rust, compiled to WASM, runs in Web Worker)
 
@@ -116,7 +116,7 @@ wasm-bridge → sketch-ui (update display, color by status)
 
 | # | Project | Purpose | Technology | Dependencies | Status |
 |---|---------|---------|------------|-------------|--------|
-| 01 | kernel | Clean-sheet B-Rep geometry kernel | Rust | None | In progress (953 tests, 14 ignored; assay 190 cases) |
+| 01 | kernel | Clean-sheet B-Rep geometry kernel | Rust | None | In progress (952 tests, 15 ignored; assay 190 cases) |
 | 02 | sketch-solver | 2D constraint solving via slvs | Rust + C (libslvs) | None | Complete (M1-M10 + Emscripten WASM) |
 | 03 | wasm-bridge | WASM↔JS communication protocol | Rust + JS | 01 | Complete (M1-M8) |
 | 04 | 3d-viewport | three.js rendering via Threlte | Svelte + JS | 01 | Complete |
@@ -167,7 +167,7 @@ All 3D rendering happens in JavaScript via three.js/Threlte on the main thread. 
 
 ## Current Kernel Status
 
-The clean-sheet kernel (`crates/kernel/`) is under active development. **953 kernel tests pass** (14 ignored). 190-case randomized assay corpus (seed 42) with analytical ground truth and Euler characteristic oracles. Current assay (52 scored): 3 pass, 49 fail, 0 error (legacy S-H path; Yang path score is the target metric per A15.6).
+The clean-sheet kernel (`crates/kernel/`) is under active development. **952 kernel tests pass** (15 ignored). 190-case randomized assay corpus (seed 42) with analytical ground truth and Euler characteristic oracles. Assay score pending re-run (legacy S-H path; Yang path score is the target metric per A15.6).
 
 ### What exists:
 - Half-edge B-Rep topology data structure with arena-based storage
