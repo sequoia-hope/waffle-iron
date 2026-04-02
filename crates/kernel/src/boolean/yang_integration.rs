@@ -377,16 +377,6 @@ fn tessellate_waffle_solid(solid: &WaffleSolid) -> Result<RenderMesh, KernelErro
     )
 }
 
-// ── Triangle-count guard (to be implemented) ────────────────────────────
-//
-// Bug 1 red-phase: This function must be implemented to check whether the
-// triangle-pair product exceeds MAX_YANG_TRI_PAIRS. It should also be called
-// inside `yang_boolean_from_solids` after tessellation (between steps 2 and 3).
-//
-// The implementer must:
-// 1. Implement this function body (currently unimplemented!()).
-// 2. Call it from `yang_boolean_from_solids` after computing tris_a and tris_b.
-
 // ── Result topology validation ──────────────────────────────────────────
 
 /// Validate that a TopoArena produced by the Yang pipeline has consistent
