@@ -611,7 +611,10 @@ mod tests {
         match result {
             CurveGeom::Linear(line) => {
                 assert!((line.origin.x).abs() < 1e-12, "origin.x should be 0");
-                assert!((line.direction.x - 1.0).abs() < 1e-12, "direction.x should be 1");
+                assert!(
+                    (line.direction.x - 1.0).abs() < 1e-12,
+                    "direction.x should be 1"
+                );
                 assert!((line.direction.y).abs() < 1e-12, "direction.y should be 0");
                 assert!((line.direction.z).abs() < 1e-12, "direction.z should be 0");
             }

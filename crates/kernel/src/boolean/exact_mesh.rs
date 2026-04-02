@@ -4848,7 +4848,9 @@ mod tests {
                     ab[0] * ap[1] - ab[1] * ap[0],
                 ];
                 let cross_sq = cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2];
-                t > TJUNCTION_ENDPOINT_MARGIN && t < (1.0 - TJUNCTION_ENDPOINT_MARGIN) && cross_sq / ab_sq < TAU_EXACT_MESH_CLASSIFY
+                t > TJUNCTION_ENDPOINT_MARGIN
+                    && t < (1.0 - TJUNCTION_ENDPOINT_MARGIN)
+                    && cross_sq / ab_sq < TAU_EXACT_MESH_CLASSIFY
             })
             .copied()
             .collect();
