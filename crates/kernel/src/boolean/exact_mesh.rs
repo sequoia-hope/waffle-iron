@@ -2141,6 +2141,386 @@ pub(crate) fn subdivide_mesh_pair(
         }
     }
 
+    // ── Step 3e: Conformal edge repair ──
+    // After all direct splitting and propagation, verify that adjacent
+    // triangles sharing original edges have matching edge fragmentations.
+    // This catches cases where sequential multi-segment splitting produces
+    // inconsistent fragmentations across shared internal edges (e.g.,
+    // hub-spoke center-to-corner edges in fan-tessellated meshes).
+    // Ref #9: Cherchi 2020 — conformal mesh arrangements.
+
+    /// Enforce conformal subdivision along shared original edges.
+    ///
+    /// After direct splitting and propagation, adjacent triangles sharing an
+    /// original edge may have inconsistent fragmentations of that edge. This
+    /// pass collects ALL split vertices on each shared edge across all adjacent
+    /// triangles, then ensures every adjacent triangle's sub-triangles contain
+    /// all those vertices. Ref #9: Cherchi 2020 — conformal arrangements.
+    fn enforce_conformal_edges(
+        raw_results: &mut [(usize, Vec<[usize; 3]>)],
+        edge_adj: &BTreeMap<(usize, usize), Vec<usize>>,
+        all_verts: &[[f64; 3]],
+        eps: f64,
+    ) -> usize {
+        let mut total_splits = 0;
+        // For each original shared edge (appears in 2+ triangles)
+        for (&(ev0, ev1), adj_tris) in edge_adj {
+            if adj_tris.len() < 2 {
+                continue;
+            }
+
+            // Collect ALL split vertices on this edge across all adjacent tris' sub-triangles
+            let mut splits_on_edge: Vec<usize> = Vec::new();
+            for &ti in adj_tris {
+                for sub_tri in &raw_results[ti].1 {
+                    for &vi in sub_tri {
+                        if vi == ev0 || vi == ev1 {
+                            continue;
+                        }
+                        if splits_on_edge.contains(&vi) {
+                            continue;
+                        }
+                        if point_on_edge_interior(
+                            &all_verts[vi],
+                            &all_verts[ev0],
+                            &all_verts[ev1],
+                            eps,
+                        )
+                        .is_some()
+                        {
+                            splits_on_edge.push(vi);
+                        }
+                    }
+                }
+            }
+
+            if splits_on_edge.is_empty() {
+                continue;
+            }
+
+            // For each adjacent triangle, ensure ALL split vertices are present
+            for &ti in adj_tris {
+                for &split_vi in &splits_on_edge {
+                    let already_present = raw_results[ti]
+                        .1
+                        .iter()
+                        .any(|t| t[0] == split_vi || t[1] == split_vi || t[2] == split_vi);
+                    if already_present {
+                        continue;
+                    }
+
+                    // Find and split ALL sub-triangles that have an edge containing
+                    // this vertex. Multiple sub-tris may share the same edge (they're
+                    // adjacent within the parent), so we must NOT break after the first
+                    // split — continue to find and split all of them.
+                    let mut i = 0;
+                    while i < raw_results[ti].1.len() {
+                        let tri = raw_results[ti].1[i];
+                        let tri_edges = [
+                            (tri[0], tri[1], 0usize),
+                            (tri[1], tri[2], 1usize),
+                            (tri[2], tri[0], 2usize),
+                        ];
+                        let mut did_split = false;
+                        for &(e0, e1, edge_local) in &tri_edges {
+                            if point_on_edge_interior(
+                                &all_verts[split_vi],
+                                &all_verts[e0],
+                                &all_verts[e1],
+                                eps,
+                            )
+                            .is_some()
+                            {
+                                let d0 = dist_sq(&all_verts[split_vi], &all_verts[e0]);
+                                let d1 = dist_sq(&all_verts[split_vi], &all_verts[e1]);
+                                let edge_len = dist_sq(&all_verts[e0], &all_verts[e1]);
+                                if d0 < eps * eps * edge_len || d1 < eps * eps * edge_len {
+                                    i += 1;
+                                    continue;
+                                }
+                                let new_tris = split_at_edge_point(tri, edge_local, split_vi);
+                                raw_results[ti].1.remove(i);
+                                for (k, nt) in new_tris.into_iter().enumerate() {
+                                    raw_results[ti].1.insert(i + k, nt);
+                                }
+                                did_split = true;
+                                total_splits += 1;
+                                break;
+                            }
+                        }
+                        if !did_split {
+                            i += 1;
+                        }
+                    }
+                }
+            }
+        }
+        total_splits
+    }
+
+    // Run conformal repair iteratively — splitting on one shared edge may
+    // expose missing vertices on adjacent shared edges. Converges quickly
+    // (typically 2-3 rounds for hub-spoke meshes). Cap at 10 to prevent
+    // pathological infinite loops.
+    for _repair_round in 0..10 {
+        let splits_a =
+            enforce_conformal_edges(&mut result_tris_a_raw, &edge_adj_a, &all_verts, eps);
+        let splits_b =
+            enforce_conformal_edges(&mut result_tris_b_raw, &edge_adj_b, &all_verts, eps);
+        if splits_a == 0 && splits_b == 0 {
+            break;
+        }
+    }
+
+    // ── Step 3f: Cross-mesh sub-triangle conformal repair ──
+    // After same-mesh conformal repair, mesh A and mesh B may have different
+    // vertex sets along the intersection curve. For example, mesh A's hub-spoke
+    // edge creates split vertex P_a on the intersection segment, while mesh B's
+    // hub-spoke edge creates P_b on the same segment. Both vertices exist in
+    // all_verts but each mesh is missing the other's split point on its
+    // sub-triangle edges. This pass detects vertices from one mesh that lie on
+    // sub-triangle edges of the other mesh and propagates them.
+    // Ref #9: Cherchi 2020 — cross-mesh conformal vertex sharing.
+    fn cross_mesh_subtri_conformal(
+        source_results: &[(usize, Vec<[usize; 3]>)],
+        target_results: &mut [(usize, Vec<[usize; 3]>)],
+        all_verts: &[[f64; 3]],
+        eps: f64,
+    ) -> usize {
+        // Collect all vertex indices present in source sub-triangles
+        let mut source_verts: Vec<usize> = Vec::new();
+        for &(_parent, ref sub_tris) in source_results.iter() {
+            for sub_tri in sub_tris {
+                for &vi in sub_tri {
+                    if !source_verts.contains(&vi) {
+                        source_verts.push(vi);
+                    }
+                }
+            }
+        }
+        // Collect all vertex indices present in target sub-triangles
+        let mut target_verts: Vec<usize> = Vec::new();
+        for &(_parent, ref sub_tris) in target_results.iter() {
+            for sub_tri in sub_tris {
+                for &vi in sub_tri {
+                    if !target_verts.contains(&vi) {
+                        target_verts.push(vi);
+                    }
+                }
+            }
+        }
+        // Find vertices in source but NOT in target
+        let missing: Vec<usize> = source_verts
+            .iter()
+            .filter(|vi| !target_verts.contains(vi))
+            .copied()
+            .collect();
+
+        let mut total_splits = 0;
+        for &vi in &missing {
+            let p = &all_verts[vi];
+            // Find ALL sub-triangle edges in target that contain this vertex.
+            // Multiple sub-tris may share the same edge, so don't break after
+            // the first split — continue to find and split all of them.
+            for (_parent, sub_tris) in target_results.iter_mut() {
+                let mut i = 0;
+                while i < sub_tris.len() {
+                    let tri = sub_tris[i];
+                    let tri_edges = [
+                        (tri[0], tri[1], 0usize),
+                        (tri[1], tri[2], 1usize),
+                        (tri[2], tri[0], 2usize),
+                    ];
+                    let mut did_split = false;
+                    for &(e0, e1, edge_local) in &tri_edges {
+                        if vi == e0 || vi == e1 {
+                            continue;
+                        }
+                        if point_on_edge_interior(p, &all_verts[e0], &all_verts[e1], eps).is_some()
+                        {
+                            let d0 = dist_sq(p, &all_verts[e0]);
+                            let d1 = dist_sq(p, &all_verts[e1]);
+                            let edge_len = dist_sq(&all_verts[e0], &all_verts[e1]);
+                            if d0 < eps * eps * edge_len || d1 < eps * eps * edge_len {
+                                i += 1;
+                                continue;
+                            }
+                            let new_tris = split_at_edge_point(tri, edge_local, vi);
+                            sub_tris.remove(i);
+                            for (k, nt) in new_tris.into_iter().enumerate() {
+                                sub_tris.insert(i + k, nt);
+                            }
+                            did_split = true;
+                            total_splits += 1;
+                            break;
+                        }
+                    }
+                    if !did_split {
+                        i += 1;
+                    }
+                }
+            }
+        }
+        total_splits
+    }
+
+    // Run cross-mesh conformal iteratively (splitting in one mesh may
+    // create new vertices that need propagation back). Typically 1-2 rounds.
+    for _cross_round in 0..5 {
+        let splits_ab = cross_mesh_subtri_conformal(
+            &result_tris_a_raw,
+            &mut result_tris_b_raw,
+            &all_verts,
+            eps,
+        );
+        let splits_ba = cross_mesh_subtri_conformal(
+            &result_tris_b_raw,
+            &mut result_tris_a_raw,
+            &all_verts,
+            eps,
+        );
+        if splits_ab == 0 && splits_ba == 0 {
+            break;
+        }
+        // After cross-mesh splits, re-run same-mesh conformal to propagate
+        // newly inserted vertices to adjacent same-mesh triangles
+        for _repair in 0..5 {
+            let sa = enforce_conformal_edges(&mut result_tris_a_raw, &edge_adj_a, &all_verts, eps);
+            let sb = enforce_conformal_edges(&mut result_tris_b_raw, &edge_adj_b, &all_verts, eps);
+            if sa == 0 && sb == 0 {
+                break;
+            }
+        }
+    }
+
+    // ── Step 3g: Full sub-triangle conformal repair ──
+    // After cross-mesh propagation, vertices may be missing from sub-triangle
+    // edges that were CREATED by intersection (not original mesh edges).
+    // This pass builds edge adjacency from the current sub-triangle edges
+    // and propagates missing vertices across all shared edges, including
+    // intersection-curve edges between sub-triangles from different parents.
+    // This is needed for Subtract/Intersect where B-inside sub-triangles must
+    // form a closed manifold patch.
+    fn subtri_conformal_repair(
+        raw_results: &mut [(usize, Vec<[usize; 3]>)],
+        all_verts: &[[f64; 3]],
+        eps: f64,
+    ) -> usize {
+        // Build edge adjacency from current sub-triangles:
+        // edge_key → list of (parent_idx, sub_tri_idx_within_parent)
+        let mut edge_adj: BTreeMap<(usize, usize), Vec<(usize, usize)>> = BTreeMap::new();
+        for (pi, (_parent, sub_tris)) in raw_results.iter().enumerate() {
+            for (si, tri) in sub_tris.iter().enumerate() {
+                for &(a, b) in &[(tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])] {
+                    let ek = if a <= b { (a, b) } else { (b, a) };
+                    edge_adj.entry(ek).or_default().push((pi, si));
+                }
+            }
+        }
+
+        let mut total_splits = 0;
+
+        // For each shared edge, collect all vertices on it from all adjacent sub-tris
+        for (&(ev0, ev1), adj) in &edge_adj {
+            if adj.len() < 2 {
+                continue;
+            }
+            // Collect all vertices on this edge across all adjacent sub-tris
+            let mut verts_on_edge: Vec<usize> = Vec::new();
+            for &(pi, _si) in adj {
+                for sub_tri in &raw_results[pi].1 {
+                    for &vi in sub_tri {
+                        if vi == ev0 || vi == ev1 {
+                            continue;
+                        }
+                        if verts_on_edge.contains(&vi) {
+                            continue;
+                        }
+                        if point_on_edge_interior(
+                            &all_verts[vi],
+                            &all_verts[ev0],
+                            &all_verts[ev1],
+                            eps,
+                        )
+                        .is_some()
+                        {
+                            verts_on_edge.push(vi);
+                        }
+                    }
+                }
+            }
+            if verts_on_edge.is_empty() {
+                continue;
+            }
+
+            // Propagate missing vertices to all adjacent sub-tris
+            for &(pi, _si) in adj {
+                for &split_vi in &verts_on_edge {
+                    let already = raw_results[pi]
+                        .1
+                        .iter()
+                        .any(|t| t[0] == split_vi || t[1] == split_vi || t[2] == split_vi);
+                    if already {
+                        continue;
+                    }
+                    // Find ALL sub-tri edges containing this vertex and split them.
+                    let mut i = 0;
+                    while i < raw_results[pi].1.len() {
+                        let tri = raw_results[pi].1[i];
+                        let tri_edges = [
+                            (tri[0], tri[1], 0usize),
+                            (tri[1], tri[2], 1usize),
+                            (tri[2], tri[0], 2usize),
+                        ];
+                        let mut did_split = false;
+                        for &(e0, e1, edge_local) in &tri_edges {
+                            if split_vi == e0 || split_vi == e1 {
+                                continue;
+                            }
+                            if point_on_edge_interior(
+                                &all_verts[split_vi],
+                                &all_verts[e0],
+                                &all_verts[e1],
+                                eps,
+                            )
+                            .is_some()
+                            {
+                                let d0 = dist_sq(&all_verts[split_vi], &all_verts[e0]);
+                                let d1 = dist_sq(&all_verts[split_vi], &all_verts[e1]);
+                                let edge_len = dist_sq(&all_verts[e0], &all_verts[e1]);
+                                if d0 < eps * eps * edge_len || d1 < eps * eps * edge_len {
+                                    i += 1;
+                                    continue;
+                                }
+                                let new_tris = split_at_edge_point(tri, edge_local, split_vi);
+                                raw_results[pi].1.remove(i);
+                                for (k, nt) in new_tris.into_iter().enumerate() {
+                                    raw_results[pi].1.insert(i + k, nt);
+                                }
+                                did_split = true;
+                                total_splits += 1;
+                                break;
+                            }
+                        }
+                        if !did_split {
+                            i += 1;
+                        }
+                    }
+                }
+            }
+        }
+        total_splits
+    }
+
+    // Run full sub-triangle conformal repair iteratively until convergence.
+    for _full_round in 0..10 {
+        let sa = subtri_conformal_repair(&mut result_tris_a_raw, &all_verts, eps);
+        let sb = subtri_conformal_repair(&mut result_tris_b_raw, &all_verts, eps);
+        if sa == 0 && sb == 0 {
+            break;
+        }
+    }
+
     // ── Step 4: Collect final results ──
     let mut result_tris_a = Vec::new();
     for &(parent_tri, ref sub_tris) in &result_tris_a_raw {
@@ -4362,7 +4742,6 @@ mod tests {
     /// and radial sort to produce conformal boundary edges. See
     /// `specs/yang_hybrid_migration.md` Phase 3.
     #[test]
-    #[ignore = "hub-spoke fine mesh cross-mesh conformal propagation incomplete — axis-aligned B-Rep tests pass"]
     fn e2e_box_boolean_manifold() {
         fn snap(v: &[f64; 3]) -> [i64; 3] {
             [
@@ -4405,7 +4784,6 @@ mod tests {
     /// triangulation produces incorrect vertex/edge/face counts.
     /// Phase 3 will fix this.
     #[test]
-    #[ignore = "hub-spoke fine mesh cross-mesh conformal propagation incomplete — axis-aligned B-Rep tests pass"]
     fn e2e_box_boolean_euler() {
         fn snap(v: &[f64; 3]) -> [i64; 3] {
             [
@@ -4434,6 +4812,70 @@ mod tests {
             }
             let euler = vset.len() as i64 - eset.len() as i64 + tri_count as i64;
             assert!(euler == 2, "{op:?}: V-E+F = {euler} (expected 2)");
+        }
+    }
+
+    /// Hub-spoke boolean volume must match simple-mesh boolean volume.
+    /// Both tessellations represent the same geometry — volumes must agree.
+    #[test]
+    fn e2e_hub_spoke_volume_matches_simple_mesh() {
+        let expected = [
+            (MeshBooleanOp::Union, 14.046875),
+            (MeshBooleanOp::Subtract, 6.046875),
+            (MeshBooleanOp::Intersect, 1.953125),
+        ];
+        for &(op, expected_vol) in &expected {
+            let fine_result = run_box_boolean(op);
+            let fine_vol = signed_volume(&fine_result);
+            assert!(
+                (fine_vol.abs() - expected_vol).abs() < 0.01,
+                "{op:?}: hub-spoke |volume| = {}, expected {expected_vol}",
+                fine_vol.abs()
+            );
+        }
+    }
+
+    /// Mixed simple + hub-spoke mesh: one mesh 2-tri/face, one 4-tri/face.
+    /// Tests cross-resolution conformal subdivision at the intersection.
+    #[test]
+    fn e2e_mixed_simple_and_fine_mesh_manifold() {
+        fn snap(v: &[f64; 3]) -> [i64; 3] {
+            [
+                (v[0] * 1e9).round() as i64,
+                (v[1] * 1e9).round() as i64,
+                (v[2] * 1e9).round() as i64,
+            ]
+        }
+        let (va, ta) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (vb, tb) = make_box_mesh_fine([0.75, 0.75, 0.75], [2.75, 2.75, 2.75]);
+        let sub = subdivide_mesh_pair(&va, &ta, &vb, &tb);
+        let lab = label_cells(&sub, &va, &ta, &vb, &tb);
+        for op in [
+            MeshBooleanOp::Union,
+            MeshBooleanOp::Subtract,
+            MeshBooleanOp::Intersect,
+        ] {
+            let result = select_boolean_result(&sub, &lab, op);
+            assert!(!result.is_empty(), "{op:?} empty");
+            let tri_count = result.len() / 3;
+            let mut edge_counts = std::collections::HashMap::<([i64; 3], [i64; 3]), usize>::new();
+            for i in 0..tri_count {
+                let s = [
+                    snap(&result[i * 3]),
+                    snap(&result[i * 3 + 1]),
+                    snap(&result[i * 3 + 2]),
+                ];
+                for (a, b) in [(s[0], s[1]), (s[1], s[2]), (s[2], s[0])] {
+                    let e = if a <= b { (a, b) } else { (b, a) };
+                    *edge_counts.entry(e).or_insert(0) += 1;
+                }
+            }
+            for (edge, count) in &edge_counts {
+                assert!(
+                    *count == 2,
+                    "{op:?}: edge {edge:?} appears {count} times (expected 2)"
+                );
+            }
         }
     }
 

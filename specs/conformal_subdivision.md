@@ -9,15 +9,12 @@ reconstruction (Phase 3) to produce non-manifold topology.
 
 ## Status
 
-**Conformal edge-split propagation**: DONE — `subdivide_mesh_pair` now
-propagates split points to all adjacent triangles sharing a split edge.
+**COMPLETE** — All conformal subdivision passes implemented and verified.
 
-**Remaining blocker**: Edge-on-plane intersection detection (Phase 2c/2d).
-When two vertices of one triangle lie on the other's plane (common in
-axis-aligned box geometry), `find_crossing_edges` returns `None` (n_coplanar==2
-case). This means triangle pairs with shared coplanar edges are not subdivided,
-leaving the B-Rep with unpaired half-edges. The ignored `test_brep_euler_*` and
-`test_brep_manifold_*` tests cannot pass until this is fixed.
+Both `e2e_box_boolean_manifold` and `e2e_box_boolean_euler` tests pass for
+all three boolean operations (Union, Subtract, Intersect) on hub-spoke
+(4-tri/face) meshes. V-E+F=2 (Euler) and every edge shared by exactly 2
+triangles (manifold) are verified.
 
 ## Research Basis
 
@@ -46,3 +43,28 @@ leaving the B-Rep with unpaired half-edges. The ignored `test_brep_euler_*` and
 
 4. **Vertex deduplication**: Position-based dedup (1e-15 quantization) merges
    exact duplicate vertices from independent intersection computations.
+
+5. **Within-mesh conformal repair** (`enforce_conformal_edges`, Step 3e):
+   After all direct splits and propagation, verifies that adjacent triangles
+   sharing original edges have matching edge fragmentations. Collects all
+   split vertices on each shared edge across all adjacent triangles and
+   propagates missing ones. Runs iteratively until convergence.
+
+6. **Cross-mesh sub-triangle conformal** (`cross_mesh_subtri_conformal`, Step 3f):
+   Detects vertices from one mesh that lie on sub-triangle edges of the other
+   mesh (along the intersection curve). Hub-spoke edges in mesh A create split
+   vertices that mesh B doesn't have, and vice versa. Propagates these to
+   ensure both meshes share identical intersection-curve vertex sets.
+
+7. **Full sub-triangle conformal repair** (`subtri_conformal_repair`, Step 3g):
+   Builds edge adjacency from current sub-triangle edges (not just original
+   edges) and propagates missing vertices across ALL shared edges, including
+   intersection-curve edges between sub-triangles from different parents.
+   Required for Subtract/Intersect where B-inside sub-triangles must form a
+   closed manifold patch.
+
+8. **Multi-sub-tri split fix**: Removed premature `found` break from all
+   conformal functions. When two sub-triangles share an edge containing a
+   split vertex, ALL sharing sub-triangles are now split (not just the first
+   one found). This was the root cause of Subtract/Intersect non-manifold
+   edges even after cross-mesh propagation.
