@@ -1298,40 +1298,49 @@ fn split_two_edge_points(
     e1: usize,
     s1: usize,
 ) -> Vec<[usize; 3]> {
-    // Edge i goes from vertex i to vertex (i+1)%3.
+    // Build the 5-vertex boundary polygon by walking edges in CCW order.
+    // Edge k goes from vertex k to vertex (k+1)%3. Insert split points on
+    // their respective edges to preserve the CCW winding of the original triangle.
+    let mut poly: Vec<usize> = Vec::with_capacity(5);
+    #[allow(clippy::needless_range_loop)]
+    for edge in 0..3 {
+        poly.push(tri_vi[edge]); // start vertex of this edge
+        if edge == e0 {
+            poly.push(s0);
+        }
+        if edge == e1 {
+            poly.push(s1);
+        }
+    }
+    debug_assert_eq!(poly.len(), 5);
+
     // Find the shared vertex between e0 and e1.
     let e0_verts = [e0, (e0 + 1) % 3];
     let e1_verts = [e1, (e1 + 1) % 3];
-
     let shared_local = if e0_verts[0] == e1_verts[0] || e0_verts[0] == e1_verts[1] {
         e0_verts[0]
     } else {
         e0_verts[1]
     };
-
-    let other_e0 = if e0_verts[0] == shared_local {
-        e0_verts[1]
-    } else {
-        e0_verts[0]
-    };
-
-    let other_e1 = if e1_verts[0] == shared_local {
-        e1_verts[1]
-    } else {
-        e1_verts[0]
-    };
-
     let v_shared = tri_vi[shared_local];
-    let v_other_e0 = tri_vi[other_e0];
-    let v_other_e1 = tri_vi[other_e1];
 
-    // Triangle 1: shared vertex + the two split points
-    // Quad: s0, v_other_e0, v_other_e1, s1 (the remaining region)
-    // Split quad into 2 triangles
+    // Find position of shared vertex in the CCW polygon.
+    let shared_pos = poly.iter().position(|&v| v == v_shared).unwrap();
+
+    // Adjacent to shared in the polygon are the two split points (prev, next).
+    // The polygon is CCW, so: ... → prev → v_shared → next → a → b → ...
+    let prev = poly[(shared_pos + 4) % 5];
+    let next = poly[(shared_pos + 1) % 5];
+    let a = poly[(shared_pos + 2) % 5];
+    let b = poly[(shared_pos + 3) % 5];
+
+    // Triangulate: one triangle at the shared vertex (across constraint edge),
+    // and the remaining quad [next, a, b, prev] split into 2 triangles.
+    // All triangles follow the CCW polygon winding.
     vec![
-        [v_shared, s0, s1],
-        [s0, v_other_e0, v_other_e1],
-        [s0, v_other_e1, s1],
+        [prev, v_shared, next], // shared vertex triangle (includes constraint edge prev-next)
+        [next, a, b],           // quad triangle 1
+        [next, b, prev],        // quad triangle 2
     ]
 }
 
@@ -3810,10 +3819,10 @@ mod tests {
         // 24 triangles, 4 per face, outward-facing (CCW from outside)
         let tris = vec![
             // Back face (z=z0), center=8, corners CCW from outside: 0,3,2,1
-            [0, 8, 3],
-            [3, 8, 2],
-            [2, 8, 1],
-            [1, 8, 0],
+            [0, 3, 8],
+            [3, 2, 8],
+            [2, 1, 8],
+            [1, 0, 8],
             // Front face (z=z1), center=9, corners CCW from outside: 4,5,6,7
             [4, 5, 9],
             [5, 6, 9],
@@ -3903,18 +3912,15 @@ mod tests {
 
     /// E2E Volume: correct signed volume for all three boolean operations.
     ///
-    /// IGNORED: The current pairwise subdivision (tasks 2b-2e) produces
-    /// non-conformal triangulations at the intersection boundary. Overlapping
-    /// sub-triangles from meshes A and B cause incorrect volume computation.
-    /// Phase 3 (topology extraction) will produce conformal boundary meshes
-    /// using the bijective map and radial sort, fixing volume accuracy.
+    /// Fixed: The winding-preserving split_two_edge_points (polygon-boundary
+    /// triangulation) and make_box_mesh_fine back-face orientation fix ensure
+    /// sub-triangles maintain parent winding order, giving correct volumes.
     ///
     /// Expected volumes:
     /// - Union: 8 + 8 - 1.25^3 = 14.046875
     /// - Subtract: 8 - 1.953125 = 6.046875
     /// - Intersect: 1.25^3 = 1.953125
     #[test]
-    #[ignore = "Phase 3 prerequisite: conformal boundary triangulation for correct volume"]
     fn e2e_box_boolean_volume_accuracy() {
         let expected = [
             (MeshBooleanOp::Union, 14.046875),
