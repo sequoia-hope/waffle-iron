@@ -1088,19 +1088,16 @@ impl WaffleKernel {
             match crate::boolean::ssi_boolean_op(solid_a, solid_b, op, &mut id_alloc) {
                 Ok(r) => r,
                 Err(KernelError::NotSupported { ref operation }) => {
-                    // A15 VIOLATION: quadric primitive pairs should NOT fall back
-                    // to polygon approximation (see governance/ARCHITECTURAL_INVARIANTS.md
-                    // A15.2). This fallback silently degrades analytical surface types
-                    // to polygon soup. It exists because the SSI pipeline does not yet
-                    // handle all quadric configurations (partial overlaps, sphere-box
-                    // subtract, concentric tubes). Fix: implement the missing SSI
-                    // sub-cases, then remove this fallback and propagate the error.
-                    eprintln!(
-                        "[A15 WARN] SSI primitive boolean fell back to polygon approximation: {}",
-                        operation
-                    );
-                    polygon_soup = true;
-                    crate::boolean::polygon_approx_boolean(solid_a, solid_b, op, &mut id_alloc)?
+                    // A15.2: quadric primitive pairs must use exact SSI or return
+                    // NotSupported — silent fallback to polygon approximation is
+                    // prohibited. See governance/ARCHITECTURAL_INVARIANTS.md A15.2.
+                    // Fix missing SSI sub-cases to make this path succeed.
+                    return Err(KernelError::NotSupported {
+                        operation: format!(
+                            "SSI primitive boolean not yet implemented: {}",
+                            operation
+                        ),
+                    });
                 }
                 Err(KernelError::BooleanFailed { ref reason })
                     if reason.contains("disjoint") && op == crate::boolean::BoolOp::Union =>
@@ -1143,9 +1140,11 @@ impl WaffleKernel {
                     });
                 }
                 Err(KernelError::NotSupported { .. }) | Err(KernelError::BooleanFailed { .. }) => {
-                    // Safety fallback: use the general polygon-clipping path.
-                    // Mark as polygon_soup so tessellation uses the fan path
-                    // which can remove internal face fragments.
+                    // A15 NOTE: planar-planar pairs have an exact solver, but it
+                    // does not yet handle all edge cases (coplanar faces, complex
+                    // polygonal geometry). This fallback to polygon-clipping is
+                    // temporary — remove when planar_planar_boolean covers all cases.
+                    // Tracked in: specs/yang_hybrid_migration.md Phase 5c.
                     eprintln!("[A15 WARN] planar boolean fell back to polygon-clipping pipeline");
                     polygon_soup = true;
                     let strict = crate::boolean::boolean_op(
