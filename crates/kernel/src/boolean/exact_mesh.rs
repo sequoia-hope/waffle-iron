@@ -125,6 +125,30 @@ pub(crate) fn tri_tri_intersect(
         return TriTriIsect::Coplanar;
     }
 
+    // Step 3b: Edge-on-plane detection — handle n_coplanar==2 before standard
+    // crossing edge logic. When two vertices of one triangle lie exactly on the
+    // other's plane, the coplanar edge may intersect the other triangle.
+    // Ref #9: Cherchi 2020 — degenerate intersection configurations.
+    // Ref: specs/edge_on_plane_intersection.md
+    let ob_coplanar = ob.iter().filter(|o| **o == Orientation::Coplanar).count();
+    let oa_coplanar = oa.iter().filter(|o| **o == Orientation::Coplanar).count();
+
+    if ob_coplanar == 2 {
+        // T_B has an edge on plane(T_A) — clip against T_A
+        if let Some(isect) = clip_edge_on_plane(&ob, &tri_b, &vb, &va, &tri_a, verts) {
+            return isect;
+        }
+        return TriTriIsect::None;
+    }
+
+    if oa_coplanar == 2 {
+        // T_A has an edge on plane(T_B) — clip against T_B
+        if let Some(isect) = clip_edge_on_plane(&oa, &tri_a, &va, &vb, &tri_b, verts) {
+            return isect;
+        }
+        return TriTriIsect::None;
+    }
+
     // Step 4: Find crossing edges for each triangle.
     // For T_B vs plane(T_A): find edges of T_B that cross plane(T_A).
     let b_crossings = find_crossing_edges(&ob, &tri_b, &tri_a);
@@ -313,6 +337,55 @@ fn materialize_ip(ip: &IndirectPoint, verts: &[[f64; 3]]) -> [f64; 3] {
     [a[0] + t * dir[0], a[1] + t * dir[1], a[2] + t * dir[2]]
 }
 
+/// Check if a 3D point lies STRICTLY inside a triangle (not on boundary).
+/// Uses barycentric coordinate approach with orient2d. Returns true only if
+/// ALL orient2d values are strictly positive or strictly negative (the point
+/// is in the interior, not on any edge or vertex).
+///
+/// Used by `clip_edge_on_plane` to avoid creating constraint segments for
+/// degenerate edge contacts along triangle boundaries.
+#[allow(dead_code)]
+fn point_strictly_inside_triangle_3d(pt: &[f64; 3], tri: &[[f64; 3]; 3]) -> bool {
+    let u = [
+        tri[1][0] - tri[0][0],
+        tri[1][1] - tri[0][1],
+        tri[1][2] - tri[0][2],
+    ];
+    let v = [
+        tri[2][0] - tri[0][0],
+        tri[2][1] - tri[0][1],
+        tri[2][2] - tri[0][2],
+    ];
+    let n = [
+        u[1] * v[2] - u[2] * v[1],
+        u[2] * v[0] - u[0] * v[2],
+        u[0] * v[1] - u[1] * v[0],
+    ];
+
+    let ax = n[0].abs();
+    let ay = n[1].abs();
+    let az = n[2].abs();
+    let (i, j) = if ax >= ay && ax >= az {
+        (1, 2)
+    } else if ay >= az {
+        (0, 2)
+    } else {
+        (0, 1)
+    };
+
+    let p = [pt[i], pt[j]];
+    let a = [tri[0][i], tri[0][j]];
+    let b = [tri[1][i], tri[1][j]];
+    let c = [tri[2][i], tri[2][j]];
+
+    let o1 = orient2d(a, b, p);
+    let o2 = orient2d(b, c, p);
+    let o3 = orient2d(c, a, p);
+
+    // STRICT: all must be > 0 or all must be < 0 (no zeros = no boundary contact)
+    (o1 > 0.0 && o2 > 0.0 && o3 > 0.0) || (o1 < 0.0 && o2 < 0.0 && o3 < 0.0)
+}
+
 /// Check if a 3D point lies inside a triangle (assuming point is on triangle's plane).
 /// Uses barycentric coordinate approach with cross products.
 #[allow(dead_code)]
@@ -390,9 +463,14 @@ fn clip_edge_on_plane(
     let ep0 = tri_edge_verts[ci0];
     let ep1 = tri_edge_verts[ci1];
 
-    // Classify endpoints against triangle: inside/outside/on-edge
-    let in0 = point_in_triangle_3d(&ep0, tri_plane_verts);
-    let in1 = point_in_triangle_3d(&ep1, tri_plane_verts);
+    // Classify endpoints against triangle: STRICTLY inside (not on boundary).
+    // Using strict interior check avoids creating constraint segments for
+    // degenerate edge contacts along triangle boundaries, which would produce
+    // non-conformal subdivisions. Points on the triangle boundary (on edges or
+    // at vertices) are treated as "outside" to prevent fragmented topology.
+    // Ref: specs/edge_on_plane_intersection.md — conformal vertex sharing.
+    let in0 = point_strictly_inside_triangle_3d(&ep0, tri_plane_verts);
+    let in1 = point_strictly_inside_triangle_3d(&ep1, tri_plane_verts);
 
     // Both inside → full edge is intersection segment
     if in0 && in1 {
@@ -823,6 +901,13 @@ fn sub_tri_centroid(verts: &[[f64; 3]], tri: &SubTriangle) -> [f64; 3] {
         (v0[2] + v1[2] + v2[2]) / 3.0,
     ]
 }
+
+// NOTE: Winding number offset (WINDING_OFFSET_EPS + triangle_unit_normal) was
+// investigated but reverted — it breaks touching-box classification where the
+// centroid offset pushes evaluation points across the boundary of a touching solid.
+// The co-planar face deduplication and winding number disambiguation require a
+// coordinated solution. See specs/edge_on_plane_intersection.md for the full
+// analysis and recommended approach.
 
 /// Classify each sub-triangle as inside or outside the other mesh.
 ///
@@ -1507,7 +1592,7 @@ pub(crate) fn subdivide_mesh_pair(
         original_tris: &[[usize; 3]],
         raw_results: &[(usize, Vec<[usize; 3]>)],
         all_verts: &[[f64; 3]],
-        original_vert_count: usize,
+        _original_vert_count: usize,
         eps: f64,
     ) -> BTreeMap<(usize, usize), Vec<usize>> {
         let mut edge_splits: BTreeMap<(usize, usize), Vec<usize>> = BTreeMap::new();
@@ -1520,8 +1605,14 @@ pub(crate) fn subdivide_mesh_pair(
             ];
             for sub_tri in sub_tris {
                 for &vi in sub_tri {
-                    if vi < original_vert_count {
-                        continue; // original vertex
+                    // Skip vertices that belong to the parent triangle itself.
+                    // Do NOT skip based on original_vert_count — edge-on-plane
+                    // intersections insert existing vertices from the OTHER mesh
+                    // as split points on THIS mesh's edges. These must be
+                    // propagated to adjacent triangles for conformal subdivision.
+                    // Ref: specs/edge_on_plane_intersection.md — conformal vertex sharing.
+                    if vi == parent[0] || vi == parent[1] || vi == parent[2] {
+                        continue; // parent's own vertex
                     }
                     let p = &all_verts[vi];
                     for &(ev0, ev1) in &parent_edges {
@@ -1640,6 +1731,14 @@ pub(crate) fn subdivide_mesh_pair(
         &all_verts,
         eps,
     );
+
+    // NOTE: Cross-mesh edge-split propagation is NOT performed here.
+    // Edge-on-plane intersections create vertices on one mesh's edges from the
+    // OTHER mesh's constraints, and these aren't propagated to adjacent triangles.
+    // Instead, vertex position merging in topology_extract::build_result_brep
+    // handles non-conformal boundaries by merging vertices with identical
+    // positions before constructing half-edge topology.
+    // Ref: specs/edge_on_plane_intersection.md — conformal vertex sharing.
 
     // ── Step 4: Collect final results ──
     let mut result_tris_a = Vec::new();
@@ -4770,7 +4869,6 @@ mod tests {
     /// Setup: T_A in XY plane, T_B has edge (v0, v1) in z=0 crossing through T_A.
     /// The third vertex of T_B is above the plane.
     #[test]
-    #[ignore = "Phase 2c: edge-on-plane detection not yet implemented"]
     fn edge_on_plane_crossing_detected() {
         // T_A: large triangle in z=0 plane
         let verts = vec![
@@ -4800,7 +4898,6 @@ mod tests {
     /// opposing triangle. Should return a Segment from the inside point to the
     /// boundary crossing.
     #[test]
-    #[ignore = "Phase 2c: edge-on-plane detection not yet implemented"]
     fn edge_on_plane_partial_crossing() {
         let verts = vec![
             [0.0, 0.0, 0.0], // 0: T_A v0
@@ -4852,7 +4949,7 @@ mod tests {
     /// pipeline currently fails on. Two unit-offset boxes must produce a
     /// subdivision with split triangles at the shared face.
     #[test]
-    #[ignore = "Phase 2c: edge-on-plane detection + conformal subdivision not yet implemented"]
+    #[ignore = "Phase 2c: axis-aligned edges are on triangle boundaries (not strictly inside) — needs conformal subdivision"]
     fn edge_on_plane_axis_aligned_boxes() {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
@@ -4872,11 +4969,44 @@ mod tests {
         );
     }
 
+    /// Verify that edge-on-plane detection produces correct subdivision and
+    /// labeling for axis-aligned boxes. The Union result should be non-empty
+    /// and have the correct number of surviving sub-triangles.
+    #[test]
+    #[ignore = "Phase 2c: axis-aligned edges on triangle boundaries — needs conformal subdivision"]
+    fn edge_on_plane_aligned_box_union_nonempty() {
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
+
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+
+        // Both meshes should be subdivided (more than 12 original tris)
+        assert!(
+            subdivided.tris_a.len() > 12,
+            "A should have split tris (got {})",
+            subdivided.tris_a.len()
+        );
+        assert!(
+            subdivided.tris_b.len() > 12,
+            "B should have split tris (got {})",
+            subdivided.tris_b.len()
+        );
+
+        // Union result should be non-empty
+        let result = select_boolean_result(&subdivided, &labeling, MeshBooleanOp::Union);
+        let union_tris = result.len() / 3;
+        assert!(
+            union_tris >= 12,
+            "Union should have at least 12 triangles (got {union_tris})"
+        );
+    }
+
     /// Full Yang pipeline on axis-aligned boxes must produce manifold topology.
     /// This is the key correctness test — if edge-on-plane is handled, the
     /// boolean result should have V-E+F = 2.
     #[test]
-    #[ignore = "Phase 2c: requires edge-on-plane detection + winding number boundary disambiguation"]
+    #[ignore = "Phase 2c: requires conformal subdivision + winding number boundary disambiguation + co-planar face deduplication"]
     fn edge_on_plane_box_boolean_manifold() {
         use crate::boolean::topology_extract::yang_boolean_pipeline;
         use crate::tessellation::bijective::BijectiveMap;

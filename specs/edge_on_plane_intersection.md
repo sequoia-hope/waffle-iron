@@ -119,11 +119,84 @@ Edge-on-plane detection requires three coordinated changes:
 These changes interact with each other and cannot be implemented independently
 without causing regressions. They should be done as a single atomic change.
 
+## Implementation Progress (2026-04-02)
+
+### Completed: Basic edge-on-plane detection
+
+**Change**: In `tri_tri_intersect`, intercept the n_coplanar==2 case BEFORE calling
+`find_crossing_edges`. When two vertices of one triangle lie on the other's plane,
+call `clip_edge_on_plane()` directly to detect intersection.
+
+**Key design choice**: `clip_edge_on_plane` uses **strict interior testing**
+(`point_strictly_inside_triangle_3d`) to classify endpoints. Points ON the triangle
+boundary (on edges or at vertices) are treated as "outside" to avoid creating
+constraint segments for degenerate edge contacts. Without strict testing, axis-aligned
+box edges that touch triangle boundaries would create non-conformal subdivisions that
+break trim loop extraction.
+
+**Result**: Edge-on-plane detection works correctly for edges that pass through the
+strict interior of the opposing triangle. 3 tests un-ignored and passing:
+- `edge_on_plane_crossing_detected` ✅ (both endpoints strictly inside)
+- `edge_on_plane_partial_crossing` ✅ (one endpoint strictly inside)
+- `edge_on_plane_no_crossing` ✅ (both endpoints outside)
+
+### Investigated and reverted: winding number offset
+
+**Attempted**: Offset A's centroids along +parent_normal, B's along -parent_normal,
+to break the co-planar face symmetry. Results:
+- Fixed co-planar face deduplication for overlapping boxes
+- **But broke touching-box classification** — the offset pushes centroids across
+  the touching plane, incorrectly classifying boundary faces as Inside.
+- Reverted: the offset approach is too aggressive for cases where the centroid is
+  near (but not on) the opposing mesh surface.
+
+### Investigated and reverted: vertex position merging
+
+**Attempted**: Quantize vertex positions in `extract_trim_boundaries` and merge
+indices that map to the same position. Results:
+- Found 0 merges for the axis-aligned box case — the non-conformal vertices have
+  genuinely different positions (different intersection points on different edges),
+  not duplicate positions with different indices.
+- The real issue is not duplicate positions but missing conformal vertex sharing:
+  the same geometric point needs to be split into ALL adjacent triangles sharing the
+  edge, which requires cross-mesh edge-split propagation or the full Cherchi 2020
+  conformal mesh arrangement algorithm.
+
+### Investigated: cross-mesh edge-split propagation
+
+**Attempted**: After same-mesh edge-split detection, scan other mesh's sub-tris for
+vertices on this mesh's edges. Results:
+- Correctly identified cross-mesh splits (e.g., vertex at [2,0,1] on A's edge)
+- But propagation created MORE fragmented sub-tris instead of fewer, because the
+  propagated splits were not themselves propagated to further adjacent tris
+- Iterating the propagation (up to 4 rounds) didn't converge
+- Root cause: the simplified triangle splitting doesn't produce conformal meshes.
+  The proper solution is the Cherchi 2020 conformal mesh arrangement algorithm,
+  which ensures all intersection points create shared vertices across all
+  adjacent triangles. This is a substantial implementation effort.
+
+### Remaining blockers for axis-aligned box boolean
+
+The 3 blockers from the investigation remain for AXIS-ALIGNED geometry:
+
+1. **Winding number ambiguity** — centroids on opposing surface get w ≈ 0.5
+2. **Co-planar face deduplication** — both meshes' co-planar faces survive
+3. **Conformal vertex sharing** — non-conformal subdivision breaks trim loops
+
+These all require the conformal mesh arrangement algorithm (Cherchi 2020) as a
+prerequisite. The strict interior testing avoids triggering these blockers for
+axis-aligned geometry, while correctly handling edges that pass through triangle
+interiors (the non-degenerate case).
+
 ### Test status
 
-Red-phase tests added (all ignored pending implementation):
-- `edge_on_plane_crossing_detected` — basic detection
-- `edge_on_plane_partial_crossing` — one endpoint inside
-- `edge_on_plane_no_crossing` — both outside (passes on current code)
-- `edge_on_plane_axis_aligned_boxes` — box subdivision
+Tests passing (un-ignored):
+- `edge_on_plane_crossing_detected` ✅ — basic detection
+- `edge_on_plane_partial_crossing` ✅ — one endpoint strictly inside
+- `edge_on_plane_no_crossing` ✅ — both outside (passes)
+- `edge_on_plane_aligned_box_union_nonempty` — (new test, ignored: needs conformal)
+
+Tests still ignored:
+- `edge_on_plane_axis_aligned_boxes` — axis-aligned edges on boundaries
+- `edge_on_plane_aligned_box_union_nonempty` — needs conformal subdivision
 - `edge_on_plane_box_boolean_manifold` — full pipeline manifold check
