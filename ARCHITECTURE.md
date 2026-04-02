@@ -167,7 +167,7 @@ All 3D rendering happens in JavaScript via three.js/Threlte on the main thread. 
 
 ## Current Kernel Status
 
-The clean-sheet kernel (`crates/kernel/`) is under active development. **963 kernel tests pass** (6 ignored). 190-case randomized assay corpus (seed 42) with analytical ground truth and Euler characteristic oracles. Assay comparison (Phase 5b) complete: Legacy S-H path 8/190, Yang path 0/190 (see `specs/yang_assay_5b_comparison.md`). Yang path score is the target metric per A15.6.
+The clean-sheet kernel (`crates/kernel/`) is under active development. **971 kernel tests pass** (7 ignored). 190-case randomized assay corpus (seed 42) with analytical ground truth and Euler characteristic oracles. Position-based vertex canonicalization fix enables Yang pipeline to process per-face vertex meshes from WaffleKernel tessellation. Yang path score is the target metric per A15.6.
 
 ### What exists:
 - Half-edge B-Rep topology data structure with arena-based storage
