@@ -2310,7 +2310,7 @@ mod tests {
         let faces = unit_cube_face_polys();
         let w = winding_number([0.5, 0.5, 0.5], &faces);
         assert!(
-            (w - 1.0).abs() < 0.1,
+            (w - 1.0).abs() < 0.01,
             "Center of cube should have winding number ~1.0, got {}",
             w
         );
@@ -2321,7 +2321,7 @@ mod tests {
         let faces = unit_cube_face_polys();
         let w = winding_number([5.0, 5.0, 5.0], &faces);
         assert!(
-            w.abs() < 0.1,
+            w.abs() < 0.01,
             "Far point should have winding number ~0.0, got {}",
             w
         );

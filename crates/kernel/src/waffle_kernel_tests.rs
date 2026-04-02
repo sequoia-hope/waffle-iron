@@ -1298,10 +1298,10 @@ fn j2_box_cyl_union_basic() {
         count_unpaired_edges(&mesh));
     // AABB: result must span the 10×10×10 box centered at origin
     let (bb_min, bb_max) = mesh_bbox(&mesh);
-    assert!((bb_min[0] - (-5.0)).abs() < 0.1, "AABB min X: expected -5.0, got {}", bb_min[0]);
-    assert!((bb_max[0] - 5.0).abs() < 0.1, "AABB max X: expected 5.0, got {}", bb_max[0]);
-    assert!((bb_min[2]).abs() < 0.1, "AABB min Z: expected 0.0, got {}", bb_min[2]);
-    assert!((bb_max[2] - 10.0).abs() < 0.1, "AABB max Z: expected 10.0, got {}", bb_max[2]);
+    assert!((bb_min[0] - (-5.0)).abs() < 0.01, "AABB min X: expected -5.0, got {}", bb_min[0]);
+    assert!((bb_max[0] - 5.0).abs() < 0.01, "AABB max X: expected 5.0, got {}", bb_max[0]);
+    assert!((bb_min[2]).abs() < 0.01, "AABB min Z: expected 0.0, got {}", bb_min[2]);
+    assert!((bb_max[2] - 10.0).abs() < 0.01, "AABB max Z: expected 10.0, got {}", bb_max[2]);
 }
 
 /// Check that all triangles in a mesh have geometric winding consistent with

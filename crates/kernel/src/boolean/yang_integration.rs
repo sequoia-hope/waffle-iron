@@ -501,6 +501,7 @@ pub(crate) fn check_yang_triangle_count(n_a: usize, n_b: usize) -> Result<(), Ke
 mod tests {
     use super::*;
     use crate::types::FaceRange;
+    use crate::units::TAU_WORK;
 
     #[test]
     fn render_mesh_to_arrays_basic() {
@@ -623,13 +624,19 @@ mod tests {
         let result = ssi_curve_to_curve_geom(&curve).expect("line should produce CurveGeom");
         match result {
             CurveGeom::Linear(line) => {
-                assert!((line.origin.x).abs() < 1e-12, "origin.x should be 0");
+                assert!((line.origin.x).abs() < TAU_WORK, "origin.x should be 0");
                 assert!(
-                    (line.direction.x - 1.0).abs() < 1e-12,
+                    (line.direction.x - 1.0).abs() < TAU_WORK,
                     "direction.x should be 1"
                 );
-                assert!((line.direction.y).abs() < 1e-12, "direction.y should be 0");
-                assert!((line.direction.z).abs() < 1e-12, "direction.z should be 0");
+                assert!(
+                    (line.direction.y).abs() < TAU_WORK,
+                    "direction.y should be 0"
+                );
+                assert!(
+                    (line.direction.z).abs() < TAU_WORK,
+                    "direction.z should be 0"
+                );
             }
             _ => panic!("Expected Linear"),
         }
@@ -645,10 +652,10 @@ mod tests {
         let result = ssi_curve_to_curve_geom(&curve).expect("circle should produce CurveGeom");
         match result {
             CurveGeom::Circular(c) => {
-                assert!((c.center.x - 1.0).abs() < 1e-12, "center.x should be 1");
-                assert!((c.center.y - 2.0).abs() < 1e-12, "center.y should be 2");
-                assert!((c.center.z - 3.0).abs() < 1e-12, "center.z should be 3");
-                assert!((c.radius - 5.0).abs() < 1e-12, "radius should be 5");
+                assert!((c.center.x - 1.0).abs() < TAU_WORK, "center.x should be 1");
+                assert!((c.center.y - 2.0).abs() < TAU_WORK, "center.y should be 2");
+                assert!((c.center.z - 3.0).abs() < TAU_WORK, "center.z should be 3");
+                assert!((c.radius - 5.0).abs() < TAU_WORK, "radius should be 5");
             }
             _ => panic!("Expected Circular"),
         }
@@ -666,10 +673,16 @@ mod tests {
         let result = ssi_curve_to_curve_geom(&curve).expect("ellipse should produce CurveGeom");
         match result {
             CurveGeom::Elliptical(e) => {
-                assert!((e.semi_major - 3.0).abs() < 1e-12, "semi_major should be 3");
-                assert!((e.semi_minor - 2.0).abs() < 1e-12, "semi_minor should be 2");
-                assert!((e.center.x).abs() < 1e-12, "center.x should be 0");
-                assert!((e.center.y).abs() < 1e-12, "center.y should be 0");
+                assert!(
+                    (e.semi_major - 3.0).abs() < TAU_WORK,
+                    "semi_major should be 3"
+                );
+                assert!(
+                    (e.semi_minor - 2.0).abs() < TAU_WORK,
+                    "semi_minor should be 2"
+                );
+                assert!((e.center.x).abs() < TAU_WORK, "center.x should be 0");
+                assert!((e.center.y).abs() < TAU_WORK, "center.y should be 0");
             }
             _ => panic!("Expected Elliptical"),
         }
