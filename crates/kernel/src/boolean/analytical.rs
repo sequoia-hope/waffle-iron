@@ -177,7 +177,7 @@ pub(super) fn rotate_boolean_result(result: &mut BooleanResult, m_inv: &Mat3) {
 /// Discretize an ellipse into polygon points for the polygon boolean path.
 ///
 /// Uses adaptive segment count: max(32, ceil(2π * semi_major / tolerance)).
-#[allow(dead_code)] // Will be used when SSI ellipses feed into polygon booleans
+#[allow(dead_code)] // Used by tests; will also be used when SSI ellipses feed into polygon booleans
 pub(crate) fn ellipse_to_polygon(
     center: [f64; 3],
     normal: [f64; 3],

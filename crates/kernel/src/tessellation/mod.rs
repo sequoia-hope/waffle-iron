@@ -32,7 +32,7 @@ const CIRCLE_SEGMENTS: usize = 64;
 ///
 /// For polygon (box) solids: uses fan triangulation (same as before).
 /// For cylinder solids: uses geometry-driven circular cap + cylindrical side tessellation.
-#[allow(dead_code)] // Used from #[cfg(test)] code in analytical.rs and waffle_kernel_tests.rs
+#[allow(dead_code)] // Called from test code in analytical.rs and waffle_kernel_tests.rs
 pub(crate) fn tessellate_solid(
     arena: &TopoArena,
     face_map: &BTreeMap<u64, FaceIdx>,

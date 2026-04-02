@@ -4044,8 +4044,7 @@ pub(crate) fn cone_cone_ssi(
 
 /// Signed distance from a point to a torus surface.
 /// Positive outside, negative inside the tube.
-/// Currently unused after removing sampling stubs (A15.2 compliance), but will be
-/// needed for analytical torus SSI solver validation.
+/// Used by torus SSI tests. Will also be needed for analytical torus SSI solver validation.
 #[allow(dead_code)]
 fn torus_signed_distance(
     pt: [f64; 3],
