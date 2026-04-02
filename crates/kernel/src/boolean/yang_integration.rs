@@ -617,12 +617,13 @@ mod tests {
             start: [0.0, 0.0, 0.0],
             end: [1.0, 0.0, 0.0],
         };
-        let result = ssi_curve_to_curve_geom(&curve);
-        assert!(result.is_some());
-        match result.unwrap() {
+        let result = ssi_curve_to_curve_geom(&curve).expect("line should produce CurveGeom");
+        match result {
             CurveGeom::Linear(line) => {
-                assert!((line.origin.x - 0.0).abs() < 1e-12);
-                assert!((line.direction.x - 1.0).abs() < 1e-12);
+                assert!((line.origin.x).abs() < 1e-12, "origin.x should be 0");
+                assert!((line.direction.x - 1.0).abs() < 1e-12, "direction.x should be 1");
+                assert!((line.direction.y).abs() < 1e-12, "direction.y should be 0");
+                assert!((line.direction.z).abs() < 1e-12, "direction.z should be 0");
             }
             _ => panic!("Expected Linear"),
         }
@@ -635,13 +636,13 @@ mod tests {
             normal: [0.0, 0.0, 1.0],
             radius: 5.0,
         };
-        let result = ssi_curve_to_curve_geom(&curve);
-        assert!(result.is_some());
-        match result.unwrap() {
+        let result = ssi_curve_to_curve_geom(&curve).expect("circle should produce CurveGeom");
+        match result {
             CurveGeom::Circular(c) => {
-                assert!((c.center.x - 1.0).abs() < 1e-12);
-                assert!((c.center.y - 2.0).abs() < 1e-12);
-                assert!((c.radius - 5.0).abs() < 1e-12);
+                assert!((c.center.x - 1.0).abs() < 1e-12, "center.x should be 1");
+                assert!((c.center.y - 2.0).abs() < 1e-12, "center.y should be 2");
+                assert!((c.center.z - 3.0).abs() < 1e-12, "center.z should be 3");
+                assert!((c.radius - 5.0).abs() < 1e-12, "radius should be 5");
             }
             _ => panic!("Expected Circular"),
         }
@@ -656,12 +657,13 @@ mod tests {
             semi_major: 3.0,
             semi_minor: 2.0,
         };
-        let result = ssi_curve_to_curve_geom(&curve);
-        assert!(result.is_some());
-        match result.unwrap() {
+        let result = ssi_curve_to_curve_geom(&curve).expect("ellipse should produce CurveGeom");
+        match result {
             CurveGeom::Elliptical(e) => {
-                assert!((e.semi_major - 3.0).abs() < 1e-12);
-                assert!((e.semi_minor - 2.0).abs() < 1e-12);
+                assert!((e.semi_major - 3.0).abs() < 1e-12, "semi_major should be 3");
+                assert!((e.semi_minor - 2.0).abs() < 1e-12, "semi_minor should be 2");
+                assert!((e.center.x).abs() < 1e-12, "center.x should be 0");
+                assert!((e.center.y).abs() < 1e-12, "center.y should be 0");
             }
             _ => panic!("Expected Elliptical"),
         }

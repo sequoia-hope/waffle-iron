@@ -5458,8 +5458,12 @@ mod tests {
         let result = result.unwrap();
 
         let f = count_faces(&result);
-        // Through-hole: 32 outer quads + 32 inner quads + 64 top tris + 64 bottom tris = 192
-        assert!(f > 100, "through-hole should produce many faces, got {f}");
+        // Through-hole: 32 outer quads + 32 inner quads + 64 top tris + 64 bottom tris ≈ 192
+        // Upper bound guards against face-explosion regressions (P1 numeric oracle).
+        assert!(
+            f > 100 && f < 400,
+            "through-hole should produce ~192 faces (100..400), got {f}"
+        );
     }
 
     /// Test non-concentric enclosed cylinder subtract (blind hole).
@@ -5500,7 +5504,11 @@ mod tests {
         let result = result.unwrap();
 
         let f = count_faces(&result);
-        // Blind hole: 32 outer quads + 32 inner quads + 64 top tris + 1 bottom cap + 1 inner cap = 130
-        assert!(f > 60, "blind-hole should produce many faces, got {f}");
+        // Blind hole: 32 outer quads + 32 inner quads + 64 top tris + 1 bottom cap + 1 inner cap ≈ 130
+        // Upper bound guards against face-explosion regressions (P1 numeric oracle).
+        assert!(
+            f > 60 && f < 300,
+            "blind-hole should produce ~130 faces (60..300), got {f}"
+        );
     }
 }
