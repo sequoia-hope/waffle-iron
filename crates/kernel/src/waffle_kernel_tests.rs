@@ -1292,6 +1292,16 @@ fn j2_box_cyl_union_basic() {
         "Union mesh should have substantial triangles, got {}",
         mesh.indices.len() / 3
     );
+    // Watertightness: enclosed cylinder union must produce manifold mesh
+    assert!(check_watertight(&mesh),
+        "Box-cylinder union (enclosed) must produce watertight mesh, got {} unpaired edges",
+        count_unpaired_edges(&mesh));
+    // AABB: result must span the 10×10×10 box centered at origin
+    let (bb_min, bb_max) = mesh_bbox(&mesh);
+    assert!((bb_min[0] - (-5.0)).abs() < 0.1, "AABB min X: expected -5.0, got {}", bb_min[0]);
+    assert!((bb_max[0] - 5.0).abs() < 0.1, "AABB max X: expected 5.0, got {}", bb_max[0]);
+    assert!((bb_min[2]).abs() < 0.1, "AABB min Z: expected 0.0, got {}", bb_min[2]);
+    assert!((bb_max[2] - 10.0).abs() < 0.1, "AABB max Z: expected 10.0, got {}", bb_max[2]);
 }
 
 /// Check that all triangles in a mesh have geometric winding consistent with
@@ -3126,6 +3136,10 @@ fn l1_gear_rect_union_succeeds() {
     let vol = mesh_volume(&mesh);
     // Rect volume alone = 10*10*5 = 500; union must be >= rect volume
     assert!(vol > 400.0, "l1: gear+rect union volume should be >400, got {vol:.2}");
+    // Watertightness: gear+rect union must produce manifold mesh
+    assert!(check_watertight(&mesh),
+        "l1: gear+rect union must produce watertight mesh, got {} unpaired edges",
+        count_unpaired_edges(&mesh));
 }
 
 #[test]
@@ -13881,6 +13895,10 @@ fn test_revolve_accepts_offset_profile() {
         rel_err < 0.20,
         "revolve volume {vol:.4} should be ~{expected:.4} (Pappus), rel_err={rel_err:.4}"
     );
+    // Watertightness: revolve must produce a closed solid
+    assert!(check_watertight(&mesh),
+        "revolve mesh must be watertight, got {} unpaired edges",
+        count_unpaired_edges(&mesh));
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -14071,15 +14089,21 @@ fn test_f0001_diagnostic_path() {
     let vol = mesh_volume(&mesh);
     let expected_vol = 0.5 * 0.5 * 0.3;
     let rel_err = (vol - expected_vol).abs() / expected_vol;
-    assert!(rel_err < 0.05,
+    assert!(rel_err < 0.02,
         "identical box union volume {vol:.6} should be ~{expected_vol:.6} (rel_err={rel_err:.4})");
 
     let (bb_min, bb_max) = mesh_bbox(&mesh);
     // AABB should span [-0.25, 0.25] in X/Y and [0, 0.3] in Z
-    assert!((bb_min[0] - (-0.25)).abs() < 0.01, "AABB min X wrong: {}", bb_min[0]);
-    assert!((bb_max[0] - 0.25).abs() < 0.01, "AABB max X wrong: {}", bb_max[0]);
-    assert!((bb_min[2]).abs() < 0.01, "AABB min Z wrong: {}", bb_min[2]);
-    assert!((bb_max[2] - 0.3).abs() < 0.01, "AABB max Z wrong: {}", bb_max[2]);
+    assert!((bb_min[0] - (-0.25)).abs() < 0.001, "AABB min X wrong: {}", bb_min[0]);
+    assert!((bb_max[0] - 0.25).abs() < 0.001, "AABB max X wrong: {}", bb_max[0]);
+    assert!((bb_min[1] - (-0.25)).abs() < 0.001, "AABB min Y wrong: {}", bb_min[1]);
+    assert!((bb_max[1] - 0.25).abs() < 0.001, "AABB max Y wrong: {}", bb_max[1]);
+    assert!((bb_min[2]).abs() < 0.001, "AABB min Z wrong: {}", bb_min[2]);
+    assert!((bb_max[2] - 0.3).abs() < 0.001, "AABB max Z wrong: {}", bb_max[2]);
+    // Watertightness
+    assert!(check_watertight(&mesh),
+        "identical box union must produce watertight mesh, got {} unpaired edges",
+        count_unpaired_edges(&mesh));
 }
 
 // ── Assay-reproducer tests (F0001, F0031) ─────────────────────────────
