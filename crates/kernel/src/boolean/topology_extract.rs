@@ -269,6 +269,32 @@ pub(crate) fn build_result_brep(
         }
     }
 
+    // ── Step 6: Detect unpaired half-edges ──
+    // Any half-edge that wasn't paired in Step 5 still has its default
+    // edge=EdgeIdx(0) and twin=HalfEdgeIdx(0). These alias the first real
+    // edge/half-edge, corrupting the topology (non-manifold, non-watertight).
+    // Rather than producing invalid B-Rep, return empty topology so the caller
+    // falls back to the legacy pipeline. Ref: Mantyla §4.2 — manifold condition
+    // requires every half-edge to have exactly one twin.
+    let n_he = arena.half_edges.len();
+    if n_he > 0 {
+        let mut unpaired_count = 0;
+        for (i, he) in arena.half_edges.iter().enumerate() {
+            // A properly paired half-edge satisfies: twin.twin == self
+            let twin_idx = he.twin.0;
+            if twin_idx >= n_he || arena.half_edges[twin_idx].twin.0 != i {
+                unpaired_count += 1;
+            }
+        }
+        if unpaired_count > 0 {
+            return ResultTopology {
+                arena: TopoArena::new(),
+                face_provenance: BTreeMap::new(),
+                edge_is_intersection: BTreeMap::new(),
+            };
+        }
+    }
+
     ResultTopology {
         arena,
         face_provenance,

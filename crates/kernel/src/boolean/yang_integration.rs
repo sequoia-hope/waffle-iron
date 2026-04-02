@@ -431,6 +431,19 @@ fn validate_yang_result_topology(arena: &crate::topology::arena::TopoArena) -> R
         }
     }
 
+    // Twin symmetry: every half-edge's twin must point back to it.
+    // Manifold B-Rep requires he.twin.twin == he for all half-edges.
+    // Ref: Mantyla §4.2, Stroud §3.3.
+    for (i, he) in arena.half_edges.iter().enumerate() {
+        let twin_he = &arena.half_edges[he.twin.0];
+        if twin_he.twin.0 != i {
+            return Err(format!(
+                "half_edge[{i}].twin = {} but twin.twin = {} (expected {i})",
+                he.twin.0, twin_he.twin.0
+            ));
+        }
+    }
+
     for (i, face) in arena.faces.iter().enumerate() {
         if face.outer_loop.0 >= n_loops {
             return Err(format!(
