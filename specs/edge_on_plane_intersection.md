@@ -177,16 +177,47 @@ vertices on this mesh's edges. Results:
 
 ### Remaining blockers for axis-aligned box boolean
 
-The 3 blockers from the investigation remain for AXIS-ALIGNED geometry:
+Two of the 3 original blockers have been partially addressed:
 
-1. **Winding number ambiguity** — centroids on opposing surface get w ≈ 0.5
-2. **Co-planar face deduplication** — both meshes' co-planar faces survive
-3. **Conformal vertex sharing** — non-conformal subdivision breaks trim loops
+1. **Winding number ambiguity** — ✅ PARTIAL FIX: `label_sub_tri` offsets the
+   centroid along -normal (into the sub-triangle's own solid) when winding
+   number is ambiguous (w ∈ [0.3, 0.7]). This correctly disambiguates A sub-tris
+   on B's surface. Touching-box cases work correctly with -normal (unlike the
+   previous +normal attempt).
 
-These all require the conformal mesh arrangement algorithm (Cherchi 2020) as a
-prerequisite. The strict interior testing avoids triggering these blockers for
-axis-aligned geometry, while correctly handling edges that pass through triangle
-interiors (the non-degenerate case).
+2. **Co-planar face deduplication** — ❌ STILL NEEDED: The winding offset correctly
+   labels individual sub-tris, but coplanar B face groups still survive for
+   Subtract/Intersect because their sub-tris are genuinely inside A (offset
+   confirms this). A separate dedup pass was implemented but caused regressions
+   in conservation tests (it removes valid B sub-tris for Union). The dedup
+   requires operation-aware logic that's coupled with the conservation invariant.
+
+3. **Conformal vertex sharing** — ❌ STILL NEEDED: Intersection vertices created
+   by the passthrough case in `clip_edge_on_plane` are shared via constraint
+   segments in both meshes. However, vertices at triangle boundary crossings
+   (e.g., (1,1,0) on a diagonal edge) split one mesh's triangles but not all
+   adjacent triangles of the other mesh that share the same geometric edge.
+   This creates non-conformal meshes where trim loops have 5+ edges per face
+   instead of the expected 4, and twin pairing fails for boundary edges.
+
+The conformal mesh arrangement (Cherchi 2020) remains the prerequisite for the
+topology_extract Euler/manifold tests. Current topology: V=20, E=16, F=10,
+HE=48 for overlapping box subtract (target: V-E+F=2, HE=2*E).
+
+### Progress (2026-04-02)
+
+**Completed**:
+- Passthrough case in `clip_edge_on_plane`: detects edges crossing through
+  triangles when neither endpoint is strictly inside (axis-aligned geometry)
+- Winding offset in `label_sub_tri`: -normal offset for ambiguous centroids
+- Both improvements have zero regressions (952 tests pass)
+- Subdivision now produces 28 sub-tris per mesh (up from 12 unsplit)
+- New intersection vertices at (1,1,0), (1,1,2), (1,0,1), (1,2,1) etc.
+
+**Not completed**:
+- Coplanar face dedup (regressions in conservation tests)
+- Conformal vertex sharing (requires Cherchi 2020 mesh arrangement)
+- Un-ignoring the 3 topology_extract tests (V-E+F=2, manifold, all-ops)
 
 ### Test status
 
@@ -194,9 +225,8 @@ Tests passing (un-ignored):
 - `edge_on_plane_crossing_detected` ✅ — basic detection
 - `edge_on_plane_partial_crossing` ✅ — one endpoint strictly inside
 - `edge_on_plane_no_crossing` ✅ — both outside (passes)
-- `edge_on_plane_aligned_box_union_nonempty` — (new test, ignored: needs conformal)
 
-Tests still ignored:
-- `edge_on_plane_axis_aligned_boxes` — axis-aligned edges on boundaries
-- `edge_on_plane_aligned_box_union_nonempty` — needs conformal subdivision
-- `edge_on_plane_box_boolean_manifold` — full pipeline manifold check
+Tests still ignored (3 in topology_extract, need conformal subdivision):
+- `test_brep_euler_characteristic` — V-E+F=14 (need 2)
+- `test_brep_all_ops` — same Euler issue for all ops
+- `test_brep_manifold_edges` — HE=48 vs 2*E=32 (need HE=2*E)

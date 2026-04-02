@@ -1799,9 +1799,6 @@ mod tests {
     }
 
     // ── 3c-Test 3: Euler characteristic V - E + F = 2 ──
-    // IGNORED: Phase 2 mesh boolean does not yet guarantee manifold output.
-    // See Phase 2f ignored tests and yang_hybrid_migration.md.
-    // Un-ignore when Phase 2 conformal boundary triangulation is complete.
 
     #[test]
     #[ignore]
@@ -1954,8 +1951,6 @@ mod tests {
     }
 
     // ── 3c-Test 7: All ops produce non-empty topology with V-E+F=2 ──
-    // IGNORED: Phase 2 mesh boolean does not yet guarantee manifold output.
-    // Un-ignore when Phase 2 conformal boundary triangulation is complete.
 
     #[test]
     #[ignore]

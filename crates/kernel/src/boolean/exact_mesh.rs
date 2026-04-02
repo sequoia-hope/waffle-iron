@@ -575,10 +575,121 @@ fn clip_edge_on_plane(
     }
 
     // Neither endpoint inside — the edge might still clip through the triangle.
-    // Check if any triangle edge intersects the segment in 2D.
+    // Check if any triangle edge intersects the coplanar segment in 2D.
     // (Edge endpoints outside but edge crosses through triangle interior.)
-    // Skip this case for now — it's rare for aligned box geometry.
-    None
+    // Ref #9: Cherchi 2020 — degenerate intersection configurations.
+
+    // Project to 2D: reuse the same axis-selection logic as the one-inside case.
+    let n_pts = [tri_plane_verts[0], tri_plane_verts[1], tri_plane_verts[2]];
+    let u_vec = [
+        n_pts[1][0] - n_pts[0][0],
+        n_pts[1][1] - n_pts[0][1],
+        n_pts[1][2] - n_pts[0][2],
+    ];
+    let v_vec = [
+        n_pts[2][0] - n_pts[0][0],
+        n_pts[2][1] - n_pts[0][1],
+        n_pts[2][2] - n_pts[0][2],
+    ];
+    let normal = [
+        u_vec[1] * v_vec[2] - u_vec[2] * v_vec[1],
+        u_vec[2] * v_vec[0] - u_vec[0] * v_vec[2],
+        u_vec[0] * v_vec[1] - u_vec[1] * v_vec[0],
+    ];
+    let (pi, pj) = {
+        let ax = normal[0].abs();
+        let ay = normal[1].abs();
+        let az = normal[2].abs();
+        if ax >= ay && ax >= az {
+            (1, 2)
+        } else if ay >= az {
+            (0, 2)
+        } else {
+            (0, 1)
+        }
+    };
+
+    // 2D projection of the coplanar edge
+    let seg_a = [ep0[pi], ep0[pj]];
+    let seg_b = [ep1[pi], ep1[pj]];
+
+    // Collect (t_on_coplanar_edge, triangle_edge_index) for all crossings
+    let mut hits: Vec<(f64, usize)> = Vec::new();
+    for edge_k in 0..3 {
+        let ea = [tri_plane_verts[edge_k][pi], tri_plane_verts[edge_k][pj]];
+        let eb = [
+            tri_plane_verts[(edge_k + 1) % 3][pi],
+            tri_plane_verts[(edge_k + 1) % 3][pj],
+        ];
+
+        // 2D segment-segment intersection:
+        //   seg_a + t*(seg_b - seg_a) = ea + s*(eb - ea)
+        let d1 = [seg_b[0] - seg_a[0], seg_b[1] - seg_a[1]];
+        let d2 = [eb[0] - ea[0], eb[1] - ea[1]];
+        let det = d1[0] * d2[1] - d1[1] * d2[0];
+        if det.abs() < TAU_NORMALIZE_SQ {
+            continue; // parallel
+        }
+        let r = [ea[0] - seg_a[0], ea[1] - seg_a[1]];
+        let t = (r[0] * d2[1] - r[1] * d2[0]) / det;
+        let s = (r[0] * d1[1] - r[1] * d1[0]) / det;
+
+        // Both parameters must be within segment bounds
+        if (-TAU_EXACT_MESH_CLASSIFY..=1.0 + TAU_EXACT_MESH_CLASSIFY).contains(&t)
+            && (-TAU_EXACT_MESH_CLASSIFY..=1.0 + TAU_EXACT_MESH_CLASSIFY).contains(&s)
+        {
+            hits.push((t.clamp(0.0, 1.0), edge_k));
+        }
+    }
+
+    if hits.len() < 2 {
+        return None;
+    }
+
+    // Sort by t to find entry and exit
+    hits.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    let (t_entry, k_entry) = hits[0];
+    let (t_exit, k_exit) = hits[hits.len() - 1];
+
+    // If entry and exit are at the same point, it's a tangent touch — skip
+    if (t_exit - t_entry).abs() < TAU_WORK {
+        return None;
+    }
+
+    // Build IndirectPoints for entry and exit.
+    // The intersection point lies on the triangle edge [tri_plane[k], tri_plane[(k+1)%3]].
+    // Use that triangle edge as the `edge` field and tri_edge as the `plane_tri`.
+    // materialize_ip intersects the triangle edge with the plane of tri_edge,
+    // which gives the point where the triangle edge crosses the line of intersection
+    // of the two triangle planes — exactly our passthrough crossing point.
+    let make_ip = |t: f64, k: usize| -> IndirectPoint {
+        // Check if the intersection is at an endpoint of the coplanar edge
+        if t < TAU_WORK {
+            return IndirectPoint {
+                edge: [tri_edge[ci0], tri_edge[ci0]],
+                plane_tri: *tri_plane,
+            };
+        }
+        if t > 1.0 - TAU_WORK {
+            return IndirectPoint {
+                edge: [tri_edge[ci1], tri_edge[ci1]],
+                plane_tri: *tri_plane,
+            };
+        }
+        // General case: the intersection is at a new point on triangle edge k.
+        // edge = the triangle boundary edge that was crossed.
+        // plane_tri = the edge triangle (whose plane is tilted, so the
+        // line-plane intersection is well-defined and gives the correct point).
+        IndirectPoint {
+            edge: [tri_plane[k], tri_plane[(k + 1) % 3]],
+            plane_tri: *tri_edge,
+        }
+    };
+
+    Some(TriTriIsect::Segment(
+        make_ip(t_entry, k_entry),
+        make_ip(t_exit, k_exit),
+    ))
 }
 
 /// Compute the overlap of two intervals [p1,p2] and [q1,q2] on the intersection line.
@@ -902,12 +1013,63 @@ fn sub_tri_centroid(verts: &[[f64; 3]], tri: &SubTriangle) -> [f64; 3] {
     ]
 }
 
-// NOTE: Winding number offset (WINDING_OFFSET_EPS + triangle_unit_normal) was
-// investigated but reverted — it breaks touching-box classification where the
-// centroid offset pushes evaluation points across the boundary of a touching solid.
-// The co-planar face deduplication and winding number disambiguation require a
-// coordinated solution. See specs/edge_on_plane_intersection.md for the full
-// analysis and recommended approach.
+/// Compute the unit normal of a sub-triangle. Returns (0,0,1) for degenerate tris.
+/// Used by `label_cells` for winding-number offset disambiguation.
+/// Ref #9: Cherchi 2020 — face normal for coplanar disambiguation.
+fn sub_tri_unit_normal(verts: &[[f64; 3]], tri: &SubTriangle) -> [f64; 3] {
+    let v0 = verts[tri.verts[0]];
+    let v1 = verts[tri.verts[1]];
+    let v2 = verts[tri.verts[2]];
+    let u = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
+    let w = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
+    let n = [
+        u[1] * w[2] - u[2] * w[1],
+        u[2] * w[0] - u[0] * w[2],
+        u[0] * w[1] - u[1] * w[0],
+    ];
+    let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+    if len < 1e-30 {
+        return [0.0, 0.0, 1.0];
+    }
+    [n[0] / len, n[1] / len, n[2] / len]
+}
+
+/// Label a single sub-triangle as inside or outside a target mesh.
+///
+/// When the winding number is ambiguous (near 0.5, indicating the centroid is
+/// on or very near the target mesh's surface), offsets the evaluation point
+/// along the INWARD normal (-normal, into the sub-triangle's own solid) and
+/// re-evaluates. This breaks the tie without crossing the touching-solid
+/// boundary (which was the problem with the previous +normal approach).
+///
+/// Ref #7: Jacobson 2013 — generalized winding number.
+/// Ref #9: Cherchi 2020 — coplanar face disambiguation via normal offset.
+fn label_sub_tri(
+    verts: &[[f64; 3]],
+    sub_tri: &SubTriangle,
+    target_verts: &[[f64; 3]],
+    target_tris: &[[usize; 3]],
+) -> CellLabel {
+    let centroid = sub_tri_centroid(verts, sub_tri);
+    let w = winding_number_mesh(centroid, target_verts, target_tris);
+    if w > 0.3 && w < 0.7 {
+        // Ambiguous — centroid is near the target mesh surface.
+        // Offset along -normal (INTO this sub-triangle's own solid) to break tie.
+        // -normal direction is safe for touching boxes: it moves away from the
+        // touching boundary, not across it. Ref: specs/edge_on_plane_intersection.md.
+        let normal = sub_tri_unit_normal(verts, sub_tri);
+        let eps = 1e-6;
+        let offset = [
+            centroid[0] - eps * normal[0],
+            centroid[1] - eps * normal[1],
+            centroid[2] - eps * normal[2],
+        ];
+        let w2 = winding_number_mesh(offset, target_verts, target_tris);
+        classify_winding(w2)
+    } else {
+        classify_winding(w)
+    }
+}
 
 /// Classify each sub-triangle as inside or outside the other mesh.
 ///
@@ -916,6 +1078,10 @@ fn sub_tri_centroid(verts: &[[f64; 3]], tri: &SubTriangle) -> [f64; 3] {
 /// versa). The original (pre-subdivision) mesh geometry is used as the
 /// winding number source — the subdivided mesh provides the sub-triangles
 /// whose centroids are the query points.
+///
+/// When centroids lie on the opposing mesh's surface (winding number ≈ 0.5),
+/// the evaluation point is offset along the inward normal to break the tie.
+/// See `label_sub_tri` for details.
 ///
 /// # Arguments
 /// - `subdivided`: The subdivided mesh pair from `subdivide_mesh_pair`.
@@ -937,9 +1103,12 @@ pub(crate) fn label_cells(
         .tris_a
         .iter()
         .map(|sub_tri| {
-            let centroid = sub_tri_centroid(&subdivided.verts, sub_tri);
-            let w = winding_number_mesh(centroid, original_verts_b, original_tris_b);
-            classify_winding(w)
+            label_sub_tri(
+                &subdivided.verts,
+                sub_tri,
+                original_verts_b,
+                original_tris_b,
+            )
         })
         .collect();
 
@@ -948,9 +1117,12 @@ pub(crate) fn label_cells(
         .tris_b
         .iter()
         .map(|sub_tri| {
-            let centroid = sub_tri_centroid(&subdivided.verts, sub_tri);
-            let w = winding_number_mesh(centroid, original_verts_a, original_tris_a);
-            classify_winding(w)
+            label_sub_tri(
+                &subdivided.verts,
+                sub_tri,
+                original_verts_a,
+                original_tris_a,
+            )
         })
         .collect();
 
