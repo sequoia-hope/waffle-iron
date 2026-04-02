@@ -26,6 +26,7 @@ use geometry_predicates::{orient2d, orient3d};
 
 use crate::units::{
     TAU_EXACT_MESH_BOUNDARY_EPS, TAU_EXACT_MESH_CLASSIFY, TAU_NORMALIZE_SQ, TAU_WORK,
+    WINDING_INSIDE_THRESHOLD, WINDING_OUTSIDE_THRESHOLD,
 };
 
 /// Which mesh a triangle belongs to in a boolean operation.
@@ -993,7 +994,7 @@ fn winding_number_mesh(p: [f64; 3], verts: &[[f64; 3]], tris: &[[usize; 3]]) -> 
 /// Ref #7: Jacobson et al. 2013.
 #[allow(dead_code)] // Phase 2 building block — task 2d
 fn classify_winding(w: f64) -> CellLabel {
-    if w >= 0.5 {
+    if w >= WINDING_INSIDE_THRESHOLD {
         CellLabel::Inside
     } else {
         CellLabel::Outside
@@ -1028,7 +1029,7 @@ fn sub_tri_unit_normal(verts: &[[f64; 3]], tri: &SubTriangle) -> [f64; 3] {
         u[0] * w[1] - u[1] * w[0],
     ];
     let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-    if len < 1e-30 {
+    if len < TAU_NORMALIZE_SQ {
         return [0.0, 0.0, 1.0];
     }
     [n[0] / len, n[1] / len, n[2] / len]
@@ -1052,13 +1053,13 @@ fn label_sub_tri(
 ) -> CellLabel {
     let centroid = sub_tri_centroid(verts, sub_tri);
     let w = winding_number_mesh(centroid, target_verts, target_tris);
-    if w > 0.3 && w < 0.7 {
+    if w > WINDING_OUTSIDE_THRESHOLD && w < (1.0 - WINDING_OUTSIDE_THRESHOLD) {
         // Ambiguous — centroid is near the target mesh surface.
         // Offset along -normal (INTO this sub-triangle's own solid) to break tie.
         // -normal direction is safe for touching boxes: it moves away from the
         // touching boundary, not across it. Ref: specs/edge_on_plane_intersection.md.
         let normal = sub_tri_unit_normal(verts, sub_tri);
-        let eps = 1e-6;
+        let eps = TAU_WORK.sqrt(); // ~1e-6, geometric mean of model/working precision
         let offset = [
             centroid[0] - eps * normal[0],
             centroid[1] - eps * normal[1],
@@ -2129,7 +2130,7 @@ pub(crate) fn radial_sort_around_edge(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::units::TAU_WORK;
+    use crate::units::{TAU_COINCIDENT, TAU_WORK, TJUNCTION_ENDPOINT_MARGIN};
 
     // ── Smoke tests: verify geometry-predicates crate integration ──
 
@@ -4326,14 +4327,14 @@ mod tests {
                         let cross_len_sq =
                             cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2];
                         let ab_len_sq = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
-                        if cross_len_sq < 1e-12 * ab_len_sq {
+                        if cross_len_sq < TAU_WORK * ab_len_sq {
                             // On the line — check parameterization 0 <= t <= 1
-                            let t = if ab_len_sq > 1e-30 {
+                            let t = if ab_len_sq > TAU_NORMALIZE_SQ {
                                 (ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / ab_len_sq
                             } else {
                                 0.5
                             };
-                            if t > -1e-9 && t < 1.0 + 1e-9 {
+                            if t > -TAU_COINCIDENT && t < 1.0 + TAU_COINCIDENT {
                                 edge_new_verts_by_parent
                                     .entry(ek)
                                     .or_default()
@@ -4847,7 +4848,7 @@ mod tests {
                     ab[0] * ap[1] - ab[1] * ap[0],
                 ];
                 let cross_sq = cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2];
-                t > 0.01 && t < 0.99 && cross_sq / ab_sq < 1e-10
+                t > TJUNCTION_ENDPOINT_MARGIN && t < (1.0 - TJUNCTION_ENDPOINT_MARGIN) && cross_sq / ab_sq < TAU_EXACT_MESH_CLASSIFY
             })
             .copied()
             .collect();
