@@ -116,23 +116,56 @@ pub(crate) fn build_result_brep(
     let shell_idx = arena.add_shell(solid_idx);
     arena.solids[solid_idx.0].outer_shell = shell_idx;
 
-    // ── Step 2: Create unique vertices ──
+    // ── Step 2: Create unique vertices with position-based deduplication ──
+    // Different mesh vertex indices may refer to the same geometric position
+    // (e.g., intersection vertices from A's subdivision and B's original corners).
+    // Merge by position so the B-Rep shares vertices correctly, enabling twin
+    // pairing across face boundaries from different source meshes.
+    // Ref #9: Cherchi 2020 — conformal mesh vertex sharing.
+    let mut pos_to_brep: HashMap<[i64; 3], BrepVIdx> = HashMap::new();
     let mut mesh_to_brep: HashMap<usize, BrepVIdx> = HashMap::new();
+    // Also map mesh vertex index → canonical mesh vertex index (lowest index
+    // at this position), so directed_he lookups use consistent keys.
+    let mut mesh_to_canonical: HashMap<usize, usize> = HashMap::new();
+    let mut pos_to_canonical_mesh: HashMap<[i64; 3], usize> = HashMap::new();
+
+    let quant_brep = |p: [f64; 3]| -> [i64; 3] {
+        // 1e9 quantization: nanometer precision for meter-scale models.
+        // Matches the snap() function used in mesh-level Euler tests.
+        let scale = 1e9;
+        [
+            (p[0] * scale).round() as i64,
+            (p[1] * scale).round() as i64,
+            (p[2] * scale).round() as i64,
+        ]
+    };
+
     for loops in trim_map.boundaries.values() {
         for trim_loop in loops {
             for edge in &trim_loop.edges {
                 for &vi in &[edge.v0, edge.v1] {
-                    mesh_to_brep
-                        .entry(vi)
-                        .or_insert_with(|| arena.add_vertex(subdivided.verts[vi]));
+                    if mesh_to_brep.contains_key(&vi) {
+                        continue;
+                    }
+                    let pos = subdivided.verts[vi];
+                    let key = quant_brep(pos);
+                    let brep_vi = *pos_to_brep
+                        .entry(key)
+                        .or_insert_with(|| arena.add_vertex(pos));
+                    mesh_to_brep.insert(vi, brep_vi);
+                    let canon = *pos_to_canonical_mesh.entry(key).or_insert(vi);
+                    mesh_to_canonical.insert(vi, canon);
                 }
             }
         }
     }
 
+    // Helper: canonicalize a mesh vertex index through position dedup.
+    let canon = |vi: usize| -> usize { mesh_to_canonical.get(&vi).copied().unwrap_or(vi) };
+
     // ── Step 3: Create faces, loops, and half-edges ──
     // For each face's outer trim loop, create a ring of half-edges.
-    // directed mesh edge (v0, v1) → HalfEdgeIdx
+    // directed mesh edge (canon_v0, canon_v1) → HalfEdgeIdx
     let mut directed_he: HashMap<(usize, usize), HalfEdgeIdx> = HashMap::new();
     let mut face_provenance: BTreeMap<FaceIdx, SourceFace> = BTreeMap::new();
 
@@ -168,7 +201,9 @@ pub(crate) fn build_result_brep(
                 prev: prev_idx,
                 loop_: loop_idx,
             });
-            directed_he.insert((trim_edge.v0, trim_edge.v1), he_idx);
+            // Use canonical vertex indices for directed_he so that edges
+            // from different source meshes at the same position are matched.
+            directed_he.insert((canon(trim_edge.v0), canon(trim_edge.v1)), he_idx);
 
             // Set vertex half_edge reference
             let v_brep = mesh_to_brep[&trim_edge.v0];
@@ -185,11 +220,14 @@ pub(crate) fn build_result_brep(
     }
 
     // ── Step 4: Build undirected edge info for classification ──
+    // Use canonical vertex indices so cross-mesh edges are matched.
     let mut edge_is_int_map: HashMap<(usize, usize), bool> = HashMap::new();
     for loops in trim_map.boundaries.values() {
         for trim_loop in loops {
             for edge in &trim_loop.edges {
-                let key = (edge.v0.min(edge.v1), edge.v0.max(edge.v1));
+                let cv0 = canon(edge.v0);
+                let cv1 = canon(edge.v1);
+                let key = (cv0.min(cv1), cv0.max(cv1));
                 let entry = edge_is_int_map.entry(key).or_insert(false);
                 *entry |= edge.is_intersection;
             }
@@ -197,22 +235,23 @@ pub(crate) fn build_result_brep(
     }
 
     // ── Step 5: Pair twin half-edges → create Edges ──
+    // Use canonical vertex indices for lookup so that edges from different
+    // source meshes at the same position are correctly paired as twins.
     let mut edge_is_intersection: BTreeMap<EdgeIdx, bool> = BTreeMap::new();
     let mut paired: HashSet<(usize, usize)> = HashSet::new();
 
     for loops in trim_map.boundaries.values() {
         for trim_loop in loops {
             for trim_edge in &trim_loop.edges {
-                let key = (
-                    trim_edge.v0.min(trim_edge.v1),
-                    trim_edge.v0.max(trim_edge.v1),
-                );
+                let cv0 = canon(trim_edge.v0);
+                let cv1 = canon(trim_edge.v1);
+                let key = (cv0.min(cv1), cv0.max(cv1));
                 if paired.contains(&key) {
                     continue;
                 }
 
-                let he_fwd = directed_he.get(&(trim_edge.v0, trim_edge.v1));
-                let he_rev = directed_he.get(&(trim_edge.v1, trim_edge.v0));
+                let he_fwd = directed_he.get(&(cv0, cv1));
+                let he_rev = directed_he.get(&(cv1, cv0));
 
                 if let (Some(&he_a), Some(&he_b)) = (he_fwd, he_rev) {
                     let edge_idx = EdgeIdx(arena.edges.len());
@@ -390,16 +429,37 @@ pub(crate) fn face_survival_detect(
     // Determine which cell labels to keep for A and B sub-triangles.
     // Selection table matches `select_boolean_result` in exact_mesh.rs.
     // Ref #24: Yang 2025 — boolean op cell selection table.
+    //
+    // Co-surface handling (sub-tris on the other mesh's surface):
+    // A: Union keeps all co-surface; Subtract keeps CoSurfaceOutside only;
+    //    Intersect keeps CoSurfaceInside only.
+    // B: always only primary label (Outside/Inside), never co-surface.
     let (keep_a, keep_b, flip_b) = match op {
         MeshBooleanOp::Union => (CellLabel::Outside, CellLabel::Outside, false),
         MeshBooleanOp::Subtract => (CellLabel::Outside, CellLabel::Inside, true),
         MeshBooleanOp::Intersect => (CellLabel::Inside, CellLabel::Inside, false),
     };
 
+    let a_keeps_label = |label: &CellLabel| -> bool {
+        if *label == keep_a {
+            return true;
+        }
+        match op {
+            MeshBooleanOp::Union => {
+                matches!(
+                    label,
+                    CellLabel::CoSurfaceInside | CellLabel::CoSurfaceOutside
+                )
+            }
+            MeshBooleanOp::Subtract => *label == CellLabel::CoSurfaceOutside,
+            MeshBooleanOp::Intersect => *label == CellLabel::CoSurfaceInside,
+        }
+    };
+
     // Process A sub-triangles: look up source face via bijective_a.
     // Ref #9: Cherchi 2020 — parent triangle provenance through subdivision.
     for (sub_tri, label) in subdivided.tris_a.iter().zip(labeling.labels_a.iter()) {
-        if *label == keep_a {
+        if a_keeps_label(label) {
             let face_idx = bijective_a.tri_face_ids[sub_tri.parent_tri];
             let key = SourceFace {
                 mesh_id: MeshId::A,
@@ -1801,7 +1861,6 @@ mod tests {
     // ── 3c-Test 3: Euler characteristic V - E + F = 2 ──
 
     #[test]
-    #[ignore]
     fn test_brep_euler_characteristic() {
         let (subdivided, labeling, bij_a, bij_b) =
             run_overlapping_box_pipeline(MeshBooleanOp::Subtract);
@@ -1953,7 +2012,6 @@ mod tests {
     // ── 3c-Test 7: All ops produce non-empty topology with V-E+F=2 ──
 
     #[test]
-    #[ignore]
     fn test_brep_all_ops() {
         let (subdivided, labeling, bij_a, bij_b) =
             run_overlapping_box_pipeline(MeshBooleanOp::Union);
@@ -1992,7 +2050,6 @@ mod tests {
     // Un-ignore when Phase 2 conformal boundary triangulation is complete.
 
     #[test]
-    #[ignore]
     fn test_brep_manifold_edges() {
         let (subdivided, labeling, bij_a, bij_b) =
             run_overlapping_box_pipeline(MeshBooleanOp::Subtract);

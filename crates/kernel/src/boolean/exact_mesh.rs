@@ -944,8 +944,20 @@ pub(crate) struct SubdividedMesh {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)] // Phase 2 building block — task 2d
 pub(crate) enum CellLabel {
+    /// Clearly inside the other mesh (winding number > 0.7).
     Inside,
+    /// Clearly outside the other mesh (winding number < 0.3).
     Outside,
+    /// Co-surface: initial winding ≈ 0.5, offset resolves to Inside.
+    /// The sub-tri lies on the other mesh's surface with its solid interior
+    /// facing into the other solid. Example: shared y=0 plane of overlapping
+    /// boxes where -normal offset enters the other box.
+    CoSurfaceInside,
+    /// Co-surface: initial winding ≈ 0.5, offset resolves to Outside.
+    /// The sub-tri lies on the other mesh's surface but its solid interior
+    /// faces away from the other solid. Example: touching boxes at x=2 where
+    /// -normal offset stays outside the other box.
+    CoSurfaceOutside,
 }
 
 /// Boolean operation to perform on the labeled cells.
@@ -1015,7 +1027,7 @@ fn sub_tri_centroid(verts: &[[f64; 3]], tri: &SubTriangle) -> [f64; 3] {
 }
 
 /// Compute the unit normal of a sub-triangle. Returns (0,0,1) for degenerate tris.
-/// Used by `label_cells` for winding-number offset disambiguation.
+/// Used by `label_sub_tri` for winding-number offset disambiguation.
 /// Ref #9: Cherchi 2020 — face normal for coplanar disambiguation.
 fn sub_tri_unit_normal(verts: &[[f64; 3]], tri: &SubTriangle) -> [f64; 3] {
     let v0 = verts[tri.verts[0]];
@@ -1040,8 +1052,17 @@ fn sub_tri_unit_normal(verts: &[[f64; 3]], tri: &SubTriangle) -> [f64; 3] {
 /// When the winding number is ambiguous (near 0.5, indicating the centroid is
 /// on or very near the target mesh's surface), offsets the evaluation point
 /// along the INWARD normal (-normal, into the sub-triangle's own solid) and
-/// re-evaluates. This breaks the tie without crossing the touching-solid
-/// boundary (which was the problem with the previous +normal approach).
+/// re-evaluates. Returns `CoSurfaceInside` or `CoSurfaceOutside` to distinguish
+/// co-surface tris that face INTO the other solid from those facing AWAY.
+///
+/// The offset direction matters:
+/// - Touching boxes at x=2: -normal → AWAY from other solid → CoSurfaceOutside
+/// - Overlapping boxes shared y=0: -normal → INTO other solid → CoSurfaceInside
+///
+/// Selection rules use this distinction:
+/// - Subtract: keep A-Outside + A-CoSurfaceOutside (touching faces stay)
+/// - Union: keep A-Outside + A-CoSurfaceOutside + A-CoSurfaceInside (fill gap)
+/// - Intersect: keep A-Inside + A-CoSurfaceInside (shared boundary)
 ///
 /// Ref #7: Jacobson 2013 — generalized winding number.
 /// Ref #9: Cherchi 2020 — coplanar face disambiguation via normal offset.
@@ -1056,8 +1077,6 @@ fn label_sub_tri(
     if w > WINDING_OUTSIDE_THRESHOLD && w < (1.0 - WINDING_OUTSIDE_THRESHOLD) {
         // Ambiguous — centroid is near the target mesh surface.
         // Offset along -normal (INTO this sub-triangle's own solid) to break tie.
-        // -normal direction is safe for touching boxes: it moves away from the
-        // touching boundary, not across it. Ref: specs/edge_on_plane_intersection.md.
         let normal = sub_tri_unit_normal(verts, sub_tri);
         let eps = TAU_WORK.sqrt(); // ~1e-6, geometric mean of model/working precision
         let offset = [
@@ -1066,7 +1085,11 @@ fn label_sub_tri(
             centroid[2] - eps * normal[2],
         ];
         let w2 = winding_number_mesh(offset, target_verts, target_tris);
-        classify_winding(w2)
+        if w2 >= WINDING_INSIDE_THRESHOLD {
+            CellLabel::CoSurfaceInside
+        } else {
+            CellLabel::CoSurfaceOutside
+        }
     } else {
         classify_winding(w)
     }
@@ -1150,15 +1173,45 @@ pub(crate) fn select_boolean_result(
 
     // Determine which labels to keep for A and B sub-triangles.
     // Ref #24: Yang 2025 — boolean op cell selection table.
+    //
+    // Co-surface handling (sub-tris on the other mesh's surface):
+    // A selection:
+    //   Union:     Outside + CoSurfaceOutside + CoSurfaceInside (fill shared-plane gap)
+    //   Subtract:  Outside + CoSurfaceOutside (touching faces stay; overlap faces removed)
+    //   Intersect: Inside + CoSurfaceInside (shared boundary included)
+    // B selection: always only the primary label (Outside/Inside), never co-surface.
     let (keep_a, keep_b, flip_b) = match op {
         MeshBooleanOp::Union => (CellLabel::Outside, CellLabel::Outside, false),
         MeshBooleanOp::Subtract => (CellLabel::Outside, CellLabel::Inside, true),
         MeshBooleanOp::Intersect => (CellLabel::Inside, CellLabel::Inside, false),
     };
 
-    // Emit selected A sub-triangles (normal winding order)
-    for (sub_tri, label) in subdivided.tris_a.iter().zip(labeling.labels_a.iter()) {
+    let a_keeps_label = |label: &CellLabel| -> bool {
         if *label == keep_a {
+            return true;
+        }
+        match op {
+            MeshBooleanOp::Union => {
+                // Union keeps all A co-surface tris (fills gap on shared planes)
+                matches!(
+                    label,
+                    CellLabel::CoSurfaceInside | CellLabel::CoSurfaceOutside
+                )
+            }
+            MeshBooleanOp::Subtract => {
+                // Subtract keeps only CoSurfaceOutside (touching face stays, overlap drops)
+                *label == CellLabel::CoSurfaceOutside
+            }
+            MeshBooleanOp::Intersect => {
+                // Intersect keeps only CoSurfaceInside (shared boundary)
+                *label == CellLabel::CoSurfaceInside
+            }
+        }
+    };
+
+    // Emit selected A sub-triangles (normal winding order).
+    for (sub_tri, label) in subdivided.tris_a.iter().zip(labeling.labels_a.iter()) {
+        if a_keeps_label(label) {
             let v0 = subdivided.verts[sub_tri.verts[0]];
             let v1 = subdivided.verts[sub_tri.verts[1]];
             let v2 = subdivided.verts[sub_tri.verts[2]];
@@ -1914,13 +1967,179 @@ pub(crate) fn subdivide_mesh_pair(
         eps,
     );
 
-    // NOTE: Cross-mesh edge-split propagation is NOT performed here.
-    // Edge-on-plane intersections create vertices on one mesh's edges from the
-    // OTHER mesh's constraints, and these aren't propagated to adjacent triangles.
-    // Instead, vertex position merging in topology_extract::build_result_brep
-    // handles non-conformal boundaries by merging vertices with identical
-    // positions before constructing half-edge topology.
-    // Ref: specs/edge_on_plane_intersection.md — conformal vertex sharing.
+    // ── Step 3c: Cross-mesh edge-split propagation ──
+    // Edge-on-plane intersections create vertices from one mesh's constraints on
+    // the OTHER mesh's edges. These must be propagated to all adjacent triangles
+    // in the other mesh for conformal subdivision.
+    // Ref #9: Cherchi 2020 — conformal mesh arrangements require shared vertices.
+    // Ref: specs/edge_on_plane_intersection.md — cross-mesh conformal vertex sharing.
+
+    fn detect_cross_mesh_splits(
+        source_results: &[(usize, Vec<[usize; 3]>)],
+        source_original_tris: &[[usize; 3]],
+        target_tris: &[[usize; 3]],
+        target_results: &[(usize, Vec<[usize; 3]>)],
+        all_verts: &[[f64; 3]],
+        eps: f64,
+    ) -> BTreeMap<(usize, usize), Vec<usize>> {
+        // Collect all unique vertices from source sub-triangles that are NOT
+        // vertices of the source's original triangles (i.e. new split vertices).
+        let mut source_original_vis: Vec<usize> = Vec::new();
+        for tri in source_original_tris {
+            for &v in tri {
+                if !source_original_vis.contains(&v) {
+                    source_original_vis.push(v);
+                }
+            }
+        }
+        let mut new_verts: Vec<usize> = Vec::new();
+        for &(_parent, ref sub_tris) in source_results {
+            for sub_tri in sub_tris {
+                for &vi in sub_tri {
+                    if !source_original_vis.contains(&vi) && !new_verts.contains(&vi) {
+                        new_verts.push(vi);
+                    }
+                }
+            }
+        }
+
+        // Collect all vertices already present in target sub-triangles.
+        // If a vertex is already in the target mesh's subdivision, same-mesh
+        // propagation already handled it — no cross-mesh action needed.
+        let mut target_present: Vec<usize> = Vec::new();
+        for &(_parent, ref sub_tris) in target_results {
+            for sub_tri in sub_tris {
+                for &vi in sub_tri {
+                    if !target_present.contains(&vi) {
+                        target_present.push(vi);
+                    }
+                }
+            }
+        }
+
+        // Build set of all target edges for quick iteration
+        let mut target_edges: Vec<(usize, usize)> = Vec::new();
+        for tri in target_tris {
+            for &(a, b) in &[(tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])] {
+                let ek = edge_key(a, b);
+                if !target_edges.contains(&ek) {
+                    target_edges.push(ek);
+                }
+            }
+        }
+
+        let mut cross_splits: BTreeMap<(usize, usize), Vec<usize>> = BTreeMap::new();
+        for &vi in &new_verts {
+            // Skip vertices already present in target mesh — same-mesh
+            // propagation already handled these.
+            if target_present.contains(&vi) {
+                continue;
+            }
+            let p = &all_verts[vi];
+            for &(ev0, ev1) in &target_edges {
+                // Skip if this vertex IS one of the edge endpoints
+                if vi == ev0 || vi == ev1 {
+                    continue;
+                }
+                if let Some(_t) = point_on_edge_interior(p, &all_verts[ev0], &all_verts[ev1], eps) {
+                    let entry = cross_splits.entry((ev0, ev1)).or_default();
+                    if !entry.contains(&vi) {
+                        entry.push(vi);
+                    }
+                }
+            }
+        }
+        cross_splits
+    }
+
+    // Detect and propagate cross-mesh splits iteratively. The first pass finds
+    // A's new vertices on B's edges (and vice versa). Propagation may create new
+    // sub-triangles with vertices that lie on the OTHER mesh's edges, requiring
+    // a second pass. Limit to 3 rounds to avoid pathological cases.
+    // Ref #9: Cherchi 2020 — conformal mesh arrangements require shared vertices.
+    for _round in 0..3 {
+        let cross_splits_on_b = detect_cross_mesh_splits(
+            &result_tris_a_raw,
+            tris_a,
+            &remapped_tris_b,
+            &result_tris_b_raw,
+            &all_verts,
+            eps,
+        );
+        let cross_splits_on_a = detect_cross_mesh_splits(
+            &result_tris_b_raw,
+            &remapped_tris_b,
+            tris_a,
+            &result_tris_a_raw,
+            &all_verts,
+            eps,
+        );
+
+        // If no new splits found, we're done.
+        if cross_splits_on_b.is_empty() && cross_splits_on_a.is_empty() {
+            break;
+        }
+
+        propagate_edge_splits(
+            &mut result_tris_a_raw,
+            &cross_splits_on_a,
+            &edge_adj_a,
+            &all_verts,
+            eps,
+        );
+        propagate_edge_splits(
+            &mut result_tris_b_raw,
+            &cross_splits_on_b,
+            &edge_adj_b,
+            &all_verts,
+            eps,
+        );
+    }
+
+    // ── Step 3d: Post-propagation vertex deduplication ──
+    // Cross-mesh propagation may create duplicate vertices at identical positions.
+    // Re-run the same quantization-based dedup to merge them.
+    {
+        use std::collections::HashMap;
+        let original_count = verts_a.len() + verts_b.len();
+        let quant = |v: [f64; 3]| -> [i64; 3] {
+            let scale = 1e15;
+            [
+                (v[0] * scale).round() as i64,
+                (v[1] * scale).round() as i64,
+                (v[2] * scale).round() as i64,
+            ]
+        };
+
+        let mut canonical: HashMap<[i64; 3], usize> = HashMap::new();
+        let mut remap: Vec<usize> = (0..all_verts.len()).collect();
+        for vi in original_count..all_verts.len() {
+            let key = quant(all_verts[vi]);
+            let canon = *canonical.entry(key).or_insert(vi);
+            if canon != vi {
+                remap[vi] = canon;
+            }
+        }
+
+        // Only apply if there's anything to remap
+        let has_remaps = remap.iter().enumerate().any(|(i, &r)| i != r);
+        if has_remaps {
+            for (_parent, sub_tris) in &mut result_tris_a_raw {
+                for tri in sub_tris.iter_mut() {
+                    for v in tri.iter_mut() {
+                        *v = remap[*v];
+                    }
+                }
+            }
+            for (_parent, sub_tris) in &mut result_tris_b_raw {
+                for tri in sub_tris.iter_mut() {
+                    for v in tri.iter_mut() {
+                        *v = remap[*v];
+                    }
+                }
+            }
+        }
+    }
 
     // ── Step 4: Collect final results ──
     let mut result_tris_a = Vec::new();
@@ -4143,7 +4362,7 @@ mod tests {
     /// and radial sort to produce conformal boundary edges. See
     /// `specs/yang_hybrid_migration.md` Phase 3.
     #[test]
-    #[ignore = "Phase 3 prerequisite: conformal boundary triangulation"]
+    #[ignore = "hub-spoke fine mesh cross-mesh conformal propagation incomplete — axis-aligned B-Rep tests pass"]
     fn e2e_box_boolean_manifold() {
         fn snap(v: &[f64; 3]) -> [i64; 3] {
             [
@@ -4186,7 +4405,7 @@ mod tests {
     /// triangulation produces incorrect vertex/edge/face counts.
     /// Phase 3 will fix this.
     #[test]
-    #[ignore = "Phase 3 prerequisite: conformal boundary triangulation"]
+    #[ignore = "hub-spoke fine mesh cross-mesh conformal propagation incomplete — axis-aligned B-Rep tests pass"]
     fn e2e_box_boolean_euler() {
         fn snap(v: &[f64; 3]) -> [i64; 3] {
             [
@@ -4473,7 +4692,6 @@ mod tests {
     /// Conformal subdivision (this sprint) is necessary but not sufficient.
     /// See specs/conformal_subdivision.md for analysis.
     #[test]
-    #[ignore = "requires edge-on-plane intersection detection (Phase 2c/2d)"]
     fn test_conformal_subdivision_enables_manifold_brep() {
         use crate::boolean::topology_extract::yang_boolean_pipeline;
         use crate::tessellation::bijective::BijectiveMap;
@@ -5130,7 +5348,6 @@ mod tests {
     /// pipeline currently fails on. Two unit-offset boxes must produce a
     /// subdivision with split triangles at the shared face.
     #[test]
-    #[ignore = "Phase 2c: axis-aligned edges are on triangle boundaries (not strictly inside) — needs conformal subdivision"]
     fn edge_on_plane_axis_aligned_boxes() {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
@@ -5154,7 +5371,6 @@ mod tests {
     /// labeling for axis-aligned boxes. The Union result should be non-empty
     /// and have the correct number of surviving sub-triangles.
     #[test]
-    #[ignore = "Phase 2c: axis-aligned edges on triangle boundaries — needs conformal subdivision"]
     fn edge_on_plane_aligned_box_union_nonempty() {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
@@ -5187,7 +5403,6 @@ mod tests {
     /// This is the key correctness test — if edge-on-plane is handled, the
     /// boolean result should have V-E+F = 2.
     #[test]
-    #[ignore = "Phase 2c: requires conformal subdivision + winding number boundary disambiguation + co-planar face deduplication"]
     fn edge_on_plane_box_boolean_manifold() {
         use crate::boolean::topology_extract::yang_boolean_pipeline;
         use crate::tessellation::bijective::BijectiveMap;
