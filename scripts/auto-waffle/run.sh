@@ -26,6 +26,7 @@ REVIEW_MODE=false
 REVIEW_RATIO_DEV=3      # dev passes per cycle
 REVIEW_RATIO_REV=2      # review passes per cycle
 PLAN_ONLY=false
+TWO_PHASE=false
 DRY_RUN=false
 VERBOSE=false
 USE_WORKTREE=false
@@ -42,6 +43,7 @@ Options:
   --review-ratio D:R         Dev-to-review ratio per cycle (default: "3:2" = 3 dev, 2 review)
   --no-review                Disable automatic review passes
   --plan-only                Generate a plan for the next task and exit (no execution)
+  --two-phase                Plan first (separate session), then execute (deeper plans)
   --worktree                 Run each iteration in an isolated git worktree
   --dry-run                  Print prompts that would be sent without executing
   --log-dir DIR              Override log directory
@@ -84,6 +86,8 @@ while [[ $# -gt 0 ]]; do
             REVIEW_MODE=true; shift ;;
         --plan-only)
             PLAN_ONLY=true; shift ;;
+        --two-phase)
+            TWO_PHASE=true; shift ;;
         --review-ratio)
             IFS=':' read -r REVIEW_RATIO_DEV REVIEW_RATIO_REV <<< "$2"; shift 2 ;;
         --no-review)
@@ -254,6 +258,10 @@ do_work() {
         --output-dir "$iter_dir"
         --repo-root "$work_root"
     )
+    if $TWO_PHASE; then
+        runner_args+=(--plan-prompt "$PROMPTS_DIR/plan.md")
+        runner_args+=(--execute-prompt "$PROMPTS_DIR/execute.md")
+    fi
     $VERBOSE && runner_args+=(--verbose)
 
     local exit_code=0

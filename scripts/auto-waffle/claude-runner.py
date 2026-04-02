@@ -35,7 +35,7 @@ import time
 
 
 def run_claude_print(prompt, output_file, timeout_secs=0, env_extra=None,
-                     resume_session=None, verbose=False):
+                     resume_session=None, verbose=False, plan_mode=False):
     """
     Run `claude -p` with optional timeout. Streams output to file in real-time.
 
@@ -47,6 +47,9 @@ def run_claude_print(prompt, output_file, timeout_secs=0, env_extra=None,
         '--dangerously-skip-permissions',
         '--verbose',
     ]
+
+    if plan_mode:
+        cmd.extend(['--permission-mode', 'plan'])
 
     if resume_session:
         cmd.extend(['--resume', resume_session])
@@ -229,6 +232,15 @@ def run_session(args):
         with open(args.cleanup_prompt, 'r') as f:
             cleanup_prompt = f.read().strip()
 
+    plan_prompt = None
+    execute_prompt = None
+    if args.plan_prompt and os.path.exists(args.plan_prompt):
+        with open(args.plan_prompt, 'r') as f:
+            plan_prompt = f.read().strip()
+    if args.execute_prompt and os.path.exists(args.execute_prompt):
+        with open(args.execute_prompt, 'r') as f:
+            execute_prompt = f.read().strip()
+
     # Ensure output directory exists
     os.makedirs(args.output_dir, exist_ok=True)
 
@@ -244,15 +256,48 @@ def run_session(args):
 
     timeout_secs = args.timeout * 60
 
-    # --- Phase 1: Work ---
-    print(f"[claude-runner] Starting work session (timeout: {args.timeout}m)...")
-    session_id, timed_out, exit_code = run_claude_print(
-        work_prompt,
-        os.path.join(args.output_dir, 'output.log'),
-        timeout_secs=timeout_secs,
-        env_extra=env_extra,
-        verbose=args.verbose,
-    )
+    # --- Two-phase mode: plan (actual plan mode) then execute ---
+    if plan_prompt and execute_prompt:
+        # Phase A: Generate plan using Claude's plan mode
+        plan_timeout = min(1800, timeout_secs // 3)
+        print(f"[claude-runner] Phase A: Plan mode ({plan_timeout//60}m timeout)...")
+        plan_session_id, plan_timed_out, plan_exit = run_claude_print(
+            plan_prompt,
+            os.path.join(args.output_dir, 'plan-output.log'),
+            timeout_secs=plan_timeout,
+            env_extra=env_extra,
+            verbose=args.verbose,
+            plan_mode=True,
+        )
+
+        plan_file = os.path.join(args.output_dir, 'plan.md')
+        if not os.path.exists(plan_file) or os.path.getsize(plan_file) == 0:
+            print(f"[claude-runner] Plan phase produced no plan. Aborting.")
+            return 1
+
+        print(f"[claude-runner] Plan written ({os.path.getsize(plan_file)} bytes)")
+
+        # Phase B: Execute plan — resume same session, no plan mode
+        remaining = timeout_secs - plan_timeout
+        print(f"[claude-runner] Phase B: Executing plan ({remaining//60}m timeout)...")
+        session_id, timed_out, exit_code = run_claude_print(
+            execute_prompt,
+            os.path.join(args.output_dir, 'output.log'),
+            timeout_secs=remaining,
+            env_extra=env_extra,
+            resume_session=plan_session_id,
+            verbose=args.verbose,
+        )
+    else:
+        # --- Single-phase mode (original behavior) ---
+        print(f"[claude-runner] Starting work session (timeout: {args.timeout}m)...")
+        session_id, timed_out, exit_code = run_claude_print(
+            work_prompt,
+            os.path.join(args.output_dir, 'output.log'),
+            timeout_secs=timeout_secs,
+            env_extra=env_extra,
+            verbose=args.verbose,
+        )
 
     print(f"[claude-runner] Work session ended: "
           f"{'TIMEOUT' if timed_out else 'completed'} "
@@ -296,6 +341,8 @@ def main():
     parser.add_argument('--work-prompt', required=True, help='Path to work prompt file')
     parser.add_argument('--commit-prompt', help='Path to commit prompt file')
     parser.add_argument('--cleanup-prompt', help='Path to cleanup prompt file')
+    parser.add_argument('--plan-prompt', help='Path to plan-only prompt (enables two-phase mode)')
+    parser.add_argument('--execute-prompt', help='Path to execute prompt (enables two-phase mode)')
     parser.add_argument('--timeout', type=int, default=60, help='Work timeout in minutes')
     parser.add_argument('--output-dir', required=True, help='Directory for logs')
     parser.add_argument('--repo-root', help='Repository root directory')
