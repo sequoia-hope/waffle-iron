@@ -13008,8 +13008,14 @@ fn test_cone_cone_adversarial_very_small_half_angle() {
         Err(e) => panic!("Expected NotSupported, got: {:?}", e),
         Ok(curves) => {
             // Acceptable if analytical solver is later implemented.
+            // P1: verify on-surface oracle, not just NaN absence.
+            assert!(
+                !curves.is_empty(),
+                "Ok result must contain at least one curve"
+            );
             for curve in &curves {
                 if let SSICurve::Degree4ConeCone { .. } = curve {
+                    let mut evaluated = 0;
                     for i in 0..100 {
                         let t = i as f64 / 100.0;
                         if let Some(pt) = curve.evaluate_cone_cone(t) {
@@ -13017,8 +13023,19 @@ fn test_cone_cone_adversarial_very_small_half_angle() {
                                 !pt[0].is_nan() && !pt[1].is_nan() && !pt[2].is_nan(),
                                 "NaN at t={t}"
                             );
+                            // On-surface oracle: point must lie on both cones.
+                            // Adversarial tolerance (1e-2) — tighten when solver improves.
+                            let on_a = point_on_cone(pt, apex_a, axis, half_2, 1e-2);
+                            let on_b = point_on_cone(pt, apex_b, axis, half_2, 1e-2);
+                            assert!(on_a, "Point {pt:?} at t={t} not on cone A");
+                            assert!(on_b, "Point {pt:?} at t={t} not on cone B");
+                            evaluated += 1;
                         }
                     }
+                    assert!(
+                        evaluated > 0,
+                        "Degree4ConeCone curve yielded no evaluable points"
+                    );
                 }
             }
         }
@@ -13046,10 +13063,12 @@ fn test_cone_cone_adversarial_near_coincident_apices() {
     .unwrap();
 
     // Should produce results — either Circle (coaxial path) or Degree4ConeCone.
-    // The key assertion: no NaN and no panic.
+    // Ok(empty) is acceptable for near-degenerate configs (apices 1e-8 apart).
+    // P1: verify geometric properties when curves are returned, not just NaN absence.
     for curve in &curves {
         match curve {
             SSICurve::Degree4ConeCone { .. } => {
+                let mut evaluated = 0;
                 for i in 0..100 {
                     let t = i as f64 / 100.0;
                     if let Some(pt) = curve.evaluate_cone_cone(t) {
@@ -13057,11 +13076,26 @@ fn test_cone_cone_adversarial_near_coincident_apices() {
                             !pt[0].is_nan() && !pt[1].is_nan() && !pt[2].is_nan(),
                             "NaN at t={t}"
                         );
+                        // On-surface oracle: point must lie on both cones.
+                        // Adversarial tolerance (1e-2) — tighten when solver improves.
+                        let on_a = point_on_cone(pt, apex_a, axis, half_45, 1e-2);
+                        let on_b = point_on_cone(pt, apex_b, axis, half_45, 1e-2);
+                        assert!(on_a, "Point {pt:?} at t={t} not on cone A");
+                        assert!(on_b, "Point {pt:?} at t={t} not on cone B");
+                        evaluated += 1;
                     }
                 }
+                assert!(
+                    evaluated > 0,
+                    "Degree4ConeCone curve yielded no evaluable points"
+                );
             }
             SSICurve::Circle { center, radius, .. } => {
                 assert!(!center[0].is_nan() && !center[1].is_nan() && !center[2].is_nan());
+                assert!(
+                    *radius > 0.0,
+                    "Circle radius must be positive, got {radius}"
+                );
                 assert!(!radius.is_nan());
             }
             _ => {}
@@ -13090,7 +13124,8 @@ fn test_cone_cone_adversarial_near_tangent() {
         (0.0, 5.0),
     );
 
-    // May be Ok(empty) or Ok(curves) — the important thing is no panic.
+    // May be Ok(empty) or Ok(curves) — the important thing is no panic
+    // and geometric correctness when curves are returned.
     if let Ok(curves) = result {
         for curve in &curves {
             if let SSICurve::Degree4ConeCone { .. } = curve {
@@ -13101,6 +13136,11 @@ fn test_cone_cone_adversarial_near_tangent() {
                             !pt[0].is_nan() && !pt[1].is_nan() && !pt[2].is_nan(),
                             "NaN at t={t}"
                         );
+                        // P1: on-surface oracle for near-tangent case.
+                        let on_a = point_on_cone(pt, apex_a, axis, half_30, 1e-2);
+                        let on_b = point_on_cone(pt, apex_b, axis, half_30, 1e-2);
+                        assert!(on_a, "Near-tangent point {pt:?} at t={t} not on cone A");
+                        assert!(on_b, "Near-tangent point {pt:?} at t={t} not on cone B");
                     }
                 }
             }

@@ -116,7 +116,7 @@ wasm-bridge → sketch-ui (update display, color by status)
 
 | # | Project | Purpose | Technology | Dependencies | Status |
 |---|---------|---------|------------|-------------|--------|
-| 01 | kernel | Clean-sheet B-Rep geometry kernel | Rust | None | In progress (961 tests, 27 ignored; assay 190 cases) |
+| 01 | kernel | Clean-sheet B-Rep geometry kernel | Rust | None | In progress (964 tests, 29 ignored; assay 190 cases) |
 | 02 | sketch-solver | 2D constraint solving via slvs | Rust + C (libslvs) | None | Complete (M1-M10 + Emscripten WASM) |
 | 03 | wasm-bridge | WASM↔JS communication protocol | Rust + JS | 01 | Complete (M1-M8) |
 | 04 | 3d-viewport | three.js rendering via Threlte | Svelte + JS | 01 | Complete |
@@ -167,7 +167,7 @@ All 3D rendering happens in JavaScript via three.js/Threlte on the main thread. 
 
 ## Current Kernel Status
 
-The clean-sheet kernel (`crates/kernel/`) is under active development. **961 kernel tests pass** (27 ignored — 7 pre-existing + 20 A15.2 polygon-fallback tests awaiting SSI sub-cases). 190-case randomized assay corpus (seed 42) with analytical ground truth and Euler characteristic oracles. Position-based vertex canonicalization fix enables Yang pipeline to process per-face vertex meshes from WaffleKernel tessellation. Yang path score is the target metric per A15.6.
+The clean-sheet kernel (`crates/kernel/`) is under active development. **964 kernel tests pass** (29 ignored — 20 A15.2 polygon-fallback tests awaiting SSI sub-cases, 3 Yang Phase 5 topology issues, 2 straddling box-cyl watertight tests, 2 deprecated S-H pipeline geometry failures, 2 known SSI edge cases). 190-case randomized assay corpus (seed 42) with analytical ground truth and Euler characteristic oracles. Position-based vertex canonicalization fix enables Yang pipeline to process per-face vertex meshes from WaffleKernel tessellation. Yang path score is the target metric per A15.6.
 
 ### What exists:
 - Half-edge B-Rep topology data structure with arena-based storage

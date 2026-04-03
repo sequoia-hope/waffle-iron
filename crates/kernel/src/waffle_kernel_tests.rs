@@ -2077,7 +2077,7 @@ fn m9_box_cyl_disjoint_union_volume() {
     let expected = 1000.0 + std::f64::consts::PI * 9.0 * 10.0;
     let rel_err = (vol - expected).abs() / expected;
     assert!(
-        rel_err < 0.10,
+        rel_err < 0.08,
         "Disjoint box-cyl union volume: expected ~{:.0}, got {:.1} (rel_err={:.4})",
         expected, vol, rel_err
     );
@@ -5530,7 +5530,7 @@ fn s1_chained_box_cyl_cyl_union_volume() {
     let vol = mesh_volume(&mesh);
     let rel_err = (vol - expected).abs() / expected;
     assert!(
-        rel_err < 0.10,
+        rel_err < 0.05,
         "Chained union volume: expected ~{:.3}, got {:.3} (rel_err={:.4})",
         expected, vol, rel_err
     );
@@ -8564,7 +8564,7 @@ fn cn9_make_cone_extreme_aspect_ratio_tall() {
     let expected = PI * r * r * h / 3.0;
     let rel_err = (vol - expected).abs() / expected;
     assert!(
-        rel_err < 0.10,
+        rel_err < 0.05,
         "Tall thin cone volume should be ~{:.8}, got {:.8} (rel_err={:.4})",
         expected, vol, rel_err
     );
@@ -8602,7 +8602,7 @@ fn cn10_make_cone_extreme_aspect_ratio_flat() {
     let expected = PI * r * r * h / 3.0;
     let rel_err = (vol - expected).abs() / expected;
     assert!(
-        rel_err < 0.10,
+        rel_err < 0.05,
         "Flat cone volume should be ~{:.6}, got {:.6} (rel_err={:.4})",
         expected, vol, rel_err
     );
@@ -12548,7 +12548,7 @@ fn chained_union_box_plus_two_cyl_bosses_volume() {
     let expected = 20.0 * 20.0 * 5.0; // box volume only — cylinders are enclosed
     let rel_err = (vol - expected).abs() / expected;
     assert!(
-        rel_err < 0.10,
+        rel_err < 0.05,
         "Box + 2 enclosed cyl bosses: expected ~{:.0}, got {:.1} (rel_err={:.4})",
         expected, vol, rel_err
     );
