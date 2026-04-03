@@ -1272,14 +1272,15 @@ fn j2_box_cyl_union_basic() {
     let mesh = k.tessellate(&handle, 0.01).unwrap();
     let vol = mesh_volume(&mesh);
     // Cylinder (r=3, h=10) is fully enclosed by box (10×10×10 centered at origin),
-    // so union volume = box volume = 1000.0
+    // so union volume = box volume = 1000.0. The box faces are planar (exact)
+    // and the cylinder is fully interior, so result mesh = box mesh.
     let expected = 1000.0;
     assert!(
-        (vol - expected).abs() / expected < 0.02,
-        "Union volume should be ~{}, got {} ({}% error)",
+        (vol - expected).abs() / expected < 0.005,
+        "Union volume should be ~{}, got {} ({:.2}% error)",
         expected,
         vol,
-        ((vol - expected).abs() / expected * 100.0)
+        (vol - expected).abs() / expected * 100.0
     );
     // Verify mesh has reasonable structure
     assert!(
@@ -1296,12 +1297,14 @@ fn j2_box_cyl_union_basic() {
     assert!(check_watertight(&mesh),
         "Box-cylinder union (enclosed) must produce watertight mesh, got {} unpaired edges",
         count_unpaired_edges(&mesh));
-    // AABB: result must span the 10×10×10 box centered at origin
+    // AABB: result must span the 10×10×10 box centered at origin.
+    // The box vertices are exact (no tessellation error on planar faces),
+    // so tighter tolerance than the original 0.01 is appropriate.
     let (bb_min, bb_max) = mesh_bbox(&mesh);
-    assert!((bb_min[0] - (-5.0)).abs() < 0.01, "AABB min X: expected -5.0, got {}", bb_min[0]);
-    assert!((bb_max[0] - 5.0).abs() < 0.01, "AABB max X: expected 5.0, got {}", bb_max[0]);
-    assert!((bb_min[2]).abs() < 0.01, "AABB min Z: expected 0.0, got {}", bb_min[2]);
-    assert!((bb_max[2] - 10.0).abs() < 0.01, "AABB max Z: expected 10.0, got {}", bb_max[2]);
+    assert!((bb_min[0] - (-5.0)).abs() < 1e-6, "AABB min X: expected -5.0, got {}", bb_min[0]);
+    assert!((bb_max[0] - 5.0).abs() < 1e-6, "AABB max X: expected 5.0, got {}", bb_max[0]);
+    assert!((bb_min[2]).abs() < 1e-6, "AABB min Z: expected 0.0, got {}", bb_min[2]);
+    assert!((bb_max[2] - 10.0).abs() < 1e-6, "AABB max Z: expected 10.0, got {}", bb_max[2]);
 }
 
 /// Check that all triangles in a mesh have geometric winding consistent with
@@ -2105,7 +2108,11 @@ fn diag_standalone_cyl_volume() {
     let vol = mesh_volume(&mesh);
     let expected = PI * 9.0 * 10.0;
     assert!(check_watertight(&mesh), "Standalone cylinder must be watertight");
-    assert!((vol - expected).abs() < 5.0, "Standalone cyl volume should be ~{:.2}, got {:.2}", expected, vol);
+    // Tessellated cylinder volume should be within ~0.5 of analytical (32-segment
+    // polygon inscribed in circle has area ratio cos²(π/32) ≈ 0.9952).
+    assert!((vol - expected).abs() < 1.0,
+        "Standalone cyl volume should be ~{:.2}, got {:.2} (err={:.4})",
+        expected, vol, (vol - expected).abs());
 }
 
 // ── Group N: Cylinder-Cylinder Booleans ────────────────────────────
@@ -4263,7 +4270,8 @@ fn q_tilted_plane_box_watertight() {
     assert!(check_watertight(&mesh), "Tilted-plane box must be watertight");
     // Volume oracle: 1×1×1 box = 1.0 regardless of sketch plane tilt.
     let vol = mesh_volume(&mesh);
-    assert!((vol - 1.0).abs() < 0.02, "tilted box volume {vol} should be ~1.0 (2% tol)");
+    // Tilted box is still planar faces — tessellation should be exact.
+    assert!((vol - 1.0).abs() < 1e-6, "tilted box volume {vol} should be ~1.0");
 }
 
 #[test]

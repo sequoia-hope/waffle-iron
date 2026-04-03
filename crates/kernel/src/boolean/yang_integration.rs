@@ -262,6 +262,18 @@ pub(crate) fn yang_boolean_from_solids(
         });
     }
 
+    yang_boolean_inner(solid_a, solid_b, op, id_alloc)
+}
+
+/// Core Yang pipeline implementation, separated from the env-var guard so that
+/// unit tests can call it directly without mutating process-global state
+/// (which is unsound when tests run in parallel).
+pub(crate) fn yang_boolean_inner(
+    solid_a: &WaffleSolid,
+    solid_b: &WaffleSolid,
+    op: BoolOp,
+    id_alloc: &mut dyn FnMut() -> u64,
+) -> Result<BooleanResult, KernelError> {
     // Guard: both solids must have face_geometry to run the Yang pipeline.
     // Solids without face geometry cannot be mapped back to analytical surfaces.
     if solid_a.face_geometry.is_empty() || solid_b.face_geometry.is_empty() {
@@ -947,13 +959,10 @@ mod tests {
     /// in `do_boolean()`. Currently it returns `Ok` with an empty solid (zero
     /// faces), which `do_boolean` accepts as a valid result and stores.
     ///
-    /// This test sets YANG_BOOLEAN=1, creates two non-overlapping tetrahedra,
-    /// and verifies that the intersection returns NotSupported.
+    /// This test creates two non-overlapping tetrahedra and verifies that the
+    /// intersection returns NotSupported.
     #[test]
     fn test_yang_empty_result_returns_not_supported() {
-        // Enable the Yang pipeline for this test.
-        std::env::set_var("YANG_BOOLEAN", "1");
-
         // Build two non-overlapping tetrahedra: one at origin, one far away.
         let solid_a = make_tetra_solid([0.0, 0.0, 0.0]);
         let solid_b = make_tetra_solid([100.0, 100.0, 100.0]);
@@ -975,10 +984,8 @@ mod tests {
             id
         };
 
-        let result = yang_boolean_from_solids(&solid_a, &solid_b, BoolOp::Intersect, &mut id_alloc);
-
-        // Clean up env var.
-        std::env::remove_var("YANG_BOOLEAN");
+        // Use yang_boolean_inner directly to avoid env-var race in parallel tests.
+        let result = yang_boolean_inner(&solid_a, &solid_b, BoolOp::Intersect, &mut id_alloc);
 
         // The result should be Err(NotSupported) for an empty intersection,
         // so that do_boolean can fall through to the legacy pipeline.
@@ -1061,8 +1068,6 @@ mod tests {
     /// yang_boolean_from_solids. This is the F0001 assay pattern.
     #[test]
     fn yang_e2e_identical_box_union() {
-        std::env::set_var("YANG_BOOLEAN", "1");
-
         let (k_a, h_a) = make_box_via_kernel(0.5, 0.5, 1.0, 1.0, 1.0);
         let (k_b, h_b) = make_box_via_kernel(0.5, 0.5, 1.0, 1.0, 1.0);
 
@@ -1085,9 +1090,8 @@ mod tests {
             id
         };
 
-        let result = yang_boolean_from_solids(solid_a, solid_b, BoolOp::Union, &mut id_alloc);
-
-        std::env::remove_var("YANG_BOOLEAN");
+        // Use yang_boolean_inner directly to avoid env-var race in parallel tests.
+        let result = yang_boolean_inner(solid_a, solid_b, BoolOp::Union, &mut id_alloc);
 
         match &result {
             Ok(boolean_result) => {
@@ -1116,8 +1120,6 @@ mod tests {
     /// E2E test: Two overlapping boxes through the full Yang pipeline.
     #[test]
     fn yang_e2e_overlapping_box_union() {
-        std::env::set_var("YANG_BOOLEAN", "1");
-
         // Box A centered at (0.5,0.5), 2×2, extruded 2 → x=[-0.5,1.5], y=[-0.5,1.5], z=[0,2]
         let (k_a, h_a) = make_box_via_kernel(0.5, 0.5, 2.0, 2.0, 2.0);
         // Box B centered at (1.5,0.5), 2×2, extruded 2 → x=[0.5,2.5], y=[-0.5,1.5], z=[0,2]
@@ -1133,9 +1135,8 @@ mod tests {
             id
         };
 
-        let result = yang_boolean_from_solids(solid_a, solid_b, BoolOp::Union, &mut id_alloc);
-
-        std::env::remove_var("YANG_BOOLEAN");
+        // Use yang_boolean_inner directly to avoid env-var race in parallel tests.
+        let result = yang_boolean_inner(solid_a, solid_b, BoolOp::Union, &mut id_alloc);
 
         match &result {
             Ok(boolean_result) => {
@@ -1164,8 +1165,6 @@ mod tests {
     /// E2E test: Box subtract through the full Yang pipeline.
     #[test]
     fn yang_e2e_offset_box_subtract() {
-        std::env::set_var("YANG_BOOLEAN", "1");
-
         // Box A centered at (0.5,0.5), 2×2, depth 2 → x=[-0.5,1.5], y=[-0.5,1.5], z=[0,2]
         // Box B centered at (1.5,0.5), 2×2, depth 2 → x=[0.5,2.5], y=[-0.5,1.5], z=[0,2]
         // Overlapping in x=[0.5,1.5] — shared coplanar faces at z=0, z=2, y=±0.5
@@ -1184,9 +1183,8 @@ mod tests {
             id
         };
 
-        let result = yang_boolean_from_solids(solid_a, solid_b, BoolOp::Subtract, &mut id_alloc);
-
-        std::env::remove_var("YANG_BOOLEAN");
+        // Use yang_boolean_inner directly to avoid env-var race in parallel tests.
+        let result = yang_boolean_inner(solid_a, solid_b, BoolOp::Subtract, &mut id_alloc);
 
         match &result {
             Ok(boolean_result) => {

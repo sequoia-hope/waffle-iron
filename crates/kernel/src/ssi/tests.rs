@@ -5242,7 +5242,8 @@ fn pt_adversarial_06_degenerate_through_axis_offset() {
                 let dot = plane_normal[0] * (center[0] - plane_origin[0])
                     + plane_normal[1] * (center[1] - plane_origin[1])
                     + plane_normal[2] * (center[2] - plane_origin[2]);
-                assert!(dot.abs() < 0.01, "Circle center off-plane by {dot}");
+                // Circle center must lie on the plane — analytical result, not tessellated.
+                assert!(dot.abs() < 1e-10, "Circle center off-plane by {dot}");
                 assert!(*radius > 0.0, "Circle radius should be positive");
                 let _ = normal; // suppress unused warning
             }

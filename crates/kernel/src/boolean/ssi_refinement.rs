@@ -1167,9 +1167,8 @@ mod tests {
 
     // ══════════════════════════════════════════════════════════════════════
     // Phase 4b — SSI Curve Refinement tests (R-series)
-    // These tests target `refine_intersection_edges` which is currently a
-    // `todo!()` stub. All are marked `#[should_panic]` because the stub
-    // panics at runtime.
+    // These tests exercise `refine_intersection_edges` which refines
+    // intersection edges using SSI solvers (A15.1 quadric pairs).
     // ══════════════════════════════════════════════════════════════════════
 
     // ── R1: Empty classification returns empty refinement ──
