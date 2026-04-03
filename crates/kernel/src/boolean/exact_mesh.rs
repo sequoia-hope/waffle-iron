@@ -1224,18 +1224,48 @@ fn label_sub_tri(
     if w > WINDING_OUTSIDE_THRESHOLD && w < (1.0 - WINDING_OUTSIDE_THRESHOLD) {
         // Ambiguous — centroid is near the target mesh surface.
         // Offset along -normal (INTO this sub-triangle's own solid) to break tie.
+        // Ref #4: Shewchuk 1997 — robust evaluation via multi-axis fallback.
         let normal = sub_tri_unit_normal(verts, sub_tri);
         let eps = TAU_WORK.sqrt(); // ~1e-6, geometric mean of model/working precision
-        let offset = [
-            centroid[0] - eps * normal[0],
-            centroid[1] - eps * normal[1],
-            centroid[2] - eps * normal[2],
-        ];
-        let w2 = winding_number_mesh(offset, target_verts, target_tris);
-        if w2 >= WINDING_INSIDE_THRESHOLD {
-            CellLabel::CoSurfaceInside
+
+        // Check if the normal is well-defined (non-degenerate triangle).
+        let normal_len_sq = normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2];
+        let has_valid_normal = normal_len_sq > 0.5; // unit normal should have len ~1
+
+        if has_valid_normal {
+            let offset = [
+                centroid[0] - eps * normal[0],
+                centroid[1] - eps * normal[1],
+                centroid[2] - eps * normal[2],
+            ];
+            let w2 = winding_number_mesh(offset, target_verts, target_tris);
+            if w2 >= WINDING_INSIDE_THRESHOLD {
+                CellLabel::CoSurfaceInside
+            } else {
+                CellLabel::CoSurfaceOutside
+            }
         } else {
-            CellLabel::CoSurfaceOutside
+            // Degenerate triangle — normal is unreliable. Try all three
+            // coordinate axes as offset directions and use majority vote.
+            // Ref #4: Shewchuk 1997 — perturbation along coordinate axes.
+            let axes: [[f64; 3]; 3] = [[eps, 0.0, 0.0], [0.0, eps, 0.0], [0.0, 0.0, eps]];
+            let mut inside_votes = 0u32;
+            for axis in &axes {
+                let offset = [
+                    centroid[0] + axis[0],
+                    centroid[1] + axis[1],
+                    centroid[2] + axis[2],
+                ];
+                let w_off = winding_number_mesh(offset, target_verts, target_tris);
+                if w_off >= WINDING_INSIDE_THRESHOLD {
+                    inside_votes += 1;
+                }
+            }
+            if inside_votes >= 2 {
+                CellLabel::CoSurfaceInside
+            } else {
+                CellLabel::CoSurfaceOutside
+            }
         }
     } else {
         classify_winding(w)
@@ -1533,6 +1563,21 @@ fn split_triangle_by_segment(
     seg: [usize; 2],
     all_verts: &mut Vec<[f64; 3]>,
 ) -> Vec<[usize; 3]> {
+    // Delegate to inner function with no dedup map (used by propagation passes
+    // which create vertices via split_at_edge_point, not this function).
+    split_triangle_by_segment_dedup(tri_vi, seg, all_verts, None)
+}
+
+/// Split a triangle by a constraint segment, with optional conformal vertex
+/// deduplication. When `dedup` is Some, new edge-interior vertices are checked
+/// against the map (at 1e9 nanometer quantization) before creation.
+/// Ref #9: Cherchi 2020 §3.2 — conformal vertex sharing in subdivision.
+fn split_triangle_by_segment_dedup(
+    tri_vi: [usize; 3],
+    seg: [usize; 2],
+    all_verts: &mut Vec<[f64; 3]>,
+    mut dedup: Option<&mut std::collections::HashMap<[i64; 3], usize>>,
+) -> Vec<[usize; 3]> {
     let tri_verts = [
         all_verts[tri_vi[0]],
         all_verts[tri_vi[1]],
@@ -1544,13 +1589,6 @@ fn split_triangle_by_segment(
     let eps = TAU_EXACT_MESH_CLASSIFY;
 
     // Find where the constraint LINE intersects each triangle edge.
-    // Each hit records (edge_index, parameter_t on edge, vertex_index in all_verts).
-    struct EdgeHit {
-        edge: usize,
-        t: f64,
-        vert_idx: usize,
-    }
-
     // Classify each edge hit as either:
     // - Interior: point is strictly inside the edge (0 < t < 1)
     // - AtVertex: point is at a triangle vertex (t ≈ 0 or t ≈ 1)
@@ -1602,6 +1640,20 @@ fn split_triangle_by_segment(
                         seg[0]
                     } else if dist_sq(&all_verts[seg[1]], &pt) < eps * eps {
                         seg[1]
+                    } else if let Some(ref mut dm) = dedup {
+                        // Conformal vertex dedup: reuse existing vertex at
+                        // the same nanometer-quantized position.
+                        let scale = 1e9;
+                        let key = [
+                            (pt[0] * scale).round() as i64,
+                            (pt[1] * scale).round() as i64,
+                            (pt[2] * scale).round() as i64,
+                        ];
+                        *dm.entry(key).or_insert_with(|| {
+                            let idx = all_verts.len();
+                            all_verts.push(pt);
+                            idx
+                        })
                     } else {
                         let idx = all_verts.len();
                         all_verts.push(pt);
@@ -1767,8 +1819,30 @@ pub(crate) fn subdivide_mesh_pair(
     tris_b: &[[usize; 3]],
 ) -> SubdividedMesh {
     use std::collections::BTreeMap;
+    use std::collections::HashMap;
 
     let offset_b = verts_a.len();
+
+    // Shared quantization for conformal vertex deduplication.
+    // Uses 1e9 scale (nanometer precision for meter-scale models) to match
+    // the quantization in build_result_brep (topology_extract.rs) and
+    // build_vert_canon. This ensures vertex identity is consistent through
+    // the entire pipeline: subdivision → trim extraction → B-Rep construction.
+    // Ref #9: Cherchi 2020 — conformal mesh subdivision requires shared vertices.
+    let quant_conformal = |p: [f64; 3]| -> [i64; 3] {
+        let scale = 1e9;
+        [
+            (p[0] * scale).round() as i64,
+            (p[1] * scale).round() as i64,
+            (p[2] * scale).round() as i64,
+        ]
+    };
+
+    // Position-based dedup map for intersection vertices. Entries are added
+    // when new intersection points are materialized, ensuring that the same
+    // geometric point always gets the same vertex index even when computed
+    // from different triangle pairs with floating-point rounding differences.
+    let mut isect_vertex_dedup: HashMap<[i64; 3], usize> = HashMap::new();
 
     // Step 1: Merge vertex arrays
     let mut all_verts: Vec<[f64; 3]> = Vec::with_capacity(verts_a.len() + verts_b.len());
@@ -1828,17 +1902,27 @@ pub(crate) fn subdivide_mesh_pair(
                     let vi0 = if ip0.edge[0] == ip0.edge[1] {
                         ip0.edge[0]
                     } else {
-                        let idx = all_verts.len();
-                        all_verts.push(p0);
-                        idx
+                        // Conformal vertex dedup: reuse existing vertex at
+                        // the same quantized position, or create a new one.
+                        // Ref #9: Cherchi 2020 §3.2 — vertex sharing for
+                        // conformal mesh subdivision.
+                        let key = quant_conformal(p0);
+                        *isect_vertex_dedup.entry(key).or_insert_with(|| {
+                            let idx = all_verts.len();
+                            all_verts.push(p0);
+                            idx
+                        })
                     };
 
                     let vi1 = if ip1.edge[0] == ip1.edge[1] {
                         ip1.edge[0]
                     } else {
-                        let idx = all_verts.len();
-                        all_verts.push(p1);
-                        idx
+                        let key = quant_conformal(p1);
+                        *isect_vertex_dedup.entry(key).or_insert_with(|| {
+                            let idx = all_verts.len();
+                            all_verts.push(p1);
+                            idx
+                        })
                     };
 
                     if vi0 != vi1 {
@@ -1904,7 +1988,14 @@ pub(crate) fn subdivide_mesh_pair(
             for seg in segs {
                 let mut next_tris = Vec::new();
                 for t in &current_tris {
-                    let splits = split_triangle_by_segment(*t, *seg, &mut all_verts);
+                    // Use dedup version so edge-interior vertices share indices
+                    // with the same geometric point from other triangles.
+                    let splits = split_triangle_by_segment_dedup(
+                        *t,
+                        *seg,
+                        &mut all_verts,
+                        Some(&mut isect_vertex_dedup),
+                    );
                     next_tris.extend(splits);
                 }
                 current_tris = next_tris;
@@ -1923,7 +2014,12 @@ pub(crate) fn subdivide_mesh_pair(
             for seg in segs {
                 let mut next_tris = Vec::new();
                 for t in &current_tris {
-                    let splits = split_triangle_by_segment(*t, *seg, &mut all_verts);
+                    let splits = split_triangle_by_segment_dedup(
+                        *t,
+                        *seg,
+                        &mut all_verts,
+                        Some(&mut isect_vertex_dedup),
+                    );
                     next_tris.extend(splits);
                 }
                 current_tris = next_tris;
@@ -1936,24 +2032,15 @@ pub(crate) fn subdivide_mesh_pair(
 
     // ── Step 3a: Vertex deduplication ──
     // When two different intersections hit the same edge at the same
-    // position, they create separate vertices. Merge exact duplicates
-    // (within floating-point roundoff) so both sub-triangles reference
-    // the same vertex index.
+    // position, they create separate vertices. Merge duplicates
+    // (within nanometer precision) so both sub-triangles reference
+    // the same vertex index. Uses 1e9 quantization to match the
+    // conformal dedup applied during materialization and the
+    // position-based canonicalization in build_result_brep.
+    // Ref #9: Cherchi 2020 — conformal mesh subdivision.
     {
-        use std::collections::HashMap;
         let original_count = verts_a.len() + verts_b.len();
-        // Use 1e-15 quantization — merge only near-exact duplicates from
-        // independent intersection computations. Do NOT merge nudged vertices
-        // with their endpoints (that creates degenerate triangles); nudged
-        // vertex cleanup happens separately after propagation.
-        let quant = |v: [f64; 3]| -> [i64; 3] {
-            let scale = 1e15;
-            [
-                (v[0] * scale).round() as i64,
-                (v[1] * scale).round() as i64,
-                (v[2] * scale).round() as i64,
-            ]
-        };
+        let quant = &quant_conformal;
 
         let mut canonical: HashMap<[i64; 3], usize> = HashMap::new();
         let mut remap: Vec<usize> = (0..all_verts.len()).collect();
@@ -2318,18 +2405,11 @@ pub(crate) fn subdivide_mesh_pair(
 
     // ── Step 3d: Post-propagation vertex deduplication ──
     // Cross-mesh propagation may create duplicate vertices at identical positions.
-    // Re-run the same quantization-based dedup to merge them.
+    // Re-run the same quantization-based dedup to merge them. Uses 1e9
+    // (nanometer) quantization to match the conformal dedup pipeline.
     {
-        use std::collections::HashMap;
         let original_count = verts_a.len() + verts_b.len();
-        let quant = |v: [f64; 3]| -> [i64; 3] {
-            let scale = 1e15;
-            [
-                (v[0] * scale).round() as i64,
-                (v[1] * scale).round() as i64,
-                (v[2] * scale).round() as i64,
-            ]
-        };
+        let quant = &quant_conformal;
 
         let mut canonical: HashMap<[i64; 3], usize> = HashMap::new();
         let mut remap: Vec<usize> = (0..all_verts.len()).collect();
@@ -2741,7 +2821,78 @@ pub(crate) fn subdivide_mesh_pair(
         }
     }
 
-    // ── Step 4: Collect final results ──
+    // ── Step 4: Filter degenerate sub-triangles ──
+    // Degenerate (zero-area) sub-triangles can arise when intersection segments
+    // nearly coincide with triangle edges, producing collinear vertices. These
+    // cause undefined normals in label_sub_tri and incorrect classification.
+    // Remove them before collecting final results.
+    // Ref #9: Cherchi 2020 — degenerate triangle removal after subdivision.
+    fn is_degenerate_subtri(verts: &[[f64; 3]], tri: &[usize; 3]) -> bool {
+        let v0 = verts[tri[0]];
+        let v1 = verts[tri[1]];
+        let v2 = verts[tri[2]];
+        // Check for duplicate vertices
+        if tri[0] == tri[1] || tri[1] == tri[2] || tri[2] == tri[0] {
+            return true;
+        }
+        let e1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
+        let e2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
+        let cross = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        let cross_len_sq = cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2];
+        // Area = |cross|/2. Degenerate if area < TAU_WORK (1e-12).
+        // cross_len_sq < (2*TAU_WORK)^2 = 4e-24
+        cross_len_sq < 4e-24
+    }
+
+    for (_parent, sub_tris) in &mut result_tris_a_raw {
+        sub_tris.retain(|t| !is_degenerate_subtri(&all_verts, t));
+    }
+    for (_parent, sub_tris) in &mut result_tris_b_raw {
+        sub_tris.retain(|t| !is_degenerate_subtri(&all_verts, t));
+    }
+
+    // ── Step 4b: Debug conformality check ──
+    // In debug builds, verify that shared boundary edges between A and B
+    // sub-triangles use the same vertex indices (conformal subdivision).
+    // Non-conformal edges cause unpaired half-edges in build_result_brep.
+    #[cfg(debug_assertions)]
+    {
+        use std::collections::HashSet;
+        // Collect all directed edges from A and B sub-triangles
+        let mut a_edges: HashSet<(usize, usize)> = HashSet::new();
+        let mut b_edges: HashSet<(usize, usize)> = HashSet::new();
+        for (_parent, sub_tris) in &result_tris_a_raw {
+            for tri in sub_tris {
+                a_edges.insert((tri[0], tri[1]));
+                a_edges.insert((tri[1], tri[2]));
+                a_edges.insert((tri[2], tri[0]));
+            }
+        }
+        for (_parent, sub_tris) in &result_tris_b_raw {
+            for tri in sub_tris {
+                b_edges.insert((tri[0], tri[1]));
+                b_edges.insert((tri[1], tri[2]));
+                b_edges.insert((tri[2], tri[0]));
+            }
+        }
+        // Cross-mesh shared edges: A has (v0,v1) and B has (v1,v0) using the
+        // SAME vertex indices. Count how many A-edges have a matching B-reverse.
+        let cross_shared = a_edges
+            .iter()
+            .filter(|&&(v0, v1)| b_edges.contains(&(v1, v0)))
+            .count();
+        // This is purely diagnostic — log the count but don't assert, since
+        // non-intersecting meshes will have zero cross-shared edges.
+        if cross_shared > 0 {
+            eprintln!("[yang-debug] conformal cross-mesh shared edges: {cross_shared}");
+        }
+    }
+
+    // ── Step 5: Collect final results ──
     let mut result_tris_a = Vec::new();
     for &(parent_tri, ref sub_tris) in &result_tris_a_raw {
         for &t in sub_tris {
@@ -6453,5 +6604,94 @@ mod tests {
         );
         assert!(!result.tris_a.is_empty());
         assert!(!result.tris_b.is_empty());
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Conformal vertex dedup & degenerate filtering tests
+    // ══════════════════════════════════════════════════════════════════
+
+    /// Verify that intersection points at shared edges between mesh A and mesh B
+    /// produce the SAME vertex index (conformal vertex sharing) after subdivision.
+    #[test]
+    fn test_conformal_vertex_sharing_in_subdivision() {
+        // Two overlapping unit boxes — the intersection curve should produce
+        // shared vertex indices across adjacent triangles from different meshes.
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 1.0, 1.0]);
+        let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 1.0, 1.0]);
+
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+
+        // Collect all vertex indices used by both A and B sub-triangles
+        use std::collections::HashSet;
+        let a_verts: HashSet<usize> = subdivided
+            .tris_a
+            .iter()
+            .flat_map(|t| t.verts.iter().copied())
+            .collect();
+        let b_verts: HashSet<usize> = subdivided
+            .tris_b
+            .iter()
+            .flat_map(|t| t.verts.iter().copied())
+            .collect();
+
+        // Shared vertices: indices that appear in BOTH A and B sub-triangles.
+        // These are the intersection points. With conformal dedup, they should
+        // share the same index (not just same position).
+        let shared: HashSet<usize> = a_verts.intersection(&b_verts).copied().collect();
+
+        // Overlapping boxes must have shared intersection vertices
+        assert!(
+            shared.len() >= 2,
+            "Overlapping boxes should have shared intersection vertex indices, got {}",
+            shared.len()
+        );
+    }
+
+    /// After subdivision, no sub-triangles should have zero area (collinear vertices).
+    /// This validates the degenerate sub-triangle filtering pass.
+    #[test]
+    fn test_degenerate_subtri_filtered() {
+        // Overlapping boxes — subdivision may produce degenerate sub-tris
+        // at intersection edges. Verify none remain after filtering.
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 1.0, 1.0]);
+        let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 1.0, 1.0]);
+
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+
+        let tau_work = 1e-12;
+        for (i, sub_tri) in subdivided.tris_a.iter().enumerate() {
+            let v0 = subdivided.verts[sub_tri.verts[0]];
+            let v1 = subdivided.verts[sub_tri.verts[1]];
+            let v2 = subdivided.verts[sub_tri.verts[2]];
+            let e1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
+            let e2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
+            let cross = [
+                e1[1] * e2[2] - e1[2] * e2[1],
+                e1[2] * e2[0] - e1[0] * e2[2],
+                e1[0] * e2[1] - e1[1] * e2[0],
+            ];
+            let area_sq = cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2];
+            assert!(
+                area_sq > 4.0 * tau_work * tau_work,
+                "tris_a[{i}] is degenerate (area_sq={area_sq:.2e})"
+            );
+        }
+        for (i, sub_tri) in subdivided.tris_b.iter().enumerate() {
+            let v0 = subdivided.verts[sub_tri.verts[0]];
+            let v1 = subdivided.verts[sub_tri.verts[1]];
+            let v2 = subdivided.verts[sub_tri.verts[2]];
+            let e1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
+            let e2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
+            let cross = [
+                e1[1] * e2[2] - e1[2] * e2[1],
+                e1[2] * e2[0] - e1[0] * e2[2],
+                e1[0] * e2[1] - e1[1] * e2[0],
+            ];
+            let area_sq = cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2];
+            assert!(
+                area_sq > 4.0 * tau_work * tau_work,
+                "tris_b[{i}] is degenerate (area_sq={area_sq:.2e})"
+            );
+        }
     }
 }

@@ -3075,4 +3075,161 @@ mod tests {
         assert_eq!(unpaired, 0, "All half-edges must be paired");
         assert_eq!(euler, 2, "Euler formula V-E+F must equal 2");
     }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Yang pipeline topology validation tests (conformal dedup + degenerate filtering)
+    // ══════════════════════════════════════════════════════════════════
+
+    /// Helper: build a BijectiveMap for a box mesh with the given triangle count.
+    /// Box meshes have 12 triangles, 2 per face, so face = tri_index / 2.
+    fn build_bijective_from_tri_count(tri_count: usize) -> BijectiveMap {
+        BijectiveMap {
+            tri_face_ids: (0..tri_count).map(|i| FaceIdx(i / 2)).collect(),
+        }
+    }
+
+    /// Two boxes with partial overlap (offset along X).
+    /// The Yang pipeline must produce a valid B-Rep with zero unpaired half-edges.
+    #[test]
+    fn test_yang_pipeline_two_offset_boxes_no_unpaired() {
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 1.0, 1.0]);
+        let (verts_b, tris_b) = make_box_mesh([0.5, 0.0, 0.0], [2.5, 1.0, 1.0]);
+
+        let bijective_a = build_bijective_from_tri_count(tris_a.len());
+        let bijective_b = build_bijective_from_tri_count(tris_b.len());
+
+        let result = yang_boolean_pipeline(
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            &bijective_a,
+            &bijective_b,
+            MeshBooleanOp::Union,
+        )
+        .expect("Yang pipeline should not error");
+
+        let n_faces = result.arena.faces.len();
+        let n_edges = result.arena.edges.len();
+        let n_verts = result.arena.vertices.len();
+        let n_he = result.arena.half_edges.len();
+
+        // Count unpaired half-edges
+        let unpaired = if n_he > 0 {
+            (0..n_he)
+                .filter(|&i| {
+                    let twin_idx = result.arena.half_edges[i].twin.0;
+                    twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+                })
+                .count()
+        } else {
+            0
+        };
+
+        eprintln!(
+            "Offset box union: F={n_faces}, E={n_edges}, V={n_verts}, HE={n_he}, unpaired={unpaired}"
+        );
+
+        assert!(n_faces > 0, "Union must produce non-empty result");
+        assert_eq!(unpaired, 0, "All half-edges must be paired");
+
+        let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
+        assert_eq!(euler, 2, "V-E+F must be 2 for closed solid, got {euler}");
+        assert_eq!(n_he, 2 * n_edges, "manifold: HE must be 2*E");
+    }
+
+    /// Two boxes sharing a face (stacked on top of each other along Z).
+    /// Tests CoSurface classification. Result should be one merged box.
+    #[test]
+    #[ignore = "A15.6: Yang Phase 5 B-Rep reassembly does not yet handle coplanar shared faces"]
+    fn test_yang_pipeline_stacked_box_union() {
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        let (verts_b, tris_b) = make_box_mesh([0.0, 0.0, 1.0], [1.0, 1.0, 2.0]);
+
+        let bijective_a = build_bijective_from_tri_count(tris_a.len());
+        let bijective_b = build_bijective_from_tri_count(tris_b.len());
+
+        let result = yang_boolean_pipeline(
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            &bijective_a,
+            &bijective_b,
+            MeshBooleanOp::Union,
+        )
+        .expect("Yang pipeline should not error");
+
+        let n_faces = result.arena.faces.len();
+        let n_edges = result.arena.edges.len();
+        let n_verts = result.arena.vertices.len();
+        let n_he = result.arena.half_edges.len();
+
+        let unpaired = if n_he > 0 {
+            (0..n_he)
+                .filter(|&i| {
+                    let twin_idx = result.arena.half_edges[i].twin.0;
+                    twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+                })
+                .count()
+        } else {
+            0
+        };
+
+        eprintln!(
+            "Stacked box union: F={n_faces}, E={n_edges}, V={n_verts}, HE={n_he}, unpaired={unpaired}"
+        );
+
+        assert!(n_faces > 0, "Stacked box union must produce faces");
+        assert_eq!(unpaired, 0, "All half-edges must be paired");
+    }
+
+    /// Two boxes forming a cross pattern (different extents on X and Y).
+    /// Tests the offset-overlap pattern common in assay F-series cases.
+    #[test]
+    #[ignore = "A15.6: Yang Phase 5 B-Rep reassembly produces empty topology for cross-pattern unions"]
+    fn test_yang_pipeline_thin_cross_union() {
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [3.0, 1.0, 0.3]);
+        let (verts_b, tris_b) = make_box_mesh([1.0, -0.5, 0.0], [2.0, 1.5, 0.3]);
+
+        let bijective_a = build_bijective_from_tri_count(tris_a.len());
+        let bijective_b = build_bijective_from_tri_count(tris_b.len());
+
+        let result = yang_boolean_pipeline(
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            &bijective_a,
+            &bijective_b,
+            MeshBooleanOp::Union,
+        )
+        .expect("Yang pipeline should not error");
+
+        let n_faces = result.arena.faces.len();
+        let n_edges = result.arena.edges.len();
+        let n_verts = result.arena.vertices.len();
+        let n_he = result.arena.half_edges.len();
+
+        let unpaired = if n_he > 0 {
+            (0..n_he)
+                .filter(|&i| {
+                    let twin_idx = result.arena.half_edges[i].twin.0;
+                    twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+                })
+                .count()
+        } else {
+            0
+        };
+
+        eprintln!(
+            "Thin cross union: F={n_faces}, E={n_edges}, V={n_verts}, HE={n_he}, unpaired={unpaired}"
+        );
+
+        assert!(n_faces > 0, "Thin cross union must produce faces");
+        assert_eq!(unpaired, 0, "All half-edges must be paired");
+
+        let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
+        assert_eq!(euler, 2, "V-E+F must be 2, got {euler}");
+    }
 }
