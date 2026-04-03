@@ -378,10 +378,11 @@ pub const COS_NORMAL_SIMILARITY: f32 = 0.02;
 // ── Yang hybrid boolean pipeline limits ─────────────────────────────
 
 /// Maximum triangle-pair product for the Yang exact mesh boolean pipeline.
-/// The exact mesh boolean is O(n*m) in triangles. If tris_a.len() * tris_b.len()
-/// exceeds this limit, `yang_boolean_from_solids` returns `NotSupported` to
-/// prevent timeouts. The caller can then fall back to the legacy pipeline or
-/// report the error.
+/// With BVH acceleration the actual work is O(n log n + k) where k is the
+/// number of overlapping AABB pairs, so this limit is a safety valve for
+/// pathological inputs rather than a performance guard.
+/// If tris_a.len() * tris_b.len() exceeds this limit,
+/// `yang_boolean_from_solids` returns `NotSupported`.
 ///
-/// 50,000 pairs corresponds to e.g. ~224 × 224 triangles or ~50 × 1000.
-pub const MAX_YANG_TRI_PAIRS: usize = 50_000;
+/// 5,000,000 pairs corresponds to e.g. ~2236 × 2236 triangles.
+pub const MAX_YANG_TRI_PAIRS: usize = 5_000_000;

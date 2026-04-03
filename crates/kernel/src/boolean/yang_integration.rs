@@ -477,6 +477,23 @@ fn validate_yang_result_topology(arena: &crate::topology::arena::TopoArena) -> R
         }
     }
 
+    // Manifold invariant: half_edges == 2 * edges (each edge has exactly two half-edges).
+    if n_he != 2 * n_edges {
+        return Err(format!(
+            "manifold violation: {n_he} half_edges != 2 * {n_edges} edges"
+        ));
+    }
+
+    // Euler characteristic: V - E + F = 2 for a single closed orientable solid.
+    // Ref: Mantyla §2.4. If the result is not a single closed solid, the Yang
+    // pipeline output is invalid — fall back to legacy.
+    let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
+    if euler != 2 {
+        return Err(format!(
+            "Euler characteristic V({n_verts}) - E({n_edges}) + F({n_faces}) = {euler} (expected 2)"
+        ));
+    }
+
     Ok(())
 }
 
@@ -878,9 +895,9 @@ mod tests {
     ///
     /// This test verifies the constant exists in units.rs and has the expected value.
     #[test]
-    fn max_yang_tri_pairs_constant_exists_and_is_50000() {
+    fn max_yang_tri_pairs_constant_exists_and_is_5000000() {
         use crate::units::MAX_YANG_TRI_PAIRS;
-        assert_eq!(MAX_YANG_TRI_PAIRS, 50_000);
+        assert_eq!(MAX_YANG_TRI_PAIRS, 5_000_000);
     }
 
     /// Bug: `yang_boolean_from_solids` should reject operands whose combined
@@ -894,8 +911,8 @@ mod tests {
         use crate::units::MAX_YANG_TRI_PAIRS;
 
         // Test: product exceeding threshold should error.
-        let n_a = 300;
-        let n_b = 200;
+        let n_a = 3000;
+        let n_b = 2000;
         assert!(
             n_a * n_b > MAX_YANG_TRI_PAIRS,
             "precondition: product exceeds limit"

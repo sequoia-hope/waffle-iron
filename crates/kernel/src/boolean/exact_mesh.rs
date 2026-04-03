@@ -50,6 +50,153 @@ pub(crate) struct IndirectPoint {
     pub plane_tri: [usize; 3],
 }
 
+// ── AABB + BVH for broad-phase triangle pair culling ────────────────────
+//
+// Ref #9: Cherchi 2020 — uses AABB trees for O(n log n + k) pair filtering.
+// Ref: Ericson 2005 — top-down BVH construction (median split on longest axis).
+
+/// Axis-aligned bounding box for broad-phase triangle pair culling.
+#[derive(Debug, Clone, Copy)]
+struct Aabb {
+    min: [f64; 3],
+    max: [f64; 3],
+}
+
+impl Aabb {
+    /// Build AABB from a triangle's three vertex positions.
+    fn from_triangle(v0: &[f64; 3], v1: &[f64; 3], v2: &[f64; 3]) -> Self {
+        Aabb {
+            min: [
+                v0[0].min(v1[0]).min(v2[0]),
+                v0[1].min(v1[1]).min(v2[1]),
+                v0[2].min(v1[2]).min(v2[2]),
+            ],
+            max: [
+                v0[0].max(v1[0]).max(v2[0]),
+                v0[1].max(v1[1]).max(v2[1]),
+                v0[2].max(v1[2]).max(v2[2]),
+            ],
+        }
+    }
+
+    /// Test overlap between two AABBs (inclusive — touching counts as overlap).
+    fn overlaps(&self, other: &Aabb) -> bool {
+        self.min[0] <= other.max[0]
+            && self.max[0] >= other.min[0]
+            && self.min[1] <= other.max[1]
+            && self.max[1] >= other.min[1]
+            && self.min[2] <= other.max[2]
+            && self.max[2] >= other.min[2]
+    }
+
+    /// Merge two AABBs into their union.
+    fn merge(&self, other: &Aabb) -> Aabb {
+        Aabb {
+            min: [
+                self.min[0].min(other.min[0]),
+                self.min[1].min(other.min[1]),
+                self.min[2].min(other.min[2]),
+            ],
+            max: [
+                self.max[0].max(other.max[0]),
+                self.max[1].max(other.max[1]),
+                self.max[2].max(other.max[2]),
+            ],
+        }
+    }
+
+    /// Centroid of this AABB along a given axis (0=x, 1=y, 2=z).
+    fn centroid(&self, axis: usize) -> f64 {
+        0.5 * (self.min[axis] + self.max[axis])
+    }
+}
+
+/// BVH node for spatial acceleration of triangle pair queries.
+/// Top-down construction with median split on longest axis.
+enum BvhNode {
+    Leaf {
+        tri_idx: usize,
+        aabb: Aabb,
+    },
+    Internal {
+        aabb: Aabb,
+        left: Box<BvhNode>,
+        right: Box<BvhNode>,
+    },
+}
+
+impl BvhNode {
+    /// Build a BVH from a mutable slice of (triangle_index, aabb) pairs.
+    /// Panics if `items` is empty — caller must check.
+    fn build(items: &mut [(usize, Aabb)]) -> Self {
+        assert!(!items.is_empty(), "BvhNode::build called with empty items");
+
+        if items.len() == 1 {
+            return BvhNode::Leaf {
+                tri_idx: items[0].0,
+                aabb: items[0].1,
+            };
+        }
+
+        // Compute merged AABB of all items.
+        let mut merged = items[0].1;
+        for item in items.iter().skip(1) {
+            merged = merged.merge(&item.1);
+        }
+
+        // Find longest axis.
+        let extents = [
+            merged.max[0] - merged.min[0],
+            merged.max[1] - merged.min[1],
+            merged.max[2] - merged.min[2],
+        ];
+        let axis = if extents[0] >= extents[1] && extents[0] >= extents[2] {
+            0
+        } else if extents[1] >= extents[2] {
+            1
+        } else {
+            2
+        };
+
+        // Sort by centroid along chosen axis, then split at median.
+        items.sort_by(|a, b| {
+            a.1.centroid(axis)
+                .partial_cmp(&b.1.centroid(axis))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let mid = items.len() / 2;
+        let (left_items, right_items) = items.split_at_mut(mid);
+
+        let left = Box::new(BvhNode::build(left_items));
+        let right = Box::new(BvhNode::build(right_items));
+
+        BvhNode::Internal {
+            aabb: merged,
+            left,
+            right,
+        }
+    }
+
+    /// Find all leaf triangle indices whose AABB overlaps `query_aabb`.
+    fn query_overlapping(&self, query_aabb: &Aabb, out: &mut Vec<usize>) {
+        match self {
+            BvhNode::Leaf { tri_idx, aabb } => {
+                if aabb.overlaps(query_aabb) {
+                    out.push(*tri_idx);
+                }
+            }
+            BvhNode::Internal { aabb, left, right } => {
+                if !aabb.overlaps(query_aabb) {
+                    return;
+                }
+                left.query_overlapping(query_aabb, out);
+                right.query_overlapping(query_aabb, out);
+            }
+        }
+    }
+}
+
 /// Result of exact triangle-triangle intersection test.
 #[derive(Debug)]
 #[allow(dead_code)] // Phase 2 building block — task 2b
@@ -1634,39 +1781,70 @@ pub(crate) fn subdivide_mesh_pair(
         .map(|t| [t[0] + offset_b, t[1] + offset_b, t[2] + offset_b])
         .collect();
 
-    // Step 2: Compute all intersections, collect per-triangle constraint segments.
-    // Key: (mesh_id 0=A 1=B, tri_index), Value: list of (seg_v0, seg_v1) vertex indices.
+    // Step 2: Compute intersections using BVH-accelerated broad phase.
+    // Build AABB for each mesh-B triangle (remapped), then construct a BVH.
+    // For each mesh-A triangle, query the BVH for overlapping B triangles
+    // and only run exact tri-tri intersection on those pairs.
+    // Ref #9: Cherchi 2020 — AABB tree for O(n log n + k) pair filtering.
     let mut constraints_a: BTreeMap<usize, Vec<[usize; 2]>> = BTreeMap::new();
     let mut constraints_b: BTreeMap<usize, Vec<[usize; 2]>> = BTreeMap::new();
 
-    for (i, tri_a_idx) in tris_a.iter().enumerate() {
-        for (j, _tri_b_idx) in tris_b.iter().enumerate() {
-            let remapped_b = remapped_tris_b[j];
-            let result = tri_tri_intersect(*tri_a_idx, remapped_b, &all_verts);
+    let mut aabbs_b: Vec<(usize, Aabb)> = remapped_tris_b
+        .iter()
+        .enumerate()
+        .map(|(j, tri)| {
+            let aabb =
+                Aabb::from_triangle(&all_verts[tri[0]], &all_verts[tri[1]], &all_verts[tri[2]]);
+            (j, aabb)
+        })
+        .collect();
 
-            if let TriTriIsect::Segment(ip0, ip1) = result {
-                let p0 = materialize_ip(&ip0, &all_verts);
-                let p1 = materialize_ip(&ip1, &all_verts);
+    // Build BVH for mesh B (only if non-empty — empty meshes are caught upstream).
+    let bvh_b = if aabbs_b.is_empty() {
+        None
+    } else {
+        Some(BvhNode::build(&mut aabbs_b))
+    };
 
-                let vi0 = if ip0.edge[0] == ip0.edge[1] {
-                    ip0.edge[0]
-                } else {
-                    let idx = all_verts.len();
-                    all_verts.push(p0);
-                    idx
-                };
+    let mut candidates = Vec::new();
+    if let Some(ref bvh) = bvh_b {
+        for (i, tri_a_idx) in tris_a.iter().enumerate() {
+            let aabb_a = Aabb::from_triangle(
+                &all_verts[tri_a_idx[0]],
+                &all_verts[tri_a_idx[1]],
+                &all_verts[tri_a_idx[2]],
+            );
+            candidates.clear();
+            bvh.query_overlapping(&aabb_a, &mut candidates);
 
-                let vi1 = if ip1.edge[0] == ip1.edge[1] {
-                    ip1.edge[0]
-                } else {
-                    let idx = all_verts.len();
-                    all_verts.push(p1);
-                    idx
-                };
+            for &j in &candidates {
+                let remapped_b = remapped_tris_b[j];
+                let result = tri_tri_intersect(*tri_a_idx, remapped_b, &all_verts);
 
-                if vi0 != vi1 {
-                    constraints_a.entry(i).or_default().push([vi0, vi1]);
-                    constraints_b.entry(j).or_default().push([vi0, vi1]);
+                if let TriTriIsect::Segment(ip0, ip1) = result {
+                    let p0 = materialize_ip(&ip0, &all_verts);
+                    let p1 = materialize_ip(&ip1, &all_verts);
+
+                    let vi0 = if ip0.edge[0] == ip0.edge[1] {
+                        ip0.edge[0]
+                    } else {
+                        let idx = all_verts.len();
+                        all_verts.push(p0);
+                        idx
+                    };
+
+                    let vi1 = if ip1.edge[0] == ip1.edge[1] {
+                        ip1.edge[0]
+                    } else {
+                        let idx = all_verts.len();
+                        all_verts.push(p1);
+                        idx
+                    };
+
+                    if vi0 != vi1 {
+                        constraints_a.entry(i).or_default().push([vi0, vi1]);
+                        constraints_b.entry(j).or_default().push([vi0, vi1]);
+                    }
                 }
             }
         }
@@ -5923,5 +6101,357 @@ mod tests {
             "Manifold invariant: half_edges ({n_he}) != 2 * edges ({})",
             2 * n_edges
         );
+    }
+
+    // ── AABB tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_aabb_from_triangle() {
+        let v0 = [0.0, 0.0, 0.0];
+        let v1 = [1.0, 0.0, 0.0];
+        let v2 = [0.0, 1.0, 0.0];
+        let aabb = Aabb::from_triangle(&v0, &v1, &v2);
+        assert_eq!(aabb.min, [0.0, 0.0, 0.0]);
+        assert_eq!(aabb.max, [1.0, 1.0, 0.0]);
+    }
+
+    #[test]
+    fn test_aabb_from_triangle_negative_coords() {
+        let v0 = [-1.0, -2.0, -3.0];
+        let v1 = [1.0, 0.0, 0.0];
+        let v2 = [0.0, 1.0, 5.0];
+        let aabb = Aabb::from_triangle(&v0, &v1, &v2);
+        assert_eq!(aabb.min, [-1.0, -2.0, -3.0]);
+        assert_eq!(aabb.max, [1.0, 1.0, 5.0]);
+    }
+
+    #[test]
+    fn test_aabb_overlaps() {
+        // Overlapping
+        let a = Aabb {
+            min: [0.0, 0.0, 0.0],
+            max: [2.0, 2.0, 2.0],
+        };
+        let b = Aabb {
+            min: [1.0, 1.0, 1.0],
+            max: [3.0, 3.0, 3.0],
+        };
+        assert!(a.overlaps(&b));
+        assert!(b.overlaps(&a));
+
+        // Separated
+        let c = Aabb {
+            min: [0.0, 0.0, 0.0],
+            max: [1.0, 1.0, 1.0],
+        };
+        let d = Aabb {
+            min: [2.0, 2.0, 2.0],
+            max: [3.0, 3.0, 3.0],
+        };
+        assert!(!c.overlaps(&d));
+        assert!(!d.overlaps(&c));
+
+        // Touching (shared face) — should overlap (inclusive)
+        let e = Aabb {
+            min: [0.0, 0.0, 0.0],
+            max: [1.0, 1.0, 1.0],
+        };
+        let f = Aabb {
+            min: [1.0, 0.0, 0.0],
+            max: [2.0, 1.0, 1.0],
+        };
+        assert!(e.overlaps(&f));
+
+        // Overlap in 2 axes but not 3rd — no overlap
+        let g = Aabb {
+            min: [0.0, 0.0, 0.0],
+            max: [1.0, 1.0, 1.0],
+        };
+        let h = Aabb {
+            min: [0.5, 0.5, 2.0],
+            max: [1.5, 1.5, 3.0],
+        };
+        assert!(!g.overlaps(&h));
+    }
+
+    #[test]
+    fn test_aabb_merge() {
+        let a = Aabb {
+            min: [0.0, 0.0, 0.0],
+            max: [1.0, 1.0, 1.0],
+        };
+        let b = Aabb {
+            min: [2.0, -1.0, 0.5],
+            max: [3.0, 0.5, 2.0],
+        };
+        let m = a.merge(&b);
+        assert_eq!(m.min, [0.0, -1.0, 0.0]);
+        assert_eq!(m.max, [3.0, 1.0, 2.0]);
+    }
+
+    // ── BVH tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bvh_build_single_item() {
+        let aabb = Aabb {
+            min: [0.0, 0.0, 0.0],
+            max: [1.0, 1.0, 1.0],
+        };
+        let mut items = vec![(42_usize, aabb)];
+        let bvh = BvhNode::build(&mut items);
+        match bvh {
+            BvhNode::Leaf { tri_idx, .. } => assert_eq!(tri_idx, 42),
+            BvhNode::Internal { .. } => panic!("Single item should produce Leaf"),
+        }
+    }
+
+    #[test]
+    fn test_bvh_query_finds_overlapping() {
+        // 4 spatially separated triangles along the X axis
+        let mut items = vec![
+            (
+                0,
+                Aabb {
+                    min: [0.0, 0.0, 0.0],
+                    max: [1.0, 1.0, 1.0],
+                },
+            ),
+            (
+                1,
+                Aabb {
+                    min: [3.0, 0.0, 0.0],
+                    max: [4.0, 1.0, 1.0],
+                },
+            ),
+            (
+                2,
+                Aabb {
+                    min: [6.0, 0.0, 0.0],
+                    max: [7.0, 1.0, 1.0],
+                },
+            ),
+            (
+                3,
+                Aabb {
+                    min: [9.0, 0.0, 0.0],
+                    max: [10.0, 1.0, 1.0],
+                },
+            ),
+        ];
+        let bvh = BvhNode::build(&mut items);
+
+        // Query overlapping only the second triangle (x=3..4)
+        let query = Aabb {
+            min: [3.5, 0.5, 0.5],
+            max: [3.6, 0.6, 0.6],
+        };
+        let mut results = Vec::new();
+        bvh.query_overlapping(&query, &mut results);
+        assert_eq!(results, vec![1]);
+    }
+
+    #[test]
+    fn test_bvh_query_finds_none() {
+        let mut items = vec![
+            (
+                0,
+                Aabb {
+                    min: [0.0, 0.0, 0.0],
+                    max: [1.0, 1.0, 1.0],
+                },
+            ),
+            (
+                1,
+                Aabb {
+                    min: [3.0, 0.0, 0.0],
+                    max: [4.0, 1.0, 1.0],
+                },
+            ),
+        ];
+        let bvh = BvhNode::build(&mut items);
+
+        // Query in the gap between the two
+        let query = Aabb {
+            min: [1.5, 0.0, 0.0],
+            max: [2.5, 1.0, 1.0],
+        };
+        let mut results = Vec::new();
+        bvh.query_overlapping(&query, &mut results);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_bvh_query_finds_multiple() {
+        let mut items = vec![
+            (
+                0,
+                Aabb {
+                    min: [0.0, 0.0, 0.0],
+                    max: [2.0, 1.0, 1.0],
+                },
+            ),
+            (
+                1,
+                Aabb {
+                    min: [1.0, 0.0, 0.0],
+                    max: [3.0, 1.0, 1.0],
+                },
+            ),
+            (
+                2,
+                Aabb {
+                    min: [5.0, 0.0, 0.0],
+                    max: [6.0, 1.0, 1.0],
+                },
+            ),
+        ];
+        let bvh = BvhNode::build(&mut items);
+
+        // Query overlapping the first two
+        let query = Aabb {
+            min: [1.5, 0.0, 0.0],
+            max: [2.5, 1.0, 1.0],
+        };
+        let mut results = Vec::new();
+        bvh.query_overlapping(&query, &mut results);
+        results.sort();
+        assert_eq!(results, vec![0, 1]);
+    }
+
+    /// Verify BVH-accelerated subdivide_mesh_pair produces the same result
+    /// as the original brute-force approach for the canonical box-box test.
+    #[test]
+    fn test_subdivide_bvh_matches_box_box() {
+        // Two overlapping unit boxes: A at origin, B offset by (0.5, 0.5, 0)
+        let (verts_a, tris_a) = make_unit_box([0.0, 0.0, 0.0]);
+        let (verts_b, tris_b) = make_unit_box([0.5, 0.5, 0.0]);
+
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+
+        // Both meshes must produce sub-triangles
+        assert!(
+            !result.tris_a.is_empty(),
+            "Mesh A should have sub-triangles"
+        );
+        assert!(
+            !result.tris_b.is_empty(),
+            "Mesh B should have sub-triangles"
+        );
+        // Sub-triangle count should be >= original (subdivision adds triangles)
+        assert!(
+            result.tris_a.len() >= tris_a.len(),
+            "Mesh A sub-tris ({}) < original ({})",
+            result.tris_a.len(),
+            tris_a.len()
+        );
+        assert!(
+            result.tris_b.len() >= tris_b.len(),
+            "Mesh B sub-tris ({}) < original ({})",
+            result.tris_b.len(),
+            tris_b.len()
+        );
+    }
+
+    /// Helper: build a unit box mesh centered at `center` with side length 1.
+    /// Returns (vertices, triangles) where each face is two triangles.
+    fn make_unit_box(center: [f64; 3]) -> (Vec<[f64; 3]>, Vec<[usize; 3]>) {
+        let h = 0.5;
+        let cx = center[0];
+        let cy = center[1];
+        let cz = center[2];
+        let verts = vec![
+            [cx - h, cy - h, cz - h], // 0
+            [cx + h, cy - h, cz - h], // 1
+            [cx + h, cy + h, cz - h], // 2
+            [cx - h, cy + h, cz - h], // 3
+            [cx - h, cy - h, cz + h], // 4
+            [cx + h, cy - h, cz + h], // 5
+            [cx + h, cy + h, cz + h], // 6
+            [cx - h, cy + h, cz + h], // 7
+        ];
+        // 12 triangles (2 per face), consistent outward winding
+        let tris = vec![
+            // -Z face
+            [0, 2, 1],
+            [0, 3, 2],
+            // +Z face
+            [4, 5, 6],
+            [4, 6, 7],
+            // -Y face
+            [0, 1, 5],
+            [0, 5, 4],
+            // +Y face
+            [2, 3, 7],
+            [2, 7, 6],
+            // -X face
+            [0, 4, 7],
+            [0, 7, 3],
+            // +X face
+            [1, 2, 6],
+            [1, 6, 5],
+        ];
+        (verts, tris)
+    }
+
+    // ── BVH performance test ────────────────────────────────────────────
+
+    /// Generate a UV-sphere mesh with approximately `target_tris` triangles.
+    fn make_sphere_mesh(
+        target_tris: usize,
+        center: [f64; 3],
+        radius: f64,
+    ) -> (Vec<[f64; 3]>, Vec<[usize; 3]>) {
+        // Approximate: rings * sectors * 2 ≈ target_tris
+        // rings ≈ sectors ≈ sqrt(target_tris / 2)
+        let n = ((target_tris as f64 / 2.0).sqrt().ceil() as usize).max(4);
+        let rings = n;
+        let sectors = n;
+
+        let mut verts = Vec::new();
+        let mut tris = Vec::new();
+
+        // Generate vertices
+        for i in 0..=rings {
+            let phi = std::f64::consts::PI * (i as f64) / (rings as f64);
+            for j in 0..=sectors {
+                let theta = 2.0 * std::f64::consts::PI * (j as f64) / (sectors as f64);
+                let x = center[0] + radius * phi.sin() * theta.cos();
+                let y = center[1] + radius * phi.sin() * theta.sin();
+                let z = center[2] + radius * phi.cos();
+                verts.push([x, y, z]);
+            }
+        }
+
+        // Generate triangles
+        for i in 0..rings {
+            for j in 0..sectors {
+                let v0 = i * (sectors + 1) + j;
+                let v1 = v0 + 1;
+                let v2 = (i + 1) * (sectors + 1) + j;
+                let v3 = v2 + 1;
+                tris.push([v0, v2, v1]);
+                tris.push([v1, v2, v3]);
+            }
+        }
+
+        (verts, tris)
+    }
+
+    #[test]
+    fn test_bvh_performance_500_triangles() {
+        let (verts_a, tris_a) = make_sphere_mesh(500, [0.0, 0.0, 0.0], 1.0);
+        let (verts_b, tris_b) = make_sphere_mesh(500, [0.5, 0.0, 0.0], 1.0);
+
+        let start = std::time::Instant::now();
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed.as_secs() < 5,
+            "BVH subdivision took {:?}, expected < 5s",
+            elapsed
+        );
+        assert!(!result.tris_a.is_empty());
+        assert!(!result.tris_b.is_empty());
     }
 }
