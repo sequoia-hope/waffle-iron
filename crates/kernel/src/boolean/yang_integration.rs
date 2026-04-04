@@ -652,10 +652,20 @@ pub(crate) fn yang_boolean_inner(
         id_alloc,
     );
 
-    // Step 8: Build cached render mesh directly from surviving sub-triangles.
+    // Step 8: Validate result B-Rep topology before accepting. Invalid topology
+    // (dangling edges, Euler ≠ 2, broken twin symmetry) would cause panics in
+    // downstream operations (tessellation, chained booleans). Returning NotSupported
+    // lets the legacy pipeline handle this case until the Yang pipeline is fixed.
+    // P9: do not accept invalid results — hiding errors behind cached mesh is a hack.
+    if let Err(msg) = validate_yang_result_topology(&waffle.arena) {
+        return Err(KernelError::NotSupported {
+            operation: format!("yang_boolean: result validation failed: {msg}"),
+        });
+    }
+
+    // Step 9: Build cached render mesh directly from surviving sub-triangles.
     // This bypasses B-Rep retessellation (ear-clipping), preserving the exact
-    // mesh boolean's self-intersection-free guarantee. The mesh boolean output
-    // is correct by construction regardless of B-Rep topology issues.
+    // mesh boolean's self-intersection-free guarantee.
     // Ref [#24] Yang 2025, [#9] Cherchi 2020.
     let cached_mesh = build_render_mesh_from_survival(
         &pipeline_result.survival,
@@ -665,17 +675,6 @@ pub(crate) fn yang_boolean_inner(
         &waffle.face_map,
     );
     waffle.cached_render_mesh = Some(cached_mesh);
-
-    // Step 9: Validate result B-Rep topology. The B-Rep may have invalid topology
-    // (Euler ≠ 2, dangling edges) even when the mesh boolean output is correct.
-    // With mesh passthrough, the cached_render_mesh is the authoritative rendering
-    // output — B-Rep issues only affect subsequent boolean operations.
-    // Log validation failures but accept the result since we have a valid mesh.
-    if let Err(msg) = validate_yang_result_topology(&waffle.arena) {
-        eprintln!(
-            "[A15.6 WARN] Yang B-Rep validation failed (mesh passthrough will be used for rendering): {msg}"
-        );
-    }
 
     Ok(waffle_solid_to_boolean_result(waffle))
 }
@@ -1645,25 +1644,23 @@ mod tests {
                 id
             });
 
-            match result {
-                Ok(r) => {
-                    assert!(
-                        r.cached_render_mesh.is_some(),
-                        "Op {:?} should produce cached mesh",
-                        op
-                    );
-                    let mesh = r.cached_render_mesh.as_ref().unwrap();
-                    assert!(
-                        !mesh.indices.is_empty(),
-                        "Op {:?} mesh should be non-empty",
-                        op
-                    );
-                }
-                Err(e) => {
-                    // NotSupported is acceptable (e.g., empty topology for some ops)
-                    eprintln!("Op {:?} returned error (acceptable): {:?}", op, e);
-                }
-            }
+            let r = result.unwrap_or_else(|e| {
+                panic!(
+                    "Op {:?} on overlapping boxes should succeed, got: {:?}",
+                    op, e
+                )
+            });
+            assert!(
+                r.cached_render_mesh.is_some(),
+                "Op {:?} should produce cached mesh",
+                op
+            );
+            let mesh = r.cached_render_mesh.as_ref().unwrap();
+            assert!(
+                !mesh.indices.is_empty(),
+                "Op {:?} mesh should be non-empty",
+                op
+            );
         }
     }
 
@@ -1789,7 +1786,7 @@ mod tests {
 
         // Position-based vertex/edge counting for Euler characteristic
         use std::collections::HashSet;
-        let scale = 1e9_f64;
+        let scale = crate::units::QUANT_NANOMETER_SCALE;
         let quant = |idx: usize| -> [i64; 3] {
             [
                 (mesh.vertices[idx * 3] as f64 * scale).round() as i64,
