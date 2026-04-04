@@ -3,6 +3,11 @@
 Maps specific algorithms to their academic source AND the file/function in
 our codebase that implements them. Reference numbers `[#N]` from REFERENCES.md.
 
+> **Note (2026-04-04):** Sections below referencing `vendor/truck/` and
+> `crates/kernel-fork/` paths point to the **archived truck-based kernel**
+> (`archive/truck/`). The active clean-sheet kernel is at `crates/kernel/`.
+> See the "Clean-Sheet Kernel" section for current implementations.
+
 ## Predicates & Robustness
 
 | Algorithm | Reference | File | Function/Type |
@@ -62,17 +67,27 @@ our codebase that implements them. Reference numbers `[#N]` from REFERENCES.md.
 | CDT-based tessellation | [#22] Sullivan (curvature theory) | `vendor/truck/truck-meshalgo/src/tessellation/mod.rs` | `MeshableShape::triangulation()` |
 | Shell tessellation (parallel sampling + CDT) | [#32] Piegl Ch.6 (point inversion) | `tessellation/triangulation.rs` | `shell_tessellation()` |
 
+## Clean-Sheet Kernel (crates/kernel/)
+
+| Algorithm | Reference | File | Status |
+|-----------|-----------|------|--------|
+| Euler operators (mvfs, mev, mef, kemr, kfmrh) | [#16] Mantyla, [#33] Stroud Ch.4 | `src/topology/euler_ops.rs` | Done |
+| Bijective mesh���B-Rep mapping | [#24] Yang 2025 | `src/tessellation/bijective.rs` | Done (Phase 1) |
+| Exact mesh boolean (indirect predicates) | [#9] Cherchi 2020 | `src/boolean/exact_mesh.rs` | Done (Phase 2) |
+| Topology extraction (face survival) | [#24] Yang 2025 | `src/boolean/topology_extract.rs` | In progress (Phase 3) |
+| SSI geometry refinement | [#1] Patrikalakis, [#24] Yang | `src/boolean/ssi_refinement.rs` | In progress (Phase 4) |
+| Quadric SSI solvers (12/15 pairs) | [#1] Patrikalakis Ch.5 | `src/ssi/mod.rs` | 12 done, 3 partial |
+| BVH-accelerated ray-cast classification | [#7] Jacobson, [#4] Shewchuk | `src/boolean/exact_mesh.rs` | Done |
+| Co-surface elimination + coplanar merge | [#24] Yang, [#8] Zhou | `src/boolean/topology_extract.rs` | Done |
+
 ## Not Yet Implemented (Target Architecture)
 
 | Algorithm | Reference | Status |
 |-----------|-----------|--------|
-| Bijective mesh↔B-Rep mapping | [#24] Yang 2025 | Target for new kernel |
-| Topology-guaranteed SSI (Dixon resultant) | [#25] Yang 2023 | Target for new kernel |
-| GWN on trimmed NURBS (no tessellation) | [#30] Spainhour 2026 | Target for new kernel |
-| IATA for tangent/degenerate SSI | [#29] Cheng 2023 | Target for new kernel |
-| Overlap extraction (bilevel optimization) | [#26] Yang 2025 | Target for new kernel |
-| Euler operator topology layer | [#16] Mantyla, [#33] Stroud Ch.4 | Target for new kernel |
-| Algebraic self-intersection detection | [#31] Li 2025 | Target for new kernel |
-| Curvature-adaptive tessellation (R^6 embedding) | [#34] Dassi 2014 | Target for new kernel |
-| Exact mesh boolean (indirect predicates) | [#9] Cherchi 2020 | Target for hybrid pipeline |
+| Topology-guaranteed SSI (Dixon resultant) | [#25] Yang 2023 | Target |
+| GWN on trimmed NURBS (no tessellation) | [#30] Spainhour 2026 | Target |
+| IATA for tangent/degenerate SSI | [#29] Cheng 2023 | Target |
+| Overlap extraction (bilevel optimization) | [#26] Yang 2025 | Target |
+| Algebraic self-intersection detection | [#31] Li 2025 | Target |
+| Curvature-adaptive tessellation (R^6 embedding) | [#34] Dassi 2014 | Target |
 | Lazy exact evaluation (curved solids) | [#13] ESOLID, Keyser 2004 | Architectural reference |

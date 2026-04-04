@@ -13,7 +13,7 @@ Visual map of ALL cross-crate data flows. For each interface type: which crate p
            │               │                       │
            ▼               ▼                       ▼
   ┌─────────────┐  ┌──────────────┐  ┌───────────────────┐
-  │ kernel-fork │  │sketch-solver │  │ (Svelte/JS layer) │
+  │ kernel │  │sketch-solver │  │ (Svelte/JS layer) │
   │  (01)       │  │  (02)        │  │ 04, 05, 08        │
   └──────┬──────┘  └──────┬───────┘  └────────┬──────────┘
          │                │                    │
@@ -44,16 +44,16 @@ Visual map of ALL cross-crate data flows. For each interface type: which crate p
 
 ## Type Flow Matrix
 
-### Kernel Types (produced by kernel-fork)
+### Kernel Types (produced by kernel)
 
 | Type | Producer | Consumers | Flow |
 |------|----------|-----------|------|
-| `KernelSolidHandle` | kernel-fork | modeling-ops, feature-engine | Runtime handle to kernel solid. Never crosses WASM boundary. |
-| `KernelId` | kernel-fork | modeling-ops, feature-engine | Transient entity ID. Never persisted. |
-| `RenderMesh` | kernel-fork (tessellation) | wasm-bridge → 3d-viewport | Triangle mesh. Crosses WASM boundary as TypedArray. |
-| `EdgeRenderData` | kernel-fork | wasm-bridge → 3d-viewport | Edge line segments. Crosses WASM boundary as TypedArray. |
-| `FaceRange` | kernel-fork | wasm-bridge → 3d-viewport | Maps triangles to logical faces. JSON across boundary. |
-| `KernelError` | kernel-fork | modeling-ops → feature-engine → wasm-bridge → ui-chrome | Error propagation chain. |
+| `KernelSolidHandle` | kernel | modeling-ops, feature-engine | Runtime handle to kernel solid. Never crosses WASM boundary. |
+| `KernelId` | kernel | modeling-ops, feature-engine | Transient entity ID. Never persisted. |
+| `RenderMesh` | kernel (tessellation) | wasm-bridge → 3d-viewport | Triangle mesh. Crosses WASM boundary as TypedArray. |
+| `EdgeRenderData` | kernel | wasm-bridge → 3d-viewport | Edge line segments. Crosses WASM boundary as TypedArray. |
+| `FaceRange` | kernel | wasm-bridge → 3d-viewport | Maps triangles to logical faces. JSON across boundary. |
+| `KernelError` | kernel | modeling-ops → feature-engine → wasm-bridge → ui-chrome | Error propagation chain. |
 
 ### Operation Types (produced by modeling-ops)
 
@@ -84,7 +84,7 @@ Visual map of ALL cross-crate data flows. For each interface type: which crate p
 | `Anchor` | feature-engine | feature-engine (resolver) | Feature output reference. Persisted in JSON. |
 | `Selector` | feature-engine | feature-engine (resolver) | Entity selection strategy. Persisted in JSON. |
 | `Role` | modeling-ops | feature-engine | Semantic entity label. Persisted via GeomRef. |
-| `TopoSignature` | kernel-fork | feature-engine, modeling-ops | Geometric signature. Persisted in GeomRef (Signature selector). |
+| `TopoSignature` | kernel | feature-engine, modeling-ops | Geometric signature. Persisted in GeomRef (Signature selector). |
 
 ### Feature Tree Types
 

@@ -387,7 +387,7 @@ libslvs is working, battle-tested, and covers all constraint types needed throug
 
 ### All sketch logic stays in JavaScript
 
-The sketch UI, tool interactions, constraint logic, snap system, and profile extraction are all JS-side code. The Rust crates (`sketch-solver`, `kernel-fork`) handle the 3D operations downstream. This separation is correct — do not move sketch interaction logic to Rust/WASM.
+The sketch UI, tool interactions, constraint logic, snap system, and profile extraction are all JS-side code. The Rust crates (`sketch-solver`, `kernel`) handle the 3D operations downstream. This separation is correct — do not move sketch interaction logic to Rust/WASM.
 
 ### The constraint model is the source of truth
 
