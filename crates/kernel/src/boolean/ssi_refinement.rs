@@ -573,6 +573,7 @@ mod tests {
             &bijective_a,
             &bijective_b,
             op,
+            None,
         )
         .unwrap()
         .topology
@@ -1740,6 +1741,7 @@ mod tests {
             &bijective_a,
             &bijective_b,
             MeshBooleanOp::Subtract,
+            None,
         )
         .unwrap()
         .topology;

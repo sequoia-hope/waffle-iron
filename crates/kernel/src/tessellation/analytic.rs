@@ -13,7 +13,7 @@ use crate::vecmath::{v3_cross, v3_normalize};
 use crate::waffle_kernel::{ConeParams, SphereParams, TorusParams};
 use std::collections::BTreeMap;
 
-use super::CIRCLE_SEGMENTS;
+use super::circle_segments;
 
 /// Tessellate a complete sphere solid with shared vertices.
 ///
@@ -27,7 +27,7 @@ pub(super) fn tessellate_sphere_solid(
 ) -> Result<RenderMesh, KernelError> {
     let center = sp.center;
     let radius = sp.radius;
-    let n = CIRCLE_SEGMENTS / 4; // subdivision level per edge
+    let n = circle_segments() / 4; // subdivision level per edge
 
     let mut vertices: Vec<f32> = Vec::new();
     let mut normals: Vec<f32> = Vec::new();
@@ -298,8 +298,8 @@ pub(super) fn tessellate_sphere_face(
     let dot = cross[0] * outward[0] + cross[1] * outward[1] + cross[2] * outward[2];
     let flip = dot < 0.0; // Negative dot means B-Rep winding disagrees with outward normal
 
-    // Subdivision level: CIRCLE_SEGMENTS / 4
-    let n = CIRCLE_SEGMENTS / 4;
+    // Subdivision level: circle_segments() / 4
+    let n = circle_segments() / 4;
 
     // Normal sign: +1 for outward-facing, -1 for inward-facing (cavity)
     let normal_sign: f64 = if flip { -1.0 } else { 1.0 };
@@ -399,7 +399,7 @@ pub(super) fn tessellate_cone_solid(
     let axis = cp.axis;
     let radius = cp.radius;
     let height = cp.height;
-    let nseg = CIRCLE_SEGMENTS; // segments around full circle
+    let nseg = circle_segments(); // segments around full circle
 
     let mut vertices: Vec<f32> = Vec::new();
     let mut normals: Vec<f32> = Vec::new();
@@ -484,7 +484,7 @@ pub(super) fn tessellate_cone_solid(
         let apex_idx = push_vert(apex, axis, &mut vertices, &mut normals);
 
         // Ring vertices at multiple heights
-        let nrings = CIRCLE_SEGMENTS / 4; // subdivision rings from apex to base
+        let nrings = circle_segments() / 4; // subdivision rings from apex to base
         let mut rings: Vec<Vec<u32>> = Vec::with_capacity(nrings);
 
         for ring in 1..=nrings {
@@ -617,9 +617,9 @@ pub(super) fn tessellate_torus_solid(
     let big_r = tp.major_radius;
     let small_r = tp.minor_radius;
 
-    // Resolution: use CIRCLE_SEGMENTS for major, CIRCLE_SEGMENTS/2 for minor
-    let n_u = CIRCLE_SEGMENTS; // major (around the ring)
-    let n_v = CIRCLE_SEGMENTS / 2; // minor (around the tube cross-section)
+    // Resolution: use circle_segments() for major, circle_segments()/2 for minor
+    let n_u = circle_segments(); // major (around the ring)
+    let n_v = circle_segments() / 2; // minor (around the tube cross-section)
 
     // Build orthonormal basis
     let e1 = {

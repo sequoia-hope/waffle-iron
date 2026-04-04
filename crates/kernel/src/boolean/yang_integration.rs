@@ -10,7 +10,10 @@
 use std::collections::BTreeMap;
 
 use crate::boolean::exact_mesh::MeshId;
+use crate::boolean::exact_mesh::{MeshBooleanOp, SubdividedMesh};
 use crate::boolean::ssi_refinement::EdgeRefinementMap;
+use crate::boolean::ssi_refinement::{classify_intersection_edges, refine_intersection_edges};
+use crate::boolean::topology_extract::yang_boolean_pipeline;
 use crate::boolean::topology_extract::{FaceSurvivalMap, ResultTopology, SourceFace};
 use crate::boolean::BoolOp;
 use crate::boolean::BooleanResult;
@@ -18,17 +21,12 @@ use crate::geometry::curve::{Circle3D, CurveGeom, Ellipse3D, Line3D};
 use crate::geometry::point::{Point3, Vector3};
 use crate::geometry::surface::SurfaceGeom;
 use crate::ssi::SSICurve;
+use crate::tessellation;
+use crate::tessellation::bijective::BijectiveMap;
 use crate::topology::half_edge::{EdgeIdx, FaceIdx, VertexIdx};
 use crate::types::{FaceRange, KernelError, KernelId, RenderMesh};
 use crate::units::TAU_WORK;
 use crate::waffle_kernel::WaffleSolid;
-use std::collections::HashMap;
-
-use crate::boolean::exact_mesh::{MeshBooleanOp, SubdividedMesh};
-use crate::boolean::ssi_refinement::{classify_intersection_edges, refine_intersection_edges};
-use crate::boolean::topology_extract::yang_boolean_pipeline;
-use crate::tessellation;
-use crate::tessellation::bijective::BijectiveMap;
 
 // ── Mesh conversion helpers ─────────────────────────────────────────────
 
@@ -268,12 +266,16 @@ pub(crate) fn build_render_mesh_from_survival(
         }
     }
 
-    // Step 1: Position-based vertex deduplication (nanometer quantization).
-    // Shared vertices across face boundaries produce watertight output.
+    // Position-based vertex deduplication (nanometer quantization) for watertight
+    // index topology. Shared vertex indices across face boundaries ensure edge
+    // matching works for watertightness oracles.
+    use std::collections::HashMap;
     let scale = crate::units::QUANT_NANOMETER_SCALE;
     let mut pos_to_idx: HashMap<[i64; 3], u32> = HashMap::new();
     let mut vertices: Vec<f32> = Vec::new();
     let mut normals: Vec<f32> = Vec::new();
+    let mut indices: Vec<u32> = Vec::new();
+    let mut face_ranges: Vec<FaceRange> = Vec::new();
 
     let quant = |p: [f64; 3]| -> [i64; 3] {
         [
@@ -283,16 +285,7 @@ pub(crate) fn build_render_mesh_from_survival(
         ]
     };
 
-    // For shared vertices, we need to defer normal assignment.
-    // Track: vertex_index → accumulated normal (will normalize at the end).
-    // Use per-triangle vertex emission for correct per-face normals, but
-    // share vertex positions via index dedup for watertight mesh.
-
-    let mut indices: Vec<u32> = Vec::new();
-    let mut face_ranges: Vec<FaceRange> = Vec::new();
-
-    // Step 2: Emit triangles grouped by source face for face_ranges.
-    // Collect (kernel_face_id, list of sub-tris) in deterministic order.
+    // Collect triangles grouped by source face for face_ranges.
     let mut face_tris: BTreeMap<
         u64,
         Vec<(
@@ -322,37 +315,40 @@ pub(crate) fn build_render_mesh_from_survival(
             let p1 = subdivided.verts[v1i];
             let p2 = subdivided.verts[v2i];
 
+            // Skip degenerate triangles (zero or near-zero area).
+            let e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+            let e2 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+            let cross = [
+                e1[1] * e2[2] - e1[2] * e2[1],
+                e1[2] * e2[0] - e1[0] * e2[2],
+                e1[0] * e2[1] - e1[1] * e2[0],
+            ];
+            let area_sq = cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2];
+            if area_sq < crate::units::TAU_NORMALIZE_SQ {
+                continue; // Degenerate triangle — skip
+            }
+
             // Compute normal from surface geometry or triangle cross-product.
             let geom_key = (source_face.mesh_id, source_face.face_idx);
             let face_normal =
                 compute_face_normal(&p0, &p1, &p2, surface_map.get(&geom_key), tri.flipped);
 
-            // Emit vertices with per-triangle normals (for correct face shading).
-            // Use position-dedup for index sharing at boundaries.
-            let idx0 = get_or_insert_vertex(
-                &mut pos_to_idx,
-                &mut vertices,
-                &mut normals,
-                p0,
-                face_normal,
-                quant,
-            );
-            let idx1 = get_or_insert_vertex(
-                &mut pos_to_idx,
-                &mut vertices,
-                &mut normals,
-                p1,
-                face_normal,
-                quant,
-            );
-            let idx2 = get_or_insert_vertex(
-                &mut pos_to_idx,
-                &mut vertices,
-                &mut normals,
-                p2,
-                face_normal,
-                quant,
-            );
+            // Position-dedup vertex emission: share indices at boundaries for watertightness.
+            let mut get_or_insert = |pos: [f64; 3], normal: [f32; 3]| -> u32 {
+                let key = quant(pos);
+                if let Some(&idx) = pos_to_idx.get(&key) {
+                    return idx;
+                }
+                let idx = (vertices.len() / 3) as u32;
+                vertices.extend_from_slice(&[pos[0] as f32, pos[1] as f32, pos[2] as f32]);
+                normals.extend_from_slice(&normal);
+                pos_to_idx.insert(key, idx);
+                idx
+            };
+
+            let idx0 = get_or_insert(p0, face_normal);
+            let idx1 = get_or_insert(p1, face_normal);
+            let idx2 = get_or_insert(p2, face_normal);
 
             indices.push(idx0);
             indices.push(idx1);
@@ -461,29 +457,6 @@ fn compute_face_normal(
 /// This is acceptable because shared boundary vertices typically have the same
 /// face normal on both sides (conformal subdivision), and the per-face normal
 /// differences are handled by the face_ranges partitioning.
-fn get_or_insert_vertex(
-    pos_to_idx: &mut HashMap<[i64; 3], u32>,
-    vertices: &mut Vec<f32>,
-    normals: &mut Vec<f32>,
-    pos: [f64; 3],
-    normal: [f32; 3],
-    quant: impl Fn([f64; 3]) -> [i64; 3],
-) -> u32 {
-    let key = quant(pos);
-    if let Some(&idx) = pos_to_idx.get(&key) {
-        return idx;
-    }
-    let idx = (vertices.len() / 3) as u32;
-    vertices.push(pos[0] as f32);
-    vertices.push(pos[1] as f32);
-    vertices.push(pos[2] as f32);
-    normals.push(normal[0]);
-    normals.push(normal[1]);
-    normals.push(normal[2]);
-    pos_to_idx.insert(key, idx);
-    idx
-}
-
 // ── Main entry point ────────────────────────────────────────────────────
 
 /// Run the full Yang hybrid boolean pipeline on two WaffleSolids.
@@ -542,12 +515,25 @@ pub(crate) fn yang_boolean_inner(
     let surface_map = build_surface_map(solid_a, solid_b);
 
     // Step 1: Tessellate both solids via the kernel's internal tessellation.
-    let mesh_a = tessellate_waffle_solid(solid_a)?;
-    let mesh_b = tessellate_waffle_solid(solid_b)?;
+    // Use Boolean LOD (16 segments) — the mesh is a computational tool for
+    // topology, not a rendering artifact. This cuts triangle counts ~16× on
+    // curved surfaces and makes O(n·m) subdivision feasible.
+    let lod = tessellation::TessellationLod::Boolean;
+    let mesh_a = tessellate_waffle_solid(solid_a, lod)?;
+    let mesh_b = tessellate_waffle_solid(solid_b, lod)?;
 
     // Step 2: Convert to pipeline format (f64 arrays).
     let (verts_a, tris_a) = render_mesh_to_arrays(&mesh_a);
     let (verts_b, tris_b) = render_mesh_to_arrays(&mesh_b);
+
+    #[cfg(test)]
+    eprintln!(
+        "[YANG DIAG] Tessellation: mesh_a={}v/{}t, mesh_b={}v/{}t",
+        verts_a.len(),
+        tris_a.len(),
+        verts_b.len(),
+        tris_b.len()
+    );
 
     if tris_a.is_empty() || tris_b.is_empty() {
         return Err(KernelError::NotSupported {
@@ -568,6 +554,10 @@ pub(crate) fn yang_boolean_inner(
         });
     }
 
+    // Create deadline for the Yang pipeline to prevent runaway computation.
+    let deadline = std::time::Instant::now()
+        + std::time::Duration::from_secs(crate::units::YANG_PIPELINE_TIMEOUT_SECS);
+
     // Step 4: Run Yang pipeline (Phases 1-3): mesh boolean → topology extract.
     let pipeline_result = yang_boolean_pipeline(
         &verts_a,
@@ -577,7 +567,31 @@ pub(crate) fn yang_boolean_inner(
         &bijective_a,
         &bijective_b,
         mesh_op,
+        Some(deadline),
     )?;
+
+    #[cfg(test)]
+    {
+        let total_a = pipeline_result.subdivided.tris_a.len();
+        let total_b = pipeline_result.subdivided.tris_b.len();
+        let surviving: usize = pipeline_result
+            .survival
+            .groups
+            .values()
+            .map(|v| v.len())
+            .sum();
+        let face_groups = pipeline_result.survival.groups.len();
+        eprintln!(
+            "[YANG DIAG] Subdivision: {}+{} sub-triangles",
+            total_a, total_b
+        );
+        eprintln!(
+            "[YANG DIAG] Survival: {}/{} sub-tris across {} face groups",
+            surviving,
+            total_a + total_b,
+            face_groups
+        );
+    }
 
     // Step 5: Phase 4a — classify intersection edges by surface pair type.
     // This may fail if face provenance references faces not in the surface map
@@ -667,8 +681,14 @@ pub(crate) fn yang_boolean_inner(
 }
 
 /// Tessellate a WaffleSolid using the kernel's internal tessellation pipeline.
-fn tessellate_waffle_solid(solid: &WaffleSolid) -> Result<RenderMesh, KernelError> {
-    tessellation::tessellate_solid_ext(
+///
+/// Accepts a `TessellationLod` to control segment counts: `Boolean` uses 16
+/// segments (sufficient for topology extraction), `Render` uses 64.
+fn tessellate_waffle_solid(
+    solid: &WaffleSolid,
+    lod: tessellation::TessellationLod,
+) -> Result<RenderMesh, KernelError> {
+    tessellation::tessellate_solid_ext_with_lod(
         &solid.arena,
         &solid.face_map,
         &solid.face_geometry,
@@ -679,6 +699,7 @@ fn tessellate_waffle_solid(solid: &WaffleSolid) -> Result<RenderMesh, KernelErro
         solid.cone_params.as_ref(),
         solid.torus_params.as_ref(),
         solid.is_polygon_soup,
+        lod,
     )
 }
 
@@ -1691,6 +1712,218 @@ mod tests {
             unpaired, 0,
             "Cached mesh should be watertight (every directed edge has a reverse), \
              found {unpaired} unpaired directed edges"
+        );
+    }
+
+    /// Verify no degenerate triangles in the Yang pipeline's cached render mesh.
+    #[test]
+    fn yang_mesh_no_degenerate_triangles() {
+        let (k_a, h_a) = make_box_via_kernel(0.5, 0.5, 2.0, 2.0, 2.0);
+        let (k_b, h_b) = make_box_via_kernel(1.5, 0.5, 2.0, 2.0, 2.0);
+        let solid_a = k_a.get_solid(&h_a).unwrap();
+        let solid_b = k_b.get_solid(&h_b).unwrap();
+        let mut next_id = 5000u64;
+        let result = yang_boolean_inner(solid_a, solid_b, BoolOp::Union, &mut || {
+            next_id += 1;
+            next_id
+        })
+        .expect("yang should succeed for overlapping boxes");
+
+        let mesh = result
+            .cached_render_mesh
+            .as_ref()
+            .expect("should have cached mesh");
+        let tri_count = mesh.indices.len() / 3;
+        assert!(tri_count > 0, "mesh should have triangles");
+
+        for i in 0..tri_count {
+            let i0 = mesh.indices[i * 3] as usize;
+            let i1 = mesh.indices[i * 3 + 1] as usize;
+            let i2 = mesh.indices[i * 3 + 2] as usize;
+            let p0 = [
+                mesh.vertices[i0 * 3] as f64,
+                mesh.vertices[i0 * 3 + 1] as f64,
+                mesh.vertices[i0 * 3 + 2] as f64,
+            ];
+            let p1 = [
+                mesh.vertices[i1 * 3] as f64,
+                mesh.vertices[i1 * 3 + 1] as f64,
+                mesh.vertices[i1 * 3 + 2] as f64,
+            ];
+            let p2 = [
+                mesh.vertices[i2 * 3] as f64,
+                mesh.vertices[i2 * 3 + 1] as f64,
+                mesh.vertices[i2 * 3 + 2] as f64,
+            ];
+            let e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+            let e2 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+            let cross = [
+                e1[1] * e2[2] - e1[2] * e2[1],
+                e1[2] * e2[0] - e1[0] * e2[2],
+                e1[0] * e2[1] - e1[1] * e2[0],
+            ];
+            let area = (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt();
+            assert!(area > 1e-15, "triangle {i} is degenerate (area={area})");
+        }
+    }
+
+    /// Verify Euler characteristic V-E+F=2 for Yang pipeline cached render mesh.
+    #[test]
+    fn yang_mesh_euler_characteristic() {
+        let (k_a, h_a) = make_box_via_kernel(0.5, 0.5, 2.0, 2.0, 2.0);
+        let (k_b, h_b) = make_box_via_kernel(1.5, 0.5, 2.0, 2.0, 2.0);
+        let solid_a = k_a.get_solid(&h_a).unwrap();
+        let solid_b = k_b.get_solid(&h_b).unwrap();
+        let mut next_id = 6000u64;
+        let result = yang_boolean_inner(solid_a, solid_b, BoolOp::Union, &mut || {
+            next_id += 1;
+            next_id
+        })
+        .expect("yang should succeed for overlapping boxes");
+
+        let mesh = result
+            .cached_render_mesh
+            .as_ref()
+            .expect("should have cached mesh");
+        let tri_count = mesh.indices.len() / 3;
+
+        // Position-based vertex/edge counting for Euler characteristic
+        use std::collections::HashSet;
+        let scale = 1e9_f64;
+        let quant = |idx: usize| -> [i64; 3] {
+            [
+                (mesh.vertices[idx * 3] as f64 * scale).round() as i64,
+                (mesh.vertices[idx * 3 + 1] as f64 * scale).round() as i64,
+                (mesh.vertices[idx * 3 + 2] as f64 * scale).round() as i64,
+            ]
+        };
+
+        let mut unique_verts: HashSet<[i64; 3]> = HashSet::new();
+        let vert_count = mesh.vertices.len() / 3;
+        for i in 0..vert_count {
+            unique_verts.insert(quant(i));
+        }
+
+        let mut edges: HashSet<([i64; 3], [i64; 3])> = HashSet::new();
+        for i in 0..tri_count {
+            let i0 = mesh.indices[i * 3] as usize;
+            let i1 = mesh.indices[i * 3 + 1] as usize;
+            let i2 = mesh.indices[i * 3 + 2] as usize;
+            let v0 = quant(i0);
+            let v1 = quant(i1);
+            let v2 = quant(i2);
+            for (a, b) in [(v0, v1), (v1, v2), (v2, v0)] {
+                let edge = if a < b { (a, b) } else { (b, a) };
+                edges.insert(edge);
+            }
+        }
+
+        let v = unique_verts.len() as i64;
+        let e = edges.len() as i64;
+        let f = tri_count as i64;
+        let euler = v - e + f;
+        eprintln!("[DIAG] Euler: V={v} - E={e} + F={f} = {euler}");
+        assert_eq!(
+            euler, 2,
+            "Euler characteristic V-E+F should be 2 for a closed surface, got {euler}"
+        );
+    }
+
+    /// Helper: build a closed box mesh (12 triangles, shared vertices).
+    fn make_test_box_mesh(min: [f64; 3], max: [f64; 3]) -> (Vec<[f64; 3]>, Vec<[usize; 3]>) {
+        let [x0, y0, z0] = min;
+        let [x1, y1, z1] = max;
+        let verts = vec![
+            [x0, y0, z0],
+            [x1, y0, z0],
+            [x1, y1, z0],
+            [x0, y1, z0],
+            [x0, y0, z1],
+            [x1, y0, z1],
+            [x1, y1, z1],
+            [x0, y1, z1],
+        ];
+        let tris = vec![
+            [0, 2, 1],
+            [0, 3, 2], // back
+            [4, 5, 6],
+            [4, 6, 7], // front
+            [0, 1, 5],
+            [0, 5, 4], // bottom
+            [3, 6, 2],
+            [3, 7, 6], // top
+            [0, 4, 7],
+            [0, 7, 3], // left
+            [1, 2, 6],
+            [1, 6, 5], // right
+        ];
+        (verts, tris)
+    }
+
+    /// Verify that the label distribution for overlapping boxes is reasonable.
+    #[test]
+    fn yang_diag_overlapping_box_label_distribution() {
+        use crate::boolean::exact_mesh::{
+            label_cells, select_boolean_result, subdivide_mesh_pair, MeshBooleanOp,
+        };
+        let (verts_a, tris_a) = make_test_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (verts_b, tris_b) = make_test_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
+
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
+        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+
+        let mut a_outside = 0usize;
+        let mut b_outside = 0usize;
+        for label in &labeling.labels_a {
+            if matches!(
+                label,
+                crate::boolean::exact_mesh::CellLabel::Outside
+                    | crate::boolean::exact_mesh::CellLabel::CoSurfaceOutside
+            ) {
+                a_outside += 1;
+            }
+        }
+        for label in &labeling.labels_b {
+            if matches!(
+                label,
+                crate::boolean::exact_mesh::CellLabel::Outside
+                    | crate::boolean::exact_mesh::CellLabel::CoSurfaceOutside
+            ) {
+                b_outside += 1;
+            }
+        }
+
+        let total_a = labeling.labels_a.len();
+        let total_b = labeling.labels_b.len();
+        eprintln!("[DIAG] A: {a_outside}/{total_a} outside, B: {b_outside}/{total_b} outside");
+
+        assert!(a_outside > 0, "some A tris must be Outside B");
+        assert!(b_outside > 0, "some B tris must be Outside A");
+
+        let result = select_boolean_result(&subdivided, &labeling, MeshBooleanOp::Union);
+        let result_tri_count = result.len() / 3;
+        eprintln!(
+            "[DIAG] Union result: {} triangles from {}+{} sub-tris",
+            result_tri_count, total_a, total_b
+        );
+        assert!(
+            result_tri_count >= 10,
+            "union of overlapping boxes must produce at least 10 tris, got {result_tri_count}"
+        );
+    }
+
+    /// Verify that an expired deadline triggers a timeout error.
+    #[test]
+    fn yang_pipeline_respects_internal_timeout() {
+        use crate::boolean::exact_mesh::subdivide_mesh_pair;
+        let expired = std::time::Instant::now() - std::time::Duration::from_secs(1);
+        let (va, ta) = make_test_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        let (vb, tb) = make_test_box_mesh([0.5, 0.0, 0.0], [1.5, 1.0, 1.0]);
+        let result = subdivide_mesh_pair(&va, &ta, &vb, &tb, Some(expired));
+        assert!(
+            result.is_err(),
+            "expired deadline should cause timeout error"
         );
     }
 }

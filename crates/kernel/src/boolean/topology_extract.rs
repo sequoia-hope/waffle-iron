@@ -1260,6 +1260,7 @@ pub(crate) struct YangPipelineResult {
     pub subdivided: SubdividedMesh,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn yang_boolean_pipeline(
     verts_a: &[[f64; 3]],
     tris_a: &[[usize; 3]],
@@ -1268,12 +1269,21 @@ pub(crate) fn yang_boolean_pipeline(
     bijective_a: &BijectiveMap,
     bijective_b: &BijectiveMap,
     op: MeshBooleanOp,
+    deadline: Option<std::time::Instant>,
 ) -> Result<YangPipelineResult, KernelError> {
     // Stage 1: Subdivide both meshes along their mutual intersections.
-    let subdivided = subdivide_mesh_pair(verts_a, tris_a, verts_b, tris_b);
+    let subdivided = subdivide_mesh_pair(verts_a, tris_a, verts_b, tris_b, deadline)?;
 
     // Stage 2: Label each sub-triangle as inside/outside the opposite mesh.
     let labeling = label_cells(&subdivided, verts_a, tris_a, verts_b, tris_b);
+
+    if let Some(d) = deadline {
+        if std::time::Instant::now() > d {
+            return Err(KernelError::NotSupported {
+                operation: "yang_boolean: pipeline timeout after cell labeling".to_string(),
+            });
+        }
+    }
 
     // Stage 3a: Determine which sub-triangles survive the boolean op.
     let mut survival = face_survival_detect(&subdivided, &labeling, op, bijective_a, bijective_b);
@@ -1368,7 +1378,8 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
         let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
 
         // Build bijective maps: for each sub-triangle, look up its parent_tri,
@@ -1644,7 +1655,8 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh(min_a, max_a);
         let (verts_b, tris_b) = make_box_mesh(min_b, max_b);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
         let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
 
         let bijective_a = build_bijective_from_subdivided(&subdivided.tris_a, tris_a.len());
@@ -2867,6 +2879,7 @@ mod tests {
             &bijective_a,
             &bijective_b,
             op,
+            None,
         )
         .unwrap()
         .topology
@@ -3031,6 +3044,7 @@ mod tests {
             &bij_empty,
             &bij_empty,
             MeshBooleanOp::Subtract,
+            None,
         )
         .unwrap()
         .topology;
@@ -3074,7 +3088,8 @@ mod tests {
         };
 
         // Run intermediate stages to get face survival count.
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
         let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
         let survival = face_survival_detect(
             &subdivided,
@@ -3094,6 +3109,7 @@ mod tests {
             &bijective_a,
             &bijective_b,
             MeshBooleanOp::Subtract,
+            None,
         )
         .unwrap()
         .topology;
@@ -3182,6 +3198,7 @@ mod tests {
             &bijective_a,
             &bijective_b,
             MeshBooleanOp::Intersect,
+            None,
         )
         .unwrap()
         .topology;
@@ -3237,6 +3254,7 @@ mod tests {
             &bijective_a,
             &bijective_b,
             MeshBooleanOp::Intersect,
+            None,
         );
 
         // Use std::any to check the return type at runtime.
@@ -3272,7 +3290,8 @@ mod tests {
         let (verts_b, tris_b) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
 
         // Stage 1: Subdivide
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
 
         // Diagnostic: Check if coplanar pairs created any new sub-triangles
         let a_sub_count = subdivided.tris_a.len();
@@ -3384,7 +3403,8 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
         let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
 
         // Count labels
@@ -3468,7 +3488,8 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [4.0, 4.0, 4.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 1.0, 0.0], [3.0, 3.0, 2.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
         let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
 
         let mut a_labels: std::collections::HashMap<String, usize> =
@@ -3609,7 +3630,8 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh_per_face([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh_per_face([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
         eprintln!(
             "Per-face subdivide: tris_a={}, tris_b={}, verts={}",
             subdivided.tris_a.len(),
@@ -3678,6 +3700,7 @@ mod tests {
             &bijective_a,
             &bijective_b,
             MeshBooleanOp::Union,
+            None,
         )
         .expect("pipeline should not error")
         .topology;
@@ -3732,6 +3755,7 @@ mod tests {
             &bijective_a,
             &bijective_b,
             MeshBooleanOp::Union,
+            None,
         )
         .expect("pipeline should not error")
         .topology;
@@ -3780,6 +3804,7 @@ mod tests {
             &bijective_a,
             &bijective_b,
             MeshBooleanOp::Union,
+            None,
         )
         .expect("pipeline should not error")
         .topology;
@@ -3848,6 +3873,7 @@ mod tests {
             &bijective_a,
             &bijective_b,
             MeshBooleanOp::Union,
+            None,
         )
         .expect("Yang pipeline should not error")
         .topology;
@@ -3899,6 +3925,7 @@ mod tests {
             &bijective_a,
             &bijective_b,
             MeshBooleanOp::Union,
+            None,
         )
         .expect("Yang pipeline should not error")
         .topology;
@@ -3938,7 +3965,8 @@ mod tests {
         let bijective_a = build_bijective_from_tri_count(tris_a.len());
         let bijective_b = build_bijective_from_tri_count(tris_b.len());
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
         let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
         let mut survival = face_survival_detect(
             &subdivided,
@@ -4091,6 +4119,7 @@ mod tests {
             &bijective_a,
             &bijective_b,
             MeshBooleanOp::Union,
+            None,
         )
         .expect("Yang pipeline should not error")
         .topology;
@@ -4141,6 +4170,7 @@ mod tests {
             &bijective_a,
             &bijective_b,
             MeshBooleanOp::Union,
+            None,
         )
         .expect("Yang pipeline should not error")
         .topology;

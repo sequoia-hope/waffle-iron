@@ -25,8 +25,50 @@ use self::analytic::{
 };
 use self::repair::*;
 
-/// Number of segments for circular/cylindrical tessellation.
-const CIRCLE_SEGMENTS: usize = 64;
+/// Default number of segments for circular/cylindrical tessellation.
+const CIRCLE_SEGMENTS_DEFAULT: usize = 64;
+
+/// Level of detail for tessellation output.
+///
+/// The Yang hybrid boolean pipeline [#24] uses mesh geometry only as a
+/// computational tool for topology extraction — rendering quality is irrelevant.
+/// Boolean LOD uses far fewer segments, reducing triangle counts by ~16× for
+/// curved surfaces and making O(n·m) subdivision feasible for complex models.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // Render variant reserved for future callers needing explicit render LOD
+pub(crate) enum TessellationLod {
+    /// Full rendering quality (circle_segments = 64).
+    Render,
+    /// Reduced quality for boolean computation (circle_segments = 16).
+    Boolean,
+}
+
+impl TessellationLod {
+    /// Circle segment count for this LOD level.
+    pub(crate) fn circle_segments(self) -> usize {
+        match self {
+            TessellationLod::Render => 64,
+            TessellationLod::Boolean => 16,
+        }
+    }
+}
+
+use std::cell::Cell;
+
+thread_local! {
+    /// Thread-local override for circle segment count. Defaults to 64 (render quality).
+    /// Set temporarily by `tessellate_solid_ext_with_lod` for boolean LOD.
+    static CIRCLE_SEGMENTS_OVERRIDE: Cell<usize> = const { Cell::new(CIRCLE_SEGMENTS_DEFAULT) };
+}
+
+/// Get the current circle segment count (respects thread-local LOD override).
+#[inline]
+fn circle_segments() -> usize {
+    CIRCLE_SEGMENTS_OVERRIDE.with(|c| c.get())
+}
+
+// All references to the old `CIRCLE_SEGMENTS` const in this module and
+// submodules have been replaced with `circle_segments()` calls.
 
 /// Tessellate all faces in a solid, dispatching per-face based on geometry type.
 ///
@@ -54,6 +96,47 @@ pub(crate) fn tessellate_solid(
         None,
         is_polygon_soup,
     )
+}
+
+/// Extended tessellation with explicit LOD control.
+///
+/// Sets the thread-local circle segment count for the duration of the call,
+/// then delegates to `tessellate_solid_ext`. This is used by the Yang boolean
+/// pipeline to reduce tessellation density (Boolean LOD = 16 segments vs
+/// Render LOD = 64 segments), cutting triangle counts by ~16× on curved surfaces.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn tessellate_solid_ext_with_lod(
+    arena: &TopoArena,
+    face_map: &BTreeMap<u64, FaceIdx>,
+    face_geometry: &BTreeMap<FaceIdx, SurfaceGeom>,
+    edge_geometry: &BTreeMap<EdgeIdx, CurveGeom>,
+    cylinder_params: Option<&CylinderParams>,
+    revolve_params: Option<&RevolveParams>,
+    sphere_params: Option<&SphereParams>,
+    cone_params: Option<&ConeParams>,
+    torus_params: Option<&TorusParams>,
+    is_polygon_soup: bool,
+    lod: TessellationLod,
+) -> Result<RenderMesh, KernelError> {
+    let segs = lod.circle_segments();
+    CIRCLE_SEGMENTS_OVERRIDE.with(|c| {
+        let prev = c.get();
+        c.set(segs);
+        let result = tessellate_solid_ext(
+            arena,
+            face_map,
+            face_geometry,
+            edge_geometry,
+            cylinder_params,
+            revolve_params,
+            sphere_params,
+            cone_params,
+            torus_params,
+            is_polygon_soup,
+        );
+        c.set(prev); // restore previous value
+        result
+    })
 }
 
 /// Extended tessellation function with sphere params support.
@@ -799,7 +882,7 @@ fn tessellate_circular_cap(
     normals: &mut Vec<f32>,
     indices: &mut Vec<u32>,
 ) {
-    let n = CIRCLE_SEGMENTS;
+    let n = circle_segments();
     let base_vertex = vertices.len() as u32 / 3;
     let nf = [normal[0] as f32, normal[1] as f32, normal[2] as f32];
 
@@ -873,7 +956,7 @@ fn tessellate_cylindrical_face(
     normals: &mut Vec<f32>,
     indices: &mut Vec<u32>,
 ) {
-    let n = CIRCLE_SEGMENTS;
+    let n = circle_segments();
     let base_vertex = vertices.len() as u32 / 3;
 
     // Generate 2 rows of vertices: bottom ring and top ring
@@ -945,7 +1028,7 @@ fn tessellate_revolve_lateral(
     normals: &mut Vec<f32>,
     indices: &mut Vec<u32>,
 ) {
-    let n = CIRCLE_SEGMENTS;
+    let n = circle_segments();
     let base_vertex = vertices.len() as u32 / 3;
 
     // For full revolution, generate N rings (last wraps to first).
@@ -1583,7 +1666,7 @@ pub(crate) fn extract_edges(
                 let y_axis = v3_cross(normal, x_axis);
 
                 // Number of segments proportional to sweep angle
-                let n_segs = ((CIRCLE_SEGMENTS as f64) * arc.sweep_angle / std::f64::consts::TAU)
+                let n_segs = ((circle_segments() as f64) * arc.sweep_angle / std::f64::consts::TAU)
                     .ceil()
                     .max(4.0) as usize;
 
@@ -1608,7 +1691,7 @@ pub(crate) fn extract_edges(
             }
             Some(CurveGeom::Circular(circle)) => {
                 // Circular edge: generate N+1 point polyline
-                let n = CIRCLE_SEGMENTS;
+                let n = circle_segments();
                 // Derive x_axis and y_axis from circle normal
                 let normal = [circle.normal.x, circle.normal.y, circle.normal.z];
                 let (cx_axis, cy_axis) = make_circle_axes(&normal);
@@ -1763,7 +1846,7 @@ fn tessellate_cylindrical_patch(
 
     if is_full || angle_start.is_none() {
         // Full cylinder: tessellate using axis-generic parametric placement
-        let n = CIRCLE_SEGMENTS;
+        let n = circle_segments();
         let base_vertex = vertices.len() as u32 / 3;
         let normal_sign = if inward { -1.0_f64 } else { 1.0_f64 };
 
@@ -1850,7 +1933,7 @@ fn tessellate_cylindrical_patch(
             first_arc.unwrap_or((angle_start.unwrap_or(0.0), std::f64::consts::TAU));
         let normal_sign = if inward { -1.0_f64 } else { 1.0_f64 };
 
-        let n = ((CIRCLE_SEGMENTS as f64) * sweep / std::f64::consts::TAU)
+        let n = ((circle_segments() as f64) * sweep / std::f64::consts::TAU)
             .ceil()
             .max(4.0) as usize;
         let base_vertex = vertices.len() as u32 / 3;
@@ -1949,7 +2032,7 @@ fn tessellate_planar_face_with_hole(
         if let Some(CurveGeom::Circular(ref circle)) = edge_geometry.get(&edge) {
             let cap_normal = [plane.normal.x, plane.normal.y, plane.normal.z];
             let (cx_axis, cy_axis) = make_circle_axes(&cap_normal);
-            let n = CIRCLE_SEGMENTS;
+            let n = circle_segments();
             (0..n)
                 .map(|i| {
                     let theta = std::f64::consts::TAU * (i as f64) / (n as f64);
@@ -1986,7 +2069,7 @@ fn tessellate_planar_face_with_hole(
         if let Some(CurveGeom::Circular(ref circle)) = edge_geometry.get(&edge) {
             let cap_normal = [plane.normal.x, plane.normal.y, plane.normal.z];
             let (cx_axis, cy_axis) = make_circle_axes(&cap_normal);
-            let n = CIRCLE_SEGMENTS;
+            let n = circle_segments();
             (0..n)
                 .map(|i| {
                     let theta = std::f64::consts::TAU * (i as f64) / (n as f64);
@@ -2267,7 +2350,7 @@ fn tessellate_arc_bounded_cap(
                 let sweep = arc.sweep_angle;
                 let r = arc.radius;
 
-                let n_segs = ((CIRCLE_SEGMENTS as f64) * sweep.abs() / std::f64::consts::TAU)
+                let n_segs = ((circle_segments() as f64) * sweep.abs() / std::f64::consts::TAU)
                     .ceil()
                     .max(4.0) as usize;
 
@@ -2399,8 +2482,8 @@ pub(crate) fn discretize_edges(
 
         match edge_geometry.get(&edge_idx) {
             Some(CurveGeom::Circular(circle)) => {
-                // Full circle: CIRCLE_SEGMENTS points
-                let n = CIRCLE_SEGMENTS;
+                // Full circle: circle_segments points
+                let n = circle_segments();
                 let normal = [circle.normal.x, circle.normal.y, circle.normal.z];
                 let (cx, cy) = make_circle_axes(&normal);
                 let mut verts = Vec::with_capacity(n);
@@ -2419,7 +2502,7 @@ pub(crate) fn discretize_edges(
             }
             Some(CurveGeom::Arc(arc)) => {
                 // Proportional segments based on sweep angle
-                let n = ((CIRCLE_SEGMENTS as f64) * arc.sweep_angle.abs() / std::f64::consts::TAU)
+                let n = ((circle_segments() as f64) * arc.sweep_angle.abs() / std::f64::consts::TAU)
                     .ceil()
                     .max(4.0) as usize;
                 let mut verts = Vec::with_capacity(n + 1);
@@ -2433,8 +2516,8 @@ pub(crate) fn discretize_edges(
                 edge_verts.insert(edge_idx, verts);
             }
             Some(CurveGeom::Elliptical(ellipse)) => {
-                // Full ellipse: CIRCLE_SEGMENTS points
-                let n = CIRCLE_SEGMENTS;
+                // Full ellipse: circle_segments points
+                let n = circle_segments();
                 let mut verts = Vec::with_capacity(n);
                 for j in 0..n {
                     let t = std::f64::consts::TAU * (j as f64) / (n as f64);
@@ -2510,7 +2593,7 @@ pub(crate) fn collect_loop_boundary(
                 // coincides with verts[0] but the linear edge contributes that separately.
                 // For arcs, the last vertex IS the arc endpoint which coincides with the
                 // next edge's start, so drop it to avoid duplication.
-                let is_full_circle = verts.len() == CIRCLE_SEGMENTS;
+                let is_full_circle = verts.len() == circle_segments();
                 if is_full_circle {
                     // Include all vertices (no overlap with next edge)
                     if is_primary {
@@ -2785,7 +2868,7 @@ fn tessellate_cylindrical_face_bounded(
     let start_he = arena.loops[loop_idx.0].half_edge;
     let is_self_loop = arena.half_edges[start_he.0].next == start_he;
 
-    if is_self_loop && boundary.len() >= CIRCLE_SEGMENTS {
+    if is_self_loop && boundary.len() >= circle_segments() {
         let (cx_axis, cy_axis) = make_circle_axes(&axis);
 
         // Check for inner loops (e.g., cyl-cyl boolean: outer ellipse + inner ellipse hole)
@@ -3043,7 +3126,7 @@ fn tessellate_cylindrical_face_bounded(
                     &mut top_ring
                 };
 
-                let is_full_circle = verts.len() == CIRCLE_SEGMENTS;
+                let is_full_circle = verts.len() == circle_segments();
                 if is_full_circle {
                     if is_primary {
                         target.extend_from_slice(verts);

@@ -392,6 +392,12 @@ pub const COS_NORMAL_SIMILARITY: f32 = 0.02;
 /// 5,000,000 pairs corresponds to e.g. ~2236 × 2236 triangles.
 pub const MAX_YANG_TRI_PAIRS: usize = 5_000_000;
 
+/// Internal wall-clock timeout (seconds) for the Yang hybrid boolean pipeline.
+/// Much shorter than the external test harness timeout (90s) to allow prompt
+/// fallback to the legacy pipeline for complex geometry.
+/// Ref [#24]: Yang 2025 — hybrid pipeline performance budget.
+pub const YANG_PIPELINE_TIMEOUT_SECS: u64 = 10;
+
 // ── Vertex quantization scales ──────────────────────────────────────
 
 /// Nanometer-resolution vertex quantization scale: 1e9.

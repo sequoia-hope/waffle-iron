@@ -1595,6 +1595,45 @@ fn label_sub_tri(
 /// - `original_tris_a`: Triangle indices of the original mesh A.
 /// - `original_verts_b`: Vertex positions of the original mesh B.
 /// - `original_tris_b`: Triangle indices of the original mesh B.
+/// Weld coincident vertices in a triangle mesh by quantizing positions to a
+/// nanometer grid (1e9 scale). This closes T-junction cracks in meshes with
+/// per-face (non-shared) vertices, ensuring ray-cast classification counts
+/// crossings correctly.
+///
+/// Ref [#4]: Shewchuk 1997 — robust geometric predicates require watertight meshes.
+pub(crate) fn weld_mesh_vertices(
+    verts: &[[f64; 3]],
+    tris: &[[usize; 3]],
+) -> (Vec<[f64; 3]>, Vec<[usize; 3]>) {
+    use std::collections::HashMap;
+    let scale = crate::units::QUANT_NANOMETER_SCALE;
+    let mut pos_map: HashMap<[i64; 3], usize> = HashMap::new();
+    let mut welded_verts: Vec<[f64; 3]> = Vec::new();
+    let mut vert_remap: Vec<usize> = Vec::with_capacity(verts.len());
+
+    for &v in verts {
+        let key = [
+            (v[0] * scale).round() as i64,
+            (v[1] * scale).round() as i64,
+            (v[2] * scale).round() as i64,
+        ];
+        let idx = *pos_map.entry(key).or_insert_with(|| {
+            let i = welded_verts.len();
+            welded_verts.push(v);
+            i
+        });
+        vert_remap.push(idx);
+    }
+
+    let welded_tris: Vec<[usize; 3]> = tris
+        .iter()
+        .map(|t| [vert_remap[t[0]], vert_remap[t[1]], vert_remap[t[2]]])
+        .filter(|t| t[0] != t[1] && t[1] != t[2] && t[2] != t[0]) // skip degenerate
+        .collect();
+
+    (welded_verts, welded_tris)
+}
+
 #[allow(dead_code)] // Phase 2 building block — task 2d
 pub(crate) fn label_cells(
     subdivided: &SubdividedMesh,
@@ -1603,13 +1642,21 @@ pub(crate) fn label_cells(
     original_verts_b: &[[f64; 3]],
     original_tris_b: &[[usize; 3]],
 ) -> CellLabeling {
-    // Build BVHs for both original meshes for O(log n) ray-cast classification.
-    // Ref #24: Yang 2025 — BVH-accelerated point-in-mesh via axis-aligned ray casting.
-    let bvh_b = build_bvh_for_tris(original_verts_b, original_tris_b);
-    let bvh_a = build_bvh_for_tris(original_verts_a, original_tris_a);
+    // Weld coincident vertices in the original meshes to close T-junction cracks.
+    // WaffleKernel tessellation produces per-face vertices (non-shared boundary
+    // vertices for normal interpolation), creating micro-cracks at face boundaries.
+    // Ray-casting through these cracks miscounts crossings → wrong inside/outside.
+    // Ref [#4]: Shewchuk 1997 — robust predicates require watertight input meshes.
+    let (welded_verts_b, welded_tris_b) = weld_mesh_vertices(original_verts_b, original_tris_b);
+    let (welded_verts_a, welded_tris_a) = weld_mesh_vertices(original_verts_a, original_tris_a);
 
-    let global_max_b = compute_global_max(original_verts_b);
-    let global_max_a = compute_global_max(original_verts_a);
+    // Build BVHs for both welded original meshes for O(log n) ray-cast classification.
+    // Ref #24: Yang 2025 — BVH-accelerated point-in-mesh via axis-aligned ray casting.
+    let bvh_b = build_bvh_for_tris(&welded_verts_b, &welded_tris_b);
+    let bvh_a = build_bvh_for_tris(&welded_verts_a, &welded_tris_a);
+
+    let global_max_b = compute_global_max(&welded_verts_b);
+    let global_max_a = compute_global_max(&welded_verts_a);
 
     // Label A sub-triangles: is each one inside mesh B?
     // Uses BVH ray casting with GWN fallback for degenerate cases.
@@ -1621,8 +1668,8 @@ pub(crate) fn label_cells(
                 label_sub_tri_raycast(
                     &subdivided.verts,
                     sub_tri,
-                    original_verts_b,
-                    original_tris_b,
+                    &welded_verts_b,
+                    &welded_tris_b,
                     bvh,
                     global_max_b,
                 )
@@ -1642,8 +1689,8 @@ pub(crate) fn label_cells(
                 label_sub_tri_raycast(
                     &subdivided.verts,
                     sub_tri,
-                    original_verts_a,
-                    original_tris_a,
+                    &welded_verts_a,
+                    &welded_tris_a,
                     bvh,
                     global_max_a,
                 )
@@ -2146,7 +2193,8 @@ pub(crate) fn subdivide_mesh_pair(
     tris_a: &[[usize; 3]],
     verts_b: &[[f64; 3]],
     tris_b: &[[usize; 3]],
-) -> SubdividedMesh {
+    deadline: Option<std::time::Instant>,
+) -> Result<SubdividedMesh, crate::types::KernelError> {
     use std::collections::BTreeMap;
     use std::collections::HashMap;
 
@@ -2212,6 +2260,15 @@ pub(crate) fn subdivide_mesh_pair(
     let mut candidates = Vec::new();
     if let Some(ref bvh) = bvh_b {
         for (i, tri_a_idx) in tris_a.iter().enumerate() {
+            if i % 1000 == 0 {
+                if let Some(d) = deadline {
+                    if std::time::Instant::now() > d {
+                        return Err(crate::types::KernelError::NotSupported {
+                            operation: "yang_boolean: subdivision timeout".to_string(),
+                        });
+                    }
+                }
+            }
             let aabb_a = Aabb::from_triangle(
                 &all_verts[tri_a_idx[0]],
                 &all_verts[tri_a_idx[1]],
@@ -3242,11 +3299,11 @@ pub(crate) fn subdivide_mesh_pair(
         }
     }
 
-    SubdividedMesh {
+    Ok(SubdividedMesh {
         verts: all_verts,
         tris_a: result_tris_a,
         tris_b: result_tris_b,
-    }
+    })
 }
 
 // ── Task 2e: Radial sort for non-manifold edge resolution ──
@@ -4110,7 +4167,8 @@ mod tests {
         let verts_b = [[0.0, 0.0, 5.0], [1.0, 0.0, 5.0], [0.0, 1.0, 5.0]];
         let tris_b = [[0, 1, 2]];
 
-        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
 
         // Non-intersected triangles pass through unchanged
         assert_eq!(
@@ -4141,7 +4199,8 @@ mod tests {
         let verts_b = [[1.0, 1.0, -2.0], [1.0, 1.0, 2.0], [3.0, 1.0, 0.0]];
         let tris_b = [[0, 1, 2]];
 
-        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
 
         // Each triangle is split by an intersection segment. When both endpoints
         // are on edge interiors → 3 sub-triangles. When one endpoint is at a
@@ -4225,7 +4284,8 @@ mod tests {
         let verts_b = [[0.0, 0.0, 0.0], [1.0, 0.0, 1.0], [0.0, 1.0, 1.0]];
         let tris_b = [[0, 1, 2]];
 
-        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
 
         // Point intersections don't split triangles — both pass through unchanged
         assert_eq!(
@@ -4263,7 +4323,8 @@ mod tests {
         ];
         let tris_b = [[0, 1, 2]];
 
-        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
 
         // The first A triangle (index 0) is intersected and should be split (>1 sub-tri)
         let split_count: usize = result.tris_a.iter().filter(|st| st.parent_tri == 0).count();
@@ -4302,7 +4363,8 @@ mod tests {
         let verts_b = [[2.0, -1.0, -1.0], [2.0, 2.0, -1.0], [2.0, -1.0, 1.0]];
         let tris_b = [[0, 1, 2]];
 
-        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
 
         // Area conservation for mesh A
         let orig_area_a = tri_area_3d(&verts_a[0], &verts_a[1], &verts_a[2]);
@@ -4393,7 +4455,8 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([5.0, 0.0, 0.0], [7.0, 2.0, 2.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
         let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
 
         // Labels must have correct length
@@ -4435,7 +4498,8 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
         let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
 
         assert_eq!(
@@ -4503,7 +4567,8 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([5.0, 0.0, 0.0], [7.0, 2.0, 2.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
         let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
         let result = select_boolean_result(&subdivided, &labeling, MeshBooleanOp::Union);
 
@@ -4536,7 +4601,8 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
         let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
         let result = select_boolean_result(&subdivided, &labeling, MeshBooleanOp::Subtract);
 
@@ -4573,7 +4639,8 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
         let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
         let result = select_boolean_result(&subdivided, &labeling, MeshBooleanOp::Intersect);
 
@@ -4610,7 +4677,8 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([5.0, 0.0, 0.0], [7.0, 2.0, 2.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
         let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
 
         // Verify all labels are Outside (non-overlapping)
@@ -5334,7 +5402,8 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh_fine([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh_fine([0.75, 0.75, 0.75], [2.75, 2.75, 2.75]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
         let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
         select_boolean_result(&subdivided, &labeling, op)
     }
@@ -5548,7 +5617,8 @@ mod tests {
         }
         let (va, ta) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (vb, tb) = make_box_mesh_fine([0.75, 0.75, 0.75], [2.75, 2.75, 2.75]);
-        let sub = subdivide_mesh_pair(&va, &ta, &vb, &tb);
+        let sub =
+            subdivide_mesh_pair(&va, &ta, &vb, &tb, None).expect("subdivision should succeed");
         let lab = label_cells(&sub, &va, &ta, &vb, &tb);
         for op in [
             MeshBooleanOp::Union,
@@ -5604,7 +5674,8 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh_fine([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh_fine([0.75, 0.75, 0.75], [2.75, 2.75, 2.75]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
 
         // For each mesh (A and B), build a map from original edges to the set of
         // new vertices that lie on that edge in the subdivision.
@@ -5786,7 +5857,8 @@ mod tests {
         // Single triangle — it intersects mesh A's shared edge (1,2) near y=0
         let tris_b: Vec<[usize; 3]> = vec![[0, 1, 2]];
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
 
         // The shared edge of mesh A is between vertices 1 and 2 (y=-1 to y=+1).
         // The cutting triangle from B should create intersection points on this edge.
@@ -5858,6 +5930,7 @@ mod tests {
             &bijective_a,
             &bijective_b,
             MeshBooleanOp::Union,
+            None,
         )
         .unwrap()
         .topology;
@@ -5915,7 +5988,8 @@ mod tests {
         ];
         let tris_b = [[0, 1, 2]];
 
-        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
 
         // Area conservation for mesh A (both parent triangles combined).
         let orig_area_a: f64 = tris_a
@@ -6022,7 +6096,8 @@ mod tests {
         ];
         let tris_b = [[0, 1, 2], [3, 4, 5]];
 
-        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
 
         // Area conservation for mesh A.
         let orig_area_a: f64 = tris_a
@@ -6141,7 +6216,8 @@ mod tests {
         ];
         let tris_b = [[0, 1, 2]];
 
-        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
 
         // Area conservation.
         let orig_area_a: f64 = tris_a
@@ -6294,7 +6370,8 @@ mod tests {
         ];
         let tris_b = [[0, 1, 2]];
 
-        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
 
         // Per-parent area conservation for mesh A.
         for parent_idx in 0..tris_a.len() {
@@ -6495,7 +6572,8 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
 
         let total_a = subdivided.tris_a.len();
         let total_b = subdivided.tris_b.len();
@@ -6518,7 +6596,8 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
         let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
 
         // Both meshes should be subdivided (more than 12 original tris)
@@ -6569,6 +6648,7 @@ mod tests {
             &bijective_a,
             &bijective_b,
             MeshBooleanOp::Union,
+            None,
         )
         .expect("Yang pipeline should succeed for overlapping boxes")
         .topology;
@@ -6808,7 +6888,8 @@ mod tests {
         let (verts_a, tris_a) = make_unit_box([0.0, 0.0, 0.0]);
         let (verts_b, tris_b) = make_unit_box([0.5, 0.5, 0.0]);
 
-        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
 
         // Both meshes must produce sub-triangles
         assert!(
@@ -6925,7 +7006,8 @@ mod tests {
         let (verts_b, tris_b) = make_sphere_mesh(500, [0.5, 0.0, 0.0], 1.0);
 
         let start = std::time::Instant::now();
-        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
         let elapsed = start.elapsed();
 
         assert!(
@@ -6950,7 +7032,8 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 1.0, 1.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 1.0, 1.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
 
         // Collect all vertex indices used by both A and B sub-triangles
         use std::collections::HashSet;
@@ -6987,7 +7070,8 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 1.0, 1.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 1.0, 1.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
 
         let tau_work = 1e-12;
         for (i, sub_tri) in subdivided.tris_a.iter().enumerate() {
@@ -7197,7 +7281,8 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
         let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
 
         assert_eq!(
@@ -7230,6 +7315,107 @@ mod tests {
         assert!(
             inside_frac > 0.15 && inside_frac < 0.85,
             "expected roughly half inside, got {inside_count}/{total} = {inside_frac:.2}"
+        );
+    }
+
+    #[test]
+    fn weld_mesh_vertices_deduplicates_coincident() {
+        // Two triangles with non-shared vertices at the same positions
+        let verts = vec![
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0], // tri 0
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [1.0, 1.0, 0.0], // tri 1 (shares 2 verts)
+        ];
+        let tris = vec![[0, 1, 2], [3, 4, 5]];
+        let (welded_v, welded_t) = weld_mesh_vertices(&verts, &tris);
+        assert_eq!(
+            welded_v.len(),
+            4,
+            "should merge 2 duplicate verts → 4 unique"
+        );
+        assert_eq!(welded_t.len(), 2, "both tris should survive");
+        for tri in &welded_t {
+            for &vi in tri {
+                assert!(vi < welded_v.len(), "index in bounds");
+            }
+        }
+    }
+
+    #[test]
+    fn weld_mesh_vertices_removes_degenerate() {
+        // A triangle where two vertices are at the same position
+        let verts = vec![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [1.0, 0.0, 0.0]];
+        let tris = vec![[0, 1, 2]];
+        let (_, welded_t) = weld_mesh_vertices(&verts, &tris);
+        assert_eq!(welded_t.len(), 0, "degenerate tri should be filtered");
+    }
+
+    #[test]
+    fn ray_cast_inside_non_shared_vertices() {
+        // Build a box mesh with per-face (non-shared) vertices — 6 faces × 4 verts = 24 verts.
+        // This simulates WaffleKernel tessellation output with T-junction cracks.
+        let mut verts = Vec::new();
+        let mut tris = Vec::new();
+
+        let corners: [[f64; 3]; 8] = [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 1.0],
+            [1.0, 1.0, 1.0],
+            [0.0, 1.0, 1.0],
+        ];
+
+        // Face quads → 2 triangles each (CCW from outside)
+        let faces: [[usize; 4]; 6] = [
+            [0, 3, 2, 1], // bottom
+            [4, 5, 6, 7], // top
+            [0, 1, 5, 4], // front
+            [2, 3, 7, 6], // back
+            [0, 4, 7, 3], // left
+            [1, 2, 6, 5], // right
+        ];
+
+        for face in &faces {
+            let base = verts.len();
+            for &ci in face {
+                verts.push(corners[ci]); // per-face copy
+            }
+            tris.push([base, base + 1, base + 2]);
+            tris.push([base, base + 2, base + 3]);
+        }
+
+        assert_eq!(verts.len(), 24, "24 non-shared verts");
+        assert_eq!(tris.len(), 12, "12 triangles");
+
+        // Weld, then ray-cast should work correctly
+        let (welded_v, welded_t) = weld_mesh_vertices(&verts, &tris);
+        assert_eq!(welded_v.len(), 8, "welded to 8 unique corner positions");
+        assert_eq!(welded_t.len(), 12, "all 12 tris survive");
+
+        let bvh =
+            build_bvh_for_tris(&welded_v, &welded_t).expect("BVH should build for non-empty mesh");
+        let gmax = compute_global_max(&welded_v);
+
+        // Use off-diagonal point to avoid hitting triangle edges in projection.
+        // Box faces split along diagonal from (0,0) to (1,1) in projected axes.
+        let inside = ray_cast_inside([0.2, 0.3, 0.7], &welded_v, &welded_t, &bvh, gmax);
+        assert_eq!(
+            inside,
+            Some(true),
+            "interior point must be inside after welding"
+        );
+
+        let outside = ray_cast_inside([2.0, 0.3, 0.7], &welded_v, &welded_t, &bvh, gmax);
+        assert_eq!(
+            outside,
+            Some(false),
+            "exterior point must be outside after welding"
         );
     }
 }
