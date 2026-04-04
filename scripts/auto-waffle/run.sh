@@ -201,7 +201,9 @@ do_review() {
     local runner_args=(
         python3 "$RUNNER"
         --work-prompt "$PROMPTS_DIR/review.md"
-        --timeout 30
+        --commit-prompt "$PROMPTS_DIR/commit.md"
+        --cleanup-prompt "$PROMPTS_DIR/cleanup.md"
+        --timeout "$WORK_TIMEOUT_MINS"
         --output-dir "$iter_dir"
         --repo-root "$work_root"
     )

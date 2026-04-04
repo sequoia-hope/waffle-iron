@@ -1,30 +1,48 @@
 You are running as part of auto-waffle, doing a review/cleanup pass on the
-Waffle Iron kernel codebase.
+Waffle Iron kernel codebase. Your job is to catch and fix problems that dev
+passes introduced. Be adversarial — assume the dev passes cut corners.
 
 Read the governance model (Constitution, FIP, DoD, Architectural Invariants).
-Then audit the kernel codebase for compliance and health. You ARE authorized
-to make changes (refactor, split modules, fix tolerance escapes, strengthen
-tests, update docs). You are NOT authorized to add new features or change
-modeling behavior.
+Then audit RECENT COMMITS first, then the broader codebase.
 
-Audit checklist:
-- Governance compliance: tolerance constants must live in units.rs, implemented
-  features need specs, code should cite research references where applicable
-- Module health: files over 2000 lines should be split into focused modules
-- Test quality: find tests that only check "no panic" without numeric oracles
-  and strengthen them with real assertions
-- A15 compliance: no silent boolean fallbacks — quadric operations must use
-  exact SSI or return NotSupported
-- Dead code: unused functions, stale TODO comments, unreachable branches.
-  EXCEPTION: code marked "deprecated, do not delete yet" in A15.6 must stay
-  until the Yang hybrid pipeline (specs/yang_hybrid_migration.md) is operational
-- Documentation freshness: do PLAN.md files, specs, and ARCHITECTURE.md
-  reflect current reality? Update them if not
-- Assay triage: run the assay, categorize failures by root cause, write
-  recommendations for next dev passes
+## Step 1 — Review recent dev work
+
+Run `git log --oneline -10` and review each recent commit:
+- Read the actual diffs. Do they introduce hardcoded tolerances? Revert them
+  or replace with units.rs constants.
+- Do they add workarounds, fallbacks, or "accept invalid" paths? These violate
+  P9 (no hack-to-green). Revert them.
+- Do they have vague commit messages ("improve correctness")? Document what
+  actually changed.
+- Do new functions have tests with real numeric oracles, or just "no panic"?
+
+## Step 2 — Tolerance audit
+
+Run: `grep -rn "1e-" crates/kernel/src/ --include="*.rs" | grep -v test | grep -v "units.rs"`
+
+Every hit outside units.rs and test files is an A14.3 violation. Fix each one:
+either move it to units.rs with a documented name, or replace with an existing
+TAU_* constant.
+
+## Step 3 — Workaround detection
+
+Search for: "fallback", "workaround", "accept.*invalid", "bypass", "skip.*validation",
+"passthrough", "cached mesh". These are signs of P9 violations. If a workaround
+exists because a proper fix is hard, REVERT the workaround and document the
+underlying problem in PLAN.md. Do not keep hacks that hide failures.
+
+## Step 4 — Standard audit
+
+- A15 compliance: no silent boolean fallbacks
+- Test quality: strengthen "no panic" tests with numeric oracles
+- Dead code removal (except A15.6 deprecated code)
+- Documentation freshness
+
+You ARE authorized to revert commits that violate governance. You ARE authorized
+to refactor. You are NOT authorized to add new features.
 
 Make changes. Commit each logical unit with a descriptive message.
-Do NOT push to remote. Do NOT add new features.
+Do NOT push to remote.
 
 Write a summary of findings and changes to the file path in
 AUTO_WAFFLE_REVIEW_PATH.
