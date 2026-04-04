@@ -216,6 +216,17 @@ mod tests {
         let pt = l.evaluate(3.0);
         assert!((pt.x - 1.0).abs() < EPS);
         assert!((pt.y - 3.0).abs() < EPS);
+        assert!(pt.z.abs() < EPS, "z must be 0 for Y-axis line");
+        // Oracle: evaluate at multiple parameters, verify collinearity
+        let pt0 = l.evaluate(0.0);
+        let pt5 = l.evaluate(5.0);
+        // Cross product of (pt5-pt0) × (pt-pt0) must be zero (collinear)
+        let d1 = Vector3::new(pt5.x - pt0.x, pt5.y - pt0.y, pt5.z - pt0.z);
+        let d2 = Vector3::new(pt.x - pt0.x, pt.y - pt0.y, pt.z - pt0.z);
+        let cross_mag = (d1.y * d2.z - d1.z * d2.y).powi(2)
+            + (d1.z * d2.x - d1.x * d2.z).powi(2)
+            + (d1.x * d2.y - d1.y * d2.x).powi(2);
+        assert!(cross_mag < EPS * EPS, "evaluated points must be collinear");
     }
 
     #[test]
@@ -249,12 +260,32 @@ mod tests {
             normal: Vector3::new(0.0, 0.0, 1.0),
             radius: 3.0,
         };
-        let pt = c.evaluate(0.0);
-        let tang = c.tangent(0.0);
-        // Tangent should be perpendicular to radius vector
-        let radius_vec = Vector3::new(pt.x, pt.y, pt.z);
-        let dot = radius_vec.dot(tang);
-        assert!(dot.abs() < EPS);
+        // Verify tangent perpendicularity at multiple parameters
+        for &t in &[0.0, FRAC_PI_2, std::f64::consts::PI, 4.5] {
+            let pt = c.evaluate(t);
+            let tang = c.tangent(t);
+            // All points must lie on circle (distance from center = radius)
+            let dist = (pt.x * pt.x + pt.y * pt.y).sqrt();
+            assert!(
+                (dist - 3.0).abs() < EPS,
+                "evaluate({t}) not on circle: dist={dist}"
+            );
+            // All points must be in the z=0 plane
+            assert!(pt.z.abs() < EPS, "circle point must be in z=0 plane");
+            // Tangent must be perpendicular to radius vector
+            let radius_vec = Vector3::new(pt.x, pt.y, pt.z);
+            let dot = radius_vec.dot(tang);
+            assert!(
+                dot.abs() < EPS,
+                "tangent not perp to radius at t={t}: dot={dot}"
+            );
+            // Tangent must be unit length
+            let tang_len = (tang.x * tang.x + tang.y * tang.y + tang.z * tang.z).sqrt();
+            assert!(
+                (tang_len - 1.0).abs() < EPS,
+                "tangent not unit length at t={t}: len={tang_len}"
+            );
+        }
     }
 
     #[test]
@@ -327,10 +358,36 @@ mod tests {
         assert!((t0.y - 1.0).abs() < EPS, "ty={}", t0.y);
         assert!(t0.z.abs() < EPS);
 
-        // Tangent should be perpendicular to the radius vector at t=0
-        let pt0 = e.evaluate(0.0);
-        let radius_vec = Vector3::new(pt0.x, pt0.y, pt0.z);
-        let dot = radius_vec.dot(t0);
-        assert!(dot.abs() < EPS, "tangent not perp to radius: dot={}", dot);
+        // Oracle: verify tangent is perpendicular to ellipse gradient at multiple points.
+        // For ellipse (x/a)² + (y/b)² = 1, gradient ∇f = (2x/a², 2y/b²).
+        // Tangent must be perpendicular to ∇f (not the radius vector — that's circles only).
+        for &t in &[0.0, FRAC_PI_2, std::f64::consts::PI, 4.0] {
+            let pt = e.evaluate(t);
+            let tang = e.tangent(t);
+            // Tangent must be perpendicular to the gradient of the implicit equation
+            let grad = Vector3::new(2.0 * pt.x / (5.0 * 5.0), 2.0 * pt.y / (3.0 * 3.0), 0.0);
+            let dot = grad.dot(tang);
+            assert!(
+                dot.abs() < EPS,
+                "tangent not perp to gradient at t={t}: dot={dot}"
+            );
+            // Tangent must be unit length
+            let tang_len = (tang.x * tang.x + tang.y * tang.y + tang.z * tang.z).sqrt();
+            assert!(
+                (tang_len - 1.0).abs() < EPS,
+                "tangent not unit length at t={t}: len={tang_len}"
+            );
+            // All tangents must lie in z=0 plane
+            assert!(
+                tang.z.abs() < EPS,
+                "ellipse tangent must be in z=0 plane at t={t}"
+            );
+            // Evaluated point must satisfy ellipse equation: (x/a)² + (y/b)² = 1
+            let ellipse_eq = (pt.x / 5.0).powi(2) + (pt.y / 3.0).powi(2);
+            assert!(
+                (ellipse_eq - 1.0).abs() < EPS,
+                "point not on ellipse at t={t}: eq={ellipse_eq}"
+            );
+        }
     }
 }

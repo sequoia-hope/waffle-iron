@@ -480,6 +480,12 @@ mod tests {
             (pt2.z - 3.0).abs() < EPS,
             "off-origin evaluate must stay on plane"
         );
+        // Oracle: all evaluated points must satisfy contains_point
+        assert!(p.contains_point(pt), "origin evaluate must lie on plane");
+        assert!(
+            p.contains_point(pt2),
+            "off-origin evaluate must lie on plane"
+        );
     }
 
     #[test]
@@ -524,6 +530,23 @@ mod tests {
         assert!((proj.x - 3.0).abs() < EPS);
         assert!(proj.y.abs() < EPS);
         assert!((proj.z - 5.0).abs() < EPS);
+        // Oracle: projected point must lie on the cylinder surface
+        assert!(
+            c.contains_point(proj),
+            "projection must lie on cylinder surface"
+        );
+
+        // Additional: project from off-axis angle
+        let proj2 = c.project_point(Point3::new(4.0, 4.0, -2.0));
+        let dist_from_axis = (proj2.x * proj2.x + proj2.y * proj2.y).sqrt();
+        assert!(
+            (dist_from_axis - 3.0).abs() < EPS,
+            "projected point dist from axis ({dist_from_axis}) != radius (3.0)"
+        );
+        assert!(
+            (proj2.z - (-2.0)).abs() < EPS,
+            "z coordinate must be preserved by axis-aligned projection"
+        );
     }
 
     #[test]
@@ -564,6 +587,26 @@ mod tests {
         let proj = s.project_point(Point3::new(11.0, 2.0, 3.0));
         assert!((proj.x - 6.0).abs() < EPS);
         assert!((proj.y - 2.0).abs() < EPS);
+        // Oracle: projected point must lie on sphere surface
+        let dx = proj.x - 1.0;
+        let dy = proj.y - 2.0;
+        let dz = proj.z - 3.0;
+        let dist_from_center = (dx * dx + dy * dy + dz * dz).sqrt();
+        assert!(
+            (dist_from_center - 5.0).abs() < EPS,
+            "projection must lie on sphere: dist={dist_from_center}, expected 5.0"
+        );
+
+        // Project from arbitrary direction
+        let proj2 = s.project_point(Point3::new(1.0, 2.0, 20.0));
+        assert!(
+            s.contains_point(proj2),
+            "projection from +Z must lie on sphere"
+        );
+        assert!(
+            (proj2.z - 8.0).abs() < EPS,
+            "projection from +Z should be at z=8 (center_z + radius)"
+        );
     }
 
     #[test]
@@ -615,6 +658,30 @@ mod tests {
         assert!((proj.x - 6.0).abs() < EPS);
         assert!(proj.y.abs() < EPS);
         assert!(proj.z.abs() < EPS);
+        // Oracle: projected point must lie on torus surface
+        assert!(
+            t.contains_point(proj),
+            "projection must lie on torus surface"
+        );
+
+        // Project from inner equator direction
+        let proj2 = t.project_point(Point3::new(2.0, 0.0, 0.0));
+        assert!(
+            t.contains_point(proj2),
+            "inner projection must lie on torus surface"
+        );
+        assert!(
+            (proj2.x - 4.0).abs() < EPS,
+            "inner projection should be at x=4 (R-r), got {}",
+            proj2.x
+        );
+
+        // Project from top of tube
+        let proj3 = t.project_point(Point3::new(5.0, 0.0, 10.0));
+        assert!(
+            t.contains_point(proj3),
+            "top projection must lie on torus surface"
+        );
     }
 
     #[test]
