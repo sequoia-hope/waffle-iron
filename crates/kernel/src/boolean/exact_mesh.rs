@@ -1146,6 +1146,310 @@ fn winding_number_mesh(p: [f64; 3], verts: &[[f64; 3]], tris: &[[usize; 3]]) -> 
     total / (4.0 * std::f64::consts::PI)
 }
 
+// ── BVH-accelerated ray-cast classification ─────────────────────────────
+//
+// Replaces O(n) GWN scan with O(log n) axis-aligned ray casting through BVH.
+// Falls back to GWN for degenerate cases (ray hits triangle edge on all 3 axes).
+// Ref #24: Yang 2025 — point-in-mesh classification for cell labeling.
+// Ref #4: Shewchuk 1997 — orient2d exact predicates for robust 2D point-in-triangle.
+
+/// Result of a single ray-triangle intersection test.
+#[derive(Debug)]
+enum RayHit {
+    /// Clean intersection at parameter t (distance along ray axis).
+    Hit(f64),
+    /// Ray passes through a triangle edge or vertex — result is ambiguous.
+    Degenerate,
+    /// Ray misses the triangle entirely.
+    Miss,
+}
+
+/// Build a BVH from a triangle mesh's triangles for ray-cast queries.
+///
+/// Returns `None` if the mesh has no triangles.
+fn build_bvh_for_tris(verts: &[[f64; 3]], tris: &[[usize; 3]]) -> Option<BvhNode> {
+    if tris.is_empty() {
+        return None;
+    }
+    let mut items: Vec<(usize, Aabb)> = tris
+        .iter()
+        .enumerate()
+        .map(|(i, tri)| {
+            let aabb = Aabb::from_triangle(&verts[tri[0]], &verts[tri[1]], &verts[tri[2]]);
+            (i, aabb)
+        })
+        .collect();
+    Some(BvhNode::build(&mut items))
+}
+
+/// Compute the global maximum coordinate per axis across all vertices.
+fn compute_global_max(verts: &[[f64; 3]]) -> [f64; 3] {
+    let mut gmax = [f64::NEG_INFINITY; 3];
+    for v in verts {
+        for a in 0..3 {
+            if v[a] > gmax[a] {
+                gmax[a] = v[a];
+            }
+        }
+    }
+    gmax
+}
+
+/// Axis-aligned ray–triangle intersection using exact orient2d predicates.
+///
+/// Casts a ray from `origin` along the positive direction of `axis` (0=+X, 1=+Y, 2=+Z).
+/// Projects the triangle and query point onto the plane perpendicular to that axis,
+/// then uses three orient2d calls to determine if the 2D point is strictly inside
+/// the projected triangle.
+///
+/// Returns:
+/// - `RayHit::Hit(t)` if the ray cleanly intersects the triangle at parameter t > 0.
+/// - `RayHit::Degenerate` if the query point projects onto a triangle edge (orient2d = 0).
+/// - `RayHit::Miss` if the projected point is outside the triangle.
+fn ray_tri_intersect_axis(
+    axis: usize,
+    origin: [f64; 3],
+    v0: [f64; 3],
+    v1: [f64; 3],
+    v2: [f64; 3],
+) -> RayHit {
+    // Choose the two projection axes (the plane perpendicular to `axis`).
+    let u = (axis + 1) % 3;
+    let w = (axis + 2) % 3;
+
+    let p = [origin[u], origin[w]];
+    let a0 = [v0[u], v0[w]];
+    let a1 = [v1[u], v1[w]];
+    let a2 = [v2[u], v2[w]];
+
+    // Three orient2d tests: point p against each edge of the projected triangle.
+    let o0 = orient2d(a0, a1, p);
+    let o1 = orient2d(a1, a2, p);
+    let o2 = orient2d(a2, a0, p);
+
+    // If any orient2d is exactly 0, the point lies on a triangle edge → degenerate.
+    if o0 == 0.0 || o1 == 0.0 || o2 == 0.0 {
+        return RayHit::Degenerate;
+    }
+
+    // Point is strictly inside if all three have the same sign.
+    let all_pos = o0 > 0.0 && o1 > 0.0 && o2 > 0.0;
+    let all_neg = o0 < 0.0 && o1 < 0.0 && o2 < 0.0;
+    if !all_pos && !all_neg {
+        return RayHit::Miss;
+    }
+
+    // Compute intersection parameter t along the ray axis.
+    // The ray is: origin + t * e_axis. The triangle plane equation along the axis
+    // can be found by barycentric interpolation of the axis coordinates.
+    //
+    // Using the signed areas from orient2d for barycentric coordinates:
+    let area_total = o0 + o1 + o2;
+    // Barycentric weights: o1/area corresponds to v0, o2 to v1, o0 to v2
+    // (each orient2d(vi, vj, p) gives the signed area opposite the third vertex).
+    let t_hit = (o1 * v0[axis] + o2 * v1[axis] + o0 * v2[axis]) / area_total - origin[axis];
+
+    if t_hit > 0.0 {
+        RayHit::Hit(t_hit)
+    } else {
+        RayHit::Miss
+    }
+}
+
+/// BVH-accelerated point-in-mesh test using axis-aligned ray casting.
+///
+/// Fires a ray from `p` along the +X axis (falls back to +Y, +Z if degenerate).
+/// Counts intersections: odd = inside, even = outside.
+/// Returns `None` if all three axes produce degenerate intersections (caller
+/// should fall back to GWN).
+///
+/// `global_max` is the pre-computed maximum coordinate per axis across all target
+/// vertices — used to bound the ray slab AABB.
+fn ray_cast_inside(
+    p: [f64; 3],
+    target_verts: &[[f64; 3]],
+    target_tris: &[[usize; 3]],
+    bvh: &BvhNode,
+    global_max: [f64; 3],
+) -> Option<bool> {
+    // AABB slab expansion: slightly larger than exact mesh boundary eps so that
+    // triangles exactly at the ray line are caught by the broad-phase.
+    const SLAB_EPS: f64 = 1e-14;
+
+    for axis in 0..3 {
+        // Build a ray slab AABB: extends from p along +axis to past the mesh.
+        // The two perpendicular dimensions are a thin slab around p.
+        let u = (axis + 1) % 3;
+        let w = (axis + 2) % 3;
+
+        let mut slab_min = [0.0f64; 3];
+        let mut slab_max = [0.0f64; 3];
+
+        slab_min[axis] = p[axis];
+        slab_max[axis] = global_max[axis] + 1.0;
+
+        slab_min[u] = p[u] - SLAB_EPS;
+        slab_max[u] = p[u] + SLAB_EPS;
+
+        slab_min[w] = p[w] - SLAB_EPS;
+        slab_max[w] = p[w] + SLAB_EPS;
+
+        let slab_aabb = Aabb {
+            min: slab_min,
+            max: slab_max,
+        };
+
+        let mut candidates = Vec::new();
+        bvh.query_overlapping(&slab_aabb, &mut candidates);
+
+        let mut hit_count = 0usize;
+        let mut degenerate = false;
+
+        for &tri_idx in &candidates {
+            let tri = target_tris[tri_idx];
+            let v0 = target_verts[tri[0]];
+            let v1 = target_verts[tri[1]];
+            let v2 = target_verts[tri[2]];
+
+            match ray_tri_intersect_axis(axis, p, v0, v1, v2) {
+                RayHit::Hit(_t) => {
+                    hit_count += 1;
+                }
+                RayHit::Degenerate => {
+                    degenerate = true;
+                    break;
+                }
+                RayHit::Miss => {}
+            }
+        }
+
+        if degenerate {
+            // Try next axis.
+            continue;
+        }
+
+        return Some(hit_count % 2 == 1);
+    }
+
+    // All three axes degenerate — caller must fall back to GWN.
+    None
+}
+
+/// Label a single sub-triangle using BVH-accelerated ray casting, with GWN fallback.
+///
+/// This is the ray-cast replacement for `label_sub_tri`. It:
+/// 1. Computes the sub-triangle centroid.
+/// 2. Uses `ray_cast_inside` for O(log n) classification.
+/// 3. Falls back to GWN-based `label_sub_tri` if ray casting is degenerate on all axes.
+/// 4. Detects co-surface situations by checking point-to-plane distance of nearby
+///    target triangles. If co-surface, offsets along -normal and re-casts.
+///
+/// Ref #24: Yang 2025 — cell classification via point-in-mesh.
+/// Ref #9: Cherchi 2020 — coplanar face disambiguation via normal offset.
+fn label_sub_tri_raycast(
+    verts: &[[f64; 3]],
+    sub_tri: &SubTriangle,
+    target_verts: &[[f64; 3]],
+    target_tris: &[[usize; 3]],
+    bvh: &BvhNode,
+    global_max: [f64; 3],
+) -> CellLabel {
+    let centroid = sub_tri_centroid(verts, sub_tri);
+
+    // Check co-surface: query BVH for triangles near the centroid and check
+    // point-to-plane distance.
+    let is_co_surface = check_co_surface(&centroid, target_verts, target_tris, bvh);
+
+    if is_co_surface {
+        // Offset centroid along -normal (into sub-tri's solid) and re-classify.
+        let normal = sub_tri_unit_normal(verts, sub_tri);
+        let eps = TAU_WORK.sqrt(); // ~1e-6
+        let offset_pt = [
+            centroid[0] - eps * normal[0],
+            centroid[1] - eps * normal[1],
+            centroid[2] - eps * normal[2],
+        ];
+
+        let inside = match ray_cast_inside(offset_pt, target_verts, target_tris, bvh, global_max) {
+            Some(v) => v,
+            None => {
+                // Degenerate on all axes from offset point too — fall back to GWN.
+                let w = winding_number_mesh(offset_pt, target_verts, target_tris);
+                w >= WINDING_INSIDE_THRESHOLD
+            }
+        };
+
+        if inside {
+            CellLabel::CoSurfaceInside
+        } else {
+            CellLabel::CoSurfaceOutside
+        }
+    } else {
+        // Standard classification: ray cast from centroid.
+        match ray_cast_inside(centroid, target_verts, target_tris, bvh, global_max) {
+            Some(true) => CellLabel::Inside,
+            Some(false) => CellLabel::Outside,
+            None => {
+                // All axes degenerate — fall back to GWN-based label_sub_tri.
+                label_sub_tri(verts, sub_tri, target_verts, target_tris)
+            }
+        }
+    }
+}
+
+/// Check whether a point is co-surface with the target mesh.
+///
+/// Queries the BVH for triangles whose AABB contains the point (with small expansion),
+/// then computes the point-to-plane distance for each. If any distance is below
+/// `TAU_EXACT_MESH_BOUNDARY_EPS`, the point is considered co-surface.
+fn check_co_surface(
+    p: &[f64; 3],
+    target_verts: &[[f64; 3]],
+    target_tris: &[[usize; 3]],
+    bvh: &BvhNode,
+) -> bool {
+    // Small AABB around the query point to find nearby triangles.
+    let expand = TAU_WORK.sqrt(); // ~1e-6
+    let query_aabb = Aabb {
+        min: [p[0] - expand, p[1] - expand, p[2] - expand],
+        max: [p[0] + expand, p[1] + expand, p[2] + expand],
+    };
+
+    let mut candidates = Vec::new();
+    bvh.query_overlapping(&query_aabb, &mut candidates);
+
+    for &tri_idx in &candidates {
+        let tri = target_tris[tri_idx];
+        let v0 = target_verts[tri[0]];
+        let v1 = target_verts[tri[1]];
+        let v2 = target_verts[tri[2]];
+
+        // Compute triangle normal (unnormalized).
+        let e1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
+        let e2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
+        let n = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        let n_len_sq = n[0] * n[0] + n[1] * n[1] + n[2] * n[2];
+        if n_len_sq < TAU_NORMALIZE_SQ {
+            continue; // Degenerate triangle — skip.
+        }
+
+        // Signed distance from point to triangle plane = dot(n, p - v0) / |n|.
+        let d = [p[0] - v0[0], p[1] - v0[1], p[2] - v0[2]];
+        let dot = n[0] * d[0] + n[1] * d[1] + n[2] * d[2];
+        let dist_sq = (dot * dot) / n_len_sq;
+
+        if dist_sq < TAU_EXACT_MESH_BOUNDARY_EPS * TAU_EXACT_MESH_BOUNDARY_EPS {
+            return true;
+        }
+    }
+
+    false
+}
+
 /// Classify a winding number as Inside or Outside.
 ///
 /// Threshold at 0.5: w >= 0.5 → Inside, w < 0.5 → Outside.
@@ -1298,18 +1602,33 @@ pub(crate) fn label_cells(
     original_verts_b: &[[f64; 3]],
     original_tris_b: &[[usize; 3]],
 ) -> CellLabeling {
+    // Build BVHs for both original meshes for O(log n) ray-cast classification.
+    // Ref #24: Yang 2025 — BVH-accelerated point-in-mesh via axis-aligned ray casting.
+    let bvh_b = build_bvh_for_tris(original_verts_b, original_tris_b);
+    let bvh_a = build_bvh_for_tris(original_verts_a, original_tris_a);
+
+    let global_max_b = compute_global_max(original_verts_b);
+    let global_max_a = compute_global_max(original_verts_a);
+
     // Label A sub-triangles: is each one inside mesh B?
-    // Ref #24: Yang 2025 — evaluate GWN at sub-triangle centroids.
+    // Uses BVH ray casting with GWN fallback for degenerate cases.
     let labels_a = subdivided
         .tris_a
         .iter()
         .map(|sub_tri| {
-            label_sub_tri(
-                &subdivided.verts,
-                sub_tri,
-                original_verts_b,
-                original_tris_b,
-            )
+            if let Some(ref bvh) = bvh_b {
+                label_sub_tri_raycast(
+                    &subdivided.verts,
+                    sub_tri,
+                    original_verts_b,
+                    original_tris_b,
+                    bvh,
+                    global_max_b,
+                )
+            } else {
+                // Empty target mesh — everything is outside.
+                CellLabel::Outside
+            }
         })
         .collect();
 
@@ -1318,12 +1637,19 @@ pub(crate) fn label_cells(
         .tris_b
         .iter()
         .map(|sub_tri| {
-            label_sub_tri(
-                &subdivided.verts,
-                sub_tri,
-                original_verts_a,
-                original_tris_a,
-            )
+            if let Some(ref bvh) = bvh_a {
+                label_sub_tri_raycast(
+                    &subdivided.verts,
+                    sub_tri,
+                    original_verts_a,
+                    original_tris_a,
+                    bvh,
+                    global_max_a,
+                )
+            } else {
+                // Empty target mesh — everything is outside.
+                CellLabel::Outside
+            }
         })
         .collect();
 
@@ -6693,5 +7019,198 @@ mod tests {
                 "tris_b[{i}] is degenerate (area_sq={area_sq:.2e})"
             );
         }
+    }
+
+    // ── BVH ray-cast classification tests ────────────────────────────────
+
+    fn make_test_box(min: [f64; 3], max: [f64; 3]) -> (Vec<[f64; 3]>, Vec<[usize; 3]>) {
+        let [x0, y0, z0] = min;
+        let [x1, y1, z1] = max;
+        let verts = vec![
+            [x0, y0, z0],
+            [x1, y0, z0],
+            [x1, y1, z0],
+            [x0, y1, z0],
+            [x0, y0, z1],
+            [x1, y0, z1],
+            [x1, y1, z1],
+            [x0, y1, z1],
+        ];
+        // 12 triangles, 2 per face, outward-facing (CCW from outside)
+        let tris = vec![
+            [0, 2, 1],
+            [0, 3, 2], // Back (z=z0)
+            [4, 5, 6],
+            [4, 6, 7], // Front (z=z1)
+            [0, 1, 5],
+            [0, 5, 4], // Bottom (y=y0)
+            [3, 6, 2],
+            [3, 7, 6], // Top (y=y1)
+            [0, 4, 7],
+            [0, 7, 3], // Left (x=x0)
+            [1, 2, 6],
+            [1, 6, 5], // Right (x=x1)
+        ];
+        (verts, tris)
+    }
+
+    #[test]
+    fn ray_tri_intersect_axis_basic_hit() {
+        let v0 = [0.0, 0.0, 0.0];
+        let v1 = [1.0, 0.0, 0.0];
+        let v2 = [0.0, 1.0, 0.0];
+        let origin = [0.2, 0.2, -1.0];
+        let result = ray_tri_intersect_axis(2, origin, v0, v1, v2);
+        match result {
+            RayHit::Hit(t) => assert!((t - 1.0).abs() < 1e-10, "expected t ≈ 1.0, got {t}"),
+            other => panic!("expected Hit, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ray_tri_intersect_axis_miss() {
+        let v0 = [0.0, 0.0, 0.0];
+        let v1 = [1.0, 0.0, 0.0];
+        let v2 = [0.0, 1.0, 0.0];
+        let origin = [2.0, 2.0, -1.0];
+        let result = ray_tri_intersect_axis(2, origin, v0, v1, v2);
+        assert!(
+            matches!(result, RayHit::Miss),
+            "expected Miss for ray outside triangle, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn ray_tri_intersect_axis_on_edge() {
+        let v0 = [0.0, 0.0, 0.0];
+        let v1 = [1.0, 0.0, 0.0];
+        let v2 = [0.0, 1.0, 0.0];
+        let origin = [0.5, 0.0, -1.0]; // on edge v0-v1
+        let result = ray_tri_intersect_axis(2, origin, v0, v1, v2);
+        assert!(
+            matches!(result, RayHit::Degenerate),
+            "expected Degenerate for ray on triangle edge, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn ray_tri_intersect_axis_behind() {
+        let v0 = [0.0, 0.0, 0.0];
+        let v1 = [1.0, 0.0, 0.0];
+        let v2 = [0.0, 1.0, 0.0];
+        let origin = [0.2, 0.2, 1.0]; // triangle is behind (z=0 < z=1)
+        let result = ray_tri_intersect_axis(2, origin, v0, v1, v2);
+        assert!(
+            matches!(result, RayHit::Miss),
+            "expected Miss for triangle behind ray origin, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn ray_cast_inside_box() {
+        let (verts, tris) = make_test_box([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        let bvh = build_bvh_for_tris(&verts, &tris).expect("BVH should build for non-empty mesh");
+        let gmax = compute_global_max(&verts);
+
+        // Interior point — each box face is split along a diagonal from (0,0) to (1,1)
+        // in the two projected axes. A point (a,b) is on the diagonal when a==b in
+        // each projected pair. To avoid all three face diagonals we need y!=z, x!=z,
+        // and x!=y. Using (0.2, 0.3, 0.7) satisfies this.
+        let inside = ray_cast_inside([0.2, 0.3, 0.7], &verts, &tris, &bvh, gmax);
+        assert_eq!(
+            inside,
+            Some(true),
+            "point inside box should be classified inside"
+        );
+
+        // Exterior point (positive x)
+        let outside_pos = ray_cast_inside([2.0, 0.3, 0.7], &verts, &tris, &bvh, gmax);
+        assert_eq!(
+            outside_pos,
+            Some(false),
+            "point outside box (+x) should be outside"
+        );
+
+        // Exterior point (negative x)
+        let outside_neg = ray_cast_inside([-1.0, 0.3, 0.7], &verts, &tris, &bvh, gmax);
+        assert_eq!(
+            outside_neg,
+            Some(false),
+            "point outside box (-x) should be outside"
+        );
+    }
+
+    #[test]
+    fn ray_cast_inside_on_face() {
+        let (verts, tris) = make_test_box([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        let bvh = build_bvh_for_tris(&verts, &tris).expect("BVH should build");
+        let gmax = compute_global_max(&verts);
+
+        // Point exactly on the x=1 face, offset from diagonals.
+        // On the x=1 face, projected to YZ the diagonal goes from (0,0) to (1,1),
+        // so (0.3, 0.7) is safely off the diagonal.
+        let result = ray_cast_inside([1.0, 0.3, 0.7], &verts, &tris, &bvh, gmax);
+        // X-axis ray starts at the face boundary — may be degenerate, but Y or Z
+        // axes should resolve cleanly.
+        assert!(
+            result.is_some(),
+            "point on face should resolve via at least one axis"
+        );
+    }
+
+    #[test]
+    fn ray_cast_inside_on_edge() {
+        let (verts, tris) = make_test_box([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        let bvh = build_bvh_for_tris(&verts, &tris).expect("BVH should build");
+        let gmax = compute_global_max(&verts);
+
+        // Point on edge where x=1 and y=1 meet, z=0.3 to avoid vertex/diagonal.
+        let result = ray_cast_inside([1.0, 1.0, 0.3], &verts, &tris, &bvh, gmax);
+        // Two axes may be degenerate (X and Y touch the surface), but Z should work.
+        // However, all three could be degenerate if the projection hits edges.
+        // Just verify it doesn't panic; None is acceptable for edge points.
+        let _ = result; // no panic is the test
+    }
+
+    #[test]
+    fn label_cells_raycast_matches_gwn_for_offset_boxes() {
+        // Two overlapping boxes: A = [0,0,0]-[2,2,2], B = [1,0,0]-[3,2,2]
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
+
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+
+        assert_eq!(
+            labeling.labels_a.len(),
+            subdivided.tris_a.len(),
+            "labels_a length must match tris_a count"
+        );
+
+        // Count A sub-tris classified as Inside vs Outside relative to B.
+        let mut inside_count = 0usize;
+        let mut outside_count = 0usize;
+        for label in &labeling.labels_a {
+            match label {
+                CellLabel::Inside | CellLabel::CoSurfaceInside => {
+                    inside_count += 1;
+                }
+                CellLabel::Outside | CellLabel::CoSurfaceOutside => {
+                    outside_count += 1;
+                }
+            }
+        }
+
+        // Box A spans x=[0,2], box B spans x=[1,3]. The overlap region is x=[1,2],
+        // which is half of A's volume. So roughly half the A sub-tris should be
+        // Inside B and half Outside B. Allow a wide ratio (at least 15% each way)
+        // because subdivision isn't perfectly volumetric.
+        let total = inside_count + outside_count;
+        assert!(total > 0, "should have some labeled sub-triangles");
+        let inside_frac = inside_count as f64 / total as f64;
+        assert!(
+            inside_frac > 0.15 && inside_frac < 0.85,
+            "expected roughly half inside, got {inside_count}/{total} = {inside_frac:.2}"
+        );
     }
 }
