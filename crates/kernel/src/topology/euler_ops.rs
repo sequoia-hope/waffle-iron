@@ -180,6 +180,7 @@ pub fn mef(
 /// Kill Edge, Make Ring — removes an edge and creates an inner loop (hole).
 ///
 /// Euler change: E-1, R+1 → V-E+F-R unchanged.
+#[allow(dead_code)] // Staged for Yang pipeline Phase 5 (B-Rep reassembly)
 pub fn kemr(arena: &mut TopoArena, edge: EdgeIdx) {
     let he_a = arena.edges[edge.0].half_edge;
     let he_b = arena.half_edges[he_a.0].twin;
@@ -222,6 +223,7 @@ pub fn kemr(arena: &mut TopoArena, edge: EdgeIdx) {
 /// Creates a through-hole or cavity by killing a face and creating a new shell.
 ///
 /// Euler change: F-1, S+1 → V-E+F-2S unchanged if genus adjusts.
+#[allow(dead_code)] // Staged for Yang pipeline Phase 5 (B-Rep reassembly)
 pub fn kfmrh(arena: &mut TopoArena, face_to_kill: FaceIdx, host_face: FaceIdx) {
     let killed_loop = arena.faces[face_to_kill.0].outer_loop;
 

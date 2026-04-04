@@ -20,6 +20,9 @@ use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::{EdgeIdx, FaceIdx};
 use crate::types::KernelError;
 
+/// A boundary edge: (vertex_a, vertex_b, is_intersection_edge).
+type BoundaryEdge = (usize, usize, bool);
+
 /// Key identifying a source B-Rep face in the boolean result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[allow(dead_code)] // Phase 3 building block — task 3a
@@ -414,7 +417,7 @@ pub(crate) fn build_result_brep_from_mesh(
     }
 
     // ── Step 5: Chain boundary edges into loops per face ──
-    let mut all_face_loops: Vec<(SourceFace, Vec<Vec<(usize, usize, bool)>>)> = Vec::new();
+    let mut all_face_loops: Vec<(SourceFace, Vec<Vec<BoundaryEdge>>)> = Vec::new();
 
     for (source_face, edges) in &face_boundary_edges {
         let mut adj: HashMap<usize, Vec<(usize, bool)>> = HashMap::new();
@@ -711,7 +714,7 @@ pub(crate) fn merge_coplanar_face_groups(
     }
 
     // Step 3: Merge groups on the same plane.
-    for (_plane_key, group) in &plane_buckets {
+    for group in plane_buckets.values() {
         if group.len() < 2 {
             continue;
         }

@@ -4,6 +4,7 @@ use super::point::{Point3, Vector3};
 
 /// A 4x4 affine transformation matrix (column-major).
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Building block for future extrude/revolve transform support
 pub struct Transform {
     /// Column-major 4x4 matrix.
     pub m: [f64; 16],

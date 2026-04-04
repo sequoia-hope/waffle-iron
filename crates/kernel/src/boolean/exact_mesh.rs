@@ -1274,7 +1274,8 @@ fn ray_cast_inside(
 ) -> Option<bool> {
     // AABB slab expansion: slightly larger than exact mesh boundary eps so that
     // triangles exactly at the ray line are caught by the broad-phase.
-    const SLAB_EPS: f64 = 1e-14;
+    // Centralised in units.rs per A8 (Tolerance Governance).
+    let slab_eps = crate::units::TAU_EXACT_MESH_SLAB_EPS;
 
     for axis in 0..3 {
         // Build a ray slab AABB: extends from p along +axis to past the mesh.
@@ -1288,11 +1289,11 @@ fn ray_cast_inside(
         slab_min[axis] = p[axis];
         slab_max[axis] = global_max[axis] + 1.0;
 
-        slab_min[u] = p[u] - SLAB_EPS;
-        slab_max[u] = p[u] + SLAB_EPS;
+        slab_min[u] = p[u] - slab_eps;
+        slab_max[u] = p[u] + slab_eps;
 
-        slab_min[w] = p[w] - SLAB_EPS;
-        slab_max[w] = p[w] + SLAB_EPS;
+        slab_min[w] = p[w] - slab_eps;
+        slab_max[w] = p[w] + slab_eps;
 
         let slab_aabb = Aabb {
             min: slab_min,
@@ -1923,7 +1924,7 @@ fn split_triangle_by_segment_dedup(
     // have consistent vertex references across adjacent triangles.
     enum HitKind {
         Interior { vert_idx: usize },
-        AtVertex { local_idx: usize },
+        AtVertex { _local_idx: usize },
     }
     struct EdgeHitExt {
         edge: usize,
@@ -1953,7 +1954,9 @@ fn split_triangle_by_segment_dedup(
                     vertex_hit[v_local] = true;
                     hits.push(EdgeHitExt {
                         edge: edge_idx,
-                        kind: HitKind::AtVertex { local_idx: v_local },
+                        kind: HitKind::AtVertex {
+                            _local_idx: v_local,
+                        },
                     });
                 } else {
                     // Interior hit — compute position and find/create vertex

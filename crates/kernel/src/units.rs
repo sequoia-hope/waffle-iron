@@ -253,6 +253,11 @@ pub const TAU_EXACT_MESH_BOUNDARY_EPS: f64 = 1e-16;
 /// our f64 nudge achieves the same topological result for materialized coords.
 pub const TAU_EXACT_MESH_VERTEX_NUDGE: f64 = 1e-14;
 
+/// AABB slab expansion for BVH ray-cast broad-phase: 1e-14.
+/// Slightly wider than TAU_EXACT_MESH_BOUNDARY_EPS so that triangles exactly
+/// on the ray line are caught by the slab test. Used in `classify_point_wrt_mesh`.
+pub const TAU_EXACT_MESH_SLAB_EPS: f64 = 1e-14;
+
 /// AABB vertex containment tolerance for mesh face classification (f32): 1e-4.
 /// Used in analytical boolean post-processing to detect whether mesh vertices
 /// lie on bounding-box faces. Matches TAU_WELD_MAX but in f32 space.

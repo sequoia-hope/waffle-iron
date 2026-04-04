@@ -228,6 +228,7 @@ impl BooleanOptions {
         Ok(())
     }
 
+    #[allow(dead_code)] // Convenience constructor for future boolean testing
     pub fn for_boolean_tol(tol: f64) -> Self {
         Self {
             tau_model: tol,
