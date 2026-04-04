@@ -236,7 +236,24 @@ mod tests {
             direction: Vector3::new(0.0, 2.0, 0.0),
         };
         let t = l.tangent(0.0);
-        assert!((t.y - 1.0).abs() < EPS);
+        // Tangent must be unit-length direction (0,1,0) regardless of input magnitude
+        assert!(t.x.abs() < EPS, "tangent x must be 0, got {}", t.x);
+        assert!((t.y - 1.0).abs() < EPS, "tangent y must be 1, got {}", t.y);
+        assert!(t.z.abs() < EPS, "tangent z must be 0, got {}", t.z);
+        // Tangent must be identical at all parameter values (line is straight)
+        let t2 = l.tangent(99.0);
+        assert!(
+            (t2.x - t.x).abs() < EPS,
+            "tangent must be constant along line"
+        );
+        assert!(
+            (t2.y - t.y).abs() < EPS,
+            "tangent must be constant along line"
+        );
+        assert!(
+            (t2.z - t.z).abs() < EPS,
+            "tangent must be constant along line"
+        );
     }
 
     #[test]
@@ -297,9 +314,33 @@ mod tests {
             start_point: Point3::new(4.0, 0.0, 0.0),
             sweep_angle: FRAC_PI_2,
         };
+        // t=0 → start point (4, 0, 0)
         let pt = a.evaluate(0.0);
-        assert!((pt.x - 4.0).abs() < EPS);
-        assert!(pt.y.abs() < EPS);
+        assert!(
+            (pt.x - 4.0).abs() < EPS,
+            "arc start x must be 4, got {}",
+            pt.x
+        );
+        assert!(pt.y.abs() < EPS, "arc start y must be 0, got {}", pt.y);
+        assert!(pt.z.abs() < EPS, "arc start z must be 0, got {}", pt.z);
+        // t=π/2 → end point (0, 4, 0) for 90° sweep in XY plane
+        let end = a.evaluate(FRAC_PI_2);
+        assert!(end.x.abs() < EPS, "arc end x must be 0, got {}", end.x);
+        assert!(
+            (end.y - 4.0).abs() < EPS,
+            "arc end y must be 4, got {}",
+            end.y
+        );
+        assert!(end.z.abs() < EPS, "arc end z must be 0, got {}", end.z);
+        // All evaluated points must lie on circle (distance from center = radius)
+        for &t in &[0.0, 0.3, 0.7, 1.0, FRAC_PI_2] {
+            let p = a.evaluate(t);
+            let dist = (p.x * p.x + p.y * p.y + p.z * p.z).sqrt();
+            assert!(
+                (dist - 4.0).abs() < EPS,
+                "arc evaluate({t}) not on circle: dist={dist}"
+            );
+        }
     }
 
     #[test]
@@ -309,9 +350,13 @@ mod tests {
             direction: Vector3::new(1.0, 0.0, 0.0),
         });
         let pt = cg.evaluate(5.0);
-        assert!((pt.x - 5.0).abs() < EPS);
+        assert!((pt.x - 5.0).abs() < EPS, "dispatch evaluate x");
+        assert!(pt.y.abs() < EPS, "dispatch evaluate y must be 0");
+        assert!(pt.z.abs() < EPS, "dispatch evaluate z must be 0");
         let t = cg.tangent(0.0);
-        assert!((t.x - 1.0).abs() < EPS);
+        assert!((t.x - 1.0).abs() < EPS, "dispatch tangent x");
+        assert!(t.y.abs() < EPS, "dispatch tangent y must be 0");
+        assert!(t.z.abs() < EPS, "dispatch tangent z must be 0");
     }
 
     #[test]

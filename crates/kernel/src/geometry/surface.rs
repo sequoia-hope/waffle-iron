@@ -692,8 +692,28 @@ mod tests {
         });
         assert!(sg.is_quadric());
         assert!(sg.contains_point(Point3::new(3.0, 0.0, 0.0)));
+        assert!(
+            !sg.contains_point(Point3::new(1.0, 0.0, 0.0)),
+            "interior point must not be on surface"
+        );
         let proj = sg.project_point(Point3::new(6.0, 0.0, 0.0));
-        assert!((proj.x - 3.0).abs() < EPS);
+        assert!(
+            (proj.x - 3.0).abs() < EPS,
+            "projection x must be 3, got {}",
+            proj.x
+        );
+        assert!(proj.y.abs() < EPS, "projection y must be 0, got {}", proj.y);
+        assert!(proj.z.abs() < EPS, "projection z must be 0, got {}", proj.z);
+        // Oracle: projected point must lie on sphere surface
+        assert!(sg.contains_point(proj), "projection must lie on surface");
+        // Dispatch to planar variant
+        let planar = SurfaceGeom::Planar(Plane {
+            origin: Point3::origin(),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+        });
+        assert!(planar.is_quadric());
+        assert!(planar.contains_point(Point3::new(99.0, -42.0, 0.0)));
+        assert!(!planar.contains_point(Point3::new(0.0, 0.0, 1.0)));
     }
 
     #[test]
@@ -705,6 +725,13 @@ mod tests {
         };
         // Point on plane: (2, 1, 0) — (2-1, 1-1, 0-1)·(1,1,1)/√3 = (1+0-1)/√3 = 0
         assert!(p.contains_point(Point3::new(2.0, 1.0, 0.0)));
+        // Another on-plane point: (0, 0, 3) — (-1,-1,2)·(1,1,1)/√3 = 0
+        assert!(p.contains_point(Point3::new(0.0, 0.0, 3.0)));
+        // Off-plane point: (2, 2, 2) — (1,1,1)·(1,1,1)/√3 = √3 ≠ 0
+        assert!(!p.contains_point(Point3::new(2.0, 2.0, 2.0)));
+        // Oracle: projection of off-plane point must lie on plane
+        let proj = p.project_point(Point3::new(2.0, 2.0, 2.0));
+        assert!(p.contains_point(proj), "projection must lie on plane");
     }
 
     #[test]
@@ -715,8 +742,25 @@ mod tests {
             axis,
             radius: 2.0,
         };
-        // Point perpendicular to axis at distance 2
+        // Point perpendicular to axis at distance 2 (along z)
         let pt = Point3::new(0.0, 0.0, 2.0);
         assert!(c.contains_point(pt));
+        // Point on surface at a different azimuth
+        let pt2 = Point3::new(0.0, 0.0, -2.0);
+        assert!(
+            c.contains_point(pt2),
+            "opposite azimuth must also be on surface"
+        );
+        // Interior point
+        assert!(
+            !c.contains_point(Point3::new(0.0, 0.0, 0.5)),
+            "interior point must not be on surface"
+        );
+        // Oracle: projection of exterior point must lie on surface
+        let proj = c.project_point(Point3::new(0.0, 0.0, 10.0));
+        assert!(
+            c.contains_point(proj),
+            "projection must lie on cylinder surface"
+        );
     }
 }

@@ -4815,8 +4815,8 @@ mod tests {
         let verts: Vec<[f64; 3]> = vec![
             [0.0, 0.0, 0.0],  // 0: edge start
             [0.0, 0.0, 1.0],  // 1: edge end
-            [1.0, 0.0, 0.5],  // 2: +x
-            [-1.0, 0.0, 0.5], // 3: -x
+            [1.0, 0.0, 0.5],  // 2: +x (angle 0°)
+            [-1.0, 0.0, 0.5], // 3: -x (angle 180°)
         ];
         let edge = [0, 1];
         let triangles = vec![
@@ -4828,6 +4828,15 @@ mod tests {
 
         // I2: both indices present
         assert_is_permutation(&sorted, 2);
+        // O1: angular ordering — +x (0°) must precede -x (180°) in CCW order
+        assert_eq!(
+            sorted[0], 0,
+            "+x triangle (0°) must be first in radial order"
+        );
+        assert_eq!(
+            sorted[1], 1,
+            "-x triangle (180°) must be second in radial order"
+        );
     }
 
     #[test]
