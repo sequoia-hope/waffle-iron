@@ -1251,6 +1251,14 @@ pub(crate) fn face_survival_detect(
 ///
 /// Ref [#24]: Yang, Jia & Yan (2025) — stages 1-3 of the hybrid pipeline.
 #[allow(dead_code)] // Phase 3 building block — task 3d
+/// Full result of the Yang boolean pipeline, including intermediates needed
+/// for mesh passthrough (cached render mesh construction).
+pub(crate) struct YangPipelineResult {
+    pub topology: ResultTopology,
+    pub survival: FaceSurvivalMap,
+    pub subdivided: SubdividedMesh,
+}
+
 pub(crate) fn yang_boolean_pipeline(
     verts_a: &[[f64; 3]],
     tris_a: &[[usize; 3]],
@@ -1259,7 +1267,7 @@ pub(crate) fn yang_boolean_pipeline(
     bijective_a: &BijectiveMap,
     bijective_b: &BijectiveMap,
     op: MeshBooleanOp,
-) -> Result<ResultTopology, KernelError> {
+) -> Result<YangPipelineResult, KernelError> {
     // Stage 1: Subdivide both meshes along their mutual intersections.
     let subdivided = subdivide_mesh_pair(verts_a, tris_a, verts_b, tris_b);
 
@@ -1280,7 +1288,13 @@ pub(crate) fn yang_boolean_pipeline(
     // Uses mesh-level adjacency for twin pairing, which correctly handles
     // perpendicular face junctions where trim-boundary extraction loses
     // cross-face adjacency information. Ref [#24] Yang 2025 — Stage 3.
-    Ok(build_result_brep_from_mesh(&survival, &subdivided))
+    let topology = build_result_brep_from_mesh(&survival, &subdivided);
+
+    Ok(YangPipelineResult {
+        topology,
+        survival,
+        subdivided,
+    })
 }
 
 #[cfg(test)]
@@ -2854,6 +2868,7 @@ mod tests {
             op,
         )
         .unwrap()
+        .topology
     }
 
     // ── 3d-Test 1: Subtract produces non-empty topology ──
@@ -3016,7 +3031,8 @@ mod tests {
             &bij_empty,
             MeshBooleanOp::Subtract,
         )
-        .unwrap();
+        .unwrap()
+        .topology;
 
         assert_eq!(
             result.arena.vertices.len(),
@@ -3078,7 +3094,8 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Subtract,
         )
-        .unwrap();
+        .unwrap()
+        .topology;
 
         assert!(
             survival_face_count > 0,
@@ -3165,7 +3182,8 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Intersect,
         )
-        .unwrap();
+        .unwrap()
+        .topology;
 
         // The result should have zero faces (no overlap → no surviving faces).
         assert_eq!(
@@ -3235,8 +3253,8 @@ mod tests {
     /// Helper: check whether a value is a Result type using std::any::TypeId.
     fn is_result_type<T: 'static>(_val: &T) -> bool {
         use std::any::TypeId;
-        // Check if T is Result<ResultTopology, KernelError>
-        TypeId::of::<T>() == TypeId::of::<Result<ResultTopology, crate::types::KernelError>>()
+        // Check if T is Result<YangPipelineResult, KernelError>
+        TypeId::of::<T>() == TypeId::of::<Result<YangPipelineResult, crate::types::KernelError>>()
     }
 
     // ══════════════════════════════════════════════════════════════════
@@ -3660,7 +3678,8 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Union,
         )
-        .expect("pipeline should not error");
+        .expect("pipeline should not error")
+        .topology;
 
         let n_faces = result.arena.faces.len();
         let n_edges = result.arena.edges.len();
@@ -3713,7 +3732,8 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Union,
         )
-        .expect("pipeline should not error");
+        .expect("pipeline should not error")
+        .topology;
 
         let n_faces = result.arena.faces.len();
         let n_he = result.arena.half_edges.len();
@@ -3760,7 +3780,8 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Union,
         )
-        .expect("pipeline should not error");
+        .expect("pipeline should not error")
+        .topology;
 
         let n_faces = result.arena.faces.len();
         let n_edges = result.arena.edges.len();
@@ -3827,7 +3848,8 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Union,
         )
-        .expect("Yang pipeline should not error");
+        .expect("Yang pipeline should not error")
+        .topology;
 
         let n_faces = result.arena.faces.len();
         let n_edges = result.arena.edges.len();
@@ -3877,7 +3899,8 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Union,
         )
-        .expect("Yang pipeline should not error");
+        .expect("Yang pipeline should not error")
+        .topology;
 
         let n_faces = result.arena.faces.len();
         let n_edges = result.arena.edges.len();
@@ -4068,7 +4091,8 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Union,
         )
-        .expect("Yang pipeline should not error");
+        .expect("Yang pipeline should not error")
+        .topology;
 
         let n_faces = result.arena.faces.len();
         let n_edges = result.arena.edges.len();
@@ -4117,7 +4141,8 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Union,
         )
-        .expect("Yang pipeline should not error");
+        .expect("Yang pipeline should not error")
+        .topology;
 
         let n_faces = result.arena.faces.len();
         let n_edges = result.arena.edges.len();

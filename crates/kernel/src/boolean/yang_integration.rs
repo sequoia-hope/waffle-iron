@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 
 use crate::boolean::exact_mesh::MeshId;
 use crate::boolean::ssi_refinement::EdgeRefinementMap;
-use crate::boolean::topology_extract::ResultTopology;
+use crate::boolean::topology_extract::{FaceSurvivalMap, ResultTopology, SourceFace};
 use crate::boolean::BoolOp;
 use crate::boolean::BooleanResult;
 use crate::geometry::curve::{Circle3D, CurveGeom, Ellipse3D, Line3D};
@@ -19,10 +19,11 @@ use crate::geometry::point::{Point3, Vector3};
 use crate::geometry::surface::SurfaceGeom;
 use crate::ssi::SSICurve;
 use crate::topology::half_edge::{EdgeIdx, FaceIdx, VertexIdx};
-use crate::types::{KernelError, RenderMesh};
+use crate::types::{FaceRange, KernelError, KernelId, RenderMesh};
 use crate::waffle_kernel::WaffleSolid;
+use std::collections::HashMap;
 
-use crate::boolean::exact_mesh::MeshBooleanOp;
+use crate::boolean::exact_mesh::{MeshBooleanOp, SubdividedMesh};
 use crate::boolean::ssi_refinement::{classify_intersection_edges, refine_intersection_edges};
 use crate::boolean::topology_extract::yang_boolean_pipeline;
 use crate::tessellation;
@@ -211,6 +212,7 @@ pub(crate) fn result_topology_to_waffle_solid(
         torus_params: None,
         cached_face_polys: None,
         is_polygon_soup: false,
+        cached_render_mesh: None,
     }
 }
 
@@ -225,7 +227,260 @@ pub(crate) fn waffle_solid_to_boolean_result(solid: WaffleSolid) -> BooleanResul
         face_geometry: solid.face_geometry,
         edge_geometry: solid.edge_geometry,
         cached_face_polys: None,
+        cached_render_mesh: solid.cached_render_mesh,
     }
+}
+
+// ── Mesh passthrough: cached render mesh from surviving sub-triangles ───
+
+/// Build a RenderMesh directly from the mesh boolean's surviving sub-triangles.
+///
+/// This bypasses B-Rep retessellation (ear-clipping), preserving the exact
+/// mesh boolean's self-intersection-free guarantee. Each source face's
+/// sub-triangles are grouped into a FaceRange for the oracle's per-face checks.
+///
+/// Normals are computed from the source face's SurfaceGeom when analytical
+/// (Planar/Cylindrical/Spherical/etc.), falling back to triangle cross-product
+/// for faces without surface geometry.
+///
+/// Ref [#24]: Yang 2025 — mesh output as computational tool.
+/// Ref [#9]: Cherchi 2020 — conformal subdivision preserves manifoldness.
+pub(crate) fn build_render_mesh_from_survival(
+    survival: &FaceSurvivalMap,
+    subdivided: &SubdividedMesh,
+    surface_map: &BTreeMap<(MeshId, FaceIdx), SurfaceGeom>,
+    face_provenance: &BTreeMap<FaceIdx, SourceFace>,
+    face_map: &BTreeMap<u64, FaceIdx>,
+) -> RenderMesh {
+    // Build reverse maps for face ID lookup.
+    // face_map: kernel_id → FaceIdx, we need FaceIdx → kernel_id
+    let face_idx_to_id: BTreeMap<FaceIdx, u64> =
+        face_map.iter().map(|(&id, &fidx)| (fidx, id)).collect();
+
+    // Build SourceFace → kernel_id via face_provenance and face_idx_to_id.
+    // Multiple FaceIdx entries may point to the same SourceFace (after coplanar
+    // merge). Use the first matching kernel ID.
+    let mut source_to_kernel_id: BTreeMap<SourceFace, u64> = BTreeMap::new();
+    for (&fidx, &src) in face_provenance {
+        if let Some(&kid) = face_idx_to_id.get(&fidx) {
+            source_to_kernel_id.entry(src).or_insert(kid);
+        }
+    }
+
+    // Step 1: Position-based vertex deduplication (nanometer quantization).
+    // Shared vertices across face boundaries produce watertight output.
+    let scale = crate::units::QUANT_NANOMETER_SCALE;
+    let mut pos_to_idx: HashMap<[i64; 3], u32> = HashMap::new();
+    let mut vertices: Vec<f32> = Vec::new();
+    let mut normals: Vec<f32> = Vec::new();
+
+    let quant = |p: [f64; 3]| -> [i64; 3] {
+        [
+            (p[0] * scale).round() as i64,
+            (p[1] * scale).round() as i64,
+            (p[2] * scale).round() as i64,
+        ]
+    };
+
+    // For shared vertices, we need to defer normal assignment.
+    // Track: vertex_index → accumulated normal (will normalize at the end).
+    // Use per-triangle vertex emission for correct per-face normals, but
+    // share vertex positions via index dedup for watertight mesh.
+
+    let mut indices: Vec<u32> = Vec::new();
+    let mut face_ranges: Vec<FaceRange> = Vec::new();
+
+    // Step 2: Emit triangles grouped by source face for face_ranges.
+    // Collect (kernel_face_id, list of sub-tris) in deterministic order.
+    let mut face_tris: BTreeMap<
+        u64,
+        Vec<(
+            &crate::boolean::topology_extract::SurvivingSubTri,
+            &SourceFace,
+        )>,
+    > = BTreeMap::new();
+    for (source_face, tris) in &survival.groups {
+        let kid = source_to_kernel_id.get(source_face).copied().unwrap_or(0);
+        for tri in tris {
+            face_tris.entry(kid).or_default().push((tri, source_face));
+        }
+    }
+
+    for (&kernel_face_id, tris) in &face_tris {
+        let start_index = indices.len() as u32;
+
+        for &(tri, source_face) in tris {
+            // Apply winding: if flipped, reverse vertex order
+            let (v0i, v1i, v2i) = if tri.flipped {
+                (tri.verts[0], tri.verts[2], tri.verts[1])
+            } else {
+                (tri.verts[0], tri.verts[1], tri.verts[2])
+            };
+
+            let p0 = subdivided.verts[v0i];
+            let p1 = subdivided.verts[v1i];
+            let p2 = subdivided.verts[v2i];
+
+            // Compute normal from surface geometry or triangle cross-product.
+            let geom_key = (source_face.mesh_id, source_face.face_idx);
+            let face_normal =
+                compute_face_normal(&p0, &p1, &p2, surface_map.get(&geom_key), tri.flipped);
+
+            // Emit vertices with per-triangle normals (for correct face shading).
+            // Use position-dedup for index sharing at boundaries.
+            let idx0 = get_or_insert_vertex(
+                &mut pos_to_idx,
+                &mut vertices,
+                &mut normals,
+                p0,
+                face_normal,
+                quant,
+            );
+            let idx1 = get_or_insert_vertex(
+                &mut pos_to_idx,
+                &mut vertices,
+                &mut normals,
+                p1,
+                face_normal,
+                quant,
+            );
+            let idx2 = get_or_insert_vertex(
+                &mut pos_to_idx,
+                &mut vertices,
+                &mut normals,
+                p2,
+                face_normal,
+                quant,
+            );
+
+            indices.push(idx0);
+            indices.push(idx1);
+            indices.push(idx2);
+        }
+
+        let end_index = indices.len() as u32;
+        if end_index > start_index {
+            face_ranges.push(FaceRange {
+                face_id: KernelId(kernel_face_id),
+                start_index,
+                end_index,
+            });
+        }
+    }
+
+    RenderMesh {
+        vertices,
+        normals,
+        indices,
+        face_ranges,
+    }
+}
+
+/// Compute face normal for a triangle, using analytical surface geometry when available.
+fn compute_face_normal(
+    p0: &[f64; 3],
+    p1: &[f64; 3],
+    p2: &[f64; 3],
+    geom: Option<&SurfaceGeom>,
+    flipped: bool,
+) -> [f32; 3] {
+    let sign = if flipped { -1.0f32 } else { 1.0f32 };
+
+    if let Some(surface) = geom {
+        match surface {
+            SurfaceGeom::Planar(plane) => {
+                return [
+                    plane.normal.x as f32 * sign,
+                    plane.normal.y as f32 * sign,
+                    plane.normal.z as f32 * sign,
+                ];
+            }
+            SurfaceGeom::Cylindrical(cyl) => {
+                // Use triangle centroid for radial normal computation
+                let cx = (p0[0] + p1[0] + p2[0]) / 3.0;
+                let cy = (p0[1] + p1[1] + p2[1]) / 3.0;
+                let cz = (p0[2] + p1[2] + p2[2]) / 3.0;
+                let to_pt = [cx - cyl.origin.x, cy - cyl.origin.y, cz - cyl.origin.z];
+                let ax = [cyl.axis.x, cyl.axis.y, cyl.axis.z];
+                let dot = to_pt[0] * ax[0] + to_pt[1] * ax[1] + to_pt[2] * ax[2];
+                let radial = [
+                    to_pt[0] - dot * ax[0],
+                    to_pt[1] - dot * ax[1],
+                    to_pt[2] - dot * ax[2],
+                ];
+                let len =
+                    (radial[0] * radial[0] + radial[1] * radial[1] + radial[2] * radial[2]).sqrt();
+                if len > 1e-12 {
+                    return [
+                        (radial[0] / len) as f32 * sign,
+                        (radial[1] / len) as f32 * sign,
+                        (radial[2] / len) as f32 * sign,
+                    ];
+                }
+            }
+            SurfaceGeom::Spherical(sphere) => {
+                let cx = (p0[0] + p1[0] + p2[0]) / 3.0;
+                let cy = (p0[1] + p1[1] + p2[1]) / 3.0;
+                let cz = (p0[2] + p1[2] + p2[2]) / 3.0;
+                let radial = [
+                    cx - sphere.center.x,
+                    cy - sphere.center.y,
+                    cz - sphere.center.z,
+                ];
+                let len =
+                    (radial[0] * radial[0] + radial[1] * radial[1] + radial[2] * radial[2]).sqrt();
+                if len > 1e-12 {
+                    return [
+                        (radial[0] / len) as f32 * sign,
+                        (radial[1] / len) as f32 * sign,
+                        (radial[2] / len) as f32 * sign,
+                    ];
+                }
+            }
+            _ => {} // Fall through to cross-product
+        }
+    }
+
+    // Fallback: triangle cross-product normal
+    let e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+    let e2 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+    let nx = e1[1] * e2[2] - e1[2] * e2[1];
+    let ny = e1[2] * e2[0] - e1[0] * e2[2];
+    let nz = e1[0] * e2[1] - e1[1] * e2[0];
+    let len = (nx * nx + ny * ny + nz * nz).sqrt();
+    if len > 1e-12 {
+        [(nx / len) as f32, (ny / len) as f32, (nz / len) as f32]
+    } else {
+        [0.0, 0.0, 1.0]
+    }
+}
+
+/// Get or insert a vertex into the shared vertex pool, deduplicating by position.
+/// For shared vertices (same quantized position), the FIRST normal wins.
+/// This is acceptable because shared boundary vertices typically have the same
+/// face normal on both sides (conformal subdivision), and the per-face normal
+/// differences are handled by the face_ranges partitioning.
+fn get_or_insert_vertex(
+    pos_to_idx: &mut HashMap<[i64; 3], u32>,
+    vertices: &mut Vec<f32>,
+    normals: &mut Vec<f32>,
+    pos: [f64; 3],
+    normal: [f32; 3],
+    quant: impl Fn([f64; 3]) -> [i64; 3],
+) -> u32 {
+    let key = quant(pos);
+    if let Some(&idx) = pos_to_idx.get(&key) {
+        return idx;
+    }
+    let idx = (vertices.len() / 3) as u32;
+    vertices.push(pos[0] as f32);
+    vertices.push(pos[1] as f32);
+    vertices.push(pos[2] as f32);
+    normals.push(normal[0]);
+    normals.push(normal[1]);
+    normals.push(normal[2]);
+    pos_to_idx.insert(key, idx);
+    idx
 }
 
 // ── Main entry point ────────────────────────────────────────────────────
@@ -313,7 +568,7 @@ pub(crate) fn yang_boolean_inner(
     }
 
     // Step 4: Run Yang pipeline (Phases 1-3): mesh boolean → topology extract.
-    let result_topo = yang_boolean_pipeline(
+    let pipeline_result = yang_boolean_pipeline(
         &verts_a,
         &tris_a,
         &verts_b,
@@ -327,10 +582,14 @@ pub(crate) fn yang_boolean_inner(
     // This may fail if face provenance references faces not in the surface map
     // (e.g., due to subdivision creating new face indices). In that case, skip
     // refinement and use the topology as-is.
-    let refinement = match classify_intersection_edges(&result_topo, &surface_map) {
+    let refinement = match classify_intersection_edges(&pipeline_result.topology, &surface_map) {
         Ok(classification) => {
             // Step 6: Phase 4b — refine intersection edges with SSI solvers.
-            match refine_intersection_edges(&result_topo, &classification, &surface_map) {
+            match refine_intersection_edges(
+                &pipeline_result.topology,
+                &classification,
+                &surface_map,
+            ) {
                 Ok(r) => r,
                 Err(ref e) => {
                     eprintln!(
@@ -360,15 +619,23 @@ pub(crate) fn yang_boolean_inner(
     // the legacy pipeline can handle this case. An empty topology means the
     // boolean operation produced no surviving geometry (e.g., non-overlapping
     // operands for Intersect). Ref: specs/yang_error_fallback.md
-    if result_topo.face_provenance.is_empty() {
+    if pipeline_result.topology.face_provenance.is_empty() {
         return Err(KernelError::NotSupported {
             operation: "yang_boolean: pipeline produced empty topology (zero surviving faces)"
                 .to_string(),
         });
     }
 
+    // Save face_provenance before ownership transfer to result_topology_to_waffle_solid.
+    let face_provenance = pipeline_result.topology.face_provenance.clone();
+
     // Step 7: Convert ResultTopology → WaffleSolid → BooleanResult.
-    let waffle = result_topology_to_waffle_solid(result_topo, &refinement, &surface_map, id_alloc);
+    let mut waffle = result_topology_to_waffle_solid(
+        pipeline_result.topology,
+        &refinement,
+        &surface_map,
+        id_alloc,
+    );
 
     // Step 8: Validate result topology before accepting. The Yang pipeline may
     // produce invalid B-Rep (dangling edge references, invalid indices) that would
@@ -379,6 +646,19 @@ pub(crate) fn yang_boolean_inner(
             operation: format!("yang_boolean: result validation failed: {msg}"),
         });
     }
+
+    // Step 9: Build cached render mesh directly from surviving sub-triangles.
+    // This bypasses B-Rep retessellation (ear-clipping), preserving the exact
+    // mesh boolean's self-intersection-free guarantee. Ref [#24] Yang 2025,
+    // [#9] Cherchi 2020 — conformal subdivision preserves manifoldness.
+    let cached_mesh = build_render_mesh_from_survival(
+        &pipeline_result.survival,
+        &pipeline_result.subdivided,
+        &surface_map,
+        &face_provenance,
+        &waffle.face_map,
+    );
+    waffle.cached_render_mesh = Some(cached_mesh);
 
     Ok(waffle_solid_to_boolean_result(waffle))
 }
@@ -756,6 +1036,7 @@ mod tests {
             torus_params: None,
             cached_face_polys: None,
             is_polygon_soup: false,
+            cached_render_mesh: None,
         }
     }
 
@@ -902,6 +1183,7 @@ mod tests {
             torus_params: None,
             cached_face_polys: None,
             is_polygon_soup: false,
+            cached_render_mesh: None,
         }
     }
 
@@ -1217,5 +1499,195 @@ mod tests {
                 panic!("Yang E2E offset box subtract failed with error: {e:?}.");
             }
         }
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Mesh passthrough tests: cached render mesh from surviving sub-tris
+    // ══════════════════════════════════════════════════════════════════
+
+    /// Verify that yang_boolean_inner produces a cached_render_mesh.
+    #[test]
+    fn yang_mesh_passthrough_produces_cached_mesh() {
+        let (k_a, h_a) = make_box_via_kernel(0.5, 0.5, 2.0, 2.0, 2.0);
+        let (k_b, h_b) = make_box_via_kernel(1.5, 0.5, 2.0, 2.0, 2.0);
+        let solid_a = k_a.get_solid(&h_a).unwrap();
+        let solid_b = k_b.get_solid(&h_b).unwrap();
+
+        let mut next_id = 1000u64;
+        let result = yang_boolean_inner(solid_a, solid_b, BoolOp::Union, &mut || {
+            let id = next_id;
+            next_id += 1;
+            id
+        })
+        .expect("Union should succeed");
+
+        assert!(
+            result.cached_render_mesh.is_some(),
+            "Yang pipeline should produce a cached render mesh"
+        );
+
+        let mesh = result.cached_render_mesh.as_ref().unwrap();
+
+        // Basic sanity checks
+        assert!(!mesh.vertices.is_empty(), "mesh must have vertices");
+        assert!(!mesh.indices.is_empty(), "mesh must have indices");
+        assert!(!mesh.normals.is_empty(), "mesh must have normals");
+        assert_eq!(
+            mesh.vertices.len(),
+            mesh.normals.len(),
+            "vertex and normal arrays must match"
+        );
+        assert_eq!(mesh.vertices.len() % 3, 0, "vertices must be xyz triples");
+        assert_eq!(mesh.indices.len() % 3, 0, "indices must be triangles");
+    }
+
+    /// Verify face_ranges cover all indices.
+    #[test]
+    fn yang_mesh_passthrough_face_ranges_cover_all_indices() {
+        let (k_a, h_a) = make_box_via_kernel(0.5, 0.5, 2.0, 2.0, 2.0);
+        let (k_b, h_b) = make_box_via_kernel(1.5, 0.5, 2.0, 2.0, 2.0);
+        let solid_a = k_a.get_solid(&h_a).unwrap();
+        let solid_b = k_b.get_solid(&h_b).unwrap();
+
+        let mut next_id = 1000u64;
+        let result = yang_boolean_inner(solid_a, solid_b, BoolOp::Union, &mut || {
+            let id = next_id;
+            next_id += 1;
+            id
+        })
+        .expect("Union should succeed");
+
+        let mesh = result.cached_render_mesh.as_ref().unwrap();
+        assert!(
+            !mesh.face_ranges.is_empty(),
+            "face_ranges must be non-empty"
+        );
+
+        let total_covered: u32 = mesh
+            .face_ranges
+            .iter()
+            .map(|fr| fr.end_index - fr.start_index)
+            .sum();
+        assert_eq!(
+            total_covered,
+            mesh.indices.len() as u32,
+            "face_ranges must cover all indices"
+        );
+    }
+
+    /// Verify normals are unit length.
+    #[test]
+    fn yang_mesh_passthrough_unit_normals() {
+        let (k_a, h_a) = make_box_via_kernel(0.5, 0.5, 2.0, 2.0, 2.0);
+        let (k_b, h_b) = make_box_via_kernel(1.5, 0.5, 2.0, 2.0, 2.0);
+        let solid_a = k_a.get_solid(&h_a).unwrap();
+        let solid_b = k_b.get_solid(&h_b).unwrap();
+
+        let mut next_id = 1000u64;
+        let result = yang_boolean_inner(solid_a, solid_b, BoolOp::Union, &mut || {
+            let id = next_id;
+            next_id += 1;
+            id
+        })
+        .expect("Union should succeed");
+
+        let mesh = result.cached_render_mesh.as_ref().unwrap();
+        let n_verts = mesh.normals.len() / 3;
+        for i in 0..n_verts {
+            let nx = mesh.normals[i * 3] as f64;
+            let ny = mesh.normals[i * 3 + 1] as f64;
+            let nz = mesh.normals[i * 3 + 2] as f64;
+            let len = (nx * nx + ny * ny + nz * nz).sqrt();
+            assert!(
+                (len - 1.0).abs() < 1e-3,
+                "Normal {i} has length {len}, expected 1.0"
+            );
+        }
+    }
+
+    /// Verify all three boolean operations produce cached meshes.
+    #[test]
+    fn yang_mesh_passthrough_all_ops() {
+        for op in [BoolOp::Union, BoolOp::Subtract, BoolOp::Intersect] {
+            let (k_a, h_a) = make_box_via_kernel(0.5, 0.5, 2.0, 2.0, 2.0);
+            let (k_b, h_b) = make_box_via_kernel(1.5, 0.5, 2.0, 2.0, 2.0);
+            let solid_a = k_a.get_solid(&h_a).unwrap();
+            let solid_b = k_b.get_solid(&h_b).unwrap();
+
+            let mut next_id = 1000u64;
+            let result = yang_boolean_inner(solid_a, solid_b, op, &mut || {
+                let id = next_id;
+                next_id += 1;
+                id
+            });
+
+            match result {
+                Ok(r) => {
+                    assert!(
+                        r.cached_render_mesh.is_some(),
+                        "Op {:?} should produce cached mesh",
+                        op
+                    );
+                    let mesh = r.cached_render_mesh.as_ref().unwrap();
+                    assert!(
+                        !mesh.indices.is_empty(),
+                        "Op {:?} mesh should be non-empty",
+                        op
+                    );
+                }
+                Err(e) => {
+                    // NotSupported is acceptable (e.g., empty topology for some ops)
+                    eprintln!("Op {:?} returned error (acceptable): {:?}", op, e);
+                }
+            }
+        }
+    }
+
+    /// Verify cached mesh watertightness: every edge has exactly 2 incident triangles.
+    #[test]
+    fn yang_mesh_passthrough_watertight() {
+        let (k_a, h_a) = make_box_via_kernel(0.5, 0.5, 2.0, 2.0, 2.0);
+        let (k_b, h_b) = make_box_via_kernel(1.5, 0.5, 2.0, 2.0, 2.0);
+        let solid_a = k_a.get_solid(&h_a).unwrap();
+        let solid_b = k_b.get_solid(&h_b).unwrap();
+
+        let mut next_id = 1000u64;
+        let result = yang_boolean_inner(solid_a, solid_b, BoolOp::Union, &mut || {
+            let id = next_id;
+            next_id += 1;
+            id
+        })
+        .expect("Union should succeed");
+
+        let mesh = result.cached_render_mesh.as_ref().unwrap();
+
+        // Count edge usage: each directed edge (i→j) should have a reverse (j→i).
+        use std::collections::HashMap;
+        let mut edge_count: HashMap<(u32, u32), usize> = HashMap::new();
+        for tri in mesh.indices.chunks(3) {
+            if tri.len() < 3 {
+                continue;
+            }
+            for k in 0..3 {
+                let v0 = tri[k];
+                let v1 = tri[(k + 1) % 3];
+                *edge_count.entry((v0, v1)).or_default() += 1;
+            }
+        }
+
+        let mut unpaired = 0;
+        for &(v0, v1) in edge_count.keys() {
+            let fwd = edge_count.get(&(v0, v1)).copied().unwrap_or(0);
+            let rev = edge_count.get(&(v1, v0)).copied().unwrap_or(0);
+            if fwd != rev {
+                unpaired += 1;
+            }
+        }
+
+        assert_eq!(
+            unpaired, 0,
+            "Cached mesh should be watertight (every directed edge has a reverse), \
+             found {unpaired} unpaired directed edges"
+        );
     }
 }

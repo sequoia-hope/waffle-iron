@@ -43,6 +43,11 @@ pub(crate) struct WaffleSolid {
     /// (S-H clipping), meaning bounded tessellation should be skipped in favor
     /// of per-face tessellation to allow internal fragment removal.
     pub(crate) is_polygon_soup: bool,
+    /// Cached render mesh from the Yang mesh boolean pipeline.
+    /// When present, tessellation returns this directly instead of
+    /// retessellating from B-Rep topology. The mesh boolean output is
+    /// self-intersection-free by construction (Cherchi 2020).
+    pub(crate) cached_render_mesh: Option<RenderMesh>,
 }
 
 /// Parameters for cylinder tessellation (stored after extrude_circle).
@@ -355,6 +360,7 @@ impl WaffleKernel {
                 torus_params: None,
                 cached_face_polys: None,
                 is_polygon_soup: false,
+                cached_render_mesh: None,
             },
         );
 
@@ -606,6 +612,7 @@ impl WaffleKernel {
                 torus_params: None,
                 cached_face_polys: None,
                 is_polygon_soup: false,
+                cached_render_mesh: None,
             },
         );
 
@@ -900,6 +907,7 @@ impl WaffleKernel {
                 }),
                 cached_face_polys: None,
                 is_polygon_soup: false,
+                cached_render_mesh: None,
             },
         );
 
@@ -1020,6 +1028,7 @@ impl WaffleKernel {
                         torus_params: None,
                         cached_face_polys: result.cached_face_polys,
                         is_polygon_soup: false,
+                        cached_render_mesh: result.cached_render_mesh,
                     },
                 );
                 return Ok(KernelSolidHandle(handle_id));
@@ -1353,6 +1362,7 @@ impl WaffleKernel {
                 torus_params: None,
                 cached_face_polys: result.cached_face_polys,
                 is_polygon_soup: polygon_soup,
+                cached_render_mesh: result.cached_render_mesh,
             },
         );
 
@@ -1715,6 +1725,7 @@ impl WaffleKernel {
                 torus_params: None,
                 cached_face_polys: None,
                 is_polygon_soup: false,
+                cached_render_mesh: None,
             },
         );
 
@@ -1915,6 +1926,7 @@ impl WaffleKernel {
                 torus_params: None,
                 cached_face_polys: None,
                 is_polygon_soup: false,
+                cached_render_mesh: None,
             },
         );
 
@@ -2379,6 +2391,7 @@ impl Kernel for WaffleKernel {
                 torus_params: None,
                 cached_face_polys: None,
                 is_polygon_soup: false,
+                cached_render_mesh: None,
             },
         );
 
@@ -2396,6 +2409,13 @@ impl Kernel for WaffleKernel {
             .ok_or(KernelError::EntityNotFound {
                 id: KernelId(solid.id()),
             })?;
+
+        // Yang pipeline mesh passthrough: return the cached mesh boolean output
+        // directly, bypassing retessellation. The mesh boolean's conformal
+        // subdivision guarantees no self-intersections (Cherchi 2020).
+        if let Some(ref mesh) = ws.cached_render_mesh {
+            return Ok(mesh.clone());
+        }
 
         tessellation::tessellate_solid_ext(
             &ws.arena,

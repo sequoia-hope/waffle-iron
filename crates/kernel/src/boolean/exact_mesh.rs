@@ -5859,7 +5859,8 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Union,
         )
-        .unwrap();
+        .unwrap()
+        .topology;
 
         let edge_count = result.arena.edges.len();
         let half_edge_count = result.arena.half_edges.len();
@@ -6569,7 +6570,8 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Union,
         )
-        .expect("Yang pipeline should succeed for overlapping boxes");
+        .expect("Yang pipeline should succeed for overlapping boxes")
+        .topology;
 
         let n_edges = result.arena.edges.len();
         let n_he = result.arena.half_edges.len();

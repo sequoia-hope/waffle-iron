@@ -318,6 +318,7 @@ pub(crate) fn polygon_approx_boolean(
                     face_geometry: BTreeMap::new(),
                     edge_geometry: BTreeMap::new(),
                     cached_face_polys: None,
+                    cached_render_mesh: None,
                 })
             }
         };
@@ -340,6 +341,7 @@ pub(crate) fn polygon_approx_boolean(
                     face_geometry: BTreeMap::new(),
                     edge_geometry: BTreeMap::new(),
                     cached_face_polys: None,
+                    cached_render_mesh: None,
                 })
             }
         };
@@ -964,6 +966,7 @@ fn build_empty_result(id_alloc: &mut dyn FnMut() -> u64) -> Result<BooleanResult
         face_geometry: BTreeMap::new(),
         edge_geometry: BTreeMap::new(),
         cached_face_polys: None,
+        cached_render_mesh: None,
     })
 }
 
@@ -1274,6 +1277,7 @@ fn non_parallel_cyl_cyl_boolean(
         face_geometry,
         edge_geometry,
         cached_face_polys: None,
+        cached_render_mesh: None,
     })
 }
 
@@ -1343,6 +1347,7 @@ fn cyl_cyl_boolean_z_aligned(
                                 face_geometry: BTreeMap::new(),
                                 edge_geometry: BTreeMap::new(),
                                 cached_face_polys: None,
+                                cached_render_mesh: None,
                             })
                         } else if tool_covers_bottom && !tool_covers_top {
                             // Case 2: Tool covers bottom, top survives [bz_max, az_max]
@@ -1470,6 +1475,7 @@ pub(super) fn clone_solid_as_result(
         face_geometry: solid.face_geometry.clone(),
         edge_geometry: solid.edge_geometry.clone(),
         cached_face_polys: None,
+        cached_render_mesh: None,
     })
 }
 
@@ -1626,6 +1632,7 @@ pub(crate) fn build_cyl_result(
         face_geometry,
         edge_geometry,
         cached_face_polys: None,
+        cached_render_mesh: None,
     })
 }
 
@@ -1685,6 +1692,7 @@ fn build_enclosed_cyl_subtract(
                     face_geometry: BTreeMap::new(),
                     edge_geometry: BTreeMap::new(),
                     cached_face_polys: None,
+                    cached_render_mesh: None,
                 })
             }
         }
@@ -2161,6 +2169,7 @@ fn build_cyl_tube(
         face_geometry,
         edge_geometry,
         cached_face_polys: None,
+        cached_render_mesh: None,
     })
 }
 
@@ -4132,6 +4141,7 @@ fn build_partial_cyl_cyl(
         face_geometry,
         edge_geometry,
         cached_face_polys: None,
+        cached_render_mesh: None,
     })
 }
 
@@ -4583,6 +4593,7 @@ pub(crate) fn planar_planar_boolean(
                 face_geometry: BTreeMap::new(),
                 edge_geometry: BTreeMap::new(),
                 cached_face_polys: None,
+                cached_render_mesh: None,
             });
         }
 
@@ -4683,6 +4694,7 @@ pub(crate) fn planar_planar_boolean(
             face_geometry: BTreeMap::new(),
             edge_geometry: BTreeMap::new(),
             cached_face_polys: None,
+            cached_render_mesh: None,
         });
     }
 

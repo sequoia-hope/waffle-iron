@@ -80,6 +80,8 @@ pub(crate) struct BooleanResult {
     pub edge_geometry: BTreeMap<EdgeIdx, CurveGeom>,
     /// Cached face polygons from the boolean result, for reuse in subsequent booleans.
     pub cached_face_polys: Option<Vec<FacePoly>>,
+    /// Cached render mesh from Yang pipeline mesh boolean output.
+    pub cached_render_mesh: Option<crate::types::RenderMesh>,
 }
 
 // ── Internal types ──────────────────────────────────────────────────────
@@ -920,6 +922,7 @@ pub(crate) fn boolean_op(
                     face_geometry: BTreeMap::new(),
                     edge_geometry: BTreeMap::new(),
                     cached_face_polys: None,
+                    cached_render_mesh: None,
                 })
             }
         };
@@ -944,6 +947,7 @@ pub(crate) fn boolean_op(
                     face_geometry: BTreeMap::new(),
                     edge_geometry: BTreeMap::new(),
                     cached_face_polys: None,
+                    cached_render_mesh: None,
                 })
             }
         };
@@ -986,6 +990,7 @@ pub(crate) fn boolean_op_tolerant(
                     face_geometry: BTreeMap::new(),
                     edge_geometry: BTreeMap::new(),
                     cached_face_polys: None,
+                    cached_render_mesh: None,
                 })
             }
         };
@@ -1008,6 +1013,7 @@ pub(crate) fn boolean_op_tolerant(
                     face_geometry: BTreeMap::new(),
                     edge_geometry: BTreeMap::new(),
                     cached_face_polys: None,
+                    cached_render_mesh: None,
                 })
             }
         };
@@ -1399,6 +1405,7 @@ fn boolean_op_from_polys_inner(
             face_geometry,
             edge_geometry,
             cached_face_polys: cached,
+            cached_render_mesh: None,
         });
     }
 
@@ -1537,6 +1544,7 @@ fn boolean_op_from_polys_inner(
             face_geometry: BTreeMap::new(),
             edge_geometry: BTreeMap::new(),
             cached_face_polys: None,
+            cached_render_mesh: None,
         });
     }
 
@@ -3175,6 +3183,7 @@ mod tests {
             cone_params: None,
             torus_params: None,
             cached_face_polys: None,
+            cached_render_mesh: None,
             is_polygon_soup: false,
         }
     }
