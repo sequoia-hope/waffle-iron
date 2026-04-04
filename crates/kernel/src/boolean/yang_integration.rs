@@ -1622,8 +1622,8 @@ mod tests {
             let nz = mesh.normals[i * 3 + 2] as f64;
             let len = (nx * nx + ny * ny + nz * nz).sqrt();
             assert!(
-                (len - 1.0).abs() < 1e-3,
-                "Normal {i} has length {len}, expected 1.0"
+                (len - 1.0).abs() < 1e-5,
+                "Normal {i} has length {len}, expected 1.0 (f32 precision)"
             );
         }
     }

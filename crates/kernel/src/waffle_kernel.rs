@@ -1034,24 +1034,36 @@ impl WaffleKernel {
                 return Ok(KernelSolidHandle(handle_id));
             }
             Ok(Err(ref e)) => {
-                // Yang pipeline failed — log the error so it's not silent (A15.6).
-                // Falls through to legacy dispatch while Yang is still env-var gated.
-                // TODO(A15.6): Once Yang pipeline is operational, this should return
-                // the error instead of falling through. Remove S-H fallback.
-                eprintln!(
-                    "[A15.6 WARN] Yang boolean pipeline failed, falling through to legacy dispatch: {e}"
-                );
+                // A15.6: Yang errors must not silently degrade to the legacy S-H path.
+                // The only legitimate fall-through is the env-var gate ("not enabled").
+                // Any other error means Yang was activated and failed — propagate it.
+                let is_gate = matches!(e, KernelError::NotSupported { operation } if operation.contains("not enabled"));
+                if !is_gate {
+                    eprintln!("[A15.6] Yang boolean pipeline failed (not falling through): {e}");
+                    return Err(e.clone());
+                }
+                // Env-var gate: Yang not enabled, fall through to legacy dispatch.
             }
             Err(panic_payload) => {
-                // Yang pipeline panicked (caught by catch_unwind) — log it.
+                // A15.6: Yang panics must not silently degrade to legacy dispatch.
+                // If YANG_BOOLEAN=1 is set and the pipeline panics, that's a hard error.
+                let yang_enabled = std::env::var("YANG_BOOLEAN").unwrap_or_default() == "1";
                 let msg = panic_payload
                     .downcast_ref::<&str>()
                     .copied()
                     .or_else(|| panic_payload.downcast_ref::<String>().map(|s| s.as_str()))
                     .unwrap_or("<non-string panic>");
-                eprintln!(
-                    "[A15.6 WARN] Yang boolean pipeline panicked, falling through to legacy dispatch: {msg}"
-                );
+                if yang_enabled {
+                    eprintln!(
+                        "[A15.6] Yang boolean pipeline panicked (not falling through): {msg}"
+                    );
+                    return Err(KernelError::NotSupported {
+                        operation: format!("yang_boolean: pipeline panicked: {msg}"),
+                    });
+                }
+                // Yang not enabled — panic during env-var check is unexpected but
+                // safe to fall through since Yang wasn't requested.
+                eprintln!("[A15.6] Yang boolean pipeline panicked unexpectedly: {msg}");
             }
         }
 
