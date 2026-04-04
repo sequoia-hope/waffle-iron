@@ -346,48 +346,96 @@ pub(crate) fn build_result_brep_from_mesh(
 
     // ── Step 1: Flatten surviving sub-tris with source face info ──
     struct SubTri {
-        verts: [usize; 3], // after flipped winding
+        verts: [usize; 3], // canonical vertex indices (after flipped winding)
         source: SourceFace,
     }
+
+    // ── Step 1b: Build canonical vertex index map ──
+    // Per-face-vertex meshes (24 verts per box) have no shared raw vertex indices
+    // between faces. Canonicalize by position so boundary detection finds twins
+    // across face groups. After coplanar merge, overlapping triangles from
+    // different source meshes share canonical indices — handled by multi-value
+    // directed_edge_map in Step 2.
+    // Ref [#9]: Cherchi 2020 — conformal vertex sharing by position.
+    let quant_canon = |p: [f64; 3]| -> [i64; 3] {
+        let scale = 1e9;
+        [
+            (p[0] * scale).round() as i64,
+            (p[1] * scale).round() as i64,
+            (p[2] * scale).round() as i64,
+        ]
+    };
+    let mut mesh_to_canon: HashMap<usize, usize> = HashMap::new();
+    let mut pos_to_canon: HashMap<[i64; 3], usize> = HashMap::new();
+
+    for tris in survival.groups.values() {
+        for tri in tris {
+            for &vi in &tri.verts {
+                if mesh_to_canon.contains_key(&vi) {
+                    continue;
+                }
+                let qp = quant_canon(subdivided.verts[vi]);
+                let canon = *pos_to_canon.entry(qp).or_insert(vi);
+                mesh_to_canon.insert(vi, canon);
+            }
+        }
+    }
+
+    let canon_v = |vi: usize| -> usize { mesh_to_canon.get(&vi).copied().unwrap_or(vi) };
 
     let mut all_tris: Vec<SubTri> = Vec::new();
     for (sf, tris) in &survival.groups {
         for tri in tris {
-            let verts = if tri.flipped {
+            let raw = if tri.flipped {
                 [tri.verts[0], tri.verts[2], tri.verts[1]]
             } else {
                 tri.verts
             };
-            all_tris.push(SubTri { verts, source: *sf });
+            all_tris.push(SubTri {
+                verts: [canon_v(raw[0]), canon_v(raw[1]), canon_v(raw[2])],
+                source: *sf,
+            });
         }
     }
 
-    // ── Step 2: Build directed edge → (tri_index, local_edge_index) map ──
-    // Each sub-tri contributes 3 directed edges: v0→v1, v1→v2, v2→v0
-    let mut directed_edge_map: HashMap<(usize, usize), (usize, usize)> = HashMap::new();
+    // ── Step 2: Build directed edge → list of (tri_index, local_edge_index) ──
+    // Uses canonical vertex indices + multi-value map. After coplanar merge,
+    // overlapping triangles from different meshes produce identical canonical
+    // edges. Storing all entries prevents silent HashMap overwrites.
+    let mut directed_edge_map: HashMap<(usize, usize), Vec<(usize, usize)>> = HashMap::new();
     for (ti, sub) in all_tris.iter().enumerate() {
         for ei in 0..3 {
             let v0 = sub.verts[ei];
             let v1 = sub.verts[(ei + 1) % 3];
-            directed_edge_map.insert((v0, v1), (ti, ei));
+            directed_edge_map
+                .entry((v0, v1))
+                .or_default()
+                .push((ti, ei));
         }
     }
 
     // ── Step 3: Identify B-Rep boundary edges ──
-    // A directed edge (v0→v1) is a B-Rep boundary if its twin (v1→v0) comes
-    // from a DIFFERENT source face. Interior edges (twins from the same source)
-    // are within a single B-Rep face.
+    // An edge is interior if ANY twin (reverse-direction edge) comes from the
+    // SAME source face group. It's a boundary only if ALL twins come from
+    // DIFFERENT source faces (or no twin exists). This correctly handles
+    // overlapping triangles from coplanar merge: the same-source twin from the
+    // overlapping mesh classifies the edge as interior.
     let mut is_brep_boundary: HashSet<(usize, usize)> = HashSet::new();
     for (ti, sub) in all_tris.iter().enumerate() {
         for ei in 0..3 {
             let v0 = sub.verts[ei];
             let v1 = sub.verts[(ei + 1) % 3];
-            if let Some(&(twin_ti, _twin_ei)) = directed_edge_map.get(&(v1, v0)) {
-                if all_tris[twin_ti].source != all_tris[ti].source {
+            if let Some(twins) = directed_edge_map.get(&(v1, v0)) {
+                let has_same_source = twins
+                    .iter()
+                    .any(|&(twin_ti, _)| all_tris[twin_ti].source == all_tris[ti].source);
+                if !has_same_source {
+                    // All twins from different sources → this is a face boundary
                     is_brep_boundary.insert((v0, v1));
                 }
+                // If any twin from same source → interior, skip
             } else {
-                // No twin found — mesh boundary (shouldn't happen in a closed mesh)
+                // No twin found → mesh boundary
                 is_brep_boundary.insert((v0, v1));
             }
         }
@@ -406,7 +454,11 @@ pub(crate) fn build_result_brep_from_mesh(
                 // Determine if this is an intersection edge (shared with different source)
                 let is_intersection = directed_edge_map
                     .get(&(v1, v0))
-                    .map(|&(twin_ti, _)| all_tris[twin_ti].source != sub.source)
+                    .map(|twins| {
+                        twins
+                            .iter()
+                            .any(|&(twin_ti, _)| all_tris[twin_ti].source != sub.source)
+                    })
                     .unwrap_or(true);
                 face_boundary_edges
                     .entry(sub.source)
@@ -461,52 +513,124 @@ pub(crate) fn build_result_brep_from_mesh(
         all_face_loops.push((*source_face, loops));
     }
 
-    // ── Step 6: Build half-edge B-Rep from face loops ──
+    // Loops already use canonical vertex indices from Step 1b.
+
+    // ── Step 5b: Split T-junction edges ──
+    // Face groups at perpendicular junctions may have boundary edges at different
+    // granularity levels due to mesh subdivision. Split coarse edges at
+    // intermediate boundary vertices from other face groups.
+    // Ref [#24]: Yang 2025 — conformal mesh T-junction resolution.
+    {
+        let mut all_boundary_verts: HashMap<[i64; 3], usize> = HashMap::new();
+        let mut face_qpositions: BTreeMap<SourceFace, HashSet<[i64; 3]>> = BTreeMap::new();
+
+        for (sf, loops) in all_face_loops.iter() {
+            let set = face_qpositions.entry(*sf).or_default();
+            for loop_edges in loops {
+                for &(v0, v1, _) in loop_edges {
+                    for &vi in &[v0, v1] {
+                        let qp = quant_canon(subdivided.verts[vi]);
+                        all_boundary_verts.entry(qp).or_insert(vi);
+                        set.insert(qp);
+                    }
+                }
+            }
+        }
+
+        let all_qverts: Vec<([i64; 3], usize)> = all_boundary_verts
+            .iter()
+            .map(|(&qp, &vi)| (qp, vi))
+            .collect();
+
+        for (sf, loops) in all_face_loops.iter_mut() {
+            let own_qpos = match face_qpositions.get(sf) {
+                Some(s) => s,
+                None => continue,
+            };
+            for loop_edges in loops.iter_mut() {
+                let mut new_edges: Vec<(usize, usize, bool)> = Vec::new();
+                for &(v0, v1, is_int) in loop_edges.iter() {
+                    let p0 = subdivided.verts[v0];
+                    let p1 = subdivided.verts[v1];
+                    let d = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+                    let d_len_sq = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+
+                    if d_len_sq < 1e-24 {
+                        new_edges.push((v0, v1, is_int));
+                        continue;
+                    }
+
+                    let mut intermediates: Vec<(f64, usize)> = Vec::new();
+                    for &(qp, vi) in &all_qverts {
+                        if own_qpos.contains(&qp) {
+                            continue;
+                        }
+                        let p_mid = subdivided.verts[vi];
+                        let to_mid = [p_mid[0] - p0[0], p_mid[1] - p0[1], p_mid[2] - p0[2]];
+                        let cross = [
+                            d[1] * to_mid[2] - d[2] * to_mid[1],
+                            d[2] * to_mid[0] - d[0] * to_mid[2],
+                            d[0] * to_mid[1] - d[1] * to_mid[0],
+                        ];
+                        let cross_len_sq =
+                            cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2];
+                        if cross_len_sq > d_len_sq * 1e-12 {
+                            continue;
+                        }
+                        let t = (d[0] * to_mid[0] + d[1] * to_mid[1] + d[2] * to_mid[2]) / d_len_sq;
+                        if t > 1e-6 && t < 1.0 - 1e-6 {
+                            intermediates.push((t, vi));
+                        }
+                    }
+
+                    if intermediates.is_empty() {
+                        new_edges.push((v0, v1, is_int));
+                    } else {
+                        intermediates.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                        let mut prev = v0;
+                        for &(_, vi) in &intermediates {
+                            new_edges.push((prev, vi, is_int));
+                            prev = vi;
+                        }
+                        new_edges.push((prev, v1, is_int));
+                    }
+                }
+                *loop_edges = new_edges;
+            }
+        }
+    }
+
+    // ── Step 6: Build half-edge B-Rep from canonical face loops ──
     let mut arena = TopoArena::new();
     let solid_idx = arena.add_solid();
     let shell_idx = arena.add_shell(solid_idx);
     arena.solids[solid_idx.0].outer_shell = shell_idx;
 
-    // Vertex dedup (position-based)
-    let mut pos_to_brep: HashMap<[i64; 3], BrepVIdx> = HashMap::new();
-    let mut mesh_to_brep: HashMap<usize, BrepVIdx> = HashMap::new();
-    let mut mesh_to_canonical: HashMap<usize, usize> = HashMap::new();
-    let mut pos_to_canonical_mesh: HashMap<[i64; 3], usize> = HashMap::new();
-
-    let quant = |p: [f64; 3]| -> [i64; 3] {
-        let scale = 1e9;
-        [
-            (p[0] * scale).round() as i64,
-            (p[1] * scale).round() as i64,
-            (p[2] * scale).round() as i64,
-        ]
-    };
+    // Vertex dedup: canonical index → B-Rep vertex
+    let mut canon_to_brep: HashMap<usize, BrepVIdx> = HashMap::new();
 
     for (_, loops) in &all_face_loops {
         for loop_edges in loops {
             for &(v0, v1, _) in loop_edges {
                 for &vi in &[v0, v1] {
-                    if mesh_to_brep.contains_key(&vi) {
+                    if canon_to_brep.contains_key(&vi) {
                         continue;
                     }
                     let pos = subdivided.verts[vi];
-                    let key = quant(pos);
-                    let brep_vi = *pos_to_brep
-                        .entry(key)
-                        .or_insert_with(|| arena.add_vertex(pos));
-                    mesh_to_brep.insert(vi, brep_vi);
-                    let canon = *pos_to_canonical_mesh.entry(key).or_insert(vi);
-                    mesh_to_canonical.insert(vi, canon);
+                    canon_to_brep.insert(vi, arena.add_vertex(pos));
                 }
             }
         }
     }
 
-    let canon = |vi: usize| -> usize { mesh_to_canonical.get(&vi).copied().unwrap_or(vi) };
-
-    // Create faces, loops, and half-edges
-    let mut directed_he: HashMap<(usize, usize), HalfEdgeIdx> = HashMap::new();
+    // Create faces, loops, and half-edges.
+    // Use Vec<HalfEdgeIdx> to handle perpendicular face junctions where multiple
+    // face groups produce boundary edges at the same canonical directed edge
+    // (due to position-based vertex canonicalization). Ref [#24] Yang 2025.
+    let mut directed_he: HashMap<(usize, usize), Vec<HalfEdgeIdx>> = HashMap::new();
     let mut face_provenance: BTreeMap<FaceIdx, SourceFace> = BTreeMap::new();
+    // Map half-edge → its B-Rep face, for face-aware twin pairing.
+    let mut he_to_face: HashMap<HalfEdgeIdx, FaceIdx> = HashMap::new();
 
     for (source_face, loops) in &all_face_loops {
         for loop_edges in loops {
@@ -526,16 +650,17 @@ pub(crate) fn build_result_brep_from_mesh(
                 let next_idx = HalfEdgeIdx(he_base.0 + (i + 1) % n);
                 let prev_idx = HalfEdgeIdx(he_base.0 + (i + n - 1) % n);
                 arena.half_edges.push(HalfEdge {
-                    origin: mesh_to_brep[&v0],
+                    origin: canon_to_brep[&v0],
                     edge: EdgeIdx(0),
                     twin: HalfEdgeIdx(0),
                     next: next_idx,
                     prev: prev_idx,
                     loop_: loop_idx,
                 });
-                directed_he.insert((canon(v0), canon(v1)), he_idx);
+                directed_he.entry((v0, v1)).or_default().push(he_idx);
+                he_to_face.insert(he_idx, face_idx);
 
-                let v_brep = mesh_to_brep[&v0];
+                let v_brep = canon_to_brep[&v0];
                 arena.vertices[v_brep.0].half_edge = Some(he_idx);
             }
 
@@ -547,49 +672,85 @@ pub(crate) fn build_result_brep_from_mesh(
         arena.shells[shell_idx.0].face = FaceIdx(0);
     }
 
-    // Edge classification
+    // Edge classification (vertex indices are already canonical from Step 1b)
     let mut edge_is_int_map: HashMap<(usize, usize), bool> = HashMap::new();
     for (_, loops) in &all_face_loops {
         for loop_edges in loops {
             for &(v0, v1, is_int) in loop_edges {
-                let cv0 = canon(v0);
-                let cv1 = canon(v1);
-                let key = (cv0.min(cv1), cv0.max(cv1));
+                let key = (v0.min(v1), v0.max(v1));
                 let entry = edge_is_int_map.entry(key).or_insert(false);
                 *entry |= is_int;
             }
         }
     }
 
-    // Twin pairing
+    // ── Twin pairing with multi-entry support ──
+    // At perpendicular face junctions, multiple face groups can produce boundary
+    // edges at the same canonical directed edge (after position-based vertex
+    // dedup). The multi-entry directed_he map stores ALL half-edges per direction.
+    // Pairing matches forward and reverse HEs by face provenance: each twin pair
+    // must connect two DIFFERENT B-Rep faces.
+    // Ref [#16]: Mantyla 1988 — manifold edge condition (exactly 2 half-edges).
     let mut edge_is_intersection: BTreeMap<EdgeIdx, bool> = BTreeMap::new();
-    let mut paired: HashSet<(usize, usize)> = HashSet::new();
+    let mut paired_he: HashSet<HalfEdgeIdx> = HashSet::new();
+    // Collect all undirected canonical edges
+    let mut undirected_edges: HashSet<(usize, usize)> = HashSet::new();
+    for &(cv0, cv1) in directed_he.keys() {
+        undirected_edges.insert((cv0.min(cv1), cv0.max(cv1)));
+    }
 
-    for (_, loops) in &all_face_loops {
-        for loop_edges in loops {
-            for &(v0, v1, _) in loop_edges {
-                let cv0 = canon(v0);
-                let cv1 = canon(v1);
-                let key = (cv0.min(cv1), cv0.max(cv1));
-                if paired.contains(&key) {
+    for &(lo, hi) in &undirected_edges {
+        let empty = Vec::new();
+        let fwd_hes = directed_he.get(&(lo, hi)).unwrap_or(&empty);
+        let rev_hes = directed_he.get(&(hi, lo)).unwrap_or(&empty);
+
+        // Pair forward and reverse half-edges. For the common 1:1 case, pair
+        // directly. For multi-entry (perpendicular junctions), use face-aware
+        // greedy matching: each twin pair connects different B-Rep faces.
+        let mut rev_used: Vec<bool> = vec![false; rev_hes.len()];
+
+        for &he_fwd in fwd_hes {
+            if paired_he.contains(&he_fwd) {
+                continue;
+            }
+            let fwd_face = he_to_face.get(&he_fwd);
+
+            // Find the best unmatched reverse HE: prefer one from a different face.
+            let mut best_rev: Option<(usize, &HalfEdgeIdx)> = None;
+            for (ri, he_rev) in rev_hes.iter().enumerate() {
+                if rev_used[ri] || paired_he.contains(he_rev) {
                     continue;
                 }
-
-                let he_fwd = directed_he.get(&(cv0, cv1));
-                let he_rev = directed_he.get(&(cv1, cv0));
-
-                if let (Some(&he_a), Some(&he_b)) = (he_fwd, he_rev) {
-                    let edge_idx = EdgeIdx(arena.edges.len());
-                    arena.edges.push(Edge { half_edge: he_a });
-                    arena.half_edges[he_a.0].edge = edge_idx;
-                    arena.half_edges[he_a.0].twin = he_b;
-                    arena.half_edges[he_b.0].edge = edge_idx;
-                    arena.half_edges[he_b.0].twin = he_a;
-
-                    let is_int = edge_is_int_map.get(&key).copied().unwrap_or(false);
-                    edge_is_intersection.insert(edge_idx, is_int);
-                    paired.insert(key);
+                let rev_face = he_to_face.get(he_rev);
+                let same_face = fwd_face.is_some() && fwd_face == rev_face;
+                match best_rev {
+                    None => {
+                        best_rev = Some((ri, he_rev));
+                    }
+                    Some((_, prev_best)) => {
+                        // Prefer different-face pairing over same-face
+                        let prev_same = fwd_face.is_some() && fwd_face == he_to_face.get(prev_best);
+                        if prev_same && !same_face {
+                            best_rev = Some((ri, he_rev));
+                        }
+                    }
                 }
+            }
+
+            if let Some((ri, &he_rev)) = best_rev {
+                let edge_idx = EdgeIdx(arena.edges.len());
+                arena.edges.push(Edge { half_edge: he_fwd });
+                arena.half_edges[he_fwd.0].edge = edge_idx;
+                arena.half_edges[he_fwd.0].twin = he_rev;
+                arena.half_edges[he_rev.0].edge = edge_idx;
+                arena.half_edges[he_rev.0].twin = he_fwd;
+
+                let is_int = edge_is_int_map.get(&(lo, hi)).copied().unwrap_or(false);
+                edge_is_intersection.insert(edge_idx, is_int);
+
+                paired_he.insert(he_fwd);
+                paired_he.insert(he_rev);
+                rev_used[ri] = true;
             }
         }
     }
@@ -612,13 +773,30 @@ pub(crate) fn build_result_brep_from_mesh(
             eprintln!(
                 "[yang-diag] build_from_mesh: F={n_faces}, E={n_edges}, V={n_verts}, HE={n_he}, unpaired={unpaired_count}"
             );
-            let total_directed = directed_he.len();
-            eprintln!("[yang-diag] directed_he entries={total_directed}, total HE={n_he}");
-            if total_directed < n_he {
-                eprintln!(
-                    "[yang-diag] *** HashMap COLLISION: {} HE overwritten ***",
-                    n_he - total_directed
-                );
+            let multi_entry: usize = directed_he.values().filter(|v| v.len() > 1).count();
+            if multi_entry > 0 {
+                eprintln!("[yang-diag] multi-entry directed edges: {multi_entry}");
+            }
+            // Show each unpaired HE with edge direction and whether reverse exists
+            for (i, he) in arena.half_edges.iter().enumerate() {
+                let twin_idx = he.twin.0;
+                if twin_idx >= n_he || arena.half_edges[twin_idx].twin.0 != i {
+                    let face = he_to_face.get(&HalfEdgeIdx(i));
+                    let src = face.and_then(|f| face_provenance.get(f));
+                    let next_he = &arena.half_edges[he.next.0];
+                    let v0_pos = arena.vertices[he.origin.0].position;
+                    let v1_pos = arena.vertices[next_he.origin.0].position;
+                    let mut rev_exists = false;
+                    for (&(cv0, cv1), hes) in &directed_he {
+                        if hes.contains(&HalfEdgeIdx(i)) {
+                            rev_exists = directed_he.contains_key(&(cv1, cv0));
+                            break;
+                        }
+                    }
+                    eprintln!(
+                        "[yang-diag]   HE[{i}]: ({v0_pos:?})→({v1_pos:?}) src={src:?} rev_exists={rev_exists}"
+                    );
+                }
             }
         }
         if unpaired_count > 0 {
@@ -1098,11 +1276,11 @@ pub(crate) fn yang_boolean_pipeline(
     // boundaries, violating the manifold condition.
     merge_coplanar_face_groups(&subdivided, &mut survival);
 
-    // Stage 3b: Extract trim boundary loops from surviving face groups.
-    let trim_map = extract_trim_boundaries(&subdivided, &survival);
-
-    // Stage 3c: Build half-edge B-Rep from trim boundaries.
-    Ok(build_result_brep(&trim_map, &subdivided))
+    // Stage 3b+3c: Build half-edge B-Rep directly from surviving sub-triangles.
+    // Uses mesh-level adjacency for twin pairing, which correctly handles
+    // perpendicular face junctions where trim-boundary extraction loses
+    // cross-face adjacency information. Ref [#24] Yang 2025 — Stage 3.
+    Ok(build_result_brep_from_mesh(&survival, &subdivided))
 }
 
 #[cfg(test)]
@@ -3725,10 +3903,204 @@ mod tests {
         assert_eq!(unpaired, 0, "All half-edges must be paired");
     }
 
+    /// Diagnostic: dump the exact collision pattern for the thin-cross-union.
+    /// Runs pipeline stages manually and prints surviving face groups, trim
+    /// boundary edges, and which directed edges collide.
+    #[test]
+    fn diagnose_thin_cross_collision() {
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [3.0, 1.0, 0.3]);
+        let (verts_b, tris_b) = make_box_mesh([1.0, -0.5, 0.0], [2.0, 1.5, 0.3]);
+
+        let bijective_a = build_bijective_from_tri_count(tris_a.len());
+        let bijective_b = build_bijective_from_tri_count(tris_b.len());
+
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+        let mut survival = face_survival_detect(
+            &subdivided,
+            &labeling,
+            MeshBooleanOp::Union,
+            &bijective_a,
+            &bijective_b,
+        );
+
+        eprintln!("=== THIN CROSS DIAGNOSTIC ===");
+        eprintln!(
+            "Subdivided: {} A-tris, {} B-tris, {} verts",
+            subdivided.tris_a.len(),
+            subdivided.tris_b.len(),
+            subdivided.verts.len()
+        );
+
+        eprintln!("\n--- Before coplanar merge ---");
+        for (sf, tris) in &survival.groups {
+            eprintln!("  {:?}: {} sub-tris", sf, tris.len());
+        }
+
+        merge_coplanar_face_groups(&subdivided, &mut survival);
+
+        eprintln!("\n--- After coplanar merge ---");
+        for (sf, tris) in &survival.groups {
+            eprintln!("  {:?}: {} sub-tris", sf, tris.len());
+        }
+
+        // Extract trim boundaries and check for directed edge collisions
+        let trim_map = extract_trim_boundaries(&subdivided, &survival);
+
+        eprintln!("\n--- Trim boundaries ---");
+        let mut all_directed_edges: std::collections::HashMap<(usize, usize), Vec<SourceFace>> =
+            std::collections::HashMap::new();
+        for (sf, loops) in &trim_map.boundaries {
+            for (li, trim_loop) in loops.iter().enumerate() {
+                eprintln!("  {:?} loop[{li}]: {} edges", sf, trim_loop.edges.len());
+                for edge in &trim_loop.edges {
+                    all_directed_edges
+                        .entry((edge.v0, edge.v1))
+                        .or_default()
+                        .push(*sf);
+                }
+            }
+        }
+
+        eprintln!("\n--- Directed edge collisions (same direction, multiple faces) ---");
+        let mut collision_count = 0;
+        for ((v0, v1), faces) in &all_directed_edges {
+            if faces.len() > 1 {
+                let p0 = subdivided.verts[*v0];
+                let p1 = subdivided.verts[*v1];
+                eprintln!("  COLLISION ({v0}->{v1}): {faces:?}");
+                eprintln!("    v{v0}={p0:?}, v{v1}={p1:?}");
+                collision_count += 1;
+            }
+        }
+        eprintln!("Total collisions: {collision_count}");
+
+        // Also check the mesh-based builder path
+        eprintln!("\n--- Mesh-based builder analysis ---");
+        // Check for same-direction boundary edges from different face groups
+        let mut mesh_directed: std::collections::HashMap<(usize, usize), Vec<SourceFace>> =
+            std::collections::HashMap::new();
+        for (sf, tris) in &survival.groups {
+            for tri in tris {
+                let verts = if tri.flipped {
+                    [tri.verts[0], tri.verts[2], tri.verts[1]]
+                } else {
+                    tri.verts
+                };
+                for ei in 0..3 {
+                    let v0 = verts[ei];
+                    let v1 = verts[(ei + 1) % 3];
+                    // Check if this is a boundary edge (twin from different source)
+                    let mut is_boundary = false;
+                    for (sf2, tris2) in &survival.groups {
+                        if sf2 == sf {
+                            continue;
+                        }
+                        for tri2 in tris2 {
+                            let verts2 = if tri2.flipped {
+                                [tri2.verts[0], tri2.verts[2], tri2.verts[1]]
+                            } else {
+                                tri2.verts
+                            };
+                            for ei2 in 0..3 {
+                                if verts2[ei2] == v1 && verts2[(ei2 + 1) % 3] == v0 {
+                                    is_boundary = true;
+                                }
+                            }
+                        }
+                    }
+                    if is_boundary {
+                        mesh_directed.entry((v0, v1)).or_default().push(*sf);
+                    }
+                }
+            }
+        }
+
+        let mut mesh_collisions = 0;
+        for ((v0, v1), faces) in &mesh_directed {
+            if faces.len() > 1 {
+                let p0 = subdivided.verts[*v0];
+                let p1 = subdivided.verts[*v1];
+                eprintln!("  MESH COLLISION ({v0}->{v1}): {faces:?}");
+                eprintln!("    v{v0}={p0:?}, v{v1}={p1:?}");
+                mesh_collisions += 1;
+            }
+        }
+        eprintln!("Mesh boundary collisions: {mesh_collisions}");
+
+        // Try the trim-based builder and report result
+        let result = build_result_brep(&trim_map, &subdivided);
+        let n_faces = result.arena.faces.len();
+        let n_edges = result.arena.edges.len();
+        let n_verts = result.arena.vertices.len();
+        let n_he = result.arena.half_edges.len();
+        eprintln!("\n--- build_result_brep result ---");
+        eprintln!("  F={n_faces}, E={n_edges}, V={n_verts}, HE={n_he}");
+
+        // Try the mesh-based builder
+        let result2 = build_result_brep_from_mesh(&survival, &subdivided);
+        let n_faces2 = result2.arena.faces.len();
+        let n_edges2 = result2.arena.edges.len();
+        let n_verts2 = result2.arena.vertices.len();
+        let n_he2 = result2.arena.half_edges.len();
+        eprintln!("\n--- build_result_brep_from_mesh result ---");
+        eprintln!("  F={n_faces2}, E={n_edges2}, V={n_verts2}, HE={n_he2}");
+
+        eprintln!("=== END DIAGNOSTIC ===");
+    }
+
+    /// Two boxes forming a T-shape: A=[0,3]×[0,1]×[0,1], B=[1,2]×[1,3]×[0,1].
+    /// Tests perpendicular face junction at y=1, x∈[1,2].
+    #[test]
+    fn test_yang_pipeline_t_shape_union() {
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [3.0, 1.0, 1.0]);
+        let (verts_b, tris_b) = make_box_mesh([1.0, 1.0, 0.0], [2.0, 3.0, 1.0]);
+
+        let bijective_a = build_bijective_from_tri_count(tris_a.len());
+        let bijective_b = build_bijective_from_tri_count(tris_b.len());
+
+        let result = yang_boolean_pipeline(
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            &bijective_a,
+            &bijective_b,
+            MeshBooleanOp::Union,
+        )
+        .expect("Yang pipeline should not error");
+
+        let n_faces = result.arena.faces.len();
+        let n_edges = result.arena.edges.len();
+        let n_verts = result.arena.vertices.len();
+        let n_he = result.arena.half_edges.len();
+
+        let unpaired = if n_he > 0 {
+            (0..n_he)
+                .filter(|&i| {
+                    let twin_idx = result.arena.half_edges[i].twin.0;
+                    twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+                })
+                .count()
+        } else {
+            0
+        };
+
+        eprintln!(
+            "T-shape union: F={n_faces}, E={n_edges}, V={n_verts}, HE={n_he}, unpaired={unpaired}"
+        );
+
+        assert!(n_faces > 0, "T-shape union must produce faces");
+        assert_eq!(unpaired, 0, "All half-edges must be paired");
+
+        let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
+        assert_eq!(euler, 2, "V-E+F must be 2, got {euler}");
+    }
+
     /// Two boxes forming a cross pattern (different extents on X and Y).
     /// Tests the offset-overlap pattern common in assay F-series cases.
     #[test]
-    #[ignore = "A15.6: perpendicular face junctions produce same-direction half-edges — needs synthetic edge construction"]
+    #[ignore = "A15.6: cell labeling keeps A-inside-B triangles at perpendicular junctions — needs label_cells fix"]
     fn test_yang_pipeline_thin_cross_union() {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [3.0, 1.0, 0.3]);
         let (verts_b, tris_b) = make_box_mesh([1.0, -0.5, 0.0], [2.0, 1.5, 0.3]);
