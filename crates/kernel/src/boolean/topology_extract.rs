@@ -523,16 +523,13 @@ pub(crate) fn build_result_brep_from_mesh(
     // Ref [#24]: Yang 2025 — conformal mesh T-junction resolution.
     {
         let mut all_boundary_verts: HashMap<[i64; 3], usize> = HashMap::new();
-        let mut face_qpositions: BTreeMap<SourceFace, HashSet<[i64; 3]>> = BTreeMap::new();
 
-        for (sf, loops) in all_face_loops.iter() {
-            let set = face_qpositions.entry(*sf).or_default();
+        for (_sf, loops) in all_face_loops.iter() {
             for loop_edges in loops {
                 for &(v0, v1, _) in loop_edges {
                     for &vi in &[v0, v1] {
                         let qp = quant_canon(subdivided.verts[vi]);
                         all_boundary_verts.entry(qp).or_insert(vi);
-                        set.insert(qp);
                     }
                 }
             }
@@ -543,11 +540,7 @@ pub(crate) fn build_result_brep_from_mesh(
             .map(|(&qp, &vi)| (qp, vi))
             .collect();
 
-        for (sf, loops) in all_face_loops.iter_mut() {
-            let own_qpos = match face_qpositions.get(sf) {
-                Some(s) => s,
-                None => continue,
-            };
+        for (_sf, loops) in all_face_loops.iter_mut() {
             for loop_edges in loops.iter_mut() {
                 let mut new_edges: Vec<(usize, usize, bool)> = Vec::new();
                 for &(v0, v1, is_int) in loop_edges.iter() {
@@ -563,7 +556,14 @@ pub(crate) fn build_result_brep_from_mesh(
 
                     let mut intermediates: Vec<(f64, usize)> = Vec::new();
                     for &(qp, vi) in &all_qverts {
-                        if own_qpos.contains(&qp) {
+                        // Only skip the current edge's own endpoints, not all vertices
+                        // in this face group's boundary. After merge_coplanar_face_groups,
+                        // T-junction vertices from the merged group are in own_qpos but
+                        // still need to split this edge. Ref [#24] Yang 2025 — T-junction
+                        // resolution must operate on merged face groups.
+                        let qp_v0 = quant_canon(subdivided.verts[v0]);
+                        let qp_v1 = quant_canon(subdivided.verts[v1]);
+                        if qp == qp_v0 || qp == qp_v1 {
                             continue;
                         }
                         let p_mid = subdivided.verts[vi];
@@ -597,6 +597,84 @@ pub(crate) fn build_result_brep_from_mesh(
                     }
                 }
                 *loop_edges = new_edges;
+            }
+        }
+    }
+
+    // ── Step 5c: Cancel matching internal edges after T-junction resolution ──
+    // After merge_coplanar_face_groups merges two face groups and Step 5b splits
+    // edges at T-junction vertices, some boundary edges may now have matching
+    // reverse edges within the SAME face group (e.g., A's split edge (2→4) matches
+    // B's original (4→2)). These are interior edges and must be removed to produce
+    // a single outer boundary loop instead of two overlapping loops.
+    // Ref [#16]: Mantyla 1988 — interior edges cancel in boundary extraction.
+    {
+        let mut modified = true;
+        while modified {
+            modified = false;
+            for (_sf, loops) in all_face_loops.iter_mut() {
+                // Collect all directed edges across all loops in this face group.
+                let mut edge_count: HashMap<(usize, usize), usize> = HashMap::new();
+                for loop_edges in loops.iter() {
+                    for &(v0, v1, _) in loop_edges {
+                        *edge_count.entry((v0, v1)).or_insert(0) += 1;
+                    }
+                }
+                // Find matching pairs: (v0,v1) and (v1,v0) both present.
+                let mut cancel: HashSet<(usize, usize)> = HashSet::new();
+                for &(v0, v1) in edge_count.keys() {
+                    if edge_count.contains_key(&(v1, v0)) {
+                        cancel.insert((v0, v1));
+                        cancel.insert((v1, v0));
+                    }
+                }
+                if cancel.is_empty() {
+                    continue;
+                }
+                modified = true;
+                // Remove cancelled edges and re-chain remaining edges into loops.
+                let mut remaining: Vec<(usize, usize, bool)> = Vec::new();
+                for loop_edges in loops.iter() {
+                    for &(v0, v1, is_int) in loop_edges {
+                        if !cancel.contains(&(v0, v1)) {
+                            remaining.push((v0, v1, is_int));
+                        }
+                    }
+                }
+                // Re-chain into loops.
+                let mut adj: HashMap<usize, Vec<(usize, bool)>> = HashMap::new();
+                for &(a, b, is_int) in &remaining {
+                    adj.entry(a).or_default().push((b, is_int));
+                }
+                let mut new_loops: Vec<Vec<(usize, usize, bool)>> = Vec::new();
+                loop {
+                    let start = adj
+                        .iter()
+                        .find(|(_, outs)| !outs.is_empty())
+                        .map(|(&k, _)| k);
+                    let start = match start {
+                        Some(s) => s,
+                        None => break,
+                    };
+                    let mut chain = Vec::new();
+                    let mut current = start;
+                    loop {
+                        let outgoing = adj.get_mut(&current);
+                        let (next, is_int) = match outgoing.and_then(|v| v.pop()) {
+                            Some(pair) => pair,
+                            None => break,
+                        };
+                        chain.push((current, next, is_int));
+                        if next == start {
+                            break;
+                        }
+                        current = next;
+                    }
+                    if !chain.is_empty() {
+                        new_loops.push(chain);
+                    }
+                }
+                *loops = new_loops;
             }
         }
     }
@@ -766,7 +844,6 @@ pub(crate) fn build_result_brep_from_mesh(
                 unpaired_count += 1;
             }
         }
-        #[cfg(test)]
         if unpaired_count > 0 {
             let n_faces = arena.faces.len();
             let n_edges = arena.edges.len();
@@ -779,6 +856,7 @@ pub(crate) fn build_result_brep_from_mesh(
                 eprintln!("[yang-diag] multi-entry directed edges: {multi_entry}");
             }
             // Show each unpaired HE with edge direction and whether reverse exists
+            #[cfg(test)]
             for (i, he) in arena.half_edges.iter().enumerate() {
                 let twin_idx = he.twin.0;
                 if twin_idx >= n_he || arena.half_edges[twin_idx].twin.0 != i {
@@ -1295,11 +1373,23 @@ pub(crate) fn yang_boolean_pipeline(
     // boundaries, violating the manifold condition.
     merge_coplanar_face_groups(&subdivided, &mut survival);
 
+    let n_survival_groups = survival.groups.len();
+    let n_survival_tris: usize = survival.groups.values().map(|v| v.len()).sum();
+
     // Stage 3b+3c: Build half-edge B-Rep directly from surviving sub-triangles.
     // Uses mesh-level adjacency for twin pairing, which correctly handles
     // perpendicular face junctions where trim-boundary extraction loses
     // cross-face adjacency information. Ref [#24] Yang 2025 — Stage 3.
     let topology = build_result_brep_from_mesh(&survival, &subdivided);
+
+    let n_result_faces = topology.face_provenance.len();
+    eprintln!(
+        "[yang-pipeline] survival: {} groups, {} tris → topology: {} faces",
+        n_survival_groups, n_survival_tris, n_result_faces
+    );
+    if n_survival_groups > 0 && n_result_faces == 0 {
+        eprintln!("[yang-pipeline] BUG: non-empty survival produced empty topology (twin-pairing failure)");
+    }
 
     Ok(YangPipelineResult {
         topology,
@@ -4200,5 +4290,289 @@ mod tests {
 
         let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
         assert_eq!(euler, 2, "V-E+F must be 2, got {euler}");
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // T-junction after coplanar merge regression test
+    // ══════════════════════════════════════════════════════════════════
+
+    /// After `merge_coplanar_face_groups`, two face groups on the same plane
+    /// become one. A T-junction vertex that was from the "other" face group
+    /// is now part of `own_qpos` and gets skipped in Step 5b, preventing
+    /// edge splitting. This causes unpaired half-edges → broken topology.
+    ///
+    /// Geometry: a box [0,0,0]-[3,1,1] whose bottom face (z=0) is
+    /// contributed by two coplanar face groups with different edge
+    /// granularity at their shared boundary (x=2):
+    ///
+    /// - Face group A (mesh A, face 0): rectangle [0,0,0]-[2,1,0], 2 tris.
+    ///   Boundary along x=2 is ONE edge: (2,0,0)→(2,1,0).
+    /// - Face group B (mesh B, face 0): rectangle [2,0,0]-[3,1,0], 4 tris.
+    ///   Boundary along x=2 has TWO edges split at y=0.5: (2,0,0)→(2,0.5,0)
+    ///   and (2,0.5,0)→(2,1,0).
+    ///
+    /// After merge, A's edge (2,0,0)→(2,1,0) must be split at B's vertex
+    /// (2,0.5,0) to pair correctly. The bug causes (2,0.5,0) to be skipped.
+    #[test]
+    fn test_tjunction_after_coplanar_merge() {
+        use crate::boolean::exact_mesh::SubTriangle;
+
+        // ── Vertices ──
+        // Bottom face group A: rectangle [0,0,0]-[2,1,0]
+        //   0: (0,0,0)  1: (2,0,0)  2: (2,1,0)  3: (0,1,0)
+        // Bottom face group B: rectangle [2,0,0]-[3,1,0] with midpoint at (2,0.5,0)
+        //   4: (2,0.5,0)  5: (3,0,0)  6: (3,1,0)  7: (3,0.5,0)
+        // Note: B shares vertices 1=(2,0,0) and 2=(2,1,0) with A via canonicalization.
+        //
+        // Top face: rectangle [0,0,1]-[3,1,1]
+        //   8: (0,0,1)  9: (3,0,1)  10: (3,1,1)  11: (0,1,1)
+        //
+        // Side faces use existing vertices plus:
+        //   12: (2,0,1)  13: (2,1,1)  14: (2,0.5,1)  15: (3,0.5,1)
+        //   (not all needed — sides just use box corners)
+        //
+        // For simplicity we use the 4 bottom-left box corners + 4 bottom-right +
+        // midpoint + 4 top corners.
+
+        let verts: Vec<[f64; 3]> = vec![
+            // 0-3: bottom face A corners
+            [0.0, 0.0, 0.0], // 0
+            [2.0, 0.0, 0.0], // 1
+            [2.0, 1.0, 0.0], // 2
+            [0.0, 1.0, 0.0], // 3
+            // 4: B's midpoint vertex creating the T-junction
+            [2.0, 0.5, 0.0], // 4
+            // 5-7: bottom face B far corners
+            [3.0, 0.0, 0.0], // 5
+            [3.0, 1.0, 0.0], // 6
+            [3.0, 0.5, 0.0], // 7
+            // 8-11: top face corners
+            [0.0, 0.0, 1.0], // 8
+            [3.0, 0.0, 1.0], // 9
+            [3.0, 1.0, 1.0], // 10
+            [0.0, 1.0, 1.0], // 11
+        ];
+
+        // ── SubdividedMesh ──
+        // tris_a: face group A bottom + top + left + back-left + front-left side faces
+        // tris_b: face group B bottom + right + back-right + front-right side faces
+        // (We won't use tris_a/tris_b from SubdividedMesh directly — we build
+        // the FaceSurvivalMap by hand.)
+        let subdivided = SubdividedMesh {
+            verts: verts.clone(),
+            tris_a: vec![], // Not used — we build FaceSurvivalMap directly
+            tris_b: vec![],
+        };
+
+        // ── FaceSurvivalMap ──
+        // Bottom face group A (mesh A, face 0): 2 triangles covering [0,0,0]-[2,1,0]
+        // Bottom face group B (mesh B, face 0): 4 triangles covering [2,0,0]-[3,1,0]
+        //   with midpoint vertex 4 at (2,0.5,0)
+        // Top face (mesh A, face 1): 2 triangles covering [0,0,1]-[3,1,1]
+        // Back face y=0 (mesh A, face 2): 2 triangles
+        // Front face y=1 (mesh A, face 3): 2 triangles
+        // Left face x=0 (mesh A, face 4): 2 triangles
+        // Right face x=3 (mesh B, face 1): 2 triangles
+
+        let mut groups = BTreeMap::new();
+
+        // Bottom A: [0,0,0]-[2,1,0], outward normal -Z.
+        // Raw vertex order gives +Z normal → flip to get -Z (outward for bottom).
+        groups.insert(
+            SourceFace {
+                mesh_id: MeshId::A,
+                face_idx: FaceIdx(0),
+            },
+            vec![
+                SurvivingSubTri {
+                    verts: [0, 1, 2],
+                    flipped: true,
+                },
+                SurvivingSubTri {
+                    verts: [0, 2, 3],
+                    flipped: true,
+                },
+            ],
+        );
+
+        // Bottom B: [2,0,0]-[3,1,0] with midpoint 4=(2,0.5,0)
+        // Triangulated so x=2 boundary has two edges: (1→4) and (4→2).
+        // Raw vertex order gives +Z → flip for -Z outward.
+        groups.insert(
+            SourceFace {
+                mesh_id: MeshId::B,
+                face_idx: FaceIdx(0),
+            },
+            vec![
+                SurvivingSubTri {
+                    verts: [1, 5, 4],
+                    flipped: true,
+                },
+                SurvivingSubTri {
+                    verts: [5, 7, 4],
+                    flipped: true,
+                },
+                SurvivingSubTri {
+                    verts: [7, 6, 4],
+                    flipped: true,
+                },
+                SurvivingSubTri {
+                    verts: [6, 2, 4],
+                    flipped: true,
+                },
+            ],
+        );
+
+        // Top face: [0,0,1]-[3,1,1] — single face group, normal +Z
+        groups.insert(
+            SourceFace {
+                mesh_id: MeshId::A,
+                face_idx: FaceIdx(1),
+            },
+            vec![
+                SurvivingSubTri {
+                    verts: [8, 9, 10],
+                    flipped: false,
+                },
+                SurvivingSubTri {
+                    verts: [8, 10, 11],
+                    flipped: false,
+                },
+            ],
+        );
+
+        // Back face y=0: quad (0,0,0)-(3,0,0)-(3,0,1)-(0,0,1), outward normal -Y
+        // Raw vertex order gives +Y → flip for -Y outward.
+        groups.insert(
+            SourceFace {
+                mesh_id: MeshId::A,
+                face_idx: FaceIdx(2),
+            },
+            vec![
+                SurvivingSubTri {
+                    verts: [0, 8, 9],
+                    flipped: true,
+                },
+                SurvivingSubTri {
+                    verts: [0, 9, 5],
+                    flipped: true,
+                },
+            ],
+        );
+
+        // Front face y=1: quad (0,1,0)-(3,1,0)-(3,1,1)-(0,1,1), outward normal +Y
+        // Raw vertex order gives -Y → flip for +Y outward.
+        groups.insert(
+            SourceFace {
+                mesh_id: MeshId::A,
+                face_idx: FaceIdx(3),
+            },
+            vec![
+                SurvivingSubTri {
+                    verts: [3, 6, 10],
+                    flipped: true,
+                },
+                SurvivingSubTri {
+                    verts: [3, 10, 11],
+                    flipped: true,
+                },
+            ],
+        );
+
+        // Left face x=0: quad (0,0,0)-(0,1,0)-(0,1,1)-(0,0,1), outward normal -X
+        // Raw vertex order gives +X → flip for -X outward.
+        groups.insert(
+            SourceFace {
+                mesh_id: MeshId::A,
+                face_idx: FaceIdx(4),
+            },
+            vec![
+                SurvivingSubTri {
+                    verts: [0, 3, 11],
+                    flipped: true,
+                },
+                SurvivingSubTri {
+                    verts: [0, 11, 8],
+                    flipped: true,
+                },
+            ],
+        );
+
+        // Right face x=3: quad (3,0,0)-(3,1,0)-(3,1,1)-(3,0,1), normal +X
+        groups.insert(
+            SourceFace {
+                mesh_id: MeshId::B,
+                face_idx: FaceIdx(1),
+            },
+            vec![
+                SurvivingSubTri {
+                    verts: [5, 6, 10],
+                    flipped: false,
+                },
+                SurvivingSubTri {
+                    verts: [5, 10, 9],
+                    flipped: false,
+                },
+            ],
+        );
+
+        let mut survival = FaceSurvivalMap { groups };
+
+        // ── Merge coplanar face groups ──
+        // Bottom A (z=0, mesh A face 0) and Bottom B (z=0, mesh B face 0) are on
+        // the same plane. merge_coplanar_face_groups should combine them.
+        let groups_before = survival.groups.len();
+        merge_coplanar_face_groups(&subdivided, &mut survival);
+        let groups_after = survival.groups.len();
+
+        // Verify merge actually happened (7 groups → 6 after merging 2 bottom groups)
+        assert_eq!(
+            groups_before, 7,
+            "Should start with 7 face groups (2 bottom + 5 others)"
+        );
+        assert_eq!(
+            groups_after, 6,
+            "After coplanar merge: 7 - 1 = 6 face groups (two bottom groups merged)"
+        );
+
+        // ── Build B-Rep ──
+        let result = build_result_brep_from_mesh(&survival, &subdivided);
+
+        let n_faces = result.arena.faces.len();
+        let n_edges = result.arena.edges.len();
+        let n_verts = result.arena.vertices.len();
+        let n_he = result.arena.half_edges.len();
+
+        let unpaired = if n_he > 0 {
+            (0..n_he)
+                .filter(|&i| {
+                    let twin_idx = result.arena.half_edges[i].twin.0;
+                    twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+                })
+                .count()
+        } else {
+            0
+        };
+
+        eprintln!("T-junction after coplanar merge: F={n_faces}, E={n_edges}, V={n_verts}, HE={n_he}, unpaired={unpaired}");
+        eprintln!("face_provenance entries: {}", result.face_provenance.len());
+
+        // The result must have non-empty face provenance (not empty topology)
+        assert!(
+            !result.face_provenance.is_empty(),
+            "build_result_brep_from_mesh must produce non-empty face_provenance \
+             (got 0 faces — T-junction at (2,0.5,0) was not resolved after coplanar merge)"
+        );
+
+        // All half-edges must be paired
+        assert_eq!(
+            unpaired, 0,
+            "All half-edges must be paired — {unpaired} unpaired indicates T-junction \
+             at (2,0.5,0) was not split into A's boundary edge (2,0,0)→(2,1,0)"
+        );
+
+        // Euler's formula for a closed solid
+        let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
+        assert_eq!(euler, 2, "V-E+F must be 2 for closed solid, got {euler}");
     }
 }
