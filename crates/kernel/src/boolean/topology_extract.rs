@@ -19,6 +19,7 @@ use crate::tessellation::bijective::BijectiveMap;
 use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::{EdgeIdx, FaceIdx};
 use crate::types::KernelError;
+use crate::units::TAU_EXACT_MESH_CLASSIFY;
 
 /// A boundary edge: (vertex_a, vertex_b, is_intersection_edge).
 type BoundaryEdge = (usize, usize, bool);
@@ -1110,7 +1111,7 @@ pub(crate) fn extract_trim_boundaries(
 
                         // CW angle = (rev_angle - out_angle) mod 2π
                         let mut cw = rev_angle - out_angle;
-                        if cw <= 1e-10 {
+                        if cw <= TAU_EXACT_MESH_CLASSIFY {
                             cw += std::f64::consts::TAU;
                         }
                         if cw < best_cw_angle {

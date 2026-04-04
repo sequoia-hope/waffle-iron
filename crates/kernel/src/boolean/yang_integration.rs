@@ -20,6 +20,7 @@ use crate::geometry::surface::SurfaceGeom;
 use crate::ssi::SSICurve;
 use crate::topology::half_edge::{EdgeIdx, FaceIdx, VertexIdx};
 use crate::types::{FaceRange, KernelError, KernelId, RenderMesh};
+use crate::units::TAU_WORK;
 use crate::waffle_kernel::WaffleSolid;
 use std::collections::HashMap;
 
@@ -410,7 +411,7 @@ fn compute_face_normal(
                 ];
                 let len =
                     (radial[0] * radial[0] + radial[1] * radial[1] + radial[2] * radial[2]).sqrt();
-                if len > 1e-12 {
+                if len > TAU_WORK {
                     return [
                         (radial[0] / len) as f32 * sign,
                         (radial[1] / len) as f32 * sign,
@@ -429,7 +430,7 @@ fn compute_face_normal(
                 ];
                 let len =
                     (radial[0] * radial[0] + radial[1] * radial[1] + radial[2] * radial[2]).sqrt();
-                if len > 1e-12 {
+                if len > TAU_WORK {
                     return [
                         (radial[0] / len) as f32 * sign,
                         (radial[1] / len) as f32 * sign,
@@ -448,7 +449,7 @@ fn compute_face_normal(
     let ny = e1[2] * e2[0] - e1[0] * e2[2];
     let nz = e1[0] * e2[1] - e1[1] * e2[0];
     let len = (nx * nx + ny * ny + nz * nz).sqrt();
-    if len > 1e-12 {
+    if len > TAU_WORK {
         [(nx / len) as f32, (ny / len) as f32, (nz / len) as f32]
     } else {
         [0.0, 0.0, 1.0]
