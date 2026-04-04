@@ -1024,11 +1024,25 @@ impl WaffleKernel {
                 );
                 return Ok(KernelSolidHandle(handle_id));
             }
-            Ok(Err(_)) | Err(_) => {
-                // Yang pipeline is env-var gated (Phase 5a). Any error —
-                // NotSupported, panics caught by catch_unwind, empty results —
-                // falls through to legacy dispatch. This ensures YANG_BOOLEAN=1
-                // cannot cause regressions. Ref: specs/yang_error_fallback.md
+            Ok(Err(ref e)) => {
+                // Yang pipeline failed — log the error so it's not silent (A15.6).
+                // Falls through to legacy dispatch while Yang is still env-var gated.
+                // TODO(A15.6): Once Yang pipeline is operational, this should return
+                // the error instead of falling through. Remove S-H fallback.
+                eprintln!(
+                    "[A15.6 WARN] Yang boolean pipeline failed, falling through to legacy dispatch: {e}"
+                );
+            }
+            Err(panic_payload) => {
+                // Yang pipeline panicked (caught by catch_unwind) — log it.
+                let msg = panic_payload
+                    .downcast_ref::<&str>()
+                    .copied()
+                    .or_else(|| panic_payload.downcast_ref::<String>().map(|s| s.as_str()))
+                    .unwrap_or("<non-string panic>");
+                eprintln!(
+                    "[A15.6 WARN] Yang boolean pipeline panicked, falling through to legacy dispatch: {msg}"
+                );
             }
         }
 

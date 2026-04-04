@@ -332,18 +332,28 @@ pub(crate) fn yang_boolean_inner(
             // Step 6: Phase 4b — refine intersection edges with SSI solvers.
             match refine_intersection_edges(&result_topo, &classification, &surface_map) {
                 Ok(r) => r,
-                Err(_) => EdgeRefinementMap {
-                    edges: BTreeMap::new(),
-                    skipped_planar: 0,
-                    unsupported: vec![],
-                },
+                Err(ref e) => {
+                    eprintln!(
+                        "[A15.6 WARN] SSI edge refinement failed, proceeding with mesh-derived geometry: {e}"
+                    );
+                    EdgeRefinementMap {
+                        edges: BTreeMap::new(),
+                        skipped_planar: 0,
+                        unsupported: vec![],
+                    }
+                }
             }
         }
-        Err(_) => EdgeRefinementMap {
-            edges: BTreeMap::new(),
-            skipped_planar: 0,
-            unsupported: vec![],
-        },
+        Err(ref e) => {
+            eprintln!(
+                "[A15.6 WARN] SSI edge classification failed, proceeding with mesh-derived geometry: {e}"
+            );
+            EdgeRefinementMap {
+                edges: BTreeMap::new(),
+                skipped_planar: 0,
+                unsupported: vec![],
+            }
+        }
     };
 
     // Guard: if the Yang pipeline produced zero faces, return NotSupported so

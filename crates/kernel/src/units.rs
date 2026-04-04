@@ -391,3 +391,32 @@ pub const COS_NORMAL_SIMILARITY: f32 = 0.02;
 ///
 /// 5,000,000 pairs corresponds to e.g. ~2236 × 2236 triangles.
 pub const MAX_YANG_TRI_PAIRS: usize = 5_000_000;
+
+// ── Vertex quantization scales ──────────────────────────────────────
+
+/// Nanometer-resolution vertex quantization scale: 1e9.
+/// Converts meter-scale coordinates to integer keys with ~1 nm precision.
+/// Used in topology extraction and exact mesh operations for vertex
+/// deduplication via position-based hashing.
+/// Ref [#9]: Cherchi 2020 — conformal vertex sharing by position.
+pub const QUANT_NANOMETER_SCALE: f64 = 1e9;
+
+/// Micrometer-resolution plane equation quantization scale: 1e6.
+/// Converts plane normal + offset to integer keys with ~1 μm precision.
+/// Used in coplanar face bucketing during topology extraction.
+pub const QUANT_PLANE_SCALE: f64 = 1e6;
+
+// ── Squared working tolerance ────────────────────────────────────────
+
+/// Squared working tolerance: TAU_WORK² = 1e-24.
+/// Used for degenerate-edge detection (length² checks) and cross-product
+/// magnitude checks where TAU_WORK would require a sqrt.
+pub const TAU_WORK_SQ: f64 = TAU_WORK * TAU_WORK;
+
+// ── SSI refinement parameter range ──────────────────────────────────
+
+/// Upper bound for unbounded SSI curve parameter ranges: 1e6.
+/// Used in SSI refinement to clip cylinder/cone height ranges and theta
+/// ranges to a finite window. Large enough to cover any practical model
+/// geometry (1e6 meters = 1000 km).
+pub const SSI_PARAM_RANGE_MAX: f64 = 1e6;

@@ -270,7 +270,8 @@ fn dispatch_ssi(
         (surface_b, surface_a)
     };
 
-    const BIG: f64 = 1e6;
+    // Upper bound for unbounded SSI curve parameter ranges (A14 — units.rs).
+    let big: f64 = crate::units::SSI_PARAM_RANGE_MAX;
 
     match (sa, sb) {
         // Plane + Plane — should not reach here (handled as PlanarPlanar)
@@ -296,7 +297,7 @@ fn dispatch_ssi(
             cb.origin.to_array(),
             cb.axis.to_array(),
             cb.radius,
-            (-BIG, BIG),
+            (-big, big),
         ),
 
         // Cylinder + Cone
@@ -304,12 +305,12 @@ fn dispatch_ssi(
             cy.origin.to_array(),
             cy.axis.to_array(),
             cy.radius,
-            -BIG,
-            BIG,
+            -big,
+            big,
             co.apex.to_array(),
             co.axis.to_array(),
             co.half_angle,
-            (0.0, BIG),
+            (0.0, big),
         ),
 
         // Cylinder + Sphere
@@ -317,8 +318,8 @@ fn dispatch_ssi(
             cy.origin.to_array(),
             cy.axis.to_array(),
             cy.radius,
-            -BIG,
-            BIG,
+            -big,
+            big,
             sp.center.to_array(),
             sp.radius,
         ),
@@ -328,8 +329,8 @@ fn dispatch_ssi(
             cy.origin.to_array(),
             cy.axis.to_array(),
             cy.radius,
-            -BIG,
-            BIG,
+            -big,
+            big,
             to.center.to_array(),
             to.axis.to_array(),
             to.major_radius,
@@ -341,11 +342,11 @@ fn dispatch_ssi(
             ca.apex.to_array(),
             ca.axis.to_array(),
             ca.half_angle,
-            (0.0, BIG),
+            (0.0, big),
             cb.apex.to_array(),
             cb.axis.to_array(),
             cb.half_angle,
-            (0.0, BIG),
+            (0.0, big),
         ),
 
         // Cone + Sphere
@@ -354,7 +355,7 @@ fn dispatch_ssi(
             co.axis.to_array(),
             co.half_angle,
             0.0,
-            BIG,
+            big,
             sp.center.to_array(),
             sp.radius,
         ),
@@ -364,7 +365,7 @@ fn dispatch_ssi(
             co.apex.to_array(),
             co.axis.to_array(),
             co.half_angle,
-            (0.0, BIG),
+            (0.0, big),
             to.center.to_array(),
             to.axis.to_array(),
             to.major_radius,

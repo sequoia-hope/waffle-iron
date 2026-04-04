@@ -1972,7 +1972,7 @@ fn split_triangle_by_segment_dedup(
                     } else if let Some(ref mut dm) = dedup {
                         // Conformal vertex dedup: reuse existing vertex at
                         // the same nanometer-quantized position.
-                        let scale = 1e9;
+                        let scale = crate::units::QUANT_NANOMETER_SCALE;
                         let key = [
                             (pt[0] * scale).round() as i64,
                             (pt[1] * scale).round() as i64,
@@ -2159,7 +2159,7 @@ pub(crate) fn subdivide_mesh_pair(
     // the entire pipeline: subdivision → trim extraction → B-Rep construction.
     // Ref #9: Cherchi 2020 — conformal mesh subdivision requires shared vertices.
     let quant_conformal = |p: [f64; 3]| -> [i64; 3] {
-        let scale = 1e9;
+        let scale = crate::units::QUANT_NANOMETER_SCALE;
         [
             (p[0] * scale).round() as i64,
             (p[1] * scale).round() as i64,
@@ -2412,7 +2412,7 @@ pub(crate) fn subdivide_mesh_pair(
     fn build_vert_canon(all_verts: &[[f64; 3]]) -> Vec<usize> {
         let mut pos_to_canon: std::collections::HashMap<[i64; 3], usize> =
             std::collections::HashMap::new();
-        let scale = 1e9;
+        let scale = crate::units::QUANT_NANOMETER_SCALE;
         let mut vert_canon = Vec::with_capacity(all_verts.len());
         for (i, p) in all_verts.iter().enumerate() {
             let key = [

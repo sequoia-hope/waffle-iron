@@ -133,9 +133,9 @@ pub(crate) fn build_result_brep(
     let mut pos_to_canonical_mesh: HashMap<[i64; 3], usize> = HashMap::new();
 
     let quant_brep = |p: [f64; 3]| -> [i64; 3] {
-        // 1e9 quantization: nanometer precision for meter-scale models.
+        // Nanometer quantization for meter-scale models.
         // Matches the snap() function used in mesh-level Euler tests.
-        let scale = 1e9;
+        let scale = crate::units::QUANT_NANOMETER_SCALE;
         [
             (p[0] * scale).round() as i64,
             (p[1] * scale).round() as i64,
@@ -358,7 +358,7 @@ pub(crate) fn build_result_brep_from_mesh(
     // directed_edge_map in Step 2.
     // Ref [#9]: Cherchi 2020 — conformal vertex sharing by position.
     let quant_canon = |p: [f64; 3]| -> [i64; 3] {
-        let scale = 1e9;
+        let scale = crate::units::QUANT_NANOMETER_SCALE;
         [
             (p[0] * scale).round() as i64,
             (p[1] * scale).round() as i64,
@@ -555,7 +555,7 @@ pub(crate) fn build_result_brep_from_mesh(
                     let d = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
                     let d_len_sq = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
 
-                    if d_len_sq < 1e-24 {
+                    if d_len_sq < crate::units::TAU_WORK_SQ {
                         new_edges.push((v0, v1, is_int));
                         continue;
                     }
@@ -574,11 +574,11 @@ pub(crate) fn build_result_brep_from_mesh(
                         ];
                         let cross_len_sq =
                             cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2];
-                        if cross_len_sq > d_len_sq * 1e-12 {
+                        if cross_len_sq > d_len_sq * crate::units::TAU_WORK {
                             continue;
                         }
                         let t = (d[0] * to_mid[0] + d[1] * to_mid[1] + d[2] * to_mid[2]) / d_len_sq;
-                        if t > 1e-6 && t < 1.0 - 1e-6 {
+                        if t > crate::units::TAU_PARALLEL && t < 1.0 - crate::units::TAU_PARALLEL {
                             intermediates.push((t, vi));
                         }
                     }
@@ -854,7 +854,7 @@ pub(crate) fn merge_coplanar_face_groups(
                 e1[0] * e2[1] - e1[1] * e2[0],
             ];
             let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-            if len > 1e-12 {
+            if len > crate::units::TAU_WORK {
                 let sign = if tri.flipped { -1.0 } else { 1.0 };
                 let normal = [sign * n[0] / len, sign * n[1] / len, sign * n[2] / len];
                 let offset = normal[0] * v0[0] + normal[1] * v0[1] + normal[2] * v0[2];
@@ -865,7 +865,7 @@ pub(crate) fn merge_coplanar_face_groups(
 
     // Step 2: Group face groups by quantized plane equation.
     // Canonicalize normal direction so parallel normals in the same direction match.
-    let quant_scale = 1e6;
+    let quant_scale = crate::units::QUANT_PLANE_SCALE;
     let mut plane_buckets: HashMap<[i64; 4], Vec<SourceFace>> = HashMap::new();
 
     for (&sf, &(normal, offset)) in &planes {
@@ -1009,7 +1009,7 @@ pub(crate) fn extract_trim_boundaries(
                 n[2] += sign * (e1[0] * e2[1] - e1[1] * e2[0]);
             }
             let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-            if len > 1e-12 {
+            if len > crate::units::TAU_WORK {
                 [n[0] / len, n[1] / len, n[2] / len]
             } else {
                 [0.0, 0.0, 1.0]
@@ -1019,7 +1019,7 @@ pub(crate) fn extract_trim_boundaries(
         // Build local 2D frame (u, v) where u × v = face_normal.
         let face_u = {
             // Choose a vector not parallel to face_normal
-            let seed = if face_normal[0].abs() < 0.9 {
+            let seed = if face_normal[0].abs() < crate::units::BASIS_AXIS_ALIGNMENT {
                 [1.0, 0.0, 0.0]
             } else {
                 [0.0, 1.0, 0.0]
