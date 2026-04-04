@@ -116,7 +116,7 @@ wasm-bridge → sketch-ui (update display, color by status)
 
 | # | Project | Purpose | Technology | Dependencies | Status |
 |---|---------|---------|------------|-------------|--------|
-| 01 | kernel | Clean-sheet B-Rep geometry kernel | Rust | None | In progress (973 tests, 28 ignored; assay 190 cases) |
+| 01 | kernel | Clean-sheet B-Rep geometry kernel | Rust | None | In progress (980 tests, 28 ignored; assay 190 cases) |
 | 02 | sketch-solver | 2D constraint solving via slvs | Rust + C (libslvs) | None | Complete (M1-M10 + Emscripten WASM) |
 | 03 | wasm-bridge | WASM↔JS communication protocol | Rust + JS | 01 | Complete (M1-M8) |
 | 04 | 3d-viewport | three.js rendering via Threlte | Svelte + JS | 01 | Complete |
@@ -167,13 +167,13 @@ All 3D rendering happens in JavaScript via three.js/Threlte on the main thread. 
 
 ## Current Kernel Status
 
-The clean-sheet kernel (`crates/kernel/`) is under active development. **973 kernel tests pass** (28 ignored — 20 A15.2 polygon-fallback tests awaiting SSI sub-cases, 3 Yang Phase 5 topology issues, 2 straddling box-cyl watertight tests, 2 deprecated S-H pipeline geometry failures, 1 known SSI edge case). 190-case randomized assay corpus (seed 42) with analytical ground truth and Euler characteristic oracles. Position-based vertex canonicalization fix enables Yang pipeline to process per-face vertex meshes from WaffleKernel tessellation. Yang path score is the target metric per A15.6.
+The clean-sheet kernel (`crates/kernel/`) is under active development. **980 kernel tests pass** (28 ignored — 20 A15.2 polygon-fallback tests awaiting SSI sub-cases, 3 Yang Phase 5 topology issues, 2 straddling box-cyl watertight tests, 2 deprecated S-H pipeline geometry failures, 1 known SSI edge case). 190-case randomized assay corpus (seed 42) with analytical ground truth and Euler characteristic oracles. Position-based vertex canonicalization fix enables Yang pipeline to process per-face vertex meshes from WaffleKernel tessellation. Yang path score is the target metric per A15.6.
 
 ### What exists:
 - Half-edge B-Rep topology data structure with arena-based storage
 - Euler operators (mvfs, mev, mef, kemr, kfmrh) with invariant validation
 - Analytic geometry types (Point3, Vector3, Plane, Cylinder, Cone, Sphere, Torus)
-- SSI solvers for all 15 quadric surface pairs (Ref: Patrikalakis Ch.5); plane-cylinder and cylinder-cylinder active in boolean pipeline, remainder awaiting integration
+- SSI solvers for all 15 quadric surface pairs (Ref: Patrikalakis Ch.5); all 15 integrated into Yang pipeline Phase 4 (SSI refinement). Analytical boolean dispatch handles box, cylinder, sphere primitives; cone/torus operand dispatch deferred pending primitive creation ops
 - Analytical boolean pipeline: box×box, box×cyl, cyl×cyl (parallel + non-parallel), planar-planar, enclosed-hole
 - Geometry-driven tessellation for planar, cylindrical, conical, spherical, and toroidal faces
 - `MockKernel` (full deterministic test double, ~2,100 lines)
@@ -183,7 +183,7 @@ The clean-sheet kernel (`crates/kernel/`) is under active development. **973 ker
 ### What's next (in priority order):
 1. **Yang hybrid boolean pipeline** — Phases 1–4 complete (bijective tessellation, exact mesh boolean, topology extraction, SSI refinement). Phase 5 (switchover) in progress: env-gated integration (5a) and assay comparison (5b) done; deprecated S-H code removal (5c–5f) pending. See `specs/yang_hybrid_migration.md`
 2. Remove A15.2 violation: eliminate polygon_approx_boolean fallback for quadric pairs that return NotSupported (propagate error instead)
-3. Extend SSI dispatch to cone and torus primitives (currently only box, cylinder, sphere)
+3. Enable cone/torus as boolean operand primitives in analytical dispatch (all 15 SSI solvers already integrated in Yang pipeline Phase 4 refinement)
 4. Fix enclosed-hole boolean for coaxial multi-hole patterns (swiss cheese disc — F0086)
 5. Improve chained extrude reliability (F0063-F0090 cases)
 
