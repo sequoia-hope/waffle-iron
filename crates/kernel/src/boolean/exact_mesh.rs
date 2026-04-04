@@ -1577,24 +1577,6 @@ fn label_sub_tri(
     }
 }
 
-/// Classify each sub-triangle as inside or outside the other mesh.
-///
-/// Uses generalized winding numbers [#7 Jacobson 2013] to determine whether
-/// the centroid of each sub-triangle in mesh A lies inside mesh B (and vice
-/// versa). The original (pre-subdivision) mesh geometry is used as the
-/// winding number source — the subdivided mesh provides the sub-triangles
-/// whose centroids are the query points.
-///
-/// When centroids lie on the opposing mesh's surface (winding number ≈ 0.5),
-/// the evaluation point is offset along the inward normal to break the tie.
-/// See `label_sub_tri` for details.
-///
-/// # Arguments
-/// - `subdivided`: The subdivided mesh pair from `subdivide_mesh_pair`.
-/// - `original_verts_a`: Vertex positions of the original mesh A.
-/// - `original_tris_a`: Triangle indices of the original mesh A.
-/// - `original_verts_b`: Vertex positions of the original mesh B.
-/// - `original_tris_b`: Triangle indices of the original mesh B.
 /// Weld coincident vertices in a triangle mesh by quantizing positions to a
 /// nanometer grid (1e9 scale). This closes T-junction cracks in meshes with
 /// per-face (non-shared) vertices, ensuring ray-cast classification counts
@@ -1634,6 +1616,25 @@ pub(crate) fn weld_mesh_vertices(
     (welded_verts, welded_tris)
 }
 
+/// Classify each sub-triangle as inside or outside the other mesh.
+///
+/// Uses generalized winding numbers [#7 Jacobson 2013] to determine whether
+/// the centroid of each sub-triangle in mesh A lies inside mesh B (and vice
+/// versa). The original (pre-subdivision) mesh geometry is used as the
+/// winding number source — the subdivided mesh provides the sub-triangles
+/// whose centroids are the query points.
+///
+/// When centroids lie on the opposing mesh's surface (winding number ≈ 0.5),
+/// the evaluation point is offset along the inward normal to break the tie.
+/// See `label_sub_tri` for details.
+///
+/// # Arguments
+///
+/// - `subdivided`: The subdivided mesh pair from `subdivide_mesh_pair`.
+/// - `original_verts_a`: Vertex positions of the original mesh A.
+/// - `original_tris_a`: Triangle indices of the original mesh A.
+/// - `original_verts_b`: Vertex positions of the original mesh B.
+/// - `original_tris_b`: Triangle indices of the original mesh B.
 #[allow(dead_code)] // Phase 2 building block — task 2d
 pub(crate) fn label_cells(
     subdivided: &SubdividedMesh,
@@ -7262,10 +7263,10 @@ mod tests {
         // is that the function returns a definite answer, not that it doesn't panic.
         // P1: verify the return type is valid, not just absence of panic.
         match result {
-            Some(inside) => {
+            Some(_inside) => {
                 // Edge point is on the surface boundary — either classification is
-                // geometrically defensible, but it must be a bool (not NaN-derived).
-                assert!(inside || !inside, "result must be a valid bool");
+                // geometrically defensible. The type system guarantees a valid bool;
+                // the real oracle here is that the function didn't panic.
             }
             None => {
                 // All three ray axes were degenerate for this edge point.

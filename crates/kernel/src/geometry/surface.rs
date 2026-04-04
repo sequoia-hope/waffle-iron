@@ -459,7 +459,7 @@ impl Torus {
 mod tests {
     use super::*;
     use crate::units::MIN_FEATURE_SIZE;
-    use std::f64::consts::{FRAC_PI_2, FRAC_PI_4};
+    use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI};
 
     const EPS: f64 = MIN_FEATURE_SIZE;
 
@@ -566,7 +566,7 @@ mod tests {
         assert!(pt2.y.abs() < EPS);
         assert!((pt2.z - 5.0).abs() < EPS);
         // All evaluated points must lie exactly on sphere surface (distance oracle)
-        for &(u, v) in &[(0.5, 0.3), (1.0, -0.7), (3.14, 1.2)] {
+        for &(u, v) in &[(0.5, 0.3), (1.0, -0.7), (PI, 1.2)] {
             let p = s.evaluate(u, v);
             let dist = ((p.x * p.x) + (p.y * p.y) + (p.z * p.z)).sqrt();
             assert!(

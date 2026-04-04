@@ -452,12 +452,12 @@ fn compute_face_normal(
     }
 }
 
-/// Get or insert a vertex into the shared vertex pool, deduplicating by position.
-/// For shared vertices (same quantized position), the FIRST normal wins.
-/// This is acceptable because shared boundary vertices typically have the same
-/// face normal on both sides (conformal subdivision), and the per-face normal
-/// differences are handled by the face_ranges partitioning.
 // ── Main entry point ────────────────────────────────────────────────────
+//
+// Note: shared vertex pool deduplication uses first-normal-wins strategy.
+// This is acceptable because shared boundary vertices typically have the same
+// face normal on both sides (conformal subdivision), and the per-face normal
+// differences are handled by the face_ranges partitioning.
 
 /// Run the full Yang hybrid boolean pipeline on two WaffleSolids.
 ///
