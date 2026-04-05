@@ -1,68 +1,68 @@
 {
-  "errored": 51,
-  "failed": 131,
-  "generated": "2026-04-02",
+  "errored": 49,
+  "failed": 133,
+  "generated": "2026-04-05",
   "passed": 8,
   "results": [
     {
-      "category": "multiple-failures",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,307), (1,5), (1,307), (3,7), (3,366), ...; mesh_euler_characteristic: V(1407) - E(4203) + F(2802) = 6 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: Euler characteristic V(1376) - E(2048) + F(678) = 6 (expected 2). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 9 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (1,2), (1,2), ...",
       "id": "R0001",
       "status": "fail"
     },
     {
-      "category": "revolve-normals",
-      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; unit_normals: 16 of 73744 normals are not unit length; face_range_coverage: no face ranges defined; outward_normals: no valid triangles; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"revolve\", \"gear\")]; volume_magnitude: volume 0.000000e0 outside [1.224280e-7, 1.224280e9] for scale 2.304767e0",
+      "category": "multiple-failures",
+      "detail": "partial rebuild (1 error(s)): cdd13496-bfb8-4f94-be0e-1668e82968bf: operation error: kernel error: operation not supported: yang_boolean: pipeline produced empty topology (zero surviving faces); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,2), (0,2), ...",
       "id": "R0002",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 259406cd-eccc-4440-971a-5c6dea416995: operation error: kernel error: operation not supported: polygon boolean: 13448 total faces exceeds limit (8000); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...",
+      "detail": "partial rebuild (1 error(s)): 259406cd-eccc-4440-971a-5c6dea416995: operation error: kernel error: operation not supported: yang_boolean: label_cells timeout (A sub-tris); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...",
       "id": "R0003",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 196 unpaired edges out of 386 total; unit_normals: 32 of 36640 normals are not unit length; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,3), (0,8), (0,12), (0,14), ...; mesh_euler_characteristic: V(132) - E(386) + F(192) = -62 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: yang_boolean: pipeline produced empty topology (zero surviving faces). Body created as standalone.; partial rebuild (1 error(s)): d34e775f-2489-4ec5-bf74-da06d08aded3: operation error: kernel error: operation not supported: yang_boolean: pipeline produced empty topology (zero surviving faces); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,2), (0,2), ...",
       "id": "R0004",
       "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "multiple-failures",
+      "detail": "partial rebuild (2 error(s)): e6c4a36d-0a37-4212-9b83-8eb5b1ecc299: operation error: kernel error: operation not supported: yang_boolean: pipeline produced empty topology (zero surviving faces); 4f04e2a2-a867-4ffd-b035-4f51fab36903: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 418548720 exceeds limit 5000000; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...",
       "id": "R0005",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (6,8), (6,8), (6,8), (6,8), ...; mesh_euler_characteristic: V(71) - E(195) + F(130) = 6 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: Euler characteristic V(40) - E(44) + F(10) = 6 (expected 2). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 5 inter-face triangle penetrations, face pairs: (0,2), (0,2), (1,2), (1,2), (1,2)",
       "id": "R0006",
       "status": "fail"
     },
     {
       "category": "revolve-normals",
-      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"gear\")]",
+      "detail": "partial rebuild (2 error(s)): 94805f4a-e98f-40de-93a5-011fb283eab6: operation error: kernel error: operation not supported: yang_boolean: pipeline produced empty topology (zero surviving faces); 7ff3008b-95fb-48c2-bc96-14391290e195: operation error: kernel error: operation not supported: yang_boolean: pipeline produced empty topology (zero surviving faces); outward_normals: no valid triangles",
       "id": "R0007",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 44 unpaired edges out of 5839 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,19), (0,32), (0,32), (0,32), (0,32), ...; mesh_euler_characteristic: V(1939) - E(5839) + F(3878) = -22 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: pipeline produced empty topology (zero surviving faces). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"rectangle\")]",
       "id": "R0008",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(32) - E(84) + F(56) = 4 (expected 2)",
+      "detail": "partial rebuild (2 error(s)): 3ab2e357-b22a-4b51-93d5-06031ad3c5c2: operation error: kernel error: operation not supported: yang_boolean: result validation failed: Euler characteristic V(32) - E(32) + F(4) = 4 (expected 2); 6d21d782-3e23-4f52-8ab1-bdb99754b153: operation error: kernel error: operation not supported: yang_boolean: result validation failed: Euler characteristic V(32) - E(32) + F(4) = 4 (expected 2)",
       "id": "R0009",
       "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: Euler characteristic V(5744) - E(6080) + F(342) = 6 (expected 2). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...; volume_magnitude: volume 3.254130e-3 outside [2.281929e-2, 2.281929e14] for scale 1.316540e2",
       "id": "R0010",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "multiple-failures",
