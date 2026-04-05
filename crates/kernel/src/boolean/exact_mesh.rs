@@ -1642,7 +1642,8 @@ pub(crate) fn label_cells(
     original_tris_a: &[[usize; 3]],
     original_verts_b: &[[f64; 3]],
     original_tris_b: &[[usize; 3]],
-) -> CellLabeling {
+    deadline: Option<std::time::Instant>,
+) -> Result<CellLabeling, crate::types::KernelError> {
     // Weld coincident vertices in the original meshes to close T-junction cracks.
     // WaffleKernel tessellation produces per-face vertices (non-shared boundary
     // vertices for normal interpolation), creating micro-cracks at face boundaries.
@@ -1661,48 +1662,62 @@ pub(crate) fn label_cells(
 
     // Label A sub-triangles: is each one inside mesh B?
     // Uses BVH ray casting with GWN fallback for degenerate cases.
-    let labels_a = subdivided
-        .tris_a
-        .iter()
-        .map(|sub_tri| {
-            if let Some(ref bvh) = bvh_b {
-                label_sub_tri_raycast(
-                    &subdivided.verts,
-                    sub_tri,
-                    &welded_verts_b,
-                    &welded_tris_b,
-                    bvh,
-                    global_max_b,
-                )
-            } else {
-                // Empty target mesh — everything is outside.
-                CellLabel::Outside
+    // Checks deadline every 100 sub-triangles to enforce pipeline timeout.
+    let mut labels_a = Vec::with_capacity(subdivided.tris_a.len());
+    for (i, sub_tri) in subdivided.tris_a.iter().enumerate() {
+        if i % 100 == 0 {
+            if let Some(d) = deadline {
+                if std::time::Instant::now() > d {
+                    return Err(crate::types::KernelError::NotSupported {
+                        operation: "yang_boolean: label_cells timeout (A sub-tris)".to_string(),
+                    });
+                }
             }
-        })
-        .collect();
+        }
+        labels_a.push(if let Some(ref bvh) = bvh_b {
+            label_sub_tri_raycast(
+                &subdivided.verts,
+                sub_tri,
+                &welded_verts_b,
+                &welded_tris_b,
+                bvh,
+                global_max_b,
+            )
+        } else {
+            // Empty target mesh — everything is outside.
+            CellLabel::Outside
+        });
+    }
 
     // Label B sub-triangles: is each one inside mesh A?
-    let labels_b = subdivided
-        .tris_b
-        .iter()
-        .map(|sub_tri| {
-            if let Some(ref bvh) = bvh_a {
-                label_sub_tri_raycast(
-                    &subdivided.verts,
-                    sub_tri,
-                    &welded_verts_a,
-                    &welded_tris_a,
-                    bvh,
-                    global_max_a,
-                )
-            } else {
-                // Empty target mesh — everything is outside.
-                CellLabel::Outside
+    // Checks deadline every 100 sub-triangles to enforce pipeline timeout.
+    let mut labels_b = Vec::with_capacity(subdivided.tris_b.len());
+    for (i, sub_tri) in subdivided.tris_b.iter().enumerate() {
+        if i % 100 == 0 {
+            if let Some(d) = deadline {
+                if std::time::Instant::now() > d {
+                    return Err(crate::types::KernelError::NotSupported {
+                        operation: "yang_boolean: label_cells timeout (B sub-tris)".to_string(),
+                    });
+                }
             }
-        })
-        .collect();
+        }
+        labels_b.push(if let Some(ref bvh) = bvh_a {
+            label_sub_tri_raycast(
+                &subdivided.verts,
+                sub_tri,
+                &welded_verts_a,
+                &welded_tris_a,
+                bvh,
+                global_max_a,
+            )
+        } else {
+            // Empty target mesh — everything is outside.
+            CellLabel::Outside
+        });
+    }
 
-    CellLabeling { labels_a, labels_b }
+    Ok(CellLabeling { labels_a, labels_b })
 }
 
 /// Select sub-triangles from the labeled subdivided mesh based on the boolean operation.
@@ -2261,7 +2276,7 @@ pub(crate) fn subdivide_mesh_pair(
     let mut candidates = Vec::new();
     if let Some(ref bvh) = bvh_b {
         for (i, tri_a_idx) in tris_a.iter().enumerate() {
-            if i % 1000 == 0 {
+            if i % 50 == 0 {
                 if let Some(d) = deadline {
                     if std::time::Instant::now() > d {
                         return Err(crate::types::KernelError::NotSupported {
@@ -4458,7 +4473,8 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
             .expect("subdivision should succeed");
-        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling =
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
 
         // Labels must have correct length
         assert_eq!(
@@ -4501,7 +4517,8 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
             .expect("subdivision should succeed");
-        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling =
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
 
         assert_eq!(
             labeling.labels_a.len(),
@@ -4570,7 +4587,8 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
             .expect("subdivision should succeed");
-        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling =
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
         let result = select_boolean_result(&subdivided, &labeling, MeshBooleanOp::Union);
 
         // Union of non-overlapping: all A triangles + all B triangles.
@@ -4604,7 +4622,8 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
             .expect("subdivision should succeed");
-        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling =
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
         let result = select_boolean_result(&subdivided, &labeling, MeshBooleanOp::Subtract);
 
         assert!(
@@ -4642,7 +4661,8 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
             .expect("subdivision should succeed");
-        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling =
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
         let result = select_boolean_result(&subdivided, &labeling, MeshBooleanOp::Intersect);
 
         assert!(
@@ -4680,7 +4700,8 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
             .expect("subdivision should succeed");
-        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling =
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
 
         // Verify all labels are Outside (non-overlapping)
         assert!(
@@ -5414,7 +5435,8 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
             .expect("subdivision should succeed");
-        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling =
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
         select_boolean_result(&subdivided, &labeling, op)
     }
 
@@ -5629,7 +5651,7 @@ mod tests {
         let (vb, tb) = make_box_mesh_fine([0.75, 0.75, 0.75], [2.75, 2.75, 2.75]);
         let sub =
             subdivide_mesh_pair(&va, &ta, &vb, &tb, None).expect("subdivision should succeed");
-        let lab = label_cells(&sub, &va, &ta, &vb, &tb);
+        let lab = label_cells(&sub, &va, &ta, &vb, &tb, None).unwrap();
         for op in [
             MeshBooleanOp::Union,
             MeshBooleanOp::Subtract,
@@ -6608,7 +6630,8 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
             .expect("subdivision should succeed");
-        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling =
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
 
         // Both meshes should be subdivided (more than 12 original tris)
         assert!(
@@ -7293,7 +7316,8 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
             .expect("subdivision should succeed");
-        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling =
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
 
         assert_eq!(
             labeling.labels_a.len(),
@@ -7427,5 +7451,53 @@ mod tests {
             Some(false),
             "exterior point must be outside after welding"
         );
+    }
+
+    #[test]
+    fn label_cells_respects_deadline() {
+        let (va, ta) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        let (vb, tb) = make_box_mesh([0.5, 0.5, 0.5], [1.5, 1.5, 1.5]);
+        let subdivided = subdivide_mesh_pair(&va, &ta, &vb, &tb, None).unwrap();
+
+        // Deadline already expired → should return Err immediately
+        let expired = std::time::Instant::now() - std::time::Duration::from_secs(1);
+        let result = label_cells(&subdivided, &va, &ta, &vb, &tb, Some(expired));
+        assert!(
+            result.is_err(),
+            "label_cells should error on expired deadline"
+        );
+        let err_msg = format!("{:?}", result.unwrap_err());
+        assert!(
+            err_msg.contains("timeout"),
+            "error should mention timeout, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn label_cells_no_deadline_still_works() {
+        let (va, ta) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        let (vb, tb) = make_box_mesh([0.5, 0.5, 0.5], [1.5, 1.5, 1.5]);
+        let subdivided = subdivide_mesh_pair(&va, &ta, &vb, &tb, None).unwrap();
+        let labeling = label_cells(&subdivided, &va, &ta, &vb, &tb, None).unwrap();
+        assert_eq!(labeling.labels_a.len(), subdivided.tris_a.len());
+        assert_eq!(labeling.labels_b.len(), subdivided.tris_b.len());
+    }
+
+    #[test]
+    fn label_cells_generous_deadline_succeeds() {
+        let (va, ta) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        let (vb, tb) = make_box_mesh([0.5, 0.5, 0.5], [1.5, 1.5, 1.5]);
+        let subdivided = subdivide_mesh_pair(&va, &ta, &vb, &tb, None).unwrap();
+
+        // Generous deadline (60s) — should succeed
+        let future = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        let result = label_cells(&subdivided, &va, &ta, &vb, &tb, Some(future));
+        assert!(
+            result.is_ok(),
+            "label_cells should succeed with generous deadline"
+        );
+        let labeling = result.unwrap();
+        assert_eq!(labeling.labels_a.len(), subdivided.tris_a.len());
+        assert_eq!(labeling.labels_b.len(), subdivided.tris_b.len());
     }
 }

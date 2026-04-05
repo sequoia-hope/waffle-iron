@@ -1353,15 +1353,9 @@ pub(crate) fn yang_boolean_pipeline(
     let subdivided = subdivide_mesh_pair(verts_a, tris_a, verts_b, tris_b, deadline)?;
 
     // Stage 2: Label each sub-triangle as inside/outside the opposite mesh.
-    let labeling = label_cells(&subdivided, verts_a, tris_a, verts_b, tris_b);
-
-    if let Some(d) = deadline {
-        if std::time::Instant::now() > d {
-            return Err(KernelError::NotSupported {
-                operation: "yang_boolean: pipeline timeout after cell labeling".to_string(),
-            });
-        }
-    }
+    // Deadline is threaded through so label_cells can enforce the timeout
+    // during its per-sub-triangle ray-casting loop.
+    let labeling = label_cells(&subdivided, verts_a, tris_a, verts_b, tris_b, deadline)?;
 
     // Stage 3a: Determine which sub-triangles survive the boolean op.
     let mut survival = face_survival_detect(&subdivided, &labeling, op, bijective_a, bijective_b);
@@ -1470,7 +1464,8 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
             .expect("subdivision should succeed");
-        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling =
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
 
         // Build bijective maps: for each sub-triangle, look up its parent_tri,
         // then map that to a face index via the box's 2-tris-per-face scheme.
@@ -1747,7 +1742,8 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
             .expect("subdivision should succeed");
-        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling =
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
 
         let bijective_a = build_bijective_from_subdivided(&subdivided.tris_a, tris_a.len());
         let bijective_b = build_bijective_from_subdivided(&subdivided.tris_b, tris_b.len());
@@ -3180,7 +3176,8 @@ mod tests {
         // Run intermediate stages to get face survival count.
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
             .expect("subdivision should succeed");
-        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling =
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
         let survival = face_survival_detect(
             &subdivided,
             &labeling,
@@ -3388,7 +3385,8 @@ mod tests {
         let b_sub_count = subdivided.tris_b.len();
 
         // Stage 2: Label cells
-        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling =
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
 
         // Diagnostic: Count labels by type
         let mut a_labels: std::collections::HashMap<String, usize> =
@@ -3495,7 +3493,8 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
             .expect("subdivision should succeed");
-        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling =
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
 
         // Count labels
         let mut a_labels: std::collections::HashMap<String, usize> =
@@ -3580,7 +3579,8 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
             .expect("subdivision should succeed");
-        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling =
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
 
         let mut a_labels: std::collections::HashMap<String, usize> =
             std::collections::HashMap::new();
@@ -3729,7 +3729,8 @@ mod tests {
             subdivided.verts.len()
         );
 
-        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling =
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
         let mut a_labels: std::collections::HashMap<String, usize> =
             std::collections::HashMap::new();
         for label in &labeling.labels_a {
@@ -4057,7 +4058,8 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
             .expect("subdivision should succeed");
-        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b);
+        let labeling =
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
         let mut survival = face_survival_detect(
             &subdivided,
             &labeling,
