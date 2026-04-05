@@ -656,8 +656,9 @@ pub(crate) fn yang_boolean_inner(
 
     // Step 8: Validate result B-Rep topology before accepting. Invalid topology
     // (dangling edges, Euler ≠ 2, broken twin symmetry) would cause panics in
-    // downstream operations (tessellation, chained booleans). Returning NotSupported
-    // lets the legacy pipeline handle this case until the Yang pipeline is fixed.
+    // downstream operations (tessellation, chained booleans). This error propagates
+    // to the caller — the dispatch layer does NOT fall back to the legacy S-H path
+    // when Yang is enabled (A15.6).
     // P9: do not accept invalid results — hiding errors behind cached mesh is a hack.
     if let Err(msg) = validate_yang_result_topology(&waffle.arena) {
         return Err(KernelError::NotSupported {
