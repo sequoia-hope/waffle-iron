@@ -266,12 +266,15 @@ pub(crate) fn build_render_mesh_from_survival(
         }
     }
 
-    // Position-based vertex deduplication (nanometer quantization) for watertight
-    // index topology. Shared vertex indices across face boundaries ensure edge
-    // matching works for watertightness oracles.
+    // Vertex deduplication by (position, normal) — nanometer quantization for
+    // position, coarse quantization for normal direction. Vertices at the same
+    // position but with different face normals (e.g., box corners shared between
+    // perpendicular faces) get separate entries so each face has correct normals.
+    // The watertight oracle uses position-based edge matching (not shared indices),
+    // so watertightness is preserved.
     use std::collections::HashMap;
     let scale = crate::units::QUANT_NANOMETER_SCALE;
-    let mut pos_to_idx: HashMap<[i64; 3], u32> = HashMap::new();
+    let mut pos_norm_to_idx: HashMap<([i64; 3], [i32; 3]), u32> = HashMap::new();
     let mut vertices: Vec<f32> = Vec::new();
     let mut normals: Vec<f32> = Vec::new();
     let mut indices: Vec<u32> = Vec::new();
@@ -333,16 +336,28 @@ pub(crate) fn build_render_mesh_from_survival(
             let face_normal =
                 compute_face_normal(&p0, &p1, &p2, surface_map.get(&geom_key), tri.flipped);
 
-            // Position-dedup vertex emission: share indices at boundaries for watertightness.
+            // Dedup vertex emission by (position, normal): vertices at the same
+            // position with the same normal share an index (within a face), but
+            // vertices at the same position with different normals (across faces)
+            // get separate entries so each face has its correct normal.
+            let quant_normal = |n: [f32; 3]| -> [i32; 3] {
+                // Coarse quantization: 0.01 resolution is sufficient to distinguish
+                // perpendicular face normals while merging within-face duplicates.
+                [
+                    (n[0] * 100.0).round() as i32,
+                    (n[1] * 100.0).round() as i32,
+                    (n[2] * 100.0).round() as i32,
+                ]
+            };
             let mut get_or_insert = |pos: [f64; 3], normal: [f32; 3]| -> u32 {
-                let key = quant(pos);
-                if let Some(&idx) = pos_to_idx.get(&key) {
+                let key = (quant(pos), quant_normal(normal));
+                if let Some(&idx) = pos_norm_to_idx.get(&key) {
                     return idx;
                 }
                 let idx = (vertices.len() / 3) as u32;
                 vertices.extend_from_slice(&[pos[0] as f32, pos[1] as f32, pos[2] as f32]);
                 normals.extend_from_slice(&normal);
-                pos_to_idx.insert(key, idx);
+                pos_norm_to_idx.insert(key, idx);
                 idx
             };
 
@@ -454,10 +469,10 @@ fn compute_face_normal(
 
 // ── Main entry point ────────────────────────────────────────────────────
 //
-// Note: shared vertex pool deduplication uses first-normal-wins strategy.
-// This is acceptable because shared boundary vertices typically have the same
-// face normal on both sides (conformal subdivision), and the per-face normal
-// differences are handled by the face_ranges partitioning.
+// Note: vertex deduplication uses (position, normal) as the key. Vertices
+// at the same position with different face normals (e.g., box corners) get
+// separate entries, ensuring correct per-face normals for the outward_normals
+// oracle. The watertight oracle uses position-based edge matching.
 
 /// Run the full Yang hybrid boolean pipeline on two WaffleSolids.
 ///
@@ -1726,33 +1741,48 @@ mod tests {
 
         let mesh = result.cached_render_mesh.as_ref().unwrap();
 
-        // Count edge usage: each directed edge (i→j) should have a reverse (j→i).
+        // Position-based edge pairing (matches the watertight oracle).
+        // Per-face vertex dedup means vertices at the same position may have
+        // different indices (different normals), so index-based edge pairing
+        // is not appropriate for meshes with per-face normals.
         use std::collections::HashMap;
-        let mut edge_count: HashMap<(u32, u32), usize> = HashMap::new();
+        let quant_scale = crate::units::QUANT_NANOMETER_SCALE;
+        let quant_pos = |idx: u32| -> [i64; 3] {
+            let i = idx as usize * 3;
+            [
+                (mesh.vertices[i] as f64 * quant_scale).round() as i64,
+                (mesh.vertices[i + 1] as f64 * quant_scale).round() as i64,
+                (mesh.vertices[i + 2] as f64 * quant_scale).round() as i64,
+            ]
+        };
+
+        type PosEdge = ([i64; 3], [i64; 3]);
+        let make_edge = |a: [i64; 3], b: [i64; 3]| -> PosEdge {
+            if a <= b {
+                (a, b)
+            } else {
+                (b, a)
+            }
+        };
+
+        let mut edge_count: HashMap<PosEdge, usize> = HashMap::new();
         for tri in mesh.indices.chunks(3) {
             if tri.len() < 3 {
                 continue;
             }
-            for k in 0..3 {
-                let v0 = tri[k];
-                let v1 = tri[(k + 1) % 3];
-                *edge_count.entry((v0, v1)).or_default() += 1;
-            }
+            let va = quant_pos(tri[0]);
+            let vb = quant_pos(tri[1]);
+            let vc = quant_pos(tri[2]);
+            *edge_count.entry(make_edge(va, vb)).or_default() += 1;
+            *edge_count.entry(make_edge(vb, vc)).or_default() += 1;
+            *edge_count.entry(make_edge(vc, va)).or_default() += 1;
         }
 
-        let mut unpaired = 0;
-        for &(v0, v1) in edge_count.keys() {
-            let fwd = edge_count.get(&(v0, v1)).copied().unwrap_or(0);
-            let rev = edge_count.get(&(v1, v0)).copied().unwrap_or(0);
-            if fwd != rev {
-                unpaired += 1;
-            }
-        }
-
+        let unpaired: usize = edge_count.values().filter(|&&c| c % 2 != 0).count();
         assert_eq!(
             unpaired, 0,
-            "Cached mesh should be watertight (every directed edge has a reverse), \
-             found {unpaired} unpaired directed edges"
+            "Cached mesh should be watertight (every edge paired by position), \
+             found {unpaired} unpaired edges"
         );
     }
 
@@ -2205,6 +2235,227 @@ mod tests {
         assert_eq!(
             tris[0][1], tris[0][2],
             "Degenerate triangle: all indices should be the same"
+        );
+    }
+
+    /// Test that `build_render_mesh_from_survival` produces correct per-face normals.
+    ///
+    /// The bug: `get_or_insert` deduplicates vertices by position only, so when a corner
+    /// vertex is shared between faces with different normals (e.g., top face [0,0,1] vs
+    /// side face [1,0,0]), the first face's normal wins for all subsequent faces sharing
+    /// that position. This causes most triangles to have wrong normals.
+    #[test]
+    fn test_yang_render_mesh_normals_per_face() {
+        use crate::boolean::exact_mesh::MeshBooleanOp;
+        use crate::boolean::topology_extract::yang_boolean_pipeline;
+        use crate::geometry::surface::{Plane, SurfaceGeom};
+        use crate::tessellation::bijective::BijectiveMap;
+        use crate::topology::half_edge::FaceIdx;
+
+        /// Build a box mesh with per-face vertices (24 vertices, 12 triangles).
+        fn make_per_face_box_mesh(
+            min: [f64; 3],
+            max: [f64; 3],
+        ) -> (Vec<[f64; 3]>, Vec<[usize; 3]>) {
+            let [x0, y0, z0] = min;
+            let [x1, y1, z1] = max;
+
+            let mut verts = Vec::with_capacity(24);
+            let mut tris = Vec::with_capacity(12);
+
+            // Face 0: back (z=z0), normal [0,0,-1]
+            let base = verts.len();
+            verts.extend_from_slice(&[[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]]);
+            tris.push([base, base + 2, base + 1]);
+            tris.push([base, base + 3, base + 2]);
+
+            // Face 1: front (z=z1), normal [0,0,1]
+            let base = verts.len();
+            verts.extend_from_slice(&[[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]]);
+            tris.push([base, base + 1, base + 2]);
+            tris.push([base, base + 2, base + 3]);
+
+            // Face 2: bottom (y=y0), normal [0,-1,0]
+            let base = verts.len();
+            verts.extend_from_slice(&[[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]]);
+            tris.push([base, base + 1, base + 2]);
+            tris.push([base, base + 2, base + 3]);
+
+            // Face 3: top (y=y1), normal [0,1,0]
+            let base = verts.len();
+            verts.extend_from_slice(&[[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]]);
+            tris.push([base, base + 2, base + 1]);
+            tris.push([base, base + 3, base + 2]);
+
+            // Face 4: left (x=x0), normal [-1,0,0]
+            let base = verts.len();
+            verts.extend_from_slice(&[[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]]);
+            tris.push([base, base + 1, base + 2]);
+            tris.push([base, base + 2, base + 3]);
+
+            // Face 5: right (x=x1), normal [1,0,0]
+            let base = verts.len();
+            verts.extend_from_slice(&[[x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0]]);
+            tris.push([base, base + 2, base + 1]);
+            tris.push([base, base + 3, base + 2]);
+
+            (verts, tris)
+        }
+
+        // Build the per-face surface normals for a box.
+        // Face indices 0..5 map to: back(-Z), front(+Z), bottom(-Y), top(+Y), left(-X), right(+X)
+        fn box_surface_map(mesh_id: MeshId) -> BTreeMap<(MeshId, FaceIdx), SurfaceGeom> {
+            let face_normals: [(f64, f64, f64); 6] = [
+                (0.0, 0.0, -1.0), // face 0: back
+                (0.0, 0.0, 1.0),  // face 1: front
+                (0.0, -1.0, 0.0), // face 2: bottom
+                (0.0, 1.0, 0.0),  // face 3: top
+                (-1.0, 0.0, 0.0), // face 4: left
+                (1.0, 0.0, 0.0),  // face 5: right
+            ];
+            let mut map = BTreeMap::new();
+            for (i, (nx, ny, nz)) in face_normals.iter().enumerate() {
+                map.insert(
+                    (mesh_id, FaceIdx(i)),
+                    SurfaceGeom::Planar(Plane {
+                        origin: Point3::new(0.0, 0.0, 0.0),
+                        normal: Vector3::new(*nx, *ny, *nz),
+                    }),
+                );
+            }
+            map
+        }
+
+        // Two identical boxes (union of identical boxes = same box)
+        let (mut verts_a, mut tris_a) = make_per_face_box_mesh([-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]);
+        let (mut verts_b, mut tris_b) = make_per_face_box_mesh([-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]);
+
+        dedup_mesh_vertices(&mut verts_a, &mut tris_a);
+        dedup_mesh_vertices(&mut verts_b, &mut tris_b);
+
+        let bijective_a = BijectiveMap {
+            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
+        };
+        let bijective_b = BijectiveMap {
+            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
+        };
+
+        let result = yang_boolean_pipeline(
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            &bijective_a,
+            &bijective_b,
+            MeshBooleanOp::Union,
+            None,
+        )
+        .expect("Yang pipeline must succeed for identical box union");
+
+        // Build surface map with per-face normals for both meshes
+        let mut surface_map = box_surface_map(MeshId::A);
+        surface_map.extend(box_surface_map(MeshId::B));
+
+        // Build face_map: assign kernel IDs to each face in the result topology
+        let face_map: BTreeMap<u64, FaceIdx> = result
+            .topology
+            .face_provenance
+            .keys()
+            .enumerate()
+            .map(|(i, &fidx)| ((i as u64) + 1, fidx))
+            .collect();
+
+        let mesh = build_render_mesh_from_survival(
+            &result.survival,
+            &result.subdivided,
+            &surface_map,
+            &result.topology.face_provenance,
+            &face_map,
+        );
+
+        // Verify the mesh has triangles
+        let tri_count = mesh.indices.len() / 3;
+        assert!(
+            tri_count >= 12,
+            "Box union render mesh must have at least 12 triangles, got {tri_count}"
+        );
+
+        // For each triangle, check that the stored vertex normal agrees with the
+        // geometric (cross-product) normal direction.
+        let mut correct = 0usize;
+        let mut total = 0usize;
+        for t in 0..tri_count {
+            let i0 = mesh.indices[t * 3] as usize;
+            let i1 = mesh.indices[t * 3 + 1] as usize;
+            let i2 = mesh.indices[t * 3 + 2] as usize;
+
+            let p0 = [
+                mesh.vertices[i0 * 3] as f64,
+                mesh.vertices[i0 * 3 + 1] as f64,
+                mesh.vertices[i0 * 3 + 2] as f64,
+            ];
+            let p1 = [
+                mesh.vertices[i1 * 3] as f64,
+                mesh.vertices[i1 * 3 + 1] as f64,
+                mesh.vertices[i1 * 3 + 2] as f64,
+            ];
+            let p2 = [
+                mesh.vertices[i2 * 3] as f64,
+                mesh.vertices[i2 * 3 + 1] as f64,
+                mesh.vertices[i2 * 3 + 2] as f64,
+            ];
+
+            // Geometric normal via cross product
+            let e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+            let e2 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+            let geo_n = [
+                e1[1] * e2[2] - e1[2] * e2[1],
+                e1[2] * e2[0] - e1[0] * e2[2],
+                e1[0] * e2[1] - e1[1] * e2[0],
+            ];
+            let geo_len = (geo_n[0] * geo_n[0] + geo_n[1] * geo_n[1] + geo_n[2] * geo_n[2]).sqrt();
+            if geo_len < 1e-12 {
+                continue; // degenerate triangle
+            }
+
+            // Stored normal of the first vertex
+            let sn = [
+                mesh.normals[i0 * 3] as f64,
+                mesh.normals[i0 * 3 + 1] as f64,
+                mesh.normals[i0 * 3 + 2] as f64,
+            ];
+
+            let dot = geo_n[0] * sn[0] + geo_n[1] * sn[1] + geo_n[2] * sn[2];
+            total += 1;
+            if dot > 0.0 {
+                correct += 1;
+            } else {
+                eprintln!(
+                    "[DIAG] triangle {t}: geo_normal=[{:.3},{:.3},{:.3}], stored_normal=[{:.3},{:.3},{:.3}], dot={dot:.4}",
+                    geo_n[0] / geo_len,
+                    geo_n[1] / geo_len,
+                    geo_n[2] / geo_len,
+                    sn[0],
+                    sn[1],
+                    sn[2],
+                );
+            }
+        }
+
+        let pct = if total > 0 {
+            (correct as f64 / total as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        eprintln!("[DIAG] outward normals: {correct}/{total} triangles correct ({pct:.1}%)");
+
+        assert!(
+            pct >= 95.0,
+            "Render mesh must have >= 95% correct outward normals, \
+             but only {correct} of {total} triangles ({pct:.1}%) have normals \
+             agreeing with geometric direction. This indicates the position-only \
+             vertex dedup is clobbering per-face normals."
         );
     }
 }
