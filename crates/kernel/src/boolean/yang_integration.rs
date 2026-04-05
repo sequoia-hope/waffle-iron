@@ -523,8 +523,10 @@ pub(crate) fn yang_boolean_inner(
     let mesh_b = tessellate_waffle_solid(solid_b, lod)?;
 
     // Step 2: Convert to pipeline format (f64 arrays).
-    let (verts_a, tris_a) = render_mesh_to_arrays(&mesh_a);
-    let (verts_b, tris_b) = render_mesh_to_arrays(&mesh_b);
+    let (mut verts_a, mut tris_a) = render_mesh_to_arrays(&mesh_a);
+    let (mut verts_b, mut tris_b) = render_mesh_to_arrays(&mesh_b);
+    dedup_mesh_vertices(&mut verts_a, &mut tris_a);
+    dedup_mesh_vertices(&mut verts_b, &mut tris_b);
 
     #[cfg(test)]
     eprintln!(
@@ -835,6 +837,46 @@ pub(crate) fn check_yang_triangle_count(n_a: usize, n_b: usize) -> Result<(), Ke
         });
     }
     Ok(())
+}
+
+/// Pre-deduplicate per-face vertices by position (nanometer quantization).
+///
+/// Per-face tessellation produces meshes where shared vertices at face
+/// boundaries have separate indices. The subdivision step operates on raw
+/// indices, so duplicate positions cause inconsistent sub-triangle structures
+/// across face boundaries. Deduplicating before subdivision ensures the
+/// pipeline receives shared-vertex meshes identical to the E2E test structure.
+///
+/// Uses the same `QUANT_NANOMETER_SCALE` quantization used throughout the
+/// pipeline for consistency. Ref [#9]: Cherchi 2020 — conformal vertex sharing.
+fn dedup_mesh_vertices(verts: &mut Vec<[f64; 3]>, tris: &mut [[usize; 3]]) {
+    use std::collections::HashMap;
+    let scale = crate::units::QUANT_NANOMETER_SCALE;
+    let mut pos_to_new: HashMap<[i64; 3], usize> = HashMap::new();
+    let mut old_to_new: Vec<usize> = Vec::with_capacity(verts.len());
+    let mut new_verts: Vec<[f64; 3]> = Vec::new();
+
+    for v in verts.iter() {
+        let key = [
+            (v[0] * scale).round() as i64,
+            (v[1] * scale).round() as i64,
+            (v[2] * scale).round() as i64,
+        ];
+        let new_idx = *pos_to_new.entry(key).or_insert_with(|| {
+            let idx = new_verts.len();
+            new_verts.push(*v);
+            idx
+        });
+        old_to_new.push(new_idx);
+    }
+
+    for tri in tris.iter_mut() {
+        tri[0] = old_to_new[tri[0]];
+        tri[1] = old_to_new[tri[1]];
+        tri[2] = old_to_new[tri[2]];
+    }
+
+    *verts = new_verts;
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────
@@ -1921,6 +1963,245 @@ mod tests {
         assert!(
             result.is_err(),
             "expired deadline should cause timeout error"
+        );
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Vertex dedup tests: per-face-vertex mesh support
+    // ══════════════════════════════════════════════════════════════════
+
+    /// Test that `dedup_mesh_vertices` merges duplicate positions and remaps
+    /// triangle indices correctly.
+    #[test]
+    fn test_dedup_mesh_vertices_basic() {
+        // 12 vertices: 4 unique positions, each duplicated 3 times
+        let mut verts: Vec<[f64; 3]> = vec![
+            // Copies of A = [1.0, 0.0, 0.0] at indices 0, 4, 8
+            [1.0, 0.0, 0.0], // 0
+            // Copies of B = [0.0, 1.0, 0.0] at indices 1, 5, 9
+            [0.0, 1.0, 0.0], // 1
+            // Copies of C = [0.0, 0.0, 1.0] at indices 2, 6, 10
+            [0.0, 0.0, 1.0], // 2
+            // Copies of D = [1.0, 1.0, 1.0] at indices 3, 7, 11
+            [1.0, 1.0, 1.0], // 3
+            [1.0, 0.0, 0.0], // 4  (dup of A)
+            [0.0, 1.0, 0.0], // 5  (dup of B)
+            [0.0, 0.0, 1.0], // 6  (dup of C)
+            [1.0, 1.0, 1.0], // 7  (dup of D)
+            [1.0, 0.0, 0.0], // 8  (dup of A)
+            [0.0, 1.0, 0.0], // 9  (dup of B)
+            [0.0, 0.0, 1.0], // 10 (dup of C)
+            [1.0, 1.0, 1.0], // 11 (dup of D)
+        ];
+
+        let mut tris: Vec<[usize; 3]> = vec![
+            [0, 1, 2],  // copies 0 of A, B, C
+            [4, 5, 6],  // copies 1 of A, B, C
+            [8, 9, 10], // copies 2 of A, B, C
+            [3, 7, 11], // copies of D, D, D (degenerate, tests index remapping)
+        ];
+
+        dedup_mesh_vertices(&mut verts, &mut tris);
+
+        // Only 4 unique positions should remain
+        assert_eq!(
+            verts.len(),
+            4,
+            "dedup should reduce 12 vertices to 4 unique positions, got {}",
+            verts.len()
+        );
+
+        // First 3 triangles should all have identical indices (all map to canonical A, B, C)
+        assert_eq!(
+            tris[0], tris[1],
+            "triangles 0 and 1 should have same indices after dedup"
+        );
+        assert_eq!(
+            tris[1], tris[2],
+            "triangles 1 and 2 should have same indices after dedup"
+        );
+
+        // 4th triangle should have all 3 indices equal (all map to canonical D)
+        assert_eq!(
+            tris[3][0], tris[3][1],
+            "degenerate triangle indices should all map to the same canonical D vertex"
+        );
+        assert_eq!(
+            tris[3][1], tris[3][2],
+            "degenerate triangle indices should all map to the same canonical D vertex"
+        );
+    }
+
+    /// Test that the Yang pipeline handles per-face-vertex meshes (like WaffleSolid
+    /// tessellation produces) by deduplicating vertices before processing.
+    #[test]
+    fn test_per_face_vertex_box_union() {
+        use crate::boolean::exact_mesh::MeshBooleanOp;
+        use crate::boolean::topology_extract::yang_boolean_pipeline;
+        use crate::tessellation::bijective::BijectiveMap;
+        use crate::topology::half_edge::FaceIdx;
+
+        /// Build a box mesh with per-face vertices (24 vertices, 12 triangles).
+        /// Each face has its own 4 vertices — no sharing between faces.
+        fn make_per_face_box_mesh(
+            min: [f64; 3],
+            max: [f64; 3],
+        ) -> (Vec<[f64; 3]>, Vec<[usize; 3]>) {
+            let [x0, y0, z0] = min;
+            let [x1, y1, z1] = max;
+
+            let mut verts = Vec::with_capacity(24);
+            let mut tris = Vec::with_capacity(12);
+
+            // 6 faces, each with 4 unique vertices and 2 triangles
+            // Face 0: back (z=z0)
+            let base = verts.len();
+            verts.extend_from_slice(&[[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]]);
+            tris.push([base, base + 2, base + 1]);
+            tris.push([base, base + 3, base + 2]);
+
+            // Face 1: front (z=z1)
+            let base = verts.len();
+            verts.extend_from_slice(&[[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]]);
+            tris.push([base, base + 1, base + 2]);
+            tris.push([base, base + 2, base + 3]);
+
+            // Face 2: bottom (y=y0)
+            let base = verts.len();
+            verts.extend_from_slice(&[[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]]);
+            tris.push([base, base + 1, base + 2]);
+            tris.push([base, base + 2, base + 3]);
+
+            // Face 3: top (y=y1)
+            let base = verts.len();
+            verts.extend_from_slice(&[[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]]);
+            tris.push([base, base + 2, base + 1]);
+            tris.push([base, base + 3, base + 2]);
+
+            // Face 4: left (x=x0)
+            let base = verts.len();
+            verts.extend_from_slice(&[[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]]);
+            tris.push([base, base + 1, base + 2]);
+            tris.push([base, base + 2, base + 3]);
+
+            // Face 5: right (x=x1)
+            let base = verts.len();
+            verts.extend_from_slice(&[[x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0]]);
+            tris.push([base, base + 2, base + 1]);
+            tris.push([base, base + 3, base + 2]);
+
+            assert_eq!(verts.len(), 24, "per-face box must have 24 vertices");
+            assert_eq!(tris.len(), 12, "per-face box must have 12 triangles");
+
+            (verts, tris)
+        }
+
+        // Box A and Box B: identical boxes
+        let (mut verts_a, mut tris_a) = make_per_face_box_mesh([-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]);
+        let (mut verts_b, mut tris_b) = make_per_face_box_mesh([-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]);
+
+        // Dedup vertices before passing to the pipeline
+        dedup_mesh_vertices(&mut verts_a, &mut tris_a);
+        dedup_mesh_vertices(&mut verts_b, &mut tris_b);
+
+        // Build BijectiveMaps: 6 faces, 2 tris per face → face_idx = tri_idx / 2
+        let bijective_a = BijectiveMap {
+            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
+        };
+        let bijective_b = BijectiveMap {
+            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
+        };
+
+        let result = yang_boolean_pipeline(
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            &bijective_a,
+            &bijective_b,
+            MeshBooleanOp::Union,
+            None,
+        );
+
+        match &result {
+            Ok(pipeline_result) => {
+                // Topology should have faces (face_provenance not empty)
+                assert!(
+                    !pipeline_result.topology.face_provenance.is_empty(),
+                    "Union of identical per-face-vertex boxes must produce faces, \
+                     but face_provenance is empty"
+                );
+
+                // Check Euler characteristic on surviving mesh triangles
+                let surviving_count: usize = pipeline_result
+                    .survival
+                    .groups
+                    .values()
+                    .map(|v| v.len())
+                    .sum();
+                eprintln!(
+                    "[DIAG] per-face-vertex box union: {} face groups, {} surviving tris",
+                    pipeline_result.topology.face_provenance.len(),
+                    surviving_count
+                );
+            }
+            Err(e) => {
+                panic!(
+                    "Yang pipeline should handle per-face-vertex meshes after dedup, \
+                     but failed with: {e:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_dedup_preserves_distinct_close_vertices() {
+        // Two vertices 2nm apart — should NOT be merged (> 1nm quantization bucket)
+        let mut verts = vec![[0.0, 0.0, 0.0], [0.0, 0.0, 2e-9]];
+        let mut tris = vec![[0, 0, 1]];
+
+        dedup_mesh_vertices(&mut verts, &mut tris);
+
+        assert_eq!(
+            verts.len(),
+            2,
+            "Vertices 2nm apart must remain distinct after dedup"
+        );
+        assert_eq!(tris[0], [0, 0, 1]);
+    }
+
+    #[test]
+    fn test_dedup_empty_mesh() {
+        let mut verts: Vec<[f64; 3]> = vec![];
+        let mut tris: Vec<[usize; 3]> = vec![];
+
+        dedup_mesh_vertices(&mut verts, &mut tris);
+
+        assert!(verts.is_empty());
+        assert!(tris.is_empty());
+    }
+
+    #[test]
+    fn test_dedup_removes_degenerate_indices() {
+        // Three vertices at the same position — dedup should collapse them to one,
+        // making the triangle degenerate (all indices equal).
+        let mut verts = vec![[1.0, 2.0, 3.0], [1.0, 2.0, 3.0], [1.0, 2.0, 3.0]];
+        let mut tris = vec![[0, 1, 2]];
+
+        dedup_mesh_vertices(&mut verts, &mut tris);
+
+        assert_eq!(
+            verts.len(),
+            1,
+            "All three identical vertices should merge to one"
+        );
+        assert_eq!(
+            tris[0][0], tris[0][1],
+            "Degenerate triangle: all indices should be the same"
+        );
+        assert_eq!(
+            tris[0][1], tris[0][2],
+            "Degenerate triangle: all indices should be the same"
         );
     }
 }
