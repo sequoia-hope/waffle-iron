@@ -2414,8 +2414,8 @@ mod tests {
                 e1[0] * e2[1] - e1[1] * e2[0],
             ];
             let geo_len = (geo_n[0] * geo_n[0] + geo_n[1] * geo_n[1] + geo_n[2] * geo_n[2]).sqrt();
-            if geo_len < 1e-12 {
-                continue; // degenerate triangle
+            if geo_len < TAU_WORK {
+                continue; // degenerate triangle (cross-product magnitude < working tolerance)
             }
 
             // Stored normal of the first vertex
