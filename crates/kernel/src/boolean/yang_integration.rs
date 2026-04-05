@@ -1311,11 +1311,11 @@ mod tests {
         );
     }
 
-    /// Bug: when `yang_boolean_from_solids` produces an empty boolean result
-    /// (e.g., Intersect of non-overlapping solids), it should return
-    /// `Err(KernelError::NotSupported { .. })` to trigger the legacy fallback
-    /// in `do_boolean()`. Currently it returns `Ok` with an empty solid (zero
-    /// faces), which `do_boolean` accepts as a valid result and stores.
+    /// When `yang_boolean_inner` produces an empty boolean result (e.g.,
+    /// Intersect of non-overlapping solids), it must return
+    /// `Err(KernelError::NotSupported { .. })`. The dispatch layer in
+    /// `waffle_kernel.rs` propagates this as a hard error when Yang is
+    /// enabled (A15.6) — it does NOT fall back to the legacy S-H path.
     ///
     /// This test creates two non-overlapping tetrahedra and verifies that the
     /// intersection returns NotSupported.
@@ -1345,17 +1345,18 @@ mod tests {
         // Use yang_boolean_inner directly to avoid env-var race in parallel tests.
         let result = yang_boolean_inner(&solid_a, &solid_b, BoolOp::Intersect, &mut id_alloc);
 
-        // The result should be Err(NotSupported) for an empty intersection,
-        // so that do_boolean can fall through to the legacy pipeline.
+        // The result should be Err(NotSupported) for an empty intersection.
+        // A15.6: the dispatch layer propagates this as a hard error, not a
+        // fallback trigger.
         match &result {
             Err(KernelError::NotSupported { .. }) => {
-                // Correct behavior — empty result triggers fallback.
+                // Correct — Yang signals empty result; caller propagates as hard error (A15.6).
             }
             Ok(boolean_result) => {
                 panic!(
                     "Expected Err(NotSupported) for empty intersection, \
-                     but got Ok with {} faces. The pipeline should detect the \
-                     empty result and return NotSupported to trigger legacy fallback.",
+                     but got Ok with {} faces. The pipeline must detect the \
+                     empty result and return NotSupported.",
                     boolean_result.arena.faces.len(),
                 );
             }
@@ -1665,8 +1666,8 @@ mod tests {
             let nz = mesh.normals[i * 3 + 2] as f64;
             let len = (nx * nx + ny * ny + nz * nz).sqrt();
             assert!(
-                (len - 1.0).abs() < 1e-5,
-                "Normal {i} has length {len}, expected 1.0 (f32 precision)"
+                (len - 1.0).abs() < 1e-6,
+                "Normal {i} has length {len}, expected 1.0 (f32 epsilon ~1.19e-7)"
             );
         }
     }

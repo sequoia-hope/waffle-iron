@@ -7106,7 +7106,7 @@ mod tests {
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
             .expect("subdivision should succeed");
 
-        let tau_work = 1e-12;
+        let tau_work = crate::units::TAU_WORK;
         for (i, sub_tri) in subdivided.tris_a.iter().enumerate() {
             let v0 = subdivided.verts[sub_tri.verts[0]];
             let v1 = subdivided.verts[sub_tri.verts[1]];
