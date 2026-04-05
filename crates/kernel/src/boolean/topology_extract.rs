@@ -519,18 +519,23 @@ pub(crate) fn build_result_brep_from_mesh(
     // ── Step 5b: Split T-junction edges ──
     // Face groups at perpendicular junctions may have boundary edges at different
     // granularity levels due to mesh subdivision. Split coarse edges at
-    // intermediate boundary vertices from other face groups.
+    // intermediate vertices that lie on those edges.
+    //
+    // Include ALL vertices from surviving sub-triangles, not just boundary
+    // vertices. Interior vertices of adjacent face groups may lie on this
+    // face group's boundary edges (T-junctions). Without them, edges aren't
+    // split consistently, causing unpaired half-edges during twin pairing.
     // Ref [#24]: Yang 2025 — conformal mesh T-junction resolution.
+    // Ref [#9]: Cherchi 2020 — conformal subdivision vertex sharing.
     {
         let mut all_boundary_verts: HashMap<[i64; 3], usize> = HashMap::new();
 
-        for (_sf, loops) in all_face_loops.iter() {
-            for loop_edges in loops {
-                for &(v0, v1, _) in loop_edges {
-                    for &vi in &[v0, v1] {
-                        let qp = quant_canon(subdivided.verts[vi]);
-                        all_boundary_verts.entry(qp).or_insert(vi);
-                    }
+        for tris in survival.groups.values() {
+            for tri in tris {
+                for &vi in &tri.verts {
+                    let cvi = canon_v(vi);
+                    let qp = quant_canon(subdivided.verts[cvi]);
+                    all_boundary_verts.entry(qp).or_insert(cvi);
                 }
             }
         }
@@ -4576,5 +4581,83 @@ mod tests {
         // Euler's formula for a closed solid
         let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
         assert_eq!(euler, 2, "V-E+F must be 2 for closed solid, got {euler}");
+    }
+
+    /// Per-face vertex meshes (as produced by WaffleSolid tessellation) create
+    /// T-junctions when faces from different source meshes share boundary edges
+    /// at different subdivision granularity.
+    ///
+    /// Bug: Step 5b only searched boundary vertices for T-junction splitting.
+    /// Interior vertices of adjacent face groups were missed, leaving edges
+    /// unsplit and causing unpaired half-edges → empty topology.
+    ///
+    /// This test uses a contained geometry (B inside A) where B's edges cut
+    /// across the interior of A's faces. Subdivision creates vertices interior
+    /// to A's face groups that lie on B's boundary edges.
+    ///
+    /// Ref [#24]: Yang 2025 — T-junction resolution in conformal mesh.
+    /// Ref [#9]: Cherchi 2020 — conformal subdivision vertex sharing.
+    #[test]
+    fn test_tjunction_interior_vertex_per_face() {
+        let (verts_a, tris_a) = make_box_mesh_per_face([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (verts_b, tris_b) = make_box_mesh_per_face([0.5, 0.5, 0.5], [1.5, 1.5, 1.5]);
+
+        let bijective_a = BijectiveMap {
+            tri_face_ids: (0..tris_a.len()).map(|i| FaceIdx(i / 2)).collect(),
+        };
+        let bijective_b = BijectiveMap {
+            tri_face_ids: (0..tris_b.len()).map(|i| FaceIdx(i / 2)).collect(),
+        };
+
+        for op in [
+            MeshBooleanOp::Subtract,
+            MeshBooleanOp::Union,
+            MeshBooleanOp::Intersect,
+        ] {
+            let result = yang_boolean_pipeline(
+                &verts_a,
+                &tris_a,
+                &verts_b,
+                &tris_b,
+                &bijective_a,
+                &bijective_b,
+                op,
+                None,
+            )
+            .unwrap_or_else(|e| panic!("{op:?} pipeline failed: {e}"));
+
+            let a = &result.topology.arena;
+            let v = a.vertices.len();
+            let e = a.edges.len();
+            let f = a.faces.len();
+
+            // Primary assertion: the fix resolves unpaired half-edges so
+            // topology is non-empty. Before the fix, Subtract and Intersect
+            // produced 0 faces due to twin-pairing failure.
+            assert!(
+                f > 0,
+                "{op:?}: per-face vertex pipeline must produce faces (got 0 — T-junction bug)"
+            );
+            assert!(v > 0, "{op:?}: must produce vertices");
+            assert!(e > 0, "{op:?}: must produce edges");
+
+            // Manifold: every edge has exactly two half-edges (twin-paired).
+            // This is the core invariant that the T-junction fix enables.
+            let he = a.half_edges.len();
+            assert_eq!(
+                he,
+                2 * e,
+                "{op:?}: half_edges ({he}) must equal 2 * edges ({e})"
+            );
+
+            // Euler characteristic: V-E+F must be positive and even.
+            // V-E+F=2 for a single closed solid, V-E+F=2S for S shells.
+            // Multi-shell results (Euler>2) are a separate known issue.
+            let euler = v as i64 - e as i64 + f as i64;
+            assert!(
+                euler > 0 && euler % 2 == 0,
+                "{op:?}: V({v}) - E({e}) + F({f}) = {euler} (expected positive even)"
+            );
+        }
     }
 }
