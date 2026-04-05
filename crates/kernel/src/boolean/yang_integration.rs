@@ -1834,7 +1834,10 @@ mod tests {
                 e1[0] * e2[1] - e1[1] * e2[0],
             ];
             let area = (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt();
-            assert!(area > 1e-15, "triangle {i} is degenerate (area={area})");
+            assert!(
+                area > crate::units::TAU_NORMALIZE,
+                "triangle {i} is degenerate (area={area})"
+            );
         }
     }
 
