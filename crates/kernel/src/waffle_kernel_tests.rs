@@ -1017,8 +1017,13 @@ fn g2_union_face_count() {
     let (mut k, a, b) = make_overlapping_boxes();
     let result = k.boolean_union(&a, &b).unwrap();
     let faces = k.list_faces(&result);
-    // Yang pipeline merges coplanar faces, producing 6 for this 1D-offset case.
-    // Legacy pipeline produces 14 (no coplanar merge). Accept either with >= 6.
+    // Input: two boxes offset only in x (1D overlap). The union is a single
+    // rectangular box, so the geometrically correct face count is 6.
+    // Yang pipeline (YANG_BOOLEAN=1): merges coplanar faces → 6 faces (correct).
+    // Legacy S-H pipeline: splits faces at intersection boundaries without
+    // coplanar merge → 14 faces (geometrically valid but not minimal).
+    // Accept >= 6 to accommodate both pipelines. Euler (g3) and volume (g1)
+    // tests independently validate topological and geometric correctness.
     assert!(
         faces.len() >= 6,
         "Union of half-overlapping boxes should have >= 6 faces, got {}",
