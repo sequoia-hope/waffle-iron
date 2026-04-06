@@ -2683,4 +2683,391 @@ mod tests {
             }
         }
     }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Self-intersection & boundary-row tests for retessellated curved faces
+    // ══════════════════════════════════════════════════════════════════
+
+    fn count_mesh_self_intersections(mesh: &RenderMesh) -> usize {
+        use std::collections::HashSet;
+        let qs = crate::units::QUANT_NANOMETER_SCALE;
+        let quant = |idx: u32| -> [i64; 3] {
+            let i = idx as usize * 3;
+            [
+                (mesh.vertices[i] as f64 * qs).round() as i64,
+                (mesh.vertices[i + 1] as f64 * qs).round() as i64,
+                (mesh.vertices[i + 2] as f64 * qs).round() as i64,
+            ]
+        };
+        let vtx = |idx: u32| -> [f64; 3] {
+            let i = idx as usize * 3;
+            [
+                mesh.vertices[i] as f64,
+                mesh.vertices[i + 1] as f64,
+                mesh.vertices[i + 2] as f64,
+            ]
+        };
+        let mut face_tris: Vec<Vec<usize>> = Vec::new();
+        for fr in &mesh.face_ranges {
+            face_tris.push((fr.start_index as usize / 3..fr.end_index as usize / 3).collect());
+        }
+        let face_aabb = |tris: &[usize]| -> ([f64; 3], [f64; 3]) {
+            let (mut mn, mut mx) = ([f64::MAX; 3], [f64::MIN; 3]);
+            for &ti in tris {
+                for k in 0..3 {
+                    let v = vtx(mesh.indices[ti * 3 + k]);
+                    for d in 0..3 {
+                        mn[d] = mn[d].min(v[d]);
+                        mx[d] = mx[d].max(v[d]);
+                    }
+                }
+            }
+            (mn, mx)
+        };
+        fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+            [
+                a[1] * b[2] - a[2] * b[1],
+                a[2] * b[0] - a[0] * b[2],
+                a[0] * b[1] - a[1] * b[0],
+            ]
+        }
+        fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+            [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+        }
+        fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
+            a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+        }
+        fn proj(v: &[[f64; 3]; 3], ax: [f64; 3]) -> (f64, f64) {
+            let (d0, d1, d2) = (dot(v[0], ax), dot(v[1], ax), dot(v[2], ax));
+            (d0.min(d1).min(d2), d0.max(d1).max(d2))
+        }
+        fn tti(t1: &[[f64; 3]; 3], t2: &[[f64; 3]; 3]) -> bool {
+            let n1 = cross(sub(t1[1], t1[0]), sub(t1[2], t1[0]));
+            let n2 = cross(sub(t2[1], t2[0]), sub(t2[2], t2[0]));
+            let e1 = [sub(t1[1], t1[0]), sub(t1[2], t1[1]), sub(t1[0], t1[2])];
+            let e2 = [sub(t2[1], t2[0]), sub(t2[2], t2[1]), sub(t2[0], t2[2])];
+            let mut axes = vec![n1, n2];
+            for ea in &e1 {
+                for eb in &e2 {
+                    axes.push(cross(*ea, *eb));
+                }
+            }
+            for ax in &axes {
+                if dot(*ax, *ax) < 1e-20 {
+                    continue;
+                }
+                let (a, b) = proj(t1, *ax);
+                let (c, d) = proj(t2, *ax);
+                if a > d + 1e-12 || c > b + 1e-12 {
+                    return false;
+                }
+            }
+            true
+        }
+        let mut violations = 0usize;
+        for i in 0..face_tris.len() {
+            let ai = face_aabb(&face_tris[i]);
+            for j in (i + 1)..face_tris.len() {
+                let aj = face_aabb(&face_tris[j]);
+                if (0..3).any(|d| ai.0[d] > aj.1[d] + 1e-12 || aj.0[d] > ai.1[d] + 1e-12) {
+                    continue;
+                }
+                for &ti in &face_tris[i] {
+                    let qi: HashSet<[i64; 3]> =
+                        (0..3).map(|k| quant(mesh.indices[ti * 3 + k])).collect();
+                    let t1 = [
+                        vtx(mesh.indices[ti * 3]),
+                        vtx(mesh.indices[ti * 3 + 1]),
+                        vtx(mesh.indices[ti * 3 + 2]),
+                    ];
+                    for &tj in &face_tris[j] {
+                        let qj: HashSet<[i64; 3]> =
+                            (0..3).map(|k| quant(mesh.indices[tj * 3 + k])).collect();
+                        if qi.intersection(&qj).count() >= 2 {
+                            continue;
+                        }
+                        let t2 = [
+                            vtx(mesh.indices[tj * 3]),
+                            vtx(mesh.indices[tj * 3 + 1]),
+                            vtx(mesh.indices[tj * 3 + 2]),
+                        ];
+                        if tti(&t1, &t2) {
+                            violations += 1;
+                        }
+                    }
+                }
+            }
+        }
+        violations
+    }
+
+    #[test]
+    fn yang_retessellated_box_cylinder_no_self_intersection() {
+        let (k_a, h_a) = make_box_via_kernel(0.0, 0.0, 0.52, 0.52, 0.46);
+        let (k_b, h_b) = make_cylinder_via_kernel(0.088, 0.35);
+        let solid_a = k_a.get_solid(&h_a).expect("solid_a");
+        let solid_b = k_b.get_solid(&h_b).expect("solid_b");
+        assert!(!solid_a.face_geometry.is_empty());
+        assert!(!solid_b.face_geometry.is_empty());
+        let mut next_id = 1000u64;
+        let result = yang_boolean_inner(solid_a, solid_b, BoolOp::Union, &mut || {
+            let id = next_id;
+            next_id += 1;
+            id
+        })
+        .expect("Box + cylinder union should succeed");
+        let mesh = result
+            .cached_render_mesh
+            .as_ref()
+            .expect("Yang pipeline should produce a cached render mesh");
+        eprintln!(
+            "[TEST] Box+Cyl mesh: {}v {}t {}fr",
+            mesh.vertices.len() / 3,
+            mesh.indices.len() / 3,
+            mesh.face_ranges.len()
+        );
+        let si = count_mesh_self_intersections(mesh);
+        eprintln!("[TEST] Inter-face self-intersections: {si}");
+        assert_eq!(
+            si, 0,
+            "Retessellated box+cylinder union has {si} inter-face SI. \
+             Boundary row vertices must exactly match discretized edge positions."
+        );
+    }
+
+    #[test]
+    fn yang_retessellated_boundary_row_exact_positions() {
+        use crate::geometry::curve::CurveGeom;
+        use crate::geometry::surface::SurfaceGeom;
+        use crate::tessellation;
+        let (k_a, h_a) = make_box_via_kernel(0.0, 0.0, 0.52, 0.52, 0.46);
+        let (k_b, h_b) = make_cylinder_via_kernel(0.088, 0.35);
+        let solid_a = k_a.get_solid(&h_a).unwrap();
+        let solid_b = k_b.get_solid(&h_b).unwrap();
+        let mut next_id = 1000u64;
+        let surface_map = build_surface_map(solid_a, solid_b);
+        let lod = tessellation::TessellationLod::Boolean;
+        let mesh_a = tessellate_waffle_solid(solid_a, lod).unwrap();
+        let mesh_b = tessellate_waffle_solid(solid_b, lod).unwrap();
+        let (mut va, mut ta) = render_mesh_to_arrays(&mesh_a);
+        let (mut vb, mut tb) = render_mesh_to_arrays(&mesh_b);
+        dedup_mesh_vertices(&mut va, &mut ta);
+        dedup_mesh_vertices(&mut vb, &mut tb);
+        let ba = BijectiveMap::from_render_mesh(&mesh_a, &solid_a.face_map);
+        let bb = BijectiveMap::from_render_mesh(&mesh_b, &solid_b.face_map);
+        let dl = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        let pr = crate::boolean::topology_extract::yang_boolean_pipeline(
+            &va,
+            &ta,
+            &vb,
+            &tb,
+            &ba,
+            &bb,
+            bool_op_to_mesh_op(BoolOp::Union),
+            Some(dl),
+        )
+        .unwrap();
+        let refinement = crate::boolean::ssi_refinement::EdgeRefinementMap {
+            edges: BTreeMap::new(),
+            skipped_planar: 0,
+            unsupported: vec![],
+        };
+        let waffle =
+            result_topology_to_waffle_solid(pr.topology, &refinement, &surface_map, &mut || {
+                let id = next_id;
+                next_id += 1;
+                id
+            });
+        let rm = tessellate_waffle_solid(&waffle, tessellation::TessellationLod::Render)
+            .expect("Render LOD tessellation should succeed");
+        let n_segs = 64usize;
+        let mut has_cyl = false;
+        for (fi, geom) in &waffle.face_geometry {
+            if let SurfaceGeom::Cylindrical(_) = geom {
+                has_cyl = true;
+                let face = &waffle.arena.faces[fi.0];
+                let ld = &waffle.arena.loops[face.outer_loop.0];
+                let sh = ld.half_edge;
+                let mut he = sh;
+                let mut edges = Vec::new();
+                loop {
+                    edges.push(waffle.arena.half_edges[he.0].edge);
+                    he = waffle.arena.half_edges[he.0].next;
+                    if he == sh {
+                        break;
+                    }
+                }
+                for ei in &edges {
+                    if let Some(CurveGeom::Circular(c)) = waffle.edge_geometry.get(ei) {
+                        let (cx, cy, cz, r) = (c.center.x, c.center.y, c.center.z, c.radius);
+                        let n = [c.normal.x, c.normal.y, c.normal.z];
+                        let (ax, ay) = {
+                            let an = [n[0].abs(), n[1].abs(), n[2].abs()];
+                            let up = if an[0] <= an[1] && an[0] <= an[2] {
+                                [1., 0., 0.]
+                            } else if an[1] <= an[2] {
+                                [0., 1., 0.]
+                            } else {
+                                [0., 0., 1.]
+                            };
+                            let rw = [
+                                up[1] * n[2] - up[2] * n[1],
+                                up[2] * n[0] - up[0] * n[2],
+                                up[0] * n[1] - up[1] * n[0],
+                            ];
+                            let l = (rw[0] * rw[0] + rw[1] * rw[1] + rw[2] * rw[2]).sqrt();
+                            let ax = [rw[0] / l, rw[1] / l, rw[2] / l];
+                            let ay = [
+                                n[1] * ax[2] - n[2] * ax[1],
+                                n[2] * ax[0] - n[0] * ax[2],
+                                n[0] * ax[1] - n[1] * ax[0],
+                            ];
+                            (ax, ay)
+                        };
+                        let mut exact = 0;
+                        for j in 0..n_segs {
+                            let th = std::f64::consts::TAU * (j as f64) / (n_segs as f64);
+                            let (ct, st) = (th.cos(), th.sin());
+                            let pf = [
+                                (cx + r * (ct * ax[0] + st * ay[0])) as f32,
+                                (cy + r * (ct * ax[1] + st * ay[1])) as f32,
+                                (cz + r * (ct * ax[2] + st * ay[2])) as f32,
+                            ];
+                            if (0..rm.vertices.len() / 3).any(|mi| {
+                                rm.vertices[mi * 3] == pf[0]
+                                    && rm.vertices[mi * 3 + 1] == pf[1]
+                                    && rm.vertices[mi * 3 + 2] == pf[2]
+                            }) {
+                                exact += 1;
+                            }
+                        }
+                        eprintln!("[TEST] Edge {:?}: {exact}/{n_segs} exact", ei);
+                        assert_eq!(
+                            exact, n_segs,
+                            "Edge {:?}: {exact}/{n_segs} disc positions found exactly. \
+                             Boundary row must use disc positions directly.",
+                            ei
+                        );
+                    }
+                }
+            }
+        }
+        assert!(has_cyl, "Must have at least one Cylindrical face");
+    }
+
+    #[test]
+    fn tessellate_cylindrical_face_earcut_fallback() {
+        use crate::geometry::surface::{Cylinder, SurfaceGeom};
+        use crate::topology::arena::TopoArena;
+        use crate::topology::half_edge::{FaceIdx, HalfEdgeIdx, LoopIdx};
+        let r = 5.0;
+        let mut arena = TopoArena::new();
+        for &pos in &[[r, 0., 0.], [0., r, 0.], [0., r, 1.], [r, 0., 1.]] {
+            arena.vertices.push(crate::topology::half_edge::Vertex {
+                position: pos,
+                half_edge: Some(HalfEdgeIdx(arena.vertices.len() * 2)),
+            });
+        }
+        for i in 0..4 {
+            arena.edges.push(crate::topology::half_edge::Edge {
+                half_edge: HalfEdgeIdx(i * 2),
+            });
+        }
+        let hd: [(usize, usize, usize, usize, usize, usize); 8] = [
+            (0, 1, 2, 6, 0, 0),
+            (1, 0, 7, 3, 0, 0),
+            (1, 3, 4, 0, 1, 0),
+            (2, 2, 1, 5, 1, 0),
+            (2, 5, 6, 2, 2, 0),
+            (3, 4, 3, 7, 2, 0),
+            (3, 7, 0, 4, 3, 0),
+            (0, 6, 5, 1, 3, 0),
+        ];
+        for &(o, tw, nx, pv, e, l) in &hd {
+            arena.half_edges.push(crate::topology::half_edge::HalfEdge {
+                origin: VertexIdx(o),
+                twin: HalfEdgeIdx(tw),
+                next: HalfEdgeIdx(nx),
+                prev: HalfEdgeIdx(pv),
+                edge: EdgeIdx(e),
+                loop_: LoopIdx(l),
+            });
+        }
+        arena.loops.push(crate::topology::half_edge::Loop {
+            half_edge: HalfEdgeIdx(0),
+            face: FaceIdx(0),
+        });
+        arena.faces.push(crate::topology::half_edge::Face {
+            outer_loop: LoopIdx(0),
+            inner_loops: vec![],
+            shell: crate::topology::half_edge::ShellIdx(0),
+        });
+        arena.shells.push(crate::topology::half_edge::Shell {
+            face: FaceIdx(0),
+            solid: crate::topology::half_edge::SolidIdx(0),
+        });
+        let mut fg = BTreeMap::new();
+        fg.insert(
+            FaceIdx(0),
+            SurfaceGeom::Cylindrical(Cylinder {
+                origin: Point3 {
+                    x: 0.,
+                    y: 0.,
+                    z: 0.,
+                },
+                axis: Vector3 {
+                    x: 0.,
+                    y: 0.,
+                    z: 1.,
+                },
+                radius: r,
+            }),
+        );
+        let mut fm = BTreeMap::new();
+        fm.insert(100u64, FaceIdx(0));
+        let waffle = WaffleSolid {
+            arena,
+            face_map: fm,
+            edge_map: BTreeMap::new(),
+            vertex_map: BTreeMap::new(),
+            face_geometry: fg,
+            edge_geometry: BTreeMap::new(),
+            cylinder_params: None,
+            revolve_params: None,
+            sphere_params: None,
+            cone_params: None,
+            torus_params: None,
+            cached_face_polys: None,
+            // is_polygon_soup forces fan path (not bounded tessellation), which
+            // routes Cylindrical faces through tessellate_cylindrical_patch.
+            is_polygon_soup: true,
+            cached_render_mesh: None,
+        };
+        let rm = tessellate_waffle_solid(&waffle, crate::tessellation::TessellationLod::Render)
+            .expect("Tessellation should succeed with empty edge_geometry");
+        assert!(!rm.indices.is_empty(), "Must have triangles");
+        let fr = rm
+            .face_ranges
+            .iter()
+            .find(|f| f.face_id.0 == 100)
+            .expect("Cylindrical face (id=100) must appear in face_ranges");
+        let tau = crate::units::TAU_MODEL;
+        let mut out = 0;
+        let mut total = 0;
+        for ip in fr.start_index as usize..fr.end_index as usize {
+            let vi = rm.indices[ip] as usize;
+            let (vx, vy) = (rm.vertices[vi * 3] as f64, rm.vertices[vi * 3 + 1] as f64);
+            total += 1;
+            if vx < -tau || vy < -tau {
+                out += 1;
+                eprintln!("[TEST] Vertex ({vx},{vy}): outside quarter-cylinder range");
+            }
+        }
+        eprintln!("[TEST] Cylindrical patch: {out}/{total} out of range");
+        assert_eq!(
+            out, 0,
+            "Cylindrical patch: {out}/{total} vertices outside quarter-cylinder [0,π/2]. \
+             With empty edge_geometry, tessellator should use earcut in (θ,z), not full 360°."
+        );
+    }
 }
