@@ -25,15 +25,26 @@ Experimental implementations exist (Sprint 18) and MockKernel tests pass, but th
 When asked "what should I work on?", choose from these areas **in order**.
 Do NOT skip to lower-priority items because they are easier.
 
-1. **Hybrid boolean pipeline (Yang 2025)** — This is the #1 priority. Replace the
-   S-H clipping + tolerance escalation pipeline with the Yang hybrid B-Rep/mesh
-   approach [#24]. See A15.6. Phases 1-4 are built. Phase 5 (B-Rep reassembly)
-   produces invalid topology — fix it. The goal is `YANG_BOOLEAN=1` passing assay
-   cases. Do NOT fix the old S-H pipeline — it is deprecated and will be removed.
-   Regressions on the S-H path are acceptable. Do NOT add fallback paths from
-   Yang back to S-H — Yang errors should fail, not silently degrade to the broken
-   legacy path. The assay score for the legacy path has no value; only the Yang
-   path score matters.
+1. **Hybrid boolean pipeline (Yang 2025)** — This is the #1 priority.
+   The goal is `YANG_BOOLEAN=1` passing more assay cases (currently 8/190).
+   Do NOT fix the old S-H pipeline. Do NOT add fallback paths from Yang to S-H.
+
+   **Current diagnosis**: B-Rep reassembly (Phase 5) produces catastrophically
+   wrong topology — Euler characteristic of -62 (should be 2), hundreds of
+   unpaired edges, self-intersections. R-series cases timeout or produce zero
+   surviving faces. This is not an edge case problem — the face assembly
+   algorithm is fundamentally broken.
+
+   **What to work on**: Pick ONE specific failing case (e.g., F0003 box-box
+   subtract). Trace it through the pipeline step by step: tessellation →
+   exact intersection → cell labeling → face survival → boundary extraction
+   → B-Rep assembly. Find exactly where correct intermediate results become
+   wrong output. Fix that ONE thing. Do not try to fix the whole pipeline
+   in one session.
+
+   **What NOT to do**: Do not add retessellation workarounds, mesh passthrough
+   hacks, "accept invalid" paths, or tolerance tweaks. If the face assembly
+   is wrong, fix the face assembly.
 2. **SSI solvers** — Complete the A15.4 matrix. Solvers feed stage 4 (geometry
    refinement) of the hybrid pipeline. Only work on SSI if Yang pipeline work is
    blocked. Priority: pairs #5, #6, #10 (partial status).
