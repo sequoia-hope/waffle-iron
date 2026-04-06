@@ -2531,4 +2531,156 @@ mod tests {
     // accepted both success and failure ("either is acceptable") which is not
     // a valid test — P1 requires numeric/structural oracles. If tetra booleans
     // need support, add a proper test with deterministic expectations.
+
+    // ══════════════════════════════════════════════════════════════════
+    // Box+cylinder Yang pipeline tests (red phase)
+    // ══════════════════════════════════════════════════════════════════
+
+    /// Build a cylinder WaffleSolid on the XY plane via WaffleKernel.
+    fn make_cylinder_via_kernel(
+        r: f64,
+        depth: f64,
+    ) -> (
+        crate::waffle_kernel::WaffleKernel,
+        crate::types::KernelSolidHandle,
+    ) {
+        use crate::traits::Kernel;
+        use crate::waffle_kernel::WaffleKernel;
+        use std::collections::HashMap;
+
+        let mut k = WaffleKernel::new();
+        let mut positions = HashMap::new();
+        positions.insert(1, (0.0, 0.0));
+
+        let profile = crate::types::ClosedProfile {
+            entity_ids: vec![1],
+            is_outer: true,
+            vertex_ids: vec![],
+            circle: Some(crate::types::CircleProfile {
+                center_u: 0.0,
+                center_v: 0.0,
+                radius: r,
+            }),
+            spline_segments: vec![],
+            arc_segments: vec![],
+        };
+
+        let faces = k
+            .make_faces_from_profiles(
+                &[profile],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0],
+                &positions,
+            )
+            .expect("make_faces_from_profiles should succeed for circle");
+        let solid = k
+            .extrude_face(faces[0], [0.0, 0.0, 1.0], depth)
+            .expect("extrude_face should succeed for cylinder");
+
+        (k, solid)
+    }
+
+    /// Yang pipeline should produce a valid B-Rep for a box+cylinder union.
+    /// Uses coincident geometry (box and cylinder share the z=0 plane).
+    /// This is the common CAD pattern — cylinder boss on a box face.
+    ///
+    /// Currently fails: build_result_brep_from_mesh produces empty topology
+    /// because at z=0, the box bottom face triangles inside the cylinder are
+    /// classified as "A inside B" and removed, while the cylinder bottom cap
+    /// is classified as "B inside A" and also removed. This creates a hole
+    /// with no matching face → unpaired half-edges → empty result.
+    ///
+    /// Root cause: coincident face (coplanar, overlapping) handling in the
+    /// mesh boolean cell labeling. When A's surface coincides with B's surface,
+    /// the inside/outside classification is ambiguous.
+    #[test]
+    fn yang_box_cylinder_union_produces_valid_topology() {
+        let (k_a, h_a) = make_box_via_kernel(0.0, 0.0, 2.0, 2.0, 2.0);
+        let (k_b, h_b) = make_cylinder_via_kernel(0.5, 3.0);
+
+        let solid_a = k_a.get_solid(&h_a).expect("solid_a");
+        let solid_b = k_b.get_solid(&h_b).expect("solid_b");
+
+        assert!(
+            !solid_a.face_geometry.is_empty(),
+            "box must have face_geometry"
+        );
+        assert!(
+            !solid_b.face_geometry.is_empty(),
+            "cylinder must have face_geometry"
+        );
+
+        let mut next_id = 1000u64;
+        let mut id_alloc = || {
+            let id = next_id;
+            next_id += 1;
+            id
+        };
+
+        let result = yang_boolean_inner(solid_a, solid_b, BoolOp::Union, &mut id_alloc);
+
+        match &result {
+            Ok(br) => {
+                let n_f = br.arena.faces.len();
+                let n_e = br.arena.edges.len();
+                let n_v = br.arena.vertices.len();
+                let euler = n_v as i64 - n_e as i64 + n_f as i64;
+                eprintln!("[TEST] Box+Cylinder union: F={n_f}, E={n_e}, V={n_v}, Euler={euler}");
+                assert!(n_f > 0, "Result should have faces");
+                assert_eq!(euler, 2, "Euler characteristic must be 2 for closed solid");
+                assert!(
+                    br.cached_render_mesh.is_some(),
+                    "Should have cached render mesh"
+                );
+            }
+            Err(e) => {
+                panic!(
+                    "Yang box+cylinder union should succeed but got: {e}. \
+                     Root cause: coincident face handling — box bottom and cylinder bottom \
+                     cap share z=0 plane. Both are removed by cell labeling, creating a \
+                     hole with no matching face → unpaired half-edges → empty topology."
+                );
+            }
+        }
+    }
+
+    /// Yang pipeline box+cylinder subtract should produce valid topology.
+    /// The cylinder cuts a hole through the box. No coincident face issue
+    /// here because the cylinder extends beyond the box on both sides.
+    #[test]
+    fn yang_box_cylinder_subtract_produces_valid_topology() {
+        let (k_a, h_a) = make_box_via_kernel(0.0, 0.0, 2.0, 2.0, 2.0);
+        let (k_b, h_b) = make_cylinder_via_kernel(0.3, 3.0);
+
+        let solid_a = k_a.get_solid(&h_a).expect("solid_a");
+        let solid_b = k_b.get_solid(&h_b).expect("solid_b");
+
+        let mut next_id = 2000u64;
+        let mut id_alloc = || {
+            let id = next_id;
+            next_id += 1;
+            id
+        };
+
+        let result = yang_boolean_inner(solid_a, solid_b, BoolOp::Subtract, &mut id_alloc);
+
+        match &result {
+            Ok(br) => {
+                let n_f = br.arena.faces.len();
+                let n_e = br.arena.edges.len();
+                let n_v = br.arena.vertices.len();
+                let euler = n_v as i64 - n_e as i64 + n_f as i64;
+                eprintln!("[TEST] Box-Cylinder subtract: F={n_f}, E={n_e}, V={n_v}, Euler={euler}");
+                assert!(n_f > 0, "Result should have faces");
+            }
+            Err(e) => {
+                panic!(
+                    "Yang box-cylinder subtract should succeed but got: {e}. \
+                     Root cause: coincident face and/or twin-pairing issue at \
+                     cylinder-box intersection."
+                );
+            }
+        }
+    }
 }
