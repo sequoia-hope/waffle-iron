@@ -369,20 +369,34 @@ pub(crate) fn build_result_brep_from_mesh(
     let mut mesh_to_canon: HashMap<usize, usize> = HashMap::new();
     let mut pos_to_canon: HashMap<[i64; 3], usize> = HashMap::new();
 
-    for tris in survival.groups.values() {
-        for tri in tris {
-            for &vi in &tri.verts {
-                if mesh_to_canon.contains_key(&vi) {
-                    continue;
-                }
-                let qp = quant_canon(subdivided.verts[vi]);
-                let canon = *pos_to_canon.entry(qp).or_insert(vi);
-                mesh_to_canon.insert(vi, canon);
-            }
+    // Build canonical vertex map from ALL subdivided vertices (not just surviving ones).
+    // Non-surviving sub-triangles still contribute edges to the full mesh — their
+    // reverse edges must be discoverable to distinguish "interior edge adjacent to
+    // removed cell" from "actual mesh boundary." Ref [#24] Yang 2025.
+    for (vi, pos) in subdivided.verts.iter().enumerate() {
+        if mesh_to_canon.contains_key(&vi) {
+            continue;
         }
+        let qp = quant_canon(*pos);
+        let canon = *pos_to_canon.entry(qp).or_insert(vi);
+        mesh_to_canon.insert(vi, canon);
     }
 
     let canon_v = |vi: usize| -> usize { mesh_to_canon.get(&vi).copied().unwrap_or(vi) };
+
+    // ── Step 1c: Build full directed-edge set from ALL sub-triangles ──
+    // For closed solid meshes, every directed edge has a reverse in the full
+    // subdivision. Edges whose reverse exists only in non-surviving sub-triangles
+    // are interior to the surviving face (the neighbor was removed by cell
+    // selection), NOT B-Rep boundary edges. Ref [#24] Yang 2025.
+    let mut full_reverse_exists: HashSet<(usize, usize)> = HashSet::new();
+    for sub_tri in subdivided.tris_a.iter().chain(subdivided.tris_b.iter()) {
+        for ei in 0..3 {
+            let v0 = canon_v(sub_tri.verts[ei]);
+            let v1 = canon_v(sub_tri.verts[(ei + 1) % 3]);
+            full_reverse_exists.insert((v0, v1));
+        }
+    }
 
     let mut all_tris: Vec<SubTri> = Vec::new();
     for (sf, tris) in &survival.groups {
@@ -435,10 +449,13 @@ pub(crate) fn build_result_brep_from_mesh(
                     is_brep_boundary.insert((v0, v1));
                 }
                 // If any twin from same source → interior, skip
-            } else {
-                // No twin found → mesh boundary
+            } else if !full_reverse_exists.contains(&(v1, v0)) {
+                // No twin in full subdivision → actual mesh boundary
                 is_brep_boundary.insert((v0, v1));
             }
+            // else: reverse exists in full mesh but not in surviving set →
+            // interior edge (non-surviving neighbor removed by boolean).
+            // NOT a B-Rep boundary. Ref [#24] Yang 2025.
         }
     }
 
@@ -4659,5 +4676,211 @@ mod tests {
                 "{op:?}: V({v}) - E({e}) + F({f}) = {euler} (expected positive even)"
             );
         }
+    }
+
+    /// When box B is fully inside box A and shares a coplanar face (z=0),
+    /// union should produce just A (B is absorbed). Subtraction should produce
+    /// A with a rectangular pocket cut from the bottom.
+    ///
+    /// This tests the boundary detection bug in Step 3 of build_result_brep_from_mesh:
+    /// B's sub-triangles on the coplanar z=0 face don't survive in Subtract mode
+    /// (they're inside A), but the edges between surviving A-triangles and
+    /// non-surviving B-triangles have no reverse in directed_edge_map (since
+    /// the non-surviving triangles were removed). The code incorrectly classifies
+    /// these as "mesh boundary" edges (line 440), creating false boundaries
+    /// and unpaired half-edges.
+    ///
+    /// Using Subtract because it creates the asymmetric survival pattern needed
+    /// to trigger the bug: A's z=0 face sub-triangles inside B's footprint are
+    /// removed, while B's interior faces survive (flipped). The intersection
+    /// boundary between surviving and non-surviving triangles on the coplanar
+    /// face is where false boundaries appear.
+    #[test]
+    fn test_boundary_detection_non_surviving_neighbor() {
+        // A: large box [0,0,0]→[4,4,4]
+        // B: smaller box [1,1,0]→[3,3,2], fully contained within A, shares z=0 bottom
+        // Union: result should be just box A (B is entirely inside, all B tris
+        // labeled Inside → don't survive). The boundary fix ensures edges between
+        // surviving A sub-tris and non-surviving B sub-tris at z=0 are classified
+        // as interior (not B-Rep boundary). Ref [#24] Yang 2025.
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [4.0, 4.0, 4.0]);
+        let (verts_b, tris_b) = make_box_mesh([1.0, 1.0, 0.0], [3.0, 3.0, 2.0]);
+
+        let bijective_a = build_bijective_from_tri_count(tris_a.len());
+        let bijective_b = build_bijective_from_tri_count(tris_b.len());
+
+        let result = yang_boolean_pipeline(
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            &bijective_a,
+            &bijective_b,
+            MeshBooleanOp::Union,
+            None,
+        )
+        .expect("Yang pipeline should not error")
+        .topology;
+
+        let n_faces = result.arena.faces.len();
+        let n_edges = result.arena.edges.len();
+        let n_verts = result.arena.vertices.len();
+        let n_he = result.arena.half_edges.len();
+
+        // Count unpaired half-edges
+        let unpaired = if n_he > 0 {
+            (0..n_he)
+                .filter(|&i| {
+                    let twin_idx = result.arena.half_edges[i].twin.0;
+                    twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+                })
+                .count()
+        } else {
+            0
+        };
+
+        let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
+
+        eprintln!("=== CONTAINED BOX UNION (boundary detection bug) ===");
+        eprintln!("Result B-Rep: V={n_verts}, E={n_edges}, F={n_faces}, HE={n_he}");
+        eprintln!("Unpaired half-edges: {unpaired}");
+        eprintln!("Euler V-E+F: {euler}");
+        eprintln!("====================================================");
+
+        assert!(n_faces > 0, "Union must produce faces");
+        assert_eq!(
+            unpaired, 0,
+            "All half-edges must be paired (no false boundary edges)"
+        );
+        assert_eq!(euler, 2, "V-E+F must be 2 for closed solid, got {euler}");
+    }
+
+    /// Two identical boxes, Union. Every B triangle is CoSurface with an A
+    /// triangle. After coplanar merge + cell labeling, all B tris should be
+    /// redundant (Inside or CoSurface-eliminated) and the result should be
+    /// exactly one box: V=8, E=12, F=6, Euler=2.
+    ///
+    /// This is a 100%-overlap stress test for the boundary detection fix:
+    /// every single edge in the intersection sits on a coplanar face boundary,
+    /// so *all* reverse-edge lookups must consult the full mesh (not just
+    /// surviving sub-triangles) to avoid false boundary classification.
+    #[test]
+    fn test_boundary_detection_identical_box_union() {
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (verts_b, tris_b) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+
+        let bijective_a = build_bijective_from_tri_count(tris_a.len());
+        let bijective_b = build_bijective_from_tri_count(tris_b.len());
+
+        let result = yang_boolean_pipeline(
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            &bijective_a,
+            &bijective_b,
+            MeshBooleanOp::Union,
+            None,
+        )
+        .expect("Yang pipeline should not error for identical boxes")
+        .topology;
+
+        let n_faces = result.arena.faces.len();
+        let n_edges = result.arena.edges.len();
+        let n_verts = result.arena.vertices.len();
+        let n_he = result.arena.half_edges.len();
+
+        let unpaired = if n_he > 0 {
+            (0..n_he)
+                .filter(|&i| {
+                    let twin_idx = result.arena.half_edges[i].twin.0;
+                    twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+                })
+                .count()
+        } else {
+            0
+        };
+
+        let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
+
+        eprintln!("=== IDENTICAL BOX UNION (boundary detection edge case) ===");
+        eprintln!("Result B-Rep: V={n_verts}, E={n_edges}, F={n_faces}, HE={n_he}");
+        eprintln!("Unpaired half-edges: {unpaired}");
+        eprintln!("Euler V-E+F: {euler}");
+        eprintln!("==========================================================");
+
+        assert!(n_faces > 0, "Identical box union must produce faces");
+        assert_eq!(
+            unpaired, 0,
+            "All half-edges must be paired (no false boundary from coplanar overlap)"
+        );
+        assert_eq!(
+            euler, 2,
+            "V-E+F must be 2 for single closed solid, got {euler}"
+        );
+    }
+
+    /// Large box A fully contains small box B. Intersect → result should be
+    /// the small box (only A-inside-B sub-triangles survive from A, plus
+    /// B-inside-A sub-triangles from B). This tests the boundary fix for
+    /// Intersect mode: when most of A's triangles are removed (outside B),
+    /// the edges between surviving and non-surviving A sub-triangles must
+    /// not be misclassified as mesh boundary.
+    #[test]
+    fn test_boundary_detection_contained_box_intersect() {
+        // A: large box [0,0,0]→[4,4,4]
+        // B: small box [1,1,1]→[3,3,3], fully inside A (no shared faces)
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [4.0, 4.0, 4.0]);
+        let (verts_b, tris_b) = make_box_mesh([1.0, 1.0, 1.0], [3.0, 3.0, 3.0]);
+
+        let bijective_a = build_bijective_from_tri_count(tris_a.len());
+        let bijective_b = build_bijective_from_tri_count(tris_b.len());
+
+        let result = yang_boolean_pipeline(
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            &bijective_a,
+            &bijective_b,
+            MeshBooleanOp::Intersect,
+            None,
+        )
+        .expect("Yang pipeline should not error for contained box intersect")
+        .topology;
+
+        let n_faces = result.arena.faces.len();
+        let n_edges = result.arena.edges.len();
+        let n_verts = result.arena.vertices.len();
+        let n_he = result.arena.half_edges.len();
+
+        let unpaired = if n_he > 0 {
+            (0..n_he)
+                .filter(|&i| {
+                    let twin_idx = result.arena.half_edges[i].twin.0;
+                    twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+                })
+                .count()
+        } else {
+            0
+        };
+
+        let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
+
+        eprintln!("=== CONTAINED BOX INTERSECT (boundary detection edge case) ===");
+        eprintln!("Result B-Rep: V={n_verts}, E={n_edges}, F={n_faces}, HE={n_he}");
+        eprintln!("Unpaired half-edges: {unpaired}");
+        eprintln!("Euler V-E+F: {euler}");
+        eprintln!("==============================================================");
+
+        assert!(n_faces > 0, "Contained box intersect must produce faces");
+        assert_eq!(
+            unpaired, 0,
+            "All half-edges must be paired (no false boundary from non-surviving A tris)"
+        );
+        assert_eq!(
+            euler, 2,
+            "V-E+F must be 2 for single closed solid, got {euler}"
+        );
     }
 }

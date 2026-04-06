@@ -2595,7 +2595,7 @@ mod tests {
     /// mesh boolean cell labeling. When A's surface coincides with B's surface,
     /// the inside/outside classification is ambiguous.
     #[test]
-    #[ignore = "red-phase P3: Yang pipeline twin-pairing fails on box+cylinder coincident faces (z=0 plane)"]
+    #[ignore = "red-phase P3: boundary fix applied (0 unpaired HEs) but Euler=6 — excess face groups from coplanar z=0 + cylinder barrel subdivision"]
     fn yang_box_cylinder_union_produces_valid_topology() {
         let (k_a, h_a) = make_box_via_kernel(0.0, 0.0, 2.0, 2.0, 2.0);
         let (k_b, h_b) = make_cylinder_via_kernel(0.5, 3.0);
