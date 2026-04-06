@@ -649,3 +649,28 @@ These are candidates for improvement — ideally the direct boolean should succe
 | Test | Strategy | Attempts | Root Cause |
 |------|----------|----------|------------|
 | g2_stacked_boxes_coplanar_face | asymm-scale | ~37 | Direct `or_result_with_tol_diag` produces 8 open edges; truck-level `or` passes — difference is in finalization path |
+
+---
+
+## Blockers — Bounded Tessellation (2026-04-06)
+
+Discovered during review/cleanup pass. Two Yang pipeline tests are now `#[ignore]`
+because the bounded tessellation path (`tessellate_solid_bounded`, ear-clipping)
+produces defective output:
+
+### B1 — Degenerate Triangles in Retessellated Mesh
+
+`yang_mesh_no_degenerate_triangles` fails: triangle 0 has area=0.
+Root cause: ear-clipping in `tessellate_solid_bounded` produces zero-area triangles
+for some face loop configurations (box-box union). A previous dev pass weakened this
+test to accept 25% degenerate triangles — that workaround has been reverted (P9).
+Fix: investigate and fix the ear-clipping algorithm in `crates/kernel/src/tessellation/`.
+
+### B2 — Unpaired Edges in Retessellated Mesh
+
+`yang_mesh_passthrough_watertight` fails: 3 unpaired edges in box-box union.
+Root cause: bounded tessellation doesn't consistently close face loops at T-junctions
+or shared boundary edges. A previous dev pass added a fallback from retessellation
+to the sub-triangle mesh — that fallback has been reverted (P9).
+Fix: investigate boundary vertex sharing in `tessellate_solid_bounded` to ensure
+all face loops close properly.
