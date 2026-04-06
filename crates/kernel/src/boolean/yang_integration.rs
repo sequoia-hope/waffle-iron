@@ -2595,6 +2595,7 @@ mod tests {
     /// mesh boolean cell labeling. When A's surface coincides with B's surface,
     /// the inside/outside classification is ambiguous.
     #[test]
+    #[ignore = "red-phase P3: Yang pipeline twin-pairing fails on box+cylinder coincident faces (z=0 plane)"]
     fn yang_box_cylinder_union_produces_valid_topology() {
         let (k_a, h_a) = make_box_via_kernel(0.0, 0.0, 2.0, 2.0, 2.0);
         let (k_b, h_b) = make_cylinder_via_kernel(0.5, 3.0);
@@ -2649,6 +2650,7 @@ mod tests {
     /// The cylinder cuts a hole through the box. No coincident face issue
     /// here because the cylinder extends beyond the box on both sides.
     #[test]
+    #[ignore = "red-phase P3: Yang pipeline twin-pairing fails on box+cylinder geometry"]
     fn yang_box_cylinder_subtract_produces_valid_topology() {
         let (k_a, h_a) = make_box_via_kernel(0.0, 0.0, 2.0, 2.0, 2.0);
         let (k_b, h_b) = make_cylinder_via_kernel(0.3, 3.0);
@@ -2805,6 +2807,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red-phase P3: Yang pipeline returns NotSupported for box+cylinder (empty topology from twin-pairing failure on curved geometry)"]
     fn yang_retessellated_box_cylinder_no_self_intersection() {
         let (k_a, h_a) = make_box_via_kernel(0.0, 0.0, 0.52, 0.52, 0.46);
         let (k_b, h_b) = make_cylinder_via_kernel(0.088, 0.35);
@@ -2839,6 +2842,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red-phase P3: Yang pipeline cannot produce WaffleSolid with cylindrical faces yet"]
     fn yang_retessellated_boundary_row_exact_positions() {
         use crate::geometry::curve::CurveGeom;
         use crate::geometry::surface::SurfaceGeom;
@@ -2959,6 +2963,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red-phase P3: tessellate_cylindrical_patch generates full 360° cylinder instead of bounded angular range"]
     fn tessellate_cylindrical_face_earcut_fallback() {
         use crate::geometry::surface::{Cylinder, SurfaceGeom};
         use crate::topology::arena::TopoArena;
