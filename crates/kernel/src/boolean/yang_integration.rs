@@ -931,9 +931,9 @@ mod tests {
         assert_eq!(tris.len(), 1);
 
         // Check vertex values (f32 → f64 conversion)
-        assert!((verts[0][0] - 0.0).abs() < 1e-6);
-        assert!((verts[1][0] - 1.0).abs() < 1e-6);
-        assert!((verts[2][1] - 1.0).abs() < 1e-6);
+        assert!((verts[0][0] - 0.0).abs() < crate::units::MIN_FEATURE_SIZE);
+        assert!((verts[1][0] - 1.0).abs() < crate::units::MIN_FEATURE_SIZE);
+        assert!((verts[2][1] - 1.0).abs() < crate::units::MIN_FEATURE_SIZE);
 
         // Check triangle indices
         assert_eq!(tris[0], [0, 1, 2]);
@@ -1681,7 +1681,7 @@ mod tests {
             let nz = mesh.normals[i * 3 + 2] as f64;
             let len = (nx * nx + ny * ny + nz * nz).sqrt();
             assert!(
-                (len - 1.0).abs() < 1e-6,
+                (len - 1.0).abs() < crate::units::MIN_FEATURE_SIZE,
                 "Normal {i} has length {len}, expected 1.0 (f32 epsilon ~1.19e-7)"
             );
         }
