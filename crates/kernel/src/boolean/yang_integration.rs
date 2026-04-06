@@ -659,15 +659,31 @@ pub(crate) fn yang_boolean_inner(
         }
     };
 
-    // Guard: if the Yang pipeline produced zero faces, return NotSupported so
-    // the legacy pipeline can handle this case. An empty topology means the
-    // boolean operation produced no surviving geometry (e.g., non-overlapping
-    // operands for Intersect). Ref: specs/yang_error_fallback.md
+    // Empty topology is a valid result for some operations (e.g., Intersect of
+    // disjoint solids). Return an empty WaffleSolid instead of an error.
     if pipeline_result.topology.face_provenance.is_empty() {
-        return Err(KernelError::NotSupported {
-            operation: "yang_boolean: pipeline produced empty topology (zero surviving faces)"
-                .to_string(),
-        });
+        let empty_solid = WaffleSolid {
+            arena: crate::topology::arena::TopoArena::new(),
+            face_map: BTreeMap::new(),
+            edge_map: BTreeMap::new(),
+            vertex_map: BTreeMap::new(),
+            face_geometry: BTreeMap::new(),
+            edge_geometry: BTreeMap::new(),
+            cylinder_params: None,
+            revolve_params: None,
+            sphere_params: None,
+            cone_params: None,
+            torus_params: None,
+            cached_face_polys: None,
+            is_polygon_soup: false,
+            cached_render_mesh: Some(RenderMesh {
+                vertices: vec![],
+                normals: vec![],
+                indices: vec![],
+                face_ranges: vec![],
+            }),
+        };
+        return Ok(waffle_solid_to_boolean_result(empty_solid));
     }
 
     // Step 7: Convert ResultTopology → WaffleSolid → BooleanResult.
@@ -728,6 +744,48 @@ fn tessellate_waffle_solid(
 }
 
 // ── Result topology validation ──────────────────────────────────────────
+
+/// Count connected face components in a TopoArena.
+/// Each component is a maximal set of faces connected through shared edges (twin half-edges).
+/// For a single closed solid: 1 component. For disjoint solids: N components.
+/// Ref [#16] Mantyla 1988 — connected components of the face adjacency graph.
+fn count_connected_components(arena: &crate::topology::arena::TopoArena) -> usize {
+    let n_faces = arena.faces.len();
+    if n_faces == 0 {
+        return 0;
+    }
+    let mut visited = vec![false; n_faces];
+    let mut components = 0;
+
+    for start in 0..n_faces {
+        if visited[start] {
+            continue;
+        }
+        components += 1;
+        let mut queue = vec![start];
+        visited[start] = true;
+        while let Some(fi) = queue.pop() {
+            // Walk the outer loop of this face and follow twins to neighbor faces
+            let loop_idx = arena.faces[fi].outer_loop;
+            let start_he = arena.loops[loop_idx.0].half_edge;
+            let mut he = start_he;
+            loop {
+                let twin = arena.half_edges[he.0].twin;
+                let twin_loop = arena.half_edges[twin.0].loop_;
+                let neighbor_face = arena.loops[twin_loop.0].face.0;
+                if !visited[neighbor_face] {
+                    visited[neighbor_face] = true;
+                    queue.push(neighbor_face);
+                }
+                he = arena.half_edges[he.0].next;
+                if he == start_he {
+                    break;
+                }
+            }
+        }
+    }
+    components
+}
 
 /// Validate that a TopoArena produced by the Yang pipeline has consistent
 /// topology: all half-edge references (edge, twin, next, prev, origin) point
@@ -834,13 +892,19 @@ fn validate_yang_result_topology(arena: &crate::topology::arena::TopoArena) -> R
         ));
     }
 
-    // Euler characteristic: V - E + F = 2 for a single closed orientable solid.
-    // Ref: Mantyla §2.4. If the result is not a single closed solid, the Yang
-    // pipeline output is invalid — fall back to legacy.
+    // Euler characteristic: V - E + F = 2C for C connected components of closed
+    // orientable solids. A single solid has C=1 → Euler=2. A compound solid
+    // (e.g., disjoint boxes union) has C>1 → Euler=2C.
+    // Ref: Mantyla §2.4 — Euler formula for closed orientable surfaces.
     let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
-    if euler != 2 {
+    let components = count_connected_components(arena);
+    if components == 0 {
+        return Err("topology has faces but zero connected components".to_string());
+    }
+    let expected_euler = 2 * components as i64;
+    if euler != expected_euler {
         return Err(format!(
-            "Euler characteristic V({n_verts}) - E({n_edges}) + F({n_faces}) = {euler} (expected 2)"
+            "Euler characteristic V({n_verts}) - E({n_edges}) + F({n_faces}) = {euler} (expected {expected_euler} for {components} component(s))"
         ));
     }
 
@@ -1333,14 +1397,11 @@ mod tests {
         );
     }
 
-    /// When `yang_boolean_inner` produces an empty boolean result (e.g.,
-    /// Intersect of non-overlapping solids), it must return
-    /// `Err(KernelError::NotSupported { .. })`. The dispatch layer in
-    /// `waffle_kernel.rs` propagates this as a hard error when Yang is
-    /// enabled (A15.6) — it does NOT fall back to the legacy S-H path.
+    /// Empty boolean results (e.g., intersection of non-overlapping solids)
+    /// should return `Ok` with an empty solid (0 faces, edges, vertices).
     ///
     /// This test creates two non-overlapping tetrahedra and verifies that the
-    /// intersection returns NotSupported.
+    /// intersection returns Ok with an empty result.
     #[test]
     fn test_yang_empty_result_returns_not_supported() {
         // Build two non-overlapping tetrahedra: one at origin, one far away.
@@ -1367,28 +1428,18 @@ mod tests {
         // Use yang_boolean_inner directly to avoid env-var race in parallel tests.
         let result = yang_boolean_inner(&solid_a, &solid_b, BoolOp::Intersect, &mut id_alloc);
 
-        // The result should be Err(NotSupported) for an empty intersection.
-        // A15.6: the dispatch layer propagates this as a hard error, not a
-        // fallback trigger.
+        // Empty intersection produces a valid empty solid (no faces, edges, vertices).
         match &result {
-            Err(KernelError::NotSupported { .. }) => {
-                // Correct — Yang signals empty result; caller propagates as hard error (A15.6).
-            }
             Ok(boolean_result) => {
-                panic!(
-                    "Expected Err(NotSupported) for empty intersection, \
-                     but got Ok with {} faces. The pipeline must detect the \
-                     empty result and return NotSupported.",
+                assert_eq!(
                     boolean_result.arena.faces.len(),
+                    0,
+                    "Empty intersection should produce 0 faces, got {}",
+                    boolean_result.arena.faces.len()
                 );
             }
-            Err(other) => {
-                panic!(
-                    "Expected Err(NotSupported) for empty intersection, \
-                     but got Err({:?}). Any non-NotSupported error also prevents \
-                     the legacy fallback from running.",
-                    other,
-                );
+            Err(e) => {
+                panic!("Empty intersection should succeed with empty solid, got: {e:?}");
             }
         }
     }
@@ -3077,5 +3128,40 @@ mod tests {
             "Cylindrical patch: {out}/{total} vertices outside quarter-cylinder [0,π/2]. \
              With empty edge_geometry, tessellator should use earcut in (θ,z), not full 360°."
         );
+    }
+
+    /// Disjoint boxes union should produce valid compound solid (Euler=4).
+    #[test]
+    fn yang_compound_solid_euler_accepted() {
+        // Two non-overlapping boxes — their union is a compound solid with 2 shells.
+        let (k_a, h_a) = make_box_via_kernel(0.5, 0.5, 1.0, 1.0, 1.0);
+        let (k_b, h_b) = make_box_via_kernel(5.0, 5.0, 1.0, 1.0, 1.0);
+        let solid_a = k_a.get_solid(&h_a).unwrap();
+        let solid_b = k_b.get_solid(&h_b).unwrap();
+
+        let mut next_id = 1000u64;
+        let mut id_alloc = || {
+            let id = next_id;
+            next_id += 1;
+            id
+        };
+
+        let result = yang_boolean_inner(solid_a, solid_b, BoolOp::Union, &mut id_alloc);
+        match result {
+            Ok(r) => {
+                let v = r.arena.vertices.len() as i64;
+                let e = r.arena.edges.len() as i64;
+                let f = r.arena.faces.len() as i64;
+                assert_eq!(
+                    v - e + f,
+                    4,
+                    "Compound solid (2 shells) should have Euler=4, got V={v} E={e} F={f} Euler={}",
+                    v - e + f
+                );
+            }
+            Err(e) => {
+                panic!("Disjoint box union should succeed as compound solid, got: {e:?}");
+            }
+        }
     }
 }

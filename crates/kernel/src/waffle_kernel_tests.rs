@@ -1017,11 +1017,11 @@ fn g2_union_face_count() {
     let (mut k, a, b) = make_overlapping_boxes();
     let result = k.boolean_union(&a, &b).unwrap();
     let faces = k.list_faces(&result);
-    // Face splitting at intersection boundaries produces more sub-faces than
-    // the minimal 10, but geometry is correct (volume/euler/watertight pass).
+    // Yang pipeline merges coplanar faces, producing 6 for this 1D-offset case.
+    // Legacy pipeline produces 14 (no coplanar merge). Accept either with >= 6.
     assert!(
-        faces.len() >= 10,
-        "Union of half-overlapping boxes should have >= 10 faces, got {}",
+        faces.len() >= 6,
+        "Union of half-overlapping boxes should have >= 6 faces, got {}",
         faces.len()
     );
 }

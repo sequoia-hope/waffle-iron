@@ -1802,7 +1802,7 @@ mod tests {
             10.0,
             10.0,
             10.0,
-            5.0,
+            10.0, // cy_b=10.0: true 2D offset so union is L-shaped with ≥10 faces
             10.0,
             10.0,
             10.0,
@@ -1810,8 +1810,8 @@ mod tests {
         )
         .expect("union should succeed");
         let faces = k.list_faces(&result);
-        // With face splitting at intersection boundaries, union produces
-        // more sub-faces (14) than the minimal 10. Geometry is correct.
+        // With 2D offset (both x and y), the L-shaped union has ≥10 faces.
+        // Yang pipeline produces exactly 10 (merged coplanar); legacy produces 14.
         assert!(
             faces.len() >= 10,
             "Union should have >= 10 faces, got {}",

@@ -4339,8 +4339,6 @@ mod tests {
     /// (2,0.5,0) to pair correctly. The bug causes (2,0.5,0) to be skipped.
     #[test]
     fn test_tjunction_after_coplanar_merge() {
-        use crate::boolean::exact_mesh::SubTriangle;
-
         // ── Vertices ──
         // Bottom face group A: rectangle [0,0,0]-[2,1,0]
         //   0: (0,0,0)  1: (2,0,0)  2: (2,1,0)  3: (0,1,0)
@@ -4881,6 +4879,140 @@ mod tests {
         assert_eq!(
             euler, 2,
             "V-E+F must be 2 for single closed solid, got {euler}"
+        );
+    }
+
+    /// Yang pipeline produces correct face count for 2D-offset overlapping box union.
+    /// A=[0,10]³, B=[5,15]×[5,15]×[0,10] — L-shaped union with ≥10 faces.
+    #[test]
+    fn test_yang_2d_offset_box_union_face_count() {
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [10.0, 10.0, 10.0]);
+        let (verts_b, tris_b) = make_box_mesh([5.0, 5.0, 0.0], [15.0, 15.0, 10.0]);
+
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
+        let labeling =
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
+
+        let bij_a = build_bijective_from_subdivided(&subdivided.tris_a, tris_a.len());
+        let bij_b = build_bijective_from_subdivided(&subdivided.tris_b, tris_b.len());
+
+        let mut survival =
+            face_survival_detect(&subdivided, &labeling, MeshBooleanOp::Union, &bij_a, &bij_b);
+        merge_coplanar_face_groups(&subdivided, &mut survival);
+
+        let topology = build_result_brep_from_mesh(&survival, &subdivided);
+        let n_faces = topology.face_provenance.len();
+        let n_verts = topology.arena.vertices.len();
+        let n_edges = topology.arena.edges.len();
+        let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
+
+        assert!(
+            n_faces >= 10,
+            "2D-offset box union should produce >= 10 faces, got {n_faces}"
+        );
+        assert_eq!(
+            euler, 2,
+            "Euler V({n_verts})-E({n_edges})+F({n_faces}) = {euler}, expected 2"
+        );
+    }
+
+    /// Identical boxes union (complete overlap): A=B=[0,1]³ should produce a single
+    /// box with Euler=2 and exactly 6 faces.
+    #[test]
+    fn test_yang_identical_box_union_single_solid() {
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        let (verts_b, tris_b) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
+        let labeling =
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
+
+        let bij_a = build_bijective_from_subdivided(&subdivided.tris_a, tris_a.len());
+        let bij_b = build_bijective_from_subdivided(&subdivided.tris_b, tris_b.len());
+
+        let mut survival =
+            face_survival_detect(&subdivided, &labeling, MeshBooleanOp::Union, &bij_a, &bij_b);
+        merge_coplanar_face_groups(&subdivided, &mut survival);
+
+        let topology = build_result_brep_from_mesh(&survival, &subdivided);
+        let n_faces = topology.face_provenance.len();
+        let n_verts = topology.arena.vertices.len();
+        let n_edges = topology.arena.edges.len();
+        let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
+
+        assert_eq!(
+            n_faces, 6,
+            "Identical box union should produce exactly 6 faces, got {n_faces}"
+        );
+        assert_eq!(
+            euler, 2,
+            "Identical box union should have Euler=2, got V={n_verts} E={n_edges} F={n_faces} Euler={euler}"
+        );
+    }
+
+    /// Disjoint boxes union (compound solid): Two non-overlapping boxes should
+    /// produce 12 faces, Euler=4 (2 per connected component).
+    #[test]
+    fn test_yang_disjoint_box_union_compound() {
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        let (verts_b, tris_b) = make_box_mesh([10.0, 10.0, 10.0], [11.0, 11.0, 11.0]);
+
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
+        let labeling =
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
+
+        let bij_a = build_bijective_from_subdivided(&subdivided.tris_a, tris_a.len());
+        let bij_b = build_bijective_from_subdivided(&subdivided.tris_b, tris_b.len());
+
+        let mut survival =
+            face_survival_detect(&subdivided, &labeling, MeshBooleanOp::Union, &bij_a, &bij_b);
+        merge_coplanar_face_groups(&subdivided, &mut survival);
+
+        let topology = build_result_brep_from_mesh(&survival, &subdivided);
+        let n_faces = topology.face_provenance.len();
+        let n_verts = topology.arena.vertices.len();
+        let n_edges = topology.arena.edges.len();
+        let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
+
+        assert_eq!(
+            n_faces, 12,
+            "Disjoint box union should produce 12 faces (6+6), got {n_faces}"
+        );
+        assert_eq!(
+            euler, 4,
+            "Disjoint box union should have Euler=4 (2 components), got V={n_verts} E={n_edges} F={n_faces} Euler={euler}"
+        );
+    }
+
+    /// Disjoint boxes intersect (empty result): Two non-overlapping boxes
+    /// intersected should produce zero surviving face groups.
+    #[test]
+    fn test_yang_disjoint_box_intersect_empty() {
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        let (verts_b, tris_b) = make_box_mesh([10.0, 10.0, 10.0], [11.0, 11.0, 11.0]);
+
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
+        let labeling =
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
+
+        let bij_a = build_bijective_from_subdivided(&subdivided.tris_a, tris_a.len());
+        let bij_b = build_bijective_from_subdivided(&subdivided.tris_b, tris_b.len());
+
+        let survival = face_survival_detect(
+            &subdivided,
+            &labeling,
+            MeshBooleanOp::Intersect,
+            &bij_a,
+            &bij_b,
+        );
+        assert!(
+            survival.groups.is_empty(),
+            "Disjoint box intersect should have 0 surviving groups, got {}",
+            survival.groups.len()
         );
     }
 }
