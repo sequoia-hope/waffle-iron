@@ -2753,12 +2753,12 @@ mod tests {
                 }
             }
             for ax in &axes {
-                if dot(*ax, *ax) < 1e-20 {
+                if dot(*ax, *ax) < crate::units::TAU_NORMALIZE_SQ {
                     continue;
                 }
                 let (a, b) = proj(t1, *ax);
                 let (c, d) = proj(t2, *ax);
-                if a > d + 1e-12 || c > b + 1e-12 {
+                if a > d + crate::units::TAU_WORK || c > b + crate::units::TAU_WORK {
                     return false;
                 }
             }
@@ -2769,7 +2769,10 @@ mod tests {
             let ai = face_aabb(&face_tris[i]);
             for j in (i + 1)..face_tris.len() {
                 let aj = face_aabb(&face_tris[j]);
-                if (0..3).any(|d| ai.0[d] > aj.1[d] + 1e-12 || aj.0[d] > ai.1[d] + 1e-12) {
+                if (0..3).any(|d| {
+                    ai.0[d] > aj.1[d] + crate::units::TAU_WORK
+                        || aj.0[d] > ai.1[d] + crate::units::TAU_WORK
+                }) {
                     continue;
                 }
                 for &ti in &face_tris[i] {
