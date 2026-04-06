@@ -388,6 +388,44 @@ pub(crate) fn build_render_mesh_from_survival(
     }
 }
 
+/// Quick check whether a render mesh has any unpaired edges (by quantized position).
+/// Returns `true` if there are unpaired edges, indicating the mesh is not watertight.
+/// Uses nanometer-scale quantization to match position-based edge pairing in the
+/// watertight oracle.
+fn quick_mesh_has_unpaired_edges(mesh: &RenderMesh) -> bool {
+    use std::collections::HashMap;
+    let scale = crate::units::QUANT_NANOMETER_SCALE;
+    let quant = |idx: u32| -> [i64; 3] {
+        let i = idx as usize * 3;
+        [
+            (mesh.vertices[i] as f64 * scale).round() as i64,
+            (mesh.vertices[i + 1] as f64 * scale).round() as i64,
+            (mesh.vertices[i + 2] as f64 * scale).round() as i64,
+        ]
+    };
+    type Edge = ([i64; 3], [i64; 3]);
+    let make_edge = |a: [i64; 3], b: [i64; 3]| -> Edge {
+        if a <= b {
+            (a, b)
+        } else {
+            (b, a)
+        }
+    };
+    let mut counts: HashMap<Edge, usize> = HashMap::new();
+    for tri in mesh.indices.chunks(3) {
+        if tri.len() < 3 {
+            continue;
+        }
+        let va = quant(tri[0]);
+        let vb = quant(tri[1]);
+        let vc = quant(tri[2]);
+        *counts.entry(make_edge(va, vb)).or_default() += 1;
+        *counts.entry(make_edge(vb, vc)).or_default() += 1;
+        *counts.entry(make_edge(vc, va)).or_default() += 1;
+    }
+    counts.values().any(|&c| c % 2 != 0)
+}
+
 /// Compute face normal for a triangle, using analytical surface geometry when available.
 fn compute_face_normal(
     p0: &[f64; 3],
@@ -686,21 +724,35 @@ pub(crate) fn yang_boolean_inner(
     // error on curved surfaces that causes inter-face triangle penetrations
     // detected by the self-intersection oracle. Retessellation at 64-segment
     // Render LOD matches legacy pipeline quality and eliminates these artifacts.
-    // Falls back to sub-triangle mesh if retessellation fails.
+    // Falls back to sub-triangle mesh if retessellation fails or produces a
+    // non-watertight mesh (bounded tessellation can leave unpaired edges on
+    // some B-Rep topologies).
     // Ref [#24] Yang 2025 — mesh is a computational tool, not the final output.
+    let sub_tri_mesh = || {
+        build_render_mesh_from_survival(
+            &pipeline_result.survival,
+            &pipeline_result.subdivided,
+            &surface_map,
+            &face_provenance,
+            &waffle.face_map,
+        )
+    };
     let cached_mesh = match tessellate_waffle_solid(&waffle, tessellation::TessellationLod::Render)
     {
-        Ok(mesh) if !mesh.indices.is_empty() => mesh,
+        Ok(mesh) if !mesh.indices.is_empty() => {
+            // Quick watertight check: count unpaired edges by position.
+            // If retessellation produces unpaired edges, fall back to
+            // sub-triangle mesh which inherits the conformal subdivision's
+            // watertight guarantee.
+            if quick_mesh_has_unpaired_edges(&mesh) {
+                sub_tri_mesh()
+            } else {
+                mesh
+            }
+        }
         _ => {
             // Retessellation failed — fall back to sub-triangle render mesh.
-            // This preserves the exact mesh boolean's geometry at lower quality.
-            build_render_mesh_from_survival(
-                &pipeline_result.survival,
-                &pipeline_result.subdivided,
-                &surface_map,
-                &face_provenance,
-                &waffle.face_map,
-            )
+            sub_tri_mesh()
         }
     };
     waffle.cached_render_mesh = Some(cached_mesh);
