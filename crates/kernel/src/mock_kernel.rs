@@ -1613,16 +1613,16 @@ mod tests {
         // Face[0] is the bottom face (z=0) of a 2×3×4 box
         assert_eq!(sig.surface_type.as_deref(), Some("planar"));
         assert!(
-            (sig.area.unwrap() - 6.0).abs() < 1e-12,
+            (sig.area.unwrap() - 6.0).abs() < TAU_WORK,
             "bottom face area = w*h = 2*3 = 6"
         );
         let c = sig.centroid.unwrap();
-        assert!((c[0] - 1.0).abs() < 1e-12, "centroid x = w/2 = 1.0");
-        assert!((c[1] - 1.5).abs() < 1e-12, "centroid y = h/2 = 1.5");
-        assert!((c[2] - 0.0).abs() < 1e-12, "centroid z = 0.0 (bottom)");
+        assert!((c[0] - 1.0).abs() < TAU_WORK, "centroid x = w/2 = 1.0");
+        assert!((c[1] - 1.5).abs() < TAU_WORK, "centroid y = h/2 = 1.5");
+        assert!((c[2] - 0.0).abs() < TAU_WORK, "centroid z = 0.0 (bottom)");
         let n = sig.normal.unwrap();
         assert!(
-            (n[0]).abs() < 1e-12 && (n[1]).abs() < 1e-12 && (n[2] + 1.0).abs() < 1e-12,
+            (n[0]).abs() < TAU_WORK && (n[1]).abs() < TAU_WORK && (n[2] + 1.0).abs() < TAU_WORK,
             "bottom face normal = [0, 0, -1]"
         );
 
@@ -1632,12 +1632,12 @@ mod tests {
             .map(|&f| kernel.compute_signature(f, TopoKind::Face).area.unwrap())
             .collect();
         areas.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        assert!((areas[0] - 6.0).abs() < 1e-12);
-        assert!((areas[1] - 6.0).abs() < 1e-12);
-        assert!((areas[2] - 8.0).abs() < 1e-12);
-        assert!((areas[3] - 8.0).abs() < 1e-12);
-        assert!((areas[4] - 12.0).abs() < 1e-12);
-        assert!((areas[5] - 12.0).abs() < 1e-12);
+        assert!((areas[0] - 6.0).abs() < TAU_WORK);
+        assert!((areas[1] - 6.0).abs() < TAU_WORK);
+        assert!((areas[2] - 8.0).abs() < TAU_WORK);
+        assert!((areas[3] - 8.0).abs() < TAU_WORK);
+        assert!((areas[4] - 12.0).abs() < TAU_WORK);
+        assert!((areas[5] - 12.0).abs() < TAU_WORK);
     }
 
     #[test]

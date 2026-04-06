@@ -3502,7 +3502,9 @@ pub(crate) fn radial_sort_around_edge(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::units::{TAU_COINCIDENT, TAU_WORK, TJUNCTION_ENDPOINT_MARGIN};
+    use crate::units::{
+        TAU_COINCIDENT, TAU_EXACT_MESH_CLASSIFY, TAU_WORK, TJUNCTION_ENDPOINT_MARGIN,
+    };
 
     // ── Smoke tests: verify geometry-predicates crate integration ──
 
@@ -4246,7 +4248,7 @@ mod tests {
             })
             .sum();
         assert!(
-            (sub_area_a - orig_area_a).abs() / orig_area_a < 1e-10,
+            (sub_area_a - orig_area_a).abs() / orig_area_a < TAU_EXACT_MESH_CLASSIFY,
             "Mesh A area not conserved: sub={sub_area_a}, orig={orig_area_a}"
         );
 
@@ -4263,7 +4265,7 @@ mod tests {
             })
             .sum();
         assert!(
-            (sub_area_b - orig_area_b).abs() / orig_area_b < 1e-10,
+            (sub_area_b - orig_area_b).abs() / orig_area_b < TAU_EXACT_MESH_CLASSIFY,
             "Mesh B area not conserved: sub={sub_area_b}, orig={orig_area_b}"
         );
 
@@ -4397,7 +4399,7 @@ mod tests {
             .sum();
         let rel_err_a = (sub_area_a - orig_area_a).abs() / orig_area_a;
         assert!(
-            rel_err_a < 1e-12,
+            rel_err_a < TAU_WORK,
             "Mesh A area conservation violated: relative error {rel_err_a:.2e} (sub={sub_area_a}, orig={orig_area_a})"
         );
 
@@ -4416,7 +4418,7 @@ mod tests {
             .sum();
         let rel_err_b = (sub_area_b - orig_area_b).abs() / orig_area_b;
         assert!(
-            rel_err_b < 1e-12,
+            rel_err_b < TAU_WORK,
             "Mesh B area conservation violated: relative error {rel_err_b:.2e} (sub={sub_area_b}, orig={orig_area_b})"
         );
     }
@@ -6041,7 +6043,7 @@ mod tests {
             .sum();
         let rel_err = (sub_area_a - orig_area_a).abs() / orig_area_a;
         assert!(
-            rel_err < 1e-10,
+            rel_err < TAU_EXACT_MESH_CLASSIFY,
             "Near-vertex: area conservation violated, relative error {rel_err:.2e}"
         );
 
@@ -6149,7 +6151,7 @@ mod tests {
             .sum();
         let rel_err = (sub_area_a - orig_area_a).abs() / orig_area_a;
         assert!(
-            rel_err < 1e-10,
+            rel_err < TAU_EXACT_MESH_CLASSIFY,
             "Multi-split: area conservation violated, relative error {rel_err:.2e}"
         );
 
@@ -6269,7 +6271,7 @@ mod tests {
             .sum();
         let rel_err = (sub_area_a - orig_area_a).abs() / orig_area_a;
         assert!(
-            rel_err < 1e-10,
+            rel_err < TAU_EXACT_MESH_CLASSIFY,
             "Chain: area conservation violated, relative error {rel_err:.2e}"
         );
 
@@ -6433,7 +6435,7 @@ mod tests {
                 sub_area.abs()
             };
             assert!(
-                rel_err < 1e-10,
+                rel_err < TAU_EXACT_MESH_CLASSIFY,
                 "Per-parent area conservation failed for parent tri {parent_idx}: \
                  original area = {orig_area:.6e}, sub-triangle sum = {sub_area:.6e}, \
                  relative error = {rel_err:.2e}"
@@ -6455,7 +6457,7 @@ mod tests {
             .sum();
         let rel_err_b = (sub_area_b - orig_area_b).abs() / orig_area_b;
         assert!(
-            rel_err_b < 1e-10,
+            rel_err_b < TAU_EXACT_MESH_CLASSIFY,
             "Mesh B area conservation violated: relative error {rel_err_b:.2e}"
         );
 
@@ -7184,7 +7186,10 @@ mod tests {
         let origin = [0.2, 0.2, -1.0];
         let result = ray_tri_intersect_axis(2, origin, v0, v1, v2);
         match result {
-            RayHit::Hit(t) => assert!((t - 1.0).abs() < 1e-10, "expected t ≈ 1.0, got {t}"),
+            RayHit::Hit(t) => assert!(
+                (t - 1.0).abs() < TAU_EXACT_MESH_CLASSIFY,
+                "expected t ≈ 1.0, got {t}"
+            ),
             other => panic!("expected Hit, got {other:?}"),
         }
     }
