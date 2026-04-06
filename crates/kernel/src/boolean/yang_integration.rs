@@ -1732,7 +1732,6 @@ mod tests {
 
     /// Verify cached mesh watertightness: every edge has exactly 2 incident triangles.
     #[test]
-    #[ignore = "tessellate_solid_bounded produces 3 unpaired edges on box-box union — fix in bounded tessellation, do not add fallback (P9)"]
     fn yang_mesh_passthrough_watertight() {
         let (k_a, h_a) = make_box_via_kernel(0.5, 0.5, 2.0, 2.0, 2.0);
         let (k_b, h_b) = make_box_via_kernel(1.5, 0.5, 2.0, 2.0, 2.0);
@@ -1798,7 +1797,6 @@ mod tests {
     /// P9: if the tessellator produces degenerate triangles, fix the tessellator —
     /// don't weaken the test to accept them.
     #[test]
-    #[ignore = "tessellate_solid_bounded ear-clipping produces zero-area triangles — fix in tessellation crate, do not weaken threshold"]
     fn yang_mesh_no_degenerate_triangles() {
         let (k_a, h_a) = make_box_via_kernel(0.5, 0.5, 2.0, 2.0, 2.0);
         let (k_b, h_b) = make_box_via_kernel(1.5, 0.5, 2.0, 2.0, 2.0);

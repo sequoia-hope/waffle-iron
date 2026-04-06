@@ -2688,12 +2688,62 @@ fn tessellate_planar_face_bounded(
             convex
         };
 
-        if is_convex && n <= 8 {
-            // Fan triangulation for simple convex faces
+        // Check for collinear consecutive vertices — fan from vertex 0
+        // would produce degenerate (zero-area) triangles when vertex 0 lies
+        // on the line through (i, i+1). This happens when Yang coplanar merge
+        // keeps intersection-plane vertices on merged face boundaries.
+        let has_collinear = is_convex && n >= 4 && {
+            (0..n).any(|i| {
+                let a = ordered_verts[i];
+                let b = ordered_verts[(i + 1) % n];
+                let c = ordered_verts[(i + 2) % n];
+                let ab = v3_sub(b, a);
+                let bc = v3_sub(c, b);
+                let cross = v3_cross(ab, bc);
+                v3_length(cross) < crate::units::TAU_NORMALIZE
+            })
+        };
+
+        if is_convex && n <= 8 && !has_collinear {
+            // Fan triangulation for simple convex faces without collinear vertices
             for i in 1..n - 1 {
                 out_indices.push(base_vertex);
                 out_indices.push(base_vertex + i as u32);
                 out_indices.push(base_vertex + (i + 1) as u32);
+            }
+        } else if has_collinear {
+            // Centroid-fan: add polygon centroid as a Steiner vertex and fan
+            // from it to each boundary edge. The centroid is interior to the
+            // convex polygon, so no triangle can be degenerate. All boundary
+            // edges (including collinear segments) are preserved for cross-face
+            // edge pairing.
+            let mut cx = 0.0_f64;
+            let mut cy = 0.0_f64;
+            let mut cz = 0.0_f64;
+            for v in &ordered_verts {
+                cx += v[0];
+                cy += v[1];
+                cz += v[2];
+            }
+            let inv_n = 1.0 / n as f64;
+            cx *= inv_n;
+            cy *= inv_n;
+            cz *= inv_n;
+
+            // Emit centroid vertex
+            let centroid_idx = out_verts.len() as u32 / 3;
+            out_verts.push(cx as f32);
+            out_verts.push(cy as f32);
+            out_verts.push(cz as f32);
+            out_normals.push(normal[0]);
+            out_normals.push(normal[1]);
+            out_normals.push(normal[2]);
+
+            // Fan from centroid to each boundary edge
+            for i in 0..n {
+                out_indices.push(centroid_idx);
+                out_indices.push(base_vertex + i as u32);
+                out_indices.push(base_vertex + ((i + 1) % n) as u32);
             }
         } else {
             // Ear-clip triangulation
@@ -4931,5 +4981,71 @@ mod tests {
             !is_smooth_edge(&arena, edge_idx, &face_geometry),
             "Perpendicular planes should NOT be smooth"
         );
+    }
+
+    #[test]
+    fn tessellate_planar_face_no_collinear_degenerates() {
+        // 8-vertex rectangle with collinear intermediate points on the long edges
+        // (simulates Yang coplanar-merge output where intersection-plane vertices
+        // remain on merged face boundaries).
+        let positions: Vec<[f64; 3]> = vec![
+            [0.0, 0.0, 0.0], // 0 - corner
+            [1.0, 0.0, 0.0], // 1 - intermediate (collinear with 0 and 2)
+            [2.0, 0.0, 0.0], // 2 - intermediate (collinear with 1 and 3)
+            [3.0, 0.0, 0.0], // 3 - corner
+            [3.0, 2.0, 0.0], // 4 - corner
+            [2.0, 2.0, 0.0], // 5 - intermediate (collinear with 4 and 6)
+            [1.0, 2.0, 0.0], // 6 - intermediate (collinear with 5 and 7)
+            [0.0, 2.0, 0.0], // 7 - corner
+        ];
+        let boundary: Vec<usize> = (0..8).collect();
+        let normal = [0.0f32, 0.0, 1.0];
+        let mut verts = Vec::new();
+        let mut normals = Vec::new();
+        let mut indices = Vec::new();
+
+        tessellate_planar_face_bounded(
+            &boundary,
+            &positions,
+            normal,
+            &mut verts,
+            &mut normals,
+            &mut indices,
+            &[],
+        );
+
+        // Verify no degenerate triangles
+        let tri_count = indices.len() / 3;
+        assert!(tri_count > 0, "should produce at least one triangle");
+        for t in 0..tri_count {
+            let i0 = indices[t * 3] as usize;
+            let i1 = indices[t * 3 + 1] as usize;
+            let i2 = indices[t * 3 + 2] as usize;
+            let p0 = [
+                verts[i0 * 3] as f64,
+                verts[i0 * 3 + 1] as f64,
+                verts[i0 * 3 + 2] as f64,
+            ];
+            let p1 = [
+                verts[i1 * 3] as f64,
+                verts[i1 * 3 + 1] as f64,
+                verts[i1 * 3 + 2] as f64,
+            ];
+            let p2 = [
+                verts[i2 * 3] as f64,
+                verts[i2 * 3 + 1] as f64,
+                verts[i2 * 3 + 2] as f64,
+            ];
+            let e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+            let e2 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+            let cross_len = ((e1[1] * e2[2] - e1[2] * e2[1]).powi(2)
+                + (e1[2] * e2[0] - e1[0] * e2[2]).powi(2)
+                + (e1[0] * e2[1] - e1[1] * e2[0]).powi(2))
+            .sqrt();
+            assert!(
+                cross_len > crate::units::TAU_NORMALIZE,
+                "triangle {t} is degenerate (area={cross_len})"
+            );
+        }
     }
 }
