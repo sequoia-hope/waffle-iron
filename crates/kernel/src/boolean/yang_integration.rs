@@ -237,7 +237,7 @@ pub(crate) fn waffle_solid_to_boolean_result(solid: WaffleSolid) -> BooleanResul
     }
 }
 
-// ── Mesh passthrough: cached render mesh from surviving sub-triangles ───
+// ── Sub-triangle render mesh: cached mesh from surviving sub-triangles (test-only) ───
 // NOTE: build_render_mesh_from_survival is test-only. Production code uses
 // retessellation at Render LOD (Step 9 of yang_boolean_inner). The sub-triangle
 // mesh builder is kept for tests that verify conformal subdivision output.
@@ -1635,12 +1635,12 @@ mod tests {
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // Mesh passthrough tests: cached render mesh from surviving sub-tris
+    // Sub-triangle mesh tests: cached render mesh from surviving sub-tris
     // ══════════════════════════════════════════════════════════════════
 
     /// Verify that yang_boolean_inner produces a cached_render_mesh.
     #[test]
-    fn yang_mesh_passthrough_produces_cached_mesh() {
+    fn yang_subtri_mesh_produces_cached_mesh() {
         let (k_a, h_a) = make_box_via_kernel(0.5, 0.5, 2.0, 2.0, 2.0);
         let (k_b, h_b) = make_box_via_kernel(1.5, 0.5, 2.0, 2.0, 2.0);
         let solid_a = k_a.get_solid(&h_a).unwrap();
@@ -1676,7 +1676,7 @@ mod tests {
 
     /// Verify face_ranges cover all indices.
     #[test]
-    fn yang_mesh_passthrough_face_ranges_cover_all_indices() {
+    fn yang_subtri_mesh_face_ranges_cover_all_indices() {
         let (k_a, h_a) = make_box_via_kernel(0.5, 0.5, 2.0, 2.0, 2.0);
         let (k_b, h_b) = make_box_via_kernel(1.5, 0.5, 2.0, 2.0, 2.0);
         let solid_a = k_a.get_solid(&h_a).unwrap();
@@ -1710,7 +1710,7 @@ mod tests {
 
     /// Verify normals are unit length.
     #[test]
-    fn yang_mesh_passthrough_unit_normals() {
+    fn yang_subtri_mesh_unit_normals() {
         let (k_a, h_a) = make_box_via_kernel(0.5, 0.5, 2.0, 2.0, 2.0);
         let (k_b, h_b) = make_box_via_kernel(1.5, 0.5, 2.0, 2.0, 2.0);
         let solid_a = k_a.get_solid(&h_a).unwrap();
@@ -1740,7 +1740,7 @@ mod tests {
 
     /// Verify all three boolean operations produce cached meshes.
     #[test]
-    fn yang_mesh_passthrough_all_ops() {
+    fn yang_subtri_mesh_all_ops() {
         for op in [BoolOp::Union, BoolOp::Subtract, BoolOp::Intersect] {
             let (k_a, h_a) = make_box_via_kernel(0.5, 0.5, 2.0, 2.0, 2.0);
             let (k_b, h_b) = make_box_via_kernel(1.5, 0.5, 2.0, 2.0, 2.0);
@@ -1776,7 +1776,7 @@ mod tests {
 
     /// Verify cached mesh watertightness: every edge has exactly 2 incident triangles.
     #[test]
-    fn yang_mesh_passthrough_watertight() {
+    fn yang_subtri_mesh_watertight() {
         let (k_a, h_a) = make_box_via_kernel(0.5, 0.5, 2.0, 2.0, 2.0);
         let (k_b, h_b) = make_box_via_kernel(1.5, 0.5, 2.0, 2.0, 2.0);
         let solid_a = k_a.get_solid(&h_a).unwrap();
@@ -2525,7 +2525,7 @@ mod tests {
     /// vertices per face (different normals → different indices).
     ///
     /// This test verifies that the Yang pipeline uses retessellation (not
-    /// sub-triangle passthrough) by checking that vertex count is reasonable
+    /// sub-triangle mesh) by checking that vertex count is reasonable
     /// for a bounded-tessellation box-box union.
     #[test]
     fn yang_render_mesh_is_retessellated_not_subtriangle() {
@@ -2557,7 +2557,7 @@ mod tests {
         assert!(
             num_tris <= 40,
             "Expected ≤40 triangles from retessellated box-box union, got {num_tris} \
-             (sub-triangle passthrough produces 44). Pipeline may not be retessellating."
+             (sub-triangle mesh produces 44). Pipeline may not be retessellating."
         );
         // Sanity: must have at least 6 faces worth of triangles
         assert!(

@@ -1353,7 +1353,7 @@ pub(crate) fn face_survival_detect(
 /// Ref [#24]: Yang, Jia & Yan (2025) — stages 1-3 of the hybrid pipeline.
 #[allow(dead_code)] // Phase 3 building block — task 3d
 /// Full result of the Yang boolean pipeline, including intermediates needed
-/// for mesh passthrough (cached render mesh construction).
+/// for sub-triangle render mesh construction (test-only).
 pub(crate) struct YangPipelineResult {
     pub topology: ResultTopology,
     pub survival: FaceSurvivalMap,
