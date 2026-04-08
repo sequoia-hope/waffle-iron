@@ -2188,6 +2188,375 @@ fn split_at_edge_point(tri: [usize; 3], edge_local: usize, split_vert: usize) ->
     vec![[v0, split_vert, v_opp], [split_vert, v1, v_opp]]
 }
 
+/// Partition a convex polygon by a set of non-crossing interior chords.
+///
+/// Given a convex polygon (as a list of vertex indices in CCW order) and a set
+/// of chords (pairs of polygon-index positions), recursively split the polygon
+/// into sub-polygons. Non-crossing chords on a convex polygon yield C+1 convex
+/// sub-polygons for C chords.
+///
+/// # Arguments
+/// * `polygon` - Vertex indices forming the convex polygon in CCW order
+/// * `chords` - Pairs of (polygon_index_a, polygon_index_b) for each chord
+///
+/// # Returns
+/// A list of sub-polygons (each a Vec of vertex indices in CCW order).
+fn partition_polygon_by_chords(polygon: &[usize], chords: &[(usize, usize)]) -> Vec<Vec<usize>> {
+    if chords.is_empty() {
+        return vec![polygon.to_vec()];
+    }
+
+    // Pick the first chord and split the polygon into two halves.
+    let (a, b) = chords[0];
+    let (a, b) = if a < b { (a, b) } else { (b, a) };
+
+    // Skip degenerate chords (adjacent vertices = already a polygon edge)
+    if b - a <= 1 || (a == 0 && b == polygon.len() - 1) {
+        return partition_polygon_by_chords(polygon, &chords[1..]);
+    }
+
+    // Split into two sub-polygons:
+    // half1: polygon[a..=b]
+    // half2: polygon[b..] + polygon[..=a]
+    let half1: Vec<usize> = polygon[a..=b].to_vec();
+    let mut half2: Vec<usize> = polygon[b..].to_vec();
+    half2.extend_from_slice(&polygon[..=a]);
+
+    // Remap remaining chords to the sub-polygon index spaces.
+    let n = polygon.len();
+    let mut chords1 = Vec::new();
+    let mut chords2 = Vec::new();
+
+    for &(ca, cb) in &chords[1..] {
+        // Try to map both endpoints to half1 (indices a..=b)
+        let in_h1_a = if ca >= a && ca <= b {
+            Some(ca - a)
+        } else {
+            None
+        };
+        let in_h1_b = if cb >= a && cb <= b {
+            Some(cb - a)
+        } else {
+            None
+        };
+
+        if let (Some(ma), Some(mb)) = (in_h1_a, in_h1_b) {
+            chords1.push((ma, mb));
+            continue;
+        }
+
+        // Map to half2 (indices b..n, 0..=a wrapped)
+        let map_to_h2 = |idx: usize| -> Option<usize> {
+            if idx >= b && idx < n {
+                Some(idx - b)
+            } else if idx <= a {
+                Some(n - b + idx)
+            } else {
+                None
+            }
+        };
+
+        if let (Some(ma), Some(mb)) = (map_to_h2(ca), map_to_h2(cb)) {
+            chords2.push((ma, mb));
+        }
+        // Chords straddling the split are already handled by the split itself
+    }
+
+    let mut result = partition_polygon_by_chords(&half1, &chords1);
+    result.extend(partition_polygon_by_chords(&half2, &chords2));
+    result
+}
+
+/// Batch-subdivide a triangle by ALL its constraint segments simultaneously.
+///
+/// Instead of applying constraint segments sequentially (which can lose earlier
+/// edges when later splits re-triangulate), this function:
+/// 1. Classifies all constraint endpoints as on-vertex or on-edge (with parametric t)
+/// 2. Builds a boundary polygon by walking triangle edges CCW, inserting points sorted by t
+/// 3. Identifies interior chords (constraint segments between polygon vertices)
+/// 4. Partitions the polygon by chords into convex sub-polygons
+/// 5. Fan-triangulates each sub-polygon
+///
+/// Ref #24: Yang 2025 — constrained triangulation step of hybrid boolean.
+/// Ref #9: Cherchi 2020 — conformal mesh subdivision.
+fn subdivide_triangle_batch(
+    tri_vi: [usize; 3],
+    segments: &[[usize; 2]],
+    all_verts: &mut Vec<[f64; 3]>,
+    mut dedup: Option<&mut std::collections::HashMap<[i64; 3], usize>>,
+) -> Vec<[usize; 3]> {
+    use std::collections::HashMap;
+
+    if segments.is_empty() {
+        return vec![tri_vi];
+    }
+
+    // Single segment: delegate to existing optimized path
+    if segments.len() == 1 {
+        return split_triangle_by_segment_dedup(tri_vi, segments[0], all_verts, dedup);
+    }
+
+    let tri_verts = [
+        all_verts[tri_vi[0]],
+        all_verts[tri_vi[1]],
+        all_verts[tri_vi[2]],
+    ];
+    let eps = TAU_EXACT_MESH_CLASSIFY;
+
+    // ── Step A: Classify all unique constraint endpoints ──
+    // For each segment endpoint, determine if it's at a triangle vertex,
+    // on a triangle edge (with parametric t), or in the interior.
+    #[derive(Debug, Clone)]
+    enum EndpointClass {
+        AtVertex(usize),           // local vertex index 0,1,2
+        OnEdge(usize, f64, usize), // (edge_index, parametric_t, global_vertex_index)
+        Interior,                  // inside the triangle, not on boundary
+    }
+
+    let mut endpoint_classes: HashMap<usize, EndpointClass> = HashMap::new();
+
+    // Collect all unique segment endpoint vertex indices
+    let mut all_endpoints: Vec<usize> = Vec::new();
+    for seg in segments {
+        for &vi in &[seg[0], seg[1]] {
+            if !all_endpoints.contains(&vi) {
+                all_endpoints.push(vi);
+            }
+        }
+    }
+
+    let mut has_interior = false;
+
+    for &vi in &all_endpoints {
+        let p = all_verts[vi];
+
+        // Check if this point is at a triangle vertex
+        let mut at_vertex = None;
+        for local in 0..3 {
+            if vi == tri_vi[local] || dist_sq(&p, &tri_verts[local]) < eps * eps {
+                at_vertex = Some(local);
+                break;
+            }
+        }
+
+        if let Some(local) = at_vertex {
+            endpoint_classes.insert(vi, EndpointClass::AtVertex(local));
+            continue;
+        }
+
+        // Check which edge this point lies on
+        let mut on_edge = None;
+        for edge_idx in 0..3 {
+            let a = tri_verts[edge_idx];
+            let b = tri_verts[(edge_idx + 1) % 3];
+            let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let ap = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
+            let ab_len_sq = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+            if ab_len_sq < TAU_NORMALIZE_SQ {
+                continue;
+            }
+            let cross = [
+                ab[1] * ap[2] - ab[2] * ap[1],
+                ab[2] * ap[0] - ab[0] * ap[2],
+                ab[0] * ap[1] - ab[1] * ap[0],
+            ];
+            let cross_len_sq = cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2];
+            if cross_len_sq > eps * eps * ab_len_sq {
+                continue;
+            }
+            let t = (ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / ab_len_sq;
+            if t > -eps && t < 1.0 + eps {
+                let t_clamped = t.clamp(0.0, 1.0);
+                // Check if it snaps to a vertex
+                if t_clamped < eps {
+                    endpoint_classes.insert(vi, EndpointClass::AtVertex(edge_idx));
+                    on_edge = None;
+                    break;
+                } else if t_clamped > 1.0 - eps {
+                    endpoint_classes.insert(vi, EndpointClass::AtVertex((edge_idx + 1) % 3));
+                    on_edge = None;
+                    break;
+                } else {
+                    on_edge = Some(EndpointClass::OnEdge(edge_idx, t_clamped, vi));
+                    break;
+                }
+            }
+        }
+
+        if let Some(class) = on_edge {
+            endpoint_classes.insert(vi, class);
+        } else {
+            // Interior point — not on any edge or vertex
+            endpoint_classes.entry(vi).or_insert_with(|| {
+                has_interior = true;
+                EndpointClass::Interior
+            });
+        }
+    }
+
+    // If any endpoint is in the triangle interior, fall back to sequential
+    // splitting. The batch polygon-with-chords algorithm requires all endpoints
+    // on the boundary. Interior endpoints arise when a blade triangle crosses
+    // through (one endpoint on boundary, other in interior).
+    if has_interior {
+        let mut current_tris: Vec<[usize; 3]> = vec![tri_vi];
+        for seg in segments {
+            let mut next_tris = Vec::new();
+            for t in &current_tris {
+                let splits =
+                    split_triangle_by_segment_dedup(*t, *seg, all_verts, dedup.as_deref_mut());
+                next_tris.extend(splits);
+            }
+            current_tris = next_tris;
+        }
+        return current_tris;
+    }
+
+    // ── Step B: Build boundary polygon ──
+    // Walk triangle edges CCW, inserting constraint points sorted by parametric t.
+    struct EdgePoint {
+        t: f64,
+        global_vi: usize,
+    }
+
+    let mut edge_points: [Vec<EdgePoint>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+
+    for (&vi, class) in &endpoint_classes {
+        if let EndpointClass::OnEdge(edge_idx, t, _vert_idx) = class {
+            edge_points[*edge_idx].push(EdgePoint {
+                t: *t,
+                global_vi: vi,
+            });
+        }
+    }
+
+    // Sort points on each edge by parametric t
+    for pts in &mut edge_points {
+        pts.sort_by(|a, b| a.t.partial_cmp(&b.t).unwrap_or(std::cmp::Ordering::Equal));
+    }
+
+    // Build polygon: for each edge, emit start vertex then sorted edge points
+    let mut polygon: Vec<usize> = Vec::new();
+    for edge_idx in 0..3 {
+        polygon.push(tri_vi[edge_idx]);
+        for ep in &edge_points[edge_idx] {
+            polygon.push(ep.global_vi);
+        }
+    }
+
+    // ── Step C: Identify interior chords ──
+    // Each constraint segment becomes a pair of polygon indices.
+    // Build a lookup from global vertex index to polygon position.
+    let mut vi_to_poly: HashMap<usize, usize> = HashMap::new();
+    for (poly_idx, &vi) in polygon.iter().enumerate() {
+        vi_to_poly.insert(vi, poly_idx);
+    }
+
+    // For AtVertex endpoints, map the segment vertex index to the triangle vertex's polygon position
+    for (&vi, class) in &endpoint_classes {
+        if let EndpointClass::AtVertex(local) = class {
+            let tri_global = tri_vi[*local];
+            if let Some(&poly_idx) = vi_to_poly.get(&tri_global) {
+                vi_to_poly.insert(vi, poly_idx);
+            }
+        }
+    }
+
+    let mut chords: Vec<(usize, usize)> = Vec::new();
+    for seg in segments {
+        let pa = vi_to_poly.get(&seg[0]).copied();
+        let pb = vi_to_poly.get(&seg[1]).copied();
+
+        if let (Some(a), Some(b)) = (pa, pb) {
+            if a != b {
+                chords.push((a, b));
+            }
+        }
+    }
+
+    // Filter out adjacent chords (already polygon edges, no split needed)
+    let n_poly = polygon.len();
+    let real_chords: Vec<(usize, usize)> = chords
+        .iter()
+        .filter(|&&(a, b)| {
+            let (lo, hi) = if a < b { (a, b) } else { (b, a) };
+            hi - lo > 1 && !(lo == 0 && hi == n_poly - 1)
+        })
+        .copied()
+        .collect();
+
+    if real_chords.is_empty() {
+        // All chords are adjacent (along polygon edges) — no interior splitting
+        // needed. But still need to fan-triangulate the boundary polygon if it
+        // has more than 3 vertices (from constraint points on edges).
+        // Fall back to sequential to maintain consistent triangulation with
+        // the downstream conformal repair passes.
+        let mut current_tris: Vec<[usize; 3]> = vec![tri_vi];
+        for seg in segments {
+            let mut next_tris = Vec::new();
+            for t in &current_tris {
+                let splits =
+                    split_triangle_by_segment_dedup(*t, *seg, all_verts, dedup.as_deref_mut());
+                next_tris.extend(splits);
+            }
+            current_tris = next_tris;
+        }
+        return current_tris;
+    }
+
+    // ── Step C2: Check for crossing chords ──
+    // Two chords (a,b) and (c,d) on a convex polygon cross iff their
+    // endpoint intervals interleave on the polygon boundary. If any pair
+    // crosses, fall back to sequential splitting — this can happen when
+    // multiple constraint segments from different intersection pairs meet
+    // at a shared corner vertex (common in axis-aligned box intersections).
+    let chords_cross = real_chords.iter().enumerate().any(|(i, &(a1, b1))| {
+        let (lo1, hi1) = if a1 < b1 { (a1, b1) } else { (b1, a1) };
+        real_chords.iter().skip(i + 1).any(|&(a2, b2)| {
+            let (lo2, hi2) = if a2 < b2 { (a2, b2) } else { (b2, a2) };
+            let c2_in = lo2 > lo1 && lo2 < hi1;
+            let d2_in = hi2 > lo1 && hi2 < hi1;
+            c2_in != d2_in
+        })
+    });
+
+    if chords_cross {
+        // Fall back to sequential — crossing chords can't be partitioned
+        let mut current_tris: Vec<[usize; 3]> = vec![tri_vi];
+        for seg in segments {
+            let mut next_tris = Vec::new();
+            for t in &current_tris {
+                let splits =
+                    split_triangle_by_segment_dedup(*t, *seg, all_verts, dedup.as_deref_mut());
+                next_tris.extend(splits);
+            }
+            current_tris = next_tris;
+        }
+        return current_tris;
+    }
+
+    // ── Step D: Partition polygon by chords ──
+    let sub_polygons = partition_polygon_by_chords(&polygon, &real_chords);
+
+    // ── Step E: Fan-triangulate each sub-polygon ──
+    let mut result: Vec<[usize; 3]> = Vec::new();
+    for poly in &sub_polygons {
+        if poly.len() < 3 {
+            continue;
+        }
+        // Fan from first vertex
+        for i in 1..poly.len() - 1 {
+            result.push([poly[0], poly[i], poly[i + 1]]);
+        }
+    }
+
+    if result.is_empty() {
+        vec![tri_vi]
+    } else {
+        result
+    }
+}
+
 /// Subdivide both meshes along their intersection segments.
 ///
 /// For each pair of triangles (one from A, one from B), computes the exact
@@ -2197,7 +2566,7 @@ fn split_at_edge_point(tri: [usize; 3], edge_local: usize, split_vert: usize) ->
 /// # Algorithm
 /// 1. Merge vertex arrays (B offset by |verts_a|)
 /// 2. Compute all tri-tri intersections, collect segments
-/// 3. Per-triangle constraint segments
+/// 3. Per-triangle constraint segments (batch subdivision)
 /// 4. Edge-split propagation for conformal subdivision
 /// 5. Split each triangle by its constraint segments + propagated edge points
 ///
@@ -2383,26 +2752,16 @@ pub(crate) fn subdivide_mesh_pair(
     // ── Step 3: Direct subdivision ──
     // First, apply direct constraint segments to get initial sub-triangles.
 
+    // Batch subdivision: process ALL constraint segments for each triangle
+    // simultaneously, instead of sequentially. This prevents later splits from
+    // overwriting earlier constraint edges — the root cause of unpaired
+    // half-edges in multi-constraint triangles (F0003 pattern).
     let mut result_tris_a_raw: Vec<(usize, Vec<[usize; 3]>)> = Vec::new();
     for (i, tri) in tris_a.iter().enumerate() {
         if let Some(segs) = constraints_a.get(&i) {
-            let mut current_tris: Vec<[usize; 3]> = vec![*tri];
-            for seg in segs {
-                let mut next_tris = Vec::new();
-                for t in &current_tris {
-                    // Use dedup version so edge-interior vertices share indices
-                    // with the same geometric point from other triangles.
-                    let splits = split_triangle_by_segment_dedup(
-                        *t,
-                        *seg,
-                        &mut all_verts,
-                        Some(&mut isect_vertex_dedup),
-                    );
-                    next_tris.extend(splits);
-                }
-                current_tris = next_tris;
-            }
-            result_tris_a_raw.push((i, current_tris));
+            let sub_tris =
+                subdivide_triangle_batch(*tri, segs, &mut all_verts, Some(&mut isect_vertex_dedup));
+            result_tris_a_raw.push((i, sub_tris));
         } else {
             result_tris_a_raw.push((i, vec![*tri]));
         }
@@ -2412,21 +2771,13 @@ pub(crate) fn subdivide_mesh_pair(
     for (j, _tri) in tris_b.iter().enumerate() {
         let remapped = remapped_tris_b[j];
         if let Some(segs) = constraints_b.get(&j) {
-            let mut current_tris: Vec<[usize; 3]> = vec![remapped];
-            for seg in segs {
-                let mut next_tris = Vec::new();
-                for t in &current_tris {
-                    let splits = split_triangle_by_segment_dedup(
-                        *t,
-                        *seg,
-                        &mut all_verts,
-                        Some(&mut isect_vertex_dedup),
-                    );
-                    next_tris.extend(splits);
-                }
-                current_tris = next_tris;
-            }
-            result_tris_b_raw.push((j, current_tris));
+            let sub_tris = subdivide_triangle_batch(
+                remapped,
+                segs,
+                &mut all_verts,
+                Some(&mut isect_vertex_dedup),
+            );
+            result_tris_b_raw.push((j, sub_tris));
         } else {
             result_tris_b_raw.push((j, vec![remapped]));
         }
@@ -3505,6 +3856,18 @@ mod tests {
     use crate::units::{
         TAU_COINCIDENT, TAU_EXACT_MESH_CLASSIFY, TAU_WORK, TJUNCTION_ENDPOINT_MARGIN,
     };
+
+    /// Compute area of a 3D triangle via cross product.
+    fn triangle_area_3d(a: &[f64; 3], b: &[f64; 3], c: &[f64; 3]) -> f64 {
+        let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let cross = [
+            ab[1] * ac[2] - ab[2] * ac[1],
+            ab[2] * ac[0] - ab[0] * ac[2],
+            ab[0] * ac[1] - ab[1] * ac[0],
+        ];
+        0.5 * (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt()
+    }
 
     // ── Smoke tests: verify geometry-predicates crate integration ──
 
@@ -7504,5 +7867,346 @@ mod tests {
         let labeling = result.unwrap();
         assert_eq!(labeling.labels_a.len(), subdivided.tris_a.len());
         assert_eq!(labeling.labels_b.len(), subdivided.tris_b.len());
+    }
+
+    // ── partition_polygon_by_chords tests ──
+
+    #[test]
+    fn partition_no_chords_returns_polygon() {
+        let polygon = vec![0, 1, 2, 3, 4];
+        let result = partition_polygon_by_chords(&polygon, &[]);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], vec![0, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn partition_one_chord_yields_two_subpolygons() {
+        // Pentagon: 0-1-2-3-4, chord from 0 to 2
+        let polygon = vec![0, 1, 2, 3, 4];
+        let result = partition_polygon_by_chords(&polygon, &[(0, 2)]);
+        assert_eq!(result.len(), 2);
+        // half1: [0,1,2], half2: [2,3,4,0]
+        assert!(result.contains(&vec![0, 1, 2]));
+        assert!(result.contains(&vec![2, 3, 4, 0]));
+    }
+
+    #[test]
+    fn partition_two_non_crossing_chords_yields_three_subpolygons() {
+        // Hexagon: 0-1-2-3-4-5, non-crossing chords (1,3) and (3,5)
+        // These share vertex 3 and don't cross.
+        let polygon = vec![0, 1, 2, 3, 4, 5];
+        let result = partition_polygon_by_chords(&polygon, &[(1, 3), (3, 5)]);
+        assert_eq!(result.len(), 3);
+    }
+
+    #[test]
+    fn partition_two_chords_sharing_endpoint_yields_three() {
+        // Pentagon: 0-1-2-3-4, chords (0,2) and (0,3)
+        let polygon = vec![0, 1, 2, 3, 4];
+        let result = partition_polygon_by_chords(&polygon, &[(0, 2), (0, 3)]);
+        assert_eq!(result.len(), 3);
+    }
+
+    #[test]
+    fn partition_fan_from_one_vertex() {
+        // Pentagon: 0-1-2-3-4, chords from 0 to all non-adjacent: (0,2), (0,3)
+        let polygon = vec![0, 1, 2, 3, 4];
+        let result = partition_polygon_by_chords(&polygon, &[(0, 2), (0, 3)]);
+        // 2 chords from vertex 0 → 3 sub-polygons (triangles)
+        assert_eq!(result.len(), 3);
+        // All should be triangles
+        for poly in &result {
+            assert_eq!(poly.len(), 3, "fan should produce all triangles");
+        }
+    }
+
+    #[test]
+    fn partition_adjacent_chord_is_skipped() {
+        // Triangle: 0-1-2, chord (0,1) is adjacent → skip
+        let polygon = vec![0, 1, 2];
+        let result = partition_polygon_by_chords(&polygon, &[(0, 1)]);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn partition_wrap_around_adjacent_is_skipped() {
+        // Triangle: 0-1-2, chord (0,2) wraps around → adjacent, skip
+        let polygon = vec![0, 1, 2];
+        let result = partition_polygon_by_chords(&polygon, &[(0, 2)]);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], vec![0, 1, 2]);
+    }
+
+    // ── subdivide_triangle_batch tests ──
+
+    #[test]
+    fn batch_single_constraint_matches_sequential() {
+        // Triangle in XY plane
+        let mut verts = vec![
+            [0.0, 0.0, 0.0], // 0
+            [1.0, 0.0, 0.0], // 1
+            [0.5, 1.0, 0.0], // 2
+        ];
+        // Constraint segment endpoints on edges 0 (0→1) and 1 (1→2)
+        let seg_p0 = [0.5, 0.0, 0.0]; // midpoint of edge 0
+        let seg_p1 = [0.75, 0.5, 0.0]; // midpoint of edge 1
+        verts.push(seg_p0); // index 3
+        verts.push(seg_p1); // index 4
+
+        let tri = [0, 1, 2];
+        let result = subdivide_triangle_batch(tri, &[[3, 4]], &mut verts, None);
+
+        // Single constraint with both endpoints on edges → 3 sub-triangles
+        assert_eq!(result.len(), 3, "single 2-edge constraint → 3 sub-tris");
+
+        // Area conservation
+        let parent_area = triangle_area_3d(&verts[0], &verts[1], &verts[2]);
+        let sub_area: f64 = result
+            .iter()
+            .map(|t| triangle_area_3d(&verts[t[0]], &verts[t[1]], &verts[t[2]]))
+            .sum();
+        assert!(
+            (parent_area - sub_area).abs() < 1e-10,
+            "area not conserved: parent={parent_area}, sub_sum={sub_area}"
+        );
+    }
+
+    #[test]
+    fn batch_two_non_adjacent_constraints() {
+        // Triangle with two constraint segments on different edge pairs.
+        // Both constraints must survive in the output.
+        let mut verts = vec![
+            [0.0, 0.0, 0.0], // 0
+            [1.0, 0.0, 0.0], // 1
+            [0.5, 1.0, 0.0], // 2
+        ];
+        // Seg 1: edge 0 (t=0.3) to edge 2 (t=0.3)
+        verts.push([0.3, 0.0, 0.0]); // 3 on edge 0
+        verts.push([0.35, 0.7, 0.0]); // 4 on edge 2
+
+        // Seg 2: edge 0 (t=0.7) to edge 1 (t=0.5)
+        verts.push([0.7, 0.0, 0.0]); // 5 on edge 0
+        verts.push([0.75, 0.5, 0.0]); // 6 on edge 1
+
+        let tri = [0, 1, 2];
+        let result = subdivide_triangle_batch(tri, &[[3, 4], [5, 6]], &mut verts, None);
+
+        // With 2 chords on a 7-vertex polygon → 3 sub-polygons → several triangles
+        assert!(
+            result.len() >= 4,
+            "two constraints should produce >= 4 sub-tris, got {}",
+            result.len()
+        );
+
+        // Area conservation
+        let parent_area = triangle_area_3d(&verts[0], &verts[1], &verts[2]);
+        let sub_area: f64 = result
+            .iter()
+            .map(|t| triangle_area_3d(&verts[t[0]], &verts[t[1]], &verts[t[2]]))
+            .sum();
+        assert!(
+            (parent_area - sub_area).abs() < 1e-10,
+            "area not conserved: parent={parent_area}, sub_sum={sub_area}"
+        );
+
+        // Both constraint edges must be present
+        let edges: Vec<(usize, usize)> = result
+            .iter()
+            .flat_map(|t| {
+                vec![
+                    (t[0].min(t[1]), t[0].max(t[1])),
+                    (t[1].min(t[2]), t[1].max(t[2])),
+                    (t[0].min(t[2]), t[0].max(t[2])),
+                ]
+            })
+            .collect();
+        assert!(
+            edges.contains(&(3, 4)) || edges.contains(&(4, 3)),
+            "constraint edge (3,4) must be present in output"
+        );
+        assert!(
+            edges.contains(&(5, 6)) || edges.contains(&(6, 5)),
+            "constraint edge (5,6) must be present in output"
+        );
+    }
+
+    #[test]
+    fn batch_two_constraints_sharing_endpoint() {
+        // Triangle with two constraints that share a boundary endpoint
+        let mut verts = vec![
+            [0.0, 0.0, 0.0], // 0
+            [1.0, 0.0, 0.0], // 1
+            [0.5, 1.0, 0.0], // 2
+        ];
+        // Shared point on edge 0 (midpoint)
+        verts.push([0.5, 0.0, 0.0]); // 3
+
+        // Seg 1: shared point (3) to point on edge 1
+        verts.push([0.75, 0.5, 0.0]); // 4 on edge 1
+
+        // Seg 2: shared point (3) to point on edge 2
+        verts.push([0.25, 0.5, 0.0]); // 5 on edge 2
+
+        let tri = [0, 1, 2];
+        let result = subdivide_triangle_batch(tri, &[[3, 4], [3, 5]], &mut verts, None);
+
+        // Should produce sub-triangles with both constraint edges preserved
+        assert!(result.len() >= 3, "shared-endpoint → >= 3 sub-tris");
+
+        // Area conservation
+        let parent_area = triangle_area_3d(&verts[0], &verts[1], &verts[2]);
+        let sub_area: f64 = result
+            .iter()
+            .map(|t| triangle_area_3d(&verts[t[0]], &verts[t[1]], &verts[t[2]]))
+            .sum();
+        assert!((parent_area - sub_area).abs() < 1e-10, "area not conserved");
+
+        // Both constraint edges present
+        let edges: Vec<(usize, usize)> = result
+            .iter()
+            .flat_map(|t| {
+                vec![
+                    (t[0].min(t[1]), t[0].max(t[1])),
+                    (t[1].min(t[2]), t[1].max(t[2])),
+                    (t[0].min(t[2]), t[0].max(t[2])),
+                ]
+            })
+            .collect();
+        assert!(
+            edges.contains(&(3, 4)) || edges.contains(&(4, 3)),
+            "constraint edge (3,4) must be present"
+        );
+        assert!(
+            edges.contains(&(3, 5)) || edges.contains(&(5, 3)),
+            "constraint edge (3,5) must be present"
+        );
+    }
+
+    #[test]
+    fn batch_three_constraints_fan_pattern() {
+        // F0003-like pattern: triangle with 3 non-crossing constraints.
+        // Fan from vertex V0 to 3 points on edge 1 (V1→V2).
+        // Triangle: V0=[0,0,0], V1=[1,0,0], V2=[0.5,1,0]
+        // Edge 1: [1,0,0]+t*[-0.5,1,0] = [1-0.5t, t, 0]
+        let mut verts = vec![
+            [0.0, 0.0, 0.0], // 0: V0
+            [1.0, 0.0, 0.0], // 1: V1
+            [0.5, 1.0, 0.0], // 2: V2
+        ];
+        // Three points on edge 1:
+        verts.push([0.875, 0.25, 0.0]); // 3 on edge 1 (t=0.25)
+        verts.push([0.75, 0.5, 0.0]); // 4 on edge 1 (t=0.5)
+        verts.push([0.625, 0.75, 0.0]); // 5 on edge 1 (t=0.75)
+
+        // Fan constraints from V0 (index 0) to each edge-1 point
+        let tri = [0, 1, 2];
+        let result = subdivide_triangle_batch(tri, &[[0, 3], [0, 4], [0, 5]], &mut verts, None);
+
+        // 3 fan chords from vertex → 4 sub-triangles
+        assert_eq!(
+            result.len(),
+            4,
+            "3 fan constraints → 4 sub-tris, got {}",
+            result.len()
+        );
+
+        // Area conservation
+        let parent_area = triangle_area_3d(&verts[0], &verts[1], &verts[2]);
+        let sub_area: f64 = result
+            .iter()
+            .map(|t| triangle_area_3d(&verts[t[0]], &verts[t[1]], &verts[t[2]]))
+            .sum();
+        assert!(
+            (parent_area - sub_area).abs() < 1e-10,
+            "area not conserved: parent={parent_area}, sub_sum={sub_area}"
+        );
+
+        // All 3 constraint edges must survive (V0=0 to each point)
+        let edges: std::collections::HashSet<(usize, usize)> = result
+            .iter()
+            .flat_map(|t| {
+                vec![
+                    (t[0].min(t[1]), t[0].max(t[1])),
+                    (t[1].min(t[2]), t[1].max(t[2])),
+                    (t[0].min(t[2]), t[0].max(t[2])),
+                ]
+            })
+            .collect();
+        assert!(edges.contains(&(0, 3)), "constraint (0,3) must survive");
+        assert!(edges.contains(&(0, 4)), "constraint (0,4) must survive");
+        assert!(edges.contains(&(0, 5)), "constraint (0,5) must survive");
+    }
+
+    #[test]
+    fn batch_constraint_at_original_vertex() {
+        // Constraint from a triangle vertex to a point on the opposite edge
+        let mut verts = vec![
+            [0.0, 0.0, 0.0], // 0
+            [1.0, 0.0, 0.0], // 1
+            [0.5, 1.0, 0.0], // 2
+        ];
+        // Constraint from vertex 0 to midpoint of edge 1 (1→2)
+        verts.push([0.75, 0.5, 0.0]); // 3 on edge 1
+
+        let tri = [0, 1, 2];
+        let result = subdivide_triangle_batch(tri, &[[0, 3]], &mut verts, None);
+
+        // Vertex-to-edge constraint → 2 sub-triangles
+        assert_eq!(result.len(), 2, "vertex-to-edge → 2 sub-tris");
+
+        // Area conservation
+        let parent_area = triangle_area_3d(&verts[0], &verts[1], &verts[2]);
+        let sub_area: f64 = result
+            .iter()
+            .map(|t| triangle_area_3d(&verts[t[0]], &verts[t[1]], &verts[t[2]]))
+            .sum();
+        assert!((parent_area - sub_area).abs() < 1e-10, "area not conserved");
+    }
+
+    #[test]
+    fn batch_area_conservation_oracle() {
+        // Comprehensive area conservation test with 4 fan constraints.
+        // Triangle: V0=[0,0,0], V1=[2,0,0], V2=[1,2,0]
+        // Edge 1: V1→V2 = [2,0,0]+t*[-1,2,0] = [2-t, 2t, 0]
+        let mut verts = vec![
+            [0.0, 0.0, 0.0], // 0: V0
+            [2.0, 0.0, 0.0], // 1: V1
+            [1.0, 2.0, 0.0], // 2: V2
+        ];
+        // 4 points on edge 1 for fan from V0:
+        verts.push([1.8, 0.4, 0.0]); // 3 on edge 1 (t=0.2)
+        verts.push([1.6, 0.8, 0.0]); // 4 on edge 1 (t=0.4)
+        verts.push([1.4, 1.2, 0.0]); // 5 on edge 1 (t=0.6)
+        verts.push([1.2, 1.6, 0.0]); // 6 on edge 1 (t=0.8)
+
+        let tri = [0, 1, 2];
+        let result =
+            subdivide_triangle_batch(tri, &[[0, 3], [0, 4], [0, 5], [0, 6]], &mut verts, None);
+
+        let parent_area = triangle_area_3d(&verts[0], &verts[1], &verts[2]);
+        let sub_area: f64 = result
+            .iter()
+            .map(|t| triangle_area_3d(&verts[t[0]], &verts[t[1]], &verts[t[2]]))
+            .sum();
+        assert!(
+            (parent_area - sub_area).abs() < 1e-10,
+            "area mismatch: parent={parent_area}, sub_sum={sub_area}, delta={}",
+            (parent_area - sub_area).abs()
+        );
+
+        // 4 fan chords → 5 sub-triangles
+        assert_eq!(
+            result.len(),
+            5,
+            "4 fan chords → 5 sub-tris, got {}",
+            result.len()
+        );
+
+        // No degenerate triangles
+        for (i, t) in result.iter().enumerate() {
+            let area = triangle_area_3d(&verts[t[0]], &verts[t[1]], &verts[t[2]]);
+            assert!(area > 1e-15, "sub-triangle {i} is degenerate: area={area}");
+        }
     }
 }

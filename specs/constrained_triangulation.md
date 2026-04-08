@@ -39,7 +39,8 @@ tessellation → **subdivision** → cell labeling → topology extraction.
 | Single segment, endpoints on 2 different edges | 1 | Split into 3 sub-triangles |
 | Single segment, one endpoint on vertex | 1 | Split into 2 sub-triangles |
 | Single segment, both endpoints on vertices | 1 | No split needed (edge already exists) |
-| Multiple segments | N>1 | Iterative or batch subdivision via ear-clipping |
+| Multiple segments, non-crossing boundary chords | N>1 | **Batch**: build boundary polygon, partition by chords, fan-triangulate |
+| Multiple segments, crossing chords or interior endpoints | N>1 | **Sequential fallback**: split one segment at a time |
 
 ---
 
@@ -93,10 +94,40 @@ tessellation → **subdivision** → cell labeling → topology extraction.
   constrained Delaunay triangulation (CDT) within each triangle.
 - [#10] Levy (2025) — Exact constructions for subdivision point placement.
 
-For task 2c, we use a simpler ear-clipping approach within each triangle
-rather than full CDT, since all constraint points lie on the triangle boundary
-(guaranteed by tri-tri intersection). CDT provides no benefit when all
-constraints connect boundary points of a convex polygon.
+For task 2c, we use a polygon-with-chords approach: build the boundary polygon
+by inserting constraint endpoints along triangle edges (sorted by parametric t),
+then partition the polygon by non-crossing interior chords, and fan-triangulate
+each sub-polygon. This is simpler than full CDT and sufficient because all
+constraint points from tri-tri intersection lie on the triangle boundary.
+
+When constraint segments cross (e.g., from different box edges meeting at a
+shared corner) or have interior endpoints (e.g., blade triangle crossings),
+the algorithm falls back to sequential splitting.
+
+---
+
+## 7b. Chord Non-Crossing Proof
+
+**Claim**: For a triangle T with constraint segments from tri-tri intersections,
+if all segment endpoints lie on T's boundary, then the corresponding polygon
+chords do not cross, provided that any geometric crossing point has been
+resolved as a shared vertex.
+
+**Proof sketch**: A crossing of two chords (a,b) and (c,d) on the boundary
+polygon implies the corresponding constraint segments S1 and S2 intersect in
+the triangle interior. Such an intersection point P must be a vertex shared
+by three triangles (T, T1, T2 where S1 comes from T-T1 intersection and S2
+from T-T2). In the tri-tri intersection computation, P would be detected as
+a vertex of both segments, splitting each segment at P. After this splitting,
+the resulting half-segments no longer cross.
+
+**Consequence**: When no pre-splitting has occurred (e.g., the constraint
+segments come directly from pairwise tri-tri intersection without resolving
+tri-tri-tri meeting points), chords CAN cross. The batch algorithm detects
+this case and falls back to sequential splitting.
+
+**Invariant**: All constraint edges survive simultaneously in the batch output.
+No constraint edge is lost by a later split overwriting an earlier one.
 
 ---
 
