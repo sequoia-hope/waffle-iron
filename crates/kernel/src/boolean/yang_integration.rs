@@ -3157,4 +3157,144 @@ mod tests {
             }
         }
     }
+
+    /// E2E test: Cross-shaped union of two boxes with DIFFERENT depths.
+    /// This is the F0003 assay geometry — the simplest failing case.
+    /// Box A: 60×40×30, Box B: 40×60×20 (different depths create a step at z=20).
+    ///
+    /// KNOWN FAILURE: conformal subdivision doesn't preserve constraint edges
+    /// when multiple intersection segments hit the same original triangle.
+    /// Sequential segment splitting (split_triangle_by_segment_dedup) can lose
+    /// earlier constraint edges when later constraints re-triangulate the area.
+    /// Root cause: needs constrained Delaunay triangulation (CDT) instead of
+    /// sequential segment insertion. See topology_extract.rs Step 3 boundary
+    /// fix and Step 5d reconciliation for the B-Rep-level partial fix.
+    #[test]
+    #[ignore = "conformal subdivision loses constraint edges at multi-constraint triangles (F0003)"]
+    fn yang_e2e_cross_different_depths_union() {
+        // F0003 geometry: cross-shaped union with different extrusion depths
+        // Box A: 60×40, depth 30
+        let (k_a, h_a) = make_box_via_kernel(0.0, 0.0, 60.0, 40.0, 30.0);
+        // Box B: 40×60, depth 20 (creates step at z=20)
+        let (k_b, h_b) = make_box_via_kernel(0.0, 0.0, 40.0, 60.0, 20.0);
+
+        let solid_a = k_a.get_solid(&h_a).expect("solid_a must exist");
+        let solid_b = k_b.get_solid(&h_b).expect("solid_b must exist");
+
+        assert!(
+            !solid_a.face_geometry.is_empty(),
+            "solid_a must have face_geometry"
+        );
+        assert!(
+            !solid_b.face_geometry.is_empty(),
+            "solid_b must have face_geometry"
+        );
+
+        let mut next_id = 1000u64;
+        let mut id_alloc = || {
+            let id = next_id;
+            next_id += 1;
+            id
+        };
+
+        let result = yang_boolean_inner(solid_a, solid_b, BoolOp::Union, &mut id_alloc);
+
+        match &result {
+            Ok(boolean_result) => {
+                let n_faces = boolean_result.arena.faces.len();
+                let n_edges = boolean_result.arena.edges.len();
+                let n_verts = boolean_result.arena.vertices.len();
+                let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
+
+                eprintln!(
+                    "[F0003] Cross different-depths union: V={n_verts}, E={n_edges}, F={n_faces}, Euler={euler}"
+                );
+
+                // Cross-shaped union with step should have more than 6 faces
+                assert!(
+                    n_faces >= 10,
+                    "Cross union with step should have >= 10 faces, got {n_faces}"
+                );
+                assert_eq!(
+                    euler, 2,
+                    "Euler V-E+F must equal 2, got {euler} (V={n_verts}, E={n_edges}, F={n_faces})"
+                );
+
+                // Verify manifold: every half-edge has a valid twin
+                let n_he = boolean_result.arena.half_edges.len();
+                assert_eq!(
+                    n_he,
+                    2 * n_edges,
+                    "Must have HE=2*E for manifold, got HE={n_he}, E={n_edges}"
+                );
+                for (i, he) in boolean_result.arena.half_edges.iter().enumerate() {
+                    let twin_idx = he.twin.0;
+                    assert!(
+                        twin_idx < n_he,
+                        "HE[{i}] twin index {twin_idx} out of bounds (n_he={n_he})"
+                    );
+                    assert_eq!(
+                        boolean_result.arena.half_edges[twin_idx].twin.0, i,
+                        "HE[{i}].twin.twin != {i} (twin symmetry broken)"
+                    );
+                }
+            }
+            Err(e) => {
+                panic!(
+                    "Yang E2E cross different-depths union failed with error: {e:?}. \
+                     The pipeline should produce a valid solid for F0003 geometry."
+                );
+            }
+        }
+    }
+
+    /// E2E test: Cross-shaped subtract with different depths (Box A - Box B).
+    /// Tests the step/ledge geometry with subtract instead of union.
+    /// KNOWN FAILURE: same root cause as yang_e2e_cross_different_depths_union.
+    #[test]
+    #[ignore = "conformal subdivision loses constraint edges at multi-constraint triangles (F0003)"]
+    fn yang_e2e_cross_different_depths_subtract() {
+        let (k_a, h_a) = make_box_via_kernel(0.0, 0.0, 60.0, 40.0, 30.0);
+        let (k_b, h_b) = make_box_via_kernel(0.0, 0.0, 40.0, 60.0, 20.0);
+
+        let solid_a = k_a.get_solid(&h_a).expect("solid_a must exist");
+        let solid_b = k_b.get_solid(&h_b).expect("solid_b must exist");
+
+        let mut next_id = 1000u64;
+        let mut id_alloc = || {
+            let id = next_id;
+            next_id += 1;
+            id
+        };
+
+        let result = yang_boolean_inner(solid_a, solid_b, BoolOp::Subtract, &mut id_alloc);
+
+        match &result {
+            Ok(boolean_result) => {
+                let n_faces = boolean_result.arena.faces.len();
+                let n_edges = boolean_result.arena.edges.len();
+                let n_verts = boolean_result.arena.vertices.len();
+                let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
+
+                eprintln!(
+                    "[F0003-sub] Cross different-depths subtract: V={n_verts}, E={n_edges}, F={n_faces}, Euler={euler}"
+                );
+
+                assert!(
+                    n_faces >= 6,
+                    "Subtract result should have >= 6 faces, got {n_faces}"
+                );
+                assert_eq!(euler, 2, "Euler V-E+F must equal 2, got {euler}");
+
+                let n_he = boolean_result.arena.half_edges.len();
+                assert_eq!(n_he, 2 * n_edges, "Must have HE=2*E for manifold");
+            }
+            Err(e) => {
+                panic!(
+                    "Yang E2E cross different-depths subtract failed: {e:?}. \
+                     The pipeline should produce a valid solid."
+                );
+            }
+        }
+    }
 }

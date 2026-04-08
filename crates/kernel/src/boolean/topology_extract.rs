@@ -449,13 +449,22 @@ pub(crate) fn build_result_brep_from_mesh(
                     is_brep_boundary.insert((v0, v1));
                 }
                 // If any twin from same source → interior, skip
-            } else if !full_reverse_exists.contains(&(v1, v0)) {
-                // No twin in full subdivision → actual mesh boundary
+            } else {
+                // Reverse either absent from the full mesh (actual mesh boundary)
+                // or present only among non-surviving sub-triangles (neighbor
+                // removed by the boolean). In both cases this directed edge sits
+                // on the boundary of the surviving region of its face group and
+                // must appear in the B-Rep.
+                //
+                // Prior code treated the "reverse exists in full mesh but not in
+                // surviving set" case as interior, which is wrong when the removed
+                // neighbor was inside the other solid (different-depth unions,
+                // asymmetric subtracts). The surviving edge IS the face-group
+                // boundary — it will be twin-paired with an edge from the adjacent
+                // face group in Step 6.
+                // Ref [#24] Yang 2025 — boundary of surviving region.
                 is_brep_boundary.insert((v0, v1));
             }
-            // else: reverse exists in full mesh but not in surviving set →
-            // interior edge (non-surviving neighbor removed by boolean).
-            // NOT a B-Rep boundary. Ref [#24] Yang 2025.
         }
     }
 
@@ -697,6 +706,158 @@ pub(crate) fn build_result_brep_from_mesh(
                     }
                 }
                 *loops = new_loops;
+            }
+        }
+    }
+
+    // ── Step 5d: Reconcile unpaired boundary chains at perpendicular junctions ──
+    // When two face groups share a geometric edge (e.g., A's side face and B's
+    // side face at a perpendicular junction), the conformal subdivision may
+    // create different intermediate vertices on each face's boundary. This
+    // leaves open chains in the face loops that can't be twin-paired.
+    //
+    // Fix: find open chains whose endpoints match between face groups, project
+    // all intermediate vertices onto the shared geometric line, and create
+    // matching edge segments along that line.
+    // Ref [#24] Yang 2025 — conformal vertex reconciliation at face junctions.
+    {
+        // Collect open chains: (face_group_idx, chain_idx, start_vertex, end_vertex)
+        let mut open_chains: Vec<(usize, usize, usize, usize)> = Vec::new();
+        for (fi, (_sf, loops)) in all_face_loops.iter().enumerate() {
+            for (li, loop_edges) in loops.iter().enumerate() {
+                if let (Some(first), Some(last)) = (loop_edges.first(), loop_edges.last()) {
+                    if last.1 != first.0 {
+                        // Open chain: first.0 is start, last.1 is end
+                        open_chains.push((fi, li, first.0, last.1));
+                    }
+                }
+            }
+        }
+
+        // Find matching pairs: two open chains from DIFFERENT face groups
+        // whose endpoints match (possibly reversed).
+        let mut reconciled: HashSet<(usize, usize)> = HashSet::new();
+
+        for i in 0..open_chains.len() {
+            if reconciled.contains(&(open_chains[i].0, open_chains[i].1)) {
+                continue;
+            }
+            for j in (i + 1)..open_chains.len() {
+                if reconciled.contains(&(open_chains[j].0, open_chains[j].1)) {
+                    continue;
+                }
+                if open_chains[i].0 == open_chains[j].0 {
+                    continue; // Same face group
+                }
+
+                let (fi_a, li_a, start_a, end_a) = open_chains[i];
+                let (fi_b, li_b, start_b, end_b) = open_chains[j];
+
+                // Check if endpoints match (A's end connects to B's start and vice versa)
+                let qp = |vi: usize| -> [i64; 3] {
+                    let scale = crate::units::QUANT_NANOMETER_SCALE;
+                    let p = subdivided.verts[vi];
+                    [
+                        (p[0] * scale).round() as i64,
+                        (p[1] * scale).round() as i64,
+                        (p[2] * scale).round() as i64,
+                    ]
+                };
+
+                // Check: A goes from start_a→end_a, B goes from start_b→end_b
+                // They match if end_a==start_b and end_b==start_a (forming a closed polygon)
+                let a_end_matches_b_start = qp(end_a) == qp(start_b);
+                let b_end_matches_a_start = qp(end_b) == qp(start_a);
+
+                if !(a_end_matches_b_start && b_end_matches_a_start) {
+                    continue;
+                }
+
+                // Found matching pair! Reconcile by projecting onto the shared line.
+                // The shared line goes from start_a to end_a.
+                let p_start = subdivided.verts[start_a];
+                let p_end = subdivided.verts[end_a];
+                let dir = [
+                    p_end[0] - p_start[0],
+                    p_end[1] - p_start[1],
+                    p_end[2] - p_start[2],
+                ];
+                let dir_len_sq = dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2];
+
+                if dir_len_sq < crate::units::TAU_WORK_SQ {
+                    continue; // Degenerate
+                }
+
+                // Collect ALL vertices from both chains that lie on the shared line.
+                let mut on_line_verts: Vec<(f64, usize)> = Vec::new(); // (t, vertex_idx)
+                on_line_verts.push((0.0, start_a));
+
+                let collect_on_line =
+                    |chain: &[(usize, usize, bool)], verts: &mut Vec<(f64, usize)>| {
+                        for &(v0, v1, _) in chain {
+                            for &vi in &[v0, v1] {
+                                let p = subdivided.verts[vi];
+                                let to_p =
+                                    [p[0] - p_start[0], p[1] - p_start[1], p[2] - p_start[2]];
+                                let t = (to_p[0] * dir[0] + to_p[1] * dir[1] + to_p[2] * dir[2])
+                                    / dir_len_sq;
+                                // Check distance to line
+                                let proj = [
+                                    p_start[0] + t * dir[0],
+                                    p_start[1] + t * dir[1],
+                                    p_start[2] + t * dir[2],
+                                ];
+                                let dist_sq = (p[0] - proj[0]).powi(2)
+                                    + (p[1] - proj[1]).powi(2)
+                                    + (p[2] - proj[2]).powi(2);
+                                let line_tol = crate::units::TAU_MODEL;
+                                if dist_sq < line_tol * line_tol
+                                    && t > crate::units::TAU_PARALLEL
+                                    && t < 1.0 - crate::units::TAU_PARALLEL
+                                {
+                                    verts.push((t, vi));
+                                }
+                            }
+                        }
+                    };
+
+                let chain_a = all_face_loops[fi_a].1[li_a].clone();
+                let chain_b = all_face_loops[fi_b].1[li_b].clone();
+                collect_on_line(&chain_a, &mut on_line_verts);
+                collect_on_line(&chain_b, &mut on_line_verts);
+
+                on_line_verts.push((1.0, end_a));
+
+                // Deduplicate by quantized position and sort by parameter
+                let mut seen: HashSet<[i64; 3]> = HashSet::new();
+                on_line_verts.retain(|&(_, vi)| seen.insert(qp(vi)));
+                on_line_verts.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+
+                if on_line_verts.len() < 2 {
+                    continue;
+                }
+
+                // Get the is_intersection flag from the original chains
+                let is_int_a = chain_a.first().map(|e| e.2).unwrap_or(true);
+
+                // Replace chain A with edges along the line (forward direction)
+                let new_chain_a: Vec<(usize, usize, bool)> = on_line_verts
+                    .windows(2)
+                    .map(|w| (w[0].1, w[1].1, is_int_a))
+                    .collect();
+
+                // Replace chain B with edges along the line (reverse direction)
+                let new_chain_b: Vec<(usize, usize, bool)> = on_line_verts
+                    .windows(2)
+                    .rev()
+                    .map(|w| (w[1].1, w[0].1, is_int_a))
+                    .collect();
+
+                all_face_loops[fi_a].1[li_a] = new_chain_a;
+                all_face_loops[fi_b].1[li_b] = new_chain_b;
+
+                reconciled.insert((fi_a, li_a));
+                reconciled.insert((fi_b, li_b));
             }
         }
     }
