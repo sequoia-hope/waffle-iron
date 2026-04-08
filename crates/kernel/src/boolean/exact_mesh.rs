@@ -6055,7 +6055,7 @@ mod tests {
                 &result.verts[st.verts[2]],
             );
             assert!(
-                area > 1e-20,
+                area > TAU_NORMALIZE_SQ,
                 "Near-vertex: degenerate A sub-triangle {i} with area {area:.2e}"
             );
         }
@@ -6066,7 +6066,7 @@ mod tests {
                 &result.verts[st.verts[2]],
             );
             assert!(
-                area > 1e-20,
+                area > TAU_NORMALIZE_SQ,
                 "Near-vertex: degenerate B sub-triangle {i} with area {area:.2e}"
             );
         }
@@ -6210,7 +6210,7 @@ mod tests {
                 &result.verts[st.verts[2]],
             );
             assert!(
-                area > 1e-20,
+                area > TAU_NORMALIZE_SQ,
                 "Multi-split: degenerate A sub-tri {i} with area {area:.2e}"
             );
         }
@@ -6359,7 +6359,7 @@ mod tests {
                 &result.verts[st.verts[2]],
             );
             assert!(
-                area > 1e-20,
+                area > TAU_NORMALIZE_SQ,
                 "Chain: degenerate A sub-triangle {i} with area {area:.2e}"
             );
         }
@@ -6482,7 +6482,7 @@ mod tests {
                 &result.verts[st.verts[2]],
             );
             assert!(
-                area > 1e-20,
+                area > TAU_NORMALIZE_SQ,
                 "Degenerate sub-triangle {i} with area {area:.2e}"
             );
         }
