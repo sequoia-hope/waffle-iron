@@ -43,10 +43,9 @@ pub(crate) struct WaffleSolid {
     /// (S-H clipping), meaning bounded tessellation should be skipped in favor
     /// of per-face tessellation to allow internal fragment removal.
     pub(crate) is_polygon_soup: bool,
-    /// Cached render mesh from the Yang mesh boolean pipeline.
-    /// When present, tessellation returns this directly instead of
-    /// retessellating from B-Rep topology. The mesh boolean output is
-    /// self-intersection-free by construction (Cherchi 2020).
+    /// Cached render mesh from the Yang boolean pipeline's retessellation
+    /// (yang_boolean_inner Step 9). When present, `tessellate()` returns
+    /// this directly to avoid redundant retessellation. Ref [#24] Yang 2025.
     pub(crate) cached_render_mesh: Option<RenderMesh>,
 }
 
@@ -2422,9 +2421,10 @@ impl Kernel for WaffleKernel {
                 id: KernelId(solid.id()),
             })?;
 
-        // Yang pipeline mesh passthrough: return the cached mesh boolean output
-        // directly, bypassing retessellation. The mesh boolean's conformal
-        // subdivision guarantees no self-intersections (Cherchi 2020).
+        // Return pre-computed render mesh from Yang pipeline if available.
+        // yang_boolean_inner retessellates the result B-Rep at Render LOD
+        // (Step 9) and caches it here. This avoids redundant retessellation
+        // on subsequent tessellate() calls. Ref [#24] Yang 2025.
         if let Some(ref mesh) = ws.cached_render_mesh {
             return Ok(mesh.clone());
         }

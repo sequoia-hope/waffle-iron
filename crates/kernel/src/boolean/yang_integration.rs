@@ -660,30 +660,23 @@ pub(crate) fn yang_boolean_inner(
     };
 
     // Empty topology is a valid result for some operations (e.g., Intersect of
-    // disjoint solids). Return an empty WaffleSolid instead of an error.
+    // disjoint solids). Return an empty BooleanResult directly.
     if pipeline_result.topology.face_provenance.is_empty() {
-        let empty_solid = WaffleSolid {
+        return Ok(BooleanResult {
             arena: crate::topology::arena::TopoArena::new(),
             face_map: BTreeMap::new(),
             edge_map: BTreeMap::new(),
             vertex_map: BTreeMap::new(),
             face_geometry: BTreeMap::new(),
             edge_geometry: BTreeMap::new(),
-            cylinder_params: None,
-            revolve_params: None,
-            sphere_params: None,
-            cone_params: None,
-            torus_params: None,
             cached_face_polys: None,
-            is_polygon_soup: false,
             cached_render_mesh: Some(RenderMesh {
                 vertices: vec![],
                 normals: vec![],
                 indices: vec![],
                 face_ranges: vec![],
             }),
-        };
-        return Ok(waffle_solid_to_boolean_result(empty_solid));
+        });
     }
 
     // Step 7: Convert ResultTopology → WaffleSolid → BooleanResult.

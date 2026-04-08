@@ -80,7 +80,7 @@ pub(crate) struct BooleanResult {
     pub edge_geometry: BTreeMap<EdgeIdx, CurveGeom>,
     /// Cached face polygons from the boolean result, for reuse in subsequent booleans.
     pub cached_face_polys: Option<Vec<FacePoly>>,
-    /// Cached render mesh from Yang pipeline mesh boolean output.
+    /// Cached render mesh from Yang pipeline retessellation (Step 9).
     pub cached_render_mesh: Option<crate::types::RenderMesh>,
 }
 
