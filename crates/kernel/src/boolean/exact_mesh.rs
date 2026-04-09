@@ -1933,6 +1933,62 @@ fn line_segment_intersect_3d(
     Some(t)
 }
 
+/// Compute the intersection of two 3D line segments.
+/// Returns `Some((s, t))` where `s` is the parameter on segment `a0→a1`
+/// and `t` is the parameter on segment `b0→b1`, only if both parameters
+/// are strictly interior (within `(eps, 1-eps)`).
+#[allow(dead_code)]
+fn segment_segment_intersect_3d(
+    a0: &[f64; 3],
+    a1: &[f64; 3],
+    b0: &[f64; 3],
+    b1: &[f64; 3],
+) -> Option<(f64, f64)> {
+    let d1 = [a1[0] - a0[0], a1[1] - a0[1], a1[2] - a0[2]];
+    let d2 = [b1[0] - b0[0], b1[1] - b0[1], b1[2] - b0[2]];
+    let r = [a0[0] - b0[0], a0[1] - b0[1], a0[2] - b0[2]];
+
+    let cross = [
+        d1[1] * d2[2] - d1[2] * d2[1],
+        d1[2] * d2[0] - d1[0] * d2[2],
+        d1[0] * d2[1] - d1[1] * d2[0],
+    ];
+    let ax = cross[0].abs();
+    let ay = cross[1].abs();
+    let az = cross[2].abs();
+
+    if ax < TAU_NORMALIZE_SQ && ay < TAU_NORMALIZE_SQ && az < TAU_NORMALIZE_SQ {
+        return None; // parallel or degenerate
+    }
+
+    // Project onto the plane perpendicular to the dominant cross-product axis
+    let (i, j) = if ax >= ay && ax >= az {
+        (1, 2)
+    } else if ay >= az {
+        (0, 2)
+    } else {
+        (0, 1)
+    };
+
+    // 2D line intersection: a0 + s*d1 = b0 + t*d2
+    // s*d1[i] - t*d2[i] = b0[i] - a0[i] = -r[i]
+    // s*d1[j] - t*d2[j] = b0[j] - a0[j] = -r[j]
+    let det = d1[i] * (-d2[j]) - d1[j] * (-d2[i]);
+    if det.abs() < TAU_NORMALIZE_SQ {
+        return None;
+    }
+
+    let s = ((-r[i]) * (-d2[j]) - (-r[j]) * (-d2[i])) / det;
+    let t = (d1[i] * (-r[j]) - d1[j] * (-r[i])) / det;
+
+    let eps = TAU_EXACT_MESH_CLASSIFY;
+    if s > eps && s < 1.0 - eps && t > eps && t < 1.0 - eps {
+        Some((s, t))
+    } else {
+        None
+    }
+}
+
 /// Split a single triangle by a constraint segment.
 /// The segment endpoints are given as vertex indices into the shared vertex array.
 /// Handles cases where segment endpoints are on edges, at vertices, or in the interior.
@@ -2521,18 +2577,266 @@ fn subdivide_triangle_batch(
     });
 
     if chords_cross {
-        // Fall back to sequential — crossing chords can't be partitioned
-        let mut current_tris: Vec<[usize; 3]> = vec![tri_vi];
-        for seg in segments {
-            let mut next_tris = Vec::new();
-            for t in &current_tris {
-                let splits =
-                    split_triangle_by_segment_dedup(*t, *seg, all_verts, dedup.as_deref_mut());
-                next_tris.extend(splits);
+        // ── Crossing-chord resolution with Steiner-point fan triangulation ──
+        //
+        // When constraint chords cross, their 3D segments intersect inside the
+        // triangle at a point that must become a vertex in any valid constrained
+        // triangulation. We compute these intersection points (Steiner points),
+        // split the crossing segments, then fan-triangulate the resulting sectors
+        // around each Steiner point.
+        //
+        // This avoids the sequential fallback which extends constraint lines to
+        // the full triangle boundary and creates duplicate vertices.
+
+        // Step 1: Resolve all crossing pairs iteratively
+        let mut new_segments: Vec<[usize; 2]> = segments.to_vec();
+        let mut steiner_points: Vec<usize> = Vec::new();
+        let mut depth = 0;
+        const MAX_CROSSING_DEPTH: usize = 20;
+
+        loop {
+            if depth >= MAX_CROSSING_DEPTH {
+                break;
             }
-            current_tris = next_tris;
+            depth += 1;
+
+            let mut found = false;
+            'find_crossing: for i in 0..new_segments.len() {
+                for j in (i + 1)..new_segments.len() {
+                    let seg_i = new_segments[i];
+                    let seg_j = new_segments[j];
+                    let a0 = all_verts[seg_i[0]];
+                    let a1 = all_verts[seg_i[1]];
+                    let b0 = all_verts[seg_j[0]];
+                    let b1 = all_verts[seg_j[1]];
+
+                    if let Some((s, _t)) = segment_segment_intersect_3d(&a0, &a1, &b0, &b1) {
+                        let px = a0[0] + s * (a1[0] - a0[0]);
+                        let py = a0[1] + s * (a1[1] - a0[1]);
+                        let pz = a0[2] + s * (a1[2] - a0[2]);
+                        let p = [px, py, pz];
+
+                        let x_vi = if let Some(ref mut dm) = dedup {
+                            let scale = crate::units::QUANT_NANOMETER_SCALE;
+                            let key = [
+                                (p[0] * scale).round() as i64,
+                                (p[1] * scale).round() as i64,
+                                (p[2] * scale).round() as i64,
+                            ];
+                            let next = all_verts.len();
+                            let vi = *dm.entry(key).or_insert(next);
+                            if vi == next {
+                                all_verts.push(p);
+                            }
+                            vi
+                        } else {
+                            let vi = all_verts.len();
+                            all_verts.push(p);
+                            vi
+                        };
+
+                        if !steiner_points.contains(&x_vi) {
+                            steiner_points.push(x_vi);
+                        }
+
+                        let sj = new_segments[j];
+                        new_segments[j] = [sj[0], x_vi];
+                        new_segments.push([x_vi, sj[1]]);
+                        let si = new_segments[i];
+                        new_segments[i] = [si[0], x_vi];
+                        new_segments.push([x_vi, si[1]]);
+
+                        found = true;
+                        break 'find_crossing;
+                    }
+                }
+            }
+            if !found {
+                break;
+            }
         }
-        return current_tris;
+
+        // Step 2: Rebuild boundary polygon with the expanded segment set
+        let mut new_ep_classes: HashMap<usize, EndpointClass> = HashMap::new();
+        let mut new_all_eps: Vec<usize> = Vec::new();
+        for seg in &new_segments {
+            for &vi in &[seg[0], seg[1]] {
+                if !new_all_eps.contains(&vi) {
+                    new_all_eps.push(vi);
+                }
+            }
+        }
+
+        for &vi in &new_all_eps {
+            if steiner_points.contains(&vi) {
+                new_ep_classes.insert(vi, EndpointClass::Interior);
+                continue;
+            }
+            let p = all_verts[vi];
+            let mut at_vertex = None;
+            for local in 0..3 {
+                if vi == tri_vi[local] || dist_sq(&p, &tri_verts[local]) < eps * eps {
+                    at_vertex = Some(local);
+                    break;
+                }
+            }
+            if let Some(local) = at_vertex {
+                new_ep_classes.insert(vi, EndpointClass::AtVertex(local));
+                continue;
+            }
+            let mut on_edge = None;
+            for edge_idx in 0..3 {
+                let a = tri_verts[edge_idx];
+                let b = tri_verts[(edge_idx + 1) % 3];
+                let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+                let ap = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
+                let ab_len_sq = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+                if ab_len_sq < TAU_NORMALIZE_SQ {
+                    continue;
+                }
+                let cross_v = [
+                    ab[1] * ap[2] - ab[2] * ap[1],
+                    ab[2] * ap[0] - ab[0] * ap[2],
+                    ab[0] * ap[1] - ab[1] * ap[0],
+                ];
+                let cross_len_sq =
+                    cross_v[0] * cross_v[0] + cross_v[1] * cross_v[1] + cross_v[2] * cross_v[2];
+                if cross_len_sq > eps * eps * ab_len_sq {
+                    continue;
+                }
+                let t_val = (ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / ab_len_sq;
+                if t_val > -eps && t_val < 1.0 + eps {
+                    let tc = t_val.clamp(0.0, 1.0);
+                    if tc < eps {
+                        new_ep_classes.insert(vi, EndpointClass::AtVertex(edge_idx));
+                        on_edge = None;
+                        break;
+                    } else if tc > 1.0 - eps {
+                        new_ep_classes.insert(vi, EndpointClass::AtVertex((edge_idx + 1) % 3));
+                        on_edge = None;
+                        break;
+                    } else {
+                        on_edge = Some(EndpointClass::OnEdge(edge_idx, tc, vi));
+                        break;
+                    }
+                }
+            }
+            if let Some(class) = on_edge {
+                new_ep_classes.insert(vi, class);
+            } else {
+                new_ep_classes.insert(vi, EndpointClass::Interior);
+                if !steiner_points.contains(&vi) {
+                    steiner_points.push(vi);
+                }
+            }
+        }
+
+        // Build boundary polygon
+        let mut new_edge_points: [Vec<EdgePoint>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+        for (&vi, class) in &new_ep_classes {
+            if let EndpointClass::OnEdge(edge_idx, t_val, _) = class {
+                new_edge_points[*edge_idx].push(EdgePoint {
+                    t: *t_val,
+                    global_vi: vi,
+                });
+            }
+        }
+        for pts in &mut new_edge_points {
+            pts.sort_by(|a, b| a.t.partial_cmp(&b.t).unwrap_or(std::cmp::Ordering::Equal));
+        }
+        let mut new_polygon: Vec<usize> = Vec::new();
+        for edge_idx in 0..3 {
+            new_polygon.push(tri_vi[edge_idx]);
+            for ep in &new_edge_points[edge_idx] {
+                new_polygon.push(ep.global_vi);
+            }
+        }
+
+        // Build vertex-to-polygon-index map
+        let mut new_vi_to_poly: HashMap<usize, usize> = HashMap::new();
+        for (poly_idx, &vi) in new_polygon.iter().enumerate() {
+            new_vi_to_poly.insert(vi, poly_idx);
+        }
+        for (&vi, class) in &new_ep_classes {
+            if let EndpointClass::AtVertex(local) = class {
+                let tri_global = tri_vi[*local];
+                if let Some(&poly_idx) = new_vi_to_poly.get(&tri_global) {
+                    new_vi_to_poly.insert(vi, poly_idx);
+                }
+            }
+        }
+
+        // Step 3: Fan-triangulate sectors around each Steiner point
+        let new_n_poly = new_polygon.len();
+        let mut result: Vec<[usize; 3]> = Vec::new();
+
+        for &x_vi in &steiner_points {
+            let mut connected_poly_indices: Vec<usize> = Vec::new();
+            for seg in &new_segments {
+                let other = if seg[0] == x_vi {
+                    Some(seg[1])
+                } else if seg[1] == x_vi {
+                    Some(seg[0])
+                } else {
+                    None
+                };
+                if let Some(other_vi) = other {
+                    if let Some(&poly_idx) = new_vi_to_poly.get(&other_vi) {
+                        if !connected_poly_indices.contains(&poly_idx) {
+                            connected_poly_indices.push(poly_idx);
+                        }
+                    }
+                }
+            }
+
+            connected_poly_indices.sort();
+
+            if connected_poly_indices.len() < 2 {
+                continue;
+            }
+
+            // Create sectors between consecutive connected boundary points
+            let n_conn = connected_poly_indices.len();
+            for ci in 0..n_conn {
+                let start = connected_poly_indices[ci];
+                let end = connected_poly_indices[(ci + 1) % n_conn];
+
+                // Sub-polygon: [X, polygon[start], ..., polygon[end]]
+                let mut sub_poly = vec![x_vi];
+                let mut idx = start;
+                loop {
+                    sub_poly.push(new_polygon[idx]);
+                    if idx == end {
+                        break;
+                    }
+                    idx = (idx + 1) % new_n_poly;
+                }
+
+                // Fan-triangulate from X
+                if sub_poly.len() >= 3 {
+                    for fi in 1..sub_poly.len() - 1 {
+                        result.push([sub_poly[0], sub_poly[fi], sub_poly[fi + 1]]);
+                    }
+                }
+            }
+        }
+
+        if result.is_empty() {
+            // Safety fallback — shouldn't happen if chords_cross was true
+            let mut current_tris: Vec<[usize; 3]> = vec![tri_vi];
+            for seg in segments {
+                let mut next_tris = Vec::new();
+                for t in &current_tris {
+                    let splits =
+                        split_triangle_by_segment_dedup(*t, *seg, all_verts, dedup.as_deref_mut());
+                    next_tris.extend(splits);
+                }
+                current_tris = next_tris;
+            }
+            return current_tris;
+        }
+
+        return result;
     }
 
     // ── Step D: Partition polygon by chords ──
@@ -8201,6 +8505,270 @@ mod tests {
             5,
             "4 fan chords → 5 sub-tris, got {}",
             result.len()
+        );
+
+        // No degenerate triangles
+        for (i, t) in result.iter().enumerate() {
+            let area = triangle_area_3d(&verts[t[0]], &verts[t[1]], &verts[t[2]]);
+            assert!(area > 1e-15, "sub-triangle {i} is degenerate: area={area}");
+        }
+    }
+
+    // ── segment_segment_intersect_3d tests ──
+
+    #[test]
+    fn seg_seg_intersect_crossing() {
+        // Two segments crossing in XY plane
+        let a0 = [0.0, 0.0, 0.0];
+        let a1 = [1.0, 1.0, 0.0];
+        let b0 = [1.0, 0.0, 0.0];
+        let b1 = [0.0, 1.0, 0.0];
+        let result = segment_segment_intersect_3d(&a0, &a1, &b0, &b1);
+        assert!(result.is_some(), "crossing segments must intersect");
+        let (s, t) = result.unwrap();
+        assert!((s - 0.5).abs() < 1e-10, "s should be 0.5, got {s}");
+        assert!((t - 0.5).abs() < 1e-10, "t should be 0.5, got {t}");
+    }
+
+    #[test]
+    fn seg_seg_intersect_parallel() {
+        let a0 = [0.0, 0.0, 0.0];
+        let a1 = [1.0, 0.0, 0.0];
+        let b0 = [0.0, 1.0, 0.0];
+        let b1 = [1.0, 1.0, 0.0];
+        assert!(segment_segment_intersect_3d(&a0, &a1, &b0, &b1).is_none());
+    }
+
+    #[test]
+    fn seg_seg_intersect_touching_endpoint() {
+        // Segments share an endpoint — should return None (not strict interior)
+        let a0 = [0.0, 0.0, 0.0];
+        let a1 = [1.0, 1.0, 0.0];
+        let b0 = [1.0, 1.0, 0.0];
+        let b1 = [2.0, 0.0, 0.0];
+        assert!(
+            segment_segment_intersect_3d(&a0, &a1, &b0, &b1).is_none(),
+            "endpoint-touching should not count as interior crossing"
+        );
+    }
+
+    #[test]
+    fn seg_seg_intersect_t_shape() {
+        // One segment ends at the midpoint of another — endpoint is on boundary
+        let a0 = [0.0, 0.5, 0.0];
+        let a1 = [1.0, 0.5, 0.0];
+        let b0 = [0.5, 0.0, 0.0];
+        let b1 = [0.5, 0.5, 0.0]; // ends exactly on seg a
+                                  // b1 is at t=1.0 on segment b, so not strict interior
+        assert!(segment_segment_intersect_3d(&a0, &a1, &b0, &b1).is_none());
+    }
+
+    // ── crossing-chord resolution tests ──
+
+    #[test]
+    fn batch_crossing_two_segments() {
+        // Two constraint segments that cross inside the triangle.
+        // Triangle: [0,0,0], [1,0,0], [0.5,1,0]
+        // Seg 1: edge 0 (t=0.25) → edge 1 (t=0.75) — goes lower-left to upper-right
+        // Seg 2: edge 0 (t=0.75) → edge 2 (t=0.25) — goes lower-right to upper-left
+        // These cross inside the triangle.
+        let mut verts = vec![
+            [0.0, 0.0, 0.0], // 0: V0
+            [1.0, 0.0, 0.0], // 1: V1
+            [0.5, 1.0, 0.0], // 2: V2
+        ];
+
+        // Edge 0: V0→V1 = [t, 0, 0]
+        // Edge 1: V1→V2 = [1 - 0.5t, t, 0]
+        // Edge 2: V2→V0 = [0.5 - 0.5t, 1 - t, 0]
+        let p0 = [0.25, 0.0, 0.0]; // on edge 0, t=0.25
+        let p1 = [0.625, 0.75, 0.0]; // on edge 1, t=0.75
+        let p2 = [0.75, 0.0, 0.0]; // on edge 0, t=0.75
+        let p3 = [0.375, 0.75, 0.0]; // on edge 2, t=0.25
+
+        verts.push(p0); // 3
+        verts.push(p1); // 4
+        verts.push(p2); // 5
+        verts.push(p3); // 6
+
+        let tri = [0, 1, 2];
+        let result = subdivide_triangle_batch(tri, &[[3, 4], [5, 6]], &mut verts, None);
+
+        // All sub-triangles must have positive area
+        for (i, t) in result.iter().enumerate() {
+            let area = triangle_area_3d(&verts[t[0]], &verts[t[1]], &verts[t[2]]);
+            assert!(area > 1e-15, "sub-triangle {i} is degenerate: area={area}");
+        }
+
+        // Area conservation
+        let parent_area = triangle_area_3d(&verts[0], &verts[1], &verts[2]);
+        let sub_area: f64 = result
+            .iter()
+            .map(|t| triangle_area_3d(&verts[t[0]], &verts[t[1]], &verts[t[2]]))
+            .sum();
+        assert!(
+            (parent_area - sub_area).abs() < 1e-10,
+            "area not conserved: parent={parent_area}, sub_sum={sub_area}"
+        );
+
+        // Both constraint segments must be reconstructable as edge chains.
+        // After crossing resolution, each original segment is split into two
+        // sub-segments sharing the intersection vertex.
+        let edges: std::collections::HashSet<(usize, usize)> = result
+            .iter()
+            .flat_map(|t| {
+                vec![
+                    (t[0].min(t[1]), t[0].max(t[1])),
+                    (t[1].min(t[2]), t[1].max(t[2])),
+                    (t[0].min(t[2]), t[0].max(t[2])),
+                ]
+            })
+            .collect();
+
+        // Find the intersection vertex (should be newly created, index >= 7)
+        let x_candidates: Vec<usize> = (7..verts.len()).collect();
+        assert!(
+            !x_candidates.is_empty(),
+            "crossing resolution must create at least one new vertex"
+        );
+
+        // Verify constraint 1 (3→4): should be reconstructable as 3→X→4
+        let seg1_ok = x_candidates.iter().any(|&x| {
+            let e1 = edges.contains(&(3usize.min(x), 3usize.max(x)));
+            let e2 = edges.contains(&(4usize.min(x), 4usize.max(x)));
+            e1 && e2
+        });
+        assert!(
+            seg1_ok,
+            "constraint (3,4) must be reconstructable via intersection vertex"
+        );
+
+        // Verify constraint 2 (5→6): should be reconstructable as 5→X→6
+        let seg2_ok = x_candidates.iter().any(|&x| {
+            let e1 = edges.contains(&(5usize.min(x), 5usize.max(x)));
+            let e2 = edges.contains(&(6usize.min(x), 6usize.max(x)));
+            e1 && e2
+        });
+        assert!(
+            seg2_ok,
+            "constraint (5,6) must be reconstructable via intersection vertex"
+        );
+    }
+
+    #[test]
+    fn batch_crossing_area_conservation() {
+        // Same setup as batch_crossing_two_segments but focused on strict area check
+        let mut verts = vec![[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [1.0, 2.0, 0.0]];
+        // Seg 1: edge 0 (t=0.25) → edge 2 (t=0.75)
+        // Edge 0: [0.5, 0, 0], Edge 2: V2→V0 = [1 - t, 2 - 2t, 0] at t=0.75 → [0.25, 0.5, 0]
+        verts.push([0.5, 0.0, 0.0]); // 3 on edge 0
+        verts.push([0.25, 0.5, 0.0]); // 4 on edge 2
+
+        // Seg 2: edge 0 (t=0.75) → edge 1 (t=0.25)
+        // Edge 1: V1→V2 = [2 - t, 2t, 0] at t=0.25 → [1.75, 0.5, 0]
+        verts.push([1.5, 0.0, 0.0]); // 5 on edge 0
+        verts.push([1.75, 0.5, 0.0]); // 6 on edge 1
+
+        let tri = [0, 1, 2];
+        let result = subdivide_triangle_batch(tri, &[[3, 4], [5, 6]], &mut verts, None);
+
+        let parent_area = triangle_area_3d(&verts[0], &verts[1], &verts[2]);
+        let sub_area: f64 = result
+            .iter()
+            .map(|t| triangle_area_3d(&verts[t[0]], &verts[t[1]], &verts[t[2]]))
+            .sum();
+        assert!(
+            (parent_area - sub_area).abs() < 1e-10,
+            "area not conserved: parent={parent_area}, sub_sum={sub_area}, delta={}",
+            (parent_area - sub_area).abs()
+        );
+
+        assert!(
+            result.len() >= 5,
+            "crossing resolution should produce >= 5 sub-tris, got {}",
+            result.len()
+        );
+    }
+
+    #[test]
+    fn batch_crossing_shared_endpoint_after_split() {
+        // Verify the intersection vertex is shared by all 4 sub-segments
+        let mut verts = vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.5, 1.0, 0.0]];
+        // Two segments crossing at the triangle centroid area
+        verts.push([0.25, 0.0, 0.0]); // 3 on edge 0
+        verts.push([0.625, 0.75, 0.0]); // 4 on edge 1
+        verts.push([0.75, 0.0, 0.0]); // 5 on edge 0
+        verts.push([0.375, 0.75, 0.0]); // 6 on edge 2
+
+        let tri = [0, 1, 2];
+        let result = subdivide_triangle_batch(tri, &[[3, 4], [5, 6]], &mut verts, None);
+
+        // Collect all edges
+        let edges: std::collections::HashSet<(usize, usize)> = result
+            .iter()
+            .flat_map(|t| {
+                vec![
+                    (t[0].min(t[1]), t[0].max(t[1])),
+                    (t[1].min(t[2]), t[1].max(t[2])),
+                    (t[0].min(t[2]), t[0].max(t[2])),
+                ]
+            })
+            .collect();
+
+        // The intersection vertex X (index >= 7) must connect to all 4 segment endpoints
+        let x_verts: Vec<usize> = (7..verts.len()).collect();
+        assert!(!x_verts.is_empty(), "must have created intersection vertex");
+
+        for &x in &x_verts {
+            let connected: Vec<usize> = [3, 4, 5, 6]
+                .iter()
+                .filter(|&&ep| edges.contains(&(ep.min(x), ep.max(x))))
+                .copied()
+                .collect();
+            if connected.len() == 4 {
+                return; // Found the shared vertex connected to all 4 endpoints
+            }
+        }
+        panic!("No intersection vertex found that connects to all 4 segment endpoints");
+    }
+
+    #[test]
+    fn batch_crossing_three_segments_pairwise() {
+        // Three segments with multiple crossings — tests iterative resolution
+        let mut verts = vec![
+            [0.0, 0.0, 0.0], // 0
+            [3.0, 0.0, 0.0], // 1
+            [1.5, 3.0, 0.0], // 2
+        ];
+
+        // Three segments that each cross at least one other:
+        // Seg 1: edge 0 (t=0.17) → edge 1 (t=0.83)
+        verts.push([0.5, 0.0, 0.0]); // 3 on edge 0
+        verts.push([1.625, 2.5, 0.0]); // 4 on edge 1 (approx)
+
+        // Seg 2: edge 0 (t=0.83) → edge 2 (t=0.17)
+        // Edge 2: V2→V0 = [1.5-1.5t, 3-3t, 0], t=0.17 → [1.245, 2.49, 0]
+        verts.push([2.5, 0.0, 0.0]); // 5 on edge 0
+        verts.push([1.245, 2.49, 0.0]); // 6 on edge 2
+
+        // Seg 3: edge 1 (t=0.33) → edge 2 (t=0.67)
+        // Edge 1: V1→V2 = [3-1.5t, 3t, 0], t=0.33 → [2.505, 0.99, 0]
+        // Edge 2: t=0.67 → [0.495, 0.99, 0]
+        verts.push([2.505, 0.99, 0.0]); // 7 on edge 1
+        verts.push([0.495, 0.99, 0.0]); // 8 on edge 2
+
+        let tri = [0, 1, 2];
+        let result = subdivide_triangle_batch(tri, &[[3, 4], [5, 6], [7, 8]], &mut verts, None);
+
+        // Area conservation
+        let parent_area = triangle_area_3d(&verts[0], &verts[1], &verts[2]);
+        let sub_area: f64 = result
+            .iter()
+            .map(|t| triangle_area_3d(&verts[t[0]], &verts[t[1]], &verts[t[2]]))
+            .sum();
+        assert!(
+            (parent_area - sub_area).abs() < 1e-8,
+            "area not conserved: parent={parent_area}, sub_sum={sub_area}"
         );
 
         // No degenerate triangles

@@ -40,7 +40,8 @@ tessellation → **subdivision** → cell labeling → topology extraction.
 | Single segment, one endpoint on vertex | 1 | Split into 2 sub-triangles |
 | Single segment, both endpoints on vertices | 1 | No split needed (edge already exists) |
 | Multiple segments, non-crossing boundary chords | N>1 | **Batch**: build boundary polygon, partition by chords, fan-triangulate |
-| Multiple segments, crossing chords or interior endpoints | N>1 | **Sequential fallback**: split one segment at a time |
+| Multiple segments, crossing chords | N>1 | **Crossing resolution**: compute intersection points, split segments, fan-triangulate sectors around Steiner points |
+| Multiple segments, interior endpoints (no crossings) | N>1 | **Sequential fallback**: split one segment at a time |
 
 ---
 
@@ -124,10 +125,55 @@ the resulting half-segments no longer cross.
 **Consequence**: When no pre-splitting has occurred (e.g., the constraint
 segments come directly from pairwise tri-tri intersection without resolving
 tri-tri-tri meeting points), chords CAN cross. The batch algorithm detects
-this case and falls back to sequential splitting.
+this case and resolves it via crossing-chord resolution (see §7c).
 
 **Invariant**: All constraint edges survive simultaneously in the batch output.
 No constraint edge is lost by a later split overwriting an earlier one.
+
+---
+
+## 7c. Crossing-Chord Resolution
+
+When two constraint chords cross on the boundary polygon, their underlying
+3D segments intersect inside the triangle. This intersection point is a
+**Steiner point** — an interior vertex that must exist in any valid
+constrained triangulation.
+
+**Algorithm** (implemented in `subdivide_triangle_batch`):
+
+1. **Detect crossing pairs**: For each pair of chords, check if their polygon
+   endpoint intervals interleave (existing logic from §7b).
+
+2. **Compute intersection points**: Use `segment_segment_intersect_3d` to find
+   the parametric intersection `(s, t)` of crossing 3D segments. Both `s` and
+   `t` must be strictly interior `(eps, 1-eps)`.
+
+3. **Add Steiner vertices**: Create new vertex at the intersection point with
+   nanometer-scale dedup (`QUANT_NANOMETER_SCALE`). Split both crossing
+   segments at the intersection vertex.
+
+4. **Iterate**: Repeat until no crossing pairs remain. Each iteration resolves
+   at least one crossing, so convergence is guaranteed (bounded by
+   `MAX_CROSSING_DEPTH = 20`).
+
+5. **Rebuild boundary polygon**: Re-classify all endpoints. Steiner points
+   are classified as `Interior`. Boundary polygon contains only edge/vertex
+   endpoints.
+
+6. **Fan-triangulate sectors**: For each Steiner point X:
+   - Find all boundary polygon vertices connected to X via segments
+   - Sort by polygon index
+   - For each consecutive pair `(p_i, p_{i+1})`, build sub-polygon
+     `[X, polygon[p_i], ..., polygon[p_{i+1}]]`
+   - Fan-triangulate from X
+
+**Invariant**: After crossing resolution, the resulting segment set has zero
+crossings. All original constraint edges are reconstructable as chains through
+the Steiner points.
+
+**Complexity**: For k crossing pairs, the algorithm creates at most k Steiner
+points and 2k additional sub-segments. The fan triangulation from each Steiner
+point is O(n) where n is the polygon size.
 
 ---
 
