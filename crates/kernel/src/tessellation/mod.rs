@@ -5048,4 +5048,260 @@ mod tests {
             );
         }
     }
+
+    /// Helper: build a 4-face B-Rep + manually-crafted index buffer where
+    /// faces 1-3 share the same interior diagonal (non-manifold with count=3),
+    /// triggering Steiner-fan retessellation. Face 4 is standalone.
+    ///
+    /// Calls `retessellate_nonmanifold_faces_with_steiner_fan` directly
+    /// (bypassing edge-flip) to ensure the Steiner-fan code path runs.
+    ///
+    /// After retessellation, faces 1-3's old triangles are blanked and new
+    /// fan triangles appended to the end. Face 4 stays in place. After
+    /// compaction, face 4 shifts left but faces 1-3 remain at the end of
+    /// the buffer — making the face_ranges array out of order.
+    fn build_steiner_fan_direct_with_trailing_face() -> (Vec<f32>, Vec<u32>, Vec<FaceRange>) {
+        use crate::geometry::point::{Point3, Vector3};
+        use crate::geometry::surface::Plane;
+
+        let mut arena = TopoArena::new();
+
+        // 4 quads, each with its own vertices. Faces 1-3 share positions at
+        // (0,0,0) and (2,0,0). Face 4 is far away.
+        let quad_positions: [[[f64; 3]; 4]; 4] = [
+            // Face 1: A(0,0,0) B(1,-2,0) C(2,0,0) D(1,-0.5,0)
+            [
+                [0.0, 0.0, 0.0],
+                [1.0, -2.0, 0.0],
+                [2.0, 0.0, 0.0],
+                [1.0, -0.5, 0.0],
+            ],
+            // Face 2: A(0,0,0) B(1,2,0) C(2,0,0) D(1,0.5,0)
+            [
+                [0.0, 0.0, 0.0],
+                [1.0, 2.0, 0.0],
+                [2.0, 0.0, 0.0],
+                [1.0, 0.5, 0.0],
+            ],
+            // Face 3: A(0,0,0) B(0.5,0.3,0) C(2,0,0) D(1.5,-0.3,0)
+            [
+                [0.0, 0.0, 0.0],
+                [0.5, 0.3, 0.0],
+                [2.0, 0.0, 0.0],
+                [1.5, -0.3, 0.0],
+            ],
+            // Face 4: standalone
+            [
+                [10.0, 0.0, 0.0],
+                [12.0, 0.0, 0.0],
+                [12.0, 2.0, 0.0],
+                [10.0, 2.0, 0.0],
+            ],
+        ];
+
+        let solid = arena.add_solid();
+        let shell = arena.add_shell(solid);
+        arena.solids[solid.0].outer_shell = shell;
+
+        let z_up = Plane {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+        };
+        let mut face_map: BTreeMap<u64, FaceIdx> = BTreeMap::new();
+        let mut face_geometry: BTreeMap<FaceIdx, SurfaceGeom> = BTreeMap::new();
+
+        // Build EdgeDiscretization manually: each edge gets 2 vertex entries
+        // (just the endpoints) in the positions array.
+        let mut disc_positions: Vec<[f64; 3]> = Vec::new();
+        let mut disc_edge_verts: BTreeMap<EdgeIdx, Vec<usize>> = BTreeMap::new();
+
+        for (face_id, verts) in quad_positions.iter().enumerate() {
+            let face = arena.add_face(shell);
+            let lp = arena.add_loop(face);
+            arena.faces[face.0].outer_loop = lp;
+            if face_id == 0 {
+                arena.shells[shell.0].face = face;
+            }
+
+            let mut v_indices = Vec::new();
+            for pos in verts {
+                v_indices.push(arena.add_vertex(*pos));
+            }
+
+            let mut he_pairs = Vec::new();
+            for i in 0..4 {
+                let (edge_idx, he_a, he_b) = arena.add_edge();
+                let next_i = (i + 1) % 4;
+                arena.half_edges[he_a.0].origin = v_indices[i];
+                arena.half_edges[he_b.0].origin = v_indices[next_i];
+                arena.half_edges[he_a.0].loop_ = lp;
+                arena.half_edges[he_b.0].loop_ = lp;
+                he_pairs.push((he_a, he_b));
+
+                // Add to disc: origin → destination
+                let pi_start = disc_positions.len();
+                disc_positions.push(verts[i]);
+                let pi_end = disc_positions.len();
+                disc_positions.push(verts[next_i]);
+                disc_edge_verts.insert(edge_idx, vec![pi_start, pi_end]);
+            }
+            for i in 0..4 {
+                let next_i = (i + 1) % 4;
+                arena.half_edges[he_pairs[i].0 .0].next = he_pairs[next_i].0;
+                arena.half_edges[he_pairs[next_i].0 .0].prev = he_pairs[i].0;
+            }
+            arena.loops[lp.0].half_edge = he_pairs[0].0;
+            for i in 0..4 {
+                arena.vertices[v_indices[i].0].half_edge = Some(he_pairs[i].0);
+            }
+
+            face_map.insert(face_id as u64 + 1, face);
+            face_geometry.insert(face, SurfaceGeom::Planar(z_up.clone()));
+        }
+
+        let disc = EdgeDiscretization {
+            positions: disc_positions,
+            edge_verts: disc_edge_verts,
+        };
+
+        // Build mesh buffers: 4 vertices per face (16 total), per-face.
+        // Each quad is tessellated as 2 triangles with diagonal v0→v2
+        // (forces the same interior diagonal for faces 1-3).
+        let mut vertices: Vec<f32> = Vec::new();
+        let mut normals: Vec<f32> = Vec::new();
+        let normal = [0.0f32, 0.0, 1.0];
+
+        for verts in &quad_positions {
+            for v in verts {
+                vertices.push(v[0] as f32);
+                vertices.push(v[1] as f32);
+                vertices.push(v[2] as f32);
+                normals.push(normal[0]);
+                normals.push(normal[1]);
+                normals.push(normal[2]);
+            }
+        }
+
+        // Indices: each quad → 2 triangles with diagonal v[0]→v[2].
+        // Face 1: vi 0-3, Face 2: vi 4-7, Face 3: vi 8-11, Face 4: vi 12-15
+        let mut indices: Vec<u32> = Vec::new();
+        for face_base in [0u32, 4, 8, 12] {
+            indices.push(face_base);
+            indices.push(face_base + 1);
+            indices.push(face_base + 2);
+            indices.push(face_base);
+            indices.push(face_base + 2);
+            indices.push(face_base + 3);
+        }
+
+        let mut face_ranges = vec![
+            FaceRange {
+                face_id: KernelId(1),
+                start_index: 0,
+                end_index: 6,
+            },
+            FaceRange {
+                face_id: KernelId(2),
+                start_index: 6,
+                end_index: 12,
+            },
+            FaceRange {
+                face_id: KernelId(3),
+                start_index: 12,
+                end_index: 18,
+            },
+            FaceRange {
+                face_id: KernelId(4),
+                start_index: 18,
+                end_index: 24,
+            },
+        ];
+
+        // Call Steiner-fan retessellation directly (bypassing edge-flip).
+        retessellate_nonmanifold_faces_with_steiner_fan(
+            &arena,
+            &face_map,
+            &face_geometry,
+            &disc,
+            &mut vertices,
+            &mut normals,
+            &mut indices,
+            &mut face_ranges,
+        );
+
+        (vertices, indices, face_ranges)
+    }
+
+    /// After Steiner-fan retessellation + compaction, face_ranges must be
+    /// contiguous: each range starts exactly where the previous one ends,
+    /// and the last range covers up to indices.len().
+    ///
+    /// Currently FAILS because retessellated faces get appended to the end
+    /// of the indices buffer, then compaction shifts positions without
+    /// reordering the face_ranges array. The unaffected face 4 shifts left
+    /// to fill the blanked gap, but the face_ranges array still has faces
+    /// 1-3 before face 4, creating gaps.
+    #[test]
+    fn test_steiner_fan_face_ranges_contiguous() {
+        let (_vertices, indices, face_ranges) = build_steiner_fan_direct_with_trailing_face();
+
+        assert!(
+            !face_ranges.is_empty(),
+            "face_ranges must not be empty after tessellation"
+        );
+
+        // Contiguity: each range starts where the previous one ends.
+        for i in 0..face_ranges.len() - 1 {
+            assert_eq!(
+                face_ranges[i + 1].start_index,
+                face_ranges[i].end_index,
+                "face_ranges gap between range {} (face_id={:?}, end={}) and range {} \
+                 (face_id={:?}, start={}). Ranges: {:?}",
+                i,
+                face_ranges[i].face_id,
+                face_ranges[i].end_index,
+                i + 1,
+                face_ranges[i + 1].face_id,
+                face_ranges[i + 1].start_index,
+                face_ranges
+            );
+        }
+
+        // Total coverage: last range ends at indices.len().
+        assert_eq!(
+            face_ranges.last().unwrap().end_index,
+            indices.len() as u32,
+            "face_ranges must cover all indices. Last range ends at {} but \
+             indices.len() is {}. Ranges: {:?}",
+            face_ranges.last().unwrap().end_index,
+            indices.len(),
+            face_ranges
+        );
+    }
+
+    /// After Steiner-fan retessellation + compaction, face_ranges must be
+    /// sorted by start_index.
+    ///
+    /// Currently FAILS because retessellated faces' ranges point to appended
+    /// (end-of-buffer) positions, but compact_blanked_indices shifts them
+    /// without reordering the face_ranges array.
+    #[test]
+    fn test_steiner_fan_face_ranges_sorted() {
+        let (_vertices, _indices, face_ranges) = build_steiner_fan_direct_with_trailing_face();
+
+        assert!(
+            !face_ranges.is_empty(),
+            "face_ranges must not be empty after tessellation"
+        );
+
+        // face_ranges must be sorted by start_index.
+        assert!(
+            face_ranges
+                .windows(2)
+                .all(|w| w[0].start_index <= w[1].start_index),
+            "face_ranges must be sorted by start_index after Steiner-fan \
+             retessellation + compaction. Got: {:?}",
+            face_ranges
+        );
+    }
 }

@@ -1720,6 +1720,14 @@ pub(super) fn retessellate_nonmanifold_faces_with_steiner_fan(
 
     // Compact: remove blanked-out indices (u32::MAX).
     compact_blanked_indices(indices, face_ranges);
+
+    // Sort face_ranges by start_index to restore contiguity after compaction.
+    // Retessellated faces have their fan triangles appended to the buffer end;
+    // after compaction these ranges end up at the tail, breaking array ordering.
+    face_ranges.sort_by_key(|r| r.start_index);
+
+    // Remove empty ranges (faces entirely blanked with no replacement).
+    face_ranges.retain(|r| r.start_index != r.end_index);
 }
 
 /// Point-in-polygon test using winding number algorithm.
