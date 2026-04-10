@@ -1759,11 +1759,11 @@ pub(crate) fn select_boolean_result(
         }
         match op {
             MeshBooleanOp::Union => {
-                // Union keeps all A co-surface tris (fills gap on shared planes)
-                matches!(
-                    label,
-                    CellLabel::CoSurfaceInside | CellLabel::CoSurfaceOutside
-                )
+                // Union keeps CoSurfaceInside only. CoSurfaceOutside faces are
+                // internal to the merged solid (anti-parallel caps between stacked
+                // solids) and must be eliminated. Matches face_survival_detect().
+                // Ref [#24] Yang 2025: Stage 3 co-surface elimination.
+                *label == CellLabel::CoSurfaceInside
             }
             MeshBooleanOp::Subtract => {
                 // Subtract keeps only CoSurfaceOutside (touching face stays, overlap drops)
