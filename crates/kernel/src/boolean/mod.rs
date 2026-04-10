@@ -116,7 +116,7 @@ pub(super) fn polygon_area_3d(verts: &[[f64; 3]]) -> f64 {
 // ── Face polygon extraction ─────────────────────────────────────────────
 
 /// Walk the outer loop of a face, collecting vertex positions.
-fn collect_face_vertices(arena: &TopoArena, face_idx: FaceIdx) -> Vec<[f64; 3]> {
+pub(super) fn collect_face_vertices(arena: &TopoArena, face_idx: FaceIdx) -> Vec<[f64; 3]> {
     let loop_idx = arena.faces[face_idx.0].outer_loop;
     let start_he = arena.loops[loop_idx.0].half_edge;
     let mut verts = Vec::new();

@@ -1062,12 +1062,356 @@ pub(crate) fn build_result_brep_from_mesh(
             }
         }
         if unpaired_count > 0 {
-            return ResultTopology {
-                arena: TopoArena::new(),
-                face_provenance: BTreeMap::new(),
-                edge_is_intersection: BTreeMap::new(),
-            };
+            // Partial topology repair: unpaired HEs indicate missing faces
+            // at T-junction boundaries where subdivision created asymmetric
+            // edges. If the unpaired HEs form closed chains, synthesize the
+            // missing face(s) by creating reverse HEs that pair as twins.
+            // Ref: spec yang_twin_pairing_partial_topology.md.
+
+            // Collect all unpaired HE indices
+            let mut unpaired_hes: Vec<usize> = Vec::new();
+            for (i, he) in arena.half_edges.iter().enumerate() {
+                let twin_idx = he.twin.0;
+                if twin_idx >= n_he || arena.half_edges[twin_idx].twin.0 != i {
+                    unpaired_hes.push(i);
+                }
+            }
+
+            // Build endpoint map: for each unpaired HE, record its
+            // dest vertex → HE index, so we can chain them into loops.
+            // dest = origin of next HE in the same face loop.
+            let mut he_origin: HashMap<usize, BrepVIdx> = HashMap::new();
+            let mut he_dest: HashMap<usize, BrepVIdx> = HashMap::new();
+            for &hi in &unpaired_hes {
+                let he = &arena.half_edges[hi];
+                let next = &arena.half_edges[he.next.0];
+                let orig = he.origin;
+                let dest = next.origin;
+                he_origin.insert(hi, orig);
+                he_dest.insert(hi, dest);
+            }
+
+            // Trace closed chains: start from an unpaired HE, follow
+            // dest→origin links to form a cycle.
+            let mut used: HashSet<usize> = HashSet::new();
+            let mut chains: Vec<Vec<usize>> = Vec::new();
+            for &start_hi in &unpaired_hes {
+                if used.contains(&start_hi) {
+                    continue;
+                }
+                let mut chain = vec![start_hi];
+                used.insert(start_hi);
+                let start_origin = he_origin[&start_hi];
+
+                let mut cur_dest = he_dest[&start_hi];
+                let mut found_cycle = false;
+                for _ in 0..unpaired_hes.len() {
+                    if cur_dest == start_origin {
+                        found_cycle = true;
+                        break;
+                    }
+                    // Find an unpaired HE originating from cur_dest
+                    let mut next_hi = None;
+                    for &hi in &unpaired_hes {
+                        if !used.contains(&hi) && he_origin[&hi] == cur_dest {
+                            next_hi = Some(hi);
+                            break;
+                        }
+                    }
+                    match next_hi {
+                        Some(hi) => {
+                            chain.push(hi);
+                            used.insert(hi);
+                            cur_dest = he_dest[&hi];
+                        }
+                        None => break, // open chain, can't close
+                    }
+                }
+                if found_cycle && chain.len() >= 3 {
+                    chains.push(chain);
+                }
+            }
+
+            let synthesized = chains.len();
+            if synthesized == 0 && used.len() < unpaired_hes.len() {
+                // Unpaired HEs don't form closed chains — can't repair.
+                // Fall back to face removal.
+                let mut bad_faces: HashSet<FaceIdx> = HashSet::new();
+                for &hi in &unpaired_hes {
+                    if let Some(&fi) = he_to_face.get(&HalfEdgeIdx(hi)) {
+                        bad_faces.insert(fi);
+                    }
+                }
+                if bad_faces.len() >= arena.faces.len() {
+                    return ResultTopology {
+                        arena: TopoArena::new(),
+                        face_provenance: BTreeMap::new(),
+                        edge_is_intersection: BTreeMap::new(),
+                    };
+                }
+
+                let result = rebuild_topology_without_faces(
+                    &arena,
+                    &face_provenance,
+                    &edge_is_intersection,
+                    &bad_faces,
+                );
+                return result;
+            }
+
+            // Synthesize missing faces from closed chains.
+            // Each chain's reverse forms a new face loop.
+            for chain in &chains {
+                let new_face_idx = arena.add_face(shell_idx);
+                let new_loop_idx = arena.add_loop(new_face_idx);
+                arena.faces[new_face_idx.0].outer_loop = new_loop_idx;
+
+                // The chain lists unpaired HEs in order: HE_0, HE_1, ..., HE_n
+                // going (v0→v1), (v1→v2), ..., (vn→v0).
+                // The new face loop goes REVERSE: (v1→v0), (v2→v1), ..., (v0→vn).
+                // Each new HE pairs as twin with the corresponding old HE.
+                let n_chain = chain.len();
+                let he_base = HalfEdgeIdx(arena.half_edges.len());
+
+                for (i, &old_hi) in chain.iter().enumerate() {
+                    let new_hi = HalfEdgeIdx(arena.half_edges.len());
+                    // Reverse direction: origin = dest of old HE
+                    let origin = he_dest[&old_hi];
+                    // In the reversed loop, next goes to the PREVIOUS chain
+                    // element's reverse (since we're reversing the whole chain)
+                    let next_idx = HalfEdgeIdx(he_base.0 + (i + n_chain - 1) % n_chain);
+                    let prev_idx = HalfEdgeIdx(he_base.0 + (i + 1) % n_chain);
+
+                    arena.half_edges.push(HalfEdge {
+                        origin,
+                        edge: EdgeIdx(0),
+                        twin: HalfEdgeIdx(old_hi),
+                        next: next_idx,
+                        prev: prev_idx,
+                        loop_: new_loop_idx,
+                    });
+
+                    // Pair as twins
+                    let edge_idx = EdgeIdx(arena.edges.len());
+                    arena.edges.push(Edge {
+                        half_edge: HalfEdgeIdx(old_hi),
+                    });
+                    arena.half_edges[old_hi].edge = edge_idx;
+                    arena.half_edges[old_hi].twin = new_hi;
+                    arena.half_edges[new_hi.0].edge = edge_idx;
+
+                    edge_is_intersection.insert(edge_idx, true);
+                }
+
+                arena.loops[new_loop_idx.0].half_edge = he_base;
+
+                // Synthesized faces get a provenance with an impossible face_idx
+                // so they won't match any surface_map entry. The Newell fallback
+                // in result_topology_to_waffle_solid will compute correct geometry.
+                face_provenance.insert(
+                    new_face_idx,
+                    SourceFace {
+                        mesh_id: MeshId::A,
+                        face_idx: FaceIdx(usize::MAX),
+                    },
+                );
+            }
+
+            eprintln!(
+                "[yang-diag] synthesized {synthesized} missing face(s) from unpaired HE chains"
+            );
+
+            // Re-validate after synthesis
+            let n_he_final = arena.half_edges.len();
+            let mut final_unpaired = 0;
+            for (i, he) in arena.half_edges.iter().enumerate() {
+                let ti = he.twin.0;
+                if ti >= n_he_final || arena.half_edges[ti].twin.0 != i {
+                    final_unpaired += 1;
+                }
+            }
+            if final_unpaired > 0 {
+                eprintln!("[yang-diag] {final_unpaired} HEs still unpaired after synthesis");
+                // If remaining unpaired HEs are a minority, accept partial
+                // topology rather than discarding everything. Set self-twins
+                // on remaining unpaired HEs to prevent index aliasing.
+                let paired_ratio = (n_he_final - final_unpaired) as f64 / n_he_final.max(1) as f64;
+                if paired_ratio < 0.5 || arena.faces.is_empty() {
+                    eprintln!(
+                        "[yang-diag] paired ratio {paired_ratio:.2} too low, returning empty"
+                    );
+                    return ResultTopology {
+                        arena: TopoArena::new(),
+                        face_provenance: BTreeMap::new(),
+                        edge_is_intersection: BTreeMap::new(),
+                    };
+                }
+                // Fix up remaining unpaired HEs with self-edges so they don't
+                // alias HE[0]'s twin and corrupt traversal.
+                for i in 0..n_he_final {
+                    let he = &arena.half_edges[i];
+                    let ti = he.twin.0;
+                    if ti >= n_he_final || arena.half_edges[ti].twin.0 != i {
+                        let edge_idx = EdgeIdx(arena.edges.len());
+                        arena.edges.push(Edge {
+                            half_edge: HalfEdgeIdx(i),
+                        });
+                        arena.half_edges[i].edge = edge_idx;
+                        arena.half_edges[i].twin = HalfEdgeIdx(i);
+                    }
+                }
+            }
         }
+    }
+
+    ResultTopology {
+        arena,
+        face_provenance,
+        edge_is_intersection,
+    }
+}
+
+/// Rebuild topology excluding the specified bad faces.
+///
+/// Creates a fresh arena containing only the good faces with remapped indices.
+/// Preserves the original twin pairings between good-face HEs rather than
+/// re-pairing from scratch (which would lose the face-aware matching).
+fn rebuild_topology_without_faces(
+    old_arena: &TopoArena,
+    old_face_prov: &BTreeMap<FaceIdx, SourceFace>,
+    old_edge_is_int: &BTreeMap<EdgeIdx, bool>,
+    bad_faces: &HashSet<FaceIdx>,
+) -> ResultTopology {
+    use crate::topology::half_edge::{Edge, HalfEdge, HalfEdgeIdx, VertexIdx};
+
+    let mut arena = TopoArena::new();
+    let solid_idx = arena.add_solid();
+    let shell_idx = arena.add_shell(solid_idx);
+    arena.solids[solid_idx.0].outer_shell = shell_idx;
+
+    let mut old_vert_to_new: HashMap<usize, VertexIdx> = HashMap::new();
+    let mut old_he_to_new: HashMap<usize, HalfEdgeIdx> = HashMap::new();
+    let mut face_provenance = BTreeMap::new();
+
+    // Collect the set of old HE indices that belong to good faces
+    let mut good_he_set: HashSet<usize> = HashSet::new();
+    for (old_face_idx, face) in old_arena.faces.iter().enumerate() {
+        if bad_faces.contains(&FaceIdx(old_face_idx)) {
+            continue;
+        }
+        let old_loop = &old_arena.loops[face.outer_loop.0];
+        let start_he = old_loop.half_edge;
+        let mut he = start_he;
+        loop {
+            good_he_set.insert(he.0);
+            he = old_arena.half_edges[he.0].next;
+            if he == start_he {
+                break;
+            }
+        }
+    }
+
+    // First pass: create vertices, faces, loops, and half-edges for good faces
+    for (old_face_idx, face) in old_arena.faces.iter().enumerate() {
+        let old_fi = FaceIdx(old_face_idx);
+        if bad_faces.contains(&old_fi) {
+            continue;
+        }
+
+        let new_face_idx = arena.add_face(shell_idx);
+        let new_loop_idx = arena.add_loop(new_face_idx);
+        arena.faces[new_face_idx.0].outer_loop = new_loop_idx;
+
+        if let Some(source) = old_face_prov.get(&old_fi) {
+            face_provenance.insert(new_face_idx, *source);
+        }
+
+        let old_loop = &old_arena.loops[face.outer_loop.0];
+        let start_he = old_loop.half_edge;
+        let mut old_he_indices = Vec::new();
+        let mut he = start_he;
+        loop {
+            old_he_indices.push(he.0);
+            he = old_arena.half_edges[he.0].next;
+            if he == start_he {
+                break;
+            }
+        }
+
+        let n = old_he_indices.len();
+        let he_base = HalfEdgeIdx(arena.half_edges.len());
+
+        for (i, &old_he_i) in old_he_indices.iter().enumerate() {
+            let old_he = &old_arena.half_edges[old_he_i];
+            let new_vert = *old_vert_to_new
+                .entry(old_he.origin.0)
+                .or_insert_with(|| arena.add_vertex(old_arena.vertices[old_he.origin.0].position));
+
+            let new_he_idx = HalfEdgeIdx(arena.half_edges.len());
+            let next_idx = HalfEdgeIdx(he_base.0 + (i + 1) % n);
+            let prev_idx = HalfEdgeIdx(he_base.0 + (i + n - 1) % n);
+
+            arena.half_edges.push(HalfEdge {
+                origin: new_vert,
+                edge: EdgeIdx(0),
+                twin: HalfEdgeIdx(0),
+                next: next_idx,
+                prev: prev_idx,
+                loop_: new_loop_idx,
+            });
+
+            arena.vertices[new_vert.0].half_edge = Some(new_he_idx);
+            old_he_to_new.insert(old_he_i, new_he_idx);
+        }
+
+        arena.loops[new_loop_idx.0].half_edge = he_base;
+    }
+
+    if !arena.faces.is_empty() {
+        arena.shells[shell_idx.0].face = FaceIdx(0);
+    }
+
+    // Twin pairing: preserve original twin relationships between good-face HEs.
+    // For each old HE in a good face, if its old twin is also in a good face,
+    // re-establish the same twin pair with remapped indices.
+    let mut edge_is_intersection = BTreeMap::new();
+    let mut paired: HashSet<usize> = HashSet::new();
+
+    for &old_he_i in good_he_set.iter() {
+        if paired.contains(&old_he_i) {
+            continue;
+        }
+        let old_he = &old_arena.half_edges[old_he_i];
+        let old_twin_i = old_he.twin.0;
+
+        // Only pair if the twin is also in a good face
+        if !good_he_set.contains(&old_twin_i) {
+            continue;
+        }
+        if paired.contains(&old_twin_i) {
+            continue;
+        }
+
+        // Verify original twin symmetry before preserving
+        if old_arena.half_edges[old_twin_i].twin.0 != old_he_i {
+            continue;
+        }
+
+        let new_fwd = old_he_to_new[&old_he_i];
+        let new_rev = old_he_to_new[&old_twin_i];
+
+        let edge_idx = EdgeIdx(arena.edges.len());
+        arena.edges.push(Edge { half_edge: new_fwd });
+        arena.half_edges[new_fwd.0].edge = edge_idx;
+        arena.half_edges[new_fwd.0].twin = new_rev;
+        arena.half_edges[new_rev.0].edge = edge_idx;
+        arena.half_edges[new_rev.0].twin = new_fwd;
+
+        let is_int = old_edge_is_int.get(&old_he.edge).copied().unwrap_or(false);
+        edge_is_intersection.insert(edge_idx, is_int);
+
+        paired.insert(old_he_i);
+        paired.insert(old_twin_i);
     }
 
     ResultTopology {
@@ -5175,5 +5519,113 @@ mod tests {
             "Disjoint box intersect should have 0 surviving groups, got {}",
             survival.groups.len()
         );
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Bug 2 (twin-pairing partial topology) — red-phase TDD tests
+    // Spec: specs/yang_twin_pairing_partial_topology.md
+    // ══════════════════════════════════════════════════════════════════
+
+    /// Bug 2, invariant 1: When build_result_brep_from_mesh encounters some
+    /// unpaired half-edges, it should remove only the affected faces and keep
+    /// valid ones. Currently it discards ALL faces (returns empty topology).
+    ///
+    /// Uses the F0003 pattern: cross-shaped union of differently-sized boxes
+    /// where asymmetric T-junctions at perpendicular face crossings create
+    /// unpaired HEs. The boxes are offset so their faces don't align, forcing
+    /// the subdivision to create constraint edges that don't match.
+    #[test]
+    fn test_partial_topology_preserves_valid_faces() {
+        // F0003-like pattern: two boxes forming a cross/step shape.
+        // Box A is wide+shallow, Box B is narrow+tall, offset so faces cross
+        // at non-vertex positions to create T-junctions in subdivision.
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [6.0, 4.0, 3.0]);
+        let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [5.0, 4.0, 5.0]);
+
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
+        let labeling =
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
+
+        let bij_a = build_bijective_from_subdivided(&subdivided.tris_a, tris_a.len());
+        let bij_b = build_bijective_from_subdivided(&subdivided.tris_b, tris_b.len());
+
+        let survival =
+            face_survival_detect(&subdivided, &labeling, MeshBooleanOp::Union, &bij_a, &bij_b);
+
+        assert!(
+            !survival.groups.is_empty(),
+            "Union of overlapping boxes must have surviving face groups"
+        );
+
+        let result = build_result_brep_from_mesh(&survival, &subdivided);
+
+        // Bug 2: if ANY unpaired HEs exist, build_result_brep_from_mesh currently
+        // discards ALL faces. After the fix, it should remove only affected faces.
+        // The test checks that at least some faces survive — if all faces are
+        // discarded when many are valid, the all-or-nothing policy is too aggressive.
+        //
+        // If this test passes (0 unpaired HEs for this geometry), it means the
+        // mesh-level box test doesn't trigger the bug. The bug manifests through
+        // the full kernel tessellation path with curved primitives and non-axis-
+        // aligned geometry. In that case, we verify the invariant holds: non-empty
+        // survival → non-empty topology.
+        assert!(
+            !result.face_provenance.is_empty(),
+            "build_result_brep_from_mesh discarded ALL faces due to unpaired HEs. \
+             Expected partial topology with face_provenance.len() > 0, got 0. \
+             Survival had {} face groups. The all-or-nothing discard in \
+             topology_extract.rs:1064-1070 should be replaced with partial face removal.",
+            survival.groups.len()
+        );
+    }
+
+    /// Bug 2, invariant 2: After partial face removal, all remaining half-edges
+    /// must satisfy twin symmetry: arena.half_edges[arena.half_edges[i].twin].twin == i.
+    ///
+    /// This test verifies the structural invariant on the result of
+    /// build_result_brep_from_mesh. If the result is empty (due to Bug 2),
+    /// the test fails — partial topology must be non-empty and structurally valid.
+    #[test]
+    fn test_partial_topology_twin_symmetry() {
+        // Same cross-shape geometry as test_partial_topology_preserves_valid_faces
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [6.0, 4.0, 3.0]);
+        let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [5.0, 4.0, 5.0]);
+
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
+        let labeling =
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
+
+        let bij_a = build_bijective_from_subdivided(&subdivided.tris_a, tris_a.len());
+        let bij_b = build_bijective_from_subdivided(&subdivided.tris_b, tris_b.len());
+
+        let survival =
+            face_survival_detect(&subdivided, &labeling, MeshBooleanOp::Union, &bij_a, &bij_b);
+
+        let result = build_result_brep_from_mesh(&survival, &subdivided);
+
+        // First: result must be non-empty (fails due to Bug 2's all-or-nothing discard)
+        let n_he = result.arena.half_edges.len();
+        assert!(
+            n_he > 0,
+            "Result topology is empty (0 half-edges) — all faces were discarded. \
+             Expected partial topology with valid HEs after removing only bad faces."
+        );
+
+        // Second: verify twin symmetry on all remaining HEs
+        for i in 0..n_he {
+            let twin_idx = result.arena.half_edges[i].twin.0;
+            assert!(
+                twin_idx < n_he,
+                "HE[{i}].twin = {twin_idx} is out of range (n_he={n_he})"
+            );
+            let twin_twin = result.arena.half_edges[twin_idx].twin.0;
+            assert_eq!(
+                twin_twin, i,
+                "Twin symmetry violated: HE[{i}].twin={twin_idx}, \
+                 but HE[{twin_idx}].twin={twin_twin} (expected {i})"
+            );
+        }
     }
 }
