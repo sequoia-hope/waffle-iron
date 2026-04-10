@@ -1439,6 +1439,7 @@ fn rebuild_topology_without_faces(
 pub(crate) fn merge_coplanar_face_groups(
     subdivided: &SubdividedMesh,
     survival: &mut FaceSurvivalMap,
+    op: MeshBooleanOp,
 ) {
     if survival.groups.len() < 2 {
         return;
@@ -1495,6 +1496,46 @@ pub(crate) fn merge_coplanar_face_groups(
             (d * quant_scale).round() as i64,
         ];
         plane_buckets.entry(key).or_default().push(sf);
+    }
+
+    // Step 2b: For Union, eliminate anti-parallel coplanar face groups.
+    // When stacked solids share a cap plane (e.g., top of extrude₁ = bottom
+    // of extrude₂), both caps are internal to the merged solid. Their normals
+    // point in opposite directions (anti-parallel). Remove them.
+    // Parallel coplanar faces (identical/overlapping boxes) are kept and merged.
+    // Ref [#24] Yang 2025: Stage 3 co-surface elimination.
+    if op == MeshBooleanOp::Union {
+        let mut buckets_to_remove: Vec<[i64; 4]> = Vec::new();
+        for (key, sources) in &plane_buckets {
+            if sources.len() < 2 {
+                continue;
+            }
+            // Check if faces come from both mesh A and mesh B
+            let has_a = sources.iter().any(|s| s.mesh_id == MeshId::A);
+            let has_b = sources.iter().any(|s| s.mesh_id == MeshId::B);
+            if !(has_a && has_b) {
+                continue;
+            }
+            // Get raw (non-canonicalized) normals for A and B faces.
+            // The `planes` map stores normals with flip-sign applied but
+            // WITHOUT the canonicalization flip, so they reflect true direction.
+            let a_face = sources.iter().find(|s| s.mesh_id == MeshId::A).unwrap();
+            let b_face = sources.iter().find(|s| s.mesh_id == MeshId::B).unwrap();
+            if let (Some(&(n_a, _)), Some(&(n_b, _))) = (planes.get(a_face), planes.get(b_face)) {
+                let dot = n_a[0] * n_b[0] + n_a[1] * n_b[1] + n_a[2] * n_b[2];
+                if dot < -0.9 {
+                    // Anti-parallel: internal faces — eliminate entire bucket
+                    buckets_to_remove.push(*key);
+                }
+            }
+        }
+        for key in &buckets_to_remove {
+            if let Some(sources) = plane_buckets.remove(key) {
+                for source in &sources {
+                    survival.groups.remove(source);
+                }
+            }
+        }
     }
 
     // Step 3: Merge groups on the same plane.
@@ -1892,7 +1933,7 @@ pub(crate) fn yang_boolean_pipeline(
     // pattern) must be merged so their interface edges become interior. Without
     // this, build_result_brep encounters same-direction half-edges at shared
     // boundaries, violating the manifold condition.
-    merge_coplanar_face_groups(&subdivided, &mut survival);
+    merge_coplanar_face_groups(&subdivided, &mut survival, op);
 
     let n_survival_groups = survival.groups.len();
     let n_survival_tris: usize = survival.groups.values().map(|v| v.len()).sum();
@@ -4608,7 +4649,7 @@ mod tests {
             eprintln!("  {:?}: {} sub-tris", sf, tris.len());
         }
 
-        merge_coplanar_face_groups(&subdivided, &mut survival);
+        merge_coplanar_face_groups(&subdivided, &mut survival, MeshBooleanOp::Union);
 
         eprintln!("\n--- After coplanar merge ---");
         for (sf, tris) in &survival.groups {
@@ -5049,7 +5090,7 @@ mod tests {
         // Bottom A (z=0, mesh A face 0) and Bottom B (z=0, mesh B face 0) are on
         // the same plane. merge_coplanar_face_groups should combine them.
         let groups_before = survival.groups.len();
-        merge_coplanar_face_groups(&subdivided, &mut survival);
+        merge_coplanar_face_groups(&subdivided, &mut survival, MeshBooleanOp::Union);
         let groups_after = survival.groups.len();
 
         // Verify merge actually happened (7 groups → 6 after merging 2 bottom groups)
@@ -5404,7 +5445,7 @@ mod tests {
 
         let mut survival =
             face_survival_detect(&subdivided, &labeling, MeshBooleanOp::Union, &bij_a, &bij_b);
-        merge_coplanar_face_groups(&subdivided, &mut survival);
+        merge_coplanar_face_groups(&subdivided, &mut survival, MeshBooleanOp::Union);
 
         let topology = build_result_brep_from_mesh(&survival, &subdivided);
         let n_faces = topology.face_provenance.len();
@@ -5439,7 +5480,7 @@ mod tests {
 
         let mut survival =
             face_survival_detect(&subdivided, &labeling, MeshBooleanOp::Union, &bij_a, &bij_b);
-        merge_coplanar_face_groups(&subdivided, &mut survival);
+        merge_coplanar_face_groups(&subdivided, &mut survival, MeshBooleanOp::Union);
 
         let topology = build_result_brep_from_mesh(&survival, &subdivided);
         let n_faces = topology.face_provenance.len();
@@ -5474,7 +5515,7 @@ mod tests {
 
         let mut survival =
             face_survival_detect(&subdivided, &labeling, MeshBooleanOp::Union, &bij_a, &bij_b);
-        merge_coplanar_face_groups(&subdivided, &mut survival);
+        merge_coplanar_face_groups(&subdivided, &mut survival, MeshBooleanOp::Union);
 
         let topology = build_result_brep_from_mesh(&survival, &subdivided);
         let n_faces = topology.face_provenance.len();
@@ -5627,5 +5668,304 @@ mod tests {
                  but HE[{twin_idx}].twin={twin_twin} (expected {i})"
             );
         }
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Diagnostic: understand stacked box coplanar labeling
+    // ══════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn diag_stacked_box_coplanar_labels() {
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        let (verts_b, tris_b) = make_box_mesh([0.0, 0.0, 1.0], [1.0, 1.0, 2.0]);
+
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
+        let labeling =
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
+
+        let bij_a = build_bijective_from_subdivided(&subdivided.tris_a, tris_a.len());
+        let bij_b = build_bijective_from_subdivided(&subdivided.tris_b, tris_b.len());
+
+        eprintln!("=== A sub-tri labels near z=1 ===");
+        for (i, (st, label)) in subdivided
+            .tris_a
+            .iter()
+            .zip(labeling.labels_a.iter())
+            .enumerate()
+        {
+            let v0 = subdivided.verts[st.verts[0]];
+            let v1 = subdivided.verts[st.verts[1]];
+            let v2 = subdivided.verts[st.verts[2]];
+            let avg_z = (v0[2] + v1[2] + v2[2]) / 3.0;
+            if avg_z > 0.9 && avg_z < 1.1 {
+                eprintln!(
+                    "  A[{i}]: parent={}, face={}, label={:?}, z=[{:.3},{:.3},{:.3}]",
+                    st.parent_tri, bij_a.tri_face_ids[st.parent_tri].0, label, v0[2], v1[2], v2[2]
+                );
+            }
+        }
+        eprintln!("=== B sub-tri labels near z=1 ===");
+        for (i, (st, label)) in subdivided
+            .tris_b
+            .iter()
+            .zip(labeling.labels_b.iter())
+            .enumerate()
+        {
+            let v0 = subdivided.verts[st.verts[0]];
+            let v1 = subdivided.verts[st.verts[1]];
+            let v2 = subdivided.verts[st.verts[2]];
+            let avg_z = (v0[2] + v1[2] + v2[2]) / 3.0;
+            if avg_z > 0.9 && avg_z < 1.1 {
+                eprintln!(
+                    "  B[{i}]: parent={}, face={}, label={:?}, z=[{:.3},{:.3},{:.3}]",
+                    st.parent_tri, bij_b.tri_face_ids[st.parent_tri].0, label, v0[2], v1[2], v2[2]
+                );
+            }
+        }
+
+        let mut survival =
+            face_survival_detect(&subdivided, &labeling, MeshBooleanOp::Union, &bij_a, &bij_b);
+
+        eprintln!(
+            "=== Survival BEFORE merge: {} groups ===",
+            survival.groups.len()
+        );
+        for (sf, tris) in &survival.groups {
+            let mut z1_count = 0;
+            for tri in tris {
+                let v0 = subdivided.verts[tri.verts[0]];
+                let v1 = subdivided.verts[tri.verts[1]];
+                let v2 = subdivided.verts[tri.verts[2]];
+                if (v0[2] - 1.0).abs() < 1e-6
+                    && (v1[2] - 1.0).abs() < 1e-6
+                    && (v2[2] - 1.0).abs() < 1e-6
+                {
+                    z1_count += 1;
+                }
+            }
+            eprintln!(
+                "  {:?}: {} tris ({} on z=1 plane)",
+                sf,
+                tris.len(),
+                z1_count
+            );
+        }
+
+        merge_coplanar_face_groups(&subdivided, &mut survival, MeshBooleanOp::Union);
+        eprintln!(
+            "=== Survival AFTER merge: {} groups ===",
+            survival.groups.len()
+        );
+        for (sf, tris) in &survival.groups {
+            eprintln!("  {:?}: {} tris", sf, tris.len());
+        }
+
+        let topology = build_result_brep_from_mesh(&survival, &subdivided);
+        eprintln!(
+            "=== Topology: F={}, V={}, E={} ===",
+            topology.face_provenance.len(),
+            topology.arena.vertices.len(),
+            topology.arena.edges.len()
+        );
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Anti-parallel coplanar face elimination (Yang Union)
+    // Spec: specs/yang_coplanar_interior_elimination.md
+    // ══════════════════════════════════════════════════════════════════
+
+    /// Helper: compute the Newell normal of a sub-triangle from its vertex positions.
+    fn sub_tri_normal(verts: &[[f64; 3]], tri: &SurvivingSubTri) -> [f64; 3] {
+        let v0 = verts[tri.verts[0]];
+        let v1 = verts[tri.verts[1]];
+        let v2 = verts[tri.verts[2]];
+        let e1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
+        let e2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
+        let n = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        if len > 1e-12 {
+            let sign = if tri.flipped { -1.0 } else { 1.0 };
+            [sign * n[0] / len, sign * n[1] / len, sign * n[2] / len]
+        } else {
+            [0.0, 0.0, 0.0]
+        }
+    }
+
+    /// Stacked box Union must eliminate anti-parallel coplanar faces at z=1.
+    ///
+    /// Box A: [0,1]³, Box B: [0,1]×[0,1]×[1,2]. They share the z=1 plane.
+    /// A's top cap (normal +Z) and B's bottom cap (normal -Z) are anti-parallel
+    /// coplanar faces — both are interior to the merged solid. Neither should
+    /// survive in the Union result.
+    ///
+    /// Currently FAILS because face_survival_detect keeps A's z=1 cap as
+    /// CoSurfaceInside, and merge_coplanar_face_groups merges rather than
+    /// eliminates the anti-parallel pair.
+    #[test]
+    fn test_yang_union_eliminates_antiparallel_coplanar_faces() {
+        // Box A: unit cube z=0..1
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        // Box B: unit cube z=1..2 (stacked on top)
+        let (verts_b, tris_b) = make_box_mesh([0.0, 0.0, 1.0], [1.0, 1.0, 2.0]);
+
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
+        let labeling =
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
+
+        let bij_a = build_bijective_from_subdivided(&subdivided.tris_a, tris_a.len());
+        let bij_b = build_bijective_from_subdivided(&subdivided.tris_b, tris_b.len());
+
+        let mut survival =
+            face_survival_detect(&subdivided, &labeling, MeshBooleanOp::Union, &bij_a, &bij_b);
+        merge_coplanar_face_groups(&subdivided, &mut survival, MeshBooleanOp::Union);
+
+        // Check: no surviving face group should contain sub-triangles on the z=1 plane.
+        // A face is on the z=1 plane if all its vertices have z ≈ 1.0.
+        let z_plane = 1.0;
+        let tol = 1e-6;
+
+        for (sf, tris) in &survival.groups {
+            for tri in tris {
+                let v0 = subdivided.verts[tri.verts[0]];
+                let v1 = subdivided.verts[tri.verts[1]];
+                let v2 = subdivided.verts[tri.verts[2]];
+
+                let all_on_z1 = (v0[2] - z_plane).abs() < tol
+                    && (v1[2] - z_plane).abs() < tol
+                    && (v2[2] - z_plane).abs() < tol;
+
+                assert!(
+                    !all_on_z1,
+                    "Anti-parallel coplanar face at z=1 should be eliminated in Union, \
+                     but found surviving sub-triangle in group {:?} with verts z=[{:.4}, {:.4}, {:.4}]",
+                    sf, v0[2], v1[2], v2[2]
+                );
+            }
+        }
+    }
+
+    /// Identical box Union: parallel coplanar faces must be MERGED, not eliminated.
+    ///
+    /// When two boxes occupy the same space, all face pairs are parallel coplanar
+    /// (normals point the same direction). These are shared outer boundary faces
+    /// and must be merged by merge_coplanar_face_groups, NOT eliminated.
+    ///
+    /// This is a regression guard — the existing merge behavior is correct for
+    /// parallel coplanar faces. The fix for anti-parallel elimination must not
+    /// break this.
+    #[test]
+    fn test_yang_union_keeps_parallel_coplanar_faces() {
+        // Two identical boxes at the same position
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        let (verts_b, tris_b) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
+        let labeling =
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
+
+        let bij_a = build_bijective_from_subdivided(&subdivided.tris_a, tris_a.len());
+        let bij_b = build_bijective_from_subdivided(&subdivided.tris_b, tris_b.len());
+
+        let mut survival =
+            face_survival_detect(&subdivided, &labeling, MeshBooleanOp::Union, &bij_a, &bij_b);
+        merge_coplanar_face_groups(&subdivided, &mut survival, MeshBooleanOp::Union);
+
+        // After merging, there should be exactly 6 face groups (one per box face).
+        // The parallel coplanar faces from A and B should be merged together,
+        // not eliminated.
+        assert_eq!(
+            survival.groups.len(),
+            6,
+            "Identical box Union should have 6 merged face groups (one per face), \
+             got {}. Parallel coplanar faces must be merged, not eliminated.",
+            survival.groups.len()
+        );
+
+        // Each merged group should have sub-triangles (not be empty)
+        for (sf, tris) in &survival.groups {
+            assert!(
+                !tris.is_empty(),
+                "Merged face group {:?} should not be empty after parallel coplanar merge",
+                sf
+            );
+        }
+
+        // Verify normals: within each group, all sub-triangle normals should be
+        // roughly parallel (dot product > 0.9), confirming no anti-parallel
+        // mixing occurred.
+        for (sf, tris) in &survival.groups {
+            if tris.len() < 2 {
+                continue;
+            }
+            let n0 = sub_tri_normal(&subdivided.verts, &tris[0]);
+            for tri in &tris[1..] {
+                let ni = sub_tri_normal(&subdivided.verts, tri);
+                let dot = n0[0] * ni[0] + n0[1] * ni[1] + n0[2] * ni[2];
+                assert!(
+                    dot > 0.9,
+                    "Parallel coplanar merge: all normals in group {:?} should agree, \
+                     but got dot product {:.4} (anti-parallel pair not separated)",
+                    sf,
+                    dot
+                );
+            }
+        }
+    }
+
+    /// Stacked box Union must produce correct face count (no internal cap face).
+    ///
+    /// Box A: [0,1]³, Box B: [0,1]×[0,1]×[1,2]. Union = 1×1×2 elongated box.
+    /// An elongated box has 6 faces: ±X, ±Y, z=0 bottom, z=2 top.
+    /// The shared z=1 plane must NOT appear as a face.
+    ///
+    /// Currently FAILS because the internal z=1 cap persists, giving 7+ faces.
+    #[test]
+    fn test_yang_stacked_box_union_correct_face_count() {
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        let (verts_b, tris_b) = make_box_mesh([0.0, 0.0, 1.0], [1.0, 1.0, 2.0]);
+
+        let bijective_a = build_bijective_from_tri_count(tris_a.len());
+        let bijective_b = build_bijective_from_tri_count(tris_b.len());
+
+        let result = yang_boolean_pipeline(
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            &bijective_a,
+            &bijective_b,
+            MeshBooleanOp::Union,
+            None,
+        )
+        .expect("Yang pipeline should not error");
+
+        let n_faces = result.topology.face_provenance.len();
+        let n_verts = result.topology.arena.vertices.len();
+        let n_edges = result.topology.arena.edges.len();
+
+        eprintln!("Stacked box union face count: F={n_faces}, V={n_verts}, E={n_edges}");
+
+        // A 1×1×2 elongated box has exactly 6 faces.
+        // The internal z=1 cap from the shared plane should be eliminated.
+        // Currently fails because the anti-parallel coplanar cap persists.
+        assert_eq!(
+            n_faces, 6,
+            "Stacked box Union should produce 6 faces (elongated box), got {n_faces}. \
+             Internal z=1 cap face was not eliminated."
+        );
+
+        // Euler characteristic for a single closed solid
+        let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
+        assert_eq!(
+            euler, 2,
+            "Stacked box Union Euler V({n_verts})-E({n_edges})+F({n_faces}) = {euler}, expected 2"
+        );
     }
 }
