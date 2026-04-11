@@ -2691,7 +2691,7 @@ mod tests {
     /// Uses coincident geometry (box and cylinder share the z=0 plane).
     /// This is the common CAD pattern — cylinder boss on a box face.
     ///
-    /// Currently fails: build_result_brep_from_mesh produces empty topology
+    /// Currently fails: flood_fill_patches produces empty topology
     /// because at z=0, the box bottom face triangles inside the cylinder are
     /// classified as "A inside B" and removed, while the cylinder bottom cap
     /// is classified as "B inside A" and also removed. This creates a hole

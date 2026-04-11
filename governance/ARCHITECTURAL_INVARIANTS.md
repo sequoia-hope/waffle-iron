@@ -487,10 +487,16 @@ is critical — coplanarity must be handled BEFORE tessellation, not after:
    become intersection curves. Without this, tessellation produces non-identical
    meshes on coplanar faces → conformal edge explosion → timeout or wrong topology.
 1. **Tessellate** B-Rep faces with bijective mapping (each triangle maps to one face)
-2. **Exact mesh boolean** via indirect predicates [#9 Cherchi] — topology is provably correct
-3. **Extract topology** from result mesh + bijective maps — unambiguous face trimming
-4. **Refine** intersection edges to true SSI curves (reuses A15.1 quadric solvers)
-5. **Assemble** final B-Rep — analytical surfaces preserved, only re-trimmed
+2. **Exact mesh intersection** via indirect predicates [#9 Cherchi] — conformal subdivision
+3. **Inside/outside classification** — label each sub-triangle via ray-casting + winding
+4. **Face survival** — select sub-triangles per boolean operation (Union/Subtract/Intersect)
+5. **Flood-fill patch segmentation** (Section 4.4.2) — BFS from seed triangles, expand
+   across non-boundary edges. Each connected component = one B-Rep face. Boundary edges
+   between patches = B-Rep edges with 1:1 twin pairing. **Do NOT use boundary-edge-chaining
+   or greedy twin-pairing** — these approaches produce non-manifold topology at perpendicular
+   junctions. Flood-fill inherits manifoldness from the conformal subdivision mesh.
+6. **Refine** intersection edges to true SSI curves (reuses A15.1 quadric solvers)
+7. **Assemble** final B-Rep — analytical surfaces preserved, only re-trimmed
 
 **Do NOT attempt post-hoc coplanar face elimination** (comparing triangle normals
 after mesh boolean). This was tried and reverted — it cannot reliably distinguish
