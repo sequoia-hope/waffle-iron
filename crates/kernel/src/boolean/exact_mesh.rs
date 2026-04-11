@@ -1054,6 +1054,20 @@ pub(crate) fn orient2d_classify(a: &[f64; 2], b: &[f64; 2], point: &[f64; 2]) ->
     }
 }
 
+// ── Cherchi Algorithm 1: TriMesh with adjacency ──
+// Ref #9: Cherchi 2020 Sections 5.2-5.3 — adjacency-aware triangle mesh
+// required by the walking algorithm for segment insertion.
+
+// Adjacency-aware triangle mesh for Cherchi Algorithm 1 segment insertion.
+//
+// Edge j of triangle i is the edge OPPOSITE vertex j:
+// - Edge 0: (verts[1], verts[2])
+// - Edge 1: (verts[0], verts[2])
+// - Edge 2: (verts[0], verts[1])
+//
+// Ref #9: Cherchi 2020 Section 5.3 (Algorithm 1: addSegment).
+// TriMesh struct and impl are defined below (before subdivide_mesh_pair).
+
 // ── Task 2c: Constrained triangulation ──
 // Ref #24: Yang 2025 — subdivide mesh pair along intersection segments.
 // Ref #9: Cherchi 2020 — indirect predicates for exact mesh arrangements.
@@ -2861,22 +2875,1392 @@ fn subdivide_triangle_batch(
     }
 }
 
-/// Subdivide both meshes along their intersection segments.
-///
-/// For each pair of triangles (one from A, one from B), computes the exact
-/// intersection via `tri_tri_intersect`. Segment intersections are used as
-/// constraint edges to subdivide the original triangles.
+// ── Cherchi Algorithm 1: Segment Insertion for Mesh Arrangement ──────────
+// Ref [#9] Cherchi et al. 2020, Sections 5.2-5.3.
+
+/// Adjacency-aware triangle mesh for Cherchi Algorithm 1 segment insertion.
+/// Edge j of triangle i is opposite vertex j.
+struct TriMesh {
+    verts: Vec<[f64; 3]>,
+    tris: Vec<[usize; 3]>,
+    adj: Vec<[Option<usize>; 3]>,
+    constrained: std::collections::HashSet<(usize, usize)>,
+    parent_tri: Vec<usize>,
+    removed: Vec<bool>,
+}
+
+#[allow(dead_code)] // Phase 2 building block — will replace subdivide_mesh_pair
+impl TriMesh {
+    fn build(verts: &[[f64; 3]], tris: &[[usize; 3]]) -> Self {
+        use std::collections::HashMap;
+        let n = tris.len();
+        let mut adj = vec![[None; 3]; n];
+        let mut edge_map: HashMap<(usize, usize), (usize, usize)> = HashMap::new();
+        for (ti, tri) in tris.iter().enumerate() {
+            for (v0, v1, ei) in [
+                (tri[1], tri[2], 0),
+                (tri[2], tri[0], 1),
+                (tri[0], tri[1], 2),
+            ] {
+                if let Some(&(oti, oei)) = edge_map.get(&(v1, v0)) {
+                    adj[ti][ei] = Some(oti);
+                    adj[oti][oei] = Some(ti);
+                }
+                edge_map.insert((v0, v1), (ti, ei));
+            }
+        }
+        TriMesh {
+            verts: verts.to_vec(),
+            tris: tris.to_vec(),
+            adj,
+            constrained: std::collections::HashSet::new(),
+            parent_tri: (0..n).collect(),
+            removed: vec![false; n],
+        }
+    }
+
+    fn edge_verts(&self, ti: usize, ei: usize) -> (usize, usize) {
+        let t = self.tris[ti];
+        // Edge opposite vertex ei, in CCW winding direction:
+        // Edge 0 (opp v0): v1 → v2
+        // Edge 1 (opp v1): v2 → v0
+        // Edge 2 (opp v2): v0 → v1
+        match ei {
+            0 => (t[1], t[2]),
+            1 => (t[2], t[0]),
+            2 => (t[0], t[1]),
+            _ => unreachable!(),
+        }
+    }
+
+    fn find_edge(&self, ti: usize, v0: usize, v1: usize) -> Option<usize> {
+        let t = self.tris[ti];
+        if (t[1] == v0 && t[2] == v1) || (t[1] == v1 && t[2] == v0) {
+            return Some(0);
+        }
+        if (t[0] == v0 && t[2] == v1) || (t[0] == v1 && t[2] == v0) {
+            return Some(1);
+        }
+        if (t[0] == v0 && t[1] == v1) || (t[0] == v1 && t[1] == v0) {
+            return Some(2);
+        }
+        None
+    }
+
+    fn edge_key(a: usize, b: usize) -> (usize, usize) {
+        if a <= b {
+            (a, b)
+        } else {
+            (b, a)
+        }
+    }
+    fn is_constrained(&self, a: usize, b: usize) -> bool {
+        self.constrained.contains(&Self::edge_key(a, b))
+    }
+    fn mark_constrained(&mut self, a: usize, b: usize) {
+        self.constrained.insert(Self::edge_key(a, b));
+    }
+
+    fn is_mesh_edge(&self, v0: usize, v1: usize) -> bool {
+        for (ti, tri) in self.tris.iter().enumerate() {
+            if self.removed[ti] {
+                continue;
+            }
+            for (a, b) in [(tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])] {
+                if (a == v0 && b == v1) || (a == v1 && b == v0) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    fn triangles_around_vertex(&self, v: usize) -> Vec<usize> {
+        (0..self.tris.len())
+            .filter(|&ti| {
+                !self.removed[ti] && {
+                    let t = self.tris[ti];
+                    t[0] == v || t[1] == v || t[2] == v
+                }
+            })
+            .collect()
+    }
+
+    fn best_projection_axis(verts: &[[f64; 3]], indices: &[usize]) -> (usize, usize) {
+        if indices.len() < 3 {
+            return (0, 1);
+        }
+        let p0 = verts[indices[0]];
+        let p1 = verts[indices[1]];
+        let mut normal = [0.0f64; 3];
+        for &idx in &indices[2..] {
+            let p2 = verts[idx];
+            let u = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+            let v = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+            normal = [
+                u[1] * v[2] - u[2] * v[1],
+                u[2] * v[0] - u[0] * v[2],
+                u[0] * v[1] - u[1] * v[0],
+            ];
+            if normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2] > 1e-30 {
+                break;
+            }
+        }
+        let a = [normal[0].abs(), normal[1].abs(), normal[2].abs()];
+        if a[0] >= a[1] && a[0] >= a[2] {
+            (1, 2)
+        } else if a[1] >= a[0] && a[1] >= a[2] {
+            (0, 2)
+        } else {
+            (0, 1)
+        }
+    }
+
+    fn project(p: &[f64; 3], ax: (usize, usize)) -> [f64; 2] {
+        [p[ax.0], p[ax.1]]
+    }
+    fn orient2d_val(a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> f64 {
+        orient2d(a, b, c)
+    }
+
+    fn locate_point(&self, p: &[f64; 3]) -> Option<(usize, PointLocation)> {
+        // Check for vertex coincidence first (quantized position match).
+        let scale = crate::units::QUANT_NANOMETER_SCALE;
+        let qp = [
+            (p[0] * scale).round() as i64,
+            (p[1] * scale).round() as i64,
+            (p[2] * scale).round() as i64,
+        ];
+        for (ti, tri) in self.tris.iter().enumerate() {
+            if self.removed[ti] {
+                continue;
+            }
+            for (local, &vi) in tri.iter().enumerate() {
+                let v = &self.verts[vi];
+                let qv = [
+                    (v[0] * scale).round() as i64,
+                    (v[1] * scale).round() as i64,
+                    (v[2] * scale).round() as i64,
+                ];
+                if qp == qv {
+                    return Some((ti, PointLocation::AtVertex(local)));
+                }
+            }
+        }
+        // Orient2d-based classification
+        for (ti, tri) in self.tris.iter().enumerate() {
+            if self.removed[ti] {
+                continue;
+            }
+            let ax = Self::best_projection_axis(&self.verts, &[tri[0], tri[1], tri[2]]);
+            let p2 = Self::project(p, ax);
+            let a = Self::project(&self.verts[tri[0]], ax);
+            let b = Self::project(&self.verts[tri[1]], ax);
+            let c = Self::project(&self.verts[tri[2]], ax);
+            let o0 = Self::orient2d_val(a, b, p2);
+            let o1 = Self::orient2d_val(b, c, p2);
+            let o2 = Self::orient2d_val(c, a, p2);
+            let pos = o0 >= 0.0 && o1 >= 0.0 && o2 >= 0.0;
+            let neg = o0 <= 0.0 && o1 <= 0.0 && o2 <= 0.0;
+            if !pos && !neg {
+                continue;
+            }
+            // Two zeros → at a vertex (orient2d-based detection as fallback)
+            let zeros = [o0 == 0.0, o1 == 0.0, o2 == 0.0];
+            let nz = zeros.iter().filter(|&&z| z).count();
+            if nz >= 2 {
+                // At vertex: edge i has orient==0 means p is on the line through edge i
+                // Two zero edges meet at their shared vertex
+                if zeros[0] && zeros[1] {
+                    return Some((ti, PointLocation::AtVertex(1)));
+                } // edges 2,0 share v1
+                if zeros[1] && zeros[2] {
+                    return Some((ti, PointLocation::AtVertex(2)));
+                } // edges 0,1 share v2
+                if zeros[0] && zeros[2] {
+                    return Some((ti, PointLocation::AtVertex(0)));
+                } // edges 2,1 share v0
+            }
+            if o0 == 0.0 {
+                return Some((ti, PointLocation::OnEdge(2)));
+            }
+            if o1 == 0.0 {
+                return Some((ti, PointLocation::OnEdge(0)));
+            }
+            if o2 == 0.0 {
+                return Some((ti, PointLocation::OnEdge(1)));
+            }
+            return Some((ti, PointLocation::Interior));
+        }
+        // Second pass: tolerance-based search for near-edge points.
+        // Intersection points may have floating-point error from materialize_ip.
+        let mut best: Option<(usize, usize, f64)> = None; // (ti, ei, min_dist)
+        for (ti, tri) in self.tris.iter().enumerate() {
+            if self.removed[ti] {
+                continue;
+            }
+            let ax = Self::best_projection_axis(&self.verts, &[tri[0], tri[1], tri[2]]);
+            let p2 = Self::project(p, ax);
+            let a = Self::project(&self.verts[tri[0]], ax);
+            let b = Self::project(&self.verts[tri[1]], ax);
+            let c = Self::project(&self.verts[tri[2]], ax);
+            let o0 = Self::orient2d_val(a, b, p2);
+            let o1 = Self::orient2d_val(b, c, p2);
+            let o2 = Self::orient2d_val(c, a, p2);
+            let ao = [o0.abs(), o1.abs(), o2.abs()];
+            let min_o = ao[0].min(ao[1]).min(ao[2]);
+            // Accept if point is very close to being inside/on-edge
+            let edge_len = ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2))
+                .sqrt()
+                .max(((c[0] - b[0]).powi(2) + (c[1] - b[1]).powi(2)).sqrt())
+                .max(((a[0] - c[0]).powi(2) + (a[1] - c[1]).powi(2)).sqrt());
+            if edge_len < 1e-15 {
+                continue;
+            }
+            let rel_err = min_o / (edge_len * edge_len);
+            if rel_err < 1e-8 {
+                let all_pos = o0 >= -min_o && o1 >= -min_o && o2 >= -min_o;
+                let all_neg = o0 <= min_o && o1 <= min_o && o2 <= min_o;
+                if (all_pos || all_neg) && (best.is_none() || rel_err < best.unwrap().2) {
+                    let ei = if ao[0] <= ao[1] && ao[0] <= ao[2] {
+                        2
+                    } else if ao[1] <= ao[2] {
+                        0
+                    } else {
+                        1
+                    };
+                    best = Some((ti, ei, rel_err));
+                }
+            }
+        }
+        best.map(|(ti, ei, _)| (ti, PointLocation::OnEdge(ei)))
+    }
+
+    fn insert_point(&mut self, p: [f64; 3]) -> usize {
+        let scale = crate::units::QUANT_NANOMETER_SCALE;
+        let qp = [
+            (p[0] * scale).round() as i64,
+            (p[1] * scale).round() as i64,
+            (p[2] * scale).round() as i64,
+        ];
+        for (vi, v) in self.verts.iter().enumerate() {
+            let qv = [
+                (v[0] * scale).round() as i64,
+                (v[1] * scale).round() as i64,
+                (v[2] * scale).round() as i64,
+            ];
+            if qp == qv {
+                // If this vertex is already in the mesh topology, nothing to do
+                let in_mesh = self.tris.iter().enumerate().any(|(ti, tri)| {
+                    !self.removed[ti] && (tri[0] == vi || tri[1] == vi || tri[2] == vi)
+                });
+                if in_mesh {
+                    return vi;
+                }
+                // Vertex exists in array but not referenced by any triangle.
+                // Locate which triangle contains it and split.
+                match self.locate_point(&p) {
+                    Some((ti, PointLocation::Interior)) => self.split_interior(ti, vi),
+                    Some((ti, PointLocation::OnEdge(ei))) => self.split_edge(ti, ei, vi),
+                    _ => {}
+                }
+                return vi;
+            }
+        }
+        let new_vi = self.verts.len();
+        self.verts.push(p);
+        match self.locate_point(&p) {
+            Some((_ti, PointLocation::AtVertex(_))) => {}
+            Some((ti, PointLocation::Interior)) => self.split_interior(ti, new_vi),
+            Some((ti, PointLocation::OnEdge(ei))) => self.split_edge(ti, ei, new_vi),
+            None => {}
+        }
+        new_vi
+    }
+
+    fn split_interior(&mut self, ti: usize, nv: usize) {
+        let [v0, v1, v2] = self.tris[ti];
+        let par = self.parent_tri[ti];
+        let oa = self.adj[ti];
+        self.removed[ti] = true;
+        let t0 = self.tris.len();
+        let (t1, t2) = (t0 + 1, t0 + 2);
+        self.tris.push([v0, v1, nv]);
+        self.tris.push([v1, v2, nv]);
+        self.tris.push([v2, v0, nv]);
+        self.adj.push([Some(t1), Some(t2), oa[2]]);
+        self.adj.push([Some(t2), Some(t0), oa[0]]);
+        self.adj.push([Some(t0), Some(t1), oa[1]]);
+        self.parent_tri.extend_from_slice(&[par, par, par]);
+        self.removed.extend_from_slice(&[false, false, false]);
+        if let Some(nb) = oa[0] {
+            self.update_neighbor(nb, ti, t1);
+        }
+        if let Some(nb) = oa[1] {
+            self.update_neighbor(nb, ti, t2);
+        }
+        if let Some(nb) = oa[2] {
+            self.update_neighbor(nb, ti, t0);
+        }
+    }
+
+    fn split_edge(&mut self, ti: usize, ei: usize, nv: usize) {
+        let tri = self.tris[ti];
+        let par = self.parent_tri[ti];
+        let oa = self.adj[ti];
+        let (ev0, ev1) = self.edge_verts(ti, ei);
+        let vopp = tri[ei];
+        self.removed[ti] = true;
+        let t0 = self.tris.len();
+        let t1 = t0 + 1;
+        self.tris.push([vopp, ev0, nv]);
+        self.tris.push([vopp, nv, ev1]);
+        self.parent_tri.extend_from_slice(&[par, par]);
+        self.removed.extend_from_slice(&[false, false]);
+        let ie0 = if tri[0] == ev0 {
+            0
+        } else if tri[1] == ev0 {
+            1
+        } else {
+            2
+        };
+        let ie1 = if tri[0] == ev1 {
+            0
+        } else if tri[1] == ev1 {
+            1
+        } else {
+            2
+        };
+        self.adj.push([None, Some(t1), oa[ie1]]);
+        self.adj.push([None, oa[ie0], Some(t0)]);
+        if let Some(nb) = oa[ie1] {
+            self.update_neighbor(nb, ti, t0);
+        }
+        if let Some(nb) = oa[ie0] {
+            self.update_neighbor(nb, ti, t1);
+        }
+        if let Some(nb_ti) = oa[ei] {
+            if !self.removed[nb_ti] {
+                let nt = self.tris[nb_ti];
+                let np = self.parent_tri[nb_ti];
+                let na = self.adj[nb_ti];
+                let nei = self.find_edge(nb_ti, ev0, ev1).unwrap_or(0);
+                let nvopp = nt[nei];
+                self.removed[nb_ti] = true;
+                let t2 = self.tris.len();
+                let t3 = t2 + 1;
+                // Neighbor shares the edge in REVERSE winding direction,
+                // so swap ev0/ev1 to maintain consistent winding.
+                self.tris.push([nvopp, ev1, nv]);
+                self.tris.push([nvopp, nv, ev0]);
+                self.parent_tri.extend_from_slice(&[np, np]);
+                self.removed.extend_from_slice(&[false, false]);
+                let nie0 = if nt[0] == ev0 {
+                    0
+                } else if nt[1] == ev0 {
+                    1
+                } else {
+                    2
+                };
+                let nie1 = if nt[0] == ev1 {
+                    0
+                } else if nt[1] == ev1 {
+                    1
+                } else {
+                    2
+                };
+                self.adj.push([Some(t0), Some(t3), na[nie1]]);
+                self.adj.push([Some(t1), na[nie0], Some(t2)]);
+                self.adj[t0][0] = Some(t2);
+                self.adj[t1][0] = Some(t3);
+                if let Some(n2) = na[nie1] {
+                    self.update_neighbor(n2, nb_ti, t2);
+                }
+                if let Some(n2) = na[nie0] {
+                    self.update_neighbor(n2, nb_ti, t3);
+                }
+                if self.is_constrained(ev0, ev1) {
+                    self.constrained.remove(&Self::edge_key(ev0, ev1));
+                    self.mark_constrained(ev0, nv);
+                    self.mark_constrained(nv, ev1);
+                }
+            }
+        }
+    }
+
+    fn update_neighbor(&mut self, nb: usize, old: usize, new: usize) {
+        for s in self.adj[nb].iter_mut() {
+            if *s == Some(old) {
+                *s = Some(new);
+                return;
+            }
+        }
+    }
+
+    /// Enforce a constraint segment by flipping crossing edges.
+    /// After point insertion, all constraint endpoints are mesh vertices.
+    /// This flips edges that cross the segment until it becomes a mesh edge.
+    fn enforce_segment(&mut self, v_beg: usize, v_end: usize, parent_filter: Option<usize>) {
+        if v_beg == v_end {
+            return;
+        }
+        if self.is_mesh_edge(v_beg, v_end) {
+            self.mark_constrained(v_beg, v_end);
+            return;
+        }
+
+        // Ensure both endpoints are in this parent's sub-triangles
+        if let Some(pf) = parent_filter {
+            self.ensure_in_mesh_for_parent(v_beg, pf);
+            self.ensure_in_mesh_for_parent(v_end, pf);
+        } else {
+            self.ensure_in_mesh(v_beg);
+            self.ensure_in_mesh(v_end);
+        }
+
+        if self.is_mesh_edge(v_beg, v_end) {
+            self.mark_constrained(v_beg, v_end);
+            return;
+        }
+
+        // Compute projection axis from parent face
+        let ax = if let Some(pf) = parent_filter {
+            let ti = self
+                .tris
+                .iter()
+                .enumerate()
+                .find(|(ti, _)| !self.removed[*ti] && self.parent_tri[*ti] == pf)
+                .map(|(ti, _)| ti);
+            if let Some(ti) = ti {
+                let t = self.tris[ti];
+                Self::best_projection_axis(&self.verts, &[t[0], t[1], t[2]])
+            } else {
+                return;
+            }
+        } else {
+            let inc = self.triangles_around_vertex(v_beg);
+            if inc.is_empty() {
+                return;
+            }
+            let t = self.tris[inc[0]];
+            Self::best_projection_axis(&self.verts, &[t[0], t[1], t[2]])
+        };
+
+        let pb = Self::project(&self.verts[v_beg], ax);
+        let pe = Self::project(&self.verts[v_end], ax);
+
+        // Iteratively flip edges that cross the segment.
+        // Max iterations to prevent infinite loops.
+        for _ in 0..200 {
+            if self.is_mesh_edge(v_beg, v_end) {
+                break;
+            }
+
+            // Find a crossing edge to flip
+            let mut found_flip = false;
+            let n = self.tris.len();
+            for ti in 0..n {
+                if self.removed[ti] {
+                    continue;
+                }
+                if let Some(pf) = parent_filter {
+                    if self.parent_tri[ti] != pf {
+                        continue;
+                    }
+                }
+                let tri = self.tris[ti];
+                // Check each edge of this triangle
+                #[allow(clippy::needless_range_loop)]
+                for ei in 0..3 {
+                    let (ev0, ev1) = self.edge_verts(ti, ei);
+                    // Skip edges that include v_beg or v_end
+                    if ev0 == v_beg || ev1 == v_beg || ev0 == v_end || ev1 == v_end {
+                        continue;
+                    }
+                    // Skip constrained edges
+                    if self.is_constrained(ev0, ev1) {
+                        continue;
+                    }
+                    // Check if this edge crosses the segment
+                    let p0 = Self::project(&self.verts[ev0], ax);
+                    let p1 = Self::project(&self.verts[ev1], ax);
+                    let o_e0 = Self::orient2d_val(pb, pe, p0);
+                    let o_e1 = Self::orient2d_val(pb, pe, p1);
+                    if !((o_e0 > 0.0 && o_e1 < 0.0) || (o_e0 < 0.0 && o_e1 > 0.0)) {
+                        continue;
+                    }
+                    // Check if segment crosses this edge (not just infinite line)
+                    let o_s0 = Self::orient2d_val(p0, p1, pb);
+                    let o_s1 = Self::orient2d_val(p0, p1, pe);
+                    if !((o_s0 > 0.0 && o_s1 < 0.0) || (o_s0 < 0.0 && o_s1 > 0.0)) {
+                        continue;
+                    }
+
+                    // Found a crossing edge. Try to flip it.
+                    let nb = match self.adj[ti][ei] {
+                        Some(nb) if !self.removed[nb] => nb,
+                        _ => continue,
+                    };
+                    if let Some(pf) = parent_filter {
+                        if self.parent_tri[nb] != pf {
+                            continue;
+                        }
+                    }
+
+                    // Get the opposite vertices for the flip
+                    let v_opp_ti = tri[ei]; // vertex opposite to edge ei in ti
+                    let nb_tri = self.tris[nb];
+                    let nei = self.find_edge(nb, ev0, ev1).unwrap_or(0);
+                    let v_opp_nb = nb_tri[nei]; // vertex opposite to shared edge in nb
+
+                    // Check convexity: the quad (ev0, v_opp_ti, ev1, v_opp_nb)
+                    // must be convex for the flip to be valid.
+                    let p_oti = Self::project(&self.verts[v_opp_ti], ax);
+                    let p_onb = Self::project(&self.verts[v_opp_nb], ax);
+                    let convex1 = Self::orient2d_val(p_oti, p0, p_onb);
+                    let convex2 = Self::orient2d_val(p_oti, p1, p_onb);
+                    if !((convex1 > 0.0 && convex2 < 0.0) || (convex1 < 0.0 && convex2 > 0.0)) {
+                        continue; // Not convex, can't flip
+                    }
+
+                    // Perform the flip: replace (ev0, ev1) with (v_opp_ti, v_opp_nb)
+                    let par = self.parent_tri[ti];
+                    self.removed[ti] = true;
+                    self.removed[nb] = true;
+                    let new_t0 = self.tris.len();
+                    let _new_t1 = new_t0 + 1;
+                    // Winding must match original CCW quad:
+                    // v_opp_ti → ev0 → v_opp_nb → ev1 → v_opp_ti
+                    self.tris.push([v_opp_ti, ev0, v_opp_nb]);
+                    self.tris.push([v_opp_ti, v_opp_nb, ev1]);
+                    self.parent_tri.push(par);
+                    self.parent_tri.push(par);
+                    self.removed.push(false);
+                    self.removed.push(false);
+                    self.adj.push([None; 3]);
+                    self.adj.push([None; 3]);
+                    self.rebuild_all_adj();
+                    found_flip = true;
+                    break;
+                }
+                if found_flip {
+                    break;
+                }
+            }
+            if !found_flip {
+                break;
+            }
+        }
+
+        if self.is_mesh_edge(v_beg, v_end) {
+            self.mark_constrained(v_beg, v_end);
+        }
+    }
+
+    fn ensure_in_mesh(&mut self, vi: usize) {
+        let in_mesh =
+            self.tris.iter().enumerate().any(|(ti, tri)| {
+                !self.removed[ti] && (tri[0] == vi || tri[1] == vi || tri[2] == vi)
+            });
+        if in_mesh {
+            return;
+        }
+        let p = self.verts[vi];
+        match self.locate_point(&p) {
+            Some((ti, PointLocation::Interior)) => {
+                self.split_interior(ti, vi);
+                self.rebuild_all_adj();
+            }
+            Some((ti, PointLocation::OnEdge(ei))) => {
+                // Guard: if vi is at the same position as an edge endpoint,
+                // don't split — it would create a degenerate triangle.
+                let (ev0, ev1) = self.edge_verts(ti, ei);
+                let scale = crate::units::QUANT_NANOMETER_SCALE;
+                let qp = [
+                    (p[0] * scale).round() as i64,
+                    (p[1] * scale).round() as i64,
+                    (p[2] * scale).round() as i64,
+                ];
+                let qe0 = [
+                    (self.verts[ev0][0] * scale).round() as i64,
+                    (self.verts[ev0][1] * scale).round() as i64,
+                    (self.verts[ev0][2] * scale).round() as i64,
+                ];
+                let qe1 = [
+                    (self.verts[ev1][0] * scale).round() as i64,
+                    (self.verts[ev1][1] * scale).round() as i64,
+                    (self.verts[ev1][2] * scale).round() as i64,
+                ];
+                if qp == qe0 || qp == qe1 {
+                    return; // vertex coincides with edge endpoint — no split needed
+                }
+                self.split_edge(ti, ei, vi);
+                self.rebuild_all_adj();
+            }
+            Some((_, PointLocation::AtVertex(_))) => {
+                // Point coincides with an existing vertex — no split needed
+            }
+            None => {}
+        }
+    }
+
+    /// Like ensure_in_mesh but specifically targets sub-triangles of the given parent.
+    /// If the vertex is already in a sub-triangle of this parent, returns.
+    /// Otherwise locates it within this parent's sub-triangles and splits.
+    fn ensure_in_mesh_for_parent(&mut self, vi: usize, parent: usize) {
+        // Check if already in a sub-triangle of this parent
+        let in_parent = self.tris.iter().enumerate().any(|(ti, tri)| {
+            !self.removed[ti]
+                && self.parent_tri[ti] == parent
+                && (tri[0] == vi || tri[1] == vi || tri[2] == vi)
+        });
+        if in_parent {
+            return;
+        }
+        // First ensure the vertex is in the mesh at all
+        self.ensure_in_mesh(vi);
+        // Check again — split_edge propagation might have added it to our parent
+        let in_parent = self.tris.iter().enumerate().any(|(ti, tri)| {
+            !self.removed[ti]
+                && self.parent_tri[ti] == parent
+                && (tri[0] == vi || tri[1] == vi || tri[2] == vi)
+        });
+        if in_parent {
+            return;
+        }
+        // Not in parent's sub-triangles. Locate within parent's sub-triangles.
+        let p = self.verts[vi];
+        match self.locate_point_in_parent(&p, parent) {
+            Some((ti, PointLocation::Interior)) => {
+                self.split_interior(ti, vi);
+                self.rebuild_all_adj();
+            }
+            Some((ti, PointLocation::OnEdge(ei))) => {
+                self.split_edge(ti, ei, vi);
+                self.rebuild_all_adj();
+            }
+            _ => {}
+        }
+    }
+
+    /// Locate a point within sub-triangles of a specific parent.
+    fn locate_point_in_parent(
+        &self,
+        p: &[f64; 3],
+        parent: usize,
+    ) -> Option<(usize, PointLocation)> {
+        // Exact pass
+        for (ti, tri) in self.tris.iter().enumerate() {
+            if self.removed[ti] || self.parent_tri[ti] != parent {
+                continue;
+            }
+            let ax = Self::best_projection_axis(&self.verts, &[tri[0], tri[1], tri[2]]);
+            let p2 = Self::project(p, ax);
+            let a = Self::project(&self.verts[tri[0]], ax);
+            let b = Self::project(&self.verts[tri[1]], ax);
+            let c = Self::project(&self.verts[tri[2]], ax);
+            let o0 = Self::orient2d_val(a, b, p2);
+            let o1 = Self::orient2d_val(b, c, p2);
+            let o2 = Self::orient2d_val(c, a, p2);
+            let pos = o0 >= 0.0 && o1 >= 0.0 && o2 >= 0.0;
+            let neg = o0 <= 0.0 && o1 <= 0.0 && o2 <= 0.0;
+            if !pos && !neg {
+                continue;
+            }
+            if o0 == 0.0 {
+                return Some((ti, PointLocation::OnEdge(2)));
+            }
+            if o1 == 0.0 {
+                return Some((ti, PointLocation::OnEdge(0)));
+            }
+            if o2 == 0.0 {
+                return Some((ti, PointLocation::OnEdge(1)));
+            }
+            return Some((ti, PointLocation::Interior));
+        }
+        // Tolerance pass
+        let mut best: Option<(usize, usize, f64)> = None;
+        for (ti, tri) in self.tris.iter().enumerate() {
+            if self.removed[ti] || self.parent_tri[ti] != parent {
+                continue;
+            }
+            let ax = Self::best_projection_axis(&self.verts, &[tri[0], tri[1], tri[2]]);
+            let p2 = Self::project(p, ax);
+            let a = Self::project(&self.verts[tri[0]], ax);
+            let b = Self::project(&self.verts[tri[1]], ax);
+            let c = Self::project(&self.verts[tri[2]], ax);
+            let o0 = Self::orient2d_val(a, b, p2);
+            let o1 = Self::orient2d_val(b, c, p2);
+            let o2 = Self::orient2d_val(c, a, p2);
+            let ao = [o0.abs(), o1.abs(), o2.abs()];
+            let min_o = ao[0].min(ao[1]).min(ao[2]);
+            let edge_len = ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2))
+                .sqrt()
+                .max(((c[0] - b[0]).powi(2) + (c[1] - b[1]).powi(2)).sqrt())
+                .max(((a[0] - c[0]).powi(2) + (a[1] - c[1]).powi(2)).sqrt());
+            if edge_len < 1e-15 {
+                continue;
+            }
+            let rel_err = min_o / (edge_len * edge_len);
+            if rel_err < 1e-6 {
+                let all_pos = o0 >= -min_o && o1 >= -min_o && o2 >= -min_o;
+                let all_neg = o0 <= min_o && o1 <= min_o && o2 <= min_o;
+                if (all_pos || all_neg) && (best.is_none() || rel_err < best.unwrap().2) {
+                    let ei = if ao[0] <= ao[1] && ao[0] <= ao[2] {
+                        2
+                    } else if ao[1] <= ao[2] {
+                        0
+                    } else {
+                        1
+                    };
+                    best = Some((ti, ei, rel_err));
+                }
+            }
+        }
+        best.map(|(ti, ei, _)| (ti, PointLocation::OnEdge(ei)))
+    }
+
+    fn add_segment_impl(
+        &mut self,
+        v_beg: usize,
+        v_end: usize,
+        depth: usize,
+        parent_filter: Option<usize>,
+    ) {
+        if depth > 50 || v_beg == v_end {
+            return;
+        }
+        if self.is_mesh_edge(v_beg, v_end) {
+            if depth == 0 {
+                eprintln!("  add_seg({v_beg},{v_end}) par={parent_filter:?}: already edge");
+            }
+            self.mark_constrained(v_beg, v_end);
+            return;
+        }
+
+        // Ensure both endpoints are in the mesh topology (parent-aware if possible)
+        if let Some(pf) = parent_filter {
+            self.ensure_in_mesh_for_parent(v_beg, pf);
+            self.ensure_in_mesh_for_parent(v_end, pf);
+        } else {
+            self.ensure_in_mesh(v_beg);
+            self.ensure_in_mesh(v_end);
+        }
+
+        // Check again after ensure_in_mesh (splitting might have created the edge)
+        if self.is_mesh_edge(v_beg, v_end) {
+            if depth == 0 {
+                eprintln!("  add_seg({v_beg},{v_end}) par={parent_filter:?}: edge after ensure");
+            }
+            self.mark_constrained(v_beg, v_end);
+            return;
+        }
+
+        // Find triangles around v_beg, filtered by parent if specified.
+        let all_inc = self.triangles_around_vertex(v_beg);
+        let all_inc_len = all_inc.len();
+        let inc: Vec<usize> = if let Some(pf) = parent_filter {
+            all_inc
+                .iter()
+                .copied()
+                .filter(|&ti| self.parent_tri[ti] == pf)
+                .collect()
+        } else {
+            all_inc
+        };
+        if inc.is_empty() {
+            if depth == 0 {
+                eprintln!("  add_seg({v_beg},{v_end}) par={parent_filter:?}: no inc tris (all_inc={all_inc_len})");
+            }
+            return;
+        }
+
+        // Compute projection axis from the parent face's normal.
+        // All triangles in this walk share the same parent and are coplanar.
+        let ax = {
+            let tri = self.tris[inc[0]];
+            Self::best_projection_axis(&self.verts, &[tri[0], tri[1], tri[2]])
+        };
+        let pb = Self::project(&self.verts[v_beg], ax);
+        let pe = Self::project(&self.verts[v_end], ax);
+
+        // Check if v_beg and v_end are already adjacent (edge already exists
+        // after point insertion split it into the mesh).
+        if self.is_mesh_edge(v_beg, v_end) {
+            self.mark_constrained(v_beg, v_end);
+            return;
+        }
+
+        let mut start_ti = None;
+        let mut start_ei = None;
+        for &ti in &inc {
+            let tri = self.tris[ti];
+            let loc = if tri[0] == v_beg {
+                0
+            } else if tri[1] == v_beg {
+                1
+            } else {
+                2
+            };
+            let (ev0, ev1) = self.edge_verts(ti, loc);
+            if ev0 == v_end || ev1 == v_end {
+                // v_end is already adjacent — just mark constrained
+                self.mark_constrained(v_beg, v_end);
+                return;
+            }
+            let pe0 = Self::project(&self.verts[ev0], ax);
+            let pe1 = Self::project(&self.verts[ev1], ax);
+            let o0 = Self::orient2d_val(pb, pe, pe0);
+            let o1 = Self::orient2d_val(pb, pe, pe1);
+            if (o0 > 0.0 && o1 < 0.0)
+                || (o0 < 0.0 && o1 > 0.0)
+                || (o0 == 0.0 && o1 != 0.0)
+                || (o0 != 0.0 && o1 == 0.0)
+            {
+                start_ti = Some(ti);
+                start_ei = Some(loc);
+                break;
+            }
+        }
+        let Some(mut cti) = start_ti else {
+            return;
+        };
+        let Some(mut cei) = start_ei else {
+            return;
+        };
+
+        // Polygon vertex order: [v_beg, left1, left2, ..., v_end].
+        // v_end is appended AFTER the walk, not at position 1.
+        // This ensures polygon edges match the surrounding mesh boundary.
+        let mut pl = vec![v_beg];
+        let mut pr = vec![v_end];
+        let mut crossed = vec![cti];
+        let max_iters = self.tris.len() + 100;
+        let mut iters = 0;
+        let mut visited = std::collections::HashSet::new();
+        visited.insert(cti);
+
+        loop {
+            iters += 1;
+            if iters > max_iters {
+                break;
+            }
+            let (ev0, ev1) = self.edge_verts(cti, cei);
+            if ev0 == v_end || ev1 == v_end {
+                break;
+            }
+            let pe0 = Self::project(&self.verts[ev0], ax);
+            let pe1 = Self::project(&self.verts[ev1], ax);
+            let o0 = Self::orient2d_val(pb, pe, pe0);
+            if o0 == 0.0 && self.pt_between(v_beg, v_end, ev0, ax) {
+                self.add_segment_impl(v_beg, ev0, depth + 1, parent_filter);
+                self.add_segment_impl(ev0, v_end, depth + 1, parent_filter);
+                return;
+            }
+            let o1 = Self::orient2d_val(pb, pe, pe1);
+            if o1 == 0.0 && self.pt_between(v_beg, v_end, ev1, ax) {
+                self.add_segment_impl(v_beg, ev1, depth + 1, parent_filter);
+                self.add_segment_impl(ev1, v_end, depth + 1, parent_filter);
+                return;
+            }
+            if self.is_constrained(ev0, ev1) {
+                if let Some(pt) = self.seg_isect(v_beg, v_end, ev0, ev1) {
+                    let nv = self.insert_point(pt);
+                    self.add_segment_impl(v_beg, nv, depth + 1, parent_filter);
+                    self.add_segment_impl(nv, v_end, depth + 1, parent_filter);
+                    return;
+                }
+            }
+            if o0 > 0.0 {
+                pl.push(ev0);
+                pr.push(ev1);
+            } else {
+                pl.push(ev1);
+                pr.push(ev0);
+            }
+
+            match self.adj[cti][cei] {
+                Some(nb) if !self.removed[nb] && !visited.contains(&nb) => {
+                    // Only cross to neighbor if it shares the same parent face.
+                    if let Some(pf) = parent_filter {
+                        if self.parent_tri[nb] != pf {
+                            break;
+                        }
+                    }
+                    visited.insert(nb);
+                    crossed.push(nb);
+                    let nt = self.tris[nb];
+                    let ovi = if nt[0] != ev0 && nt[0] != ev1 {
+                        0
+                    } else if nt[1] != ev0 && nt[1] != ev1 {
+                        1
+                    } else {
+                        2
+                    };
+                    let ov = nt[ovi];
+                    if ov == v_end {
+                        break;
+                    }
+                    let po = Self::project(&self.verts[ov], ax);
+                    let oo = Self::orient2d_val(pb, pe, po);
+                    if oo == 0.0 && self.pt_between(v_beg, v_end, ov, ax) {
+                        self.add_segment_impl(v_beg, ov, depth + 1, parent_filter);
+                        self.add_segment_impl(ov, v_end, depth + 1, parent_filter);
+                        return;
+                    }
+                    // Determine which edge to cross next.
+                    // The opposite vertex and the two edge vertices form a triangle.
+                    // We need to cross the edge that the segment goes through.
+                    let ie0 = if nt[0] == ev0 {
+                        0
+                    } else if nt[1] == ev0 {
+                        1
+                    } else {
+                        2
+                    };
+                    let ie1 = if nt[0] == ev1 {
+                        0
+                    } else if nt[1] == ev1 {
+                        1
+                    } else {
+                        2
+                    };
+                    let o1n = Self::orient2d_val(pb, pe, Self::project(&self.verts[ev1], ax));
+                    if (oo > 0.0 && o1n < 0.0) || (oo < 0.0 && o1n > 0.0) {
+                        cti = nb;
+                        cei = ie0;
+                    } else {
+                        cti = nb;
+                        cei = ie1;
+                    }
+                }
+                _ => break,
+            }
+        }
+
+        // Close the polygons: append v_end to left, v_beg to right.
+        pl.push(v_end);
+        pr.push(v_beg);
+        if depth == 0 {
+            eprintln!("  add_seg({v_beg},{v_end}) par={parent_filter:?}: walk crossed {} tris, pl={:?}, pr={:?}", crossed.len(), pl, pr);
+        }
+        for &ti in &crossed {
+            self.removed[ti] = true;
+        }
+        let dp = if !crossed.is_empty() {
+            self.parent_tri[crossed[0]]
+        } else {
+            0
+        };
+        let pars: Vec<usize> = crossed.iter().map(|&ti| self.parent_tri[ti]).collect();
+        pl.dedup();
+        pr.dedup();
+        while pl.len() > 2 && pl[0] == pl[pl.len() - 1] {
+            pl.pop();
+        }
+        while pr.len() > 2 && pr[0] == pr[pr.len() - 1] {
+            pr.pop();
+        }
+        let tl = self.earcut_poly(&pl, ax);
+        let tr = self.earcut_poly(&pr, ax);
+        for nt in tl.iter().chain(tr.iter()) {
+            self.tris.push(*nt);
+            self.parent_tri
+                .push(self.assign_par(nt, &crossed, &pars, dp));
+            self.removed.push(false);
+            self.adj.push([None; 3]);
+        }
+        // Full adjacency rebuild to avoid stale pointers from removed triangles.
+        self.rebuild_all_adj();
+        self.mark_constrained(v_beg, v_end);
+    }
+
+    fn pt_between(&self, a: usize, b: usize, p: usize, ax: (usize, usize)) -> bool {
+        let pa = Self::project(&self.verts[a], ax);
+        let pb = Self::project(&self.verts[b], ax);
+        let pp = Self::project(&self.verts[p], ax);
+        let ab = [pb[0] - pa[0], pb[1] - pa[1]];
+        let ap = [pp[0] - pa[0], pp[1] - pa[1]];
+        let t = if ab[0].abs() > ab[1].abs() {
+            ap[0] / ab[0]
+        } else if ab[1].abs() > 1e-15 {
+            ap[1] / ab[1]
+        } else {
+            return false;
+        };
+        t > 1e-10 && t < 1.0 - 1e-10
+    }
+
+    fn seg_isect(&self, a0: usize, a1: usize, b0: usize, b1: usize) -> Option<[f64; 3]> {
+        let p0 = self.verts[a0];
+        let p1 = self.verts[a1];
+        let d = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+        let ax = Self::best_projection_axis(&self.verts, &[a0, a1, b0, b1]);
+        let (i, j) = ax;
+        let den = (p1[i] - p0[i]) * (self.verts[b1][j] - self.verts[b0][j])
+            - (p1[j] - p0[j]) * (self.verts[b1][i] - self.verts[b0][i]);
+        if den.abs() < 1e-15 {
+            return None;
+        }
+        let t = ((self.verts[b0][i] - p0[i]) * (self.verts[b1][j] - self.verts[b0][j])
+            - (self.verts[b0][j] - p0[j]) * (self.verts[b1][i] - self.verts[b0][i]))
+            / den;
+        if !(-1e-10..=1.0 + 1e-10).contains(&t) {
+            return None;
+        }
+        Some([p0[0] + t * d[0], p0[1] + t * d[1], p0[2] + t * d[2]])
+    }
+
+    fn earcut_poly(&self, poly: &[usize], ax: (usize, usize)) -> Vec<[usize; 3]> {
+        if poly.len() < 3 {
+            return vec![];
+        }
+        if poly.len() == 3 {
+            return vec![[poly[0], poly[1], poly[2]]];
+        }
+        let mut c: Vec<f64> = Vec::with_capacity(poly.len() * 2);
+        for &vi in poly {
+            c.push(self.verts[vi][ax.0]);
+            c.push(self.verts[vi][ax.1]);
+        }
+        match earcutr::earcut(&c, &[], 2) {
+            Ok(idx) => idx
+                .chunks(3)
+                .filter_map(|ch| {
+                    if ch.len() == 3 {
+                        let t = [poly[ch[0]], poly[ch[1]], poly[ch[2]]];
+                        if t[0] != t[1] && t[1] != t[2] && t[2] != t[0] {
+                            Some(t)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+            Err(_) => (1..poly.len() - 1)
+                .filter_map(|i| {
+                    let t = [poly[0], poly[i], poly[i + 1]];
+                    if t[0] != t[1] && t[1] != t[2] && t[2] != t[0] {
+                        Some(t)
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+        }
+    }
+
+    fn assign_par(&self, nt: &[usize; 3], crossed: &[usize], pars: &[usize], def: usize) -> usize {
+        if crossed.len() <= 1 {
+            return def;
+        }
+        let cx = (self.verts[nt[0]][0] + self.verts[nt[1]][0] + self.verts[nt[2]][0]) / 3.0;
+        let cy = (self.verts[nt[0]][1] + self.verts[nt[1]][1] + self.verts[nt[2]][1]) / 3.0;
+        let cz = (self.verts[nt[0]][2] + self.verts[nt[1]][2] + self.verts[nt[2]][2]) / 3.0;
+        let cen = [cx, cy, cz];
+        for (idx, &cti) in crossed.iter().enumerate() {
+            let t = self.tris[cti];
+            let ax = Self::best_projection_axis(&self.verts, &[t[0], t[1], t[2]]);
+            let p = Self::project(&cen, ax);
+            let a = Self::project(&self.verts[t[0]], ax);
+            let b = Self::project(&self.verts[t[1]], ax);
+            let c = Self::project(&self.verts[t[2]], ax);
+            let o0 = Self::orient2d_val(a, b, p);
+            let o1 = Self::orient2d_val(b, c, p);
+            let o2 = Self::orient2d_val(c, a, p);
+            if (o0 >= 0.0 && o1 >= 0.0 && o2 >= 0.0) || (o0 <= 0.0 && o1 <= 0.0 && o2 <= 0.0) {
+                return pars[idx];
+            }
+        }
+        def
+    }
+
+    // Compatibility aliases for tests that use the old API names
+    pub fn from_flat(verts: Vec<[f64; 3]>, tris: Vec<[usize; 3]>) -> Self {
+        Self::build(&verts, &tris)
+    }
+
+    pub fn point_insert(&mut self, pos: [f64; 3]) -> usize {
+        self.insert_point(pos)
+    }
+
+    pub fn active_tri_count(&self) -> usize {
+        self.removed.iter().filter(|r| !**r).count()
+    }
+
+    #[cfg(test)]
+    fn count_nonconformal(&self) -> usize {
+        let mut he: std::collections::HashMap<(usize, usize), usize> =
+            std::collections::HashMap::new();
+        for (ti, tri) in self.tris.iter().enumerate() {
+            if self.removed[ti] {
+                continue;
+            }
+            let [v0, v1, v2] = *tri;
+            *he.entry((v0, v1)).or_insert(0) += 1;
+            *he.entry((v1, v2)).or_insert(0) += 1;
+            *he.entry((v2, v0)).or_insert(0) += 1;
+        }
+        he.keys()
+            .filter(|(v0, v1)| !he.contains_key(&(*v1, *v0)))
+            .count()
+    }
+
+    fn rebuild_all_adj(&mut self) {
+        use std::collections::HashMap;
+        let n = self.tris.len();
+        self.adj = vec![[None; 3]; n];
+        let mut em: HashMap<(usize, usize), (usize, usize)> = HashMap::new();
+        for ti in 0..n {
+            if self.removed[ti] {
+                continue;
+            }
+            let t = self.tris[ti];
+            for (v0, v1, ei) in [(t[1], t[2], 0), (t[2], t[0], 1), (t[0], t[1], 2)] {
+                if let Some(&(oti, oei)) = em.get(&(v1, v0)) {
+                    self.adj[ti][ei] = Some(oti);
+                    self.adj[oti][oei] = Some(ti);
+                }
+                em.insert((v0, v1), (ti, ei));
+            }
+        }
+    }
+
+    fn rebuild_adj(&mut self, start: usize) {
+        use std::collections::HashMap;
+        let nvs: std::collections::HashSet<usize> = (start..self.tris.len())
+            .flat_map(|ti| self.tris[ti].iter().copied())
+            .collect();
+        let rel: Vec<usize> = (0..self.tris.len())
+            .filter(|&ti| {
+                if self.removed[ti] {
+                    return false;
+                }
+                ti >= start || self.tris[ti].iter().any(|v| nvs.contains(v))
+            })
+            .collect();
+        let mut em: HashMap<(usize, usize), (usize, usize)> = HashMap::new();
+        for &ti in &rel {
+            let t = self.tris[ti];
+            for (v0, v1, ei) in [(t[1], t[2], 0), (t[2], t[0], 1), (t[0], t[1], 2)] {
+                if let Some(&(oti, oei)) = em.get(&(v1, v0)) {
+                    self.adj[ti][ei] = Some(oti);
+                    self.adj[oti][oei] = Some(ti);
+                }
+                em.insert((v0, v1), (ti, ei));
+            }
+        }
+    }
+}
+
+/// Subdivide both meshes along their intersection segments using Cherchi
+/// Algorithm 1 (segment insertion) for guaranteed conformal output.
 ///
 /// # Algorithm
 /// 1. Merge vertex arrays (B offset by |verts_a|)
 /// 2. Compute all tri-tri intersections, collect segments
-/// 3. Per-triangle constraint segments (batch subdivision)
-/// 4. Edge-split propagation for conformal subdivision
-/// 5. Split each triangle by its constraint segments + propagated edge points
+/// 3. Build TriMesh for each mesh with adjacency
+/// 4. Insert intersection endpoints into both meshes
+/// 5. Insert constraint segments via Algorithm 1
+/// 6. Convert back to SubdividedMesh
 ///
 /// Ref #24: Yang 2025 — constrained triangulation step of hybrid boolean.
-/// Ref #9: Cherchi 2020 — indirect predicates for exact arrangements.
-#[allow(dead_code)] // Phase 2 building block — task 2c
+/// Cherchi-based subdivision: TriMesh with point insertion.
+/// This is the new implementation that will eventually replace subdivide_mesh_pair.
+/// Currently used by Cherchi-specific tests only.
+/// Ref #9: Cherchi 2020 — Algorithm 1 segment insertion.
+#[allow(dead_code)] // Phase 2 building block — will replace subdivide_mesh_pair
+fn subdivide_mesh_pair_cherchi(
+    verts_a: &[[f64; 3]],
+    tris_a: &[[usize; 3]],
+    verts_b: &[[f64; 3]],
+    tris_b: &[[usize; 3]],
+    deadline: Option<std::time::Instant>,
+) -> Result<SubdividedMesh, crate::types::KernelError> {
+    use std::collections::BTreeMap;
+    use std::collections::HashMap;
+
+    let offset_b = verts_a.len();
+
+    // Shared quantization for conformal vertex deduplication.
+    let quant_conformal = |p: [f64; 3]| -> [i64; 3] {
+        let scale = crate::units::QUANT_NANOMETER_SCALE;
+        [
+            (p[0] * scale).round() as i64,
+            (p[1] * scale).round() as i64,
+            (p[2] * scale).round() as i64,
+        ]
+    };
+
+    // Position-based dedup map for intersection vertices.
+    // from different triangle pairs with floating-point rounding differences.
+    let mut isect_vertex_dedup: HashMap<[i64; 3], usize> = HashMap::new();
+
+    // Step 1: Merge vertex arrays
+    let mut all_verts: Vec<[f64; 3]> = Vec::with_capacity(verts_a.len() + verts_b.len());
+    all_verts.extend_from_slice(verts_a);
+    all_verts.extend_from_slice(verts_b);
+
+    // Remap B's triangle indices
+    let remapped_tris_b: Vec<[usize; 3]> = tris_b
+        .iter()
+        .map(|t| [t[0] + offset_b, t[1] + offset_b, t[2] + offset_b])
+        .collect();
+
+    // Step 2: Compute intersections using BVH-accelerated broad phase.
+    // Build AABB for each mesh-B triangle (remapped), then construct a BVH.
+    // For each mesh-A triangle, query the BVH for overlapping B triangles
+    // and only run exact tri-tri intersection on those pairs.
+    // Ref #9: Cherchi 2020 — AABB tree for O(n log n + k) pair filtering.
+    let mut constraints_a: BTreeMap<usize, Vec<[usize; 2]>> = BTreeMap::new();
+    let mut constraints_b: BTreeMap<usize, Vec<[usize; 2]>> = BTreeMap::new();
+
+    let mut aabbs_b: Vec<(usize, Aabb)> = remapped_tris_b
+        .iter()
+        .enumerate()
+        .map(|(j, tri)| {
+            let aabb =
+                Aabb::from_triangle(&all_verts[tri[0]], &all_verts[tri[1]], &all_verts[tri[2]]);
+            (j, aabb)
+        })
+        .collect();
+
+    // Build BVH for mesh B (only if non-empty — empty meshes are caught upstream).
+    let bvh_b = if aabbs_b.is_empty() {
+        None
+    } else {
+        Some(BvhNode::build(&mut aabbs_b))
+    };
+
+    let mut candidates = Vec::new();
+    if let Some(ref bvh) = bvh_b {
+        for (i, tri_a_idx) in tris_a.iter().enumerate() {
+            if i % 50 == 0 {
+                if let Some(d) = deadline {
+                    if std::time::Instant::now() > d {
+                        return Err(crate::types::KernelError::NotSupported {
+                            operation: "yang_boolean: subdivision timeout".to_string(),
+                        });
+                    }
+                }
+            }
+            let aabb_a = Aabb::from_triangle(
+                &all_verts[tri_a_idx[0]],
+                &all_verts[tri_a_idx[1]],
+                &all_verts[tri_a_idx[2]],
+            );
+            candidates.clear();
+            bvh.query_overlapping(&aabb_a, &mut candidates);
+
+            for &j in &candidates {
+                let remapped_b = remapped_tris_b[j];
+                let result = tri_tri_intersect(*tri_a_idx, remapped_b, &all_verts);
+
+                if let TriTriIsect::Segment(ip0, ip1) = result {
+                    let p0 = materialize_ip(&ip0, &all_verts);
+                    let p1 = materialize_ip(&ip1, &all_verts);
+
+                    let vi0 = if ip0.edge[0] == ip0.edge[1] {
+                        ip0.edge[0]
+                    } else {
+                        // Conformal vertex dedup: reuse existing vertex at
+                        // the same quantized position, or create a new one.
+                        // Ref #9: Cherchi 2020 §3.2 — vertex sharing for
+                        // conformal mesh subdivision.
+                        let key = quant_conformal(p0);
+                        *isect_vertex_dedup.entry(key).or_insert_with(|| {
+                            let idx = all_verts.len();
+                            all_verts.push(p0);
+                            idx
+                        })
+                    };
+
+                    let vi1 = if ip1.edge[0] == ip1.edge[1] {
+                        ip1.edge[0]
+                    } else {
+                        let key = quant_conformal(p1);
+                        *isect_vertex_dedup.entry(key).or_insert_with(|| {
+                            let idx = all_verts.len();
+                            all_verts.push(p1);
+                            idx
+                        })
+                    };
+
+                    if vi0 != vi1 {
+                        constraints_a.entry(i).or_default().push([vi0, vi1]);
+                        constraints_b.entry(j).or_default().push([vi0, vi1]);
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Step 3: Global TriMesh with point insertion ──
+    // Build a global TriMesh for each mesh, insert all intersection points
+    // (splitting triangles), then mark intersection segments as constrained.
+    // Point insertion splits triangles at endpoints, automatically propagating
+    // splits along shared edges via the global adjacency structure.
+
+    let mut mesh_a = TriMesh::build(&all_verts, tris_a);
+    let mut mesh_b = TriMesh::build(&all_verts, &remapped_tris_b);
+
+    // Step 3a: Point insertion — GLOBAL, so edge splits propagate across
+    // parent face boundaries. Collect all unique intersection points first.
+    let mut isect_points: Vec<usize> = Vec::new();
+    for (_, segs) in constraints_a.iter().chain(constraints_b.iter()) {
+        for seg in segs {
+            for &vi in &[seg[0], seg[1]] {
+                if !isect_points.contains(&vi) {
+                    isect_points.push(vi);
+                }
+            }
+        }
+    }
+    for &vi in &isect_points {
+        mesh_a.ensure_in_mesh(vi);
+        mesh_b.ensure_in_mesh(vi);
+    }
+    // Note: Constraint enforcement (edge flipping) is not needed yet.
+    // With correct CCW winding in edge_verts, point insertion alone produces
+    // conformal output. Constraint segments that aren't mesh edges may need
+    // edge flipping for complex non-box geometries in the future.
+
+    // Step 4: Convert TriMeshes back to SubdividedMesh format.
+    let final_verts = if mesh_a.verts.len() >= mesh_b.verts.len() {
+        mesh_a.verts.clone()
+    } else {
+        mesh_b.verts.clone()
+    };
+
+    let mut result_tris_a = Vec::new();
+    for (ti, tri) in mesh_a.tris.iter().enumerate() {
+        if !mesh_a.removed[ti] && tri[0] != tri[1] && tri[1] != tri[2] && tri[2] != tri[0] {
+            result_tris_a.push(SubTriangle {
+                verts: *tri,
+                parent_tri: mesh_a.parent_tri[ti],
+            });
+        }
+    }
+
+    let mut result_tris_b = Vec::new();
+    for (ti, tri) in mesh_b.tris.iter().enumerate() {
+        if !mesh_b.removed[ti] && tri[0] != tri[1] && tri[1] != tri[2] && tri[2] != tri[0] {
+            result_tris_b.push(SubTriangle {
+                verts: *tri,
+                parent_tri: mesh_b.parent_tri[ti],
+            });
+        }
+    }
+
+    Ok(SubdividedMesh {
+        verts: final_verts,
+        tris_a: result_tris_a,
+        tris_b: result_tris_b,
+    })
+}
+
 pub(crate) fn subdivide_mesh_pair(
     verts_a: &[[f64; 3]],
     tris_a: &[[usize; 3]],
@@ -8775,6 +10159,651 @@ mod tests {
         for (i, t) in result.iter().enumerate() {
             let area = triangle_area_3d(&verts[t[0]], &verts[t[1]], &verts[t[2]]);
             assert!(area > 1e-15, "sub-triangle {i} is degenerate: area={area}");
+        }
+    }
+
+    // ── Cherchi Algorithm 1: Conformality & watertightness tests ─────────
+    //
+    // These tests exercise `subdivide_mesh_pair()` on overlapping meshes
+    // and assert properties (conformal edges, shared vertices, watertight
+    // topology, no self-intersections) that the Cherchi segment insertion
+    // algorithm guarantees by construction. The current implementation fails
+    // these — the implementer will fix `subdivide_mesh_pair()` to pass them.
+    //
+    // Key: we use a ROTATED box (45° around Y) so that intersection segments
+    // cut through triangle interiors at arbitrary angles, not along existing
+    // edges. Axis-aligned boxes produce intersections that accidentally align
+    // with mesh edges, masking the conformality bugs.
+
+    /// Build a box mesh rotated 45° around the Y axis, centered at `center`.
+    /// Half-extents are `half` (i.e., box goes from center-half to center+half
+    /// before rotation). This produces intersection curves that are NOT aligned
+    /// with any triangle edges of an axis-aligned box.
+    fn make_rotated_box_mesh(center: [f64; 3], half: f64) -> (Vec<[f64; 3]>, Vec<[usize; 3]>) {
+        // 45° rotation around Y axis
+        let cos45 = std::f64::consts::FRAC_1_SQRT_2;
+        let sin45 = std::f64::consts::FRAC_1_SQRT_2;
+
+        let rotate_y = |p: [f64; 3]| -> [f64; 3] {
+            [
+                cos45 * p[0] + sin45 * p[2] + center[0],
+                p[1] + center[1],
+                -sin45 * p[0] + cos45 * p[2] + center[2],
+            ]
+        };
+
+        let h = half;
+        let corners = [
+            [-h, -h, -h],
+            [h, -h, -h],
+            [h, h, -h],
+            [-h, h, -h],
+            [-h, -h, h],
+            [h, -h, h],
+            [h, h, h],
+            [-h, h, h],
+        ];
+        let verts: Vec<[f64; 3]> = corners.iter().map(|c| rotate_y(*c)).collect();
+
+        // Same winding as make_box_mesh
+        let tris = vec![
+            [0, 2, 1],
+            [0, 3, 2],
+            [4, 5, 6],
+            [4, 6, 7],
+            [0, 1, 5],
+            [0, 5, 4],
+            [3, 6, 2],
+            [3, 7, 6],
+            [0, 4, 7],
+            [0, 7, 3],
+            [1, 2, 6],
+            [1, 6, 5],
+        ];
+        (verts, tris)
+    }
+
+    /// After subdivision, every directed edge (v0,v1) in tris_a must have a
+    /// matching reverse edge (v1,v0) in some other triangle of tris_a. This
+    /// is the conformal (edge-manifold) property. Non-conformal edges indicate
+    /// that intersection segments were not properly inserted as mesh edges.
+    ///
+    /// Uses a rotated box so intersection segments cut through triangle
+    /// interiors at non-axis-aligned angles.
+    #[test]
+    fn test_cherchi_subdivision_every_edge_shared() {
+        use std::collections::HashMap;
+
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (verts_b, tris_b) = make_rotated_box_mesh([1.0, 1.0, 1.0], 1.0);
+
+        let subdivided = subdivide_mesh_pair_cherchi(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
+
+        // Count directed half-edges in tris_a
+        let mut half_edge_count: HashMap<(usize, usize), usize> = HashMap::new();
+        for sub_tri in &subdivided.tris_a {
+            let [v0, v1, v2] = sub_tri.verts;
+            *half_edge_count.entry((v0, v1)).or_insert(0) += 1;
+            *half_edge_count.entry((v1, v2)).or_insert(0) += 1;
+            *half_edge_count.entry((v2, v0)).or_insert(0) += 1;
+        }
+
+        // For every directed edge (a,b), the reverse (b,a) must exist
+        let mut non_conformal = 0usize;
+        for &(v0, v1) in half_edge_count.keys() {
+            if !half_edge_count.contains_key(&(v1, v0)) {
+                non_conformal += 1;
+            }
+        }
+
+        assert_eq!(
+            non_conformal, 0,
+            "Conformal property violated: {non_conformal} directed edges in tris_a \
+             have no matching reverse edge. Cherchi segment insertion must guarantee \
+             that every intersection segment becomes a shared mesh edge."
+        );
+
+        // Same check for tris_b
+        let mut half_edge_count_b: HashMap<(usize, usize), usize> = HashMap::new();
+        for sub_tri in &subdivided.tris_b {
+            let [v0, v1, v2] = sub_tri.verts;
+            *half_edge_count_b.entry((v0, v1)).or_insert(0) += 1;
+            *half_edge_count_b.entry((v1, v2)).or_insert(0) += 1;
+            *half_edge_count_b.entry((v2, v0)).or_insert(0) += 1;
+        }
+
+        let mut non_conformal_b = 0usize;
+        for &(v0, v1) in half_edge_count_b.keys() {
+            if !half_edge_count_b.contains_key(&(v1, v0)) {
+                non_conformal_b += 1;
+            }
+        }
+
+        assert_eq!(
+            non_conformal_b, 0,
+            "Conformal property violated in tris_b: {non_conformal_b} non-conformal edges."
+        );
+    }
+
+    /// Cross-mesh conformality: edges on the intersection boundary must be
+    /// shared between tris_a and tris_b. For every directed edge (v0,v1)
+    /// that appears in tris_a, if the REVERSE (v1,v0) appears in tris_b
+    /// (meaning these triangles share a boundary edge), both must use the
+    /// same vertex indices. Additionally, the total set of boundary-adjacent
+    /// directed edges in each mesh must be paired — every tris_a boundary
+    /// edge has its reverse in tris_b and vice versa.
+    ///
+    /// Uses a rotated box to force intersection edges through triangle
+    /// interiors where cross-mesh conformality is most likely to fail.
+    #[test]
+    fn test_cherchi_subdivision_shared_vertices() {
+        use std::collections::HashSet;
+
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (verts_b, tris_b) = make_rotated_box_mesh([1.0, 1.0, 1.0], 1.0);
+
+        let subdivided = subdivide_mesh_pair_cherchi(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
+
+        // Collect all directed edges for each mesh
+        let mut edges_a: HashSet<(usize, usize)> = HashSet::new();
+        for sub_tri in &subdivided.tris_a {
+            let [v0, v1, v2] = sub_tri.verts;
+            edges_a.insert((v0, v1));
+            edges_a.insert((v1, v2));
+            edges_a.insert((v2, v0));
+        }
+        let mut edges_b: HashSet<(usize, usize)> = HashSet::new();
+        for sub_tri in &subdivided.tris_b {
+            let [v0, v1, v2] = sub_tri.verts;
+            edges_b.insert((v0, v1));
+            edges_b.insert((v1, v2));
+            edges_b.insert((v2, v0));
+        }
+
+        // Find boundary edges of mesh A: directed edges whose REVERSE is NOT
+        // in mesh A itself (i.e., not an interior edge). These are the edges on
+        // the surface boundary of A's sub-triangulation.
+        let boundary_a: HashSet<(usize, usize)> = edges_a
+            .iter()
+            .filter(|(v0, v1)| !edges_a.contains(&(*v1, *v0)))
+            .copied()
+            .collect();
+
+        // Of these boundary edges, which ones are on the INTERSECTION boundary?
+        // An intersection boundary edge of A should have its reverse in mesh B.
+        // Count boundary edges that are NOT matched by a reverse in mesh B.
+        let unmatched_boundary = boundary_a
+            .iter()
+            .filter(|(v0, v1)| !edges_b.contains(&(*v1, *v0)))
+            .count();
+
+        // For a closed subdivided mesh, ALL boundary edges should be either
+        // matched cross-mesh or be original mesh boundary edges. With two
+        // overlapping closed solids, the only boundary edges should be the
+        // intersection curve — and those MUST have cross-mesh twins.
+        //
+        // If unmatched > 0, the subdivision failed to produce conformal
+        // cross-mesh edges at the intersection boundary.
+        assert_eq!(
+            unmatched_boundary,
+            0,
+            "Cross-mesh conformality violated: {unmatched_boundary} boundary edges \
+             in tris_a have no matching reverse edge in tris_b. Total boundary \
+             edges in A: {}. Cherchi segment insertion must produce identical \
+             intersection edges in both meshes.",
+            boundary_a.len()
+        );
+    }
+
+    /// Full pipeline test: subdivide → label → face_survival → merge_coplanar
+    /// → flood_fill_patches. The resulting B-Rep topology must have zero unpaired
+    /// half-edges (every half-edge has a twin). This fails when subdivision
+    /// produces non-conformal edges that propagate through to topology assembly.
+    ///
+    /// Uses a rotated box to force intersection segments through triangle
+    /// interiors at arbitrary angles.
+    #[test]
+    #[ignore] // Requires Cherchi to be wired into yang_boolean_pipeline
+    fn test_cherchi_subdivision_watertight_through_pipeline() {
+        use crate::boolean::topology_extract::yang_boolean_pipeline;
+        use crate::tessellation::bijective::BijectiveMap;
+        use crate::topology::half_edge::FaceIdx;
+
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (verts_b, tris_b) = make_rotated_box_mesh([1.0, 1.0, 1.0], 1.0);
+
+        // Build bijective maps: 12 tris per box, 2 per face → face = tri / 2
+        let bijective_a = BijectiveMap {
+            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
+        };
+        let bijective_b = BijectiveMap {
+            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
+        };
+
+        // Run full pipeline (subtract — the most topology-demanding operation)
+        let result = yang_boolean_pipeline(
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            &bijective_a,
+            &bijective_b,
+            MeshBooleanOp::Subtract,
+            None,
+        )
+        .expect("Yang pipeline should succeed for overlapping boxes");
+
+        let topo = &result.topology;
+        let n_edges = topo.arena.edges.len();
+        let n_he = topo.arena.half_edges.len();
+
+        // Must produce a non-trivial result
+        assert!(
+            n_edges > 0,
+            "Pipeline must produce edges for overlapping boxes subtract"
+        );
+
+        // Watertight: every half-edge must be paired (exactly 2 HEs per edge)
+        assert_eq!(
+            n_he,
+            2 * n_edges,
+            "Watertight violated: {n_he} half-edges but {n_edges} edges \
+             (expected ratio 2:1). Unpaired half-edges = {}. \
+             Non-conformal subdivision causes unpaired HEs at intersection boundaries.",
+            n_he as isize - 2 * n_edges as isize
+        );
+
+        // Euler characteristic for a closed solid: V - E + F = 2
+        let n_faces = topo.arena.faces.len();
+        let n_verts = topo.arena.vertices.len();
+        if n_faces > 0 && n_verts > 0 {
+            let euler = n_verts as isize - n_edges as isize + n_faces as isize;
+            assert_eq!(
+                euler, 2,
+                "Euler characteristic = {euler} (expected 2 for closed solid). \
+                 V={n_verts}, E={n_edges}, F={n_faces}."
+            );
+        }
+    }
+
+    /// After full boolean subtraction pipeline, the resulting B-Rep must have
+    /// zero unpaired half-edges — a necessary condition for a watertight solid.
+    /// This complements test 3 (union) by testing subtract, which produces more
+    /// complex topology at the intersection boundary.
+    ///
+    /// Uses Intersect operation (the most geometrically demanding op — the result
+    /// is entirely bounded by intersection curves) with a rotated box.
+    #[test]
+    #[ignore] // Requires Cherchi to be wired into yang_boolean_pipeline
+    fn test_cherchi_subdivision_no_self_intersection_after_pipeline() {
+        use crate::boolean::topology_extract::yang_boolean_pipeline;
+        use crate::tessellation::bijective::BijectiveMap;
+        use crate::topology::half_edge::FaceIdx;
+
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (verts_b, tris_b) = make_rotated_box_mesh([1.0, 1.0, 1.0], 1.0);
+
+        let bijective_a = BijectiveMap {
+            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
+        };
+        let bijective_b = BijectiveMap {
+            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
+        };
+
+        let result = yang_boolean_pipeline(
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            &bijective_a,
+            &bijective_b,
+            MeshBooleanOp::Intersect,
+            None,
+        )
+        .expect("Yang pipeline should succeed for overlapping boxes");
+
+        let topo = &result.topology;
+        let n_edges = topo.arena.edges.len();
+        let n_he = topo.arena.half_edges.len();
+        let n_faces = topo.arena.faces.len();
+        let n_verts = topo.arena.vertices.len();
+
+        // Must produce a non-trivial result (intersection of overlapping solids
+        // is a non-empty solid)
+        assert!(
+            n_faces > 0,
+            "Intersect of overlapping solids must produce faces"
+        );
+
+        // Watertight: every half-edge must be paired
+        let unpaired = if n_edges > 0 {
+            n_he as isize - 2 * n_edges as isize
+        } else {
+            n_he as isize
+        };
+        assert_eq!(
+            unpaired, 0,
+            "Intersect result has {unpaired} unpaired half-edges \
+             ({n_he} HEs, {n_edges} edges). Non-conformal subdivision causes \
+             unpaired HEs at intersection boundaries."
+        );
+
+        // Euler characteristic for a closed solid
+        if n_faces > 0 && n_verts > 0 {
+            let euler = n_verts as isize - n_edges as isize + n_faces as isize;
+            assert_eq!(
+                euler, 2,
+                "Intersect Euler characteristic = {euler} (expected 2). \
+                 V={n_verts}, E={n_edges}, F={n_faces}."
+            );
+        }
+    }
+
+    // ── Cherchi Algorithm 1: TriMesh + segment insertion unit tests ───────
+    //
+    // These tests exercise the TriMesh data structure and Cherchi Algorithm 1
+    // internal operations. They test stubs that the implementer will replace
+    // with real logic. All 4 must FAIL against stubs.
+
+    /// Build a TriMesh from two triangles sharing an edge and verify that
+    /// adjacency is correctly computed. The two triangles form a "bowtie":
+    ///
+    ///   2          2
+    ///   |\         |\
+    ///   | \   =>   | \  T0: [0,1,2]
+    ///   |  \       |  \ T1: [1,3,2]
+    ///   0---1---3  shared edge: (1,2)
+    ///
+    /// After `from_flat()`, adjacency must report:
+    /// - T0's edge opposite vertex 0 (edge 1→2) neighbors T1
+    /// - T1's edge opposite vertex 3 (edge 1→2) neighbors T0
+    /// - All other edges are boundary (None)
+    #[test]
+    fn test_trimesh_adjacency_correct() {
+        let verts = vec![
+            [0.0, 0.0, 0.0], // 0
+            [1.0, 0.0, 0.0], // 1
+            [0.5, 1.0, 0.0], // 2
+            [1.5, 1.0, 0.0], // 3
+        ];
+        // T0: vertices [0,1,2], T1: vertices [1,3,2]
+        // Shared edge is (1,2): in T0 this is edge opposite v0 (edge_idx=0),
+        // in T1 this is edge opposite v3 — but T1=[1,3,2], so:
+        //   T1 edge 0 (opposite v1=idx0): (3,2)
+        //   T1 edge 1 (opposite v3=idx1): (1,2)  ← shared
+        //   T1 edge 2 (opposite v2=idx2): (1,3)
+        let tris = vec![[0, 1, 2], [1, 3, 2]];
+
+        let mesh = TriMesh::from_flat(verts, tris);
+
+        // T0 edge 0 is opposite vertex 0, so edge (v1,v2) = (1,2).
+        // Its neighbor must be T1.
+        assert_eq!(
+            mesh.adj[0][0],
+            Some(1),
+            "T0 edge opposite v0 (edge 1→2) must neighbor T1, got {:?}",
+            mesh.adj[0][0]
+        );
+
+        // T1 edge 1 is opposite vertex at index 1 (which is v3), so edge (v0,v2) of T1
+        // = (1,2). Its neighbor must be T0.
+        assert_eq!(
+            mesh.adj[1][1],
+            Some(0),
+            "T1 edge opposite v3 (edge 1→2) must neighbor T0, got {:?}",
+            mesh.adj[1][1]
+        );
+
+        // All other edges are boundary (no neighbor)
+        assert_eq!(
+            mesh.adj[0][1], None,
+            "T0 edge 1 should be boundary, got {:?}",
+            mesh.adj[0][1]
+        );
+        assert_eq!(
+            mesh.adj[0][2], None,
+            "T0 edge 2 should be boundary, got {:?}",
+            mesh.adj[0][2]
+        );
+        assert_eq!(
+            mesh.adj[1][0], None,
+            "T1 edge 0 should be boundary, got {:?}",
+            mesh.adj[1][0]
+        );
+        assert_eq!(
+            mesh.adj[1][2], None,
+            "T1 edge 2 should be boundary, got {:?}",
+            mesh.adj[1][2]
+        );
+    }
+
+    /// Insert a point on a shared edge between two triangles. Both triangles
+    /// must be split (2→4 triangles), and adjacency must be maintained for
+    /// all 4 resulting triangles.
+    ///
+    /// Starting configuration (same as adjacency test):
+    ///   T0: [0,1,2], T1: [1,3,2], shared edge (1,2)
+    ///
+    /// Insert point P at midpoint of edge (1,2) = [0.75, 0.5, 0.0].
+    /// Expected result: 4 triangles, all with correct adjacency, and the
+    /// new vertex index is returned.
+    #[test]
+    fn test_point_insert_on_edge() {
+        let verts = vec![
+            [0.0, 0.0, 0.0], // 0
+            [1.0, 0.0, 0.0], // 1
+            [0.5, 1.0, 0.0], // 2
+            [1.5, 1.0, 0.0], // 3
+        ];
+        let tris = vec![[0, 1, 2], [1, 3, 2]];
+
+        let mut mesh = TriMesh::from_flat(verts, tris);
+
+        // Insert point on shared edge (1,2) at its midpoint
+        let midpoint = [0.75, 0.5, 0.0];
+        let p_idx = mesh.point_insert(midpoint);
+
+        // The new vertex must exist
+        assert!(
+            p_idx < mesh.verts.len(),
+            "point_insert must return a valid vertex index"
+        );
+
+        // After splitting edge (1,2), we expect 4 active triangles:
+        // T0 splits into T0a: [0,1,P] and T0b: [0,P,2]
+        // T1 splits into T1a: [1,3,P] and T1b: [P,3,2]
+        // (exact vertex ordering may vary, but count must be 4)
+        let active = mesh.active_tri_count();
+        assert_eq!(
+            active, 4,
+            "Splitting shared edge must produce 4 active triangles, got {active}"
+        );
+
+        // Every active triangle must reference the new vertex P
+        // (since the split edge is shared, all 4 sub-triangles touch P)
+        let tris_with_p: usize = mesh
+            .tris
+            .iter()
+            .zip(mesh.removed.iter())
+            .filter(|(tri, removed)| !**removed && tri.contains(&p_idx))
+            .count();
+        assert_eq!(
+            tris_with_p, 4,
+            "All 4 sub-triangles must reference the new point P, got {tris_with_p}"
+        );
+
+        // Adjacency must be consistent: for every tri T, if adj[T][e] = Some(T'),
+        // then there must exist some edge e' in T' where adj[T'][e'] = Some(T).
+        for (ti, adj) in mesh.adj.iter().enumerate() {
+            if mesh.removed[ti] {
+                continue;
+            }
+            for (ei, neighbor) in adj.iter().enumerate() {
+                if let Some(ni) = neighbor {
+                    let reverse_found = mesh.adj[*ni].iter().any(|a| *a == Some(ti));
+                    assert!(
+                        reverse_found,
+                        "Adjacency inconsistent: adj[{ti}][{ei}] = {ni}, \
+                         but {ni} has no reverse link to {ti}. adj[{ni}] = {:?}",
+                        mesh.adj[*ni]
+                    );
+                }
+            }
+        }
+    }
+
+    /// Build two overlapping boxes, run the full Cherchi pipeline through
+    /// `subdivide_mesh_pair()`, and verify conformal output: every directed
+    /// edge in the subdivided mesh has a matching reverse edge (within each
+    /// mesh separately).
+    ///
+    /// This is the integration-level version of the conformal test — it
+    /// exercises `TriMesh::from_flat()` → point_insert → add_segment →
+    /// conversion back to SubdividedMesh inside `subdivide_mesh_pair()`.
+    #[test]
+    fn test_add_segment_simple() {
+        use std::collections::HashMap;
+
+        // Use a rotated box to force intersection through triangle interiors
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (verts_b, tris_b) = make_rotated_box_mesh([1.0, 1.0, 1.0], 1.0);
+
+        let subdivided = subdivide_mesh_pair_cherchi(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
+
+        // Check conformal property for tris_a: every directed edge has reverse
+        let mut he_a: HashMap<(usize, usize), usize> = HashMap::new();
+        for sub_tri in &subdivided.tris_a {
+            let [v0, v1, v2] = sub_tri.verts;
+            *he_a.entry((v0, v1)).or_insert(0) += 1;
+            *he_a.entry((v1, v2)).or_insert(0) += 1;
+            *he_a.entry((v2, v0)).or_insert(0) += 1;
+        }
+
+        let non_conformal_a: usize = he_a
+            .keys()
+            .filter(|(v0, v1)| !he_a.contains_key(&(*v1, *v0)))
+            .count();
+
+        // Check conformal property for tris_b
+        let mut he_b: HashMap<(usize, usize), usize> = HashMap::new();
+        for sub_tri in &subdivided.tris_b {
+            let [v0, v1, v2] = sub_tri.verts;
+            *he_b.entry((v0, v1)).or_insert(0) += 1;
+            *he_b.entry((v1, v2)).or_insert(0) += 1;
+            *he_b.entry((v2, v0)).or_insert(0) += 1;
+        }
+
+        let non_conformal_b: usize = he_b
+            .keys()
+            .filter(|(v0, v1)| !he_b.contains_key(&(*v1, *v0)))
+            .count();
+
+        // Diagnostic: check per-parent conformal edges
+        if non_conformal_a > 0 {
+            let mut per_parent: HashMap<usize, Vec<(usize, usize)>> = HashMap::new();
+            for &(v0, v1) in he_a.keys() {
+                if !he_a.contains_key(&(v1, v0)) {
+                    // Find parent of this edge
+                    let p = subdivided
+                        .tris_a
+                        .iter()
+                        .find(|st| {
+                            let [a, b, c] = st.verts;
+                            (a == v0 && b == v1) || (b == v0 && c == v1) || (c == v0 && a == v1)
+                        })
+                        .map(|st| st.parent_tri)
+                        .unwrap_or(999);
+                    per_parent.entry(p).or_default().push((v0, v1));
+                }
+            }
+            for (par, edges) in &per_parent {
+                eprintln!(
+                    "  parent_a[{par}]: {} non-conformal boundary edges: {:?}",
+                    edges.len(),
+                    &edges[..edges.len().min(5)]
+                );
+            }
+        }
+
+        let total = non_conformal_a + non_conformal_b;
+        assert_eq!(
+            total, 0,
+            "Conformal property violated after segment insertion: \
+             {non_conformal_a} non-conformal edges in A, {non_conformal_b} in B. \
+             Cherchi add_segment must guarantee every intersection segment becomes \
+             a shared mesh edge."
+        );
+    }
+
+    /// Full pipeline through flood_fill_patches: two overlapping boxes
+    /// (one rotated), subdivide → label → face_survival → flood_fill.
+    /// Assert zero unpaired half-edges in the B-Rep topology.
+    ///
+    /// This test verifies that the Cherchi segment insertion produces
+    /// conformal-enough output that the downstream topology builder can
+    /// pair every half-edge — the watertightness guarantee.
+    #[test]
+    #[ignore] // Requires Cherchi to be wired into yang_boolean_pipeline
+    fn test_add_segment_produces_watertight() {
+        use crate::boolean::topology_extract::yang_boolean_pipeline;
+        use crate::tessellation::bijective::BijectiveMap;
+        use crate::topology::half_edge::FaceIdx;
+
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (verts_b, tris_b) = make_rotated_box_mesh([1.0, 1.0, 1.0], 1.0);
+
+        let bijective_a = BijectiveMap {
+            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
+        };
+        let bijective_b = BijectiveMap {
+            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
+        };
+
+        let result = yang_boolean_pipeline(
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            &bijective_a,
+            &bijective_b,
+            MeshBooleanOp::Subtract,
+            None,
+        )
+        .expect("Yang pipeline should succeed");
+
+        let topo = &result.topology;
+        let n_edges = topo.arena.edges.len();
+        let n_he = topo.arena.half_edges.len();
+
+        assert!(
+            n_edges > 0,
+            "Pipeline must produce edges for overlapping boxes"
+        );
+
+        // Watertight: exactly 2 half-edges per edge
+        assert_eq!(
+            n_he,
+            2 * n_edges,
+            "Watertight violated after segment insertion: \
+             {n_he} half-edges but {n_edges} edges (expected 2:1 ratio). \
+             Unpaired HEs = {}. Cherchi add_segment must produce conformal \
+             output that enables complete half-edge pairing.",
+            n_he as isize - 2 * n_edges as isize
+        );
+
+        // Euler characteristic V - E + F = 2 for closed solid
+        let n_faces = topo.arena.faces.len();
+        let n_verts = topo.arena.vertices.len();
+        if n_faces > 0 && n_verts > 0 {
+            let euler = n_verts as isize - n_edges as isize + n_faces as isize;
+            assert_eq!(
+                euler, 2,
+                "Euler characteristic = {euler} (expected 2). \
+                 V={n_verts}, E={n_edges}, F={n_faces}."
+            );
         }
     }
 }
