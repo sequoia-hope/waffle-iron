@@ -600,13 +600,37 @@ pub(crate) fn yang_boolean_inner(
     check_yang_triangle_count(tris_a.len(), tris_b.len())?;
 
     // Step 3: Build bijective maps (mesh triangle → B-Rep face).
-    let bijective_a = BijectiveMap::from_render_mesh(&mesh_a, &solid_a.face_map);
-    let bijective_b = BijectiveMap::from_render_mesh(&mesh_b, &solid_b.face_map);
+    let mut bijective_a = BijectiveMap::from_render_mesh(&mesh_a, &solid_a.face_map);
+    let mut bijective_b = BijectiveMap::from_render_mesh(&mesh_b, &solid_b.face_map);
 
     if !bijective_a.is_complete() || !bijective_b.is_complete() {
         return Err(KernelError::NotSupported {
             operation: "yang_boolean: bijective map has unmapped triangles".to_string(),
         });
+    }
+
+    // Stage 0: Coplanar preprocessing (Yang 2025 Section 4.5.5).
+    // Detect coplanar face pairs and inject shared conformal triangulations
+    // so the mesh boolean sees identical geometry on coplanar planes.
+    let coplanar_pairs =
+        crate::boolean::coplanar_preprocess::detect_coplanar_face_pairs(solid_a, solid_b);
+    if !coplanar_pairs.is_empty() {
+        #[cfg(test)]
+        eprintln!(
+            "[YANG DIAG] Stage 0: {} coplanar face pairs detected",
+            coplanar_pairs.len()
+        );
+        crate::boolean::coplanar_preprocess::inject_conformal_coplanar_mesh(
+            &coplanar_pairs,
+            &mut verts_a,
+            &mut tris_a,
+            &mut verts_b,
+            &mut tris_b,
+            &mut bijective_a,
+            &mut bijective_b,
+            &mesh_a,
+            &mesh_b,
+        );
     }
 
     // Create deadline for the Yang pipeline to prevent runaway computation.
@@ -743,7 +767,7 @@ pub(crate) fn yang_boolean_inner(
 ///
 /// Accepts a `TessellationLod` to control segment counts: `Boolean` uses 16
 /// segments (sufficient for topology extraction), `Render` uses 64.
-fn tessellate_waffle_solid(
+pub(crate) fn tessellate_waffle_solid(
     solid: &WaffleSolid,
     lod: tessellation::TessellationLod,
 ) -> Result<RenderMesh, KernelError> {
@@ -967,7 +991,7 @@ pub(crate) fn check_yang_triangle_count(n_a: usize, n_b: usize) -> Result<(), Ke
 ///
 /// Uses the same `QUANT_NANOMETER_SCALE` quantization used throughout the
 /// pipeline for consistency. Ref [#9]: Cherchi 2020 — conformal vertex sharing.
-fn dedup_mesh_vertices(verts: &mut Vec<[f64; 3]>, tris: &mut [[usize; 3]]) {
+pub(crate) fn dedup_mesh_vertices(verts: &mut Vec<[f64; 3]>, tris: &mut [[usize; 3]]) {
     use std::collections::HashMap;
     let scale = crate::units::QUANT_NANOMETER_SCALE;
     let mut pos_to_new: HashMap<[i64; 3], usize> = HashMap::new();
