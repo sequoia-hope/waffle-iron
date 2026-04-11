@@ -1759,11 +1759,16 @@ pub(crate) fn select_boolean_result(
         }
         match op {
             MeshBooleanOp::Union => {
-                // Union keeps CoSurfaceInside only. CoSurfaceOutside faces are
-                // internal to the merged solid (anti-parallel caps between stacked
-                // solids) and must be eliminated. Matches face_survival_detect().
-                // Ref [#24] Yang 2025: Stage 3 co-surface elimination.
-                *label == CellLabel::CoSurfaceInside
+                // Union keeps all A co-surface tris. Anti-parallel coplanar
+                // faces (internal caps between stacked solids) are eliminated
+                // later by merge_coplanar_face_groups() which has the geometric
+                // context to detect anti-parallel normals. Dropping CoSurfaceOutside
+                // here is too aggressive — it breaks cases where CoSurfaceOutside
+                // faces are legitimate outer boundary (e.g., R0080, F0008).
+                matches!(
+                    label,
+                    CellLabel::CoSurfaceInside | CellLabel::CoSurfaceOutside
+                )
             }
             MeshBooleanOp::Subtract => {
                 // Subtract keeps only CoSurfaceOutside (touching face stays, overlap drops)
