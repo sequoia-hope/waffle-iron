@@ -1449,24 +1449,34 @@ pub(crate) fn merge_coplanar_face_groups(
     let mut planes: HashMap<SourceFace, ([f64; 3], f64)> = HashMap::new();
 
     for (sf, tris) in &survival.groups {
-        if let Some(tri) = tris.first() {
+        // Accumulate normals from ALL sub-triangles in the group to get a
+        // robust outward-facing direction. Using only the first sub-triangle's
+        // cross product is fragile: different meshes tessellating the same plane
+        // may have opposite triangle windings, making parallel faces look
+        // anti-parallel and causing incorrect elimination.
+        let mut accum = [0.0_f64; 3];
+        let mut ref_v0 = [0.0; 3];
+        let mut has_ref = false;
+        for tri in tris {
             let v0 = subdivided.verts[tri.verts[0]];
             let v1 = subdivided.verts[tri.verts[1]];
             let v2 = subdivided.verts[tri.verts[2]];
             let e1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
             let e2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
-            let n = [
-                e1[1] * e2[2] - e1[2] * e2[1],
-                e1[2] * e2[0] - e1[0] * e2[2],
-                e1[0] * e2[1] - e1[1] * e2[0],
-            ];
-            let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-            if len > crate::units::TAU_WORK {
-                let sign = if tri.flipped { -1.0 } else { 1.0 };
-                let normal = [sign * n[0] / len, sign * n[1] / len, sign * n[2] / len];
-                let offset = normal[0] * v0[0] + normal[1] * v0[1] + normal[2] * v0[2];
-                planes.insert(*sf, (normal, offset));
+            let sign = if tri.flipped { -1.0 } else { 1.0 };
+            accum[0] += sign * (e1[1] * e2[2] - e1[2] * e2[1]);
+            accum[1] += sign * (e1[2] * e2[0] - e1[0] * e2[2]);
+            accum[2] += sign * (e1[0] * e2[1] - e1[1] * e2[0]);
+            if !has_ref {
+                ref_v0 = v0;
+                has_ref = true;
             }
+        }
+        let len = (accum[0] * accum[0] + accum[1] * accum[1] + accum[2] * accum[2]).sqrt();
+        if len > crate::units::TAU_WORK {
+            let normal = [accum[0] / len, accum[1] / len, accum[2] / len];
+            let offset = normal[0] * ref_v0[0] + normal[1] * ref_v0[1] + normal[2] * ref_v0[2];
+            planes.insert(*sf, (normal, offset));
         }
     }
 
