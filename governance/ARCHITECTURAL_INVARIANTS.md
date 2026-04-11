@@ -475,13 +475,27 @@ surface geometry. See `specs/surface_type_taxonomy.md` and ADR-11.
 
 The target boolean architecture is the **hybrid B-Rep/mesh approach** from [#24]
 Yang, Jia & Yan (SIGGRAPH 2025). This is NOT a "mesh fallback" — it uses meshes
-as an **exact computational tool** to derive correct B-Rep topology:
+as an **exact computational tool** to derive correct B-Rep topology.
 
+The paper (`refs/yang2025_hybrid_boolean.pdf`) defines the pipeline. Section 4.5.5
+is critical — coplanarity must be handled BEFORE tessellation, not after:
+
+0. **Coplanar preprocessing** (Section 4.5.5) — detect coplanar face pairs between
+   operands. Perform 2D Boolean on coplanar planes: segment into A-only, B-only,
+   and overlap. Replace overlap with a single shared trimmed surface; generate
+   **identical meshes** for both models in the overlap region. Overlap boundaries
+   become intersection curves. Without this, tessellation produces non-identical
+   meshes on coplanar faces → conformal edge explosion → timeout or wrong topology.
 1. **Tessellate** B-Rep faces with bijective mapping (each triangle maps to one face)
 2. **Exact mesh boolean** via indirect predicates [#9 Cherchi] — topology is provably correct
 3. **Extract topology** from result mesh + bijective maps — unambiguous face trimming
 4. **Refine** intersection edges to true SSI curves (reuses A15.1 quadric solvers)
 5. **Assemble** final B-Rep — analytical surfaces preserved, only re-trimmed
+
+**Do NOT attempt post-hoc coplanar face elimination** (comparing triangle normals
+after mesh boolean). This was tried and reverted — it cannot reliably distinguish
+internal coplanar caps from legitimate boundary faces without the geometric context
+that preprocessing provides.
 
 **Why this does not violate A15.1–A15.2**: The mesh intermediate is never the final
 representation. Analytical surface types survive through the pipeline (A15.5).

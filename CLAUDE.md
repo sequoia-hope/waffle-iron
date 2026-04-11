@@ -122,9 +122,22 @@ See `docs/TESTING.md` for tier definitions and how to add tests.
 
 - **Target architecture**: Yang et al. 2025 hybrid B-Rep/mesh boolean [#24].
   Meshes are an *exact computational tool* for deriving correct B-Rep topology,
-  not a degradation. The six-stage pipeline: tessellate with bijective mapping →
-  exact mesh boolean (Cherchi indirect predicates) → extract topology → refine
-  to SSI curves → assemble B-Rep. Analytical surfaces survive through the pipeline.
+  not a degradation. The paper's pipeline (Section 4.5.5 + Sections 4.1–4.5):
+
+  **Stage 0: Coplanar preprocessing** (Section 4.5.5) — detect coplanar face
+  pairs between the two solids BEFORE tessellation. Perform 2D Boolean on
+  coplanar planes to segment into A-only, B-only, and overlap regions. Replace
+  overlap with a shared trimmed surface and generate identical meshes for both
+  models. Overlap boundaries become intersection curves. **This is critical** —
+  without it, tessellation produces non-identical meshes on coplanar faces,
+  causing conformal edge explosions and incorrect face survival.
+
+  Stage 1: Tessellate with bijective mapping → Stage 2: exact mesh boolean
+  (Cherchi indirect predicates) → Stage 3: extract topology → Stage 4: refine
+  to SSI curves → Stage 5: assemble B-Rep.
+
+  Analytical surfaces survive through the pipeline. The paper is the blueprint
+  — read it (`refs/yang2025_hybrid_boolean.pdf`) before working on the pipeline.
 - **SSI solvers** (A15.1): Quadric SSI solvers remain essential — they provide
   the geometry refinement in stage 4 of the hybrid pipeline. Continue implementing
   missing solvers (see A15.4 matrix).
