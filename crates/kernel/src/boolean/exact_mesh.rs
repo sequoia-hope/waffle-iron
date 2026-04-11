@@ -1759,12 +1759,7 @@ pub(crate) fn select_boolean_result(
         }
         match op {
             MeshBooleanOp::Union => {
-                // Union keeps all A co-surface tris. Anti-parallel coplanar
-                // faces (internal caps between stacked solids) are eliminated
-                // later by merge_coplanar_face_groups() which has the geometric
-                // context to detect anti-parallel normals. Dropping CoSurfaceOutside
-                // here is too aggressive — it breaks cases where CoSurfaceOutside
-                // faces are legitimate outer boundary (e.g., R0080, F0008).
+                // Union keeps all A co-surface tris (fills gap on shared planes)
                 matches!(
                     label,
                     CellLabel::CoSurfaceInside | CellLabel::CoSurfaceOutside

@@ -1,959 +1,1149 @@
 {
-  "generated": "2026-04-08",
-  "passed": 11,
-  "failed": 178,
-  "errored": 0,
-  "timed_out": 0,
+  "errored": 24,
+  "failed": 156,
+  "generated": "2026-04-11",
+  "passed": 10,
   "results": [
     {
-      "id": "F0001",
-      "status": "pass",
-      "detail": ""
-    },
-    {
-      "id": "F0002",
-      "status": "pass",
-      "detail": ""
-    },
-    {
-      "id": "F0003",
-      "status": "fail",
-      "detail": "watertight_mesh: 4 unpaired edges out of 31 total (0 boundary, 4 non-manifold); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,6), (2,6), (2,9), (2,10), (3,6), ...; mesh_euler_characteristic: V(12) - E(31) + F(22) = 3 (expected 2)"
-    },
-    {
-      "id": "F0004",
-      "status": "pass",
-      "detail": ""
-    },
-    {
-      "id": "F0005",
-      "status": "fail",
-      "detail": "watertight_mesh: 4 unpaired edges out of 31 total (0 boundary, 4 non-manifold); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,7), (1,7), (1,8), (1,8), (1,9), ...; mesh_euler_characteristic: V(12) - E(31) + F(22) = 3 (expected 2)"
-    },
-    {
-      "id": "F0006",
-      "status": "fail",
-      "detail": "watertight_mesh: 1 unpaired edges out of 35 total (0 boundary, 1 non-manifold); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; mesh_euler_characteristic: V(14) - E(35) + F(24) = 3 (expected 2)"
-    },
-    {
-      "id": "F0007",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,10), (0,11), (2,6), ...; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
-    },
-    {
-      "id": "F0008",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (1,8), (1,8), (1,10), ...; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
-    },
-    {
-      "id": "F0009",
-      "status": "fail",
-      "detail": "watertight_mesh: 4 unpaired edges out of 31 total (0 boundary, 4 non-manifold); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,6), (2,6), (2,9), (2,10), (3,6), ...; mesh_euler_characteristic: V(12) - E(31) + F(22) = 3 (expected 2)"
-    },
-    {
-      "id": "F0010",
-      "status": "fail",
-      "detail": "watertight_mesh: 4 unpaired edges out of 31 total (0 boundary, 4 non-manifold); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,7), (1,7), (1,8), (1,8), (1,9), ...; mesh_euler_characteristic: V(12) - E(31) + F(22) = 3 (expected 2)"
-    },
-    {
-      "id": "F0011",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (2,6), (2,7), (2,7), ...; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
-    },
-    {
-      "id": "F0012",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
-    },
-    {
-      "id": "F0013",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
-    },
-    {
-      "id": "F0014",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
-    },
-    {
-      "id": "F0015",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (2,6), (2,7), (2,7), ...; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
-    },
-    {
-      "id": "F0016",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (0,14), (0,15), (0,15), ...; mesh_euler_characteristic: V(22) - E(54) + F(36) = 4 (expected 2)"
-    },
-    {
-      "id": "F0017",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; mesh_euler_characteristic: V(22) - E(54) + F(36) = 4 (expected 2)"
-    },
-    {
-      "id": "F0018",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; mesh_euler_characteristic: V(22) - E(54) + F(36) = 4 (expected 2)"
-    },
-    {
-      "id": "F0019",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (0,14), (0,16), (1,8), ...; mesh_euler_characteristic: V(22) - E(54) + F(36) = 4 (expected 2)"
-    },
-    {
-      "id": "F0020",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; mesh_euler_characteristic: V(22) - E(54) + F(36) = 4 (expected 2)"
-    },
-    {
-      "id": "F0021",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; mesh_euler_characteristic: V(29) - E(72) + F(48) = 5 (expected 2)"
-    },
-    {
-      "id": "F0022",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (0,14), (0,16), (0,20), ...; mesh_euler_characteristic: V(29) - E(72) + F(48) = 5 (expected 2)"
-    },
-    {
-      "id": "F0023",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; mesh_euler_characteristic: V(29) - E(72) + F(48) = 5 (expected 2)"
-    },
-    {
-      "id": "F0024",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (0,14), (0,15), (0,15), ...; mesh_euler_characteristic: V(29) - E(72) + F(48) = 5 (expected 2)"
-    },
-    {
-      "id": "F0025",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; mesh_euler_characteristic: V(29) - E(72) + F(48) = 5 (expected 2)"
-    },
-    {
-      "id": "F0026",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,10), (0,11), (2,6), ...; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
-    },
-    {
-      "id": "F0027",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,10), (0,11), (1,8), ...; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
-    },
-    {
-      "id": "F0028",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,10), (0,11), (2,6), ...; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
-    },
-    {
-      "id": "F0029",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,10), (0,11), (2,6), ...; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
-    },
-    {
-      "id": "F0030",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,10), (0,11), (2,6), ...; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
-    },
-    {
-      "id": "F0031",
-      "status": "fail",
-      "detail": "mesh_euler_characteristic: V(8) - E(18) + F(12) = 2 (expected 4)"
-    },
-    {
-      "id": "F0032",
-      "status": "fail",
-      "detail": "mesh_euler_characteristic: V(8) - E(18) + F(12) = 2 (expected 4)"
-    },
-    {
-      "id": "F0033",
-      "status": "fail",
-      "detail": "mesh_euler_characteristic: V(8) - E(18) + F(12) = 2 (expected 4)"
-    },
-    {
-      "id": "F0034",
-      "status": "fail",
-      "detail": "mesh_euler_characteristic: V(8) - E(18) + F(12) = 2 (expected 4)"
-    },
-    {
-      "id": "F0035",
-      "status": "fail",
-      "detail": "mesh_euler_characteristic: V(8) - E(18) + F(12) = 2 (expected 4)"
-    },
-    {
-      "id": "F0036",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\")]; mesh_euler_characteristic: V(8) - E(18) + F(12) = 2 (expected 4)"
-    },
-    {
-      "id": "F0037",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\")]; mesh_euler_characteristic: V(8) - E(18) + F(12) = 2 (expected 4)"
-    },
-    {
-      "id": "F0038",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\")]; mesh_euler_characteristic: V(8) - E(18) + F(12) = 2 (expected 4)"
-    },
-    {
-      "id": "F0039",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\")]; mesh_euler_characteristic: V(8) - E(18) + F(12) = 2 (expected 4)"
-    },
-    {
-      "id": "F0040",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\")]; mesh_euler_characteristic: V(8) - E(18) + F(12) = 2 (expected 4)"
-    },
-    {
-      "id": "F0041",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,10), (0,11), (1,8), ...; minimum_triangle_count: 24 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
-    },
-    {
-      "id": "F0042",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\")]"
-    },
-    {
-      "id": "F0043",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; minimum_triangle_count: 24 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
-    },
-    {
-      "id": "F0044",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\")]"
-    },
-    {
-      "id": "F0045",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; minimum_triangle_count: 24 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
-    },
-    {
-      "id": "F0046",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
-    },
-    {
-      "id": "F0047",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
-    },
-    {
-      "id": "F0048",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (2,6), (2,7), (2,7), ...; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
-    },
-    {
-      "id": "F0049",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
-    },
-    {
-      "id": "F0050",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (1,8), (1,10), (1,10), ...; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
-    },
-    {
-      "id": "F0051",
-      "status": "fail",
-      "detail": "mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
-    },
-    {
-      "id": "F0052",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 24 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
-    },
-    {
-      "id": "F0053",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,10), (0,11), (2,6), ...; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
-    },
-    {
-      "id": "F0054",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\")]"
-    },
-    {
-      "id": "F0055",
-      "status": "pass",
-      "detail": ""
-    },
-    {
-      "id": "F0056",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\")]"
-    },
-    {
-      "id": "F0057",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\")]"
-    },
-    {
-      "id": "F0058",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\")]"
-    },
-    {
-      "id": "F0059",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\")]"
-    },
-    {
-      "id": "F0060",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\")]"
-    },
-    {
-      "id": "F0061",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"circle\")]; mesh_euler_characteristic: V(8) - E(18) + F(12) = 2 (expected 0)"
-    },
-    {
-      "id": "F0062",
-      "status": "fail",
-      "detail": "mesh_euler_characteristic: V(8) - E(18) + F(12) = 2 (expected 0)"
-    },
-    {
-      "id": "F0063",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,10), (0,11), (0,14), ...; mesh_euler_characteristic: V(36) - E(90) + F(60) = 6 (expected 2)"
-    },
-    {
-      "id": "F0064",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; minimum_triangle_count: 60 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"polygon\"), (\"extrude\", \"circle\"), (\"extrude\", \"polygon\"), (\"extrude\", \"polygon\")]; mesh_euler_characteristic: V(36) - E(90) + F(60) = 6 (expected 2)"
-    },
-    {
-      "id": "F0065",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; mesh_euler_characteristic: V(57) - E(144) + F(96) = 9 (expected 2)"
-    },
-    {
-      "id": "F0066",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; mesh_euler_characteristic: V(57) - E(144) + F(96) = 9 (expected 2)"
-    },
-    {
-      "id": "F0067",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; mesh_euler_characteristic: V(71) - E(180) + F(120) = 11 (expected 2)"
-    },
-    {
-      "id": "F0068",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (0,14), (0,16), (0,20), ...; mesh_euler_characteristic: V(85) - E(216) + F(144) = 13 (expected 2)"
-    },
-    {
-      "id": "F0069",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (0,14), (0,16), (0,20), ...; mesh_euler_characteristic: V(106) - E(270) + F(180) = 16 (expected 2)"
-    },
-    {
-      "id": "F0070",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (0,14), (0,16), (0,20), ...; mesh_euler_characteristic: V(106) - E(270) + F(180) = 16 (expected 2)"
-    },
-    {
-      "id": "F0071",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (0,14), (0,15), (0,15), ...; mesh_euler_characteristic: V(141) - E(360) + F(240) = 21 (expected 2)"
-    },
-    {
-      "id": "F0072",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (0,14), (0,16), (0,20), ...; mesh_euler_characteristic: V(141) - E(360) + F(240) = 21 (expected 2)"
-    },
-    {
-      "id": "F0073",
-      "status": "fail",
-      "detail": "watertight_mesh: 4 unpaired edges out of 31 total (0 boundary, 4 non-manifold); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,7), (1,7), (1,8), (1,8), (1,9), ...; mesh_euler_characteristic: V(12) - E(31) + F(22) = 3 (expected 2)"
-    },
-    {
-      "id": "F0074",
-      "status": "fail",
-      "detail": "watertight_mesh: 4 unpaired edges out of 31 total (0 boundary, 4 non-manifold); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,7), (1,7), (1,8), (1,8), (1,9), ...; mesh_euler_characteristic: V(12) - E(31) + F(22) = 3 (expected 2)"
-    },
-    {
-      "id": "F0075",
-      "status": "fail",
-      "detail": "watertight_mesh: 4 unpaired edges out of 31 total (0 boundary, 4 non-manifold); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,7), (1,7), (1,8), (1,8), (1,9), ...; mesh_euler_characteristic: V(12) - E(31) + F(22) = 3 (expected 2)"
-    },
-    {
-      "id": "F0076",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (0,14), (0,16), (0,20), ...; mesh_euler_characteristic: V(36) - E(90) + F(60) = 6 (expected 2)"
-    },
-    {
-      "id": "F0077",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; mesh_euler_characteristic: V(36) - E(90) + F(60) = 6 (expected 2)"
-    },
-    {
-      "id": "F0078",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (0,14), (0,16), (0,20), ...; mesh_euler_characteristic: V(57) - E(144) + F(96) = 9 (expected 2)"
-    },
-    {
-      "id": "F0079",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; mesh_euler_characteristic: V(57) - E(144) + F(96) = 9 (expected 2)"
-    },
-    {
-      "id": "F0080",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (0,14), (0,16), (0,20), ...; mesh_euler_characteristic: V(71) - E(180) + F(120) = 11 (expected 2)"
-    },
-    {
-      "id": "F0081",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; mesh_euler_characteristic: V(85) - E(216) + F(144) = 13 (expected 2)"
-    },
-    {
-      "id": "F0082",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; mesh_euler_characteristic: V(106) - E(270) + F(180) = 16 (expected 2)"
-    },
-    {
-      "id": "F0083",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,10), (0,11), (0,14), ...; mesh_euler_characteristic: V(106) - E(270) + F(180) = 16 (expected 2)"
-    },
-    {
-      "id": "F0084",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (0,14), (0,16), (0,20), ...; mesh_euler_characteristic: V(141) - E(360) + F(240) = 21 (expected 2)"
-    },
-    {
-      "id": "F0085",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,10), (0,11), (0,14), ...; mesh_euler_characteristic: V(141) - E(360) + F(240) = 21 (expected 2)"
-    },
-    {
-      "id": "F0086",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\")]; mesh_euler_characteristic: V(8) - E(18) + F(12) = 2 (expected -4)"
-    },
-    {
-      "id": "F0087",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\")]; mesh_euler_characteristic: V(8) - E(18) + F(12) = 2 (expected -8)"
-    },
-    {
-      "id": "F0088",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\")]; mesh_euler_characteristic: V(8) - E(18) + F(12) = 2 (expected -14)"
-    },
-    {
-      "id": "F0089",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\")]; mesh_euler_characteristic: V(8) - E(18) + F(12) = 2 (expected -18)"
-    },
-    {
-      "id": "F0090",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\")]; mesh_euler_characteristic: V(8) - E(18) + F(12) = 2 (expected -28)"
-    },
-    {
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 106 of 2790 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,11), (0,30), (0,37), (0,37), ...; mesh_euler_characteristic: V(1452) - E(4185) + F(2790) = 57 (expected 2)",
       "id": "R0001",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; minimum_triangle_count: 24 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"circle\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 58 unpaired edges out of 143 total; consistent_normals: 1 of 76 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,2), (0,2), (0,2), (0,2), ...; mesh_euler_characteristic: V(58) - E(143) + F(76) = -9 (expected 2)",
       "id": "R0002",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"revolve\", \"gear\")]"
+      "status": "fail"
     },
     {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0003",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 288 for operations [(\"revolve\", \"gear\"), (\"extrude\", \"rectangle\")]"
+      "status": "error"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 496 unpaired edges out of 1163 total; consistent_normals: 72 of 610 triangles have reversed normals; outward_normals: only 538 of 610 triangles (88.2%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,130), (0,169), (1,2), (1,2), (1,2), ...; mesh_euler_characteristic: V(425) - E(1163) + F(610) = -128 (expected 2)",
       "id": "R0004",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"revolve\", \"rectangle\"), (\"extrude\", \"gear\")]"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): 4f04e2a2-a867-4ffd-b035-4f51fab36903: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 400330920 exceeds limit 5000000; watertight_mesh: 1222 unpaired edges out of 29288 total; consistent_normals: 568 of 19118 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,5), (0,5), (0,20), (0,21), (0,48), ...; mesh_euler_characteristic: V(9984) - E(29288) + F(19118) = -186 (expected 2)",
       "id": "R0005",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 288 for operations [(\"revolve\", \"gear\"), (\"extrude\", \"circle\"), (\"revolve\", \"gear\")]; bbox diagonal 1.732e0 exceeds max 1.696e0"
+      "status": "fail"
     },
     {
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 76 of 114 triangles have reversed normals; outward_normals: only 38 of 114 triangles (33.3%) have outward normals (need 95%); mesh_euler_characteristic: V(112) - E(171) + F(114) = 55 (expected 2)",
       "id": "R0006",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "revolve-normals",
+      "detail": "partial rebuild (1 error(s)): 7ff3008b-95fb-48c2-bc96-14391290e195: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"gear\")]",
       "id": "R0007",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"gear\")]"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 114 unpaired edges out of 426 total (111 boundary, 3 non-manifold); consistent_normals: 41 of 248 triangles have reversed normals; no_degenerate_triangles: 7 of 248 triangles are degenerate; outward_normals: only 200 of 241 triangles (83.0%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,6), (0,9), (0,10), (0,12), (0,12), ...; mesh_euler_characteristic: V(152) - E(426) + F(248) = -26 (expected 2)",
       "id": "R0008",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (1,8), (1,10), (2,6), ...; minimum_triangle_count: 24 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"rectangle\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-normals",
+      "detail": "watertight_mesh: 21 unpaired edges out of 21 total; outward_normals: no valid triangles; minimum_triangle_count: 7 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"rectangle\")]; mesh_euler_characteristic: V(15) - E(21) + F(7) = 1 (expected 2)",
       "id": "R0009",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"rectangle\")]"
+      "status": "fail"
     },
     {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0010",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,10), (0,11), (2,6), ...; minimum_triangle_count: 24 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"revolve\", \"gear\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "error"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 76 unpaired edges out of 2498 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,2), (0,2), ...; mesh_euler_characteristic: V(851) - E(2498) + F(1640) = -7 (expected 2)",
       "id": "R0011",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (1,8), (1,8), (1,10), ...; minimum_triangle_count: 24 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"gear\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0012",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"gear\")]"
+      "status": "error"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 31 unpaired edges out of 1951 total (30 boundary, 1 non-manifold); consistent_normals: 26 of 1291 triangles have reversed normals; no_degenerate_triangles: 1 of 1291 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,311), (0,312), (0,313), (0,313), (0,313), ...; mesh_euler_characteristic: V(655) - E(1951) + F(1291) = -5 (expected 2)",
       "id": "R0013",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (1,8), (1,10), (1,10), ...; minimum_triangle_count: 24 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 38 unpaired edges out of 3877 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,18), (0,40), (0,47), (0,47), (0,62), ...; mesh_euler_characteristic: V(1285) - E(3877) + F(2572) = -20 (expected 2)",
       "id": "R0014",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,10), (0,11), (2,6), ...; minimum_triangle_count: 24 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"rectangle\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): 740c9104-1438-4927-bfcf-c915425691f0: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 1.92e-20 from axis (min 1.00e-7); watertight_mesh: 153 unpaired edges out of 396 total; consistent_normals: 4 of 213 triangles have reversed normals; no_degenerate_triangles: 88 of 213 triangles are degenerate; outward_normals: only 30 of 34 triangles (88.2%) have outward normals (need 95%); mesh_euler_characteristic: V(181) - E(396) + F(213) = -2 (expected 2)",
       "id": "R0015",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,10), (0,11), (2,6), ...; minimum_triangle_count: 24 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"circle\"), (\"revolve\", \"circle\")]; volume_magnitude: volume 1.000000e0 outside [1.409330e-20, 1.409330e-4] for scale 1.121169e-4; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2); bbox diagonal 1.732e0 exceeds max 1.121e-3"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): 591b13d7-3d2b-431b-ae6d-63726046923e: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 48537456 exceeds limit 5000000; watertight_mesh: 214 unpaired edges out of 4911 total (212 boundary, 2 non-manifold); consistent_normals: 167 of 3204 triangles have reversed normals; no_degenerate_triangles: 62 of 3204 triangles are degenerate; outward_normals: only 2969 of 3136 triangles (94.7%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,708), (1,5), (1,5), (1,7), (1,21), ...; mesh_euler_characteristic: V(1673) - E(4911) + F(3204) = -34 (expected 2)",
       "id": "R0016",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; minimum_triangle_count: 24 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"revolve\", \"gear\"), (\"extrude\", \"circle\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 50 unpaired edges out of 238 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,3), (0,4), ...; mesh_euler_characteristic: V(85) - E(238) + F(142) = -11 (expected 2)",
       "id": "R0017",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (1,8), (1,8), (1,10), ...; minimum_triangle_count: 24 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"rectangle\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "multiple-failures",
+      "detail": "no_self_intersection: 2 inter-face triangle penetrations, face pairs: (0,3), (0,4)",
       "id": "R0018",
-      "status": "pass",
-      "detail": ""
+      "status": "fail"
     },
     {
+      "category": "multiple-failures",
+      "detail": "partial rebuild (1 error(s)): 238dbbbb-0077-402a-8d68-7e87b8ad5604: operation error: kernel error: operation not supported: yang_boolean: label_cells timeout (A sub-tris); no_self_intersection: 9 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
       "id": "R0019",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"revolve\", \"gear\")]"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 312 unpaired edges out of 740 total (308 boundary, 4 non-manifold); consistent_normals: 68 of 392 triangles have reversed normals; no_degenerate_triangles: 5 of 392 triangles are degenerate; outward_normals: only 319 of 387 triangles (82.4%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,3), ...; mesh_euler_characteristic: V(289) - E(740) + F(392) = -59 (expected 2)",
       "id": "R0020",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\")]"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 225 unpaired edges out of 636 total; consistent_normals: 70 of 349 triangles have reversed normals; no_degenerate_triangles: 1 of 349 triangles are degenerate; outward_normals: only 274 of 344 triangles (79.7%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,20), (0,36), (1,23), (5,42), (5,42), ...; mesh_euler_characteristic: V(237) - E(636) + F(349) = -50 (expected 2)",
       "id": "R0021",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; mesh_euler_characteristic: V(22) - E(54) + F(36) = 4 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 24 unpaired edges out of 3157 total (22 boundary, 2 non-manifold); no_degenerate_triangles: 2 of 2098 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,5), (0,7), (0,13), (0,15), (0,25), ...; mesh_euler_characteristic: V(1059) - E(3157) + F(2098) = 0 (expected 2)",
       "id": "R0022",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"circle\")]"
+      "status": "fail"
     },
     {
+      "category": "mesh-too-simple",
+      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"rectangle\")]",
       "id": "R0023",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (1,8), (1,8), (1,10), ...; minimum_triangle_count: 24 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"rectangle\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 25 unpaired edges out of 2577 total (22 boundary, 3 non-manifold); no_degenerate_triangles: 4 of 1712 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,13), (0,29), (0,35), (0,37), ...; mesh_euler_characteristic: V(862) - E(2577) + F(1712) = -3 (expected 2)",
       "id": "R0024",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,10), (0,11), (2,6), ...; minimum_triangle_count: 24 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"circle\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): d4832708-d8be-4222-8443-a60fe1994071: operation error: kernel error: operation not supported: yang_boolean: label_cells timeout (A sub-tris); watertight_mesh: 32 unpaired edges out of 1785 total (30 boundary, 2 non-manifold); no_degenerate_triangles: 4 of 1181 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,15), (0,15), (0,22), (0,29), (0,29), ...; mesh_euler_characteristic: V(603) - E(1785) + F(1181) = -1 (expected 2)",
       "id": "R0025",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,10), (0,11), (2,6), ...; minimum_triangle_count: 24 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"circle\"), (\"revolve\", \"circle\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0026",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (0,14), (0,16), (1,8), ...; mesh_euler_characteristic: V(22) - E(54) + F(36) = 4 (expected 2); bbox diagonal 1.732e0 exceeds max 1.333e0"
+      "status": "error"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 175 unpaired edges out of 441 total (173 boundary, 2 non-manifold); consistent_normals: 36 of 237 triangles have reversed normals; no_degenerate_triangles: 3 of 237 triangles are degenerate; outward_normals: only 198 of 234 triangles (84.6%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,29), (0,49), (0,55), (0,55), (0,55), ...; mesh_euler_characteristic: V(184) - E(441) + F(237) = -20 (expected 2)",
       "id": "R0027",
-      "status": "pass",
-      "detail": ""
+      "status": "fail"
     },
     {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0028",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (0,14), (0,16), (1,8), ...; mesh_euler_characteristic: V(22) - E(54) + F(36) = 4 (expected 2); bbox diagonal 1.732e0 exceeds max 2.364e-1"
+      "status": "error"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 3 unpaired edges out of 30 total; no_self_intersection: 5 inter-face triangle penetrations, face pairs: (1,2), (1,7), (1,8), (4,5), (4,5); mesh_euler_characteristic: V(14) - E(30) + F(19) = 3 (expected 2)",
       "id": "R0029",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 40 unpaired edges out of 137 total; mesh_euler_characteristic: V(66) - E(137) + F(78) = 7 (expected 2)",
       "id": "R0030",
-      "status": "fail",
-      "detail": "mesh_euler_characteristic: V(22) - E(54) + F(36) = 4 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 769 unpaired edges out of 2529 total (767 boundary, 2 non-manifold); consistent_normals: 86 of 1431 triangles have reversed normals; no_degenerate_triangles: 78 of 1431 triangles are degenerate; outward_normals: only 1234 of 1320 triangles (93.5%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,241), (1,212), (1,212), (2,174), (2,175), ...; mesh_euler_characteristic: V(1035) - E(2529) + F(1431) = -63 (expected 2)",
       "id": "R0031",
-      "status": "pass",
-      "detail": ""
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): 79f4ba08-037f-4c8d-9839-90dabad93713: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 43413936 exceeds limit 5000000; watertight_mesh: 221 unpaired edges out of 3241 total; consistent_normals: 44 of 2087 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...; mesh_euler_characteristic: V(1117) - E(3241) + F(2087) = -37 (expected 2)",
       "id": "R0032",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (1,8), (1,8), (1,10), ...; minimum_triangle_count: 24 triangles < expected minimum 96 for operations [(\"revolve\", \"circle\"), (\"revolve\", \"gear\"), (\"extrude\", \"circle\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 71 unpaired edges out of 163 total; consistent_normals: 5 of 85 triangles have reversed normals; outward_normals: only 80 of 85 triangles (94.1%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,2), (0,2), (0,2), ...; mesh_euler_characteristic: V(68) - E(163) + F(85) = -10 (expected 2)",
       "id": "R0033",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"revolve\", \"gear\")]; bbox diagonal 1.732e0 exceeds max 1.978e-1"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 688 unpaired edges out of 14466 total (686 boundary, 2 non-manifold); consistent_normals: 375 of 9416 triangles have reversed normals; no_degenerate_triangles: 5 of 9416 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,10), (0,11), (0,11), (0,11), (0,291), ...; mesh_euler_characteristic: V(4846) - E(14466) + F(9416) = -204 (expected 2)",
       "id": "R0034",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,10), (0,11), (2,6), ...; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 890 unpaired edges out of 11434 total; consistent_normals: 104 of 7326 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...; mesh_euler_characteristic: V(3861) - E(11434) + F(7326) = -247 (expected 2)",
       "id": "R0035",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (2,6), (2,7), (2,7), ...; minimum_triangle_count: 24 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"revolve\", \"gear\"), (\"extrude\", \"circle\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "multiple-failures",
+      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,31), (0,63), (0,63), (0,66), ...",
       "id": "R0036",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"gear\"), (\"extrude\", \"circle\")]"
+      "status": "fail"
     },
     {
+      "category": "multiple-failures",
+      "detail": "partial rebuild (1 error(s)): 14d0f6bb-ee09-48d4-b4cc-6da794a35ff3: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 48950512 exceeds limit 5000000; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,18), (0,18), (0,18), (0,41), (0,47), ...",
       "id": "R0037",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"revolve\", \"gear\"), (\"extrude\", \"circle\")]"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): 7145a15a-6e5b-444f-b984-d2ce5af43efd: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 8.01e-16 from axis (min 1.00e-7); watertight_mesh: 270 unpaired edges out of 642 total (267 boundary, 3 non-manifold); consistent_normals: 49 of 340 triangles have reversed normals; no_degenerate_triangles: 8 of 340 triangles are degenerate; outward_normals: only 283 of 332 triangles (85.2%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,28), (2,14), (2,14), (2,14), (2,14), ...; mesh_euler_characteristic: V(246) - E(642) + F(340) = -56 (expected 2)",
       "id": "R0038",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"revolve\", \"rectangle\"), (\"revolve\", \"circle\")]"
+      "status": "fail"
     },
     {
+      "category": "multiple-failures",
+      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,5), (0,47), (0,51), (0,51), ...",
       "id": "R0039",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"rectangle\")]"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 68 unpaired edges out of 250 total; consistent_normals: 37 of 144 triangles have reversed normals; outward_normals: only 107 of 144 triangles (74.3%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (2,9), (2,9), (3,9), (3,9), ...; mesh_euler_characteristic: V(106) - E(250) + F(144) = 0 (expected 2)",
       "id": "R0040",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; mesh_euler_characteristic: V(22) - E(54) + F(36) = 4 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 24 unpaired edges out of 150 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...; mesh_euler_characteristic: V(55) - E(150) + F(92) = -3 (expected 2)",
       "id": "R0041",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\")]"
+      "status": "fail"
     },
     {
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 76 of 102 triangles have reversed normals; outward_normals: only 26 of 102 triangles (25.5%) have outward normals (need 95%); mesh_euler_characteristic: V(104) - E(153) + F(102) = 53 (expected 2)",
       "id": "R0042",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\")]"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 28 unpaired edges out of 2222 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,41), (0,42), (0,42), (0,70), ...; mesh_euler_characteristic: V(754) - E(2222) + F(1472) = 4 (expected 2)",
       "id": "R0043",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,10), (0,11), (1,8), ...; minimum_triangle_count: 24 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: yang_boolean: label_cells timeout (A sub-tris). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 1524 unpaired edges out of 21936 total; consistent_normals: 199 of 14116 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...; mesh_euler_characteristic: V(7587) - E(21936) + F(14116) = -233 (expected 2)",
       "id": "R0044",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"revolve\", \"gear\"), (\"extrude\", \"circle\")]; volume_magnitude: volume 1.000000e0 outside [6.290581e2, 6.290581e18] for scale 3.977073e3"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 260 unpaired edges out of 3211 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...; mesh_euler_characteristic: V(1088) - E(3211) + F(2054) = -69 (expected 2)",
       "id": "R0045",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"revolve\", \"circle\"), (\"revolve\", \"rectangle\")]; bbox diagonal 1.732e0 exceeds max 4.897e-2"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): 7a2b1dae-9bc8-422b-b956-32db0a99ea84: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 2.78e-17 from axis (min 1.00e-7); watertight_mesh: 94 unpaired edges out of 285 total (92 boundary, 2 non-manifold); consistent_normals: 8 of 160 triangles have reversed normals; no_degenerate_triangles: 4 of 160 triangles are degenerate; outward_normals: only 147 of 155 triangles (94.8%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,9), (0,11), (0,11), (0,11), (0,11), ...; mesh_euler_characteristic: V(109) - E(285) + F(160) = -16 (expected 2)",
       "id": "R0046",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\"), (\"revolve\", \"circle\")]"
+      "status": "fail"
     },
     {
+      "category": "multiple-failures",
+      "detail": "partial rebuild (1 error(s)): dce15f20-a156-4e23-a088-4e02e3d85b21: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 2.79e-20 from axis (min 1.00e-7)",
       "id": "R0047",
-      "status": "pass",
-      "detail": ""
+      "status": "fail"
     },
     {
+      "category": "multiple-failures",
+      "detail": "no_self_intersection: 3 inter-face triangle penetrations, face pairs: (1,3), (1,4), (1,5)",
       "id": "R0048",
-      "status": "pass",
-      "detail": ""
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 199 unpaired edges out of 653 total; consistent_normals: 30 of 369 triangles have reversed normals; no_degenerate_triangles: 17 of 369 triangles are degenerate; outward_normals: only 303 of 333 triangles (91.0%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,2), ...; mesh_euler_characteristic: V(261) - E(653) + F(369) = -23 (expected 2)",
       "id": "R0049",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"gear\")]; bbox diagonal 1.732e0 exceeds max 4.312e-2"
+      "status": "fail"
     },
     {
+      "category": "multiple-failures",
+      "detail": "partial rebuild (2 error(s)): d705c7cd-dba5-4002-a9eb-71dbcf4421f3: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 4.44e-16 from axis (min 1.00e-7); 37332075-5977-4a54-bea6-400db50e7cbb: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 1.78e-15 from axis (min 1.00e-7); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,2), (0,2), ...",
       "id": "R0050",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"revolve\", \"circle\"), (\"revolve\", \"circle\")]"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): 1053e663-4d03-4e98-91c7-760d9dd7b954: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 4.85e-19 from axis (min 1.00e-7); watertight_mesh: 154 unpaired edges out of 641 total; consistent_normals: 77 of 376 triangles have reversed normals; no_degenerate_triangles: 7 of 376 triangles are degenerate; outward_normals: only 291 of 368 triangles (79.1%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,23), (4,25), (4,25), (4,25), (4,25), ...; mesh_euler_characteristic: V(208) - E(641) + F(376) = -57 (expected 2)",
       "id": "R0051",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (1,8), (1,10), (2,6), ...; minimum_triangle_count: 24 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"revolve\", \"circle\"), (\"revolve\", \"rectangle\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2); bbox diagonal 1.732e0 exceeds max 3.371e-2"
+      "status": "fail"
     },
     {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: triangle-pair count 40871952 exceeds limit 5000000. Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,8), (0,26), (0,32), (0,34), ...",
       "id": "R0052",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (1,8), (1,10), (2,6), ...; minimum_triangle_count: 24 triangles < expected minimum 288 for operations [(\"revolve\", \"gear\"), (\"extrude\", \"gear\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: label_cells timeout (A sub-tris). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...",
       "id": "R0053",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (1,8), (1,8), (1,10), ...; minimum_triangle_count: 24 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"rectangle\"), (\"revolve\", \"gear\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: yang_boolean: label_cells timeout (A sub-tris). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...",
       "id": "R0054",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,10), (0,11), (2,6), ...; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 332 unpaired edges out of 892 total (329 boundary, 3 non-manifold); consistent_normals: 74 of 486 triangles have reversed normals; no_degenerate_triangles: 6 of 486 triangles are degenerate; outward_normals: only 406 of 480 triangles (84.6%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,4), (0,4), (0,4), (0,4), ...; mesh_euler_characteristic: V(315) - E(892) + F(486) = -91 (expected 2)",
       "id": "R0055",
-      "status": "pass",
-      "detail": ""
+      "status": "fail"
     },
     {
+      "category": "tessellation-degenerate",
+      "detail": "no_degenerate_triangles: 44 of 2460 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,31), (0,86), (0,86), (0,88), (0,95), ...",
       "id": "R0056",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"circle\")]"
+      "status": "fail"
     },
     {
+      "category": "multiple-failures",
+      "detail": "partial rebuild (1 error(s)): 8c590282-fbf5-4eff-a425-84e76ce82413: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 0.00e0 from axis (min 1.00e-7); no_self_intersection: 1 inter-face triangle penetrations, face pairs: (0,4)",
       "id": "R0057",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,10), (0,11), (2,6), ...; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): 1cd0b11f-a02c-4329-9313-772b24ff5549: operation error: kernel error: operation not supported: yang_boolean: label_cells timeout (A sub-tris); watertight_mesh: 840 unpaired edges out of 5377 total (834 boundary, 6 non-manifold); consistent_normals: 193 of 3309 triangles have reversed normals; no_degenerate_triangles: 52 of 3309 triangles are degenerate; outward_normals: only 2999 of 3192 triangles (94.0%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,235), (0,542), (2,141), (2,354), (2,354), ...; mesh_euler_characteristic: V(2030) - E(5377) + F(3309) = -38 (expected 2)",
       "id": "R0058",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (1,8), (1,8), (1,10), ...; minimum_triangle_count: 24 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"gear\"), (\"extrude\", \"gear\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0059",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,10), (0,11), (0,14), ...; mesh_euler_characteristic: V(22) - E(54) + F(36) = 4 (expected 2)"
+      "status": "error"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 19 unpaired edges out of 155 total; consistent_normals: 1 of 97 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,9), (0,9), (0,13), (1,7), (1,7), ...; mesh_euler_characteristic: V(54) - E(155) + F(97) = -4 (expected 2)",
       "id": "R0060",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (2,6), (2,7), (2,7), ...; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 167 unpaired edges out of 766 total; consistent_normals: 36 of 455 triangles have reversed normals; no_degenerate_triangles: 11 of 455 triangles are degenerate; outward_normals: only 398 of 434 triangles (91.7%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (0,52), (0,54), (0,57), (0,57), ...; mesh_euler_characteristic: V(269) - E(766) + F(455) = -42 (expected 2)",
       "id": "R0061",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (2,6), (2,7), (2,7), ...; minimum_triangle_count: 24 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\"), (\"extrude\", \"rectangle\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 252 unpaired edges out of 3264 total; consistent_normals: 130 of 2092 triangles have reversed normals; no_degenerate_triangles: 133 of 2092 triangles are degenerate; outward_normals: only 459 of 589 triangles (77.9%) have outward normals (need 95%); mesh_euler_characteristic: V(1099) - E(3264) + F(2092) = -73 (expected 2)",
       "id": "R0062",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,10), (0,11), (2,6), ...; minimum_triangle_count: 24 triangles < expected minimum 96 for operations [(\"revolve\", \"circle\"), (\"extrude\", \"rectangle\")]; volume_magnitude: volume 1.000000e0 outside [6.511816e-20, 6.511816e-4] for scale 1.867386e-4; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2); bbox diagonal 1.732e0 exceeds max 1.867e-3"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 17 unpaired edges out of 3880 total; no_degenerate_triangles: 137 of 2581 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,189), (0,245), (0,389), (0,389), (1,2), ...; mesh_euler_characteristic: V(1300) - E(3880) + F(2581) = 1 (expected 2)",
       "id": "R0063",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (2,6), (2,7), (2,7), ...; minimum_triangle_count: 24 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"gear\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 25 unpaired edges out of 1832 total; no_degenerate_triangles: 1 of 1213 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,20), (0,44), (0,45), (0,45), (0,45), ...; mesh_euler_characteristic: V(611) - E(1832) + F(1213) = -8 (expected 2)",
       "id": "R0064",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; minimum_triangle_count: 24 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"rectangle\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0065",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (1,8), (1,10), (2,6), ...; minimum_triangle_count: 24 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"revolve\", \"gear\"), (\"revolve\", \"circle\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2); bbox diagonal 1.732e0 exceeds max 8.725e-2"
+      "status": "error"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 45 unpaired edges out of 105 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,4), (2,4), (2,4), (2,4), (2,4), ...; mesh_euler_characteristic: V(48) - E(105) + F(55) = -2 (expected 2)",
       "id": "R0066",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; minimum_triangle_count: 24 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\"), (\"extrude\", \"circle\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 14 unpaired edges out of 157 total; consistent_normals: 18 of 100 triangles have reversed normals; outward_normals: only 80 of 98 triangles (81.6%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (0,3), (0,3), (0,3), (0,3), ...; mesh_euler_characteristic: V(56) - E(157) + F(100) = -1 (expected 2)",
       "id": "R0067",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; minimum_triangle_count: 24 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 61 unpaired edges out of 206 total; consistent_normals: 13 of 117 triangles have reversed normals; outward_normals: only 104 of 117 triangles (88.9%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,4), (0,5), (0,5), ...; mesh_euler_characteristic: V(96) - E(206) + F(117) = 7 (expected 2)",
       "id": "R0068",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,10), (0,11), (2,6), ...; minimum_triangle_count: 24 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"circle\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2); bbox diagonal 1.732e0 exceeds max 4.843e-1"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 60 unpaired edges out of 186 total; mesh_euler_characteristic: V(76) - E(186) + F(104) = -6 (expected 2)",
       "id": "R0069",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,10), (0,11), (2,6), ...; minimum_triangle_count: 24 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"rectangle\")]; volume_magnitude: volume 1.000000e0 outside [5.777223e-20, 5.777223e-4] for scale 1.794347e-4; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2); bbox diagonal 1.732e0 exceeds max 1.794e-3"
+      "status": "fail"
     },
     {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0070",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"gear\"), (\"extrude\", \"circle\")]; bbox diagonal 1.732e0 exceeds max 1.739e-1"
+      "status": "error"
     },
     {
+      "category": "tessellation-degenerate",
+      "detail": "partial rebuild (1 error(s)): d924c33c-d9d0-4e2b-bcbf-5bcd71c7bb33: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 11548880 exceeds limit 5000000; no_degenerate_triangles: 648 of 2012 triangles are degenerate",
       "id": "R0071",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"revolve\", \"gear\")]"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 78 unpaired edges out of 348 total; no_degenerate_triangles: 25 of 206 triangles are degenerate; no_self_intersection: 4 inter-face triangle penetrations, face pairs: (0,2), (0,7), (2,7), (2,7); mesh_euler_characteristic: V(128) - E(348) + F(206) = -14 (expected 2)",
       "id": "R0072",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; minimum_triangle_count: 24 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "multiple-failures",
+      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (6,12), (6,18), (6,24), (6,26), (6,27), ...; mesh_euler_characteristic: V(512) - E(1524) + F(1016) = 4 (expected 2)",
       "id": "R0073",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (1,8), (1,8), (1,10), ...; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: yang_boolean: triangle-pair count 5099856 exceeds limit 5000000. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 183 unpaired edges out of 3360 total; consistent_normals: 93 of 2179 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,10), (0,19), (0,21), (0,21), ...; mesh_euler_characteristic: V(1124) - E(3360) + F(2179) = -57 (expected 2)",
       "id": "R0074",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (0,14), (0,15), (0,15), ...; minimum_triangle_count: 36 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"revolve\", \"circle\"), (\"extrude\", \"circle\")]; mesh_euler_characteristic: V(22) - E(54) + F(36) = 4 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "revolve-normals",
+      "detail": "partial rebuild (1 error(s)): 1cfa5d4d-9399-476e-8903-e982e0b0dac9: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 6973032 exceeds limit 5000000; consistent_normals: 44 of 2666 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,15), (0,39), (0,41), (0,47), (0,49), ...; mesh_euler_characteristic: V(1384) - E(3999) + F(2666) = 51 (expected 2)",
       "id": "R0075",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,10), (0,11), (2,6), ...; minimum_triangle_count: 24 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"circle\"), (\"extrude\", \"gear\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 234 unpaired edges out of 924 total; consistent_normals: 57 of 538 triangles have reversed normals; no_degenerate_triangles: 2 of 538 triangles are degenerate; outward_normals: only 468 of 525 triangles (89.1%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,35), (0,36), (0,37), (0,37), (0,37), ...; mesh_euler_characteristic: V(367) - E(924) + F(538) = -19 (expected 2)",
       "id": "R0076",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 376 unpaired edges out of 3230 total; consistent_normals: 99 of 2028 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,32), (0,32), (0,32), (0,32), (0,32), ...; mesh_euler_characteristic: V(1098) - E(3230) + F(2028) = -104 (expected 2)",
       "id": "R0077",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (1,8), (1,10), (2,6), ...; minimum_triangle_count: 24 triangles < expected minimum 96 for operations [(\"revolve\", \"circle\"), (\"extrude\", \"rectangle\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 34 unpaired edges out of 251 total; no_degenerate_triangles: 1 of 156 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,23), (0,23), (0,25), (1,12), (1,12), ...; mesh_euler_characteristic: V(94) - E(251) + F(156) = -1 (expected 0)",
       "id": "R0078",
-      "status": "fail",
-      "detail": "mesh_euler_characteristic: V(8) - E(18) + F(12) = 2 (expected 0)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 94 unpaired edges out of 191 total; consistent_normals: 10 of 96 triangles have reversed normals; no_degenerate_triangles: 7 of 96 triangles are degenerate; outward_normals: only 79 of 89 triangles (88.8%) have outward normals (need 95%); mesh_euler_characteristic: V(91) - E(191) + F(96) = -4 (expected 2)",
       "id": "R0079",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (1,8), (1,8), (1,10), ...; minimum_triangle_count: 24 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "multiple-failures",
+      "detail": "no_self_intersection: 3 inter-face triangle penetrations, face pairs: (1,2), (1,3), (1,5)",
       "id": "R0080",
-      "status": "pass",
-      "detail": ""
+      "status": "fail"
     },
     {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: triangle-pair count 49230444 exceeds limit 5000000. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...; volume_magnitude: volume 1.483912e-11 outside [1.128408e-10, 1.128408e6] for scale 2.242963e-1",
       "id": "R0081",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (1,8), (1,8), (1,10), ...; minimum_triangle_count: 24 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"rectangle\"), (\"revolve\", \"gear\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 51 of 2108 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,11), (0,12), (0,22), (0,25), (0,36), ...; mesh_euler_characteristic: V(1106) - E(3162) + F(2108) = 52 (expected 2); bbox diagonal 1.972e3 exceeds max 1.921e3",
       "id": "R0082",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (1,8), (1,8), (1,10), ...; minimum_triangle_count: 24 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 72 of 108 triangles have reversed normals; outward_normals: only 36 of 108 triangles (33.3%) have outward normals (need 95%); no_self_intersection: 1 inter-face triangle penetrations, face pairs: (0,2); mesh_euler_characteristic: V(106) - E(162) + F(108) = 52 (expected 2)",
       "id": "R0083",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; minimum_triangle_count: 24 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 45 unpaired edges out of 249 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,10), (0,10), ...",
       "id": "R0084",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,10), (0,11), (2,6), ...; minimum_triangle_count: 24 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"circle\")]; volume_magnitude: volume 1.000000e0 outside [8.811800e-18, 8.811800e-2] for scale 9.587121e-4; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2); bbox diagonal 1.732e0 exceeds max 9.587e-3"
+      "status": "fail"
     },
     {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
       "id": "R0085",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,10), (0,11), (2,6), ...; minimum_triangle_count: 24 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"revolve\", \"circle\"), (\"revolve\", \"rectangle\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "error"
     },
     {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: pipeline panicked: removal index (is 13) should be < len (is 13). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 8 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (1,2), ...",
       "id": "R0086",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (1,8), (1,8), (1,10), ...; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 160 unpaired edges out of 6116 total; consistent_normals: 379 of 4024 triangles have reversed normals; outward_normals: only 3645 of 4024 triangles (90.6%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...; mesh_euler_characteristic: V(1945) - E(6116) + F(4024) = -147 (expected 2)",
       "id": "R0087",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (1,8), (1,10), (2,6), ...; minimum_triangle_count: 24 triangles < expected minimum 96 for operations [(\"revolve\", \"circle\"), (\"extrude\", \"gear\"), (\"extrude\", \"rectangle\")]; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 17 unpaired edges out of 82 total; consistent_normals: 6 of 49 triangles have reversed normals; outward_normals: only 43 of 49 triangles (87.8%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,13), (1,13), (1,13), (1,13), (1,13), ...; mesh_euler_characteristic: V(40) - E(82) + F(49) = 7 (expected 2)",
       "id": "R0088",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\"), (\"extrude\", \"rectangle\")]"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 44 unpaired edges out of 148 total; consistent_normals: 9 of 84 triangles have reversed normals; no_degenerate_triangles: 5 of 84 triangles are degenerate; outward_normals: only 69 of 78 triangles (88.5%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,7), (0,7), (0,9), (0,9), (0,9), ...; mesh_euler_characteristic: V(62) - E(148) + F(84) = -2 (expected 2)",
       "id": "R0089",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; mesh_euler_characteristic: V(22) - E(54) + F(36) = 4 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 51 unpaired edges out of 1929 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,5), (0,5), (0,6), (0,6), ...; mesh_euler_characteristic: V(663) - E(1929) + F(1269) = 3 (expected 2)",
       "id": "R0090",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,9), (0,10), (0,11), ...; mesh_euler_characteristic: V(22) - E(54) + F(36) = 4 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 510 unpaired edges out of 3440 total (506 boundary, 4 non-manifold); consistent_normals: 126 of 2126 triangles have reversed normals; no_degenerate_triangles: 71 of 2126 triangles are degenerate; outward_normals: only 482 of 608 triangles (79.3%) have outward normals (need 95%); mesh_euler_characteristic: V(1102) - E(3440) + F(2126) = -212 (expected 2)",
       "id": "R0091",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,9), (0,10), (0,11), (2,6), ...; minimum_triangle_count: 24 triangles < expected minimum 96 for operations [(\"revolve\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]; volume_magnitude: volume 1.000000e0 outside [4.021262e-20, 4.021262e-4] for scale 1.590209e-4; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2); bbox diagonal 1.732e0 exceeds max 1.590e-3"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 19 unpaired edges out of 149 total; consistent_normals: 5 of 93 triangles have reversed normals; no_degenerate_triangles: 1 of 93 triangles are degenerate; outward_normals: only 87 of 92 triangles (94.6%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,7), (2,12), (3,13), (3,13), (5,8), ...; mesh_euler_characteristic: V(55) - E(149) + F(93) = -1 (expected 2)",
       "id": "R0092",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\")]"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): 9504ef6c-8cc9-43b6-a0ac-195e7707dea9: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 198700708 exceeds limit 5000000; watertight_mesh: 1285 unpaired edges out of 15554 total; consistent_normals: 760 of 9941 triangles have reversed normals; no_degenerate_triangles: 33 of 9941 triangles are degenerate; outward_normals: only 8958 of 9718 triangles (92.2%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,161), (0,161), (0,161), (0,161), (0,161), ...; mesh_euler_characteristic: V(5216) - E(15554) + F(9941) = -397 (expected 2)",
       "id": "R0093",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 288 for operations [(\"revolve\", \"gear\"), (\"extrude\", \"rectangle\"), (\"revolve\", \"gear\")]; bbox diagonal 1.732e0 exceeds max 7.125e-2"
+      "status": "fail"
     },
     {
+      "category": "multiple-failures",
+      "detail": "partial rebuild (2 error(s)): d242d6bd-cde2-4082-ba28-beac6f0bb703: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 20668752 exceeds limit 5000000; 69e7100b-b4cc-4ef0-9efc-febf1b7794de: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 20211984 exceeds limit 5000000; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...",
       "id": "R0094",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 288 for operations [(\"revolve\", \"gear\"), (\"revolve\", \"circle\"), (\"extrude\", \"gear\")]; volume_magnitude: volume 1.000000e0 outside [6.792724e0, 6.792724e16] for scale 8.790522e2"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 262 unpaired edges out of 1001 total; consistent_normals: 31 of 580 triangles have reversed normals; no_degenerate_triangles: 58 of 580 triangles are degenerate; outward_normals: only 340 of 371 triangles (91.6%) have outward normals (need 95%); no_self_intersection: 1 inter-face triangle penetrations, face pairs: (6,49); mesh_euler_characteristic: V(403) - E(1001) + F(580) = -18 (expected 2)",
       "id": "R0095",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\"), (\"extrude\", \"gear\")]"
+      "status": "fail"
     },
     {
+      "category": "multiple-failures",
+      "detail": "partial rebuild (1 error(s)): 7bf5b757-3fdc-4469-8933-b9e163797c2e: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 2.74e-18 from axis (min 1.00e-7); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...",
       "id": "R0096",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"revolve\", \"circle\"), (\"revolve\", \"circle\")]; bbox diagonal 1.732e0 exceeds max 8.882e-2"
+      "status": "fail"
     },
     {
+      "category": "multiple-failures",
+      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (1,3), (4,5), (6,34), (6,43), ...; mesh_euler_characteristic: V(1128) - E(3372) + F(2248) = 4 (expected 2)",
       "id": "R0097",
-      "status": "fail",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (2,6), (2,7), (2,7), ...; mesh_euler_characteristic: V(15) - E(36) + F(24) = 3 (expected 2)"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 47 unpaired edges out of 3015 total (46 boundary, 1 non-manifold); no_degenerate_triangles: 4 of 1995 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,16), (0,16), (0,21), (0,21), (0,21), ...; mesh_euler_characteristic: V(1005) - E(3015) + F(1995) = -15 (expected 2)",
       "id": "R0098",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"rectangle\")]"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): f7b547e7-a7a1-4957-9bb7-8f10df57c7bd: operation error: kernel error: operation not supported: yang_boolean: label_cells timeout (A sub-tris); watertight_mesh: 29 unpaired edges out of 314 total (27 boundary, 2 non-manifold); consistent_normals: 47 of 201 triangles have reversed normals; no_degenerate_triangles: 2 of 201 triangles are degenerate; outward_normals: only 152 of 199 triangles (76.4%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...; mesh_euler_characteristic: V(103) - E(314) + F(201) = -10 (expected 2)",
       "id": "R0099",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"revolve\", \"rectangle\")]"
+      "status": "fail"
     },
     {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 73 unpaired edges out of 290 total; consistent_normals: 23 of 169 triangles have reversed normals; outward_normals: only 146 of 169 triangles (86.4%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,2), (0,2), ...; mesh_euler_characteristic: V(115) - E(290) + F(169) = -6 (expected 2)",
       "id": "R0100",
-      "status": "fail",
-      "detail": "minimum_triangle_count: 12 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"rectangle\"), (\"revolve\", \"rectangle\")]"
+      "status": "fail"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "9 oracles passed",
+      "id": "F0001",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "9 oracles passed",
+      "id": "F0002",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "9 oracles passed",
+      "id": "F0003",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "9 oracles passed",
+      "id": "F0004",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "9 oracles passed",
+      "id": "F0005",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "9 oracles passed",
+      "id": "F0006",
+      "status": "pass"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "9 oracles passed",
+      "id": "F0007",
+      "status": "pass"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 4 unpaired edges out of 29 total; mesh_euler_characteristic: V(12) - E(29) + F(18) = 1 (expected 2)",
+      "id": "F0008",
+      "status": "fail"
+    },
+    {
+      "category": "tessellation-degenerate",
+      "detail": "no_degenerate_triangles: 7 of 100 triangles are degenerate; no_self_intersection: 9 inter-face triangle penetrations, face pairs: (2,9), (2,9), (2,14), (2,14), (4,6), ...",
+      "id": "F0009",
+      "status": "fail"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "9 oracles passed",
+      "id": "F0010",
+      "status": "pass"
+    },
+    {
+      "category": "multiple-failures",
+      "detail": "mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
+      "id": "F0011",
+      "status": "fail"
+    },
+    {
+      "category": "multiple-failures",
+      "detail": "no_self_intersection: 3 inter-face triangle penetrations, face pairs: (1,5), (3,4), (7,9); mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
+      "id": "F0012",
+      "status": "fail"
+    },
+    {
+      "category": "multiple-failures",
+      "detail": "no_self_intersection: 2 inter-face triangle penetrations, face pairs: (2,5), (6,9); mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
+      "id": "F0013",
+      "status": "fail"
+    },
+    {
+      "category": "multiple-failures",
+      "detail": "mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
+      "id": "F0014",
+      "status": "fail"
+    },
+    {
+      "category": "multiple-failures",
+      "detail": "no_self_intersection: 1 inter-face triangle penetrations, face pairs: (9,10); mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
+      "id": "F0015",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 117 unpaired edges out of 374 total (116 boundary, 1 non-manifold); consistent_normals: 15 of 211 triangles have reversed normals; no_degenerate_triangles: 2 of 211 triangles are degenerate; outward_normals: only 192 of 207 triangles (92.8%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,7), (0,32), (0,32), (1,2), (1,5), ...; mesh_euler_characteristic: V(120) - E(374) + F(211) = -43 (expected 2)",
+      "id": "F0016",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 46 unpaired edges out of 380 total; consistent_normals: 25 of 238 triangles have reversed normals; no_degenerate_triangles: 2 of 238 triangles are degenerate; outward_normals: only 209 of 234 triangles (89.3%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (3,28), (3,28), (3,28), (3,29), (3,30), ...; mesh_euler_characteristic: V(130) - E(380) + F(238) = -12 (expected 2)",
+      "id": "F0017",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 76 unpaired edges out of 330 total (74 boundary, 2 non-manifold); consistent_normals: 9 of 196 triangles have reversed normals; no_degenerate_triangles: 4 of 196 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (1,5), (1,36), (2,22), (2,22), ...; mesh_euler_characteristic: V(119) - E(330) + F(196) = -15 (expected 2)",
+      "id": "F0018",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 118 unpaired edges out of 386 total; consistent_normals: 15 of 218 triangles have reversed normals; no_degenerate_triangles: 1 of 218 triangles are degenerate; outward_normals: only 203 of 218 triangles (93.1%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,9), (0,9), (0,9), (0,9), (0,12), ...; mesh_euler_characteristic: V(143) - E(386) + F(218) = -25 (expected 2)",
+      "id": "F0019",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 71 unpaired edges out of 280 total; consistent_normals: 3 of 163 triangles have reversed normals; no_degenerate_triangles: 2 of 163 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,29), (2,30), (2,32), (2,32), (2,32), ...; mesh_euler_characteristic: V(111) - E(280) + F(163) = -6 (expected 2)",
+      "id": "F0020",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 316 unpaired edges out of 960 total (304 boundary, 12 non-manifold); consistent_normals: 41 of 543 triangles have reversed normals; no_degenerate_triangles: 16 of 543 triangles are degenerate; outward_normals: only 478 of 519 triangles (92.1%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,9), (1,98), (2,3), (2,4), (2,4), ...; mesh_euler_characteristic: V(344) - E(960) + F(543) = -73 (expected 2)",
+      "id": "F0021",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 171 unpaired edges out of 746 total (170 boundary, 1 non-manifold); consistent_normals: 38 of 441 triangles have reversed normals; no_degenerate_triangles: 6 of 441 triangles are degenerate; outward_normals: only 391 of 429 triangles (91.1%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,3), (2,85), (2,85), (2,85), (2,85), ...; mesh_euler_characteristic: V(266) - E(746) + F(441) = -39 (expected 2)",
+      "id": "F0022",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 370 unpaired edges out of 1286 total (367 boundary, 3 non-manifold); consistent_normals: 49 of 736 triangles have reversed normals; no_degenerate_triangles: 11 of 736 triangles are degenerate; outward_normals: only 655 of 704 triangles (93.0%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,113), (1,5), (2,19), (2,28), ...; mesh_euler_characteristic: V(447) - E(1286) + F(736) = -103 (expected 2)",
+      "id": "F0023",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 184 unpaired edges out of 620 total; consistent_normals: 15 of 352 triangles have reversed normals; no_degenerate_triangles: 3 of 352 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,5), (1,3), (1,8), (2,47), (2,47), ...; mesh_euler_characteristic: V(230) - E(620) + F(352) = -38 (expected 2)",
+      "id": "F0024",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 197 unpaired edges out of 537 total (196 boundary, 1 non-manifold); consistent_normals: 23 of 293 triangles have reversed normals; no_degenerate_triangles: 3 of 293 triangles are degenerate; outward_normals: only 265 of 288 triangles (92.0%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,4), (1,5), (2,29), (2,39), ...; mesh_euler_characteristic: V(189) - E(537) + F(293) = -55 (expected 2)",
+      "id": "F0025",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 74 unpaired edges out of 334 total; consistent_normals: 28 of 198 triangles have reversed normals; outward_normals: only 168 of 196 triangles (85.7%) have outward normals (need 95%); mesh_euler_characteristic: V(129) - E(334) + F(198) = -7 (expected 2)",
+      "id": "F0026",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 64 unpaired edges out of 371 total; consistent_normals: 18 of 226 triangles have reversed normals; outward_normals: only 196 of 214 triangles (91.6%) have outward normals (need 95%); mesh_euler_characteristic: V(131) - E(371) + F(226) = -14 (expected 2)",
+      "id": "F0027",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 141 unpaired edges out of 437 total (140 boundary, 1 non-manifold); consistent_normals: 62 of 245 triangles have reversed normals; no_degenerate_triangles: 1 of 245 triangles are degenerate; outward_normals: only 179 of 241 triangles (74.3%) have outward normals (need 95%)",
+      "id": "F0028",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 75 unpaired edges out of 378 total; consistent_normals: 6 of 227 triangles have reversed normals; no_degenerate_triangles: 1 of 227 triangles are degenerate; mesh_euler_characteristic: V(140) - E(378) + F(227) = -11 (expected 2)",
+      "id": "F0029",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 62 unpaired edges out of 352 total; consistent_normals: 25 of 214 triangles have reversed normals; no_degenerate_triangles: 2 of 214 triangles are degenerate; outward_normals: only 183 of 208 triangles (88.0%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,12), (0,12), (0,12), (0,12), (0,12), ...; mesh_euler_characteristic: V(126) - E(352) + F(214) = -12 (expected 2)",
+      "id": "F0030",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 32 unpaired edges out of 166 total; consistent_normals: 86 of 100 triangles have reversed normals; outward_normals: only 14 of 100 triangles (14.0%) have outward normals (need 95%); mesh_euler_characteristic: V(108) - E(166) + F(100) = 42 (expected 4)",
+      "id": "F0031",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 32 unpaired edges out of 178 total; consistent_normals: 48 of 108 triangles have reversed normals; outward_normals: only 60 of 108 triangles (55.6%) have outward normals (need 95%); mesh_euler_characteristic: V(114) - E(178) + F(108) = 44 (expected 4)",
+      "id": "F0032",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 8 unpaired edges out of 166 total; consistent_normals: 48 of 108 triangles have reversed normals; outward_normals: only 60 of 108 triangles (55.6%) have outward normals (need 95%); mesh_euler_characteristic: V(108) - E(166) + F(108) = 50 (expected 4)",
+      "id": "F0033",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 42 of 96 triangles have reversed normals; outward_normals: only 54 of 96 triangles (56.2%) have outward normals (need 95%); mesh_euler_characteristic: V(94) - E(144) + F(96) = 46 (expected 4)",
+      "id": "F0034",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 5 unpaired edges out of 148 total; consistent_normals: 20 of 97 triangles have reversed normals; outward_normals: only 77 of 97 triangles (79.4%) have outward normals (need 95%); mesh_euler_characteristic: V(96) - E(148) + F(97) = 45 (expected 4)",
+      "id": "F0035",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 42 unpaired edges out of 144 total; consistent_normals: 35 of 82 triangles have reversed normals; outward_normals: only 47 of 82 triangles (57.3%) have outward normals (need 95%); mesh_euler_characteristic: V(90) - E(144) + F(82) = 28 (expected 4)",
+      "id": "F0036",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 38 unpaired edges out of 166 total; consistent_normals: 43 of 98 triangles have reversed normals; outward_normals: only 55 of 98 triangles (56.1%) have outward normals (need 95%); mesh_euler_characteristic: V(106) - E(166) + F(98) = 38 (expected 4)",
+      "id": "F0037",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 32 unpaired edges out of 166 total; consistent_normals: 44 of 100 triangles have reversed normals; outward_normals: only 56 of 100 triangles (56.0%) have outward normals (need 95%); mesh_euler_characteristic: V(108) - E(166) + F(100) = 42 (expected 4)",
+      "id": "F0038",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 32 unpaired edges out of 178 total; consistent_normals: 57 of 108 triangles have reversed normals; outward_normals: only 51 of 108 triangles (47.2%) have outward normals (need 95%); mesh_euler_characteristic: V(114) - E(178) + F(108) = 44 (expected 4)",
+      "id": "F0039",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 24 unpaired edges out of 162 total; consistent_normals: 62 of 100 triangles have reversed normals; outward_normals: only 38 of 100 triangles (38.0%) have outward normals (need 95%); mesh_euler_characteristic: V(106) - E(162) + F(100) = 44 (expected 4)",
+      "id": "F0040",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 3 unpaired edges out of 261 total; consistent_normals: 48 of 173 triangles have reversed normals; outward_normals: only 125 of 173 triangles (72.3%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,7), (2,7), (2,12), (2,12), (2,12), ...; mesh_euler_characteristic: V(98) - E(261) + F(173) = 10 (expected 2)",
+      "id": "F0041",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 18 unpaired edges out of 261 total; consistent_normals: 32 of 168 triangles have reversed normals; outward_normals: only 134 of 168 triangles (79.8%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,12), (0,12), (0,12), (0,12), (0,12), ...; mesh_euler_characteristic: V(88) - E(261) + F(168) = -5 (expected 2)",
+      "id": "F0042",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 27 unpaired edges out of 303 total; consistent_normals: 33 of 193 triangles have reversed normals; outward_normals: only 156 of 189 triangles (82.5%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,6), (1,10), (1,10), (1,10), (1,10), ...; mesh_euler_characteristic: V(107) - E(303) + F(193) = -3 (expected 2)",
+      "id": "F0043",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 24 unpaired edges out of 330 total; consistent_normals: 96 of 212 triangles have reversed normals; outward_normals: only 116 of 212 triangles (54.7%) have outward normals (need 95%); mesh_euler_characteristic: V(222) - E(330) + F(212) = 104 (expected 2)",
+      "id": "F0044",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 13 unpaired edges out of 314 total; consistent_normals: 15 of 205 triangles have reversed normals; no_degenerate_triangles: 1 of 205 triangles are degenerate; outward_normals: only 184 of 199 triangles (92.5%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,2), (1,2), (1,2), (1,2), (1,2), ...; mesh_euler_characteristic: V(117) - E(314) + F(205) = 8 (expected 2)",
+      "id": "F0045",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 44 unpaired edges out of 308 total (42 boundary, 2 non-manifold); consistent_normals: 19 of 192 triangles have reversed normals; no_degenerate_triangles: 2 of 192 triangles are degenerate; outward_normals: only 170 of 189 triangles (89.9%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (0,4), (1,4), (1,4), (1,4), ...; mesh_euler_characteristic: V(108) - E(308) + F(192) = -8 (expected 2)",
+      "id": "F0046",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 48 unpaired edges out of 327 total; consistent_normals: 23 of 202 triangles have reversed normals; no_degenerate_triangles: 1 of 202 triangles are degenerate; outward_normals: only 177 of 200 triangles (88.5%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,9), (2,9), (2,9), (2,9), (2,9), ...; mesh_euler_characteristic: V(102) - E(327) + F(202) = -23 (expected 2)",
+      "id": "F0047",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 85 unpaired edges out of 330 total (83 boundary, 2 non-manifold); consistent_normals: 35 of 193 triangles have reversed normals; no_degenerate_triangles: 2 of 193 triangles are degenerate; outward_normals: only 156 of 191 triangles (81.7%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,5), (0,5), (0,6), (0,8), (0,8), ...; mesh_euler_characteristic: V(110) - E(330) + F(193) = -27 (expected 2)",
+      "id": "F0048",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 59 unpaired edges out of 402 total (58 boundary, 1 non-manifold); consistent_normals: 28 of 249 triangles have reversed normals; no_degenerate_triangles: 2 of 249 triangles are degenerate; outward_normals: only 217 of 245 triangles (88.6%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,6), (0,6), (0,6), (0,6), (0,6), ...; mesh_euler_characteristic: V(118) - E(402) + F(249) = -35 (expected 2)",
+      "id": "F0049",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 62 unpaired edges out of 346 total; consistent_normals: 25 of 210 triangles have reversed normals; outward_normals: only 185 of 210 triangles (88.1%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,14), (0,14), (0,19), (0,19), (0,23), ...; mesh_euler_characteristic: V(107) - E(346) + F(210) = -29 (expected 2)",
+      "id": "F0050",
+      "status": "fail"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "9 oracles passed",
+      "id": "F0051",
+      "status": "pass"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "outward_normals: no valid triangles; mesh_euler_characteristic: V(98) - E(144) + F(96) = 50 (expected 2)",
+      "id": "F0052",
+      "status": "fail"
+    },
+    {
+      "category": "pass-boss-only",
+      "detail": "9 oracles passed",
+      "id": "F0053",
+      "status": "pass"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 48 of 140 triangles have reversed normals; outward_normals: only 92 of 140 triangles (65.7%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,3), (1,3), (1,7), (1,7), (1,7), ...; mesh_euler_characteristic: V(121) - E(210) + F(140) = 51 (expected 2)",
+      "id": "F0054",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 23 unpaired edges out of 151 total; consistent_normals: 2 of 93 triangles have reversed normals; no_degenerate_triangles: 2 of 93 triangles are degenerate; mesh_euler_characteristic: V(57) - E(151) + F(93) = -1 (expected 2)",
+      "id": "F0055",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 13 unpaired edges out of 539 total; consistent_normals: 94 of 355 triangles have reversed normals; outward_normals: only 261 of 355 triangles (73.5%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (3,10), (3,10), (3,10), (3,10), (3,10), ...",
+      "id": "F0056",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 50 unpaired edges out of 487 total; consistent_normals: 4 of 308 triangles have reversed normals; no_degenerate_triangles: 7 of 308 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,4), (2,10), (2,10), (2,10), ...; mesh_euler_characteristic: V(158) - E(487) + F(308) = -21 (expected 2)",
+      "id": "F0057",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 33 unpaired edges out of 426 total; consistent_normals: 41 of 273 triangles have reversed normals; no_degenerate_triangles: 4 of 273 triangles are degenerate; outward_normals: only 218 of 261 triangles (83.5%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,2), (1,2), (1,3), (1,3), (1,5), ...; mesh_euler_characteristic: V(149) - E(426) + F(273) = -4 (expected 2)",
+      "id": "F0058",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 105 unpaired edges out of 483 total; consistent_normals: 52 of 287 triangles have reversed normals; no_degenerate_triangles: 4 of 287 triangles are degenerate; outward_normals: only 231 of 283 triangles (81.6%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,26), (0,26), (0,26), (0,26), (1,26), ...; mesh_euler_characteristic: V(170) - E(483) + F(287) = -26 (expected 2)",
+      "id": "F0059",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 42 unpaired edges out of 249 total; no_degenerate_triangles: 1 of 152 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,3), (0,11), ...; mesh_euler_characteristic: V(83) - E(249) + F(152) = -14 (expected 2)",
+      "id": "F0060",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 7 unpaired edges out of 2216 total; consistent_normals: 63 of 1475 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,11), (0,11), (0,38), (0,40), (0,40), ...; mesh_euler_characteristic: V(762) - E(2216) + F(1475) = 21 (expected 0)",
+      "id": "F0061",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 6 unpaired edges out of 315 total; consistent_normals: 42 of 208 triangles have reversed normals; outward_normals: only 164 of 206 triangles (79.6%) have outward normals (need 95%); mesh_euler_characteristic: V(111) - E(315) + F(208) = 4 (expected 0)",
+      "id": "F0062",
+      "status": "fail"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "F0063",
+      "status": "error"
+    },
+    {
+      "category": "tessellation-degenerate",
+      "detail": "no_degenerate_triangles: 1 of 2738 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,10), (0,10), (0,10), (0,18), (0,19), ...; mesh_euler_characteristic: V(1377) - E(4107) + F(2738) = 8 (expected 2)",
+      "id": "F0064",
+      "status": "fail"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "F0065",
+      "status": "error"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 13 unpaired edges out of 1319 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,15), (0,15), (0,15), (0,16), (0,16), ...; mesh_euler_characteristic: V(451) - E(1319) + F(875) = 7 (expected 2)",
+      "id": "F0066",
+      "status": "fail"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "F0067",
+      "status": "error"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "F0068",
+      "status": "error"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "F0069",
+      "status": "error"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "F0070",
+      "status": "error"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "F0071",
+      "status": "error"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "F0072",
+      "status": "error"
+    },
+    {
+      "category": "multiple-failures",
+      "detail": "partial rebuild (1 error(s)): 6501b30c-18bd-4d77-b25c-db0d78301530: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 0.00e0 from axis (min 1.00e-7)",
+      "id": "F0073",
+      "status": "fail"
+    },
+    {
+      "category": "multiple-failures",
+      "detail": "partial rebuild (1 error(s)): d924f183-475c-4a46-b678-147e171f3f68: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 0.00e0 from axis (min 1.00e-7)",
+      "id": "F0074",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 13 unpaired edges out of 287 total; no_degenerate_triangles: 5 of 187 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,11), (0,11), (0,11), (0,11), (0,11), ...; mesh_euler_characteristic: V(103) - E(287) + F(187) = 3 (expected 2)",
+      "id": "F0075",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 46 unpaired edges out of 299 total; consistent_normals: 3 of 184 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,9), (1,7), (1,9), (1,23), (2,4), ...; mesh_euler_characteristic: V(109) - E(299) + F(184) = -6 (expected 2)",
+      "id": "F0076",
+      "status": "fail"
+    },
+    {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (2 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: label_cells timeout (A sub-tris). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: label_cells timeout (A sub-tris). Body created as standalone.; merge incomplete: 5 operations produced 3 separate solids (expected 1 merged); watertight_mesh: 46 unpaired edges out of 311 total; consistent_normals: 3 of 192 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,19), (0,19), (0,48), (1,15), (1,15), ...; mesh_euler_characteristic: V(107) - E(311) + F(192) = -12 (expected 2)",
+      "id": "F0077",
+      "status": "fail"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "F0078",
+      "status": "error"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "F0079",
+      "status": "error"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "F0080",
+      "status": "error"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "F0081",
+      "status": "error"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "F0082",
+      "status": "error"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 101 unpaired edges out of 3178 total; no_degenerate_triangles: 3 of 2085 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...; mesh_euler_characteristic: V(1065) - E(3178) + F(2085) = -28 (expected 2)",
+      "id": "F0083",
+      "status": "fail"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "F0084",
+      "status": "error"
+    },
+    {
+      "category": "cascading-failure",
+      "detail": "timeout after 90s",
+      "id": "F0085",
+      "status": "error"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 9 unpaired edges out of 15 total; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); minimum_triangle_count: 7 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\")]; volume_magnitude: volume 0.000000e0 outside [1.000000e-8, 1.000000e8] for scale 1.000000e0; mesh_euler_characteristic: V(10) - E(15) + F(7) = 2 (expected -4)",
+      "id": "F0086",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 13 unpaired edges out of 14 total; minimum_triangle_count: 5 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\")]; mesh_euler_characteristic: V(11) - E(14) + F(5) = 2 (expected -8)",
+      "id": "F0087",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "partial rebuild (11 error(s)): e261a6e4-bf6f-493f-a05c-0d6ee68994c4: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; 56ca4641-4630-4bc7-ad8e-5e6e92213139: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; 6b8620db-72da-4ab0-aabb-69941c660aa4: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; 05c35745-bea6-4f9c-918f-4098951bb866: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; f5f16caa-ceb6-4fa6-b62e-2f61abc5fc9a: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; e51c780f-5dd1-4676-b375-c136d89cb47a: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; c5c0c52e-bb6c-41c9-a333-f5d35cc04b90: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; 7f5b82ce-9360-42f1-9300-5d88ff76b547: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; 33eddb0d-bb69-4003-baf6-07db65d365b7: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; 41646f5e-345a-449b-a548-41bc5bb01c78: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; 81aeea27-8142-4a35-8e12-d73fc6a9c4fc: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\")]",
+      "id": "F0088",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "partial rebuild (3 error(s)): 6ae8a28c-c861-429a-97ee-4325ea2a0ed0: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; 23cbd061-5e1e-4786-85d6-1ae3899643bd: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; dad49227-8cc5-41d8-9298-6ea15f914050: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\")]",
+      "id": "F0089",
+      "status": "fail"
+    },
+    {
+      "category": "revolve-normals",
+      "detail": "partial rebuild (18 error(s)): e023b268-06ce-44c6-a5e6-c4f60a06d106: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; 87b11ae7-0f7b-4a2e-bf4e-2bdcc57f9e21: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; d5856152-f355-4934-bf0b-5b07a5579518: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; b97425bd-90b9-4418-ae8a-81c6fe90994b: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; 21a13bf7-7648-4e6b-8f2d-4ef3221b218b: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; edbb12c7-c872-461b-8d3e-96691960cbe3: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; ded82cc5-6819-47ee-8518-d66493360841: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; 640c3f10-aed4-48be-936b-ebeb429788f0: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; 90889ea5-4da0-4eee-a9ba-6ca4218ad11d: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; ae33cbf5-a85a-450a-8b26-1bd0faada5ab: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; 88313593-3459-4d94-a5d9-3ef74f3af8b6: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; 8e5b63ac-9433-4efe-b347-acf56e20f693: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; 1d13b6cd-812c-461a-b32f-8f3d80d6bd74: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; ce0bb32f-9f28-4265-a45d-fbb45c9b0399: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; fc324f86-8a80-4cc7-8967-212e2250c882: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; 78e5df93-104c-4881-a07c-c84a82c0608b: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; 7f9fdffc-e30d-4514-a3fa-28ab28ec6c27: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; 0c717967-b059-46c4-83b3-dce0967a2142: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\")]",
+      "id": "F0090",
+      "status": "fail"
     }
-  ]
+  ],
+  "total": 190
 }
