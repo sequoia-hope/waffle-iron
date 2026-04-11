@@ -584,6 +584,86 @@ fn batch_revolve_self_intersection() {
     );
 }
 
+// ── Yang Pipeline Fast Check ─────────────────────────────────────────
+
+/// Fast Yang assay: runs all 190 cases EXCEPT known timeout cases (~31).
+/// Completes in ~5 minutes instead of ~45 minutes. Uses per-case 30s timeout
+/// (vs 90s in full assay) so previously-unknown slow cases don't hang.
+///
+/// Run with: YANG_BOOLEAN=1 cargo test -p test-harness --test assay_randomized -- yang_fast --ignored --nocapture
+#[test]
+#[ignore]
+fn yang_fast() {
+    use std::collections::HashSet;
+
+    let dir = Path::new(ASSAY_DIR);
+    if !dir.exists() {
+        eprintln!("Assay corpus not generated yet");
+        return;
+    }
+
+    // Known timeout cases (>90s with Yang pipeline) — skip entirely.
+    let skip: HashSet<&str> = [
+        "R0003", "R0010", "R0012", "R0026", "R0028", "R0053", "R0059",
+        "R0065", "R0070", "R0085", "R0099", "R0100",
+        "F0063", "F0065", "F0067", "F0068", "F0069", "F0070", "F0071",
+        "F0072", "F0077", "F0078", "F0079", "F0080", "F0081", "F0082",
+        "F0083", "F0084", "F0085", "F0087", "F0088", "F0089", "F0090",
+    ]
+    .iter()
+    .copied()
+    .collect();
+
+    let cases = discover_cases(dir);
+    let mut passed = 0usize;
+    let mut failed = 0usize;
+    let mut errored = 0usize;
+    let mut skipped = 0usize;
+
+    for case in &cases {
+        if skip.contains(case.id.as_str()) {
+            skipped += 1;
+            continue;
+        }
+        // Run with 30s timeout per case
+        let id_clone = case.id.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            let dir = Path::new(ASSAY_DIR);
+            let r = run_single_case(dir, &id_clone, true);
+            let _ = tx.send(r);
+        });
+        match rx.recv_timeout(std::time::Duration::from_secs(30)) {
+            Ok(Some(r)) => {
+                let _ = handle.join();
+                if r.status != AssayStatus::Passed {
+                    println!("  {} {:?}: {}", r.id, r.status, &r.detail[..r.detail.len().min(150)]);
+                }
+                match r.status {
+                    AssayStatus::Passed => passed += 1,
+                    AssayStatus::Failed => failed += 1,
+                    AssayStatus::Errored => errored += 1,
+                }
+            }
+            Ok(None) => {
+                let _ = handle.join();
+                println!("  {} not found", case.id);
+                errored += 1;
+            }
+            Err(_) => {
+                println!("  {} timeout (30s)", case.id);
+                errored += 1;
+            }
+        }
+    }
+
+    let total = cases.len() - skipped;
+    println!(
+        "\nYang fast: {}/{} passed, {} failed, {} errored (skipped {} known timeouts)",
+        passed, total, failed, errored, skipped
+    );
+}
+
 // ── Yang Pipeline Comparison ──────────────────────────────────────────
 
 /// Phase 5b: Compare Yang pipeline vs. legacy pipeline on full assay corpus.
