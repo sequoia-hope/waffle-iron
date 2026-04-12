@@ -844,12 +844,20 @@ pub fn triangulate_single_triangle(
         }
     }
 
-    // Insert interior points by splitting their containing triangles
+    // Insert interior points by splitting their containing triangles.
+    // If a point lies exactly on an existing mesh edge (collinear with
+    // constraint path), use split_edge instead of split_interior to
+    // avoid creating zero-area degenerate triangles.
     for &gv in interior_points {
         let new_lv = mesh.add_vert(gv);
-        // Find which active triangle contains this point
-        if let Some(t_id) = find_containing_triangle(&mesh, new_lv, all_verts) {
-            mesh.split_interior(t_id, new_lv);
+        match find_containing_element(&mesh, new_lv, all_verts) {
+            PointLocation::OnEdge(edge_id) => {
+                mesh.split_edge(edge_id, new_lv);
+            }
+            PointLocation::InTriangle(t_id) => {
+                mesh.split_interior(t_id, new_lv);
+            }
+            PointLocation::NotFound => {}
         }
     }
 
@@ -867,11 +875,24 @@ pub fn triangulate_single_triangle(
     mesh.active_tris()
 }
 
-/// Find the active triangle containing a local vertex (by point-in-triangle test).
+/// Result of locating a point within the local mesh.
+enum PointLocation {
+    /// Point lies strictly inside a triangle.
+    InTriangle(usize),
+    /// Point lies on an edge (edge index in the LocalMesh).
+    OnEdge(usize),
+    /// Point not found in any active triangle.
+    NotFound,
+}
+
+/// Find where a local vertex sits in the mesh: strictly inside a triangle,
+/// or on an edge between two triangles. When the point is on an edge,
+/// returning the edge allows the caller to use split_edge (which avoids
+/// creating zero-area degenerate triangles when constraint points are collinear).
 ///
 /// Ported from Cherchi et al. C++ reference:
 ///   triangulation.cpp:459-469 (findContainingTriangle)
-fn find_containing_triangle(mesh: &LocalMesh, lv: usize, all_verts: &[[f64; 3]]) -> Option<usize> {
+fn find_containing_element(mesh: &LocalMesh, lv: usize, all_verts: &[[f64; 3]]) -> PointLocation {
     let proj = best_projection_axis(all_verts, mesh);
     let p = &all_verts[mesh.global_verts[lv]];
 
@@ -883,19 +904,38 @@ fn find_containing_triangle(mesh: &LocalMesh, lv: usize, all_verts: &[[f64; 3]])
         let b = &all_verts[mesh.global_verts[tri[1]]];
         let c = &all_verts[mesh.global_verts[tri[2]]];
 
-        // Point-in-triangle: check that p is on the same side of all 3 edges
         let d0 = orient2d_projected(a, b, p, proj);
         let d1 = orient2d_projected(b, c, p, proj);
         let d2 = orient2d_projected(c, a, p, proj);
 
-        // Accept if all same sign (strictly inside) or any zero (on edge)
         let has_neg = d0 < 0.0 || d1 < 0.0 || d2 < 0.0;
         let has_pos = d0 > 0.0 || d1 > 0.0 || d2 > 0.0;
-        if !(has_neg && has_pos) {
-            return Some(t_id);
+        if has_neg && has_pos {
+            continue; // outside this triangle
         }
+
+        // Point is in or on this triangle. Check if on an edge (one d == 0).
+        // d0 == 0 means on edge a-b (tri[0]-tri[1])
+        // d1 == 0 means on edge b-c (tri[1]-tri[2])
+        // d2 == 0 means on edge c-a (tri[2]-tri[0])
+        if d0 == 0.0 {
+            if let Some(e_id) = mesh.find_edge(tri[0], tri[1]) {
+                return PointLocation::OnEdge(e_id);
+            }
+        }
+        if d1 == 0.0 {
+            if let Some(e_id) = mesh.find_edge(tri[1], tri[2]) {
+                return PointLocation::OnEdge(e_id);
+            }
+        }
+        if d2 == 0.0 {
+            if let Some(e_id) = mesh.find_edge(tri[2], tri[0]) {
+                return PointLocation::OnEdge(e_id);
+            }
+        }
+        return PointLocation::InTriangle(t_id);
     }
-    None
+    PointLocation::NotFound
 }
 
 #[cfg(test)]
@@ -1159,6 +1199,63 @@ mod tests {
                 "triangle {:?} should have positive (CCW) orientation, got cross={}",
                 tri,
                 cross
+            );
+        }
+    }
+
+    /// Test: edge-only splits on two different edges (no constraints).
+    /// This reproduces the hub-spoke non-conformality bug.
+    /// Triangle [7,6,11] with edge_pts on edge 0 and edge 2.
+    #[test]
+    fn test_edge_splits_two_edges_no_constraints() {
+        // Global vertices: triangle + 2 edge split points
+        let verts = vec![
+            [0.0, 2.0, 2.0],   // 0 = v7
+            [2.0, 2.0, 2.0],   // 1 = v6
+            [1.0, 2.0, 1.0],   // 2 = v11
+            [0.75, 2.0, 2.0],  // 3 = v34 on edge 0 (v7→v6)
+            [0.75, 2.0, 1.25], // 4 = v36 on edge 2 (v11→v7)
+        ];
+
+        let result = triangulate_single_triangle(
+            [0, 1, 2],
+            [&[3], &[], &[4]], // edge 0 has v34, edge 2 has v36
+            &[],               // no interior points
+            &[],               // no constraint segments
+            &verts,
+        );
+
+        // Should produce 3 sub-triangles covering the original triangle
+        assert_eq!(
+            result.len(),
+            3,
+            "2 edge splits should produce 3 sub-triangles, got {:?}",
+            result
+        );
+
+        // Check internal conformality: every directed edge should have its reverse
+        // (except boundary edges which are on the original triangle edges)
+        use std::collections::HashSet;
+        let mut edges: HashSet<(usize, usize)> = HashSet::new();
+        for tri in &result {
+            edges.insert((tri[0], tri[1]));
+            edges.insert((tri[1], tri[2]));
+            edges.insert((tri[2], tri[0]));
+        }
+
+        // Original boundary sub-edges (these shouldn't have reverse twins):
+        // edge 0: 0→3→1, edge 1: 1→2, edge 2: 2→4→0
+        let boundary = [(0usize, 3usize), (3, 1), (1, 2), (2, 4), (4, 0)];
+        let boundary_set: HashSet<(usize, usize)> = boundary.iter().copied().collect();
+
+        for &(v0, v1) in &edges {
+            if boundary_set.contains(&(v0, v1)) {
+                continue; // boundary edge, ok to not have reverse
+            }
+            assert!(
+                edges.contains(&(v1, v0)),
+                "internal edge ({v0},{v1}) has no reverse twin! Sub-tris: {:?}",
+                result
             );
         }
     }
