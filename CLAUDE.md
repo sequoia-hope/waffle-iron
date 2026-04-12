@@ -26,25 +26,36 @@ When asked "what should I work on?", choose from these areas **in order**.
 Do NOT skip to lower-priority items because they are easier.
 
 1. **Hybrid boolean pipeline (Yang 2025)** — This is the #1 priority.
-   The goal is `YANG_BOOLEAN=1` passing more assay cases (currently 8/190).
-   Do NOT fix the old S-H pipeline. Do NOT add fallback paths from Yang to S-H.
+   The goal is `YANG_BOOLEAN=1` passing more assay cases (currently 9/157
+   non-timeout). Do NOT fix legacy code. Build Yang as described in the paper.
 
-   **Current diagnosis**: B-Rep reassembly (Phase 5) produces catastrophically
-   wrong topology — Euler characteristic of -62 (should be 2), hundreds of
-   unpaired edges, self-intersections. R-series cases timeout or produce zero
-   surviving faces. This is not an edge case problem — the face assembly
-   algorithm is fundamentally broken.
+   **The paper IS the spec.** Read `refs/yang2025_hybrid_boolean.pdf` before
+   each session. Implement what the paper describes — do NOT adapt it to fit
+   legacy code. Legacy code (old conformal repair, tolerance escalation,
+   S-H clipping) is being REPLACED, not accommodated.
 
-   **What to work on**: Pick ONE specific failing case (e.g., F0003 box-box
-   subtract). Trace it through the pipeline step by step: tessellation →
-   exact intersection → cell labeling → face survival → boundary extraction
-   → B-Rep assembly. Find exactly where correct intermediate results become
-   wrong output. Fix that ONE thing. Do not try to fix the whole pipeline
-   in one session.
+   **Current architecture (what's built):**
+   - Stage 0: Coplanar preprocessing (`coplanar_preprocess.rs`) — infrastructure
+   - Stage 1: Tessellate with bijective mapping — working
+   - Stage 2: Mesh arrangement via Cherchi (`mesh_arrangement.rs`) — per-triangle
+     LocalMesh + Algorithm 1, wired into `subdivide_mesh_pair` via
+     `triangulate_single_triangle()`
+   - Stage 3: SSI refinement — wired but optional fallback
+   - Stage 4b: Inside/outside classification (`label_cells`) — working
+   - Stage 5: Flood-fill patch segmentation (`flood_fill_patches`) — working
+   - Stage 6: B-Rep assembly + retessellation — working
 
-   **What NOT to do**: Do not add retessellation workarounds, mesh passthrough
-   hacks, "accept invalid" paths, or tolerance tweaks. If the face assembly
-   is wrong, fix the face assembly.
+   **What's missing (next steps):**
+   - Debug F0002/F0003 regression in mesh arrangement preprocessing
+   - Stage 3 (Section 4.3): Use SSI solvers to refine intersection positions
+     from mesh-approximate to surface-exact
+   - Stage 4a (Section 4.4.1): Mesh updating — re-mesh along refined curves
+     using CDT to restore bijectivity
+
+   **Key references:**
+   - Cherchi C++ reference: `github.com/gcherchi/FastAndRobustMeshArrangements`
+   - Livesu & Cherchi 2022: "Deterministic Linear Time Constrained Triangulation"
+   - Yang fast test: `YANG_BOOLEAN=1 cargo test -p test-harness --test assay_randomized -- yang_fast --ignored --nocapture`
 2. **SSI solvers** — Complete the A15.4 matrix. Solvers feed stage 4 (geometry
    refinement) of the hybrid pipeline. Only work on SSI if Yang pipeline work is
    blocked. Priority: pairs #5, #6, #10 (partial status).
