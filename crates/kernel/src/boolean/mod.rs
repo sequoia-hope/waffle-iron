@@ -20,6 +20,8 @@ mod clip;
 pub(crate) mod coplanar_preprocess;
 pub(crate) mod exact_mesh;
 pub(crate) mod indirect_predicates;
+#[allow(dead_code)] // Not yet wired into pipeline
+pub(crate) mod mesh_arrangement;
 pub(crate) mod ssi_refinement;
 pub(crate) mod stitch;
 pub(crate) mod topology_extract;
