@@ -15,6 +15,7 @@ use crate::geometry::surface::SurfaceGeom;
 use crate::geometry::surface::{Cone, Cylinder, Plane, Sphere, Torus};
 use crate::ssi;
 use crate::ssi::SSICurve;
+use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::{EdgeIdx, FaceIdx};
 use crate::types::KernelError;
 
@@ -244,6 +245,36 @@ fn edge_midpoint(result: &ResultTopology, edge_idx: EdgeIdx) -> Option<[f64; 3]>
         (p0[1] + p1[1]) * 0.5,
         (p0[2] + p1[2]) * 0.5,
     ])
+}
+
+/// Yang Section 4.3: Project intersection vertices onto exact SSI curves.
+///
+/// For each edge in the refinement map, project its endpoint vertices onto the
+/// associated SSI curve. Each vertex is refined at most once (vertices shared
+/// by multiple intersection edges are projected using the first curve encountered).
+///
+/// Ref [#24] Yang 2025, Section 4.3 — intersection optimization.
+/// Ref [#1] Patrikalakis Ch.5 — SSI curve geometry.
+pub(crate) fn refine_vertex_positions(arena: &mut TopoArena, refinement: &EdgeRefinementMap) {
+    use std::collections::HashSet;
+    let mut refined = HashSet::new();
+
+    for (&edge_idx, curve) in &refinement.edges {
+        let he = arena.edges[edge_idx.0].half_edge;
+        let twin = arena.half_edges[he.0].twin;
+        let v0_idx = arena.half_edges[he.0].origin;
+        let v1_idx = arena.half_edges[twin.0].origin;
+
+        // Only refine each vertex once (may be shared by multiple edges)
+        if refined.insert(v0_idx) {
+            let p = arena.vertices[v0_idx.0].position;
+            arena.vertices[v0_idx.0].position = curve.closest_point(p);
+        }
+        if refined.insert(v1_idx) {
+            let p = arena.vertices[v1_idx.0].position;
+            arena.vertices[v1_idx.0].position = curve.closest_point(p);
+        }
+    }
 }
 
 /// Helper: get a surface type discriminant for ordering.
@@ -1881,5 +1912,240 @@ mod tests {
                 }
             }
         }
+    }
+
+    // ── Stage 4.3: SSI vertex refinement tests ────────────────────────────
+
+    // Test 1: closest_point on a Line segment — projection + clamping
+    #[test]
+    fn test_closest_point_on_line() {
+        let line = SSICurve::Line {
+            start: [0.0, 0.0, 0.0],
+            end: [10.0, 0.0, 0.0],
+        };
+
+        // Interior projection: (5,3,0) should project to (5,0,0)
+        let p1 = line.closest_point([5.0, 3.0, 0.0]);
+        assert!(
+            (p1[0] - 5.0).abs() < TAU_MODEL && p1[1].abs() < TAU_MODEL && p1[2].abs() < TAU_MODEL,
+            "Interior projection failed: got {:?}, expected [5,0,0]",
+            p1,
+        );
+
+        // Before start: (-2,1,0) should clamp to (0,0,0)
+        let p2 = line.closest_point([-2.0, 1.0, 0.0]);
+        assert!(
+            p2[0].abs() < TAU_MODEL && p2[1].abs() < TAU_MODEL && p2[2].abs() < TAU_MODEL,
+            "Clamp-to-start failed: got {:?}, expected [0,0,0]",
+            p2,
+        );
+
+        // Past end: (12,0,5) should clamp to (10,0,0)
+        let p3 = line.closest_point([12.0, 0.0, 5.0]);
+        assert!(
+            (p3[0] - 10.0).abs() < TAU_MODEL && p3[1].abs() < TAU_MODEL && p3[2].abs() < TAU_MODEL,
+            "Clamp-to-end failed: got {:?}, expected [10,0,0]",
+            p3,
+        );
+    }
+
+    // Test 2: closest_point on a Circle — plane projection + radius normalization
+    #[test]
+    fn test_closest_point_on_circle() {
+        let circle = SSICurve::Circle {
+            center: [0.0, 0.0, 0.0],
+            normal: [0.0, 0.0, 1.0],
+            radius: 5.0,
+        };
+
+        // Point (3,4,2) should project to plane z=0, then normalize to radius 5.
+        // On-plane direction: (3,4,0), length=5, so normalized = (3,4,0) → already at radius 5.
+        let p = circle.closest_point([3.0, 4.0, 2.0]);
+
+        // Distance from center to projected point must equal radius
+        let dist = (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt();
+        assert!(
+            (dist - 5.0).abs() < TAU_MODEL,
+            "Distance from center should be 5.0, got {}",
+            dist,
+        );
+
+        // z coordinate must be 0 (on the circle's plane)
+        assert!(
+            p[2].abs() < TAU_MODEL,
+            "z should be 0 (on circle plane), got {}",
+            p[2],
+        );
+
+        // Direction should match (3,4,0) normalized to radius 5
+        assert!(
+            (p[0] - 3.0).abs() < TAU_MODEL && (p[1] - 4.0).abs() < TAU_MODEL,
+            "Projected point direction wrong: got ({}, {}), expected (3, 4)",
+            p[0],
+            p[1],
+        );
+    }
+
+    // Test 3: refine_vertex_positions moves vertices to projected positions
+    #[test]
+    fn test_refine_vertex_positions_moves_vertices() {
+        // Build a minimal topology: one intersection edge with two vertices
+        let mut arena = TopoArena::new();
+        let solid = arena.add_solid();
+        let shell = arena.add_shell(solid);
+        let face0 = arena.add_face(shell);
+        let face1 = arena.add_face(shell);
+        let loop0 = arena.add_loop(face0);
+        let loop1 = arena.add_loop(face1);
+        arena.faces[face0.0].outer_loop = loop0;
+        arena.faces[face1.0].outer_loop = loop1;
+
+        // Vertices at mesh-approximate positions (off the line)
+        let v0 = arena.add_vertex([1.0, 0.5, 0.0]); // should project to (1,0,0)
+        let v1 = arena.add_vertex([8.0, -0.3, 0.0]); // should project to (8,0,0)
+
+        let (edge0, he_a, he_b) = arena.add_edge();
+        arena.half_edges[he_a.0].origin = v0;
+        arena.half_edges[he_b.0].origin = v1;
+        arena.half_edges[he_a.0].loop_ = loop0;
+        arena.half_edges[he_b.0].loop_ = loop1;
+        arena.half_edges[he_a.0].next = he_a;
+        arena.half_edges[he_a.0].prev = he_a;
+        arena.half_edges[he_b.0].next = he_b;
+        arena.half_edges[he_b.0].prev = he_b;
+        arena.loops[loop0.0].half_edge = he_a;
+        arena.loops[loop1.0].half_edge = he_b;
+
+        // SSI curve: line from (0,0,0) to (10,0,0)
+        let mut edges_map = BTreeMap::new();
+        edges_map.insert(
+            edge0,
+            SSICurve::Line {
+                start: [0.0, 0.0, 0.0],
+                end: [10.0, 0.0, 0.0],
+            },
+        );
+        let refinement_map = EdgeRefinementMap {
+            edges: edges_map,
+            skipped_planar: 0,
+            unsupported: vec![],
+        };
+
+        refine_vertex_positions(&mut arena, &refinement_map);
+
+        // Vertex 0 should have moved from (1, 0.5, 0) to (1, 0, 0)
+        let pos0 = arena.vertices[v0.0].position;
+        assert!(
+            (pos0[0] - 1.0).abs() < TAU_MODEL
+                && pos0[1].abs() < TAU_MODEL
+                && pos0[2].abs() < TAU_MODEL,
+            "Vertex 0 not refined: got {:?}, expected [1,0,0]",
+            pos0,
+        );
+
+        // Vertex 1 should have moved from (8, -0.3, 0) to (8, 0, 0)
+        let pos1 = arena.vertices[v1.0].position;
+        assert!(
+            (pos1[0] - 8.0).abs() < TAU_MODEL
+                && pos1[1].abs() < TAU_MODEL
+                && pos1[2].abs() < TAU_MODEL,
+            "Vertex 1 not refined: got {:?}, expected [8,0,0]",
+            pos1,
+        );
+    }
+
+    // Test 4: refine_vertex_positions preserves topology (counts + twin pairing)
+    #[test]
+    fn test_refinement_preserves_topology() {
+        // Same setup as test 3
+        let mut arena = TopoArena::new();
+        let solid = arena.add_solid();
+        let shell = arena.add_shell(solid);
+        let face0 = arena.add_face(shell);
+        let face1 = arena.add_face(shell);
+        let loop0 = arena.add_loop(face0);
+        let loop1 = arena.add_loop(face1);
+        arena.faces[face0.0].outer_loop = loop0;
+        arena.faces[face1.0].outer_loop = loop1;
+
+        let v0 = arena.add_vertex([1.0, 0.5, 0.0]);
+        let v1 = arena.add_vertex([8.0, -0.3, 0.0]);
+
+        let (edge0, he_a, he_b) = arena.add_edge();
+        arena.half_edges[he_a.0].origin = v0;
+        arena.half_edges[he_b.0].origin = v1;
+        arena.half_edges[he_a.0].loop_ = loop0;
+        arena.half_edges[he_b.0].loop_ = loop1;
+        arena.half_edges[he_a.0].next = he_a;
+        arena.half_edges[he_a.0].prev = he_a;
+        arena.half_edges[he_b.0].next = he_b;
+        arena.half_edges[he_b.0].prev = he_b;
+        arena.loops[loop0.0].half_edge = he_a;
+        arena.loops[loop1.0].half_edge = he_b;
+
+        // Record topology counts before refinement
+        let verts_before = arena.vertices.len();
+        let edges_before = arena.edges.len();
+        let faces_before = arena.faces.len();
+        let he_before = arena.half_edges.len();
+        let twin_a_before = arena.half_edges[he_a.0].twin;
+        let twin_b_before = arena.half_edges[he_b.0].twin;
+
+        let mut edges_map = BTreeMap::new();
+        edges_map.insert(
+            edge0,
+            SSICurve::Line {
+                start: [0.0, 0.0, 0.0],
+                end: [10.0, 0.0, 0.0],
+            },
+        );
+        let refinement_map = EdgeRefinementMap {
+            edges: edges_map,
+            skipped_planar: 0,
+            unsupported: vec![],
+        };
+
+        refine_vertex_positions(&mut arena, &refinement_map);
+
+        // Topology counts must be unchanged
+        assert_eq!(
+            arena.vertices.len(),
+            verts_before,
+            "Vertex count changed after refinement"
+        );
+        assert_eq!(
+            arena.edges.len(),
+            edges_before,
+            "Edge count changed after refinement"
+        );
+        assert_eq!(
+            arena.faces.len(),
+            faces_before,
+            "Face count changed after refinement"
+        );
+        assert_eq!(
+            arena.half_edges.len(),
+            he_before,
+            "Half-edge count changed after refinement"
+        );
+
+        // Twin pairing must be preserved
+        assert_eq!(
+            arena.half_edges[he_a.0].twin, twin_a_before,
+            "Twin pairing for he_a changed after refinement"
+        );
+        assert_eq!(
+            arena.half_edges[he_b.0].twin, twin_b_before,
+            "Twin pairing for he_b changed after refinement"
+        );
+
+        // Positions MUST have changed (vertices were off-curve)
+        // This ensures the stub doesn't trivially pass by doing nothing.
+        let pos0 = arena.vertices[v0.0].position;
+        assert!(
+            (pos0[1] - 0.5).abs() > TAU_MODEL,
+            "Vertex 0 y should have been refined away from 0.5, still at {}",
+            pos0[1],
+        );
     }
 }

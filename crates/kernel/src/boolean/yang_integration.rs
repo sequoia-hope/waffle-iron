@@ -16,7 +16,9 @@ use crate::boolean::exact_mesh::MeshId;
 use crate::boolean::exact_mesh::SubdividedMesh;
 use crate::boolean::polygon_centroid;
 use crate::boolean::ssi_refinement::EdgeRefinementMap;
-use crate::boolean::ssi_refinement::{classify_intersection_edges, refine_intersection_edges};
+use crate::boolean::ssi_refinement::{
+    classify_intersection_edges, refine_intersection_edges, refine_vertex_positions,
+};
 use crate::boolean::topology_extract::yang_boolean_pipeline;
 use crate::boolean::topology_extract::ResultTopology;
 #[cfg(test)]
@@ -638,7 +640,7 @@ pub(crate) fn yang_boolean_inner(
         + std::time::Duration::from_secs(crate::units::YANG_PIPELINE_TIMEOUT_SECS);
 
     // Step 4: Run Yang pipeline (Phases 1-3): mesh boolean → topology extract.
-    let pipeline_result = yang_boolean_pipeline(
+    let mut pipeline_result = yang_boolean_pipeline(
         &verts_a,
         &tris_a,
         &verts_b,
@@ -727,6 +729,12 @@ pub(crate) fn yang_boolean_inner(
                 face_ranges: vec![],
             }),
         });
+    }
+
+    // Step 6b: Project intersection vertices onto exact SSI curves.
+    // Yang 2025 Section 4.3 — move vertices from mesh-approximate to surface-exact.
+    if !refinement.edges.is_empty() {
+        refine_vertex_positions(&mut pipeline_result.topology.arena, &refinement);
     }
 
     // Step 7: Convert ResultTopology → WaffleSolid → BooleanResult.

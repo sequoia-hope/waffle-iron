@@ -787,6 +787,144 @@ impl SSICurve {
             _ => None,
         }
     }
+
+    /// Project a 3D point onto this curve, returning the closest point.
+    /// Ref [#24] Yang 2025, Section 4.3 — intersection optimization.
+    /// Ref [#1] Patrikalakis Ch.5 — SSI curve geometry.
+    pub(crate) fn closest_point(&self, p: [f64; 3]) -> [f64; 3] {
+        match self {
+            SSICurve::Line { start, end } => {
+                let dx = end[0] - start[0];
+                let dy = end[1] - start[1];
+                let dz = end[2] - start[2];
+                let dot_dir = dx * dx + dy * dy + dz * dz;
+                if dot_dir < TOL * TOL {
+                    return *start;
+                }
+                let px = p[0] - start[0];
+                let py = p[1] - start[1];
+                let pz = p[2] - start[2];
+                let t = (px * dx + py * dy + pz * dz) / dot_dir;
+                let t = t.clamp(0.0, 1.0);
+                [start[0] + t * dx, start[1] + t * dy, start[2] + t * dz]
+            }
+            SSICurve::Circle {
+                center,
+                normal,
+                radius,
+            } => {
+                // Project p onto the circle's plane
+                let dx = p[0] - center[0];
+                let dy = p[1] - center[1];
+                let dz = p[2] - center[2];
+                let d = dx * normal[0] + dy * normal[1] + dz * normal[2];
+                let on_plane = [
+                    p[0] - d * normal[0],
+                    p[1] - d * normal[1],
+                    p[2] - d * normal[2],
+                ];
+                // Vector from center to on-plane point
+                let vx = on_plane[0] - center[0];
+                let vy = on_plane[1] - center[1];
+                let vz = on_plane[2] - center[2];
+                let dist = (vx * vx + vy * vy + vz * vz).sqrt();
+                if dist < TOL {
+                    // Point is at center — pick arbitrary perpendicular direction
+                    let perp = arbitrary_perpendicular(normal);
+                    return [
+                        center[0] + radius * perp[0],
+                        center[1] + radius * perp[1],
+                        center[2] + radius * perp[2],
+                    ];
+                }
+                let scale = radius / dist;
+                [
+                    center[0] + vx * scale,
+                    center[1] + vy * scale,
+                    center[2] + vz * scale,
+                ]
+            }
+            SSICurve::Ellipse {
+                center,
+                normal,
+                major_axis,
+                semi_major,
+                semi_minor,
+            } => {
+                // Project onto ellipse plane
+                let dx = p[0] - center[0];
+                let dy = p[1] - center[1];
+                let dz = p[2] - center[2];
+                let d = dx * normal[0] + dy * normal[1] + dz * normal[2];
+                let on_plane = [
+                    p[0] - d * normal[0],
+                    p[1] - d * normal[1],
+                    p[2] - d * normal[2],
+                ];
+                // minor_axis = normal × major_axis
+                let minor_axis = [
+                    normal[1] * major_axis[2] - normal[2] * major_axis[1],
+                    normal[2] * major_axis[0] - normal[0] * major_axis[2],
+                    normal[0] * major_axis[1] - normal[1] * major_axis[0],
+                ];
+                // Project onto 2D ellipse coordinates
+                let rel = [
+                    on_plane[0] - center[0],
+                    on_plane[1] - center[1],
+                    on_plane[2] - center[2],
+                ];
+                let u = rel[0] * major_axis[0] + rel[1] * major_axis[1] + rel[2] * major_axis[2];
+                let v = rel[0] * minor_axis[0] + rel[1] * minor_axis[1] + rel[2] * minor_axis[2];
+                // Initial guess: atan2
+                let mut t = v.atan2(u);
+                // Newton iteration to find closest point on ellipse
+                for _ in 0..20 {
+                    let ct = t.cos();
+                    let st = t.sin();
+                    let ex = semi_major * ct;
+                    let ey = semi_minor * st;
+                    // f(t) = derivative of distance² w.r.t. t = 0
+                    let f = -(u - ex) * semi_major * st + (v - ey) * semi_minor * ct;
+                    let df = -(u - ex) * semi_major * ct
+                        - semi_major * semi_major * st * st
+                        - (v - ey) * semi_minor * st
+                        + semi_minor * semi_minor * ct * ct;
+                    if df.abs() < TOL * TOL {
+                        break;
+                    }
+                    let dt = -f / df;
+                    t += dt;
+                    if dt.abs() < TOL {
+                        break;
+                    }
+                }
+                let ct = t.cos();
+                let st = t.sin();
+                [
+                    center[0] + semi_major * ct * major_axis[0] + semi_minor * st * minor_axis[0],
+                    center[1] + semi_major * ct * major_axis[1] + semi_minor * st * minor_axis[1],
+                    center[2] + semi_major * ct * major_axis[2] + semi_minor * st * minor_axis[2],
+                ]
+            }
+            // TODO: Newton iteration for higher-order curves
+            _ => p,
+        }
+    }
+}
+
+/// Return a unit vector perpendicular to `n` (assumed unit).
+fn arbitrary_perpendicular(n: &[f64; 3]) -> [f64; 3] {
+    // Cross with whichever basis axis is least parallel
+    let basis = if n[0].abs() < 0.9 {
+        [1.0, 0.0, 0.0]
+    } else {
+        [0.0, 1.0, 0.0]
+    };
+    let cx = n[1] * basis[2] - n[2] * basis[1];
+    let cy = n[2] * basis[0] - n[0] * basis[2];
+    let cz = n[0] * basis[1] - n[1] * basis[0];
+    let len = (cx * cx + cy * cy + cz * cz).sqrt();
+    [cx / len, cy / len, cz / len]
 }
 
 /// Axis-aligned bounding box.
