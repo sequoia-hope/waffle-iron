@@ -3494,13 +3494,103 @@ pub(crate) fn subdivide_mesh_pair(
     tris_b: &[[usize; 3]],
     deadline: Option<std::time::Instant>,
 ) -> Result<SubdividedMesh, crate::types::KernelError> {
-    // Delegate to Cherchi per-triangle subdivision via mesh_arrangement.
-    // Fall back to legacy if CHERCHI_FALLBACK=1 is set.
-    if std::env::var("CHERCHI_FALLBACK").ok().as_deref() == Some("1") {
+    // CHERCHI_PORT=1: use the full Cherchi solve_intersections pipeline.
+    // Default: Cherchi per-triangle subdivision (subdivide_mesh_pair_cherchi).
+    // CHERCHI_FALLBACK=1: legacy path.
+    if std::env::var("CHERCHI_PORT").ok().as_deref() == Some("1") {
+        subdivide_mesh_pair_full_cherchi(verts_a, tris_a, verts_b, tris_b, deadline)
+    } else if std::env::var("CHERCHI_FALLBACK").ok().as_deref() == Some("1") {
         subdivide_mesh_pair_legacy(verts_a, tris_a, verts_b, tris_b, deadline)
     } else {
         subdivide_mesh_pair_cherchi(verts_a, tris_a, verts_b, tris_b, deadline)
     }
+}
+
+/// Full Cherchi mesh arrangement pipeline via `solve_intersections`.
+///
+/// Merges both meshes into flat arrays, runs the complete Cherchi pipeline
+/// (preprocess → detect → classify → triangulate), then splits output by label.
+///
+/// Ref #9: Cherchi 2020 — global mesh arrangement for watertight guarantee.
+fn subdivide_mesh_pair_full_cherchi(
+    verts_a: &[[f64; 3]],
+    tris_a: &[[usize; 3]],
+    verts_b: &[[f64; 3]],
+    tris_b: &[[usize; 3]],
+    _deadline: Option<std::time::Instant>,
+) -> Result<SubdividedMesh, crate::types::KernelError> {
+    // 1. Merge into flat arrays with labels
+    let mut in_coords: Vec<f64> = Vec::with_capacity((verts_a.len() + verts_b.len()) * 3);
+    for v in verts_a.iter().chain(verts_b.iter()) {
+        in_coords.extend_from_slice(v);
+    }
+
+    let offset_b = verts_a.len();
+    let mut in_tris: Vec<usize> = Vec::with_capacity((tris_a.len() + tris_b.len()) * 3);
+    let mut in_labels: Vec<u32> = Vec::with_capacity(tris_a.len() + tris_b.len());
+    for tri in tris_a {
+        in_tris.extend_from_slice(tri);
+        in_labels.push(1); // mesh A — label bit 0
+    }
+    for tri in tris_b {
+        in_tris.push(tri[0] + offset_b);
+        in_tris.push(tri[1] + offset_b);
+        in_tris.push(tri[2] + offset_b);
+        in_labels.push(2); // mesh B — label bit 1
+    }
+
+    // 2. Call Cherchi pipeline
+    let result = crate::boolean::cherchi::solve_intersections(&in_coords, &in_tris, &in_labels)
+        .map_err(|e| crate::types::KernelError::BooleanFailed { reason: e })?;
+
+    // 3. Split output by label into tris_a and tris_b, tracking parent_tri
+    //
+    // parent_tri mapping: The Cherchi pipeline's parent_tris refer to input
+    // triangle indices in the merged (preprocessed) array. We need to map
+    // these back to original mesh-local triangle indices.
+    //
+    // Input ordering: tris_a[0..Na] then tris_b[0..Nb].
+    // After preprocessing (dedup + degenerate removal), triangle IDs may shift.
+    // The parent_tri from triangulation refers to the preprocessed triangle index,
+    // which preserves the original ordering (A then B), just with some removed.
+    //
+    // For now, we use the label to determine mesh and the parent_tri as-is.
+    // The downstream pipeline uses parent_tri to map back to B-Rep faces via
+    // the bijective map, so we need to track which ORIGINAL triangle each
+    // preprocessed triangle came from. Since preprocessing only removes
+    // degenerate/duplicate triangles (doesn't reorder), the parent index
+    // is a reasonable approximation — the label bits tell us which mesh.
+    let num_a = tris_a.len();
+    let mut sub_tris_a = Vec::new();
+    let mut sub_tris_b = Vec::new();
+    for (i, tri) in result.tris.iter().enumerate() {
+        let label = result.labels[i];
+        let parent = result.parent_tris[i];
+        if label & 2 != 0 {
+            // Mesh B: parent_tri is offset by num_a in the merged input
+            let local_parent = if parent >= num_a {
+                parent - num_a
+            } else {
+                parent
+            };
+            sub_tris_b.push(SubTriangle {
+                verts: *tri,
+                parent_tri: local_parent,
+            });
+        } else {
+            // Mesh A
+            sub_tris_a.push(SubTriangle {
+                verts: *tri,
+                parent_tri: parent,
+            });
+        }
+    }
+
+    Ok(SubdividedMesh {
+        verts: result.coords,
+        tris_a: sub_tris_a,
+        tris_b: sub_tris_b,
+    })
 }
 
 /// Legacy subdivision using subdivide_triangle_batch + conformal repair.

@@ -57,8 +57,22 @@ pub(crate) fn triangulation(
     ts: &mut TriangleSoup,
     aux: &mut AuxiliaryStructure,
 ) -> (Vec<usize>, Vec<u32>) {
+    let (new_tris, new_labels, _parents) = triangulation_with_parents(ts, aux);
+    (new_tris, new_labels)
+}
+
+/// Like `triangulation`, but also returns a per-output-triangle parent ID
+/// indicating which input triangle produced each output triangle.
+///
+/// Returns (new_tris, new_labels, parent_tris).
+#[allow(dead_code)]
+pub(crate) fn triangulation_with_parents(
+    ts: &mut TriangleSoup,
+    aux: &mut AuxiliaryStructure,
+) -> (Vec<usize>, Vec<u32>, Vec<usize>) {
     let mut new_tris: Vec<usize> = Vec::with_capacity(2 * 3 * ts.num_tris());
     let mut new_labels: Vec<u32> = Vec::with_capacity(2 * ts.num_tris());
+    let mut parent_tris: Vec<usize> = Vec::with_capacity(2 * ts.num_tris());
 
     let mut tris_to_split: Vec<usize> = Vec::new();
 
@@ -71,6 +85,7 @@ pub(crate) fn triangulation(
             new_tris.push(ts.tri_vert_id(t_id, 1));
             new_tris.push(ts.tri_vert_id(t_id, 2));
             new_labels.push(ts.tri_label(t_id));
+            parent_tris.push(t_id);
         }
     }
 
@@ -89,10 +104,16 @@ pub(crate) fn triangulation(
             ts.tri_plane(t_id),
         );
 
+        let before = new_labels.len();
         triangulate_single_triangle(ts, &mut subm, t_id, aux, &mut new_tris, &mut new_labels);
+        let after = new_labels.len();
+        // All output triangles from this split came from input triangle t_id
+        for _ in before..after {
+            parent_tris.push(t_id);
+        }
     }
 
-    (new_tris, new_labels)
+    (new_tris, new_labels, parent_tris)
 }
 
 /// Triangulate a single triangle that has intersections.
