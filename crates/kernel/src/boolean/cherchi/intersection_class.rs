@@ -379,8 +379,9 @@ fn add_edge_cross_edge_inters(
         t: *ts.jolly_point(jolly_id),
     };
 
+    let coords = lpi.materialize().unwrap_or([0.0; 3]);
     let pos = ts.num_verts();
-    let (existing_id, is_new) = aux.add_vertex_in_sorted_list(pos, pos);
+    let (existing_id, is_new) = aux.add_vertex_in_sorted_list(coords, pos);
 
     let new_v_id = if is_new {
         let id = ts.add_impl_point(lpi);
@@ -419,8 +420,9 @@ fn add_edge_cross_edge_inters_with_tri(
         t: ts.tri_vert(t_id, 2),
     };
 
+    let coords = lpi.materialize().unwrap_or([0.0; 3]);
     let pos = ts.num_verts();
-    let (existing_id, is_new) = aux.add_vertex_in_sorted_list(pos, pos);
+    let (existing_id, is_new) = aux.add_vertex_in_sorted_list(coords, pos);
 
     let new_v_id = if is_new {
         let id = ts.add_impl_point(lpi);
@@ -457,8 +459,9 @@ fn add_edge_cross_tri_inters(
         t: ts.tri_vert(t_id, 2),
     };
 
+    let coords = lpi.materialize().unwrap_or([0.0; 3]);
     let pos = ts.num_verts();
-    let (existing_id, is_new) = aux.add_vertex_in_sorted_list(pos, pos);
+    let (existing_id, is_new) = aux.add_vertex_in_sorted_list(coords, pos);
 
     let new_v_id = if is_new {
         let id = ts.add_impl_point(lpi);

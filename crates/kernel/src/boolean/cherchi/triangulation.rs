@@ -41,6 +41,57 @@ use crate::boolean::indirect_predicates::ImplicitPoint;
 /// Pair of vertex IDs (matching C++ UIPair).
 type UIPair = (usize, usize);
 
+/// Sort edge points along an edge using the dominant axis.
+/// The dominant axis is the one where the edge endpoints differ the most.
+/// Points are sorted from the edge's v0 toward v1 using `point_compare_on_axis`.
+///
+/// Ported from triangulation.cpp:40-55 (sortEdgePoints)
+fn sort_edge_points(ts: &TriangleSoup, e_id: usize, points: &mut Vec<usize>) {
+    if points.len() <= 1 {
+        return;
+    }
+    let (v0, v1) = ts.edge_verts(e_id);
+    let c0 = ts.vert(v0);
+    let c1 = ts.vert(v1);
+
+    // Find dominant axis: largest absolute difference
+    let dx = (c1[0] - c0[0]).abs();
+    let dy = (c1[1] - c0[1]).abs();
+    let dz = (c1[2] - c0[2]).abs();
+
+    let axis = if dx >= dy && dx >= dz {
+        crate::boolean::indirect_predicates::Axis::X
+    } else if dy >= dx && dy >= dz {
+        crate::boolean::indirect_predicates::Axis::Y
+    } else {
+        crate::boolean::indirect_predicates::Axis::Z
+    };
+
+    points.sort_by(|&a, &b| {
+        crate::boolean::indirect_predicates::point_compare_on_axis(
+            ts.implicit_point(a),
+            ts.implicit_point(b),
+            axis,
+        )
+    });
+
+    // If edge goes from high to low along the axis, reverse the sort
+    // so points go from v0 toward v1
+    let v0_val = match axis {
+        crate::boolean::indirect_predicates::Axis::X => c0[0],
+        crate::boolean::indirect_predicates::Axis::Y => c0[1],
+        crate::boolean::indirect_predicates::Axis::Z => c0[2],
+    };
+    let v1_val = match axis {
+        crate::boolean::indirect_predicates::Axis::X => c1[0],
+        crate::boolean::indirect_predicates::Axis::Y => c1[1],
+        crate::boolean::indirect_predicates::Axis::Z => c1[2],
+    };
+    if v0_val > v1_val {
+        points.reverse();
+    }
+}
+
 // ── Main entry point ────────────────────────────────────────────────────
 
 /// Triangulate all intersected triangles.
@@ -148,9 +199,15 @@ fn triangulate_single_triangle(
         .edge_id(subm.vert_orig_id(2), subm.vert_orig_id(0))
         .expect("edge e2 not found");
 
-    let e0_points: Vec<usize> = aux.edge_points_list(e0_id).to_vec();
-    let e1_points: Vec<usize> = aux.edge_points_list(e1_id).to_vec();
-    let e2_points: Vec<usize> = aux.edge_points_list(e2_id).to_vec();
+    let mut e0_points: Vec<usize> = aux.edge_points_list(e0_id).to_vec();
+    let mut e1_points: Vec<usize> = aux.edge_points_list(e1_id).to_vec();
+    let mut e2_points: Vec<usize> = aux.edge_points_list(e2_id).to_vec();
+
+    // Sort edge points along each edge using the dominant axis.
+    // This matches the C++ sortEdgePoints (triangulation.cpp:40-55).
+    sort_edge_points(ts, e0_id, &mut e0_points);
+    sort_edge_points(ts, e1_id, &mut e1_points);
+    sort_edge_points(ts, e2_id, &mut e2_points);
 
     let mut t_segments: Vec<UIPair> = aux.triangle_segments_list(t_id).to_vec();
 
@@ -367,7 +424,6 @@ fn split_single_triangle_with_stack(
                 let v0 = subm.edge_vert_id(e_id, 0);
                 let v1 = subm.edge_vert_id(e_id, 1);
                 let v_opp = subm.tri_vert_opposite_to(t_id, v0, v1);
-
                 curr_subdv[0] = vec![v0, v_pos, v_opp];
                 curr_subdv[1] = vec![v_opp, v_pos, v1];
 

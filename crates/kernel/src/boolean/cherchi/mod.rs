@@ -170,15 +170,17 @@ mod tests {
             .keys()
             .filter(|&&(a, b)| !edge_count.contains_key(&(b, a)))
             .collect();
-        // TODO: non-conformal edges remain due to approximate coordinates.
-        // Full conformality requires implicit points with exact predicates.
-        eprintln!(
-            "non-conformal edges: {} (0 = fully conformal)",
-            non_conformal.len()
-        );
+
+        // Known: 3 non-conformal edges remain due to orient2d_lee_exact
+        // precision loss on f64 input subtractions (see det3x3_exact_pairs).
+        // These cause 3 edge-crossing LPI points to be classified as
+        // non-collinear, producing mismatched edge splits between adjacent
+        // triangles. Fix requires switching orient2d_lee_exact to use
+        // two_diff for all input differences, plus constraint-segment
+        // handling improvements to compensate for reclassification effects.
         assert!(
-            non_conformal.len() < 100,
-            "too many non-conformal edges: {}",
+            non_conformal.len() <= 3,
+            "non-conformal edges: {} (expected <= 3)",
             non_conformal.len()
         );
     }

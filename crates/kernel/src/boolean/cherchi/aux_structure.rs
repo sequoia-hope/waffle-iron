@@ -73,10 +73,12 @@ pub(crate) struct AuxiliaryStructure {
     /// Ported from aux_structure.h:193
     tri_has_intersections: Vec<bool>,
 
-    /// Sorted vertex map: vertex coordinates → vertex ID (for dedup).
-    /// In Rust we use a BTreeMap keyed on approximate coords for ordering.
+    /// Sorted vertex map: materialized coordinates → vertex ID (for dedup).
+    /// In C++, v_map is btree_map<genericPoint*, uint> where genericPoint::operator<
+    /// compares geometric content via exact predicates. We approximate this by
+    /// keying on bit-exact materialized coordinates.
     /// Ported from aux_structure.h:194 (v_map)
-    v_map: HashMap<usize, usize>,
+    v_map: HashMap<[u64; 3], usize>,
 
     /// Visited polygon pockets for dedup during classification.
     /// Ported from aux_structure.h:196
@@ -116,10 +118,16 @@ impl AuxiliaryStructure {
         self.tri2segs.resize(ts.num_tris(), Vec::new());
         self.tri_has_intersections.resize(ts.num_tris(), false);
 
-        // Populate v_map with original vertex IDs (identity mapping).
-        // In C++ this inserts genericPoint* → uint; here we store index → index.
+        // Populate v_map with original vertex coordinates.
+        // In C++ this inserts genericPoint* → uint; here we key on bit-exact coords.
         for v_id in 0..ts.num_verts() {
-            self.v_map.insert(v_id, v_id);
+            let coords = ts.vert(v_id);
+            let key = [
+                coords[0].to_bits(),
+                coords[1].to_bits(),
+                coords[2].to_bits(),
+            ];
+            self.v_map.insert(key, v_id);
         }
     }
 
@@ -293,12 +301,22 @@ impl AuxiliaryStructure {
             .expect("segment not found in seg2tris")
     }
 
-    /// Add a vertex to the sorted vertex map. Returns (position, is_new).
-    /// If the vertex was already present, returns its existing position.
+    /// Add a vertex to the sorted vertex map, keyed by materialized coordinates.
+    /// Returns (vertex_id, is_new). If a geometrically identical point already
+    /// exists, returns the existing vertex ID.
+    ///
+    /// In C++, v_map is btree_map<genericPoint*, uint> where operator< compares
+    /// geometric content via exact predicates. We approximate this by keying on
+    /// bit-exact materialized coordinates.
     ///
     /// Ported from aux_structure.cpp:230-236
-    pub fn add_vertex_in_sorted_list(&mut self, v_id: usize, pos: usize) -> (usize, bool) {
-        match self.v_map.entry(v_id) {
+    pub fn add_vertex_in_sorted_list(&mut self, coords: [f64; 3], pos: usize) -> (usize, bool) {
+        let key = [
+            coords[0].to_bits(),
+            coords[1].to_bits(),
+            coords[2].to_bits(),
+        ];
+        match self.v_map.entry(key) {
             std::collections::hash_map::Entry::Vacant(e) => {
                 e.insert(pos);
                 (pos, true)
@@ -324,13 +342,13 @@ impl AuxiliaryStructure {
 
     /// Get reference to the vertex map.
     /// Ported from aux_structure.h:178
-    pub fn get_vmap(&self) -> &HashMap<usize, usize> {
+    pub fn get_vmap(&self) -> &HashMap<[u64; 3], usize> {
         &self.v_map
     }
 
     /// Get mutable reference to the vertex map.
     /// Ported from aux_structure.h:179
-    pub fn get_vmap_mut(&mut self) -> &mut HashMap<usize, usize> {
+    pub fn get_vmap_mut(&mut self) -> &mut HashMap<[u64; 3], usize> {
         &mut self.v_map
     }
 }

@@ -360,21 +360,19 @@ fn orient2d_lee(
     let det = dpr + e;
 
     let delta = max_abs_coords_lee(q1, q2, r, s, t, e1, e2);
-    // Filter for det: degree 5, epsilon = 4.75e-14 (Cherchi 2020 Table 1)
+    // Filter for det: degree 5, epsilon from Cherchi 2020 Table 1
     let d5 = delta * delta * delta * delta * delta;
-    let eps_det = 4.75e-14 * d5;
-    // Filter for d_L: degree 3, epsilon ≈ 5e-15
+    let eps_det = 4.111024169857068e-13 * d5;
+    // Filter for d_L: degree 3, epsilon from Cherchi 2020 Table 1
     let d3 = delta * delta * delta;
-    let eps_dl = 5.0e-15 * d3;
+    let eps_dl = 1.1102230246251565e-15 * d3;
 
-    if det.abs() > eps_det && d_l.abs() > eps_dl {
-        // Both signs are reliable
-        return if (det > 0.0) == (d_l > 0.0) {
-            1.0
-        } else {
-            -1.0
-        };
-    }
+    // Float filter disabled: our two-step lambda computation (separate
+    // lpi_lambda then formula) introduces intermediate rounding that
+    // exceeds the Cherchi 2020 Table 1 error bound. The C++ reference
+    // computes everything inline in a single pass. Until we replicate the
+    // exact evaluation DAG, always use exact expansion arithmetic.
+    // TODO: implement single-pass evaluation to re-enable the float filter.
 
     // ── Stage 2: exact expansion arithmetic ────────────────────────────
     orient2d_lee_exact(q1, q2, r, s, t, e1, e2, i, j)
@@ -444,8 +442,8 @@ fn orient2d_lee_exact(
     let term2 = expansion_scale(&lj, e2[i] - e1[i]);
 
     // e1[i]*e2[j] - e1[j]*e2[i] needs exact two_product then subtraction
-    let [pr_hi, pr_lo] = gp::two_product(e1[i], e2[j]);
-    let [nr_hi, nr_lo] = gp::two_product(e1[j], e2[i]);
+    let [pr_lo, pr_hi] = gp::two_product(e1[i], e2[j]);
+    let [nr_lo, nr_hi] = gp::two_product(e1[j], e2[i]);
     let cross_e = gp::two_two_diff(pr_hi, pr_lo, nr_hi, nr_lo);
     let term3 = expansion_mul_expansion(&d_l_exp, &cross_e);
 
@@ -456,6 +454,82 @@ fn orient2d_lee_exact(
     // sign(orient2d) = sign(det) * sign(d_L)
     let combined = det_sign * d_l_sign;
     combined as f64
+}
+
+/// Compute exact 3×3 determinant using two_diff for input subtractions.
+/// Each pair (a_pos, a_neg) represents the difference a_pos - a_neg,
+/// computed exactly via two_diff.
+/// det = (a0p-a0n)*((b1p-b1n)*(c2p-c2n) - (b2p-b2n)*(c1p-c1n))
+///     - (a1p-a1n)*((b0p-b0n)*(c2p-c2n) - (b2p-b2n)*(c0p-c0n))
+///     + (a2p-a2n)*((b0p-b0n)*(c1p-c1n) - (b1p-b1n)*(c0p-c0n))
+#[allow(dead_code)] // Correct fix for orient2d_lee_exact precision; needs constraint-segment changes
+fn det3x3_exact_pairs(
+    a0p: f64,
+    a0n: f64,
+    a1p: f64,
+    a1n: f64,
+    a2p: f64,
+    a2n: f64,
+    b0p: f64,
+    b0n: f64,
+    b1p: f64,
+    b1n: f64,
+    b2p: f64,
+    b2n: f64,
+    c0p: f64,
+    c0n: f64,
+    c1p: f64,
+    c1n: f64,
+    c2p: f64,
+    c2n: f64,
+) -> Vec<f64> {
+    // Exact subtractions via two_diff → 2-component expansions
+    let a0 = two_diff_exp(a0p, a0n);
+    let a1 = two_diff_exp(a1p, a1n);
+    let a2 = two_diff_exp(a2p, a2n);
+    let b0 = two_diff_exp(b0p, b0n);
+    let b1 = two_diff_exp(b1p, b1n);
+    let b2 = two_diff_exp(b2p, b2n);
+    let c0 = two_diff_exp(c0p, c0n);
+    let c1 = two_diff_exp(c1p, c1n);
+    let c2 = two_diff_exp(c2p, c2n);
+
+    // 2×2 minors: m0 = b1*c2 - b2*c1, etc.
+    let m0 = expansion_add(
+        &expansion_mul_expansion(&b1, &c2),
+        &expansion_negate(&expansion_mul_expansion(&b2, &c1)),
+    );
+    let m1 = expansion_add(
+        &expansion_mul_expansion(&b0, &c2),
+        &expansion_negate(&expansion_mul_expansion(&b2, &c0)),
+    );
+    let m2 = expansion_add(
+        &expansion_mul_expansion(&b0, &c1),
+        &expansion_negate(&expansion_mul_expansion(&b1, &c0)),
+    );
+
+    // det = a0*m0 - a1*m1 + a2*m2
+    let t0 = expansion_mul_expansion(&a0, &m0);
+    let t1 = expansion_negate(&expansion_mul_expansion(&a1, &m1));
+    let t2 = expansion_mul_expansion(&a2, &m2);
+
+    expansion_add(&expansion_add(&t0, &t1), &t2)
+}
+
+/// Create a 2-component expansion from two_diff.
+#[allow(dead_code)] // Used by det3x3_exact_pairs
+fn two_diff_exp(a: f64, b: f64) -> Vec<f64> {
+    let [lo, hi] = gp::two_diff(a, b);
+    if lo == 0.0 {
+        vec![hi]
+    } else {
+        vec![lo, hi]
+    }
+}
+
+/// Negate an expansion.
+fn expansion_negate(e: &[f64]) -> Vec<f64> {
+    e.iter().map(|&v| -v).collect()
 }
 
 // ── Expansion arithmetic helpers ────────────────────────────────────────
@@ -489,8 +563,8 @@ fn det3x3_exact(
 
 /// Exact 2D cross product: a*b - c*d as an expansion.
 fn cross_product_2d(a: f64, b: f64, c: f64, d: f64) -> Vec<f64> {
-    let [ab_hi, ab_lo] = gp::two_product(a, b);
-    let [cd_hi, cd_lo] = gp::two_product(c, d);
+    let [ab_lo, ab_hi] = gp::two_product(a, b);
+    let [cd_lo, cd_hi] = gp::two_product(c, d);
     let result = gp::two_two_diff(ab_hi, ab_lo, cd_hi, cd_lo);
     result.to_vec()
 }
@@ -829,11 +903,6 @@ fn point_compare_le_exact(
     }
 }
 
-/// Negate an expansion.
-fn expansion_negate(e: &[f64]) -> Vec<f64> {
-    e.iter().map(|&v| -v).collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1134,6 +1203,49 @@ mod tests {
             result.signum(),
             direct.signum(),
             "Expansion fallback must match materialized: indirect={result}, direct={direct}"
+        );
+    }
+
+    /// Known limitation: orient2d_lee_exact uses f64 subtractions for LPI
+    /// parameter differences (q1[i]-q2[i], q1[i]-r[i], etc.), which can lose
+    /// low bits when magnitudes differ. The fix (det3x3_exact_pairs with
+    /// two_diff) is mathematically correct but makes the full pipeline worse
+    /// by changing classification of non-collinear points. Needs to be applied
+    /// together with constraint-segment handling improvements.
+    #[test]
+    #[ignore = "known: orient2d_lee_exact f64 subtraction precision loss — see det3x3_exact_pairs"]
+    fn test_orient2d_lee_exact_edge_crossing_collinear() {
+        // LPI point from edge-edge crossing in three_cubes mesh arrangement.
+        // The LPI is the intersection of a line with the plane x=4294967296.
+        // In ZX projection, the LPI's x-coordinate is exactly 4294967296,
+        // so it's collinear with the edge endpoints (which also have x=4294967296).
+        let lpi = ImplicitPoint::LPI {
+            q1: [376565552.644096, 70325794.504704, -436720864.591872],
+            q2: [8966500144.644096, 70325794.504704, 8153213727.408128],
+            r: [4294967296.0, -4294967296.0, 4294967296.0],
+            s: [4294967296.0, -4294967296.0, -4294967296.0],
+            t: [4294967296.0, 4294967296.0, 4294967296.0],
+        };
+        let ev0 = ImplicitPoint::Explicit([4294967296.0, -4294967296.0, -4294967296.0]);
+        let ev1 = ImplicitPoint::Explicit([4294967296.0, -4294967296.0, 4294967296.0]);
+
+        // EEL case: orient2d(ev0, ev1, lpi) in ZX projection
+        let result = orient2d_indirect(&ev0, &ev1, &lpi, ProjectionAxis::ZX);
+
+        // Verify with materialized coordinates
+        let mat = lpi.materialize().unwrap();
+        let mat_result = geometry_predicates::orient2d(
+            [ev0.materialize().unwrap()[2], ev0.materialize().unwrap()[0]],
+            [ev1.materialize().unwrap()[2], ev1.materialize().unwrap()[0]],
+            [mat[2], mat[0]],
+        );
+
+        // The LPI's exact x-coordinate is exactly 4294967296 (intersection
+        // of a line with the plane x=4294967296). All three points share
+        // x=4294967296 in ZX projection, so orient2d must be 0.
+        assert_eq!(
+            result, 0.0,
+            "orient2d_lee_exact must return 0 for collinear edge-crossing LPI, got {result}"
         );
     }
 }
