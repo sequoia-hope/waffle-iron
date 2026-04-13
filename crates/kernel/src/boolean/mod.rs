@@ -15,6 +15,7 @@
 //! in improving these paths — see `specs/yang_hybrid_migration.md`.
 
 pub(crate) mod analytical;
+pub(crate) mod cherchi;
 pub(crate) mod classify;
 mod clip;
 pub(crate) mod coplanar_preprocess;
