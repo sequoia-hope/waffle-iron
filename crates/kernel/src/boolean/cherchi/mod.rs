@@ -10,3 +10,7 @@
 pub(crate) mod common;
 pub(crate) mod fast_trimesh;
 pub(crate) mod tree;
+
+pub(crate) mod aux_structure;
+pub(crate) mod processing;
+pub(crate) mod triangle_soup;
