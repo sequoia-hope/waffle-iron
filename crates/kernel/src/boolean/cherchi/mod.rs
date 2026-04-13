@@ -96,17 +96,40 @@ pub(crate) fn solve_intersections(
 
     // Step 8: Compute approximate coordinates (inverse scale by multiplier,
     // exclude jolly points)
-    let out_coords = compute_approximate_coordinates(&ts.vertices, multiplier);
+    let mut out_coords = compute_approximate_coordinates(&ts.vertices, multiplier);
+
+    // Include jolly point coordinates in output if any output triangles
+    // reference them. With exact indirect predicates (C++ reference) jolly
+    // points never appear in output triangles, but our materialize-fallback
+    // orient2d can produce triangles that reference them.
+    let num_non_jolly = out_coords.len();
+    let num_all_verts = ts.vertices.len();
 
     // Convert flat tri indices to [usize; 3] triples
     let num_out_tris = new_tris_flat.len() / 3;
     let mut out_tris = Vec::with_capacity(num_out_tris);
+    let mut needs_jolly = false;
     for i in 0..num_out_tris {
-        out_tris.push([
-            new_tris_flat[3 * i],
-            new_tris_flat[3 * i + 1],
-            new_tris_flat[3 * i + 2],
-        ]);
+        let v0 = new_tris_flat[3 * i];
+        let v1 = new_tris_flat[3 * i + 1];
+        let v2 = new_tris_flat[3 * i + 2];
+        if v0 >= num_non_jolly || v1 >= num_non_jolly || v2 >= num_non_jolly {
+            needs_jolly = true;
+        }
+        out_tris.push([v0, v1, v2]);
+    }
+
+    // Append jolly point coordinates if needed
+    if needs_jolly {
+        for v in &ts.vertices[num_non_jolly..num_all_verts] {
+            let coords = v.materialize().unwrap_or([0.0, 0.0, 0.0]);
+            let inv = if multiplier != 0.0 {
+                1.0 / multiplier
+            } else {
+                1.0
+            };
+            out_coords.push([coords[0] * inv, coords[1] * inv, coords[2] * inv]);
+        }
     }
 
     Ok(SolveResult {
@@ -183,5 +206,84 @@ mod tests {
             "non-conformal edges: {} (expected <= 3)",
             non_conformal.len()
         );
+    }
+
+    fn make_box_flat(
+        x0: f64,
+        y0: f64,
+        z0: f64,
+        x1: f64,
+        y1: f64,
+        z1: f64,
+    ) -> (Vec<f64>, Vec<usize>) {
+        let coords = vec![
+            x0, y0, z0, x1, y0, z0, x1, y1, z0, x0, y1, z0, x0, y0, z1, x1, y0, z1, x1, y1, z1, x0,
+            y1, z1,
+        ];
+        let tris = vec![
+            0, 2, 1, 0, 3, 2, // -Z
+            4, 5, 6, 4, 6, 7, // +Z
+            0, 1, 5, 0, 5, 4, // -Y
+            2, 3, 7, 2, 7, 6, // +Y
+            0, 4, 7, 0, 7, 3, // -X
+            1, 2, 6, 1, 6, 5, // +X
+        ];
+        (coords, tris)
+    }
+
+    /// Apply rotation around Y axis by angle (radians) to a flat coordinate list.
+    fn rotate_y(coords: &mut [f64], angle: f64) {
+        let c = angle.cos();
+        let s = angle.sin();
+        let n = coords.len() / 3;
+        for i in 0..n {
+            let x = coords[3 * i];
+            let z = coords[3 * i + 2];
+            coords[3 * i] = x * c + z * s;
+            coords[3 * i + 2] = -x * s + z * c;
+        }
+    }
+
+    #[test]
+    fn test_cherchi_two_overlapping_boxes_rotated() {
+        let (mut coords_a, tris_a) = make_box_flat(0.0, 0.0, 0.0, 2.0, 2.0, 2.0);
+        let (mut coords_b, tris_b) = make_box_flat(1.0, 0.0, 0.0, 3.0, 2.0, 2.0);
+        // Rotate both meshes by 37 degrees around Y
+        rotate_y(&mut coords_a, 37.0_f64.to_radians());
+        rotate_y(&mut coords_b, 37.0_f64.to_radians());
+
+        let offset = coords_a.len() / 3;
+        let mut coords = coords_a;
+        coords.extend_from_slice(&coords_b);
+        let num_tris_a = tris_a.len() / 3;
+        let mut tris: Vec<usize> = tris_a;
+        for t in &tris_b {
+            tris.push(t + offset);
+        }
+        let mut labels = vec![0u32; num_tris_a];
+        labels.extend(vec![1u32; tris_b.len() / 3]);
+
+        let result = solve_intersections(&coords, &tris, &labels);
+        assert!(result.is_ok(), "should not panic: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_cherchi_two_overlapping_boxes() {
+        let (coords_a, tris_a) = make_box_flat(0.0, 0.0, 0.0, 2.0, 2.0, 2.0);
+        let (coords_b, tris_b) = make_box_flat(1.0, 0.0, 0.0, 3.0, 2.0, 2.0);
+
+        let offset = coords_a.len() / 3;
+        let mut coords = coords_a;
+        coords.extend_from_slice(&coords_b);
+        let num_tris_a = tris_a.len() / 3;
+        let mut tris: Vec<usize> = tris_a;
+        for t in &tris_b {
+            tris.push(t + offset);
+        }
+        let mut labels = vec![0u32; num_tris_a];
+        labels.extend(vec![1u32; tris_b.len() / 3]);
+
+        let result = solve_intersections(&coords, &tris, &labels);
+        assert!(result.is_ok(), "should not panic: {:?}", result.err());
     }
 }

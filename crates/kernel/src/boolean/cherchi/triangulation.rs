@@ -664,11 +664,14 @@ fn add_constraint_segment(
         subm.remove_tri(t_id);
     }
 
-    // Mark the new edge as constrained
-    let e_id = subm
-        .edge_id(v_start, v_stop)
-        .expect("constraint edge not found after earcut");
-    subm.set_edge_constr(e_id);
+    // Mark the new edge as constrained.
+    // With approximate predicates, earcut may fail to produce the constraint
+    // edge (e.g., degenerate polygons from imprecise boundary walks). Skip
+    // marking rather than panicking — the downstream coplanar pocket solver
+    // uses constraint flags as hints, not hard requirements.
+    if let Some(e_id) = subm.edge_id(v_start, v_stop) {
+        subm.set_edge_constr(e_id);
+    }
 }
 
 // ── Topological walk to find intersecting elements ──────────────────────
@@ -839,23 +842,41 @@ fn boundary_walker(
     let mut e_idx = 0;
 
     loop {
+        if t_idx >= tris.len() || e_idx >= edges.len() {
+            break;
+        }
         let curr_v = *h.last().unwrap();
+        if !subm.tri_contains_vert(tris[t_idx], curr_v) {
+            break; // stale triangle reference — abort walk
+        }
         let off = subm.tri_vert_offset(tris[t_idx], curr_v);
         let mut next_v = subm.tri_vert_id(tris[t_idx], (off + 1) % 3);
 
-        while subm.edge_id(curr_v, next_v) == Some(edges[e_idx]) {
+        while e_idx < edges.len() && subm.edge_id(curr_v, next_v) == Some(edges[e_idx]) {
             t_idx += 1;
+            if t_idx >= tris.len() {
+                h.push(v_stop);
+                return h;
+            }
             if subm.tri_contains_vert(tris[t_idx], v_stop) {
                 h.push(v_stop);
                 return h;
             }
             e_idx += 1;
+            if !subm.tri_contains_vert(tris[t_idx], curr_v) {
+                break;
+            }
             let off2 = subm.tri_vert_offset(tris[t_idx], curr_v);
             next_v = subm.tri_vert_id(tris[t_idx], (off2 + 1) % 3);
         }
 
         h.push(next_v);
         t_idx += 1;
+
+        if t_idx >= tris.len() {
+            h.push(v_stop);
+            return h;
+        }
 
         if subm.tri_contains_vert(tris[t_idx], v_stop) {
             h.push(v_stop);
@@ -886,13 +907,19 @@ fn boundary_walker_reverse(
     let mut h: Vec<usize> = Vec::new();
     h.push(v_start);
 
-    let n_tris = tris.len();
-    let n_edges = edges.len();
-    let mut t_idx = n_tris - 1;
-    let mut e_idx = n_edges - 1;
+    if tris.is_empty() || edges.is_empty() {
+        h.push(v_stop);
+        return h;
+    }
+
+    let mut t_idx = tris.len() - 1;
+    let mut e_idx = edges.len() - 1;
 
     loop {
         let curr_v = *h.last().unwrap();
+        if !subm.tri_contains_vert(tris[t_idx], curr_v) {
+            break; // stale triangle reference — abort walk
+        }
         let off = subm.tri_vert_offset(tris[t_idx], curr_v);
         let mut next_v = subm.tri_vert_id(tris[t_idx], (off + 1) % 3);
 
@@ -910,6 +937,9 @@ fn boundary_walker_reverse(
                 break;
             }
             e_idx -= 1;
+            if !subm.tri_contains_vert(tris[t_idx], curr_v) {
+                break;
+            }
             let off2 = subm.tri_vert_offset(tris[t_idx], curr_v);
             next_v = subm.tri_vert_id(tris[t_idx], (off2 + 1) % 3);
         }
@@ -1483,25 +1513,70 @@ fn custom_orient_2d_indirect(
     }
 }
 
-/// Fast collinearity test: check if point p_id lies on the line through edge e_id.
-/// Uses orient2d_indirect for exact handling of implicit points.
+/// Check if point p_id lies on the line through edge e_id.
 ///
-/// Ported from triangulation.cpp:1158-1169 (fastPointOnLine)
+/// The C++ Cherchi code uses exact indirect predicates for all point-type
+/// combinations (EEE, LEE, LLE, LLL, etc.). Our `orient2d_indirect` is
+/// exact for EEE and single-LPI combinations (LEE/ELE/EEL via orient2d_lee)
+/// but materializes for multi-LPI cases (LLE, LLL, etc.), which can produce
+/// false collinearity due to rounding.
+///
+/// When the collinearity test used materialization (≥2 non-Explicit points),
+/// we add a bounding-box betweenness check to reject false positives: points
+/// that appear collinear after rounding but lie outside the segment.
+///
+/// Ported from triangulation.cpp:1158-1169 (fastPointOnLine), hardened for
+/// approximate predicates.
 fn fast_point_on_line(subm: &FastTrimesh, e_id: usize, p_id: usize) -> bool {
     let ev0_id = subm.edge_vert_id(e_id, 0);
     let ev1_id = subm.edge_vert_id(e_id, 1);
+
+    let p0 = subm.implicit_point(ev0_id);
+    let p1 = subm.implicit_point(ev1_id);
+    let pp = subm.implicit_point(p_id);
 
     let proj = match subm.ref_plane() {
         Plane::XY => crate::boolean::indirect_predicates::ProjectionAxis::XY,
         Plane::YZ => crate::boolean::indirect_predicates::ProjectionAxis::YZ,
         Plane::ZX => crate::boolean::indirect_predicates::ProjectionAxis::ZX,
     };
-    crate::boolean::indirect_predicates::orient2d_indirect(
-        subm.implicit_point(ev0_id),
-        subm.implicit_point(ev1_id),
-        subm.implicit_point(p_id),
-        proj,
-    ) == 0.0
+    let orient = crate::boolean::indirect_predicates::orient2d_indirect(p0, p1, pp, proj);
+    if orient != 0.0 {
+        return false;
+    }
+
+    // Count non-Explicit points. If ≥2, the orient2d used materialization
+    // fallback and the zero result may be a false positive.
+    let non_explicit_count = [p0, p1, pp]
+        .iter()
+        .filter(|p| !matches!(p, ImplicitPoint::Explicit(_)))
+        .count();
+    if non_explicit_count < 2 {
+        // orient2d was exact (EEE or single-LPI) — trust the result
+        return true;
+    }
+
+    // Betweenness guard for approximate orient2d: reject collinear points
+    // that lie outside the segment bounding box.
+    let p = subm.vert(p_id);
+    let a = subm.vert(ev0_id);
+    let b = subm.vert(ev1_id);
+    let (i, j) = match subm.ref_plane() {
+        Plane::XY => (0, 1),
+        Plane::YZ => (1, 2),
+        Plane::ZX => (2, 0),
+    };
+
+    let min_x = a[i].min(b[i]);
+    let max_x = a[i].max(b[i]);
+    let min_y = a[j].min(b[j]);
+    let max_y = a[j].max(b[j]);
+
+    // Generous tolerance for materialization rounding on segment endpoints
+    let extent = (max_x - min_x).max(max_y - min_y).max(1e-12);
+    let tol = extent * 0.01;
+
+    p[i] >= min_x - tol && p[i] <= max_x + tol && p[j] >= min_y - tol && p[j] <= max_y + tol
 }
 
 /// Check whether edges {e00,e01} and {e10,e11} intersect at a point

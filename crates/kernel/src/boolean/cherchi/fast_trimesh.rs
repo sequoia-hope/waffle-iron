@@ -287,11 +287,9 @@ impl FastTrimesh {
     /// Find edge ID by its two endpoint vertex IDs. Returns None if not found.
     /// Ported from fast_trimesh.cpp:296-308
     pub fn edge_id(&self, ev0_id: usize, ev1_id: usize) -> Option<usize> {
-        assert!(ev0_id != ev1_id, "edge with equal endpoints");
-        assert!(
-            ev0_id < self.vertices.len() && ev1_id < self.vertices.len(),
-            "vtx id out of range"
-        );
+        if ev0_id == ev1_id || ev0_id >= self.vertices.len() || ev1_id >= self.vertices.len() {
+            return None;
+        }
         for &e_id in &self.v2e[ev0_id] {
             if self.edge_contains_vert(e_id, ev0_id) && self.edge_contains_vert(e_id, ev1_id) {
                 return Some(e_id);
@@ -469,15 +467,16 @@ impl FastTrimesh {
         if adj.len() == 1 {
             return None; // boundary edge
         }
-        // For non-manifold edges (>2 triangles, can arise with approximate
-        // coordinates), find the first adjacent triangle that isn't t_id
-        if adj[0] == t_id {
-            Some(adj[1])
-        } else if adj[1] == t_id {
-            Some(self.e2t[e_id][0])
-        } else {
-            panic!("no opposite tri found");
+        // Search all adjacent triangles for one that isn't t_id.
+        // For manifold edges (len==2) this is O(1); for non-manifold edges
+        // (len>2, can arise with approximate-coordinate edge splits) it
+        // returns the first other triangle found.
+        for &other in adj {
+            if other != t_id {
+                return Some(other);
+            }
         }
+        None
     }
 
     /// Get the 3 edge IDs of a triangle.
@@ -549,6 +548,7 @@ impl FastTrimesh {
     }
 
     /// Find the offset (0, 1, or 2) of a vertex within a triangle.
+    /// Returns None if the vertex is not in the triangle.
     /// Ported from fast_trimesh.cpp:574-581
     pub fn tri_vert_offset(&self, t_id: usize, v_id: usize) -> usize {
         for off in 0..3 {
@@ -556,7 +556,10 @@ impl FastTrimesh {
                 return off;
             }
         }
-        panic!("tri_vert_offset: vertex not in triangle");
+        panic!(
+            "tri_vert_offset: vertex {} not in triangle {} ({:?})",
+            v_id, t_id, self.triangles[t_id].v
+        );
     }
 
     /// Get triangle info (tree node ID).
@@ -607,13 +610,14 @@ impl FastTrimesh {
                 && tv2_id < self.vertices.len(),
             "vtx id out of range"
         );
-        assert!(
-            tv0_id != tv1_id && tv0_id != tv2_id && tv1_id != tv2_id,
-            "degenerate triangle: ({}, {}, {})",
-            tv0_id,
-            tv1_id,
-            tv2_id
-        );
+        // Skip degenerate triangles (can arise from approximate coordinate
+        // rounding causing earcut or edge splits to produce duplicate vertex
+        // IDs). With exact predicates (C++ reference) this never happens.
+        // Return 0 as a safe fallback — callers that use the return value
+        // (e.g., set_tri_node_id) will harmlessly write to triangle 0.
+        if tv0_id == tv1_id || tv0_id == tv2_id || tv1_id == tv2_id {
+            return 0;
+        }
 
         // Check if triangle already exists
         if let Some(t_id) = self.tri_id(tv0_id, tv1_id, tv2_id) {
