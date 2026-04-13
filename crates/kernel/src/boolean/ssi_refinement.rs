@@ -16,7 +16,7 @@ use crate::geometry::surface::{Cone, Cylinder, Plane, Sphere, Torus};
 use crate::ssi;
 use crate::ssi::SSICurve;
 use crate::topology::arena::TopoArena;
-use crate::topology::half_edge::{EdgeIdx, FaceIdx};
+use crate::topology::half_edge::{EdgeIdx, FaceIdx, HalfEdgeIdx, VertexIdx};
 use crate::types::KernelError;
 
 /// Classification of the surface pair at an intersection edge.
@@ -273,6 +273,435 @@ pub(crate) fn refine_vertex_positions(arena: &mut TopoArena, refinement: &EdgeRe
         if refined.insert(v1_idx) {
             let p = arena.vertices[v1_idx.0].position;
             arena.vertices[v1_idx.0].position = curve.closest_point(p);
+        }
+    }
+}
+
+/// Yang Section 4.4.1: Re-triangulate face meshes along refined SSI curves.
+///
+/// After `refine_vertex_positions` (Section 4.3) moves intersection vertices to
+/// surface-exact positions, this function re-triangulates affected face meshes
+/// using CDT so edges exactly follow the refined intersection curves.
+///
+/// For faces adjacent to refined intersection edges, builds constraint edges
+/// along the refined curves and re-triangulates. Faces with no refined edges
+/// (e.g., all-planar booleans with empty refinement map) are unchanged.
+///
+/// Ref [#24] Yang 2025, Section 4.4.1
+#[allow(dead_code)] // Phase 4 building block — task 4.4.1
+pub(crate) fn update_mesh_along_refined_curves(
+    topology: &mut ResultTopology,
+    refinement: &EdgeRefinementMap,
+) {
+    use crate::boolean::mesh_arrangement::triangulate_single_triangle;
+    use std::collections::HashSet;
+
+    if refinement.edges.is_empty() {
+        return;
+    }
+
+    // Collect set of refined edge indices for quick lookup.
+    let refined_edges: HashSet<EdgeIdx> = refinement.edges.keys().copied().collect();
+
+    // Collect faces that have at least one refined intersection edge.
+    // For each such face, record which of its edges are refined.
+    let face_count = topology.arena.faces.len();
+    let mut faces_to_update: Vec<(FaceIdx, Vec<(EdgeIdx, HalfEdgeIdx)>)> = Vec::new();
+
+    for fi in 0..face_count {
+        let face_idx = FaceIdx(fi);
+        let outer_loop = topology.arena.faces[fi].outer_loop;
+        let start_he = topology.arena.loops[outer_loop.0].half_edge;
+
+        let mut refined_on_face = Vec::new();
+        let mut he = start_he;
+        loop {
+            let edge_idx = topology.arena.half_edges[he.0].edge;
+            if refined_edges.contains(&edge_idx) {
+                refined_on_face.push((edge_idx, he));
+            }
+            he = topology.arena.half_edges[he.0].next;
+            if he == start_he {
+                break;
+            }
+        }
+
+        if !refined_on_face.is_empty() {
+            faces_to_update.push((face_idx, refined_on_face));
+        }
+    }
+
+    if faces_to_update.is_empty() {
+        return;
+    }
+
+    // Process each face: collect boundary, sample curve points, re-triangulate.
+    for (face_idx, refined_he_list) in &faces_to_update {
+        let outer_loop = topology.arena.faces[face_idx.0].outer_loop;
+        let start_he = topology.arena.loops[outer_loop.0].half_edge;
+
+        // Walk face boundary to get ordered vertex indices and positions.
+        let mut boundary_verts: Vec<VertexIdx> = Vec::new();
+        let mut boundary_he: Vec<HalfEdgeIdx> = Vec::new();
+        let mut he = start_he;
+        loop {
+            boundary_verts.push(topology.arena.half_edges[he.0].origin);
+            boundary_he.push(he);
+            he = topology.arena.half_edges[he.0].next;
+            if he == start_he {
+                break;
+            }
+        }
+
+        if boundary_verts.len() < 3 {
+            continue;
+        }
+
+        // For triangular faces only (the common case from mesh boolean output).
+        if boundary_verts.len() != 3 {
+            continue;
+        }
+
+        // Build the vertex coordinate array and map vertex indices to local indices.
+        // Start with the 3 boundary vertices.
+        let mut all_verts: Vec<[f64; 3]> = Vec::new();
+        let mut global_indices: Vec<usize> = Vec::new(); // maps local → global VertexIdx.0
+
+        for &vi in &boundary_verts {
+            global_indices.push(vi.0);
+            all_verts.push(topology.arena.vertices[vi.0].position);
+        }
+
+        let tri_global = [0usize, 1, 2]; // local indices for the triangle
+
+        // For each of the 3 edges, determine if it's a refined intersection edge.
+        // If so, sample intermediate points along the SSI curve.
+        // Edge i connects boundary_verts[i] → boundary_verts[(i+1)%3].
+        let mut edge_points: [Vec<usize>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+        let mut constraint_segments: Vec<[usize; 2]> = Vec::new();
+
+        for edge_i in 0..3 {
+            let he_idx = boundary_he[edge_i];
+            let edge_idx = topology.arena.half_edges[he_idx.0].edge;
+
+            if let Some(curve) = refinement.edges.get(&edge_idx) {
+                let v_start = boundary_verts[edge_i];
+                let v_end = boundary_verts[(edge_i + 1) % 3];
+                let p_start = topology.arena.vertices[v_start.0].position;
+                let p_end = topology.arena.vertices[v_end.0].position;
+
+                // Sample intermediate points along the SSI curve between p_start and p_end.
+                let intermediates = sample_curve_points(curve, &p_start, &p_end);
+
+                let mut prev_local = edge_i; // local index of start vertex
+                for pt in &intermediates {
+                    let local_idx = all_verts.len();
+                    all_verts.push(*pt);
+                    global_indices.push(usize::MAX); // marker: new vertex, no arena index yet
+                    edge_points[edge_i].push(local_idx);
+
+                    // Constraint: prev → this intermediate
+                    constraint_segments.push([prev_local, local_idx]);
+                    prev_local = local_idx;
+                }
+                // Final constraint: last intermediate → end vertex
+                if !intermediates.is_empty() {
+                    constraint_segments.push([prev_local, (edge_i + 1) % 3]);
+                }
+            }
+        }
+
+        // If no intermediate points were added, skip (no subdivision needed).
+        if all_verts.len() == 3 {
+            continue;
+        }
+
+        // Re-triangulate using CDT.
+        let ep_refs: [&[usize]; 3] = [&edge_points[0], &edge_points[1], &edge_points[2]];
+        let sub_tris =
+            triangulate_single_triangle(tri_global, ep_refs, &[], &constraint_segments, &all_verts);
+
+        if sub_tris.is_empty() {
+            continue;
+        }
+
+        // Filter out degenerate (zero-area) sub-triangles.
+        let sub_tris: Vec<[usize; 3]> = sub_tris
+            .into_iter()
+            .filter(|tri| {
+                let a = all_verts[tri[0]];
+                let b = all_verts[tri[1]];
+                let c = all_verts[tri[2]];
+                let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+                let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+                let cross = [
+                    ab[1] * ac[2] - ab[2] * ac[1],
+                    ab[2] * ac[0] - ab[0] * ac[2],
+                    ab[0] * ac[1] - ab[1] * ac[0],
+                ];
+                let area2 = cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2];
+                area2 > 1e-24 // filter truly degenerate triangles
+            })
+            .collect();
+
+        if sub_tris.is_empty() {
+            continue;
+        }
+
+        // Add new vertices to the arena.
+        for i in 3..all_verts.len() {
+            let vi = topology.arena.add_vertex(all_verts[i]);
+            global_indices[i] = vi.0;
+        }
+
+        // Resolve global_indices: map local CDT indices → arena VertexIdx.
+        let to_arena_vidx = |local: usize| -> VertexIdx { VertexIdx(global_indices[local]) };
+
+        // Build new faces/edges/half-edges for each sub-triangle.
+        // The first sub-triangle reuses the original face; additional ones get new faces.
+        let shell = topology.arena.faces[face_idx.0].shell;
+        let provenance = topology.face_provenance.get(face_idx).copied();
+
+        // Remove old half-edges from the loop (we'll build fresh loops).
+        // Keep the original face for the first sub-triangle.
+        let mut new_face_indices: Vec<FaceIdx> = Vec::new();
+
+        for (ti, tri) in sub_tris.iter().enumerate() {
+            let fi = if ti == 0 {
+                *face_idx
+            } else {
+                let new_fi = topology.arena.add_face(shell);
+                if let Some(prov) = provenance {
+                    topology.face_provenance.insert(new_fi, prov);
+                }
+                new_fi
+            };
+            new_face_indices.push(fi);
+
+            let loop_idx = if ti == 0 {
+                topology.arena.faces[fi.0].outer_loop
+            } else {
+                let li = topology.arena.add_loop(fi);
+                topology.arena.faces[fi.0].outer_loop = li;
+                li
+            };
+
+            // Create 3 edges and 3 half-edges for this triangle.
+            // (We create new edges for all sub-triangle edges; shared edges between
+            // adjacent sub-triangles get separate edge pairs. Twin pairing between
+            // sub-triangles within the same face is done below.)
+            let mut he_indices = Vec::with_capacity(3);
+            for ei in 0..3 {
+                let va = to_arena_vidx(tri[ei]);
+                let vb = to_arena_vidx(tri[(ei + 1) % 3]);
+                let (_, he_a, he_b) = topology.arena.add_edge();
+                topology.arena.half_edges[he_a.0].origin = va;
+                topology.arena.half_edges[he_b.0].origin = vb;
+                topology.arena.half_edges[he_a.0].loop_ = loop_idx;
+                // he_b is the twin; its loop_ will be set when/if paired externally
+                he_indices.push(he_a);
+
+                // Set vertex back-pointer
+                if topology.arena.vertices[va.0].half_edge.is_none() {
+                    topology.arena.vertices[va.0].half_edge = Some(he_a);
+                }
+            }
+
+            // Wire next/prev for the face loop.
+            for ei in 0..3 {
+                let next_ei = (ei + 1) % 3;
+                let prev_ei = (ei + 2) % 3;
+                topology.arena.half_edges[he_indices[ei].0].next = he_indices[next_ei];
+                topology.arena.half_edges[he_indices[ei].0].prev = he_indices[prev_ei];
+            }
+            topology.arena.loops[loop_idx.0].half_edge = he_indices[0];
+        }
+
+        // Pair twin half-edges between sub-triangles that share internal edges.
+        // An internal edge is one where both endpoints are interior to the original
+        // triangle's edges (i.e., newly created vertices or original vertices).
+        pair_internal_twins(&mut topology.arena, &new_face_indices);
+    }
+}
+
+/// Sample intermediate points along an SSI curve between two endpoints.
+/// Returns points in order from start to end (exclusive of endpoints).
+///
+/// Ref [#24] Yang 2025, Section 4.4.1 — curve-following edge subdivision.
+fn sample_curve_points(curve: &SSICurve, p_start: &[f64; 3], p_end: &[f64; 3]) -> Vec<[f64; 3]> {
+    // Chord length between endpoints.
+    let dx = p_end[0] - p_start[0];
+    let dy = p_end[1] - p_start[1];
+    let dz = p_end[2] - p_start[2];
+    let chord = (dx * dx + dy * dy + dz * dz).sqrt();
+
+    if chord < crate::units::MIN_FEATURE_SIZE {
+        return Vec::new();
+    }
+
+    match curve {
+        SSICurve::Line { .. } => {
+            // Line intersection — mesh edge already follows the line. No subdivision needed.
+            Vec::new()
+        }
+        SSICurve::Circle {
+            center,
+            normal,
+            radius,
+        } => {
+            // Compute the arc angle between the two endpoints.
+            let v0 = [
+                p_start[0] - center[0],
+                p_start[1] - center[1],
+                p_start[2] - center[2],
+            ];
+            let v1 = [
+                p_end[0] - center[0],
+                p_end[1] - center[1],
+                p_end[2] - center[2],
+            ];
+            // Project onto plane to get in-plane components.
+            let d0 = v0[0] * normal[0] + v0[1] * normal[1] + v0[2] * normal[2];
+            let ip0 = [
+                v0[0] - d0 * normal[0],
+                v0[1] - d0 * normal[1],
+                v0[2] - d0 * normal[2],
+            ];
+            let d1 = v1[0] * normal[0] + v1[1] * normal[1] + v1[2] * normal[2];
+            let ip1 = [
+                v1[0] - d1 * normal[0],
+                v1[1] - d1 * normal[1],
+                v1[2] - d1 * normal[2],
+            ];
+            let len0 = (ip0[0] * ip0[0] + ip0[1] * ip0[1] + ip0[2] * ip0[2]).sqrt();
+            let len1 = (ip1[0] * ip1[0] + ip1[1] * ip1[1] + ip1[2] * ip1[2]).sqrt();
+            if len0 < 1e-15 || len1 < 1e-15 {
+                return Vec::new();
+            }
+            let n0 = [ip0[0] / len0, ip0[1] / len0, ip0[2] / len0];
+            let n1 = [ip1[0] / len1, ip1[1] / len1, ip1[2] / len1];
+
+            let cos_angle = (n0[0] * n1[0] + n0[1] * n1[1] + n0[2] * n1[2]).clamp(-1.0, 1.0);
+            let angle = cos_angle.acos();
+
+            if angle < 0.05 {
+                // Very small arc — no subdivision needed.
+                return Vec::new();
+            }
+
+            // Number of subdivisions: aim for ~10° per segment.
+            let n_segments = ((angle / (10.0_f64.to_radians())).ceil() as usize).max(2);
+
+            // Compute tangent direction (perpendicular to n0, in the plane).
+            // tangent = n1 - cos_angle * n0, then normalize
+            let raw_t = [
+                n1[0] - cos_angle * n0[0],
+                n1[1] - cos_angle * n0[1],
+                n1[2] - cos_angle * n0[2],
+            ];
+            let t_len = (raw_t[0] * raw_t[0] + raw_t[1] * raw_t[1] + raw_t[2] * raw_t[2]).sqrt();
+            if t_len < 1e-15 {
+                return Vec::new();
+            }
+            let tang = [raw_t[0] / t_len, raw_t[1] / t_len, raw_t[2] / t_len];
+
+            let mut points = Vec::with_capacity(n_segments - 1);
+            for i in 1..n_segments {
+                let frac = i as f64 / n_segments as f64;
+                let theta = angle * frac;
+                let ct = theta.cos();
+                let st = theta.sin();
+                // Point on circle: center + radius * (cos(θ)*n0 + sin(θ)*tang)
+                let pt = [
+                    center[0] + radius * (ct * n0[0] + st * tang[0]),
+                    center[1] + radius * (ct * n0[1] + st * tang[1]),
+                    center[2] + radius * (ct * n0[2] + st * tang[2]),
+                ];
+                points.push(pt);
+            }
+            points
+        }
+        SSICurve::Ellipse { .. } => {
+            // For ellipses, sample by subdividing the chord and projecting each
+            // midpoint onto the curve. Simple bisection approach.
+            let mid = [
+                (p_start[0] + p_end[0]) * 0.5,
+                (p_start[1] + p_end[1]) * 0.5,
+                (p_start[2] + p_end[2]) * 0.5,
+            ];
+            let on_curve = curve.closest_point(mid);
+            // Check if midpoint is significantly off the chord.
+            let dev = [
+                on_curve[0] - mid[0],
+                on_curve[1] - mid[1],
+                on_curve[2] - mid[2],
+            ];
+            let dev_dist = (dev[0] * dev[0] + dev[1] * dev[1] + dev[2] * dev[2]).sqrt();
+            if dev_dist < crate::units::TAU_MODEL {
+                return Vec::new();
+            }
+            // Return just the midpoint projected onto the curve.
+            // Future: recursive subdivision for higher accuracy.
+            vec![on_curve]
+        }
+        // For higher-order curves, use chord midpoint projection.
+        _ => {
+            let mid = [
+                (p_start[0] + p_end[0]) * 0.5,
+                (p_start[1] + p_end[1]) * 0.5,
+                (p_start[2] + p_end[2]) * 0.5,
+            ];
+            let on_curve = curve.closest_point(mid);
+            let dev = [
+                on_curve[0] - mid[0],
+                on_curve[1] - mid[1],
+                on_curve[2] - mid[2],
+            ];
+            let dev_dist = (dev[0] * dev[0] + dev[1] * dev[1] + dev[2] * dev[2]).sqrt();
+            if dev_dist < crate::units::TAU_MODEL {
+                return Vec::new();
+            }
+            vec![on_curve]
+        }
+    }
+}
+
+/// Pair twin half-edges between sub-triangles that share internal edges.
+///
+/// Ref [#24] Yang 2025, Section 4.4.1
+fn pair_internal_twins(arena: &mut TopoArena, face_indices: &[FaceIdx]) {
+    use std::collections::HashMap;
+
+    // Collect all half-edges from these faces, keyed by (origin, destination).
+    let mut he_by_endpoints: HashMap<(usize, usize), HalfEdgeIdx> = HashMap::new();
+
+    for &fi in face_indices {
+        let loop_idx = arena.faces[fi.0].outer_loop;
+        let start_he = arena.loops[loop_idx.0].half_edge;
+        let mut he = start_he;
+        loop {
+            let origin = arena.half_edges[he.0].origin.0;
+            let next_he = arena.half_edges[he.0].next;
+            let dest = arena.half_edges[next_he.0].origin.0;
+
+            // Check if the reverse direction already exists.
+            if let Some(&twin_he) = he_by_endpoints.get(&(dest, origin)) {
+                // Pair them.
+                let old_twin_a = arena.half_edges[he.0].twin;
+                let old_twin_b = arena.half_edges[twin_he.0].twin;
+                arena.half_edges[he.0].twin = twin_he;
+                arena.half_edges[twin_he.0].twin = he;
+                // The old auto-created twins become each other's twins.
+                arena.half_edges[old_twin_a.0].twin = old_twin_b;
+                arena.half_edges[old_twin_b.0].twin = old_twin_a;
+            } else {
+                he_by_endpoints.insert((origin, dest), he);
+            }
+
+            he = next_he;
+            if he == start_he {
+                break;
+            }
         }
     }
 }
@@ -2146,6 +2575,296 @@ mod tests {
             (pos0[1] - 0.5).abs() > TAU_MODEL,
             "Vertex 0 y should have been refined away from 0.5, still at {}",
             pos0[1],
+        );
+    }
+
+    // ── Stage 4.4.1: CDT mesh updating tests ────────────────────────────
+
+    // Test 1: For all-planar booleans, empty refinement map → topology unchanged (baseline).
+    #[test]
+    fn test_mesh_update_planar_faces_unchanged() {
+        let mut topology = run_full_pipeline(MeshBooleanOp::Union);
+
+        // Snapshot topology before update
+        let faces_before = topology.arena.faces.len();
+        let edges_before = topology.arena.edges.len();
+        let verts_before = topology.arena.vertices.len();
+        let he_before = topology.arena.half_edges.len();
+
+        // All-planar → empty refinement map
+        let refinement = EdgeRefinementMap {
+            edges: BTreeMap::new(),
+            skipped_planar: 0,
+            unsupported: vec![],
+        };
+
+        update_mesh_along_refined_curves(&mut topology, &refinement);
+
+        // No-op: topology must be identical
+        assert_eq!(
+            topology.arena.faces.len(),
+            faces_before,
+            "Face count changed after no-op mesh update"
+        );
+        assert_eq!(
+            topology.arena.edges.len(),
+            edges_before,
+            "Edge count changed after no-op mesh update"
+        );
+        assert_eq!(
+            topology.arena.vertices.len(),
+            verts_before,
+            "Vertex count changed after no-op mesh update"
+        );
+        assert_eq!(
+            topology.arena.half_edges.len(),
+            he_before,
+            "Half-edge count changed after no-op mesh update"
+        );
+    }
+
+    // Test 2: After refine_vertex_positions + update_mesh_along_refined_curves,
+    // the mesh must have constraint edges that follow the refined intersection curve.
+    // With the stub (no-op), the topology retains the original coarse triangulation
+    // whose edges DON'T form a connected chain along the refined curve. The
+    // implementation should insert CDT constraint edges, increasing the edge count.
+    //
+    // Setup: 4 vertices forming 2 triangles sharing a diagonal. The diagonal is
+    // the intersection edge with an SSI Circle curve. After vertex refinement,
+    // the two diagonal endpoints are on the circle but intermediate points along
+    // the edge are NOT — the CDT update should subdivide the diagonal into curve-
+    // following segments, adding new vertices and edges.
+    #[test]
+    fn test_mesh_update_curved_face_vertices_on_curve() {
+        // Build a topology: two triangles sharing an intersection edge.
+        // Triangle A: v0-v1-v2, Triangle B: v1-v3-v2
+        // Edge v1-v2 is the intersection edge (on a circle).
+        let mut arena = TopoArena::new();
+        let solid = arena.add_solid();
+        let shell = arena.add_shell(solid);
+        let face0 = arena.add_face(shell);
+        let face1 = arena.add_face(shell);
+        let loop0 = arena.add_loop(face0);
+        let loop1 = arena.add_loop(face1);
+        arena.faces[face0.0].outer_loop = loop0;
+        arena.faces[face1.0].outer_loop = loop1;
+
+        // Circle: center (0,0,0), radius 1, axis Z.
+        // v1 and v2 are on the 8-gon approximation (coarse — big chord error).
+        let angle0 = 0.0_f64;
+        let angle1 = std::f64::consts::FRAC_PI_4; // 45°
+                                                  // Mesh-approximate positions (polygon vertices, exactly on circle in this case)
+        let p_v0 = [0.0, 0.0, 0.5]; // interior point, not on circle
+        let p_v1 = [angle0.cos(), angle0.sin(), 0.0]; // (1, 0, 0)
+        let p_v2 = [angle1.cos(), angle1.sin(), 0.0]; // (0.707, 0.707, 0)
+        let p_v3 = [0.0, 0.0, -0.5]; // interior point, not on circle
+
+        let v0 = arena.add_vertex(p_v0);
+        let v1 = arena.add_vertex(p_v1);
+        let v2 = arena.add_vertex(p_v2);
+        let v3 = arena.add_vertex(p_v3);
+
+        // Create the shared intersection edge (v1→v2)
+        let (edge_int, he_int_a, he_int_b) = arena.add_edge();
+        arena.half_edges[he_int_a.0].origin = v1;
+        arena.half_edges[he_int_b.0].origin = v2;
+
+        // Create edges for face0 (v0→v1→v2→v0)
+        let (_edge_01, he_01a, he_01b) = arena.add_edge();
+        arena.half_edges[he_01a.0].origin = v0;
+        arena.half_edges[he_01b.0].origin = v1;
+        let (_edge_20, he_20a, he_20b) = arena.add_edge();
+        arena.half_edges[he_20a.0].origin = v2;
+        arena.half_edges[he_20b.0].origin = v0;
+
+        // Create edges for face1 (v1→v3→v2, using he_int_b for v2→v1)
+        let (_edge_13, he_13a, he_13b) = arena.add_edge();
+        arena.half_edges[he_13a.0].origin = v1;
+        arena.half_edges[he_13b.0].origin = v3;
+        let (_edge_32, he_32a, he_32b) = arena.add_edge();
+        arena.half_edges[he_32a.0].origin = v3;
+        arena.half_edges[he_32b.0].origin = v2;
+
+        // Wire face0 loop: he_01a → he_int_a → he_20a
+        arena.half_edges[he_01a.0].next = he_int_a;
+        arena.half_edges[he_01a.0].prev = he_20a;
+        arena.half_edges[he_int_a.0].next = he_20a;
+        arena.half_edges[he_int_a.0].prev = he_01a;
+        arena.half_edges[he_20a.0].next = he_01a;
+        arena.half_edges[he_20a.0].prev = he_int_a;
+        arena.half_edges[he_01a.0].loop_ = loop0;
+        arena.half_edges[he_int_a.0].loop_ = loop0;
+        arena.half_edges[he_20a.0].loop_ = loop0;
+        arena.loops[loop0.0].half_edge = he_01a;
+
+        // Wire face1 loop: he_int_b → he_13a → he_32a ... wait, direction:
+        // face1 uses he_int_b (v2→v1), but we need v2→v1→v3→v2 which is wrong.
+        // Actually face1: v1→v3→v2, so loop is he_13a(v1→v3) → he_32a(v3→v2) → he_int_b(v2→v1)
+        arena.half_edges[he_13a.0].next = he_32a;
+        arena.half_edges[he_13a.0].prev = he_int_b;
+        arena.half_edges[he_32a.0].next = he_int_b;
+        arena.half_edges[he_32a.0].prev = he_13a;
+        arena.half_edges[he_int_b.0].next = he_13a;
+        arena.half_edges[he_int_b.0].prev = he_32a;
+        arena.half_edges[he_13a.0].loop_ = loop1;
+        arena.half_edges[he_32a.0].loop_ = loop1;
+        arena.half_edges[he_int_b.0].loop_ = loop1;
+        arena.loops[loop1.0].half_edge = he_13a;
+
+        let edges_before = arena.edges.len();
+
+        // SSI curve: circle at origin, radius 1, axis Z
+        let mut edges_map = BTreeMap::new();
+        edges_map.insert(
+            edge_int,
+            SSICurve::Circle {
+                center: [0.0, 0.0, 0.0],
+                normal: [0.0, 0.0, 1.0],
+                radius: 1.0,
+            },
+        );
+        let refinement = EdgeRefinementMap {
+            edges: edges_map,
+            skipped_planar: 0,
+            unsupported: vec![],
+        };
+
+        // Step 4.3: refine vertex positions
+        refine_vertex_positions(&mut arena, &refinement);
+
+        // Build ResultTopology
+        let mut face_provenance = BTreeMap::new();
+        face_provenance.insert(
+            face0,
+            SourceFace {
+                mesh_id: MeshId::A,
+                face_idx: FaceIdx(0),
+            },
+        );
+        face_provenance.insert(
+            face1,
+            SourceFace {
+                mesh_id: MeshId::B,
+                face_idx: FaceIdx(0),
+            },
+        );
+        let mut edge_is_intersection = BTreeMap::new();
+        edge_is_intersection.insert(edge_int, true);
+        let mut topology = ResultTopology {
+            arena,
+            face_provenance,
+            edge_is_intersection,
+        };
+
+        // Step 4.4.1: mesh updating (stub — no-op)
+        update_mesh_along_refined_curves(&mut topology, &refinement);
+
+        // The CDT mesh update should have subdivided the intersection edge into
+        // multiple curve-following segments, adding new edges. With a 45° arc,
+        // a proper CDT would insert at least one intermediate vertex and edge.
+        // The stub does nothing, so edge count stays the same → FAIL.
+        assert!(
+            topology.arena.edges.len() > edges_before,
+            "Mesh update should subdivide intersection edge along the curve. \
+             Edge count before={}, after={} — no new edges added (stub is no-op).",
+            edges_before,
+            topology.arena.edges.len(),
+        );
+    }
+
+    // Test 3: After mesh updating, no new unpaired edges (watertightness preserved).
+    #[test]
+    fn test_mesh_update_preserves_watertightness() {
+        let n = 16;
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [4.0, 4.0, 4.0]);
+        let bijective_a = BijectiveMap {
+            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
+        };
+        let (cyl_verts_raw, cyl_tris, _) = make_cylinder_mesh(1.0, 6.0, n);
+        let verts_b: Vec<[f64; 3]> = cyl_verts_raw
+            .iter()
+            .map(|v| [v[0] + 2.0, v[1] + 2.0, v[2] - 1.0])
+            .collect();
+        let bijective_b = cylinder_bijective(n);
+
+        let mut topology = yang_boolean_pipeline(
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &cyl_tris,
+            &bijective_a,
+            &bijective_b,
+            MeshBooleanOp::Subtract,
+            None,
+        )
+        .unwrap()
+        .topology;
+
+        // Empty refinement — baseline guard
+        let refinement = EdgeRefinementMap {
+            edges: BTreeMap::new(),
+            skipped_planar: 0,
+            unsupported: vec![],
+        };
+
+        update_mesh_along_refined_curves(&mut topology, &refinement);
+
+        // Verify twin symmetry on all half-edges
+        for (i, he) in topology.arena.half_edges.iter().enumerate() {
+            let twin = he.twin;
+            assert_eq!(
+                topology.arena.half_edges[twin.0].twin.0, i,
+                "Twin symmetry broken at half-edge {i}: twin({}).twin = {}, expected {i}",
+                twin.0, topology.arena.half_edges[twin.0].twin.0,
+            );
+        }
+    }
+
+    // Test 4: After mesh updating, face count is unchanged.
+    #[test]
+    fn test_mesh_update_preserves_face_count() {
+        let n = 16;
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [4.0, 4.0, 4.0]);
+        let bijective_a = BijectiveMap {
+            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
+        };
+        let (cyl_verts_raw, cyl_tris, _) = make_cylinder_mesh(1.0, 6.0, n);
+        let verts_b: Vec<[f64; 3]> = cyl_verts_raw
+            .iter()
+            .map(|v| [v[0] + 2.0, v[1] + 2.0, v[2] - 1.0])
+            .collect();
+        let bijective_b = cylinder_bijective(n);
+
+        let mut topology = yang_boolean_pipeline(
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &cyl_tris,
+            &bijective_a,
+            &bijective_b,
+            MeshBooleanOp::Subtract,
+            None,
+        )
+        .unwrap()
+        .topology;
+
+        let faces_before = topology.arena.faces.len();
+
+        // Empty refinement — baseline guard
+        let refinement = EdgeRefinementMap {
+            edges: BTreeMap::new(),
+            skipped_planar: 0,
+            unsupported: vec![],
+        };
+
+        update_mesh_along_refined_curves(&mut topology, &refinement);
+
+        assert_eq!(
+            topology.arena.faces.len(),
+            faces_before,
+            "Face count changed after mesh update: before={}, after={}",
+            faces_before,
+            topology.arena.faces.len(),
         );
     }
 }

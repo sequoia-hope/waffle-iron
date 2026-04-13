@@ -737,6 +737,16 @@ pub(crate) fn yang_boolean_inner(
         refine_vertex_positions(&mut pipeline_result.topology.arena, &refinement);
     }
 
+    // Step 6c: CDT mesh updating along refined SSI curves.
+    // Yang 2025 Section 4.4.1 — re-triangulate faces along refined intersection curves
+    // so mesh edges follow the surface-exact SSI geometry.
+    if !refinement.edges.is_empty() {
+        crate::boolean::ssi_refinement::update_mesh_along_refined_curves(
+            &mut pipeline_result.topology,
+            &refinement,
+        );
+    }
+
     // Step 7: Convert ResultTopology → WaffleSolid → BooleanResult.
     let mut waffle = result_topology_to_waffle_solid(
         pipeline_result.topology,
