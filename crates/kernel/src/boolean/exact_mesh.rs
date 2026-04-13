@@ -3331,36 +3331,38 @@ fn subdivide_mesh_pair_cherchi(
     let _refined_a = refine_constraints(&mut constraints_a, &all_split_verts, &all_verts, eps_sq);
     let _refined_b = refine_constraints(&mut constraints_b, &all_split_verts, &all_verts, eps_sq);
 
-    // ── Step 3: Per-triangle subdivision via mesh_arrangement ──
-    // For each triangle (intersected or not), collect its edge points from
-    // the propagated edge-split data, classify interior points from its
-    // constraints, then call triangulate_single_triangle.
-    // Ref #9: Cherchi 2020 — Algorithm 1 per-triangle segment insertion.
+    // ── Step 3: Global edge conformality + per-triangle subdivision ──
+    // Build a global edge→points map from ALL constraint endpoints, then use
+    // it to enrich every triangle (including non-intersected neighbors) with
+    // shared edge points. This guarantees conformal subdivision.
+    // Ref #9: Cherchi 2020 aux_structure.h:190 (edge2pts).
+    // Ref #24: Yang 2025 Section 4.2.
 
     use crate::boolean::mesh_arrangement::triangulate_single_triangle;
 
-    /// Collect edge points for a triangle from the edge-split map.
+    let global_edge_map = build_global_edge_points_map(
+        &constraints_a,
+        &constraints_b,
+        tris_a,
+        &remapped_tris_b,
+        &all_verts,
+    );
+
+    /// Collect edge points for a triangle from the global edge map.
     /// Returns edge points for each of the 3 edges, sorted by parametric t.
-    fn collect_edge_points_for_tri(
+    fn collect_edge_points_from_global(
         tri: [usize; 3],
-        edge_splits: &BTreeMap<(usize, usize), Vec<(usize, f64)>>,
+        global_map: &std::collections::HashMap<(usize, usize), Vec<usize>>,
     ) -> [Vec<usize>; 3] {
-        let edges = [
-            (tri[0], tri[1]), // edge 0: v0→v1
-            (tri[1], tri[2]), // edge 1: v1→v2
-            (tri[2], tri[0]), // edge 2: v2→v0
-        ];
+        let edges = [(tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])];
         let mut result: [Vec<usize>; 3] = [Vec::new(), Vec::new(), Vec::new()];
         for (ei, &(ev0, ev1)) in edges.iter().enumerate() {
-            let key = edge_key_fn(ev0, ev1);
-            if let Some(splits) = edge_splits.get(&key) {
-                // splits are sorted by t along the canonical edge direction.
-                // If the canonical direction matches our edge (ev0 < ev1), use as-is.
-                // If reversed, reverse the order.
+            let key = if ev0 <= ev1 { (ev0, ev1) } else { (ev1, ev0) };
+            if let Some(pts) = global_map.get(&key) {
                 if ev0 <= ev1 {
-                    result[ei] = splits.iter().map(|&(vi, _)| vi).collect();
+                    result[ei] = pts.clone();
                 } else {
-                    result[ei] = splits.iter().rev().map(|&(vi, _)| vi).collect();
+                    result[ei] = pts.iter().rev().copied().collect();
                 }
             }
         }
@@ -3369,15 +3371,14 @@ fn subdivide_mesh_pair_cherchi(
 
     let mut result_tris_a = Vec::new();
 
-    // Process ALL triangles in mesh A
+    // Process ALL triangles in mesh A (including non-intersected with shared edge pts)
     for (i, tri) in tris_a.iter().enumerate() {
-        let edge_pts = collect_edge_points_for_tri(*tri, &edge_splits_a);
+        let edge_pts = collect_edge_points_from_global(*tri, &global_edge_map);
         let has_edge_pts = edge_pts.iter().any(|e| !e.is_empty());
         let has_constraints = constraints_a.contains_key(&i);
 
         if has_constraints || has_edge_pts {
             let segments = constraints_a.get(&i).map(|s| s.as_slice()).unwrap_or(&[]);
-            // Get interior points from constraints (points not on any edge)
             let interior_pts = if has_constraints {
                 let (_, ip) = preprocess_triangle_constraints(*tri, segments, &all_verts);
                 ip
@@ -3409,10 +3410,10 @@ fn subdivide_mesh_pair_cherchi(
 
     let mut result_tris_b = Vec::new();
 
-    // Process ALL triangles in mesh B
+    // Process ALL triangles in mesh B (including non-intersected with shared edge pts)
     for (j, _tri) in tris_b.iter().enumerate() {
         let remapped = remapped_tris_b[j];
-        let edge_pts = collect_edge_points_for_tri(remapped, &edge_splits_b);
+        let edge_pts = collect_edge_points_from_global(remapped, &global_edge_map);
         let has_edge_pts = edge_pts.iter().any(|e| !e.is_empty());
         let has_constraints = constraints_b.contains_key(&j);
 
@@ -4780,6 +4781,196 @@ pub(crate) fn radial_sort_around_edge(
     });
 
     indices
+}
+
+// ── Global edge conformality (Yang Section 4.2 / Cherchi aux_structure.h:190) ──
+//
+// Ensures that triangles sharing an original mesh edge receive identical
+// constraint points on that edge, guaranteeing conformal subdivision.
+
+/// Enriched constraint data for a single triangle, including shared edge points
+/// from the global edge map.
+///
+/// Ref: Cherchi aux_structure.h:190 (edge2pts)
+#[derive(Debug, Clone)]
+struct EnrichedConstraints {
+    /// Constraint segments (pairs of vertex indices) for this triangle.
+    segments: Vec<[usize; 2]>,
+    /// Per-edge intersection points, sorted by parametric t along each edge.
+    /// Index 0 = edge (tri[0], tri[1]), 1 = edge (tri[1], tri[2]), 2 = edge (tri[2], tri[0]).
+    edge_points: [Vec<usize>; 3],
+    /// Constraint points that lie in the triangle interior (not on any edge).
+    interior_points: Vec<usize>,
+}
+
+/// Build a global map of original mesh edges to sorted intersection points.
+///
+/// For each constraint segment endpoint, determines which original triangle edge
+/// it lies on (if any) and adds it to the map. Both triangles sharing an edge
+/// will receive the same points, ensuring conformal subdivision.
+///
+/// Ref: Cherchi aux_structure.h:190 (edge2pts), intersection_classification.cpp:464
+fn build_global_edge_points_map(
+    constraints_a: &std::collections::BTreeMap<usize, Vec<[usize; 2]>>,
+    constraints_b: &std::collections::BTreeMap<usize, Vec<[usize; 2]>>,
+    tris_a: &[[usize; 3]],
+    tris_b: &[[usize; 3]],
+    all_verts: &[[f64; 3]],
+) -> std::collections::HashMap<(usize, usize), Vec<usize>> {
+    use std::collections::HashMap;
+
+    let eps_sq = TAU_EXACT_MESH_CLASSIFY * TAU_EXACT_MESH_CLASSIFY;
+
+    // Collect all unique constraint point indices (from both meshes)
+    let mut unique_pts: Vec<usize> = Vec::new();
+    for segs in constraints_a.values().chain(constraints_b.values()) {
+        for seg in segs {
+            for &vi in &[seg[0], seg[1]] {
+                if !unique_pts.contains(&vi) {
+                    unique_pts.push(vi);
+                }
+            }
+        }
+    }
+
+    // Build set of all original mesh edges (canonical order)
+    let mut all_edges: Vec<(usize, usize)> = Vec::new();
+    for tri in tris_a.iter().chain(tris_b.iter()) {
+        for ei in 0..3 {
+            let v0 = tri[ei];
+            let v1 = tri[(ei + 1) % 3];
+            let key = if v0 <= v1 { (v0, v1) } else { (v1, v0) };
+            if !all_edges.contains(&key) {
+                all_edges.push(key);
+            }
+        }
+    }
+
+    // For each constraint point, classify which original edge(s) it lies on
+    let mut edge_points_map: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
+
+    for &vi in &unique_pts {
+        let p = &all_verts[vi];
+
+        for &(ev0, ev1) in &all_edges {
+            if vi == ev0 || vi == ev1 {
+                continue;
+            }
+
+            let a = &all_verts[ev0];
+            let b = &all_verts[ev1];
+            let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let ap = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
+            let ab_len_sq = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+            if ab_len_sq < TAU_NORMALIZE_SQ {
+                continue;
+            }
+
+            let cross = [
+                ab[1] * ap[2] - ab[2] * ap[1],
+                ab[2] * ap[0] - ab[0] * ap[2],
+                ab[0] * ap[1] - ab[1] * ap[0],
+            ];
+            let cross_len_sq = cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2];
+            if cross_len_sq > eps_sq * ab_len_sq {
+                continue;
+            }
+
+            let t = (ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / ab_len_sq;
+            if t > 1e-10 && t < 1.0 - 1e-10 {
+                let entry = edge_points_map.entry((ev0, ev1)).or_default();
+                if !entry.contains(&vi) {
+                    entry.push(vi);
+                }
+            }
+        }
+    }
+
+    // Sort each edge's points by parametric t
+    for (&(ev0, ev1), points) in edge_points_map.iter_mut() {
+        let a = &all_verts[ev0];
+        let b = &all_verts[ev1];
+        let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let ab_len_sq = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+        points.sort_by(|&vi_a, &vi_b| {
+            let pa = &all_verts[vi_a];
+            let ap_a = [pa[0] - a[0], pa[1] - a[1], pa[2] - a[2]];
+            let t_a = (ap_a[0] * ab[0] + ap_a[1] * ab[1] + ap_a[2] * ab[2]) / ab_len_sq;
+
+            let pb = &all_verts[vi_b];
+            let ap_b = [pb[0] - a[0], pb[1] - a[1], pb[2] - a[2]];
+            let t_b = (ap_b[0] * ab[0] + ap_b[1] * ab[1] + ap_b[2] * ab[2]) / ab_len_sq;
+
+            t_a.partial_cmp(&t_b).unwrap_or(std::cmp::Ordering::Equal)
+        });
+    }
+
+    edge_points_map
+}
+
+/// Enrich per-triangle constraints with shared edge points from the global map.
+///
+/// For each triangle, looks up its three edges in `edge_points_map` and merges
+/// any global edge points into its constraint data. This ensures non-intersected
+/// triangles that share edges with intersected triangles also receive the
+/// intersection points on those edges.
+///
+/// Ref: Cherchi edgePointsList(edge_id) — both triangles sharing an edge get
+/// the same sorted point list.
+fn enrich_constraints_with_shared_edge_points(
+    constraints: &std::collections::BTreeMap<usize, Vec<[usize; 2]>>,
+    tris: &[[usize; 3]],
+    edge_points_map: &std::collections::HashMap<(usize, usize), Vec<usize>>,
+    all_verts: &[[f64; 3]],
+) -> std::collections::BTreeMap<usize, EnrichedConstraints> {
+    use std::collections::BTreeMap;
+
+    let mut result: BTreeMap<usize, EnrichedConstraints> = BTreeMap::new();
+
+    for (ti, tri) in tris.iter().enumerate() {
+        // Look up global edge points for each of the 3 edges
+        let tri_edges = [(tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])];
+
+        let mut edge_points: [Vec<usize>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+        for (ei, &(ev0, ev1)) in tri_edges.iter().enumerate() {
+            let key = if ev0 <= ev1 { (ev0, ev1) } else { (ev1, ev0) };
+            if let Some(pts) = edge_points_map.get(&key) {
+                // Points are sorted by t in canonical direction.
+                // If our edge is reversed relative to canonical, reverse the order.
+                if ev0 <= ev1 {
+                    edge_points[ei] = pts.clone();
+                } else {
+                    edge_points[ei] = pts.iter().rev().copied().collect();
+                }
+            }
+        }
+
+        let has_edge_pts = edge_points.iter().any(|e| !e.is_empty());
+        let has_constraints = constraints.contains_key(&ti);
+
+        if has_edge_pts || has_constraints {
+            // Get segments and interior points from constraints
+            let segments = constraints.get(&ti).cloned().unwrap_or_default();
+
+            // Classify constraint segment endpoints as interior if not on any edge
+            let mut interior_points: Vec<usize> = Vec::new();
+            if has_constraints {
+                let (_, ip) = preprocess_triangle_constraints(*tri, &segments, all_verts);
+                interior_points = ip;
+            }
+
+            result.insert(
+                ti,
+                EnrichedConstraints {
+                    segments,
+                    edge_points,
+                    interior_points,
+                },
+            );
+        }
+    }
+
+    result
 }
 
 #[cfg(test)]
@@ -9888,6 +10079,294 @@ mod tests {
              {n_he} half-edges but {n_edges} edges (expected 2:1 ratio). \
              Unpaired HEs = {}. Cherchi add_segment must produce conformal \
              output that enables complete half-edge pairing.",
+            n_he as isize - 2 * n_edges as isize
+        );
+
+        // Euler characteristic V - E + F = 2 for closed solid
+        let n_faces = topo.arena.faces.len();
+        let n_verts = topo.arena.vertices.len();
+        if n_faces > 0 && n_verts > 0 {
+            let euler = n_verts as isize - n_edges as isize + n_faces as isize;
+            assert_eq!(
+                euler, 2,
+                "Euler characteristic = {euler} (expected 2). \
+                 V={n_verts}, E={n_edges}, F={n_faces}."
+            );
+        }
+    }
+
+    // ── Global edge conformality tests (specs/yang_global_edge_conformality.md) ──
+    //
+    // These tests verify the global edge→points map and enrichment pipeline
+    // that ensures conformal subdivision across shared triangle edges.
+    // Ref: Cherchi aux_structure.h:190 (edge2pts)
+
+    /// Test 1: Two triangles sharing edge (1,2) with an intersection point P
+    /// on that edge. build_global_edge_points_map must return edge (1,2) → [P].
+    /// Stub returns empty map → FAILS.
+    #[test]
+    fn test_global_edge_map_shared_points() {
+        use std::collections::BTreeMap;
+
+        // Two triangles sharing edge (1,2):
+        //   T0 = (0, 1, 2)
+        //   T1 = (1, 3, 2)
+        let verts: Vec<[f64; 3]> = vec![
+            [0.0, 0.0, 0.0], // 0
+            [1.0, 0.0, 0.0], // 1
+            [0.0, 1.0, 0.0], // 2
+            [1.0, 1.0, 0.0], // 3
+            [0.5, 0.5, 0.0], // 4 — intersection point P on edge (1,2)
+        ];
+        let tris_a: Vec<[usize; 3]> = vec![[0, 1, 2], [1, 3, 2]];
+        let tris_b: Vec<[usize; 3]> = vec![]; // no mesh B needed for this test
+
+        // T0 has a constraint segment using point 4 (on shared edge 1→2)
+        let mut constraints_a: BTreeMap<usize, Vec<[usize; 2]>> = BTreeMap::new();
+        constraints_a.insert(0, vec![[4, 4]]); // degenerate segment at P (point on edge)
+
+        let constraints_b: BTreeMap<usize, Vec<[usize; 2]>> = BTreeMap::new();
+
+        let edge_map =
+            build_global_edge_points_map(&constraints_a, &constraints_b, &tris_a, &tris_b, &verts);
+
+        // Canonicalized shared edge is (1, 2) since min(1,2)=1, max(1,2)=2
+        let key = (1, 2);
+        assert!(
+            edge_map.contains_key(&key),
+            "Global edge map must contain shared edge (1,2). Got keys: {:?}",
+            edge_map.keys().collect::<Vec<_>>()
+        );
+        let points = &edge_map[&key];
+        assert!(
+            points.contains(&4),
+            "Edge (1,2) must contain intersection point 4. Got: {points:?}"
+        );
+    }
+
+    /// Test 2: T0 has intersection constraint with points P,Q. T1 shares edge
+    /// with T0 but has no intersection. After enrichment, T1 must receive the
+    /// edge points from the global map.
+    /// Stub returns empty → FAILS.
+    #[test]
+    fn test_non_intersected_neighbor_gets_edge_points() {
+        use std::collections::BTreeMap;
+
+        // T0 = (0, 1, 2), T1 = (1, 3, 2) — share edge (1, 2)
+        let verts: Vec<[f64; 3]> = vec![
+            [0.0, 0.0, 0.0], // 0
+            [1.0, 0.0, 0.0], // 1
+            [0.0, 1.0, 0.0], // 2
+            [1.0, 1.0, 0.0], // 3
+            [0.7, 0.3, 0.0], // 4 — point P on edge (1,2)
+            [0.3, 0.7, 0.0], // 5 — point Q interior to T0
+        ];
+        let tris: Vec<[usize; 3]> = vec![[0, 1, 2], [1, 3, 2]];
+
+        // T0 has constraint [P, Q], T1 has none
+        let mut constraints: BTreeMap<usize, Vec<[usize; 2]>> = BTreeMap::new();
+        constraints.insert(0, vec![[4, 5]]);
+
+        // Build global edge map (reuse from test 1 concept)
+        let mut edge_points_map = std::collections::HashMap::new();
+        // Simulate: point 4 lies on edge (1,2)
+        edge_points_map.insert((1, 2), vec![4]);
+
+        let enriched = enrich_constraints_with_shared_edge_points(
+            &constraints,
+            &tris,
+            &edge_points_map,
+            &verts,
+        );
+
+        // T1 (index 1) must appear in enriched output with edge point 4
+        assert!(
+            enriched.contains_key(&1),
+            "Non-intersected triangle T1 must appear in enriched constraints. \
+             Got keys: {:?}",
+            enriched.keys().collect::<Vec<_>>()
+        );
+        let t1_enriched = &enriched[&1];
+        // T1's edges are: (1,3), (3,2), (2,1). Edge (1,2) canonical = (1,2).
+        // The edge_points for the edge containing vertices 1 and 2 must include point 4.
+        let has_point_4 = t1_enriched.edge_points.iter().any(|pts| pts.contains(&4));
+        assert!(
+            has_point_4,
+            "T1 must receive edge point 4 on its shared edge (1,2). \
+             edge_points: {:?}",
+            t1_enriched.edge_points
+        );
+    }
+
+    /// Test 3: Two overlapping boxes (one rotated) through subdivide_mesh_pair.
+    /// Check within-mesh conformality for mesh A: for each original mesh edge
+    /// shared by two parent triangles, both parents must produce the same set
+    /// of new (intersection) vertices along that edge in their sub-triangles.
+    ///
+    /// Without global edge point sharing, an intersected triangle gets new
+    /// points on a shared edge while its non-intersected neighbor does not.
+    /// Currently >0 non-conformal edges → FAILS.
+    #[test]
+    fn test_conformality_after_enrichment() {
+        use std::collections::{BTreeSet, HashMap};
+
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (verts_b, tris_b) = make_rotated_box_mesh([1.0, 1.0, 1.0], 1.0);
+
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("subdivision should succeed");
+
+        let n_orig_a = verts_a.len();
+
+        // Build map: original mesh-A edge → parent triangles containing it
+        let mut edge_parents: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
+        for (ti, tri) in tris_a.iter().enumerate() {
+            for k in 0..3 {
+                let u = tri[k];
+                let v = tri[(k + 1) % 3];
+                let edge = (u.min(v), u.max(v));
+                edge_parents.entry(edge).or_default().push(ti);
+            }
+        }
+
+        // Helper: check if point p lies on segment [a, b]
+        let is_on_edge = |p: &[f64; 3], a: &[f64; 3], b: &[f64; 3]| -> bool {
+            let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let ap = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
+            let cross = [
+                ab[1] * ap[2] - ab[2] * ap[1],
+                ab[2] * ap[0] - ab[0] * ap[2],
+                ab[0] * ap[1] - ab[1] * ap[0],
+            ];
+            let cross_sq = cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2];
+            let ab_sq = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+            if cross_sq > ab_sq * 1e-10 {
+                return false;
+            }
+            let t = if ab_sq > 1e-30 {
+                (ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / ab_sq
+            } else {
+                0.0
+            };
+            t >= -1e-10 && t <= 1.0 + 1e-10
+        };
+
+        // For each parent, find which NEW vertices appear in its sub-triangles
+        // on each of its original edges.
+        let mut parent_edge_new_verts: HashMap<(usize, (usize, usize)), BTreeSet<usize>> =
+            HashMap::new();
+        for sub_tri in &subdivided.tris_a {
+            let pi = sub_tri.parent_tri;
+            let tri = tris_a[pi];
+            for &vi in &sub_tri.verts {
+                if vi >= n_orig_a {
+                    for k in 0..3 {
+                        let u = tri[k];
+                        let v = tri[(k + 1) % 3];
+                        let edge = (u.min(v), u.max(v));
+                        if is_on_edge(
+                            &subdivided.verts[vi],
+                            &subdivided.verts[u],
+                            &subdivided.verts[v],
+                        ) {
+                            parent_edge_new_verts
+                                .entry((pi, edge))
+                                .or_default()
+                                .insert(vi);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Check: for edges shared by 2+ parents, both must have the same
+        // new vertices on that edge.
+        let empty_set = BTreeSet::new();
+        let mut non_conformal_edges = 0usize;
+        for (edge, parents) in &edge_parents {
+            if parents.len() < 2 {
+                continue;
+            }
+            let sets: Vec<&BTreeSet<usize>> = parents
+                .iter()
+                .map(|&pi| {
+                    parent_edge_new_verts
+                        .get(&(pi, *edge))
+                        .unwrap_or(&empty_set)
+                })
+                .collect();
+            let has_new = sets.iter().any(|s| !s.is_empty());
+            if has_new {
+                for i in 1..sets.len() {
+                    if sets[i] != sets[0] {
+                        non_conformal_edges += 1;
+                    }
+                }
+            }
+        }
+
+        assert_eq!(
+            non_conformal_edges, 0,
+            "Global edge conformality: {non_conformal_edges} original edges in mesh A \
+             have different intersection points across adjacent parent triangles. \
+             After global edge enrichment, all triangles sharing an edge must have \
+             identical intersection points on that edge. \
+             Ref: specs/yang_global_edge_conformality.md"
+        );
+    }
+
+    /// Test 4: Full Yang pipeline (subdivide → label → survival → flood_fill)
+    /// with a rotated box to force non-trivial intersection.
+    /// Assert 0 unpaired half-edges in the resulting topology.
+    /// This is the same check as test_add_segment_produces_watertight but
+    /// specifically targets the global edge conformality fix.
+    /// Currently >0 unpaired → FAILS.
+    #[test]
+    fn test_enrichment_watertight_pipeline() {
+        use crate::boolean::topology_extract::yang_boolean_pipeline;
+        use crate::tessellation::bijective::BijectiveMap;
+        use crate::topology::half_edge::FaceIdx;
+
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (verts_b, tris_b) = make_rotated_box_mesh([1.0, 1.0, 1.0], 1.0);
+
+        let bijective_a = BijectiveMap {
+            tri_face_ids: (0..tris_a.len()).map(|i| FaceIdx(i / 2)).collect(),
+        };
+        let bijective_b = BijectiveMap {
+            tri_face_ids: (0..tris_b.len()).map(|i| FaceIdx(i / 2)).collect(),
+        };
+
+        let result = yang_boolean_pipeline(
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            &bijective_a,
+            &bijective_b,
+            MeshBooleanOp::Subtract,
+            None,
+        )
+        .expect("Yang pipeline should succeed for overlapping boxes");
+
+        let topo = &result.topology;
+        let n_edges = topo.arena.edges.len();
+        let n_he = topo.arena.half_edges.len();
+
+        assert!(
+            n_edges > 0,
+            "Pipeline must produce edges for overlapping boxes"
+        );
+
+        // Watertight: exactly 2 half-edges per edge
+        assert_eq!(
+            n_he,
+            2 * n_edges,
+            "Watertight after global edge enrichment: \
+             {n_he} half-edges but {n_edges} edges (expected 2:1 ratio). \
+             Unpaired HEs = {}. Global edge conformality must ensure every \
+             intersection boundary edge is shared between adjacent triangles. \
+             Ref: specs/yang_global_edge_conformality.md",
             n_he as isize - 2 * n_edges as isize
         );
 
