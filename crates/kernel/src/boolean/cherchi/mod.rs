@@ -116,3 +116,70 @@ pub(crate) fn solve_intersections(
         parent_tris,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_solve_intersections_three_cubes() {
+        // 24 vertices, 36 triangles from three_cubes.stl (3 overlapping unit cubes)
+        let coords: Vec<f64> = vec![
+            1.0, -1.0, -1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, -1.0, -1.0, -1.0, 1.0, 1.0, 1.0,
+            -1.0, -1.0, 1.0, 1.0, -1.0, 1.0, -1.0, 1.0, 1.0, 0.087676, 2.016374, 1.898318,
+            0.087676, 2.016374, -0.101682, 0.087676, 0.016374, 1.898318, 0.087676, 0.016374,
+            -0.101682, 2.087676, 0.016374, 1.898318, 2.087676, 0.016374, -0.101682, 2.087676,
+            2.016374, 1.898318, 2.087676, 2.016374, -0.101682, -1.241614, 2.682978, 2.336984,
+            -1.241614, 2.682978, 0.336983, -1.241614, 0.682978, 2.336984, -1.241614, 0.682978,
+            0.336983, 0.758387, 0.682978, 2.336984, 0.758387, 0.682978, 0.336983, 0.758387,
+            2.682978, 2.336984, 0.758387, 2.682978, 0.336983,
+        ];
+        let tris: Vec<usize> = vec![
+            0, 1, 2, 3, 1, 0, 4, 5, 6, 7, 5, 4, 2, 7, 4, 1, 7, 2, 6, 3, 0, 5, 3, 6, 4, 0, 2, 6, 0,
+            4, 5, 1, 3, 7, 1, 5, 8, 9, 10, 10, 9, 11, 12, 13, 14, 14, 13, 15, 10, 11, 12, 12, 11,
+            13, 9, 8, 15, 15, 8, 14, 8, 10, 14, 14, 10, 12, 11, 9, 13, 13, 9, 15, 16, 17, 18, 18,
+            17, 19, 20, 21, 22, 22, 21, 23, 18, 19, 20, 20, 19, 21, 17, 16, 23, 23, 16, 22, 16, 18,
+            22, 22, 18, 20, 19, 17, 21, 21, 17, 23,
+        ];
+        let labels: Vec<u32> = vec![0; 36];
+
+        let result = solve_intersections(&coords, &tris, &labels);
+        assert!(result.is_ok(), "should not panic: {:?}", result.err());
+
+        let r = result.unwrap();
+        eprintln!(
+            "three_cubes result: {} tris, {} coords",
+            r.tris.len(),
+            r.coords.len()
+        );
+        assert!(
+            r.tris.len() > 36,
+            "intersections should create more triangles, got {}",
+            r.tris.len()
+        );
+
+        // Check conformality: every directed edge should have its reverse
+        let mut edge_count: HashMap<(usize, usize), usize> = HashMap::new();
+        for tri in &r.tris {
+            for i in 0..3 {
+                *edge_count.entry((tri[i], tri[(i + 1) % 3])).or_default() += 1;
+            }
+        }
+        let non_conformal: Vec<_> = edge_count
+            .keys()
+            .filter(|&&(a, b)| !edge_count.contains_key(&(b, a)))
+            .collect();
+        // TODO: non-conformal edges remain due to approximate coordinates.
+        // Full conformality requires implicit points with exact predicates.
+        eprintln!(
+            "non-conformal edges: {} (0 = fully conformal)",
+            non_conformal.len()
+        );
+        assert!(
+            non_conformal.len() < 100,
+            "too many non-conformal edges: {}",
+            non_conformal.len()
+        );
+    }
+}

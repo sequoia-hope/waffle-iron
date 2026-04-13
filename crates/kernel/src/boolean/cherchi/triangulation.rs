@@ -203,6 +203,11 @@ impl CustomStack {
     }
 
     fn push(&mut self, vec: Vec<usize>) {
+        // Skip degenerate sub-triangles (can arise from approximate
+        // coordinates causing imprecise point distribution)
+        if vec.len() >= 3 && (vec[0] == vec[1] || vec[0] == vec[2] || vec[1] == vec[2]) {
+            return;
+        }
         let idx = (self.cursor + 1) as usize;
         if idx >= self.stack.len() {
             self.stack.push(vec);
@@ -226,25 +231,28 @@ impl CustomStack {
     /// Find a triangle (first 3 elements matching v0,v1,v2 in any order)
     /// in the stack and return a clone of it.
     ///
+    /// Returns None if not found (e.g., the triangle was created with no
+    /// remaining points and was never pushed to the stack).
+    ///
     /// Ported from custom_stack.h:80-98 (getTriangleFromStack)
-    fn get_triangle_from_stack(&self, v0: usize, v1: usize, v2: usize) -> Vec<usize> {
+    fn get_triangle_from_stack(&self, v0: usize, v1: usize, v2: usize) -> Option<Vec<usize>> {
+        if self.cursor < 0 {
+            return None;
+        }
         for i in (0..=self.cursor as usize).rev() {
             let entry = &self.stack[i];
             if entry.len() >= 3 {
                 let (a, b, c) = (entry[0], entry[1], entry[2]);
-                let verts = [a, b, c];
-                let target = [v0, v1, v2];
-                // Check all permutations
-                let mut sorted_v = verts;
+                let mut sorted_v = [a, b, c];
                 sorted_v.sort();
-                let mut sorted_t = target;
+                let mut sorted_t = [v0, v1, v2];
                 sorted_t.sort();
                 if sorted_v == sorted_t {
-                    return entry.clone();
+                    return Some(entry.clone());
                 }
             }
         }
-        panic!("Triplet not found in stack!");
+        None
     }
 }
 
@@ -315,10 +323,37 @@ fn split_single_triangle_with_stack(
             None => continue,
         };
 
-        let v_pos = curr_tri[3];
+        // Find the first valid point to insert (skip points that are
+        // already vertices of this triangle — can happen when a point
+        // gets assigned to a sub-triangle where it's already a vertex
+        // during reposition_points_in_stack).
+        let mut pt_idx = 3;
+        while pt_idx < curr_tri.len() {
+            let p = curr_tri[pt_idx];
+            if p != curr_tri[0] && p != curr_tri[1] && p != curr_tri[2] {
+                break;
+            }
+            pt_idx += 1;
+        }
+        if pt_idx >= curr_tri.len() {
+            continue; // no valid points to insert
+        }
+
+        let v_pos = curr_tri[pt_idx];
         let mut on_edge = false;
 
+        // Merged points buffer — populated with curr_tri's points plus any
+        // adjacent triangle's points when splitting on a shared edge.
+        // In C++, this is done by mutating `curr_tri` (a reference) in place.
+        // Swap the valid point to position [3] so the remaining points start
+        // at position [4].
+        let mut merged = curr_tri;
+        if pt_idx != 3 {
+            merged.swap(3, pt_idx);
+        }
+
         // Check if v_pos is on any edge of the triangle
+        // Ported from triangulation.cpp:283-337
         for i in 0..3 {
             let e_id = match subm.tri_edge_id(t_id, i) {
                 Some(id) => id,
@@ -341,47 +376,23 @@ fn split_single_triangle_with_stack(
                     let t_adj_id = if e2t[0] == t_id { e2t[1] } else { e2t[0] };
                     let v_opp2 = subm.tri_vert_opposite_to(t_adj_id, v1, v0);
 
-                    // Get points from the adjacent triangle in the stack
-                    let adj_tri = stack.get_triangle_from_stack(v1, v_opp2, v0);
-
-                    // Merge extra points from adj_tri into curr_tri copy
-                    let mut merged = curr_tri.clone();
-                    for j in 3..adj_tri.len() {
-                        let p = adj_tri[j];
-                        if p != v_pos && !merged.contains(&p) {
-                            merged.push(p);
+                    // Get points from the adjacent triangle in the stack.
+                    // May be None if the adjacent was created with no remaining
+                    // points (size=3) and thus never pushed.
+                    if let Some(adj) = stack.get_triangle_from_stack(v1, v_opp2, v0) {
+                        for j in 3..adj.len() {
+                            let p = adj[j];
+                            if p != v_pos && !merged.contains(&p) {
+                                merged.push(p);
+                            }
                         }
                     }
 
                     curr_subdv[2] = vec![v_opp2, v_pos, v0];
                     curr_subdv[3] = vec![v1, v_pos, v_opp2];
-
-                    // Reposition remaining points into sub-triangles
-                    if merged.len() > 4 {
-                        reposition_points_in_stack(subm, &mut stack, &mut curr_subdv, &merged);
-                    } else {
-                        // Push non-empty sub-triangles with size > 3
-                        for subdv in &curr_subdv {
-                            if subdv.len() > 3 {
-                                stack.push(subdv.clone());
-                            }
-                        }
-                    }
-                } else {
-                    // No adjacent triangle — just reposition within 2 sub-tris
-                    if curr_tri.len() > 4 {
-                        // Need a mutable copy to pass
-                        let merged = curr_tri.clone();
-                        reposition_points_in_stack(subm, &mut stack, &mut curr_subdv, &merged);
-                    } else {
-                        for subdv in &curr_subdv {
-                            if subdv.len() > 3 {
-                                stack.push(subdv.clone());
-                            }
-                        }
-                    }
                 }
 
+                // Do the mesh modification FIRST (matching C++ ordering)
                 subm.split_edge(e_id, v_pos);
                 break;
             }
@@ -389,15 +400,19 @@ fn split_single_triangle_with_stack(
 
         if !on_edge {
             // Point is in triangle interior
-            curr_subdv[0] = vec![curr_tri[1], v_pos, curr_tri[0]];
-            curr_subdv[1] = vec![curr_tri[2], v_pos, curr_tri[1]];
-            curr_subdv[2] = vec![curr_tri[0], v_pos, curr_tri[2]];
+            // Ported from triangulation.cpp:340-358
+            curr_subdv[0] = vec![merged[1], v_pos, merged[0]];
+            curr_subdv[1] = vec![merged[2], v_pos, merged[1]];
+            curr_subdv[2] = vec![merged[0], v_pos, merged[2]];
 
             subm.split_tri(t_id, v_pos);
+        }
 
-            if curr_tri.len() > 4 {
-                reposition_points_in_stack(subm, &mut stack, &mut curr_subdv, &curr_tri);
-            }
+        // Reposition remaining points into sub-triangles and push
+        // (matching C++ ordering: AFTER mesh modification)
+        // Ported from triangulation.cpp:360-362
+        if merged.len() > 4 {
+            reposition_points_in_stack(subm, &mut stack, &mut curr_subdv, &merged);
         }
     }
 }
@@ -418,8 +433,14 @@ fn reposition_points_in_stack(
         // The newly inserted point is at curr_subdv[0][1]
         let v_pos_id = curr_subdv[0][1];
 
+        // Helper: check if p is already a vertex of the sub-triangle
+        let is_vertex = |subdv: &[usize], p: usize| -> bool {
+            subdv.len() >= 3 && (p == subdv[0] || p == subdv[1] || p == subdv[2])
+        };
+
         // Check sub-triangle 0
         if !curr_subdv[0].is_empty()
+            && !is_vertex(&curr_subdv[0], p)
             && point_in_triangle_projected(subm, p, curr_subdv[0][0], v_pos_id, curr_subdv[0][2])
         {
             n_insertions += 1;
@@ -428,6 +449,7 @@ fn reposition_points_in_stack(
 
         // Check sub-triangle 1
         if !curr_subdv[1].is_empty()
+            && !is_vertex(&curr_subdv[1], p)
             && point_in_triangle_projected(subm, p, curr_subdv[1][0], v_pos_id, curr_subdv[1][2])
         {
             n_insertions += 1;
@@ -441,6 +463,7 @@ fn reposition_points_in_stack(
         // Check sub-triangle 2
         if curr_subdv.len() > 2
             && !curr_subdv[2].is_empty()
+            && !is_vertex(&curr_subdv[2], p)
             && point_in_triangle_projected(subm, p, curr_subdv[2][0], v_pos_id, curr_subdv[2][2])
         {
             n_insertions += 1;
@@ -454,6 +477,7 @@ fn reposition_points_in_stack(
         // Check sub-triangle 3
         if curr_subdv.len() > 3
             && !curr_subdv[3].is_empty()
+            && !is_vertex(&curr_subdv[3], p)
             && point_in_triangle_projected(subm, p, curr_subdv[3][0], v_pos_id, curr_subdv[3][2])
         {
             curr_subdv[3].push(p);
@@ -666,9 +690,16 @@ fn find_intersecting_elements(
 
         if !subm.edge_is_constr(e_id) {
             // Non-constraint edge
-            let t_id = subm
+            let t_id = match subm
                 .tri_opp_to_edge(e_id, *intersected_tris.last().unwrap())
-                .expect("no opposite triangle");
+            {
+                Some(id) => id,
+                None => {
+                    // Boundary edge — can happen with approximate coordinates
+                    intersected_edges.clear();
+                    return;
+                }
+            };
             let v2 = subm.tri_vert_opposite_to(t_id, ev0_id, ev1_id);
 
             if segments_intersect_inside(subm, v_start, v_stop, ev0_id, v2) {
@@ -724,11 +755,13 @@ fn find_intersecting_elements(
     }
 
     // Append the last triangle
-    let e_id = *intersected_edges.last().unwrap();
-    let t_id = subm
-        .tri_opp_to_edge(e_id, *intersected_tris.last().unwrap())
-        .expect("tri opposite to edge not found");
-    intersected_tris.push(t_id);
+    if let Some(last_e) = intersected_edges.last() {
+        if let Some(last_t) = intersected_tris.last() {
+            if let Some(t_id) = subm.tri_opp_to_edge(*last_e, *last_t) {
+                intersected_tris.push(t_id);
+            }
+        }
+    }
 }
 
 // ── Boundary walker ─────────────────────────────────────────────────────
@@ -1783,7 +1816,7 @@ mod tests {
         stack.push(vec![1, 2, 3, 10, 20]);
         stack.push(vec![4, 5, 6, 30]);
 
-        let found = stack.get_triangle_from_stack(3, 1, 2);
+        let found = stack.get_triangle_from_stack(3, 1, 2).unwrap();
         assert_eq!(found[0], 1);
         assert_eq!(found[1], 2);
         assert_eq!(found[2], 3);

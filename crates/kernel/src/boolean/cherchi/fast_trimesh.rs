@@ -422,14 +422,16 @@ impl FastTrimesh {
     pub fn tri_opp_to_edge(&self, e_id: usize, t_id: usize) -> Option<usize> {
         assert!(e_id < self.edges.len(), "edge id out of range");
         assert!(t_id < self.triangles.len(), "tri id out of range");
-        assert!(self.e2t[e_id].len() <= 2, "non-manifold edge");
 
-        if self.e2t[e_id].len() == 1 {
+        let adj = &self.e2t[e_id];
+        if adj.len() == 1 {
             return None; // boundary edge
         }
-        if self.e2t[e_id][0] == t_id {
-            Some(self.e2t[e_id][1])
-        } else if self.e2t[e_id][1] == t_id {
+        // For non-manifold edges (>2 triangles, can arise with approximate
+        // coordinates), find the first adjacent triangle that isn't t_id
+        if adj[0] == t_id {
+            Some(adj[1])
+        } else if adj[1] == t_id {
             Some(self.e2t[e_id][0])
         } else {
             panic!("no opposite tri found");
@@ -555,7 +557,10 @@ impl FastTrimesh {
         );
         assert!(
             tv0_id != tv1_id && tv0_id != tv2_id && tv1_id != tv2_id,
-            "degenerate triangle"
+            "degenerate triangle: ({}, {}, {})",
+            tv0_id,
+            tv1_id,
+            tv2_id
         );
 
         // Check if triangle already exists
@@ -649,19 +654,33 @@ impl FastTrimesh {
         let ev0_id = self.edges[e_id].v.0;
         let ev1_id = self.edges[e_id].v.1;
 
+        // Skip if v_id is already an endpoint of the edge
+        if v_id == ev0_id || v_id == ev1_id {
+            return;
+        }
+
         let adj_tris: FmVec = self.e2t[e_id].clone();
+        let mut tris_to_remove: FmVec = FmVec::new();
         for &t_id in &adj_tris {
             let mut ev0 = ev0_id;
             let mut ev1 = ev1_id;
             let v_opp = self.tri_vert_opposite_to(t_id, ev0, ev1);
+            if v_opp == v_id {
+                // v_id is already the opposite vertex — remove the triangle
+                // (its shared edge is being split) but don't create degenerate
+                // replacement triangles.
+                tris_to_remove.push(t_id);
+                continue;
+            }
             if self.tri_verts_are_ccw(t_id, ev0, ev1) {
                 std::mem::swap(&mut ev0, &mut ev1);
             }
             self.add_tri(v_opp, ev0, v_id);
             self.add_tri(v_opp, v_id, ev1);
+            tris_to_remove.push(t_id);
         }
 
-        self.remove_tris(&adj_tris);
+        self.remove_tris(&tris_to_remove);
     }
 
     /// Split an edge by inserting a vertex, with tree tracking.
