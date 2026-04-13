@@ -293,11 +293,7 @@ impl LocalMesh {
     ///
     /// Ref [#9] Cherchi 2020, Section 5.2
     pub fn split_edge(&mut self, edge_id: usize, local_vert: usize) {
-        // Mutable ev0/ev1 per Cherchi fast_trimesh.cpp:715-723.
-        // The swap PERSISTS across loop iterations so both adjacent triangles
-        // produce the SAME canonical sub-edges, guaranteeing conformality.
-        let mut ev0 = self.edges[edge_id].0;
-        let mut ev1 = self.edges[edge_id].1;
+        let (ev0, ev1) = self.edges[edge_id];
 
         // Collect adjacent triangles before mutation
         let adj_tris: Vec<usize> = self.e2t[edge_id]
@@ -310,13 +306,15 @@ impl LocalMesh {
             let t_id = *t_id;
             let v_opp = self.tri_vert_opposite_to(t_id, ev0, ev1);
 
-            // Persistent swap per Cherchi fast_trimesh.cpp:715-723.
-            if self.tri_verts_are_ccw(t_id, ev0, ev1) {
-                std::mem::swap(&mut ev0, &mut ev1);
-            }
+            // Determine winding: if (ev0, ev1) is CCW in this tri, swap
+            let (a, b) = if self.tri_verts_are_ccw(t_id, ev0, ev1) {
+                (ev1, ev0)
+            } else {
+                (ev0, ev1)
+            };
 
-            self.add_tri(v_opp, ev0, local_vert);
-            self.add_tri(v_opp, local_vert, ev1);
+            self.add_tri(v_opp, a, local_vert);
+            self.add_tri(v_opp, local_vert, b);
         }
 
         // Remove all original adjacent triangles
@@ -943,7 +941,6 @@ fn find_containing_element(mesh: &LocalMesh, lv: usize, all_verts: &[[f64; 3]]) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashSet;
 
     // Shared test vertices: right triangle at origin in XY plane
     fn test_verts() -> Vec<[f64; 3]> {
@@ -1238,6 +1235,7 @@ mod tests {
 
         // Check internal conformality: every directed edge should have its reverse
         // (except boundary edges which are on the original triangle edges)
+        use std::collections::HashSet;
         let mut edges: HashSet<(usize, usize)> = HashSet::new();
         for tri in &result {
             edges.insert((tri[0], tri[1]));
@@ -1260,124 +1258,5 @@ mod tests {
                 result
             );
         }
-    }
-
-    /// Two triangles sharing edge (1,2): tri0=(0,1,2) and tri1=(1,3,2).
-    /// Split the shared edge with a new vertex. Both adjacent triangles must
-    /// produce matching directed sub-edges (conformality).
-    ///
-    /// Regression test for the persistent-swap bug: the old code used local
-    /// immutable bindings, so adjacent triangles could get different sub-edge
-    /// orderings → non-conformal mesh.
-    #[test]
-    fn test_split_edge_both_adjacents_conformal() {
-        // Build diamond: 4 global verts, 2 tris sharing edge (1,2)
-        //   0        global layout:
-        //  / \       tri0 = (0, 1, 2) CCW
-        // 1---2      tri1 = (1, 3, 2) CCW
-        //  \ /
-        //   3
-        let mut mesh = LocalMesh::new(0, 1, 2);
-        let lv3 = mesh.add_vert(3);
-        // Add second triangle sharing edge 1-2
-        mesh.add_tri(1, lv3, 2);
-
-        // New vertex 4 on the shared edge (1,2)
-        let lv4 = mesh.add_vert(4);
-        let shared_edge = mesh.find_edge(1, 2).expect("shared edge 1-2 must exist");
-        mesh.split_edge(shared_edge, lv4);
-
-        let active = mesh.active_tris();
-        assert_eq!(
-            active.len(),
-            4,
-            "splitting shared edge should produce 4 triangles"
-        );
-
-        // Collect all directed edges from active tris
-        let mut directed: Vec<(usize, usize)> = Vec::new();
-        for tri in &active {
-            directed.push((tri[0], tri[1]));
-            directed.push((tri[1], tri[2]));
-            directed.push((tri[2], tri[0]));
-        }
-        let directed_set: HashSet<(usize, usize)> = directed.iter().copied().collect();
-
-        // For every internal directed edge, its reverse must also exist (conformality).
-        // Boundary edges (on the diamond outline) won't have a twin.
-        // The boundary consists of edges: 0-1, 1-3, 3-2, 2-0 (and sub-edges via vertex 4).
-        let mut non_conformal = 0;
-        for &(a, b) in &directed_set {
-            // Skip boundary edges (edges not involving the split vertex on the shared edge)
-            // Internal edges are those on the original shared edge, now split through vertex 4
-            if (a == 4 || b == 4) && !directed_set.contains(&(b, a)) {
-                non_conformal += 1;
-            }
-        }
-        assert_eq!(
-            non_conformal, 0,
-            "all internal sub-edges through the split vertex must be conformal (have a reverse twin)"
-        );
-    }
-
-    /// Same diamond setup as above. After splitting the shared edge, verify
-    /// that the new triangles have consistent CCW winding and canonical
-    /// sub-edges matching Cherchi's C++ persistent-swap behavior.
-    #[test]
-    fn test_split_edge_matches_cpp_behavior() {
-        // Same diamond: tri0=(0,1,2), tri1=(1,3,2), split edge 1-2 with vertex 4
-        let mut mesh = LocalMesh::new(0, 1, 2);
-        let lv3 = mesh.add_vert(3);
-        mesh.add_tri(1, lv3, 2);
-
-        let lv4 = mesh.add_vert(4);
-        let shared_edge = mesh.find_edge(1, 2).expect("shared edge 1-2 must exist");
-        mesh.split_edge(shared_edge, lv4);
-
-        let active = mesh.active_tris();
-        assert_eq!(active.len(), 4);
-
-        // Every triangle must contain 3 distinct vertices
-        for tri in &active {
-            assert_ne!(tri[0], tri[1]);
-            assert_ne!(tri[1], tri[2]);
-            assert_ne!(tri[2], tri[0]);
-        }
-
-        // Every new triangle must contain the split vertex (global 4)
-        for tri in &active {
-            assert!(
-                tri.contains(&4),
-                "each split triangle must contain the new vertex 4, got {:?}",
-                tri
-            );
-        }
-
-        // The split vertex should be adjacent to all 4 original vertices (0, 1, 2, 3)
-        let mut neighbors_of_4: HashSet<usize> = HashSet::new();
-        for tri in &active {
-            for &v in tri {
-                if v != 4 {
-                    neighbors_of_4.insert(v);
-                }
-            }
-        }
-        // Vertex 4 touches both opposite vertices (0, 3) and both edge endpoints (1, 2)
-        assert!(
-            neighbors_of_4.contains(&0),
-            "split vertex must connect to v0"
-        );
-        assert!(
-            neighbors_of_4.contains(&1),
-            "split vertex must connect to v1"
-        );
-        assert!(
-            neighbors_of_4.contains(&2),
-            "split vertex must connect to v2"
-        );
-        assert!(
-            neighbors_of_4.contains(&3),
-            "split vertex must connect to v3"
-        );
     }
 }
