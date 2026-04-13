@@ -5,6 +5,20 @@
 //! of input vertices. Predicates operate on these implicit representations
 //! using multi-stage filtering (float → expansion) to guarantee exact results
 //! without materializing coordinates.
+//!
+//! ## True Indirect Predicates
+//!
+//! The orient2d and pointCompare predicates avoid dividing λ by d_L/d_T.
+//! Instead they work with the homogeneous representation (d, λx, λy, λz)
+//! directly, using a two-stage filter:
+//!
+//! 1. **Float filter**: Compute the expression in f64 with a semi-static
+//!    error bound (Cherchi 2020 Table 1). If the result exceeds the bound,
+//!    the sign is guaranteed correct.
+//! 2. **Exact expansion**: Use Shewchuk-style expansion arithmetic
+//!    (via `geometry_predicates::predicates`) to compute the exact sign.
+
+use geometry_predicates::predicates as gp;
 
 /// Projection axis for 2D orientation tests.
 /// Drop one coordinate to project 3D points onto a 2D plane.
@@ -253,7 +267,288 @@ fn dot(a: &[f64; 3], b: &[f64; 3]) -> f64 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 
-// ── Orient2d: dispatch + implementation ──────────────────────────────────
+// ── True indirect orient2d predicates ────────────────────────────────────
+//
+// These predicates compute orient2d WITHOUT dividing λ by d_L/d_T.
+// The key identity:
+//
+//   d_L * orient2d(LPI, e1, e2) = λi*(e1j-e2j) + λj*(e2i-e1i) + d_L*(e1i*e2j-e1j*e2i)
+//
+// So sign(orient2d) = sign(det) * sign(d_L) where det is the RHS above.
+// This avoids the precision-losing division that caused 55 non-conformal
+// edges on three_cubes.stl.
+
+/// Compute LPI lambda values WITHOUT division.
+/// Returns `(d_L, λx, λy, λz)` or `None` if degenerate (d_L == 0).
+///
+/// Ref: Cherchi 2020 Section 4.1, Eq. for pL.
+fn lpi_lambda(
+    q1: &[f64; 3],
+    q2: &[f64; 3],
+    r: &[f64; 3],
+    s: &[f64; 3],
+    t: &[f64; 3],
+) -> Option<(f64, f64, f64, f64)> {
+    let d_l = det3x3_lpi(q1, q2, r, s, t);
+    if d_l == 0.0 {
+        return None;
+    }
+    let a_n = [q1[0] - r[0], q1[1] - r[1], q1[2] - r[2]];
+    let b_n = [s[0] - r[0], s[1] - r[1], s[2] - r[2]];
+    let c_n = [t[0] - r[0], t[1] - r[1], t[2] - r[2]];
+    let n = det3x3(&a_n, &b_n, &c_n);
+
+    let lx = d_l * q1[0] + n * (q2[0] - q1[0]);
+    let ly = d_l * q1[1] + n * (q2[1] - q1[1]);
+    let lz = d_l * q1[2] + n * (q2[2] - q1[2]);
+    Some((d_l, lx, ly, lz))
+}
+
+/// Max absolute value across all coordinates of the 5 LPI-defining points
+/// plus 2 explicit points (21 coordinates total).
+fn max_abs_coords_lee(
+    q1: &[f64; 3],
+    q2: &[f64; 3],
+    r: &[f64; 3],
+    s: &[f64; 3],
+    t: &[f64; 3],
+    e1: &[f64; 3],
+    e2: &[f64; 3],
+) -> f64 {
+    let mut m: f64 = 0.0;
+    for v in [q1, q2, r, s, t, e1, e2] {
+        for &c in v {
+            m = m.max(c.abs());
+        }
+    }
+    m.max(f64::MIN_POSITIVE) // avoid zero
+}
+
+/// True indirect orient2d for (LPI, Explicit, Explicit).
+///
+/// Computes `sign(orient2d(LPI, e1, e2))` on the `(i,j)` projection
+/// without materializing the LPI point.
+///
+/// Two-stage filter:
+/// - Stage 1: f64 with semi-static error bound (Cherchi 2020 Table 1)
+/// - Stage 2: Shewchuk expansion arithmetic (exact)
+fn orient2d_lee(
+    q1: &[f64; 3],
+    q2: &[f64; 3],
+    r: &[f64; 3],
+    s: &[f64; 3],
+    t: &[f64; 3],
+    e1: &[f64; 3],
+    e2: &[f64; 3],
+    i: usize,
+    j: usize,
+) -> f64 {
+    // ── Stage 1: float filter ──────────────────────────────────────────
+    let (d_l, lx, ly, lz) = match lpi_lambda(q1, q2, r, s, t) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let lambda = [lx, ly, lz];
+
+    // det = λ_i*(e1_j - e2_j) + λ_j*(e2_i - e1_i) + d_L*(e1_i*e2_j - e1_j*e2_i)
+    // This equals d_L * orient2d(LPI_materialized, e1, e2).
+    let t1 = e1[j] - e2[j];
+    let t2 = e2[i] - e1[i];
+    let e = lambda[i] * t1 + lambda[j] * t2;
+    let pr = e1[i] * e2[j] - e1[j] * e2[i];
+    let dpr = d_l * pr;
+    let det = dpr + e;
+
+    let delta = max_abs_coords_lee(q1, q2, r, s, t, e1, e2);
+    // Filter for det: degree 5, epsilon = 4.75e-14 (Cherchi 2020 Table 1)
+    let d5 = delta * delta * delta * delta * delta;
+    let eps_det = 4.75e-14 * d5;
+    // Filter for d_L: degree 3, epsilon ≈ 5e-15
+    let d3 = delta * delta * delta;
+    let eps_dl = 5.0e-15 * d3;
+
+    if det.abs() > eps_det && d_l.abs() > eps_dl {
+        // Both signs are reliable
+        return if (det > 0.0) == (d_l > 0.0) {
+            1.0
+        } else {
+            -1.0
+        };
+    }
+
+    // ── Stage 2: exact expansion arithmetic ────────────────────────────
+    orient2d_lee_exact(q1, q2, r, s, t, e1, e2, i, j)
+}
+
+/// Exact orient2d_LEE using Shewchuk expansion arithmetic.
+///
+/// Computes sign(det) * sign(d_L) where:
+///   det = λ_i*(e1_j-e2_j) + λ_j*(e2_i-e1_i) + d_L*(e1_i*e2_j-e1_j*e2_i)
+///
+/// All intermediate values are computed as exact expansions.
+fn orient2d_lee_exact(
+    q1: &[f64; 3],
+    q2: &[f64; 3],
+    r: &[f64; 3],
+    s: &[f64; 3],
+    t: &[f64; 3],
+    e1: &[f64; 3],
+    e2: &[f64; 3],
+    i: usize,
+    j: usize,
+) -> f64 {
+    // Compute d_L and n as exact expansions via 3×3 determinant.
+    // d_L = det|(q1-q2), (s-r), (t-r)|
+    // n   = det|(q1-r),  (s-r), (t-r)|
+    let d_l_exp = det3x3_exact(
+        q1[0] - q2[0],
+        q1[1] - q2[1],
+        q1[2] - q2[2],
+        s[0] - r[0],
+        s[1] - r[1],
+        s[2] - r[2],
+        t[0] - r[0],
+        t[1] - r[1],
+        t[2] - r[2],
+    );
+    let n_exp = det3x3_exact(
+        q1[0] - r[0],
+        q1[1] - r[1],
+        q1[2] - r[2],
+        s[0] - r[0],
+        s[1] - r[1],
+        s[2] - r[2],
+        t[0] - r[0],
+        t[1] - r[1],
+        t[2] - r[2],
+    );
+
+    let d_l_sign = expansion_sign(&d_l_exp);
+    if d_l_sign == 0 {
+        return 0.0; // degenerate
+    }
+
+    // λ_i = d_L * q1[i] + n * (q2[i] - q1[i])
+    // λ_j = d_L * q1[j] + n * (q2[j] - q1[j])
+    let li = expansion_add(
+        &expansion_scale(&d_l_exp, q1[i]),
+        &expansion_scale(&n_exp, q2[i] - q1[i]),
+    );
+    let lj = expansion_add(
+        &expansion_scale(&d_l_exp, q1[j]),
+        &expansion_scale(&n_exp, q2[j] - q1[j]),
+    );
+
+    // det = λ_i*(e1[j]-e2[j]) + λ_j*(e2[i]-e1[i]) + d_L*(e1[i]*e2[j]-e1[j]*e2[i])
+    let term1 = expansion_scale(&li, e1[j] - e2[j]);
+    let term2 = expansion_scale(&lj, e2[i] - e1[i]);
+
+    // e1[i]*e2[j] - e1[j]*e2[i] needs exact two_product then subtraction
+    let [pr_hi, pr_lo] = gp::two_product(e1[i], e2[j]);
+    let [nr_hi, nr_lo] = gp::two_product(e1[j], e2[i]);
+    let cross_e = gp::two_two_diff(pr_hi, pr_lo, nr_hi, nr_lo);
+    let term3 = expansion_mul_expansion(&d_l_exp, &cross_e);
+
+    let sum12 = expansion_add(&term1, &term2);
+    let det_exp = expansion_add(&sum12, &term3);
+
+    let det_sign = expansion_sign(&det_exp);
+    // sign(orient2d) = sign(det) * sign(d_L)
+    let combined = det_sign * d_l_sign;
+    combined as f64
+}
+
+// ── Expansion arithmetic helpers ────────────────────────────────────────
+// Wrappers around geometry_predicates::predicates for Vec<f64> expansions.
+
+/// Compute exact 3×3 determinant as an expansion.
+/// det = a0*(b1*c2 - b2*c1) - a1*(b0*c2 - b2*c0) + a2*(b0*c1 - b1*c0)
+fn det3x3_exact(
+    a0: f64,
+    a1: f64,
+    a2: f64,
+    b0: f64,
+    b1: f64,
+    b2: f64,
+    c0: f64,
+    c1: f64,
+    c2: f64,
+) -> Vec<f64> {
+    // Compute three 2×2 minors as exact expansions
+    let m0 = cross_product_2d(b1, c2, b2, c1); // b1*c2 - b2*c1
+    let m1 = cross_product_2d(b0, c2, b2, c0); // b0*c2 - b2*c0
+    let m2 = cross_product_2d(b0, c1, b1, c0); // b0*c1 - b1*c0
+
+    // Scale each minor by the corresponding a component
+    let t0 = expansion_scale(&m0, a0);
+    let t1 = expansion_scale(&m1, -a1);
+    let t2 = expansion_scale(&m2, a2);
+
+    expansion_add(&expansion_add(&t0, &t1), &t2)
+}
+
+/// Exact 2D cross product: a*b - c*d as an expansion.
+fn cross_product_2d(a: f64, b: f64, c: f64, d: f64) -> Vec<f64> {
+    let [ab_hi, ab_lo] = gp::two_product(a, b);
+    let [cd_hi, cd_lo] = gp::two_product(c, d);
+    let result = gp::two_two_diff(ab_hi, ab_lo, cd_hi, cd_lo);
+    result.to_vec()
+}
+
+/// Scale an expansion by a scalar (exact).
+fn expansion_scale(e: &[f64], b: f64) -> Vec<f64> {
+    if e.is_empty() || b == 0.0 {
+        return vec![0.0];
+    }
+    let mut h = vec![0.0; e.len() * 2];
+    let len = gp::scale_expansion_zeroelim(e, b, &mut h);
+    h.truncate(len);
+    if h.is_empty() {
+        h.push(0.0);
+    }
+    h
+}
+
+/// Add two expansions (exact).
+fn expansion_add(e: &[f64], f: &[f64]) -> Vec<f64> {
+    let mut h = vec![0.0; e.len() + f.len()];
+    let len = gp::fast_expansion_sum_zeroelim(e, f, &mut h);
+    h.truncate(len);
+    if h.is_empty() {
+        h.push(0.0);
+    }
+    h
+}
+
+/// Multiply two expansions (exact).
+/// Uses the identity: e * f = sum_i(f_i * e) accumulated.
+fn expansion_mul_expansion(e: &[f64], f: &[f64]) -> Vec<f64> {
+    if e.is_empty() || f.is_empty() {
+        return vec![0.0];
+    }
+    let mut result = expansion_scale(e, f[0]);
+    for &fi in &f[1..] {
+        let term = expansion_scale(e, fi);
+        result = expansion_add(&result, &term);
+    }
+    result
+}
+
+/// Sign of an expansion: +1, -1, or 0.
+/// The most significant (last) nonzero component determines the sign.
+fn expansion_sign(e: &[f64]) -> i32 {
+    for &v in e.iter().rev() {
+        if v > 0.0 {
+            return 1;
+        }
+        if v < 0.0 {
+            return -1;
+        }
+    }
+    0
+}
+
+// ── Orient2d dispatch ───────────────────────────────────────────────────
 
 /// Orient2d for implicit points projected onto a coordinate plane.
 ///
@@ -262,44 +557,80 @@ fn dot(a: &[f64; 3], b: &[f64; 3]) -> f64 {
 /// - Negative (-1.0) → clockwise (CW)
 /// - Zero (0.0) → collinear
 ///
-/// Phase 1 approach: materialize all implicit points and delegate to
-/// `geometry_predicates::orient2d` (Shewchuk exact predicates). This is
-/// correct but less efficient than true indirect predicates — the
-/// materialization step can lose bits for deeply nested T-type points.
-/// For L-type points the precision loss is negligible.
+/// Uses true indirect predicates for LEE (LPI, Explicit, Explicit) — the
+/// most common case in mesh arrangement. Avoids the precision-losing
+/// materialization (division by d_L) that caused non-conformal edges.
+///
+/// For other combinations (LLE, LLL, TEE, etc.), falls back to
+/// materialize + Shewchuk exact orient2d.
 pub(crate) fn orient2d_indirect(
     a: &ImplicitPoint,
     b: &ImplicitPoint,
     c: &ImplicitPoint,
     proj: ProjectionAxis,
 ) -> f64 {
-    let a_coords = match a.materialize() {
-        Some(c) => c,
-        None => return 0.0, // Undefined point → degenerate
-    };
-    let b_coords = match b.materialize() {
-        Some(c) => c,
-        None => return 0.0,
-    };
-    let c_coords = match c.materialize() {
-        Some(c) => c,
-        None => return 0.0,
-    };
-
-    // Project to 2D by selecting two coordinate axes
     let (i, j) = match proj {
         ProjectionAxis::XY => (0, 1),
         ProjectionAxis::YZ => (1, 2),
         ProjectionAxis::ZX => (2, 0),
     };
 
-    // geometry_predicates::orient2d uses Shewchuk expansion arithmetic —
-    // exact for the materialized f64 coordinates.
-    geometry_predicates::orient2d(
-        [a_coords[i], a_coords[j]],
-        [b_coords[i], b_coords[j]],
-        [c_coords[i], c_coords[j]],
-    )
+    // Dispatch based on point type combination.
+    // Use true indirect for LEE; materialize fallback for others.
+    match (a, b, c) {
+        // LEE: one LPI, two explicit
+        (
+            ImplicitPoint::LPI { q1, q2, r, s, t },
+            ImplicitPoint::Explicit(e1),
+            ImplicitPoint::Explicit(e2),
+        ) => orient2d_lee(q1, q2, r, s, t, e1, e2, i, j),
+
+        // ELE → -orient2d(L, E, E) via antisymmetry: swap first two args
+        (
+            ImplicitPoint::Explicit(e1),
+            ImplicitPoint::LPI { q1, q2, r, s, t },
+            ImplicitPoint::Explicit(e2),
+        ) => -orient2d_lee(q1, q2, r, s, t, e1, e2, i, j),
+
+        // EEL → orient2d(L, E, E) via cyclic permutation (even permutation)
+        (
+            ImplicitPoint::Explicit(e1),
+            ImplicitPoint::Explicit(e2),
+            ImplicitPoint::LPI { q1, q2, r, s, t },
+        ) => orient2d_lee(q1, q2, r, s, t, e1, e2, i, j),
+
+        // EEE: all explicit — use Shewchuk directly
+        (ImplicitPoint::Explicit(ea), ImplicitPoint::Explicit(eb), ImplicitPoint::Explicit(ec)) => {
+            geometry_predicates::orient2d([ea[i], ea[j]], [eb[i], eb[j]], [ec[i], ec[j]])
+        }
+
+        // All other combinations: materialize and delegate
+        _ => orient2d_materialize_fallback(a, b, c, i, j),
+    }
+}
+
+/// Fallback: materialize implicit points and use Shewchuk orient2d.
+/// Used for LLE, LLL, TEE, TTE, TTT, etc.
+fn orient2d_materialize_fallback(
+    a: &ImplicitPoint,
+    b: &ImplicitPoint,
+    c: &ImplicitPoint,
+    i: usize,
+    j: usize,
+) -> f64 {
+    let a_c = match a.materialize() {
+        Some(c) => c,
+        None => return 0.0,
+    };
+    let b_c = match b.materialize() {
+        Some(c) => c,
+        None => return 0.0,
+    };
+    let c_c = match c.materialize() {
+        Some(c) => c,
+        None => return 0.0,
+    };
+    geometry_predicates::orient2d([a_c[i], a_c[j]], [b_c[i], b_c[j]], [c_c[i], c_c[j]])
 }
 
 // ── Orient3d: dispatch + implementation ──────────────────────────────────
@@ -344,32 +675,163 @@ pub(crate) fn orient3d_indirect(
 /// Returns `Ordering` for lexicographic sorting of intersection points
 /// along edges (Cherchi 2020 Section 4.3).
 ///
-/// Phase 1 approach: materialize and compare f64 values. For well-separated
-/// points this is exact. For coincident points at the limit of f64 precision,
-/// the true indirect predicate (Phase 1b) will avoid the materialization
-/// division and be more robust.
+/// Uses true indirect comparison for LE (LPI vs Explicit) — no division:
+///   LPI.x = λ_Lx / d_L  vs  e_x
+///   ⟺ sign(d_L) * sign(λ_Lx - d_L * e_x)
+///
+/// For other combinations (LL, LT, TT, etc.), falls back to materialize.
 pub(crate) fn point_compare_on_axis(
     a: &ImplicitPoint,
     b: &ImplicitPoint,
     axis: Axis,
 ) -> std::cmp::Ordering {
-    let a_coords = match a.materialize() {
-        Some(c) => c,
-        None => return std::cmp::Ordering::Equal,
-    };
-    let b_coords = match b.materialize() {
-        Some(c) => c,
-        None => return std::cmp::Ordering::Equal,
-    };
-
     let idx = match axis {
         Axis::X => 0,
         Axis::Y => 1,
         Axis::Z => 2,
     };
 
-    // Use total_cmp for deterministic ordering (NaN-safe)
-    a_coords[idx].total_cmp(&b_coords[idx])
+    // Dispatch on point types
+    match (a, b) {
+        // EE: exact subtraction, no indirect needed
+        (ImplicitPoint::Explicit(ea), ImplicitPoint::Explicit(eb)) => ea[idx].total_cmp(&eb[idx]),
+
+        // LE: LPI vs Explicit — true indirect
+        (ImplicitPoint::LPI { q1, q2, r, s, t }, ImplicitPoint::Explicit(e)) => {
+            point_compare_le(q1, q2, r, s, t, e, idx)
+        }
+
+        // EL: Explicit vs LPI — reverse the comparison
+        (ImplicitPoint::Explicit(e), ImplicitPoint::LPI { q1, q2, r, s, t }) => {
+            point_compare_le(q1, q2, r, s, t, e, idx).reverse()
+        }
+
+        // All others: materialize fallback
+        _ => {
+            let a_c = match a.materialize() {
+                Some(c) => c,
+                None => return std::cmp::Ordering::Equal,
+            };
+            let b_c = match b.materialize() {
+                Some(c) => c,
+                None => return std::cmp::Ordering::Equal,
+            };
+            a_c[idx].total_cmp(&b_c[idx])
+        }
+    }
+}
+
+/// True indirect comparison: LPI.axis vs Explicit.axis, no division.
+///
+/// LPI[idx] = λ[idx] / d_L
+/// Compare with e[idx]: sign(λ[idx] / d_L - e[idx]) = sign(d_L) * sign(λ[idx] - d_L * e[idx])
+///
+/// Ref: Cherchi 2020 Section 4.3, pointCompare_on_X_LE.
+fn point_compare_le(
+    q1: &[f64; 3],
+    q2: &[f64; 3],
+    r: &[f64; 3],
+    s: &[f64; 3],
+    t: &[f64; 3],
+    e: &[f64; 3],
+    idx: usize,
+) -> std::cmp::Ordering {
+    // Stage 1: float filter
+    let (d_l, lx, ly, lz) = match lpi_lambda(q1, q2, r, s, t) {
+        Some(v) => v,
+        None => return std::cmp::Ordering::Equal,
+    };
+    let lambda_idx = [lx, ly, lz][idx];
+    let kx = lambda_idx - d_l * e[idx];
+
+    // Filter: epsilon = 1.93e-14 * delta^4 (Cherchi 2020 Table 1)
+    let mut delta: f64 = 0.0;
+    for v in [q1, q2, r, s, t, e] {
+        for &c in v {
+            delta = delta.max(c.abs());
+        }
+    }
+    delta = delta.max(f64::MIN_POSITIVE);
+    let d4 = delta * delta * delta * delta;
+    let eps = 1.93e-14 * d4;
+
+    if kx.abs() > eps && d_l.abs() > 5.0e-15 * delta * delta * delta {
+        // sign(LPI[idx] - e[idx]) = sign(d_L) * sign(kx)
+        let s = if (kx > 0.0) == (d_l > 0.0) { 1 } else { -1 };
+        return match s {
+            x if x > 0 => std::cmp::Ordering::Greater,
+            x if x < 0 => std::cmp::Ordering::Less,
+            _ => std::cmp::Ordering::Equal,
+        };
+    }
+
+    // Stage 2: exact expansion
+    point_compare_le_exact(q1, q2, r, s, t, e, idx)
+}
+
+/// Exact point comparison using expansion arithmetic.
+fn point_compare_le_exact(
+    q1: &[f64; 3],
+    q2: &[f64; 3],
+    r: &[f64; 3],
+    s: &[f64; 3],
+    t: &[f64; 3],
+    e: &[f64; 3],
+    idx: usize,
+) -> std::cmp::Ordering {
+    // d_L as exact expansion
+    let d_l_exp = det3x3_exact(
+        q1[0] - q2[0],
+        q1[1] - q2[1],
+        q1[2] - q2[2],
+        s[0] - r[0],
+        s[1] - r[1],
+        s[2] - r[2],
+        t[0] - r[0],
+        t[1] - r[1],
+        t[2] - r[2],
+    );
+    let d_l_sign = expansion_sign(&d_l_exp);
+    if d_l_sign == 0 {
+        return std::cmp::Ordering::Equal;
+    }
+
+    // n as exact expansion
+    let n_exp = det3x3_exact(
+        q1[0] - r[0],
+        q1[1] - r[1],
+        q1[2] - r[2],
+        s[0] - r[0],
+        s[1] - r[1],
+        s[2] - r[2],
+        t[0] - r[0],
+        t[1] - r[1],
+        t[2] - r[2],
+    );
+
+    // λ[idx] = d_L * q1[idx] + n * (q2[idx] - q1[idx])
+    let lambda_exp = expansion_add(
+        &expansion_scale(&d_l_exp, q1[idx]),
+        &expansion_scale(&n_exp, q2[idx] - q1[idx]),
+    );
+
+    // kx = λ[idx] - d_L * e[idx]
+    let d_l_e = expansion_scale(&d_l_exp, e[idx]);
+    let kx_exp = expansion_add(&lambda_exp, &expansion_negate(&d_l_e));
+
+    let kx_sign = expansion_sign(&kx_exp);
+    // sign(LPI[idx] - e[idx]) = sign(d_L) * sign(kx)
+    let combined = d_l_sign * kx_sign;
+    match combined {
+        x if x > 0 => std::cmp::Ordering::Greater,
+        x if x < 0 => std::cmp::Ordering::Less,
+        _ => std::cmp::Ordering::Equal,
+    }
+}
+
+/// Negate an expansion.
+fn expansion_negate(e: &[f64]) -> Vec<f64> {
+    e.iter().map(|&v| -v).collect()
 }
 
 #[cfg(test)]
@@ -377,40 +839,22 @@ mod tests {
     use super::*;
 
     /// Test 1: orient2d with 3 explicit points must match Shewchuk orient2d.
-    ///
-    /// Triangle (0,0,0)→(1,0,0)→(0,1,0) is CCW on XY plane → positive sign.
-    /// Swapping two points flips orientation → negative sign.
-    /// Stub returns 0 for both → FAILS.
     #[test]
     fn test_orient2d_eee_matches_shewchuk() {
         let a = ImplicitPoint::Explicit([0.0, 0.0, 0.0]);
         let b = ImplicitPoint::Explicit([1.0, 0.0, 0.0]);
         let c = ImplicitPoint::Explicit([0.0, 1.0, 0.0]);
 
-        // CCW triangle on XY → positive
         let ccw = orient2d_indirect(&a, &b, &c, ProjectionAxis::XY);
-        assert!(
-            ccw > 0.0,
-            "EEE orient2d of CCW triangle should be positive, got {ccw}"
-        );
+        assert!(ccw > 0.0, "EEE CCW should be positive, got {ccw}");
 
-        // Swap b and c → CW → negative
         let cw = orient2d_indirect(&a, &c, &b, ProjectionAxis::XY);
-        assert!(
-            cw < 0.0,
-            "EEE orient2d of CW triangle should be negative, got {cw}"
-        );
+        assert!(cw < 0.0, "EEE CW should be negative, got {cw}");
     }
 
-    /// Test 2: orient2d with one LPI point and two explicit points.
-    ///
-    /// Edge from (0,0,-1) to (0,0,1) crosses the plane of triangle
-    /// (1,0,0),(0,1,0),(-1,0,0) at point (0,0,0). On XY projection,
-    /// the LPI (0,0) with explicit points (1,0) and (0,1) forms a CCW
-    /// triangle → positive sign. Stub returns 0 → FAILS.
+    /// Test 2: orient2d with one LPI point and two explicit points (LEE).
     #[test]
     fn test_orient2d_lee_basic() {
-        // LPI: edge along Z-axis crosses the XY-plane triangle
         let lpi = ImplicitPoint::LPI {
             q1: [0.0, 0.0, -1.0],
             q2: [0.0, 0.0, 1.0],
@@ -418,8 +862,6 @@ mod tests {
             s: [0.0, 1.0, 0.0],
             t: [-1.0, 0.0, 0.0],
         };
-        // The LPI materializes at (0,0,0).
-        // On XY: orient2d((0,0), (1,0), (0,1)) is CCW → positive.
         let e1 = ImplicitPoint::Explicit([1.0, 0.0, 0.0]);
         let e2 = ImplicitPoint::Explicit([0.0, 1.0, 0.0]);
 
@@ -431,18 +873,8 @@ mod tests {
     }
 
     /// Test 3: point_compare_on_axis must sort LPI points correctly.
-    ///
-    /// Three LPI points on the X-axis at x=2, x=5, x=8 (edge from origin
-    /// to (10,0,0), intersecting planes at different X positions). Sorting
-    /// by Axis::X should produce order [x2, x5, x8]. Stub returns Equal
-    /// for all comparisons → sort is unstable → FAILS.
     #[test]
     fn test_point_compare_sorts_correctly() {
-        // Edge along X-axis from (0,0,0) to (10,0,0).
-        // Three planes perpendicular to X at x=2, x=5, x=8.
-        // Each plane is defined by a triangle in the YZ plane offset along X.
-
-        // Plane at x=2: triangle at (2,1,0),(2,0,1),(2,-1,0)
         let lpi_x2 = ImplicitPoint::LPI {
             q1: [0.0, 0.0, 0.0],
             q2: [10.0, 0.0, 0.0],
@@ -450,8 +882,6 @@ mod tests {
             s: [2.0, 0.0, 1.0],
             t: [2.0, -1.0, 0.0],
         };
-
-        // Plane at x=5: triangle at (5,1,0),(5,0,1),(5,-1,0)
         let lpi_x5 = ImplicitPoint::LPI {
             q1: [0.0, 0.0, 0.0],
             q2: [10.0, 0.0, 0.0],
@@ -459,8 +889,6 @@ mod tests {
             s: [5.0, 0.0, 1.0],
             t: [5.0, -1.0, 0.0],
         };
-
-        // Plane at x=8: triangle at (8,1,0),(8,0,1),(8,-1,0)
         let lpi_x8 = ImplicitPoint::LPI {
             q1: [0.0, 0.0, 0.0],
             q2: [10.0, 0.0, 0.0],
@@ -469,43 +897,26 @@ mod tests {
             t: [8.0, -1.0, 0.0],
         };
 
-        // Sort the three points using point_compare_on_axis
         let mut points = vec![lpi_x8.clone(), lpi_x2.clone(), lpi_x5.clone()];
         points.sort_by(|a, b| point_compare_on_axis(a, b, Axis::X));
 
-        // After sorting, order should be x2 < x5 < x8.
-        // Verify by checking pairwise comparisons.
         assert_eq!(
             point_compare_on_axis(&lpi_x2, &lpi_x5, Axis::X),
-            std::cmp::Ordering::Less,
-            "x=2 should be less than x=5"
+            std::cmp::Ordering::Less
         );
         assert_eq!(
             point_compare_on_axis(&lpi_x5, &lpi_x8, Axis::X),
-            std::cmp::Ordering::Less,
-            "x=5 should be less than x=8"
+            std::cmp::Ordering::Less
         );
         assert_eq!(
             point_compare_on_axis(&lpi_x2, &lpi_x8, Axis::X),
-            std::cmp::Ordering::Less,
-            "x=2 should be less than x=8"
+            std::cmp::Ordering::Less
         );
     }
 
-    /// Test 4: orient2d with near-collinear LPI point must use expansion fallback.
-    ///
-    /// An LPI point is constructed to land extremely close to the line between
-    /// two explicit points (within ~1e-15). The float filter should fail
-    /// (result within epsilon), requiring the expansion arithmetic fallback
-    /// to determine the correct sign. Stub returns 0 → FAILS.
+    /// Test 4: orient2d with near-collinear LPI point — expansion fallback.
     #[test]
     fn test_lpi_orient2d_degenerate() {
-        // Construct an LPI that is *almost* collinear with two explicit points.
-        // Line from (0,0) to (1,0) on XY. The LPI should be at approximately
-        // (0.5, 1e-15, 0) — barely above the line.
-        //
-        // Edge from (0.5, 1e-15, -1) to (0.5, 1e-15, 1) crosses the XY plane
-        // at (0.5, 1e-15, 0).
         let lpi_near_line = ImplicitPoint::LPI {
             q1: [0.5, 1e-15, -1.0],
             q2: [0.5, 1e-15, 1.0],
@@ -513,20 +924,216 @@ mod tests {
             s: [0.0, 1.0, 0.0],
             t: [-1.0, 0.0, 0.0],
         };
-
         let e1 = ImplicitPoint::Explicit([0.0, 0.0, 0.0]);
         let e2 = ImplicitPoint::Explicit([1.0, 0.0, 0.0]);
 
-        // The LPI at (0.5, ~1e-15) is barely above the line from (0,0) to (1,0).
-        // orient2d((0.5, 1e-15), (0,0), (1,0)) should be negative (CW)
-        // because the point is above the left-to-right line.
-        // The float filter will likely fail due to near-collinearity,
-        // but expansion arithmetic must give the correct sign.
         let result = orient2d_indirect(&lpi_near_line, &e1, &e2, ProjectionAxis::XY);
         assert!(
             result != 0.0,
-            "Near-collinear LPI orient2d must not return 0 (collinear); \
-             expansion fallback should determine the correct sign, got {result}"
+            "Near-collinear LPI orient2d must not return 0; got {result}"
+        );
+    }
+
+    /// Test 5: LEE orient2d gives same sign as materialized orient2d.
+    /// Verifies the true indirect formula matches the geometric definition.
+    #[test]
+    fn test_orient2d_lee_no_materialize() {
+        // LPI with negative d_L — tests the sign correction logic.
+        // Edge (0,0,-1)→(0,0,1), plane through (1,0,0),(0,1,0),(-1,0,0).
+        // d_L = -4, LPI materializes at (0,0,0).
+        let lpi = ImplicitPoint::LPI {
+            q1: [0.0, 0.0, -1.0],
+            q2: [0.0, 0.0, 1.0],
+            r: [1.0, 0.0, 0.0],
+            s: [0.0, 1.0, 0.0],
+            t: [-1.0, 0.0, 0.0],
+        };
+        let materialized = lpi.materialize().unwrap();
+        assert!((materialized[0]).abs() < 1e-15);
+        assert!((materialized[1]).abs() < 1e-15);
+
+        for &(e1, e2) in &[
+            ([1.0, 0.0, 0.0], [0.0, 1.0, 0.0]),
+            ([0.5, 0.5, 0.0], [-0.3, 0.7, 0.0]),
+            ([1.0, 1.0, 0.0], [2.0, 0.0, 0.0]),
+        ] {
+            let e1p = ImplicitPoint::Explicit(e1);
+            let e2p = ImplicitPoint::Explicit(e2);
+
+            let indirect = orient2d_indirect(&lpi, &e1p, &e2p, ProjectionAxis::XY);
+            let direct = geometry_predicates::orient2d(
+                [materialized[0], materialized[1]],
+                [e1[0], e1[1]],
+                [e2[0], e2[1]],
+            );
+
+            assert_eq!(
+                indirect.signum(),
+                direct.signum(),
+                "Indirect and materialized orient2d must agree for e1={e1:?}, e2={e2:?}: \
+                 indirect={indirect}, direct={direct}"
+            );
+        }
+    }
+
+    /// Test 6: orient2d with ELE and EEL permutations.
+    /// Verifies antisymmetry dispatch is correct.
+    #[test]
+    fn test_orient2d_lee_permutations() {
+        let lpi = ImplicitPoint::LPI {
+            q1: [0.3, 0.2, -1.0],
+            q2: [0.3, 0.2, 1.0],
+            r: [1.0, 0.0, 0.0],
+            s: [0.0, 1.0, 0.0],
+            t: [-1.0, 0.0, 0.0],
+        };
+        let e1 = ImplicitPoint::Explicit([1.0, 0.0, 0.0]);
+        let e2 = ImplicitPoint::Explicit([0.0, 1.0, 0.0]);
+
+        let lee = orient2d_indirect(&lpi, &e1, &e2, ProjectionAxis::XY);
+        let ele = orient2d_indirect(&e1, &lpi, &e2, ProjectionAxis::XY);
+        let eel = orient2d_indirect(&e1, &e2, &lpi, ProjectionAxis::XY);
+
+        // orient2d(L,E1,E2) = -orient2d(E1,L,E2)
+        assert_eq!(
+            lee.signum(),
+            -ele.signum(),
+            "LEE and ELE should have opposite signs: lee={lee}, ele={ele}"
+        );
+        // orient2d(E1,E2,L) = orient2d(L,E1,E2) (cyclic permutation)
+        assert_eq!(
+            lee.signum(),
+            eel.signum(),
+            "LEE and EEL should have same sign: lee={lee}, eel={eel}"
+        );
+    }
+
+    /// Test 7: point_compare LE — LPI vs Explicit on each axis.
+    #[test]
+    fn test_point_compare_le_no_materialize() {
+        // LPI at (0.3, 0.2, 0) approximately
+        let lpi = ImplicitPoint::LPI {
+            q1: [0.3, 0.2, -1.0],
+            q2: [0.3, 0.2, 1.0],
+            r: [1.0, 0.0, 0.0],
+            s: [0.0, 1.0, 0.0],
+            t: [-1.0, 0.0, 0.0],
+        };
+        let materialized = lpi.materialize().unwrap();
+
+        // Compare against explicit points that are clearly less/greater
+        let less_x = ImplicitPoint::Explicit([0.1, 0.0, 0.0]);
+        let more_x = ImplicitPoint::Explicit([0.5, 0.0, 0.0]);
+
+        assert_eq!(
+            point_compare_on_axis(&lpi, &less_x, Axis::X),
+            std::cmp::Ordering::Greater,
+            "LPI(x≈0.3) > Explicit(x=0.1)"
+        );
+        assert_eq!(
+            point_compare_on_axis(&lpi, &more_x, Axis::X),
+            std::cmp::Ordering::Less,
+            "LPI(x≈0.3) < Explicit(x=0.5)"
+        );
+
+        // Test Y axis
+        let less_y = ImplicitPoint::Explicit([0.0, 0.1, 0.0]);
+        let more_y = ImplicitPoint::Explicit([0.0, 0.4, 0.0]);
+        assert_eq!(
+            point_compare_on_axis(&lpi, &less_y, Axis::Y),
+            std::cmp::Ordering::Greater,
+            "LPI(y≈0.2) > Explicit(y=0.1)"
+        );
+        assert_eq!(
+            point_compare_on_axis(&lpi, &more_y, Axis::Y),
+            std::cmp::Ordering::Less,
+            "LPI(y≈0.2) < Explicit(y=0.4)"
+        );
+
+        // Compare with the materialized value itself — should be Equal
+        let exact_pt = ImplicitPoint::Explicit(materialized);
+        assert_eq!(
+            point_compare_on_axis(&lpi, &exact_pt, Axis::X),
+            std::cmp::Ordering::Equal,
+            "LPI compared to its own materialized X should be Equal"
+        );
+    }
+
+    /// Test 8: orient2d_lee on YZ and ZX projections.
+    #[test]
+    fn test_orient2d_lee_all_projections() {
+        // LPI at (0,0,0), compare orient2d on all three projections
+        let lpi = ImplicitPoint::LPI {
+            q1: [0.0, 0.0, -1.0],
+            q2: [0.0, 0.0, 1.0],
+            r: [1.0, 0.0, 0.0],
+            s: [0.0, 1.0, 0.0],
+            t: [-1.0, 0.0, 0.0],
+        };
+        let materialized = lpi.materialize().unwrap();
+
+        let pairs = [
+            ([1.0, 0.5, 0.3], [0.0, 1.0, 0.7]),
+            ([0.0, 0.0, 1.0], [1.0, 1.0, 0.0]),
+        ];
+
+        for proj in [ProjectionAxis::XY, ProjectionAxis::YZ, ProjectionAxis::ZX] {
+            let (i, j) = match proj {
+                ProjectionAxis::XY => (0, 1),
+                ProjectionAxis::YZ => (1, 2),
+                ProjectionAxis::ZX => (2, 0),
+            };
+
+            for &(e1, e2) in &pairs {
+                let indirect = orient2d_indirect(
+                    &lpi,
+                    &ImplicitPoint::Explicit(e1),
+                    &ImplicitPoint::Explicit(e2),
+                    proj,
+                );
+                let direct = geometry_predicates::orient2d(
+                    [materialized[i], materialized[j]],
+                    [e1[i], e1[j]],
+                    [e2[i], e2[j]],
+                );
+                assert_eq!(
+                    indirect.signum(),
+                    direct.signum(),
+                    "Projection {proj:?}: indirect={indirect}, direct={direct}, e1={e1:?}, e2={e2:?}"
+                );
+            }
+        }
+    }
+
+    /// Test 9: expansion arithmetic exact fallback produces correct results.
+    #[test]
+    fn test_orient2d_lee_degenerate_filter_fallback() {
+        // Very near-collinear case that should force expansion fallback.
+        // LPI at approximately (0.5, 1e-16, 0), line from (0,0) to (1,0).
+        let lpi = ImplicitPoint::LPI {
+            q1: [0.5, 1e-16, -1.0],
+            q2: [0.5, 1e-16, 1.0],
+            r: [1.0, 0.0, 0.0],
+            s: [0.0, 1.0, 0.0],
+            t: [-1.0, 0.0, 0.0],
+        };
+        let e1 = ImplicitPoint::Explicit([0.0, 0.0, 0.0]);
+        let e2 = ImplicitPoint::Explicit([1.0, 0.0, 0.0]);
+
+        let result = orient2d_indirect(&lpi, &e1, &e2, ProjectionAxis::XY);
+        // The LPI is slightly above the line, so the sign should be nonzero
+        assert!(
+            result != 0.0,
+            "Degenerate case must not return 0, got {result}"
+        );
+
+        // Verify it matches materialized result
+        let mat = lpi.materialize().unwrap();
+        let direct = geometry_predicates::orient2d([mat[0], mat[1]], [0.0, 0.0], [1.0, 0.0]);
+        assert_eq!(
+            result.signum(),
+            direct.signum(),
+            "Expansion fallback must match materialized: indirect={result}, direct={direct}"
         );
     }
 }

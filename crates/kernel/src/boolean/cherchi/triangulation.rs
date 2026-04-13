@@ -918,12 +918,13 @@ fn earcut_linear(subm: &FastTrimesh, poly: &[usize], tris: &mut Vec<usize>, orie
 
     // Detect all safe ears in O(n)
     // Skip endpoints of the constrained edge (indices 0 and size-1)
+    let ref_p = subm.ref_plane();
     for curr in 1..size - 1 {
-        let check = custom_orient_2d(
-            subm.vert(poly[prev[curr]]),
-            subm.vert(poly[curr]),
-            subm.vert(poly[next[curr]]),
-            subm.ref_plane(),
+        let check = custom_orient_2d_indirect(
+            subm.implicit_point(poly[prev[curr]]),
+            subm.implicit_point(poly[curr]),
+            subm.implicit_point(poly[next[curr]]),
+            ref_p,
         );
 
         if prev[curr] != next[curr]
@@ -958,11 +959,11 @@ fn earcut_linear(subm: &FastTrimesh, poly: &[usize], tris: &mut Vec<usize>, orie
 
         // Check if prev has become a new ear
         if !is_ear[prev[curr]] && prev[curr] != 0 {
-            let check = custom_orient_2d(
-                subm.vert(poly[prev[prev[curr]]]),
-                subm.vert(poly[prev[curr]]),
-                subm.vert(poly[next[curr]]),
-                subm.ref_plane(),
+            let check = custom_orient_2d_indirect(
+                subm.implicit_point(poly[prev[prev[curr]]]),
+                subm.implicit_point(poly[prev[curr]]),
+                subm.implicit_point(poly[next[curr]]),
+                ref_p,
             );
 
             if prev[prev[curr]] != next[curr]
@@ -975,11 +976,11 @@ fn earcut_linear(subm: &FastTrimesh, poly: &[usize], tris: &mut Vec<usize>, orie
 
         // Check if next has become a new ear
         if !is_ear[next[curr]] && next[curr] < size - 1 {
-            let check = custom_orient_2d(
-                subm.vert(poly[prev[curr]]),
-                subm.vert(poly[next[curr]]),
-                subm.vert(poly[next[next[curr]]]),
-                subm.ref_plane(),
+            let check = custom_orient_2d_indirect(
+                subm.implicit_point(poly[prev[curr]]),
+                subm.implicit_point(poly[next[curr]]),
+                subm.implicit_point(poly[next[next[curr]]]),
+                ref_p,
             );
 
             if next[next[curr]] != prev[curr]
@@ -1034,8 +1035,12 @@ fn earcut(
                 continue;
             }
 
-            let check =
-                custom_orient_2d(subm.vert(prev_v), subm.vert(curr), subm.vert(next_v), ref_p);
+            let check = custom_orient_2d_indirect(
+                subm.implicit_point(prev_v),
+                subm.implicit_point(curr),
+                subm.implicit_point(next_v),
+                ref_p,
+            );
 
             if (check > 0 && orientation > 0) || (check < 0 && orientation < 0) {
                 tris.push(prev_v);
@@ -1392,6 +1397,30 @@ fn custom_orient_2d(p0: [f64; 3], p1: [f64; 3], p2: [f64; 3], ref_p: Plane) -> i
     if result > 0.0 {
         1
     } else if result < 0.0 {
+        -1
+    } else {
+        0
+    }
+}
+
+/// 2D orientation test using indirect predicates (no materialization).
+///
+/// Uses orient2d_indirect to avoid precision loss from dividing λ by d_L.
+fn custom_orient_2d_indirect(
+    p0: &crate::boolean::indirect_predicates::ImplicitPoint,
+    p1: &crate::boolean::indirect_predicates::ImplicitPoint,
+    p2: &crate::boolean::indirect_predicates::ImplicitPoint,
+    ref_p: Plane,
+) -> i32 {
+    let proj = match ref_p {
+        Plane::XY => crate::boolean::indirect_predicates::ProjectionAxis::XY,
+        Plane::YZ => crate::boolean::indirect_predicates::ProjectionAxis::YZ,
+        Plane::ZX => crate::boolean::indirect_predicates::ProjectionAxis::ZX,
+    };
+    let det = crate::boolean::indirect_predicates::orient2d_indirect(p0, p1, p2, proj);
+    if det > 0.0 {
+        1
+    } else if det < 0.0 {
         -1
     } else {
         0
