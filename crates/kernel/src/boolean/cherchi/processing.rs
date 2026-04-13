@@ -236,18 +236,21 @@ pub(crate) fn remove_degenerate_and_duplicated_triangles(
 
 /// Compute approximate coordinates from the vertex list, dividing by the multiplier.
 ///
-/// The multiplier is stored as the X coordinate of the last jolly point
-/// (vertex at index `vertices.len() - 1`). The last 5 vertices are jolly points
-/// and are excluded from output.
+/// Materializes each ImplicitPoint and divides by the multiplier.
+/// The last 5 vertices are jolly points and are excluded from output.
 ///
 /// Ported from processing.cpp:186-210
 #[allow(dead_code)]
 pub(crate) fn compute_approximate_coordinates(
-    vertices: &[[f64; 3]],
+    vertices: &[crate::boolean::indirect_predicates::ImplicitPoint],
     multiplier: f64,
 ) -> Vec<[f64; 3]> {
     if multiplier == 0.0 {
-        return vertices.to_vec();
+        let mut out = Vec::with_capacity(vertices.len());
+        for v in vertices {
+            out.push(v.materialize().unwrap_or([0.0, 0.0, 0.0]));
+        }
+        return out;
     }
 
     // Exclude last 5 jolly points
@@ -259,7 +262,12 @@ pub(crate) fn compute_approximate_coordinates(
 
     let mut out = Vec::with_capacity(n);
     for v in &vertices[..n] {
-        out.push([v[0] / multiplier, v[1] / multiplier, v[2] / multiplier]);
+        let coords = v.materialize().unwrap_or([0.0, 0.0, 0.0]);
+        out.push([
+            coords[0] / multiplier,
+            coords[1] / multiplier,
+            coords[2] / multiplier,
+        ]);
     }
     out
 }
@@ -385,15 +393,16 @@ mod tests {
 
     #[test]
     fn test_compute_approximate_coordinates() {
+        use crate::boolean::indirect_predicates::ImplicitPoint;
         let verts = vec![
-            [2.0, 4.0, 6.0],
-            [8.0, 10.0, 12.0],
+            ImplicitPoint::Explicit([2.0, 4.0, 6.0]),
+            ImplicitPoint::Explicit([8.0, 10.0, 12.0]),
             // 5 jolly points
-            [0.0; 3],
-            [0.0; 3],
-            [0.0; 3],
-            [0.0; 3],
-            [0.0; 3],
+            ImplicitPoint::Explicit([0.0; 3]),
+            ImplicitPoint::Explicit([0.0; 3]),
+            ImplicitPoint::Explicit([0.0; 3]),
+            ImplicitPoint::Explicit([0.0; 3]),
+            ImplicitPoint::Explicit([0.0; 3]),
         ];
         let result = compute_approximate_coordinates(&verts, 2.0);
         assert_eq!(result.len(), 2);

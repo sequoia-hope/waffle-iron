@@ -28,6 +28,7 @@
 use std::collections::HashMap;
 
 use super::common::{int_to_plane, Plane};
+use crate::boolean::indirect_predicates::ImplicitPoint;
 
 /// Canonical edge representation: (min, max) vertex pair.
 /// Ported from triangle_soup.h:54
@@ -35,15 +36,17 @@ type Edge = (usize, usize);
 
 /// TriangleSoup — the global input mesh for arrangement.
 ///
-/// Stores vertices as `[f64; 3]` coordinates, triangles as flat index triples,
-/// per-triangle labels (u32 bitset), per-triangle projection planes, and a
-/// global edge map for edge ↔ ID lookup.
+/// Stores vertices as `ImplicitPoint` (Explicit for input vertices, LPI/TPI
+/// for intersection points), triangles as flat index triples, per-triangle
+/// labels (u32 bitset), per-triangle projection planes, and a global edge map
+/// for edge ↔ ID lookup.
 ///
 /// Ported from triangle_soup.h:59-151
 #[allow(dead_code)]
 pub(crate) struct TriangleSoup {
-    /// Vertex coordinates (explicit points). Index = vertex ID.
-    pub vertices: Vec<[f64; 3]>,
+    /// Vertex implicit points. Index = vertex ID.
+    /// Input vertices are `ImplicitPoint::Explicit`, intersection points are LPI/TPI.
+    pub vertices: Vec<ImplicitPoint>,
     /// Flat triangle indices: tri t_id has verts at [3*t_id, 3*t_id+1, 3*t_id+2].
     pub triangles: Vec<usize>,
     /// Per-triangle label bitset.
@@ -78,10 +81,12 @@ impl TriangleSoup {
         let num_orig_vtxs = coords.len();
         let num_orig_tris = triangles.len() / 3;
 
-        // Scale vertices by multiplier
-        let mut vertices: Vec<[f64; 3]> = coords
+        // Scale vertices by multiplier and wrap in ImplicitPoint::Explicit
+        let mut vertices: Vec<ImplicitPoint> = coords
             .into_iter()
-            .map(|c| [c[0] * multiplier, c[1] * multiplier, c[2] * multiplier])
+            .map(|c| {
+                ImplicitPoint::Explicit([c[0] * multiplier, c[1] * multiplier, c[2] * multiplier])
+            })
             .collect();
 
         let edge_capacity = num_orig_vtxs + num_orig_tris;
@@ -89,12 +94,12 @@ impl TriangleSoup {
         let mut edge_map = HashMap::with_capacity(edge_capacity);
 
         // Compute per-triangle projection planes
-        /// Ported from triangle_soup.cpp:107-113
+        // Ported from triangle_soup.cpp:107-113
         let mut tri_planes = Vec::with_capacity(num_orig_tris);
         for t_id in 0..num_orig_tris {
-            let v0 = vertices[triangles[3 * t_id]];
-            let v1 = vertices[triangles[3 * t_id + 1]];
-            let v2 = vertices[triangles[3 * t_id + 2]];
+            let v0 = vertices[triangles[3 * t_id]].materialize().unwrap();
+            let v1 = vertices[triangles[3 * t_id + 1]].materialize().unwrap();
+            let v2 = vertices[triangles[3 * t_id + 2]].materialize().unwrap();
             let plane_idx = max_component_in_triangle_normal(v0, v1, v2);
             tri_planes.push(int_to_plane(plane_idx));
         }
@@ -116,7 +121,7 @@ impl TriangleSoup {
 
         // Append jolly points as vertices (5 points, as in C++)
         for jp in &jolly_points {
-            vertices.push(*jp);
+            vertices.push(ImplicitPoint::Explicit(*jp));
         }
 
         Self {
@@ -161,45 +166,51 @@ impl TriangleSoup {
         self.num_orig_vtxs
     }
 
-    /// Get vertex coordinates by ID.
-    /// Ported from triangle_soup.cpp:163-167
-    pub fn vert(&self, v_id: usize) -> &[f64; 3] {
+    /// Get the ImplicitPoint for a vertex.
+    pub fn implicit_point(&self, v_id: usize) -> &ImplicitPoint {
         debug_assert!(v_id < self.vertices.len(), "vtx id out of range");
         &self.vertices[v_id]
     }
 
-    /// Get mutable vertex coordinates by ID.
-    pub fn vert_mut(&mut self, v_id: usize) -> &mut [f64; 3] {
+    /// Get materialized vertex coordinates by ID.
+    /// Ported from triangle_soup.cpp:163-167
+    pub fn vert(&self, v_id: usize) -> [f64; 3] {
         debug_assert!(v_id < self.vertices.len(), "vtx id out of range");
-        &mut self.vertices[v_id]
+        self.vertices[v_id].materialize().unwrap_or([0.0, 0.0, 0.0])
     }
 
     /// Get X coordinate of an original vertex.
     /// Ported from triangle_soup.cpp:179-183
     pub fn vert_x(&self, v_id: usize) -> f64 {
         debug_assert!(v_id < self.num_orig_vtxs, "vtx id out of range");
-        self.vertices[v_id][0]
+        self.vertices[v_id].materialize().unwrap_or([0.0; 3])[0]
     }
 
     /// Get Y coordinate of an original vertex.
     /// Ported from triangle_soup.cpp:187-191
     pub fn vert_y(&self, v_id: usize) -> f64 {
         debug_assert!(v_id < self.num_orig_vtxs, "vtx id out of range");
-        self.vertices[v_id][1]
+        self.vertices[v_id].materialize().unwrap_or([0.0; 3])[1]
     }
 
     /// Get Z coordinate of an original vertex.
     /// Ported from triangle_soup.cpp:195-199
     pub fn vert_z(&self, v_id: usize) -> f64 {
         debug_assert!(v_id < self.num_orig_vtxs, "vtx id out of range");
-        self.vertices[v_id][2]
+        self.vertices[v_id].materialize().unwrap_or([0.0; 3])[2]
     }
 
-    /// Add an implicit vertex (intersection point), return its new ID.
+    /// Add an implicit vertex (intersection point) as an ImplicitPoint, return its new ID.
     /// Ported from triangle_soup.cpp:203-207
-    pub fn add_impl_vert(&mut self, coords: [f64; 3]) -> usize {
-        self.vertices.push(coords);
+    pub fn add_impl_point(&mut self, point: ImplicitPoint) -> usize {
+        self.vertices.push(point);
         self.vertices.len() - 1
+    }
+
+    /// Add an implicit vertex with explicit coordinates, return its new ID.
+    /// Convenience wrapper for backward compatibility.
+    pub fn add_impl_vert(&mut self, coords: [f64; 3]) -> usize {
+        self.add_impl_point(ImplicitPoint::Explicit(coords))
     }
 
     /// Look up edge ID from two vertex IDs. Returns None if edge not found.
@@ -265,11 +276,13 @@ impl TriangleSoup {
         self.triangles[3 * t_id + off]
     }
 
-    /// Get vertex coordinates for triangle t_id at offset off.
+    /// Get materialized vertex coordinates for triangle t_id at offset off.
     /// Ported from triangle_soup.cpp:295-299
-    pub fn tri_vert(&self, t_id: usize, off: usize) -> &[f64; 3] {
+    pub fn tri_vert(&self, t_id: usize, off: usize) -> [f64; 3] {
         debug_assert!(t_id < self.num_tris(), "t_id out of range");
-        &self.vertices[self.triangles[3 * t_id + off]]
+        self.vertices[self.triangles[3 * t_id + off]]
+            .materialize()
+            .unwrap_or([0.0, 0.0, 0.0])
     }
 
     /// Get edge ID for the edge at offset `off` in triangle t_id.
@@ -505,7 +518,8 @@ mod tests {
         // Vertex 1 should be scaled: (1*2, 0, 0) = (2, 0, 0)
         assert!((ts.vert_x(0) - 0.0).abs() < 1e-9);
         // vertex 1 is at index 1 in the original range
-        assert!((ts.vertices[1][0] - 2.0).abs() < 1e-9);
+        let v1_coords = ts.vert(1);
+        assert!((v1_coords[0] - 2.0).abs() < 1e-9);
     }
 
     #[test]

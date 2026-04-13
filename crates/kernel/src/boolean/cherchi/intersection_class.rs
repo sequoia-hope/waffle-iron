@@ -36,6 +36,7 @@ use geometry_predicates::{orient2d, orient3d};
 use super::aux_structure::AuxiliaryStructure;
 use super::common::Plane;
 use super::triangle_soup::TriangleSoup;
+use crate::boolean::indirect_predicates::ImplicitPoint;
 
 // ── Broad-phase intersection detection ──────────────────────────────────
 
@@ -369,20 +370,20 @@ fn add_edge_cross_edge_inters(
 
     let jolly_id = no_coplanar_jolly_point_id(ts, ts.vert(e1_v0), ts.vert(e1_v1), ts.vert(e0_v0));
 
-    // Compute approximate intersection point (line-plane intersection)
-    let coords = compute_lpi_coords(
-        ts.vert(e0_v0),
-        ts.vert(e0_v1),
-        ts.vert(e1_v0),
-        ts.vert(e1_v1),
-        ts.jolly_point(jolly_id),
-    );
+    // Create LPI implicit point — defers coordinate evaluation
+    let lpi = ImplicitPoint::LPI {
+        q1: ts.vert(e0_v0),
+        q2: ts.vert(e0_v1),
+        r: ts.vert(e1_v0),
+        s: ts.vert(e1_v1),
+        t: *ts.jolly_point(jolly_id),
+    };
 
     let pos = ts.num_verts();
     let (existing_id, is_new) = aux.add_vertex_in_sorted_list(pos, pos);
 
     let new_v_id = if is_new {
-        let id = ts.add_impl_vert(coords);
+        let id = ts.add_impl_point(lpi);
         debug_assert!(id == pos);
         id
     } else {
@@ -409,20 +410,20 @@ fn add_edge_cross_edge_inters_with_tri(
 ) -> usize {
     let (e0_v0, e0_v1) = ts.edge_verts(e0_id);
 
-    // Compute LPI: intersection of edge e0 with plane of triangle t_id
-    let coords = compute_lpi_coords(
-        ts.vert(e0_v0),
-        ts.vert(e0_v1),
-        ts.tri_vert(t_id, 0),
-        ts.tri_vert(t_id, 1),
-        ts.tri_vert(t_id, 2),
-    );
+    // Create LPI: intersection of edge e0 with plane of triangle t_id
+    let lpi = ImplicitPoint::LPI {
+        q1: ts.vert(e0_v0),
+        q2: ts.vert(e0_v1),
+        r: ts.tri_vert(t_id, 0),
+        s: ts.tri_vert(t_id, 1),
+        t: ts.tri_vert(t_id, 2),
+    };
 
     let pos = ts.num_verts();
     let (existing_id, is_new) = aux.add_vertex_in_sorted_list(pos, pos);
 
     let new_v_id = if is_new {
-        let id = ts.add_impl_vert(coords);
+        let id = ts.add_impl_point(lpi);
         debug_assert!(id == pos);
         id
     } else {
@@ -447,19 +448,20 @@ fn add_edge_cross_tri_inters(
 ) -> usize {
     let (e_v0, e_v1) = ts.edge_verts(e_id);
 
-    let coords = compute_lpi_coords(
-        ts.vert(e_v0),
-        ts.vert(e_v1),
-        ts.tri_vert(t_id, 0),
-        ts.tri_vert(t_id, 1),
-        ts.tri_vert(t_id, 2),
-    );
+    // Create LPI: intersection of edge with plane of triangle
+    let lpi = ImplicitPoint::LPI {
+        q1: ts.vert(e_v0),
+        q2: ts.vert(e_v1),
+        r: ts.tri_vert(t_id, 0),
+        s: ts.tri_vert(t_id, 1),
+        t: ts.tri_vert(t_id, 2),
+    };
 
     let pos = ts.num_verts();
     let (existing_id, is_new) = aux.add_vertex_in_sorted_list(pos, pos);
 
     let new_v_id = if is_new {
-        let id = ts.add_impl_vert(coords);
+        let id = ts.add_impl_point(lpi);
         debug_assert!(id == pos);
         id
     } else {
@@ -505,13 +507,13 @@ fn add_symbolic_segment(
 /// Ported from intersection_classification.cpp:406-418 (noCoplanarJollyPointID)
 fn no_coplanar_jolly_point_id(
     ts: &TriangleSoup,
-    v0: &[f64; 3],
-    v1: &[f64; 3],
-    v2: &[f64; 3],
+    v0: [f64; 3],
+    v1: [f64; 3],
+    v2: [f64; 3],
 ) -> usize {
     for jp_id in 0..4 {
         let jp = ts.jolly_point(jp_id);
-        if orient3d(*v0, *v1, *v2, *jp) != 0.0 {
+        if orient3d(v0, v1, v2, *jp) != 0.0 {
             return jp_id;
         }
     }
@@ -546,19 +548,19 @@ enum SegmentIntersection {
 ///
 /// Ported from cinolib::point_in_triangle_3d
 fn point_in_triangle_3d_classify(
-    p: &[f64; 3],
-    tv0: &[f64; 3],
-    tv1: &[f64; 3],
-    tv2: &[f64; 3],
+    p: [f64; 3],
+    tv0: [f64; 3],
+    tv1: [f64; 3],
+    tv2: [f64; 3],
 ) -> PointInSimplex {
     // Check if p is at a vertex
-    if points_equal(p, tv0) {
+    if points_equal(&p, &tv0) {
         return PointInSimplex::OnVert0;
     }
-    if points_equal(p, tv1) {
+    if points_equal(&p, &tv1) {
         return PointInSimplex::OnVert1;
     }
-    if points_equal(p, tv2) {
+    if points_equal(&p, &tv2) {
         return PointInSimplex::OnVert2;
     }
 
@@ -627,7 +629,7 @@ fn point_in_triangle_3d_classify(
 /// Check if a 3D point lies strictly inside a segment.
 ///
 /// Ported from cinolib::point_in_segment_3d
-fn point_in_segment_3d(p: &[f64; 3], v0: &[f64; 3], v1: &[f64; 3]) -> bool {
+fn point_in_segment_3d(p: [f64; 3], v0: [f64; 3], v1: [f64; 3]) -> bool {
     // Must be collinear AND between endpoints
     // Project onto dominant axis
     let dx = (v1[0] - v0[0]).abs();
@@ -667,10 +669,10 @@ fn point_in_segment_3d(p: &[f64; 3], v0: &[f64; 3], v1: &[f64; 3]) -> bool {
 ///
 /// Ported from cinolib::segment_segment_intersect_3d (INTERSECT result)
 fn segment_segment_intersect_3d(
-    a0: &[f64; 3],
-    a1: &[f64; 3],
-    b0: &[f64; 3],
-    b1: &[f64; 3],
+    a0: [f64; 3],
+    a1: [f64; 3],
+    b0: [f64; 3],
+    b1: [f64; 3],
 ) -> SegmentIntersection {
     // Use orient3d for coplanarity, then orient2d for crossing
     let d1 = [a1[0] - a0[0], a1[1] - a0[1], a1[2] - a0[2]];
@@ -717,14 +719,14 @@ fn segment_segment_intersect_3d(
 ///
 /// Ported from cinolib::segment_triangle_intersect_3d
 fn segment_triangle_intersect_3d(
-    s0: &[f64; 3],
-    s1: &[f64; 3],
-    tv0: &[f64; 3],
-    tv1: &[f64; 3],
-    tv2: &[f64; 3],
+    s0: [f64; 3],
+    s1: [f64; 3],
+    tv0: [f64; 3],
+    tv1: [f64; 3],
+    tv2: [f64; 3],
 ) -> SegmentIntersection {
-    let o_s0 = orient3d(*tv0, *tv1, *tv2, *s0);
-    let o_s1 = orient3d(*tv0, *tv1, *tv2, *s1);
+    let o_s0 = orient3d(tv0, tv1, tv2, s0);
+    let o_s1 = orient3d(tv0, tv1, tv2, s1);
 
     // Both on same side or both on plane → no crossing
     if (o_s0 > 0.0 && o_s1 > 0.0) || (o_s0 < 0.0 && o_s1 < 0.0) {
@@ -736,9 +738,9 @@ fn segment_triangle_intersect_3d(
 
     // Check if intersection point lies inside triangle
     // Use orient3d tetrahedra tests
-    let o1 = orient3d(*s0, *s1, *tv0, *tv1);
-    let o2 = orient3d(*s0, *s1, *tv1, *tv2);
-    let o3 = orient3d(*s0, *s1, *tv2, *tv0);
+    let o1 = orient3d(s0, s1, tv0, tv1);
+    let o2 = orient3d(s0, s1, tv1, tv2);
+    let o3 = orient3d(s0, s1, tv2, tv0);
 
     if (o1 >= 0.0 && o2 >= 0.0 && o3 >= 0.0) || (o1 <= 0.0 && o2 <= 0.0 && o3 <= 0.0) {
         SegmentIntersection::Intersect
@@ -1315,10 +1317,10 @@ fn generic_point_inside_triangle(
 
 /// Compute orient3d of point p against the plane of triangle t_id.
 fn orient3d_ts(ts: &TriangleSoup, p_id: usize, t_id: usize) -> f64 {
-    let p = *ts.vert(p_id);
-    let tv0 = *ts.tri_vert(t_id, 0);
-    let tv1 = *ts.tri_vert(t_id, 1);
-    let tv2 = *ts.tri_vert(t_id, 2);
+    let p = ts.vert(p_id);
+    let tv0 = ts.tri_vert(t_id, 0);
+    let tv1 = ts.tri_vert(t_id, 1);
+    let tv2 = ts.tri_vert(t_id, 2);
     orient3d(p, tv0, tv1, tv2)
 }
 
@@ -1412,11 +1414,11 @@ fn triangles_intersect_exact(ts: &TriangleSoup, t0: usize, t1: usize) -> bool {
 /// The point is where the line through (l0, l1) intersects the plane
 /// defined by (p0, p1, p2).
 fn compute_lpi_coords(
-    l0: &[f64; 3],
-    l1: &[f64; 3],
-    p0: &[f64; 3],
-    p1: &[f64; 3],
-    p2: &[f64; 3],
+    l0: [f64; 3],
+    l1: [f64; 3],
+    p0: [f64; 3],
+    p1: [f64; 3],
+    p2: [f64; 3],
 ) -> [f64; 3] {
     // Plane normal
     let u = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];

@@ -36,6 +36,7 @@ use super::aux_structure::AuxiliaryStructure;
 use super::common::Plane;
 use super::fast_trimesh::FastTrimesh;
 use super::triangle_soup::TriangleSoup;
+use crate::boolean::indirect_predicates::ImplicitPoint;
 
 /// Pair of vertex IDs (matching C++ UIPair).
 type UIPair = (usize, usize);
@@ -96,10 +97,10 @@ pub(crate) fn triangulation_with_parents(
             ts.tri_vert_id(t_id, 1),
             ts.tri_vert_id(t_id, 2),
         ];
-        let mut subm = FastTrimesh::new(
-            *ts.tri_vert(t_id, 0),
-            *ts.tri_vert(t_id, 1),
-            *ts.tri_vert(t_id, 2),
+        let mut subm = FastTrimesh::new_implicit(
+            ts.implicit_point(ts.tri_vert_id(t_id, 0)).clone(),
+            ts.implicit_point(ts.tri_vert_id(t_id, 1)).clone(),
+            ts.implicit_point(ts.tri_vert_id(t_id, 2)).clone(),
             tri_ids,
             ts.tri_plane(t_id),
         );
@@ -284,23 +285,23 @@ fn split_single_triangle_with_stack(
     all_points.push(subm.tri_vert_id(0, 1));
     all_points.push(subm.tri_vert_id(0, 2));
 
-    // Add edge points
+    // Add edge points — propagate ImplicitPoint from TriangleSoup
     for &p in e0_points {
-        let v_pos = subm.add_vert(*ts.vert(p), p);
+        let v_pos = subm.add_vert(ts.implicit_point(p).clone(), p);
         all_points.push(v_pos);
     }
     for &p in e1_points {
-        let v_pos = subm.add_vert(*ts.vert(p), p);
+        let v_pos = subm.add_vert(ts.implicit_point(p).clone(), p);
         all_points.push(v_pos);
     }
     for &p in e2_points {
-        let v_pos = subm.add_vert(*ts.vert(p), p);
+        let v_pos = subm.add_vert(ts.implicit_point(p).clone(), p);
         all_points.push(v_pos);
     }
 
-    // Add interior points
+    // Add interior points — propagate ImplicitPoint from TriangleSoup
     for &p in points {
-        let v_pos = subm.add_vert(*ts.vert(p), p);
+        let v_pos = subm.add_vert(ts.implicit_point(p).clone(), p);
         all_points.push(v_pos);
     }
 
@@ -690,9 +691,7 @@ fn find_intersecting_elements(
 
         if !subm.edge_is_constr(e_id) {
             // Non-constraint edge
-            let t_id = match subm
-                .tri_opp_to_edge(e_id, *intersected_tris.last().unwrap())
-            {
+            let t_id = match subm.tri_opp_to_edge(e_id, *intersected_tris.last().unwrap()) {
                 Some(id) => id,
                 None => {
                     // Boundary edge — can happen with approximate coordinates
@@ -735,7 +734,7 @@ fn find_intersecting_elements(
                 sub_seg_map,
             );
 
-            let new_tpi_id = subm.add_vert(*ts.vert(orig_tpi_id), orig_tpi_id);
+            let new_tpi_id = subm.add_vert(ts.implicit_point(orig_tpi_id).clone(), orig_tpi_id);
             subm.split_edge(e_id, new_tpi_id);
 
             if let Some(edge0_id) = subm.edge_id(ev0_id, new_tpi_id) {
@@ -1089,22 +1088,23 @@ fn create_tpi(
     let tv0 = compute_triangle_of_segment(ts, e0, &t0_ids, aux, sub_segs_map);
     let tv1 = compute_triangle_of_segment(ts, e1, &t0_ids, aux, sub_segs_map);
 
-    // Compute TPI: intersection of three planes
+    // Create TPI implicit point: intersection of three planes
     // Plane 0: the local triangle plane (t0_ids)
     // Plane 1: the triangle supporting segment e0
     // Plane 2: the triangle supporting segment e1
-    let p0 = [
-        *ts.vert(t0_ids[0]),
-        *ts.vert(t0_ids[1]),
-        *ts.vert(t0_ids[2]),
-    ];
+    let tpi = ImplicitPoint::TPI {
+        v1: ts.vert(t0_ids[0]),
+        v2: ts.vert(t0_ids[1]),
+        v3: ts.vert(t0_ids[2]),
+        w1: tv0[0],
+        w2: tv0[1],
+        w3: tv0[2],
+        u1: tv1[0],
+        u2: tv1[1],
+        u3: tv1[2],
+    };
 
-    let coords = compute_tpi_coords(&p0, &tv0, &tv1);
-
-    // Check if already inserted
-    let _pos = ts.num_verts();
-    // For dedup, we use the vertex coordinates hash approach
-    let v_id = ts.add_impl_vert(coords);
+    let v_id = ts.add_impl_point(tpi);
 
     v_id
 }
@@ -1144,10 +1144,10 @@ fn compute_triangle_of_segment(
         let mut copl = true;
         for &v in &tv1 {
             let o = geometry_predicates::orient3d(
-                *ts.vert(ref_t[0]),
-                *ts.vert(ref_t[1]),
-                *ts.vert(ref_t[2]),
-                *ts.vert(v),
+                ts.vert(ref_t[0]),
+                ts.vert(ref_t[1]),
+                ts.vert(ref_t[2]),
+                ts.vert(v),
             );
             if o != 0.0 {
                 copl = false;
@@ -1156,7 +1156,7 @@ fn compute_triangle_of_segment(
         }
 
         if !copl {
-            return [*ts.vert(tv1[0]), *ts.vert(tv1[1]), *ts.vert(tv1[2])];
+            return [ts.vert(tv1[0]), ts.vert(tv1[1]), ts.vert(tv1[2])];
         }
     }
 
@@ -1177,8 +1177,8 @@ fn compute_triangle_of_segment_coplanar(
 ) -> [[f64; 3]; 3] {
     let (e0, e1) = seg;
 
-    let mut res_v0 = *ts.vert(e0);
-    let mut res_v1 = *ts.vert(e1);
+    let mut res_v0 = ts.vert(e0);
+    let mut res_v1 = ts.vert(e1);
 
     // Try to find an edge of one of the triangles containing both endpoints
     for &t in tris {
@@ -1193,14 +1193,14 @@ fn compute_triangle_of_segment_coplanar(
             if point_in_segment_collinear(ts.vert(e0), ts.vert(ev0), ts.vert(ev1))
                 && point_in_segment_collinear(ts.vert(e1), ts.vert(ev0), ts.vert(ev1))
             {
-                res_v0 = *ts.vert(ev0);
-                res_v1 = *ts.vert(ev1);
+                res_v0 = ts.vert(ev0);
+                res_v1 = ts.vert(ev1);
                 // Find jolly point not coplanar with ref_t
                 for jp_id in 0..4 {
                     let o = geometry_predicates::orient3d(
-                        *ts.vert(ref_t[0]),
-                        *ts.vert(ref_t[1]),
-                        *ts.vert(ref_t[2]),
+                        ts.vert(ref_t[0]),
+                        ts.vert(ref_t[1]),
+                        ts.vert(ref_t[2]),
                         *ts.jolly_point(jp_id),
                     );
                     if o != 0.0 {
@@ -1214,9 +1214,9 @@ fn compute_triangle_of_segment_coplanar(
     // Fallback: use segment endpoints + jolly
     for jp_id in 0..4 {
         let o = geometry_predicates::orient3d(
-            *ts.vert(ref_t[0]),
-            *ts.vert(ref_t[1]),
-            *ts.vert(ref_t[2]),
+            ts.vert(ref_t[0]),
+            ts.vert(ref_t[1]),
+            ts.vert(ref_t[2]),
             *ts.jolly_point(jp_id),
         );
         if o != 0.0 {
@@ -1380,7 +1380,7 @@ fn find_pockets_in_triangle(subm: &FastTrimesh) -> (Vec<Vec<usize>>, Vec<HashSet
 /// 2D orientation test projected onto reference plane.
 ///
 /// Ported from triangulation.cpp:1325-1335 (customOrient2D)
-fn custom_orient_2d(p0: &[f64; 3], p1: &[f64; 3], p2: &[f64; 3], ref_p: Plane) -> i32 {
+fn custom_orient_2d(p0: [f64; 3], p1: [f64; 3], p2: [f64; 3], ref_p: Plane) -> i32 {
     let (i, j) = match ref_p {
         Plane::XY => (0, 1),
         Plane::YZ => (1, 2),
@@ -1399,22 +1399,28 @@ fn custom_orient_2d(p0: &[f64; 3], p1: &[f64; 3], p2: &[f64; 3], ref_p: Plane) -
 }
 
 /// Fast collinearity test: check if point p_id lies on the line through edge e_id.
+/// Uses orient2d_indirect for exact handling of implicit points.
 ///
 /// Ported from triangulation.cpp:1158-1169 (fastPointOnLine)
 fn fast_point_on_line(subm: &FastTrimesh, e_id: usize, p_id: usize) -> bool {
     let ev0_id = subm.edge_vert_id(e_id, 0);
     let ev1_id = subm.edge_vert_id(e_id, 1);
 
-    custom_orient_2d(
-        subm.vert(ev0_id),
-        subm.vert(ev1_id),
-        subm.vert(p_id),
-        subm.ref_plane(),
-    ) == 0
+    let proj = match subm.ref_plane() {
+        Plane::XY => crate::boolean::indirect_predicates::ProjectionAxis::XY,
+        Plane::YZ => crate::boolean::indirect_predicates::ProjectionAxis::YZ,
+        Plane::ZX => crate::boolean::indirect_predicates::ProjectionAxis::ZX,
+    };
+    crate::boolean::indirect_predicates::orient2d_indirect(
+        subm.implicit_point(ev0_id),
+        subm.implicit_point(ev1_id),
+        subm.implicit_point(p_id),
+        proj,
+    ) == 0.0
 }
 
 /// Check whether edges {e00,e01} and {e10,e11} intersect at a point
-/// strictly inside both segments.
+/// strictly inside both segments. Uses orient2d_indirect for implicit points.
 ///
 /// Ported from triangulation.cpp:1175-1179 (segmentsIntersectInside)
 fn segments_intersect_inside(
@@ -1424,25 +1430,79 @@ fn segments_intersect_inside(
     e10_id: usize,
     e11_id: usize,
 ) -> bool {
-    inner_segments_cross(
-        subm.vert(e00_id),
-        subm.vert(e01_id),
-        subm.vert(e10_id),
-        subm.vert(e11_id),
-        subm.ref_plane(),
-    )
+    let proj = match subm.ref_plane() {
+        Plane::XY => crate::boolean::indirect_predicates::ProjectionAxis::XY,
+        Plane::YZ => crate::boolean::indirect_predicates::ProjectionAxis::YZ,
+        Plane::ZX => crate::boolean::indirect_predicates::ProjectionAxis::ZX,
+    };
+
+    let o1 = crate::boolean::indirect_predicates::orient2d_indirect(
+        subm.implicit_point(e00_id),
+        subm.implicit_point(e01_id),
+        subm.implicit_point(e10_id),
+        proj,
+    );
+    let o2 = crate::boolean::indirect_predicates::orient2d_indirect(
+        subm.implicit_point(e00_id),
+        subm.implicit_point(e01_id),
+        subm.implicit_point(e11_id),
+        proj,
+    );
+    let o3 = crate::boolean::indirect_predicates::orient2d_indirect(
+        subm.implicit_point(e10_id),
+        subm.implicit_point(e11_id),
+        subm.implicit_point(e00_id),
+        proj,
+    );
+    let o4 = crate::boolean::indirect_predicates::orient2d_indirect(
+        subm.implicit_point(e10_id),
+        subm.implicit_point(e11_id),
+        subm.implicit_point(e01_id),
+        proj,
+    );
+
+    // Strictly crossing: opposite signs on both
+    (o1 > 0.0 && o2 < 0.0 || o1 < 0.0 && o2 > 0.0) && (o3 > 0.0 && o4 < 0.0 || o3 < 0.0 && o4 > 0.0)
 }
 
 /// Check if point p_id lies strictly inside segment (ev0_id, ev1_id).
+/// Uses orient2d_indirect for implicit points.
 ///
 /// Ported from triangulation.cpp:1183-1186 (pointInsideSegment)
 fn point_inside_segment(subm: &FastTrimesh, ev0_id: usize, ev1_id: usize, p_id: usize) -> bool {
-    point_in_inner_segment(
-        subm.vert(p_id),
-        subm.vert(ev0_id),
-        subm.vert(ev1_id),
-        subm.ref_plane(),
-    )
+    let proj = match subm.ref_plane() {
+        Plane::XY => crate::boolean::indirect_predicates::ProjectionAxis::XY,
+        Plane::YZ => crate::boolean::indirect_predicates::ProjectionAxis::YZ,
+        Plane::ZX => crate::boolean::indirect_predicates::ProjectionAxis::ZX,
+    };
+
+    // Must be collinear
+    let o = crate::boolean::indirect_predicates::orient2d_indirect(
+        subm.implicit_point(ev0_id),
+        subm.implicit_point(ev1_id),
+        subm.implicit_point(p_id),
+        proj,
+    );
+    if o != 0.0 {
+        return false;
+    }
+
+    // Must be between a and b (strictly) — use materialized coords for range check
+    let p = subm.vert(p_id);
+    let a = subm.vert(ev0_id);
+    let b = subm.vert(ev1_id);
+    let (i, j) = match subm.ref_plane() {
+        Plane::XY => (0, 1),
+        Plane::YZ => (1, 2),
+        Plane::ZX => (2, 0),
+    };
+
+    let min_x = a[i].min(b[i]);
+    let max_x = a[i].max(b[i]);
+    let min_y = a[j].min(b[j]);
+    let max_y = a[j].max(b[j]);
+
+    p[i] > min_x && p[i] < max_x || (min_x == max_x && p[j] > min_y && p[j] < max_y)
 }
 
 /// Projected inner segment cross: two segments cross strictly interior.
@@ -1498,6 +1558,7 @@ fn point_in_inner_segment(p: &[f64; 3], a: &[f64; 3], b: &[f64; 3], plane: Plane
 }
 
 /// Point-in-triangle test projected onto the reference plane.
+/// Uses orient2d_indirect for exact handling of implicit points.
 /// Uses the genericPoint::pointInTriangle semantics (non-strict).
 fn point_in_triangle_projected(
     subm: &FastTrimesh,
@@ -1506,33 +1567,27 @@ fn point_in_triangle_projected(
     v1_id: usize,
     v2_id: usize,
 ) -> bool {
-    let p = subm.vert(p_id);
-    let a = subm.vert(v0_id);
-    let b = subm.vert(v1_id);
-    let c = subm.vert(v2_id);
-    let plane = subm.ref_plane();
-
-    let (i, j) = match plane {
-        Plane::XY => (0, 1),
-        Plane::YZ => (1, 2),
-        Plane::ZX => (2, 0),
+    let proj = match subm.ref_plane() {
+        Plane::XY => crate::boolean::indirect_predicates::ProjectionAxis::XY,
+        Plane::YZ => crate::boolean::indirect_predicates::ProjectionAxis::YZ,
+        Plane::ZX => crate::boolean::indirect_predicates::ProjectionAxis::ZX,
     };
 
-    let pp = [p[i], p[j]];
-    let pa = [a[i], a[j]];
-    let pb = [b[i], b[j]];
-    let pc = [c[i], c[j]];
+    let p = subm.implicit_point(p_id);
+    let a = subm.implicit_point(v0_id);
+    let b = subm.implicit_point(v1_id);
+    let c = subm.implicit_point(v2_id);
 
-    let o1 = orient2d(pa, pb, pp);
-    let o2 = orient2d(pb, pc, pp);
-    let o3 = orient2d(pc, pa, pp);
+    let o1 = crate::boolean::indirect_predicates::orient2d_indirect(a, b, p, proj);
+    let o2 = crate::boolean::indirect_predicates::orient2d_indirect(b, c, p, proj);
+    let o3 = crate::boolean::indirect_predicates::orient2d_indirect(c, a, p, proj);
 
     // Non-strict: >= 0 or all <= 0
     (o1 >= 0.0 && o2 >= 0.0 && o3 >= 0.0) || (o1 <= 0.0 && o2 <= 0.0 && o3 <= 0.0)
 }
 
 /// Check if point p lies on segment (a, b) using collinearity (for coplanar case).
-fn point_in_segment_collinear(p: &[f64; 3], a: &[f64; 3], b: &[f64; 3]) -> bool {
+fn point_in_segment_collinear(p: [f64; 3], a: [f64; 3], b: [f64; 3]) -> bool {
     // Project onto dominant axis
     let dx = (b[0] - a[0]).abs();
     let dy = (b[1] - a[1]).abs();
@@ -1645,7 +1700,7 @@ mod tests {
         let mut subm = make_simple_mesh();
 
         // Add an edge point on edge 0 (v0-v1)
-        let ep = subm.add_vert([5.0, 0.0, 0.0], 100);
+        let ep = subm.add_vert(ImplicitPoint::Explicit([5.0, 0.0, 0.0]), 100);
 
         // Split the triangle at the edge point (on edge 0)
         let e_id = subm.tri_edge_id(0, 0).unwrap();
@@ -1675,7 +1730,7 @@ mod tests {
         );
 
         // Add a midpoint and split to get more triangles
-        let mid = subm.add_vert([5.0, 3.0, 0.0], 100);
+        let mid = subm.add_vert(ImplicitPoint::Explicit([5.0, 3.0, 0.0]), 100);
         subm.split_tri(0, mid);
 
         // Now we have 3 triangles
@@ -1698,7 +1753,7 @@ mod tests {
             [0, 1, 2],
             Plane::XY,
         );
-        let v3 = subm.add_vert([5.0, 5.0, 0.0], 3);
+        let v3 = subm.add_vert(ImplicitPoint::Explicit([5.0, 5.0, 0.0]), 3);
 
         // tri0 = original (0,1,2); add tri1 = (0,v3,2)
         subm.add_tri(0, v3, 2);
@@ -1743,7 +1798,7 @@ mod tests {
             [0, 1, 2],
             Plane::XY,
         );
-        let v3 = subm.add_vert([0.0, 10.0, 0.0], 3);
+        let v3 = subm.add_vert(ImplicitPoint::Explicit([0.0, 10.0, 0.0]), 3);
 
         let poly = vec![0, 1, 2, v3];
         let mut tris = Vec::new();
@@ -1760,12 +1815,12 @@ mod tests {
         let c = [5.0, 10.0, 0.0];
 
         // CCW triangle on XY plane
-        assert!(custom_orient_2d(&a, &b, &c, Plane::XY) > 0);
+        assert!(custom_orient_2d(a, b, c, Plane::XY) > 0);
         // CW
-        assert!(custom_orient_2d(&a, &c, &b, Plane::XY) < 0);
+        assert!(custom_orient_2d(a, c, b, Plane::XY) < 0);
         // Collinear
         let d = [5.0, 0.0, 0.0];
-        assert_eq!(custom_orient_2d(&a, &d, &b, Plane::XY), 0);
+        assert_eq!(custom_orient_2d(a, d, b, Plane::XY), 0);
     }
 
     #[test]

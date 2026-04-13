@@ -11,14 +11,19 @@ use smallvec::SmallVec;
 
 use super::common::{remove_from_vec, Plane};
 use super::tree::Tree;
+use crate::boolean::indirect_predicates::ImplicitPoint;
 
 type FmVec = SmallVec<[usize; 16]>;
 
 /// Vertex storage.
 /// Ported from fast_trimesh.h:54-61 (iVtx)
+///
+/// Stores an `ImplicitPoint` instead of `[f64; 3]` — the C++ stores
+/// `const genericPoint*`. Explicit input vertices become
+/// `ImplicitPoint::Explicit`, intersection points become LPI/TPI.
 #[derive(Debug, Clone)]
 struct Vertex {
-    coords: [f64; 3],
+    point: ImplicitPoint,
     info: usize,
 }
 
@@ -77,9 +82,33 @@ impl FastTrimesh {
             rev_vtx_map: HashMap::new(),
             triangle_plane: plane,
         };
-        mesh.add_vert(v0_coords, orig_ids[0]);
-        mesh.add_vert(v1_coords, orig_ids[1]);
-        mesh.add_vert(v2_coords, orig_ids[2]);
+        mesh.add_vert(ImplicitPoint::Explicit(v0_coords), orig_ids[0]);
+        mesh.add_vert(ImplicitPoint::Explicit(v1_coords), orig_ids[1]);
+        mesh.add_vert(ImplicitPoint::Explicit(v2_coords), orig_ids[2]);
+        mesh.add_tri(0, 1, 2);
+        mesh
+    }
+
+    /// Construct from 3 ImplicitPoints forming one triangle.
+    pub fn new_implicit(
+        v0: ImplicitPoint,
+        v1: ImplicitPoint,
+        v2: ImplicitPoint,
+        orig_ids: [usize; 3],
+        plane: Plane,
+    ) -> Self {
+        let mut mesh = Self {
+            vertices: Vec::new(),
+            edges: Vec::new(),
+            triangles: Vec::new(),
+            v2e: Vec::new(),
+            e2t: Vec::new(),
+            rev_vtx_map: HashMap::new(),
+            triangle_plane: plane,
+        };
+        mesh.add_vert(v0, orig_ids[0]);
+        mesh.add_vert(v1, orig_ids[1]);
+        mesh.add_vert(v2, orig_ids[2]);
         mesh.add_tri(0, 1, 2);
         mesh
     }
@@ -98,7 +127,7 @@ impl FastTrimesh {
             triangle_plane: plane,
         };
         for v in in_verts {
-            mesh.add_vert_no_map(*v);
+            mesh.add_vert_no_map(ImplicitPoint::Explicit(*v));
         }
         for t in 0..in_tris.len() / 3 {
             mesh.add_tri(in_tris[3 * t], in_tris[3 * t + 1], in_tris[3 * t + 2]);
@@ -152,11 +181,21 @@ impl FastTrimesh {
     // Vertex accessors
     // ========================================================================
 
-    /// Get vertex coordinates.
-    /// Ported from fast_trimesh.cpp:194-198
-    pub fn vert(&self, v_id: usize) -> &[f64; 3] {
+    /// Get the ImplicitPoint for a vertex.
+    pub fn implicit_point(&self, v_id: usize) -> &ImplicitPoint {
         assert!(v_id < self.vertices.len(), "vtx id out of range");
-        &self.vertices[v_id].coords
+        &self.vertices[v_id].point
+    }
+
+    /// Get materialized vertex coordinates.
+    /// For Explicit points this is zero-cost; for LPI/TPI it computes the division.
+    /// Ported from fast_trimesh.cpp:194-198
+    pub fn vert(&self, v_id: usize) -> [f64; 3] {
+        assert!(v_id < self.vertices.len(), "vtx id out of range");
+        self.vertices[v_id]
+            .point
+            .materialize()
+            .unwrap_or([0.0, 0.0, 0.0])
     }
 
     /// Map from local new_id to original mesh vertex ID.
@@ -367,11 +406,14 @@ impl FastTrimesh {
         self.triangles[t_id].v[off]
     }
 
-    /// Get vertex coordinates at a given offset in a triangle.
+    /// Get materialized vertex coordinates at a given offset in a triangle.
     /// Ported from fast_trimesh.cpp:419-423
-    pub fn tri_vert(&self, t_id: usize, off: usize) -> &[f64; 3] {
+    pub fn tri_vert(&self, t_id: usize, off: usize) -> [f64; 3] {
         assert!(t_id < self.triangles.len(), "tri id out of range");
-        &self.vertices[self.triangles[t_id].v[off]].coords
+        self.vertices[self.triangles[t_id].v[off]]
+            .point
+            .materialize()
+            .unwrap_or([0.0, 0.0, 0.0])
     }
 
     /// Get edge ID at a given offset in a triangle (edge between v[off] and v[(off+1)%3]).
@@ -475,16 +517,26 @@ impl FastTrimesh {
 
     /// Compute 2D orientation of a triangle projected onto the reference plane.
     /// Returns +1 (CCW), -1 (CW), or 0 (degenerate).
+    /// Uses indirect predicates — dispatches through orient2d_indirect for
+    /// correct handling of LPI/TPI implicit points.
     /// Ported from fast_trimesh.cpp:549-558
     pub fn tri_orientation(&self, t_id: usize) -> i32 {
         assert!(t_id < self.triangles.len(), "tri id out of range");
-        let p0 = self.tri_vert(t_id, 0);
-        let p1 = self.tri_vert(t_id, 1);
-        let p2 = self.tri_vert(t_id, 2);
-        match self.triangle_plane {
-            Plane::XY => orient2d_xy(p0, p1, p2),
-            Plane::YZ => orient2d_yz(p0, p1, p2),
-            Plane::ZX => orient2d_zx(p0, p1, p2),
+        let p0 = self.implicit_point(self.tri_vert_id(t_id, 0));
+        let p1 = self.implicit_point(self.tri_vert_id(t_id, 1));
+        let p2 = self.implicit_point(self.tri_vert_id(t_id, 2));
+        let proj = match self.triangle_plane {
+            Plane::XY => crate::boolean::indirect_predicates::ProjectionAxis::XY,
+            Plane::YZ => crate::boolean::indirect_predicates::ProjectionAxis::YZ,
+            Plane::ZX => crate::boolean::indirect_predicates::ProjectionAxis::ZX,
+        };
+        let det = crate::boolean::indirect_predicates::orient2d_indirect(p0, p1, p2, proj);
+        if det > 0.0 {
+            1
+        } else if det < 0.0 {
+            -1
+        } else {
+            0
         }
     }
 
@@ -527,10 +579,10 @@ impl FastTrimesh {
 
     /// Add a vertex with an original ID mapping.
     /// Ported from fast_trimesh.cpp:603-612
-    pub fn add_vert(&mut self, coords: [f64; 3], orig_v_id: usize) -> usize {
+    pub fn add_vert(&mut self, point: ImplicitPoint, orig_v_id: usize) -> usize {
         let v_id = self.vertices.len();
         self.vertices.push(Vertex {
-            coords,
+            point,
             info: orig_v_id,
         });
         self.v2e.push(FmVec::new());
@@ -540,8 +592,8 @@ impl FastTrimesh {
 
     /// Add a vertex without an original ID mapping.
     /// Ported from fast_trimesh.cpp:616-620
-    fn add_vert_no_map(&mut self, coords: [f64; 3]) {
-        self.vertices.push(Vertex { coords, info: 0 });
+    fn add_vert_no_map(&mut self, point: ImplicitPoint) {
+        self.vertices.push(Vertex { point, info: 0 });
         self.v2e.push(FmVec::new());
     }
 
@@ -878,45 +930,7 @@ impl FastTrimesh {
     }
 }
 
-// ============================================================================
-// 2D orientation helpers (projected onto reference plane)
-// ============================================================================
-
-/// orient2d on XY projection.
-fn orient2d_xy(a: &[f64; 3], b: &[f64; 3], c: &[f64; 3]) -> i32 {
-    let det = geometry_predicates::orient2d([a[0], a[1]], [b[0], b[1]], [c[0], c[1]]);
-    if det > 0.0 {
-        1
-    } else if det < 0.0 {
-        -1
-    } else {
-        0
-    }
-}
-
-/// orient2d on YZ projection.
-fn orient2d_yz(a: &[f64; 3], b: &[f64; 3], c: &[f64; 3]) -> i32 {
-    let det = geometry_predicates::orient2d([a[1], a[2]], [b[1], b[2]], [c[1], c[2]]);
-    if det > 0.0 {
-        1
-    } else if det < 0.0 {
-        -1
-    } else {
-        0
-    }
-}
-
-/// orient2d on ZX projection.
-fn orient2d_zx(a: &[f64; 3], b: &[f64; 3], c: &[f64; 3]) -> i32 {
-    let det = geometry_predicates::orient2d([a[2], a[0]], [b[2], b[0]], [c[2], c[0]]);
-    if det > 0.0 {
-        1
-    } else if det < 0.0 {
-        -1
-    } else {
-        0
-    }
-}
+// 2D orientation helpers moved to indirect_predicates::orient2d_indirect
 
 // ============================================================================
 // Tests
@@ -946,9 +960,9 @@ mod tests {
         assert_eq!(mesh.ref_plane(), Plane::XY);
 
         // Vertex coordinates
-        assert_eq!(mesh.vert(0), &[0.0, 0.0, 0.0]);
-        assert_eq!(mesh.vert(1), &[1.0, 0.0, 0.0]);
-        assert_eq!(mesh.vert(2), &[0.0, 1.0, 0.0]);
+        assert_eq!(mesh.vert(0), [0.0, 0.0, 0.0]);
+        assert_eq!(mesh.vert(1), [1.0, 0.0, 0.0]);
+        assert_eq!(mesh.vert(2), [0.0, 1.0, 0.0]);
 
         // Original ID mapping
         assert_eq!(mesh.vert_orig_id(0), 100);
@@ -995,7 +1009,7 @@ mod tests {
         let mut mesh = make_single_tri();
 
         // Add an interior vertex and split
-        let v3 = mesh.add_vert([0.25, 0.25, 0.0], 103);
+        let v3 = mesh.add_vert(ImplicitPoint::Explicit([0.25, 0.25, 0.0]), 103);
         assert_eq!(v3, 3);
 
         mesh.split_tri(0, v3);
@@ -1015,7 +1029,7 @@ mod tests {
         let e_id = mesh.edge_id(0, 1).expect("edge 0-1 not found");
 
         // Add a midpoint vertex
-        let v3 = mesh.add_vert([0.5, 0.0, 0.0], 103);
+        let v3 = mesh.add_vert(ImplicitPoint::Explicit([0.5, 0.0, 0.0]), 103);
 
         mesh.split_edge(e_id, v3);
 
