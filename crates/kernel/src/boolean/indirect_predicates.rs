@@ -304,8 +304,54 @@ fn lpi_lambda(
     Some((d_l, lx, ly, lz))
 }
 
+/// Compute LPI lambda parameters using full expansion arithmetic.
+/// Returns `(d_L_sign, d_L_expansion, λx, λy, λz)` or `None` if degenerate.
+///
+/// Uses `two_diff` for ALL input subtractions — no f64 precision loss.
+/// Ref: Cherchi 2020 Section 4.1, Shewchuk 1997 [#4].
+fn lpi_lambda_expansion(
+    q1: &[f64; 3],
+    q2: &[f64; 3],
+    r: &[f64; 3],
+    s: &[f64; 3],
+    t: &[f64; 3],
+) -> Option<(i32, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>)> {
+    // d_L = det|(q1-q2), (s-r), (t-r)| — all subtractions exact via two_diff
+    let d_l_exp = det3x3_exact_pairs(
+        q1[0], q2[0], q1[1], q2[1], q1[2], q2[2], s[0], r[0], s[1], r[1], s[2], r[2], t[0], r[0],
+        t[1], r[1], t[2], r[2],
+    );
+    let d_l_sign = expansion_sign(&d_l_exp);
+    if d_l_sign == 0 {
+        return None;
+    }
+
+    // n = det|(q1-r), (s-r), (t-r)| — all subtractions exact
+    let n_exp = det3x3_exact_pairs(
+        q1[0], r[0], q1[1], r[1], q1[2], r[2], s[0], r[0], s[1], r[1], s[2], r[2], t[0], r[0],
+        t[1], r[1], t[2], r[2],
+    );
+
+    // λ_x = d_L * q1[0] + n * (q2[0] - q1[0])  — (q2-q1) via two_diff
+    let lx = expansion_add(
+        &expansion_scale(&d_l_exp, q1[0]),
+        &expansion_mul_expansion(&n_exp, &two_diff_exp(q2[0], q1[0])),
+    );
+    let ly = expansion_add(
+        &expansion_scale(&d_l_exp, q1[1]),
+        &expansion_mul_expansion(&n_exp, &two_diff_exp(q2[1], q1[1])),
+    );
+    let lz = expansion_add(
+        &expansion_scale(&d_l_exp, q1[2]),
+        &expansion_mul_expansion(&n_exp, &two_diff_exp(q2[2], q1[2])),
+    );
+
+    Some((d_l_sign, d_l_exp, lx, ly, lz))
+}
+
 /// Max absolute value across all coordinates of the 5 LPI-defining points
 /// plus 2 explicit points (21 coordinates total).
+#[allow(dead_code)] // Used by disabled float filter in orient2d_lee
 fn max_abs_coords_lee(
     q1: &[f64; 3],
     q2: &[f64; 3],
@@ -343,38 +389,12 @@ fn orient2d_lee(
     i: usize,
     j: usize,
 ) -> f64 {
-    // ── Stage 1: float filter ──────────────────────────────────────────
-    let (d_l, lx, ly, lz) = match lpi_lambda(q1, q2, r, s, t) {
-        Some(v) => v,
-        None => return 0.0,
-    };
-    let lambda = [lx, ly, lz];
-
-    // det = λ_i*(e1_j - e2_j) + λ_j*(e2_i - e1_i) + d_L*(e1_i*e2_j - e1_j*e2_i)
-    // This equals d_L * orient2d(LPI_materialized, e1, e2).
-    let t1 = e1[j] - e2[j];
-    let t2 = e2[i] - e1[i];
-    let e = lambda[i] * t1 + lambda[j] * t2;
-    let pr = e1[i] * e2[j] - e1[j] * e2[i];
-    let dpr = d_l * pr;
-    let det = dpr + e;
-
-    let delta = max_abs_coords_lee(q1, q2, r, s, t, e1, e2);
-    // Filter for det: degree 5, epsilon from Cherchi 2020 Table 1
-    let d5 = delta * delta * delta * delta * delta;
-    let eps_det = 4.111024169857068e-13 * d5;
-    // Filter for d_L: degree 3, epsilon from Cherchi 2020 Table 1
-    let d3 = delta * delta * delta;
-    let eps_dl = 1.1102230246251565e-15 * d3;
-
     // Float filter disabled: our two-step lambda computation (separate
     // lpi_lambda then formula) introduces intermediate rounding that
     // exceeds the Cherchi 2020 Table 1 error bound. The C++ reference
     // computes everything inline in a single pass. Until we replicate the
     // exact evaluation DAG, always use exact expansion arithmetic.
     // TODO: implement single-pass evaluation to re-enable the float filter.
-
-    // ── Stage 2: exact expansion arithmetic ────────────────────────────
     orient2d_lee_exact(q1, q2, r, s, t, e1, e2, i, j)
 }
 
@@ -384,6 +404,7 @@ fn orient2d_lee(
 ///   det = λ_i*(e1_j-e2_j) + λ_j*(e2_i-e1_i) + d_L*(e1_i*e2_j-e1_j*e2_i)
 ///
 /// All intermediate values are computed as exact expansions.
+/// Uses `lpi_lambda_expansion` with `two_diff` for all subtractions.
 fn orient2d_lee_exact(
     q1: &[f64; 3],
     q2: &[f64; 3],
@@ -395,53 +416,18 @@ fn orient2d_lee_exact(
     i: usize,
     j: usize,
 ) -> f64 {
-    // Compute d_L and n as exact expansions via 3×3 determinant.
-    // d_L = det|(q1-q2), (s-r), (t-r)|
-    // n   = det|(q1-r),  (s-r), (t-r)|
-    let d_l_exp = det3x3_exact(
-        q1[0] - q2[0],
-        q1[1] - q2[1],
-        q1[2] - q2[2],
-        s[0] - r[0],
-        s[1] - r[1],
-        s[2] - r[2],
-        t[0] - r[0],
-        t[1] - r[1],
-        t[2] - r[2],
-    );
-    let n_exp = det3x3_exact(
-        q1[0] - r[0],
-        q1[1] - r[1],
-        q1[2] - r[2],
-        s[0] - r[0],
-        s[1] - r[1],
-        s[2] - r[2],
-        t[0] - r[0],
-        t[1] - r[1],
-        t[2] - r[2],
-    );
-
-    let d_l_sign = expansion_sign(&d_l_exp);
-    if d_l_sign == 0 {
-        return 0.0; // degenerate
-    }
-
-    // λ_i = d_L * q1[i] + n * (q2[i] - q1[i])
-    // λ_j = d_L * q1[j] + n * (q2[j] - q1[j])
-    let li = expansion_add(
-        &expansion_scale(&d_l_exp, q1[i]),
-        &expansion_scale(&n_exp, q2[i] - q1[i]),
-    );
-    let lj = expansion_add(
-        &expansion_scale(&d_l_exp, q1[j]),
-        &expansion_scale(&n_exp, q2[j] - q1[j]),
-    );
+    let (d_l_sign, d_l_exp, lx, ly, lz) = match lpi_lambda_expansion(q1, q2, r, s, t) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let lambda = [lx, ly, lz];
 
     // det = λ_i*(e1[j]-e2[j]) + λ_j*(e2[i]-e1[i]) + d_L*(e1[i]*e2[j]-e1[j]*e2[i])
-    let term1 = expansion_scale(&li, e1[j] - e2[j]);
-    let term2 = expansion_scale(&lj, e2[i] - e1[i]);
+    // All subtractions via two_diff for exactness.
+    let term1 = expansion_mul_expansion(&lambda[i], &two_diff_exp(e1[j], e2[j]));
+    let term2 = expansion_mul_expansion(&lambda[j], &two_diff_exp(e2[i], e1[i]));
 
-    // e1[i]*e2[j] - e1[j]*e2[i] needs exact two_product then subtraction
+    // e1[i]*e2[j] - e1[j]*e2[i] — exact cross product
     let [pr_lo, pr_hi] = gp::two_product(e1[i], e2[j]);
     let [nr_lo, nr_hi] = gp::two_product(e1[j], e2[i]);
     let cross_e = gp::two_two_diff(pr_hi, pr_lo, nr_hi, nr_lo);
@@ -451,9 +437,7 @@ fn orient2d_lee_exact(
     let det_exp = expansion_add(&sum12, &term3);
 
     let det_sign = expansion_sign(&det_exp);
-    // sign(orient2d) = sign(det) * sign(d_L)
-    let combined = det_sign * d_l_sign;
-    combined as f64
+    (det_sign * d_l_sign) as f64
 }
 
 /// Compute exact 3×3 determinant using two_diff for input subtractions.
@@ -462,7 +446,6 @@ fn orient2d_lee_exact(
 /// det = (a0p-a0n)*((b1p-b1n)*(c2p-c2n) - (b2p-b2n)*(c1p-c1n))
 ///     - (a1p-a1n)*((b0p-b0n)*(c2p-c2n) - (b2p-b2n)*(c0p-c0n))
 ///     + (a2p-a2n)*((b0p-b0n)*(c1p-c1n) - (b1p-b1n)*(c0p-c0n))
-#[allow(dead_code)] // Correct fix for orient2d_lee_exact precision; needs constraint-segment changes
 fn det3x3_exact_pairs(
     a0p: f64,
     a0n: f64,
@@ -517,7 +500,6 @@ fn det3x3_exact_pairs(
 }
 
 /// Create a 2-component expansion from two_diff.
-#[allow(dead_code)] // Used by det3x3_exact_pairs
 fn two_diff_exp(a: f64, b: f64) -> Vec<f64> {
     let [lo, hi] = gp::two_diff(a, b);
     if lo == 0.0 {
@@ -537,6 +519,7 @@ fn expansion_negate(e: &[f64]) -> Vec<f64> {
 
 /// Compute exact 3×3 determinant as an expansion.
 /// det = a0*(b1*c2 - b2*c1) - a1*(b0*c2 - b2*c0) + a2*(b0*c1 - b1*c0)
+#[allow(dead_code)] // Superseded by det3x3_exact_pairs which uses two_diff for inputs
 fn det3x3_exact(
     a0: f64,
     a1: f64,
@@ -562,6 +545,7 @@ fn det3x3_exact(
 }
 
 /// Exact 2D cross product: a*b - c*d as an expansion.
+#[allow(dead_code)] // Used by det3x3_exact
 fn cross_product_2d(a: f64, b: f64, c: f64, d: f64) -> Vec<f64> {
     let [ab_lo, ab_hi] = gp::two_product(a, b);
     let [cd_lo, cd_hi] = gp::two_product(c, d);
@@ -659,6 +643,8 @@ fn orient2d_lle(
 ///
 /// det = (λa_i - c_i*da)(λb_j - c_j*db) - (λa_j - c_j*da)(λb_i - c_i*db)
 /// sign(orient2d) = sign(da) * sign(db) * sign(det)
+///
+/// Uses `lpi_lambda_expansion` with `two_diff` for all subtractions.
 fn orient2d_lle_exact(
     q1a: &[f64; 3],
     q2a: &[f64; 3],
@@ -674,89 +660,26 @@ fn orient2d_lle_exact(
     i: usize,
     j: usize,
 ) -> f64 {
-    // Compute d_a, λa and d_b, λb as exact expansions
-    let da_exp = det3x3_exact(
-        q1a[0] - q2a[0],
-        q1a[1] - q2a[1],
-        q1a[2] - q2a[2],
-        sa[0] - ra[0],
-        sa[1] - ra[1],
-        sa[2] - ra[2],
-        ta[0] - ra[0],
-        ta[1] - ra[1],
-        ta[2] - ra[2],
-    );
-    let da_sign = expansion_sign(&da_exp);
-    if da_sign == 0 {
-        return 0.0;
-    }
+    let (da_sign, da_exp, lax, lay, laz) = match lpi_lambda_expansion(q1a, q2a, ra, sa, ta) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (db_sign, db_exp, lbx, lby, lbz) = match lpi_lambda_expansion(q1b, q2b, rb, sb, tb) {
+        Some(v) => v,
+        None => return 0.0,
+    };
 
-    let na_exp = det3x3_exact(
-        q1a[0] - ra[0],
-        q1a[1] - ra[1],
-        q1a[2] - ra[2],
-        sa[0] - ra[0],
-        sa[1] - ra[1],
-        sa[2] - ra[2],
-        ta[0] - ra[0],
-        ta[1] - ra[1],
-        ta[2] - ra[2],
-    );
-
-    let db_exp = det3x3_exact(
-        q1b[0] - q2b[0],
-        q1b[1] - q2b[1],
-        q1b[2] - q2b[2],
-        sb[0] - rb[0],
-        sb[1] - rb[1],
-        sb[2] - rb[2],
-        tb[0] - rb[0],
-        tb[1] - rb[1],
-        tb[2] - rb[2],
-    );
-    let db_sign = expansion_sign(&db_exp);
-    if db_sign == 0 {
-        return 0.0;
-    }
-
-    let nb_exp = det3x3_exact(
-        q1b[0] - rb[0],
-        q1b[1] - rb[1],
-        q1b[2] - rb[2],
-        sb[0] - rb[0],
-        sb[1] - rb[1],
-        sb[2] - rb[2],
-        tb[0] - rb[0],
-        tb[1] - rb[1],
-        tb[2] - rb[2],
-    );
-
-    // λa_i = da * q1a[i] + na * (q2a[i] - q1a[i])
-    let lai = expansion_add(
-        &expansion_scale(&da_exp, q1a[i]),
-        &expansion_scale(&na_exp, q2a[i] - q1a[i]),
-    );
-    let laj = expansion_add(
-        &expansion_scale(&da_exp, q1a[j]),
-        &expansion_scale(&na_exp, q2a[j] - q1a[j]),
-    );
-    let lbi = expansion_add(
-        &expansion_scale(&db_exp, q1b[i]),
-        &expansion_scale(&nb_exp, q2b[i] - q1b[i]),
-    );
-    let lbj = expansion_add(
-        &expansion_scale(&db_exp, q1b[j]),
-        &expansion_scale(&nb_exp, q2b[j] - q1b[j]),
-    );
+    let la = [lax, lay, laz];
+    let lb = [lbx, lby, lbz];
 
     // p1 = λa_i - c_i * da
-    let p1 = expansion_add(&lai, &expansion_negate(&expansion_scale(&da_exp, ec[i])));
+    let p1 = expansion_add(&la[i], &expansion_negate(&expansion_scale(&da_exp, ec[i])));
     // p2 = λb_j - c_j * db
-    let p2 = expansion_add(&lbj, &expansion_negate(&expansion_scale(&db_exp, ec[j])));
+    let p2 = expansion_add(&lb[j], &expansion_negate(&expansion_scale(&db_exp, ec[j])));
     // p3 = λa_j - c_j * da
-    let p3 = expansion_add(&laj, &expansion_negate(&expansion_scale(&da_exp, ec[j])));
+    let p3 = expansion_add(&la[j], &expansion_negate(&expansion_scale(&da_exp, ec[j])));
     // p4 = λb_i - c_i * db
-    let p4 = expansion_add(&lbi, &expansion_negate(&expansion_scale(&db_exp, ec[i])));
+    let p4 = expansion_add(&lb[i], &expansion_negate(&expansion_scale(&db_exp, ec[i])));
 
     // det = p1*p2 - p3*p4
     let term1 = expansion_mul_expansion(&p1, &p2);
@@ -764,7 +687,6 @@ fn orient2d_lle_exact(
     let det_exp = expansion_add(&term1, &expansion_negate(&term2));
 
     let det_sign = expansion_sign(&det_exp);
-    // sign(orient2d) = sign(da) * sign(db) * sign(det)
     (da_sign * db_sign * det_sign) as f64
 }
 
@@ -805,6 +727,8 @@ fn orient2d_lll(
 }
 
 /// Exact orient2d_LLL using expansion arithmetic.
+///
+/// Uses `lpi_lambda_expansion` with `two_diff` for all subtractions.
 #[allow(clippy::too_many_arguments)]
 fn orient2d_lll_exact(
     q1a: &[f64; 3],
@@ -825,138 +749,42 @@ fn orient2d_lll_exact(
     i: usize,
     j: usize,
 ) -> f64 {
-    // d_a, n_a
-    let da_exp = det3x3_exact(
-        q1a[0] - q2a[0],
-        q1a[1] - q2a[1],
-        q1a[2] - q2a[2],
-        sa[0] - ra[0],
-        sa[1] - ra[1],
-        sa[2] - ra[2],
-        ta[0] - ra[0],
-        ta[1] - ra[1],
-        ta[2] - ra[2],
-    );
-    let da_sign = expansion_sign(&da_exp);
-    if da_sign == 0 {
-        return 0.0;
-    }
+    let (da_sign, da_exp, lax, lay, laz) = match lpi_lambda_expansion(q1a, q2a, ra, sa, ta) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (db_sign, db_exp, lbx, lby, lbz) = match lpi_lambda_expansion(q1b, q2b, rb, sb, tb) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (_, dc_exp, lcx, lcy, lcz) = match lpi_lambda_expansion(q1c, q2c, rc, sc, tc) {
+        Some(v) => v,
+        None => return 0.0,
+    };
 
-    let na_exp = det3x3_exact(
-        q1a[0] - ra[0],
-        q1a[1] - ra[1],
-        q1a[2] - ra[2],
-        sa[0] - ra[0],
-        sa[1] - ra[1],
-        sa[2] - ra[2],
-        ta[0] - ra[0],
-        ta[1] - ra[1],
-        ta[2] - ra[2],
-    );
-
-    // d_b, n_b
-    let db_exp = det3x3_exact(
-        q1b[0] - q2b[0],
-        q1b[1] - q2b[1],
-        q1b[2] - q2b[2],
-        sb[0] - rb[0],
-        sb[1] - rb[1],
-        sb[2] - rb[2],
-        tb[0] - rb[0],
-        tb[1] - rb[1],
-        tb[2] - rb[2],
-    );
-    let db_sign = expansion_sign(&db_exp);
-    if db_sign == 0 {
-        return 0.0;
-    }
-
-    let nb_exp = det3x3_exact(
-        q1b[0] - rb[0],
-        q1b[1] - rb[1],
-        q1b[2] - rb[2],
-        sb[0] - rb[0],
-        sb[1] - rb[1],
-        sb[2] - rb[2],
-        tb[0] - rb[0],
-        tb[1] - rb[1],
-        tb[2] - rb[2],
-    );
-
-    // d_c, n_c
-    let dc_exp = det3x3_exact(
-        q1c[0] - q2c[0],
-        q1c[1] - q2c[1],
-        q1c[2] - q2c[2],
-        sc[0] - rc[0],
-        sc[1] - rc[1],
-        sc[2] - rc[2],
-        tc[0] - rc[0],
-        tc[1] - rc[1],
-        tc[2] - rc[2],
-    );
-    let dc_sign = expansion_sign(&dc_exp);
-    if dc_sign == 0 {
-        return 0.0;
-    }
-
-    let nc_exp = det3x3_exact(
-        q1c[0] - rc[0],
-        q1c[1] - rc[1],
-        q1c[2] - rc[2],
-        sc[0] - rc[0],
-        sc[1] - rc[1],
-        sc[2] - rc[2],
-        tc[0] - rc[0],
-        tc[1] - rc[1],
-        tc[2] - rc[2],
-    );
-
-    // λ values
-    let lai = expansion_add(
-        &expansion_scale(&da_exp, q1a[i]),
-        &expansion_scale(&na_exp, q2a[i] - q1a[i]),
-    );
-    let laj = expansion_add(
-        &expansion_scale(&da_exp, q1a[j]),
-        &expansion_scale(&na_exp, q2a[j] - q1a[j]),
-    );
-    let lbi = expansion_add(
-        &expansion_scale(&db_exp, q1b[i]),
-        &expansion_scale(&nb_exp, q2b[i] - q1b[i]),
-    );
-    let lbj = expansion_add(
-        &expansion_scale(&db_exp, q1b[j]),
-        &expansion_scale(&nb_exp, q2b[j] - q1b[j]),
-    );
-    let lci = expansion_add(
-        &expansion_scale(&dc_exp, q1c[i]),
-        &expansion_scale(&nc_exp, q2c[i] - q1c[i]),
-    );
-    let lcj = expansion_add(
-        &expansion_scale(&dc_exp, q1c[j]),
-        &expansion_scale(&nc_exp, q2c[j] - q1c[j]),
-    );
+    let la = [lax, lay, laz];
+    let lb = [lbx, lby, lbz];
+    let lc = [lcx, lcy, lcz];
 
     // p1 = λa_i*dc - λc_i*da
     let p1 = expansion_add(
-        &expansion_mul_expansion(&lai, &dc_exp),
-        &expansion_negate(&expansion_mul_expansion(&lci, &da_exp)),
+        &expansion_mul_expansion(&la[i], &dc_exp),
+        &expansion_negate(&expansion_mul_expansion(&lc[i], &da_exp)),
     );
     // p2 = λb_j*dc - λc_j*db
     let p2 = expansion_add(
-        &expansion_mul_expansion(&lbj, &dc_exp),
-        &expansion_negate(&expansion_mul_expansion(&lcj, &db_exp)),
+        &expansion_mul_expansion(&lb[j], &dc_exp),
+        &expansion_negate(&expansion_mul_expansion(&lc[j], &db_exp)),
     );
     // p3 = λa_j*dc - λc_j*da
     let p3 = expansion_add(
-        &expansion_mul_expansion(&laj, &dc_exp),
-        &expansion_negate(&expansion_mul_expansion(&lcj, &da_exp)),
+        &expansion_mul_expansion(&la[j], &dc_exp),
+        &expansion_negate(&expansion_mul_expansion(&lc[j], &da_exp)),
     );
     // p4 = λb_i*dc - λc_i*db
     let p4 = expansion_add(
-        &expansion_mul_expansion(&lbi, &dc_exp),
-        &expansion_negate(&expansion_mul_expansion(&lci, &db_exp)),
+        &expansion_mul_expansion(&lb[i], &dc_exp),
+        &expansion_negate(&expansion_mul_expansion(&lc[i], &db_exp)),
     );
 
     // det = p1*p2 - p3*p4
@@ -965,8 +793,6 @@ fn orient2d_lll_exact(
     let det_exp = expansion_add(&term1, &expansion_negate(&term2));
 
     let det_sign = expansion_sign(&det_exp);
-    // sign(orient2d) = sign(da) * sign(db) * sign(det)
-    // dc^2 is always positive, drops out
     (da_sign * db_sign * det_sign) as f64
 }
 
@@ -994,6 +820,8 @@ fn point_compare_ll(
 }
 
 /// Exact LL point comparison using expansion arithmetic.
+///
+/// Uses `lpi_lambda_expansion` with `two_diff` for all subtractions.
 fn point_compare_ll_exact(
     q1a: &[f64; 3],
     q2a: &[f64; 3],
@@ -1007,81 +835,25 @@ fn point_compare_ll_exact(
     tb: &[f64; 3],
     idx: usize,
 ) -> std::cmp::Ordering {
-    let da_exp = det3x3_exact(
-        q1a[0] - q2a[0],
-        q1a[1] - q2a[1],
-        q1a[2] - q2a[2],
-        sa[0] - ra[0],
-        sa[1] - ra[1],
-        sa[2] - ra[2],
-        ta[0] - ra[0],
-        ta[1] - ra[1],
-        ta[2] - ra[2],
-    );
-    let da_sign = expansion_sign(&da_exp);
-    if da_sign == 0 {
-        return std::cmp::Ordering::Equal;
-    }
+    let (da_sign, da_exp, lax, lay, laz) = match lpi_lambda_expansion(q1a, q2a, ra, sa, ta) {
+        Some(v) => v,
+        None => return std::cmp::Ordering::Equal,
+    };
+    let (db_sign, db_exp, lbx, lby, lbz) = match lpi_lambda_expansion(q1b, q2b, rb, sb, tb) {
+        Some(v) => v,
+        None => return std::cmp::Ordering::Equal,
+    };
 
-    let na_exp = det3x3_exact(
-        q1a[0] - ra[0],
-        q1a[1] - ra[1],
-        q1a[2] - ra[2],
-        sa[0] - ra[0],
-        sa[1] - ra[1],
-        sa[2] - ra[2],
-        ta[0] - ra[0],
-        ta[1] - ra[1],
-        ta[2] - ra[2],
-    );
-
-    let db_exp = det3x3_exact(
-        q1b[0] - q2b[0],
-        q1b[1] - q2b[1],
-        q1b[2] - q2b[2],
-        sb[0] - rb[0],
-        sb[1] - rb[1],
-        sb[2] - rb[2],
-        tb[0] - rb[0],
-        tb[1] - rb[1],
-        tb[2] - rb[2],
-    );
-    let db_sign = expansion_sign(&db_exp);
-    if db_sign == 0 {
-        return std::cmp::Ordering::Equal;
-    }
-
-    let nb_exp = det3x3_exact(
-        q1b[0] - rb[0],
-        q1b[1] - rb[1],
-        q1b[2] - rb[2],
-        sb[0] - rb[0],
-        sb[1] - rb[1],
-        sb[2] - rb[2],
-        tb[0] - rb[0],
-        tb[1] - rb[1],
-        tb[2] - rb[2],
-    );
-
-    // λa[idx] = da * q1a[idx] + na * (q2a[idx] - q1a[idx])
-    let la = expansion_add(
-        &expansion_scale(&da_exp, q1a[idx]),
-        &expansion_scale(&na_exp, q2a[idx] - q1a[idx]),
-    );
-    // λb[idx] = db * q1b[idx] + nb * (q2b[idx] - q1b[idx])
-    let lb = expansion_add(
-        &expansion_scale(&db_exp, q1b[idx]),
-        &expansion_scale(&nb_exp, q2b[idx] - q1b[idx]),
-    );
+    let la = [lax, lay, laz];
+    let lb = [lbx, lby, lbz];
 
     // diff = λa[idx]*db - λb[idx]*da
     let diff_exp = expansion_add(
-        &expansion_mul_expansion(&la, &db_exp),
-        &expansion_negate(&expansion_mul_expansion(&lb, &da_exp)),
+        &expansion_mul_expansion(&la[idx], &db_exp),
+        &expansion_negate(&expansion_mul_expansion(&lb[idx], &da_exp)),
     );
 
     let diff_sign = expansion_sign(&diff_exp);
-    // sign(LPI_a - LPI_b) = sign(da) * sign(db) * sign(diff)
     let combined = da_sign * db_sign * diff_sign;
     match combined {
         x if x > 0 => std::cmp::Ordering::Greater,
@@ -1347,6 +1119,8 @@ fn point_compare_le(
 }
 
 /// Exact point comparison using expansion arithmetic.
+///
+/// Uses `lpi_lambda_expansion` with `two_diff` for all subtractions.
 fn point_compare_le_exact(
     q1: &[f64; 3],
     q2: &[f64; 3],
@@ -1356,48 +1130,17 @@ fn point_compare_le_exact(
     e: &[f64; 3],
     idx: usize,
 ) -> std::cmp::Ordering {
-    // d_L as exact expansion
-    let d_l_exp = det3x3_exact(
-        q1[0] - q2[0],
-        q1[1] - q2[1],
-        q1[2] - q2[2],
-        s[0] - r[0],
-        s[1] - r[1],
-        s[2] - r[2],
-        t[0] - r[0],
-        t[1] - r[1],
-        t[2] - r[2],
-    );
-    let d_l_sign = expansion_sign(&d_l_exp);
-    if d_l_sign == 0 {
-        return std::cmp::Ordering::Equal;
-    }
-
-    // n as exact expansion
-    let n_exp = det3x3_exact(
-        q1[0] - r[0],
-        q1[1] - r[1],
-        q1[2] - r[2],
-        s[0] - r[0],
-        s[1] - r[1],
-        s[2] - r[2],
-        t[0] - r[0],
-        t[1] - r[1],
-        t[2] - r[2],
-    );
-
-    // λ[idx] = d_L * q1[idx] + n * (q2[idx] - q1[idx])
-    let lambda_exp = expansion_add(
-        &expansion_scale(&d_l_exp, q1[idx]),
-        &expansion_scale(&n_exp, q2[idx] - q1[idx]),
-    );
+    let (d_l_sign, d_l_exp, lx, ly, lz) = match lpi_lambda_expansion(q1, q2, r, s, t) {
+        Some(v) => v,
+        None => return std::cmp::Ordering::Equal,
+    };
+    let lambda = [lx, ly, lz];
 
     // kx = λ[idx] - d_L * e[idx]
     let d_l_e = expansion_scale(&d_l_exp, e[idx]);
-    let kx_exp = expansion_add(&lambda_exp, &expansion_negate(&d_l_e));
+    let kx_exp = expansion_add(&lambda[idx], &expansion_negate(&d_l_e));
 
     let kx_sign = expansion_sign(&kx_exp);
-    // sign(LPI[idx] - e[idx]) = sign(d_L) * sign(kx)
     let combined = d_l_sign * kx_sign;
     match combined {
         x if x > 0 => std::cmp::Ordering::Greater,
@@ -1709,14 +1452,11 @@ mod tests {
         );
     }
 
-    /// Known limitation: orient2d_lee_exact uses f64 subtractions for LPI
-    /// parameter differences (q1[i]-q2[i], q1[i]-r[i], etc.), which can lose
-    /// low bits when magnitudes differ. The fix (det3x3_exact_pairs with
-    /// two_diff) is mathematically correct but makes the full pipeline worse
-    /// by changing classification of non-collinear points. Needs to be applied
-    /// together with constraint-segment handling improvements.
+    /// Validates exact collinearity detection for large-coordinate LPI.
+    /// Edge (q1→q2) crossing the plane x=4294967296. In ZX projection, the LPI's
+    /// x-coordinate is exactly 4294967296, collinear with explicit points.
+    /// Fixed by switching to det3x3_exact_pairs + lpi_lambda_expansion.
     #[test]
-    #[ignore = "known: orient2d_lee_exact f64 subtraction precision loss — see det3x3_exact_pairs"]
     fn test_orient2d_lee_exact_edge_crossing_collinear() {
         // LPI point from edge-edge crossing in three_cubes mesh arrangement.
         // The LPI is the intersection of a line with the plane x=4294967296.
