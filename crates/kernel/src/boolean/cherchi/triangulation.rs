@@ -76,18 +76,13 @@ fn sort_edge_points(ts: &TriangleSoup, e_id: usize, points: &mut Vec<usize>) {
     });
 
     // If edge goes from high to low along the axis, reverse the sort
-    // so points go from v0 toward v1
-    let v0_val = match axis {
-        crate::boolean::indirect_predicates::Axis::X => c0[0],
-        crate::boolean::indirect_predicates::Axis::Y => c0[1],
-        crate::boolean::indirect_predicates::Axis::Z => c0[2],
-    };
-    let v1_val = match axis {
-        crate::boolean::indirect_predicates::Axis::X => c1[0],
-        crate::boolean::indirect_predicates::Axis::Y => c1[1],
-        crate::boolean::indirect_predicates::Axis::Z => c1[2],
-    };
-    if v0_val > v1_val {
+    // so points go from v0 toward v1. Uses indirect comparison for exactness.
+    let dir = crate::boolean::indirect_predicates::point_compare_on_axis(
+        ts.implicit_point(v0),
+        ts.implicit_point(v1),
+        axis,
+    );
+    if dir == std::cmp::Ordering::Greater {
         points.reverse();
     }
 }
@@ -1515,18 +1510,11 @@ fn custom_orient_2d_indirect(
 
 /// Check if point p_id lies on the line through edge e_id.
 ///
-/// The C++ Cherchi code uses exact indirect predicates for all point-type
-/// combinations (EEE, LEE, LLE, LLL, etc.). Our `orient2d_indirect` is
-/// exact for EEE and single-LPI combinations (LEE/ELE/EEL via orient2d_lee)
-/// but materializes for multi-LPI cases (LLE, LLL, etc.), which can produce
-/// false collinearity due to rounding.
+/// Uses orient2d_indirect which is exact for all LPI combinations
+/// (EEE, LEE, LLE, LLL) via expansion arithmetic — no materialization
+/// needed, no betweenness guard needed.
 ///
-/// When the collinearity test used materialization (≥2 non-Explicit points),
-/// we add a bounding-box betweenness check to reject false positives: points
-/// that appear collinear after rounding but lie outside the segment.
-///
-/// Ported from triangulation.cpp:1158-1169 (fastPointOnLine), hardened for
-/// approximate predicates.
+/// Ported from triangulation.cpp:1158-1169 (fastPointOnLine).
 fn fast_point_on_line(subm: &FastTrimesh, e_id: usize, p_id: usize) -> bool {
     let ev0_id = subm.edge_vert_id(e_id, 0);
     let ev1_id = subm.edge_vert_id(e_id, 1);
@@ -1541,42 +1529,7 @@ fn fast_point_on_line(subm: &FastTrimesh, e_id: usize, p_id: usize) -> bool {
         Plane::ZX => crate::boolean::indirect_predicates::ProjectionAxis::ZX,
     };
     let orient = crate::boolean::indirect_predicates::orient2d_indirect(p0, p1, pp, proj);
-    if orient != 0.0 {
-        return false;
-    }
-
-    // Count non-Explicit points. If ≥2, the orient2d used materialization
-    // fallback and the zero result may be a false positive.
-    let non_explicit_count = [p0, p1, pp]
-        .iter()
-        .filter(|p| !matches!(p, ImplicitPoint::Explicit(_)))
-        .count();
-    if non_explicit_count < 2 {
-        // orient2d was exact (EEE or single-LPI) — trust the result
-        return true;
-    }
-
-    // Betweenness guard for approximate orient2d: reject collinear points
-    // that lie outside the segment bounding box.
-    let p = subm.vert(p_id);
-    let a = subm.vert(ev0_id);
-    let b = subm.vert(ev1_id);
-    let (i, j) = match subm.ref_plane() {
-        Plane::XY => (0, 1),
-        Plane::YZ => (1, 2),
-        Plane::ZX => (2, 0),
-    };
-
-    let min_x = a[i].min(b[i]);
-    let max_x = a[i].max(b[i]);
-    let min_y = a[j].min(b[j]);
-    let max_y = a[j].max(b[j]);
-
-    // Generous tolerance for materialization rounding on segment endpoints
-    let extent = (max_x - min_x).max(max_y - min_y).max(1e-12);
-    let tol = extent * 0.01;
-
-    p[i] >= min_x - tol && p[i] <= max_x + tol && p[j] >= min_y - tol && p[j] <= max_y + tol
+    orient == 0.0
 }
 
 /// Check whether edges {e00,e01} and {e10,e11} intersect at a point
@@ -1626,9 +1579,11 @@ fn segments_intersect_inside(
 }
 
 /// Check if point p_id lies strictly inside segment (ev0_id, ev1_id).
-/// Uses orient2d_indirect for implicit points.
+/// Uses orient2d_indirect for collinearity and point_compare_on_axis for
+/// betweenness — fully exact, no materialization.
 ///
-/// Ported from triangulation.cpp:1183-1186 (pointInsideSegment)
+/// Ported from triangulation.cpp:1183-1186 (pointInsideSegment).
+/// Ref: Cherchi 2020 Section 4.3, pointInInnerSegment.
 fn point_inside_segment(subm: &FastTrimesh, ev0_id: usize, ev1_id: usize, p_id: usize) -> bool {
     let proj = match subm.ref_plane() {
         Plane::XY => crate::boolean::indirect_predicates::ProjectionAxis::XY,
@@ -1636,7 +1591,7 @@ fn point_inside_segment(subm: &FastTrimesh, ev0_id: usize, ev1_id: usize, p_id: 
         Plane::ZX => crate::boolean::indirect_predicates::ProjectionAxis::ZX,
     };
 
-    // Must be collinear
+    // Must be collinear (exact for all LPI combinations)
     let o = crate::boolean::indirect_predicates::orient2d_indirect(
         subm.implicit_point(ev0_id),
         subm.implicit_point(ev1_id),
@@ -1647,22 +1602,44 @@ fn point_inside_segment(subm: &FastTrimesh, ev0_id: usize, ev1_id: usize, p_id: 
         return false;
     }
 
-    // Must be between a and b (strictly) — use materialized coords for range check
-    let p = subm.vert(p_id);
-    let a = subm.vert(ev0_id);
-    let b = subm.vert(ev1_id);
-    let (i, j) = match subm.ref_plane() {
-        Plane::XY => (0, 1),
-        Plane::YZ => (1, 2),
-        Plane::ZX => (2, 0),
+    // Must be strictly between a and b — use indirect point comparison.
+    // Project onto dominant axis of the segment (the axis with largest spread).
+    let pa = subm.implicit_point(ev0_id);
+    let pb = subm.implicit_point(ev1_id);
+    let pp = subm.implicit_point(p_id);
+
+    let (i_axis, j_axis) = match subm.ref_plane() {
+        Plane::XY => (
+            crate::boolean::indirect_predicates::Axis::X,
+            crate::boolean::indirect_predicates::Axis::Y,
+        ),
+        Plane::YZ => (
+            crate::boolean::indirect_predicates::Axis::Y,
+            crate::boolean::indirect_predicates::Axis::Z,
+        ),
+        Plane::ZX => (
+            crate::boolean::indirect_predicates::Axis::Z,
+            crate::boolean::indirect_predicates::Axis::X,
+        ),
     };
 
-    let min_x = a[i].min(b[i]);
-    let max_x = a[i].max(b[i]);
-    let min_y = a[j].min(b[j]);
-    let max_y = a[j].max(b[j]);
+    // Check betweenness on the i-axis first
+    let cmp_ai = crate::boolean::indirect_predicates::point_compare_on_axis(pa, pp, i_axis);
+    let cmp_bi = crate::boolean::indirect_predicates::point_compare_on_axis(pb, pp, i_axis);
 
-    p[i] > min_x && p[i] < max_x || (min_x == max_x && p[j] > min_y && p[j] < max_y)
+    // If a and b differ on i-axis, p must be strictly between them
+    if cmp_ai != std::cmp::Ordering::Equal || cmp_bi != std::cmp::Ordering::Equal {
+        // p strictly between a and b on i-axis: one is Less, other is Greater
+        return (cmp_ai == std::cmp::Ordering::Less && cmp_bi == std::cmp::Ordering::Greater)
+            || (cmp_ai == std::cmp::Ordering::Greater && cmp_bi == std::cmp::Ordering::Less);
+    }
+
+    // i-axis is degenerate (a, b, p same on i-axis), check j-axis
+    let cmp_aj = crate::boolean::indirect_predicates::point_compare_on_axis(pa, pp, j_axis);
+    let cmp_bj = crate::boolean::indirect_predicates::point_compare_on_axis(pb, pp, j_axis);
+
+    (cmp_aj == std::cmp::Ordering::Less && cmp_bj == std::cmp::Ordering::Greater)
+        || (cmp_aj == std::cmp::Ordering::Greater && cmp_bj == std::cmp::Ordering::Less)
 }
 
 /// Projected inner segment cross: two segments cross strictly interior.

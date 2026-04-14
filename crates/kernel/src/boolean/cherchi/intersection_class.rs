@@ -1284,6 +1284,8 @@ fn vtx_on_a_side_and_opposite_edge_on_the_other(o: &[f64; 3]) -> Option<(usize, 
 /// Check if a point (by ID) is inside a triangle using projected 2D orientation.
 /// `strict`: if true, point must be strictly interior (not on boundary).
 ///
+/// Uses orient2d_indirect for exact handling of LPI intersection points.
+///
 /// Ported from intersection_classification.cpp:929-968 (genericPointInsideTriangle)
 fn generic_point_inside_triangle(
     ts: &TriangleSoup,
@@ -1291,17 +1293,23 @@ fn generic_point_inside_triangle(
     t_id: usize,
     strict: bool,
 ) -> bool {
-    let p = ts.vert(p_id);
-    let tv0 = ts.tri_vert(t_id, 0);
-    let tv1 = ts.tri_vert(t_id, 1);
-    let tv2 = ts.tri_vert(t_id, 2);
+    use crate::boolean::indirect_predicates::{orient2d_indirect, ProjectionAxis};
+
+    let pp = ts.implicit_point(p_id);
+    let v0 = ts.implicit_point(ts.tri_vert_id(t_id, 0));
+    let v1 = ts.implicit_point(ts.tri_vert_id(t_id, 1));
+    let v2 = ts.implicit_point(ts.tri_vert_id(t_id, 2));
 
     let plane = ts.tri_plane(t_id);
-    let (i, j) = plane_to_axes(plane);
+    let proj = match plane {
+        Plane::XY => ProjectionAxis::XY,
+        Plane::YZ => ProjectionAxis::YZ,
+        Plane::ZX => ProjectionAxis::ZX,
+    };
 
-    let o01 = orient2d([tv0[i], tv0[j]], [tv1[i], tv1[j]], [p[i], p[j]]);
-    let o12 = orient2d([tv1[i], tv1[j]], [tv2[i], tv2[j]], [p[i], p[j]]);
-    let o20 = orient2d([tv2[i], tv2[j]], [tv0[i], tv0[j]], [p[i], p[j]]);
+    let o01 = orient2d_indirect(v0, v1, pp, proj);
+    let o12 = orient2d_indirect(v1, v2, pp, proj);
+    let o20 = orient2d_indirect(v2, v0, pp, proj);
 
     if strict {
         (o01 > 0.0 && o12 > 0.0 && o20 > 0.0) || (o01 < 0.0 && o12 < 0.0 && o20 < 0.0)

@@ -972,8 +972,69 @@ fn orient2d_materialize_fallback(
 /// - Positive → d is below the plane of (a,b,c)
 /// - Negative → d is above
 /// - Zero → coplanar
-#[allow(dead_code)] // Will be used in Phase 2 cell extraction
+///
+/// Uses true indirect predicates for combinations involving LPI points,
+/// avoiding precision-losing materialization (division by d_L).
+///
+/// Ref: Cherchi 2020 Section 4.2, genericPoint::orient3D.
 pub(crate) fn orient3d_indirect(
+    a: &ImplicitPoint,
+    b: &ImplicitPoint,
+    c: &ImplicitPoint,
+    d: &ImplicitPoint,
+) -> f64 {
+    // Count LPI points and their positions to dispatch
+    let types = (
+        matches!(a, ImplicitPoint::LPI { .. }),
+        matches!(b, ImplicitPoint::LPI { .. }),
+        matches!(c, ImplicitPoint::LPI { .. }),
+        matches!(d, ImplicitPoint::LPI { .. }),
+    );
+
+    match types {
+        // EEEE: all explicit — use Shewchuk directly
+        (false, false, false, false) => {
+            let ea = match a {
+                ImplicitPoint::Explicit(e) => e,
+                _ => unreachable!(),
+            };
+            let eb = match b {
+                ImplicitPoint::Explicit(e) => e,
+                _ => unreachable!(),
+            };
+            let ec = match c {
+                ImplicitPoint::Explicit(e) => e,
+                _ => unreachable!(),
+            };
+            let ed = match d {
+                ImplicitPoint::Explicit(e) => e,
+                _ => unreachable!(),
+            };
+            geometry_predicates::orient3d(*ea, *eb, *ec, *ed)
+        }
+
+        // LEEE: one LPI + three explicit
+        (true, false, false, false) => orient3d_leee(a, b, c, d),
+        // Permutations: use orient3d antisymmetry (swap two args → negate)
+        (false, true, false, false) => -orient3d_leee(b, a, c, d),
+        (false, false, true, false) => -orient3d_leee(c, b, a, d),
+        (false, false, false, true) => -orient3d_leee(d, b, c, a),
+
+        // LLEE: two LPIs + two explicit (6 permutations)
+        (true, true, false, false) => orient3d_llee(a, b, c, d),
+        (true, false, true, false) => -orient3d_llee(a, c, b, d),
+        (true, false, false, true) => -orient3d_llee(a, d, c, b),
+        (false, true, true, false) => orient3d_llee(b, c, a, d),
+        (false, true, false, true) => orient3d_llee(b, d, a, c),
+        (false, false, true, true) => orient3d_llee(c, d, a, b),
+
+        // LLLE, LLLL: materialize fallback (TPI combinations also)
+        _ => orient3d_materialize_fallback(a, b, c, d),
+    }
+}
+
+/// Fallback: materialize implicit points and use Shewchuk orient3d.
+fn orient3d_materialize_fallback(
     a: &ImplicitPoint,
     b: &ImplicitPoint,
     c: &ImplicitPoint,
@@ -995,8 +1056,242 @@ pub(crate) fn orient3d_indirect(
         Some(c) => c,
         None => return 0.0,
     };
-
     geometry_predicates::orient3d(a_c, b_c, c_c, d_c)
+}
+
+/// True indirect orient3d for (LPI, Explicit, Explicit, Explicit).
+///
+/// The 4×4 orient3d determinant with one LPI point p_L = (λx/d, λy/d, λz/d):
+///
+/// ```text
+/// orient3d(pL, e1, e2, e3) = sign(d_L) * sign(
+///   (λx - e1x*d) * cofactor_x(e1,e2,e3)
+/// + (λy - e1y*d) * cofactor_y(e1,e2,e3)
+/// + (λz - e1z*d) * cofactor_z(e1,e2,e3)
+/// )
+/// ```
+///
+/// where cofactor_x/y/z are the 2×2 minors of the explicit-only 3×3 submatrix
+/// formed by rows (e2-e1, e3-e1).
+///
+/// Ref: Cherchi 2020 Section 4.2, orient3D_LEEE (indirect predicates C++).
+fn orient3d_leee(
+    l: &ImplicitPoint,
+    e1: &ImplicitPoint,
+    e2: &ImplicitPoint,
+    e3: &ImplicitPoint,
+) -> f64 {
+    let (q1, q2, r, s, t) = match l {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!(),
+    };
+    let e1c = match e1 {
+        ImplicitPoint::Explicit(e) => e,
+        _ => unreachable!(),
+    };
+    let e2c = match e2 {
+        ImplicitPoint::Explicit(e) => e,
+        _ => unreachable!(),
+    };
+    let e3c = match e3 {
+        ImplicitPoint::Explicit(e) => e,
+        _ => unreachable!(),
+    };
+
+    orient3d_leee_exact(q1, q2, r, s, t, e1c, e2c, e3c)
+}
+
+/// Exact orient3d_LEEE using expansion arithmetic.
+///
+/// Substitutes LPI homogeneous coords into the 4×4 orient3d determinant:
+///   Row 0: (λx/d - e1x, λy/d - e1y, λz/d - e1z)
+///   Row 1: (e2x - e1x, e2y - e1y, e2z - e1z)
+///   Row 2: (e3x - e1x, e3y - e1y, e3z - e1z)
+///
+/// Multiply through by d_L to avoid division:
+///   det_scaled = (λx - e1x*d)(cofY) - (λy - e1y*d)(cofX) + (λz - e1z*d)(cofZ)
+///   sign(orient3d) = sign(d_L) * sign(det_scaled)
+///
+/// where cofX, cofY, cofZ are the cofactors from the explicit-only rows.
+#[allow(clippy::too_many_arguments)]
+fn orient3d_leee_exact(
+    q1: &[f64; 3],
+    q2: &[f64; 3],
+    r: &[f64; 3],
+    s: &[f64; 3],
+    t: &[f64; 3],
+    e1: &[f64; 3],
+    e2: &[f64; 3],
+    e3: &[f64; 3],
+) -> f64 {
+    let (d_l_sign, d_l_exp, lx, ly, lz) = match lpi_lambda_expansion(q1, q2, r, s, t) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+
+    // Row 1: e2 - e1 (exact via two_diff)
+    let r1x = two_diff_exp(e2[0], e1[0]);
+    let r1y = two_diff_exp(e2[1], e1[1]);
+    let r1z = two_diff_exp(e2[2], e1[2]);
+
+    // Row 2: e3 - e1 (exact via two_diff)
+    let r2x = two_diff_exp(e3[0], e1[0]);
+    let r2y = two_diff_exp(e3[1], e1[1]);
+    let r2z = two_diff_exp(e3[2], e1[2]);
+
+    // Cofactors (2×2 minors of the explicit rows):
+    // cofX = r1y*r2z - r1z*r2y  (cofactor for x column)
+    // cofY = r1x*r2z - r1z*r2x  (cofactor for y column, note sign absorbed below)
+    // cofZ = r1x*r2y - r1y*r2x  (cofactor for z column)
+    let cof_x = expansion_add(
+        &expansion_mul_expansion(&r1y, &r2z),
+        &expansion_negate(&expansion_mul_expansion(&r1z, &r2y)),
+    );
+    let cof_y = expansion_add(
+        &expansion_mul_expansion(&r1x, &r2z),
+        &expansion_negate(&expansion_mul_expansion(&r1z, &r2x)),
+    );
+    let cof_z = expansion_add(
+        &expansion_mul_expansion(&r1x, &r2y),
+        &expansion_negate(&expansion_mul_expansion(&r1y, &r2x)),
+    );
+
+    // Row 0 (scaled by d_L): (λ_k - e1_k * d_L) for k in {x, y, z}
+    let p0x = expansion_add(&lx, &expansion_negate(&expansion_scale(&d_l_exp, e1[0])));
+    let p0y = expansion_add(&ly, &expansion_negate(&expansion_scale(&d_l_exp, e1[1])));
+    let p0z = expansion_add(&lz, &expansion_negate(&expansion_scale(&d_l_exp, e1[2])));
+
+    // det_scaled = p0x * cofX - p0y * cofY + p0z * cofZ
+    let term_x = expansion_mul_expansion(&p0x, &cof_x);
+    let term_y = expansion_negate(&expansion_mul_expansion(&p0y, &cof_y));
+    let term_z = expansion_mul_expansion(&p0z, &cof_z);
+
+    let det_exp = expansion_add(&expansion_add(&term_x, &term_y), &term_z);
+
+    let det_sign = expansion_sign(&det_exp);
+    (d_l_sign * det_sign) as f64
+}
+
+/// True indirect orient3d for (LPI_a, LPI_b, Explicit, Explicit).
+///
+/// Substitutes two LPI homogeneous coords into the 4×4 orient3d determinant.
+/// Multiply through by d_a * d_b to avoid division:
+///
+/// ```text
+/// Row 0: (λax - e1x*da, λay - e1y*da, λaz - e1z*da)     [scaled by da]
+/// Row 1: (λbx*da - λax*db, λby*da - λay*db, λbz*da - λaz*db)  [cross terms]
+/// Row 2: (e2x - e1x, e2y - e1y, e2z - e1z) * da * db    [scaled]
+/// ```
+///
+/// But more simply: translate so e1 is origin, scale rows by denominators.
+///
+/// Ref: Cherchi 2020 Section 4.2, orient3D_LLEE.
+fn orient3d_llee(
+    la: &ImplicitPoint,
+    lb: &ImplicitPoint,
+    e1: &ImplicitPoint,
+    e2: &ImplicitPoint,
+) -> f64 {
+    let (q1a, q2a, ra, sa, ta) = match la {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!(),
+    };
+    let (q1b, q2b, rb, sb, tb) = match lb {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!(),
+    };
+    let e1c = match e1 {
+        ImplicitPoint::Explicit(e) => e,
+        _ => unreachable!(),
+    };
+    let e2c = match e2 {
+        ImplicitPoint::Explicit(e) => e,
+        _ => unreachable!(),
+    };
+
+    orient3d_llee_exact(q1a, q2a, ra, sa, ta, q1b, q2b, rb, sb, tb, e1c, e2c)
+}
+
+/// Exact orient3d_LLEE using expansion arithmetic.
+///
+/// orient3d(La, Lb, e1, e2) with La = (λax/da, λay/da, λaz/da),
+///                                Lb = (λbx/db, λby/db, λbz/db)
+///
+/// Translate to e1 as origin. The 3×3 determinant (rows = La-e1, Lb-e1, e2-e1):
+///   det_scaled = sign(da) * sign(db) * sign(
+///     | λax-e1x*da  λay-e1y*da  λaz-e1z*da |
+///     | λbx-e1x*db  λby-e1y*db  λbz-e1z*db |
+///     | (e2x-e1x)*da*db  (e2y-e1y)*da*db  (e2z-e1z)*da*db |
+///   )
+///
+/// Since da*db multiplies the entire third row, it factors out, and its sign
+/// is already tracked by da_sign * db_sign. The determinant becomes:
+///   | p_ax  p_ay  p_az |
+///   | p_bx  p_by  p_bz |
+///   | r2x   r2y   r2z  |
+/// where p_ak = λak - e1k*da, p_bk = λbk - e1k*db, r2k = e2k - e1k.
+#[allow(clippy::too_many_arguments)]
+fn orient3d_llee_exact(
+    q1a: &[f64; 3],
+    q2a: &[f64; 3],
+    ra: &[f64; 3],
+    sa: &[f64; 3],
+    ta: &[f64; 3],
+    q1b: &[f64; 3],
+    q2b: &[f64; 3],
+    rb: &[f64; 3],
+    sb: &[f64; 3],
+    tb: &[f64; 3],
+    e1: &[f64; 3],
+    e2: &[f64; 3],
+) -> f64 {
+    let (da_sign, da_exp, lax, lay, laz) = match lpi_lambda_expansion(q1a, q2a, ra, sa, ta) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (db_sign, db_exp, lbx, lby, lbz) = match lpi_lambda_expansion(q1b, q2b, rb, sb, tb) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+
+    // Row 0: p_a = (λa - e1 * da)
+    let pax = expansion_add(&lax, &expansion_negate(&expansion_scale(&da_exp, e1[0])));
+    let pay = expansion_add(&lay, &expansion_negate(&expansion_scale(&da_exp, e1[1])));
+    let paz = expansion_add(&laz, &expansion_negate(&expansion_scale(&da_exp, e1[2])));
+
+    // Row 1: p_b = (λb - e1 * db)
+    let pbx = expansion_add(&lbx, &expansion_negate(&expansion_scale(&db_exp, e1[0])));
+    let pby = expansion_add(&lby, &expansion_negate(&expansion_scale(&db_exp, e1[1])));
+    let pbz = expansion_add(&lbz, &expansion_negate(&expansion_scale(&db_exp, e1[2])));
+
+    // Row 2: r2 = (e2 - e1) (exact via two_diff)
+    let r2x = two_diff_exp(e2[0], e1[0]);
+    let r2y = two_diff_exp(e2[1], e1[1]);
+    let r2z = two_diff_exp(e2[2], e1[2]);
+
+    // 3×3 determinant via cofactor expansion along row 2:
+    // det = r2x*(pay*pbz - paz*pby) - r2y*(pax*pbz - paz*pbx) + r2z*(pax*pby - pay*pbx)
+    let m0 = expansion_add(
+        &expansion_mul_expansion(&pay, &pbz),
+        &expansion_negate(&expansion_mul_expansion(&paz, &pby)),
+    );
+    let m1 = expansion_add(
+        &expansion_mul_expansion(&pax, &pbz),
+        &expansion_negate(&expansion_mul_expansion(&paz, &pbx)),
+    );
+    let m2 = expansion_add(
+        &expansion_mul_expansion(&pax, &pby),
+        &expansion_negate(&expansion_mul_expansion(&pay, &pbx)),
+    );
+
+    let t0 = expansion_mul_expansion(&r2x, &m0);
+    let t1 = expansion_negate(&expansion_mul_expansion(&r2y, &m1));
+    let t2 = expansion_mul_expansion(&r2z, &m2);
+
+    let det_exp = expansion_add(&expansion_add(&t0, &t1), &t2);
+
+    let det_sign = expansion_sign(&det_exp);
+    (da_sign * db_sign * det_sign) as f64
 }
 
 // ── Point comparison ─────────────────────────────────────────────────────
@@ -1068,6 +1363,24 @@ pub(crate) fn point_compare_on_axis(
             a_c[idx].total_cmp(&b_c[idx])
         }
     }
+}
+
+/// Lexicographic comparison of two implicit points (X, then Y, then Z).
+///
+/// Equivalent to Cherchi's `genericPoint::lessThan` — used for total
+/// ordering of intersection points in sorting and deduplication.
+///
+/// Ref: Cherchi 2020 Section 4.3, genericPoint::lessThan.
+pub(crate) fn less_than_indirect(a: &ImplicitPoint, b: &ImplicitPoint) -> std::cmp::Ordering {
+    let x = point_compare_on_axis(a, b, Axis::X);
+    if x != std::cmp::Ordering::Equal {
+        return x;
+    }
+    let y = point_compare_on_axis(a, b, Axis::Y);
+    if y != std::cmp::Ordering::Equal {
+        return y;
+    }
+    point_compare_on_axis(a, b, Axis::Z)
 }
 
 /// True indirect comparison: LPI.axis vs Explicit.axis, no division.
@@ -1981,6 +2294,220 @@ mod tests {
         assert_eq!(
             point_compare_on_axis(&points[2], &lpi_x3, Axis::X),
             std::cmp::Ordering::Equal
+        );
+    }
+
+    // ── Orient3d indirect oracle tests ──────────────────────────────
+
+    /// Oracle: orient3d_LEEE with LPI at origin of standard tet.
+    /// LPI: edge along Z axis through origin, plane z=0 → intersection at origin.
+    /// Validates against Shewchuk orient3d on materialized coordinates.
+    #[test]
+    fn test_oracle_orient3d_leee_origin_tet() {
+        let lpi = ImplicitPoint::LPI {
+            q1: [0.0, 0.0, -1.0],
+            q2: [0.0, 0.0, 1.0],
+            r: [1.0, 0.0, 0.0],
+            s: [0.0, 1.0, 0.0],
+            t: [-1.0, -1.0, 0.0],
+        };
+        let e1 = ImplicitPoint::Explicit([1.0, 0.0, 0.0]);
+        let e2 = ImplicitPoint::Explicit([0.0, 1.0, 0.0]);
+        let e3 = ImplicitPoint::Explicit([0.0, 0.0, 1.0]);
+        let result = orient3d_indirect(&lpi, &e1, &e2, &e3);
+        let expected = geometry_predicates::orient3d(
+            lpi.materialize().unwrap(),
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        );
+        assert_ne!(
+            result, 0.0,
+            "orient3d_LEEE origin_tet: should not be coplanar"
+        );
+        assert_eq!(
+            result.signum(),
+            expected.signum(),
+            "orient3d_LEEE origin_tet: indirect={}, shewchuk={}",
+            result,
+            expected
+        );
+    }
+
+    /// Oracle: orient3d_LEEE with unit tet reversed winding — sign should negate.
+    #[test]
+    fn test_oracle_orient3d_leee_unit_tet() {
+        let lpi = ImplicitPoint::LPI {
+            q1: [0.0, 0.0, -1.0],
+            q2: [0.0, 0.0, 1.0],
+            r: [1.0, 0.0, 0.0],
+            s: [0.0, 1.0, 0.0],
+            t: [-1.0, -1.0, 0.0],
+        };
+        let e1 = ImplicitPoint::Explicit([0.0, 1.0, 0.0]);
+        let e2 = ImplicitPoint::Explicit([1.0, 0.0, 0.0]);
+        let e3 = ImplicitPoint::Explicit([0.0, 0.0, 1.0]);
+        let result = orient3d_indirect(&lpi, &e1, &e2, &e3);
+        let expected = geometry_predicates::orient3d(
+            lpi.materialize().unwrap(),
+            [0.0, 1.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+        );
+        assert_ne!(
+            result, 0.0,
+            "orient3d_LEEE unit_tet: should not be coplanar"
+        );
+        assert_eq!(
+            result.signum(),
+            expected.signum(),
+            "orient3d_LEEE unit_tet: indirect={}, shewchuk={}",
+            result,
+            expected
+        );
+    }
+
+    /// Oracle: orient3d_LEEE coplanar case.
+    /// LPI at origin, three explicit points in z=0 plane → coplanar (0).
+    #[test]
+    fn test_oracle_orient3d_leee_coplanar() {
+        let lpi = ImplicitPoint::LPI {
+            q1: [0.0, 0.0, -1.0],
+            q2: [0.0, 0.0, 1.0],
+            r: [1.0, 0.0, 0.0],
+            s: [0.0, 1.0, 0.0],
+            t: [-1.0, -1.0, 0.0],
+        };
+        let e1 = ImplicitPoint::Explicit([1.0, 0.0, 0.0]);
+        let e2 = ImplicitPoint::Explicit([0.0, 1.0, 0.0]);
+        let e3 = ImplicitPoint::Explicit([-1.0, -1.0, 0.0]);
+        let result = orient3d_indirect(&lpi, &e1, &e2, &e3);
+        assert_eq!(
+            result, 0.0,
+            "orient3d_LEEE coplanar: expected 0, got {}",
+            result
+        );
+    }
+
+    /// Oracle: orient3d_LLEE with two LPI points.
+    /// LPI_a at origin (z-axis ∩ z=0), LPI_b at (0.5, 0.5, 0) (diagonal edge ∩ z=0).
+    /// orient3d(La, Lb, (0,0,1), (0,0,-1)) — should give well-defined sign.
+    #[test]
+    fn test_oracle_orient3d_llee_two_lpi() {
+        // LPI_a: origin (edge along z, plane z=0)
+        let lpi_a = ImplicitPoint::LPI {
+            q1: [0.0, 0.0, -1.0],
+            q2: [0.0, 0.0, 1.0],
+            r: [1.0, 0.0, 0.0],
+            s: [0.0, 1.0, 0.0],
+            t: [-1.0, -1.0, 0.0],
+        };
+        // LPI_b: edge from (1,0,-1) to (0,1,1) crossing plane z=0
+        // This edge crosses z=0 at (0.5, 0.5, 0)
+        let lpi_b = ImplicitPoint::LPI {
+            q1: [1.0, 0.0, -1.0],
+            q2: [0.0, 1.0, 1.0],
+            r: [1.0, 0.0, 0.0],
+            s: [0.0, 1.0, 0.0],
+            t: [-1.0, -1.0, 0.0],
+        };
+        let e1 = ImplicitPoint::Explicit([0.0, 0.0, 1.0]);
+        let e2 = ImplicitPoint::Explicit([0.0, 0.0, -1.0]);
+        let result = orient3d_indirect(&lpi_a, &lpi_b, &e1, &e2);
+        // Verify against materialized orient3d
+        let ma = lpi_a.materialize().unwrap();
+        let mb = lpi_b.materialize().unwrap();
+        let expected = geometry_predicates::orient3d(ma, mb, [0.0, 0.0, 1.0], [0.0, 0.0, -1.0]);
+        assert!(
+            (result > 0.0) == (expected > 0.0)
+                && (result < 0.0) == (expected < 0.0)
+                && (result == 0.0) == (expected == 0.0),
+            "orient3d_LLEE two_lpi: indirect={}, materialized={}",
+            result,
+            expected
+        );
+    }
+
+    /// Oracle: orient3d_indirect matches Shewchuk for all-Explicit inputs.
+    #[test]
+    fn test_orient3d_eeee_matches_shewchuk() {
+        let a = ImplicitPoint::Explicit([0.0, 0.0, 0.0]);
+        let b = ImplicitPoint::Explicit([1.0, 0.0, 0.0]);
+        let c = ImplicitPoint::Explicit([0.0, 1.0, 0.0]);
+        let d = ImplicitPoint::Explicit([0.0, 0.0, 1.0]);
+        let result = orient3d_indirect(&a, &b, &c, &d);
+        let expected = geometry_predicates::orient3d(
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        );
+        assert_eq!(result.signum(), expected.signum());
+    }
+
+    /// Oracle: orient3d_LEEE permutation consistency (antisymmetry).
+    /// Swapping two points should negate the result.
+    #[test]
+    fn test_orient3d_leee_antisymmetry() {
+        let lpi = ImplicitPoint::LPI {
+            q1: [0.0, 0.0, -1.0],
+            q2: [0.0, 0.0, 1.0],
+            r: [1.0, 0.0, 0.0],
+            s: [0.0, 1.0, 0.0],
+            t: [-1.0, -1.0, 0.0],
+        };
+        let e1 = ImplicitPoint::Explicit([1.0, 0.0, 0.0]);
+        let e2 = ImplicitPoint::Explicit([0.0, 1.0, 0.0]);
+        let e3 = ImplicitPoint::Explicit([0.0, 0.0, 1.0]);
+        // orient3d(L, e1, e2, e3) should negate when we swap e1 and e2
+        let fwd = orient3d_indirect(&lpi, &e1, &e2, &e3);
+        let rev = orient3d_indirect(&lpi, &e2, &e1, &e3);
+        assert_eq!(
+            fwd.signum(),
+            -rev.signum(),
+            "antisymmetry: fwd={}, rev={}",
+            fwd,
+            rev
+        );
+    }
+
+    // ── lessThan_indirect oracle tests ──────────────────────────────
+
+    /// Oracle: lessThan_LL_full — lexicographic comparison of two LPIs.
+    #[test]
+    fn test_oracle_less_than_ll_full() {
+        let r = [1.0, 0.0, 0.0];
+        let s = [0.0, 1.0, 0.0];
+        let t = [-1.0, -1.0, 0.0];
+        // LPI at origin
+        let lpi_origin = ImplicitPoint::LPI {
+            q1: [0.0, 0.0, -1.0],
+            q2: [0.0, 0.0, 1.0],
+            r,
+            s,
+            t,
+        };
+        // LPI at (1, 0, 0)
+        let lpi_x1 = ImplicitPoint::LPI {
+            q1: [1.0, 0.0, -1.0],
+            q2: [1.0, 0.0, 1.0],
+            r,
+            s,
+            t,
+        };
+        // origin < (1,0,0) lexicographically
+        assert_eq!(
+            less_than_indirect(&lpi_origin, &lpi_x1),
+            std::cmp::Ordering::Less,
+            "origin should be less than (1,0,0)"
+        );
+        assert_eq!(
+            less_than_indirect(&lpi_x1, &lpi_origin),
+            std::cmp::Ordering::Greater,
+        );
+        assert_eq!(
+            less_than_indirect(&lpi_origin, &lpi_origin),
+            std::cmp::Ordering::Equal,
         );
     }
 }
