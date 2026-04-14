@@ -664,14 +664,22 @@ fn point_in_segment_3d(p: [f64; 3], v0: [f64; 3], v1: [f64; 3]) -> bool {
 
 /// Check if two 3D segments intersect (strictly interior crossing).
 ///
-/// Ported from cinolib::segment_segment_intersect_3d (INTERSECT result)
+/// Ported from cinolib::segment_segment_intersect_3d (INTERSECT result).
+/// Two segments can only intersect in 3D if their four endpoints are coplanar.
+/// Uses Shewchuk orient3d for exact coplanarity check, then 2D crossing test.
 fn segment_segment_intersect_3d(
     a0: [f64; 3],
     a1: [f64; 3],
     b0: [f64; 3],
     b1: [f64; 3],
 ) -> SegmentIntersection {
-    // Use orient3d for coplanarity, then orient2d for crossing
+    // Coplanarity check: four points must lie in the same plane.
+    // Skew segments appear to cross in 2D projection but don't meet in 3D.
+    let coplanar = geometry_predicates::orient3d(a0, a1, b0, b1);
+    if coplanar != 0.0 {
+        return SegmentIntersection::DoNotIntersect;
+    }
+
     let d1 = [a1[0] - a0[0], a1[1] - a0[1], a1[2] - a0[2]];
     let d2 = [b1[0] - b0[0], b1[1] - b0[1], b1[2] - b0[2]];
     let cross = cross_product(&d1, &d2);

@@ -194,17 +194,9 @@ mod tests {
             .filter(|&&(a, b)| !edge_count.contains_key(&(b, a)))
             .collect();
 
-        // Known: 10 non-conformal edges with fully exact expansion predicates.
-        // The switch from det3x3_exact (f64 pre-subtraction) to
-        // det3x3_exact_pairs (two_diff exact subtraction) corrects 2 sign
-        // errors in the determinant evaluations but increases NC count
-        // because the exact predicates are now inconsistent with the
-        // still-f64 intersection detection in the pipeline. Fixing the
-        // intersection detection to also use exact arithmetic will reduce
-        // NC count further. See also constraint-segment handling gaps.
         assert!(
-            non_conformal.len() <= 10,
-            "non-conformal edges: {} (expected <= 10)",
+            non_conformal.is_empty(),
+            "non-conformal edges: {} (expected 0)",
             non_conformal.len()
         );
     }

@@ -660,10 +660,6 @@ fn add_constraint_segment(
     }
 
     // Mark the new edge as constrained.
-    // With approximate predicates, earcut may fail to produce the constraint
-    // edge (e.g., degenerate polygons from imprecise boundary walks). Skip
-    // marking rather than panicking — the downstream coplanar pocket solver
-    // uses constraint flags as hints, not hard requirements.
     if let Some(e_id) = subm.edge_id(v_start, v_stop) {
         subm.set_edge_constr(e_id);
     }
