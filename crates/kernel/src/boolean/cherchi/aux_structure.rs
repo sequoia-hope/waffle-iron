@@ -351,6 +351,21 @@ impl AuxiliaryStructure {
     pub fn get_vmap_mut(&mut self) -> &mut HashMap<[u64; 3], usize> {
         &mut self.v_map
     }
+
+    /// Number of intersecting pairs detected.
+    pub fn intersection_list_len(&self) -> usize {
+        self.intersection_list.len()
+    }
+
+    /// Count triangles that have any intersection.
+    pub fn count_tris_with_intersections(&self) -> usize {
+        self.tri_has_intersections.iter().filter(|&&b| b).count()
+    }
+
+    /// Count triangles that have coplanar neighbors.
+    pub fn count_tris_with_coplanars(&self) -> usize {
+        self.coplanar_tris.iter().filter(|v| !v.is_empty()).count()
+    }
 }
 
 /// Canonical pair: (min, max).

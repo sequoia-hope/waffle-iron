@@ -176,9 +176,11 @@ mod tests {
             r.tris.len(),
             r.coords.len()
         );
-        assert!(
-            r.tris.len() > 36,
-            "intersections should create more triangles, got {}",
+        // C++ reference produces 212 tris. Match exactly.
+        assert_eq!(
+            r.tris.len(),
+            212,
+            "expected 212 output tris (matching C++ reference), got {}",
             r.tris.len()
         );
 

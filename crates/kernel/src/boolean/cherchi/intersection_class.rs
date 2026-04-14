@@ -625,41 +625,27 @@ fn point_in_triangle_3d_classify(
 
 /// Check if a 3D point lies strictly inside a segment.
 ///
-/// Ported from cinolib::point_in_segment_3d
+/// Ported from cinolib/predicates.cpp:352-369 (point_in_segment_3d)
+/// Uses points_are_colinear_3d (all three projections) for collinearity check.
 fn point_in_segment_3d(p: [f64; 3], v0: [f64; 3], v1: [f64; 3]) -> bool {
-    // Must be collinear AND between endpoints
-    // Project onto dominant axis
-    let dx = (v1[0] - v0[0]).abs();
-    let dy = (v1[1] - v0[1]).abs();
-    let dz = (v1[2] - v0[2]).abs();
-
-    let axis = if dx >= dy && dx >= dz {
-        0
-    } else if dy >= dz {
-        1
-    } else {
-        2
-    };
-
-    let pv = p[axis];
-    let v0v = v0[axis];
-    let v1v = v1[axis];
-
-    let t_min = v0v.min(v1v);
-    let t_max = v0v.max(v1v);
-
-    // Check collinearity via orient2d on two projected planes
-    let (i, j) = match axis {
-        0 => (1, 2),
-        1 => (0, 2),
-        _ => (0, 1),
-    };
-    let o = orient2d([v0[i], v0[j]], [v1[i], v1[j]], [p[i], p[j]]);
-    if o != 0.0 {
-        return false;
+    // Check exact vertex coincidence first (matching C++ vec_equals_3d checks)
+    if points_equal(&p, &v0) || points_equal(&p, &v1) {
+        return false; // ON_VERT, not STRICTLY_INSIDE
     }
 
-    pv > t_min && pv < t_max
+    // Collinearity check on ALL THREE projections (matching C++ points_are_colinear_3d)
+    let o_xy = orient2d([v0[0], v0[1]], [v1[0], v1[1]], [p[0], p[1]]);
+    let o_xz = orient2d([v0[0], v0[2]], [v1[0], v1[2]], [p[0], p[2]]);
+    let o_yz = orient2d([v0[1], v0[2]], [v1[1], v1[2]], [p[1], p[2]]);
+
+    if o_xy != 0.0 || o_xz != 0.0 || o_yz != 0.0 {
+        return false; // not collinear
+    }
+
+    // Between-endpoints check on any axis (matching C++ OR logic)
+    (p[0] > v0[0].min(v1[0]) && p[0] < v0[0].max(v1[0]))
+        || (p[1] > v0[1].min(v1[1]) && p[1] < v0[1].max(v1[1]))
+        || (p[2] > v0[2].min(v1[2]) && p[2] < v0[2].max(v1[2]))
 }
 
 /// Check if two 3D segments intersect (strictly interior crossing).
@@ -1393,33 +1379,154 @@ fn aabb_overlap(a: &([f64; 3], [f64; 3]), b: &([f64; 3], [f64; 3])) -> bool {
 }
 
 /// Exact triangle-triangle intersection test using orient3d.
-/// Returns true if the two triangles intersect.
+/// Returns true if the two triangles properly intersect (not just a simplicial complex).
+///
+/// Matches cinolib's triangle_triangle_intersect_3d for the no-shared-vertex case
+/// (t0_count == 0). Since detect_intersections already skips shared-vertex pairs
+/// via triangles_share_vertex, we only need this path.
+///
+/// Ported from cinolib/predicates.cpp:1222-1234
 fn triangles_intersect_exact(ts: &TriangleSoup, t0: usize, t1: usize) -> bool {
-    // Classify t1 vertices against plane of t0
-    let mut o_ba = [0.0f64; 3];
-    for i in 0..3 {
-        o_ba[i] = orient3d_ts(ts, ts.tri_vert_id(t1, i), t0);
-    }
-    normalize_orientations(&mut o_ba);
+    let t0v = [ts.tri_vert(t0, 0), ts.tri_vert(t0, 1), ts.tri_vert(t0, 2)];
+    let t1v = [ts.tri_vert(t1, 0), ts.tri_vert(t1, 1), ts.tri_vert(t1, 2)];
 
-    // All on same side → no intersection
-    if same_orientation(o_ba[0], o_ba[1]) && same_orientation(o_ba[1], o_ba[2]) && o_ba[0] != 0.0 {
+    // Test each edge of t0 against triangle t1, and vice versa
+    // Ported from cinolib/predicates.cpp:1224-1232
+    for (i, j) in [(0, 1), (1, 2), (2, 0)] {
+        if detect_seg_tri_intersect(&t0v[i], &t0v[j], &t1v[0], &t1v[1], &t1v[2]) {
+            return true;
+        }
+        if detect_seg_tri_intersect(&t1v[i], &t1v[j], &t0v[0], &t0v[1], &t0v[2]) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Segment-triangle intersection for detection phase.
+/// Returns true if segment (s0,s1) properly intersects triangle (t0,t1,t2).
+/// Handles both coplanar and non-coplanar cases.
+///
+/// Ported from cinolib/predicates.cpp:806-881 (segment_triangle_intersect_3d)
+fn detect_seg_tri_intersect(
+    s0: &[f64; 3],
+    s1: &[f64; 3],
+    t0: &[f64; 3],
+    t1: &[f64; 3],
+    t2: &[f64; 3],
+) -> bool {
+    let vol_s0_t = orient3d(*s0, *t0, *t1, *t2);
+    let vol_s1_t = orient3d(*s1, *t0, *t1, *t2);
+
+    // Both endpoints on same side of triangle plane
+    if vol_s0_t > 0.0 && vol_s1_t > 0.0 {
+        return false;
+    }
+    if vol_s0_t < 0.0 && vol_s1_t < 0.0 {
         return false;
     }
 
-    // Classify t0 vertices against plane of t1
-    let mut o_ab = [0.0f64; 3];
-    for i in 0..3 {
-        o_ab[i] = orient3d_ts(ts, ts.tri_vert_id(t0, i), t1);
+    // Coplanar case
+    if vol_s0_t == 0.0 && vol_s1_t == 0.0 {
+        return detect_seg_tri_coplanar(s0, s1, t0, t1, t2);
     }
-    normalize_orientations(&mut o_ab);
 
-    if same_orientation(o_ab[0], o_ab[1]) && same_orientation(o_ab[1], o_ab[2]) && o_ab[0] != 0.0 {
+    // Segment straddles or touches the plane.
+    // Check if the intersection point lies inside the triangle.
+    // Ported from cinolib/predicates.cpp:872-880
+    let vol_s_t01 = orient3d(*s0, *s1, *t0, *t1);
+    let vol_s_t12 = orient3d(*s0, *s1, *t1, *t2);
+    let vol_s_t20 = orient3d(*s0, *s1, *t2, *t0);
+
+    if (vol_s_t01 > 0.0 && vol_s_t12 < 0.0) || (vol_s_t01 < 0.0 && vol_s_t12 > 0.0) {
+        return false;
+    }
+    if (vol_s_t12 > 0.0 && vol_s_t20 < 0.0) || (vol_s_t12 < 0.0 && vol_s_t20 > 0.0) {
+        return false;
+    }
+    if (vol_s_t20 > 0.0 && vol_s_t01 < 0.0) || (vol_s_t20 < 0.0 && vol_s_t01 > 0.0) {
         return false;
     }
 
-    // If both pass, triangles potentially intersect
     true
+}
+
+/// Coplanar segment-triangle intersection for detection phase.
+///
+/// Ported from cinolib/predicates.cpp:826-859
+fn detect_seg_tri_coplanar(
+    s0: &[f64; 3],
+    s1: &[f64; 3],
+    t0: &[f64; 3],
+    t1: &[f64; 3],
+    t2: &[f64; 3],
+) -> bool {
+    if detect_point_in_tri_3d(s0, t0, t1, t2) || detect_point_in_tri_3d(s1, t0, t1, t2) {
+        return true;
+    }
+
+    detect_seg_seg_cross_3d(s0, s1, t0, t1)
+        || detect_seg_seg_cross_3d(s0, s1, t1, t2)
+        || detect_seg_seg_cross_3d(s0, s1, t2, t0)
+}
+
+/// Test if point p is strictly inside triangle (t0,t1,t2) in 3D (for detection).
+/// Projects onto the dominant plane and tests with orient2d.
+fn detect_point_in_tri_3d(p: &[f64; 3], t0: &[f64; 3], t1: &[f64; 3], t2: &[f64; 3]) -> bool {
+    for &(a, b) in &[(0usize, 1usize), (1, 2), (0, 2)] {
+        let o0 = orient2d([t0[a], t0[b]], [t1[a], t1[b]], [p[a], p[b]]);
+        let o1 = orient2d([t1[a], t1[b]], [t2[a], t2[b]], [p[a], p[b]]);
+        let o2 = orient2d([t2[a], t2[b]], [t0[a], t0[b]], [p[a], p[b]]);
+
+        if (o0 > 0.0 && o1 > 0.0 && o2 > 0.0) || (o0 < 0.0 && o1 < 0.0 && o2 < 0.0) {
+            return true;
+        }
+        let has_pos = o0 > 0.0 || o1 > 0.0 || o2 > 0.0;
+        let has_neg = o0 < 0.0 || o1 < 0.0 || o2 < 0.0;
+        if has_pos && has_neg {
+            return false;
+        }
+    }
+    false
+}
+
+/// Test if two coplanar segments properly cross in 3D (for detection).
+fn detect_seg_seg_cross_3d(s0: &[f64; 3], s1: &[f64; 3], e0: &[f64; 3], e1: &[f64; 3]) -> bool {
+    for &(a, b) in &[(0usize, 1usize), (1, 2), (0, 2)] {
+        let s0_2d = [s0[a], s0[b]];
+        let s1_2d = [s1[a], s1[b]];
+        let e0_2d = [e0[a], e0[b]];
+        let e1_2d = [e1[a], e1[b]];
+
+        let o_s0 = orient2d(e0_2d, e1_2d, s0_2d);
+        let o_s1 = orient2d(e0_2d, e1_2d, s1_2d);
+        let o_e0 = orient2d(s0_2d, s1_2d, e0_2d);
+        let o_e1 = orient2d(s0_2d, s1_2d, e1_2d);
+
+        // Proper crossing
+        if ((o_s0 > 0.0 && o_s1 < 0.0) || (o_s0 < 0.0 && o_s1 > 0.0))
+            && ((o_e0 > 0.0 && o_e1 < 0.0) || (o_e0 < 0.0 && o_e1 > 0.0))
+        {
+            return true;
+        }
+
+        if o_s0 != 0.0 || o_s1 != 0.0 || o_e0 != 0.0 || o_e1 != 0.0 {
+            if o_s0 == 0.0 && point_on_segment_2d(&s0_2d, &e0_2d, &e1_2d) {
+                return true;
+            }
+            if o_s1 == 0.0 && point_on_segment_2d(&s1_2d, &e0_2d, &e1_2d) {
+                return true;
+            }
+            if o_e0 == 0.0 && point_on_segment_2d(&e0_2d, &s0_2d, &s1_2d) {
+                return true;
+            }
+            if o_e1 == 0.0 && point_on_segment_2d(&e1_2d, &s0_2d, &s1_2d) {
+                return true;
+            }
+            return false;
+        }
+    }
+    false
 }
 
 /// Compute approximate LPI (Line-Plane Intersection) coordinates.
