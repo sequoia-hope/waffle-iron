@@ -622,6 +622,474 @@ fn expansion_sign(e: &[f64]) -> i32 {
     0
 }
 
+// ── True indirect orient2d: LLE (degree-11) ────────────────────────────
+//
+// orient2d(LPI_a, LPI_b, Explicit_c) without materializing either LPI.
+//
+// Substitute homogeneous coords into orient2d determinant and multiply
+// through by d_a * d_b:
+//   det = (λax - cx*da)(λby - cy*db) - (λay - cy*da)(λbx - cx*db)
+// sign(orient2d) = sign(da) * sign(db) * sign(det)
+
+/// True indirect orient2d for (LPI_a, LPI_b, Explicit_c).
+fn orient2d_lle(
+    a: &ImplicitPoint,
+    b: &ImplicitPoint,
+    c: &ImplicitPoint,
+    i: usize,
+    j: usize,
+) -> f64 {
+    let (q1a, q2a, ra, sa, ta) = match a {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!(),
+    };
+    let (q1b, q2b, rb, sb, tb) = match b {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!(),
+    };
+    let ec = match c {
+        ImplicitPoint::Explicit(e) => e,
+        _ => unreachable!(),
+    };
+
+    orient2d_lle_exact(q1a, q2a, ra, sa, ta, q1b, q2b, rb, sb, tb, ec, i, j)
+}
+
+/// Exact orient2d_LLE using expansion arithmetic.
+///
+/// det = (λa_i - c_i*da)(λb_j - c_j*db) - (λa_j - c_j*da)(λb_i - c_i*db)
+/// sign(orient2d) = sign(da) * sign(db) * sign(det)
+fn orient2d_lle_exact(
+    q1a: &[f64; 3],
+    q2a: &[f64; 3],
+    ra: &[f64; 3],
+    sa: &[f64; 3],
+    ta: &[f64; 3],
+    q1b: &[f64; 3],
+    q2b: &[f64; 3],
+    rb: &[f64; 3],
+    sb: &[f64; 3],
+    tb: &[f64; 3],
+    ec: &[f64; 3],
+    i: usize,
+    j: usize,
+) -> f64 {
+    // Compute d_a, λa and d_b, λb as exact expansions
+    let da_exp = det3x3_exact(
+        q1a[0] - q2a[0],
+        q1a[1] - q2a[1],
+        q1a[2] - q2a[2],
+        sa[0] - ra[0],
+        sa[1] - ra[1],
+        sa[2] - ra[2],
+        ta[0] - ra[0],
+        ta[1] - ra[1],
+        ta[2] - ra[2],
+    );
+    let da_sign = expansion_sign(&da_exp);
+    if da_sign == 0 {
+        return 0.0;
+    }
+
+    let na_exp = det3x3_exact(
+        q1a[0] - ra[0],
+        q1a[1] - ra[1],
+        q1a[2] - ra[2],
+        sa[0] - ra[0],
+        sa[1] - ra[1],
+        sa[2] - ra[2],
+        ta[0] - ra[0],
+        ta[1] - ra[1],
+        ta[2] - ra[2],
+    );
+
+    let db_exp = det3x3_exact(
+        q1b[0] - q2b[0],
+        q1b[1] - q2b[1],
+        q1b[2] - q2b[2],
+        sb[0] - rb[0],
+        sb[1] - rb[1],
+        sb[2] - rb[2],
+        tb[0] - rb[0],
+        tb[1] - rb[1],
+        tb[2] - rb[2],
+    );
+    let db_sign = expansion_sign(&db_exp);
+    if db_sign == 0 {
+        return 0.0;
+    }
+
+    let nb_exp = det3x3_exact(
+        q1b[0] - rb[0],
+        q1b[1] - rb[1],
+        q1b[2] - rb[2],
+        sb[0] - rb[0],
+        sb[1] - rb[1],
+        sb[2] - rb[2],
+        tb[0] - rb[0],
+        tb[1] - rb[1],
+        tb[2] - rb[2],
+    );
+
+    // λa_i = da * q1a[i] + na * (q2a[i] - q1a[i])
+    let lai = expansion_add(
+        &expansion_scale(&da_exp, q1a[i]),
+        &expansion_scale(&na_exp, q2a[i] - q1a[i]),
+    );
+    let laj = expansion_add(
+        &expansion_scale(&da_exp, q1a[j]),
+        &expansion_scale(&na_exp, q2a[j] - q1a[j]),
+    );
+    let lbi = expansion_add(
+        &expansion_scale(&db_exp, q1b[i]),
+        &expansion_scale(&nb_exp, q2b[i] - q1b[i]),
+    );
+    let lbj = expansion_add(
+        &expansion_scale(&db_exp, q1b[j]),
+        &expansion_scale(&nb_exp, q2b[j] - q1b[j]),
+    );
+
+    // p1 = λa_i - c_i * da
+    let p1 = expansion_add(&lai, &expansion_negate(&expansion_scale(&da_exp, ec[i])));
+    // p2 = λb_j - c_j * db
+    let p2 = expansion_add(&lbj, &expansion_negate(&expansion_scale(&db_exp, ec[j])));
+    // p3 = λa_j - c_j * da
+    let p3 = expansion_add(&laj, &expansion_negate(&expansion_scale(&da_exp, ec[j])));
+    // p4 = λb_i - c_i * db
+    let p4 = expansion_add(&lbi, &expansion_negate(&expansion_scale(&db_exp, ec[i])));
+
+    // det = p1*p2 - p3*p4
+    let term1 = expansion_mul_expansion(&p1, &p2);
+    let term2 = expansion_mul_expansion(&p3, &p4);
+    let det_exp = expansion_add(&term1, &expansion_negate(&term2));
+
+    let det_sign = expansion_sign(&det_exp);
+    // sign(orient2d) = sign(da) * sign(db) * sign(det)
+    (da_sign * db_sign * det_sign) as f64
+}
+
+// ── True indirect orient2d: LLL (degree-14) ────────────────────────────
+//
+// orient2d(LPI_a, LPI_b, LPI_c) without materializing any LPI.
+//
+// Substitute and multiply through by da * db * dc^2:
+//   det = (λa_i*dc - λc_i*da)(λb_j*dc - λc_j*db)
+//       - (λa_j*dc - λc_j*da)(λb_i*dc - λc_i*db)
+// sign(orient2d) = sign(da) * sign(db) * sign(det)
+// (dc^2 is always positive, drops out of sign)
+
+/// True indirect orient2d for (LPI_a, LPI_b, LPI_c).
+fn orient2d_lll(
+    a: &ImplicitPoint,
+    b: &ImplicitPoint,
+    c: &ImplicitPoint,
+    i: usize,
+    j: usize,
+) -> f64 {
+    let (q1a, q2a, ra, sa, ta) = match a {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!(),
+    };
+    let (q1b, q2b, rb, sb, tb) = match b {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!(),
+    };
+    let (q1c, q2c, rc, sc, tc) = match c {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!(),
+    };
+
+    orient2d_lll_exact(
+        q1a, q2a, ra, sa, ta, q1b, q2b, rb, sb, tb, q1c, q2c, rc, sc, tc, i, j,
+    )
+}
+
+/// Exact orient2d_LLL using expansion arithmetic.
+#[allow(clippy::too_many_arguments)]
+fn orient2d_lll_exact(
+    q1a: &[f64; 3],
+    q2a: &[f64; 3],
+    ra: &[f64; 3],
+    sa: &[f64; 3],
+    ta: &[f64; 3],
+    q1b: &[f64; 3],
+    q2b: &[f64; 3],
+    rb: &[f64; 3],
+    sb: &[f64; 3],
+    tb: &[f64; 3],
+    q1c: &[f64; 3],
+    q2c: &[f64; 3],
+    rc: &[f64; 3],
+    sc: &[f64; 3],
+    tc: &[f64; 3],
+    i: usize,
+    j: usize,
+) -> f64 {
+    // d_a, n_a
+    let da_exp = det3x3_exact(
+        q1a[0] - q2a[0],
+        q1a[1] - q2a[1],
+        q1a[2] - q2a[2],
+        sa[0] - ra[0],
+        sa[1] - ra[1],
+        sa[2] - ra[2],
+        ta[0] - ra[0],
+        ta[1] - ra[1],
+        ta[2] - ra[2],
+    );
+    let da_sign = expansion_sign(&da_exp);
+    if da_sign == 0 {
+        return 0.0;
+    }
+
+    let na_exp = det3x3_exact(
+        q1a[0] - ra[0],
+        q1a[1] - ra[1],
+        q1a[2] - ra[2],
+        sa[0] - ra[0],
+        sa[1] - ra[1],
+        sa[2] - ra[2],
+        ta[0] - ra[0],
+        ta[1] - ra[1],
+        ta[2] - ra[2],
+    );
+
+    // d_b, n_b
+    let db_exp = det3x3_exact(
+        q1b[0] - q2b[0],
+        q1b[1] - q2b[1],
+        q1b[2] - q2b[2],
+        sb[0] - rb[0],
+        sb[1] - rb[1],
+        sb[2] - rb[2],
+        tb[0] - rb[0],
+        tb[1] - rb[1],
+        tb[2] - rb[2],
+    );
+    let db_sign = expansion_sign(&db_exp);
+    if db_sign == 0 {
+        return 0.0;
+    }
+
+    let nb_exp = det3x3_exact(
+        q1b[0] - rb[0],
+        q1b[1] - rb[1],
+        q1b[2] - rb[2],
+        sb[0] - rb[0],
+        sb[1] - rb[1],
+        sb[2] - rb[2],
+        tb[0] - rb[0],
+        tb[1] - rb[1],
+        tb[2] - rb[2],
+    );
+
+    // d_c, n_c
+    let dc_exp = det3x3_exact(
+        q1c[0] - q2c[0],
+        q1c[1] - q2c[1],
+        q1c[2] - q2c[2],
+        sc[0] - rc[0],
+        sc[1] - rc[1],
+        sc[2] - rc[2],
+        tc[0] - rc[0],
+        tc[1] - rc[1],
+        tc[2] - rc[2],
+    );
+    let dc_sign = expansion_sign(&dc_exp);
+    if dc_sign == 0 {
+        return 0.0;
+    }
+
+    let nc_exp = det3x3_exact(
+        q1c[0] - rc[0],
+        q1c[1] - rc[1],
+        q1c[2] - rc[2],
+        sc[0] - rc[0],
+        sc[1] - rc[1],
+        sc[2] - rc[2],
+        tc[0] - rc[0],
+        tc[1] - rc[1],
+        tc[2] - rc[2],
+    );
+
+    // λ values
+    let lai = expansion_add(
+        &expansion_scale(&da_exp, q1a[i]),
+        &expansion_scale(&na_exp, q2a[i] - q1a[i]),
+    );
+    let laj = expansion_add(
+        &expansion_scale(&da_exp, q1a[j]),
+        &expansion_scale(&na_exp, q2a[j] - q1a[j]),
+    );
+    let lbi = expansion_add(
+        &expansion_scale(&db_exp, q1b[i]),
+        &expansion_scale(&nb_exp, q2b[i] - q1b[i]),
+    );
+    let lbj = expansion_add(
+        &expansion_scale(&db_exp, q1b[j]),
+        &expansion_scale(&nb_exp, q2b[j] - q1b[j]),
+    );
+    let lci = expansion_add(
+        &expansion_scale(&dc_exp, q1c[i]),
+        &expansion_scale(&nc_exp, q2c[i] - q1c[i]),
+    );
+    let lcj = expansion_add(
+        &expansion_scale(&dc_exp, q1c[j]),
+        &expansion_scale(&nc_exp, q2c[j] - q1c[j]),
+    );
+
+    // p1 = λa_i*dc - λc_i*da
+    let p1 = expansion_add(
+        &expansion_mul_expansion(&lai, &dc_exp),
+        &expansion_negate(&expansion_mul_expansion(&lci, &da_exp)),
+    );
+    // p2 = λb_j*dc - λc_j*db
+    let p2 = expansion_add(
+        &expansion_mul_expansion(&lbj, &dc_exp),
+        &expansion_negate(&expansion_mul_expansion(&lcj, &db_exp)),
+    );
+    // p3 = λa_j*dc - λc_j*da
+    let p3 = expansion_add(
+        &expansion_mul_expansion(&laj, &dc_exp),
+        &expansion_negate(&expansion_mul_expansion(&lcj, &da_exp)),
+    );
+    // p4 = λb_i*dc - λc_i*db
+    let p4 = expansion_add(
+        &expansion_mul_expansion(&lbi, &dc_exp),
+        &expansion_negate(&expansion_mul_expansion(&lci, &db_exp)),
+    );
+
+    // det = p1*p2 - p3*p4
+    let term1 = expansion_mul_expansion(&p1, &p2);
+    let term2 = expansion_mul_expansion(&p3, &p4);
+    let det_exp = expansion_add(&term1, &expansion_negate(&term2));
+
+    let det_sign = expansion_sign(&det_exp);
+    // sign(orient2d) = sign(da) * sign(db) * sign(det)
+    // dc^2 is always positive, drops out
+    (da_sign * db_sign * det_sign) as f64
+}
+
+// ── True indirect point comparison: LL ──────────────────────────────────
+//
+// Compare two LPI points on a single axis without materializing:
+//   LPI_a[idx] = λa[idx] / da  vs  LPI_b[idx] = λb[idx] / db
+//   sign(diff) = sign(da) * sign(db) * sign(λa[idx]*db - λb[idx]*da)
+
+/// True indirect comparison: LPI_a vs LPI_b on a single axis.
+fn point_compare_ll(
+    q1a: &[f64; 3],
+    q2a: &[f64; 3],
+    ra: &[f64; 3],
+    sa: &[f64; 3],
+    ta: &[f64; 3],
+    q1b: &[f64; 3],
+    q2b: &[f64; 3],
+    rb: &[f64; 3],
+    sb: &[f64; 3],
+    tb: &[f64; 3],
+    idx: usize,
+) -> std::cmp::Ordering {
+    point_compare_ll_exact(q1a, q2a, ra, sa, ta, q1b, q2b, rb, sb, tb, idx)
+}
+
+/// Exact LL point comparison using expansion arithmetic.
+fn point_compare_ll_exact(
+    q1a: &[f64; 3],
+    q2a: &[f64; 3],
+    ra: &[f64; 3],
+    sa: &[f64; 3],
+    ta: &[f64; 3],
+    q1b: &[f64; 3],
+    q2b: &[f64; 3],
+    rb: &[f64; 3],
+    sb: &[f64; 3],
+    tb: &[f64; 3],
+    idx: usize,
+) -> std::cmp::Ordering {
+    let da_exp = det3x3_exact(
+        q1a[0] - q2a[0],
+        q1a[1] - q2a[1],
+        q1a[2] - q2a[2],
+        sa[0] - ra[0],
+        sa[1] - ra[1],
+        sa[2] - ra[2],
+        ta[0] - ra[0],
+        ta[1] - ra[1],
+        ta[2] - ra[2],
+    );
+    let da_sign = expansion_sign(&da_exp);
+    if da_sign == 0 {
+        return std::cmp::Ordering::Equal;
+    }
+
+    let na_exp = det3x3_exact(
+        q1a[0] - ra[0],
+        q1a[1] - ra[1],
+        q1a[2] - ra[2],
+        sa[0] - ra[0],
+        sa[1] - ra[1],
+        sa[2] - ra[2],
+        ta[0] - ra[0],
+        ta[1] - ra[1],
+        ta[2] - ra[2],
+    );
+
+    let db_exp = det3x3_exact(
+        q1b[0] - q2b[0],
+        q1b[1] - q2b[1],
+        q1b[2] - q2b[2],
+        sb[0] - rb[0],
+        sb[1] - rb[1],
+        sb[2] - rb[2],
+        tb[0] - rb[0],
+        tb[1] - rb[1],
+        tb[2] - rb[2],
+    );
+    let db_sign = expansion_sign(&db_exp);
+    if db_sign == 0 {
+        return std::cmp::Ordering::Equal;
+    }
+
+    let nb_exp = det3x3_exact(
+        q1b[0] - rb[0],
+        q1b[1] - rb[1],
+        q1b[2] - rb[2],
+        sb[0] - rb[0],
+        sb[1] - rb[1],
+        sb[2] - rb[2],
+        tb[0] - rb[0],
+        tb[1] - rb[1],
+        tb[2] - rb[2],
+    );
+
+    // λa[idx] = da * q1a[idx] + na * (q2a[idx] - q1a[idx])
+    let la = expansion_add(
+        &expansion_scale(&da_exp, q1a[idx]),
+        &expansion_scale(&na_exp, q2a[idx] - q1a[idx]),
+    );
+    // λb[idx] = db * q1b[idx] + nb * (q2b[idx] - q1b[idx])
+    let lb = expansion_add(
+        &expansion_scale(&db_exp, q1b[idx]),
+        &expansion_scale(&nb_exp, q2b[idx] - q1b[idx]),
+    );
+
+    // diff = λa[idx]*db - λb[idx]*da
+    let diff_exp = expansion_add(
+        &expansion_mul_expansion(&la, &db_exp),
+        &expansion_negate(&expansion_mul_expansion(&lb, &da_exp)),
+    );
+
+    let diff_sign = expansion_sign(&diff_exp);
+    // sign(LPI_a - LPI_b) = sign(da) * sign(db) * sign(diff)
+    let combined = da_sign * db_sign * diff_sign;
+    match combined {
+        x if x > 0 => std::cmp::Ordering::Greater,
+        x if x < 0 => std::cmp::Ordering::Less,
+        _ => std::cmp::Ordering::Equal,
+    }
+}
+
 // ── Orient2d dispatch ───────────────────────────────────────────────────
 
 /// Orient2d for implicit points projected onto a coordinate plane.
@@ -676,6 +1144,23 @@ pub(crate) fn orient2d_indirect(
         // EEE: all explicit — use Shewchuk directly
         (ImplicitPoint::Explicit(ea), ImplicitPoint::Explicit(eb), ImplicitPoint::Explicit(ec)) => {
             geometry_predicates::orient2d([ea[i], ea[j]], [eb[i], eb[j]], [ec[i], ec[j]])
+        }
+
+        // LLE: two LPIs + one explicit
+        (ImplicitPoint::LPI { .. }, ImplicitPoint::LPI { .. }, ImplicitPoint::Explicit(_)) => {
+            orient2d_lle(a, b, c, i, j)
+        }
+        // LLE permutations via antisymmetry
+        (ImplicitPoint::LPI { .. }, ImplicitPoint::Explicit(_), ImplicitPoint::LPI { .. }) => {
+            -orient2d_lle(a, c, b, i, j) // swap b,c → negate
+        }
+        (ImplicitPoint::Explicit(_), ImplicitPoint::LPI { .. }, ImplicitPoint::LPI { .. }) => {
+            orient2d_lle(b, c, a, i, j) // rotate: (E,L,L) → orient2d(L,L,E)
+        }
+
+        // LLL: three LPIs
+        (ImplicitPoint::LPI { .. }, ImplicitPoint::LPI { .. }, ImplicitPoint::LPI { .. }) => {
+            orient2d_lll(a, b, c, i, j)
         }
 
         // All other combinations: materialize and delegate
@@ -779,6 +1264,24 @@ pub(crate) fn point_compare_on_axis(
         (ImplicitPoint::Explicit(e), ImplicitPoint::LPI { q1, q2, r, s, t }) => {
             point_compare_le(q1, q2, r, s, t, e, idx).reverse()
         }
+
+        // LL: two LPIs — true indirect comparison
+        (
+            ImplicitPoint::LPI {
+                q1: q1a,
+                q2: q2a,
+                r: ra,
+                s: sa,
+                t: ta,
+            },
+            ImplicitPoint::LPI {
+                q1: q1b,
+                q2: q2b,
+                r: rb,
+                s: sb,
+                t: tb,
+            },
+        ) => point_compare_ll(q1a, q2a, ra, sa, ta, q1b, q2b, rb, sb, tb, idx),
 
         // All others: materialize fallback
         _ => {
@@ -1261,8 +1764,11 @@ mod tests {
     #[test]
     fn test_oracle_lpi_materialize_origin() {
         let lpi = ImplicitPoint::LPI {
-            q1: [0.0, 0.0, -1.0], q2: [0.0, 0.0, 1.0],
-            r: [1.0, 0.0, 0.0], s: [0.0, 1.0, 0.0], t: [-1.0, -1.0, 0.0],
+            q1: [0.0, 0.0, -1.0],
+            q2: [0.0, 0.0, 1.0],
+            r: [1.0, 0.0, 0.0],
+            s: [0.0, 1.0, 0.0],
+            t: [-1.0, -1.0, 0.0],
         };
         let m = lpi.materialize().expect("should materialize");
         assert!((m[0]).abs() < 1e-12, "x should be 0, got {}", m[0]);
@@ -1274,8 +1780,11 @@ mod tests {
     #[test]
     fn test_oracle_lpi_materialize_unit() {
         let lpi = ImplicitPoint::LPI {
-            q1: [1.0, 1.0, 0.0], q2: [1.0, 1.0, 2.0],
-            r: [0.0, 0.0, 1.0], s: [10.0, 0.0, 1.0], t: [0.0, 10.0, 1.0],
+            q1: [1.0, 1.0, 0.0],
+            q2: [1.0, 1.0, 2.0],
+            r: [0.0, 0.0, 1.0],
+            s: [10.0, 0.0, 1.0],
+            t: [0.0, 10.0, 1.0],
         };
         let m = lpi.materialize().expect("should materialize");
         assert!((m[0] - 1.0).abs() < 1e-12, "x should be 1, got {}", m[0]);
@@ -1287,82 +1796,451 @@ mod tests {
     #[test]
     fn test_oracle_orient2d_lee_xy_origin() {
         let lpi = ImplicitPoint::LPI {
-            q1: [0.0, 0.0, -1.0], q2: [0.0, 0.0, 1.0],
-            r: [1.0, 0.0, 0.0], s: [0.0, 1.0, 0.0], t: [-1.0, -1.0, 0.0],
+            q1: [0.0, 0.0, -1.0],
+            q2: [0.0, 0.0, 1.0],
+            r: [1.0, 0.0, 0.0],
+            s: [0.0, 1.0, 0.0],
+            t: [-1.0, -1.0, 0.0],
         };
         let e1 = ImplicitPoint::Explicit([1.0, 0.0, 0.0]);
         let e2 = ImplicitPoint::Explicit([0.0, 1.0, 0.0]);
         let result = orient2d_indirect(&lpi, &e1, &e2, ProjectionAxis::XY);
         // C++ oracle: xy=1
-        assert!(result > 0.0, "orient2d_LEE XY should be positive (CCW), got {}", result);
+        assert!(
+            result > 0.0,
+            "orient2d_LEE XY should be positive (CCW), got {}",
+            result
+        );
     }
 
     /// Validate orient2d_LEE XY: LPI at (1,1,1) + (0.5,0.5,1) + (2,0.5,1) → +1
     #[test]
     fn test_oracle_orient2d_lee_xy_unit() {
         let lpi = ImplicitPoint::LPI {
-            q1: [1.0, 1.0, 0.0], q2: [1.0, 1.0, 2.0],
-            r: [0.0, 0.0, 1.0], s: [10.0, 0.0, 1.0], t: [0.0, 10.0, 1.0],
+            q1: [1.0, 1.0, 0.0],
+            q2: [1.0, 1.0, 2.0],
+            r: [0.0, 0.0, 1.0],
+            s: [10.0, 0.0, 1.0],
+            t: [0.0, 10.0, 1.0],
         };
         let e1 = ImplicitPoint::Explicit([0.5, 0.5, 1.0]);
         let e2 = ImplicitPoint::Explicit([2.0, 0.5, 1.0]);
         let result = orient2d_indirect(&lpi, &e1, &e2, ProjectionAxis::XY);
         // C++ oracle: xy=1
-        assert!(result > 0.0, "orient2d_LEE XY should be positive, got {}", result);
+        assert!(
+            result > 0.0,
+            "orient2d_LEE XY should be positive, got {}",
+            result
+        );
     }
 
     /// Validate orient2d_LEE near-degenerate: LPI near-origin on XY, collinear with ±x → 0
     #[test]
     fn test_oracle_orient2d_lee_collinear() {
         let lpi = ImplicitPoint::LPI {
-            q1: [0.0, 0.0, -1e-15], q2: [0.0, 0.0, 1e-15],
-            r: [1.0, 0.0, 0.0], s: [0.0, 1.0, 0.0], t: [-1.0, -1.0, 0.0],
+            q1: [0.0, 0.0, -1e-15],
+            q2: [0.0, 0.0, 1e-15],
+            r: [1.0, 0.0, 0.0],
+            s: [0.0, 1.0, 0.0],
+            t: [-1.0, -1.0, 0.0],
         };
         let e1 = ImplicitPoint::Explicit([1.0, 0.0, 0.0]);
         let e2 = ImplicitPoint::Explicit([-1.0, 0.0, 0.0]);
         let result = orient2d_indirect(&lpi, &e1, &e2, ProjectionAxis::XY);
         // C++ oracle: xy=0 (collinear)
-        assert_eq!(result, 0.0, "orient2d_LEE XY should be 0 (collinear), got {}", result);
+        assert_eq!(
+            result, 0.0,
+            "orient2d_LEE XY should be 0 (collinear), got {}",
+            result
+        );
     }
 
     /// Validate lessThanOnX: LPI at origin vs (0.5,0.5,0.5) → -1 (LPI < explicit)
     #[test]
     fn test_oracle_less_than_le_origin() {
         let lpi = ImplicitPoint::LPI {
-            q1: [0.0, 0.0, -1.0], q2: [0.0, 0.0, 1.0],
-            r: [1.0, 0.0, 0.0], s: [0.0, 1.0, 0.0], t: [-1.0, -1.0, 0.0],
+            q1: [0.0, 0.0, -1.0],
+            q2: [0.0, 0.0, 1.0],
+            r: [1.0, 0.0, 0.0],
+            s: [0.0, 1.0, 0.0],
+            t: [-1.0, -1.0, 0.0],
         };
         let e = ImplicitPoint::Explicit([0.5, 0.5, 0.5]);
         // C++ oracle: lx=-1 (LPI.x=0 < 0.5)
         let cmp = point_compare_on_axis(&lpi, &e, Axis::X);
-        assert_eq!(cmp, std::cmp::Ordering::Less, "LPI at x=0 should be < explicit at x=0.5");
+        assert_eq!(
+            cmp,
+            std::cmp::Ordering::Less,
+            "LPI at x=0 should be < explicit at x=0.5"
+        );
     }
 
     /// Validate lessThan: LPI at (1,1,1) vs (1,1,1) → 0 (equal)
     #[test]
     fn test_oracle_less_than_le_equal() {
         let lpi = ImplicitPoint::LPI {
-            q1: [1.0, 1.0, 0.0], q2: [1.0, 1.0, 2.0],
-            r: [0.0, 0.0, 1.0], s: [10.0, 0.0, 1.0], t: [0.0, 10.0, 1.0],
+            q1: [1.0, 1.0, 0.0],
+            q2: [1.0, 1.0, 2.0],
+            r: [0.0, 0.0, 1.0],
+            s: [10.0, 0.0, 1.0],
+            t: [0.0, 10.0, 1.0],
         };
         let e = ImplicitPoint::Explicit([1.0, 1.0, 1.0]);
         // C++ oracle: lx=0, ly=0, lz=0, lt=0 (equal on all axes)
-        assert_eq!(point_compare_on_axis(&lpi, &e, Axis::X), std::cmp::Ordering::Equal);
-        assert_eq!(point_compare_on_axis(&lpi, &e, Axis::Y), std::cmp::Ordering::Equal);
-        assert_eq!(point_compare_on_axis(&lpi, &e, Axis::Z), std::cmp::Ordering::Equal);
+        assert_eq!(
+            point_compare_on_axis(&lpi, &e, Axis::X),
+            std::cmp::Ordering::Equal
+        );
+        assert_eq!(
+            point_compare_on_axis(&lpi, &e, Axis::Y),
+            std::cmp::Ordering::Equal
+        );
+        assert_eq!(
+            point_compare_on_axis(&lpi, &e, Axis::Z),
+            std::cmp::Ordering::Equal
+        );
     }
 
     /// Validate orient2d_LEE: box-box intersection case (C++ oracle: xy=-1)
     #[test]
     fn test_oracle_orient2d_lee_box_intersection() {
         let lpi = ImplicitPoint::LPI {
-            q1: [2.0, 0.0, -1.0], q2: [2.0, 0.0, 1.0],
-            r: [1.0, 0.0, 0.0], s: [3.0, 0.0, 0.0], t: [3.0, 2.0, 0.0],
+            q1: [2.0, 0.0, -1.0],
+            q2: [2.0, 0.0, 1.0],
+            r: [1.0, 0.0, 0.0],
+            s: [3.0, 0.0, 0.0],
+            t: [3.0, 2.0, 0.0],
         };
         let e1 = ImplicitPoint::Explicit([1.0, 0.0, 0.0]);
         let e2 = ImplicitPoint::Explicit([3.0, 2.0, 0.0]);
         let result = orient2d_indirect(&lpi, &e1, &e2, ProjectionAxis::XY);
         // C++ oracle: xy=-1
-        assert!(result < 0.0, "orient2d_LEE XY for box case should be negative, got {}", result);
+        assert!(
+            result < 0.0,
+            "orient2d_LEE XY for box case should be negative, got {}",
+            result
+        );
+    }
+
+    // ── LLE oracle tests ────────────────────────────────────────────
+
+    /// Validate orient2d_LLE: two LPIs at z-crossings + explicit point.
+    #[test]
+    fn test_oracle_orient2d_lle_two_z_crossings() {
+        let r = [1.0, 0.0, 0.0];
+        let s = [0.0, 1.0, 0.0];
+        let t = [-1.0, -1.0, 0.0];
+        let lpi1 = ImplicitPoint::LPI {
+            q1: [0.0, 0.0, -1.0],
+            q2: [0.0, 0.0, 1.0],
+            r,
+            s,
+            t,
+        };
+        let lpi2 = ImplicitPoint::LPI {
+            q1: [1.0, 0.0, -1.0],
+            q2: [1.0, 0.0, 1.0],
+            r,
+            s,
+            t,
+        };
+        let e = ImplicitPoint::Explicit([0.5, 1.0, 0.0]);
+        let result = orient2d_indirect(&lpi1, &lpi2, &e, ProjectionAxis::XY);
+        assert!(
+            result > 0.0,
+            "LLE xy should be positive (oracle=1), got {}",
+            result
+        );
+    }
+
+    /// Validate orient2d_LLE agrees with materialized orient2d.
+    #[test]
+    fn test_oracle_orient2d_lle_matches_materialized() {
+        let r = [1.0, 0.0, 0.0];
+        let s = [0.0, 1.0, 0.0];
+        let t = [-1.0, -1.0, 0.0];
+        let lpi1 = ImplicitPoint::LPI {
+            q1: [0.3, 0.2, -1.0],
+            q2: [0.3, 0.2, 1.0],
+            r,
+            s,
+            t,
+        };
+        let lpi2 = ImplicitPoint::LPI {
+            q1: [0.7, 0.1, -1.0],
+            q2: [0.7, 0.1, 1.0],
+            r,
+            s,
+            t,
+        };
+        let e = ImplicitPoint::Explicit([0.5, 0.5, 0.0]);
+
+        let indirect = orient2d_indirect(&lpi1, &lpi2, &e, ProjectionAxis::XY);
+        let m1 = lpi1.materialize().unwrap();
+        let m2 = lpi2.materialize().unwrap();
+        let direct = geometry_predicates::orient2d([m1[0], m1[1]], [m2[0], m2[1]], [0.5, 0.5]);
+        assert_eq!(
+            indirect.signum(),
+            direct.signum(),
+            "LLE indirect={indirect} vs materialized={direct}"
+        );
+    }
+
+    /// Validate orient2d_LLE permutations via antisymmetry.
+    #[test]
+    fn test_oracle_orient2d_lle_permutations() {
+        let r = [1.0, 0.0, 0.0];
+        let s = [0.0, 1.0, 0.0];
+        let t = [-1.0, -1.0, 0.0];
+        let l1 = ImplicitPoint::LPI {
+            q1: [0.0, 0.0, -1.0],
+            q2: [0.0, 0.0, 1.0],
+            r,
+            s,
+            t,
+        };
+        let l2 = ImplicitPoint::LPI {
+            q1: [1.0, 0.0, -1.0],
+            q2: [1.0, 0.0, 1.0],
+            r,
+            s,
+            t,
+        };
+        let e = ImplicitPoint::Explicit([0.5, 1.0, 0.0]);
+
+        let lle = orient2d_indirect(&l1, &l2, &e, ProjectionAxis::XY);
+        let lel = orient2d_indirect(&l1, &e, &l2, ProjectionAxis::XY);
+        let ell = orient2d_indirect(&e, &l1, &l2, ProjectionAxis::XY);
+
+        // swap b,c → negate
+        assert_eq!(
+            lle.signum(),
+            -lel.signum(),
+            "LLE and LEL should have opposite signs: lle={lle}, lel={lel}"
+        );
+        // cyclic permutation preserves sign
+        assert_eq!(
+            lle.signum(),
+            ell.signum(),
+            "LLE and ELL should have same sign: lle={lle}, ell={ell}"
+        );
+    }
+
+    // ── LLL oracle tests ────────────────────────────────────────────
+
+    /// Validate orient2d_LLL: three LPIs at z-crossings.
+    #[test]
+    fn test_oracle_orient2d_lll_three_z_crossings() {
+        let r = [1.0, 0.0, 0.0];
+        let s = [0.0, 1.0, 0.0];
+        let t = [-1.0, -1.0, 0.0];
+        let lpi1 = ImplicitPoint::LPI {
+            q1: [0.0, 0.0, -1.0],
+            q2: [0.0, 0.0, 1.0],
+            r,
+            s,
+            t,
+        };
+        let lpi2 = ImplicitPoint::LPI {
+            q1: [1.0, 0.0, -1.0],
+            q2: [1.0, 0.0, 1.0],
+            r,
+            s,
+            t,
+        };
+        let lpi3 = ImplicitPoint::LPI {
+            q1: [0.0, 1.0, -1.0],
+            q2: [0.0, 1.0, 1.0],
+            r,
+            s,
+            t,
+        };
+        let result = orient2d_indirect(&lpi1, &lpi2, &lpi3, ProjectionAxis::XY);
+        assert!(
+            result > 0.0,
+            "LLL xy should be positive (oracle=1), got {}",
+            result
+        );
+    }
+
+    /// Validate orient2d_LLL: collinear case → 0.
+    #[test]
+    fn test_oracle_orient2d_lll_collinear() {
+        let r = [1.0, 0.0, 0.0];
+        let s = [0.0, 1.0, 0.0];
+        let t = [-1.0, -1.0, 0.0];
+        let lpi1 = ImplicitPoint::LPI {
+            q1: [0.0, 0.0, -1.0],
+            q2: [0.0, 0.0, 1.0],
+            r,
+            s,
+            t,
+        };
+        let lpi2 = ImplicitPoint::LPI {
+            q1: [2.0, 0.0, -1.0],
+            q2: [2.0, 0.0, 1.0],
+            r,
+            s,
+            t,
+        };
+        let lpi3 = ImplicitPoint::LPI {
+            q1: [4.0, 0.0, -1.0],
+            q2: [4.0, 0.0, 1.0],
+            r,
+            s,
+            t,
+        };
+        let result = orient2d_indirect(&lpi1, &lpi2, &lpi3, ProjectionAxis::XY);
+        assert_eq!(result, 0.0, "LLL collinear xy should be 0, got {}", result);
+    }
+
+    /// Validate orient2d_LLL matches materialized.
+    #[test]
+    fn test_oracle_orient2d_lll_matches_materialized() {
+        let r = [1.0, 0.0, 0.0];
+        let s = [0.0, 1.0, 0.0];
+        let t = [-1.0, -1.0, 0.0];
+        let lpi1 = ImplicitPoint::LPI {
+            q1: [0.3, 0.2, -1.0],
+            q2: [0.3, 0.2, 1.0],
+            r,
+            s,
+            t,
+        };
+        let lpi2 = ImplicitPoint::LPI {
+            q1: [0.7, 0.1, -1.0],
+            q2: [0.7, 0.1, 1.0],
+            r,
+            s,
+            t,
+        };
+        let lpi3 = ImplicitPoint::LPI {
+            q1: [0.1, 0.8, -1.0],
+            q2: [0.1, 0.8, 1.0],
+            r,
+            s,
+            t,
+        };
+
+        let indirect = orient2d_indirect(&lpi1, &lpi2, &lpi3, ProjectionAxis::XY);
+        let m1 = lpi1.materialize().unwrap();
+        let m2 = lpi2.materialize().unwrap();
+        let m3 = lpi3.materialize().unwrap();
+        let direct = geometry_predicates::orient2d([m1[0], m1[1]], [m2[0], m2[1]], [m3[0], m3[1]]);
+        assert_eq!(
+            indirect.signum(),
+            direct.signum(),
+            "LLL indirect={indirect} vs materialized={direct}"
+        );
+    }
+
+    // ── LL point_compare oracle tests ───────────────────────────────
+
+    /// Validate point_compare_LL: LPI at origin vs LPI at (1,0,0).
+    #[test]
+    fn test_oracle_point_compare_ll() {
+        let r = [1.0, 0.0, 0.0];
+        let s = [0.0, 1.0, 0.0];
+        let t = [-1.0, -1.0, 0.0];
+        let lpi1 = ImplicitPoint::LPI {
+            q1: [0.0, 0.0, -1.0],
+            q2: [0.0, 0.0, 1.0],
+            r,
+            s,
+            t,
+        };
+        let lpi2 = ImplicitPoint::LPI {
+            q1: [1.0, 0.0, -1.0],
+            q2: [1.0, 0.0, 1.0],
+            r,
+            s,
+            t,
+        };
+        assert_eq!(
+            point_compare_on_axis(&lpi1, &lpi2, Axis::X),
+            std::cmp::Ordering::Less
+        );
+        assert_eq!(
+            point_compare_on_axis(&lpi1, &lpi2, Axis::Y),
+            std::cmp::Ordering::Equal
+        );
+    }
+
+    /// Validate point_compare_LL: same geometric point from different edges.
+    #[test]
+    fn test_oracle_point_compare_ll_same_point() {
+        let r = [1.0, 0.0, 0.0];
+        let s = [0.0, 1.0, 0.0];
+        let t = [-1.0, -1.0, 0.0];
+        let lpi1 = ImplicitPoint::LPI {
+            q1: [0.0, 0.0, -1.0],
+            q2: [0.0, 0.0, 1.0],
+            r,
+            s,
+            t,
+        };
+        let lpi2 = ImplicitPoint::LPI {
+            q1: [0.0, 0.0, -2.0],
+            q2: [0.0, 0.0, 2.0],
+            r,
+            s,
+            t,
+        };
+        assert_eq!(
+            point_compare_on_axis(&lpi1, &lpi2, Axis::X),
+            std::cmp::Ordering::Equal
+        );
+        assert_eq!(
+            point_compare_on_axis(&lpi1, &lpi2, Axis::Y),
+            std::cmp::Ordering::Equal
+        );
+        assert_eq!(
+            point_compare_on_axis(&lpi1, &lpi2, Axis::Z),
+            std::cmp::Ordering::Equal
+        );
+    }
+
+    /// Validate point_compare_LL: sorting three LPIs by X.
+    #[test]
+    fn test_oracle_point_compare_ll_sorting() {
+        let r = [1.0, 0.0, 0.0];
+        let s = [0.0, 1.0, 0.0];
+        let t = [-1.0, -1.0, 0.0];
+        let lpi_x0 = ImplicitPoint::LPI {
+            q1: [0.0, 0.0, -1.0],
+            q2: [0.0, 0.0, 1.0],
+            r,
+            s,
+            t,
+        };
+        let lpi_x1 = ImplicitPoint::LPI {
+            q1: [1.0, 0.0, -1.0],
+            q2: [1.0, 0.0, 1.0],
+            r,
+            s,
+            t,
+        };
+        let lpi_x3 = ImplicitPoint::LPI {
+            q1: [3.0, 0.0, -1.0],
+            q2: [3.0, 0.0, 1.0],
+            r,
+            s,
+            t,
+        };
+        let mut points = vec![lpi_x3.clone(), lpi_x0.clone(), lpi_x1.clone()];
+        points.sort_by(|a, b| point_compare_on_axis(a, b, Axis::X));
+        // After sort: x0, x1, x3
+        assert_eq!(
+            point_compare_on_axis(&points[0], &lpi_x0, Axis::X),
+            std::cmp::Ordering::Equal
+        );
+        assert_eq!(
+            point_compare_on_axis(&points[1], &lpi_x1, Axis::X),
+            std::cmp::Ordering::Equal
+        );
+        assert_eq!(
+            point_compare_on_axis(&points[2], &lpi_x3, Axis::X),
+            std::cmp::Ordering::Equal
+        );
     }
 }
