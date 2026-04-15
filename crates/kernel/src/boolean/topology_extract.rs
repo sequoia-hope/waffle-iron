@@ -1588,11 +1588,45 @@ pub(crate) fn yang_boolean_pipeline(
 ) -> Result<YangPipelineResult, KernelError> {
     // Stage 1: Subdivide both meshes along their mutual intersections.
     let subdivided = subdivide_mesh_pair(verts_a, tris_a, verts_b, tris_b, deadline)?;
+    eprintln!(
+        "[yang-diag] after subdivide: tris_a={}, tris_b={}, verts={}",
+        subdivided.tris_a.len(),
+        subdivided.tris_b.len(),
+        subdivided.verts.len()
+    );
 
     // Stage 2: Label each sub-triangle as inside/outside the opposite mesh.
     // Deadline is threaded through so label_cells can enforce the timeout
     // during its per-sub-triangle ray-casting loop.
     let labeling = label_cells(&subdivided, verts_a, tris_a, verts_b, tris_b, deadline)?;
+    {
+        let a_outside = labeling
+            .labels_a
+            .iter()
+            .filter(|l| matches!(l, CellLabel::Outside))
+            .count();
+        let a_inside = labeling
+            .labels_a
+            .iter()
+            .filter(|l| matches!(l, CellLabel::Inside))
+            .count();
+        let b_outside = labeling
+            .labels_b
+            .iter()
+            .filter(|l| matches!(l, CellLabel::Outside))
+            .count();
+        let b_inside = labeling
+            .labels_b
+            .iter()
+            .filter(|l| matches!(l, CellLabel::Inside))
+            .count();
+        let a_cosurface = labeling.labels_a.len() - a_outside - a_inside;
+        let b_cosurface = labeling.labels_b.len() - b_outside - b_inside;
+        eprintln!(
+            "[yang-diag] after label_cells: A outside={} inside={} cosurface={}, B outside={} inside={} cosurface={}",
+            a_outside, a_inside, a_cosurface, b_outside, b_inside, b_cosurface
+        );
+    }
 
     // Stage 3a: Determine which sub-triangles survive the boolean op.
     let mut survival = face_survival_detect(&subdivided, &labeling, op, bijective_a, bijective_b);
@@ -1606,6 +1640,10 @@ pub(crate) fn yang_boolean_pipeline(
 
     let n_survival_groups = survival.groups.len();
     let n_survival_tris: usize = survival.groups.values().map(|v| v.len()).sum();
+    eprintln!(
+        "[yang-diag] after survival: {} groups, {} tris",
+        n_survival_groups, n_survival_tris
+    );
 
     // Stage 3b+3c: Flood-fill patch segmentation per Yang 2025 Section 4.4.2.
     // BFS groups surviving sub-triangles into patches separated by B-Rep
@@ -1613,12 +1651,11 @@ pub(crate) fn yang_boolean_pipeline(
     let topology = flood_fill_patches(&survival, &subdivided);
 
     let n_result_faces = topology.face_provenance.len();
-    eprintln!(
-        "[yang-pipeline] survival: {} groups, {} tris → topology: {} faces",
-        n_survival_groups, n_survival_tris, n_result_faces
-    );
+    eprintln!("[yang-diag] after flood_fill: {} faces", n_result_faces);
     if n_survival_groups > 0 && n_result_faces == 0 {
-        eprintln!("[yang-pipeline] BUG: non-empty survival produced empty topology (twin-pairing failure)");
+        eprintln!(
+            "[yang-diag] BUG: non-empty survival produced empty topology (twin-pairing failure)"
+        );
     }
 
     Ok(YangPipelineResult {
