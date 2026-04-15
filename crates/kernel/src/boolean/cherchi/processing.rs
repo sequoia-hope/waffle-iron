@@ -182,7 +182,8 @@ pub(crate) fn merge_duplicated_vertices_flat(
 /// Degenerate triangles have collinear vertices. Duplicated triangles (same sorted
 /// vertex triple) get their labels merged via bitwise OR.
 ///
-/// Returns the filtered (tris, labels).
+/// Returns `(tris, labels, clean_to_orig)` where `clean_to_orig[i]` is the
+/// original triangle index that surviving triangle `i` came from.
 ///
 /// Ported from processing.cpp:125-173
 #[allow(dead_code)]
@@ -190,11 +191,12 @@ pub(crate) fn remove_degenerate_and_duplicated_triangles(
     verts: &[[f64; 3]],
     in_tris: &[usize],
     in_labels: &[u32],
-) -> (Vec<usize>, Vec<u32>) {
+) -> (Vec<usize>, Vec<u32>, Vec<usize>) {
     let num_orig_tris = in_tris.len() / 3;
 
     let mut tris = Vec::with_capacity(in_tris.len());
     let mut labels = Vec::with_capacity(num_orig_tris);
+    let mut clean_to_orig: Vec<usize> = Vec::with_capacity(num_orig_tris);
 
     // Map from sorted vertex triple → index in output labels
     let mut tris_map: HashMap<[usize; 3], usize> = HashMap::with_capacity(num_orig_tris);
@@ -219,6 +221,7 @@ pub(crate) fn remove_degenerate_and_duplicated_triangles(
                 let label_idx = labels.len();
                 e.insert(label_idx);
                 labels.push(l);
+                clean_to_orig.push(t_id);
                 tris.push(v0_id);
                 tris.push(v1_id);
                 tris.push(v2_id);
@@ -231,7 +234,7 @@ pub(crate) fn remove_degenerate_and_duplicated_triangles(
         }
     }
 
-    (tris, labels)
+    (tris, labels, clean_to_orig)
 }
 
 /// Compute approximate coordinates from the vertex list, dividing by the multiplier.
@@ -367,13 +370,14 @@ mod tests {
         // tri0: good triangle  tri1: degenerate (v0,v1,v3 are collinear)
         let tris = vec![0, 1, 2, 0, 1, 3];
         let labels = vec![1, 2];
-        let (new_tris, new_labels) =
+        let (new_tris, new_labels, clean_to_orig) =
             remove_degenerate_and_duplicated_triangles(&verts, &tris, &labels);
 
         // Only tri0 survives
         assert_eq!(new_tris.len(), 3);
         assert_eq!(new_labels.len(), 1);
         assert_eq!(new_labels[0], 1);
+        assert_eq!(clean_to_orig, vec![0]); // tri0 (original index 0) survived
     }
 
     #[test]
@@ -382,13 +386,35 @@ mod tests {
         // Same triangle twice with different labels
         let tris = vec![0, 1, 2, 0, 2, 1]; // reversed winding but same sorted triple
         let labels = vec![1, 2];
-        let (new_tris, new_labels) =
+        let (new_tris, new_labels, clean_to_orig) =
             remove_degenerate_and_duplicated_triangles(&verts, &tris, &labels);
 
         // One triangle with merged label (1 | 2 = 3)
         assert_eq!(new_tris.len(), 3);
         assert_eq!(new_labels.len(), 1);
         assert_eq!(new_labels[0], 3);
+        assert_eq!(clean_to_orig, vec![0]); // first occurrence kept
+    }
+
+    #[test]
+    fn test_clean_to_orig_with_mixed_removals() {
+        let verts = vec![
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [2.0, 0.0, 0.0], // collinear with v0,v1
+            [0.0, 0.0, 1.0],
+        ];
+        // tri0: good, tri1: degenerate (collinear), tri2: good
+        let tris = vec![0, 1, 2, 0, 1, 3, 0, 2, 4];
+        let labels = vec![1, 1, 2];
+        let (new_tris, new_labels, clean_to_orig) =
+            remove_degenerate_and_duplicated_triangles(&verts, &tris, &labels);
+
+        // tri0 and tri2 survive, tri1 removed
+        assert_eq!(new_tris.len(), 6); // 2 triangles × 3 verts
+        assert_eq!(new_labels.len(), 2);
+        assert_eq!(clean_to_orig, vec![0, 2]); // original indices 0 and 2
     }
 
     #[test]

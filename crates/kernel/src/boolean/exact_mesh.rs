@@ -3545,43 +3545,39 @@ fn subdivide_mesh_pair_full_cherchi(
 
     // 3. Split output by label into tris_a and tris_b, tracking parent_tri
     //
-    // parent_tri mapping: The Cherchi pipeline's parent_tris refer to input
-    // triangle indices in the merged (preprocessed) array. We need to map
-    // these back to original mesh-local triangle indices.
-    //
-    // Input ordering: tris_a[0..Na] then tris_b[0..Nb].
-    // After preprocessing (dedup + degenerate removal), triangle IDs may shift.
-    // The parent_tri from triangulation refers to the preprocessed triangle index,
-    // which preserves the original ordering (A then B), just with some removed.
-    //
-    // For now, we use the label to determine mesh and the parent_tri as-is.
-    // The downstream pipeline uses parent_tri to map back to B-Rep faces via
-    // the bijective map, so we need to track which ORIGINAL triangle each
-    // preprocessed triangle came from. Since preprocessing only removes
-    // degenerate/duplicate triangles (doesn't reorder), the parent index
-    // is a reasonable approximation — the label bits tell us which mesh.
+    // parent_tri mapping: The Cherchi pipeline's parent_tris refer to
+    // *preprocessed* triangle indices (after degenerate/duplicate removal).
+    // We use clean_to_orig to map back to the original merged input indices,
+    // then subtract num_a for mesh B triangles.
     let num_a = tris_a.len();
     let mut sub_tris_a = Vec::new();
     let mut sub_tris_b = Vec::new();
     for (i, tri) in result.tris.iter().enumerate() {
         let label = result.labels[i];
-        let parent = result.parent_tris[i];
+        let clean_parent = result.parent_tris[i];
+
+        // Map preprocessed index → original merged index
+        let orig_parent = if clean_parent < result.clean_to_orig.len() {
+            result.clean_to_orig[clean_parent]
+        } else {
+            clean_parent
+        };
+
         if label & 2 != 0 {
-            // Mesh B: parent_tri is offset by num_a in the merged input
-            let local_parent = if parent >= num_a {
-                parent - num_a
-            } else {
-                parent
-            };
+            // Mesh B: original index is offset by num_a in the merged input
+            let local_parent = orig_parent
+                .saturating_sub(num_a)
+                .min(tris_b.len().saturating_sub(1));
             sub_tris_b.push(SubTriangle {
                 verts: *tri,
                 parent_tri: local_parent,
             });
         } else {
             // Mesh A
+            let local_parent = orig_parent.min(tris_a.len().saturating_sub(1));
             sub_tris_a.push(SubTriangle {
                 verts: *tri,
-                parent_tri: parent,
+                parent_tri: local_parent,
             });
         }
     }

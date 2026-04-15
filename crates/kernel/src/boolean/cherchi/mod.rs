@@ -35,8 +35,11 @@ pub(crate) struct SolveResult {
     pub tris: Vec<[usize; 3]>,
     /// Per-triangle labels preserved from input.
     pub labels: Vec<u32>,
-    /// Per-output-triangle parent: index of the input triangle that produced it.
+    /// Per-output-triangle parent: index of the *preprocessed* triangle that produced it.
     pub parent_tris: Vec<usize>,
+    /// Mapping from preprocessed triangle index → original input triangle index.
+    /// Use this to convert `parent_tris` back to original indices.
+    pub clean_to_orig: Vec<usize>,
 }
 
 /// Top-level mesh arrangement pipeline.
@@ -58,6 +61,7 @@ pub(crate) fn solve_intersections(
             tris: Vec::new(),
             labels: Vec::new(),
             parent_tris: Vec::new(),
+            clean_to_orig: Vec::new(),
         });
     }
 
@@ -68,7 +72,7 @@ pub(crate) fn solve_intersections(
     let (deduped_verts, deduped_tris) = merge_duplicated_vertices_flat(in_coords, in_tris);
 
     // Step 3: Remove degenerate and duplicated triangles
-    let (clean_tris, clean_labels) =
+    let (clean_tris, clean_labels, clean_to_orig) =
         remove_degenerate_and_duplicated_triangles(&deduped_verts, &deduped_tris, in_labels);
 
     if clean_tris.is_empty() {
@@ -77,6 +81,7 @@ pub(crate) fn solve_intersections(
             tris: Vec::new(),
             labels: Vec::new(),
             parent_tris: Vec::new(),
+            clean_to_orig: Vec::new(),
         });
     }
 
@@ -137,6 +142,7 @@ pub(crate) fn solve_intersections(
         tris: out_tris,
         labels: new_labels,
         parent_tris,
+        clean_to_orig,
     })
 }
 
@@ -260,6 +266,60 @@ mod tests {
 
         let result = solve_intersections(&coords, &tris, &labels);
         assert!(result.is_ok(), "should not panic: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_cherchi_two_boxes_enclosed() {
+        // Box A: [-0.003,-0.003,0] → [0.003,0.003,0.004]
+        // Box B: [-0.001,-0.001,0] → [0.001,0.001,0.004] (enclosed in A)
+        // C++ reference: 16 verts, 36 edges, 24 tris → 36 intersecting pairs → 36 output tris, 0 NC
+        let (ca, ta) = make_box_flat(-0.003, -0.003, 0.0, 0.003, 0.003, 0.004);
+        let (cb, tb) = make_box_flat(-0.001, -0.001, 0.0, 0.001, 0.001, 0.004);
+
+        let offset = ca.len() / 3;
+        let mut coords = ca;
+        coords.extend_from_slice(&cb);
+        let mut tris: Vec<usize> = ta;
+        for &t in &tb {
+            tris.push(t + offset);
+        }
+        let mut labels = vec![1u32; 12]; // box A
+        labels.extend(vec![2u32; 12]); // box B
+
+        let result = solve_intersections(&coords, &tris, &labels);
+        assert!(result.is_ok(), "should not panic: {:?}", result.err());
+        let r = result.unwrap();
+
+        // C++ produces 36 tris, 0 NC
+        let mut edge_count: HashMap<(usize, usize), usize> = HashMap::new();
+        for tri in &r.tris {
+            for i in 0..3 {
+                *edge_count.entry((tri[i], tri[(i + 1) % 3])).or_default() += 1;
+            }
+        }
+        let nc: Vec<_> = edge_count
+            .keys()
+            .filter(|&&(a, b)| !edge_count.contains_key(&(b, a)))
+            .collect();
+
+        eprintln!(
+            "F0002 result: {} tris, {} verts, {} NC",
+            r.tris.len(),
+            r.coords.len(),
+            nc.len()
+        );
+        assert_eq!(
+            nc.len(),
+            0,
+            "should have 0 non-conformal edges, got {}",
+            nc.len()
+        );
+        assert_eq!(
+            r.tris.len(),
+            36,
+            "C++ produces 36 tris, got {}",
+            r.tris.len()
+        );
     }
 
     #[test]
