@@ -1131,98 +1131,6 @@ pub(crate) fn flood_fill_patches(
     }
 }
 
-/// Merge face groups that lie on the same geometric plane.
-///
-/// After boolean operations, face groups from different source meshes may
-/// produce surviving sub-triangles on the same geometric plane (e.g., A's z=0
-/// face and B's z=0 face in a cross-pattern union). These must be merged into
-/// a single face group so that their interface edges become interior, preventing
-/// non-manifold configurations in the B-Rep (same-direction half-edges at
-/// shared boundaries).
-///
-/// Detection: compute plane equation (unit normal + signed offset) for each
-/// face group. Groups with matching planes are merged.
-///
-/// Ref [#24]: Yang 2025 — Stage 3 coplanar face merging.
-/// Ref [#16]: Mantyla 1988 — manifold edge condition.
-#[allow(dead_code)]
-pub(crate) fn merge_coplanar_face_groups(
-    subdivided: &SubdividedMesh,
-    survival: &mut FaceSurvivalMap,
-) {
-    if survival.groups.len() < 2 {
-        return;
-    }
-
-    // Step 1: Compute plane (unit normal, signed offset) for each face group.
-    let mut planes: HashMap<SourceFace, ([f64; 3], f64)> = HashMap::new();
-
-    for (sf, tris) in &survival.groups {
-        if let Some(tri) = tris.first() {
-            let v0 = subdivided.verts[tri.verts[0]];
-            let v1 = subdivided.verts[tri.verts[1]];
-            let v2 = subdivided.verts[tri.verts[2]];
-            let e1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
-            let e2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
-            let n = [
-                e1[1] * e2[2] - e1[2] * e2[1],
-                e1[2] * e2[0] - e1[0] * e2[2],
-                e1[0] * e2[1] - e1[1] * e2[0],
-            ];
-            let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-            if len > crate::units::TAU_WORK {
-                let sign = if tri.flipped { -1.0 } else { 1.0 };
-                let normal = [sign * n[0] / len, sign * n[1] / len, sign * n[2] / len];
-                let offset = normal[0] * v0[0] + normal[1] * v0[1] + normal[2] * v0[2];
-                planes.insert(*sf, (normal, offset));
-            }
-        }
-    }
-
-    // Step 2: Group face groups by quantized plane equation.
-    // Canonicalize normal direction so parallel normals in the same direction match.
-    let quant_scale = crate::units::QUANT_PLANE_SCALE;
-    let mut plane_buckets: HashMap<[i64; 4], Vec<SourceFace>> = HashMap::new();
-
-    for (&sf, &(normal, offset)) in &planes {
-        let mut n = normal;
-        let mut d = offset;
-        // Canonicalize: ensure largest-magnitude component is positive
-        let abs_max = n
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.abs().partial_cmp(&b.abs()).unwrap())
-            .map(|(i, _)| i)
-            .unwrap_or(0);
-        if n[abs_max] < 0.0 {
-            n = [-n[0], -n[1], -n[2]];
-            d = -d;
-        }
-        let key = [
-            (n[0] * quant_scale).round() as i64,
-            (n[1] * quant_scale).round() as i64,
-            (n[2] * quant_scale).round() as i64,
-            (d * quant_scale).round() as i64,
-        ];
-        plane_buckets.entry(key).or_default().push(sf);
-    }
-
-    // Step 3: Merge groups on the same plane.
-    for group in plane_buckets.values() {
-        if group.len() < 2 {
-            continue;
-        }
-        let canonical = group.iter().min().copied().unwrap();
-        for &sf in group {
-            if sf != canonical {
-                if let Some(tris) = survival.groups.remove(&sf) {
-                    survival.groups.entry(canonical).or_default().extend(tris);
-                }
-            }
-        }
-    }
-}
-
 /// Extract trim boundaries for each surviving face group.
 ///
 /// For each face group in the FaceSurvivalMap, identifies the boundary edges —
@@ -1629,14 +1537,7 @@ pub(crate) fn yang_boolean_pipeline(
     }
 
     // Stage 3a: Determine which sub-triangles survive the boolean op.
-    let mut survival = face_survival_detect(&subdivided, &labeling, op, bijective_a, bijective_b);
-
-    // Stage 3a+: Merge coplanar face groups. Face groups from different source
-    // meshes on the same geometric plane (e.g., A's z=0 and B's z=0 in a cross
-    // pattern) must be merged so their interface edges become interior. Without
-    // this, build_result_brep encounters same-direction half-edges at shared
-    // boundaries, violating the manifold condition.
-    merge_coplanar_face_groups(&subdivided, &mut survival);
+    let survival = face_survival_detect(&subdivided, &labeling, op, bijective_a, bijective_b);
 
     let n_survival_groups = survival.groups.len();
     let n_survival_tris: usize = survival.groups.values().map(|v| v.len()).sum();
@@ -4354,9 +4255,7 @@ mod tests {
             eprintln!("  {:?}: {} sub-tris", sf, tris.len());
         }
 
-        merge_coplanar_face_groups(&subdivided, &mut survival);
-
-        eprintln!("\n--- After coplanar merge ---");
+        eprintln!("\n--- Face groups (no post-hoc merge per Yang 2025) ---");
         for (sf, tris) in &survival.groups {
             eprintln!("  {:?}: {} sub-tris", sf, tris.len());
         }
@@ -4571,10 +4470,10 @@ mod tests {
     // T-junction after coplanar merge regression test
     // ══════════════════════════════════════════════════════════════════
 
-    /// After `merge_coplanar_face_groups`, two face groups on the same plane
-    /// become one. A T-junction vertex that was from the "other" face group
-    /// is now part of `own_qpos` and gets skipped in Step 5b, preventing
-    /// edge splitting. This causes unpaired half-edges → broken topology.
+    /// When two face groups lie on the same plane and are merged (e.g., by
+    /// coplanar preprocessing), a T-junction vertex that was from the "other"
+    /// face group may end up in `own_qpos` and get skipped in Step 5b,
+    /// preventing edge splitting. This causes unpaired half-edges → broken topology.
     ///
     /// Geometry: a box [0,0,0]-[3,1,1] whose bottom face (z=0) is
     /// contributed by two coplanar face groups with different edge
@@ -4791,24 +4690,7 @@ mod tests {
 
         let mut survival = FaceSurvivalMap { groups };
 
-        // ── Merge coplanar face groups ──
-        // Bottom A (z=0, mesh A face 0) and Bottom B (z=0, mesh B face 0) are on
-        // the same plane. merge_coplanar_face_groups should combine them.
-        let groups_before = survival.groups.len();
-        merge_coplanar_face_groups(&subdivided, &mut survival);
-        let groups_after = survival.groups.len();
-
-        // Verify merge actually happened (7 groups → 6 after merging 2 bottom groups)
-        assert_eq!(
-            groups_before, 7,
-            "Should start with 7 face groups (2 bottom + 5 others)"
-        );
-        assert_eq!(
-            groups_after, 6,
-            "After coplanar merge: 7 - 1 = 6 face groups (two bottom groups merged)"
-        );
-
-        // ── Build B-Rep ──
+        // ── Build B-Rep (no post-hoc merge per Yang 2025) ──
         let result = flood_fill_patches(&survival, &subdivided);
 
         let n_faces = result.arena.faces.len();
@@ -5150,7 +5032,6 @@ mod tests {
 
         let mut survival =
             face_survival_detect(&subdivided, &labeling, MeshBooleanOp::Union, &bij_a, &bij_b);
-        merge_coplanar_face_groups(&subdivided, &mut survival);
 
         let topology = flood_fill_patches(&survival, &subdivided);
         let n_faces = topology.face_provenance.len();
@@ -5185,7 +5066,6 @@ mod tests {
 
         let mut survival =
             face_survival_detect(&subdivided, &labeling, MeshBooleanOp::Union, &bij_a, &bij_b);
-        merge_coplanar_face_groups(&subdivided, &mut survival);
 
         let topology = flood_fill_patches(&survival, &subdivided);
         let n_faces = topology.face_provenance.len();
@@ -5220,7 +5100,6 @@ mod tests {
 
         let mut survival =
             face_survival_detect(&subdivided, &labeling, MeshBooleanOp::Union, &bij_a, &bij_b);
-        merge_coplanar_face_groups(&subdivided, &mut survival);
 
         let topology = flood_fill_patches(&survival, &subdivided);
         let n_faces = topology.face_provenance.len();
@@ -5348,7 +5227,6 @@ mod tests {
 
         let mut survival =
             face_survival_detect(&subdivided, &labeling, MeshBooleanOp::Union, &bij_a, &bij_b);
-        merge_coplanar_face_groups(&subdivided, &mut survival);
 
         let result = flood_fill_patches(&survival, &subdivided);
 
@@ -5402,7 +5280,6 @@ mod tests {
 
         let mut survival =
             face_survival_detect(&subdivided, &labeling, op, &bijective_a, &bijective_b);
-        merge_coplanar_face_groups(&subdivided, &mut survival);
 
         flood_fill_patches(&survival, &subdivided)
     }
@@ -5522,7 +5399,6 @@ mod tests {
             &bijective_a,
             &bijective_b,
         );
-        merge_coplanar_face_groups(&subdivided, &mut survival);
 
         let result = flood_fill_patches(&survival, &subdivided);
 

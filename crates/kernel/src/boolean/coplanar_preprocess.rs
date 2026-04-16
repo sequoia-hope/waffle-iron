@@ -30,6 +30,9 @@ pub(crate) struct CoplanarFacePair {
     pub plane_normal: [f64; 3],
     /// Signed distance from origin along the normal.
     pub plane_offset: f64,
+    /// true if normals point in the same direction (dot ≈ +1),
+    /// false if anti-parallel (dot ≈ -1).
+    pub same_direction: bool,
 }
 
 /// Detect coplanar face pairs between two solids.
@@ -50,11 +53,12 @@ pub(crate) fn detect_coplanar_face_pairs(
     for &(face_a, normal_a, offset_a) in &planes_a {
         for &(face_b, normal_b, offset_b) in &planes_b {
             let dot = v3_dot(normal_a, normal_b);
-            // Anti-parallel only (stacked caps): dot close to -1.
-            // Same-direction coplanar (parallel, dot ≈ +1) are side faces that
-            // share only edges, not area — skip for now per plan scope.
-            if dot > -(1.0 - TAU_PARALLEL) {
-                continue;
+            // Per Yang 2025 Section 4.5.5, ALL coplanar faces need preprocessing.
+            // Both anti-parallel (dot ≈ -1, stacked caps) and same-direction
+            // (dot ≈ +1, shared caps in cross patterns) are detected.
+            // T-junction repair runs after injection to fix edge sharing.
+            if dot.abs() < (1.0 - TAU_PARALLEL) {
+                continue; // Not parallel — skip
             }
 
             // Align offsets: if anti-parallel (dot < 0), negate offset_b
@@ -67,6 +71,7 @@ pub(crate) fn detect_coplanar_face_pairs(
                     face_b,
                     plane_normal: normal_a,
                     plane_offset: offset_a,
+                    same_direction: dot > 0.0,
                 });
             }
         }
@@ -163,78 +168,258 @@ pub(crate) fn inject_conformal_coplanar_mesh(
             continue;
         }
 
-        // 4. Compute union of both polygons using i_overlay.
+        // 4. Compute three regions per Yang 2025 Section 4.5.5, Fig. 16:
+        //    overlap = polygon_a ∩ polygon_b (shared conformal mesh)
+        //    a_only  = polygon_a \ polygon_b (only in mesh A)
+        //    b_only  = polygon_b \ polygon_a (only in mesh B)
         let shape_a: Vec<Vec<[f64; 2]>> = vec![poly_a];
         let shape_b: Vec<Vec<[f64; 2]>> = vec![poly_b];
-        let union_result: Vec<Vec<Vec<[f64; 2]>>> =
-            shape_a.overlay(&shape_b, OverlayRule::Union, FillRule::EvenOdd);
 
-        if union_result.is_empty() {
+        let overlap_result: Vec<Vec<Vec<[f64; 2]>>> =
+            shape_a.overlay(&shape_b, OverlayRule::Intersect, FillRule::EvenOdd);
+
+        if overlap_result.is_empty() || overlap_result[0].is_empty() {
+            continue; // Coplanar but non-overlapping — skip.
+        }
+
+        // 5. Compute A-only and B-only difference regions.
+        let a_only_result: Vec<Vec<Vec<[f64; 2]>>> =
+            shape_a.overlay(&shape_b, OverlayRule::Difference, FillRule::EvenOdd);
+        let b_only_result: Vec<Vec<Vec<[f64; 2]>>> =
+            shape_b.overlay(&shape_a, OverlayRule::Difference, FillRule::EvenOdd);
+
+        let a_only_empty = a_only_result.is_empty() || a_only_result[0].is_empty();
+        let b_only_empty = b_only_result.is_empty() || b_only_result[0].is_empty();
+
+        // For same-direction coplanar faces, skip injection. The overlap boundary
+        // introduces new edges that create T-junctions with adjacent faces.
+        // T-junction repair handles simple cases, but complex geometries
+        // (multiple coplanar pairs sharing vertices) need cascading repair that
+        // isn't yet implemented. Cherchi handles these via exact mesh boolean.
+        // TODO: implement cascading T-junction repair or pre-tessellation B-Rep
+        // face splitting per Yang 2025 Section 4.5.5.
+        if pair.same_direction {
             continue;
         }
 
-        // 5. Triangulate the union polygon using earcutr.
-        let mut all_2d_coords: Vec<f64> = Vec::new();
-        let mut hole_indices: Vec<usize> = Vec::new();
-
-        // First contour of first shape is the outer boundary.
-        let outer = &union_result[0][0];
-        for pt in outer {
-            all_2d_coords.push(pt[0]);
-            all_2d_coords.push(pt[1]);
+        // 6. Triangulate the overlap region — IDENTICAL for both meshes.
+        let (shared_2d_verts, shared_tri_indices) =
+            triangulate_polygon_with_holes(&overlap_result[0]);
+        if shared_tri_indices.is_empty() {
+            continue;
         }
+        let shared_3d = verts_2d_to_3d(&shared_2d_verts, &plane_origin, &u_axis, &v_axis);
+        let shared_tris: Vec<[usize; 3]> = shared_tri_indices
+            .chunks(3)
+            .map(|c| [c[0], c[1], c[2]])
+            .collect();
 
-        // Remaining contours are holes.
-        for contour in union_result[0].iter().skip(1) {
-            hole_indices.push(all_2d_coords.len() / 2);
-            for pt in contour {
-                all_2d_coords.push(pt[0]);
-                all_2d_coords.push(pt[1]);
-            }
-        }
-
-        let tri_indices = match earcutr::earcut(&all_2d_coords, &hole_indices, 2) {
-            Ok(indices) => indices,
-            Err(_) => continue, // Skip if triangulation fails.
+        // 7. Triangulate A-only region.
+        let (a_only_3d, a_only_tris) = if !a_only_empty {
+            let (verts_2d, tri_idx) = triangulate_polygon_with_holes(&a_only_result[0]);
+            let verts_3d = verts_2d_to_3d(&verts_2d, &plane_origin, &u_axis, &v_axis);
+            let tris: Vec<[usize; 3]> = tri_idx.chunks(3).map(|c| [c[0], c[1], c[2]]).collect();
+            (verts_3d, tris)
+        } else {
+            (vec![], vec![])
         };
 
-        if tri_indices.is_empty() {
-            continue;
-        }
+        // 8. Triangulate B-only region.
+        let (b_only_3d, b_only_tris) = if !b_only_empty {
+            let (verts_2d, tri_idx) = triangulate_polygon_with_holes(&b_only_result[0]);
+            let verts_3d = verts_2d_to_3d(&verts_2d, &plane_origin, &u_axis, &v_axis);
+            let tris: Vec<[usize; 3]> = tri_idx.chunks(3).map(|c| [c[0], c[1], c[2]]).collect();
+            (verts_3d, tris)
+        } else {
+            (vec![], vec![])
+        };
 
-        // 6. Convert 2D triangulation back to 3D vertices.
-        let n_2d_verts = all_2d_coords.len() / 2;
-        let mut new_3d_verts: Vec<[f64; 3]> = Vec::with_capacity(n_2d_verts);
-        for i in 0..n_2d_verts {
-            let u = all_2d_coords[i * 2];
-            let v = all_2d_coords[i * 2 + 1];
-            let x = plane_origin[0] + u * u_axis[0] + v * v_axis[0];
-            let y = plane_origin[1] + u * u_axis[1] + v * v_axis[1];
-            let z = plane_origin[2] + u * u_axis[2] + v * v_axis[2];
-            new_3d_verts.push([x, y, z]);
-        }
-
-        let new_tris: Vec<[usize; 3]> = tri_indices.chunks(3).map(|c| [c[0], c[1], c[2]]).collect();
-
-        // 7. Replace coplanar triangles in both meshes with the shared triangulation.
-        replace_face_triangles(
+        // 10. Replace mesh A = a_only + shared overlap triangles.
+        let (merged_verts_a, merged_tris_a) =
+            merge_regions(&a_only_3d, &a_only_tris, &shared_3d, &shared_tris);
+        let new_verts_a = replace_face_triangles(
             verts_a,
             tris_a,
             bijective_a,
             &face_tri_indices_a,
             pair.face_a,
-            &new_3d_verts,
-            &new_tris,
+            &merged_verts_a,
+            &merged_tris_a,
         );
-        replace_face_triangles(
+
+        // 11. Replace mesh B = b_only + shared overlap triangles.
+        let (merged_verts_b, merged_tris_b) =
+            merge_regions(&b_only_3d, &b_only_tris, &shared_3d, &shared_tris);
+        let new_verts_b = replace_face_triangles(
             verts_b,
             tris_b,
             bijective_b,
             &face_tri_indices_b,
             pair.face_b,
-            &new_3d_verts,
-            &new_tris,
+            &merged_verts_b,
+            &merged_tris_b,
         );
+
+        // 12. Repair T-junctions: split edges in adjacent faces where new
+        // overlap-boundary vertices were introduced by the injection.
+        repair_tjunctions_after_injection(verts_a, tris_a, bijective_a, pair.face_a, &new_verts_a);
+        repair_tjunctions_after_injection(verts_b, tris_b, bijective_b, pair.face_b, &new_verts_b);
+    }
+}
+
+/// Triangulate a polygon with holes using earcutr.
+///
+/// Returns (2D vertices, triangle indices). The first contour is the outer
+/// boundary; remaining contours are holes.
+fn triangulate_polygon_with_holes(contours: &[Vec<[f64; 2]>]) -> (Vec<[f64; 2]>, Vec<usize>) {
+    if contours.is_empty() {
+        return (vec![], vec![]);
+    }
+    let mut coords: Vec<f64> = Vec::new();
+    let mut hole_indices: Vec<usize> = Vec::new();
+
+    for pt in &contours[0] {
+        coords.push(pt[0]);
+        coords.push(pt[1]);
+    }
+    for contour in contours.iter().skip(1) {
+        hole_indices.push(coords.len() / 2);
+        for pt in contour {
+            coords.push(pt[0]);
+            coords.push(pt[1]);
+        }
+    }
+
+    let n_verts = coords.len() / 2;
+    let verts_2d: Vec<[f64; 2]> = (0..n_verts)
+        .map(|i| [coords[i * 2], coords[i * 2 + 1]])
+        .collect();
+    match earcutr::earcut(&coords, &hole_indices, 2) {
+        Ok(indices) => (verts_2d, indices),
+        Err(_) => (vec![], vec![]),
+    }
+}
+
+/// Convert 2D plane coordinates back to 3D world coordinates.
+fn verts_2d_to_3d(
+    verts_2d: &[[f64; 2]],
+    origin: &[f64; 3],
+    u_axis: &[f64; 3],
+    v_axis: &[f64; 3],
+) -> Vec<[f64; 3]> {
+    verts_2d
+        .iter()
+        .map(|&[u, v]| {
+            [
+                origin[0] + u * u_axis[0] + v * v_axis[0],
+                origin[1] + u * u_axis[1] + v * v_axis[1],
+                origin[2] + u * u_axis[2] + v * v_axis[2],
+            ]
+        })
+        .collect()
+}
+
+/// Merge two triangulated regions into a single vertex/triangle set.
+///
+/// The exclusive region's vertices come first, then the shared region's
+/// vertices with index offsets applied to triangle indices.
+fn merge_regions(
+    verts_exclusive: &[[f64; 3]],
+    tris_exclusive: &[[usize; 3]],
+    verts_shared: &[[f64; 3]],
+    tris_shared: &[[usize; 3]],
+) -> (Vec<[f64; 3]>, Vec<[usize; 3]>) {
+    let mut verts = verts_exclusive.to_vec();
+    let offset = verts.len();
+    verts.extend_from_slice(verts_shared);
+    let mut tris = tris_exclusive.to_vec();
+    for tri in tris_shared {
+        tris.push([tri[0] + offset, tri[1] + offset, tri[2] + offset]);
+    }
+    (verts, tris)
+}
+
+/// Repair T-junctions created by coplanar mesh injection.
+///
+/// After `replace_face_triangles()` adds new vertices to a coplanar face,
+/// adjacent non-coplanar faces may have edges that pass through these new
+/// vertices without a matching split. This function splits those edges.
+///
+/// For each triangle NOT belonging to the coplanar face, checks if any newly-
+/// added vertex lies on one of its edges (cross-product distance + parametric t).
+/// If so, splits the triangle into two at that vertex.
+fn repair_tjunctions_after_injection(
+    verts: &[[f64; 3]],
+    tris: &mut Vec<[usize; 3]>,
+    bijective: &mut BijectiveMap,
+    coplanar_face: FaceIdx,
+    new_vert_indices: &[usize],
+) {
+    if new_vert_indices.is_empty() {
+        return;
+    }
+
+    let mut splits: Vec<(usize, usize, usize)> = Vec::new(); // (tri_idx, edge_k, split_vert)
+
+    for (ti, tri) in tris.iter().enumerate() {
+        // Skip triangles that belong to the coplanar face — they're already correct.
+        if ti < bijective.tri_face_ids.len() && bijective.tri_face_ids[ti] == coplanar_face {
+            continue;
+        }
+
+        for k in 0..3 {
+            let v0 = tri[k];
+            let v1 = tri[(k + 1) % 3];
+            let p0 = verts[v0];
+            let p1 = verts[v1];
+            let d = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+            let d_len_sq = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+
+            if d_len_sq < crate::units::TAU_WORK_SQ {
+                continue;
+            }
+
+            for &vi in new_vert_indices {
+                if vi == v0 || vi == v1 {
+                    continue;
+                }
+                let pm = verts[vi];
+                let to_m = [pm[0] - p0[0], pm[1] - p0[1], pm[2] - p0[2]];
+                // Cross product: distance from point to line
+                let cross = [
+                    d[1] * to_m[2] - d[2] * to_m[1],
+                    d[2] * to_m[0] - d[0] * to_m[2],
+                    d[0] * to_m[1] - d[1] * to_m[0],
+                ];
+                let cross_len_sq = cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2];
+                if cross_len_sq > d_len_sq * crate::units::TAU_WORK {
+                    continue;
+                }
+                // Parametric t along edge
+                let t = (d[0] * to_m[0] + d[1] * to_m[1] + d[2] * to_m[2]) / d_len_sq;
+                if t > crate::units::TAU_PARALLEL && t < 1.0 - crate::units::TAU_PARALLEL {
+                    splits.push((ti, k, vi));
+                    break; // One split per edge per pass
+                }
+            }
+        }
+    }
+
+    // Apply splits in reverse order to preserve indices.
+    // Each split replaces tri[ti] with two triangles.
+    splits.sort_by(|a, b| b.0.cmp(&a.0)); // Reverse by tri index
+    for (ti, k, vi) in splits {
+        let tri = tris[ti];
+        let v0 = tri[k];
+        let v1 = tri[(k + 1) % 3];
+        let v2 = tri[(k + 2) % 3];
+        let face = bijective.tri_face_ids[ti];
+
+        // Replace original tri: v0→vi→v2
+        tris[ti] = [v0, vi, v2];
+        // Append new tri: vi→v1→v2
+        tris.push([vi, v1, v2]);
+        bijective.tri_face_ids.push(face);
     }
 }
 
@@ -370,7 +555,11 @@ fn extract_face_boundary_2d(
 /// Replace a face's triangles in a mesh with new shared triangulation.
 ///
 /// Removes the old triangles, appends new vertices and triangles, and
-/// updates the bijective map accordingly.
+/// updates the bijective map accordingly. Reuses existing mesh vertices
+/// within tolerance to maintain inter-face edge sharing.
+///
+/// Returns indices of newly-added vertices (those that didn't snap to existing
+/// mesh vertices). These may create T-junctions with adjacent faces.
 fn replace_face_triangles(
     verts: &mut Vec<[f64; 3]>,
     tris: &mut Vec<[usize; 3]>,
@@ -379,9 +568,8 @@ fn replace_face_triangles(
     face_idx: FaceIdx,
     new_verts: &[[f64; 3]],
     new_tris: &[[usize; 3]],
-) {
-    // Mark old triangles for removal by setting them to a degenerate sentinel.
-    // We'll compact later.
+) -> Vec<usize> {
+    // Mark old triangles for removal.
     let mut keep = vec![true; tris.len()];
     for &ti in old_tri_indices {
         keep[ti] = false;
@@ -398,22 +586,38 @@ fn replace_face_triangles(
         }
     }
 
-    // Append new vertices with offset.
-    let vert_offset = verts.len();
-    verts.extend_from_slice(new_verts);
+    // Map each new vertex to an existing mesh vertex (within tolerance)
+    // or append as new. This preserves inter-face edge sharing.
+    let tol_sq = TAU_MODEL * TAU_MODEL;
+    let mut vert_map: Vec<usize> = Vec::with_capacity(new_verts.len());
+    let mut added_verts: Vec<usize> = Vec::new();
+    for nv in new_verts {
+        let existing = verts.iter().enumerate().find(|(_, ev)| {
+            let dx = nv[0] - ev[0];
+            let dy = nv[1] - ev[1];
+            let dz = nv[2] - ev[2];
+            dx * dx + dy * dy + dz * dz < tol_sq
+        });
+        match existing {
+            Some((idx, _)) => vert_map.push(idx),
+            None => {
+                let idx = verts.len();
+                verts.push(*nv);
+                vert_map.push(idx);
+                added_verts.push(idx);
+            }
+        }
+    }
 
-    // Append new triangles with vertex offset.
+    // Append new triangles with remapped vertex indices.
     for tri in new_tris {
-        new_tris_vec.push([
-            tri[0] + vert_offset,
-            tri[1] + vert_offset,
-            tri[2] + vert_offset,
-        ]);
+        new_tris_vec.push([vert_map[tri[0]], vert_map[tri[1]], vert_map[tri[2]]]);
         new_bmap.push(face_idx);
     }
 
     *tris = new_tris_vec;
     bijective.tri_face_ids = new_bmap;
+    added_verts
 }
 
 #[cfg(test)]
@@ -473,9 +677,8 @@ mod tests {
 
     /// Two stacked boxes (A: z=0..1, B: z=1..2, same XY footprint).
     /// The z=1 caps are coplanar (anti-parallel normals). detect_coplanar_face_pairs
-    /// must find exactly 1 pair.
-    ///
-    /// EXPECTED: FAIL (stub returns empty vec).
+    /// must find exactly 1 pair (anti-parallel only; same-direction pairs are
+    /// filtered out pending vertex-reuse support in injection).
     #[test]
     fn test_coplanar_detection_finds_stacked_box_caps() {
         let (k_a, h_a) = make_stacked_box(0.5, 0.5, 1.0, 1.0, 0.0, 1.0);
@@ -484,7 +687,6 @@ mod tests {
         let solid_a = k_a.get_solid(&h_a).expect("solid_a must exist");
         let solid_b = k_b.get_solid(&h_b).expect("solid_b must exist");
 
-        // Both solids must have face_geometry for detection to work.
         assert!(
             !solid_a.face_geometry.is_empty(),
             "solid_a must have face_geometry"
@@ -496,26 +698,37 @@ mod tests {
 
         let pairs = detect_coplanar_face_pairs(solid_a, solid_b);
 
-        // The z=1 plane should produce exactly one coplanar pair.
-        assert_eq!(
-            pairs.len(),
-            1,
-            "Expected 1 coplanar pair (z=1 caps), got {}",
+        // With both directions enabled: 1 anti-parallel (z=1 caps) +
+        // 4 same-direction (side faces: x=0, x=1, y=0, y=1).
+        assert!(
+            pairs.len() >= 1,
+            "Expected at least 1 coplanar pair, got {}",
             pairs.len()
         );
 
-        // Verify the shared plane is at z=1.
-        let pair = &pairs[0];
-        let normal_z = pair.plane_normal[2].abs();
+        // Filter to the z=1 anti-parallel pair specifically.
+        let z1_pairs: Vec<_> = pairs
+            .iter()
+            .filter(|p| p.plane_normal[2].abs() > 0.99 && (p.plane_offset.abs() - 1.0).abs() < 1e-6)
+            .collect();
+        assert_eq!(
+            z1_pairs.len(),
+            1,
+            "Expected 1 coplanar pair on z=1, got {}",
+            z1_pairs.len()
+        );
+
+        let z1_pair = z1_pairs[0];
+        let normal_z = z1_pair.plane_normal[2].abs();
         assert!(
             normal_z > 0.99,
             "Coplanar pair normal should be ±Z, got {:?}",
-            pair.plane_normal
+            z1_pair.plane_normal
         );
         assert!(
-            (pair.plane_offset.abs() - 1.0).abs() < 1e-6,
+            (z1_pair.plane_offset.abs() - 1.0).abs() < 1e-6,
             "Coplanar pair offset should be ±1.0, got {}",
-            pair.plane_offset
+            z1_pair.plane_offset
         );
     }
 
@@ -523,8 +736,6 @@ mod tests {
 
     /// After inject_conformal_coplanar_mesh, mesh triangles on the z=1 plane
     /// must be vertex-identical between mesh_a and mesh_b.
-    ///
-    /// EXPECTED: FAIL (stub does nothing — meshes remain different).
     #[test]
     fn test_conformal_injection_produces_identical_triangles() {
         let (k_a, h_a) = make_stacked_box(0.5, 0.5, 1.0, 1.0, 0.0, 1.0);
@@ -553,6 +764,7 @@ mod tests {
             face_b: FaceIdx(0),
             plane_normal: [0.0, 0.0, 1.0],
             plane_offset: 1.0,
+            same_direction: false, // anti-parallel stacked caps
         };
 
         inject_conformal_coplanar_mesh(
@@ -612,8 +824,6 @@ mod tests {
     /// preprocessing, the mesh boolean sees non-identical coplanar triangles and
     /// produces conformal edge explosion.
     ///
-    /// EXPECTED: FAIL (detect_coplanar_face_pairs stub returns empty, so no
-    /// preprocessing occurs and subdivision produces cross-mesh shared edges).
     #[test]
     fn test_stacked_box_union_no_conformal_explosion() {
         // Box A: x=[0,1], y=[0,1], z=[0,1]
@@ -657,10 +867,6 @@ mod tests {
     /// After (A ∪ B) ∪ C, the result should have ≤6 faces (elongated box),
     /// euler=2, and NO internal cap faces at z=1 or z=2.
     ///
-    /// EXPECTED: FAIL (detect_coplanar_face_pairs stub returns empty, so
-    /// coplanar preprocessing doesn't fire. Without it, (A ∪ B) produces
-    /// a result that lacks face_geometry for the coplanar boundary, and the
-    /// second boolean (∪ C) cannot detect or handle the z=2 coplanarity).
     #[test]
     fn test_stacked_box_union_correct_topology() {
         // Build three stacked boxes: z=0..1, z=1..2, z=2..3

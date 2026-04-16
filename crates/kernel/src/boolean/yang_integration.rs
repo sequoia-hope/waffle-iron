@@ -974,11 +974,13 @@ fn validate_yang_result_topology(arena: &crate::topology::arena::TopoArena) -> R
             }
         }
     } else {
-        // Partial topology with boundary edges — log but accept.
-        eprintln!(
-            "[yang-diag] accepting partial topology: {n_boundary_he} boundary HEs \
+        // P9: do not accept partial topology. Boundary half-edges (self-twins)
+        // indicate unpaired edges that will cause panics in downstream operations
+        // (tessellation, chained booleans). Fail early so the error propagates.
+        return Err(format!(
+            "partial topology: {n_boundary_he} boundary HEs \
              out of {n_he} total ({n_faces} faces, {n_edges} edges, {n_verts} vertices)"
-        );
+        ));
     }
 
     Ok(())

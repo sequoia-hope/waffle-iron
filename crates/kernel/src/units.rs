@@ -407,11 +407,6 @@ pub const YANG_PIPELINE_TIMEOUT_SECS: u64 = 10;
 /// Ref [#9]: Cherchi 2020 — conformal vertex sharing by position.
 pub const QUANT_NANOMETER_SCALE: f64 = 1e9;
 
-/// Micrometer-resolution plane equation quantization scale: 1e6.
-/// Converts plane normal + offset to integer keys with ~1 μm precision.
-/// Used in coplanar face bucketing during topology extraction.
-pub const QUANT_PLANE_SCALE: f64 = 1e6;
-
 // ── Squared working tolerance ────────────────────────────────────────
 
 /// Squared working tolerance: TAU_WORK² = 1e-24.
