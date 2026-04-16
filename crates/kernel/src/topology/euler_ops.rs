@@ -240,6 +240,69 @@ pub fn kfmrh(arena: &mut TopoArena, face_to_kill: FaceIdx, host_face: FaceIdx) {
     arena.faces[face_to_kill.0].inner_loops.clear();
 }
 
+/// Split Edge At — inserts a vertex in the middle of an existing edge.
+///
+/// Creates a new vertex at `position` on the given edge, splitting it into
+/// two edges: the original edge now connects v0→v_new, and a new edge
+/// connects v_new→v1. Both adjacent face loops are updated.
+///
+/// Euler change: V+1, E+1 → net V-E+F unchanged.
+///
+/// Returns: the new VertexIdx at the split point.
+pub fn split_edge_at(arena: &mut TopoArena, edge_idx: EdgeIdx, position: [f64; 3]) -> VertexIdx {
+    // Get the two half-edges of this edge.
+    let he_a_idx = arena.edges[edge_idx.0].half_edge;
+    let he_b_idx = arena.half_edges[he_a_idx.0].twin;
+
+    // he_a: v0 → v1 (destination = next half-edge's origin in the loop)
+    // he_b: v1 → v0 (the twin)
+    let v0 = arena.half_edges[he_a_idx.0].origin;
+    let v1 = arena.half_edges[he_b_idx.0].origin;
+    let loop_a = arena.half_edges[he_a_idx.0].loop_;
+    let loop_b = arena.half_edges[he_b_idx.0].loop_;
+
+    // Create the new vertex at the split point.
+    let v_new = arena.add_vertex(position);
+
+    // Create the new edge (v_new → v1) with two half-edges: he_c and he_d.
+    let (new_edge_idx, he_c_idx, he_d_idx) = arena.add_edge();
+
+    // he_c: v_new → v1 (continues in loop_a, after he_a)
+    // he_d: v1 → v_new (continues in loop_b, before he_b)
+    arena.half_edges[he_c_idx.0].origin = v_new;
+    arena.half_edges[he_d_idx.0].origin = v1;
+    arena.half_edges[he_c_idx.0].loop_ = loop_a;
+    arena.half_edges[he_d_idx.0].loop_ = loop_b;
+
+    // Splice he_c into loop_a: he_a → he_c → (old he_a.next)
+    let he_a_next = arena.half_edges[he_a_idx.0].next;
+    arena.half_edges[he_a_idx.0].next = he_c_idx;
+    arena.half_edges[he_c_idx.0].prev = he_a_idx;
+    arena.half_edges[he_c_idx.0].next = he_a_next;
+    arena.half_edges[he_a_next.0].prev = he_c_idx;
+
+    // Splice he_d into loop_b: (old he_b.prev) → he_d → he_b
+    let he_b_prev = arena.half_edges[he_b_idx.0].prev;
+    arena.half_edges[he_b_prev.0].next = he_d_idx;
+    arena.half_edges[he_d_idx.0].prev = he_b_prev;
+    arena.half_edges[he_d_idx.0].next = he_b_idx;
+    arena.half_edges[he_b_idx.0].prev = he_d_idx;
+
+    // Update he_b's origin: it now starts from v_new (not v1).
+    // The original edge (he_a, he_b) now represents v0 → v_new.
+    arena.half_edges[he_b_idx.0].origin = v_new;
+
+    // Update vertex half-edge pointers.
+    arena.vertices[v_new.0].half_edge = Some(he_c_idx);
+    // v1's half-edge may have been he_b (which now originates at v_new).
+    // Point v1 to he_d instead.
+    arena.vertices[v1.0].half_edge = Some(he_d_idx);
+
+    let _ = new_edge_idx; // Suppress unused warning
+
+    v_new
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 /// Find a half-edge originating at `vertex` within `loop_`.
@@ -339,5 +402,81 @@ mod tests {
         let euler =
             arena.vertex_count() as i64 - arena.edge_count() as i64 + arena.face_count() as i64;
         assert_eq!(euler, 2);
+    }
+
+    #[test]
+    fn split_edge_at_inserts_vertex_on_quad_edge() {
+        let mut arena = TopoArena::new();
+
+        // Build a quad: v0(0,0)→v1(1,0)→v2(1,1)→v3(0,1)
+        let (_solid, _shell, face, v0) = mvfs(&mut arena, [0.0, 0.0, 0.0]);
+        let loop0 = arena.faces[face.0].outer_loop;
+
+        let (_, v1) = mev(&mut arena, v0, loop0, [1.0, 0.0, 0.0]);
+        let (_, v2) = mev(&mut arena, v1, loop0, [1.0, 1.0, 0.0]);
+        let (_, v3) = mev(&mut arena, v2, loop0, [0.0, 1.0, 0.0]);
+        let (_, quad_face) = mef(&mut arena, v3, v0, loop0);
+
+        // Before: V=4, E=4, F=2
+        assert_eq!(arena.vertex_count(), 4);
+        assert_eq!(arena.edge_count(), 4);
+        assert_eq!(arena.face_count(), 2);
+
+        // Find the edge between v0 and v1 (the bottom edge).
+        // Search all half-edges for the one from v0 whose next origin is v1.
+        let mut edge_v0_v1 = None;
+        let mut containing_loop = None;
+        for i in 0..arena.half_edges.len() {
+            let origin = arena.half_edges[i].origin;
+            let next_he = arena.half_edges[i].next;
+            let next_origin = arena.half_edges[next_he.0].origin;
+            if origin == v0 && next_origin == v1 {
+                edge_v0_v1 = Some(arena.half_edges[i].edge);
+                containing_loop = Some(arena.half_edges[i].loop_);
+                break;
+            }
+        }
+        let edge_idx = edge_v0_v1.expect("Edge v0→v1 must exist");
+        let quad_loop = containing_loop.unwrap();
+
+        // Split the bottom edge at (0.5, 0, 0).
+        let v_mid = split_edge_at(&mut arena, edge_idx, [0.5, 0.0, 0.0]);
+
+        // After: V=5, E=5, F=2 → Euler still 2
+        assert_eq!(arena.vertex_count(), 5);
+        assert_eq!(arena.edge_count(), 5);
+        assert_eq!(arena.face_count(), 2);
+        let euler =
+            arena.vertex_count() as i64 - arena.edge_count() as i64 + arena.face_count() as i64;
+        assert_eq!(euler, 2, "Euler formula must hold after split_edge_at");
+
+        // Verify the new vertex position.
+        assert_eq!(arena.vertices[v_mid.0].position, [0.5, 0.0, 0.0]);
+
+        // Verify the quad face now has 5 vertices in its loop.
+        let mut count = 0;
+        let start = arena.loops[quad_loop.0].half_edge;
+        let mut he = start;
+        loop {
+            count += 1;
+            he = arena.half_edges[he.0].next;
+            if he == start {
+                break;
+            }
+        }
+        assert_eq!(count, 5, "Quad face should have 5 edges after split");
+
+        // Now split the face with mef at v_mid and v2 (diagonal).
+        let (_, new_face) = mef(&mut arena, v_mid, v2, quad_loop);
+
+        // After mef: V=5, E=6, F=3 → Euler still 2
+        assert_eq!(arena.vertex_count(), 5);
+        assert_eq!(arena.edge_count(), 6);
+        assert_eq!(arena.face_count(), 3);
+        let euler =
+            arena.vertex_count() as i64 - arena.edge_count() as i64 + arena.face_count() as i64;
+        assert_eq!(euler, 2, "Euler formula must hold after mef");
+
+        let _ = new_face;
     }
 }

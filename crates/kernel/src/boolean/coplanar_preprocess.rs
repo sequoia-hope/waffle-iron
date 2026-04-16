@@ -9,11 +9,14 @@
 
 use crate::geometry::surface::SurfaceGeom;
 use crate::tessellation::bijective::BijectiveMap;
-use crate::topology::half_edge::FaceIdx;
-use crate::types::RenderMesh;
+use crate::topology::arena::TopoArena;
+use crate::topology::euler_ops::{mef, split_edge_at};
+use crate::topology::half_edge::{EdgeIdx, FaceIdx, HalfEdgeIdx, VertexIdx};
+use crate::types::{KernelError, RenderMesh};
 use crate::units::{TAU_MODEL, TAU_PARALLEL};
 use crate::vecmath::{compute_plane_basis, v3_dot};
 use crate::waffle_kernel::WaffleSolid;
+use std::collections::BTreeMap;
 
 use i_overlay::core::fill_rule::FillRule;
 use i_overlay::core::overlay_rule::OverlayRule;
@@ -92,6 +95,273 @@ fn extract_planar_faces(solid: &WaffleSolid) -> Vec<(FaceIdx, [f64; 3], f64)> {
         }
     }
     result
+}
+
+/// Pre-tessellation B-Rep face splitting for same-direction coplanar pairs.
+///
+/// Per Yang 2025 Section 4.5.5: coplanar preprocessing must happen BEFORE
+/// mesh discretization. For same-direction coplanar faces, splits each face
+/// along the overlap boundary using Euler operators (split_edge_at + mef).
+/// After splitting, tessellation naturally produces conformal meshes.
+///
+/// For each coplanar pair: computes the 2D overlap polygon via i_overlay,
+/// finds where the overlap boundary crosses face edges, splits those edges,
+/// and uses mef to divide the face into overlap + exclusive regions.
+pub(crate) fn split_brep_for_coplanar_pairs(
+    solid_a: &mut WaffleSolid,
+    solid_b: &mut WaffleSolid,
+    coplanar_pairs: &[CoplanarFacePair],
+) {
+    for pair in coplanar_pairs {
+        if !pair.same_direction {
+            continue; // Anti-parallel handled by post-tessellation injection
+        }
+
+        // 1. Get face boundary polygons in 2D.
+        let (u_axis, v_axis) = compute_plane_basis(pair.plane_normal);
+        let plane_origin = [
+            pair.plane_normal[0] * pair.plane_offset,
+            pair.plane_normal[1] * pair.plane_offset,
+            pair.plane_normal[2] * pair.plane_offset,
+        ];
+
+        let poly_a =
+            collect_face_loop_2d(&solid_a.arena, pair.face_a, &plane_origin, &u_axis, &v_axis);
+        let poly_b =
+            collect_face_loop_2d(&solid_b.arena, pair.face_b, &plane_origin, &u_axis, &v_axis);
+
+        if poly_a.is_empty() || poly_b.is_empty() {
+            continue;
+        }
+
+        // 2. Compute overlap via i_overlay.
+        let shape_a: Vec<Vec<[f64; 2]>> = vec![poly_a.iter().map(|&(_, p)| p).collect()];
+        let shape_b: Vec<Vec<[f64; 2]>> = vec![poly_b.iter().map(|&(_, p)| p).collect()];
+        let overlap: Vec<Vec<Vec<[f64; 2]>>> =
+            shape_a.overlay(&shape_b, OverlayRule::Intersect, FillRule::EvenOdd);
+
+        if overlap.is_empty() || overlap[0].is_empty() {
+            continue; // Coplanar but non-overlapping
+        }
+
+        // Check if overlap covers entire face (identical footprint) → skip
+        let a_only: Vec<Vec<Vec<[f64; 2]>>> =
+            shape_a.overlay(&shape_b, OverlayRule::Difference, FillRule::EvenOdd);
+        let b_only: Vec<Vec<Vec<[f64; 2]>>> =
+            shape_b.overlay(&shape_a, OverlayRule::Difference, FillRule::EvenOdd);
+        let a_only_empty = a_only.is_empty() || a_only[0].is_empty();
+        let b_only_empty = b_only.is_empty() || b_only[0].is_empty();
+        if a_only_empty && b_only_empty {
+            continue; // Identical footprint — tessellation already produces matching mesh
+        }
+
+        // 3. Project overlap boundary to 3D.
+        let overlap_3d: Vec<[f64; 3]> = overlap[0][0]
+            .iter()
+            .map(|&[u, v]| {
+                [
+                    plane_origin[0] + u * u_axis[0] + v * v_axis[0],
+                    plane_origin[1] + u * u_axis[1] + v * v_axis[1],
+                    plane_origin[2] + u * u_axis[2] + v * v_axis[2],
+                ]
+            })
+            .collect();
+
+        // 4. Split each face along the overlap boundary.
+        split_face_along_boundary(
+            &mut solid_a.arena,
+            &mut solid_a.face_geometry,
+            pair.face_a,
+            &overlap_3d,
+        );
+        split_face_along_boundary(
+            &mut solid_b.arena,
+            &mut solid_b.face_geometry,
+            pair.face_b,
+            &overlap_3d,
+        );
+    }
+}
+
+/// Collect face loop vertices as (VertexIdx, 2D position) pairs.
+fn collect_face_loop_2d(
+    arena: &TopoArena,
+    face_idx: FaceIdx,
+    origin: &[f64; 3],
+    u_axis: &[f64; 3],
+    v_axis: &[f64; 3],
+) -> Vec<(VertexIdx, [f64; 2])> {
+    let loop_idx = arena.faces[face_idx.0].outer_loop;
+    let start_he = arena.loops[loop_idx.0].half_edge;
+    let mut result = Vec::new();
+    let mut he = start_he;
+    loop {
+        let vi = arena.half_edges[he.0].origin;
+        let pos = arena.vertices[vi.0].position;
+        let dx = pos[0] - origin[0];
+        let dy = pos[1] - origin[1];
+        let dz = pos[2] - origin[2];
+        let u = dx * u_axis[0] + dy * u_axis[1] + dz * u_axis[2];
+        let v = dx * v_axis[0] + dy * v_axis[1] + dz * v_axis[2];
+        result.push((vi, [u, v]));
+        he = arena.half_edges[he.0].next;
+        if he == start_he {
+            break;
+        }
+    }
+    result
+}
+
+/// Split a face along an overlap boundary polygon.
+///
+/// Finds where the overlap boundary crosses face edges, inserts vertices
+/// at the crossing points using `split_edge_at`, then uses `mef` to split
+/// the face. For a simple rectangular overlap inside a rectangular face,
+/// this creates two face regions.
+fn split_face_along_boundary(
+    arena: &mut TopoArena,
+    face_geometry: &mut BTreeMap<FaceIdx, SurfaceGeom>,
+    face_idx: FaceIdx,
+    overlap_boundary_3d: &[[f64; 3]],
+) {
+    if overlap_boundary_3d.len() < 3 {
+        return;
+    }
+
+    let tol_sq = TAU_MODEL * TAU_MODEL;
+
+    // Walk the face loop, find overlap boundary vertices that lie ON face edges
+    // (not at existing vertices). These need edge splits.
+    let loop_idx = arena.faces[face_idx.0].outer_loop;
+
+    // Collect face edges: (half_edge_idx, edge_idx, v0_pos, v1_pos, v0_idx, v1_idx)
+    let mut face_edges: Vec<(
+        HalfEdgeIdx,
+        EdgeIdx,
+        [f64; 3],
+        [f64; 3],
+        VertexIdx,
+        VertexIdx,
+    )> = Vec::new();
+    {
+        let start_he = arena.loops[loop_idx.0].half_edge;
+        let mut he = start_he;
+        loop {
+            let v0 = arena.half_edges[he.0].origin;
+            let next_he = arena.half_edges[he.0].next;
+            let v1 = arena.half_edges[next_he.0].origin;
+            let p0 = arena.vertices[v0.0].position;
+            let p1 = arena.vertices[v1.0].position;
+            let edge = arena.half_edges[he.0].edge;
+            face_edges.push((he, edge, p0, p1, v0, v1));
+            he = next_he;
+            if he == start_he {
+                break;
+            }
+        }
+    }
+
+    // For each overlap boundary vertex, check if it's ON a face edge.
+    // Collect: (edge_idx, parametric_t, position, overlap_vert_index)
+    let mut split_points: Vec<(EdgeIdx, f64, [f64; 3])> = Vec::new();
+    let mut vert_at_existing: Vec<VertexIdx> = Vec::new(); // overlap verts at existing face verts
+
+    for &ov in overlap_boundary_3d {
+        // Check if this vertex matches an existing face vertex.
+        let mut found_existing = false;
+        for &(_, _, _, _, v0, _) in &face_edges {
+            let p = arena.vertices[v0.0].position;
+            let dx = ov[0] - p[0];
+            let dy = ov[1] - p[1];
+            let dz = ov[2] - p[2];
+            if dx * dx + dy * dy + dz * dz < tol_sq {
+                vert_at_existing.push(v0);
+                found_existing = true;
+                break;
+            }
+        }
+        if found_existing {
+            continue;
+        }
+
+        // Check if this vertex lies on a face edge.
+        for &(_, edge_idx, p0, p1, _, _) in &face_edges {
+            let d = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+            let d_len_sq = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+            if d_len_sq < crate::units::TAU_WORK_SQ {
+                continue;
+            }
+            let to_ov = [ov[0] - p0[0], ov[1] - p0[1], ov[2] - p0[2]];
+            let cross = [
+                d[1] * to_ov[2] - d[2] * to_ov[1],
+                d[2] * to_ov[0] - d[0] * to_ov[2],
+                d[0] * to_ov[1] - d[1] * to_ov[0],
+            ];
+            let cross_len_sq = cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2];
+            if cross_len_sq > d_len_sq * crate::units::TAU_WORK {
+                continue;
+            }
+            let t = (d[0] * to_ov[0] + d[1] * to_ov[1] + d[2] * to_ov[2]) / d_len_sq;
+            if t > TAU_PARALLEL && t < 1.0 - TAU_PARALLEL {
+                split_points.push((edge_idx, t, ov));
+                break;
+            }
+        }
+    }
+
+    if split_points.is_empty() && vert_at_existing.len() < 2 {
+        return; // Not enough boundary crossing points to split
+    }
+
+    // Split edges at crossing points, collecting the new vertex indices.
+    let mut new_verts: Vec<VertexIdx> = Vec::new();
+    for (edge_idx, _, pos) in &split_points {
+        let v_new = split_edge_at(arena, *edge_idx, *pos);
+        new_verts.push(v_new);
+    }
+
+    // Combine with existing vertices that are on the overlap boundary.
+    let mut all_boundary_verts: Vec<VertexIdx> = vert_at_existing;
+    all_boundary_verts.extend(new_verts);
+
+    // For a simple split (exactly 2 boundary vertices on the face edge):
+    // use mef to divide the face.
+    if all_boundary_verts.len() >= 2 {
+        // Re-read the loop index (may have changed after splits).
+        let loop_idx = arena.faces[face_idx.0].outer_loop;
+
+        // Use the first two boundary vertices for the split.
+        // For a rectangular overlap, these are the two edge-crossing points.
+        let v_split_a = all_boundary_verts[0];
+        let v_split_b = all_boundary_verts[1];
+
+        // Verify both vertices are in the same loop.
+        let start = arena.loops[loop_idx.0].half_edge;
+        let mut found_a = false;
+        let mut found_b = false;
+        let mut he = start;
+        loop {
+            let v = arena.half_edges[he.0].origin;
+            if v == v_split_a {
+                found_a = true;
+            }
+            if v == v_split_b {
+                found_b = true;
+            }
+            he = arena.half_edges[he.0].next;
+            if he == start {
+                break;
+            }
+        }
+
+        if found_a && found_b {
+            let (_, new_face) = mef(arena, v_split_a, v_split_b, loop_idx);
+            // Both faces inherit the same planar geometry.
+            if let Some(geom) = face_geometry.get(&face_idx).cloned() {
+                face_geometry.insert(new_face, geom);
+            }
+        }
+    }
 }
 
 /// After tessellation, replace coplanar mesh triangles with a shared

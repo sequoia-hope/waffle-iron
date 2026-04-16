@@ -25,6 +25,7 @@ pub struct WaffleKernel {
 }
 
 /// A full B-Rep solid with topology arena and geometry maps.
+#[derive(Clone)]
 pub(crate) struct WaffleSolid {
     pub(crate) arena: TopoArena,
     pub(crate) face_map: BTreeMap<u64, FaceIdx>,
@@ -50,6 +51,7 @@ pub(crate) struct WaffleSolid {
 }
 
 /// Parameters for cylinder tessellation (stored after extrude_circle).
+#[derive(Clone)]
 pub(crate) struct CylinderParams {
     pub center_bottom: [f64; 3],
     pub radius: f64,
@@ -60,6 +62,7 @@ pub(crate) struct CylinderParams {
 }
 
 /// Parameters for revolve tessellation (stored after revolve_polygon).
+#[derive(Clone)]
 pub(crate) struct RevolveParams {
     pub axis_origin: [f64; 3],
     pub axis_dir: [f64; 3],
@@ -71,12 +74,14 @@ pub(crate) struct RevolveParams {
 }
 
 /// Parameters for sphere tessellation (stored after make_sphere).
+#[derive(Clone)]
 pub(crate) struct SphereParams {
     pub center: [f64; 3],
     pub radius: f64,
 }
 
 /// Parameters for cone tessellation (stored after make_cone).
+#[derive(Clone)]
 pub(crate) struct ConeParams {
     pub base_center: [f64; 3],
     pub apex: [f64; 3],
@@ -86,6 +91,7 @@ pub(crate) struct ConeParams {
 }
 
 /// Parameters for torus tessellation (stored after make_torus).
+#[derive(Clone)]
 pub(crate) struct TorusParams {
     pub center: [f64; 3],
     pub axis: [f64; 3],

@@ -569,13 +569,28 @@ pub(crate) fn yang_boolean_inner(
     let mesh_op = bool_op_to_mesh_op(op);
     let surface_map = build_surface_map(solid_a, solid_b);
 
-    // Step 1: Tessellate both solids via the kernel's internal tessellation.
+    // Stage 0a (pre-tessellation): Detect coplanar face pairs and split B-Rep
+    // faces for same-direction pairs per Yang 2025 Section 4.5.5.
+    // Clone solids so we can modify them without affecting the originals.
+    let coplanar_pairs =
+        crate::boolean::coplanar_preprocess::detect_coplanar_face_pairs(solid_a, solid_b);
+    let mut solid_a_mod = solid_a.clone();
+    let mut solid_b_mod = solid_b.clone();
+    if !coplanar_pairs.is_empty() {
+        crate::boolean::coplanar_preprocess::split_brep_for_coplanar_pairs(
+            &mut solid_a_mod,
+            &mut solid_b_mod,
+            &coplanar_pairs,
+        );
+    }
+
+    // Step 1: Tessellate both (possibly modified) solids.
     // Use Boolean LOD (16 segments) — the mesh is a computational tool for
     // topology, not a rendering artifact. This cuts triangle counts ~16× on
     // curved surfaces and makes O(n·m) subdivision feasible.
     let lod = tessellation::TessellationLod::Boolean;
-    let mesh_a = tessellate_waffle_solid(solid_a, lod)?;
-    let mesh_b = tessellate_waffle_solid(solid_b, lod)?;
+    let mesh_a = tessellate_waffle_solid(&solid_a_mod, lod)?;
+    let mesh_b = tessellate_waffle_solid(&solid_b_mod, lod)?;
 
     // Step 2: Convert to pipeline format (f64 arrays).
     let (mut verts_a, mut tris_a) = render_mesh_to_arrays(&mesh_a);
@@ -602,8 +617,9 @@ pub(crate) fn yang_boolean_inner(
     check_yang_triangle_count(tris_a.len(), tris_b.len())?;
 
     // Step 3: Build bijective maps (mesh triangle → B-Rep face).
-    let mut bijective_a = BijectiveMap::from_render_mesh(&mesh_a, &solid_a.face_map);
-    let mut bijective_b = BijectiveMap::from_render_mesh(&mesh_b, &solid_b.face_map);
+    // Use the modified solids' face_maps (may have new faces from splitting).
+    let mut bijective_a = BijectiveMap::from_render_mesh(&mesh_a, &solid_a_mod.face_map);
+    let mut bijective_b = BijectiveMap::from_render_mesh(&mesh_b, &solid_b_mod.face_map);
 
     if !bijective_a.is_complete() || !bijective_b.is_complete() {
         return Err(KernelError::NotSupported {
@@ -611,11 +627,9 @@ pub(crate) fn yang_boolean_inner(
         });
     }
 
-    // Stage 0: Coplanar preprocessing (Yang 2025 Section 4.5.5).
-    // Detect coplanar face pairs and inject shared conformal triangulations
-    // so the mesh boolean sees identical geometry on coplanar planes.
-    let coplanar_pairs =
-        crate::boolean::coplanar_preprocess::detect_coplanar_face_pairs(solid_a, solid_b);
+    // Stage 0b (post-tessellation): For anti-parallel coplanar pairs, inject
+    // shared conformal triangulations. Same-direction pairs were handled by
+    // B-Rep splitting above (Stage 0a).
     if !coplanar_pairs.is_empty() {
         #[cfg(test)]
         eprintln!(
