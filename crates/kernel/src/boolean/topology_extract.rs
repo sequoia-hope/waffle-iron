@@ -1408,12 +1408,16 @@ pub(crate) fn face_survival_detect(
             return true;
         }
         match op {
-            // Union at the B-Rep level: CoSurfaceOutside faces are INTERNAL
-            // to the merged solid (touching faces that separate A's interior
-            // from B's interior). Drop them. CoSurfaceInside faces are the
-            // shared outer boundary (e.g., identical/overlapping boxes) — keep.
-            // Ref [#24]: Yang 2025 — Stage 3 co-surface elimination.
-            MeshBooleanOp::Union => *label == CellLabel::CoSurfaceInside,
+            // Union: keep both CoSurfaceInside and CoSurfaceOutside.
+            // Matches select_boolean_result (exact_mesh.rs line 1774-1779).
+            // A provides the co-surface fill at shared planes; B uses only
+            // primary labels (Outside). Ref: Cherchi 2022 co-surface rules.
+            MeshBooleanOp::Union => {
+                matches!(
+                    label,
+                    CellLabel::CoSurfaceInside | CellLabel::CoSurfaceOutside
+                )
+            }
             MeshBooleanOp::Subtract => *label == CellLabel::CoSurfaceOutside,
             MeshBooleanOp::Intersect => *label == CellLabel::CoSurfaceInside,
         }
