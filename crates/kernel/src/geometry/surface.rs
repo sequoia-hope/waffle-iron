@@ -129,6 +129,30 @@ impl SurfaceGeom {
         }
     }
 
+    /// Partial derivative ∂S/∂u — tangent vector in the u direction.
+    /// Ref [#24]: Yang 2025 Appendix C — Jacobian for Newton optimization.
+    pub fn tangent_u(&self, u: f64, v: f64) -> Vector3 {
+        match self {
+            SurfaceGeom::Planar(p) => p.tangent_u(),
+            SurfaceGeom::Cylindrical(c) => c.tangent_u(u),
+            SurfaceGeom::Conical(c) => c.tangent_u(u, v),
+            SurfaceGeom::Spherical(s) => s.tangent_u(u, v),
+            SurfaceGeom::Toroidal(t) => t.tangent_u(u, v),
+        }
+    }
+
+    /// Partial derivative ∂S/∂v — tangent vector in the v direction.
+    /// Ref [#24]: Yang 2025 Appendix C — Jacobian for Newton optimization.
+    pub fn tangent_v(&self, u: f64, v: f64) -> Vector3 {
+        match self {
+            SurfaceGeom::Planar(p) => p.tangent_v(),
+            SurfaceGeom::Cylindrical(c) => c.tangent_v(),
+            SurfaceGeom::Conical(c) => c.tangent_v(u, v),
+            SurfaceGeom::Spherical(s) => s.tangent_v(u, v),
+            SurfaceGeom::Toroidal(t) => t.tangent_v(u, v),
+        }
+    }
+
     /// Compute the outward unit normal at parameters (u, v).
     pub fn normal_at(&self, u: f64, v: f64) -> Vector3 {
         match self {
@@ -261,6 +285,18 @@ impl Plane {
         self.normal
     }
 
+    /// ∂S/∂u = x_axis (constant for a plane).
+    pub fn tangent_u(&self) -> Vector3 {
+        let (x, _) = make_frame(self.normal);
+        x
+    }
+
+    /// ∂S/∂v = y_axis (constant for a plane).
+    pub fn tangent_v(&self) -> Vector3 {
+        let (_, y) = make_frame(self.normal);
+        y
+    }
+
     pub fn contains_point(&self, pt: Point3) -> bool {
         let d = (pt.x - self.origin.x) * self.normal.x
             + (pt.y - self.origin.y) * self.normal.y
@@ -308,6 +344,21 @@ impl Cylinder {
             u.cos() * x.y + u.sin() * y.y,
             u.cos() * x.z + u.sin() * y.z,
         )
+    }
+
+    /// ∂S/∂u = r*(-sin(u)*x + cos(u)*y)
+    pub fn tangent_u(&self, u: f64) -> Vector3 {
+        let (x, y) = make_frame(self.axis);
+        Vector3::new(
+            self.radius * (-u.sin() * x.x + u.cos() * y.x),
+            self.radius * (-u.sin() * x.y + u.cos() * y.y),
+            self.radius * (-u.sin() * x.z + u.cos() * y.z),
+        )
+    }
+
+    /// ��S/∂v = axis
+    pub fn tangent_v(&self) -> Vector3 {
+        self.axis
     }
 
     pub fn contains_point(&self, pt: Point3) -> bool {
@@ -402,6 +453,28 @@ impl Cone {
         .normalized()
     }
 
+    /// ∂S/∂u = v*tan(half_angle)*(-sin(u)*x + cos(u)*y)
+    pub fn tangent_u(&self, u: f64, v: f64) -> Vector3 {
+        let (x, y) = make_frame(self.axis);
+        let r = v * self.half_angle.tan();
+        Vector3::new(
+            r * (-u.sin() * x.x + u.cos() * y.x),
+            r * (-u.sin() * x.y + u.cos() * y.y),
+            r * (-u.sin() * x.z + u.cos() * y.z),
+        )
+    }
+
+    /// ∂S/∂v = axis + tan(half_angle)*(cos(u)*x + sin(u)*y)
+    pub fn tangent_v(&self, u: f64, _v: f64) -> Vector3 {
+        let (x, y) = make_frame(self.axis);
+        let t = self.half_angle.tan();
+        Vector3::new(
+            self.axis.x + t * (u.cos() * x.x + u.sin() * y.x),
+            self.axis.y + t * (u.cos() * x.y + u.sin() * y.y),
+            self.axis.z + t * (u.cos() * x.z + u.sin() * y.z),
+        )
+    }
+
     pub fn contains_point(&self, pt: Point3) -> bool {
         let dp = Vector3::new(pt.x - self.apex.x, pt.y - self.apex.y, pt.z - self.apex.z);
         let h = dp.dot(self.axis);
@@ -473,6 +546,24 @@ impl Sphere {
         Vector3::new(v.cos() * u.cos(), v.cos() * u.sin(), v.sin())
     }
 
+    /// ∂S/∂u = r*cos(v)*(-sin(u), cos(u), 0)
+    pub fn tangent_u(&self, u: f64, v: f64) -> Vector3 {
+        Vector3::new(
+            self.radius * v.cos() * (-u.sin()),
+            self.radius * v.cos() * u.cos(),
+            0.0,
+        )
+    }
+
+    /// ∂S/∂v = r*(-sin(v)*cos(u), -sin(v)*sin(u), cos(v))
+    pub fn tangent_v(&self, u: f64, v: f64) -> Vector3 {
+        Vector3::new(
+            self.radius * (-v.sin()) * u.cos(),
+            self.radius * (-v.sin()) * u.sin(),
+            self.radius * v.cos(),
+        )
+    }
+
     pub fn contains_point(&self, pt: Point3) -> bool {
         (pt.distance_to(self.center) - self.radius).abs() < TAU_COINCIDENT
     }
@@ -536,17 +627,39 @@ impl Torus {
 
     pub fn normal_at(&self, u: f64, v: f64) -> Vector3 {
         let (x, y) = make_frame(self.axis);
-        // Radial direction in the major circle plane
         let radial_x = u.cos() * x.x + u.sin() * y.x;
         let radial_y = u.cos() * x.y + u.sin() * y.y;
         let radial_z = u.cos() * x.z + u.sin() * y.z;
-        // Outward normal from the tube surface
         Vector3::new(
             v.cos() * radial_x + v.sin() * self.axis.x,
             v.cos() * radial_y + v.sin() * self.axis.y,
             v.cos() * radial_z + v.sin() * self.axis.z,
         )
         .normalized()
+    }
+
+    /// ∂S/∂u = (R+r*cos(v))*(-sin(u)*x + cos(u)*y)
+    pub fn tangent_u(&self, u: f64, v: f64) -> Vector3 {
+        let (x, y) = make_frame(self.axis);
+        let r = self.major_radius + self.minor_radius * v.cos();
+        Vector3::new(
+            r * (-u.sin() * x.x + u.cos() * y.x),
+            r * (-u.sin() * x.y + u.cos() * y.y),
+            r * (-u.sin() * x.z + u.cos() * y.z),
+        )
+    }
+
+    /// ∂S/∂v = r*(-sin(v))*(cos(u)*x + sin(u)*y) + r*cos(v)*axis
+    pub fn tangent_v(&self, u: f64, v: f64) -> Vector3 {
+        let (x, y) = make_frame(self.axis);
+        let radial_x = u.cos() * x.x + u.sin() * y.x;
+        let radial_y = u.cos() * x.y + u.sin() * y.y;
+        let radial_z = u.cos() * x.z + u.sin() * y.z;
+        Vector3::new(
+            self.minor_radius * (-v.sin() * radial_x + v.cos() * self.axis.x),
+            self.minor_radius * (-v.sin() * radial_y + v.cos() * self.axis.y),
+            self.minor_radius * (-v.sin() * radial_z + v.cos() * self.axis.z),
+        )
     }
 
     pub fn contains_point(&self, pt: Point3) -> bool {
