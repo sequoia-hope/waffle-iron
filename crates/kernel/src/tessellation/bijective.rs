@@ -12,14 +12,20 @@ use crate::topology::half_edge::FaceIdx;
 use crate::types::RenderMesh;
 use std::collections::BTreeMap;
 
-/// Maps each mesh triangle to its source B-Rep face.
+/// Maps each mesh triangle to its source B-Rep face, with optional parametric
+/// coordinates per vertex for the Yang 2025 bijective mapping requirement.
 ///
 /// Invariant: `tri_face_ids.len() == mesh.indices.len() / 3` — every triangle
 /// maps to exactly one face (bijective property).
+/// Ref [#24]: Yang 2025 Section 4.1 — bijective mapping between mesh and surfaces.
 #[derive(Debug, Clone)]
 pub struct BijectiveMap {
     /// For triangle `i`, `tri_face_ids[i]` is the source B-Rep face index.
     pub tri_face_ids: Vec<FaceIdx>,
+    /// For vertex `i`, parametric (u, v) coordinates on its source surface.
+    /// None for planar-face vertices or when inverse evaluation is unavailable.
+    /// Populated by `compute_vertex_params()` after tessellation.
+    pub vertex_params: Vec<Option<(f64, f64)>>,
 }
 
 impl BijectiveMap {
@@ -55,7 +61,10 @@ impl BijectiveMap {
             }
         }
 
-        BijectiveMap { tri_face_ids }
+        BijectiveMap {
+            tri_face_ids,
+            vertex_params: Vec::new(), // populated later by compute_vertex_params
+        }
     }
 
     /// Number of triangles in this map.
@@ -78,6 +87,40 @@ impl BijectiveMap {
             }
         }
         seen.into_iter().collect()
+    }
+
+    /// Compute parametric (u, v) coordinates for each mesh vertex by projecting
+    /// onto the analytical surface of its source face.
+    ///
+    /// For planar faces, vertex_params remains None (parametric coords not meaningful).
+    /// For curved faces, calls `SurfaceGeom::inverse_evaluate()` to recover (u, v).
+    /// Ref [#24]: Yang 2025 Section 4.1 — bijective mapping between mesh and surfaces.
+    pub fn compute_vertex_params(
+        &mut self,
+        mesh: &RenderMesh,
+        face_geometry: &BTreeMap<FaceIdx, crate::geometry::surface::SurfaceGeom>,
+    ) {
+        let vert_count = mesh.vertices.len() / 3;
+        self.vertex_params = vec![None; vert_count];
+
+        for (tri_idx, &face_idx) in self.tri_face_ids.iter().enumerate() {
+            let geom = match face_geometry.get(&face_idx) {
+                Some(g) => g,
+                None => continue,
+            };
+            for k in 0..3 {
+                let vi = mesh.indices[tri_idx * 3 + k] as usize;
+                if vi >= vert_count || self.vertex_params[vi].is_some() {
+                    continue;
+                }
+                let pt = crate::geometry::point::Point3::new(
+                    mesh.vertices[vi * 3] as f64,
+                    mesh.vertices[vi * 3 + 1] as f64,
+                    mesh.vertices[vi * 3 + 2] as f64,
+                );
+                self.vertex_params[vi] = geom.inverse_evaluate(pt);
+            }
+        }
     }
 
     /// Count triangles belonging to a specific face.

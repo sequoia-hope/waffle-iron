@@ -131,6 +131,21 @@ impl SurfaceGeom {
         true
     }
 
+    /// Compute parametric (u, v) coordinates for a point on this surface.
+    ///
+    /// Returns None for planar surfaces (parametric coords not meaningful
+    /// for the Yang pipeline's bijective mapping).
+    /// Ref [#24]: Yang 2025 Section 4.1 — bijective mapping between mesh and surfaces.
+    pub fn inverse_evaluate(&self, pt: Point3) -> Option<(f64, f64)> {
+        match self {
+            SurfaceGeom::Planar(_) => None,
+            SurfaceGeom::Cylindrical(c) => Some(c.inverse_evaluate(pt)),
+            SurfaceGeom::Conical(c) => Some(c.inverse_evaluate(pt)),
+            SurfaceGeom::Spherical(s) => Some(s.inverse_evaluate(pt)),
+            SurfaceGeom::Toroidal(t) => Some(t.inverse_evaluate(pt)),
+        }
+    }
+
     /// Returns the characteristic radius governing chord error when discretizing
     /// this surface into line segments. For a circle of radius r with n segments,
     /// the sagitta (max chord-to-arc distance) is r*(1 - cos(π/n)).
@@ -253,6 +268,27 @@ impl Cylinder {
             self.origin.z + axial * self.axis.z + scale * radial.z,
         )
     }
+
+    /// Compute parametric (u, v) for a point on this cylinder.
+    /// u = angular parameter [0, 2π), v = axial parameter.
+    pub fn inverse_evaluate(&self, pt: Point3) -> (f64, f64) {
+        let dp = Vector3::new(
+            pt.x - self.origin.x,
+            pt.y - self.origin.y,
+            pt.z - self.origin.z,
+        );
+        let v = dp.dot(self.axis);
+        let (x_axis, y_axis) = make_frame(self.axis);
+        let cos_u = dp.dot(x_axis) / self.radius;
+        let sin_u = dp.dot(y_axis) / self.radius;
+        let u = sin_u.atan2(cos_u);
+        let u = if u < 0.0 {
+            u + std::f64::consts::TAU
+        } else {
+            u
+        };
+        (u, v)
+    }
 }
 
 // ── Cone evaluation ─────────────────────────────────────────────────────
@@ -321,6 +357,23 @@ impl Cone {
             self.apex.z + h * self.axis.z + scale * radial.z,
         )
     }
+
+    /// Compute parametric (u, v) for a point on this cone.
+    /// u = angular parameter [0, 2π), v = axial distance from apex.
+    pub fn inverse_evaluate(&self, pt: Point3) -> (f64, f64) {
+        let dp = Vector3::new(pt.x - self.apex.x, pt.y - self.apex.y, pt.z - self.apex.z);
+        let v = dp.dot(self.axis).max(TAU_NORMALIZE);
+        let (x_axis, y_axis) = make_frame(self.axis);
+        let radial_x = dp.dot(x_axis);
+        let radial_y = dp.dot(y_axis);
+        let u = radial_y.atan2(radial_x);
+        let u = if u < 0.0 {
+            u + std::f64::consts::TAU
+        } else {
+            u
+        };
+        (u, v)
+    }
 }
 
 // ── Sphere evaluation ───────────────────────────────────────────────────
@@ -358,6 +411,25 @@ impl Sphere {
             self.center.y + scale * d.y,
             self.center.z + scale * d.z,
         )
+    }
+
+    /// Compute parametric (u, v) for a point on this sphere.
+    /// u = azimuth [0, 2π), v = elevation [-π/2, π/2].
+    pub fn inverse_evaluate(&self, pt: Point3) -> (f64, f64) {
+        let d = Vector3::new(
+            pt.x - self.center.x,
+            pt.y - self.center.y,
+            pt.z - self.center.z,
+        );
+        let len = d.length().max(TAU_NORMALIZE);
+        let v = (d.z / len).clamp(-1.0, 1.0).asin(); // elevation
+        let u = d.y.atan2(d.x);
+        let u = if u < 0.0 {
+            u + std::f64::consts::TAU
+        } else {
+            u
+        };
+        (u, v)
     }
 }
 
@@ -466,6 +538,48 @@ impl Torus {
             tube_cy + scale * to_pt.y,
             tube_cz + scale * to_pt.z,
         )
+    }
+
+    /// Compute parametric (u, v) for a point on this torus.
+    /// u = major circle angle [0, 2π), v = minor circle angle [0, 2π).
+    pub fn inverse_evaluate(&self, pt: Point3) -> (f64, f64) {
+        let dp = Vector3::new(
+            pt.x - self.center.x,
+            pt.y - self.center.y,
+            pt.z - self.center.z,
+        );
+        let (x_axis, y_axis) = make_frame(self.axis);
+
+        // Project onto the major circle plane to get u
+        let px = dp.dot(x_axis);
+        let py = dp.dot(y_axis);
+        let u = py.atan2(px);
+        let u = if u < 0.0 {
+            u + std::f64::consts::TAU
+        } else {
+            u
+        };
+
+        // Find tube center at angle u on the major circle
+        let tube_dir_x = u.cos() * x_axis.x + u.sin() * y_axis.x;
+        let tube_dir_y = u.cos() * x_axis.y + u.sin() * y_axis.y;
+        let tube_dir_z = u.cos() * x_axis.z + u.sin() * y_axis.z;
+        let to_tube = Vector3::new(
+            dp.x - self.major_radius * tube_dir_x,
+            dp.y - self.major_radius * tube_dir_y,
+            dp.z - self.major_radius * tube_dir_z,
+        );
+
+        // v is the angle in the tube cross-section
+        let radial_comp = to_tube.x * tube_dir_x + to_tube.y * tube_dir_y + to_tube.z * tube_dir_z;
+        let axial_comp = to_tube.dot(self.axis);
+        let v = axial_comp.atan2(radial_comp);
+        let v = if v < 0.0 {
+            v + std::f64::consts::TAU
+        } else {
+            v
+        };
+        (u, v)
     }
 }
 

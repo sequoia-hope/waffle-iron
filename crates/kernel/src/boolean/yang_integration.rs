@@ -648,6 +648,11 @@ pub(crate) fn yang_boolean_inner(
         });
     }
 
+    // Step 3b: Compute parametric (u,v) coordinates per vertex for the
+    // Yang 2025 bijective mapping requirement (Section 4.1).
+    bijective_a.compute_vertex_params(&mesh_a, &solid_a_mod.face_geometry);
+    bijective_b.compute_vertex_params(&mesh_b, &solid_b_mod.face_geometry);
+
     // Stage 0b (post-tessellation): For anti-parallel coplanar pairs, inject
     // shared conformal triangulations. Same-direction pairs were handled by
     // B-Rep splitting above (Stage 0a).
